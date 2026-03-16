@@ -1,8 +1,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.9+-3776ab?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.9+">
   <img src="https://img.shields.io/badge/PostgreSQL-15+-4169e1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL">
-  <img src="https://img.shields.io/badge/license-MIT-22c55e?style=for-the-badge" alt="MIT License">
-  <img src="https://img.shields.io/badge/PMS-Mews_API-f59e0b?style=for-the-badge" alt="Mews Connector API">
+<img src="https://img.shields.io/badge/PMS-Mews_API-f59e0b?style=for-the-badge" alt="Mews Connector API">
 </p>
 
 <h1 align="center">
@@ -14,6 +13,10 @@
 
 <p align="center">
   <strong>An intelligent, multi-hotel revenue management system that automates dynamic pricing through real-time occupancy monitoring, rule-based rate optimization, and seamless PMS integration.</strong>
+</p>
+
+<p align="center">
+  <img src="assets/demo.gif" alt="MAYA Dashboard Demo" width="720">
 </p>
 
 ---
@@ -364,12 +367,6 @@ While MAYA currently uses `config.py` for settings, you can override values usin
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
-
----
-
-## License
-
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
 ---
 
