@@ -1020,7 +1020,8 @@ def start_web_app(port: int = 0) -> None:
 
     print(f"\n  MAYA Dashboard running at  \033[1;36m{url}\033[0m")
     print("  Press Ctrl+C to stop.\n")
-    webbrowser.open(url)
+    if os.environ.get("MAYA_NO_BROWSER") != "1":
+        webbrowser.open(url)
 
     try:
         server.serve_forever()
@@ -1034,4 +1035,6 @@ def start_web_app(port: int = 0) -> None:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    start_web_app()
+    import sys
+    _port = int(sys.argv[1]) if len(sys.argv) > 1 else 0
+    start_web_app(port=_port)
