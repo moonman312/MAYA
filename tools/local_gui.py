@@ -329,11 +329,21 @@ _COND_LABELS: Dict[str, str] = {
     "occupancy_percentage": "occupancy",
     "booking_window":       "booking window",
     "pickup_rate":          "pickup rate",
+    "pickup_rate_cycle":    "pickup rate (since last cycle)",
+    "pickup_rate_1d":       "pickup rate (1 day)",
+    "pickup_rate_7d":       "pickup rate (7 days)",
+    "pickup_rate_14d":      "pickup rate (14 days)",
+    "pickup_rate_30d":      "pickup rate (30 days)",
 }
 _COND_UNITS: Dict[str, str] = {
     "occupancy_percentage": "%",
     "booking_window":       "d",
     "pickup_rate":          "",
+    "pickup_rate_cycle":    "",
+    "pickup_rate_1d":       "",
+    "pickup_rate_7d":       "",
+    "pickup_rate_14d":      "",
+    "pickup_rate_30d":      "",
 }
 _COND_OPS: Dict[str, str] = {
     ">": "exceeded",
@@ -767,6 +777,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
 /* ── rule form extras ── */
 .cond-rows{display:flex;flex-direction:column;gap:8px}
 .cond-row{display:grid;grid-template-columns:1fr 60px 90px 32px;gap:8px;align-items:center}
+.cond-field-group{display:flex;gap:6px;min-width:0}
+.cond-field-group select{flex:1;min-width:0}
+.cond-field-group .pw{flex:0 0 130px;display:none}
+.cond-field-group .pw.visible{display:block}
 .cond-row select,.cond-row input{padding:8px 10px;border:1px solid var(--border);border-radius:6px;
   font-size:13px;outline:none}
 .cond-row select:focus,.cond-row input:focus{border-color:var(--pri)}
@@ -776,14 +790,28 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
 .add-cond{font-size:12px;color:var(--pri);cursor:pointer;font-weight:600;border:none;
   background:none;padding:4px 0;text-align:left}
 .add-cond:hover{text-decoration:underline}
-.rt-group{display:flex;flex-wrap:wrap;gap:10px;margin-top:4px}
-.rt-group label{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;
-  padding:6px 12px;border:1px solid var(--border);border-radius:6px;transition:all .15s}
-.rt-group label:has(input:checked){background:#eff6ff;border-color:var(--pri);color:var(--pri)}
-.rt-group input[type=checkbox]{accent-color:var(--pri)}
-.adj-row{display:grid;grid-template-columns:140px 1fr;gap:10px;align-items:center}
-.adj-row select,.adj-row input{padding:9px 12px;border:1px solid var(--border);border-radius:7px;
-  font-size:14px;outline:none}
+.rt-group{position:relative;margin-top:4px}
+.rt-select-btn{width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:7px;
+  font-size:14px;cursor:pointer;background:#fff;text-align:left;display:flex;justify-content:space-between;align-items:center}
+.rt-select-btn:hover{border-color:var(--pri)}
+.rt-select-btn .arrow{font-size:10px;color:var(--muted)}
+.rt-dropdown{position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;border:1px solid var(--border);
+  border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:50;display:none;padding:6px 0;max-height:220px;overflow-y:auto}
+.rt-dropdown.open{display:block}
+.rt-dropdown .rt-toggle-all{padding:8px 14px;font-size:12px;font-weight:600;color:var(--pri);
+  cursor:pointer;border-bottom:1px solid var(--border);display:block;background:none;border-left:none;border-right:none;border-top:none;width:100%;text-align:left}
+.rt-dropdown .rt-toggle-all:hover{background:#f8fafc}
+.rt-dropdown label{display:flex;align-items:center;gap:8px;padding:8px 14px;font-size:13px;cursor:pointer;transition:background .1s}
+.rt-dropdown label:hover{background:#f8fafc}
+.rt-dropdown input[type=checkbox]{accent-color:var(--pri)}
+.adj-dual{display:flex;flex-direction:column;gap:10px}
+.adj-option{display:grid;grid-template-columns:20px 120px 1fr;gap:8px;align-items:center;cursor:pointer}
+.adj-option input[type=checkbox]{accent-color:var(--pri)}
+.adj-label{font-size:13px;font-weight:500}
+.adj-option input[type=number]{padding:9px 12px;border:1px solid var(--border);border-radius:7px;
+  font-size:14px;outline:none;transition:border .15s,opacity .15s}
+.adj-option input[type=number]:focus{border-color:var(--pri)}
+.adj-option input[type=number]:disabled{opacity:.4;background:#f8fafc;cursor:not-allowed}
 .tag{display:inline-block;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:500;
   background:#f1f5f9;color:var(--text);margin:1px 2px}
 
@@ -961,18 +989,30 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
       </div>
       <div class="form-group">
         <label>Apply to Room Types</label>
-        <p style="font-size:11px;color:var(--muted);margin-bottom:6px">Leave all unchecked to apply to every room type.</p>
-        <div class="rt-group" id="rt-checks"></div>
+        <div class="rt-group" id="rt-group">
+          <button type="button" class="rt-select-btn" onclick="toggleRtDropdown()">
+            <span id="rt-summary">All Room Types</span>
+            <span class="arrow">&#9662;</span>
+          </button>
+          <div class="rt-dropdown" id="rt-dropdown"></div>
+        </div>
       </div>
       <div class="form-group">
         <label>Rate Adjustment</label>
-        <div class="adj-row">
-          <select id="f-adj-type">
-            <option value="percent">Percentage (%)</option>
-            <option value="dollars">Dollar ($)</option>
-          </select>
-          <input id="f-adj-val" type="number" step="0.01" required placeholder="10 or -5">
+        <p style="font-size:11px;color:var(--muted);margin-bottom:8px">Enable at least one. Both can be applied together.</p>
+        <div class="adj-dual">
+          <label class="adj-option">
+            <input type="checkbox" id="f-adj-pct-on" checked onchange="adjToggle()">
+            <span class="adj-label">Percentage (%)</span>
+            <input id="f-adj-pct" type="number" step="0.01" placeholder="e.g. 10 or -5">
+          </label>
+          <label class="adj-option">
+            <input type="checkbox" id="f-adj-dol-on" onchange="adjToggle()">
+            <span class="adj-label">Dollar ($)</span>
+            <input id="f-adj-dol" type="number" step="0.01" placeholder="e.g. 25 or -10" disabled>
+          </label>
         </div>
+        <div id="adj-error" style="color:var(--red);font-size:12px;display:none;margin-top:6px">At least one adjustment type must be enabled.</div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button>
@@ -1054,6 +1094,9 @@ document.addEventListener('click',e=>{
   if(!e.target.closest('.prop-selector')){
     document.getElementById('prop-dropdown').classList.remove('open');
   }
+  if(!e.target.closest('#rt-group')){
+    document.getElementById('rt-dropdown')?.classList.remove('open');
+  }
 });
 
 /* ── navigation ── */
@@ -1083,17 +1126,20 @@ async function api(path,opts={}){
 
 /* ── rules ── */
 const condFields={occupancy_percentage:'Occupancy %',booking_window:'Booking Window',pickup_rate:'Pickup Rate'};
+const pickupWindows={cycle:'Since Last Cycle','1d':'Since Yesterday','7d':'Last 7 Days','14d':'Last 14 Days','30d':'Last 30 Days'};
 
 async function loadRules(){
   const rules=await api('/api/rules');
   const tb=document.querySelector('#rules-table tbody');
   if(!rules.length){tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:32px">No rules configured. Click "+ Add Rule" to create one.</td></tr>';return;}
   tb.innerHTML=rules.map(r=>{
-    const conds=Object.entries(r.conditions||{}).map(([k,v])=>`<span class="tag">${condFields[k]||k} ${esc(String(v))}</span>`).join(' ');
+    const condLabel=k=>{if(condFields[k])return condFields[k];if(k.startsWith('pickup_rate_')){const w=k.replace('pickup_rate_','');return 'Pickup ('+(pickupWindows[w]||w)+')';}return k;};
+    const conds=Object.entries(r.conditions||{}).map(([k,v])=>`<span class="tag">${condLabel(k)} ${esc(String(v))}</span>`).join(' ');
     const rts=(r.room_types&&r.room_types.length)?r.room_types.map(t=>`<span class="tag">${esc(t)}</span>`).join(' '):'<span style="color:var(--muted);font-size:12px">All</span>';
-    let act='';
-    if(r.action.adjust_rate_percent!=null){const v=r.action.adjust_rate_percent;act=(v>0?'+':'')+v+'%';}
-    if(r.action.adjust_rate_dollars!=null){const v=r.action.adjust_rate_dollars;act=(v>0?'+$':'$')+v;}
+    let actParts=[];
+    if(r.action.adjust_rate_percent!=null){const v=r.action.adjust_rate_percent;actParts.push((v>0?'+':'')+v+'%');}
+    if(r.action.adjust_rate_dollars!=null){const v=r.action.adjust_rate_dollars;actParts.push((v>0?'+$':'$')+v);}
+    const act=actParts.join(', ');
     return `<tr>
       <td><strong>${esc(r.rule_name)}</strong></td><td>${conds}</td><td>${rts}</td><td>${esc(act)}</td>
       <td><label class="toggle"><input type="checkbox" ${r.enabled?'checked':''} onchange="toggleRule(${r.id})"><span class="slider"></span></label></td>
@@ -1107,12 +1153,23 @@ async function deleteRule(id){await api(`/api/rules/${id}`,{method:'DELETE'});lo
 let _condId=0;
 function addCondRow(field,op,val){
   _condId++;
+  let baseField=field||'occupancy_percentage';
+  let windowVal='';
+  if(baseField.startsWith('pickup_rate_')){windowVal=baseField.replace('pickup_rate_','');baseField='pickup_rate';}
+  const fieldOpts=Object.entries(condFields).map(([k,v])=>`<option value="${k}"${k===baseField?' selected':''}>${v}</option>`).join('');
+  const windowOpts=Object.entries(pickupWindows).map(([k,v])=>`<option value="${k}"${k===windowVal?' selected':''}>${v}</option>`).join('');
+  const showWindow=baseField==='pickup_rate'?' visible':'';
   const div=document.createElement('div');div.className='cond-row';div.id='cr-'+_condId;
-  div.innerHTML=`<select class="cf">${Object.entries(condFields).map(([k,v])=>`<option value="${k}"${k===field?' selected':''}>${v}</option>`).join('')}</select>`
+  div.innerHTML=`<div class="cond-field-group"><select class="cf" onchange="onCondFieldChange(this)">${fieldOpts}</select><select class="pw${showWindow}">${windowOpts}</select></div>`
     +`<select class="co"><option value=">"${op==='>'?' selected':''}>&gt;</option><option value="<"${op==='<'?' selected':''}>&lt;</option><option value="="${op==='='?' selected':''}>=</option></select>`
     +`<input class="cv" type="number" required placeholder="80" value="${val||''}">`
     +`<button type="button" class="btn-icon" onclick="rmCond('cr-${_condId}')">&times;</button>`;
   document.getElementById('cond-rows').appendChild(div);
+}
+function onCondFieldChange(sel){
+  const pw=sel.closest('.cond-field-group').querySelector('.pw');
+  if(sel.value==='pickup_rate') pw.classList.add('visible');
+  else pw.classList.remove('visible');
 }
 function rmCond(id){document.getElementById(id)?.remove();if(!document.querySelectorAll('.cond-row').length)addCondRow();}
 
@@ -1121,27 +1178,62 @@ function openModal(){
   document.getElementById('rule-form').reset();
   document.getElementById('cond-rows').innerHTML='';
   addCondRow();
-  const rtc=document.getElementById('rt-checks');
+  adjToggle();
   api('/api/room_types').then(types=>{
-    rtc.innerHTML=types.map(t=>`<label><input type="checkbox" class="rt-check" value="${esc(t.name)}"> ${esc(t.name)}</label>`).join('');
+    const dd=document.getElementById('rt-dropdown');
+    dd.innerHTML='<button type="button" class="rt-toggle-all" onclick="toggleAllRt()">Deselect All</button>'
+      +types.map(t=>`<label><input type="checkbox" class="rt-check" value="${esc(t.name)}" checked onchange="updateRtSummary()"> ${esc(t.name)}</label>`).join('');
+    updateRtSummary();
   });
 }
-function closeModal(){document.getElementById('modal').classList.add('hidden');}
+function closeModal(){document.getElementById('modal').classList.add('hidden');document.getElementById('rt-dropdown')?.classList.remove('open');}
+function toggleRtDropdown(){document.getElementById('rt-dropdown').classList.toggle('open');}
+function toggleAllRt(){
+  const checks=document.querySelectorAll('.rt-check');
+  const allChecked=[...checks].every(c=>c.checked);
+  checks.forEach(c=>c.checked=!allChecked);
+  updateRtSummary();
+}
+function updateRtSummary(){
+  const checks=document.querySelectorAll('.rt-check');
+  const total=checks.length;const checked=[...checks].filter(c=>c.checked).length;
+  const btn=document.querySelector('.rt-toggle-all');
+  if(btn) btn.textContent=checked===total?'Deselect All':'Select All';
+  const summary=document.getElementById('rt-summary');
+  if(checked===0) summary.textContent='No Room Types';
+  else if(checked===total) summary.textContent='All Room Types';
+  else summary.textContent=checked+' of '+total+' selected';
+}
+function adjToggle(){
+  const pctOn=document.getElementById('f-adj-pct-on').checked;
+  const dolOn=document.getElementById('f-adj-dol-on').checked;
+  document.getElementById('f-adj-pct').disabled=!pctOn;
+  document.getElementById('f-adj-dol').disabled=!dolOn;
+  if(!pctOn) document.getElementById('f-adj-pct').value='';
+  if(!dolOn) document.getElementById('f-adj-dol').value='';
+  document.getElementById('adj-error').style.display=(!pctOn&&!dolOn)?'block':'none';
+}
 
 async function saveRule(e){
   e.preventDefault();
   const cond={};
   document.querySelectorAll('.cond-row').forEach(row=>{
-    const f=row.querySelector('.cf').value,o=row.querySelector('.co').value,v=row.querySelector('.cv').value;
+    let f=row.querySelector('.cf').value;
+    const o=row.querySelector('.co').value,v=row.querySelector('.cv').value;
+    if(f==='pickup_rate'){const pw=row.querySelector('.pw');if(pw) f='pickup_rate_'+pw.value;}
     if(v) cond[f]=o+v;
   });
-  const adjType=document.getElementById('f-adj-type').value;
-  const adjVal=parseFloat(document.getElementById('f-adj-val').value);
   const action={};
-  if(adjType==='percent') action.adjust_rate_percent=adjVal;
-  else action.adjust_rate_dollars=adjVal;
+  const pctOn=document.getElementById('f-adj-pct-on').checked;
+  const dolOn=document.getElementById('f-adj-dol-on').checked;
+  if(!pctOn&&!dolOn){document.getElementById('adj-error').style.display='block';return false;}
+  if(pctOn){const pv=parseFloat(document.getElementById('f-adj-pct').value);if(isNaN(pv)){alert('Enter a percentage value.');return false;}action.adjust_rate_percent=pv;}
+  if(dolOn){const dv=parseFloat(document.getElementById('f-adj-dol').value);if(isNaN(dv)){alert('Enter a dollar value.');return false;}action.adjust_rate_dollars=dv;}
+  const allRtChecks=document.querySelectorAll('.rt-check');
+  const checkedRt=document.querySelectorAll('.rt-check:checked');
+  if(allRtChecks.length>0&&checkedRt.length===0){alert('Please select at least one room type.');return false;}
   const roomTypes=[];
-  document.querySelectorAll('.rt-check:checked').forEach(cb=>roomTypes.push(cb.value));
+  if(checkedRt.length<allRtChecks.length) checkedRt.forEach(cb=>roomTypes.push(cb.value));
   await api('/api/rules',{method:'POST',body:JSON.stringify({
     rule_name:document.getElementById('f-name').value,
     conditions:cond,action:action,room_types:roomTypes
