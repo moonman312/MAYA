@@ -292,6 +292,38 @@ def _gen_calendar(year: int, month: int) -> Dict[str, Any]:
     }
 
 
+def _occ_thresholds(ref_year: int, ref_month: int, months_back: int = 12) -> Dict[str, int]:
+    """Compute occupancy colour thresholds from the trailing *months_back* months.
+
+    Returns ``{"low": p33, "high": p66}`` so the caller can colour-code
+    occupancy relative to *this property's* historic range rather than using
+    fixed 60 / 80 cut-offs.
+
+    Algorithm: gather every day's overall-occupancy value for the previous
+    *months_back* months (not including the current view month), sort them,
+    then return the 33rd and 66th percentiles as the low/high boundaries.
+    """
+    all_occ: List[int] = []
+    y, m = ref_year, ref_month
+    for _ in range(months_back):
+        m -= 1
+        if m < 1:
+            m = 12
+            y -= 1
+        cal = _gen_calendar(y, m)
+        for day_data in cal["days"].values():
+            all_occ.append(day_data["occupancy_pct"])
+
+    if not all_occ:
+        return {"low": 60, "high": 80}   # safe fallback
+
+    all_occ.sort()
+    n = len(all_occ)
+    p33 = all_occ[int(n * 0.33)]
+    p66 = all_occ[int(n * 0.66)]
+    return {"low": int(p33), "high": int(p66)}
+
+
 # ── condition → plain-English mappings ────────────────────────────────────────
 _COND_LABELS: Dict[str, str] = {
     "occupancy_percentage": "occupancy",
@@ -468,7 +500,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         elif path.startswith("/api/calendar/"):
             parts = path.strip("/").split("/")
             try:
-                self._json(_gen_calendar(int(parts[2]), int(parts[3])))
+                yr, mo = int(parts[2]), int(parts[3])
+                cal = _gen_calendar(yr, mo)
+                cal["thresholds"] = _occ_thresholds(yr, mo)
+                self._json(cal)
             except (IndexError, ValueError):
                 self._json({"error": "use /api/calendar/YYYY/MM"}, 400)
         elif path == "/api/room_types":
@@ -1124,11 +1159,12 @@ async function loadCalendar(){
   const g=document.getElementById('cal-grid');
   let html=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=>`<div class="cal-hdr">${d}</div>`).join('');
   const offset=d.first_weekday;
+  const tHigh=d.thresholds.high, tLow=d.thresholds.low;
   for(let i=0;i<offset;i++) html+='<div class="cal-cell empty"></div>';
   for(let day=1;day<=d.days_in_month;day++){
     const info=d.days[String(day)];
     const pct=info.occupancy_pct;
-    const color=pct>80?'var(--green)':pct>60?'var(--amber)':'var(--red)';
+    const color=pct>=tHigh?'var(--green)':pct>=tLow?'var(--amber)':'var(--red)';
     const rev=info.revenue>=1000?'$'+(info.revenue/1000).toFixed(1)+'k':'$'+info.revenue.toFixed(0);
     html+=`<div class="cal-cell" onclick="showDay(${day})">
       <div class="cal-day">${day}</div>
@@ -1145,11 +1181,12 @@ function showDay(day){
   if(!_calData) return;
   const info=_calData.days[String(day)];
   const pct=info.occupancy_pct;
-  const color=pct>80?'green':pct>60?'amber':'red';
+  const tHigh=_calData.thresholds.high, tLow=_calData.thresholds.low;
+  const color=pct>=tHigh?'green':pct>=tLow?'amber':'red';
   const el=document.getElementById('cal-detail');
   el.style.display='block';
   const rtRows=info.room_types.map(rt=>{
-    const c=rt.occupancy_pct>80?'var(--green)':rt.occupancy_pct>60?'var(--amber)':'var(--red)';
+    const c=rt.occupancy_pct>=tHigh?'var(--green)':rt.occupancy_pct>=tLow?'var(--amber)':'var(--red)';
     return `<tr>
       <td><strong>${esc(rt.name)}</strong></td>
       <td style="color:${c};font-weight:600">${rt.occupancy_pct}%</td>
