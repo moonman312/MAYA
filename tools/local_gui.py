@@ -5,7 +5,7 @@ Launches a lightweight web server and opens a full-featured SaaS dashboard
 in the default browser.  No external GUI framework required — uses only the
 Python standard library (http.server, json, webbrowser).
 
-Sections:  Login · Calendar (occupancy heat-map) · Rules (CRUD) · Rate Simulator
+Sections:  Login · Calendar (occupancy heat-map) · Rules (CRUD) · Rate Simulator · Change Log
 """
 
 from __future__ import annotations
@@ -292,6 +292,66 @@ def _gen_calendar(year: int, month: int) -> Dict[str, Any]:
     }
 
 
+def _gen_changelog() -> List[Dict[str, Any]]:
+    """Generate deterministic demo change-log entries (batch cycles).
+
+    Each cycle represents a scheduler run.  Some cycles detect occupancy
+    shifts and fire rules (producing rate changes), others find no
+    actionable conditions and are logged as no-change cycles.
+    """
+    import random as _rng
+    _rng.seed(42)  # deterministic
+
+    entries: List[Dict[str, Any]] = []
+    eid = 1
+    base_ts = datetime(2026, 3, 1, 6, 0, 0)
+    rule_names = ["High Occupancy Surge", "Last-Minute Premium",
+                  "Suite Peak Surcharge", "Early Bird Discount"]
+    room_names = ["Standard", "Deluxe", "Suite"]
+    base_rates = {"Standard": 175.0, "Deluxe": 245.0, "Suite": 395.0}
+
+    for cycle in range(1, 51):
+        ts = base_ts + timedelta(minutes=5 * (cycle - 1))
+        has_change = _rng.random() < 0.45  # ~45% of cycles have changes
+
+        if has_change:
+            n_changes = _rng.randint(1, 3)
+            for _ in range(n_changes):
+                rt = _rng.choice(room_names)
+                rule = _rng.choice(rule_names)
+                base = base_rates[rt]
+                occ = _rng.randint(55, 98)
+                # simulate a rate adjustment
+                if "Discount" in rule:
+                    pct_change = round(_rng.uniform(-8, -2), 1)
+                else:
+                    pct_change = round(_rng.uniform(3, 18), 1)
+                new_rate = round(base * (1 + pct_change / 100), 2)
+                entries.append({
+                    "id": eid, "cycle": cycle,
+                    "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S"),
+                    "event_type": "rate_adjustment",
+                    "room_type": rt, "rule_name": rule,
+                    "original_rate": base, "new_rate": new_rate,
+                    "change_pct": pct_change, "occupancy_pct": occ,
+                })
+                eid += 1
+        else:
+            # no-change cycle
+            entries.append({
+                "id": eid, "cycle": cycle,
+                "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S"),
+                "event_type": "no_change",
+                "room_type": None, "rule_name": None,
+                "original_rate": None, "new_rate": None,
+                "change_pct": None, "occupancy_pct": None,
+            })
+            eid += 1
+
+    entries.reverse()  # newest first
+    return entries
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # HTTP REQUEST HANDLER
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -319,6 +379,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._json(_ROOM_TYPES)
         elif path == "/api/hotels":
             self._json(_DEMO_HOTELS)
+        elif path == "/api/changelog":
+            self._json(_gen_changelog())
         elif path == "/api/session":
             hotel = next((h for h in _DEMO_HOTELS if h["id"] == self.state.current_hotel_id), _DEMO_HOTELS[0])
             self._json({"authenticated": self.state.authenticated, "hotel": hotel})
@@ -593,6 +655,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   font-size:14px;outline:none}
 .tag{display:inline-block;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:500;
   background:#f1f5f9;color:var(--text);margin:1px 2px}
+
+/* ── change log ── */
+.cl-toolbar{display:flex;align-items:center;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.cl-toggle{display:flex;background:var(--card);border-radius:8px;border:1px solid var(--border);overflow:hidden;box-shadow:var(--shadow)}
+.cl-toggle button{padding:8px 18px;font-size:13px;font-weight:600;border:none;cursor:pointer;
+  background:transparent;color:var(--muted);transition:all .15s}
+.cl-toggle button.active{background:var(--pri);color:#fff}
+.cl-toggle button:hover:not(.active){background:#f1f5f9}
+.cl-stats{display:flex;gap:20px;margin-left:auto}
+.cl-stat{font-size:13px;color:var(--muted)}.cl-stat strong{color:var(--text)}
+.cl-row-change td{background:#f0fdf4 !important}
+.cl-row-nochange td{opacity:.55}
+.cl-cycle-num{font-weight:700;color:var(--pri);font-size:12px}
+.cl-type-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.cl-type-change{background:#dcfce7;color:#166534}
+.cl-type-nochange{background:#f1f5f9;color:#94a3b8}
+.cl-rate-arrow{font-weight:700;margin:0 4px}
+.cl-pct-up{color:var(--red);font-weight:600;font-size:12px}
+.cl-pct-down{color:var(--green);font-weight:600;font-size:12px}
 </style>
 </head>
 <body>
@@ -646,6 +727,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   <a href="#" class="nav-item" data-page="simulator">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
     Rate Simulator</a>
+  <a href="#" class="nav-item" data-page="changelog">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>
+    Change Log</a>
 
   <div class="sidebar-footer">
     <button class="logout-btn" onclick="handleLogout()">
@@ -699,6 +783,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
           Click "Run Simulation" to see results</td></tr></tbody></table>
       </div>
     </div>
+  </div>
+
+  <!-- Change Log -->
+  <div class="page" id="pg-changelog">
+    <div class="page-hdr"><h1>Change Log</h1></div>
+    <div class="cl-toolbar">
+      <div class="cl-toggle" id="cl-toggle">
+        <button class="active" data-filter="all" onclick="setClFilter('all')">All Cycles</button>
+        <button data-filter="changes" onclick="setClFilter('changes')">Changes Only</button>
+      </div>
+      <div class="cl-stats" id="cl-stats"></div>
+    </div>
+    <table class="tbl" id="cl-table"><thead><tr>
+      <th style="width:60px">Cycle</th><th>Timestamp</th><th>Status</th><th>Room Type</th><th>Rule</th><th>Rate Change</th><th>Occupancy</th>
+    </tr></thead><tbody></tbody></table>
   </div>
 </div>
 
@@ -829,6 +928,7 @@ function load(pg){
   if(pg==='rules') loadRules();
   else if(pg==='calendar') loadCalendar();
   else if(pg==='simulator') loadSimInput();
+  else if(pg==='changelog') loadChangelog();
 }
 
 /* ── API helper ── */
@@ -992,6 +1092,59 @@ async function runSim(){
 }
 
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+/* ── change log ── */
+let _clData=[],_clFilter='all';
+async function loadChangelog(){
+  _clData=await api('/api/changelog');
+  renderChangelog();
+}
+function setClFilter(f){
+  _clFilter=f;
+  document.querySelectorAll('#cl-toggle button').forEach(b=>{
+    b.classList.toggle('active',b.dataset.filter===f);
+  });
+  renderChangelog();
+}
+function renderChangelog(){
+  const filtered=_clFilter==='changes'?_clData.filter(e=>e.event_type==='rate_adjustment'):_clData;
+  const totalCycles=new Set(_clData.map(e=>e.cycle)).size;
+  const changeCycles=new Set(_clData.filter(e=>e.event_type==='rate_adjustment').map(e=>e.cycle)).size;
+  const noChangeCycles=totalCycles-changeCycles;
+  document.getElementById('cl-stats').innerHTML=
+    `<div class="cl-stat"><strong>${totalCycles}</strong> total cycles</div>`
+    +`<div class="cl-stat"><strong>${changeCycles}</strong> with changes</div>`
+    +`<div class="cl-stat"><strong>${noChangeCycles}</strong> no change</div>`;
+  const tb=document.querySelector('#cl-table tbody');
+  if(!filtered.length){
+    tb.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:32px">No entries to display</td></tr>';
+    return;
+  }
+  tb.innerHTML=filtered.map(e=>{
+    const isChange=e.event_type==='rate_adjustment';
+    const rowCls=isChange?'cl-row-change':'cl-row-nochange';
+    const badge=isChange
+      ?'<span class="cl-type-badge cl-type-change">Rate Changed</span>'
+      :'<span class="cl-type-badge cl-type-nochange">No Change</span>';
+    let rateHtml='&mdash;';
+    if(isChange){
+      const arrow=e.change_pct>0?'&uarr;':'&darr;';
+      const cls=e.change_pct>0?'cl-pct-up':'cl-pct-down';
+      const sign=e.change_pct>0?'+':'';
+      rateHtml=`$${e.original_rate.toFixed(2)} <span class="cl-rate-arrow">&rarr;</span> <strong>$${e.new_rate.toFixed(2)}</strong> `
+        +`<span class="${cls}">${sign}${e.change_pct}%</span>`;
+    }
+    return `<tr class="${rowCls}">
+      <td><span class="cl-cycle-num">#${e.cycle}</span></td>
+      <td>${esc(e.timestamp)}</td>
+      <td>${badge}</td>
+      <td>${isChange?'<strong>'+esc(e.room_type)+'</strong>':'<span style="color:var(--muted)">&mdash;</span>'}</td>
+      <td>${isChange?esc(e.rule_name):'<span style="color:var(--muted)">&mdash;</span>'}</td>
+      <td>${rateHtml}</td>
+      <td>${isChange?e.occupancy_pct+'%':'<span style="color:var(--muted)">&mdash;</span>'}</td>
+    </tr>`;
+  }).join('');
+}
 
 /* ── init: no auto-load — wait for login ── */
 </script>

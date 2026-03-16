@@ -1,25 +1,56 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.9+-3776ab?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.9+">
   <img src="https://img.shields.io/badge/PostgreSQL-15+-4169e1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL">
-<img src="https://img.shields.io/badge/PMS-Mews_API-f59e0b?style=for-the-badge" alt="Mews Connector API">
+  <img src="https://img.shields.io/badge/PMS-Mews_API-f59e0b?style=for-the-badge" alt="Mews Connector API">
+  <img src="https://img.shields.io/badge/tests-49_passed-22c55e?style=for-the-badge&logo=pytest&logoColor=white" alt="49 Tests Passed">
+  <img src="https://img.shields.io/badge/LOC-2.7k-8b5cf6?style=for-the-badge" alt="Lines of Code">
 </p>
 
 <h1 align="center">
   <br>
-  MA<span style="color:#3b82f6">YA</span>
+  MAYA
   <br>
   <sub>Machine Assisted Yield Automation</sub>
 </h1>
 
 <p align="center">
-  <strong>An intelligent, multi-hotel revenue management system that automates dynamic pricing through real-time occupancy monitoring, rule-based rate optimization, and seamless PMS integration.</strong>
+  <strong>An intelligent, multi-hotel revenue management system that automates dynamic pricing<br>through real-time occupancy monitoring, rule-based rate optimization, and seamless PMS integration.</strong>
 </p>
 
 <p align="center">
   <img src="assets/demo.gif" alt="MAYA Dashboard Demo" width="720">
 </p>
 
----
+<br>
+
+<!-- ━━━ TABLE OF CONTENTS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+
+<details>
+<summary><strong>Table of Contents</strong></summary>
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Quick Start](#quick-start)
+- [Project Structure](#project-structure)
+- [Module Reference](#module-reference)
+  - [config.py — Configuration](#configpy--configuration)
+  - [models.py — Data Models](#modelspy--data-models)
+  - [rules_engine.py — Dynamic Pricing](#rules_enginepy--dynamic-pricing)
+  - [api_client.py — Mews Integration](#api_clientpy--mews-integration)
+  - [db.py — Database Layer](#dbpy--database-layer)
+  - [tools/local_gui.py — Interactive Dashboard](#toolslocal_guipy--interactive-dashboard)
+- [Dashboard Preview](#dashboard-preview)
+- [Running Tests](#running-tests)
+- [Configuration](#configuration)
+- [Environment Variables](#environment-variables)
+- [Tech Stack](#tech-stack)
+- [Contributing](#contributing)
+
+</details>
+
+<br>
+
+<!-- ━━━ OVERVIEW ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
 
 ## Overview
 
@@ -28,53 +59,75 @@ MAYA connects to your Property Management System (currently [Mews](https://www.m
 ### Key Capabilities
 
 | Feature | Description |
-|---------|-------------|
+|:--------|:------------|
 | **Multi-Hotel Management** | Manage unlimited properties from one dashboard with per-hotel rule isolation |
 | **Dynamic Pricing Engine** | JSON-based rules engine with multi-condition logic and stacked rule evaluation |
 | **Real-Time Occupancy Tracking** | Per-room-type occupancy monitoring with demand-based rate calculations |
 | **Automated Rate Push-Back** | Adjusted rates are pushed directly back to the PMS via API |
 | **Audit Trail** | Every rate change is logged with before/after values for compliance |
 | **Interactive Dashboard** | Browser-based SPA with calendar heat-maps, rule management, and rate simulation |
+| **Change Log** | Batch cycle history with toggleable view of all cycles vs. changes only |
 | **Scheduled Batch Processing** | APScheduler runs the full pipeline every 5 minutes (configurable) |
 
----
+<p align="right"><a href="#overview">↑ back to top</a></p>
+
+<!-- ━━━ ARCHITECTURE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
 
 ## Architecture
 
-```
-                    +─────────────────────────────────────────+
-                    │              MAYA Platform              │
-                    +─────────────────────────────────────────+
-                    │                                         │
-   ┌────────┐       │  ┌──────────┐   ┌──────────┐          │
-   │ Mews   │◄─────►│  │   API    │──►│   ETL    │          │
-   │  API   │       │  │  Client  │   │  Layer   │          │
-   └────────┘       │  └──────────┘   └────┬─────┘          │
-                    │                      │                 │
-                    │                 ┌────▼─────┐           │
-                    │                 │ Metrics  │           │
-                    │                 │  Engine  │           │
-                    │                 └────┬─────┘           │
-                    │                      │                 │
-                    │  ┌──────────┐   ┌────▼─────┐          │
-                    │  │  Audit   │◄──│  Rules   │          │
-                    │  │   Log    │   │  Engine  │          │
-                    │  └──────────┘   └──────────┘          │
-                    │                                         │
-   ┌────────┐       │  ┌──────────┐   ┌──────────┐          │
-   │Browser │◄─────►│  │   Web    │──►│Scheduler │          │
-   │  SPA   │       │  │  Server  │   │(APSched) │          │
-   └────────┘       │  └──────────┘   └──────────┘          │
-                    │                                         │
-                    │         ┌──────────────┐               │
-                    │         │  PostgreSQL   │               │
-                    │         │  (multi-      │               │
-                    │         │   tenant)     │               │
-                    │         └──────────────┘               │
-                    +─────────────────────────────────────────+
+```mermaid
+flowchart TB
+    subgraph External
+        MEWS[Mews PMS API]
+        BROWSER[Browser SPA]
+    end
+
+    subgraph MAYA Platform
+        API[API Client] -->|raw JSON| ETL[ETL Layer]
+        ETL -->|domain objects| METRICS[Metrics Engine]
+        METRICS -->|occupancy & pickup| RULES[Rules Engine]
+        RULES -->|rate changes| AUDIT[Audit Log]
+        WEB[Web Server] --> SCHEDULER[Scheduler<br/>APScheduler]
+        DB[(PostgreSQL<br/>multi-tenant)]
+    end
+
+    MEWS <-->|reservations & rates| API
+    RULES -->|push rates| MEWS
+    BROWSER <-->|HTTP| WEB
+    ETL --> DB
+    METRICS --> DB
+    RULES --> DB
+    AUDIT --> DB
+    SCHEDULER -->|every 5 min| API
 ```
 
----
+### Data Pipeline
+
+```mermaid
+sequenceDiagram
+    participant S as Scheduler
+    participant A as API Client
+    participant M as Mews PMS
+    participant E as ETL
+    participant ME as Metrics
+    participant R as Rules Engine
+    participant DB as PostgreSQL
+
+    S->>A: trigger batch
+    A->>M: fetch reservations (paginated)
+    M-->>A: raw JSON
+    A->>E: raw records
+    E->>DB: upsert reservations
+    E->>ME: domain objects
+    ME->>DB: cache occupancy & pickup
+    ME->>R: metrics data
+    R->>DB: log rate changes
+    R->>M: push adjusted rates
+```
+
+<p align="right"><a href="#overview">↑ back to top</a></p>
+
+<!-- ━━━ QUICK START ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
 
 ## Quick Start
 
@@ -86,8 +139,8 @@ MAYA connects to your Property Management System (currently [Mews](https://www.m
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/your-org/maya.git
-cd maya
+git clone https://github.com/moonman312/MAYA.git
+cd MAYA
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -95,18 +148,20 @@ pip install -r requirements.txt
 
 ### 2. Configure the Database
 
-Create a PostgreSQL database named `maya`:
-
 ```bash
 createdb maya
 ```
 
-The default connection string expects:
+<details>
+<summary>Default connection settings</summary>
+
 ```
 dbname=maya user=postgres password=postgres host=localhost port=5432
 ```
 
 Modify `config.py` if your setup differs.
+
+</details>
 
 ### 3. Launch the Dashboard (Demo Mode)
 
@@ -114,7 +169,8 @@ Modify `config.py` if your setup differs.
 python3 -m tools.local_gui
 ```
 
-This opens a browser-based dashboard with **demo data** — no PMS credentials needed. Perfect for exploring the UI, testing rules, and understanding the system.
+> Opens a browser-based dashboard with **demo data** — no PMS credentials needed.
+> Perfect for exploring the UI, testing rules, and understanding the system.
 
 ### 4. Run the Full Pipeline (Production Mode)
 
@@ -123,39 +179,43 @@ python3 main.py
 ```
 
 This will:
+
 1. Create the database schema
 2. Seed a demo hotel (if empty)
 3. Fetch reservations from the Mews API
-4. Run the ETL + metrics + rules pipeline
+4. Run the ETL → metrics → rules pipeline
 5. Start the APScheduler for recurring batch processing
 
----
+<p align="right"><a href="#overview">↑ back to top</a></p>
+
+<!-- ━━━ PROJECT STRUCTURE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
 
 ## Project Structure
 
 ```
 MAYA/
-├── config.py             # Centralized configuration constants
-├── models.py             # Dataclass definitions (Hotel, Reservation, RuleConfig, etc.)
-├── db.py                 # PostgreSQL schema & CRUD operations
-├── api_client.py         # Mews Connector API client with pagination
-├── etl.py                # Raw API JSON → domain dataclass transforms
-├── metrics.py            # Occupancy & pickup-rate computation
-├── rules_engine.py       # JSON-based dynamic pricing rules
-├── scheduler.py          # APScheduler batch orchestration
-├── utils.py              # Shared utilities (date parsing, field detection)
-├── main.py               # Production entry point
-├── requirements.txt      # Python dependencies
-├── pytest.ini            # Test configuration
+│
+├── config.py               # Centralized configuration constants
+├── models.py               # Dataclass definitions (Hotel, Reservation, RuleConfig, …)
+├── db.py                   # PostgreSQL schema & CRUD operations
+├── api_client.py           # Mews Connector API client with pagination
+├── etl.py                  # Raw API JSON → domain dataclass transforms
+├── metrics.py              # Occupancy & pickup-rate computation
+├── rules_engine.py         # JSON-based dynamic pricing rules
+├── scheduler.py            # APScheduler batch orchestration
+├── utils.py                # Shared utilities (date parsing, field detection)
+├── main.py                 # Production entry point
+├── requirements.txt        # Python dependencies
+├── pytest.ini              # Test configuration
 │
 ├── tools/
-│   └── local_gui.py      # Browser-based SPA dashboard (zero dependencies)
+│   └── local_gui.py        # Browser-based SPA dashboard (zero dependencies)
 │
 ├── rms_engine/
 │   ├── __init__.py
-│   └── config_loader.py  # File-based hotel configuration loader
+│   └── config_loader.py    # File-based hotel configuration loader
 │
-└── tests/
+└── tests/                  # 49 tests across 8 files
     ├── conftest.py
     ├── test_api_client.py
     ├── test_config_loader.py
@@ -167,20 +227,24 @@ MAYA/
     └── test_utils.py
 ```
 
----
+<p align="right"><a href="#overview">↑ back to top</a></p>
+
+<!-- ━━━ MODULE REFERENCE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
 
 ## Module Reference
 
 ### `config.py` — Configuration
 
-All tuneable constants live here. Key settings:
+All tuneable constants live here.
 
 | Constant | Default | Description |
-|----------|---------|-------------|
-| `DB_DSN` | `dbname=maya ...` | PostgreSQL connection string |
-| `MEWS_BASE_URL` | `https://api.mews.com/api/connector/v1` | Mews API base URL |
+|:---------|:--------|:------------|
+| `DB_DSN` | `dbname=maya …` | PostgreSQL connection string |
+| `MEWS_BASE_URL` | `https://api.mews.com/…` | Mews API base URL |
 | `BATCH_INTERVAL_MINUTES` | `5` | How often the scheduler runs |
 | `DEFAULT_TOTAL_ROOMS_PER_TYPE` | `100` | Fallback room count per type |
+| `FETCH_START_UTC` | `2020-01-01T00:00:00Z` | Reservation fetch window start |
+| `FETCH_END_UTC` | `2030-12-31T23:59:59Z` | Reservation fetch window end |
 
 ---
 
@@ -189,13 +253,29 @@ All tuneable constants live here. Key settings:
 All models are Python dataclasses with full type hints:
 
 | Model | Purpose |
-|-------|---------|
+|:------|:--------|
 | `Hotel` | Tenant configuration (API tokens, enterprise ID) |
 | `RoomType` | Room category metadata |
 | `Reservation` | Parsed reservation with computed fields |
 | `MetricsRow` | Per-room-type per-date occupancy & pickup |
 | `RuleConfig` | JSON-based pricing rule definition |
 | `FieldMap` | Auto-detected API field names |
+
+<details>
+<summary><strong>Model relationships</strong></summary>
+
+```mermaid
+erDiagram
+    Hotel ||--o{ RoomType : has
+    Hotel ||--o{ Reservation : has
+    Hotel ||--o{ MetricsRow : has
+    Hotel ||--o{ RuleConfig : has
+    RoomType ||--o{ Reservation : categorizes
+    Reservation }|--|| MetricsRow : aggregated_into
+    RuleConfig }|--o{ Reservation : adjusts
+```
+
+</details>
 
 ---
 
@@ -217,18 +297,44 @@ Rules use a simple, powerful JSON format:
 }
 ```
 
-**Conditions** support `>`, `<`, and `=` operators against numeric fields:
-- `occupancy_percentage` — current occupancy as a percentage
-- `booking_window` — days between booking and stay date
-- `pickup_rate` — net new reservations since last batch
+<details>
+<summary><strong>Conditions reference</strong></summary>
 
-**Actions** support two adjustment types:
-- `adjust_rate_percent` — percentage change (e.g., `10` = +10%)
-- `adjust_rate_dollars` — flat dollar change (e.g., `50` = +$50)
+Conditions support `>`, `<`, and `=` operators against numeric fields:
 
-**Room Types** filter which room categories the rule applies to. An empty list means "apply to all."
+| Field | Description |
+|:------|:------------|
+| `occupancy_percentage` | Current occupancy as a percentage (0–100) |
+| `booking_window` | Days between booking and stay date |
+| `pickup_rate` | Net new reservations since last batch |
+
+</details>
+
+<details>
+<summary><strong>Actions reference</strong></summary>
+
+| Action | Example | Effect |
+|:-------|:--------|:-------|
+| `adjust_rate_percent` | `10` | +10% to current rate |
+| `adjust_rate_dollars` | `50` | +$50 flat adjustment |
+
+</details>
+
+<details>
+<summary><strong>How rule stacking works</strong></summary>
 
 Rules are evaluated sequentially and **stack** — multiple rules can fire on the same reservation, each modifying the rate from the previous result.
+
+```
+Original rate: $200
+  Rule 1 (Occ >80%, +10%) → $220
+  Rule 2 (Window <3d, +$25) → $245
+Final rate: $245
+```
+
+An empty `room_types` list means "apply to all."
+
+</details>
 
 ---
 
@@ -247,7 +353,7 @@ The `MewsApiClient` handles:
 PostgreSQL schema with full multi-tenant isolation:
 
 | Table | Purpose |
-|-------|---------|
+|:------|:--------|
 | `hotels` | Tenant registry |
 | `room_types` | Room categories per hotel |
 | `reservations` | Parsed reservation data |
@@ -255,7 +361,7 @@ PostgreSQL schema with full multi-tenant isolation:
 | `rules` | Pricing rule definitions (JSONB) |
 | `audit_log` | Rate change history |
 
-All queries are scoped by `hotel_id`. The schema is auto-created on first run via `create_schema()`.
+> All queries are scoped by `hotel_id`. The schema is auto-created on first run via `create_schema()`.
 
 ---
 
@@ -263,30 +369,45 @@ All queries are scoped by `hotel_id`. The schema is auto-created on first run vi
 
 A fully self-contained browser-based SPA built with **zero external dependencies** — just Python's `http.server` + vanilla HTML/CSS/JS.
 
-**Features:**
-- **Login Screen** — hotel group authentication gate
-- **Property Selector** — switch between properties in the sidebar
-- **Occupancy Calendar** — monthly heat-map with color-coded occupancy (green = high, red = low)
-- **Day Detail View** — per-room-type breakdown with rates and revenue
-- **Rules Manager** — full CRUD with multi-condition builder
-- **Rate Simulator** — preview how enabled rules affect sample reservations
+| Page | Description |
+|:-----|:------------|
+| **Login Screen** | Hotel group authentication gate |
+| **Property Selector** | Switch between properties in the sidebar |
+| **Occupancy Calendar** | Monthly heat-map with color-coded occupancy |
+| **Day Detail View** | Per-room-type breakdown with rates and revenue |
+| **Rules Manager** | Full CRUD with multi-condition builder |
+| **Rate Simulator** | Preview how enabled rules affect sample reservations |
+| **Change Log** | Batch cycle history with all/changes-only toggle |
 
----
+<p align="right"><a href="#overview">↑ back to top</a></p>
+
+<!-- ━━━ DASHBOARD PREVIEW ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
 
 ## Dashboard Preview
 
 ### Calendar View
-The occupancy calendar uses an intuitive color scheme:
-- **Green** — High occupancy (>80%) — revenue is strong
-- **Amber** — Medium occupancy (60-80%) — monitor closely
-- **Red** — Low occupancy (<60%) — action needed
 
-Click any day to see a detailed breakdown by room type, including occupancy, nightly rate, and projected revenue.
+The occupancy calendar uses an intuitive color scheme:
+
+| Color | Occupancy | Signal |
+|:------|:----------|:-------|
+| 🟢 **Green** | > 80% | Revenue is strong |
+| 🟡 **Amber** | 60–80% | Monitor closely |
+| 🔴 **Red** | < 60% | Action needed |
+
+> Click any day to see a detailed breakdown by room type, including occupancy, nightly rate, and projected revenue.
 
 ### Rate Simulator
+
 Test your pricing rules against sample reservations before enabling them. The simulator shows the original rate, new rate, percentage change, and which rules were applied.
 
----
+### Change Log
+
+View the full history of batch processing cycles. Toggle between **All Cycles** (including no-change runs) and **Changes Only** to focus on cycles where rate adjustments fired.
+
+<p align="right"><a href="#overview">↑ back to top</a></p>
+
+<!-- ━━━ RUNNING TESTS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
 
 ## Running Tests
 
@@ -301,9 +422,11 @@ python -m pytest tests/test_rules_engine.py -v
 python -m pytest tests/ --cov=. --cov-report=term-missing
 ```
 
-**Current test count: 49 tests across 8 test files.**
+> **49 tests** across 8 test files — all passing.
 
----
+<p align="right"><a href="#overview">↑ back to top</a></p>
+
+<!-- ━━━ CONFIGURATION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
 
 ## Configuration
 
@@ -312,7 +435,7 @@ python -m pytest tests/ --cov=. --cov-report=term-missing
 Hotels are stored in the `hotels` table. Each hotel requires:
 
 | Field | Description |
-|-------|-------------|
+|:------|:------------|
 | `name` | Display name |
 | `client_token` | Mews Client Token |
 | `access_token` | Mews Access Token |
@@ -320,9 +443,10 @@ Hotels are stored in the `hotels` table. Each hotel requires:
 | `base_url` | API base URL (default: Mews production) |
 | `total_rooms_per_type` | Room count used for occupancy % calculation |
 
-### Hotel Setup (File-Based)
+<details>
+<summary><strong>Hotel Setup (File-Based alternative)</strong></summary>
 
-Alternatively, place JSON config files in a `configs/` directory:
+Place JSON config files in a `configs/` directory:
 
 ```json
 {
@@ -336,33 +460,49 @@ Alternatively, place JSON config files in a `configs/` directory:
 
 The `config_loader` module scans this directory and refreshes the cache every batch cycle.
 
----
+</details>
+
+<p align="right"><a href="#overview">↑ back to top</a></p>
+
+<!-- ━━━ ENVIRONMENT VARIABLES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
 
 ## Environment Variables
 
-While MAYA currently uses `config.py` for settings, you can override values using environment variables in a future setup:
+| Variable | Maps To | Description |
+|:---------|:--------|:------------|
+| `MAYA_DB_DSN` | `DB_DSN` | PostgreSQL connection string |
+| `MAYA_MEWS_BASE_URL` | `MEWS_BASE_URL` | Mews API base URL |
+| `MAYA_BATCH_INTERVAL` | `BATCH_INTERVAL_MINUTES` | Scheduler interval in minutes |
+| `MAYA_NO_BROWSER` | — | Set to `1` to suppress auto-open on launch |
 
-| Variable | Maps To |
-|----------|---------|
-| `MAYA_DB_DSN` | `DB_DSN` |
-| `MAYA_MEWS_BASE_URL` | `MEWS_BASE_URL` |
-| `MAYA_BATCH_INTERVAL` | `BATCH_INTERVAL_MINUTES` |
+<p align="right"><a href="#overview">↑ back to top</a></p>
 
----
+<!-- ━━━ TECH STACK ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
 
 ## Tech Stack
 
-| Component | Technology |
-|-----------|------------|
-| Language | Python 3.9+ |
-| Database | PostgreSQL (psycopg2) |
-| Scheduler | APScheduler |
-| PMS Integration | Mews Connector API v1 |
-| HTTP Client | Requests |
-| Dashboard | Vanilla HTML/CSS/JS (zero frameworks) |
-| Testing | pytest |
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL">
+  <img src="https://img.shields.io/badge/Mews_API-F59E0B?style=for-the-badge" alt="Mews">
+  <img src="https://img.shields.io/badge/APScheduler-2C2D72?style=for-the-badge" alt="APScheduler">
+  <img src="https://img.shields.io/badge/pytest-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white" alt="pytest">
+  <img src="https://img.shields.io/badge/Vanilla_JS-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black" alt="JavaScript">
+</p>
 
----
+| Component | Technology | Notes |
+|:----------|:-----------|:------|
+| Language | Python 3.9+ | Type-hinted dataclass architecture |
+| Database | PostgreSQL (psycopg2) | Multi-tenant with hotel_id scoping |
+| Scheduler | APScheduler | Configurable batch intervals |
+| PMS | Mews Connector API v1 | Cursor-based pagination |
+| HTTP | Requests | Outbound API calls |
+| Dashboard | Vanilla HTML/CSS/JS | Zero frameworks, zero build step |
+| Testing | pytest | 49 tests, 8 files |
+
+<p align="right"><a href="#overview">↑ back to top</a></p>
+
+<!-- ━━━ CONTRIBUTING ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
 
 ## Contributing
 

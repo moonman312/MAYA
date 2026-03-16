@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "maya-dashboard",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "tools.local_gui", "8787"],
+      "port": 8787,
+      "env": {
+        "MAYA_NO_BROWSER": "1"
+      }
+    }
+  ]
+}
