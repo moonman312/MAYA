@@ -292,64 +292,160 @@ def _gen_calendar(year: int, month: int) -> Dict[str, Any]:
     }
 
 
+# ── condition → plain-English mappings ────────────────────────────────────────
+_COND_LABELS: Dict[str, str] = {
+    "occupancy_percentage": "occupancy",
+    "booking_window":       "booking window",
+    "pickup_rate":          "pickup rate",
+}
+_COND_UNITS: Dict[str, str] = {
+    "occupancy_percentage": "%",
+    "booking_window":       "d",
+    "pickup_rate":          "",
+}
+_COND_OPS: Dict[str, str] = {
+    ">": "exceeded",
+    "<": "fell below",
+    "=": "hit exactly",
+}
+
+
+def _describe_from_conditions(
+    rule: Dict[str, Any],
+    rt: str,
+    actual_vals: Dict[str, Any],
+    pct_change: float,
+) -> str:
+    """Build a human-readable description from a rule's conditions and action.
+
+    Reads the rule's ``conditions`` and ``action`` dicts directly — no rule-name
+    pattern matching, so it works correctly for any rule regardless of its name.
+    """
+    conditions = rule.get("conditions", {})
+    rule_name  = rule.get("rule_name", "Rule")
+
+    # One plain-English clause per condition, e.g.
+    #   "occupancy (87%) exceeded 80%"
+    #   "booking window (2d) fell below 3d"
+    clauses: List[str] = []
+    for field, expr in conditions.items():
+        op        = expr[0]                              # >, <, or =
+        threshold = expr[1:]                             # numeric string
+        label     = _COND_LABELS.get(field, field.replace("_", " "))
+        unit      = _COND_UNITS.get(field, "")
+        op_phrase = _COND_OPS.get(op, op)
+        actual    = actual_vals.get(field)
+        if actual is not None:
+            clauses.append(f"{label} ({actual}{unit}) {op_phrase} {threshold}{unit}")
+        else:
+            clauses.append(f"{label} {op_phrase} {threshold}{unit}")
+
+    cond_text = " and ".join(clauses) if clauses else "conditions met"
+
+    # Action clause uses the actual pct_change so it reflects what was applied
+    verb = "raised" if pct_change > 0 else "reduced"
+    adj_text = f"{verb} {rt} rate {abs(pct_change)}%"
+
+    return f"{cond_text} \u2014 {rule_name} {adj_text}"
+
+
 def _gen_changelog() -> List[Dict[str, Any]]:
     """Generate deterministic demo change-log entries (batch cycles).
 
     Each cycle represents a scheduler run.  Some cycles detect occupancy
     shifts and fire rules (producing rate changes), others find no
     actionable conditions and are logged as no-change cycles.
+
+    Returns a list of *cycle* objects (not flat rows).  Each cycle dict:
+      - cycle, timestamp, has_changes
+      - changes: list of individual rate adjustments with descriptions
     """
     import random as _rng
     _rng.seed(42)  # deterministic
 
-    entries: List[Dict[str, Any]] = []
-    eid = 1
-    base_ts = datetime(2026, 3, 1, 6, 0, 0)
-    rule_names = ["High Occupancy Surge", "Last-Minute Premium",
-                  "Suite Peak Surcharge", "Early Bird Discount"]
+    # Look up rules by name so we can read their actual conditions/actions
+    rule_lookup: Dict[str, Dict[str, Any]] = {r["rule_name"]: r for r in _INITIAL_RULES}
+
+    cycles: List[Dict[str, Any]] = []
+    base_ts    = datetime(2026, 3, 1, 6, 0, 0)
+    rule_names = list(rule_lookup.keys())
     room_names = ["Standard", "Deluxe", "Suite"]
     base_rates = {"Standard": 175.0, "Deluxe": 245.0, "Suite": 395.0}
 
-    for cycle in range(1, 51):
-        ts = base_ts + timedelta(minutes=5 * (cycle - 1))
+    def _actual_vals_for(rule_obj: Dict[str, Any], occ: int) -> Dict[str, Any]:
+        """Generate a plausible actual value for every condition field in the rule,
+        guaranteed to satisfy the condition (so the description is consistent).
+        """
+        vals: Dict[str, Any] = {}
+        for field, expr in rule_obj.get("conditions", {}).items():
+            op = expr[0]
+            t  = float(expr[1:])
+            if field == "occupancy_percentage":
+                vals[field] = occ          # already generated, reuse it
+            elif field == "booking_window":
+                if op == ">":
+                    vals[field] = _rng.randint(int(t) + 1, int(t) + 30)
+                elif op == "<":
+                    vals[field] = _rng.randint(1, max(1, int(t) - 1))
+                else:
+                    vals[field] = int(t)
+            elif field == "pickup_rate":
+                if op == ">":
+                    vals[field] = _rng.randint(int(t) + 1, int(t) + 10)
+                elif op == "<":
+                    vals[field] = _rng.randint(0, max(0, int(t) - 1))
+                else:
+                    vals[field] = int(t)
+            # unknown fields: omit — description will render without actual value
+        return vals
+
+    for cycle_num in range(1, 51):
+        ts         = base_ts + timedelta(minutes=5 * (cycle_num - 1))
         has_change = _rng.random() < 0.45  # ~45% of cycles have changes
 
+        changes: List[Dict[str, Any]] = []
         if has_change:
             n_changes = _rng.randint(1, 3)
             for _ in range(n_changes):
-                rt = _rng.choice(room_names)
-                rule = _rng.choice(rule_names)
-                base = base_rates[rt]
-                occ = _rng.randint(55, 98)
-                # simulate a rate adjustment
-                if "Discount" in rule:
-                    pct_change = round(_rng.uniform(-8, -2), 1)
-                else:
-                    pct_change = round(_rng.uniform(3, 18), 1)
-                new_rate = round(base * (1 + pct_change / 100), 2)
-                entries.append({
-                    "id": eid, "cycle": cycle,
-                    "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S"),
-                    "event_type": "rate_adjustment",
-                    "room_type": rt, "rule_name": rule,
-                    "original_rate": base, "new_rate": new_rate,
-                    "change_pct": pct_change, "occupancy_pct": occ,
-                })
-                eid += 1
-        else:
-            # no-change cycle
-            entries.append({
-                "id": eid, "cycle": cycle,
-                "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S"),
-                "event_type": "no_change",
-                "room_type": None, "rule_name": None,
-                "original_rate": None, "new_rate": None,
-                "change_pct": None, "occupancy_pct": None,
-            })
-            eid += 1
+                rt       = _rng.choice(room_names)
+                name     = _rng.choice(rule_names)
+                rule_obj = rule_lookup[name]
+                base     = base_rates[rt]
+                occ      = _rng.randint(55, 98)
 
-    entries.reverse()  # newest first
-    return entries
+                # Derive rate direction from the rule's action, not its name
+                action     = rule_obj.get("action", {})
+                pct_adj    = action.get("adjust_rate_percent")
+                dollar_adj = action.get("adjust_rate_dollars")
+                is_negative = (
+                    (pct_adj    is not None and pct_adj    < 0) or
+                    (dollar_adj is not None and dollar_adj < 0)
+                )
+                pct_change = round(
+                    _rng.uniform(-8, -2) if is_negative else _rng.uniform(3, 18), 1
+                )
+                new_rate   = round(base * (1 + pct_change / 100), 2)
+                actual     = _actual_vals_for(rule_obj, occ)
+
+                changes.append({
+                    "room_type":     rt,
+                    "rule_name":     name,
+                    "original_rate": base,
+                    "new_rate":      new_rate,
+                    "change_pct":    pct_change,
+                    "occupancy_pct": occ,
+                    "description":   _describe_from_conditions(rule_obj, rt, actual, pct_change),
+                })
+
+        cycles.append({
+            "cycle":       cycle_num,
+            "timestamp":   ts.strftime("%Y-%m-%d %H:%M:%S"),
+            "has_changes": bool(changes),
+            "changes":     changes,
+        })
+
+    cycles.reverse()  # newest first
+    return cycles
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -665,15 +761,28 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
 .cl-toggle button:hover:not(.active){background:#f1f5f9}
 .cl-stats{display:flex;gap:20px;margin-left:auto}
 .cl-stat{font-size:13px;color:var(--muted)}.cl-stat strong{color:var(--text)}
-.cl-row-change td{background:#f0fdf4 !important}
-.cl-row-nochange td{opacity:.55}
 .cl-cycle-num{font-weight:700;color:var(--pri);font-size:12px}
-.cl-type-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
-.cl-type-change{background:#dcfce7;color:#166534}
-.cl-type-nochange{background:#f1f5f9;color:#94a3b8}
 .cl-rate-arrow{font-weight:700;margin:0 4px}
 .cl-pct-up{color:var(--red);font-weight:600;font-size:12px}
 .cl-pct-down{color:var(--green);font-weight:600;font-size:12px}
+/* collapsed cycle row */
+.cl-group{cursor:pointer;transition:background .15s}
+.cl-group:hover{background:#f8fafc !important}
+.cl-group td{border-bottom:1px solid var(--border);padding:12px 14px}
+.cl-chevron{display:inline-block;width:18px;color:var(--muted);font-size:11px;transition:transform .2s;margin-right:4px}
+.cl-group.open .cl-chevron{transform:rotate(90deg)}
+.cl-summary{font-size:13px;color:var(--text);line-height:1.5}
+.cl-summary-count{font-weight:700;color:var(--pri)}
+.cl-impact{font-size:13px;white-space:nowrap}
+/* expanded detail rows */
+.cl-detail{display:none;background:#f8fafc}
+.cl-detail.visible{display:table-row}
+.cl-detail td{padding:10px 14px 10px 44px;font-size:13px;border-bottom:1px solid #f1f5f9}
+.cl-detail:last-child td{border-bottom:1px solid var(--border)}
+.cl-desc{color:var(--text);line-height:1.5}
+.cl-room-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:#e0f2fe;color:#0369a1;margin-right:6px}
+/* no-change rows (only visible in "all" mode) */
+.cl-nochange td{opacity:.5;padding:10px 14px;font-size:13px}
 </style>
 </head>
 <body>
@@ -790,13 +899,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
     <div class="page-hdr"><h1>Change Log</h1></div>
     <div class="cl-toolbar">
       <div class="cl-toggle" id="cl-toggle">
-        <button class="active" data-filter="all" onclick="setClFilter('all')">All Cycles</button>
-        <button data-filter="changes" onclick="setClFilter('changes')">Changes Only</button>
+        <button data-filter="all" onclick="setClFilter('all')">All Cycles</button>
+        <button class="active" data-filter="changes" onclick="setClFilter('changes')">Changes Only</button>
       </div>
       <div class="cl-stats" id="cl-stats"></div>
     </div>
     <table class="tbl" id="cl-table"><thead><tr>
-      <th style="width:60px">Cycle</th><th>Timestamp</th><th>Status</th><th>Room Type</th><th>Rule</th><th>Rate Change</th><th>Occupancy</th>
+      <th style="width:40px"></th><th>Cycle</th><th>Timestamp</th><th>Description</th><th style="width:140px">Impact</th>
     </tr></thead><tbody></tbody></table>
   </div>
 </div>
@@ -1094,7 +1203,7 @@ async function runSim(){
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 
 /* ── change log ── */
-let _clData=[],_clFilter='all';
+let _clData=[],_clFilter='changes';
 async function loadChangelog(){
   _clData=await api('/api/changelog');
   renderChangelog();
@@ -1106,44 +1215,83 @@ function setClFilter(f){
   });
   renderChangelog();
 }
+function toggleCycle(cycleNum){
+  const group=document.querySelector(`[data-cycle="${cycleNum}"]`);
+  if(!group) return;
+  const isOpen=group.classList.toggle('open');
+  document.querySelectorAll(`.cl-detail[data-parent="${cycleNum}"]`).forEach(r=>{
+    r.classList.toggle('visible',isOpen);
+  });
+}
 function renderChangelog(){
-  const filtered=_clFilter==='changes'?_clData.filter(e=>e.event_type==='rate_adjustment'):_clData;
-  const totalCycles=new Set(_clData.map(e=>e.cycle)).size;
-  const changeCycles=new Set(_clData.filter(e=>e.event_type==='rate_adjustment').map(e=>e.cycle)).size;
+  const cycles=_clFilter==='changes'?_clData.filter(c=>c.has_changes):_clData;
+  const totalCycles=_clData.length;
+  const changeCycles=_clData.filter(c=>c.has_changes).length;
   const noChangeCycles=totalCycles-changeCycles;
   document.getElementById('cl-stats').innerHTML=
     `<div class="cl-stat"><strong>${totalCycles}</strong> total cycles</div>`
     +`<div class="cl-stat"><strong>${changeCycles}</strong> with changes</div>`
     +`<div class="cl-stat"><strong>${noChangeCycles}</strong> no change</div>`;
   const tb=document.querySelector('#cl-table tbody');
-  if(!filtered.length){
-    tb.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:32px">No entries to display</td></tr>';
+  if(!cycles.length){
+    tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:32px">No entries to display</td></tr>';
     return;
   }
-  tb.innerHTML=filtered.map(e=>{
-    const isChange=e.event_type==='rate_adjustment';
-    const rowCls=isChange?'cl-row-change':'cl-row-nochange';
-    const badge=isChange
-      ?'<span class="cl-type-badge cl-type-change">Rate Changed</span>'
-      :'<span class="cl-type-badge cl-type-nochange">No Change</span>';
-    let rateHtml='&mdash;';
-    if(isChange){
-      const arrow=e.change_pct>0?'&uarr;':'&darr;';
-      const cls=e.change_pct>0?'cl-pct-up':'cl-pct-down';
-      const sign=e.change_pct>0?'+':'';
-      rateHtml=`$${e.original_rate.toFixed(2)} <span class="cl-rate-arrow">&rarr;</span> <strong>$${e.new_rate.toFixed(2)}</strong> `
-        +`<span class="${cls}">${sign}${e.change_pct}%</span>`;
+  let html='';
+  for(const c of cycles){
+    if(!c.has_changes){
+      /* no-change row — simple dim row, no expand */
+      html+=`<tr class="cl-nochange">
+        <td></td>
+        <td><span class="cl-cycle-num">#${c.cycle}</span></td>
+        <td>${esc(c.timestamp)}</td>
+        <td style="color:var(--muted)">No actionable conditions detected</td>
+        <td style="color:var(--muted)">&mdash;</td>
+      </tr>`;
+      continue;
     }
-    return `<tr class="${rowCls}">
-      <td><span class="cl-cycle-num">#${e.cycle}</span></td>
-      <td>${esc(e.timestamp)}</td>
-      <td>${badge}</td>
-      <td>${isChange?'<strong>'+esc(e.room_type)+'</strong>':'<span style="color:var(--muted)">&mdash;</span>'}</td>
-      <td>${isChange?esc(e.rule_name):'<span style="color:var(--muted)">&mdash;</span>'}</td>
-      <td>${rateHtml}</td>
-      <td>${isChange?e.occupancy_pct+'%':'<span style="color:var(--muted)">&mdash;</span>'}</td>
+    /* build summary description */
+    const n=c.changes.length;
+    const rooms=[...new Set(c.changes.map(ch=>ch.room_type))];
+    const summaryText=n===1
+      ? c.changes[0].description
+      : `${n} rate adjustments across ${rooms.join(', ')}`;
+    /* build impact column */
+    const pcts=c.changes.map(ch=>ch.change_pct);
+    let impactHtml='';
+    if(n===1){
+      const p=pcts[0];
+      const cls=p>0?'cl-pct-up':'cl-pct-down';
+      const sign=p>0?'+':'';
+      impactHtml=`<span class="${cls}">${sign}${p}%</span>`;
+    } else {
+      const mn=Math.min(...pcts), mx=Math.max(...pcts);
+      const fmtP=v=>{const cls=v>0?'cl-pct-up':'cl-pct-down';const s=v>0?'+':'';return `<span class="${cls}">${s}${v}%</span>`;};
+      impactHtml=mn===mx?fmtP(mn):`${fmtP(mn)} to ${fmtP(mx)}`;
+    }
+    /* collapsed group row */
+    html+=`<tr class="cl-group" data-cycle="${c.cycle}" onclick="toggleCycle(${c.cycle})">
+      <td><span class="cl-chevron">&#9654;</span></td>
+      <td><span class="cl-cycle-num">#${c.cycle}</span></td>
+      <td>${esc(c.timestamp)}</td>
+      <td><div class="cl-summary">${esc(summaryText)}</div></td>
+      <td class="cl-impact">${impactHtml}</td>
     </tr>`;
-  }).join('');
+    /* expanded detail rows (hidden by default) */
+    for(const ch of c.changes){
+      const cls=ch.change_pct>0?'cl-pct-up':'cl-pct-down';
+      const sign=ch.change_pct>0?'+':'';
+      const rateHtml=`$${ch.original_rate.toFixed(2)} <span class="cl-rate-arrow">&rarr;</span> <strong>$${ch.new_rate.toFixed(2)}</strong> `
+        +`<span class="${cls}">${sign}${ch.change_pct}%</span>`;
+      html+=`<tr class="cl-detail" data-parent="${c.cycle}">
+        <td></td>
+        <td><span class="cl-room-badge">${esc(ch.room_type)}</span></td>
+        <td colspan="2"><div class="cl-desc">${esc(ch.description)}</div></td>
+        <td class="cl-impact">${rateHtml}</td>
+      </tr>`;
+    }
+  }
+  tb.innerHTML=html;
 }
 
 /* ── init: no auto-load — wait for login ── */
