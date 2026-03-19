@@ -55,6 +55,7 @@ def test_parse_single_reservation(sample_raw_reservation, sample_api_response):
     assert res.reservation_id == "res_123"
     assert res.booking_window == (res.stay_date - res.booking_date).days
     assert res.rate == 150.0
+    assert res.base_rate == 150.0  # base_rate set to Mews rate on first parse
 
 
 def test_parse_api_response(sample_api_response):

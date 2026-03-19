@@ -4,19 +4,33 @@ Mews Connector API client.
 Encapsulates all HTTP communication with the Mews platform and returns
 raw JSON for downstream ETL processing.  Supports cursor-based pagination
 so large hotels receive complete data.
+
+The Mews Connector API limits the date interval to **100 hours** per
+request, so ``fetch_reservations`` automatically splits wider windows
+into successive chunks and merges the results.
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import requests
 
-from config import FETCH_END_UTC, FETCH_START_UTC, logger
+from config import FETCH_END_UTC, FETCH_START_UTC, MEWS_CLIENT_NAME, logger
 from models import Hotel
 
 # Mews limits each page to 1000 items by default.
 _DEFAULT_PAGE_SIZE = 1000
+
+# Mews caps each request's date interval at 100 hours.
+_MAX_WINDOW = timedelta(hours=96)  # keep a 4-hour margin
+
+
+def _parse_utc(ts: str) -> datetime:
+    """Parse an ISO-8601 UTC timestamp into a tz-aware datetime."""
+    ts = ts.rstrip("Z")
+    return datetime.fromisoformat(ts).replace(tzinfo=timezone.utc)
 
 
 class MewsApiClient:
@@ -25,30 +39,32 @@ class MewsApiClient:
     def __init__(self, hotel: Hotel) -> None:
         self._hotel = hotel
 
-    def fetch_reservations(
+    # ── Internal: single-window fetch with cursor pagination ──────────
+
+    def _fetch_window(
         self,
-        start_utc: str = FETCH_START_UTC,
-        end_utc: str = FETCH_END_UTC,
-        page_size: int = _DEFAULT_PAGE_SIZE,
+        url: str,
+        start_utc: str,
+        end_utc: str,
+        page_size: int,
     ) -> dict[str, Any]:
-        """Fetch all reservations, automatically paginating via Mews cursors.
-
-        Returns a merged response dict containing all pages of
-        ``Reservations`` and category data.
-
-        Raises ``requests.exceptions.HTTPError`` on non-2xx status codes.
-        """
-        url = f"{self._hotel.base_url.rstrip('/')}/reservations/getAll"
+        """Fetch reservations for a single ≤96-hour window, paginating."""
         base_payload: dict[str, Any] = {
             "ClientToken": self._hotel.client_token,
             "AccessToken": self._hotel.access_token,
-            "Client": "MAYA",
-            "EnterpriseIds": [self._hotel.enterprise_id],
+            "Client": MEWS_CLIENT_NAME,
             "StartUtc": start_utc,
             "EndUtc": end_utc,
-            "Extent": {"Reservations": True, "SpaceCategories": True},
+            "Extent": {
+                "Reservations": True,
+                "SpaceCategories": True,
+                "ResourceCategories": True,
+                "Items": True,
+            },
             "Limitation": {"Count": page_size},
         }
+        if self._hotel.enterprise_id:
+            base_payload["EnterpriseIds"] = [self._hotel.enterprise_id]
 
         merged: dict[str, Any] = {}
         cursor: str | None = None
@@ -72,21 +88,64 @@ class MewsApiClient:
             if not merged:
                 merged = data
             else:
-                # append reservation arrays from subsequent pages
                 for key in ("Reservations", "ReservationItems", "Items"):
                     if key in data and isinstance(data[key], list):
                         merged.setdefault(key, []).extend(data[key])
 
-            # check for next cursor
             next_cursor = data.get("Cursor")
             if not next_cursor or next_cursor == cursor:
                 break
             cursor = next_cursor
 
+        return merged
+
+    # ── Public: full-range fetch ──────────────────────────────────────
+
+    def fetch_reservations(
+        self,
+        start_utc: str = FETCH_START_UTC,
+        end_utc: str = FETCH_END_UTC,
+        page_size: int = _DEFAULT_PAGE_SIZE,
+    ) -> dict[str, Any]:
+        """Fetch all reservations between *start_utc* and *end_utc*.
+
+        Automatically splits wide date ranges into ≤96-hour windows
+        (Mews limit = 100 h) and merges the results.
+
+        Returns a merged response dict containing all ``Reservations``
+        and category data.
+
+        Raises ``requests.exceptions.HTTPError`` on non-2xx status codes.
+        """
+        url = f"{self._hotel.base_url.rstrip('/')}/reservations/getAll"
+        dt_start = _parse_utc(start_utc)
+        dt_end = _parse_utc(end_utc)
+
+        merged: dict[str, Any] = {}
+        window_start = dt_start
+        windows = 0
+
+        while window_start < dt_end:
+            window_end = min(window_start + _MAX_WINDOW, dt_end)
+            ws = window_start.strftime("%Y-%m-%dT%H:%M:%SZ")
+            we = window_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            chunk = self._fetch_window(url, ws, we, page_size)
+            windows += 1
+
+            if not merged:
+                merged = chunk
+            else:
+                for key in ("Reservations", "ReservationItems", "Items"):
+                    if key in chunk and isinstance(chunk[key], list):
+                        merged.setdefault(key, []).extend(chunk[key])
+
+            window_start = window_end
+
         total = len(merged.get("Reservations", merged.get("Items", [])))
         logger.info(
-            "Hotel %d: API fetch complete — %d page(s), %d reservations.",
-            self._hotel.id, page, total,
+            "Hotel %d: API fetch complete — %d window(s), %d reservations.",
+            self._hotel.id, windows, total,
         )
         return merged
 
@@ -113,7 +172,7 @@ class MewsApiClient:
         payload: dict[str, Any] = {
             "ClientToken": self._hotel.client_token,
             "AccessToken": self._hotel.access_token,
-            "Client": "MAYA",
+            "Client": MEWS_CLIENT_NAME,
             "RatePlanId": rate_plan_id,
             "SpaceCategoryId": space_category_id,
             "StartUtc": start_utc,
