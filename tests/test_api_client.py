@@ -20,6 +20,11 @@ class DummyResponse:
         return self._json
 
 
+# Use a short (< 96 h) window so the windowed fetch makes exactly one call.
+_SHORT_START = "2025-06-01T00:00:00Z"
+_SHORT_END = "2025-06-02T00:00:00Z"
+
+
 def test_fetch_reservations_success(monkeypatch):
     hotel = Hotel(id=1, base_url="https://example.com", client_token="ct", access_token="at", enterprise_id="e1")
     client = MewsApiClient(hotel)
@@ -31,7 +36,7 @@ def test_fetch_reservations_success(monkeypatch):
         return dummy
 
     monkeypatch.setattr("requests.post", fake_post)
-    result = client.fetch_reservations(start_utc="a", end_utc="b")
+    result = client.fetch_reservations(start_utc=_SHORT_START, end_utc=_SHORT_END)
     assert result == {"foo": "bar"}
 
 
@@ -45,11 +50,11 @@ def test_fetch_reservations_http_error(monkeypatch):
 
     monkeypatch.setattr("requests.post", fake_post)
     with pytest.raises(Exception):
-        client.fetch_reservations()
+        client.fetch_reservations(start_utc=_SHORT_START, end_utc=_SHORT_END)
 
 
 def test_fetch_reservations_pagination(monkeypatch):
-    """Verify that multiple pages are merged into one result."""
+    """Verify that multiple cursor pages within a single window are merged."""
     hotel = Hotel(id=3, base_url="https://example.com", client_token="ct",
                   access_token="at", enterprise_id="e1")
     client = MewsApiClient(hotel)
@@ -68,6 +73,35 @@ def test_fetch_reservations_pagination(monkeypatch):
         return next(pages)
 
     monkeypatch.setattr("requests.post", fake_post)
-    result = client.fetch_reservations(page_size=2)
+    # Use a short window so only one window chunk is needed (pagination
+    # still exercises multiple calls via the cursor).
+    result = client.fetch_reservations(
+        start_utc=_SHORT_START, end_utc=_SHORT_END, page_size=2,
+    )
     assert len(result["Reservations"]) == 3
     assert [r["Id"] for r in result["Reservations"]] == ["r1", "r2", "r3"]
+
+
+def test_fetch_reservations_multi_window(monkeypatch):
+    """Verify that a wide date range is split into multiple windows."""
+    hotel = Hotel(id=4, base_url="https://example.com", client_token="ct",
+                  access_token="at", enterprise_id="e1")
+    client = MewsApiClient(hotel)
+
+    call_count = 0
+
+    def fake_post(url, json, headers, timeout):
+        nonlocal call_count
+        call_count += 1
+        return DummyResponse(200, b"{}", json_data={
+            "Reservations": [{"Id": f"r{call_count}"}],
+        })
+
+    monkeypatch.setattr("requests.post", fake_post)
+    # 10-day window → at least 3 chunks (96 h ≈ 4 days each)
+    result = client.fetch_reservations(
+        start_utc="2025-06-01T00:00:00Z",
+        end_utc="2025-06-11T00:00:00Z",
+    )
+    assert call_count >= 3
+    assert len(result["Reservations"]) == call_count

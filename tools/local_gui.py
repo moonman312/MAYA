@@ -15,13 +15,30 @@ import http.server
 import json
 import os
 import socket
+import sys
 import tempfile
 import threading
+import time as _time
 import webbrowser
 from calendar import monthrange
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone as _tz
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
+
+# Ensure project root is importable so we can reach config.py / etl.py
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import requests as _requests  # noqa: E402 (after path fix)
+
+from config import (  # noqa: E402
+    MEWS_BASE_URL,
+    MEWS_CLIENT_NAME,
+    MEWS_DEMO_ACCESS_TOKEN_GROSS,
+    MEWS_DEMO_CLIENT_TOKEN,
+    MEWS_ENV,
+)
+from etl import parse_api_response as _parse_api_response  # noqa: E402
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -186,7 +203,13 @@ class AppState:
         self.rules: List[Dict[str, Any]] = [dict(r) for r in _INITIAL_RULES]
         self._next_id: int = 100
         self.authenticated: bool = False
+        self.hotels: List[Dict[str, Any]] = [dict(h) for h in _DEMO_HOTELS]
         self.current_hotel_id: int = 1
+        self._next_hotel_id: int = 100
+        # Connection page state
+        self.connection_log: List[Dict[str, Any]] = []
+        self.last_connection_test: Optional[Dict[str, Any]] = None
+        self.last_fetch_summary: Optional[Dict[str, Any]] = None
 
     def add_rule(self, data: Dict[str, Any]) -> Dict[str, Any]:
         rule = {
@@ -215,6 +238,33 @@ class AppState:
 
     def enabled_rules(self) -> List[Dict[str, Any]]:
         return [r for r in self.rules if r.get("enabled")]
+
+    def register_mews_hotel(self, enterprise_name: str, enterprise_id: str) -> Dict[str, Any]:
+        """Add a discovered Mews enterprise to the hotel list (or update if exists)."""
+        # Check if this enterprise is already registered
+        for h in self.hotels:
+            if h.get("enterprise_id") == enterprise_id:
+                h["name"] = enterprise_name
+                return h
+        hotel: Dict[str, Any] = {
+            "id": self._next_hotel_id,
+            "name": enterprise_name,
+            "group": "Mews Connected",
+            "city": "Live",
+            "rooms": 0,
+            "enterprise_id": enterprise_id,
+            "source": "mews",
+        }
+        self._next_hotel_id += 1
+        self.hotels.append(hotel)
+        return hotel
+
+    def add_connection_log(self, entry: Dict[str, Any]) -> None:
+        """Prepend a timestamped entry to the connection log (newest first)."""
+        entry.setdefault("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        self.connection_log.insert(0, entry)
+        if len(self.connection_log) > 50:
+            self.connection_log = self.connection_log[:50]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -519,12 +569,21 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/room_types":
             self._json(_ROOM_TYPES)
         elif path == "/api/hotels":
-            self._json(_DEMO_HOTELS)
+            self._json(self.state.hotels)
         elif path == "/api/changelog":
             self._json(_gen_changelog())
         elif path == "/api/session":
-            hotel = next((h for h in _DEMO_HOTELS if h["id"] == self.state.current_hotel_id), _DEMO_HOTELS[0])
+            hotel = next((h for h in self.state.hotels if h["id"] == self.state.current_hotel_id), self.state.hotels[0])
             self._json({"authenticated": self.state.authenticated, "hotel": hotel})
+        elif path == "/api/connection/status":
+            self._json({
+                "environment": MEWS_ENV,
+                "base_url": MEWS_BASE_URL,
+                "client_name": MEWS_CLIENT_NAME,
+                "last_test": self.state.last_connection_test,
+                "last_fetch": self.state.last_fetch_summary,
+                "log": self.state.connection_log,
+            })
         else:
             self._json({"error": "not found"}, 404)
 
@@ -537,15 +596,15 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             password = body.get("password", "").strip()
             if email and password:
                 self.state.authenticated = True
-                hotel = next((h for h in _DEMO_HOTELS if h["id"] == self.state.current_hotel_id), _DEMO_HOTELS[0])
+                hotel = next((h for h in self.state.hotels if h["id"] == self.state.current_hotel_id), self.state.hotels[0])
                 self._json({"ok": True, "hotel": hotel})
             else:
                 self._json({"error": "Email and password are required."}, 401)
         elif path == "/api/switch-hotel":
             hotel_id = body.get("hotel_id")
-            if hotel_id and any(h["id"] == hotel_id for h in _DEMO_HOTELS):
+            if hotel_id and any(h["id"] == hotel_id for h in self.state.hotels):
                 self.state.current_hotel_id = hotel_id
-                hotel = next(h for h in _DEMO_HOTELS if h["id"] == hotel_id)
+                hotel = next(h for h in self.state.hotels if h["id"] == hotel_id)
                 self._json({"ok": True, "hotel": hotel})
             else:
                 self._json({"error": "Invalid hotel"}, 400)
@@ -566,8 +625,167 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/shutdown":
             self._json({"ok": True})
             threading.Thread(target=self.server.shutdown, daemon=True).start()
+        elif path == "/api/connection/test":
+            self._handle_connection_test()
+        elif path == "/api/connection/fetch":
+            self._handle_connection_fetch()
         else:
             self._json({"error": "not found"}, 404)
+
+    # ── Connection endpoint handlers ─────────────────────────────────
+
+    def _handle_connection_test(self) -> None:
+        """POST /api/connection/test — hit Mews configuration/get."""
+        try:
+            url = f"{MEWS_BASE_URL.rstrip('/')}/configuration/get"
+            payload = {
+                "ClientToken": MEWS_DEMO_CLIENT_TOKEN,
+                "AccessToken": MEWS_DEMO_ACCESS_TOKEN_GROSS,
+                "Client": MEWS_CLIENT_NAME,
+            }
+            t0 = _time.time()
+            resp = _requests.post(
+                url, json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=30,
+            )
+            latency_ms = round((_time.time() - t0) * 1000)
+            resp.raise_for_status()
+            data = resp.json()
+
+            enterprise = data.get("Enterprise", data.get("Enterprises", [{}]))
+            if isinstance(enterprise, list):
+                enterprise = enterprise[0] if enterprise else {}
+            enterprise_name = enterprise.get("Name", "(unknown)")
+            enterprise_id = enterprise.get("Id", "(unknown)")
+
+            result: Dict[str, Any] = {
+                "success": True,
+                "enterprise_name": enterprise_name,
+                "enterprise_id": enterprise_id,
+                "latency_ms": latency_ms,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            # Register the enterprise as a hotel and auto-switch
+            hotel = self.state.register_mews_hotel(enterprise_name, enterprise_id)
+            self.state.current_hotel_id = hotel["id"]
+            result["hotel"] = hotel
+
+            self.state.last_connection_test = result
+            self.state.add_connection_log({
+                "type": "test", "success": True,
+                "message": f"Connected to {enterprise_name} ({latency_ms}ms)",
+            })
+            self._json(result)
+        except _requests.exceptions.ConnectionError as exc:
+            err: Dict[str, Any] = {
+                "success": False, "error": f"Connection error: {exc}",
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            self.state.last_connection_test = err
+            self.state.add_connection_log({"type": "test", "success": False, "message": f"Connection failed: {exc}"})
+            self._json(err, 502)
+        except _requests.exceptions.HTTPError as exc:
+            err = {
+                "success": False,
+                "error": f"HTTP {exc.response.status_code}: {exc.response.text[:200]}",
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            self.state.last_connection_test = err
+            self.state.add_connection_log({"type": "test", "success": False, "message": f"HTTP error: {exc.response.status_code}"})
+            self._json(err, 502)
+        except Exception as exc:
+            err = {
+                "success": False, "error": str(exc),
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            self.state.last_connection_test = err
+            self.state.add_connection_log({"type": "test", "success": False, "message": f"Error: {exc}"})
+            self._json(err, 500)
+
+    def _handle_connection_fetch(self) -> None:
+        """POST /api/connection/fetch — fetch reservations + ETL parse."""
+        try:
+            now = datetime.now(_tz.utc)
+            start = (now - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            end = (now + timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            url = f"{MEWS_BASE_URL.rstrip('/')}/reservations/getAll"
+            payload: Dict[str, Any] = {
+                "ClientToken": MEWS_DEMO_CLIENT_TOKEN,
+                "AccessToken": MEWS_DEMO_ACCESS_TOKEN_GROSS,
+                "Client": MEWS_CLIENT_NAME,
+                "StartUtc": start,
+                "EndUtc": end,
+                "Extent": {
+                    "Reservations": True,
+                    "SpaceCategories": True,
+                    "ResourceCategories": True,
+                    "Items": True,
+                },
+                "Limitation": {"Count": 100},
+            }
+            t0 = _time.time()
+            resp = _requests.post(
+                url, json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=60,
+            )
+            latency_ms = round((_time.time() - t0) * 1000)
+            resp.raise_for_status()
+            raw_data = resp.json()
+
+            reservations, room_types = _parse_api_response(raw_data, hotel_id=0)
+
+            rates = [r.rate for r in reservations if r.rate is not None]
+            rt_names = sorted(set(rt.name for rt in room_types))
+            stay_dates = [r.stay_date for r in reservations if r.stay_date is not None]
+
+            summary: Dict[str, Any] = {
+                "success": True,
+                "reservation_count": len(reservations),
+                "room_types": rt_names,
+                "room_type_count": len(room_types),
+                "rate_min": round(min(rates), 2) if rates else None,
+                "rate_max": round(max(rates), 2) if rates else None,
+                "rate_avg": round(sum(rates) / len(rates), 2) if rates else None,
+                "date_range_start": min(stay_dates).strftime("%Y-%m-%d") if stay_dates else None,
+                "date_range_end": max(stay_dates).strftime("%Y-%m-%d") if stay_dates else None,
+                "fetch_window": f"{start} → {end}",
+                "latency_ms": latency_ms,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            self.state.last_fetch_summary = summary
+            self.state.add_connection_log({
+                "type": "fetch", "success": True,
+                "message": f"Fetched {len(reservations)} reservations, {len(room_types)} room types ({latency_ms}ms)",
+            })
+            self._json(summary)
+        except _requests.exceptions.ConnectionError as exc:
+            err: Dict[str, Any] = {
+                "success": False, "error": f"Connection error: {exc}",
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            self.state.last_fetch_summary = err
+            self.state.add_connection_log({"type": "fetch", "success": False, "message": str(exc)})
+            self._json(err, 502)
+        except _requests.exceptions.HTTPError as exc:
+            err = {
+                "success": False,
+                "error": f"HTTP {exc.response.status_code}: {exc.response.text[:200]}",
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            self.state.last_fetch_summary = err
+            self.state.add_connection_log({"type": "fetch", "success": False, "message": f"HTTP {exc.response.status_code}"})
+            self._json(err, 502)
+        except Exception as exc:
+            err = {
+                "success": False, "error": str(exc),
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            self.state.last_fetch_summary = err
+            self.state.add_connection_log({"type": "fetch", "success": False, "message": str(exc)})
+            self._json(err, 500)
 
     def do_DELETE(self) -> None:
         path = urlparse(self.path).path
@@ -846,6 +1064,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
 .cl-room-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:#e0f2fe;color:#0369a1;margin-right:6px}
 /* no-change rows (only visible in "all" mode) */
 .cl-nochange td{opacity:.5;padding:10px 14px;font-size:13px}
+/* ── connection page ── */
+.conn-spin{display:inline-block;width:14px;height:14px;border:2px solid var(--border);
+  border-top-color:var(--pri);border-radius:50%;animation:conn-rotate .6s linear infinite;margin-right:6px;vertical-align:middle}
+@keyframes conn-rotate{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
@@ -902,6 +1124,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   <a href="#" class="nav-item" data-page="changelog">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>
     Change Log</a>
+  <a href="#" class="nav-item" data-page="connection">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+    Connection</a>
 
   <div class="sidebar-footer">
     <button class="logout-btn" onclick="handleLogout()">
@@ -971,6 +1196,60 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
       <th style="width:40px"></th><th>Cycle</th><th>Timestamp</th><th>Description</th><th style="width:140px">Impact</th>
     </tr></thead><tbody></tbody></table>
   </div>
+
+  <!-- Connection -->
+  <div class="page" id="pg-connection">
+    <div class="page-hdr"><h1>Mews Connection</h1></div>
+
+    <!-- Status Cards -->
+    <div class="cards" id="conn-cards">
+      <div class="card">
+        <div class="card-label">Environment</div>
+        <div class="card-value" id="conn-env">--</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Base URL</div>
+        <div class="card-value" id="conn-url" style="font-size:13px;word-break:break-all">--</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Status</div>
+        <div class="card-value" id="conn-status"><span class="badge badge-amber">Untested</span></div>
+      </div>
+      <div class="card">
+        <div class="card-label">Enterprise</div>
+        <div class="card-value" id="conn-enterprise" style="font-size:16px">--</div>
+      </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div style="display:flex;gap:12px;margin-bottom:24px">
+      <button class="btn btn-pri" id="conn-test-btn" onclick="testConnection()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        Test Connection
+      </button>
+      <button class="btn btn-outline" id="conn-fetch-btn" onclick="fetchReservations()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Fetch Reservations
+      </button>
+    </div>
+
+    <!-- Fetch Results Panel -->
+    <div id="conn-results" style="display:none">
+      <h3 style="font-size:15px;font-weight:600;margin-bottom:14px">Fetch Results</h3>
+      <div class="cards" id="conn-fetch-cards"></div>
+      <div id="conn-room-types" style="margin-bottom:24px"></div>
+    </div>
+
+    <!-- Connection Log -->
+    <h3 style="font-size:15px;font-weight:600;margin-bottom:14px">Connection Log</h3>
+    <div style="background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);max-height:280px;overflow-y:auto">
+      <table class="tbl" id="conn-log-table">
+        <thead><tr><th style="width:160px">Timestamp</th><th style="width:70px">Type</th><th>Message</th><th style="width:70px">Status</th></tr></thead>
+        <tbody><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:24px">No connection tests yet. Click &ldquo;Test Connection&rdquo; to begin.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
 </div>
 
 <!-- Add-Rule Modal -->
@@ -1116,6 +1395,7 @@ function load(pg){
   else if(pg==='calendar') loadCalendar();
   else if(pg==='simulator') loadSimInput();
   else if(pg==='changelog') loadChangelog();
+  else if(pg==='connection') loadConnectionStatus();
 }
 
 /* ── API helper ── */
@@ -1421,6 +1701,118 @@ function renderChangelog(){
     }
   }
   tb.innerHTML=html;
+}
+
+/* ── connection ── */
+async function loadConnectionStatus(){
+  const d=await api('/api/connection/status');
+  document.getElementById('conn-env').textContent=d.environment||'--';
+  document.getElementById('conn-url').textContent=d.base_url||'--';
+  if(d.last_test){
+    if(d.last_test.success){
+      document.getElementById('conn-status').innerHTML='<span class="badge badge-green">Connected</span>';
+      document.getElementById('conn-enterprise').textContent=d.last_test.enterprise_name||'--';
+    }else{
+      document.getElementById('conn-status').innerHTML='<span class="badge badge-red">Failed</span>';
+      document.getElementById('conn-enterprise').textContent='--';
+    }
+  }else{
+    document.getElementById('conn-status').innerHTML='<span class="badge badge-amber">Untested</span>';
+    document.getElementById('conn-enterprise').textContent='--';
+  }
+  if(d.last_fetch && d.last_fetch.success) showFetchResults(d.last_fetch);
+  renderConnectionLog(d.log||[]);
+}
+
+async function testConnection(){
+  const btn=document.getElementById('conn-test-btn');
+  btn.disabled=true;
+  btn.innerHTML='<span class="conn-spin"></span> Testing\u2026';
+  try{
+    const r=await api('/api/connection/test',{method:'POST'});
+    if(r.success){
+      document.getElementById('conn-status').innerHTML='<span class="badge badge-green">Connected</span>';
+      document.getElementById('conn-enterprise').textContent=r.enterprise_name||'--';
+      // Refresh hotel list and switch to the newly connected property
+      if(r.hotel){
+        await loadHotelDropdown();
+        updatePropSelector(r.hotel);
+        _currentHotelId=r.hotel.id;
+      }
+    }else{
+      document.getElementById('conn-status').innerHTML='<span class="badge badge-red">Failed</span>';
+      document.getElementById('conn-enterprise').textContent='--';
+    }
+  }catch(e){
+    document.getElementById('conn-status').innerHTML='<span class="badge badge-red">Error</span>';
+  }
+  btn.disabled=false;
+  btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Test Connection';
+  const s=await api('/api/connection/status');
+  renderConnectionLog(s.log||[]);
+}
+
+async function fetchReservations(){
+  const btn=document.getElementById('conn-fetch-btn');
+  btn.disabled=true;
+  btn.innerHTML='<span class="conn-spin"></span> Fetching\u2026';
+  try{
+    const r=await api('/api/connection/fetch',{method:'POST'});
+    if(r.success){
+      showFetchResults(r);
+    }else{
+      document.getElementById('conn-results').style.display='block';
+      document.getElementById('conn-fetch-cards').innerHTML=
+        '<div class="card"><div class="card-label">Error</div><div class="card-value" style="font-size:14px;color:var(--red)">'+esc(r.error||'Fetch failed')+'</div></div>';
+      document.getElementById('conn-room-types').innerHTML='';
+    }
+  }catch(e){
+    document.getElementById('conn-results').style.display='block';
+    document.getElementById('conn-fetch-cards').innerHTML=
+      '<div class="card"><div class="card-label">Error</div><div class="card-value" style="font-size:14px;color:var(--red)">Connection error</div></div>';
+    document.getElementById('conn-room-types').innerHTML='';
+  }
+  btn.disabled=false;
+  btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Fetch Reservations';
+  const s=await api('/api/connection/status');
+  renderConnectionLog(s.log||[]);
+}
+
+function showFetchResults(r){
+  document.getElementById('conn-results').style.display='block';
+  let c='<div class="card"><div class="card-label">Reservations</div><div class="card-value">'+r.reservation_count+'</div></div>';
+  c+='<div class="card"><div class="card-label">Room Types</div><div class="card-value">'+r.room_type_count+'</div></div>';
+  if(r.rate_min!=null&&r.rate_max!=null){
+    c+='<div class="card"><div class="card-label">Rate Range</div><div class="card-value" style="font-size:18px">$'+r.rate_min.toLocaleString()+' &ndash; $'+r.rate_max.toLocaleString()+'</div></div>';
+  }
+  if(r.rate_avg!=null){
+    c+='<div class="card"><div class="card-label">Avg Rate</div><div class="card-value">$'+r.rate_avg.toLocaleString()+'</div></div>';
+  }
+  c+='<div class="card"><div class="card-label">Latency</div><div class="card-value">'+r.latency_ms+'<span style="font-size:14px;color:var(--muted)">ms</span></div></div>';
+  document.getElementById('conn-fetch-cards').innerHTML=c;
+  if(r.room_types&&r.room_types.length){
+    document.getElementById('conn-room-types').innerHTML=
+      '<div style="margin-top:8px">'+r.room_types.map(t=>'<span class="tag">'+esc(t)+'</span>').join(' ')+'</div>';
+  }else{
+    document.getElementById('conn-room-types').innerHTML='';
+  }
+}
+
+function renderConnectionLog(log){
+  const tb=document.querySelector('#conn-log-table tbody');
+  if(!log.length){
+    tb.innerHTML='<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:24px">No connection tests yet. Click \u201cTest Connection\u201d to begin.</td></tr>';
+    return;
+  }
+  tb.innerHTML=log.map(e=>{
+    const badge=e.success
+      ?'<span class="badge badge-green">OK</span>'
+      :'<span class="badge badge-red">Fail</span>';
+    const typeBadge=e.type==='test'
+      ?'<span style="color:var(--pri);font-weight:600;font-size:12px">TEST</span>'
+      :'<span style="color:#d97706;font-weight:600;font-size:12px">FETCH</span>';
+    return '<tr><td>'+esc(e.timestamp||'')+'</td><td>'+typeBadge+'</td><td>'+esc(e.message||'')+'</td><td>'+badge+'</td></tr>';
+  }).join('');
 }
 
 /* ── init: no auto-load — wait for login ── */
