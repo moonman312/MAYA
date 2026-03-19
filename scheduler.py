@@ -19,8 +19,10 @@ from db import (
     get_connection,
     insert_audit_log,
     insert_default_rules,
+    insert_rule_applications,
     load_all_hotels,
     load_metrics,
+    load_rule_applications,
     load_rule_configs,
     upsert_metrics,
     upsert_reservations,
@@ -33,7 +35,13 @@ from rules_engine import apply_rules
 
 
 def process_hotel(hotel: Hotel, dsn: str = DB_DSN) -> list[Reservation]:
-    """Full pipeline for one hotel: fetch → ETL → store → metrics → rules."""
+    """Full pipeline for one hotel: fetch → ETL → metrics → rules → store.
+
+    Rate adjustments are computed from ``base_rate`` (the original Mews rate
+    set on first import and never overwritten).  This guarantees idempotency:
+    applying the same rule twice under the same conditions yields the same
+    target rate rather than compounding the adjustment.
+    """
     logger.info("Processing hotel %d: %s", hotel.id, hotel.name)
 
     client = MewsApiClient(hotel)
@@ -47,7 +55,6 @@ def process_hotel(hotel: Hotel, dsn: str = DB_DSN) -> list[Reservation]:
 
     with get_connection(dsn) as conn:
         upsert_room_types(conn, hotel.id, room_types)
-        upsert_reservations(conn, hotel.id, reservations)
 
         # load previous metrics so pickup_rate = current − previous occupancy
         previous = load_metrics(conn, hotel.id)
@@ -60,31 +67,49 @@ def process_hotel(hotel: Hotel, dsn: str = DB_DSN) -> list[Reservation]:
 
         insert_default_rules(conn, hotel.id)
         rule_cfgs = load_rule_configs(conn, hotel.id)
+        # Load which (rule_id, stay_date) pairs have already fired — ever.
+        applied = load_rule_applications(conn, hotel.id)
 
-    # capture original rates so we can detect changes
-    original_rates = {res.reservation_id: res.rate for res in reservations if res.rate is not None}
+    # Capture pre-rule rates for the audit log.
+    pre_rule_rates = {res.reservation_id: res.rate for res in reservations if res.rate is not None}
 
-    fired = apply_rules(reservations, rule_cfgs, total_rooms=hotel.total_rooms_per_type)
-    logger.info("Hotel %d: %d rule(s), %d fired.", hotel.id, len(rule_cfgs), fired)
+    fired, newly_applied = apply_rules(
+        reservations, rule_cfgs,
+        total_rooms=hotel.total_rooms_per_type,
+        applied=applied,
+    )
+    logger.info(
+        "Hotel %d: %d rule(s), %d newly fired this cycle.",
+        hotel.id, len(rule_cfgs), fired,
+    )
 
-    # audit-log any rate changes
-    if fired:
-        with get_connection(dsn) as conn:
-            for res in reservations:
-                orig = original_rates.get(res.reservation_id)
-                if orig is not None and res.rate != orig:
-                    insert_audit_log(
-                        conn, hotel.id,
-                        event_type="rate_adjustment",
-                        entity_type="reservation",
-                        entity_id=res.reservation_id or "",
-                        detail={
-                            "room_type": res.room_type,
-                            "original_rate": orig,
-                            "new_rate": res.rate,
-                            "stay_date": str(res.stay_date),
-                        },
-                    )
+    # Persist reservations AFTER rules so adjusted rates are stored.
+    # The DB COALESCE ensures base_rate is set once and never overwritten.
+    with get_connection(dsn) as conn:
+        upsert_reservations(conn, hotel.id, reservations)
+
+        # Persist newly applied (rule_id, stay_date) pairs so they are
+        # skipped on all future cycles.
+        if newly_applied:
+            insert_rule_applications(conn, hotel.id, newly_applied)
+
+        # Audit-log individual reservations whose rate changed this cycle.
+        for res in reservations:
+            pre = pre_rule_rates.get(res.reservation_id)
+            if pre is not None and res.rate != pre:
+                insert_audit_log(
+                    conn, hotel.id,
+                    event_type="rate_adjustment",
+                    entity_type="reservation",
+                    entity_id=res.reservation_id or "",
+                    detail={
+                        "room_type": res.room_type,
+                        "base_rate": res.base_rate,
+                        "pre_rule_rate": pre,
+                        "adjusted_rate": res.rate,
+                        "stay_date": str(res.stay_date),
+                    },
+                )
 
     return reservations
 

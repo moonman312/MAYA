@@ -56,6 +56,7 @@ class Reservation:
     booking_date: Optional[datetime] = None
     booking_window: Optional[int] = None
     rate: Optional[float] = None
+    base_rate: Optional[float] = None
     occupancy: Optional[int] = None
     pickup_rate: Optional[int] = None
     raw_json: Optional[dict[str, Any]] = None
