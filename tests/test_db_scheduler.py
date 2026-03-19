@@ -144,6 +144,11 @@ def test_process_hotel_pipeline(monkeypatch, api_responses):
     )
     monkeypatch.setattr(db, "load_rule_configs", lambda conn, h: [dummy_rule])
     monkeypatch.setattr(scheduler_mod, "load_rule_configs", lambda conn, h: [dummy_rule])
+    # fire-once tracking: no previously applied pairs, persist is a no-op
+    monkeypatch.setattr(db, "load_rule_applications", lambda conn, h: set())
+    monkeypatch.setattr(scheduler_mod, "load_rule_applications", lambda conn, h: set())
+    monkeypatch.setattr(db, "insert_rule_applications", lambda conn, h, apps: None)
+    monkeypatch.setattr(scheduler_mod, "insert_rule_applications", lambda conn, h, apps: None)
 
     # patch get_connection to yield dummy conn so no DB needed
     from contextlib import contextmanager

@@ -12,6 +12,7 @@ At runtime, ``RuleConfig`` objects are evaluated directly against
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from config import logger
@@ -72,25 +73,57 @@ def apply_rules(
     reservations: list[Reservation],
     rules: list[RuleConfig],
     total_rooms: int = 100,
-) -> int:
-    """Evaluate every rule against every reservation. Returns fire count.
+    applied: set[tuple[int, date]] | None = None,
+) -> tuple[int, set[tuple[int, date]]]:
+    """Evaluate every rule against every reservation.
 
-    Modifies ``reservation.rate`` in place when a rule fires.
+    Rules fire **at most once per stay date**, ever.  Pass the set of
+    previously applied ``(rule_id, stay_date)`` pairs via *applied*; any
+    matching pair is skipped.  Newly fired pairs are returned as the second
+    element of the return tuple so the caller can persist them.
+
+    Rules without a database id (e.g. in unit tests) bypass tracking and
+    always fire when conditions match.
+
+    Returns ``(fired_count, newly_applied)`` where *fired_count* is the number
+    of unique ``(rule, stay_date)`` pairs triggered this cycle and
+    *newly_applied* is the set of those pairs to be written to the DB.
+
+    Modifies ``reservation.rate`` in place.
     """
+    applied = applied or set()
+    newly_applied: set[tuple[int, date]] = set()
     fired = 0
+
     for res in reservations:
         if res.rate is None:
             continue
+        stay_date = res.stay_date.date() if res.stay_date else None
+        effective_rate = res.rate  # start from the current Mews rate
         eval_dict = reservation_to_eval_dict(res, total_rooms)
+
         for rule in rules:
+            # Rules with a DB id are tracked; skip if already applied on this date.
+            if rule.id is not None:
+                key = (rule.id, stay_date)
+                if key in applied:
+                    continue  # fired in a prior cycle — permanent skip
+
             if rule_matches(rule, eval_dict):
-                original = res.rate
-                res.rate = compute_new_rate(res.rate, rule.action)
-                # update eval_dict so stacked rules see the updated rate
-                eval_dict["rate"] = res.rate
+                effective_rate = compute_new_rate(effective_rate, rule.action)
+                eval_dict["rate"] = effective_rate
                 logger.info(
-                    "Rule [%s]: reservation %s rate %.2f -> %.2f",
-                    rule.rule_name, res.reservation_id, original, res.rate,
+                    "Rule [%s]: reservation %s %.2f -> %.2f (stay %s)",
+                    rule.rule_name, res.reservation_id, res.rate, effective_rate, stay_date,
                 )
-                fired += 1
-    return fired
+                # Count and record each unique (rule, date) pair once.
+                if rule.id is not None:
+                    key = (rule.id, stay_date)
+                    if key not in newly_applied:
+                        newly_applied.add(key)
+                        fired += 1
+                else:
+                    fired += 1  # untracked rules (tests): count every match
+
+        res.rate = effective_rate
+    return fired, newly_applied

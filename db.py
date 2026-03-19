@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS hotels (
     client_token        TEXT NOT NULL,
     access_token        TEXT NOT NULL,
     enterprise_id       TEXT NOT NULL,
-    base_url            TEXT NOT NULL DEFAULT 'https://api.mews.com/api/connector/v1',
+    base_url            TEXT NOT NULL DEFAULT 'https://api.mews-demo.com/api/connector/v1',
     total_rooms_per_type INTEGER NOT NULL DEFAULT 100,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -65,11 +65,13 @@ CREATE TABLE IF NOT EXISTS reservations (
     booking_date    TIMESTAMPTZ,
     booking_window  INTEGER,
     rate            DOUBLE PRECISION,
+    base_rate       DOUBLE PRECISION,
     raw_json        JSONB,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (hotel_id, reservation_id)
 );
+ALTER TABLE reservations ADD COLUMN IF NOT EXISTS base_rate DOUBLE PRECISION;
 
 CREATE TABLE IF NOT EXISTS metrics (
     id          SERIAL PRIMARY KEY,
@@ -93,6 +95,16 @@ CREATE TABLE IF NOT EXISTS rules (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS rule_applications (
+    id          SERIAL PRIMARY KEY,
+    hotel_id    INTEGER NOT NULL REFERENCES hotels(id) ON DELETE CASCADE,
+    rule_id     INTEGER NOT NULL REFERENCES rules(id) ON DELETE CASCADE,
+    stay_date   DATE NOT NULL,
+    applied_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (hotel_id, rule_id, stay_date)
+);
+CREATE INDEX IF NOT EXISTS idx_rule_applications_hotel ON rule_applications (hotel_id, stay_date);
 
 CREATE TABLE IF NOT EXISTS audit_log (
     id          SERIAL PRIMARY KEY,
@@ -207,8 +219,8 @@ def upsert_reservations(
                 """
                 INSERT INTO reservations
                     (hotel_id, reservation_id, room_type, stay_date,
-                     booking_date, booking_window, rate, raw_json, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                     booking_date, booking_window, rate, base_rate, raw_json, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (hotel_id, reservation_id)
                 DO UPDATE SET
                     room_type      = EXCLUDED.room_type,
@@ -216,13 +228,14 @@ def upsert_reservations(
                     booking_date   = EXCLUDED.booking_date,
                     booking_window = EXCLUDED.booking_window,
                     rate           = EXCLUDED.rate,
+                    base_rate      = COALESCE(reservations.base_rate, EXCLUDED.base_rate),
                     raw_json       = EXCLUDED.raw_json,
                     updated_at     = NOW()
                 """,
                 (
                     hotel_id, res.reservation_id, res.room_type,
                     res.stay_date, res.booking_date, res.booking_window,
-                    res.rate, raw,
+                    res.rate, res.base_rate, raw,
                 ),
             )
     return len(reservations)
@@ -236,7 +249,7 @@ def load_reservations(
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(
             "SELECT id, hotel_id, reservation_id, room_type, stay_date, "
-            "booking_date, booking_window, rate "
+            "booking_date, booking_window, rate, base_rate "
             "FROM reservations WHERE hotel_id = %s ORDER BY stay_date",
             (hotel_id,),
         )
@@ -247,6 +260,7 @@ def load_reservations(
                 room_type=r["room_type"],
                 stay_date=r["stay_date"], booking_date=r["booking_date"],
                 booking_window=r["booking_window"], rate=r["rate"],
+                base_rate=r["base_rate"],
             )
             for r in cur.fetchall()
         ]
@@ -432,6 +446,39 @@ def insert_default_rules(
             for rule in defaults:
                 upsert_rule(conn, hotel_id, rule)
             logger.info("Seeded %d default rules for hotel %d.", len(defaults), hotel_id)
+
+
+# ── Rule applications ─────────────────────────────────────────────────────────
+
+def load_rule_applications(
+    conn: psycopg2.extensions.connection,
+    hotel_id: int,
+) -> set[tuple[int, date]]:
+    """Return the set of (rule_id, stay_date) pairs already applied for this hotel."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT rule_id, stay_date FROM rule_applications WHERE hotel_id = %s",
+            (hotel_id,),
+        )
+        return {(row[0], row[1]) for row in cur.fetchall()}
+
+
+def insert_rule_applications(
+    conn: psycopg2.extensions.connection,
+    hotel_id: int,
+    applications: set[tuple[int, date]],
+) -> None:
+    """Persist newly applied (rule_id, stay_date) pairs. Silently ignores duplicates."""
+    with conn.cursor() as cur:
+        for rule_id, stay_date in applications:
+            cur.execute(
+                """
+                INSERT INTO rule_applications (hotel_id, rule_id, stay_date)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (hotel_id, rule_id, stay_date) DO NOTHING
+                """,
+                (hotel_id, rule_id, stay_date),
+            )
 
 
 # ── Audit log ────────────────────────────────────────────────────────────────
