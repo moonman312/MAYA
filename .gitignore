@@ -14,7 +14,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
+!/maya-rms/src/lib/
 lib64/
 parts/
 sdist/
