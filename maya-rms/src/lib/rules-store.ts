@@ -15,6 +15,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 let memoryRules: RuleConfig[] = INITIAL_RULES.map((r) => ({ ...r }));
 let nextId = 100;
 
+/** @internal Reset in-memory state — for tests only. */
+export function _resetForTesting(): void {
+  memoryRules = INITIAL_RULES.map((r) => ({ ...r }));
+  nextId = 100;
+}
+
 /* ── List ─────────────────────────────────────────────────────── */
 
 export async function listRules(supabase?: SupabaseClient): Promise<RuleConfig[]> {
