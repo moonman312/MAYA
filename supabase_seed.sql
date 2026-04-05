@@ -6,6 +6,7 @@
 -- IMPORTANT:
 -- - Update the email values below to users that already exist in auth.users.
 -- - This script is idempotent for hotels/memberships/settings/room types.
+-- - Hotels are upserted by seed hotel name (no ON CONFLICT(name): works even if UNIQUE(name) is missing).
 
 do $$
 declare
@@ -52,38 +53,74 @@ begin
   where lower(u.email) = lower(v_manager_email)
   limit 1;
 
-  insert into hotels (name, timezone, currency, is_active, total_rooms_per_type, external_enterprise_id)
-  values ('The Grand Marina', 'America/Los_Angeles', 'USD', true, 100, 'enterprise-grand-marina')
-  on conflict (name) do update
-    set timezone = excluded.timezone,
-        currency = excluded.currency,
-        is_active = excluded.is_active,
-        total_rooms_per_type = excluded.total_rooms_per_type,
-        external_enterprise_id = excluded.external_enterprise_id,
-        updated_at = now()
-  returning id into v_hotel_1_id;
+  select h.id
+  into v_hotel_1_id
+  from hotels h
+  where h.name = 'The Grand Marina'
+  order by h.created_at asc
+  limit 1;
 
-  insert into hotels (name, timezone, currency, is_active, total_rooms_per_type, external_enterprise_id)
-  values ('Skyline Tower Hotel', 'America/Los_Angeles', 'USD', true, 120, 'enterprise-skyline-tower')
-  on conflict (name) do update
-    set timezone = excluded.timezone,
-        currency = excluded.currency,
-        is_active = excluded.is_active,
-        total_rooms_per_type = excluded.total_rooms_per_type,
-        external_enterprise_id = excluded.external_enterprise_id,
-        updated_at = now()
-  returning id into v_hotel_2_id;
+  if v_hotel_1_id is null then
+    insert into hotels (name, timezone, currency, is_active, total_rooms_per_type, external_enterprise_id)
+    values ('The Grand Marina', 'America/Los_Angeles', 'USD', true, 100, 'enterprise-grand-marina')
+    returning id into v_hotel_1_id;
+  else
+    update hotels
+    set
+      timezone = 'America/Los_Angeles',
+      currency = 'USD',
+      is_active = true,
+      total_rooms_per_type = 100,
+      external_enterprise_id = 'enterprise-grand-marina',
+      updated_at = now()
+    where id = v_hotel_1_id;
+  end if;
 
-  insert into hotels (name, timezone, currency, is_active, total_rooms_per_type, external_enterprise_id)
-  values ('Harbor View Resort', 'America/Los_Angeles', 'USD', true, 85, 'enterprise-harbor-view')
-  on conflict (name) do update
-    set timezone = excluded.timezone,
-        currency = excluded.currency,
-        is_active = excluded.is_active,
-        total_rooms_per_type = excluded.total_rooms_per_type,
-        external_enterprise_id = excluded.external_enterprise_id,
-        updated_at = now()
-  returning id into v_hotel_3_id;
+  select h.id
+  into v_hotel_2_id
+  from hotels h
+  where h.name = 'Skyline Tower Hotel'
+  order by h.created_at asc
+  limit 1;
+
+  if v_hotel_2_id is null then
+    insert into hotels (name, timezone, currency, is_active, total_rooms_per_type, external_enterprise_id)
+    values ('Skyline Tower Hotel', 'America/Los_Angeles', 'USD', true, 120, 'enterprise-skyline-tower')
+    returning id into v_hotel_2_id;
+  else
+    update hotels
+    set
+      timezone = 'America/Los_Angeles',
+      currency = 'USD',
+      is_active = true,
+      total_rooms_per_type = 120,
+      external_enterprise_id = 'enterprise-skyline-tower',
+      updated_at = now()
+    where id = v_hotel_2_id;
+  end if;
+
+  select h.id
+  into v_hotel_3_id
+  from hotels h
+  where h.name = 'Harbor View Resort'
+  order by h.created_at asc
+  limit 1;
+
+  if v_hotel_3_id is null then
+    insert into hotels (name, timezone, currency, is_active, total_rooms_per_type, external_enterprise_id)
+    values ('Harbor View Resort', 'America/Los_Angeles', 'USD', true, 85, 'enterprise-harbor-view')
+    returning id into v_hotel_3_id;
+  else
+    update hotels
+    set
+      timezone = 'America/Los_Angeles',
+      currency = 'USD',
+      is_active = true,
+      total_rooms_per_type = 85,
+      external_enterprise_id = 'enterprise-harbor-view',
+      updated_at = now()
+    where id = v_hotel_3_id;
+  end if;
 
   -- Primary admin: hotel_admin on all three (multi-property user)
   insert into hotel_memberships (hotel_id, user_id, role, status)
