@@ -55,7 +55,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 - Visit `/login` to sign in or create an account.
 - API routes use Supabase SSR session cookies (`@supabase/ssr`) so RLS is applied per user.
-- Tenant visibility is determined by `organization_memberships` and `hotel_memberships`.
+- Tenant visibility is determined by `hotel_memberships` (users can belong to multiple hotels).
 
 ## Demo Data Source Of Truth
 

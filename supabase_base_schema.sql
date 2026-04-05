@@ -6,10 +6,6 @@ create extension if not exists pgcrypto;
 
 do $$
 begin
-  if not exists (select 1 from pg_type where typname = 'organization_membership_role') then
-    create type organization_membership_role as enum ('super_admin', 'org_admin', 'org_analyst', 'org_viewer');
-  end if;
-
   if not exists (select 1 from pg_type where typname = 'hotel_membership_role') then
     create type hotel_membership_role as enum ('hotel_admin', 'manager', 'staff', 'viewer');
   end if;
@@ -65,14 +61,8 @@ begin
 end $$;
 
 -- ============================================================================
--- TENANCY + USERS
+-- TENANCY + USERS (hotel-scoped: users access hotels via hotel_memberships)
 -- ============================================================================
-
-create table if not exists organizations (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  created_at timestamptz not null default now()
-);
 
 create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -81,19 +71,8 @@ create table if not exists profiles (
   created_at timestamptz not null default now()
 );
 
-create table if not exists organization_memberships (
-  id uuid primary key default gen_random_uuid(),
-  organization_id uuid not null references organizations(id) on delete cascade,
-  user_id uuid not null references auth.users(id) on delete cascade,
-  role organization_membership_role not null,
-  status membership_status not null default 'active',
-  created_at timestamptz not null default now(),
-  unique (organization_id, user_id)
-);
-
 create table if not exists hotels (
   id uuid primary key default gen_random_uuid(),
-  organization_id uuid not null references organizations(id) on delete cascade,
   name text not null,
   timezone text not null default 'UTC',
   currency text not null default 'USD',
@@ -102,8 +81,8 @@ create table if not exists hotels (
   external_enterprise_id text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (organization_id, name),
-  unique nulls not distinct (organization_id, external_enterprise_id)
+  unique (name),
+  unique nulls not distinct (external_enterprise_id)
 );
 
 create table if not exists hotel_memberships (
@@ -116,7 +95,6 @@ create table if not exists hotel_memberships (
   unique (hotel_id, user_id)
 );
 
-create index if not exists idx_organization_memberships_user on organization_memberships(user_id);
 create index if not exists idx_hotel_memberships_user on hotel_memberships(user_id);
 
 -- ============================================================================
