@@ -1,3 +1,4 @@
+import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { createRule, listRules } from "@/lib/rules-store";
 import type { RuleConfig } from "@/types/domain";
 import { createClient } from "@/utils/supabase/server";
@@ -8,6 +9,7 @@ import { NextResponse } from "next/server";
 export async function GET() {
   try {
     const supabase = isSupabaseConfigured() ? createClient(await cookies()) : undefined;
+    let hotelId: string | null = null;
     if (supabase) {
       const {
         data: { user },
@@ -15,8 +17,9 @@ export async function GET() {
       if (!user) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }
+      hotelId = await resolveAccessibleHotelId(supabase);
     }
-    const rules = await listRules(supabase);
+    const rules = await listRules(supabase, hotelId);
     return NextResponse.json(rules);
   } catch (error) {
     return NextResponse.json(
@@ -37,12 +40,20 @@ export async function POST(req: Request) {
     }
 
     const supabase = isSupabaseConfigured() ? createClient(await cookies()) : undefined;
+    let hotelId: string | null = null;
     if (supabase) {
       const {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      hotelId = await resolveAccessibleHotelId(supabase);
+      if (!hotelId) {
+        return NextResponse.json(
+          { error: "No accessible hotel. Set MAYA_DEFAULT_HOTEL_ID or a hotel membership." },
+          { status: 400 },
+        );
       }
     }
     const rule = await createRule(
@@ -53,6 +64,7 @@ export async function POST(req: Request) {
         room_types: body.room_types ?? [],
       },
       supabase,
+      hotelId,
     );
 
     return NextResponse.json(rule, { status: 201 });
