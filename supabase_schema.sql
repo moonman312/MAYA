@@ -13,10 +13,6 @@ create extension if not exists pgcrypto;
 
 do $$
 begin
-  if not exists (select 1 from pg_type where typname = 'organization_membership_role') then
-    create type organization_membership_role as enum ('super_admin', 'org_admin', 'org_analyst', 'org_viewer');
-  end if;
-
   if not exists (select 1 from pg_type where typname = 'hotel_membership_role') then
     create type hotel_membership_role as enum ('hotel_admin', 'manager', 'staff', 'viewer');
   end if;
@@ -72,14 +68,8 @@ begin
 end $$;
 
 -- ============================================================================
--- TENANCY + USERS
+-- TENANCY + USERS (hotel-scoped: users access hotels via hotel_memberships)
 -- ============================================================================
-
-create table if not exists organizations (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  created_at timestamptz not null default now()
-);
 
 create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -88,19 +78,8 @@ create table if not exists profiles (
   created_at timestamptz not null default now()
 );
 
-create table if not exists organization_memberships (
-  id uuid primary key default gen_random_uuid(),
-  organization_id uuid not null references organizations(id) on delete cascade,
-  user_id uuid not null references auth.users(id) on delete cascade,
-  role organization_membership_role not null,
-  status membership_status not null default 'active',
-  created_at timestamptz not null default now(),
-  unique (organization_id, user_id)
-);
-
 create table if not exists hotels (
   id uuid primary key default gen_random_uuid(),
-  organization_id uuid not null references organizations(id) on delete cascade,
   name text not null,
   timezone text not null default 'UTC',
   currency text not null default 'USD',
@@ -109,8 +88,8 @@ create table if not exists hotels (
   external_enterprise_id text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (organization_id, name),
-  unique nulls not distinct (organization_id, external_enterprise_id)
+  unique (name),
+  unique nulls not distinct (external_enterprise_id)
 );
 
 create table if not exists hotel_memberships (
@@ -123,7 +102,6 @@ create table if not exists hotel_memberships (
   unique (hotel_id, user_id)
 );
 
-create index if not exists idx_organization_memberships_user on organization_memberships(user_id);
 create index if not exists idx_hotel_memberships_user on hotel_memberships(user_id);
 
 -- ============================================================================
@@ -386,13 +364,34 @@ create table if not exists competitor_rates (
 create index if not exists idx_competitor_rates_hotel_stay_date
   on competitor_rates(hotel_id, stay_date);
 
+-- Grant the authenticated creator a hotel_admin row (SQL Editor / service role: auth.uid() is null).
+create or replace function public.auto_hotel_creator_membership()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if auth.uid() is not null then
+    insert into public.hotel_memberships (hotel_id, user_id, role, status)
+    values (new.id, auth.uid(), 'hotel_admin', 'active')
+    on conflict (hotel_id, user_id) do nothing;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_hotels_creator_membership on public.hotels;
+create trigger trg_hotels_creator_membership
+  after insert on public.hotels
+  for each row
+  execute function public.auto_hotel_creator_membership();
+
 -- ============================================================================
--- ROW LEVEL SECURITY (organization + hotel scoped)
+-- ROW LEVEL SECURITY (hotel membership scoped)
 -- ============================================================================
 
-alter table organizations enable row level security;
 alter table profiles enable row level security;
-alter table organization_memberships enable row level security;
 alter table hotels enable row level security;
 alter table hotel_memberships enable row level security;
 alter table pms_connections enable row level security;
@@ -412,16 +411,6 @@ alter table audit_events enable row level security;
 alter table market_events enable row level security;
 alter table competitor_rates enable row level security;
 
-create or replace function public.hotel_org_id(target_hotel_id uuid)
-returns uuid
-language sql
-stable
-security definer
-set search_path = public, pg_temp
-as $$
-  select h.organization_id from hotels h where h.id = target_hotel_id
-$$;
-
 create or replace function public.rule_hotel_id(target_rule_id uuid)
 returns uuid
 language sql
@@ -430,39 +419,6 @@ security definer
 set search_path = public, pg_temp
 as $$
   select r.hotel_id from pricing_rules r where r.id = target_rule_id
-$$;
-
-create or replace function public.is_org_member(target_org_id uuid)
-returns boolean
-language sql
-stable
-security definer
-set search_path = public, pg_temp
-as $$
-  select exists (
-    select 1
-    from organization_memberships om
-    where om.organization_id = target_org_id
-      and om.user_id = auth.uid()
-      and om.status = 'active'
-  )
-$$;
-
-create or replace function public.has_org_role(target_org_id uuid, allowed_roles text[])
-returns boolean
-language sql
-stable
-security definer
-set search_path = public, pg_temp
-as $$
-  select exists (
-    select 1
-    from organization_memberships om
-    where om.organization_id = target_org_id
-      and om.user_id = auth.uid()
-      and om.status = 'active'
-      and om.role::text = any (allowed_roles)
-  )
 $$;
 
 create or replace function public.has_hotel_role(target_hotel_id uuid, allowed_roles text[])
@@ -489,9 +445,10 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select
-    has_hotel_role(target_hotel_id, array['hotel_admin', 'manager', 'staff', 'viewer'])
-    or is_org_member(hotel_org_id(target_hotel_id))
+  select has_hotel_role(
+    target_hotel_id,
+    array['hotel_admin', 'manager', 'staff', 'viewer']
+  )
 $$;
 
 create or replace function public.can_manage_hotel(target_hotel_id uuid)
@@ -501,9 +458,10 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select
-    has_hotel_role(target_hotel_id, array['hotel_admin', 'manager'])
-    or has_org_role(hotel_org_id(target_hotel_id), array['super_admin', 'org_admin'])
+  select has_hotel_role(
+    target_hotel_id,
+    array['hotel_admin', 'manager']
+  )
 $$;
 
 -- Drop legacy placeholder policies if they exist.
@@ -512,7 +470,7 @@ declare
   t text;
 begin
   foreach t in array array[
-    'organizations','profiles','organization_memberships','hotels','hotel_memberships',
+    'profiles','hotels','hotel_memberships',
     'pms_connections','hotel_settings','room_types','room_constraints','reservations',
     'occupancy_metrics','pricing_rules','pricing_rule_conditions','pricing_rule_room_types',
     'rule_applications','pricing_runs','pricing_decisions','rate_updates','audit_events',
@@ -522,28 +480,6 @@ begin
     execute format('drop policy if exists %I on %I', t || '_authenticated_read', t);
   end loop;
 end $$;
-
--- Organizations
-drop policy if exists organizations_select on organizations;
-create policy organizations_select
-  on organizations for select
-  using (is_org_member(id));
-
-drop policy if exists organizations_insert on organizations;
-create policy organizations_insert
-  on organizations for insert
-  with check (auth.uid() is not null);
-
-drop policy if exists organizations_update on organizations;
-create policy organizations_update
-  on organizations for update
-  using (has_org_role(id, array['super_admin', 'org_admin']))
-  with check (has_org_role(id, array['super_admin', 'org_admin']));
-
-drop policy if exists organizations_delete on organizations;
-create policy organizations_delete
-  on organizations for delete
-  using (has_org_role(id, array['super_admin']));
 
 -- Profiles
 drop policy if exists profiles_select on profiles;
@@ -562,28 +498,6 @@ create policy profiles_update
   using (id = auth.uid())
   with check (id = auth.uid());
 
--- Organization memberships
-drop policy if exists organization_memberships_select on organization_memberships;
-create policy organization_memberships_select
-  on organization_memberships for select
-  using (is_org_member(organization_id) or user_id = auth.uid());
-
-drop policy if exists organization_memberships_insert on organization_memberships;
-create policy organization_memberships_insert
-  on organization_memberships for insert
-  with check (has_org_role(organization_id, array['super_admin', 'org_admin']));
-
-drop policy if exists organization_memberships_update on organization_memberships;
-create policy organization_memberships_update
-  on organization_memberships for update
-  using (has_org_role(organization_id, array['super_admin', 'org_admin']))
-  with check (has_org_role(organization_id, array['super_admin', 'org_admin']));
-
-drop policy if exists organization_memberships_delete on organization_memberships;
-create policy organization_memberships_delete
-  on organization_memberships for delete
-  using (has_org_role(organization_id, array['super_admin', 'org_admin']));
-
 -- Hotels and hotel memberships
 drop policy if exists hotels_select on hotels;
 create policy hotels_select
@@ -591,10 +505,23 @@ create policy hotels_select
   using (is_hotel_accessible(id));
 
 drop policy if exists hotels_write on hotels;
-create policy hotels_write
-  on hotels for all
-  using (has_org_role(organization_id, array['super_admin', 'org_admin']))
-  with check (has_org_role(organization_id, array['super_admin', 'org_admin']));
+drop policy if exists hotels_insert on hotels;
+drop policy if exists hotels_update on hotels;
+drop policy if exists hotels_delete on hotels;
+
+-- Any authenticated user may create a hotel; trigger adds hotel_admin membership when JWT present.
+create policy hotels_insert
+  on hotels for insert
+  with check (auth.uid() is not null);
+
+create policy hotels_update
+  on hotels for update
+  using (can_manage_hotel(id))
+  with check (can_manage_hotel(id));
+
+create policy hotels_delete
+  on hotels for delete
+  using (has_hotel_role(id, array['hotel_admin']));
 
 drop policy if exists hotel_memberships_select on hotel_memberships;
 create policy hotel_memberships_select
@@ -604,16 +531,10 @@ create policy hotel_memberships_select
 drop policy if exists hotel_memberships_write on hotel_memberships;
 create policy hotel_memberships_write
   on hotel_memberships for all
-  using (
-    can_manage_hotel(hotel_id)
-    or has_org_role(hotel_org_id(hotel_id), array['super_admin', 'org_admin'])
-  )
-  with check (
-    can_manage_hotel(hotel_id)
-    or has_org_role(hotel_org_id(hotel_id), array['super_admin', 'org_admin'])
-  );
+  using (can_manage_hotel(hotel_id))
+  with check (can_manage_hotel(hotel_id));
 
--- Hotel-scoped data: read if accessible, write if manager+ or org admin.
+-- Hotel-scoped data: read if accessible, write if manager+.
 drop policy if exists pms_connections_access on pms_connections;
 create policy pms_connections_access
   on pms_connections for all

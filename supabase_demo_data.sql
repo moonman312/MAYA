@@ -4,7 +4,7 @@
 -- Prereqs:
 -- 1) Run supabase_base_schema.sql
 -- 2) Run supabase_schema.sql
--- 3) Run supabase_seed.sql (creates org/hotels/room_types)
+-- 3) Run supabase_seed.sql (creates hotels, memberships, room types)
 
 -- ----------------------------------------------------------------------------
 -- Synthetic reservations
