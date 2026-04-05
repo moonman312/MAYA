@@ -1,0 +1,301 @@
+/**
+ * Mews → Supabase row shapes. Mirrors `shared/legacy-python/etl.py` (field
+ * detection, category names, Items-based rate lookup).
+ */
+
+type Json = Record<string, unknown>;
+
+export type FieldMap = {
+  reservation_id: string | null;
+  stay_date: string | null;
+  booking_date: string | null;
+  room_type_id: string | null;
+  rate: string | null;
+};
+
+const PREFERRED_LOCALES = ["en-US", "en-GB", "en-AU", "en"] as const;
+
+export function getNested(obj: unknown, dottedKey: string | null): unknown {
+  if (dottedKey === null || typeof obj !== "object" || obj === null) return undefined;
+  let val: unknown = obj;
+  for (const part of dottedKey.split(".")) {
+    if (typeof val !== "object" || val === null) return undefined;
+    val = (val as Json)[part];
+  }
+  return val;
+}
+
+export function detectField(sample: Json, candidates: string[], _label: string): string | null {
+  for (const candidate of candidates) {
+    if (getNested(sample, candidate) != null) return candidate;
+  }
+  return null;
+}
+
+export function detectFieldMap(sample: Json): FieldMap {
+  return {
+    reservation_id: detectField(sample, ["Id", "ReservationId", "id"], "reservation_id"),
+    stay_date: detectField(
+      sample,
+      ["ArrivalDate", "ScheduledStartUtc", "StartUtc", "CheckInUtc"],
+      "stay_date",
+    ),
+    booking_date: detectField(
+      sample,
+      ["CreatedUtc", "Created", "BookingDate", "CreateDate"],
+      "booking_date",
+    ),
+    room_type_id: detectField(
+      sample,
+      [
+        "SpaceCategoryId",
+        "RoomCategoryId",
+        "ResourceCategoryId",
+        "RequestedCategoryId",
+      ],
+      "room_type_id",
+    ),
+    rate: detectField(
+      sample,
+      [
+        "StayPriceIncludingTaxes",
+        "TotalAmount.Value",
+        "Rate.Value",
+        "Price.Value",
+        "TotalPrice",
+        "Amount",
+      ],
+      "rate",
+    ),
+  };
+}
+
+function detectDepartureField(sample: Json): string | null {
+  return detectField(sample, ["DepartureDate", "ScheduledEndUtc", "EndUtc", "CheckOutUtc"], "departure");
+}
+
+function resolveCategoryName(cat: Json): string {
+  const flat = cat.Name;
+  if (typeof flat === "string" && flat) return flat;
+
+  const names = cat.Names;
+  if (names && typeof names === "object" && names !== null) {
+    const dict = names as Record<string, string>;
+    for (const loc of PREFERRED_LOCALES) {
+      if (dict[loc]) return dict[loc];
+    }
+    const first = Object.values(dict)[0];
+    if (first) return first;
+  }
+
+  const short = cat.ShortName;
+  if (typeof short === "string" && short) return short;
+
+  const shortNames = cat.ShortNames;
+  if (shortNames && typeof shortNames === "object" && shortNames !== null) {
+    const dict = shortNames as Record<string, string>;
+    for (const loc of PREFERRED_LOCALES) {
+      if (dict[loc]) return dict[loc];
+    }
+    const first = Object.values(dict)[0];
+    if (first) return first;
+  }
+
+  return "Unknown";
+}
+
+export function buildCategoryMap(data: Json): Record<string, string> {
+  const categories: Record<string, string> = {};
+  for (const key of ["SpaceCategories", "RoomCategories", "ResourceCategories"] as const) {
+    const items = data[key];
+    if (!Array.isArray(items)) continue;
+    for (const cat of items) {
+      if (!cat || typeof cat !== "object") continue;
+      const c = cat as Json;
+      const id = c.Id ?? c.id;
+      if (typeof id === "string" && id) {
+        categories[id] = resolveCategoryName(c);
+      }
+    }
+    break;
+  }
+  return categories;
+}
+
+export function buildRateLookup(data: Json): Record<string, number> {
+  const rateMap: Record<string, number> = {};
+  const items = data.Items ?? data.OrderItems;
+  if (!Array.isArray(items)) return rateMap;
+
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+    const orderId = (item as Json).OrderId;
+    if (typeof orderId !== "string" || !orderId) continue;
+    const amount = (item as Json).Amount;
+    if (!amount || typeof amount !== "object") continue;
+    const a = amount as Json;
+    const val = a.GrossValue ?? a.Value;
+    if (val === null || val === undefined) continue;
+    const n = Number(val);
+    if (Number.isFinite(n)) {
+      rateMap[orderId] = (rateMap[orderId] ?? 0) + n;
+    }
+  }
+  return rateMap;
+}
+
+export function findReservationsList(data: Json): Json[] {
+  for (const key of ["Reservations", "reservations"] as const) {
+    const items = data[key];
+    if (Array.isArray(items) && items.length > 0) return items as Json[];
+  }
+  for (const key of ["Items", "items"] as const) {
+    const items = data[key];
+    if (Array.isArray(items) && items.length > 0) return items as Json[];
+  }
+  return [];
+}
+
+function extractRate(raw: Json, rateField: string | null): number | null {
+  if (rateField) {
+    let val = getNested(raw, rateField);
+    if (val && typeof val === "object" && "Value" in (val as Json)) {
+      val = (val as Json).Value;
+    }
+    if (val !== null && val !== undefined) {
+      const n = Number(val);
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return null;
+}
+
+function parseIsoDateOnly(iso: string): string | null {
+  const d = new Date(iso.replace(/Z$/, "+00:00"));
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+function addOneUtcDay(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + 1);
+  return dt.toISOString().slice(0, 10);
+}
+
+/** Inclusive arrival, exclusive departure (hotel-night semantics). */
+export function enumerateStayNights(
+  raw: Json,
+  fieldMap: FieldMap,
+): { nights: string[]; bookingWindowDays: number | null } {
+  const startVal = fieldMap.stay_date ? getNested(raw, fieldMap.stay_date) : null;
+  const startStr = typeof startVal === "string" ? parseIsoDateOnly(startVal) : null;
+  if (!startStr) return { nights: [], bookingWindowDays: null };
+
+  const depField = detectDepartureField(raw);
+  const endVal = depField ? getNested(raw, depField) : null;
+  const endStr = typeof endVal === "string" ? parseIsoDateOnly(endVal) : null;
+
+  let nights: string[];
+  if (!endStr || endStr <= startStr) {
+    nights = [startStr];
+  } else {
+    nights = [];
+    let cur = startStr;
+    while (cur < endStr) {
+      nights.push(cur);
+      cur = addOneUtcDay(cur);
+    }
+  }
+
+  const bookVal = fieldMap.booking_date ? getNested(raw, fieldMap.booking_date) : null;
+  let bookingWindowDays: number | null = null;
+  if (typeof bookVal === "string") {
+    const book = parseIsoDateOnly(bookVal);
+    if (book && nights[0]) {
+      const a = new Date(`${nights[0]}T00:00:00Z`).getTime();
+      const b = new Date(`${book}T00:00:00Z`).getTime();
+      bookingWindowDays = Math.max(0, Math.round((a - b) / 86400000));
+    }
+  }
+
+  return { nights, bookingWindowDays };
+}
+
+export type ParsedRoomType = {
+  external_room_type_id: string;
+  name: string;
+  display_name: string | null;
+};
+
+export type ParsedReservationRow = {
+  external_reservation_id: string;
+  external_room_type_id: string | null;
+  stay_date: string;
+  booking_date: string | null;
+  booking_window_days: number | null;
+  current_rate: number | null;
+  base_rate: number | null;
+  raw_payload: Json;
+};
+
+export function parseMewsApiResponse(data: Json): {
+  roomTypes: ParsedRoomType[];
+  reservations: ParsedReservationRow[];
+} {
+  const rawList = findReservationsList(data);
+  if (rawList.length === 0) {
+    return { roomTypes: [], reservations: [] };
+  }
+
+  const fieldMap = detectFieldMap(rawList[0]);
+  const categories = buildCategoryMap(data);
+  const rateLookup = buildRateLookup(data);
+
+  const roomTypes: ParsedRoomType[] = Object.entries(categories).map(([id, name]) => ({
+    external_room_type_id: id,
+    name,
+    display_name: name,
+  }));
+
+  const reservations: ParsedReservationRow[] = [];
+
+  for (const raw of rawList) {
+    const rid = fieldMap.reservation_id ? getNested(raw, fieldMap.reservation_id) : null;
+    if (typeof rid !== "string" || !rid) continue;
+
+    const rtIdRaw = fieldMap.room_type_id ? getNested(raw, fieldMap.room_type_id) : null;
+    const externalRoomTypeId = typeof rtIdRaw === "string" ? rtIdRaw : null;
+
+    let rate = extractRate(raw, fieldMap.rate);
+    if (rate === null && fieldMap.reservation_id) {
+      const idKey = getNested(raw, fieldMap.reservation_id);
+      if (typeof idKey === "string" && rateLookup[idKey] !== undefined) {
+        rate = rateLookup[idKey];
+      }
+    }
+
+    const { nights, bookingWindowDays } = enumerateStayNights(raw, fieldMap);
+    const denom = Math.max(1, nights.length);
+    const nightly = rate !== null ? Math.round((rate / denom) * 100) / 100 : null;
+
+    const bookVal = fieldMap.booking_date ? getNested(raw, fieldMap.booking_date) : null;
+    const bookingDate =
+      typeof bookVal === "string" ? parseIsoDateOnly(bookVal) : null;
+
+    for (const night of nights) {
+      reservations.push({
+        external_reservation_id: rid,
+        external_room_type_id: externalRoomTypeId,
+        stay_date: night,
+        booking_date: bookingDate,
+        booking_window_days: bookingWindowDays,
+        current_rate: nightly,
+        base_rate: nightly,
+        raw_payload: raw,
+      });
+    }
+  }
+
+  return { roomTypes, reservations };
+}

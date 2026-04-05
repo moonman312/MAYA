@@ -7,6 +7,7 @@
  */
 
 import { ROOM_TYPES } from "@/lib/demo-data";
+import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import type { CalendarDay, CalendarResponse, CalendarRoomType } from "@/types/domain";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -94,36 +95,49 @@ async function getCalendarFromDb(
   month: number,
   supabase: SupabaseClient,
 ): Promise<CalendarResponse> {
-  // Determine the hotel id for the current user
-  const hotelId = process.env.MAYA_DEFAULT_HOTEL_ID;
+  const hotelId = await resolveAccessibleHotelId(supabase);
   if (!hotelId) {
-    // Fall back to demo data when no hotel is configured
     return getCalendarDemo(year, month);
   }
+
+  const { data: hotelRow } = await supabase
+    .from("hotels")
+    .select("total_rooms_per_type")
+    .eq("id", hotelId)
+    .maybeSingle();
+
+  const totalRoomsPerType = hotelRow?.total_rooms_per_type ?? 100;
+  const defaultBaseRate = 150;
 
   const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const endDate = `${year}-${String(month).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
 
-  // Fetch room types for this hotel
   const { data: roomTypeRows } = await supabase
     .from("room_types")
-    .select("id, name, total_rooms, base_rate")
+    .select("id, name")
     .eq("hotel_id", hotelId)
     .eq("is_active", true)
     .order("name");
 
-  const rtList = roomTypeRows ?? ROOM_TYPES.map((rt) => ({
-    id: rt.name,
-    name: rt.name,
-    total_rooms: rt.total_rooms,
-    base_rate: rt.base_rate,
-  }));
+  const rtList =
+    roomTypeRows && roomTypeRows.length > 0
+      ? roomTypeRows.map((rt) => ({
+          id: String(rt.id),
+          name: rt.name,
+          total_rooms: totalRoomsPerType,
+          base_rate: defaultBaseRate,
+        }))
+      : ROOM_TYPES.map((rt) => ({
+          id: rt.name,
+          name: rt.name,
+          total_rooms: rt.total_rooms,
+          base_rate: rt.base_rate,
+        }));
 
-  // Fetch reservations that overlap this month
   const { data: reservations } = await supabase
     .from("reservations")
-    .select("stay_date, room_type_id, rate, occupancy")
+    .select("stay_date, room_type_id, current_rate")
     .eq("hotel_id", hotelId)
     .gte("stay_date", startDate)
     .lte("stay_date", endDate);
@@ -151,7 +165,7 @@ async function getCalendarFromDb(
       const matching = dayReservations.filter((r) => String(r.room_type_id) === String(rt.id));
       const booked = matching.length;
       const avgRate = matching.length > 0
-        ? matching.reduce((s, r) => s + (r.rate ?? rt.base_rate), 0) / matching.length
+        ? matching.reduce((s, r) => s + (r.current_rate ?? rt.base_rate), 0) / matching.length
         : rt.base_rate;
       const occPct = rt.total_rooms > 0 ? Math.round((booked / rt.total_rooms) * 100) : 0;
 

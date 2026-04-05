@@ -9,13 +9,14 @@ import type {
 } from "@/types/domain";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-type TabKey = "calendar" | "rules" | "simulator" | "changelog";
+type TabKey = "calendar" | "rules" | "simulator" | "changelog" | "pms";
 
 const tabs: { key: TabKey; label: string }[] = [
   { key: "calendar", label: "Calendar" },
   { key: "rules", label: "Rules" },
   { key: "simulator", label: "Rate Simulator" },
   { key: "changelog", label: "Change Log" },
+  { key: "pms", label: "PMS (Mews)" },
 ];
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -45,6 +46,45 @@ export function Dashboard() {
   const [changelog, setChangelog] = useState<ChangelogCycle[]>([]);
   const [changesOnly, setChangesOnly] = useState(true);
   const [loading, setLoading] = useState(false);
+
+  const [pmsLog, setPmsLog] = useState<string[]>([]);
+  const [pmsBusy, setPmsBusy] = useState(false);
+  const [pmsOverrideJson, setPmsOverrideJson] = useState("");
+
+  function appendPms(line: string) {
+    setPmsLog((prev) => [...prev.slice(-100), `${new Date().toISOString()}  ${line}`]);
+  }
+
+  async function callPmsApi(path: string) {
+    setPmsBusy(true);
+    try {
+      let bodyStr = "{}";
+      if (pmsOverrideJson.trim()) {
+        try {
+          const parsed = JSON.parse(pmsOverrideJson) as unknown;
+          bodyStr = JSON.stringify({ mews: parsed });
+        } catch {
+          appendPms("ERROR: Advanced JSON is not valid JSON.");
+          return;
+        }
+      }
+      const res = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: bodyStr,
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; ok?: boolean };
+      if (!res.ok) {
+        appendPms(`ERROR ${res.status}: ${data.error ?? res.statusText}`);
+        return;
+      }
+      appendPms(JSON.stringify(data));
+    } catch (e) {
+      appendPms(`ERROR ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setPmsBusy(false);
+    }
+  }
 
   const [ruleName, setRuleName] = useState("");
   const [conditionsText, setConditionsText] = useState("occupancy_percentage:>80");
@@ -486,6 +526,68 @@ export function Dashboard() {
                     <p className="mt-2 text-sm text-slate-300">No actionable conditions detected.</p>
                   )}
                 </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {tab === "pms" && (
+          <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
+            <h2 className="text-lg font-semibold">Mews PMS</h2>
+            <p className="text-sm text-slate-300">
+              Mirrors the Python tools: <code className="text-slate-200">configuration/get</code> for a connection
+              check, and windowed <code className="text-slate-200">reservations/getAll</code> fetches (96-hour chunks)
+              with ETL into <code className="text-slate-200">room_types</code> and{" "}
+              <code className="text-slate-200">reservations</code>. Credentials resolve from{" "}
+              <code className="text-slate-200">pms_connections</code> (JSON in{" "}
+              <code className="text-slate-200">credentials_encrypted</code>), optional overrides below, or server env{" "}
+              <code className="text-slate-200">MEWS_CLIENT_TOKEN</code> / <code className="text-slate-200">MEWS_ACCESS_TOKEN</code>.
+              A Supabase Edge Function on a cron schedule can call the same routes later.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={pmsBusy}
+                className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 disabled:opacity-50"
+                onClick={() => void callPmsApi("/api/pms/mews/test")}
+              >
+                Test connection
+              </button>
+              <button
+                type="button"
+                disabled={pmsBusy}
+                className="rounded bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+                onClick={() => void callPmsApi("/api/pms/mews/sync")}
+              >
+                Sync reservations to DB
+              </button>
+              <button
+                type="button"
+                className="rounded bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700"
+                onClick={() => setPmsLog([])}
+              >
+                Clear log
+              </button>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-400">
+                Advanced: credential override JSON (optional) —{" "}
+                <code className="text-slate-300">{"{ \"clientToken\", \"accessToken\", \"enterpriseId?\", \"baseUrl?\" }"}</code>
+              </label>
+              <textarea
+                value={pmsOverrideJson}
+                onChange={(e) => setPmsOverrideJson(e.target.value)}
+                placeholder='e.g. {"clientToken":"...","accessToken":"..."}'
+                rows={4}
+                className="w-full rounded border border-slate-700 bg-slate-950 p-2 font-mono text-xs text-slate-200"
+              />
+            </div>
+            <div className="max-h-64 overflow-y-auto rounded border border-slate-800 bg-slate-950 p-3 font-mono text-xs text-slate-300">
+              {pmsLog.length === 0 ? <p className="text-slate-500">Activity will appear here.</p> : null}
+              {pmsLog.map((line, i) => (
+                <p key={`${i}-${line.slice(0, 24)}`} className="whitespace-pre-wrap break-all">
+                  {line}
+                </p>
               ))}
             </div>
           </section>
