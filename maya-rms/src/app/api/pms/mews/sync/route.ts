@@ -1,4 +1,4 @@
-import { mewsFetchReservationsRange } from "@/lib/mews/client";
+import { mewsFetchReservationsRange, MewsHttpError } from "@/lib/mews/client";
 import { parseMewsApiResponse } from "@/lib/mews/etl";
 import { requireSupabaseHotel } from "@/lib/require-supabase-hotel";
 import { resolveMewsCredentials } from "@/lib/mews/resolve-credentials";
@@ -35,12 +35,18 @@ function readPositiveIntEnv(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-function dedupeByKey<T>(rows: T[], keyFn: (row: T) => string): T[] {
+/**
+ * `mewsFetchReservationsRange` concatenates multiple `reservations/getAll` windows.
+ * The same room category (or reservation) can appear in more than one chunk, so we
+ * collapse to one row per natural key before upsert — not because the PMS sends
+ * invalid duplicate keys, but because our merge produces duplicates.
+ */
+function dedupeByKey<T>(rows: T[], keyFn: (row: T) => string): { rows: T[]; merged: number } {
   const map = new Map<string, T>();
   for (const row of rows) {
     map.set(keyFn(row), row);
   }
-  return [...map.values()];
+  return { rows: [...map.values()], merged: rows.length - map.size };
 }
 
 function resolveFetchWindow(body: Body): { start: string; end: string } {
@@ -84,9 +90,10 @@ export async function POST(req: Request) {
 
     let roomTypesUpserted = 0;
     let reservationRowsUpserted = 0;
+    let duplicateRoomTypeRowsMerged = 0;
 
     if (parsed.roomTypes.length > 0) {
-      const rtRows = dedupeByKey(
+      const { rows: rtRows, merged: rtMerged } = dedupeByKey(
         parsed.roomTypes.map((rt) => ({
           hotel_id: ctx.hotelId,
           external_room_type_id: rt.external_room_type_id,
@@ -96,6 +103,7 @@ export async function POST(req: Request) {
         })),
         (r) => `${r.hotel_id}:${r.external_room_type_id}`,
       );
+      duplicateRoomTypeRowsMerged = rtMerged;
       roomTypesUpserted = rtRows.length;
       const { error: rtErr } = await ctx.supabase
         .from("room_types")
@@ -122,20 +130,17 @@ export async function POST(req: Request) {
     }
 
     if (parsed.reservations.length > 0) {
-      const resRows = dedupeByKey(
-        parsed.reservations.map((r) => ({
-          hotel_id: ctx.hotelId,
-          external_reservation_id: r.external_reservation_id,
-          room_type_id: r.external_room_type_id ? idByExternal[r.external_room_type_id] ?? null : null,
-          stay_date: r.stay_date,
-          booking_date: r.booking_date,
-          booking_window_days: r.booking_window_days,
-          current_rate: r.current_rate,
-          base_rate: r.base_rate,
-          raw_payload: r.raw_payload,
-        })),
-        (r) => `${r.hotel_id}:${r.external_reservation_id}:${r.stay_date}`,
-      );
+      const resRows = parsed.reservations.map((r) => ({
+        hotel_id: ctx.hotelId,
+        external_reservation_id: r.external_reservation_id,
+        room_type_id: r.external_room_type_id ? idByExternal[r.external_room_type_id] ?? null : null,
+        stay_date: r.stay_date,
+        booking_date: r.booking_date,
+        booking_window_days: r.booking_window_days,
+        current_rate: r.current_rate,
+        base_rate: r.base_rate,
+        raw_payload: r.raw_payload,
+      }));
       reservationRowsUpserted = resRows.length;
 
       const { error: resErr } = await ctx.supabase
@@ -164,9 +169,17 @@ export async function POST(req: Request) {
       apiWindows: windows,
       roomTypesUpserted,
       reservationRowsUpserted,
+      ingest: {
+        duplicateRoomTypeRowsMerged,
+        ...parsed.stats,
+      },
       credentialSource: resolved.source,
     });
   } catch (error) {
+    if (error instanceof MewsHttpError) {
+      const status = error.status >= 500 ? 502 : 400;
+      return NextResponse.json({ ok: false, error: error.message, mewsStatus: error.status }, { status });
+    }
     const message = error instanceof Error ? error.message : "Mews sync failed.";
     return NextResponse.json({ ok: false, error: message }, { status: 502 });
   }

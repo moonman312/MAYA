@@ -3,6 +3,18 @@ import type { ResolvedMewsCredentials } from "@/lib/mews/types";
 
 type JsonRecord = Record<string, unknown>;
 
+/** Thrown when Mews returns a non-2xx HTTP status (caller may map 4xx vs 5xx). */
+export class MewsHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly path: string,
+  ) {
+    super(message);
+    this.name = "MewsHttpError";
+  }
+}
+
 function mergeListChunks(
   merged: JsonRecord,
   chunk: JsonRecord,
@@ -49,7 +61,7 @@ export async function mewsPost(
         typeof data === "object" && data && "Message" in data
           ? String((data as JsonRecord).Message)
           : text.slice(0, 300);
-      throw new Error(`Mews ${path} failed (${res.status}): ${msg}`);
+      throw new MewsHttpError(`Mews ${path} failed (${res.status}): ${msg}`, res.status, path);
     }
     return data as JsonRecord;
   } finally {

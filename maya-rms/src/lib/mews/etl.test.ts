@@ -43,14 +43,73 @@ describe("mews etl", () => {
     expect(nights).toEqual(["2025-05-01", "2025-05-02"]);
   });
 
+  it("enumerateStayNights same-day arrival and departure is one night", () => {
+    const oneNight = {
+      ...sampleReservation,
+      ArrivalDate: "2025-05-01T14:00:00Z",
+      DepartureDate: "2025-05-01T10:00:00Z",
+    };
+    const f = detectFieldMap(oneNight as Record<string, unknown>);
+    const { nights } = enumerateStayNights(oneNight as Record<string, unknown>, f);
+    expect(nights).toEqual(["2025-05-01"]);
+  });
+
   it("parseMewsApiResponse expands nights and splits rate", () => {
-    const { roomTypes, reservations } = parseMewsApiResponse(sampleResponse as Record<string, unknown>);
+    const { roomTypes, reservations, stats } = parseMewsApiResponse(sampleResponse as Record<string, unknown>);
     expect(roomTypes).toHaveLength(1);
     expect(roomTypes[0].external_room_type_id).toBe("room_1");
     expect(reservations).toHaveLength(2);
     expect(reservations.every((r) => r.external_reservation_id === "res_123")).toBe(true);
     expect(reservations[0].current_rate).toBe(75);
     expect(reservations[1].current_rate).toBe(75);
+    expect(stats.skippedMissingReservationId).toBe(0);
+    expect(stats.skippedNoStayNights).toBe(0);
+    expect(stats.duplicateStayNightKeysMerged).toBe(0);
+    expect(stats.rowsWithMissingRate).toBe(0);
+  });
+
+  it("parseMewsApiResponse skips rows without reservation id", () => {
+    const { reservations, stats } = parseMewsApiResponse({
+      Reservations: [{ ArrivalDate: "2025-05-01T00:00:00Z" }],
+      SpaceCategories: [],
+    } as Record<string, unknown>);
+    expect(reservations).toHaveLength(0);
+    expect(stats.skippedMissingReservationId).toBe(1);
+  });
+
+  it("parseMewsApiResponse skips when arrival cannot be parsed into nights", () => {
+    const { reservations, stats } = parseMewsApiResponse({
+      Reservations: [{ Id: "x", ArrivalDate: "not-a-date" }],
+      SpaceCategories: [],
+    } as Record<string, unknown>);
+    expect(reservations).toHaveLength(0);
+    expect(stats.skippedNoStayNights).toBe(1);
+  });
+
+  it("parseMewsApiResponse merges duplicate reservation+night from merged API chunks", () => {
+    const { reservations, stats } = parseMewsApiResponse({
+      Reservations: [sampleReservation, sampleReservation],
+      SpaceCategories: [{ Id: "room_1", Name: "Medium" }],
+    } as Record<string, unknown>);
+    expect(reservations).toHaveLength(2);
+    expect(stats.duplicateStayNightKeysMerged).toBe(2);
+  });
+
+  it("parseMewsApiResponse counts rows with no resolvable rate", () => {
+    const noRate = {
+      Id: "res_999",
+      ArrivalDate: "2025-05-01T14:00:00Z",
+      DepartureDate: "2025-05-02T10:00:00Z",
+      CreatedUtc: "2025-04-15T09:30:00Z",
+      SpaceCategoryId: "room_1",
+    };
+    const { reservations, stats } = parseMewsApiResponse({
+      Reservations: [noRate],
+      SpaceCategories: [{ Id: "room_1", Name: "Medium" }],
+    } as Record<string, unknown>);
+    expect(reservations).toHaveLength(1);
+    expect(reservations[0].current_rate).toBeNull();
+    expect(stats.rowsWithMissingRate).toBe(1);
   });
 
   it("buildRateLookup sums Items by OrderId", () => {
