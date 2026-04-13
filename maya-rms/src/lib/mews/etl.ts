@@ -1,6 +1,13 @@
 /**
  * Mews → Supabase row shapes. Mirrors `shared/legacy-python/etl.py` (field
  * detection, category names, Items-based rate lookup).
+ *
+ * Reservation identity: Mews uses a stable reservation `Id` for the lifetime of
+ * the booking. Modifications (dates, room, price) update that record; they do not
+ * mint a new Id. We upsert on `(hotel_id, external_reservation_id, stay_date)`, so
+ * edits refresh matching nights. If a stay is shortened, rows for nights that no
+ * longer fall inside the stay are not automatically deleted by this sync (they
+ * would require a separate reconciliation pass).
  */
 
 type Json = Record<string, unknown>;
@@ -183,7 +190,10 @@ function addOneUtcDay(ymd: string): string {
   return dt.toISOString().slice(0, 10);
 }
 
-/** Inclusive arrival, exclusive departure (hotel-night semantics). */
+/**
+ * Inclusive arrival, exclusive departure (hotel-night semantics).
+ * Same calendar day for arrival and departure yields a single stay night.
+ */
 export function enumerateStayNights(
   raw: Json,
   fieldMap: FieldMap,
@@ -239,13 +249,37 @@ export type ParsedReservationRow = {
   raw_payload: Json;
 };
 
+/** Observability for ingest edge cases (empty when there are no reservations in the payload). */
+export type ParsedMewsStats = {
+  /** No usable reservation id field on the raw object. */
+  skippedMissingReservationId: number;
+  /** No arrival / stay date, or nights list empty after parsing. */
+  skippedNoStayNights: number;
+  /**
+   * Extra rows merged away: same `(external_reservation_id, stay_date)` appeared
+   * more than once (e.g. adjacent `reservations/getAll` windows concatenated in the client).
+   * Last occurrence wins for `raw_payload` and mapped fields.
+   */
+  duplicateStayNightKeysMerged: number;
+  /** Emitted rows where no total rate could be resolved (stored as null). */
+  rowsWithMissingRate: number;
+};
+
+const emptyStats = (): ParsedMewsStats => ({
+  skippedMissingReservationId: 0,
+  skippedNoStayNights: 0,
+  duplicateStayNightKeysMerged: 0,
+  rowsWithMissingRate: 0,
+});
+
 export function parseMewsApiResponse(data: Json): {
   roomTypes: ParsedRoomType[];
   reservations: ParsedReservationRow[];
+  stats: ParsedMewsStats;
 } {
   const rawList = findReservationsList(data);
   if (rawList.length === 0) {
-    return { roomTypes: [], reservations: [] };
+    return { roomTypes: [], reservations: [], stats: emptyStats() };
   }
 
   const fieldMap = detectFieldMap(rawList[0]);
@@ -258,11 +292,15 @@ export function parseMewsApiResponse(data: Json): {
     display_name: name,
   }));
 
-  const reservations: ParsedReservationRow[] = [];
+  const stats = emptyStats();
+  const byStayNight = new Map<string, ParsedReservationRow>();
 
   for (const raw of rawList) {
     const rid = fieldMap.reservation_id ? getNested(raw, fieldMap.reservation_id) : null;
-    if (typeof rid !== "string" || !rid) continue;
+    if (typeof rid !== "string" || !rid) {
+      stats.skippedMissingReservationId += 1;
+      continue;
+    }
 
     const rtIdRaw = fieldMap.room_type_id ? getNested(raw, fieldMap.room_type_id) : null;
     const externalRoomTypeId = typeof rtIdRaw === "string" ? rtIdRaw : null;
@@ -276,6 +314,11 @@ export function parseMewsApiResponse(data: Json): {
     }
 
     const { nights, bookingWindowDays } = enumerateStayNights(raw, fieldMap);
+    if (nights.length === 0) {
+      stats.skippedNoStayNights += 1;
+      continue;
+    }
+
     const denom = Math.max(1, nights.length);
     const nightly = rate !== null ? Math.round((rate / denom) * 100) / 100 : null;
 
@@ -284,7 +327,8 @@ export function parseMewsApiResponse(data: Json): {
       typeof bookVal === "string" ? parseIsoDateOnly(bookVal) : null;
 
     for (const night of nights) {
-      reservations.push({
+      const key = `${rid}:${night}`;
+      const row: ParsedReservationRow = {
         external_reservation_id: rid,
         external_room_type_id: externalRoomTypeId,
         stay_date: night,
@@ -293,9 +337,19 @@ export function parseMewsApiResponse(data: Json): {
         current_rate: nightly,
         base_rate: nightly,
         raw_payload: raw,
-      });
+      };
+      if (byStayNight.has(key)) {
+        stats.duplicateStayNightKeysMerged += 1;
+      }
+      byStayNight.set(key, row);
     }
   }
 
-  return { roomTypes, reservations };
+  for (const row of byStayNight.values()) {
+    if (row.current_rate === null) {
+      stats.rowsWithMissingRate += 1;
+    }
+  }
+
+  return { roomTypes, reservations: [...byStayNight.values()], stats };
 }
