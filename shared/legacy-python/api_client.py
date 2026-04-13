@@ -5,9 +5,9 @@ Encapsulates all HTTP communication with the Mews platform and returns
 raw JSON for downstream ETL processing.  Supports cursor-based pagination
 so large hotels receive complete data.
 
-The Mews Connector API limits the date interval to **100 hours** per
-request, so ``fetch_reservations`` automatically splits wider windows
-into successive chunks and merges the results.
+The Mews Connector API limits each reservation query interval (see docs;
+typically up to ~3 months). ``fetch_reservations`` splits wider windows
+into chunks and merges the results.
 """
 
 from __future__ import annotations
@@ -23,8 +23,9 @@ from models import Hotel
 # Mews limits each page to 1000 items by default.
 _DEFAULT_PAGE_SIZE = 1000
 
-# Mews caps each request's date interval at 100 hours.
-_MAX_WINDOW = timedelta(hours=96)  # keep a 4-hour margin
+# Mews limits reservation time filters to ~3 months per request (Connector API).
+# Use 90-day chunks to reduce round-trips (was 96h for early experimentation).
+_MAX_WINDOW = timedelta(days=90)
 
 
 def _parse_utc(ts: str) -> datetime:
@@ -48,13 +49,23 @@ class MewsApiClient:
         end_utc: str,
         page_size: int,
     ) -> dict[str, Any]:
-        """Fetch reservations for a single ≤96-hour window, paginating."""
+        """Fetch reservations for a single date window, paginating."""
         base_payload: dict[str, Any] = {
             "ClientToken": self._hotel.client_token,
             "AccessToken": self._hotel.access_token,
             "Client": MEWS_CLIENT_NAME,
             "StartUtc": start_utc,
             "EndUtc": end_utc,
+            # Include Canceled so downstream ETL can drop them locally (default omits them).
+            "States": [
+                "Enquired",
+                "Confirmed",
+                "Started",
+                "Processed",
+                "Canceled",
+                "Optional",
+                "Requested",
+            ],
             "Extent": {
                 "Reservations": True,
                 "SpaceCategories": True,
@@ -109,8 +120,7 @@ class MewsApiClient:
     ) -> dict[str, Any]:
         """Fetch all reservations between *start_utc* and *end_utc*.
 
-        Automatically splits wide date ranges into ≤96-hour windows
-        (Mews limit = 100 h) and merges the results.
+        Automatically splits wide date ranges into bounded windows and merges the results.
 
         Returns a merged response dict containing all ``Reservations``
         and category data.

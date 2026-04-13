@@ -12,6 +12,7 @@ import {
 describe("mews etl", () => {
   const sampleReservation = {
     Id: "res_123",
+    State: "Confirmed",
     ArrivalDate: "2025-05-01T14:00:00Z",
     DepartureDate: "2025-05-03T10:00:00Z",
     CreatedUtc: "2025-04-15T09:30:00Z",
@@ -71,7 +72,9 @@ describe("mews etl", () => {
   });
 
   it("parseMewsApiResponse expands nights and splits rate", () => {
-    const { roomTypes, reservations, stats } = parseMewsApiResponse(sampleResponse as Record<string, unknown>);
+    const { roomTypes, reservations, stats, canceledExternalIds } = parseMewsApiResponse(
+      sampleResponse as Record<string, unknown>,
+    );
     expect(roomTypes).toHaveLength(1);
     expect(roomTypes[0].external_room_type_id).toBe("room_1");
     expect(reservations).toHaveLength(2);
@@ -82,6 +85,23 @@ describe("mews etl", () => {
     expect(stats.skippedNoStayNights).toBe(0);
     expect(stats.duplicateStayNightKeysMerged).toBe(0);
     expect(stats.rowsWithMissingRate).toBe(0);
+    expect(stats.skippedCanceled).toBe(0);
+    expect(canceledExternalIds).toHaveLength(0);
+  });
+
+  it("parseMewsApiResponse skips canceled reservations and lists their ids", () => {
+    const canceled = {
+      ...sampleReservation,
+      Id: "res_canceled",
+      State: "Canceled",
+    };
+    const { reservations, stats, canceledExternalIds } = parseMewsApiResponse({
+      Reservations: [canceled],
+      SpaceCategories: [{ Id: "room_1", Name: "Medium" }],
+    } as Record<string, unknown>);
+    expect(reservations).toHaveLength(0);
+    expect(stats.skippedCanceled).toBe(1);
+    expect(canceledExternalIds).toEqual(["res_canceled"]);
   });
 
   it("parseMewsApiResponse skips rows without reservation id", () => {
@@ -114,6 +134,7 @@ describe("mews etl", () => {
   it("parseMewsApiResponse counts rows with no resolvable rate", () => {
     const noRate = {
       Id: "res_999",
+      State: "Confirmed",
       ArrivalDate: "2025-05-01T14:00:00Z",
       DepartureDate: "2025-05-02T10:00:00Z",
       CreatedUtc: "2025-04-15T09:30:00Z",
