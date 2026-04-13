@@ -5,6 +5,59 @@ import { resolveMewsCredentials } from "@/lib/mews/resolve-credentials";
 import type { MewsCredentialsInput } from "@/lib/mews/types";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+const RECONCILE_IN_CHUNK = 200;
+
+function groupStayDatesByReservation(
+  rows: { external_reservation_id: string; stay_date: string }[],
+): Map<string, Set<string>> {
+  const m = new Map<string, Set<string>>();
+  for (const r of rows) {
+    if (!m.has(r.external_reservation_id)) {
+      m.set(r.external_reservation_id, new Set());
+    }
+    m.get(r.external_reservation_id)!.add(r.stay_date);
+  }
+  return m;
+}
+
+async function deleteCanceledReservationRows(
+  supabase: SupabaseClient,
+  hotelId: string,
+  canceledIds: string[],
+): Promise<{ error: { message: string } | null }> {
+  for (let i = 0; i < canceledIds.length; i += RECONCILE_IN_CHUNK) {
+    const chunk = canceledIds.slice(i, i + RECONCILE_IN_CHUNK);
+    const { error } = await supabase
+      .from("reservations")
+      .delete()
+      .eq("hotel_id", hotelId)
+      .in("external_reservation_id", chunk);
+    if (error) return { error };
+  }
+  return { error: null };
+}
+
+/** Remove stay nights no longer present after a date change (same external reservation id). */
+async function deleteStaleStayNightsForActiveReservations(
+  supabase: SupabaseClient,
+  hotelId: string,
+  activeByExternalId: Map<string, Set<string>>,
+): Promise<{ error: { message: string } | null }> {
+  for (const [extId, nights] of activeByExternalId) {
+    if (nights.size === 0) continue;
+    const list = [...nights].sort();
+    const { error } = await supabase
+      .from("reservations")
+      .delete()
+      .eq("hotel_id", hotelId)
+      .eq("external_reservation_id", extId)
+      .not("stay_date", "in", `(${list.join(",")})`);
+    if (error) return { error };
+  }
+  return { error: null };
+}
 
 type Body = {
   mews?: MewsCredentialsInput;
@@ -159,6 +212,34 @@ export async function POST(req: Request) {
       if (resErr) {
         return NextResponse.json({ error: resErr.message }, { status: 500 });
       }
+
+      const canceledDel = await deleteCanceledReservationRows(
+        ctx.supabase,
+        ctx.hotelId,
+        parsed.canceledExternalIds,
+      );
+      if (canceledDel.error) {
+        return NextResponse.json({ error: canceledDel.error.message }, { status: 500 });
+      }
+
+      const activeNights = groupStayDatesByReservation(parsed.reservations);
+      const staleDel = await deleteStaleStayNightsForActiveReservations(
+        ctx.supabase,
+        ctx.hotelId,
+        activeNights,
+      );
+      if (staleDel.error) {
+        return NextResponse.json({ error: staleDel.error.message }, { status: 500 });
+      }
+    } else if (parsed.canceledExternalIds.length > 0) {
+      const canceledDel = await deleteCanceledReservationRows(
+        ctx.supabase,
+        ctx.hotelId,
+        parsed.canceledExternalIds,
+      );
+      if (canceledDel.error) {
+        return NextResponse.json({ error: canceledDel.error.message }, { status: 500 });
+      }
     }
 
     if (resolved.connectionId) {
@@ -181,6 +262,7 @@ export async function POST(req: Request) {
       reservationRowsUpserted,
       ingest: {
         duplicateRoomTypeRowsMerged,
+        canceledReservationCount: parsed.canceledExternalIds.length,
         ...parsed.stats,
       },
       credentialSource: resolved.source,
@@ -188,7 +270,15 @@ export async function POST(req: Request) {
   } catch (error) {
     if (error instanceof MewsHttpError) {
       const status = error.status >= 500 ? 502 : 400;
-      return NextResponse.json({ ok: false, error: error.message, mewsStatus: error.status }, { status });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: error.message,
+          mewsStatus: error.status,
+          ...(error.retryAfterMs != null ? { retryAfterMs: error.retryAfterMs } : {}),
+        },
+        { status },
+      );
     }
     const message = error instanceof Error ? error.message : "Mews sync failed.";
     return NextResponse.json({ ok: false, error: message }, { status: 502 });

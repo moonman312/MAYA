@@ -188,6 +188,14 @@ export function buildRateLookup(data: Json): Record<string, number> {
   return rateMap;
 }
 
+/** Mews service order state for canceled bookings (legacy + current APIs). */
+export function isCanceledMewsReservation(raw: Json): boolean {
+  const s = raw.State ?? raw.state;
+  if (typeof s !== "string") return false;
+  const n = s.trim().toLowerCase();
+  return n === "canceled" || n === "cancelled";
+}
+
 export function findReservationsList(data: Json): Json[] {
   for (const key of ["Reservations", "reservations"] as const) {
     const items = data[key];
@@ -302,6 +310,8 @@ export type ParsedMewsStats = {
   duplicateStayNightKeysMerged: number;
   /** Emitted rows where no total rate could be resolved (stored as null). */
   rowsWithMissingRate: number;
+  /** Canceled in Mews — not ingested; existing rows are removed in sync. */
+  skippedCanceled: number;
 };
 
 const emptyStats = (): ParsedMewsStats => ({
@@ -309,6 +319,7 @@ const emptyStats = (): ParsedMewsStats => ({
   skippedNoStayNights: 0,
   duplicateStayNightKeysMerged: 0,
   rowsWithMissingRate: 0,
+  skippedCanceled: 0,
 });
 
 export function parseMewsApiResponse(
@@ -318,10 +329,11 @@ export function parseMewsApiResponse(
   roomTypes: ParsedRoomType[];
   reservations: ParsedReservationRow[];
   stats: ParsedMewsStats;
+  canceledExternalIds: string[];
 } {
   const rawList = findReservationsList(data);
   if (rawList.length === 0) {
-    return { roomTypes: [], reservations: [], stats: emptyStats() };
+    return { roomTypes: [], reservations: [], stats: emptyStats(), canceledExternalIds: [] };
   }
 
   const fieldMap = detectFieldMap(rawList[0]);
@@ -338,11 +350,18 @@ export function parseMewsApiResponse(
 
   const stats = emptyStats();
   const byStayNight = new Map<string, ParsedReservationRow>();
+  const canceledExternalIds = new Set<string>();
 
   for (const raw of rawList) {
     const rid = fieldMap.reservation_id ? getNested(raw, fieldMap.reservation_id) : null;
     if (typeof rid !== "string" || !rid) {
       stats.skippedMissingReservationId += 1;
+      continue;
+    }
+
+    if (isCanceledMewsReservation(raw)) {
+      canceledExternalIds.add(rid);
+      stats.skippedCanceled += 1;
       continue;
     }
 
@@ -394,5 +413,10 @@ export function parseMewsApiResponse(
     }
   }
 
-  return { roomTypes, reservations: [...byStayNight.values()], stats };
+  return {
+    roomTypes,
+    reservations: [...byStayNight.values()],
+    stats,
+    canceledExternalIds: [...canceledExternalIds],
+  };
 }
