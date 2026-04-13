@@ -154,21 +154,22 @@ begin
         rounding_mode = excluded.rounding_mode,
         updated_at = now();
 
-  insert into room_types (hotel_id, external_room_type_id, name, display_name, is_active)
+  insert into room_types (hotel_id, external_room_type_id, name, display_name, is_active, total_rooms)
   values
-    (v_hotel_1_id, 'STD', 'Standard', 'Standard Room', true),
-    (v_hotel_1_id, 'DLX', 'Deluxe', 'Deluxe Room', true),
-    (v_hotel_1_id, 'STE', 'Suite', 'Suite', true),
-    (v_hotel_2_id, 'STD', 'Standard', 'Standard Room', true),
-    (v_hotel_2_id, 'DLX', 'Deluxe', 'Deluxe Room', true),
-    (v_hotel_2_id, 'STE', 'Suite', 'Suite', true),
-    (v_hotel_3_id, 'STD', 'Standard', 'Standard Room', true),
-    (v_hotel_3_id, 'DLX', 'Deluxe', 'Deluxe Room', true),
-    (v_hotel_3_id, 'STE', 'Suite', 'Suite', true)
+    (v_hotel_1_id, 'STD', 'Standard', 'Standard Room', true, 40),
+    (v_hotel_1_id, 'DLX', 'Deluxe', 'Deluxe Room', true, 30),
+    (v_hotel_1_id, 'STE', 'Suite', 'Suite', true, 15),
+    (v_hotel_2_id, 'STD', 'Standard', 'Standard Room', true, 40),
+    (v_hotel_2_id, 'DLX', 'Deluxe', 'Deluxe Room', true, 30),
+    (v_hotel_2_id, 'STE', 'Suite', 'Suite', true, 15),
+    (v_hotel_3_id, 'STD', 'Standard', 'Standard Room', true, 40),
+    (v_hotel_3_id, 'DLX', 'Deluxe', 'Deluxe Room', true, 30),
+    (v_hotel_3_id, 'STE', 'Suite', 'Suite', true, 15)
   on conflict (hotel_id, external_room_type_id) do update
     set name = excluded.name,
         display_name = excluded.display_name,
         is_active = excluded.is_active,
+        total_rooms = excluded.total_rooms,
         updated_at = now();
 
   raise notice 'Seed complete. hotel_1=% hotel_2=% hotel_3=%', v_hotel_1_id, v_hotel_2_id, v_hotel_3_id;

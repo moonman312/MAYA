@@ -84,6 +84,7 @@ create table if not exists hotels (
   timezone text not null default 'UTC',
   currency text not null default 'USD',
   is_active boolean not null default true,
+  -- Default when a category has no explicit inventory in the PMS payload (see room_types.total_rooms).
   total_rooms_per_type integer not null default 100 check (total_rooms_per_type > 0),
   external_enterprise_id text,
   created_at timestamptz not null default now(),
@@ -143,6 +144,7 @@ create table if not exists room_types (
   name text not null,
   display_name text,
   is_active boolean not null default true,
+  total_rooms integer not null default 100 check (total_rooms > 0),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (hotel_id, external_room_type_id)
@@ -187,6 +189,29 @@ create table if not exists reservations (
 
 create index if not exists idx_reservations_hotel_stay_date on reservations(hotel_id, stay_date);
 create index if not exists idx_reservations_hotel_room_type on reservations(hotel_id, room_type_id);
+
+-- On sync, `current_rate` always reflects the latest PMS value; `base_rate` is the first-seen
+-- rate (original BAR) and must not be overwritten on every sync. Matches legacy Python upsert:
+-- base_rate = COALESCE(reservations.base_rate, EXCLUDED.base_rate).
+create or replace function public.reservations_sync_base_rate()
+returns trigger
+language plpgsql
+as $$
+begin
+  if tg_op = 'INSERT' then
+    new.base_rate := coalesce(new.base_rate, new.current_rate);
+  elsif tg_op = 'UPDATE' then
+    new.base_rate := coalesce(old.base_rate, new.base_rate, new.current_rate);
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists reservations_sync_base_rate on reservations;
+create trigger reservations_sync_base_rate
+  before insert or update on reservations
+  for each row
+  execute function public.reservations_sync_base_rate();
 
 create table if not exists occupancy_metrics (
   id uuid primary key default gen_random_uuid(),
@@ -630,3 +655,5 @@ create policy competitor_rates_access
   on competitor_rates for all
   using (is_hotel_accessible(hotel_id))
   with check (can_manage_hotel(hotel_id));
+
+-- Existing DBs: add room_types.total_rooms and reservations_sync_base_rate (see table DDL above) if missing.

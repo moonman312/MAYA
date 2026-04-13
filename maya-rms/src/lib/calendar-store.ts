@@ -106,7 +106,7 @@ async function getCalendarFromDb(
     .eq("id", hotelId)
     .maybeSingle();
 
-  const totalRoomsPerType = hotelRow?.total_rooms_per_type ?? 100;
+  const hotelFallbackRooms = hotelRow?.total_rooms_per_type ?? 100;
   const defaultBaseRate = 150;
 
   const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
@@ -115,7 +115,7 @@ async function getCalendarFromDb(
 
   const { data: roomTypeRows } = await supabase
     .from("room_types")
-    .select("id, name")
+    .select("id, name, total_rooms")
     .eq("hotel_id", hotelId)
     .eq("is_active", true)
     .order("name");
@@ -125,7 +125,7 @@ async function getCalendarFromDb(
       ? roomTypeRows.map((rt) => ({
           id: String(rt.id),
           name: rt.name,
-          total_rooms: totalRoomsPerType,
+          total_rooms: typeof rt.total_rooms === "number" && rt.total_rooms > 0 ? rt.total_rooms : hotelFallbackRooms,
           base_rate: defaultBaseRate,
         }))
       : ROOM_TYPES.map((rt) => ({

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildCategoryInventory,
   buildCategoryMap,
   buildRateLookup,
   detectFieldMap,
@@ -35,6 +36,21 @@ describe("mews etl", () => {
   it("buildCategoryMap maps category ids to names", () => {
     const m = buildCategoryMap(sampleResponse as Record<string, unknown>);
     expect(m.room_1).toBe("Medium");
+  });
+
+  it("buildCategoryInventory uses RoomCount when present", () => {
+    const data = {
+      Reservations: [sampleReservation],
+      SpaceCategories: [{ Id: "room_1", Name: "Medium", RoomCount: 22 }],
+    };
+    const inv = buildCategoryInventory(data as Record<string, unknown>, 100);
+    expect(inv.room_1?.name).toBe("Medium");
+    expect(inv.room_1?.total_rooms).toBe(22);
+  });
+
+  it("buildCategoryInventory falls back to hotel default when no count field", () => {
+    const inv = buildCategoryInventory(sampleResponse as Record<string, unknown>, 77);
+    expect(inv.room_1?.total_rooms).toBe(77);
   });
 
   it("enumerateStayNights uses exclusive departure", () => {
