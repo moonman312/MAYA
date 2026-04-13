@@ -84,9 +84,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: resolved.error }, { status: 400 });
     }
 
+    const { data: hotelRow } = await ctx.supabase
+      .from("hotels")
+      .select("total_rooms_per_type")
+      .eq("id", ctx.hotelId)
+      .maybeSingle();
+
+    const defaultRoomsPerCategory = hotelRow?.total_rooms_per_type ?? 100;
+
     const { start, end } = resolveFetchWindow(body);
     const { data: raw, windows } = await mewsFetchReservationsRange(resolved.creds, start, end);
-    const parsed = parseMewsApiResponse(raw as Record<string, unknown>);
+    const parsed = parseMewsApiResponse(raw as Record<string, unknown>, {
+      defaultRoomsPerCategory,
+    });
 
     let roomTypesUpserted = 0;
     let reservationRowsUpserted = 0;
@@ -100,6 +110,7 @@ export async function POST(req: Request) {
           name: rt.name,
           display_name: rt.display_name,
           is_active: true,
+          total_rooms: rt.total_rooms,
         })),
         (r) => `${r.hotel_id}:${r.external_room_type_id}`,
       );
@@ -138,7 +149,6 @@ export async function POST(req: Request) {
         booking_date: r.booking_date,
         booking_window_days: r.booking_window_days,
         current_rate: r.current_rate,
-        base_rate: r.base_rate,
         raw_payload: r.raw_payload,
       }));
       reservationRowsUpserted = resRows.length;

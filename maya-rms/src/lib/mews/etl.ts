@@ -8,6 +8,10 @@
  * edits refresh matching nights. If a stay is shortened, rows for nights that no
  * longer fall inside the stay are not automatically deleted by this sync (they
  * would require a separate reconciliation pass).
+ *
+ * Rates: we only derive `current_rate` from Mews (nightly). `base_rate` is applied
+ * by the DB trigger `reservations_sync_base_rate` — first insert copies from
+ * `current_rate`; later updates keep the original BAR.
  */
 
 type Json = Record<string, unknown>;
@@ -111,8 +115,33 @@ function resolveCategoryName(cat: Json): string {
   return "Unknown";
 }
 
-export function buildCategoryMap(data: Json): Record<string, string> {
-  const categories: Record<string, string> = {};
+export type CategoryInventoryEntry = { name: string; total_rooms: number };
+
+/** Prefer explicit inventory fields from the PMS category payload; else use hotel default. */
+function resolveCategoryRoomCount(cat: Json, fallback: number): number {
+  const candidates: unknown[] = [
+    cat.RoomCount,
+    cat.SpacesCount,
+    cat.ResourceCount,
+    cat.InventoryCount,
+  ];
+  for (const raw of candidates) {
+    if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
+      return Math.min(100_000, Math.floor(raw));
+    }
+    if (typeof raw === "string" && /^\d+$/.test(raw.trim())) {
+      const n = parseInt(raw.trim(), 10);
+      if (n > 0) return Math.min(100_000, n);
+    }
+  }
+  return fallback;
+}
+
+export function buildCategoryInventory(
+  data: Json,
+  defaultRoomsPerCategory: number,
+): Record<string, CategoryInventoryEntry> {
+  const categories: Record<string, CategoryInventoryEntry> = {};
   for (const key of ["SpaceCategories", "RoomCategories", "ResourceCategories"] as const) {
     const items = data[key];
     if (!Array.isArray(items)) continue;
@@ -121,12 +150,20 @@ export function buildCategoryMap(data: Json): Record<string, string> {
       const c = cat as Json;
       const id = c.Id ?? c.id;
       if (typeof id === "string" && id) {
-        categories[id] = resolveCategoryName(c);
+        categories[id] = {
+          name: resolveCategoryName(c),
+          total_rooms: resolveCategoryRoomCount(c, defaultRoomsPerCategory),
+        };
       }
     }
     break;
   }
   return categories;
+}
+
+export function buildCategoryMap(data: Json): Record<string, string> {
+  const inv = buildCategoryInventory(data, 100);
+  return Object.fromEntries(Object.entries(inv).map(([k, v]) => [k, v.name]));
 }
 
 export function buildRateLookup(data: Json): Record<string, number> {
@@ -236,6 +273,8 @@ export type ParsedRoomType = {
   external_room_type_id: string;
   name: string;
   display_name: string | null;
+  /** Physical room count for this category; from PMS or `defaultRoomsPerCategory`. */
+  total_rooms: number;
 };
 
 export type ParsedReservationRow = {
@@ -244,8 +283,8 @@ export type ParsedReservationRow = {
   stay_date: string;
   booking_date: string | null;
   booking_window_days: number | null;
+  /** Nightly rate from Mews; `base_rate` in DB is set by trigger (original BAR). */
   current_rate: number | null;
-  base_rate: number | null;
   raw_payload: Json;
 };
 
@@ -272,7 +311,10 @@ const emptyStats = (): ParsedMewsStats => ({
   rowsWithMissingRate: 0,
 });
 
-export function parseMewsApiResponse(data: Json): {
+export function parseMewsApiResponse(
+  data: Json,
+  options?: { defaultRoomsPerCategory?: number },
+): {
   roomTypes: ParsedRoomType[];
   reservations: ParsedReservationRow[];
   stats: ParsedMewsStats;
@@ -283,13 +325,15 @@ export function parseMewsApiResponse(data: Json): {
   }
 
   const fieldMap = detectFieldMap(rawList[0]);
-  const categories = buildCategoryMap(data);
+  const defaultRooms = options?.defaultRoomsPerCategory ?? 100;
+  const categories = buildCategoryInventory(data, defaultRooms);
   const rateLookup = buildRateLookup(data);
 
-  const roomTypes: ParsedRoomType[] = Object.entries(categories).map(([id, name]) => ({
+  const roomTypes: ParsedRoomType[] = Object.entries(categories).map(([id, entry]) => ({
     external_room_type_id: id,
-    name,
-    display_name: name,
+    name: entry.name,
+    display_name: entry.name,
+    total_rooms: entry.total_rooms,
   }));
 
   const stats = emptyStats();
@@ -335,7 +379,6 @@ export function parseMewsApiResponse(data: Json): {
         booking_date: bookingDate,
         booking_window_days: bookingWindowDays,
         current_rate: nightly,
-        base_rate: nightly,
         raw_payload: raw,
       };
       if (byStayNight.has(key)) {

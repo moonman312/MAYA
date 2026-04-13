@@ -13,7 +13,7 @@
 with base as (
   select
     h.id as hotel_id,
-    h.total_rooms_per_type,
+    rt.total_rooms as inventory_per_type,
     rt.id as room_type_id,
     rt.name as room_type_name,
     case
@@ -35,15 +35,15 @@ targets as (
     b.room_type_id,
     b.room_type_name,
     b.base_rate,
-    b.total_rooms_per_type,
+    b.inventory_per_type,
     d.stay_date,
     -- deterministic occupancy target between ~25% and ~90%
     greatest(
       1,
       least(
-        b.total_rooms_per_type,
+        b.inventory_per_type,
         floor(
-          b.total_rooms_per_type *
+          b.inventory_per_type *
           (
             0.25 +
             (
@@ -110,7 +110,6 @@ insert into reservations (
   booking_date,
   booking_window_days,
   current_rate,
-  base_rate,
   raw_payload,
   created_at,
   updated_at
@@ -124,7 +123,6 @@ select
   r.booking_date,
   r.booking_window_days,
   r.current_rate,
-  r.current_rate as base_rate,
   jsonb_build_object('source', 'synthetic_seed'),
   now(),
   now()
@@ -135,7 +133,6 @@ do update set
   booking_date = excluded.booking_date,
   booking_window_days = excluded.booking_window_days,
   current_rate = excluded.current_rate,
-  base_rate = coalesce(reservations.base_rate, excluded.base_rate),
   updated_at = now();
 
 -- ----------------------------------------------------------------------------
