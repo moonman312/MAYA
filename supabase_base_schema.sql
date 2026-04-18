@@ -1,6 +1,8 @@
 -- MAYA base schema (run this first in Supabase)
 -- Includes core tables + enums needed before any seed data.
 -- No seed inserts in this file.
+--
+-- Aligned with Rules Engine Implementation Guide v1.
 
 create extension if not exists pgcrypto;
 
@@ -20,31 +22,6 @@ begin
 
   if not exists (select 1 from pg_type where typname = 'connection_status') then
     create type connection_status as enum ('pending', 'connected', 'degraded', 'disconnected', 'error');
-  end if;
-
-  if not exists (select 1 from pg_type where typname = 'scope_type') then
-    create type scope_type as enum ('hotel', 'room_type');
-  end if;
-
-  if not exists (select 1 from pg_type where typname = 'rule_metric') then
-    create type rule_metric as enum (
-      'occupancy_percentage',
-      'pickup_rate',
-      'booking_window_days',
-      'room_type'
-    );
-  end if;
-
-  if not exists (select 1 from pg_type where typname = 'rule_operator') then
-    create type rule_operator as enum ('gt', 'lt', 'eq', 'gte', 'lte', 'neq');
-  end if;
-
-  if not exists (select 1 from pg_type where typname = 'action_type') then
-    create type action_type as enum ('percent', 'fixed', 'set_rate');
-  end if;
-
-  if not exists (select 1 from pg_type where typname = 'action_direction') then
-    create type action_direction as enum ('increase', 'decrease', 'absolute');
   end if;
 
   if not exists (select 1 from pg_type where typname = 'run_type') then
@@ -77,7 +54,6 @@ create table if not exists hotels (
   timezone text not null default 'UTC',
   currency text not null default 'USD',
   is_active boolean not null default true,
-  -- Fallback when a PMS category has no explicit inventory (see room_types.total_rooms).
   total_rooms_per_type integer not null default 100 check (total_rooms_per_type > 0),
   external_enterprise_id text,
   created_at timestamptz not null default now(),
@@ -138,11 +114,20 @@ create table if not exists room_types (
   display_name text,
   is_active boolean not null default true,
   total_rooms integer not null default 100 check (total_rooms > 0),
+  floor_price numeric(10,2) not null default 1.00,
+  ceiling_price numeric(10,2) not null default 99999.99,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (hotel_id, external_room_type_id)
+  unique (hotel_id, external_room_type_id),
+  check (floor_price > 0),
+  check (ceiling_price >= floor_price)
 );
 
+create index if not exists idx_room_types_hotel_active
+  on room_types (hotel_id) where is_active;
+
+-- Legacy table kept for backward compatibility; floor_price/ceiling_price on
+-- room_types is the canonical source for the rules engine.
 create table if not exists room_constraints (
   id uuid primary key default gen_random_uuid(),
   hotel_id uuid not null references hotels(id) on delete cascade,
@@ -203,6 +188,7 @@ create trigger reservations_sync_base_rate
   for each row
   execute function public.reservations_sync_base_rate();
 
+-- Legacy metrics table; stay_date_snapshot is the canonical source for the engine.
 create table if not exists occupancy_metrics (
   id uuid primary key default gen_random_uuid(),
   hotel_id uuid not null references hotels(id) on delete cascade,
@@ -215,41 +201,106 @@ create table if not exists occupancy_metrics (
 );
 
 -- ============================================================================
--- RULES + EXECUTION CORE
+-- STAY-DATE SNAPSHOTS (Implementation Guide §3.5)
+-- ============================================================================
+
+create table if not exists stay_date_snapshot (
+  hotel_id        uuid not null,
+  snapshot_ts     timestamptz not null,
+  stay_date       date not null,
+  room_type_id    uuid not null,
+  sellable_units  integer not null check (sellable_units >= 0),
+  booked_units    integer not null check (booked_units >= 0),
+  booked_revenue  numeric(12,2) not null check (booked_revenue >= 0),
+  primary key (hotel_id, snapshot_ts, stay_date, room_type_id)
+);
+
+create index if not exists idx_snapshot_hotel_stay_ts
+  on stay_date_snapshot (hotel_id, stay_date, snapshot_ts desc);
+
+-- ============================================================================
+-- RULES ENGINE (Implementation Guide §3.2–3.4)
 -- ============================================================================
 
 create table if not exists pricing_rules (
-  id uuid primary key default gen_random_uuid(),
-  hotel_id uuid not null references hotels(id) on delete cascade,
-  name text not null,
-  priority integer not null default 100,
-  is_active boolean not null default true,
-  scope_type scope_type not null default 'hotel',
-  action_type action_type not null,
-  action_direction action_direction not null,
-  action_value numeric(12,4) not null,
-  created_by uuid references auth.users(id) on delete set null,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  check (action_value >= 0)
+  id                uuid primary key default gen_random_uuid(),
+  hotel_id          uuid not null references hotels(id) on delete cascade,
+  name              text not null,
+  is_active         boolean not null default true,
+  version           integer not null default 1,
+  -- scope
+  start_date        date,
+  end_date          date,
+  is_annual         boolean not null default false,
+  dow_mask          integer not null default 127,
+  -- action
+  action_type       text not null check (action_type in ('percent','fixed')),
+  action_direction  text not null check (action_direction in ('increase','decrease')),
+  action_value      numeric(10,4) not null check (action_value > 0),
+  -- precedence
+  priority          integer not null default 100,
+  -- classification
+  is_pickup_rule    boolean not null default false,
+  -- audit
+  created_by        uuid references auth.users(id) on delete set null,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now()
 );
 
-create index if not exists idx_pricing_rules_hotel_active_priority
-  on pricing_rules(hotel_id, is_active, priority);
+create index if not exists idx_pricing_rules_hotel_active
+  on pricing_rules (hotel_id, is_active);
 
+create index if not exists idx_pricing_rules_hotel_pickup
+  on pricing_rules (hotel_id, is_pickup_rule) where is_active;
+
+-- Single-row condition model (§3.4)
+create table if not exists rule_condition (
+  rule_id               uuid primary key references pricing_rules(id) on delete cascade,
+  occupancy_operator    text check (occupancy_operator in ('gt','lt')),
+  occupancy_threshold   numeric(8,4) check (occupancy_threshold between 0 and 1),
+  dta_operator          text check (dta_operator in ('gt','lt')),
+  dta_threshold_days    integer check (dta_threshold_days >= 0),
+  pickup_operator       text check (pickup_operator in ('gt','lt')),
+  pickup_threshold      numeric(10,2),
+  pickup_window_days    integer check (pickup_window_days in (1,3,7)),
+  pickup_metric         text check (pickup_metric in ('room_nights','revenue')),
+  check (
+    (pickup_operator is null and pickup_threshold is null
+     and pickup_window_days is null and pickup_metric is null)
+    or
+    (pickup_operator is not null and pickup_threshold is not null
+     and pickup_window_days is not null and pickup_metric is not null)
+  ),
+  check (
+    occupancy_operator is not null
+    or dta_operator is not null
+    or pickup_operator is not null
+  )
+);
+
+-- Signal room types: rooms whose demand drives the rule's metrics (§3.3)
+create table if not exists rule_signal_room_type (
+  rule_id      uuid not null references pricing_rules(id) on delete cascade,
+  room_type_id uuid not null references room_types(id),
+  primary key (rule_id, room_type_id)
+);
+
+-- Affected room types: rooms whose prices the rule changes (§3.3)
+create table if not exists rule_affected_room_type (
+  rule_id      uuid not null references pricing_rules(id) on delete cascade,
+  room_type_id uuid not null references room_types(id),
+  primary key (rule_id, room_type_id)
+);
+
+-- Legacy tables kept for backward compatibility with existing UI/API code.
 create table if not exists pricing_rule_conditions (
   id uuid primary key default gen_random_uuid(),
   rule_id uuid not null references pricing_rules(id) on delete cascade,
-  metric rule_metric not null,
-  operator rule_operator not null,
+  metric text not null,
+  operator text not null,
   numeric_value numeric(14,4),
   text_value text,
-  created_at timestamptz not null default now(),
-  check (
-    (metric = 'room_type' and text_value is not null)
-    or
-    (metric <> 'room_type' and numeric_value is not null)
-  )
+  created_at timestamptz not null default now()
 );
 
 create table if not exists pricing_rule_room_types (
@@ -260,6 +311,7 @@ create table if not exists pricing_rule_room_types (
   unique (rule_id, room_type_id)
 );
 
+-- Legacy idempotency ledger; superseded by ladder_rule_state + pickup_event.
 create table if not exists rule_applications (
   id uuid primary key default gen_random_uuid(),
   hotel_id uuid not null references hotels(id) on delete cascade,
@@ -269,6 +321,120 @@ create table if not exists rule_applications (
   applied_at timestamptz not null default now(),
   unique (hotel_id, rule_id, stay_date)
 );
+
+-- ============================================================================
+-- LADDER RULE STATE + EVENT LEDGER (Implementation Guide §3.7–3.8)
+-- ============================================================================
+
+create table if not exists ladder_rule_state (
+  rule_id            uuid not null references pricing_rules(id) on delete cascade,
+  rule_version       integer not null,
+  stay_date          date not null,
+  room_type_id       uuid not null,
+  is_active          boolean not null,
+  activated_at       timestamptz,
+  deactivated_at     timestamptz,
+  last_evaluated_at  timestamptz not null,
+  action_kind        text not null,
+  action_direction   text not null,
+  action_value       numeric(10,4) not null,
+  primary key (rule_id, stay_date, room_type_id)
+);
+
+create index if not exists idx_ladder_state_active
+  on ladder_rule_state (stay_date, room_type_id) where is_active;
+
+create table if not exists ladder_transition_event (
+  id                 uuid primary key default gen_random_uuid(),
+  hotel_id           uuid not null,
+  rule_id            uuid not null,
+  rule_version       integer not null,
+  stay_date          date not null,
+  room_type_id       uuid not null,
+  transition         text not null check (transition in ('activate','deactivate')),
+  transitioned_at    timestamptz not null,
+  metrics_snapshot   jsonb not null,
+  action_kind        text not null,
+  action_direction   text not null,
+  action_value       numeric(10,4) not null
+);
+
+create index if not exists idx_ladder_event_hotel_stay
+  on ladder_transition_event (hotel_id, stay_date, room_type_id, transitioned_at desc);
+
+create index if not exists idx_ladder_event_rule_stay
+  on ladder_transition_event (rule_id, stay_date, transitioned_at desc);
+
+-- ============================================================================
+-- PICKUP EVENT LEDGER (Implementation Guide §3.9)
+-- ============================================================================
+
+create table if not exists pickup_event (
+  id                            uuid primary key default gen_random_uuid(),
+  hotel_id                      uuid not null,
+  rule_id                       uuid not null references pricing_rules(id),
+  rule_version                  integer not null,
+  stay_date                     date not null,
+  affected_room_type_id         uuid not null,
+  baseline_start_ts             timestamptz not null,
+  baseline_end_ts               timestamptz not null,
+  signal_booked_units_start     integer not null,
+  signal_booked_units_end       integer not null,
+  signal_booked_revenue_start   numeric(12,2) not null,
+  signal_booked_revenue_end     numeric(12,2) not null,
+  applied_at                    timestamptz not null,
+  retired_at                    timestamptz,
+  action_kind                   text not null,
+  action_direction              text not null,
+  action_value                  numeric(10,4) not null
+);
+
+create index if not exists idx_pickup_event_active
+  on pickup_event (hotel_id, stay_date, affected_room_type_id) where retired_at is null;
+
+create index if not exists idx_pickup_event_rule_stay
+  on pickup_event (rule_id, stay_date, applied_at desc);
+
+-- ============================================================================
+-- PUBLISHED PRICES (Implementation Guide §3.6)
+-- ============================================================================
+
+create table if not exists published_price (
+  hotel_id     uuid not null,
+  stay_date    date not null,
+  room_type_id uuid not null,
+  price        numeric(10,2) not null,
+  computed_at  timestamptz not null,
+  primary key (hotel_id, stay_date, room_type_id)
+);
+
+-- ============================================================================
+-- EVALUATION AUDIT LOG (Implementation Guide §3.10)
+-- ============================================================================
+
+create table if not exists evaluation_audit (
+  id                     uuid primary key default gen_random_uuid(),
+  evaluation_run_id      uuid not null,
+  hotel_id               uuid not null,
+  stay_date              date not null,
+  room_type_id           uuid not null,
+  evaluated_at           timestamptz not null,
+  base_price             numeric(10,2) not null,
+  floor_price            numeric(10,2) not null,
+  ceiling_price          numeric(10,2) not null,
+  ladder_subtotal_delta  numeric(10,2) not null,
+  pickup_subtotal_delta  numeric(10,2) not null,
+  pre_clamp_price        numeric(10,2) not null,
+  final_price            numeric(10,2) not null,
+  details                jsonb not null
+);
+
+create index if not exists idx_eval_audit_hotel_stay
+  on evaluation_audit (hotel_id, stay_date, room_type_id, evaluated_at desc);
+
+-- ============================================================================
+-- RUNS + DECISIONS + UPDATE DELIVERY (legacy, kept for compatibility)
+-- ============================================================================
 
 create table if not exists pricing_runs (
   id uuid primary key default gen_random_uuid(),
@@ -328,7 +494,7 @@ create index if not exists idx_rate_updates_hotel_update_time
   on rate_updates(hotel_id, update_time desc);
 
 -- ============================================================================
--- AUDIT CORE
+-- AUDIT + OPTIONAL MARKET/COMP DATA
 -- ============================================================================
 
 create table if not exists audit_events (
@@ -344,3 +510,32 @@ create table if not exists audit_events (
 
 create index if not exists idx_audit_events_hotel_created_at
   on audit_events(hotel_id, created_at desc);
+
+create table if not exists market_events (
+  id uuid primary key default gen_random_uuid(),
+  hotel_id uuid not null references hotels(id) on delete cascade,
+  name text not null,
+  event_type text,
+  start_date date not null,
+  end_date date not null,
+  impact_score numeric(6,2),
+  source text,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  check (start_date <= end_date)
+);
+
+create table if not exists competitor_rates (
+  id uuid primary key default gen_random_uuid(),
+  hotel_id uuid not null references hotels(id) on delete cascade,
+  competitor_name text not null,
+  room_type_name text,
+  stay_date date not null,
+  observed_rate numeric(12,2) not null check (observed_rate >= 0),
+  observed_at timestamptz not null default now(),
+  source text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_competitor_rates_hotel_stay_date
+  on competitor_rates(hotel_id, stay_date);
