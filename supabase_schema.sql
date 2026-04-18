@@ -1,5 +1,6 @@
--- MAYA Supabase/Postgres schema proposal
+-- MAYA Supabase/Postgres schema
 -- Purpose: multi-tenant RMS data model for hotels, users, rules, runs, and integrations.
+-- Aligned with Rules Engine Implementation Guide v1.
 -- Notes:
 --   1) Uses UUID primary keys for Supabase compatibility.
 --   2) User identity is managed by Supabase Auth (auth.users).
@@ -13,10 +14,6 @@ create extension if not exists pgcrypto;
 
 do $$
 begin
-  if not exists (select 1 from pg_type where typname = 'organization_membership_role') then
-    create type organization_membership_role as enum ('super_admin', 'org_admin', 'org_analyst', 'org_viewer');
-  end if;
-
   if not exists (select 1 from pg_type where typname = 'hotel_membership_role') then
     create type hotel_membership_role as enum ('hotel_admin', 'manager', 'staff', 'viewer');
   end if;
@@ -33,31 +30,6 @@ begin
     create type connection_status as enum ('pending', 'connected', 'degraded', 'disconnected', 'error');
   end if;
 
-  if not exists (select 1 from pg_type where typname = 'scope_type') then
-    create type scope_type as enum ('hotel', 'room_type');
-  end if;
-
-  if not exists (select 1 from pg_type where typname = 'rule_metric') then
-    create type rule_metric as enum (
-      'occupancy_percentage',
-      'pickup_rate',
-      'booking_window_days',
-      'room_type'
-    );
-  end if;
-
-  if not exists (select 1 from pg_type where typname = 'rule_operator') then
-    create type rule_operator as enum ('gt', 'lt', 'eq', 'gte', 'lte', 'neq');
-  end if;
-
-  if not exists (select 1 from pg_type where typname = 'action_type') then
-    create type action_type as enum ('percent', 'fixed', 'set_rate');
-  end if;
-
-  if not exists (select 1 from pg_type where typname = 'action_direction') then
-    create type action_direction as enum ('increase', 'decrease', 'absolute');
-  end if;
-
   if not exists (select 1 from pg_type where typname = 'run_type') then
     create type run_type as enum ('live', 'simulation');
   end if;
@@ -72,14 +44,8 @@ begin
 end $$;
 
 -- ============================================================================
--- TENANCY + USERS
+-- TENANCY + USERS (hotel-scoped: users access hotels via hotel_memberships)
 -- ============================================================================
-
-create table if not exists organizations (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  created_at timestamptz not null default now()
-);
 
 create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -88,19 +54,8 @@ create table if not exists profiles (
   created_at timestamptz not null default now()
 );
 
-create table if not exists organization_memberships (
-  id uuid primary key default gen_random_uuid(),
-  organization_id uuid not null references organizations(id) on delete cascade,
-  user_id uuid not null references auth.users(id) on delete cascade,
-  role organization_membership_role not null,
-  status membership_status not null default 'active',
-  created_at timestamptz not null default now(),
-  unique (organization_id, user_id)
-);
-
 create table if not exists hotels (
   id uuid primary key default gen_random_uuid(),
-  organization_id uuid not null references organizations(id) on delete cascade,
   name text not null,
   timezone text not null default 'UTC',
   currency text not null default 'USD',
@@ -109,8 +64,8 @@ create table if not exists hotels (
   external_enterprise_id text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (organization_id, name),
-  unique nulls not distinct (organization_id, external_enterprise_id)
+  unique (name),
+  unique nulls not distinct (external_enterprise_id)
 );
 
 create table if not exists hotel_memberships (
@@ -123,7 +78,6 @@ create table if not exists hotel_memberships (
   unique (hotel_id, user_id)
 );
 
-create index if not exists idx_organization_memberships_user on organization_memberships(user_id);
 create index if not exists idx_hotel_memberships_user on hotel_memberships(user_id);
 
 -- ============================================================================
@@ -165,11 +119,20 @@ create table if not exists room_types (
   name text not null,
   display_name text,
   is_active boolean not null default true,
+  total_rooms integer not null default 100 check (total_rooms > 0),
+  floor_price numeric(10,2) not null default 1.00,
+  ceiling_price numeric(10,2) not null default 99999.99,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (hotel_id, external_room_type_id)
+  unique (hotel_id, external_room_type_id),
+  check (floor_price > 0),
+  check (ceiling_price >= floor_price)
 );
 
+create index if not exists idx_room_types_hotel_active
+  on room_types (hotel_id) where is_active;
+
+-- Legacy table kept for backward compatibility.
 create table if not exists room_constraints (
   id uuid primary key default gen_random_uuid(),
   hotel_id uuid not null references hotels(id) on delete cascade,
@@ -210,6 +173,27 @@ create table if not exists reservations (
 create index if not exists idx_reservations_hotel_stay_date on reservations(hotel_id, stay_date);
 create index if not exists idx_reservations_hotel_room_type on reservations(hotel_id, room_type_id);
 
+create or replace function public.reservations_sync_base_rate()
+returns trigger
+language plpgsql
+as $$
+begin
+  if tg_op = 'INSERT' then
+    new.base_rate := coalesce(new.base_rate, new.current_rate);
+  elsif tg_op = 'UPDATE' then
+    new.base_rate := coalesce(old.base_rate, new.base_rate, new.current_rate);
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists reservations_sync_base_rate on reservations;
+create trigger reservations_sync_base_rate
+  before insert or update on reservations
+  for each row
+  execute function public.reservations_sync_base_rate();
+
+-- Legacy metrics table.
 create table if not exists occupancy_metrics (
   id uuid primary key default gen_random_uuid(),
   hotel_id uuid not null references hotels(id) on delete cascade,
@@ -222,41 +206,106 @@ create table if not exists occupancy_metrics (
 );
 
 -- ============================================================================
--- RULE ENGINE (NORMALIZED)
+-- STAY-DATE SNAPSHOTS (Implementation Guide §3.5)
+-- ============================================================================
+
+create table if not exists stay_date_snapshot (
+  hotel_id        uuid not null,
+  snapshot_ts     timestamptz not null,
+  stay_date       date not null,
+  room_type_id    uuid not null,
+  sellable_units  integer not null check (sellable_units >= 0),
+  booked_units    integer not null check (booked_units >= 0),
+  booked_revenue  numeric(12,2) not null check (booked_revenue >= 0),
+  primary key (hotel_id, snapshot_ts, stay_date, room_type_id)
+);
+
+create index if not exists idx_snapshot_hotel_stay_ts
+  on stay_date_snapshot (hotel_id, stay_date, snapshot_ts desc);
+
+-- ============================================================================
+-- RULE ENGINE (Implementation Guide §3.2–3.4)
 -- ============================================================================
 
 create table if not exists pricing_rules (
-  id uuid primary key default gen_random_uuid(),
-  hotel_id uuid not null references hotels(id) on delete cascade,
-  name text not null,
-  priority integer not null default 100,
-  is_active boolean not null default true,
-  scope_type scope_type not null default 'hotel',
-  action_type action_type not null,
-  action_direction action_direction not null,
-  action_value numeric(12,4) not null,
-  created_by uuid references auth.users(id) on delete set null,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  check (action_value >= 0)
+  id                uuid primary key default gen_random_uuid(),
+  hotel_id          uuid not null references hotels(id) on delete cascade,
+  name              text not null,
+  is_active         boolean not null default true,
+  version           integer not null default 1,
+  -- scope
+  start_date        date,
+  end_date          date,
+  is_annual         boolean not null default false,
+  dow_mask          integer not null default 127,
+  -- action
+  action_type       text not null check (action_type in ('percent','fixed')),
+  action_direction  text not null check (action_direction in ('increase','decrease')),
+  action_value      numeric(10,4) not null check (action_value > 0),
+  -- precedence
+  priority          integer not null default 100,
+  -- classification
+  is_pickup_rule    boolean not null default false,
+  -- audit
+  created_by        uuid references auth.users(id) on delete set null,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now()
 );
 
-create index if not exists idx_pricing_rules_hotel_active_priority
-  on pricing_rules(hotel_id, is_active, priority);
+create index if not exists idx_pricing_rules_hotel_active
+  on pricing_rules (hotel_id, is_active);
 
+create index if not exists idx_pricing_rules_hotel_pickup
+  on pricing_rules (hotel_id, is_pickup_rule) where is_active;
+
+-- Single-row condition model (§3.4)
+create table if not exists rule_condition (
+  rule_id               uuid primary key references pricing_rules(id) on delete cascade,
+  occupancy_operator    text check (occupancy_operator in ('gt','lt')),
+  occupancy_threshold   numeric(8,4) check (occupancy_threshold between 0 and 1),
+  dta_operator          text check (dta_operator in ('gt','lt')),
+  dta_threshold_days    integer check (dta_threshold_days >= 0),
+  pickup_operator       text check (pickup_operator in ('gt','lt')),
+  pickup_threshold      numeric(10,2),
+  pickup_window_days    integer check (pickup_window_days in (1,3,7)),
+  pickup_metric         text check (pickup_metric in ('room_nights','revenue')),
+  check (
+    (pickup_operator is null and pickup_threshold is null
+     and pickup_window_days is null and pickup_metric is null)
+    or
+    (pickup_operator is not null and pickup_threshold is not null
+     and pickup_window_days is not null and pickup_metric is not null)
+  ),
+  check (
+    occupancy_operator is not null
+    or dta_operator is not null
+    or pickup_operator is not null
+  )
+);
+
+-- Signal room types: rooms whose demand drives the rule's metrics (§3.3)
+create table if not exists rule_signal_room_type (
+  rule_id      uuid not null references pricing_rules(id) on delete cascade,
+  room_type_id uuid not null references room_types(id),
+  primary key (rule_id, room_type_id)
+);
+
+-- Affected room types: rooms whose prices the rule changes (§3.3)
+create table if not exists rule_affected_room_type (
+  rule_id      uuid not null references pricing_rules(id) on delete cascade,
+  room_type_id uuid not null references room_types(id),
+  primary key (rule_id, room_type_id)
+);
+
+-- Legacy tables kept for backward compatibility with existing UI/API code.
 create table if not exists pricing_rule_conditions (
   id uuid primary key default gen_random_uuid(),
   rule_id uuid not null references pricing_rules(id) on delete cascade,
-  metric rule_metric not null,
-  operator rule_operator not null,
+  metric text not null,
+  operator text not null,
   numeric_value numeric(14,4),
   text_value text,
-  created_at timestamptz not null default now(),
-  check (
-    (metric = 'room_type' and text_value is not null)
-    or
-    (metric <> 'room_type' and numeric_value is not null)
-  )
+  created_at timestamptz not null default now()
 );
 
 create table if not exists pricing_rule_room_types (
@@ -267,7 +316,7 @@ create table if not exists pricing_rule_room_types (
   unique (rule_id, room_type_id)
 );
 
--- Durable once-per-day (or once-per-run) idempotency ledger.
+-- Legacy idempotency ledger; superseded by ladder_rule_state + pickup_event.
 create table if not exists rule_applications (
   id uuid primary key default gen_random_uuid(),
   hotel_id uuid not null references hotels(id) on delete cascade,
@@ -279,7 +328,117 @@ create table if not exists rule_applications (
 );
 
 -- ============================================================================
--- RUNS + DECISIONS + UPDATE DELIVERY
+-- LADDER RULE STATE + EVENT LEDGER (Implementation Guide §3.7–3.8)
+-- ============================================================================
+
+create table if not exists ladder_rule_state (
+  rule_id            uuid not null references pricing_rules(id) on delete cascade,
+  rule_version       integer not null,
+  stay_date          date not null,
+  room_type_id       uuid not null,
+  is_active          boolean not null,
+  activated_at       timestamptz,
+  deactivated_at     timestamptz,
+  last_evaluated_at  timestamptz not null,
+  action_kind        text not null,
+  action_direction   text not null,
+  action_value       numeric(10,4) not null,
+  primary key (rule_id, stay_date, room_type_id)
+);
+
+create index if not exists idx_ladder_state_active
+  on ladder_rule_state (stay_date, room_type_id) where is_active;
+
+create table if not exists ladder_transition_event (
+  id                 uuid primary key default gen_random_uuid(),
+  hotel_id           uuid not null,
+  rule_id            uuid not null,
+  rule_version       integer not null,
+  stay_date          date not null,
+  room_type_id       uuid not null,
+  transition         text not null check (transition in ('activate','deactivate')),
+  transitioned_at    timestamptz not null,
+  metrics_snapshot   jsonb not null,
+  action_kind        text not null,
+  action_direction   text not null,
+  action_value       numeric(10,4) not null
+);
+
+create index if not exists idx_ladder_event_hotel_stay
+  on ladder_transition_event (hotel_id, stay_date, room_type_id, transitioned_at desc);
+
+create index if not exists idx_ladder_event_rule_stay
+  on ladder_transition_event (rule_id, stay_date, transitioned_at desc);
+
+-- ============================================================================
+-- PICKUP EVENT LEDGER (Implementation Guide §3.9)
+-- ============================================================================
+
+create table if not exists pickup_event (
+  id                            uuid primary key default gen_random_uuid(),
+  hotel_id                      uuid not null,
+  rule_id                       uuid not null references pricing_rules(id),
+  rule_version                  integer not null,
+  stay_date                     date not null,
+  affected_room_type_id         uuid not null,
+  baseline_start_ts             timestamptz not null,
+  baseline_end_ts               timestamptz not null,
+  signal_booked_units_start     integer not null,
+  signal_booked_units_end       integer not null,
+  signal_booked_revenue_start   numeric(12,2) not null,
+  signal_booked_revenue_end     numeric(12,2) not null,
+  applied_at                    timestamptz not null,
+  retired_at                    timestamptz,
+  action_kind                   text not null,
+  action_direction              text not null,
+  action_value                  numeric(10,4) not null
+);
+
+create index if not exists idx_pickup_event_active
+  on pickup_event (hotel_id, stay_date, affected_room_type_id) where retired_at is null;
+
+create index if not exists idx_pickup_event_rule_stay
+  on pickup_event (rule_id, stay_date, applied_at desc);
+
+-- ============================================================================
+-- PUBLISHED PRICES (Implementation Guide §3.6)
+-- ============================================================================
+
+create table if not exists published_price (
+  hotel_id     uuid not null,
+  stay_date    date not null,
+  room_type_id uuid not null,
+  price        numeric(10,2) not null,
+  computed_at  timestamptz not null,
+  primary key (hotel_id, stay_date, room_type_id)
+);
+
+-- ============================================================================
+-- EVALUATION AUDIT LOG (Implementation Guide §3.10)
+-- ============================================================================
+
+create table if not exists evaluation_audit (
+  id                     uuid primary key default gen_random_uuid(),
+  evaluation_run_id      uuid not null,
+  hotel_id               uuid not null,
+  stay_date              date not null,
+  room_type_id           uuid not null,
+  evaluated_at           timestamptz not null,
+  base_price             numeric(10,2) not null,
+  floor_price            numeric(10,2) not null,
+  ceiling_price          numeric(10,2) not null,
+  ladder_subtotal_delta  numeric(10,2) not null,
+  pickup_subtotal_delta  numeric(10,2) not null,
+  pre_clamp_price        numeric(10,2) not null,
+  final_price            numeric(10,2) not null,
+  details                jsonb not null
+);
+
+create index if not exists idx_eval_audit_hotel_stay
+  on evaluation_audit (hotel_id, stay_date, room_type_id, evaluated_at desc);
+
+-- ============================================================================
+-- RUNS + DECISIONS + UPDATE DELIVERY (legacy, kept for compatibility)
 -- ============================================================================
 
 create table if not exists pricing_runs (
@@ -386,13 +545,34 @@ create table if not exists competitor_rates (
 create index if not exists idx_competitor_rates_hotel_stay_date
   on competitor_rates(hotel_id, stay_date);
 
+-- Grant the authenticated creator a hotel_admin row.
+create or replace function public.auto_hotel_creator_membership()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if auth.uid() is not null then
+    insert into public.hotel_memberships (hotel_id, user_id, role, status)
+    values (new.id, auth.uid(), 'hotel_admin', 'active')
+    on conflict (hotel_id, user_id) do nothing;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_hotels_creator_membership on public.hotels;
+create trigger trg_hotels_creator_membership
+  after insert on public.hotels
+  for each row
+  execute function public.auto_hotel_creator_membership();
+
 -- ============================================================================
--- ROW LEVEL SECURITY (organization + hotel scoped)
+-- ROW LEVEL SECURITY (hotel membership scoped)
 -- ============================================================================
 
-alter table organizations enable row level security;
 alter table profiles enable row level security;
-alter table organization_memberships enable row level security;
 alter table hotels enable row level security;
 alter table hotel_memberships enable row level security;
 alter table pms_connections enable row level security;
@@ -402,6 +582,9 @@ alter table room_constraints enable row level security;
 alter table reservations enable row level security;
 alter table occupancy_metrics enable row level security;
 alter table pricing_rules enable row level security;
+alter table rule_condition enable row level security;
+alter table rule_signal_room_type enable row level security;
+alter table rule_affected_room_type enable row level security;
 alter table pricing_rule_conditions enable row level security;
 alter table pricing_rule_room_types enable row level security;
 alter table rule_applications enable row level security;
@@ -411,16 +594,12 @@ alter table rate_updates enable row level security;
 alter table audit_events enable row level security;
 alter table market_events enable row level security;
 alter table competitor_rates enable row level security;
-
-create or replace function public.hotel_org_id(target_hotel_id uuid)
-returns uuid
-language sql
-stable
-security definer
-set search_path = public, pg_temp
-as $$
-  select h.organization_id from hotels h where h.id = target_hotel_id
-$$;
+alter table stay_date_snapshot enable row level security;
+alter table published_price enable row level security;
+alter table ladder_rule_state enable row level security;
+alter table ladder_transition_event enable row level security;
+alter table pickup_event enable row level security;
+alter table evaluation_audit enable row level security;
 
 create or replace function public.rule_hotel_id(target_rule_id uuid)
 returns uuid
@@ -430,39 +609,6 @@ security definer
 set search_path = public, pg_temp
 as $$
   select r.hotel_id from pricing_rules r where r.id = target_rule_id
-$$;
-
-create or replace function public.is_org_member(target_org_id uuid)
-returns boolean
-language sql
-stable
-security definer
-set search_path = public, pg_temp
-as $$
-  select exists (
-    select 1
-    from organization_memberships om
-    where om.organization_id = target_org_id
-      and om.user_id = auth.uid()
-      and om.status = 'active'
-  )
-$$;
-
-create or replace function public.has_org_role(target_org_id uuid, allowed_roles text[])
-returns boolean
-language sql
-stable
-security definer
-set search_path = public, pg_temp
-as $$
-  select exists (
-    select 1
-    from organization_memberships om
-    where om.organization_id = target_org_id
-      and om.user_id = auth.uid()
-      and om.status = 'active'
-      and om.role::text = any (allowed_roles)
-  )
 $$;
 
 create or replace function public.has_hotel_role(target_hotel_id uuid, allowed_roles text[])
@@ -489,9 +635,10 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select
-    has_hotel_role(target_hotel_id, array['hotel_admin', 'manager', 'staff', 'viewer'])
-    or is_org_member(hotel_org_id(target_hotel_id))
+  select has_hotel_role(
+    target_hotel_id,
+    array['hotel_admin', 'manager', 'staff', 'viewer']
+  )
 $$;
 
 create or replace function public.can_manage_hotel(target_hotel_id uuid)
@@ -501,9 +648,10 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select
-    has_hotel_role(target_hotel_id, array['hotel_admin', 'manager'])
-    or has_org_role(hotel_org_id(target_hotel_id), array['super_admin', 'org_admin'])
+  select has_hotel_role(
+    target_hotel_id,
+    array['hotel_admin', 'manager']
+  )
 $$;
 
 -- Drop legacy placeholder policies if they exist.
@@ -512,7 +660,7 @@ declare
   t text;
 begin
   foreach t in array array[
-    'organizations','profiles','organization_memberships','hotels','hotel_memberships',
+    'profiles','hotels','hotel_memberships',
     'pms_connections','hotel_settings','room_types','room_constraints','reservations',
     'occupancy_metrics','pricing_rules','pricing_rule_conditions','pricing_rule_room_types',
     'rule_applications','pricing_runs','pricing_decisions','rate_updates','audit_events',
@@ -522,28 +670,6 @@ begin
     execute format('drop policy if exists %I on %I', t || '_authenticated_read', t);
   end loop;
 end $$;
-
--- Organizations
-drop policy if exists organizations_select on organizations;
-create policy organizations_select
-  on organizations for select
-  using (is_org_member(id));
-
-drop policy if exists organizations_insert on organizations;
-create policy organizations_insert
-  on organizations for insert
-  with check (auth.uid() is not null);
-
-drop policy if exists organizations_update on organizations;
-create policy organizations_update
-  on organizations for update
-  using (has_org_role(id, array['super_admin', 'org_admin']))
-  with check (has_org_role(id, array['super_admin', 'org_admin']));
-
-drop policy if exists organizations_delete on organizations;
-create policy organizations_delete
-  on organizations for delete
-  using (has_org_role(id, array['super_admin']));
 
 -- Profiles
 drop policy if exists profiles_select on profiles;
@@ -562,28 +688,6 @@ create policy profiles_update
   using (id = auth.uid())
   with check (id = auth.uid());
 
--- Organization memberships
-drop policy if exists organization_memberships_select on organization_memberships;
-create policy organization_memberships_select
-  on organization_memberships for select
-  using (is_org_member(organization_id) or user_id = auth.uid());
-
-drop policy if exists organization_memberships_insert on organization_memberships;
-create policy organization_memberships_insert
-  on organization_memberships for insert
-  with check (has_org_role(organization_id, array['super_admin', 'org_admin']));
-
-drop policy if exists organization_memberships_update on organization_memberships;
-create policy organization_memberships_update
-  on organization_memberships for update
-  using (has_org_role(organization_id, array['super_admin', 'org_admin']))
-  with check (has_org_role(organization_id, array['super_admin', 'org_admin']));
-
-drop policy if exists organization_memberships_delete on organization_memberships;
-create policy organization_memberships_delete
-  on organization_memberships for delete
-  using (has_org_role(organization_id, array['super_admin', 'org_admin']));
-
 -- Hotels and hotel memberships
 drop policy if exists hotels_select on hotels;
 create policy hotels_select
@@ -591,10 +695,22 @@ create policy hotels_select
   using (is_hotel_accessible(id));
 
 drop policy if exists hotels_write on hotels;
-create policy hotels_write
-  on hotels for all
-  using (has_org_role(organization_id, array['super_admin', 'org_admin']))
-  with check (has_org_role(organization_id, array['super_admin', 'org_admin']));
+drop policy if exists hotels_insert on hotels;
+drop policy if exists hotels_update on hotels;
+drop policy if exists hotels_delete on hotels;
+
+create policy hotels_insert
+  on hotels for insert
+  with check (auth.uid() is not null);
+
+create policy hotels_update
+  on hotels for update
+  using (can_manage_hotel(id))
+  with check (can_manage_hotel(id));
+
+create policy hotels_delete
+  on hotels for delete
+  using (has_hotel_role(id, array['hotel_admin']));
 
 drop policy if exists hotel_memberships_select on hotel_memberships;
 create policy hotel_memberships_select
@@ -604,16 +720,10 @@ create policy hotel_memberships_select
 drop policy if exists hotel_memberships_write on hotel_memberships;
 create policy hotel_memberships_write
   on hotel_memberships for all
-  using (
-    can_manage_hotel(hotel_id)
-    or has_org_role(hotel_org_id(hotel_id), array['super_admin', 'org_admin'])
-  )
-  with check (
-    can_manage_hotel(hotel_id)
-    or has_org_role(hotel_org_id(hotel_id), array['super_admin', 'org_admin'])
-  );
+  using (can_manage_hotel(hotel_id))
+  with check (can_manage_hotel(hotel_id));
 
--- Hotel-scoped data: read if accessible, write if manager+ or org admin.
+-- Hotel-scoped data: read if accessible, write if manager+.
 drop policy if exists pms_connections_access on pms_connections;
 create policy pms_connections_access
   on pms_connections for all
@@ -655,6 +765,24 @@ create policy pricing_rules_access
   on pricing_rules for all
   using (is_hotel_accessible(hotel_id))
   with check (can_manage_hotel(hotel_id));
+
+drop policy if exists rule_condition_access on rule_condition;
+create policy rule_condition_access
+  on rule_condition for all
+  using (is_hotel_accessible(rule_hotel_id(rule_id)))
+  with check (can_manage_hotel(rule_hotel_id(rule_id)));
+
+drop policy if exists rule_signal_room_type_access on rule_signal_room_type;
+create policy rule_signal_room_type_access
+  on rule_signal_room_type for all
+  using (is_hotel_accessible(rule_hotel_id(rule_id)))
+  with check (can_manage_hotel(rule_hotel_id(rule_id)));
+
+drop policy if exists rule_affected_room_type_access on rule_affected_room_type;
+create policy rule_affected_room_type_access
+  on rule_affected_room_type for all
+  using (is_hotel_accessible(rule_hotel_id(rule_id)))
+  with check (can_manage_hotel(rule_hotel_id(rule_id)));
 
 drop policy if exists pricing_rule_conditions_access on pricing_rule_conditions;
 create policy pricing_rule_conditions_access
@@ -707,5 +835,42 @@ create policy market_events_access
 drop policy if exists competitor_rates_access on competitor_rates;
 create policy competitor_rates_access
   on competitor_rates for all
+  using (is_hotel_accessible(hotel_id))
+  with check (can_manage_hotel(hotel_id));
+
+-- Engine tables
+drop policy if exists stay_date_snapshot_access on stay_date_snapshot;
+create policy stay_date_snapshot_access
+  on stay_date_snapshot for all
+  using (is_hotel_accessible(hotel_id))
+  with check (can_manage_hotel(hotel_id));
+
+drop policy if exists published_price_access on published_price;
+create policy published_price_access
+  on published_price for all
+  using (is_hotel_accessible(hotel_id))
+  with check (can_manage_hotel(hotel_id));
+
+drop policy if exists ladder_rule_state_access on ladder_rule_state;
+create policy ladder_rule_state_access
+  on ladder_rule_state for all
+  using (is_hotel_accessible(rule_hotel_id(rule_id)))
+  with check (can_manage_hotel(rule_hotel_id(rule_id)));
+
+drop policy if exists ladder_transition_event_access on ladder_transition_event;
+create policy ladder_transition_event_access
+  on ladder_transition_event for all
+  using (is_hotel_accessible(hotel_id))
+  with check (can_manage_hotel(hotel_id));
+
+drop policy if exists pickup_event_access on pickup_event;
+create policy pickup_event_access
+  on pickup_event for all
+  using (is_hotel_accessible(hotel_id))
+  with check (can_manage_hotel(hotel_id));
+
+drop policy if exists evaluation_audit_access on evaluation_audit;
+create policy evaluation_audit_access
+  on evaluation_audit for all
   using (is_hotel_accessible(hotel_id))
   with check (can_manage_hotel(hotel_id));

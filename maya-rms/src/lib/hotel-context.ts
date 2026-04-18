@@ -1,7 +1,7 @@
 /**
  * Resolve the hotel ID the current user has access to.
  *
- * Checks hotel_memberships for the authenticated user, falling back
+ * Checks `hotel_memberships` for the authenticated user, falling back
  * to the MAYA_DEFAULT_HOTEL_ID env var when no membership is found.
  */
 
@@ -20,11 +20,10 @@ export async function resolveAccessibleHotelId(
 
   if (!user) return envHotelId ?? null;
 
-  // Look up memberships via the profile -> hotel_memberships join
   const { data: memberships } = await supabase
     .from("hotel_memberships")
     .select("hotel_id")
-    .eq("profile_id", user.id)
+    .eq("user_id", user.id)
     .eq("status", "active")
     .limit(1);
 

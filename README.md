@@ -20,9 +20,11 @@ Database scripts for Supabase live at the workspace root.
 - `supabase_schema.sql`
   - Full schema + RLS policies/functions
 - `supabase_seed.sql`
-  - Organization/hotel/membership bootstrap data
+  - Hotel + `hotel_memberships` bootstrap data (no organizations)
 - `supabase_demo_data.sql`
   - Synthetic reservations + occupancy metrics
+- `supabase_dev_full_dump.sql`
+  - Placeholder for a full `public` schema dump; generate with `scripts/export-dev-full-dump.sh`
 
 ## Quick Start (Next.js App)
 
@@ -47,12 +49,16 @@ npm run build
 
 ## Supabase Setup Order
 
+If you previously applied the older schema with `organizations` and `organization_id` on `hotels`, reset the `public` schema (or use a fresh Supabase project) before re-running the scripts below. There is no automated migration in-repo yet.
+
 Run these scripts in Supabase SQL Editor in this exact order:
 
 1. `supabase_base_schema.sql`
 2. `supabase_schema.sql`
 3. `supabase_seed.sql` (update emails first)
 4. `supabase_demo_data.sql`
+
+Optional: replace `supabase_dev_full_dump.sql` with `./scripts/export-dev-full-dump.sh` (requires `DATABASE_URL` and `pg_dump`) to snapshot all `public` data for dev.
 
 After seeding/demo data:
 
