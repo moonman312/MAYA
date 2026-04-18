@@ -1,6 +1,6 @@
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { createRule, listRules } from "@/lib/rules-store";
-import type { RuleConfig } from "@/types/domain";
+import type { CreateRuleInput } from "@/lib/rules-store";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { cookies } from "next/headers";
@@ -29,13 +29,11 @@ export async function GET() {
   }
 }
 
-type CreateRuleBody = Pick<RuleConfig, "rule_name" | "conditions" | "action" | "room_types">;
-
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as Partial<CreateRuleBody>;
+    const body = (await req.json()) as Partial<CreateRuleInput>;
 
-    if (!body.rule_name || !body.conditions || !body.action) {
+    if (!body.rule_name || (!body.conditions && !body.condition) || !body.action) {
       return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
     }
 
@@ -59,9 +57,17 @@ export async function POST(req: Request) {
     const rule = await createRule(
       {
         rule_name: body.rule_name,
-        conditions: body.conditions,
+        conditions: body.conditions ?? {},
         action: body.action,
         room_types: body.room_types ?? [],
+        start_date: body.start_date,
+        end_date: body.end_date,
+        is_annual: body.is_annual,
+        dow_mask: body.dow_mask,
+        priority: body.priority,
+        signal_room_type_ids: body.signal_room_type_ids,
+        affected_room_type_ids: body.affected_room_type_ids,
+        condition: body.condition,
       },
       supabase,
       hotelId,
