@@ -53,6 +53,7 @@ function getCalendarDemo(year: number, month: number): CalendarResponse {
       const revenue = Math.round(booked * rate * 100) / 100;
 
       return {
+        id: rt.name,
         name: rt.name,
         total_rooms: rt.total_rooms,
         occupancy_pct: occPct,
@@ -137,7 +138,7 @@ async function getCalendarFromDb(
 
   const { data: reservations } = await supabase
     .from("reservations")
-    .select("stay_date, room_type_id, current_rate")
+    .select("stay_date, room_type_id, base_rate, current_rate")
     .eq("hotel_id", hotelId)
     .gte("stay_date", startDate)
     .lte("stay_date", endDate);
@@ -146,6 +147,18 @@ async function getCalendarFromDb(
   const rtById: Record<string, { name: string; total_rooms: number; base_rate: number }> = {};
   for (const rt of rtList) {
     rtById[String(rt.id)] = { name: rt.name, total_rooms: rt.total_rooms, base_rate: rt.base_rate };
+  }
+
+  /** Nightly room revenue: prefer imported base (stable BAR), else current PMS rate, else category default. */
+  function nightlyRoomAmount(
+    r: { base_rate: number | null; current_rate: number | null },
+    categoryDefault: number,
+  ): number {
+    const b = r.base_rate != null ? Number(r.base_rate) : NaN;
+    if (Number.isFinite(b)) return b;
+    const c = r.current_rate != null ? Number(r.current_rate) : NaN;
+    if (Number.isFinite(c)) return c;
+    return categoryDefault;
   }
 
   const firstDay = new Date(Date.UTC(year, month - 1, 1));
@@ -164,18 +177,21 @@ async function getCalendarFromDb(
     const roomTypes: CalendarRoomType[] = rtList.map((rt) => {
       const matching = dayReservations.filter((r) => String(r.room_type_id) === String(rt.id));
       const booked = matching.length;
-      const avgRate = matching.length > 0
-        ? matching.reduce((s, r) => s + (r.current_rate ?? rt.base_rate), 0) / matching.length
-        : rt.base_rate;
+      const roomRevenue = matching.reduce(
+        (s, r) => s + nightlyRoomAmount(r, rt.base_rate),
+        0,
+      );
+      const adr = booked > 0 ? roomRevenue / booked : rt.base_rate;
       const occPct = rt.total_rooms > 0 ? Math.round((booked / rt.total_rooms) * 100) : 0;
 
       return {
+        id: String(rt.id),
         name: rt.name,
         total_rooms: rt.total_rooms,
         occupancy_pct: occPct,
         booked,
-        rate: Math.round(avgRate * 100) / 100,
-        revenue: Math.round(booked * avgRate * 100) / 100,
+        rate: Math.round(adr * 100) / 100,
+        revenue: Math.round(roomRevenue * 100) / 100,
       };
     });
 

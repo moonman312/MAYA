@@ -1,7 +1,7 @@
 -- MAYA seed data: hotels + hotel_memberships (no organizations)
 -- Run this after:
---   1) supabase_base_schema.sql
---   2) supabase_schema.sql
+--   1) 01_supabase_base_schema.sql
+--   2) 02_supabase_schema.sql
 --
 -- IMPORTANT:
 -- - Update the email values below to users that already exist in auth.users.

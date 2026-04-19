@@ -59,12 +59,14 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Demo Data Source Of Truth
 
-For DB-backed calendar/rules testing, run SQL scripts in this order:
+For DB-backed calendar/rules testing, run SQL scripts from the parent `MAYA/` folder in this order:
 
-1. `supabase_base_schema.sql`
-2. `supabase_schema.sql`
-3. `supabase_seed.sql`
-4. `supabase_demo_data.sql` (synthetic reservations + occupancy metrics)
+1. `01_supabase_base_schema.sql`
+2. `02_supabase_schema.sql`
+3. `03_supabase_seed.sql`
+4. `04_supabase_demo_data.sql` (synthetic reservations + occupancy metrics)
+
+Optional: `00_supabase_reset_dev.sql` before step 1 for a clean slate; `99_supabase_migration_rules_engine_v1.sql` only when upgrading an old database (skip on fresh 01+02).
 
 After step 4, calendar data is sourced from Supabase tables (with demo fallback only when DB data is unavailable).
 

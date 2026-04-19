@@ -23,7 +23,7 @@ export async function GET() {
 
       const { data, error } = await supabase
         .from("room_types")
-        .select("name")
+        .select("id, name")
         .eq("hotel_id", hotelId)
         .eq("is_active", true)
         .order("name", { ascending: true });
@@ -35,7 +35,7 @@ export async function GET() {
       return NextResponse.json(data ?? []);
     }
 
-    return NextResponse.json(ROOM_TYPES.map((rt) => ({ name: rt.name })));
+    return NextResponse.json(ROOM_TYPES.map((rt) => ({ id: rt.name, name: rt.name })));
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to load room types." },

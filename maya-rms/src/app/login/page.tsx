@@ -63,12 +63,12 @@ export default function LoginPage() {
         <div className="w-full rounded-lg border border-slate-800 bg-slate-900 p-6">
           <h1 className="text-2xl font-semibold">Sign in to MAYA RMS</h1>
           <p className="mt-2 text-sm text-slate-300">
-            Use your Supabase Auth user. Tenant access is controlled by org/hotel memberships.
+            Sign in with your account. Hotel access is assigned by an administrator.
           </p>
 
           {!configured && (
             <div className="mt-4 rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
-              Supabase env is not configured. Add values in `maya-rms/.env.local`.
+              Server configuration is incomplete. Check environment variables for this app.
             </div>
           )}
 
@@ -111,7 +111,7 @@ export default function LoginPage() {
           {message && <p className="mt-3 text-sm text-emerald-300">{message}</p>}
 
           <p className="mt-4 text-xs text-slate-400">
-            After creating/signing in, run `supabase_seed.sql` with your real user email for `v_super_admin_email`.
+            New users need a hotel membership before the dashboard shows property data.
           </p>
           <p className="mt-2 text-xs text-slate-400">
             <Link href="/" className="text-sky-300 hover:underline">

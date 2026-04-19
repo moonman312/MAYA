@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "MAYA RMS",
-  description: "Machine Assisted Yield Automation in Next.js + Supabase",
+  description: "Machine Assisted Yield Automation — revenue management for hotels",
 };
 
 export default function RootLayout({
