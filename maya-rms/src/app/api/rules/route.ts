@@ -49,7 +49,10 @@ export async function POST(req: Request) {
       hotelId = await resolveAccessibleHotelId(supabase);
       if (!hotelId) {
         return NextResponse.json(
-          { error: "No accessible hotel. Set MAYA_DEFAULT_HOTEL_ID or a hotel membership." },
+          {
+            error:
+              "No accessible hotel. You need a hotel membership or a dev default hotel configured.",
+          },
           { status: 400 },
         );
       }

@@ -6,6 +6,7 @@
  * matches the Python legacy dashboard.
  */
 
+import { formatUtcMonthYear } from "@/lib/calendar-month-label";
 import { ROOM_TYPES } from "@/lib/demo-data";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import type { CalendarDay, CalendarResponse, CalendarRoomType } from "@/types/domain";
@@ -34,7 +35,7 @@ function getCalendarDemo(year: number, month: number): CalendarResponse {
   const firstDay = new Date(Date.UTC(year, month - 1, 1));
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const firstWeekday = firstDay.getUTCDay(); // 0 = Sunday
-  const monthName = firstDay.toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+  const monthName = formatUtcMonthYear(year, month);
 
   const days: Record<string, CalendarDay> = {};
 
@@ -163,7 +164,7 @@ async function getCalendarFromDb(
 
   const firstDay = new Date(Date.UTC(year, month - 1, 1));
   const firstWeekday = firstDay.getUTCDay();
-  const monthName = firstDay.toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+  const monthName = formatUtcMonthYear(year, month);
 
   const days: Record<string, CalendarDay> = {};
 

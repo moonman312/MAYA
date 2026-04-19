@@ -92,7 +92,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading || !configured}
-              className="w-full rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 disabled:opacity-60"
+              className="w-full cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? "Working..." : "Sign In"}
             </button>
@@ -102,7 +102,7 @@ export default function LoginPage() {
             type="button"
             onClick={onSignUp}
             disabled={loading || !configured}
-            className="mt-3 w-full rounded bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700 disabled:opacity-60"
+            className="mt-3 w-full cursor-pointer rounded bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Create Account
           </button>
@@ -114,7 +114,7 @@ export default function LoginPage() {
             New users need a hotel membership before the dashboard shows property data.
           </p>
           <p className="mt-2 text-xs text-slate-400">
-            <Link href="/" className="text-sky-300 hover:underline">
+            <Link href="/" className="cursor-pointer text-sky-300 hover:underline">
               Back to app
             </Link>
           </p>

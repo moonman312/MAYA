@@ -42,7 +42,8 @@ export async function requireSupabaseHotel(
       ok: false,
       response: NextResponse.json(
         {
-          error: "No accessible hotel. Use a hotel membership or set MAYA_DEFAULT_HOTEL_ID.",
+          error:
+            "No accessible hotel. Ask an administrator for membership, or set a default hotel for local dev.",
         },
         { status: 400 },
       ),
