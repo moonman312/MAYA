@@ -1,5 +1,7 @@
 "use client";
 
+import { PropertySelect } from "@/components/property-select";
+import { formatUtcMonthYear } from "@/lib/calendar-month-label";
 import { SAMPLE_RESERVATIONS } from "@/lib/demo-data";
 import type {
   CalendarResponse,
@@ -33,6 +35,46 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Matches `calendar-store` month grid: Sun-first padding + day cells. */
+function CalendarMonthSkeleton({
+  year,
+  month,
+}: {
+  year: number;
+  month: number;
+}) {
+  const firstDay = new Date(Date.UTC(year, month - 1, 1));
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const firstWeekday = firstDay.getUTCDay();
+
+  return (
+    <div
+      className="grid grid-cols-7 gap-2"
+      aria-busy="true"
+      aria-label="Loading calendar"
+    >
+      {Array.from({ length: firstWeekday }).map((_, idx) => (
+        <div key={`sk-pad-${idx}`} />
+      ))}
+      {Array.from({ length: daysInMonth }).map((_, idx) => {
+        const dayNum = idx + 1;
+        return (
+          <div
+            key={`sk-${dayNum}`}
+            className="animate-pulse rounded border border-slate-800 bg-slate-800/35 p-2"
+          >
+            <div className="h-3 w-5 rounded bg-slate-700/70" />
+            <div className="mt-2 h-7 w-11 rounded bg-slate-700/60" />
+            <div className="mt-2 h-3 w-18 rounded bg-slate-600/50" />
+            <div className="mt-1 h-3 w-9 rounded bg-slate-600/50" />
+            <div className="mt-2 h-1 w-full rounded bg-slate-700/40" />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Dashboard() {
   const [tab, setTab] = useState<TabKey>("calendar");
   const [year, setYear] = useState(new Date().getUTCFullYear());
@@ -52,6 +94,12 @@ export function Dashboard() {
   const [pmsLog, setPmsLog] = useState<string[]>([]);
   const [pmsBusy, setPmsBusy] = useState(false);
   const [pmsOverrideJson, setPmsOverrideJson] = useState("");
+
+  const [accessibleHotels, setAccessibleHotels] = useState<
+    { id: string; name: string }[]
+  >([]);
+  const [activeHotelId, setActiveHotelId] = useState<string | null>(null);
+  const [hotelSwitching, setHotelSwitching] = useState(false);
 
   function appendPms(line: string) {
     setPmsLog((prev) => [
@@ -107,14 +155,31 @@ export function Dashboard() {
     void reloadRoomTypes();
   }, []);
 
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/hotels");
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          hotels: { id: string; name: string }[];
+          activeHotelId: string | null;
+        };
+        setAccessibleHotels(data.hotels);
+        setActiveHotelId(data.activeHotelId);
+      } catch {
+        /* demo / offline */
+      }
+    })();
+  }, []);
+
   const reloadCalendar = useCallback(async () => {
     setLoading(true);
+    setSelectedDay(null);
     try {
       const data = await api<CalendarResponse>(
         `/api/calendar/${year}/${month}`,
       );
       setCalendar(data);
-      setSelectedDay(null);
     } finally {
       setLoading(false);
     }
@@ -140,11 +205,36 @@ export function Dashboard() {
   }
 
   async function reloadRoomTypes() {
-    const data = await api<Array<{ id: string; name: string }>>(
-      "/api/room-types",
-    );
+    const data =
+      await api<Array<{ id: string; name: string }>>("/api/room-types");
     setRoomTypeOptions(data);
     setSelectedRoomTypeIds(data.map((item) => item.id));
+  }
+
+  async function applyActiveHotel(hotelId: string) {
+    if (!hotelId || hotelId === activeHotelId) return;
+    setHotelSwitching(true);
+    setSelectedDay(null);
+    try {
+      const res = await fetch("/api/hotels/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hotelId }),
+      });
+      const errBody = (await res.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!res.ok) {
+        console.error(errBody.error ?? res.statusText);
+        return;
+      }
+      setActiveHotelId(hotelId);
+      await Promise.all([reloadRules(), reloadRoomTypes()]);
+      if (tab === "calendar") await reloadCalendar();
+      if (tab === "changelog") await reloadChangelog();
+    } finally {
+      setHotelSwitching(false);
+    }
   }
 
   async function runSimulation() {
@@ -225,46 +315,68 @@ export function Dashboard() {
     [changesOnly, changelog],
   );
 
+  const calendarBusy = loading || hotelSwitching;
+  /** Same label as API `month_name`, without `toLocaleString` (avoids SSR/client hydration mismatch). */
+  const calendarTitle = formatUtcMonthYear(year, month);
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-6xl p-6 md:p-10">
         <header className="mb-8">
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h1 className="text-3xl font-bold tracking-tight">MAYA RMS</h1>
               <p className="mt-2 text-sm text-slate-300">
                 Occupancy, pricing rules, and PMS sync in one place.
               </p>
             </div>
-            <form action="/auth/logout" method="post">
-              <button className="rounded bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700">
-                Sign Out
-              </button>
-            </form>
+            <div className="flex flex-col items-stretch gap-2 sm:items-end">
+              <form action="/auth/logout" method="post">
+                <button
+                  type="submit"
+                  className="w-full cursor-pointer rounded bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700 sm:w-auto"
+                >
+                  Sign Out
+                </button>
+              </form>
+            </div>
           </div>
         </header>
 
-        <nav className="mb-6 flex flex-wrap gap-2">
-          {tabs.map((item) => (
-            <button
-              key={item.key}
-              className={`rounded-md px-4 py-2 text-sm font-medium transition ${
-                tab === item.key
-                  ? "bg-sky-500 text-white"
-                  : "bg-slate-800 hover:bg-slate-700"
-              }`}
-              onClick={() => setTab(item.key)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </nav>
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+          <nav className="flex flex-wrap gap-2">
+            {tabs.map((item) => (
+              <button
+                key={item.key}
+                className={`cursor-pointer rounded-md px-4 py-2 text-sm font-medium transition ${
+                  tab === item.key
+                    ? "bg-sky-500 text-white"
+                    : "bg-slate-800 hover:bg-slate-700"
+                }`}
+                onClick={() => setTab(item.key)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+          {accessibleHotels.length > 0 ? (
+            <div className="sm:shrink-0">
+              <PropertySelect
+                id="header-property"
+                options={accessibleHotels}
+                value={activeHotelId}
+                disabled={hotelSwitching}
+                onValueChange={(id) => void applyActiveHotel(id)}
+              />
+            </div>
+          ) : null}
+        </div>
 
         {tab === "calendar" && (
           <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
             <div className="flex items-center gap-3">
               <button
-                className="rounded bg-slate-800 px-3 py-1 text-sm hover:bg-slate-700"
+                className="cursor-pointer rounded bg-slate-800 px-3 py-1 text-sm hover:bg-slate-700"
                 onClick={() => {
                   const m = month - 1;
                   if (m < 1) {
@@ -277,13 +389,9 @@ export function Dashboard() {
               >
                 Prev
               </button>
-              <h2 className="text-lg font-semibold">
-                {calendar
-                  ? calendar.month_name
-                  : `${year}-${String(month).padStart(2, "0")}`}
-              </h2>
+              <h2 className="text-lg font-semibold">{calendarTitle}</h2>
               <button
-                className="rounded bg-slate-800 px-3 py-1 text-sm hover:bg-slate-700"
+                className="cursor-pointer rounded bg-slate-800 px-3 py-1 text-sm hover:bg-slate-700"
                 onClick={() => {
                   const m = month + 1;
                   if (m > 12) {
@@ -298,103 +406,107 @@ export function Dashboard() {
               </button>
             </div>
 
-            {loading && (
-              <p className="text-sm text-slate-300">Loading calendar...</p>
-            )}
-            {calendar && (
-              <>
-                <div className="grid grid-cols-7 gap-2">
-                  {Array.from({ length: calendar.first_weekday }).map(
-                    (_, idx) => (
-                      <div key={`empty-${idx}`} />
-                    ),
-                  )}
-                  {Array.from({ length: calendar.days_in_month }).map(
-                    (_, idx) => {
-                      const day = idx + 1;
-                      const data = calendar.days[String(day)];
-                      const color =
-                        data.occupancy_pct >= calendar.thresholds.high
-                          ? "bg-emerald-600"
-                          : data.occupancy_pct >= calendar.thresholds.low
-                            ? "bg-amber-500"
-                            : "bg-rose-600";
-                      return (
-                        <button
-                          key={day}
-                          className={`rounded border border-slate-700 p-2 text-left hover:border-sky-400 ${
-                            selectedDay === day ? "ring-2 ring-sky-400" : ""
-                          }`}
-                          onClick={() => setSelectedDay(day)}
-                        >
-                          <div className="text-xs text-slate-400">{day}</div>
-                          <div className="text-lg font-semibold">
-                            {data.occupancy_pct}%
-                          </div>
-                          <div className="mt-1 text-[11px] text-slate-400">
-                            {data.booked}/{data.total} rooms
-                          </div>
-                          <div
-                            className="text-[11px] text-slate-400"
-                            title="Room revenue (booked nights)"
+            {calendarBusy ? (
+              <CalendarMonthSkeleton year={year} month={month} />
+            ) : (
+              calendar && (
+                <>
+                  <div className="grid grid-cols-7 gap-2">
+                    {Array.from({ length: calendar.first_weekday }).map(
+                      (_, idx) => (
+                        <div key={`empty-${idx}`} />
+                      ),
+                    )}
+                    {Array.from({ length: calendar.days_in_month }).map(
+                      (_, idx) => {
+                        const day = idx + 1;
+                        const data = calendar.days[String(day)];
+                        const color =
+                          data.occupancy_pct >= calendar.thresholds.high
+                            ? "bg-emerald-600"
+                            : data.occupancy_pct >= calendar.thresholds.low
+                              ? "bg-amber-500"
+                              : "bg-rose-600";
+                        return (
+                          <button
+                            key={day}
+                            type="button"
+                            className={`cursor-pointer rounded border border-slate-700 p-2 text-left hover:border-sky-400 ${
+                              selectedDay === day ? "ring-2 ring-sky-400" : ""
+                            }`}
+                            onClick={() => setSelectedDay(day)}
                           >
-                            $
-                            {data.revenue >= 1000
-                              ? `${(data.revenue / 1000).toFixed(1)}k`
-                              : data.revenue.toFixed(0)}
-                          </div>
-                          <div className={`mt-2 h-1 w-full rounded ${color}`} />
-                        </button>
-                      );
-                    },
-                  )}
-                </div>
-
-                {selectedDay && (
-                  <div className="rounded-md border border-slate-800 bg-slate-950 p-4">
-                    <h3 className="mb-2 text-base font-semibold">
-                      {calendar.days[String(selectedDay)].weekday}, day{" "}
-                      {selectedDay}
-                    </h3>
-                    <p className="mb-4 text-sm text-slate-400">
-                      {calendar.days[String(selectedDay)].booked}/
-                      {calendar.days[String(selectedDay)].total} rooms ·{" "}
-                      {calendar.days[String(selectedDay)].occupancy_pct}%
-                      occupancy · room revenue{" "}
-                      <span className="font-medium text-slate-200">
-                        $
-                        {calendar.days[
-                          String(selectedDay)
-                        ].revenue.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </span>
-                    </p>
-                    <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
-                      {calendar.days[String(selectedDay)].room_types.map(
-                        (rt) => (
-                          <div
-                            key={rt.id}
-                            className="rounded border border-slate-800 p-3"
-                          >
-                            <p className="font-medium">{rt.name}</p>
-                            <p className="mt-1 text-sm text-slate-300">
-                              Booked {rt.booked}/{rt.total_rooms}
-                            </p>
-                            <p className="text-sm text-slate-300">
-                              ADR ${rt.rate.toFixed(2)}
-                            </p>
-                            <p className="text-sm text-slate-300">
-                              Revenue ${rt.revenue.toFixed(2)}
-                            </p>
-                          </div>
-                        ),
-                      )}
-                    </div>
+                            <div className="text-xs text-slate-400">{day}</div>
+                            <div className="text-lg font-semibold">
+                              {data.occupancy_pct}%
+                            </div>
+                            <div className="mt-1 text-[11px] text-slate-400">
+                              {data.booked}/{data.total} rooms
+                            </div>
+                            <div
+                              className="text-[11px] text-slate-400"
+                              title="Room revenue (booked nights)"
+                            >
+                              $
+                              {data.revenue >= 1000
+                                ? `${(data.revenue / 1000).toFixed(1)}k`
+                                : data.revenue.toFixed(0)}
+                            </div>
+                            <div
+                              className={`mt-2 h-1 w-full rounded ${color}`}
+                            />
+                          </button>
+                        );
+                      },
+                    )}
                   </div>
-                )}
-              </>
+
+                  {selectedDay ? (
+                    <div className="rounded-md border border-slate-800 bg-slate-950 p-4">
+                      <h3 className="mb-2 text-base font-semibold">
+                        {calendar.days[String(selectedDay)].weekday}, day{" "}
+                        {selectedDay}
+                      </h3>
+                      <p className="mb-4 text-sm text-slate-400">
+                        {calendar.days[String(selectedDay)].booked}/
+                        {calendar.days[String(selectedDay)].total} rooms ·{" "}
+                        {calendar.days[String(selectedDay)].occupancy_pct}%
+                        occupancy · room revenue{" "}
+                        <span className="font-medium text-slate-200">
+                          $
+                          {calendar.days[
+                            String(selectedDay)
+                          ].revenue.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
+                      </p>
+                      <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+                        {calendar.days[String(selectedDay)].room_types.map(
+                          (rt) => (
+                            <div
+                              key={rt.id}
+                              className="rounded border border-slate-800 p-3"
+                            >
+                              <p className="font-medium">{rt.name}</p>
+                              <p className="mt-1 text-sm text-slate-300">
+                                Booked {rt.booked}/{rt.total_rooms}
+                              </p>
+                              <p className="text-sm text-slate-300">
+                                ADR ${rt.rate.toFixed(2)}
+                              </p>
+                              <p className="text-sm text-slate-300">
+                                Revenue ${rt.revenue.toFixed(2)}
+                              </p>
+                            </div>
+                          ),
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              )
             )}
           </section>
         )}
@@ -444,7 +556,7 @@ export function Dashboard() {
                       <button
                         type="button"
                         key={opt.id}
-                        className={`rounded px-2 py-1 text-xs ${on ? "bg-sky-600" : "bg-slate-800"}`}
+                        className={`cursor-pointer rounded px-2 py-1 text-xs ${on ? "bg-sky-600" : "bg-slate-800"}`}
                         onClick={() =>
                           setSelectedRoomTypeIds((prev) =>
                             prev.includes(opt.id)
@@ -462,7 +574,7 @@ export function Dashboard() {
               </div>
               <button
                 type="submit"
-                className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 md:col-span-2"
+                className="cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 md:col-span-2"
               >
                 Add Rule
               </button>
@@ -506,13 +618,13 @@ export function Dashboard() {
                       <td className="py-2 pr-3">
                         <div className="flex gap-2">
                           <button
-                            className="rounded bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
+                            className="cursor-pointer rounded bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
                             onClick={() => onToggleRule(rule.id)}
                           >
                             Toggle
                           </button>
                           <button
-                            className="rounded bg-rose-700 px-2 py-1 text-xs hover:bg-rose-600"
+                            className="cursor-pointer rounded bg-rose-700 px-2 py-1 text-xs hover:bg-rose-600"
                             onClick={() => onDeleteRule(rule.id)}
                           >
                             Delete
@@ -531,7 +643,7 @@ export function Dashboard() {
           <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
             <h2 className="text-lg font-semibold">Rate Simulator</h2>
             <button
-              className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400"
+              className="cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400"
               onClick={runSimulation}
             >
               Run Simulation
@@ -596,7 +708,7 @@ export function Dashboard() {
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Change Log</h2>
               <button
-                className="rounded bg-slate-800 px-3 py-1 text-sm hover:bg-slate-700"
+                className="cursor-pointer rounded bg-slate-800 px-3 py-1 text-sm hover:bg-slate-700"
                 onClick={() => setChangesOnly((v) => !v)}
               >
                 {changesOnly ? "Show All Cycles" : "Show Changes Only"}
@@ -639,7 +751,7 @@ export function Dashboard() {
               <button
                 type="button"
                 disabled={pmsBusy}
-                className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 disabled:opacity-50"
+                className="cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void callPmsApi("/api/pms/mews/test")}
               >
                 Test connection
@@ -647,14 +759,14 @@ export function Dashboard() {
               <button
                 type="button"
                 disabled={pmsBusy}
-                className="rounded bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+                className="cursor-pointer rounded bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void callPmsApi("/api/pms/mews/sync")}
               >
                 Sync reservations
               </button>
               <button
                 type="button"
-                className="rounded bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700"
+                className="cursor-pointer rounded bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700"
                 onClick={() => setPmsLog([])}
               >
                 Clear log
