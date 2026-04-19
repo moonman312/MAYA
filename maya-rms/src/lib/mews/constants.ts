@@ -15,20 +15,30 @@ export function defaultMewsBaseUrl(): string {
   return DEFAULT_BASE_URLS[MEWS_ENV] ?? DEFAULT_BASE_URLS.demo;
 }
 
-/**
- * Mews limits each reservations/getAll time filter to at most ~3 months (docs).
- * Use up to 90 days per request to minimize round-trips (override via env).
- */
-function readPositiveIntEnv(name: string, fallback: number): number {
+/** Mews `reservations/getAll` rejects `StartUtc`/`EndUtc` spans over 100:00:00. */
+const MEWS_MAX_INTERVAL_HOURS_CAP = 100;
+
+function readOptionalPositiveInt(name: string): number | null {
   const raw = process.env[name]?.trim();
-  if (!raw) return fallback;
+  if (!raw) return null;
   const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-const WINDOW_DAYS = readPositiveIntEnv("MEWS_RESERVATIONS_WINDOW_DAYS", 90);
+/**
+ * Per-request chunk for `reservations/getAll` when splitting a long range.
+ * Override with `MEWS_RESERVATIONS_WINDOW_HOURS`, or legacy `MEWS_RESERVATIONS_WINDOW_DAYS`
+ * (converted to hours, capped at 100). Default 96 h matches legacy Python.
+ */
+function resolveFetchChunkHours(): number {
+  const hours = readOptionalPositiveInt("MEWS_RESERVATIONS_WINDOW_HOURS");
+  if (hours !== null) return Math.min(hours, MEWS_MAX_INTERVAL_HOURS_CAP);
+  const days = readOptionalPositiveInt("MEWS_RESERVATIONS_WINDOW_DAYS");
+  if (days !== null) return Math.min(days * 24, MEWS_MAX_INTERVAL_HOURS_CAP);
+  return 96;
+}
 
-export const MEWS_MAX_FETCH_WINDOW_MS = WINDOW_DAYS * 24 * 60 * 60 * 1000;
+export const MEWS_MAX_FETCH_WINDOW_MS = resolveFetchChunkHours() * 60 * 60 * 1000;
 
 /**
  * Legacy `reservations/getAll` (StartUtc/EndUtc) — include `Canceled` so we can

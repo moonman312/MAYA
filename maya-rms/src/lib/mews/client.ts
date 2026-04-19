@@ -188,7 +188,7 @@ function formatUtcChunkBoundary(ms: number): string {
 
 /**
  * Fetches reservations for [startUtc, endUtc), splitting into chunks of at most
- * {@link MEWS_MAX_FETCH_WINDOW_MS} (default 90 days per Mews interval limits).
+ * {@link MEWS_MAX_FETCH_WINDOW_MS} (default 96 h; Mews max interval 100:00:00).
  */
 export async function mewsFetchReservationsRange(
   creds: ResolvedMewsCredentials,

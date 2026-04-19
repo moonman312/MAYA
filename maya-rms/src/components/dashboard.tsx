@@ -16,7 +16,7 @@ const tabs: { key: TabKey; label: string }[] = [
   { key: "rules", label: "Rules" },
   { key: "simulator", label: "Rate Simulator" },
   { key: "changelog", label: "Change Log" },
-  { key: "pms", label: "PMS (Mews)" },
+  { key: "pms", label: "PMS" },
 ];
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -39,7 +39,9 @@ export function Dashboard() {
   const [month, setMonth] = useState(new Date().getUTCMonth() + 1);
 
   const [rules, setRules] = useState<RuleConfig[]>([]);
-  const [roomTypes, setRoomTypes] = useState<string[]>([]);
+  const [roomTypeOptions, setRoomTypeOptions] = useState<
+    { id: string; name: string }[]
+  >([]);
   const [calendar, setCalendar] = useState<CalendarResponse | null>(null);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [simResults, setSimResults] = useState<SimulationResult[]>([]);
@@ -52,7 +54,10 @@ export function Dashboard() {
   const [pmsOverrideJson, setPmsOverrideJson] = useState("");
 
   function appendPms(line: string) {
-    setPmsLog((prev) => [...prev.slice(-100), `${new Date().toISOString()}  ${line}`]);
+    setPmsLog((prev) => [
+      ...prev.slice(-100),
+      `${new Date().toISOString()}  ${line}`,
+    ]);
   }
 
   async function callPmsApi(path: string) {
@@ -73,7 +78,10 @@ export function Dashboard() {
         headers: { "Content-Type": "application/json" },
         body: bodyStr,
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; ok?: boolean };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        ok?: boolean;
+      };
       if (!res.ok) {
         appendPms(`ERROR ${res.status}: ${data.error ?? res.statusText}`);
         return;
@@ -87,10 +95,12 @@ export function Dashboard() {
   }
 
   const [ruleName, setRuleName] = useState("");
-  const [conditionsText, setConditionsText] = useState("occupancy_percentage:>80");
+  const [conditionsText, setConditionsText] = useState(
+    "occupancy_percentage:>80",
+  );
   const [adjPercent, setAdjPercent] = useState("10");
   const [adjDollars, setAdjDollars] = useState("");
-  const [selectedRoomTypes, setSelectedRoomTypes] = useState<string[]>([]);
+  const [selectedRoomTypeIds, setSelectedRoomTypeIds] = useState<string[]>([]);
 
   useEffect(() => {
     void reloadRules();
@@ -100,7 +110,9 @@ export function Dashboard() {
   const reloadCalendar = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api<CalendarResponse>(`/api/calendar/${year}/${month}`);
+      const data = await api<CalendarResponse>(
+        `/api/calendar/${year}/${month}`,
+      );
       setCalendar(data);
       setSelectedDay(null);
     } finally {
@@ -128,9 +140,11 @@ export function Dashboard() {
   }
 
   async function reloadRoomTypes() {
-    const data = await api<Array<{ name: string }>>("/api/room-types");
-    setRoomTypes(data.map((item) => item.name));
-    setSelectedRoomTypes(data.map((item) => item.name));
+    const data = await api<Array<{ id: string; name: string }>>(
+      "/api/room-types",
+    );
+    setRoomTypeOptions(data);
+    setSelectedRoomTypeIds(data.map((item) => item.id));
   }
 
   async function runSimulation() {
@@ -169,18 +183,32 @@ export function Dashboard() {
   async function onCreateRule(e: React.FormEvent) {
     e.preventDefault();
     const action: RuleConfig["action"] = {};
-    if (adjPercent.trim() !== "") action.adjust_rate_percent = Number(adjPercent);
-    if (adjDollars.trim() !== "") action.adjust_rate_dollars = Number(adjDollars);
+    if (adjPercent.trim() !== "")
+      action.adjust_rate_percent = Number(adjPercent);
+    if (adjDollars.trim() !== "")
+      action.adjust_rate_dollars = Number(adjDollars);
     if (Object.keys(action).length === 0) return;
 
-    const allSelected = selectedRoomTypes.length === roomTypes.length;
+    const allSelected =
+      roomTypeOptions.length > 0 &&
+      selectedRoomTypeIds.length === roomTypeOptions.length;
+    const affected_room_type_ids = allSelected
+      ? roomTypeOptions.map((r) => r.id)
+      : selectedRoomTypeIds.slice();
+    if (affected_room_type_ids.length === 0) return;
+
+    const room_types = roomTypeOptions
+      .filter((r) => affected_room_type_ids.includes(r.id))
+      .map((r) => r.name);
+
     await api("/api/rules", {
       method: "POST",
       body: JSON.stringify({
         rule_name: ruleName,
         conditions: parseConditionsInput(conditionsText),
         action,
-        room_types: allSelected ? [] : selectedRoomTypes,
+        room_types,
+        affected_room_type_ids,
       }),
     });
 
@@ -188,7 +216,7 @@ export function Dashboard() {
     setConditionsText("occupancy_percentage:>80");
     setAdjPercent("10");
     setAdjDollars("");
-    setSelectedRoomTypes(roomTypes);
+    setSelectedRoomTypeIds(roomTypeOptions.map((r) => r.id));
     await reloadRules();
   }
 
@@ -205,7 +233,7 @@ export function Dashboard() {
             <div>
               <h1 className="text-3xl font-bold tracking-tight">MAYA RMS</h1>
               <p className="mt-2 text-sm text-slate-300">
-                Next.js + Supabase migration with equivalent dashboard workflows from the Python app.
+                Occupancy, pricing rules, and PMS sync in one place.
               </p>
             </div>
             <form action="/auth/logout" method="post">
@@ -221,7 +249,9 @@ export function Dashboard() {
             <button
               key={item.key}
               className={`rounded-md px-4 py-2 text-sm font-medium transition ${
-                tab === item.key ? "bg-sky-500 text-white" : "bg-slate-800 hover:bg-slate-700"
+                tab === item.key
+                  ? "bg-sky-500 text-white"
+                  : "bg-slate-800 hover:bg-slate-700"
               }`}
               onClick={() => setTab(item.key)}
             >
@@ -248,7 +278,9 @@ export function Dashboard() {
                 Prev
               </button>
               <h2 className="text-lg font-semibold">
-                {calendar ? calendar.month_name : `${year}-${String(month).padStart(2, "0")}`}
+                {calendar
+                  ? calendar.month_name
+                  : `${year}-${String(month).padStart(2, "0")}`}
               </h2>
               <button
                 className="rounded bg-slate-800 px-3 py-1 text-sm hover:bg-slate-700"
@@ -266,80 +298,99 @@ export function Dashboard() {
               </button>
             </div>
 
-            {loading && <p className="text-sm text-slate-300">Loading calendar...</p>}
+            {loading && (
+              <p className="text-sm text-slate-300">Loading calendar...</p>
+            )}
             {calendar && (
               <>
                 <div className="grid grid-cols-7 gap-2">
-                  {Array.from({ length: calendar.first_weekday }).map((_, idx) => (
-                    <div key={`empty-${idx}`} />
-                  ))}
-                  {Array.from({ length: calendar.days_in_month }).map((_, idx) => {
-                    const day = idx + 1;
-                    const data = calendar.days[String(day)];
-                    const color =
-                      data.occupancy_pct >= calendar.thresholds.high
-                        ? "bg-emerald-600"
-                        : data.occupancy_pct >= calendar.thresholds.low
-                          ? "bg-amber-500"
-                          : "bg-rose-600";
-                    return (
-                      <button
-                        key={day}
-                        className={`rounded border border-slate-700 p-2 text-left hover:border-sky-400 ${
-                          selectedDay === day ? "ring-2 ring-sky-400" : ""
-                        }`}
-                        onClick={() => setSelectedDay(day)}
-                      >
-                        <div className="text-xs text-slate-400">{day}</div>
-                        <div className="text-lg font-semibold">{data.occupancy_pct}%</div>
-                        <div className="mt-1 text-[11px] text-slate-400">
-                          {data.booked}/{data.total} rooms
-                        </div>
-                        <div className="text-[11px] text-slate-400">
-                          ${data.revenue >= 1000 ? `${(data.revenue / 1000).toFixed(1)}k` : data.revenue.toFixed(0)}
-                        </div>
-                        <div className={`mt-2 h-1 w-full rounded ${color}`} />
-                      </button>
-                    );
-                  })}
+                  {Array.from({ length: calendar.first_weekday }).map(
+                    (_, idx) => (
+                      <div key={`empty-${idx}`} />
+                    ),
+                  )}
+                  {Array.from({ length: calendar.days_in_month }).map(
+                    (_, idx) => {
+                      const day = idx + 1;
+                      const data = calendar.days[String(day)];
+                      const color =
+                        data.occupancy_pct >= calendar.thresholds.high
+                          ? "bg-emerald-600"
+                          : data.occupancy_pct >= calendar.thresholds.low
+                            ? "bg-amber-500"
+                            : "bg-rose-600";
+                      return (
+                        <button
+                          key={day}
+                          className={`rounded border border-slate-700 p-2 text-left hover:border-sky-400 ${
+                            selectedDay === day ? "ring-2 ring-sky-400" : ""
+                          }`}
+                          onClick={() => setSelectedDay(day)}
+                        >
+                          <div className="text-xs text-slate-400">{day}</div>
+                          <div className="text-lg font-semibold">
+                            {data.occupancy_pct}%
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-400">
+                            {data.booked}/{data.total} rooms
+                          </div>
+                          <div
+                            className="text-[11px] text-slate-400"
+                            title="Room revenue (booked nights)"
+                          >
+                            $
+                            {data.revenue >= 1000
+                              ? `${(data.revenue / 1000).toFixed(1)}k`
+                              : data.revenue.toFixed(0)}
+                          </div>
+                          <div className={`mt-2 h-1 w-full rounded ${color}`} />
+                        </button>
+                      );
+                    },
+                  )}
                 </div>
 
                 {selectedDay && (
                   <div className="rounded-md border border-slate-800 bg-slate-950 p-4">
-                    <h3 className="mb-1 text-base font-semibold">
-                      {calendar.days[String(selectedDay)].weekday}, Day {selectedDay}
+                    <h3 className="mb-2 text-base font-semibold">
+                      {calendar.days[String(selectedDay)].weekday}, day{" "}
+                      {selectedDay}
                     </h3>
-                    <p className="mb-3 text-sm text-slate-400">Detailed occupancy and pricing breakdown</p>
-                    <div className="mb-4 grid gap-2 md:grid-cols-3">
-                      <div className="rounded border border-slate-800 p-3">
-                        <p className="text-xs text-slate-400">Rooms Booked</p>
-                        <p className="text-lg font-semibold">
-                          {calendar.days[String(selectedDay)].booked}/{calendar.days[String(selectedDay)].total}
-                        </p>
-                      </div>
-                      <div className="rounded border border-slate-800 p-3">
-                        <p className="text-xs text-slate-400">Occupancy</p>
-                        <p className="text-lg font-semibold">
-                          {calendar.days[String(selectedDay)].occupancy_pct}%
-                        </p>
-                      </div>
-                      <div className="rounded border border-slate-800 p-3">
-                        <p className="text-xs text-slate-400">Projected Revenue</p>
-                        <p className="text-lg font-semibold">
-                          ${calendar.days[String(selectedDay)].revenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="grid gap-2 md:grid-cols-3">
-                      {calendar.days[String(selectedDay)].room_types.map((rt) => (
-                        <div key={rt.name} className="rounded border border-slate-800 p-3">
-                          <p className="font-medium">{rt.name}</p>
-                          <p className="text-sm text-slate-300">Occ: {rt.occupancy_pct}%</p>
-                          <p className="text-sm text-slate-300">Booked: {rt.booked}/{rt.total_rooms}</p>
-                          <p className="text-sm text-slate-300">Rate: ${rt.rate.toFixed(2)}</p>
-                          <p className="text-sm text-slate-300">Revenue: ${rt.revenue.toFixed(2)}</p>
-                        </div>
-                      ))}
+                    <p className="mb-4 text-sm text-slate-400">
+                      {calendar.days[String(selectedDay)].booked}/
+                      {calendar.days[String(selectedDay)].total} rooms ·{" "}
+                      {calendar.days[String(selectedDay)].occupancy_pct}%
+                      occupancy · room revenue{" "}
+                      <span className="font-medium text-slate-200">
+                        $
+                        {calendar.days[
+                          String(selectedDay)
+                        ].revenue.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                    </p>
+                    <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+                      {calendar.days[String(selectedDay)].room_types.map(
+                        (rt) => (
+                          <div
+                            key={rt.id}
+                            className="rounded border border-slate-800 p-3"
+                          >
+                            <p className="font-medium">{rt.name}</p>
+                            <p className="mt-1 text-sm text-slate-300">
+                              Booked {rt.booked}/{rt.total_rooms}
+                            </p>
+                            <p className="text-sm text-slate-300">
+                              ADR ${rt.rate.toFixed(2)}
+                            </p>
+                            <p className="text-sm text-slate-300">
+                              Revenue ${rt.revenue.toFixed(2)}
+                            </p>
+                          </div>
+                        ),
+                      )}
                     </div>
                   </div>
                 )}
@@ -351,7 +402,10 @@ export function Dashboard() {
         {tab === "rules" && (
           <section className="space-y-5 rounded-lg border border-slate-800 bg-slate-900 p-5">
             <h2 className="text-lg font-semibold">Pricing Rules</h2>
-            <form onSubmit={onCreateRule} className="grid gap-3 rounded border border-slate-800 p-4 md:grid-cols-2">
+            <form
+              onSubmit={onCreateRule}
+              className="grid gap-3 rounded border border-slate-800 p-4 md:grid-cols-2"
+            >
               <input
                 value={ruleName}
                 onChange={(e) => setRuleName(e.target.value)}
@@ -380,28 +434,36 @@ export function Dashboard() {
                 placeholder={"occupancy_percentage:>80\nbooking_window:<3"}
               />
               <div className="md:col-span-2">
-                <p className="mb-2 text-xs text-slate-400">Apply to room types</p>
+                <p className="mb-2 text-xs text-slate-400">
+                  Apply to room types
+                </p>
                 <div className="flex flex-wrap gap-2">
-                  {roomTypes.map((name) => {
-                    const on = selectedRoomTypes.includes(name);
+                  {roomTypeOptions.map((opt) => {
+                    const on = selectedRoomTypeIds.includes(opt.id);
                     return (
                       <button
                         type="button"
-                        key={name}
+                        key={opt.id}
                         className={`rounded px-2 py-1 text-xs ${on ? "bg-sky-600" : "bg-slate-800"}`}
                         onClick={() =>
-                          setSelectedRoomTypes((prev) =>
-                            prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name],
+                          setSelectedRoomTypeIds((prev) =>
+                            prev.includes(opt.id)
+                              ? prev.filter((x) => x !== opt.id)
+                              : [...prev, opt.id],
                           )
                         }
+                        title={opt.name}
                       >
-                        {name}
+                        {opt.name}
                       </button>
                     );
                   })}
                 </div>
               </div>
-              <button type="submit" className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 md:col-span-2">
+              <button
+                type="submit"
+                className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 md:col-span-2"
+              >
                 Add Rule
               </button>
             </form>
@@ -427,18 +489,32 @@ export function Dashboard() {
                           .map(([k, v]) => `${k} ${String(v)}`)
                           .join(" | ")}
                       </td>
-                      <td className="py-2 pr-3">{rule.room_types.length ? rule.room_types.join(", ") : "All"}</td>
                       <td className="py-2 pr-3">
-                        {rule.action.adjust_rate_percent !== undefined && `${rule.action.adjust_rate_percent}% `}
-                        {rule.action.adjust_rate_dollars !== undefined && `$${rule.action.adjust_rate_dollars}`}
+                        {rule.room_types.length
+                          ? rule.room_types.join(", ")
+                          : "All"}
                       </td>
-                      <td className="py-2 pr-3">{rule.enabled ? "Enabled" : "Disabled"}</td>
+                      <td className="py-2 pr-3">
+                        {rule.action.adjust_rate_percent !== undefined &&
+                          `${rule.action.adjust_rate_percent}% `}
+                        {rule.action.adjust_rate_dollars !== undefined &&
+                          `$${rule.action.adjust_rate_dollars}`}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {rule.enabled ? "Enabled" : "Disabled"}
+                      </td>
                       <td className="py-2 pr-3">
                         <div className="flex gap-2">
-                          <button className="rounded bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700" onClick={() => onToggleRule(rule.id)}>
+                          <button
+                            className="rounded bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
+                            onClick={() => onToggleRule(rule.id)}
+                          >
                             Toggle
                           </button>
-                          <button className="rounded bg-rose-700 px-2 py-1 text-xs hover:bg-rose-600" onClick={() => onDeleteRule(rule.id)}>
+                          <button
+                            className="rounded bg-rose-700 px-2 py-1 text-xs hover:bg-rose-600"
+                            onClick={() => onDeleteRule(rule.id)}
+                          >
                             Delete
                           </button>
                         </div>
@@ -454,33 +530,53 @@ export function Dashboard() {
         {tab === "simulator" && (
           <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
             <h2 className="text-lg font-semibold">Rate Simulator</h2>
-            <button className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400" onClick={runSimulation}>
+            <button
+              className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400"
+              onClick={runSimulation}
+            >
               Run Simulation
             </button>
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="rounded border border-slate-800 p-3">
-                <h3 className="mb-2 text-sm font-semibold">Sample Reservations</h3>
+                <h3 className="mb-2 text-sm font-semibold">
+                  Sample Reservations
+                </h3>
                 <ul className="space-y-2 text-sm text-slate-300">
                   {SAMPLE_RESERVATIONS.map((r, idx) => (
                     <li key={`${r.room_type}-${idx}`}>
-                      {r.room_type}: ${r.current_rate} (occ {r.occupancy_percentage}% / window {r.booking_window}d / pickup {r.pickup_rate})
+                      {r.room_type}: ${r.current_rate} (occ{" "}
+                      {r.occupancy_percentage}% / window {r.booking_window}d /
+                      pickup {r.pickup_rate})
                     </li>
                   ))}
                 </ul>
               </div>
 
               <div className="rounded border border-slate-800 p-3">
-                <h3 className="mb-2 text-sm font-semibold">Simulation Results</h3>
-                {!simResults.length && <p className="text-sm text-slate-300">Run simulation to view results.</p>}
+                <h3 className="mb-2 text-sm font-semibold">
+                  Simulation Results
+                </h3>
+                {!simResults.length && (
+                  <p className="text-sm text-slate-300">
+                    Run simulation to view results.
+                  </p>
+                )}
                 <ul className="space-y-2 text-sm text-slate-300">
                   {simResults.map((row, idx) => {
                     const delta = row.new_rate - row.original_rate;
-                    const cls = delta > 0 ? "text-rose-300" : delta < 0 ? "text-emerald-300" : "text-slate-300";
+                    const cls =
+                      delta > 0
+                        ? "text-rose-300"
+                        : delta < 0
+                          ? "text-emerald-300"
+                          : "text-slate-300";
                     return (
                       <li key={`${row.room_type}-${idx}`}>
                         {row.room_type}: ${row.original_rate.toFixed(2)} - {">"}{" "}
-                        <span className="font-semibold">${row.new_rate.toFixed(2)}</span>{" "}
+                        <span className="font-semibold">
+                          ${row.new_rate.toFixed(2)}
+                        </span>{" "}
                         <span className={cls}>
                           ({delta >= 0 ? "+" : ""}
                           {delta.toFixed(2)})
@@ -508,7 +604,10 @@ export function Dashboard() {
             </div>
             <div className="space-y-2">
               {visibleCycles.map((cycle) => (
-                <div key={cycle.cycle} className="rounded border border-slate-800 p-3">
+                <div
+                  key={cycle.cycle}
+                  className="rounded border border-slate-800 p-3"
+                >
                   <p className="text-xs text-slate-400">
                     Cycle #{cycle.cycle} - {cycle.timestamp}
                   </p>
@@ -516,14 +615,17 @@ export function Dashboard() {
                     <ul className="mt-2 space-y-1 text-sm text-slate-200">
                       {cycle.changes.map((ch, idx) => (
                         <li key={`${cycle.cycle}-${idx}`}>
-                          {ch.room_type}: ${ch.original_rate.toFixed(2)} - {">"} ${ch.new_rate.toFixed(2)} (
+                          {ch.room_type}: ${ch.original_rate.toFixed(2)} - {">"}{" "}
+                          ${ch.new_rate.toFixed(2)} (
                           {ch.change_pct >= 0 ? "+" : ""}
                           {ch.change_pct}%)
                         </li>
                       ))}
                     </ul>
                   ) : (
-                    <p className="mt-2 text-sm text-slate-300">No actionable conditions detected.</p>
+                    <p className="mt-2 text-sm text-slate-300">
+                      No actionable conditions detected.
+                    </p>
                   )}
                 </div>
               ))}
@@ -533,17 +635,6 @@ export function Dashboard() {
 
         {tab === "pms" && (
           <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
-            <h2 className="text-lg font-semibold">Mews PMS</h2>
-            <p className="text-sm text-slate-300">
-              Mirrors the Python tools: <code className="text-slate-200">configuration/get</code> for a connection
-              check, and windowed <code className="text-slate-200">reservations/getAll</code> fetches (96-hour chunks)
-              with ETL into <code className="text-slate-200">room_types</code> and{" "}
-              <code className="text-slate-200">reservations</code>. Credentials resolve from{" "}
-              <code className="text-slate-200">pms_connections</code> (JSON in{" "}
-              <code className="text-slate-200">credentials_encrypted</code>), optional overrides below, or server env{" "}
-              <code className="text-slate-200">MEWS_CLIENT_TOKEN</code> / <code className="text-slate-200">MEWS_ACCESS_TOKEN</code>.
-              A Supabase Edge Function on a cron schedule can call the same routes later.
-            </p>
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -559,7 +650,7 @@ export function Dashboard() {
                 className="rounded bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
                 onClick={() => void callPmsApi("/api/pms/mews/sync")}
               >
-                Sync reservations to DB
+                Sync reservations
               </button>
               <button
                 type="button"
@@ -569,23 +660,23 @@ export function Dashboard() {
                 Clear log
               </button>
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-400">
-                Advanced: credential override JSON (optional) —{" "}
-                <code className="text-slate-300">{"{ \"clientToken\", \"accessToken\", \"enterpriseId?\", \"baseUrl?\" }"}</code>
-              </label>
-              <textarea
-                value={pmsOverrideJson}
-                onChange={(e) => setPmsOverrideJson(e.target.value)}
-                placeholder='e.g. {"clientToken":"...","accessToken":"..."}'
-                rows={4}
-                className="w-full rounded border border-slate-700 bg-slate-950 p-2 font-mono text-xs text-slate-200"
-              />
-            </div>
+            <textarea
+              value={pmsOverrideJson}
+              onChange={(e) => setPmsOverrideJson(e.target.value)}
+              placeholder="Optional: credential JSON override"
+              rows={3}
+              aria-label="Optional credential JSON override"
+              className="w-full rounded border border-slate-700 bg-slate-950 p-2 font-mono text-xs text-slate-200"
+            />
             <div className="max-h-64 overflow-y-auto rounded border border-slate-800 bg-slate-950 p-3 font-mono text-xs text-slate-300">
-              {pmsLog.length === 0 ? <p className="text-slate-500">Activity will appear here.</p> : null}
+              {pmsLog.length === 0 ? (
+                <p className="text-slate-500">No activity yet.</p>
+              ) : null}
               {pmsLog.map((line, i) => (
-                <p key={`${i}-${line.slice(0, 24)}`} className="whitespace-pre-wrap break-all">
+                <p
+                  key={`${i}-${line.slice(0, 24)}`}
+                  className="whitespace-pre-wrap break-all"
+                >
                   {line}
                 </p>
               ))}

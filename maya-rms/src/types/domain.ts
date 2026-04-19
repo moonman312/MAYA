@@ -164,6 +164,8 @@ export type EvaluationAudit = {
 /* ── Calendar types ────────────────────────────────────────────────── */
 
 export type CalendarRoomType = {
+  /** Stable key for UI (UUID from DB or demo surrogate). */
+  id: string;
   name: string;
   total_rooms: number;
   occupancy_pct: number;

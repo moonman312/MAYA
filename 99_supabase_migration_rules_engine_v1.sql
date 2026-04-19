@@ -1,6 +1,9 @@
 -- MAYA Rules Engine v1 Migration
 -- Aligns schema with the Rules Engine Implementation Guide.
--- Run AFTER supabase_schema.sql has been applied.
+--
+-- Run AFTER 02_supabase_schema.sql when upgrading an *older* database that was
+-- created before rules-engine v1 objects existed. If you load 01 + 02 from this
+-- repo on a fresh project, you can skip this file (02 already includes the model).
 --
 -- This migration:
 --   1) Adds floor_price / ceiling_price to room_types (migrates from room_constraints)
