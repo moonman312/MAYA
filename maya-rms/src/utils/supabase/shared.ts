@@ -11,5 +11,15 @@ export function getSupabaseEnv() {
 }
 
 export function isSupabaseConfigured(): boolean {
-  return Boolean(supabaseUrl && supabasePublishableKey);
+  // Reject placeholder / example values from .env.example
+  const urlOk =
+    typeof supabaseUrl === "string" &&
+    supabaseUrl.startsWith("https://") &&
+    supabaseUrl.includes(".supabase.co") &&
+    !supabaseUrl.includes("your-project");
+  const keyOk =
+    typeof supabasePublishableKey === "string" &&
+    supabasePublishableKey.length > 20 &&
+    supabasePublishableKey !== "eyJ...";
+  return urlOk && keyOk;
 }

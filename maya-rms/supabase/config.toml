@@ -1,0 +1,12 @@
+# Fill project_id after `supabase link`, or leave empty for local-only workflows.
+# project_id = "your-project-ref"
+
+[api]
+enabled = true
+
+[functions]
+# Default verify_jwt can be overridden per function below.
+
+[functions.mews-scheduled-sync]
+# pg_cron + Vault typically cannot send a user JWT; validate x-mews-cron-secret instead.
+verify_jwt = false
