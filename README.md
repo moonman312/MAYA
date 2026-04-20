@@ -13,6 +13,7 @@ Database scripts for Supabase live in this folder (`MAYA/`) with numeric run-ord
   - React/Next app
   - Supabase SSR auth/session wiring
   - Current UI and API implementation
+  - `maya-rms/supabase/` — Edge Functions (e.g. **`mews-scheduled-sync`**) and CLI config; run `supabase` commands from `maya-rms/`
 - `shared/legacy-python/`
   - Original Python ETL/rules/metrics/scheduler/dashboard
 - `00_supabase_reset_dev.sql` (optional)
