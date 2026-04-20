@@ -5,7 +5,7 @@ This repository currently contains two application paths during migration:
 - `maya-rms/` - Next.js + Supabase application (current primary path)
 - `shared/legacy-python/` - legacy Python implementation (kept for reference and parity checks)
 
-Database scripts for Supabase live at the workspace root.
+Database scripts for Supabase live in this folder (`MAYA/`) with numeric run-order prefixes.
 
 ## Repository Layout
 
@@ -13,16 +13,23 @@ Database scripts for Supabase live at the workspace root.
   - React/Next app
   - Supabase SSR auth/session wiring
   - Current UI and API implementation
+  - `maya-rms/supabase/` — Edge Functions (e.g. **`mews-scheduled-sync`**) and CLI config; run `supabase` commands from `maya-rms/`
 - `shared/legacy-python/`
   - Original Python ETL/rules/metrics/scheduler/dashboard
-- `supabase_base_schema.sql`
+- `00_supabase_reset_dev.sql` (optional)
+  - Truncate or drop MAYA `public` tables for a dev reset; see file header
+- `01_supabase_base_schema.sql`
   - Core schema objects (tables/enums/indexes)
-- `supabase_schema.sql`
-  - Full schema + RLS policies/functions
-- `supabase_seed.sql`
-  - Organization/hotel/membership bootstrap data
-- `supabase_demo_data.sql`
+- `02_supabase_schema.sql`
+  - Full schema + RLS policies, triggers, helper functions
+- `03_supabase_seed.sql`
+  - Hotel + `hotel_memberships` bootstrap data (no organizations)
+- `04_supabase_demo_data.sql`
   - Synthetic reservations + occupancy metrics
+- `99_supabase_migration_rules_engine_v1.sql` (legacy upgrades only)
+  - Incremental migration for DBs created before rules-engine v1; skip on fresh 01+02 loads
+- `supabase_dev_full_dump.sql`
+  - Placeholder for a full `public` schema dump; generate with `scripts/export-dev-full-dump.sh`
 
 ## Quick Start (Next.js App)
 
@@ -47,12 +54,20 @@ npm run build
 
 ## Supabase Setup Order
 
-Run these scripts in Supabase SQL Editor in this exact order:
+If you previously applied the older schema with `organizations` and `organization_id` on `hotels`, run **`00_supabase_reset_dev.sql`** (Section B) or use a fresh Supabase project before re-applying DDL.
 
-1. `supabase_base_schema.sql`
-2. `supabase_schema.sql`
-3. `supabase_seed.sql` (update emails first)
-4. `supabase_demo_data.sql`
+Run these in Supabase SQL Editor in this order:
+
+| Step | File | When |
+|------|------|------|
+| (optional) | `00_supabase_reset_dev.sql` | Truncate data (A) or drop + enums (B) before rebuilding |
+| 1 | `01_supabase_base_schema.sql` | Always first for DDL |
+| 2 | `02_supabase_schema.sql` | Always second (policies, triggers, engine tables) |
+| (optional) | `99_supabase_migration_rules_engine_v1.sql` | Only for **existing** old DBs; skip if 01+02 are a fresh load from this repo |
+| 3 | `03_supabase_seed.sql` | After auth user exists; edit emails in the script |
+| 4 | `04_supabase_demo_data.sql` | Optional synthetic calendar/metrics load |
+
+Optional: replace `supabase_dev_full_dump.sql` with `./scripts/export-dev-full-dump.sh` (requires `DATABASE_URL` and `pg_dump`) to snapshot all `public` data for dev.
 
 After seeding/demo data:
 

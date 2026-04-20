@@ -1,0 +1,34 @@
+-- Example: schedule Edge Function `mews-scheduled-sync` every 5 minutes.
+-- Prerequisites: extensions `pg_cron`, `pg_net`; Vault secrets (run once, replace placeholders).
+--
+-- 0) If the dashboard Extensions page does not list pg_net, enable via SQL (creates schema `net`):
+--    create extension if not exists pg_net;
+--    See: https://supabase.com/docs/guides/database/extensions/pg_net
+--
+-- 1) Store secrets (Dashboard → SQL Editor):
+--    select vault.create_secret('https://<project-ref>.supabase.co', 'project_url');
+--    select vault.create_secret('<long-random-string>', 'mews_cron_secret');
+--
+-- 2) Edge Function secrets (Dashboard → Edge Functions → Secrets):
+--    SUPABASE_SERVICE_ROLE_KEY  (auto in hosted projects; confirm)
+--    MEWS_CRON_SECRET            (same value as vault `mews_cron_secret`)
+--    Optional Mews/env parity with Next: MEWS_ENV, MAYA_SYNC_DAYS_BACK, etc.
+--
+-- 3) Schedule:
+--    select cron.schedule(
+--      'mews-sync-every-5-min',
+--      '*/5 * * * *',
+--      $$
+--      select net.http_post(
+--        url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url')
+--               || '/functions/v1/mews-scheduled-sync',
+--        headers := jsonb_build_object(
+--          'Content-Type', 'application/json',
+--          'x-mews-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'mews_cron_secret')
+--        ),
+--        body := jsonb_build_object('scheduled_at', now())
+--      ) as request_id;
+--      $$
+--    );
+--
+-- Unschedule: select cron.unschedule('mews-sync-every-5-min');
