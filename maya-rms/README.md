@@ -70,6 +70,12 @@ Optional: `00_supabase_reset_dev.sql` before step 1 for a clean slate; `99_supab
 
 After step 4, calendar data is sourced from Supabase tables (with demo fallback only when DB data is unavailable).
 
+## Supabase Edge (Mews cron)
+
+- Config and functions live in **`supabase/`** (deploy from this directory).
+- **`mews-scheduled-sync`** pulls Mews for every hotel with `pms_type = 'mews'`, using the same `runMewsSyncForHotel` logic as **`POST /api/pms/mews/sync`**.
+- Setup: [`../docs/supabase-mews-sync-manual-setup.md`](../docs/supabase-mews-sync-manual-setup.md) (dashboard walkthrough), [`../docs/mews-pms-sync-edge-cron.md`](../docs/mews-pms-sync-edge-cron.md) (architecture), `supabase/cron/mews-sync-every-5-min.sql.example`.
+
 ## Notes
 
 - The pricing logic and demo datasets are ported from the Python implementation.

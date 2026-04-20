@@ -75,6 +75,90 @@ function CalendarMonthSkeleton({
   );
 }
 
+function formatDisplayTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZoneName: "short",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+/** Calendar-style line for timelines (Change Log, etc.). */
+function formatFriendlyDateTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+/** Short relative hint for recent instants; null when older than one calendar week. */
+function formatRelativeAge(iso: string): string | null {
+  try {
+    const then = new Date(iso);
+    if (Number.isNaN(then.getTime())) return null;
+    const ms = Date.now() - then.getTime();
+    if (ms < 0) return null;
+    const sec = Math.floor(ms / 1000);
+    if (sec < 45) return "just now";
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min} min ago`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `${hr} hr ago`;
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const startOfThen = new Date(then);
+    startOfThen.setHours(0, 0, 0, 0);
+    const dayDiff = Math.round(
+      (startOfToday.getTime() - startOfThen.getTime()) / 86_400_000,
+    );
+    if (dayDiff === 1) return "yesterday";
+    if (dayDiff > 1 && dayDiff < 7) return `${dayDiff} days ago`;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function MewsStatusBadge({ status }: { status: string | null }) {
+  if (!status) {
+    return (
+      <span className="rounded bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-200">
+        unknown
+      </span>
+    );
+  }
+  const s = status.toLowerCase();
+  const cls =
+    s === "connected"
+      ? "bg-emerald-600/30 text-emerald-200 ring-1 ring-emerald-500/40"
+      : s === "pending"
+        ? "bg-amber-600/25 text-amber-100 ring-1 ring-amber-500/35"
+        : s === "degraded"
+          ? "bg-amber-600/25 text-amber-100 ring-1 ring-amber-500/35"
+          : s === "error" || s === "disconnected"
+            ? "bg-rose-600/30 text-rose-100 ring-1 ring-rose-500/40"
+            : "bg-slate-700 text-slate-200 ring-1 ring-slate-600";
+  return (
+    <span className={`rounded px-2 py-0.5 text-xs font-medium capitalize ${cls}`}>
+      {status}
+    </span>
+  );
+}
+
 export function Dashboard() {
   const [tab, setTab] = useState<TabKey>("calendar");
   const [year, setYear] = useState(new Date().getUTCFullYear());
@@ -91,56 +175,18 @@ export function Dashboard() {
   const [changesOnly, setChangesOnly] = useState(true);
   const [loading, setLoading] = useState(false);
 
-  const [pmsLog, setPmsLog] = useState<string[]>([]);
-  const [pmsBusy, setPmsBusy] = useState(false);
-  const [pmsOverrideJson, setPmsOverrideJson] = useState("");
+  const [mewsConnection, setMewsConnection] = useState<{
+    configured: boolean;
+    status: string | null;
+    lastSyncAt: string | null;
+    lastTestedAt: string | null;
+  } | null>(null);
 
   const [accessibleHotels, setAccessibleHotels] = useState<
     { id: string; name: string }[]
   >([]);
   const [activeHotelId, setActiveHotelId] = useState<string | null>(null);
   const [hotelSwitching, setHotelSwitching] = useState(false);
-
-  function appendPms(line: string) {
-    setPmsLog((prev) => [
-      ...prev.slice(-100),
-      `${new Date().toISOString()}  ${line}`,
-    ]);
-  }
-
-  async function callPmsApi(path: string) {
-    setPmsBusy(true);
-    try {
-      let bodyStr = "{}";
-      if (pmsOverrideJson.trim()) {
-        try {
-          const parsed = JSON.parse(pmsOverrideJson) as unknown;
-          bodyStr = JSON.stringify({ mews: parsed });
-        } catch {
-          appendPms("ERROR: Advanced JSON is not valid JSON.");
-          return;
-        }
-      }
-      const res = await fetch(path, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: bodyStr,
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        ok?: boolean;
-      };
-      if (!res.ok) {
-        appendPms(`ERROR ${res.status}: ${data.error ?? res.statusText}`);
-        return;
-      }
-      appendPms(JSON.stringify(data));
-    } catch (e) {
-      appendPms(`ERROR ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setPmsBusy(false);
-    }
-  }
 
   const [ruleName, setRuleName] = useState("");
   const [conditionsText, setConditionsText] = useState(
@@ -171,6 +217,30 @@ export function Dashboard() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (tab !== "pms" || !activeHotelId) {
+      return;
+    }
+    void (async () => {
+      try {
+        const res = await fetch("/api/pms/mews/connection");
+        if (!res.ok) {
+          setMewsConnection(null);
+          return;
+        }
+        const data = (await res.json()) as {
+          configured: boolean;
+          status: string | null;
+          lastSyncAt: string | null;
+          lastTestedAt: string | null;
+        };
+        setMewsConnection(data);
+      } catch {
+        setMewsConnection(null);
+      }
+    })();
+  }, [tab, activeHotelId]);
 
   const reloadCalendar = useCallback(async () => {
     setLoading(true);
@@ -715,84 +785,104 @@ export function Dashboard() {
               </button>
             </div>
             <div className="space-y-2">
-              {visibleCycles.map((cycle) => (
-                <div
-                  key={cycle.cycle}
-                  className="rounded border border-slate-800 p-3"
-                >
-                  <p className="text-xs text-slate-400">
-                    Cycle #{cycle.cycle} - {cycle.timestamp}
-                  </p>
-                  {cycle.has_changes ? (
-                    <ul className="mt-2 space-y-1 text-sm text-slate-200">
-                      {cycle.changes.map((ch, idx) => (
-                        <li key={`${cycle.cycle}-${idx}`}>
-                          {ch.room_type}: ${ch.original_rate.toFixed(2)} - {">"}{" "}
-                          ${ch.new_rate.toFixed(2)} (
-                          {ch.change_pct >= 0 ? "+" : ""}
-                          {ch.change_pct}%)
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="mt-2 text-sm text-slate-300">
-                      No actionable conditions detected.
+              {visibleCycles.map((cycle) => {
+                const whenRelative = formatRelativeAge(cycle.timestamp);
+                return (
+                  <div
+                    key={cycle.cycle}
+                    className="rounded border border-slate-800 p-3"
+                  >
+                    <p className="text-xs text-slate-400">
+                      <time
+                        dateTime={cycle.timestamp}
+                        title={formatDisplayTime(cycle.timestamp)}
+                        className="not-italic"
+                      >
+                        <span className="font-medium text-slate-300">
+                          Cycle #{cycle.cycle}
+                        </span>
+                        <span className="text-slate-500"> · </span>
+                        <span>{formatFriendlyDateTime(cycle.timestamp)}</span>
+                        {whenRelative ? (
+                          <span className="text-slate-500">
+                            {" "}
+                            ({whenRelative})
+                          </span>
+                        ) : null}
+                      </time>
                     </p>
-                  )}
-                </div>
-              ))}
+                    {cycle.has_changes ? (
+                      <ul className="mt-2 space-y-1 text-sm text-slate-200">
+                        {cycle.changes.map((ch, idx) => (
+                          <li key={`${cycle.cycle}-${idx}`}>
+                            {ch.room_type}: ${ch.original_rate.toFixed(2)} - {">"}{" "}
+                            ${ch.new_rate.toFixed(2)} (
+                            {ch.change_pct >= 0 ? "+" : ""}
+                            {ch.change_pct}%)
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-2 text-sm text-slate-300">
+                        No actionable conditions detected.
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </section>
         )}
 
         {tab === "pms" && (
           <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={pmsBusy}
-                className="cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={() => void callPmsApi("/api/pms/mews/test")}
-              >
-                Test connection
-              </button>
-              <button
-                type="button"
-                disabled={pmsBusy}
-                className="cursor-pointer rounded bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={() => void callPmsApi("/api/pms/mews/sync")}
-              >
-                Sync reservations
-              </button>
-              <button
-                type="button"
-                className="cursor-pointer rounded bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700"
-                onClick={() => setPmsLog([])}
-              >
-                Clear log
-              </button>
-            </div>
-            <textarea
-              value={pmsOverrideJson}
-              onChange={(e) => setPmsOverrideJson(e.target.value)}
-              placeholder="Optional: credential JSON override"
-              rows={3}
-              aria-label="Optional credential JSON override"
-              className="w-full rounded border border-slate-700 bg-slate-950 p-2 font-mono text-xs text-slate-200"
-            />
-            <div className="max-h-64 overflow-y-auto rounded border border-slate-800 bg-slate-950 p-3 font-mono text-xs text-slate-300">
-              {pmsLog.length === 0 ? (
-                <p className="text-slate-500">No activity yet.</p>
-              ) : null}
-              {pmsLog.map((line, i) => (
-                <p
-                  key={`${i}-${line.slice(0, 24)}`}
-                  className="whitespace-pre-wrap break-all"
-                >
-                  {line}
+            <h2 className="text-lg font-semibold">PMS (Mews)</h2>
+            <p className="text-sm text-slate-300">
+              Reservations sync on a schedule from your Supabase project (Edge
+              Function + cron). Manual sync was removed in favor of automation.
+            </p>
+            {!activeHotelId ? (
+              <p className="text-sm text-slate-400">Select a property to view status.</p>
+            ) : mewsConnection === null ? (
+              <p className="text-sm text-slate-400">Loading connection status…</p>
+            ) : !mewsConnection.configured ? (
+              <p className="text-sm text-amber-200/90">
+                No Mews integration is configured for this property yet (
+                <code className="text-xs">pms_connections</code>).
+              </p>
+            ) : (
+              <div className="space-y-3 rounded border border-slate-800 bg-slate-950 p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                    Mews connection
+                  </span>
+                  <MewsStatusBadge status={mewsConnection.status} />
+                </div>
+                <dl className="grid gap-2 text-sm text-slate-300 sm:grid-cols-2">
+                  <div>
+                    <dt className="text-xs text-slate-500">Last sync</dt>
+                    <dd>
+                      {mewsConnection.lastSyncAt
+                        ? formatDisplayTime(mewsConnection.lastSyncAt)
+                        : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-slate-500">Last tested</dt>
+                    <dd>
+                      {mewsConnection.lastTestedAt
+                        ? formatDisplayTime(mewsConnection.lastTestedAt)
+                        : "—"}
+                    </dd>
+                  </div>
+                </dl>
+                <p className="text-xs text-slate-500">
+                  Status updates when a scheduled sync completes successfully.
+                  If syncs fail, timestamps may stop moving even if the status
+                  still shows connected.
                 </p>
-              ))}
-            </div>
+              </div>
+            )}
           </section>
         )}
       </div>
