@@ -12,6 +12,11 @@
  */
 
 import { INITIAL_RULES } from "@/lib/demo-data";
+import {
+  isRuleConditionEmpty,
+  ruleConditionForInsert,
+  ruleConditionToLegacyConditions,
+} from "@/lib/rule-form";
 import type {
   ActionDirection,
   ActionKind,
@@ -316,10 +321,16 @@ export async function createRule(
   hotelId?: string | null,
 ): Promise<RuleConfig> {
   if (!supabase) {
+    const conditionsFromMap =
+      input.conditions && Object.keys(input.conditions).length > 0
+        ? input.conditions
+        : ruleConditionToLegacyConditions(
+            ruleConditionForInsert(input.condition ?? {}),
+          );
     const rule: RuleConfig = {
       id: String(nextId++),
       rule_name: input.rule_name,
-      conditions: input.conditions,
+      conditions: conditionsFromMap,
       action: input.action,
       room_types: input.room_types,
       enabled: true,
@@ -333,8 +344,15 @@ export async function createRule(
   }
 
   const dbAction = uiActionToDb(input.action);
-  let hasPickup = !!input.condition?.pickup_operator;
-  if (!input.condition) {
+  const structuredCondition = input.condition
+    ? ruleConditionForInsert(input.condition)
+    : null;
+  if (structuredCondition && isRuleConditionEmpty(structuredCondition)) {
+    throw new Error("Rule must include at least one valid condition.");
+  }
+
+  let hasPickup = !!structuredCondition?.pickup_operator;
+  if (!structuredCondition) {
     for (const [key, val] of Object.entries(input.conditions)) {
       if (key !== "pickup_rate") continue;
       if (!parseConditionString(String(val))) continue;
@@ -370,10 +388,10 @@ export async function createRule(
   const ruleId = String(ruleRow.id);
 
   // Write new rule_condition (single-row model).
-  if (input.condition) {
+  if (structuredCondition) {
     const { error: condErr } = await supabase.from("rule_condition").insert({
       rule_id: ruleId,
-      ...input.condition,
+      ...structuredCondition,
     });
     if (condErr) throw new Error(condErr.message);
   } else {
@@ -560,8 +578,10 @@ export async function updateRule(
 
   // Update condition row.
   if (input.condition) {
+    const clean = ruleConditionForInsert(input.condition);
+    if (isRuleConditionEmpty(clean)) return false;
     await supabase.from("rule_condition").delete().eq("rule_id", id);
-    await supabase.from("rule_condition").insert({ rule_id: id, ...input.condition });
+    await supabase.from("rule_condition").insert({ rule_id: id, ...clean });
   }
 
   // Update room-type mappings.
