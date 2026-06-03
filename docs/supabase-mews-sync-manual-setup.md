@@ -85,7 +85,7 @@ Set at minimum:
 | Secret | Purpose |
 |--------|---------|
 | `MEWS_CRON_SECRET` | Long random string. The function checks header `x-mews-cron-secret` against this value. **Must match** the Vault secret used in `pg_net` (see Part D). |
-| `SUPABASE_SERVICE_ROLE_KEY` | Often auto-injected on hosted Supabase; confirm it exists for this function. Used to read `pms_connections` and upsert reservations (bypasses RLS). |
+| `SUPABASE_SERVICE_ROLE_KEY` | Often auto-injected on hosted Supabase; confirm it exists for this function. Used to read `pms_connections`, call `pms_secret_get` for Vault-encrypted credentials, and upsert reservations (bypasses RLS). |
 
 Optional (mirror your Next `.env.local` / production env so behavior matches manual sync):
 
