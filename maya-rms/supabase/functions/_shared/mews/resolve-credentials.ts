@@ -29,14 +29,26 @@ function normalizeKeys(raw: Record<string, unknown>): MewsCredentialsInput | nul
   };
 }
 
-function parseCredentialsJson(text: string): MewsCredentialsInput | null {
-  try {
-    const raw = JSON.parse(text) as unknown;
-    if (typeof raw !== "object" || raw === null) return null;
-    return normalizeKeys(raw as Record<string, unknown>);
-  } catch {
-    return null;
+/**
+ * Normalizes whatever `pms_secret_get` returns. PostgREST decodes Postgres
+ * `jsonb` into a JS object directly, but a defensive parse keeps us safe if
+ * the column is ever returned as a string.
+ */
+function normalizeSecretPayload(raw: unknown): MewsCredentialsInput | null {
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (typeof parsed !== "object" || parsed === null) return null;
+      return normalizeKeys(parsed as Record<string, unknown>);
+    } catch {
+      return null;
+    }
   }
+  if (typeof raw === "object") {
+    return normalizeKeys(raw as Record<string, unknown>);
+  }
+  return null;
 }
 
 export type ResolveMewsCredentialsResult = {
@@ -46,8 +58,15 @@ export type ResolveMewsCredentialsResult = {
 };
 
 /**
- * Resolves Mews tokens: optional request body overrides, then `pms_connections`
- * for the hotel (`credentials_encrypted` stores JSON for now), then server env.
+ * Resolves Mews tokens in priority order:
+ *   1. Request body override (test-before-save flow).
+ *   2. Vault-backed secret for the hotel via the `pms_secret_get` RPC.
+ *   3. Server-side env fallback (`MEWS_CLIENT_TOKEN` + `MEWS_ACCESS_TOKEN`).
+ *
+ * The credentials column was retired in the PMS Secrets v1 migration — the
+ * actual token bytes never traverse PostgREST anymore. Authorization for the
+ * RPC is enforced server-side: service_role bypasses; JWT callers must satisfy
+ * `can_manage_hotel(hotel_id)`.
  */
 export async function resolveMewsCredentials(
   supabase: SupabaseClient,
@@ -67,19 +86,27 @@ export async function resolveMewsCredentials(
     };
   }
 
-  const { data: row, error } = await supabase
+  // Metadata only — never `credentials_encrypted` (column no longer exists).
+  const { data: row, error: rowErr } = await supabase
     .from("pms_connections")
-    .select("id, credentials_encrypted, base_url")
+    .select("id, base_url")
     .eq("hotel_id", hotelId)
     .eq("pms_type", "mews")
     .maybeSingle();
 
-  if (error) {
-    return { error: error.message };
+  if (rowErr) {
+    return { error: rowErr.message };
   }
 
-  if (row?.credentials_encrypted) {
-    const parsed = parseCredentialsJson(row.credentials_encrypted);
+  if (row?.id) {
+    const { data: secret, error: secretErr } = await supabase.rpc("pms_secret_get", {
+      p_hotel_id: hotelId,
+      p_pms_type: "mews",
+    });
+    if (secretErr) {
+      return { error: secretErr.message };
+    }
+    const parsed = normalizeSecretPayload(secret);
     if (parsed) {
       const baseUrl = (row.base_url || parsed.baseUrl || defaultMewsBaseUrl()).replace(/\/$/, "");
       return {
@@ -108,8 +135,8 @@ export async function resolveMewsCredentials(
 
   return {
     error:
-      "No Mews credentials: add a `pms_connections` row (pms_type=mews) with JSON in " +
-      "`credentials_encrypted` ({ clientToken, accessToken, enterpriseId? }), " +
+      "No Mews credentials: create a `pms_connections` row (pms_type=mews) and call " +
+      "the `pms_secret_set` RPC with { clientToken, accessToken, enterpriseId? }, " +
       "pass mews in the request body, or set MEWS_CLIENT_TOKEN + MEWS_ACCESS_TOKEN.",
   };
 }
