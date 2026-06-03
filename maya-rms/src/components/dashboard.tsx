@@ -3,9 +3,21 @@
 import { PropertySelect } from "@/components/property-select";
 import { formatUtcMonthYear } from "@/lib/calendar-month-label";
 import { SAMPLE_RESERVATIONS } from "@/lib/demo-data";
+import {
+  conditionRowsToRuleCondition,
+  formatRuleConditionsDisplay,
+  isRuleActionEmpty,
+  isRuleConditionEmpty,
+  newConditionRow,
+  ruleConditionForInsert,
+  ruleConditionToLegacyConditions,
+  type ConditionFormRow,
+  type ConditionMetric,
+} from "@/lib/rule-form";
 import type {
   CalendarResponse,
   ChangelogCycle,
+  RuleAction,
   RuleConfig,
   SimulationResult,
 } from "@/types/domain";
@@ -153,7 +165,9 @@ function MewsStatusBadge({ status }: { status: string | null }) {
             ? "bg-rose-600/30 text-rose-100 ring-1 ring-rose-500/40"
             : "bg-slate-700 text-slate-200 ring-1 ring-slate-600";
   return (
-    <span className={`rounded px-2 py-0.5 text-xs font-medium capitalize ${cls}`}>
+    <span
+      className={`rounded px-2 py-0.5 text-xs font-medium capitalize ${cls}`}
+    >
       {status}
     </span>
   );
@@ -189,12 +203,15 @@ export function Dashboard() {
   const [hotelSwitching, setHotelSwitching] = useState(false);
 
   const [ruleName, setRuleName] = useState("");
-  const [conditionsText, setConditionsText] = useState(
-    "occupancy_percentage:>80",
-  );
+  const [condRows, setCondRows] = useState<ConditionFormRow[]>(() => [
+    newConditionRow("occupancy"),
+  ]);
+  const [adjPctEnabled, setAdjPctEnabled] = useState(true);
+  const [adjDolEnabled, setAdjDolEnabled] = useState(false);
   const [adjPercent, setAdjPercent] = useState("10");
   const [adjDollars, setAdjDollars] = useState("");
   const [selectedRoomTypeIds, setSelectedRoomTypeIds] = useState<string[]>([]);
+  const [ruleFormError, setRuleFormError] = useState<string | null>(null);
 
   useEffect(() => {
     void reloadRules();
@@ -326,28 +343,80 @@ export function Dashboard() {
     await reloadRules();
   }
 
-  function parseConditionsInput(text: string): RuleConfig["conditions"] {
-    const lines = text
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const conditions: RuleConfig["conditions"] = {};
-    lines.forEach((line) => {
-      const [key, val] = line.split(":");
-      if (!key || !val) return;
-      conditions[key.trim()] = val.trim();
-    });
-    return conditions;
+  function addConditionRow() {
+    const used = new Set(condRows.map((r) => r.metric));
+    const next: ConditionMetric | undefined = (
+      ["occupancy", "booking_window", "pickup"] as const
+    ).find((m) => !used.has(m));
+    if (!next) return;
+    setCondRows((prev) => [...prev, newConditionRow(next)]);
   }
+
+  function removeConditionRow(id: string) {
+    setCondRows((prev) => {
+      const next = prev.filter((r) => r.id !== id);
+      return next.length ? next : [newConditionRow("occupancy")];
+    });
+  }
+
+  function updateCondRow(id: string, patch: Partial<ConditionFormRow>) {
+    setCondRows((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+    );
+  }
+
+  const roomTypeSummary = useMemo(() => {
+    const n = roomTypeOptions.length;
+    const k = selectedRoomTypeIds.length;
+    if (n === 0) return "No room types loaded";
+    if (k === 0) return "None selected";
+    if (k === n) return "All room types";
+    return `${k} of ${n} room types`;
+  }, [roomTypeOptions.length, selectedRoomTypeIds.length]);
 
   async function onCreateRule(e: React.FormEvent) {
     e.preventDefault();
-    const action: RuleConfig["action"] = {};
-    if (adjPercent.trim() !== "")
-      action.adjust_rate_percent = Number(adjPercent);
-    if (adjDollars.trim() !== "")
-      action.adjust_rate_dollars = Number(adjDollars);
-    if (Object.keys(action).length === 0) return;
+    setRuleFormError(null);
+
+    const rc = ruleConditionForInsert(conditionRowsToRuleCondition(condRows));
+    if (isRuleConditionEmpty(rc)) {
+      setRuleFormError(
+        "Add at least one condition with a valid operator and threshold.",
+      );
+      return;
+    }
+
+    const action: RuleAction = {};
+    if (adjPctEnabled) {
+      const p = adjPercent.trim();
+      if (p === "") {
+        setRuleFormError("Enter a percentage adjustment, or turn off %.");
+        return;
+      }
+      const n = Number(p);
+      if (!Number.isFinite(n)) {
+        setRuleFormError("Percentage must be a number.");
+        return;
+      }
+      action.adjust_rate_percent = n;
+    }
+    if (adjDolEnabled) {
+      const p = adjDollars.trim();
+      if (p === "") {
+        setRuleFormError("Enter a dollar adjustment, or turn off $.");
+        return;
+      }
+      const n = Number(p);
+      if (!Number.isFinite(n)) {
+        setRuleFormError("Dollar amount must be a number.");
+        return;
+      }
+      action.adjust_rate_dollars = n;
+    }
+    if (isRuleActionEmpty(action)) {
+      setRuleFormError("Enable at least one rate adjustment (% or $).");
+      return;
+    }
 
     const allSelected =
       roomTypeOptions.length > 0 &&
@@ -355,17 +424,23 @@ export function Dashboard() {
     const affected_room_type_ids = allSelected
       ? roomTypeOptions.map((r) => r.id)
       : selectedRoomTypeIds.slice();
-    if (affected_room_type_ids.length === 0) return;
+    if (affected_room_type_ids.length === 0) {
+      setRuleFormError("Select at least one room type.");
+      return;
+    }
 
     const room_types = roomTypeOptions
       .filter((r) => affected_room_type_ids.includes(r.id))
       .map((r) => r.name);
 
+    const legacyConditions = ruleConditionToLegacyConditions(rc);
+
     await api("/api/rules", {
       method: "POST",
       body: JSON.stringify({
         rule_name: ruleName,
-        conditions: parseConditionsInput(conditionsText),
+        condition: rc,
+        conditions: legacyConditions,
         action,
         room_types,
         affected_room_type_ids,
@@ -373,7 +448,9 @@ export function Dashboard() {
     });
 
     setRuleName("");
-    setConditionsText("occupancy_percentage:>80");
+    setCondRows([newConditionRow("occupancy")]);
+    setAdjPctEnabled(true);
+    setAdjDolEnabled(false);
     setAdjPercent("10");
     setAdjDollars("");
     setSelectedRoomTypeIds(roomTypeOptions.map((r) => r.id));
@@ -586,65 +663,310 @@ export function Dashboard() {
             <h2 className="text-lg font-semibold">Pricing Rules</h2>
             <form
               onSubmit={onCreateRule}
-              className="grid gap-3 rounded border border-slate-800 p-4 md:grid-cols-2"
+              className="space-y-4 rounded border border-slate-800 p-4"
             >
-              <input
-                value={ruleName}
-                onChange={(e) => setRuleName(e.target.value)}
-                placeholder="Rule name"
-                className="rounded bg-slate-950 p-2 text-sm"
-                required
-              />
-              <div className="flex gap-2">
-                <input
-                  value={adjPercent}
-                  onChange={(e) => setAdjPercent(e.target.value)}
-                  placeholder="Percent adjustment"
-                  className="w-full rounded bg-slate-950 p-2 text-sm"
-                />
-                <input
-                  value={adjDollars}
-                  onChange={(e) => setAdjDollars(e.target.value)}
-                  placeholder="Dollar adjustment"
-                  className="w-full rounded bg-slate-950 p-2 text-sm"
-                />
-              </div>
-              <textarea
-                value={conditionsText}
-                onChange={(e) => setConditionsText(e.target.value)}
-                className="min-h-24 rounded bg-slate-950 p-2 text-sm md:col-span-2"
-                placeholder={"occupancy_percentage:>80\nbooking_window:<3"}
-              />
-              <div className="md:col-span-2">
-                <p className="mb-2 text-xs text-slate-400">
-                  Apply to room types
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {roomTypeOptions.map((opt) => {
-                    const on = selectedRoomTypeIds.includes(opt.id);
-                    return (
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <label className="mb-1 block text-xs font-medium text-slate-400">
+                    Rule name
+                  </label>
+                  <input
+                    value={ruleName}
+                    onChange={(e) => setRuleName(e.target.value)}
+                    placeholder="e.g. Weekend surge"
+                    className="w-full rounded bg-slate-950 p-2 text-sm"
+                    required
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <p className="mb-2 text-xs font-medium text-slate-400">
+                    Conditions
+                  </p>
+                  <p className="mb-3 text-xs text-slate-500">
+                    Matches when <span className="text-slate-400">all</span> of
+                    the following are true (engine supports &gt; and &lt; only).
+                  </p>
+                  <div className="flex flex-col gap-3">
+                    {condRows.map((row) => {
+                      const taken = new Set(
+                        condRows
+                          .filter((r) => r.id !== row.id)
+                          .map((r) => r.metric),
+                      );
+                      return (
+                        <div
+                          key={row.id}
+                          className="rounded border border-slate-800 bg-slate-950/80 p-3"
+                        >
+                          <div className="grid gap-2 sm:grid-cols-[minmax(0,16rem)_minmax(0,10rem)_minmax(0,10rem)_auto] sm:items-end">
+                            <div className="min-w-0">
+                              <label className="mb-0.5 block text-[11px] text-slate-500">
+                                Metric
+                              </label>
+                              <select
+                                value={row.metric}
+                                className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
+                                onChange={(e) => {
+                                  const m = e.target.value as ConditionMetric;
+                                  updateCondRow(row.id, {
+                                    metric: m,
+                                    value:
+                                      m === "occupancy"
+                                        ? "80"
+                                        : m === "booking_window"
+                                          ? "7"
+                                          : "5",
+                                    pickup_window_days: 3,
+                                    pickup_metric: "room_nights",
+                                  });
+                                }}
+                              >
+                                <option
+                                  value="occupancy"
+                                  disabled={taken.has("occupancy")}
+                                >
+                                  Occupancy (%)
+                                </option>
+                                <option
+                                  value="booking_window"
+                                  disabled={taken.has("booking_window")}
+                                >
+                                  Booking window (days to stay)
+                                </option>
+                                <option
+                                  value="pickup"
+                                  disabled={taken.has("pickup")}
+                                >
+                                  Pickup (net change in window)
+                                </option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="mb-0.5 block text-[11px] text-slate-500">
+                                Compare
+                              </label>
+                              <select
+                                value={row.operator}
+                                className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
+                                onChange={(e) =>
+                                  updateCondRow(row.id, {
+                                    operator: e.target.value as "gt" | "lt",
+                                  })
+                                }
+                              >
+                                <option value="gt">Greater than</option>
+                                <option value="lt">Less than</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="mb-0.5 block text-[11px] text-slate-500">
+                                Threshold
+                              </label>
+                              <input
+                                type="number"
+                                step="any"
+                                className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
+                                value={row.value}
+                                onChange={(e) =>
+                                  updateCondRow(row.id, {
+                                    value: e.target.value,
+                                  })
+                                }
+                              />
+                            </div>
+                            <div className="flex justify-end sm:justify-end">
+                              <button
+                                type="button"
+                                className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full border border-red-800 bg-transparent text-lg leading-none text-red-800 hover:bg-red-950/30 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-red-800"
+                                onClick={() => removeConditionRow(row.id)}
+                                aria-label="Remove condition"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </div>
+                          {row.metric === "pickup" ? (
+                            <div className="mt-3 grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-2">
+                              <div>
+                                <label className="mb-0.5 block text-[11px] text-slate-500">
+                                  Lookback window
+                                </label>
+                                <select
+                                  className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
+                                  value={String(row.pickup_window_days)}
+                                  onChange={(e) =>
+                                    updateCondRow(row.id, {
+                                      pickup_window_days: Number(
+                                        e.target.value,
+                                      ) as 1 | 3 | 7,
+                                    })
+                                  }
+                                >
+                                  <option value="1">1 day</option>
+                                  <option value="3">3 days</option>
+                                  <option value="7">7 days</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="mb-0.5 block text-[11px] text-slate-500">
+                                  Pickup measures
+                                </label>
+                                <select
+                                  className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
+                                  value={row.pickup_metric}
+                                  onChange={(e) =>
+                                    updateCondRow(row.id, {
+                                      pickup_metric: e.target.value as
+                                        | "room_nights"
+                                        | "revenue",
+                                    })
+                                  }
+                                >
+                                  <option value="room_nights">
+                                    Room nights (units)
+                                  </option>
+                                  <option value="revenue">
+                                    Revenue (currency)
+                                  </option>
+                                </select>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {condRows.length < 3 ? (
+                    <button
+                      type="button"
+                      className="mt-2 text-xs font-medium text-sky-400 hover:text-sky-300"
+                      onClick={addConditionRow}
+                    >
+                      + Add condition
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="md:col-span-2">
+                  <p className="mb-2 text-xs font-medium text-slate-400">
+                    Rate adjustment
+                  </p>
+                  <p className="mb-3 text-xs text-slate-500">
+                    Enable one or both. Percent and dollar both apply when
+                    present.
+                  </p>
+                  <div className="space-y-3 rounded border border-slate-800 bg-slate-950/80 p-3">
+                    <label className="flex cursor-pointer flex-wrap items-center gap-3">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-600"
+                        checked={adjPctEnabled}
+                        onChange={(e) => {
+                          setAdjPctEnabled(e.target.checked);
+                          if (!e.target.checked) setAdjPercent("");
+                        }}
+                      />
+                      <span className="text-sm text-slate-300">
+                        Adjust by percent (%)
+                      </span>
+                      <input
+                        type="number"
+                        step="any"
+                        disabled={!adjPctEnabled}
+                        value={adjPercent}
+                        onChange={(e) => setAdjPercent(e.target.value)}
+                        placeholder="e.g. 10 or -5"
+                        className="min-w-32 flex-1 rounded border border-slate-700 bg-slate-950 p-2 text-sm disabled:opacity-40"
+                      />
+                    </label>
+                    <label className="flex cursor-pointer flex-wrap items-center gap-3">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-600"
+                        checked={adjDolEnabled}
+                        onChange={(e) => {
+                          setAdjDolEnabled(e.target.checked);
+                          if (!e.target.checked) setAdjDollars("");
+                        }}
+                      />
+                      <span className="text-sm text-slate-300">
+                        Adjust by fixed amount ($)
+                      </span>
+                      <input
+                        type="number"
+                        step="any"
+                        disabled={!adjDolEnabled}
+                        value={adjDollars}
+                        onChange={(e) => setAdjDollars(e.target.value)}
+                        placeholder="e.g. 25 or -10"
+                        className="min-w-32 flex-1 rounded border border-slate-700 bg-slate-950 p-2 text-sm disabled:opacity-40"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="md:col-span-2">
+                  <div className="mb-2 flex flex-wrap items-center gap-3">
+                    <p className="text-xs font-medium text-slate-400">
+                      Apply to room types
+                    </p>
+                    <span className="text-xs text-slate-500">
+                      {roomTypeSummary}
+                    </span>
+                    <div className="ml-auto flex gap-2">
                       <button
                         type="button"
-                        key={opt.id}
-                        className={`cursor-pointer rounded px-2 py-1 text-xs ${on ? "bg-sky-600" : "bg-slate-800"}`}
+                        className="cursor-pointer rounded bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
                         onClick={() =>
-                          setSelectedRoomTypeIds((prev) =>
-                            prev.includes(opt.id)
-                              ? prev.filter((x) => x !== opt.id)
-                              : [...prev, opt.id],
+                          setSelectedRoomTypeIds(
+                            roomTypeOptions.map((r) => r.id),
                           )
                         }
-                        title={opt.name}
                       >
-                        {opt.name}
+                        Select all
                       </button>
-                    );
-                  })}
+                      <button
+                        type="button"
+                        className="cursor-pointer rounded bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
+                        onClick={() => setSelectedRoomTypeIds([])}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {roomTypeOptions.map((opt) => {
+                      const on = selectedRoomTypeIds.includes(opt.id);
+                      return (
+                        <button
+                          type="button"
+                          key={opt.id}
+                          className={`cursor-pointer rounded px-2 py-1 text-xs ${on ? "bg-sky-600" : "bg-slate-800"}`}
+                          onClick={() =>
+                            setSelectedRoomTypeIds((prev) =>
+                              prev.includes(opt.id)
+                                ? prev.filter((x) => x !== opt.id)
+                                : [...prev, opt.id],
+                            )
+                          }
+                          title={opt.name}
+                        >
+                          {opt.name}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
+
+              {ruleFormError ? (
+                <p className="text-sm text-rose-400">{ruleFormError}</p>
+              ) : null}
+
               <button
                 type="submit"
-                className="cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 md:col-span-2"
+                className="cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400"
               >
                 Add Rule
               </button>
@@ -667,9 +989,7 @@ export function Dashboard() {
                     <tr key={rule.id} className="border-b border-slate-800">
                       <td className="py-2 pr-3">{rule.rule_name}</td>
                       <td className="py-2 pr-3">
-                        {Object.entries(rule.conditions)
-                          .map(([k, v]) => `${k} ${String(v)}`)
-                          .join(" | ")}
+                        {formatRuleConditionsDisplay(rule.conditions)}
                       </td>
                       <td className="py-2 pr-3">
                         {rule.room_types.length
@@ -815,8 +1135,8 @@ export function Dashboard() {
                       <ul className="mt-2 space-y-1 text-sm text-slate-200">
                         {cycle.changes.map((ch, idx) => (
                           <li key={`${cycle.cycle}-${idx}`}>
-                            {ch.room_type}: ${ch.original_rate.toFixed(2)} - {">"}{" "}
-                            ${ch.new_rate.toFixed(2)} (
+                            {ch.room_type}: ${ch.original_rate.toFixed(2)} -{" "}
+                            {">"} ${ch.new_rate.toFixed(2)} (
                             {ch.change_pct >= 0 ? "+" : ""}
                             {ch.change_pct}%)
                           </li>
@@ -842,9 +1162,13 @@ export function Dashboard() {
               Function + cron). Manual sync was removed in favor of automation.
             </p>
             {!activeHotelId ? (
-              <p className="text-sm text-slate-400">Select a property to view status.</p>
+              <p className="text-sm text-slate-400">
+                Select a property to view status.
+              </p>
             ) : mewsConnection === null ? (
-              <p className="text-sm text-slate-400">Loading connection status…</p>
+              <p className="text-sm text-slate-400">
+                Loading connection status…
+              </p>
             ) : !mewsConnection.configured ? (
               <p className="text-sm text-amber-200/90">
                 No Mews integration is configured for this property yet (

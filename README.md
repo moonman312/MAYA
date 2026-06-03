@@ -28,6 +28,8 @@ Database scripts for Supabase live in this folder (`MAYA/`) with numeric run-ord
   - Synthetic reservations + occupancy metrics
 - `99_supabase_migration_rules_engine_v1.sql` (legacy upgrades only)
   - Incremental migration for DBs created before rules-engine v1; skip on fresh 01+02 loads
+- `99_supabase_migration_pms_secrets_v1.sql` (legacy upgrades only)
+  - Moves PMS credentials from `pms_connections.credentials_encrypted` into Supabase Vault, accessed through SECURITY DEFINER RPCs (`pms_secret_get` / `pms_secret_set` / `pms_secret_delete`); skip on fresh 01+02 loads
 - `supabase_dev_full_dump.sql`
   - Placeholder for a full `public` schema dump; generate with `scripts/export-dev-full-dump.sh`
 
@@ -64,6 +66,7 @@ Run these in Supabase SQL Editor in this order:
 | 1 | `01_supabase_base_schema.sql` | Always first for DDL |
 | 2 | `02_supabase_schema.sql` | Always second (policies, triggers, engine tables) |
 | (optional) | `99_supabase_migration_rules_engine_v1.sql` | Only for **existing** old DBs; skip if 01+02 are a fresh load from this repo |
+| (optional) | `99_supabase_migration_pms_secrets_v1.sql` | Only for **existing** DBs created before PMS Secrets v1; skip on fresh 01+02 loads |
 | 3 | `03_supabase_seed.sql` | After auth user exists; edit emails in the script |
 | 4 | `04_supabase_demo_data.sql` | Optional synthetic calendar/metrics load |
 
