@@ -7,6 +7,7 @@
 --   3) Keep raw payloads in JSONB where traceability is important.
 
 create extension if not exists pgcrypto;
+create extension if not exists supabase_vault with schema vault cascade;
 
 -- ============================================================================
 -- ENUMS
@@ -90,13 +91,29 @@ create table if not exists pms_connections (
   pms_type pms_type not null,
   status connection_status not null default 'pending',
   base_url text,
-  credentials_encrypted text not null,
   last_tested_at timestamptz,
   last_sync_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (hotel_id, pms_type)
 );
+
+-- Credentials live in Supabase Vault, referenced by vault_secret_id.
+-- Locked down below (RLS on, no policy, grants revoked from authenticated/anon).
+-- Read/write only via SECURITY DEFINER RPCs: pms_secret_get / pms_secret_set /
+-- pms_secret_delete (defined further down in this file).
+create table if not exists pms_connection_secrets (
+  id uuid primary key default gen_random_uuid(),
+  hotel_id uuid not null references hotels(id) on delete cascade,
+  pms_type pms_type not null,
+  vault_secret_id uuid not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (hotel_id, pms_type)
+);
+
+create index if not exists idx_pms_connection_secrets_hotel
+  on pms_connection_secrets(hotel_id);
 
 create table if not exists hotel_settings (
   hotel_id uuid primary key references hotels(id) on delete cascade,
@@ -576,6 +593,19 @@ alter table profiles enable row level security;
 alter table hotels enable row level security;
 alter table hotel_memberships enable row level security;
 alter table pms_connections enable row level security;
+alter table pms_connection_secrets enable row level security;
+
+-- Lock pms_connection_secrets down so PostgREST cannot touch it. RLS on with
+-- no policy denies JWT roles; explicit revokes are belt-and-suspenders.
+revoke all on pms_connection_secrets from public;
+revoke all on pms_connection_secrets from anon;
+revoke all on pms_connection_secrets from authenticated;
+grant select, insert, update, delete on pms_connection_secrets to service_role;
+
+comment on table pms_connection_secrets is
+  'PMS credentials kept encrypted in Supabase Vault. Read/write only via '
+  'SECURITY DEFINER RPCs pms_secret_get / pms_secret_set / pms_secret_delete. '
+  'No RLS policy exists by design — JWT roles cannot touch this table directly.';
 alter table hotel_settings enable row level security;
 alter table room_types enable row level security;
 alter table room_constraints enable row level security;
@@ -653,6 +683,183 @@ as $$
     array['hotel_admin', 'manager']
   )
 $$;
+
+-- ============================================================================
+-- PMS SECRETS: triggers + SECURITY DEFINER RPCs (Vault-backed credential store)
+-- ============================================================================
+
+-- Keep updated_at fresh on UPDATE.
+create or replace function public.pms_connection_secrets_touch_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_pms_connection_secrets_touch on public.pms_connection_secrets;
+create trigger trg_pms_connection_secrets_touch
+  before update on public.pms_connection_secrets
+  for each row execute function public.pms_connection_secrets_touch_updated_at();
+
+-- Cascade Vault cleanup on row delete (manual delete or hotels CASCADE).
+create or replace function public.pms_connection_secrets_cleanup_vault()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, vault, pg_temp
+as $$
+begin
+  if old.vault_secret_id is not null then
+    delete from vault.secrets where id = old.vault_secret_id;
+  end if;
+  return old;
+end;
+$$;
+
+drop trigger if exists trg_pms_connection_secrets_cleanup on public.pms_connection_secrets;
+create trigger trg_pms_connection_secrets_cleanup
+  after delete on public.pms_connection_secrets
+  for each row execute function public.pms_connection_secrets_cleanup_vault();
+
+-- RPC: read decrypted credentials for a hotel/pms pair.
+-- Authorization: service_role always; otherwise caller must satisfy can_manage_hotel.
+create or replace function public.pms_secret_get(
+  p_hotel_id uuid,
+  p_pms_type public.pms_type
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public, vault, pg_temp
+as $$
+declare
+  v_secret_id uuid;
+  v_text text;
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.can_manage_hotel(p_hotel_id) then
+    raise exception 'Not authorized to read PMS credentials for hotel %', p_hotel_id
+      using errcode = '42501';
+  end if;
+
+  select s.vault_secret_id
+    into v_secret_id
+  from public.pms_connection_secrets s
+  where s.hotel_id = p_hotel_id
+    and s.pms_type = p_pms_type;
+
+  if v_secret_id is null then
+    return null;
+  end if;
+
+  select decrypted_secret
+    into v_text
+  from vault.decrypted_secrets
+  where id = v_secret_id;
+
+  if v_text is null then
+    return null;
+  end if;
+
+  return v_text::jsonb;
+end;
+$$;
+
+revoke all on function public.pms_secret_get(uuid, public.pms_type) from public;
+grant execute on function public.pms_secret_get(uuid, public.pms_type)
+  to authenticated, service_role;
+
+-- RPC: create or rotate credentials. Stores plaintext in Vault, only the
+-- vault_secret_id reference lands in pms_connection_secrets.
+create or replace function public.pms_secret_set(
+  p_hotel_id uuid,
+  p_pms_type public.pms_type,
+  p_secret jsonb
+) returns uuid
+language plpgsql
+security definer
+set search_path = public, vault, pg_temp
+as $$
+declare
+  v_secret_id uuid;
+  v_secret_name text;
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.can_manage_hotel(p_hotel_id) then
+    raise exception 'Not authorized to set PMS credentials for hotel %', p_hotel_id
+      using errcode = '42501';
+  end if;
+
+  if p_secret is null then
+    raise exception 'PMS secret payload may not be null'
+      using errcode = '22004';
+  end if;
+
+  v_secret_name := format('pms:%s:%s', p_pms_type::text, p_hotel_id::text);
+
+  select s.vault_secret_id
+    into v_secret_id
+  from public.pms_connection_secrets s
+  where s.hotel_id = p_hotel_id
+    and s.pms_type = p_pms_type;
+
+  if v_secret_id is null then
+    v_secret_id := vault.create_secret(
+      p_secret::text,
+      v_secret_name,
+      'MAYA PMS credentials'
+    );
+
+    insert into public.pms_connection_secrets (hotel_id, pms_type, vault_secret_id)
+    values (p_hotel_id, p_pms_type, v_secret_id);
+  else
+    perform vault.update_secret(v_secret_id, p_secret::text);
+
+    update public.pms_connection_secrets
+       set updated_at = now()
+     where vault_secret_id = v_secret_id;
+  end if;
+
+  return v_secret_id;
+end;
+$$;
+
+revoke all on function public.pms_secret_set(uuid, public.pms_type, jsonb) from public;
+grant execute on function public.pms_secret_set(uuid, public.pms_type, jsonb)
+  to authenticated, service_role;
+
+-- RPC: delete credentials. Row-delete trigger handles Vault cleanup.
+create or replace function public.pms_secret_delete(
+  p_hotel_id uuid,
+  p_pms_type public.pms_type
+) returns boolean
+language plpgsql
+security definer
+set search_path = public, vault, pg_temp
+as $$
+declare
+  v_deleted bigint := 0;
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.can_manage_hotel(p_hotel_id) then
+    raise exception 'Not authorized to delete PMS credentials for hotel %', p_hotel_id
+      using errcode = '42501';
+  end if;
+
+  delete from public.pms_connection_secrets s
+   where s.hotel_id = p_hotel_id
+     and s.pms_type = p_pms_type;
+
+  get diagnostics v_deleted = row_count;
+  return v_deleted > 0;
+end;
+$$;
+
+revoke all on function public.pms_secret_delete(uuid, public.pms_type) from public;
+grant execute on function public.pms_secret_delete(uuid, public.pms_type)
+  to authenticated, service_role;
 
 -- Drop legacy placeholder policies if they exist.
 do $$
