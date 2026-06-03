@@ -84,13 +84,27 @@ create table if not exists pms_connections (
   pms_type pms_type not null,
   status connection_status not null default 'pending',
   base_url text,
-  credentials_encrypted text not null,
   last_tested_at timestamptz,
   last_sync_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (hotel_id, pms_type)
 );
+
+-- Credentials live in Supabase Vault, referenced by vault_secret_id.
+-- Read/write only via SECURITY DEFINER RPCs in 02_supabase_schema.sql.
+create table if not exists pms_connection_secrets (
+  id uuid primary key default gen_random_uuid(),
+  hotel_id uuid not null references hotels(id) on delete cascade,
+  pms_type pms_type not null,
+  vault_secret_id uuid not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (hotel_id, pms_type)
+);
+
+create index if not exists idx_pms_connection_secrets_hotel
+  on pms_connection_secrets(hotel_id);
 
 create table if not exists hotel_settings (
   hotel_id uuid primary key references hotels(id) on delete cascade,
