@@ -5,11 +5,20 @@
 -- Aligned with Rules Engine Implementation Guide v1.
 
 create extension if not exists pgcrypto;
+create extension if not exists citext;
 
 do $$
 begin
   if not exists (select 1 from pg_type where typname = 'hotel_membership_role') then
     create type hotel_membership_role as enum ('hotel_admin', 'manager', 'staff', 'viewer');
+  end if;
+
+  if not exists (select 1 from pg_type where typname = 'app_role') then
+    create type app_role as enum ('platform_admin', 'platform_support');
+  end if;
+
+  if not exists (select 1 from pg_type where typname = 'pending_membership_status') then
+    create type pending_membership_status as enum ('pending', 'accepted', 'expired', 'revoked');
   end if;
 
   if not exists (select 1 from pg_type where typname = 'membership_status') then
@@ -73,6 +82,57 @@ create table if not exists hotel_memberships (
 );
 
 create index if not exists idx_hotel_memberships_user on hotel_memberships(user_id);
+
+-- Platform-level roles, independent of hotel memberships. Locked down in
+-- 02_supabase_schema.sql; readable only via the is_platform_admin() helper.
+create table if not exists app_roles (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  role app_role not null,
+  granted_at timestamptz not null default now(),
+  granted_by uuid references auth.users(id) on delete set null,
+  primary key (user_id, role)
+);
+
+-- Pre-staged hotel memberships for invited users. Materialized into
+-- hotel_memberships by a trigger on auth.users when the user accepts.
+create table if not exists pending_memberships (
+  id uuid primary key default gen_random_uuid(),
+  email citext not null,
+  hotel_id uuid not null references hotels(id) on delete cascade,
+  role hotel_membership_role not null,
+  status pending_membership_status not null default 'pending',
+  invited_by uuid references auth.users(id) on delete set null,
+  invited_at timestamptz not null default now(),
+  accepted_at timestamptz,
+  accepted_by uuid references auth.users(id) on delete set null,
+  supabase_invite_id uuid,
+  unique (email, hotel_id)
+);
+
+create index if not exists idx_pending_memberships_email
+  on pending_memberships (email);
+create index if not exists idx_pending_memberships_hotel_status
+  on pending_memberships (hotel_id, status);
+
+-- Audit log for platform-level provisioning actions. Not hotel-scoped: some
+-- actions (granting platform_admin, etc.) have no parent hotel.
+create table if not exists platform_audit_events (
+  id uuid primary key default gen_random_uuid(),
+  actor_user_id uuid references auth.users(id) on delete set null,
+  event_type text not null,
+  entity_type text not null,
+  entity_id text,
+  hotel_id uuid references hotels(id) on delete set null,
+  detail jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_platform_audit_events_created_at
+  on platform_audit_events(created_at desc);
+create index if not exists idx_platform_audit_events_hotel
+  on platform_audit_events(hotel_id, created_at desc);
+create index if not exists idx_platform_audit_events_actor
+  on platform_audit_events(actor_user_id, created_at desc);
 
 -- ============================================================================
 -- PMS + HOTEL SETTINGS
