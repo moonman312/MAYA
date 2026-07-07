@@ -7,6 +7,7 @@
 --   3) Keep raw payloads in JSONB where traceability is important.
 
 create extension if not exists pgcrypto;
+create extension if not exists citext;
 create extension if not exists supabase_vault with schema vault cascade;
 
 -- ============================================================================
@@ -41,6 +42,14 @@ begin
 
   if not exists (select 1 from pg_type where typname = 'rate_update_status') then
     create type rate_update_status as enum ('pending', 'sent', 'succeeded', 'failed', 'skipped');
+  end if;
+
+  if not exists (select 1 from pg_type where typname = 'app_role') then
+    create type app_role as enum ('platform_admin', 'platform_support');
+  end if;
+
+  if not exists (select 1 from pg_type where typname = 'pending_membership_status') then
+    create type pending_membership_status as enum ('pending', 'accepted', 'expired', 'revoked');
   end if;
 end $$;
 
@@ -80,6 +89,58 @@ create table if not exists hotel_memberships (
 );
 
 create index if not exists idx_hotel_memberships_user on hotel_memberships(user_id);
+
+-- ============================================================================
+-- PLATFORM ROLES + INVITES + AUDIT (Command Center)
+-- Locked down below (RLS on, grants revoked from authenticated/anon). Reads
+-- are mediated by the SECURITY DEFINER helper is_platform_admin() and by the
+-- platform_* RPCs defined later in this file.
+-- ============================================================================
+
+create table if not exists app_roles (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  role app_role not null,
+  granted_at timestamptz not null default now(),
+  granted_by uuid references auth.users(id) on delete set null,
+  primary key (user_id, role)
+);
+
+create table if not exists pending_memberships (
+  id uuid primary key default gen_random_uuid(),
+  email citext not null,
+  hotel_id uuid not null references hotels(id) on delete cascade,
+  role hotel_membership_role not null,
+  status pending_membership_status not null default 'pending',
+  invited_by uuid references auth.users(id) on delete set null,
+  invited_at timestamptz not null default now(),
+  accepted_at timestamptz,
+  accepted_by uuid references auth.users(id) on delete set null,
+  supabase_invite_id uuid,
+  unique (email, hotel_id)
+);
+
+create index if not exists idx_pending_memberships_email
+  on pending_memberships (email);
+create index if not exists idx_pending_memberships_hotel_status
+  on pending_memberships (hotel_id, status);
+
+create table if not exists platform_audit_events (
+  id uuid primary key default gen_random_uuid(),
+  actor_user_id uuid references auth.users(id) on delete set null,
+  event_type text not null,
+  entity_type text not null,
+  entity_id text,
+  hotel_id uuid references hotels(id) on delete set null,
+  detail jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_platform_audit_events_created_at
+  on platform_audit_events(created_at desc);
+create index if not exists idx_platform_audit_events_hotel
+  on platform_audit_events(hotel_id, created_at desc);
+create index if not exists idx_platform_audit_events_actor
+  on platform_audit_events(actor_user_id, created_at desc);
 
 -- ============================================================================
 -- PMS + HOTEL SETTINGS
@@ -562,7 +623,8 @@ create table if not exists competitor_rates (
 create index if not exists idx_competitor_rates_hotel_stay_date
   on competitor_rates(hotel_id, stay_date);
 
--- Grant the authenticated creator a hotel_admin row.
+-- Grant the authenticated creator a hotel_admin row, UNLESS the creator is a
+-- platform admin provisioning on behalf of a customer (Command Center flow).
 create or replace function public.auto_hotel_creator_membership()
 returns trigger
 language plpgsql
@@ -570,7 +632,7 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  if auth.uid() is not null then
+  if auth.uid() is not null and not public.is_platform_admin() then
     insert into public.hotel_memberships (hotel_id, user_id, role, status)
     values (new.id, auth.uid(), 'hotel_admin', 'active')
     on conflict (hotel_id, user_id) do nothing;
@@ -585,6 +647,51 @@ create trigger trg_hotels_creator_membership
   for each row
   execute function public.auto_hotel_creator_membership();
 
+-- Materialize pending_memberships into hotel_memberships when an invited user
+-- signs up (or accepts a Supabase Auth invite, which is also an INSERT on
+-- auth.users). Also ensures a public.profiles row exists.
+create or replace function public.accept_pending_memberships_for_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.email is null then
+    return new;
+  end if;
+
+  insert into public.profiles (id, full_name, is_active)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'full_name', null),
+    true
+  )
+  on conflict (id) do nothing;
+
+  insert into public.hotel_memberships (hotel_id, user_id, role, status)
+  select pm.hotel_id, new.id, pm.role, 'active'
+  from public.pending_memberships pm
+  where pm.email = (new.email)::citext
+    and pm.status = 'pending'
+  on conflict (hotel_id, user_id) do nothing;
+
+  update public.pending_memberships pm
+     set status = 'accepted',
+         accepted_at = now(),
+         accepted_by = new.id
+   where pm.email = (new.email)::citext
+     and pm.status = 'pending';
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_accept_pending_memberships on auth.users;
+create trigger trg_accept_pending_memberships
+  after insert on auth.users
+  for each row execute function public.accept_pending_memberships_for_user();
+
 -- ============================================================================
 -- ROW LEVEL SECURITY (hotel membership scoped)
 -- ============================================================================
@@ -592,8 +699,48 @@ create trigger trg_hotels_creator_membership
 alter table profiles enable row level security;
 alter table hotels enable row level security;
 alter table hotel_memberships enable row level security;
+alter table app_roles enable row level security;
+alter table pending_memberships enable row level security;
+alter table platform_audit_events enable row level security;
 alter table pms_connections enable row level security;
 alter table pms_connection_secrets enable row level security;
+
+-- ---------------------------------------------------------------------------
+-- Command Center: lock down platform tables. No JWT-role policies exist by
+-- design — access happens via SECURITY DEFINER helpers (is_platform_admin)
+-- and the platform_* RPCs in PR 2 of the Command Center work.
+-- ---------------------------------------------------------------------------
+
+revoke all on app_roles from public;
+revoke all on app_roles from anon;
+revoke all on app_roles from authenticated;
+grant select, insert, update, delete on app_roles to service_role;
+
+revoke all on pending_memberships from public;
+revoke all on pending_memberships from anon;
+revoke all on pending_memberships from authenticated;
+grant select, insert, update, delete on pending_memberships to service_role;
+
+-- platform_audit_events is read-only for platform admins via the policy below;
+-- writes only from service role / SECURITY DEFINER paths.
+revoke all on platform_audit_events from public;
+revoke all on platform_audit_events from anon;
+revoke insert, update, delete on platform_audit_events from authenticated;
+grant select on platform_audit_events to authenticated;
+grant select, insert, update, delete on platform_audit_events to service_role;
+
+comment on table app_roles is
+  'Platform-level roles independent of hotel memberships. Read via the '
+  'SECURITY DEFINER helper is_platform_admin(); JWT roles cannot SELECT this '
+  'table directly.';
+
+comment on table pending_memberships is
+  'Pre-staged hotel memberships for invited users. Materialized into '
+  'hotel_memberships by trg_accept_pending_memberships on auth.users insert.';
+
+comment on table platform_audit_events is
+  'Audit log for platform-level provisioning actions. Read by platform admins '
+  'via RLS; writes only via service role or SECURITY DEFINER RPCs.';
 
 -- Lock pms_connection_secrets down so PostgREST cannot touch it. RLS on with
 -- no policy denies JWT roles; explicit revokes are belt-and-suspenders.
@@ -658,6 +805,30 @@ as $$
   )
 $$;
 
+-- Platform-admin gateway: returns true iff the user is in app_roles with
+-- role='platform_admin'. Wrapped in SECURITY DEFINER so callers don't need
+-- direct SELECT on the locked-down app_roles table.
+create or replace function public.is_platform_admin(p_user_id uuid default auth.uid())
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1
+    from public.app_roles
+    where user_id = p_user_id
+      and role = 'platform_admin'
+  )
+$$;
+
+revoke all on function public.is_platform_admin(uuid) from public;
+grant execute on function public.is_platform_admin(uuid)
+  to authenticated, service_role;
+
+-- Hotel-membership predicates now OR with is_platform_admin() so platform
+-- operators bypass all hotel-scoped RLS without rewriting individual policies.
 create or replace function public.is_hotel_accessible(target_hotel_id uuid)
 returns boolean
 language sql
@@ -665,10 +836,11 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select has_hotel_role(
-    target_hotel_id,
-    array['hotel_admin', 'manager', 'staff', 'viewer']
-  )
+  select public.is_platform_admin()
+      or has_hotel_role(
+           target_hotel_id,
+           array['hotel_admin', 'manager', 'staff', 'viewer']
+         )
 $$;
 
 create or replace function public.can_manage_hotel(target_hotel_id uuid)
@@ -678,10 +850,11 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select has_hotel_role(
-    target_hotel_id,
-    array['hotel_admin', 'manager']
-  )
+  select public.is_platform_admin()
+      or has_hotel_role(
+           target_hotel_id,
+           array['hotel_admin', 'manager']
+         )
 $$;
 
 -- ============================================================================
@@ -1032,6 +1205,13 @@ create policy audit_events_access
   on audit_events for all
   using (is_hotel_accessible(hotel_id))
   with check (can_manage_hotel(hotel_id));
+
+-- Command Center audit log: read-only for platform admins. Writes go through
+-- service role / SECURITY DEFINER paths (no JWT-writable policy).
+drop policy if exists platform_audit_events_read on platform_audit_events;
+create policy platform_audit_events_read
+  on platform_audit_events for select
+  using (public.is_platform_admin());
 
 drop policy if exists market_events_access on market_events;
 create policy market_events_access
