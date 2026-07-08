@@ -32,6 +32,8 @@ Database scripts for Supabase live in this folder (`MAYA/`) with numeric run-ord
   - Moves PMS credentials from `pms_connections.credentials_encrypted` into Supabase Vault, accessed through SECURITY DEFINER RPCs (`pms_secret_get` / `pms_secret_set` / `pms_secret_delete`); skip on fresh 01+02 loads
 - `99_supabase_migration_command_center_v1.sql` (legacy upgrades only)
   - Adds the Command Center DB foundation: `app_roles` + `is_platform_admin()` helper (platform admins bypass hotel-scoped RLS), `pending_memberships` + auto-accept trigger on `auth.users`, and `platform_audit_events`; skip on fresh 01+02 loads
+- `99_supabase_migration_command_center_v2.sql` (legacy upgrades only)
+  - Adds the `platform_*` RPCs and `platform_users_view` used by the `/admin` UI; skip on fresh 01+02 loads
 - `supabase_dev_full_dump.sql`
   - Placeholder for a full `public` schema dump; generate with `scripts/export-dev-full-dump.sh`
 
@@ -70,6 +72,7 @@ Run these in Supabase SQL Editor in this order:
 | (optional) | `99_supabase_migration_rules_engine_v1.sql` | Only for **existing** old DBs; skip if 01+02 are a fresh load from this repo |
 | (optional) | `99_supabase_migration_pms_secrets_v1.sql` | Only for **existing** DBs created before PMS Secrets v1; skip on fresh 01+02 loads |
 | (optional) | `99_supabase_migration_command_center_v1.sql` | Only for **existing** DBs created before Command Center v1; skip on fresh 01+02 loads. After applying, grant yourself platform admin: `insert into app_roles (user_id, role) values ('<auth.users-uuid>', 'platform_admin');` |
+| (optional) | `99_supabase_migration_command_center_v2.sql` | Only for **existing** DBs; adds the `platform_*` RPCs and `platform_users_view` consumed by the `/admin` Command Center UI. See `docs/command-center-deployment.md` for env vars and Supabase Auth setup. |
 | 3 | `03_supabase_seed.sql` | After auth user exists; edit emails in the script |
 | 4 | `04_supabase_demo_data.sql` | Optional synthetic calendar/metrics load |
 
