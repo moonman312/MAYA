@@ -1262,8 +1262,12 @@ create policy evaluation_audit_access
   using (is_hotel_accessible(hotel_id))
   with check (can_manage_hotel(hotel_id));
 
+
 -- ============================================================================
--- COMMAND CENTER RPCs + VIEW (mirrors 99_supabase_migration_command_center_v2)
+-- COMMAND CENTER RPCs + VIEW (mirrors 99_supabase_migration_command_center_v3)
+-- Every function includes `auth.role() = 'service_role'` as an authorization
+-- bypass so the /admin routes (which use the service-role client) can call
+-- these without being blocked by the auth.uid()-based checks.
 -- ============================================================================
 
 create or replace view public.platform_users_view as
@@ -1307,7 +1311,8 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  if not public.is_platform_admin() then
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_platform_admin() then
     raise exception 'Not authorized' using errcode = '42501';
   end if;
 
@@ -1352,7 +1357,8 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  if not (public.is_platform_admin() or public.can_manage_hotel(p_hotel_id)) then
+  if (select auth.role()) is distinct from 'service_role'
+     and not (public.is_platform_admin() or public.can_manage_hotel(p_hotel_id)) then
     raise exception 'Not authorized for hotel %', p_hotel_id using errcode = '42501';
   end if;
 
@@ -1400,7 +1406,8 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  if not public.is_platform_admin() then
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_platform_admin() then
     raise exception 'Not authorized' using errcode = '42501';
   end if;
 
@@ -1451,7 +1458,8 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  if not public.is_platform_admin() then
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_platform_admin() then
     raise exception 'Not authorized' using errcode = '42501';
   end if;
 
@@ -1493,7 +1501,8 @@ as $$
 declare
   v_id uuid;
 begin
-  if not public.is_platform_admin() then
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_platform_admin() then
     raise exception 'Not authorized to write audit events' using errcode = '42501';
   end if;
 
@@ -1523,7 +1532,8 @@ declare
   v_id uuid;
   v_existing_user uuid;
 begin
-  if not (public.is_platform_admin() or public.can_manage_hotel(p_hotel_id)) then
+  if (select auth.role()) is distinct from 'service_role'
+     and not (public.is_platform_admin() or public.can_manage_hotel(p_hotel_id)) then
     raise exception 'Not authorized to invite users to hotel %', p_hotel_id
       using errcode = '42501';
   end if;
@@ -1591,7 +1601,8 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  if not (public.is_platform_admin() or public.can_manage_hotel(p_hotel_id)) then
+  if (select auth.role()) is distinct from 'service_role'
+     and not (public.is_platform_admin() or public.can_manage_hotel(p_hotel_id)) then
     raise exception 'Not authorized to modify memberships for hotel %', p_hotel_id
       using errcode = '42501';
   end if;
@@ -1625,7 +1636,8 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  if not (public.is_platform_admin() or public.can_manage_hotel(p_hotel_id)) then
+  if (select auth.role()) is distinct from 'service_role'
+     and not (public.is_platform_admin() or public.can_manage_hotel(p_hotel_id)) then
     raise exception 'Not authorized to remove memberships for hotel %', p_hotel_id
       using errcode = '42501';
   end if;
@@ -1662,7 +1674,8 @@ begin
     raise exception 'Pending invite not found' using errcode = 'P0002';
   end if;
 
-  if not (public.is_platform_admin() or public.can_manage_hotel(v_hotel_id)) then
+  if (select auth.role()) is distinct from 'service_role'
+     and not (public.is_platform_admin() or public.can_manage_hotel(v_hotel_id)) then
     raise exception 'Not authorized' using errcode = '42501';
   end if;
 
@@ -1688,7 +1701,8 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  if not public.is_platform_admin() then
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_platform_admin() then
     raise exception 'Not authorized' using errcode = '42501';
   end if;
 
@@ -1715,7 +1729,8 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  if not public.is_platform_admin() then
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_platform_admin() then
     raise exception 'Not authorized' using errcode = '42501';
   end if;
 
