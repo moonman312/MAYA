@@ -26,7 +26,7 @@ begin
   end if;
 
   if not exists (select 1 from pg_type where typname = 'pms_type') then
-    create type pms_type as enum ('mews', 'cloudbeds', 'opera', 'other');
+    create type pms_type as enum ('mews', 'cloudbeds', 'think', 'opera', 'other');
   end if;
 
   if not exists (select 1 from pg_type where typname = 'connection_status') then

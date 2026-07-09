@@ -21,7 +21,10 @@ type SettingsStep = {
   rounding_mode: string;
 };
 
+type WizardPmsType = "mews" | "cloudbeds" | "think" | "none";
+
 type PmsStep = {
+  pmsType: WizardPmsType;
   connect: boolean;
   env: "demo" | "production";
   clientToken: string;
@@ -56,6 +59,7 @@ export function CreateHotelWizard() {
     rounding_mode: "none",
   });
   const [pms, setPms] = useState<PmsStep>({
+    pmsType: "mews",
     connect: true,
     env: "demo",
     clientToken: "",
@@ -113,7 +117,9 @@ export function CreateHotelWizard() {
           ...settings,
         },
       };
-      if (pms.connect && pms.clientToken && pms.accessToken) {
+      // Only Mews supports token-entry from the wizard. OAuth PMSes (Cloudbeds,
+      // Think) are connected after hotel creation from the hotel detail page.
+      if (pms.pmsType === "mews" && pms.connect && pms.clientToken && pms.accessToken) {
         payload.pms = {
           env: pms.env,
           clientToken: pms.clientToken,
@@ -142,7 +148,9 @@ export function CreateHotelWizard() {
 
   const canNext1 = hotel.name.trim().length > 0 && hotel.timezone && hotel.currency;
   const canNext3 =
-    !pms.connect || (pms.clientToken.length > 0 && pms.accessToken.length > 0);
+    pms.pmsType !== "mews" ||
+    !pms.connect ||
+    (pms.clientToken.length > 0 && pms.accessToken.length > 0);
   const canSubmit =
     canNext1 && canNext3 && (invite.email.trim().length === 0 || /.+@.+\..+/.test(invite.email));
 
@@ -296,16 +304,72 @@ export function CreateHotelWizard() {
       )}
 
       {step === 3 && (
-        <Card title="3. PMS connection (Mews)">
-          <label className="flex items-center gap-2 text-sm text-slate-300">
-            <input
-              type="checkbox"
-              checked={pms.connect}
-              onChange={(e) => setPms({ ...pms, connect: e.target.checked })}
-            />
-            Configure Mews credentials now
-          </label>
-          {pms.connect && (
+        <Card title="3. PMS connection">
+          <Field label="PMS">
+            <div className="grid gap-2 sm:grid-cols-4">
+              {(
+                [
+                  { v: "mews", label: "Mews", note: "static tokens" },
+                  { v: "cloudbeds", label: "Cloudbeds", note: "OAuth" },
+                  { v: "think", label: "Think", note: "OAuth" },
+                  { v: "none", label: "Skip for now", note: "connect later" },
+                ] as const
+              ).map((opt) => {
+                const selected = pms.pmsType === opt.v;
+                return (
+                  <button
+                    key={opt.v}
+                    type="button"
+                    onClick={() =>
+                      setPms({ ...pms, pmsType: opt.v as WizardPmsType, testPassed: false })
+                    }
+                    className={`rounded border p-3 text-left transition ${
+                      selected
+                        ? "border-sky-500 bg-sky-500/10"
+                        : "border-slate-800 hover:border-slate-600"
+                    }`}
+                  >
+                    <div className="text-sm font-medium text-slate-100">{opt.label}</div>
+                    <div className="text-xs text-slate-400">{opt.note}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+
+          {(pms.pmsType === "cloudbeds" || pms.pmsType === "think") && (
+            <div className="rounded border border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-300">
+              <p className="mb-1">
+                <strong className="text-slate-100">Connect via OAuth after saving the hotel.</strong>
+              </p>
+              <p className="text-slate-400">
+                Once the hotel exists we redirect to {pms.pmsType === "cloudbeds" ? "Cloudbeds" : "Think Reservations"} for the customer to
+                authorize. Tokens get stored in Vault on our callback. Set{" "}
+                <code>
+                  {pms.pmsType === "cloudbeds" ? "CLOUDBEDS_CLIENT_ID / _SECRET" : "THINK_CLIENT_ID / _SECRET"}
+                </code>{" "}
+                and <code>PMS_OAUTH_STATE_SECRET</code> in the server env first.
+              </p>
+            </div>
+          )}
+
+          {pms.pmsType === "none" && (
+            <div className="rounded border border-slate-700 bg-slate-950/60 p-4 text-sm text-slate-400">
+              You can connect a PMS anytime from the hotel detail page.
+            </div>
+          )}
+
+          {pms.pmsType === "mews" && (
+            <label className="flex items-center gap-2 text-sm text-slate-300">
+              <input
+                type="checkbox"
+                checked={pms.connect}
+                onChange={(e) => setPms({ ...pms, connect: e.target.checked })}
+              />
+              Configure Mews credentials now
+            </label>
+          )}
+          {pms.pmsType === "mews" && pms.connect && (
             <>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Environment">

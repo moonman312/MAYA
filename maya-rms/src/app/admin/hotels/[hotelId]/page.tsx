@@ -3,6 +3,7 @@ import { HotelPmsCard } from "@/components/admin/hotel-pms-card";
 import { PmsStatusPill } from "@/components/admin/status-pill";
 import { getHotel } from "@/lib/admin/hotels";
 import { listHotelMemberships, listPendingInvites } from "@/lib/admin/memberships";
+import { listPmsStatuses } from "@/lib/pms/registry";
 import { createClient } from "@/utils/supabase/server";
 import { cookies } from "next/headers";
 import Link from "next/link";
@@ -22,6 +23,7 @@ export default async function AdminHotelDetailPage({
     listHotelMemberships(ssr, hotelId),
     listPendingInvites(ssr, hotelId),
   ]);
+  const pmsStatuses = listPmsStatuses();
   if (!hotel) {
     notFound();
   }
@@ -87,6 +89,7 @@ export default async function AdminHotelDetailPage({
         hotelId={hotel.id}
         pmsType={hotel.pms_type}
         pmsStatus={hotel.pms_status}
+        pmsStatuses={pmsStatuses}
       />
 
       <HotelMembershipsCard
