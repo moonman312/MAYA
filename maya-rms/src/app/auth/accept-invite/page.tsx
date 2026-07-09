@@ -3,11 +3,24 @@
 import { createClient } from "@/utils/supabase/client";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 type Stage = "checking" | "ready" | "session-error" | "complete";
 
-export default function AcceptInvitePage() {
+function AcceptInviteFallback() {
+  return (
+    <main className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="mx-auto flex min-h-screen max-w-md items-center p-6">
+        <div className="w-full space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-6">
+          <h1 className="text-2xl font-semibold">Set your password</h1>
+          <p className="text-sm text-slate-400">Verifying your invite…</p>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function AcceptInviteContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const configured = useMemo(() => isSupabaseConfigured(), []);
@@ -162,5 +175,13 @@ export default function AcceptInvitePage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function AcceptInvitePage() {
+  return (
+    <Suspense fallback={<AcceptInviteFallback />}>
+      <AcceptInviteContent />
+    </Suspense>
   );
 }
