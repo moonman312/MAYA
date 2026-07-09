@@ -21,7 +21,7 @@ export async function POST(
   if (!body.email) return NextResponse.json({ error: "email required" }, { status: 400 });
 
   try {
-    await resendInviteEmail(ctx.admin, body.email);
+    await resendInviteEmail(ctx.admin, body.email, { inviterEmail: ctx.user.email ?? null });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(

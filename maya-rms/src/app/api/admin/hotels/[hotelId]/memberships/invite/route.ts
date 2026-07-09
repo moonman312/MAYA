@@ -29,6 +29,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ hotelId
       email: body.email,
       hotelId,
       role: body.role,
+      inviterEmail: ctx.user.email ?? null,
     });
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
