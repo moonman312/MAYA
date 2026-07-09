@@ -76,6 +76,7 @@ Run these in Supabase SQL Editor in this order:
 | (optional) | `99_supabase_migration_command_center_v1.sql` | Only for **existing** DBs created before Command Center v1; skip on fresh 01+02 loads. After applying, grant yourself platform admin: `insert into app_roles (user_id, role) values ('<auth.users-uuid>', 'platform_admin');` |
 | (optional) | `99_supabase_migration_command_center_v2.sql` | Only for **existing** DBs; adds the `platform_*` RPCs and `platform_users_view` consumed by the `/admin` Command Center UI. See `docs/command-center-deployment.md` for env vars and Supabase Auth setup. |
 | (optional) | `99_supabase_migration_pms_types_v1.sql` | Only for **existing** DBs; adds `'think'` to the `pms_type` enum. Run this file as a single statement in the SQL Editor — `alter type ... add value` cannot run inside a wrapping transaction. See `docs/pms-integrations-status.md`. |
+| (optional) | `99_supabase_migration_command_center_v3.sql` | **BUGFIX** for existing DBs that applied v2. Adds `auth.role() = 'service_role'` bypass to every `platform_*` RPC so the /admin routes can invoke them via the service-role client without a false "Not authorized" error. |
 | 3 | `03_supabase_seed.sql` | After auth user exists; edit emails in the script |
 | 4 | `04_supabase_demo_data.sql` | Optional synthetic calendar/metrics load |
 
