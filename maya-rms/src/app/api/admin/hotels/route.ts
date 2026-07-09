@@ -70,6 +70,7 @@ export async function POST(req: Request) {
         email: body.invite.email,
         hotelId,
         role: body.invite.role,
+        inviterEmail: ctx.user.email ?? null,
       });
     }
 
