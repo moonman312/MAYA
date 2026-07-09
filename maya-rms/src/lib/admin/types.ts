@@ -2,7 +2,7 @@ export type HotelRole = "hotel_admin" | "manager" | "staff" | "viewer";
 export type AppRole = "platform_admin" | "platform_support";
 export type MembershipStatus = "invited" | "active" | "suspended" | "revoked";
 export type PendingInviteStatus = "pending" | "accepted" | "expired" | "revoked";
-export type PmsType = "mews" | "cloudbeds" | "opera" | "other";
+export type PmsType = "mews" | "cloudbeds" | "think" | "opera" | "other";
 export type PmsConnectionStatus =
   | "pending"
   | "connected"
