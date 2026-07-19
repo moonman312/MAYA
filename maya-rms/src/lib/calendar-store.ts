@@ -61,6 +61,7 @@ function getCalendarDemo(year: number, month: number): CalendarResponse {
         booked,
         rate: Math.round(rate * 100) / 100,
         revenue,
+        current_price: null, // demo mode has no pricing engine output
       };
     });
 
@@ -144,6 +145,24 @@ async function getCalendarFromDb(
     .gte("stay_date", startDate)
     .lte("stay_date", endDate);
 
+  // Engine-published prices (the current asking price after rules + clamps).
+  // Written by /api/evaluate into published_price; absent until the first
+  // evaluation run, so the UI treats null as "not priced yet".
+  const { data: publishedPrices } = await supabase
+    .from("published_price")
+    .select("stay_date, room_type_id, price")
+    .eq("hotel_id", hotelId)
+    .gte("stay_date", startDate)
+    .lte("stay_date", endDate);
+
+  const publishedByKey = new Map<string, number>();
+  for (const p of publishedPrices ?? []) {
+    const price = p.price != null ? Number(p.price) : NaN;
+    if (Number.isFinite(price)) {
+      publishedByKey.set(`${p.stay_date}|${String(p.room_type_id)}`, price);
+    }
+  }
+
   // Build a lookup: room_type_id -> room type info
   const rtById: Record<string, { name: string; total_rooms: number; base_rate: number }> = {};
   for (const rt of rtList) {
@@ -193,6 +212,7 @@ async function getCalendarFromDb(
         booked,
         rate: Math.round(adr * 100) / 100,
         revenue: Math.round(roomRevenue * 100) / 100,
+        current_price: publishedByKey.get(`${dateStr}|${String(rt.id)}`) ?? null,
       };
     });
 

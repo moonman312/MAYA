@@ -643,6 +643,12 @@ export function Dashboard() {
                               <p className="text-sm text-slate-300">
                                 ADR ${rt.rate.toFixed(2)}
                               </p>
+                              <p className="text-sm text-sky-300">
+                                Current price{" "}
+                                {rt.current_price != null
+                                  ? `$${rt.current_price.toFixed(2)}`
+                                  : "—"}
+                              </p>
                               <p className="text-sm text-slate-300">
                                 Revenue ${rt.revenue.toFixed(2)}
                               </p>
