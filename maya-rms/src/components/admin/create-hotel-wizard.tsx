@@ -4,21 +4,13 @@ import type { HotelRole } from "@/lib/admin/types";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
-type Step = 1 | 2 | 3 | 4;
+type Step = 1 | 2 | 3;
 
 type HotelStep = {
   name: string;
   timezone: string;
   currency: string;
   total_rooms_per_type: number;
-  external_enterprise_id: string;
-};
-
-type SettingsStep = {
-  pricing_horizon_days: number;
-  pickup_window_cycles: number;
-  simulation_mode: boolean;
-  rounding_mode: string;
 };
 
 type WizardPmsType = "mews" | "cloudbeds" | "think" | "none";
@@ -50,13 +42,6 @@ export function CreateHotelWizard() {
     timezone: "America/Chicago",
     currency: "USD",
     total_rooms_per_type: 50,
-    external_enterprise_id: "",
-  });
-  const [settings, setSettings] = useState<SettingsStep>({
-    pricing_horizon_days: 365,
-    pickup_window_cycles: 1,
-    simulation_mode: true,
-    rounding_mode: "none",
   });
   const [pms, setPms] = useState<PmsStep>({
     pmsType: "mews",
@@ -76,11 +61,6 @@ export function CreateHotelWizard() {
     setError(null);
     setTestResult(null);
     startTransition(async () => {
-      // We can't reach the per-hotel test endpoint yet because there's no hotel;
-      // use an ephemeral endpoint that doesn't require hotelId. For simplicity,
-      // reuse the same shape and pass a null hotel id, or just POST to /pms/mews/test
-      // (the existing user-facing route). We'll use a small in-app endpoint that
-      // wraps the shared helper.
       const res = await fetch(`/api/admin/pms/mews/test`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -113,8 +93,13 @@ export function CreateHotelWizard() {
           timezone: hotel.timezone,
           currency: hotel.currency,
           total_rooms_per_type: hotel.total_rooms_per_type,
-          external_enterprise_id: hotel.external_enterprise_id.trim() || null,
-          ...settings,
+          // The hotel's unique enterprise id only applies to Mews; other PMSes
+          // (and "skip for now") leave it null. Pricing settings are omitted on
+          // purpose — the server defaults new hotels into simulation mode
+          // (see lib/admin/hotels.ts: simulation_mode ?? true). Toggle it off
+          // later from the hotel detail page.
+          external_enterprise_id:
+            pms.pmsType === "mews" ? pms.enterpriseId.trim() || null : null,
         },
       };
       // Only Mews supports token-entry from the wizard. OAuth PMSes (Cloudbeds,
@@ -147,12 +132,12 @@ export function CreateHotelWizard() {
   }
 
   const canNext1 = hotel.name.trim().length > 0 && hotel.timezone && hotel.currency;
-  const canNext3 =
+  const canNextPms =
     pms.pmsType !== "mews" ||
     !pms.connect ||
     (pms.clientToken.length > 0 && pms.accessToken.length > 0);
   const canSubmit =
-    canNext1 && canNext3 && (invite.email.trim().length === 0 || /.+@.+\..+/.test(invite.email));
+    canNext1 && canNextPms && (invite.email.trim().length === 0 || /.+@.+\..+/.test(invite.email));
 
   return (
     <div className="space-y-6">
@@ -204,17 +189,11 @@ export function CreateHotelWizard() {
                 className="w-full rounded bg-slate-950 p-2 text-sm text-slate-100"
               />
             </Field>
-            <Field label="Mews enterprise ID (optional)">
-              <input
-                type="text"
-                value={hotel.external_enterprise_id}
-                onChange={(e) =>
-                  setHotel({ ...hotel, external_enterprise_id: e.target.value })
-                }
-                className="w-full rounded bg-slate-950 p-2 text-sm text-slate-100"
-              />
-            </Field>
           </div>
+          <p className="text-xs text-slate-500">
+            New hotels start in <strong className="text-slate-300">simulation mode</strong>. You
+            can switch to live pricing anytime from the hotel detail page.
+          </p>
           <Actions>
             <button
               type="button"
@@ -229,82 +208,7 @@ export function CreateHotelWizard() {
       )}
 
       {step === 2 && (
-        <Card title="2. Pricing settings">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Pricing horizon (days)">
-              <input
-                type="number"
-                min={1}
-                value={settings.pricing_horizon_days}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    pricing_horizon_days: Math.max(1, parseInt(e.target.value || "1", 10)),
-                  })
-                }
-                className="w-full rounded bg-slate-950 p-2 text-sm text-slate-100"
-              />
-            </Field>
-            <Field label="Pickup window cycles">
-              <input
-                type="number"
-                min={1}
-                value={settings.pickup_window_cycles}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    pickup_window_cycles: Math.max(1, parseInt(e.target.value || "1", 10)),
-                  })
-                }
-                className="w-full rounded bg-slate-950 p-2 text-sm text-slate-100"
-              />
-            </Field>
-            <Field label="Rounding mode">
-              <select
-                value={settings.rounding_mode}
-                onChange={(e) => setSettings({ ...settings, rounding_mode: e.target.value })}
-                className="w-full rounded bg-slate-950 p-2 text-sm text-slate-100"
-              >
-                <option value="none">none</option>
-                <option value="nearest_1">nearest $1</option>
-                <option value="nearest_5">nearest $5</option>
-                <option value="psychological_99">psychological (.99)</option>
-              </select>
-            </Field>
-            <Field label="Simulation mode">
-              <label className="flex items-center gap-2 text-sm text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={settings.simulation_mode}
-                  onChange={(e) =>
-                    setSettings({ ...settings, simulation_mode: e.target.checked })
-                  }
-                />
-                Start in simulation (recommended)
-              </label>
-            </Field>
-          </div>
-          <Actions>
-            <button
-              type="button"
-              onClick={() => setStep(1)}
-              className="rounded border border-slate-700 px-3 py-2 text-sm hover:border-slate-500"
-            >
-              Back
-            </button>
-            <button
-              type="button"
-              onClick={() => setStep(3)}
-              className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400"
-            >
-              Next
-            </button>
-          </Actions>
-        </Card>
-      )}
-
-      {step === 3 && (
-        <Card title="3. PMS connection">
+        <Card title="2. PMS connection">
           <Field label="PMS">
             <div className="grid gap-2 sm:grid-cols-4">
               {(
@@ -360,14 +264,25 @@ export function CreateHotelWizard() {
           )}
 
           {pms.pmsType === "mews" && (
-            <label className="flex items-center gap-2 text-sm text-slate-300">
-              <input
-                type="checkbox"
-                checked={pms.connect}
-                onChange={(e) => setPms({ ...pms, connect: e.target.checked })}
-              />
-              Configure Mews credentials now
-            </label>
+            <>
+              <Field label="Mews enterprise ID (optional)">
+                <input
+                  type="text"
+                  value={pms.enterpriseId}
+                  onChange={(e) => setPms({ ...pms, enterpriseId: e.target.value, testPassed: false })}
+                  className="w-full rounded bg-slate-950 p-2 text-sm text-slate-100"
+                  placeholder="Mews enterprise GUID (also used as the hotel's unique key)"
+                />
+              </Field>
+              <label className="flex items-center gap-2 text-sm text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={pms.connect}
+                  onChange={(e) => setPms({ ...pms, connect: e.target.checked })}
+                />
+                Configure Mews credentials now
+              </label>
+            </>
           )}
           {pms.pmsType === "mews" && pms.connect && (
             <>
@@ -381,14 +296,6 @@ export function CreateHotelWizard() {
                     <option value="demo">demo (api.mews-demo.com)</option>
                     <option value="production">production (api.mews.com)</option>
                   </select>
-                </Field>
-                <Field label="Enterprise ID (optional)">
-                  <input
-                    type="text"
-                    value={pms.enterpriseId}
-                    onChange={(e) => setPms({ ...pms, enterpriseId: e.target.value, testPassed: false })}
-                    className="w-full rounded bg-slate-950 p-2 text-sm text-slate-100"
-                  />
                 </Field>
                 <Field label="Client token">
                   <input
@@ -431,15 +338,15 @@ export function CreateHotelWizard() {
           <Actions>
             <button
               type="button"
-              onClick={() => setStep(2)}
+              onClick={() => setStep(1)}
               className="rounded border border-slate-700 px-3 py-2 text-sm hover:border-slate-500"
             >
               Back
             </button>
             <button
               type="button"
-              disabled={!canNext3}
-              onClick={() => setStep(4)}
+              disabled={!canNextPms}
+              onClick={() => setStep(3)}
               className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 disabled:opacity-60"
             >
               Next
@@ -448,8 +355,8 @@ export function CreateHotelWizard() {
         </Card>
       )}
 
-      {step === 4 && (
-        <Card title="4. First hotel-admin user">
+      {step === 3 && (
+        <Card title="3. First hotel-admin user">
           <Field label="Email">
             <input
               type="email"
@@ -479,7 +386,7 @@ export function CreateHotelWizard() {
           <Actions>
             <button
               type="button"
-              onClick={() => setStep(3)}
+              onClick={() => setStep(2)}
               className="rounded border border-slate-700 px-3 py-2 text-sm hover:border-slate-500"
             >
               Back
@@ -500,7 +407,7 @@ export function CreateHotelWizard() {
 }
 
 function StepIndicator({ step }: { step: Step }) {
-  const labels = ["Basics", "Settings", "PMS", "Invite"];
+  const labels = ["Basics", "PMS", "Invite"];
   return (
     <ol className="flex items-center gap-3 text-xs">
       {labels.map((label, i) => {

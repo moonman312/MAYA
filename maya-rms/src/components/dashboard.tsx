@@ -1,7 +1,7 @@
 "use client";
 
 import { PropertySelect } from "@/components/property-select";
-import { formatUtcMonthYear } from "@/lib/calendar-month-label";
+import { formatUtcLongDate, formatUtcMonthYear } from "@/lib/calendar-month-label";
 import { SAMPLE_RESERVATIONS } from "@/lib/demo-data";
 import {
   conditionRowsToRuleCondition,
@@ -188,6 +188,7 @@ export function Dashboard() {
   const [changelog, setChangelog] = useState<ChangelogCycle[]>([]);
   const [changesOnly, setChangesOnly] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const [mewsConnection, setMewsConnection] = useState<{
     configured: boolean;
@@ -267,8 +268,27 @@ export function Dashboard() {
         `/api/calendar/${year}/${month}`,
       );
       setCalendar(data);
+      setLastUpdated(new Date());
     } finally {
       setLoading(false);
+    }
+  }, [month, year]);
+
+  /**
+   * Background refresh used by polling / tab-focus: updates the calendar in
+   * place WITHOUT toggling the loading skeleton or clearing the selected day,
+   * so prices published by the scheduled cron appear without a visible reload.
+   * Errors are swallowed so a transient failure just keeps the current data.
+   */
+  const reloadCalendarQuiet = useCallback(async () => {
+    try {
+      const data = await api<CalendarResponse>(
+        `/api/calendar/${year}/${month}`,
+      );
+      setCalendar(data);
+      setLastUpdated(new Date());
+    } catch {
+      // keep showing the last good calendar
     }
   }, [month, year]);
 
@@ -285,6 +305,26 @@ export function Dashboard() {
       void reloadChangelog();
     }
   }, [reloadCalendar, reloadChangelog, tab]);
+
+  // Poll the calendar every 60s while it's the active tab so prices written by
+  // the 5-minute cron surface automatically. Also refresh when the tab regains
+  // focus (quick catch-up after the browser was in the background). Uses the
+  // quiet reload so there's no skeleton flicker or lost day selection.
+  useEffect(() => {
+    if (tab !== "calendar") return;
+    const POLL_MS = 60_000;
+    const id = setInterval(() => {
+      void reloadCalendarQuiet();
+    }, POLL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void reloadCalendarQuiet();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [tab, reloadCalendarQuiet]);
 
   async function reloadRules() {
     const data = await api<RuleConfig[]>("/api/rules");
@@ -551,6 +591,11 @@ export function Dashboard() {
               >
                 Next
               </button>
+              <span className="ml-auto text-xs text-slate-500" title="Calendar auto-refreshes every 60s">
+                {lastUpdated
+                  ? `Updated ${lastUpdated.toLocaleTimeString()} · auto-refresh 60s`
+                  : "Loading…"}
+              </span>
             </div>
 
             {calendarBusy ? (
@@ -611,8 +656,8 @@ export function Dashboard() {
                   {selectedDay ? (
                     <div className="rounded-md border border-slate-800 bg-slate-950 p-4">
                       <h3 className="mb-2 text-base font-semibold">
-                        {calendar.days[String(selectedDay)].weekday}, day{" "}
-                        {selectedDay}
+                        {calendar.days[String(selectedDay)].weekday},{" "}
+                        {formatUtcLongDate(year, month, selectedDay)}
                       </h3>
                       <p className="mb-4 text-sm text-slate-400">
                         {calendar.days[String(selectedDay)].booked}/

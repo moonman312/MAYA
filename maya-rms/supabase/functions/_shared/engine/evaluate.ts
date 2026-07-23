@@ -1,0 +1,392 @@
+/**
+ * Hotel evaluation orchestrator — Implementation Guide (11-step pipeline).
+ * Deno-portable copy of src/lib/engine/evaluate.ts (import paths only differ).
+ */
+
+import type { EngineRule } from "./domain.ts";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AuditInput } from "./audit.ts";
+import { writeAudit } from "./audit.ts";
+import { ruleConditionsMatch } from "./conditions.ts";
+import type { LadderPassResult } from "./ladder.ts";
+import { evaluateLadderTriple } from "./ladder.ts";
+import { computeRuleMetrics } from "./metrics.ts";
+import { computeBaselineTs, runPickupPass } from "./pickup.ts";
+import { assemblePrice, maybePublish } from "./pricing.ts";
+import { ruleScopeMatches } from "./scope.ts";
+import { fetchAllRows, purgeOldSnapshots, snapshotCurrentState } from "./snapshots.ts";
+import { addCalendarDays, evalIsoToHotelDateString } from "./timezone.ts";
+import type { PickupCandidate, RoomTypeRow } from "./types.ts";
+
+export type EvaluationResult = {
+  run_id: string;
+  hotel_id: string;
+  stay_dates_evaluated: number;
+  prices_published: number;
+  ladder_activations: number;
+  ladder_deactivations: number;
+  pickup_events_created: number;
+};
+
+/**
+ * Evaluate a hotel: run the full 11-step pipeline.
+ *
+ * `horizonDays` bounds how many days forward are priced in this run. The engine
+ * makes many sequential Supabase calls per day, so the default 365 is too heavy
+ * for a Supabase Edge Function's wall-clock/CPU limit (it gets killed mid-run
+ * before writing anything). Scheduled ticks pass a smaller horizon (e.g. 45) so
+ * the near-term calendar is always fresh; run a separate, less-frequent job for
+ * the far horizon if you need it.
+ */
+export async function evaluateHotel(
+  supabase: SupabaseClient,
+  hotelId: string,
+  evalTs?: string,
+  horizonDays: number = 365,
+): Promise<EvaluationResult> {
+  const now = evalTs ?? new Date().toISOString();
+  const runId = crypto.randomUUID();
+
+  const { data: hotelRow } = await supabase
+    .from("hotels")
+    .select("timezone")
+    .eq("id", hotelId)
+    .maybeSingle();
+  const hotelTimeZone = hotelRow?.timezone ?? "UTC";
+  const localDate = evalIsoToHotelDateString(now, hotelTimeZone);
+
+  const { data: rtData } = await supabase
+    .from("room_types")
+    .select("id, hotel_id, name, is_active, total_rooms, floor_price, ceiling_price")
+    .eq("hotel_id", hotelId)
+    .eq("is_active", true);
+
+  const roomTypes: RoomTypeRow[] = (rtData ?? []).map((r) => ({
+    id: String(r.id),
+    hotel_id: String(r.hotel_id),
+    name: r.name,
+    is_active: r.is_active,
+    total_rooms: Number(r.total_rooms),
+    floor_price: Number(r.floor_price),
+    ceiling_price: Number(r.ceiling_price),
+  }));
+
+  if (roomTypes.length === 0) {
+    return {
+      run_id: runId,
+      hotel_id: hotelId,
+      stay_dates_evaluated: 0,
+      prices_published: 0,
+      ladder_activations: 0,
+      ladder_deactivations: 0,
+      pickup_events_created: 0,
+    };
+  }
+
+  const horizon = Math.max(1, Math.min(365, Math.floor(horizonDays)));
+  const stayDates: string[] = [];
+  let cursor = localDate;
+  for (let i = 0; i < horizon; i++) {
+    stayDates.push(cursor);
+    cursor = addCalendarDays(cursor, 1);
+  }
+
+  await snapshotCurrentState(supabase, hotelId, now, stayDates, roomTypes);
+
+  const { data: rulesData } = await supabase
+    .from("pricing_rules")
+    .select(
+      `
+      id, hotel_id, name, is_active, version, priority,
+      start_date, end_date, is_annual, dow_mask,
+      action_type, action_direction, action_value,
+      is_pickup_rule, created_at, updated_at,
+      rule_condition (
+        occupancy_operator, occupancy_threshold,
+        dta_operator, dta_threshold_days,
+        pickup_operator, pickup_threshold, pickup_window_days, pickup_metric
+      ),
+      rule_signal_room_type ( room_type_id ),
+      rule_affected_room_type ( room_type_id )
+    `,
+    )
+    .eq("hotel_id", hotelId)
+    .eq("is_active", true);
+
+  const rules: EngineRule[] = (rulesData ?? []).map((r) => {
+    // deno-lint-ignore no-explicit-any
+    const rc: any = Array.isArray(r.rule_condition) ? r.rule_condition[0] : r.rule_condition;
+    return {
+      id: String(r.id),
+      hotel_id: String(r.hotel_id),
+      name: r.name,
+      is_active: true,
+      version: Number(r.version ?? 1),
+      start_date: r.start_date ?? null,
+      end_date: r.end_date ?? null,
+      is_annual: Boolean(r.is_annual),
+      dow_mask: Number(r.dow_mask ?? 127),
+      action_type: r.action_type as "percent" | "fixed",
+      action_direction: r.action_direction as "increase" | "decrease",
+      action_value: Number(r.action_value),
+      priority: Number(r.priority),
+      is_pickup_rule: Boolean(r.is_pickup_rule),
+      condition: {
+        occupancy_operator: rc?.occupancy_operator ?? null,
+        occupancy_threshold: rc?.occupancy_threshold != null ? Number(rc.occupancy_threshold) : null,
+        dta_operator: rc?.dta_operator ?? null,
+        dta_threshold_days: rc?.dta_threshold_days != null ? Number(rc.dta_threshold_days) : null,
+        pickup_operator: rc?.pickup_operator ?? null,
+        pickup_threshold: rc?.pickup_threshold != null ? Number(rc.pickup_threshold) : null,
+        pickup_window_days: rc?.pickup_window_days != null ? (Number(rc.pickup_window_days) as 1 | 3 | 7) : null,
+        pickup_metric: rc?.pickup_metric ?? null,
+      },
+      // deno-lint-ignore no-explicit-any
+      signal_room_type_ids: (r.rule_signal_room_type ?? []).map((x: any) => String(x.room_type_id)),
+      // deno-lint-ignore no-explicit-any
+      affected_room_type_ids: (r.rule_affected_room_type ?? []).map((x: any) => String(x.room_type_id)),
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+    };
+  });
+
+  let maxPickupWindowDays = 7;
+  for (const r of rules) {
+    const w = r.condition.pickup_window_days;
+    if (w != null) maxPickupWindowDays = Math.max(maxPickupWindowDays, w);
+  }
+
+  // Base prices — batched: one reservations read + one published_price read for
+  // the whole horizon, resolved in memory. (Previously this was ~2 queries per
+  // (stay_date, room_type) cell — thousands of sequential round-trips.)
+  // Semantics preserved: prefer the most-recent reservation's base_rate (when
+  // truthy), else the current published_price.
+  const firstDate = stayDates[0];
+  const lastDate = stayDates[stayDates.length - 1];
+
+  const resRows = await fetchAllRows(() =>
+    supabase
+      .from("reservations")
+      .select("stay_date, room_type_id, base_rate, created_at")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", firstDate)
+      .lte("stay_date", lastDate)
+      .order("id", { ascending: true }),
+  );
+
+  const latestResByCell = new Map<string, { base_rate: number | null; created_at: string }>();
+  for (const r of resRows ?? []) {
+    if (!r.room_type_id) continue;
+    const key = `${r.stay_date}|${r.room_type_id}`;
+    const createdAt = String(r.created_at ?? "");
+    const prev = latestResByCell.get(key);
+    if (!prev || createdAt > prev.created_at) {
+      latestResByCell.set(key, {
+        base_rate: r.base_rate != null ? Number(r.base_rate) : null,
+        created_at: createdAt,
+      });
+    }
+  }
+
+  const ppRows = await fetchAllRows(() =>
+    supabase
+      .from("published_price")
+      .select("stay_date, room_type_id, price")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", firstDate)
+      .lte("stay_date", lastDate)
+      .order("stay_date", { ascending: true })
+      .order("room_type_id", { ascending: true }),
+  );
+
+  const ppByCell = new Map<string, number>();
+  for (const p of ppRows) {
+    if (!p.room_type_id) continue;
+    ppByCell.set(`${p.stay_date}|${p.room_type_id}`, Number(p.price));
+  }
+
+  const basePrices = new Map<string, number>();
+  for (const sd of stayDates) {
+    for (const rt of roomTypes) {
+      const key = `${sd}|${rt.id}`;
+      const latest = latestResByCell.get(key);
+      if (latest && latest.base_rate) {
+        basePrices.set(key, latest.base_rate);
+      } else {
+        const pp = ppByCell.get(key);
+        if (pp) basePrices.set(key, pp);
+      }
+    }
+  }
+
+  const ladderRules = rules.filter((r) => !r.is_pickup_rule);
+  const pickupRules = rules.filter((r) => r.is_pickup_rule);
+
+  let ladderActivations = 0;
+  let ladderDeactivations = 0;
+  let pickupEventsCreated = 0;
+  let pricesPublished = 0;
+
+  const allLadderResults: Map<string, LadderPassResult[]> = new Map();
+
+  for (const rule of ladderRules) {
+    for (const stayDate of stayDates) {
+      if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone)) continue;
+
+      const metrics = await computeRuleMetrics(
+        supabase,
+        rule,
+        hotelId,
+        stayDate,
+        now,
+        localDate,
+        now,
+        null,
+      );
+
+      for (const rtId of rule.affected_room_type_ids) {
+        const result = await evaluateLadderTriple(
+          supabase,
+          rule,
+          hotelId,
+          stayDate,
+          rtId,
+          metrics,
+          now,
+        );
+
+        const key = `${stayDate}|${rtId}`;
+        const list = allLadderResults.get(key) ?? [];
+        list.push(result);
+        allLadderResults.set(key, list);
+
+        if (result.transition === "activate") ladderActivations++;
+        if (result.transition === "deactivate") ladderDeactivations++;
+      }
+    }
+  }
+
+  const allPickupCandidates: PickupCandidate[] = [];
+  const allPickupWinners: Map<string, PickupCandidate[]> = new Map();
+  const allPickupLosers: Map<string, PickupCandidate[]> = new Map();
+  const allPickupIdempotent: Map<string, PickupCandidate[]> = new Map();
+
+  for (const rule of pickupRules) {
+    for (const stayDate of stayDates) {
+      if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone)) continue;
+
+      const baselineTs = await computeBaselineTs(supabase, rule, stayDate, now);
+      if (!baselineTs) continue;
+
+      const metrics = await computeRuleMetrics(
+        supabase,
+        rule,
+        hotelId,
+        stayDate,
+        now,
+        localDate,
+        now,
+        baselineTs,
+      );
+
+      if (!ruleConditionsMatch(rule, metrics)) continue;
+
+      for (const rtId of rule.affected_room_type_ids) {
+        allPickupCandidates.push({
+          rule,
+          metrics,
+          stay_date: stayDate,
+          baseline_ts: baselineTs,
+          affected_room_type_id: rtId,
+          eval_ts: now,
+          signal_booked_units_start: metrics.signal_booked_units_baseline ?? 0,
+          signal_booked_units_end: metrics.signal_booked_units_now ?? 0,
+          signal_booked_revenue_start: metrics.signal_booked_revenue_baseline ?? 0,
+          signal_booked_revenue_end: metrics.signal_booked_revenue_now ?? 0,
+        });
+      }
+    }
+  }
+
+  const pickupInsertedKeys = new Set<string>();
+  if (allPickupCandidates.length > 0) {
+    const { winners, losers, idempotent_skips } = await runPickupPass(
+      supabase,
+      allPickupCandidates,
+      hotelId,
+      pickupInsertedKeys,
+      basePrices,
+    );
+    pickupEventsCreated = winners.length;
+
+    for (const w of winners) {
+      const key = `${w.stay_date}|${w.affected_room_type_id}`;
+      const list = allPickupWinners.get(key) ?? [];
+      list.push(w);
+      allPickupWinners.set(key, list);
+    }
+    for (const l of losers) {
+      const key = `${l.stay_date}|${l.affected_room_type_id}`;
+      const list = allPickupLosers.get(key) ?? [];
+      list.push(l);
+      allPickupLosers.set(key, list);
+    }
+    for (const s of idempotent_skips) {
+      const key = `${s.stay_date}|${s.affected_room_type_id}`;
+      const list = allPickupIdempotent.get(key) ?? [];
+      list.push(s);
+      allPickupIdempotent.set(key, list);
+    }
+  }
+
+  for (const stayDate of stayDates) {
+    for (const rt of roomTypes) {
+      const key = `${stayDate}|${rt.id}`;
+      const basePrice = basePrices.get(key);
+      if (basePrice === undefined) continue;
+
+      const assembled = await assemblePrice(supabase, hotelId, stayDate, rt, basePrice);
+      const published = await maybePublish(
+        supabase,
+        hotelId,
+        stayDate,
+        rt.id,
+        assembled.final_price,
+        now,
+      );
+      if (published) pricesPublished++;
+
+      const auditInput: AuditInput = {
+        runId,
+        hotelId,
+        evalTs: now,
+        assembled,
+        ladderResults: allLadderResults.get(key) ?? [],
+        pickupWinners: allPickupWinners.get(key) ?? [],
+        pickupLosers: allPickupLosers.get(key) ?? [],
+        pickupIdempotentSkips: allPickupIdempotent.get(key) ?? [],
+        basePrices,
+      };
+      await writeAudit(supabase, auditInput);
+    }
+  }
+
+  await supabase
+    .from("pickup_event")
+    .update({ retired_at: now })
+    .eq("hotel_id", hotelId)
+    .lt("stay_date", localDate)
+    .is("retired_at", null);
+
+  await purgeOldSnapshots(supabase, hotelId, maxPickupWindowDays + 7);
+
+  return {
+    run_id: runId,
+    hotel_id: hotelId,
+    stay_dates_evaluated: stayDates.length,
+    prices_published: pricesPublished,
+    ladder_activations: ladderActivations,
+    ladder_deactivations: ladderDeactivations,
+    pickup_events_created: pickupEventsCreated,
+  };
+}
