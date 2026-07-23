@@ -52,7 +52,14 @@ export async function POST(req: Request) {
       );
     }
 
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json({
+      ok: true,
+      fetchWindow: result.fetchWindow,
+      apiPages: result.apiPages,
+      roomTypesUpserted: result.roomTypesUpserted,
+      reservationRowsUpserted: result.reservationRowsUpserted,
+      ingest: result.ingest,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Cloudbeds sync failed.";
     return NextResponse.json({ ok: false, error: message }, { status: 502 });
