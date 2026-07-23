@@ -50,8 +50,16 @@ export const PMS_REGISTRY: Record<Exclude<PmsType, "opera" | "other">, PmsRegist
     type: "cloudbeds",
     displayName: "Cloudbeds",
     authKind: "oauth2_authorization_code",
-    authorizeUrl: `${CLOUDBEDS_AUTHORIZE_BASE}/api/v1.3/oauth`,
-    tokenUrl: `${CLOUDBEDS_AUTHORIZE_BASE}/api/v1.3/oauth/access_token`,
+    authorizeUrl:
+      process.env.CLOUDBEDS_AUTHORIZE_URL ??
+      `${CLOUDBEDS_AUTHORIZE_BASE}/api/v1.3/oauth`,
+    // NOTE: Cloudbeds' token endpoint is /api/v1.x/access_token — there is no
+    // /oauth segment in the path (that's only on the authorize endpoint).
+    // The old `/api/v1.3/oauth/access_token` value 404'd with Cloudbeds'
+    // website HTML during code exchange.
+    tokenUrl:
+      process.env.CLOUDBEDS_TOKEN_URL ??
+      `${CLOUDBEDS_AUTHORIZE_BASE}/api/v1.3/access_token`,
     scopes: [
       "read:reservation",
       "write:reservation",
