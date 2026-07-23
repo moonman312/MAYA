@@ -1,21 +1,18 @@
 /**
- * Scheduled Mews sync + pricing evaluation.
+ * Scheduled Cloudbeds sync + pricing evaluation.
  *
- * For every hotel with a `pms_type = 'mews'` connection (or a single hotel when
- * `{ hotel_id }` is posted):
- *   1. Pull fresh reservations/room-types from Mews  (runMewsSyncForHotel)
- *   2. Run the pricing rules engine                  (evaluateHotel)
+ * For every hotel with a `pms_type = 'cloudbeds'` connection (or a single hotel
+ * when `{ hotel_id }` is posted):
+ *   1. Pull fresh reservations/room-types from Cloudbeds (runCloudbedsSyncForHotel)
+ *   2. Run the pricing rules engine                      (evaluateHotel)
  *
- * Step 2 is what actually applies your pricing rules and writes published_price
- * (the calendar's "Current price"). Disable it with MAYA_RUN_EVALUATE=false to
- * get pre-existing sync-only behavior.
- *
- * Auth: pg_cron/pg_net sends `x-mews-cron-secret`; validated against
- * MEWS_CRON_SECRET (verify_jwt=false for this function).
+ * Parallel to mews-scheduled-sync. Auth: pg_cron/pg_net sends
+ * `x-cloudbeds-cron-secret`, validated against CLOUDBEDS_CRON_SECRET
+ * (verify_jwt=false for this function).
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2.99.3";
-import { runMewsSyncForHotel } from "../_shared/mews/sync-hotel.ts";
+import { runCloudbedsSyncForHotel } from "../_shared/cloudbeds/sync-hotel.ts";
 import { evaluateHotel } from "../_shared/engine/index.ts";
 
 function getEnv(name: string): string | undefined {
@@ -31,11 +28,11 @@ function unauthorized(msg: string): Response {
 }
 
 Deno.serve(async (req) => {
-  const cronSecret = getEnv("MEWS_CRON_SECRET");
+  const cronSecret = getEnv("CLOUDBEDS_CRON_SECRET");
   if (cronSecret) {
-    const header = req.headers.get("x-mews-cron-secret");
+    const header = req.headers.get("x-cloudbeds-cron-secret");
     if (header !== cronSecret) {
-      return unauthorized("Invalid or missing x-mews-cron-secret.");
+      return unauthorized("Invalid or missing x-cloudbeds-cron-secret.");
     }
   }
 
@@ -49,10 +46,11 @@ Deno.serve(async (req) => {
   }
 
   const runEvaluate = (getEnv("MAYA_RUN_EVALUATE") ?? "true").toLowerCase() !== "false";
-  // Bound the per-tick evaluation so it finishes inside the Edge runtime limit.
+  // Keep the per-tick evaluation small enough to finish inside the Edge runtime
+  // limit. 45 days covers the near-term calendar; raise once you've confirmed
+  // run durations in the logs. Env override: MAYA_EVAL_HORIZON_DAYS.
   const horizonDays = Math.max(1, Number(getEnv("MAYA_EVAL_HORIZON_DAYS") ?? "45") || 45);
 
-  // Optional single-hotel dispatch: body { hotel_id }.
   let bodyHotelId: string | null = null;
   try {
     const text = await req.text();
@@ -61,7 +59,7 @@ Deno.serve(async (req) => {
       if (body?.hotel_id) bodyHotelId = String(body.hotel_id);
     }
   } catch {
-    // ignore malformed body; fall back to fleet mode
+    // ignore
   }
 
   const supabase = createClient(supabaseUrl, serviceKey, {
@@ -75,7 +73,7 @@ Deno.serve(async (req) => {
     const { data: connRows, error: listErr } = await supabase
       .from("pms_connections")
       .select("hotel_id")
-      .eq("pms_type", "mews");
+      .eq("pms_type", "cloudbeds");
     if (listErr) {
       return new Response(JSON.stringify({ ok: false, error: listErr.message }), {
         status: 500,
@@ -87,13 +85,13 @@ Deno.serve(async (req) => {
 
   const results: Array<{
     hotelId: string;
-    sync: Awaited<ReturnType<typeof runMewsSyncForHotel>>;
+    sync: Awaited<ReturnType<typeof runCloudbedsSyncForHotel>>;
     evaluate?: Awaited<ReturnType<typeof evaluateHotel>> | { error: string } | { skipped: true };
   }> = [];
 
   for (const hotelId of hotelIds) {
     const t0 = Date.now();
-    const sync = await runMewsSyncForHotel(supabase, hotelId);
+    const sync = await runCloudbedsSyncForHotel(supabase, hotelId);
     const tSync = Date.now();
 
     let evaluate: (typeof results)[number]["evaluate"];
@@ -110,7 +108,7 @@ Deno.serve(async (req) => {
 
     console.log(
       JSON.stringify({
-        fn: "mews-scheduled-sync",
+        fn: "cloudbeds-scheduled-sync",
         hotelId,
         syncOk: sync.ok,
         syncError: sync.ok ? undefined : sync.error,
