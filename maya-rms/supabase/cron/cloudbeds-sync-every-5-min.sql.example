@@ -1,0 +1,44 @@
+-- Example: schedule Edge Function `cloudbeds-scheduled-sync` every 5 minutes.
+-- Parallel to cron/mews-sync-every-5-min.sql.example. Prereqs: extensions
+-- `pg_cron`, `pg_net`; Vault secrets. Run in Supabase Dashboard → SQL Editor.
+--
+-- 0) Ensure pg_net exists (creates schema `net`):
+--    create extension if not exists pg_net;
+--    create extension if not exists pg_cron;
+--
+-- 1) Store secrets (reuse `project_url` if you already created it for Mews):
+--    select vault.create_secret('https://<project-ref>.supabase.co', 'project_url');
+--    select vault.create_secret('<long-random-string>', 'cloudbeds_cron_secret');
+--    -- To read existing secret names: select name from vault.secrets;
+--
+-- 2) Edge Function secrets (Dashboard → Edge Functions → Secrets):
+--    SUPABASE_SERVICE_ROLE_KEY  (auto in hosted projects; confirm)
+--    CLOUDBEDS_CRON_SECRET      (same value as vault `cloudbeds_cron_secret`)
+--    CLOUDBEDS_CLIENT_ID / CLOUDBEDS_CLIENT_SECRET   (for token refresh)
+--    Optional: CLOUDBEDS_API_BASE_URL, CLOUDBEDS_TOKEN_URL, CLOUDBEDS_FETCH_RATE_DETAIL,
+--              CLOUDBEDS_PAGE_SIZE, MAYA_SYNC_DAYS_BACK, MAYA_SYNC_DAYS_FORWARD,
+--              MAYA_RUN_EVALUATE (default true)
+--
+-- 3) Schedule:
+--    select cron.schedule(
+--      'cloudbeds-sync-every-5-min',
+--      '*/5 * * * *',
+--      $$
+--      select net.http_post(
+--        url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url')
+--               || '/functions/v1/cloudbeds-scheduled-sync',
+--        headers := jsonb_build_object(
+--          'Content-Type', 'application/json',
+--          'x-cloudbeds-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'cloudbeds_cron_secret')
+--        ),
+--        body := jsonb_build_object('scheduled_at', now())
+--      ) as request_id;
+--      $$
+--    );
+--
+-- Inspect:   select jobid, jobname, schedule, active from cron.job;
+-- Runs log:  select * from cron.job_run_details order by start_time desc limit 20;
+-- Unschedule: select cron.unschedule('cloudbeds-sync-every-5-min');
+--
+-- TIP: To stagger load, offset Cloudbeds from Mews by 2-3 min, e.g. schedule at
+-- '2-59/5 * * * *' (runs at :02, :07, :12, ...) instead of '*/5 * * * *'.
