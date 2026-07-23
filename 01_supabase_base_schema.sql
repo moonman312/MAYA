@@ -68,7 +68,9 @@ create table if not exists hotels (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (name),
-  unique nulls not distinct (external_enterprise_id)
+  -- NULLS DISTINCT: many hotels may have no enterprise id (Cloudbeds/Think/none);
+  -- uniqueness is only enforced across non-null values.
+  unique nulls distinct (external_enterprise_id)
 );
 
 create table if not exists hotel_memberships (

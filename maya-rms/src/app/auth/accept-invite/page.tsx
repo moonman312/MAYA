@@ -2,6 +2,7 @@
 
 import { createClient } from "@/utils/supabase/client";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
+import type { EmailOtpType } from "@supabase/supabase-js";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
@@ -35,9 +36,34 @@ function AcceptInviteContent() {
   const exchangeCode = useCallback(async () => {
     if (!configured) return;
     const code = searchParams.get("code");
+    const tokenHash = searchParams.get("token_hash");
+    const otpType = (searchParams.get("type") ?? "invite") as EmailOtpType;
     const supabase = createClient();
 
-    if (code) {
+    if (tokenHash || code) {
+      // If someone is already logged in (e.g. an admin testing an invite),
+      // drop that session first so the invite redemption starts clean and
+      // the resulting session belongs to the invited user.
+      const { data: { session: existingSession } } = await supabase.auth.getSession();
+      if (existingSession) {
+        await supabase.auth.signOut({ scope: "local" });
+      }
+    }
+
+    if (tokenHash) {
+      // Resend-era links: our email carries the Supabase token hash directly
+      // (from auth.admin.generateLink) and we redeem it here.
+      const { error: otpErr } = await supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: otpType,
+      });
+      if (otpErr) {
+        setError(otpErr.message);
+        setStage("session-error");
+        return;
+      }
+    } else if (code) {
+      // Legacy links from Supabase-sent emails (PKCE code exchange).
       const { error: exErr } = await supabase.auth.exchangeCodeForSession(code);
       if (exErr) {
         setError(exErr.message);
