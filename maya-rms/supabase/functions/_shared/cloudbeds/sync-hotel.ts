@@ -15,13 +15,12 @@ import {
   cloudbedsGetRoomTypes,
   CloudbedsHttpError,
 } from "./client.ts";
-import { defaultCloudbedsBaseUrl, CLOUDBEDS_ACTIVE_STATUSES, CLOUDBEDS_FETCH_RATE_DETAIL } from "./constants.ts";
+import { defaultCloudbedsBaseUrl, CLOUDBEDS_ACTIVE_STATUSES } from "./constants.ts";
 import {
-  parseCloudbedsReservations,
+  parseCloudbedsReservationDetail,
   parseCloudbedsRoomTypes,
-  parseNightlyRatesFromDetail,
 } from "./etl.ts";
-import type { CloudbedsResolvedCredentials } from "./types.ts";
+import type { CloudbedsParsedReservationRow, CloudbedsResolvedCredentials } from "./types.ts";
 import { mwsEnv } from "../mews/env.ts";
 import { persistPropertyId, resolveOAuthCredentials } from "../pms/oauth-credentials.ts";
 
@@ -38,17 +37,17 @@ export type CloudbedsSyncOptions = {
 
 export type CloudbedsSyncSuccess = {
   ok: true;
+  /** Resolved, ready-to-use credentials (reused by the rate-push step). */
+  creds: CloudbedsResolvedCredentials;
   fetchWindow: { checkInFrom: string; checkInTo: string };
   apiPages: number;
   roomTypesUpserted: number;
   reservationRowsUpserted: number;
   ingest: {
-    canceledReservationCount: number;
-    skippedMissingReservationId: number;
-    skippedNoStayNights: number;
+    reservationsDetailFetched: number;
+    reservationsDetailFailed: number;
     duplicateStayNightKeysMerged: number;
     rowsWithMissingRate: number;
-    skippedCanceled: number;
     tokenRefreshed: boolean;
   };
 };
@@ -205,33 +204,45 @@ export async function runCloudbedsSyncForHotel(
       if (row.external_room_type_id && row.id) idByExternal[String(row.external_room_type_id)] = String(row.id);
     }
 
-    // 6. Reservations across the check-in window.
+    // 6. Reservations. The Cloudbeds list endpoint is minimal (no room type, no
+    //    nightly rate), so we use it only to enumerate reservation ids in the
+    //    check-in window, then pull getReservation DETAIL per booking and
+    //    explode assigned[] × dailyRates[] into per-room-night rows.
     const { checkInFrom, checkInTo } = resolveWindow(options);
-    const { reservations: resRaw, pages } = await cloudbedsGetReservationsRange(
+    const { reservations: listItems, pages } = await cloudbedsGetReservationsRange(
       creds,
       checkInFrom,
       checkInTo,
       CLOUDBEDS_ACTIVE_STATUSES,
     );
 
-    // 6b. Optionally fetch per-night rate detail (gated; rate-limit sensitive).
-    let nightlyRateByResId: Map<string, Record<string, number>> | undefined;
-    if (CLOUDBEDS_FETCH_RATE_DETAIL && resRaw.length > 0) {
-      nightlyRateByResId = new Map();
-      for (const r of resRaw) {
-        const rid = String((r.reservationID ?? r.reservationId ?? r.id) ?? "");
-        if (!rid) continue;
-        const detail = await cloudbedsGetReservationDetail(creds, rid);
-        const rates = parseNightlyRatesFromDetail(detail);
-        if (rates) nightlyRateByResId.set(rid, rates);
+    const seenResIds = new Set<string>();
+    const allRows: CloudbedsParsedReservationRow[] = [];
+    let detailFetched = 0;
+    let detailFailed = 0;
+    for (const item of listItems) {
+      const rid = String((item.reservationID ?? item.reservationId ?? item.id) ?? "");
+      if (!rid || seenResIds.has(rid)) continue;
+      seenResIds.add(rid);
+      const detail = await cloudbedsGetReservationDetail(creds, rid);
+      if (!detail) {
+        detailFailed += 1;
+        continue;
       }
+      detailFetched += 1;
+      allRows.push(...parseCloudbedsReservationDetail(detail).rows);
     }
 
-    const parsed = parseCloudbedsReservations(resRaw, nightlyRateByResId);
+    // Dedupe to the reservations unique key (external_reservation_id, stay_date).
+    const byKey = new Map<string, CloudbedsParsedReservationRow>();
+    for (const r of allRows) byKey.set(`${r.external_reservation_id}:${r.stay_date}`, r);
+    const rows = [...byKey.values()];
+    const duplicateStayNightKeysMerged = allRows.length - rows.length;
+    const rowsWithMissingRate = rows.filter((r) => r.current_rate === null).length;
 
     let reservationRowsUpserted = 0;
-    if (parsed.reservations.length > 0) {
-      const resRows = parsed.reservations.map((r) => ({
+    if (rows.length > 0) {
+      const resRows = rows.map((r) => ({
         hotel_id: hotelId,
         external_reservation_id: r.external_reservation_id,
         room_type_id: r.external_room_type_id ? idByExternal[r.external_room_type_id] ?? null : null,
@@ -243,24 +254,28 @@ export async function runCloudbedsSyncForHotel(
       }));
       reservationRowsUpserted = resRows.length;
 
-      const { error: resErr } = await supabase
-        .from("reservations")
-        .upsert(resRows, { onConflict: "hotel_id,external_reservation_id,stay_date" });
-      if (resErr) return { ok: false, error: resErr.message };
+      // Chunked upsert — a busy hotel produces thousands of room-nights.
+      const UP_CHUNK = 500;
+      for (let i = 0; i < resRows.length; i += UP_CHUNK) {
+        const { error: resErr } = await supabase
+          .from("reservations")
+          .upsert(resRows.slice(i, i + UP_CHUNK), {
+            onConflict: "hotel_id,external_reservation_id,stay_date",
+          });
+        if (resErr) return { ok: false, error: resErr.message };
+      }
 
-      const canceledDel = await deleteCanceledReservationRows(supabase, hotelId, parsed.canceledExternalIds);
-      if (canceledDel.error) return { ok: false, error: canceledDel.error.message };
-
+      // Prune stale nights for still-active bookings (date/rate changes).
+      // NOTE: whole-reservation cancellation reconciliation is a follow-up —
+      // canceled bookings drop out of the active list but their rows linger
+      // until we also pull canceled statuses and delete by id.
       const activeNights = new Map<string, Set<string>>();
-      for (const r of parsed.reservations) {
+      for (const r of rows) {
         if (!activeNights.has(r.external_reservation_id)) activeNights.set(r.external_reservation_id, new Set());
         activeNights.get(r.external_reservation_id)!.add(r.stay_date);
       }
       const staleDel = await deleteStaleStayNights(supabase, hotelId, activeNights);
       if (staleDel.error) return { ok: false, error: staleDel.error.message };
-    } else if (parsed.canceledExternalIds.length > 0) {
-      const canceledDel = await deleteCanceledReservationRows(supabase, hotelId, parsed.canceledExternalIds);
-      if (canceledDel.error) return { ok: false, error: canceledDel.error.message };
     }
 
     // 7. Stamp connection status.
@@ -275,13 +290,16 @@ export async function runCloudbedsSyncForHotel(
 
     return {
       ok: true,
+      creds,
       fetchWindow: { checkInFrom, checkInTo },
       apiPages: pages,
       roomTypesUpserted,
       reservationRowsUpserted,
       ingest: {
-        canceledReservationCount: parsed.canceledExternalIds.length,
-        ...parsed.stats,
+        reservationsDetailFetched: detailFetched,
+        reservationsDetailFailed: detailFailed,
+        duplicateStayNightKeysMerged,
+        rowsWithMissingRate,
         tokenRefreshed: resolved.refreshed,
       },
     };
