@@ -7,6 +7,7 @@ import { OnboardingReviewBanner } from "@/components/onboarding/review-banner";
 import { CorrectionsPanel, ExplainDrilldown } from "@/components/explain-drilldown";
 import { useCalendarLive } from "@/lib/use-calendar-live";
 import { PropertySelect } from "@/components/property-select";
+import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { SAMPLE_RESERVATIONS } from "@/lib/demo-data";
 import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
@@ -1095,6 +1096,8 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                 ))}
               </div>
             </div>
+
+            <RuleBehaviorAnimations />
 
             <div className="overflow-x-auto">
               <table className="w-full min-w-[720px] border-collapse text-sm">
