@@ -248,3 +248,66 @@ export function parseCloudbedsReservations(
     canceledExternalIds: [...canceled],
   };
 }
+
+/**
+ * Parse a getReservation DETAIL payload into per-room-per-night rows.
+ *
+ * Cloudbeds' reservation list is minimal (no room type, no nightly rate); the
+ * detail payload carries `assigned[]`, one entry per physical room, each with a
+ * `roomTypeID` and a `dailyRates: [{date, rate}]` array. We emit one booked
+ * room-night per (assigned room, date) so occupancy counts and nightly rates
+ * are correct. `external_reservation_id` uses the per-room `subReservationID`
+ * so each physical room is tracked independently.
+ *
+ * Verified against the live sandbox getReservation response.
+ */
+export function parseCloudbedsReservationDetail(detail: Json): {
+  reservationId: string | null;
+  status: string | null;
+  rows: CloudbedsParsedReservationRow[];
+} {
+  const reservationId = firstString(detail, ["reservationID", "reservationId", "id"]);
+  const status = firstString(detail, ["status", "reservationStatus"]);
+  const bookingDate = toYmd(firstString(detail, ["dateCreated", "created", "bookingDate"]) ?? "");
+
+  const rows: CloudbedsParsedReservationRow[] = [];
+  // Prefer `assigned[]` (has dailyRates); fall back to guestList[].rooms if absent.
+  const assigned = Array.isArray(detail.assigned) ? (detail.assigned as Json[]) : [];
+
+  for (const entry of assigned) {
+    if (!entry || typeof entry !== "object") continue;
+    const room = entry as Json;
+    const rtId = firstString(room, ["roomTypeID", "roomTypeId"]);
+    const subId =
+      firstString(room, ["subReservationID", "reservationRoomID", "roomID"]) ?? reservationId;
+    if (!subId) continue;
+
+    const daily = Array.isArray(room.dailyRates) ? (room.dailyRates as Json[]) : [];
+    for (const dr of daily) {
+      if (!dr || typeof dr !== "object") continue;
+      const d = dr as Json;
+      const stay = toYmd(firstString(d, ["date", "day", "stayDate"]) ?? "");
+      if (!stay) continue;
+      const rate = firstNumber(d, ["rate", "amount", "roomRate", "price"]);
+
+      let bookingWindowDays: number | null = null;
+      if (bookingDate) {
+        const a = new Date(`${stay}T00:00:00Z`).getTime();
+        const b = new Date(`${bookingDate}T00:00:00Z`).getTime();
+        bookingWindowDays = Math.max(0, Math.round((a - b) / 86_400_000));
+      }
+
+      rows.push({
+        external_reservation_id: String(subId),
+        external_room_type_id: rtId,
+        stay_date: stay,
+        booking_date: bookingDate,
+        booking_window_days: bookingWindowDays,
+        current_rate: rate,
+        raw_payload: room,
+      });
+    }
+  }
+
+  return { reservationId, status, rows };
+}
