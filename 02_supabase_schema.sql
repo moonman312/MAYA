@@ -7,6 +7,7 @@
 --   3) Keep raw payloads in JSONB where traceability is important.
 
 create extension if not exists pgcrypto;
+create extension if not exists citext;
 create extension if not exists supabase_vault with schema vault cascade;
 
 -- ============================================================================
@@ -24,7 +25,7 @@ begin
   end if;
 
   if not exists (select 1 from pg_type where typname = 'pms_type') then
-    create type pms_type as enum ('mews', 'cloudbeds', 'opera', 'other');
+    create type pms_type as enum ('mews', 'cloudbeds', 'think', 'opera', 'other');
   end if;
 
   if not exists (select 1 from pg_type where typname = 'connection_status') then
@@ -41,6 +42,14 @@ begin
 
   if not exists (select 1 from pg_type where typname = 'rate_update_status') then
     create type rate_update_status as enum ('pending', 'sent', 'succeeded', 'failed', 'skipped');
+  end if;
+
+  if not exists (select 1 from pg_type where typname = 'app_role') then
+    create type app_role as enum ('platform_admin', 'platform_support');
+  end if;
+
+  if not exists (select 1 from pg_type where typname = 'pending_membership_status') then
+    create type pending_membership_status as enum ('pending', 'accepted', 'expired', 'revoked');
   end if;
 end $$;
 
@@ -66,7 +75,9 @@ create table if not exists hotels (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (name),
-  unique nulls not distinct (external_enterprise_id)
+  -- NULLS DISTINCT: many hotels may have no enterprise id (Cloudbeds/Think/none);
+  -- uniqueness is only enforced across non-null values.
+  unique nulls distinct (external_enterprise_id)
 );
 
 create table if not exists hotel_memberships (
@@ -80,6 +91,58 @@ create table if not exists hotel_memberships (
 );
 
 create index if not exists idx_hotel_memberships_user on hotel_memberships(user_id);
+
+-- ============================================================================
+-- PLATFORM ROLES + INVITES + AUDIT (Command Center)
+-- Locked down below (RLS on, grants revoked from authenticated/anon). Reads
+-- are mediated by the SECURITY DEFINER helper is_platform_admin() and by the
+-- platform_* RPCs defined later in this file.
+-- ============================================================================
+
+create table if not exists app_roles (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  role app_role not null,
+  granted_at timestamptz not null default now(),
+  granted_by uuid references auth.users(id) on delete set null,
+  primary key (user_id, role)
+);
+
+create table if not exists pending_memberships (
+  id uuid primary key default gen_random_uuid(),
+  email citext not null,
+  hotel_id uuid not null references hotels(id) on delete cascade,
+  role hotel_membership_role not null,
+  status pending_membership_status not null default 'pending',
+  invited_by uuid references auth.users(id) on delete set null,
+  invited_at timestamptz not null default now(),
+  accepted_at timestamptz,
+  accepted_by uuid references auth.users(id) on delete set null,
+  supabase_invite_id uuid,
+  unique (email, hotel_id)
+);
+
+create index if not exists idx_pending_memberships_email
+  on pending_memberships (email);
+create index if not exists idx_pending_memberships_hotel_status
+  on pending_memberships (hotel_id, status);
+
+create table if not exists platform_audit_events (
+  id uuid primary key default gen_random_uuid(),
+  actor_user_id uuid references auth.users(id) on delete set null,
+  event_type text not null,
+  entity_type text not null,
+  entity_id text,
+  hotel_id uuid references hotels(id) on delete set null,
+  detail jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_platform_audit_events_created_at
+  on platform_audit_events(created_at desc);
+create index if not exists idx_platform_audit_events_hotel
+  on platform_audit_events(hotel_id, created_at desc);
+create index if not exists idx_platform_audit_events_actor
+  on platform_audit_events(actor_user_id, created_at desc);
 
 -- ============================================================================
 -- PMS + HOTEL SETTINGS
@@ -562,7 +625,8 @@ create table if not exists competitor_rates (
 create index if not exists idx_competitor_rates_hotel_stay_date
   on competitor_rates(hotel_id, stay_date);
 
--- Grant the authenticated creator a hotel_admin row.
+-- Grant the authenticated creator a hotel_admin row, UNLESS the creator is a
+-- platform admin provisioning on behalf of a customer (Command Center flow).
 create or replace function public.auto_hotel_creator_membership()
 returns trigger
 language plpgsql
@@ -570,7 +634,7 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  if auth.uid() is not null then
+  if auth.uid() is not null and not public.is_platform_admin() then
     insert into public.hotel_memberships (hotel_id, user_id, role, status)
     values (new.id, auth.uid(), 'hotel_admin', 'active')
     on conflict (hotel_id, user_id) do nothing;
@@ -585,6 +649,51 @@ create trigger trg_hotels_creator_membership
   for each row
   execute function public.auto_hotel_creator_membership();
 
+-- Materialize pending_memberships into hotel_memberships when an invited user
+-- signs up (or accepts a Supabase Auth invite, which is also an INSERT on
+-- auth.users). Also ensures a public.profiles row exists.
+create or replace function public.accept_pending_memberships_for_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.email is null then
+    return new;
+  end if;
+
+  insert into public.profiles (id, full_name, is_active)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'full_name', null),
+    true
+  )
+  on conflict (id) do nothing;
+
+  insert into public.hotel_memberships (hotel_id, user_id, role, status)
+  select pm.hotel_id, new.id, pm.role, 'active'
+  from public.pending_memberships pm
+  where pm.email = (new.email)::citext
+    and pm.status = 'pending'
+  on conflict (hotel_id, user_id) do nothing;
+
+  update public.pending_memberships pm
+     set status = 'accepted',
+         accepted_at = now(),
+         accepted_by = new.id
+   where pm.email = (new.email)::citext
+     and pm.status = 'pending';
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_accept_pending_memberships on auth.users;
+create trigger trg_accept_pending_memberships
+  after insert on auth.users
+  for each row execute function public.accept_pending_memberships_for_user();
+
 -- ============================================================================
 -- ROW LEVEL SECURITY (hotel membership scoped)
 -- ============================================================================
@@ -592,8 +701,48 @@ create trigger trg_hotels_creator_membership
 alter table profiles enable row level security;
 alter table hotels enable row level security;
 alter table hotel_memberships enable row level security;
+alter table app_roles enable row level security;
+alter table pending_memberships enable row level security;
+alter table platform_audit_events enable row level security;
 alter table pms_connections enable row level security;
 alter table pms_connection_secrets enable row level security;
+
+-- ---------------------------------------------------------------------------
+-- Command Center: lock down platform tables. No JWT-role policies exist by
+-- design — access happens via SECURITY DEFINER helpers (is_platform_admin)
+-- and the platform_* RPCs in PR 2 of the Command Center work.
+-- ---------------------------------------------------------------------------
+
+revoke all on app_roles from public;
+revoke all on app_roles from anon;
+revoke all on app_roles from authenticated;
+grant select, insert, update, delete on app_roles to service_role;
+
+revoke all on pending_memberships from public;
+revoke all on pending_memberships from anon;
+revoke all on pending_memberships from authenticated;
+grant select, insert, update, delete on pending_memberships to service_role;
+
+-- platform_audit_events is read-only for platform admins via the policy below;
+-- writes only from service role / SECURITY DEFINER paths.
+revoke all on platform_audit_events from public;
+revoke all on platform_audit_events from anon;
+revoke insert, update, delete on platform_audit_events from authenticated;
+grant select on platform_audit_events to authenticated;
+grant select, insert, update, delete on platform_audit_events to service_role;
+
+comment on table app_roles is
+  'Platform-level roles independent of hotel memberships. Read via the '
+  'SECURITY DEFINER helper is_platform_admin(); JWT roles cannot SELECT this '
+  'table directly.';
+
+comment on table pending_memberships is
+  'Pre-staged hotel memberships for invited users. Materialized into '
+  'hotel_memberships by trg_accept_pending_memberships on auth.users insert.';
+
+comment on table platform_audit_events is
+  'Audit log for platform-level provisioning actions. Read by platform admins '
+  'via RLS; writes only via service role or SECURITY DEFINER RPCs.';
 
 -- Lock pms_connection_secrets down so PostgREST cannot touch it. RLS on with
 -- no policy denies JWT roles; explicit revokes are belt-and-suspenders.
@@ -658,6 +807,30 @@ as $$
   )
 $$;
 
+-- Platform-admin gateway: returns true iff the user is in app_roles with
+-- role='platform_admin'. Wrapped in SECURITY DEFINER so callers don't need
+-- direct SELECT on the locked-down app_roles table.
+create or replace function public.is_platform_admin(p_user_id uuid default auth.uid())
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1
+    from public.app_roles
+    where user_id = p_user_id
+      and role = 'platform_admin'
+  )
+$$;
+
+revoke all on function public.is_platform_admin(uuid) from public;
+grant execute on function public.is_platform_admin(uuid)
+  to authenticated, service_role;
+
+-- Hotel-membership predicates now OR with is_platform_admin() so platform
+-- operators bypass all hotel-scoped RLS without rewriting individual policies.
 create or replace function public.is_hotel_accessible(target_hotel_id uuid)
 returns boolean
 language sql
@@ -665,10 +838,11 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select has_hotel_role(
-    target_hotel_id,
-    array['hotel_admin', 'manager', 'staff', 'viewer']
-  )
+  select public.is_platform_admin()
+      or has_hotel_role(
+           target_hotel_id,
+           array['hotel_admin', 'manager', 'staff', 'viewer']
+         )
 $$;
 
 create or replace function public.can_manage_hotel(target_hotel_id uuid)
@@ -678,10 +852,11 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select has_hotel_role(
-    target_hotel_id,
-    array['hotel_admin', 'manager']
-  )
+  select public.is_platform_admin()
+      or has_hotel_role(
+           target_hotel_id,
+           array['hotel_admin', 'manager']
+         )
 $$;
 
 -- ============================================================================
@@ -1033,6 +1208,13 @@ create policy audit_events_access
   using (is_hotel_accessible(hotel_id))
   with check (can_manage_hotel(hotel_id));
 
+-- Command Center audit log: read-only for platform admins. Writes go through
+-- service role / SECURITY DEFINER paths (no JWT-writable policy).
+drop policy if exists platform_audit_events_read on platform_audit_events;
+create policy platform_audit_events_read
+  on platform_audit_events for select
+  using (public.is_platform_admin());
+
 drop policy if exists market_events_access on market_events;
 create policy market_events_access
   on market_events for all
@@ -1081,3 +1263,493 @@ create policy evaluation_audit_access
   on evaluation_audit for all
   using (is_hotel_accessible(hotel_id))
   with check (can_manage_hotel(hotel_id));
+
+
+-- ============================================================================
+-- COMMAND CENTER RPCs + VIEW (mirrors 99_supabase_migration_command_center_v3)
+-- Every function includes `auth.role() = 'service_role'` as an authorization
+-- bypass so the /admin routes (which use the service-role client) can call
+-- these without being blocked by the auth.uid()-based checks.
+-- ============================================================================
+
+create or replace view public.platform_users_view as
+select
+  u.id,
+  u.email::text as email,
+  u.created_at,
+  u.last_sign_in_at,
+  p.full_name,
+  p.is_active,
+  (select array_agg(role::text) from public.app_roles where user_id = u.id) as platform_roles
+from auth.users u
+left join public.profiles p on p.id = u.id;
+
+revoke all on public.platform_users_view from public;
+revoke all on public.platform_users_view from anon;
+revoke all on public.platform_users_view from authenticated;
+grant select on public.platform_users_view to service_role;
+
+comment on view public.platform_users_view is
+  'Auth.users + profiles + platform roles. Not directly queryable via '
+  'PostgREST; consumed by SECURITY DEFINER platform_list_users.';
+
+create or replace function public.platform_list_users(
+  p_search text default null,
+  p_limit int default 100,
+  p_offset int default 0
+) returns table (
+  id uuid,
+  email text,
+  full_name text,
+  is_active boolean,
+  created_at timestamptz,
+  last_sign_in_at timestamptz,
+  platform_roles text[],
+  hotel_count int
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_platform_admin() then
+    raise exception 'Not authorized' using errcode = '42501';
+  end if;
+
+  return query
+    select
+      v.id,
+      v.email,
+      v.full_name,
+      v.is_active,
+      v.created_at,
+      v.last_sign_in_at,
+      v.platform_roles,
+      (select count(*)::int from public.hotel_memberships hm where hm.user_id = v.id) as hotel_count
+    from public.platform_users_view v
+    where p_search is null
+       or v.email ilike '%' || p_search || '%'
+       or coalesce(v.full_name, '') ilike '%' || p_search || '%'
+    order by v.created_at desc
+    limit greatest(1, least(p_limit, 500))
+    offset greatest(0, p_offset);
+end;
+$$;
+
+revoke all on function public.platform_list_users(text, int, int) from public;
+grant execute on function public.platform_list_users(text, int, int)
+  to authenticated, service_role;
+
+create or replace function public.platform_list_hotel_users(
+  p_hotel_id uuid
+) returns table (
+  membership_id uuid,
+  user_id uuid,
+  email text,
+  full_name text,
+  role public.hotel_membership_role,
+  status public.membership_status,
+  created_at timestamptz
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not (public.is_platform_admin() or public.can_manage_hotel(p_hotel_id)) then
+    raise exception 'Not authorized for hotel %', p_hotel_id using errcode = '42501';
+  end if;
+
+  return query
+    select
+      hm.id,
+      hm.user_id,
+      u.email::text,
+      p.full_name,
+      hm.role,
+      hm.status,
+      hm.created_at
+    from public.hotel_memberships hm
+    join auth.users u on u.id = hm.user_id
+    left join public.profiles p on p.id = hm.user_id
+    where hm.hotel_id = p_hotel_id
+    order by hm.created_at asc;
+end;
+$$;
+
+revoke all on function public.platform_list_hotel_users(uuid) from public;
+grant execute on function public.platform_list_hotel_users(uuid)
+  to authenticated, service_role;
+
+create or replace function public.platform_list_hotels(
+  p_search text default null
+) returns table (
+  id uuid,
+  name text,
+  timezone text,
+  currency text,
+  is_active boolean,
+  total_rooms_per_type int,
+  external_enterprise_id text,
+  created_at timestamptz,
+  updated_at timestamptz,
+  pms_type public.pms_type,
+  pms_status public.connection_status,
+  pms_last_sync_at timestamptz,
+  membership_count int
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_platform_admin() then
+    raise exception 'Not authorized' using errcode = '42501';
+  end if;
+
+  return query
+    select
+      h.id,
+      h.name,
+      h.timezone,
+      h.currency,
+      h.is_active,
+      h.total_rooms_per_type,
+      h.external_enterprise_id,
+      h.created_at,
+      h.updated_at,
+      pc.pms_type,
+      pc.status,
+      pc.last_sync_at,
+      (select count(*)::int from public.hotel_memberships hm where hm.hotel_id = h.id) as membership_count
+    from public.hotels h
+    left join public.pms_connections pc on pc.hotel_id = h.id
+    where p_search is null
+       or h.name ilike '%' || p_search || '%'
+    order by h.created_at desc;
+end;
+$$;
+
+revoke all on function public.platform_list_hotels(text) from public;
+grant execute on function public.platform_list_hotels(text)
+  to authenticated, service_role;
+
+create or replace function public.platform_list_pending_invites(
+  p_hotel_id uuid default null
+) returns table (
+  id uuid,
+  email text,
+  hotel_id uuid,
+  hotel_name text,
+  role public.hotel_membership_role,
+  status public.pending_membership_status,
+  invited_by uuid,
+  invited_by_email text,
+  invited_at timestamptz,
+  accepted_at timestamptz
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_platform_admin() then
+    raise exception 'Not authorized' using errcode = '42501';
+  end if;
+
+  return query
+    select
+      pm.id,
+      pm.email::text,
+      pm.hotel_id,
+      h.name as hotel_name,
+      pm.role,
+      pm.status,
+      pm.invited_by,
+      inviter.email::text as invited_by_email,
+      pm.invited_at,
+      pm.accepted_at
+    from public.pending_memberships pm
+    join public.hotels h on h.id = pm.hotel_id
+    left join auth.users inviter on inviter.id = pm.invited_by
+    where p_hotel_id is null or pm.hotel_id = p_hotel_id
+    order by pm.invited_at desc;
+end;
+$$;
+
+revoke all on function public.platform_list_pending_invites(uuid) from public;
+grant execute on function public.platform_list_pending_invites(uuid)
+  to authenticated, service_role;
+
+create or replace function public.platform_log_event(
+  p_event_type text,
+  p_entity_type text,
+  p_entity_id text default null,
+  p_hotel_id uuid default null,
+  p_detail jsonb default '{}'::jsonb
+) returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_id uuid;
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_platform_admin() then
+    raise exception 'Not authorized to write audit events' using errcode = '42501';
+  end if;
+
+  insert into public.platform_audit_events (actor_user_id, event_type, entity_type, entity_id, hotel_id, detail)
+  values (auth.uid(), p_event_type, p_entity_type, p_entity_id, p_hotel_id, coalesce(p_detail, '{}'::jsonb))
+  returning id into v_id;
+
+  return v_id;
+end;
+$$;
+
+revoke all on function public.platform_log_event(text, text, text, uuid, jsonb) from public;
+grant execute on function public.platform_log_event(text, text, text, uuid, jsonb)
+  to authenticated, service_role;
+
+create or replace function public.platform_invite_user(
+  p_email citext,
+  p_hotel_id uuid,
+  p_role public.hotel_membership_role,
+  p_supabase_invite_id uuid default null
+) returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_id uuid;
+  v_existing_user uuid;
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not (public.is_platform_admin() or public.can_manage_hotel(p_hotel_id)) then
+    raise exception 'Not authorized to invite users to hotel %', p_hotel_id
+      using errcode = '42501';
+  end if;
+
+  insert into public.pending_memberships (email, hotel_id, role, invited_by, supabase_invite_id)
+  values (lower(p_email::text)::citext, p_hotel_id, p_role, auth.uid(), p_supabase_invite_id)
+  on conflict (email, hotel_id) do update
+    set role = excluded.role,
+        status = 'pending',
+        invited_by = excluded.invited_by,
+        invited_at = now(),
+        accepted_at = null,
+        accepted_by = null,
+        supabase_invite_id = excluded.supabase_invite_id
+  returning id into v_id;
+
+  select u.id into v_existing_user
+  from auth.users u
+  where u.email = p_email::text
+  limit 1;
+
+  if v_existing_user is not null then
+    insert into public.hotel_memberships (hotel_id, user_id, role, status)
+    values (p_hotel_id, v_existing_user, p_role, 'active')
+    on conflict (hotel_id, user_id) do update
+      set role = excluded.role,
+          status = 'active';
+
+    update public.pending_memberships
+       set status = 'accepted',
+           accepted_at = now(),
+           accepted_by = v_existing_user
+     where id = v_id;
+  end if;
+
+  insert into public.platform_audit_events (actor_user_id, event_type, entity_type, entity_id, hotel_id, detail)
+  values (
+    auth.uid(),
+    case when v_existing_user is not null then 'user.added_to_hotel' else 'user.invited' end,
+    'pending_membership',
+    v_id::text,
+    p_hotel_id,
+    jsonb_build_object(
+      'email', lower(p_email::text),
+      'role', p_role::text,
+      'existing_user', v_existing_user is not null
+    )
+  );
+
+  return v_id;
+end;
+$$;
+
+revoke all on function public.platform_invite_user(citext, uuid, public.hotel_membership_role, uuid) from public;
+grant execute on function public.platform_invite_user(citext, uuid, public.hotel_membership_role, uuid)
+  to authenticated, service_role;
+
+create or replace function public.platform_set_membership_role(
+  p_hotel_id uuid,
+  p_user_id uuid,
+  p_role public.hotel_membership_role
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not (public.is_platform_admin() or public.can_manage_hotel(p_hotel_id)) then
+    raise exception 'Not authorized to modify memberships for hotel %', p_hotel_id
+      using errcode = '42501';
+  end if;
+
+  update public.hotel_memberships
+     set role = p_role
+   where hotel_id = p_hotel_id and user_id = p_user_id;
+
+  if not found then
+    raise exception 'Membership not found (hotel=%, user=%)', p_hotel_id, p_user_id
+      using errcode = 'P0002';
+  end if;
+
+  insert into public.platform_audit_events (actor_user_id, event_type, entity_type, entity_id, hotel_id, detail)
+  values (auth.uid(), 'membership.role_changed', 'hotel_membership',
+          p_hotel_id::text || ':' || p_user_id::text, p_hotel_id,
+          jsonb_build_object('user_id', p_user_id, 'new_role', p_role::text));
+end;
+$$;
+
+revoke all on function public.platform_set_membership_role(uuid, uuid, public.hotel_membership_role) from public;
+grant execute on function public.platform_set_membership_role(uuid, uuid, public.hotel_membership_role)
+  to authenticated, service_role;
+
+create or replace function public.platform_remove_membership(
+  p_hotel_id uuid,
+  p_user_id uuid
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not (public.is_platform_admin() or public.can_manage_hotel(p_hotel_id)) then
+    raise exception 'Not authorized to remove memberships for hotel %', p_hotel_id
+      using errcode = '42501';
+  end if;
+
+  delete from public.hotel_memberships
+   where hotel_id = p_hotel_id and user_id = p_user_id;
+
+  insert into public.platform_audit_events (actor_user_id, event_type, entity_type, entity_id, hotel_id, detail)
+  values (auth.uid(), 'membership.removed', 'hotel_membership',
+          p_hotel_id::text || ':' || p_user_id::text, p_hotel_id,
+          jsonb_build_object('user_id', p_user_id));
+end;
+$$;
+
+revoke all on function public.platform_remove_membership(uuid, uuid) from public;
+grant execute on function public.platform_remove_membership(uuid, uuid)
+  to authenticated, service_role;
+
+create or replace function public.platform_revoke_pending(
+  p_pending_id uuid
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_hotel_id uuid;
+begin
+  select hotel_id into v_hotel_id
+  from public.pending_memberships
+  where id = p_pending_id;
+
+  if v_hotel_id is null then
+    raise exception 'Pending invite not found' using errcode = 'P0002';
+  end if;
+
+  if (select auth.role()) is distinct from 'service_role'
+     and not (public.is_platform_admin() or public.can_manage_hotel(v_hotel_id)) then
+    raise exception 'Not authorized' using errcode = '42501';
+  end if;
+
+  update public.pending_memberships
+     set status = 'revoked'
+   where id = p_pending_id and status = 'pending';
+
+  insert into public.platform_audit_events (actor_user_id, event_type, entity_type, entity_id, hotel_id, detail)
+  values (auth.uid(), 'invite.revoked', 'pending_membership', p_pending_id::text, v_hotel_id, '{}'::jsonb);
+end;
+$$;
+
+revoke all on function public.platform_revoke_pending(uuid) from public;
+grant execute on function public.platform_revoke_pending(uuid)
+  to authenticated, service_role;
+
+create or replace function public.platform_grant_role(
+  p_user_id uuid,
+  p_role public.app_role
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_platform_admin() then
+    raise exception 'Not authorized' using errcode = '42501';
+  end if;
+
+  insert into public.app_roles (user_id, role, granted_by)
+  values (p_user_id, p_role, auth.uid())
+  on conflict (user_id, role) do nothing;
+
+  insert into public.platform_audit_events (actor_user_id, event_type, entity_type, entity_id, detail)
+  values (auth.uid(), 'app_role.granted', 'app_role', p_user_id::text,
+          jsonb_build_object('user_id', p_user_id, 'role', p_role::text));
+end;
+$$;
+
+revoke all on function public.platform_grant_role(uuid, public.app_role) from public;
+grant execute on function public.platform_grant_role(uuid, public.app_role)
+  to authenticated, service_role;
+
+create or replace function public.platform_revoke_role(
+  p_user_id uuid,
+  p_role public.app_role
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_platform_admin() then
+    raise exception 'Not authorized' using errcode = '42501';
+  end if;
+
+  if p_role = 'platform_admin'
+     and p_user_id = auth.uid()
+     and (select count(*) from public.app_roles where role = 'platform_admin') <= 1 then
+    raise exception 'Cannot revoke the last platform_admin' using errcode = '23514';
+  end if;
+
+  delete from public.app_roles where user_id = p_user_id and role = p_role;
+
+  insert into public.platform_audit_events (actor_user_id, event_type, entity_type, entity_id, detail)
+  values (auth.uid(), 'app_role.revoked', 'app_role', p_user_id::text,
+          jsonb_build_object('user_id', p_user_id, 'role', p_role::text));
+end;
+$$;
+
+revoke all on function public.platform_revoke_role(uuid, public.app_role) from public;
+grant execute on function public.platform_revoke_role(uuid, public.app_role)
+  to authenticated, service_role;

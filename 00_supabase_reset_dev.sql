@@ -21,6 +21,7 @@
 do $$
 declare
   want text[] := array[
+    'app_roles',
     'audit_events',
     'competitor_rates',
     'evaluation_audit',
@@ -33,7 +34,9 @@ declare
     'occupancy_metrics',
     'organization_memberships',
     'organizations',
+    'pending_memberships',
     'pickup_event',
+    'platform_audit_events',
     'pricing_decisions',
     'pricing_rule_conditions',
     'pricing_rule_room_types',
@@ -88,6 +91,7 @@ end $$;
 
 /*
 drop table if exists
+  app_roles,
   audit_events,
   competitor_rates,
   evaluation_audit,
@@ -100,7 +104,9 @@ drop table if exists
   occupancy_metrics,
   organization_memberships,
   organizations,
+  pending_memberships,
   pickup_event,
+  platform_audit_events,
   pricing_decisions,
   pricing_rule_conditions,
   pricing_rule_room_types,
@@ -125,6 +131,8 @@ drop type if exists run_status cascade;
 drop type if exists run_type cascade;
 drop type if exists connection_status cascade;
 drop type if exists pms_type cascade;
+drop type if exists pending_membership_status cascade;
+drop type if exists app_role cascade;
 drop type if exists membership_status cascade;
 drop type if exists hotel_membership_role cascade;
 -- Pre–PR #1 enums (safe no-ops if already removed)
