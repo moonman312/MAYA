@@ -172,6 +172,14 @@ export type CalendarRoomType = {
   booked: number;
   rate: number;
   revenue: number;
+  /**
+   * Engine-published price for this night (from `published_price`), i.e. the
+   * current asking price after rules + floor/ceiling clamps. Null when no
+   * evaluation has published a price for this (stay_date, room_type) — e.g.
+   * before the first /api/evaluate run, past horizon, or in demo mode.
+   * Distinct from `rate`, which is the backward-looking ADR of bookings.
+   */
+  current_price?: number | null;
 };
 
 export type CalendarDay = {

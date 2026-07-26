@@ -10,3 +10,7 @@ enabled = true
 [functions.mews-scheduled-sync]
 # pg_cron + Vault typically cannot send a user JWT; validate x-mews-cron-secret instead.
 verify_jwt = false
+
+[functions.cloudbeds-scheduled-sync]
+# pg_cron + Vault typically cannot send a user JWT; validate x-cloudbeds-cron-secret instead.
+verify_jwt = false
