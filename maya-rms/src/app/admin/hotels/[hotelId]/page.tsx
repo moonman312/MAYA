@@ -1,9 +1,11 @@
 import { HotelMembershipsCard } from "@/components/admin/hotel-memberships-card";
 import { HotelPmsCard } from "@/components/admin/hotel-pms-card";
+import { SimulationModeToggle } from "@/components/admin/simulation-mode-toggle";
 import { PmsStatusPill } from "@/components/admin/status-pill";
-import { getHotel } from "@/lib/admin/hotels";
+import { getHotel, getHotelSimulationMode } from "@/lib/admin/hotels";
 import { listHotelMemberships, listPendingInvites } from "@/lib/admin/memberships";
 import { listPmsStatuses } from "@/lib/pms/registry";
+import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { cookies } from "next/headers";
 import Link from "next/link";
@@ -24,6 +26,11 @@ export default async function AdminHotelDetailPage({
     listPendingInvites(ssr, hotelId),
   ]);
   const pmsStatuses = listPmsStatuses();
+  // Pricing mode lives in hotel_settings; read with the service-role client so
+  // RLS never hides it from the admin view. Defaults to simulation.
+  const simulationMode = isAdminConfigured()
+    ? await getHotelSimulationMode(createAdminClient(), hotelId)
+    : true;
   if (!hotel) {
     notFound();
   }
@@ -41,6 +48,15 @@ export default async function AdminHotelDetailPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+              simulationMode
+                ? "bg-slate-700 text-slate-200"
+                : "bg-emerald-500/20 text-emerald-300"
+            }`}
+          >
+            {simulationMode ? "Simulation" : "Live"}
+          </span>
           <PmsStatusPill status={hotel.pms_status} />
         </div>
       </div>
@@ -83,6 +99,17 @@ export default async function AdminHotelDetailPage({
             </dd>
           </div>
         </dl>
+      </section>
+
+      <section className="rounded border border-slate-800 bg-slate-900">
+        <header className="border-b border-slate-800 p-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Pricing mode
+          </h2>
+        </header>
+        <div className="p-4">
+          <SimulationModeToggle hotelId={hotel.id} simulationMode={simulationMode} />
+        </div>
       </section>
 
       <HotelPmsCard
