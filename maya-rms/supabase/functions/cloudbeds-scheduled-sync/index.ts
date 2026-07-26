@@ -14,6 +14,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2.99.3";
 import { runCloudbedsSyncForHotel } from "../_shared/cloudbeds/sync-hotel.ts";
 import { evaluateHotel } from "../_shared/engine/index.ts";
+import { createCloudbedsRateAdapter } from "../_shared/cloudbeds/rate-push.ts";
+import { pushRatesForHotel } from "../_shared/pms/rate-push.ts";
 
 function getEnv(name: string): string | undefined {
   const v = Deno.env.get(name);
@@ -50,6 +52,9 @@ Deno.serve(async (req) => {
   // limit. 45 days covers the near-term calendar; raise once you've confirmed
   // run durations in the logs. Env override: MAYA_EVAL_HORIZON_DAYS.
   const horizonDays = Math.max(1, Number(getEnv("MAYA_EVAL_HORIZON_DAYS") ?? "45") || 45);
+  // Outbound rate push is OFF unless explicitly enabled, and even then only
+  // fires for hotels in LIVE mode (gated inside pushRatesForHotel).
+  const pushRatesEnabled = (getEnv("MAYA_PUSH_RATES") ?? "false").toLowerCase() === "true";
 
   let bodyHotelId: string | null = null;
   try {
@@ -87,6 +92,8 @@ Deno.serve(async (req) => {
     hotelId: string;
     sync: Awaited<ReturnType<typeof runCloudbedsSyncForHotel>>;
     evaluate?: Awaited<ReturnType<typeof evaluateHotel>> | { error: string } | { skipped: true };
+    // deno-lint-ignore no-explicit-any
+    push?: any;
   }> = [];
 
   for (const hotelId of hotelIds) {
@@ -106,6 +113,24 @@ Deno.serve(async (req) => {
     }
     const tEval = Date.now();
 
+    // Outbound rate push — needs live credentials (only available when sync
+    // succeeded). Internally no-ops unless the hotel is in LIVE mode.
+    // deno-lint-ignore no-explicit-any
+    let push: any = pushRatesEnabled ? undefined : { skipped: "disabled" };
+    if (pushRatesEnabled) {
+      if (sync.ok) {
+        try {
+          const adapter = createCloudbedsRateAdapter(sync.creds);
+          push = await pushRatesForHotel(supabase, hotelId, adapter);
+        } catch (e) {
+          push = { error: e instanceof Error ? e.message : "push failed" };
+        }
+      } else {
+        push = { skipped: "no_credentials" };
+      }
+    }
+    const tPush = Date.now();
+
     console.log(
       JSON.stringify({
         fn: "cloudbeds-scheduled-sync",
@@ -113,13 +138,15 @@ Deno.serve(async (req) => {
         syncOk: sync.ok,
         syncError: sync.ok ? undefined : sync.error,
         evaluate,
+        push,
         syncMs: tSync - t0,
         evalMs: tEval - tSync,
+        pushMs: tPush - tEval,
         horizonDays,
       }),
     );
 
-    results.push({ hotelId, sync, evaluate });
+    results.push({ hotelId, sync, evaluate, push });
   }
 
   const failed = results.filter(

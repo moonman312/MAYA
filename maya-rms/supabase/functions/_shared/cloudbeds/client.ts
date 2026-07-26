@@ -223,3 +223,113 @@ export async function cloudbedsGetReservationDetail(
     return null;
   }
 }
+
+/* ── Rate PUSH (write) — outbound to Cloudbeds ─────────────────────────────── */
+
+/** POST a JSON body to a Cloudbeds classic endpoint (Bearer auth, paced, 429 backoff). */
+export async function cloudbedsPost(
+  creds: CloudbedsResolvedCredentials,
+  method: string,
+  body: JsonRecord,
+  timeoutMs = 45_000,
+): Promise<JsonRecord> {
+  const url = `${creds.baseUrl.replace(/\/$/, "")}/${method.replace(/^\//, "")}`;
+  let backoffMs = 1000;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    await pace();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `${creds.tokenType || "Bearer"} ${creds.accessToken}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      const text = await res.text();
+      let data: unknown;
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        throw new CloudbedsHttpError(
+          `Cloudbeds ${method} non-JSON (${res.status}): ${text.slice(0, 200)}`,
+          res.status,
+          method,
+        );
+      }
+      if (res.status === 429 && attempt < MAX_ATTEMPTS - 1) {
+        const retry = parseRetryAfterMs(res) ?? Math.min(backoffMs, 60_000);
+        backoffMs = Math.min(backoffMs * 2, 60_000);
+        await sleep(retry);
+        continue;
+      }
+      const rec = (data ?? {}) as JsonRecord;
+      if (!res.ok || rec.success === false) {
+        const msg = typeof rec.message === "string" ? rec.message : text.slice(0, 300);
+        throw new CloudbedsHttpError(
+          `Cloudbeds ${method} failed (${res.status}): ${msg}`,
+          res.ok ? 400 : res.status,
+          method,
+          res.status === 429 ? parseRetryAfterMs(res) : null,
+        );
+      }
+      return rec;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw new Error(`Cloudbeds ${method}: retry loop fell through`);
+}
+
+/**
+ * getRatePlans → data[] of rate plans (used to map roomTypeID → base rateID).
+ * Cloudbeds requires a startDate/endDate window even when we only want the
+ * rate-plan catalog, so the caller passes a small range.
+ */
+export async function cloudbedsGetRatePlans(
+  creds: CloudbedsResolvedCredentials,
+  startDate: string,
+  endDate: string,
+): Promise<JsonRecord[]> {
+  const res = await cloudbedsGet(creds, "getRatePlans", {
+    propertyID: creds.propertyId,
+    startDate,
+    endDate,
+  });
+  const data = res.data;
+  return Array.isArray(data) ? (data as JsonRecord[]) : [];
+}
+
+export type CloudbedsRateInterval = { startDate: string; endDate: string; rate: number };
+
+/**
+ * patchRate — push nightly rates. One rateID maps to an array of intervals.
+ * Cloudbeds allows up to 30 intervals per call; the caller chunks accordingly.
+ * The endpoint is async and returns a jobReferenceID.
+ * @see https://developers.cloudbeds.com/docs/revenue-management-system-rms
+ * ⚠ VERIFY the exact success/error envelope + jobReferenceID field for your app.
+ */
+export async function cloudbedsPatchRate(
+  creds: CloudbedsResolvedCredentials,
+  rateID: string,
+  intervals: CloudbedsRateInterval[],
+): Promise<{ ok: true; jobReferenceID: string | null } | { ok: false; error: string }> {
+  try {
+    const res = await cloudbedsPost(creds, "patchRate", {
+      propertyID: creds.propertyId,
+      rates: [{ rateID, interval: intervals }],
+    });
+    const job =
+      (typeof res.jobReferenceID === "string" && res.jobReferenceID) ||
+      (typeof (res.data as JsonRecord)?.jobReferenceID === "string" &&
+        String((res.data as JsonRecord).jobReferenceID)) ||
+      null;
+    return { ok: true, jobReferenceID: job };
+  } catch (e) {
+    return { ok: false, error: e instanceof CloudbedsHttpError ? e.message : String(e) };
+  }
+}

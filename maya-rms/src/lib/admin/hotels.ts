@@ -114,3 +114,43 @@ export async function updateHotel(
     p_detail: patch as Record<string, unknown>,
   });
 }
+
+/**
+ * Read a hotel's pricing mode. `true` = simulation (compute + display only),
+ * `false` = live (also push computed rates to the PMS). Defaults to simulation
+ * when no settings row exists.
+ */
+export async function getHotelSimulationMode(
+  client: SupabaseClient,
+  hotelId: string,
+): Promise<boolean> {
+  const { data } = await client
+    .from("hotel_settings")
+    .select("simulation_mode")
+    .eq("hotel_id", hotelId)
+    .maybeSingle();
+  return data?.simulation_mode ?? true;
+}
+
+/**
+ * Flip a hotel between simulation and live pricing. Live means the scheduled
+ * job will push computed rates back to the PMS; simulation means it won't.
+ */
+export async function setHotelSimulationMode(
+  admin: SupabaseClient,
+  hotelId: string,
+  simulationMode: boolean,
+): Promise<void> {
+  const { error } = await admin
+    .from("hotel_settings")
+    .upsert({ hotel_id: hotelId, simulation_mode: simulationMode }, { onConflict: "hotel_id" });
+  if (error) throw new Error(`Failed to set simulation mode: ${error.message}`);
+
+  await admin.rpc("platform_log_event", {
+    p_event_type: "hotel.simulation_mode_changed",
+    p_entity_type: "hotel",
+    p_entity_id: hotelId,
+    p_hotel_id: hotelId,
+    p_detail: { simulation_mode: simulationMode },
+  });
+}
