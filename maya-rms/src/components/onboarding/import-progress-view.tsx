@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import {
@@ -74,9 +75,9 @@ export function ImportProgressView() {
         ) : null}
       </div>
 
-      <a href="/" className="text-xs text-slate-500 hover:text-slate-300">
+      <Link href="/" className="text-xs text-slate-500 hover:text-slate-300">
         Go to my dashboard →
-      </a>
+      </Link>
     </div>
   );
 }

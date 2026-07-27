@@ -189,6 +189,82 @@ $$;
 revoke all on function public.claim_import_job(integer) from public;
 grant execute on function public.claim_import_job(integer) to service_role;
 
+-- ── Analysis aggregates (service-role only, used by the import worker) ──────
+
+-- Daily booked room-nights across the whole property.
+create or replace function public.onboarding_daily_room_nights(p_hotel_id uuid)
+returns table(stay_date date, room_nights bigint)
+language sql
+security definer
+set search_path = public, pg_temp
+as $$
+  select r.stay_date, count(*)::bigint
+  from reservations r
+  where r.hotel_id = p_hotel_id
+  group by r.stay_date
+  order by r.stay_date;
+$$;
+
+revoke all on function public.onboarding_daily_room_nights(uuid) from public;
+grant execute on function public.onboarding_daily_room_nights(uuid) to service_role;
+
+-- Per-room-type stats for the cleaning heuristics: volume, rate distribution,
+-- and length-of-stay shape.
+create or replace function public.onboarding_room_type_stats(p_hotel_id uuid)
+returns table(
+  room_type_id uuid,
+  external_room_type_id text,
+  name text,
+  is_active boolean,
+  row_count bigint,
+  median_rate numeric,
+  p99_rate numeric,
+  max_rate numeric,
+  reservation_count bigint,
+  single_night_reservations bigint,
+  median_los numeric
+)
+language sql
+security definer
+set search_path = public, pg_temp
+as $$
+  with res_nights as (
+    select r.room_type_id as rt_id, r.external_reservation_id, count(*) as nights
+    from reservations r
+    where r.hotel_id = p_hotel_id
+    group by 1, 2
+  ),
+  rate_stats as (
+    select r.room_type_id as rt_id,
+      count(*)::bigint as row_count,
+      percentile_cont(0.5) within group (order by r.current_rate) as median_rate,
+      percentile_cont(0.99) within group (order by r.current_rate) as p99_rate,
+      max(r.current_rate) as max_rate
+    from reservations r
+    where r.hotel_id = p_hotel_id and r.current_rate is not null and r.current_rate > 0
+    group by 1
+  ),
+  los_stats as (
+    select rt_id,
+      count(*)::bigint as reservation_count,
+      count(*) filter (where nights = 1)::bigint as single_night_reservations,
+      percentile_cont(0.5) within group (order by nights) as median_los
+    from res_nights
+    group by 1
+  )
+  select rt.id, rt.external_room_type_id, rt.name, rt.is_active,
+    coalesce(rs.row_count, 0), rs.median_rate, rs.p99_rate, rs.max_rate,
+    coalesce(ls.reservation_count, 0), coalesce(ls.single_night_reservations, 0),
+    ls.median_los
+  from room_types rt
+  left join rate_stats rs on rs.rt_id = rt.id
+  left join los_stats ls on ls.rt_id = rt.id
+  where rt.hotel_id = p_hotel_id;
+$$;
+
+revoke all on function public.onboarding_room_type_stats(uuid) from public;
+grant execute on function public.onboarding_room_type_stats(uuid) to service_role;
+
 -- ── RLS ─────────────────────────────────────────────────────────────────────
 
 alter table import_jobs enable row level security;

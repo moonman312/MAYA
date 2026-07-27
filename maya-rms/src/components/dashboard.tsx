@@ -1,5 +1,6 @@
 "use client";
 
+import { OnboardingReviewBanner } from "@/components/onboarding/review-banner";
 import { PropertySelect } from "@/components/property-select";
 import { formatUtcLongDate, formatUtcMonthYear } from "@/lib/calendar-month-label";
 import { SAMPLE_RESERVATIONS } from "@/lib/demo-data";
@@ -558,6 +559,8 @@ export function Dashboard() {
             </div>
           ) : null}
         </div>
+
+        <OnboardingReviewBanner />
 
         {tab === "calendar" && (
           <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
