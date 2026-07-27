@@ -95,13 +95,17 @@ drop table if exists
   audit_events,
   competitor_rates,
   evaluation_audit,
+  hotel_closed_periods,
   hotel_memberships,
   hotel_settings,
   hotels,
+  import_jobs,
   ladder_rule_state,
   ladder_transition_event,
   market_events,
   occupancy_metrics,
+  onboarding_findings,
+  onboarding_states,
   organization_memberships,
   organizations,
   pending_memberships,
@@ -126,6 +130,10 @@ drop table if exists
   stay_date_snapshot
 cascade;
 
+drop type if exists finding_status cascade;
+drop type if exists finding_kind cascade;
+drop type if exists import_job_status cascade;
+drop type if exists onboarding_path cascade;
 drop type if exists rate_update_status cascade;
 drop type if exists run_status cascade;
 drop type if exists run_type cascade;
