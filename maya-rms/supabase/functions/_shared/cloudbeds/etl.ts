@@ -13,6 +13,7 @@
 import {
   CLOUDBEDS_CANCELED_STATUSES,
 } from "./constants.ts";
+import { redactCloudbedsPayload } from "../pms/redact.ts";
 import type {
   CloudbedsParsedReservationRow,
   CloudbedsParsedRoomType,
@@ -233,7 +234,7 @@ export function parseCloudbedsReservations(
         booking_date: bookingDate,
         booking_window_days: bookingWindowDays,
         current_rate: nightly,
-        raw_payload: res,
+        raw_payload: redactCloudbedsPayload(res),
       });
     }
   }
@@ -304,7 +305,7 @@ export function parseCloudbedsReservationDetail(detail: Json): {
         booking_date: bookingDate,
         booking_window_days: bookingWindowDays,
         current_rate: rate,
-        raw_payload: room,
+        raw_payload: redactCloudbedsPayload(room),
       });
     }
   }
