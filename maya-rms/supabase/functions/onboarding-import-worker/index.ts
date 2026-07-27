@@ -106,9 +106,9 @@ Deno.serve(async (req) => {
       method: "POST",
       headers: cronSecret ? { "x-onboarding-cron-secret": cronSecret } : {},
     }).catch(() => {});
-    // deno-lint-ignore no-explicit-any
-    const runtime = (globalThis as any).EdgeRuntime;
-    if (runtime && typeof runtime.waitUntil === "function") {
+    const runtime = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } })
+      .EdgeRuntime;
+    if (runtime?.waitUntil) {
       runtime.waitUntil(chain);
     }
   }
