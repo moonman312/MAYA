@@ -1,0 +1,42 @@
+-- Example: schedule Edge Function `onboarding-import-worker` every minute.
+-- The worker self-chains while a job has work left; this cron is the
+-- crash-recovery driver that re-claims jobs whose lease expired.
+-- Prereqs: extensions `pg_cron`, `pg_net`; Vault secrets.
+--
+-- 0) Ensure extensions exist:
+--    create extension if not exists pg_net;
+--    create extension if not exists pg_cron;
+--
+-- 1) Store secrets (reuse `project_url` if it already exists):
+--    select vault.create_secret('https://<project-ref>.supabase.co', 'project_url');
+--    select vault.create_secret('<long-random-string>', 'onboarding_cron_secret');
+--
+-- 2) Edge Function secrets (Dashboard → Edge Functions → Secrets):
+--    SUPABASE_SERVICE_ROLE_KEY   (auto in hosted projects; confirm)
+--    ONBOARDING_CRON_SECRET      (same value as vault `onboarding_cron_secret`)
+--    CLOUDBEDS_CLIENT_ID / CLOUDBEDS_CLIENT_SECRET   (for token refresh)
+--    Optional: ONBOARDING_WORKER_BUDGET_MS (default 90000)
+--
+--    Also set ONBOARDING_CRON_SECRET in the Next.js app env so the OAuth
+--    callback can kick the worker immediately after connect.
+--
+-- 3) Schedule:
+--    select cron.schedule(
+--      'onboarding-import-worker-every-min',
+--      '* * * * *',
+--      $$
+--      select net.http_post(
+--        url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url')
+--               || '/functions/v1/onboarding-import-worker',
+--        headers := jsonb_build_object(
+--          'Content-Type', 'application/json',
+--          'x-onboarding-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'onboarding_cron_secret')
+--        ),
+--        body := jsonb_build_object('scheduled_at', now())
+--      ) as request_id;
+--      $$
+--    );
+--
+-- Inspect:    select jobid, jobname, schedule, active from cron.job;
+-- Runs log:   select * from cron.job_run_details order by start_time desc limit 20;
+-- Unschedule: select cron.unschedule('onboarding-import-worker-every-min');
