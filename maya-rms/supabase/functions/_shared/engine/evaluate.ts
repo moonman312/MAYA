@@ -115,6 +115,7 @@ export async function evaluateHotel(
 
   const rules: EngineRule[] = (rulesData ?? []).map((r) => {
     // deno-lint-ignore no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rc: any = Array.isArray(r.rule_condition) ? r.rule_condition[0] : r.rule_condition;
     return {
       id: String(r.id),
@@ -142,8 +143,10 @@ export async function evaluateHotel(
         pickup_metric: rc?.pickup_metric ?? null,
       },
       // deno-lint-ignore no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       signal_room_type_ids: (r.rule_signal_room_type ?? []).map((x: any) => String(x.room_type_id)),
       // deno-lint-ignore no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       affected_room_type_ids: (r.rule_affected_room_type ?? []).map((x: any) => String(x.room_type_id)),
       created_at: r.created_at,
       updated_at: r.updated_at,
