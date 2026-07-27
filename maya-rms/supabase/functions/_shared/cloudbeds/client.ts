@@ -150,6 +150,43 @@ export async function cloudbedsDiscoverPropertyId(
   return null;
 }
 
+export type CloudbedsPropertyDetails = {
+  externalPropertyId: string;
+  name: string | null;
+  timezone: string | null;
+  currency: string | null;
+};
+
+/**
+ * getHotelDetails → property name / timezone / currency, used by onboarding to
+ * create the hotel record so the user doesn't have to type anything.
+ * ⚠ VERIFY field names against the live response: propertyName,
+ * propertyTimezone, propertyCurrency (currency may nest as {currencyCode}).
+ */
+export async function cloudbedsGetHotelDetails(
+  creds: CloudbedsResolvedCredentials,
+): Promise<CloudbedsPropertyDetails> {
+  const res = await cloudbedsGet(creds, "getHotelDetails", {
+    propertyID: creds.propertyId,
+  });
+  const data = (res.data && typeof res.data === "object" ? res.data : res) as JsonRecord;
+
+  const name = data.propertyName ?? data.hotelName ?? data.name;
+  const timezone = data.propertyTimezone ?? data.timezone ?? data.timeZone;
+  const currencyRaw = data.propertyCurrency ?? data.currency ?? data.currencyCode;
+  const currency =
+    currencyRaw && typeof currencyRaw === "object"
+      ? (currencyRaw as JsonRecord).currencyCode ?? (currencyRaw as JsonRecord).code
+      : currencyRaw;
+
+  return {
+    externalPropertyId: creds.propertyId,
+    name: typeof name === "string" && name ? name : null,
+    timezone: typeof timezone === "string" && timezone ? timezone : null,
+    currency: typeof currency === "string" && currency ? currency.toUpperCase() : null,
+  };
+}
+
 export type CloudbedsRoomType = JsonRecord;
 
 /** getRoomTypes → data[] of room types for the property. */
@@ -168,6 +205,37 @@ export type CloudbedsReservation = JsonRecord;
  * ⚠ VERIFY param names: propertyID, status, checkInFrom, checkInTo,
  * pageNumber, pageSize; and the total/count fields used to stop paging.
  */
+/**
+ * Fetch ONE page of getReservations for one status. The building block for
+ * both the full-range loop below and the onboarding worker's checkpointed
+ * historical pull (which persists its cursor between pages).
+ */
+export async function cloudbedsGetReservationsPage(
+  creds: CloudbedsResolvedCredentials,
+  checkInFrom: string,
+  checkInTo: string,
+  status: string,
+  pageNumber: number,
+): Promise<{ reservations: CloudbedsReservation[]; hasMore: boolean }> {
+  const res = await cloudbedsGet(creds, "getReservations", {
+    propertyID: creds.propertyId,
+    status,
+    checkInFrom,
+    checkInTo,
+    pageNumber,
+    pageSize: CLOUDBEDS_PAGE_SIZE,
+  });
+  const data = res.data;
+  const chunk = Array.isArray(data) ? (data as CloudbedsReservation[]) : [];
+
+  // Short page = done. If the API returns `total`, prefer that.
+  const total = typeof res.total === "number" ? res.total : null;
+  let hasMore = chunk.length >= CLOUDBEDS_PAGE_SIZE;
+  if (total != null && pageNumber * CLOUDBEDS_PAGE_SIZE >= total) hasMore = false;
+
+  return { reservations: chunk, hasMore };
+}
+
 export async function cloudbedsGetReservationsRange(
   creds: CloudbedsResolvedCredentials,
   checkInFrom: string,
@@ -183,23 +251,16 @@ export async function cloudbedsGetReservationsRange(
     let guard = 0;
     while (guard < 1000) {
       guard += 1;
-      const res = await cloudbedsGet(creds, "getReservations", {
-        propertyID: creds.propertyId,
-        status,
+      const { reservations, hasMore } = await cloudbedsGetReservationsPage(
+        creds,
         checkInFrom,
         checkInTo,
+        status,
         pageNumber,
-        pageSize: CLOUDBEDS_PAGE_SIZE,
-      });
+      );
       pages += 1;
-      const data = res.data;
-      const chunk = Array.isArray(data) ? (data as CloudbedsReservation[]) : [];
-      all.push(...chunk);
-
-      // Stop when the page is short. If the API returns `total`, prefer that.
-      const total = typeof res.total === "number" ? res.total : null;
-      if (chunk.length < CLOUDBEDS_PAGE_SIZE) break;
-      if (total != null && pageNumber * CLOUDBEDS_PAGE_SIZE >= total) break;
+      all.push(...reservations);
+      if (!hasMore) break;
       pageNumber += 1;
     }
   }

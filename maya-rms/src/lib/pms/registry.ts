@@ -32,6 +32,12 @@ export type PmsRegistryEntry = {
   requiredEnvVars: string[];
   /** Docs / dashboard URL to help operators when config is missing. */
   vendorConsoleUrl?: string;
+  /**
+   * True when an OnboardingPmsAdapter exists for this PMS (see
+   * supabase/functions/_shared/pms/onboarding-adapter.ts). Drives which
+   * PMSes the onboarding connect page offers vs. shows as "coming soon".
+   */
+  onboardingSupported?: boolean;
 };
 
 const CLOUDBEDS_AUTHORIZE_BASE =
@@ -70,6 +76,7 @@ export const PMS_REGISTRY: Record<Exclude<PmsType, "opera" | "other">, PmsRegist
     ],
     requiredEnvVars: ["CLOUDBEDS_CLIENT_ID", "CLOUDBEDS_CLIENT_SECRET"],
     vendorConsoleUrl: "https://hotels.cloudbeds.com/",
+    onboardingSupported: true,
   },
   think: {
     type: "think",
@@ -137,6 +144,7 @@ export type PmsRegistryStatus = {
   configured: boolean;
   missingEnvVars: string[];
   callbackUrl: string | null;
+  onboardingSupported: boolean;
 };
 
 export function listPmsStatuses(): PmsRegistryStatus[] {
@@ -148,5 +156,6 @@ export function listPmsStatuses(): PmsRegistryStatus[] {
     configured: isPmsConfigured(entry.type),
     missingEnvVars: entry.requiredEnvVars.filter((name) => !process.env[name]),
     callbackUrl: base ? `${base}/api/pms/${entry.type}/callback` : null,
+    onboardingSupported: entry.onboardingSupported === true,
   }));
 }
