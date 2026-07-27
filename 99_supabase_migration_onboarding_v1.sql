@@ -145,6 +145,50 @@ do $$ begin
     check (pricing_confidence is null or pricing_confidence in ('automate_current', 'find_upside'));
 exception when duplicate_object then null; end $$;
 
+-- ── claim_import_job: atomic worker claim (skip-locked) ─────────────────────
+-- The import worker calls this to grab the next runnable job: queued, or
+-- running with an expired lease (crashed worker). Service role only.
+
+create or replace function public.claim_import_job(p_lease_seconds integer default 180)
+returns setof import_jobs
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_id uuid;
+begin
+  if (select auth.role()) is distinct from 'service_role' then
+    raise exception 'Not authorized' using errcode = '42501';
+  end if;
+
+  select id into v_id
+  from import_jobs
+  where status = 'queued'
+     or (status = 'running' and lease_expires_at is not null and lease_expires_at < now())
+  order by created_at
+  limit 1
+  for update skip locked;
+
+  if v_id is null then
+    return;
+  end if;
+
+  return query
+  update import_jobs
+  set status = 'running',
+      lease_expires_at = now() + make_interval(secs => p_lease_seconds),
+      attempts = attempts + 1,
+      started_at = coalesce(started_at, now()),
+      updated_at = now()
+  where id = v_id
+  returning *;
+end;
+$$;
+
+revoke all on function public.claim_import_job(integer) from public;
+grant execute on function public.claim_import_job(integer) to service_role;
+
 -- ── RLS ─────────────────────────────────────────────────────────────────────
 
 alter table import_jobs enable row level security;
