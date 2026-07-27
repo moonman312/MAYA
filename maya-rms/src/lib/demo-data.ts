@@ -4,7 +4,6 @@
  */
 
 import type {
-  CalendarRoomType,
   ChangelogCycle,
   ChangelogEntry,
   RuleConfig,

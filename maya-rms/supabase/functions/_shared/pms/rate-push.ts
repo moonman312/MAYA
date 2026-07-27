@@ -62,8 +62,10 @@ export type RatePushSummary =
     };
 
 // deno-lint-ignore no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchAll(makeQuery: () => any): Promise<any[]> {
   // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const all: any[] = [];
   let from = 0;
   let guard = 0;

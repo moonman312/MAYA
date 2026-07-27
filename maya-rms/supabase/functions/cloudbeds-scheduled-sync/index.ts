@@ -93,6 +93,7 @@ Deno.serve(async (req) => {
     sync: Awaited<ReturnType<typeof runCloudbedsSyncForHotel>>;
     evaluate?: Awaited<ReturnType<typeof evaluateHotel>> | { error: string } | { skipped: true };
     // deno-lint-ignore no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     push?: any;
   }> = [];
 
@@ -116,6 +117,7 @@ Deno.serve(async (req) => {
     // Outbound rate push — needs live credentials (only available when sync
     // succeeded). Internally no-ops unless the hotel is in LIVE mode.
     // deno-lint-ignore no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let push: any = pushRatesEnabled ? undefined : { skipped: "disabled" };
     if (pushRatesEnabled) {
       if (sync.ok) {

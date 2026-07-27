@@ -86,7 +86,9 @@ function dedupeByKey<T>(rows: T[], keyFn: (r: T) => string): T[] {
   return [...m.values()];
 }
 
-async function deleteCanceledReservationRows(
+// Exported for the (not yet wired) whole-reservation cancellation
+// reconciliation — see the note at the bottom of runCloudbedsSyncForHotel.
+export async function deleteCanceledReservationRows(
   supabase: SupabaseClient,
   hotelId: string,
   canceledIds: string[],

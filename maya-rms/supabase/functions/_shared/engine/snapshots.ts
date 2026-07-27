@@ -14,8 +14,10 @@ import type { RoomTypeRow, SnapshotRow } from "./types.ts";
  * at 1000 rows — which capped the reservation reads at ~19 days.
  */
 // deno-lint-ignore no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function fetchAllRows(makeQuery: () => any, pageSize = 1000): Promise<any[]> {
   // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const all: any[] = [];
   let from = 0;
   let guard = 0;

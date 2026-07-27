@@ -20,7 +20,6 @@ import {
 import type {
   ActionDirection,
   ActionKind,
-  ConditionOperator,
   EngineRule,
   PickupMetric,
   RuleAction,
