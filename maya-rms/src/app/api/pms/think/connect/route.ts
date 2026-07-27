@@ -8,5 +8,5 @@ export async function GET(req: Request) {
   if (!hotelId) {
     return NextResponse.json({ error: "hotelId query param required" }, { status: 400 });
   }
-  return buildAuthorizeRedirect(await cookies(), "think", hotelId);
+  return buildAuthorizeRedirect(await cookies(), "think", { kind: "hotel", hotelId });
 }

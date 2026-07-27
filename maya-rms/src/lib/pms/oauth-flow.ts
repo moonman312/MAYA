@@ -1,12 +1,23 @@
 import "server-only";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { createClient as createSSRClient } from "@/utils/supabase/server";
+import { handleOnboardingConnect } from "@/lib/onboarding/connect";
 import { pmsCallbackUrl, requireRegistry, type PmsType } from "@/lib/pms/registry";
-import { signState, verifyState } from "@/lib/pms/oauth-state";
+import { signOnboardingState, signState, verifyState } from "@/lib/pms/oauth-state";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 type CookieStore = Awaited<ReturnType<typeof cookies>>;
+
+/**
+ * Who the OAuth dance is for:
+ * - hotel: admin connecting an existing hotel (requires manage rights).
+ * - onboarding: a new user with no hotel — any authenticated session;
+ *   the callback creates the hotel from PMS data.
+ */
+export type OAuthTarget =
+  | { kind: "hotel"; hotelId: string }
+  | { kind: "onboarding" };
 
 /**
  * Build the vendor's authorize URL for `pmsType`, signing state so the callback
@@ -16,7 +27,7 @@ type CookieStore = Awaited<ReturnType<typeof cookies>>;
 export async function buildAuthorizeRedirect(
   cookieStore: CookieStore,
   pmsType: PmsType,
-  hotelId: string,
+  target: OAuthTarget,
 ): Promise<Response> {
   const ssr = createSSRClient(cookieStore);
   const {
@@ -25,10 +36,14 @@ export async function buildAuthorizeRedirect(
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const { data: isAdmin } = await ssr.rpc("is_platform_admin", { p_user_id: user.id });
-  const { data: canManage } = await ssr.rpc("can_manage_hotel", { target_hotel_id: hotelId });
-  if (!isAdmin && !canManage) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (target.kind === "hotel") {
+    const { data: isAdmin } = await ssr.rpc("is_platform_admin", { p_user_id: user.id });
+    const { data: canManage } = await ssr.rpc("can_manage_hotel", {
+      target_hotel_id: target.hotelId,
+    });
+    if (!isAdmin && !canManage) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   }
 
   const registry = requireRegistry(pmsType);
@@ -52,7 +67,10 @@ export async function buildAuthorizeRedirect(
     );
   }
 
-  const state = signState(hotelId, pmsType);
+  const state =
+    target.kind === "onboarding"
+      ? signOnboardingState(user.id, pmsType)
+      : signState(target.hotelId, pmsType);
   const redirectUri = pmsCallbackUrl(pmsType);
 
   const url = new URL(registry.authorizeUrl!);
@@ -98,7 +116,6 @@ export async function handleOAuthCallback(
   if (!verified.ok) {
     return renderCallbackError(pmsType, `State verification failed: ${verified.error}`);
   }
-  const { hotelId } = verified;
 
   const registry = requireRegistry(pmsType);
   const clientIdEnv = registry.requiredEnvVars.find((v) => v.endsWith("_CLIENT_ID"));
@@ -165,11 +182,17 @@ export async function handleOAuthCallback(
   const secretPayload = {
     accessToken,
     refreshToken: typeof refreshToken === "string" ? refreshToken : null,
-    tokenType,
+    tokenType: typeof tokenType === "string" ? tokenType : "Bearer",
     scope,
     expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
   };
 
+  // Onboarding: no hotel exists yet — hand off to the hotel-creating flow.
+  if (verified.intent === "onboarding") {
+    return handleOnboardingConnect(cookieStore, pmsType, verified.userId, secretPayload);
+  }
+
+  const { hotelId } = verified;
   const admin = createAdminClient();
 
   const { error: secretErr } = await admin.rpc("pms_secret_set", {
