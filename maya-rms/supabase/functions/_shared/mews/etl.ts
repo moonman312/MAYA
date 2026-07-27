@@ -3,6 +3,8 @@
  * detection, category names, Items-based rate lookup).
  */
 
+import { redactMewsPayload } from "../pms/redact.ts";
+
 type Json = Record<string, unknown>;
 
 export type FieldMap = {
@@ -372,7 +374,7 @@ export function parseMewsApiResponse(
         booking_date: bookingDate,
         booking_window_days: bookingWindowDays,
         current_rate: nightly,
-        raw_payload: raw,
+        raw_payload: redactMewsPayload(raw),
       };
       if (byStayNight.has(key)) {
         stats.duplicateStayNightKeysMerged += 1;
