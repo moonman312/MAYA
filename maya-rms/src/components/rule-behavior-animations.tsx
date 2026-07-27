@@ -232,7 +232,7 @@ function RuleCancellationScene() {
   const scene = CANCELLATION_SCENES[step];
 
   return (
-    <div className="space-y-4 rounded-md border border-slate-800 bg-slate-950/60 p-4">
+    <div className="space-y-4 rounded-md border border-slate-800 bg-slate-950 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h4 className="text-sm font-semibold text-slate-200">
@@ -261,7 +261,7 @@ function RuleCancellationScene() {
         <PriceTag base={200} current={scene.price} />
       </div>
 
-      <div className="flex items-center gap-3 rounded border border-slate-800 bg-slate-900/60 px-3 py-2">
+      <div className="flex items-center gap-3 rounded border border-slate-800 bg-slate-900 px-3 py-2">
         <StatusPill status={scene.status} />
         <span className="text-xs font-medium text-slate-300">
           {scene.label}
@@ -394,7 +394,7 @@ const COMPARISON_DAYS: ComparisonDay[] = [
 
 function ConditionChip({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded border border-slate-800 bg-slate-900/40 px-2.5 py-1.5">
+    <div className="rounded border border-slate-800 bg-slate-900 px-2.5 py-1.5">
       <div className="text-[10px] uppercase tracking-wide text-slate-500">
         {label}
       </div>
@@ -411,7 +411,7 @@ function StandardVsPickupScene() {
   const day = COMPARISON_DAYS[step];
 
   return (
-    <div className="space-y-4 rounded-md border border-slate-800 bg-slate-950/60 p-4">
+    <div className="space-y-4 rounded-md border border-slate-800 bg-slate-950 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h4 className="text-sm font-semibold text-slate-200">
@@ -431,7 +431,7 @@ function StandardVsPickupScene() {
       </div>
 
       {/* Day label and shared input data */}
-      <div className="space-y-2 rounded border border-slate-800 bg-slate-900/40 p-3">
+      <div className="space-y-2 rounded border border-slate-800 bg-slate-900 p-3">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-slate-200">
             {day.label}
@@ -459,7 +459,7 @@ function StandardVsPickupScene() {
       {/* Side-by-side rule outcomes */}
       <div className="grid gap-3 md:grid-cols-2">
         {/* Standard rule */}
-        <div className="space-y-2 rounded border border-slate-800 bg-slate-900/40 p-3">
+        <div className="space-y-2 rounded border border-slate-800 bg-slate-900 p-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-300">
               Standard rule
@@ -482,7 +482,7 @@ function StandardVsPickupScene() {
         </div>
 
         {/* Pickup rule */}
-        <div className="space-y-2 rounded border border-slate-800 bg-slate-900/40 p-3">
+        <div className="space-y-2 rounded border border-slate-800 bg-slate-900 p-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-300">
               Pickup rule
@@ -611,7 +611,7 @@ export function RuleBehaviorAnimations() {
   const [open, setOpen] = useState(true);
 
   return (
-    <section className="rounded-lg border border-stone-300 bg-stone-100">
+    <section className="rounded-lg border border-stone-300 bg-stone-200">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
