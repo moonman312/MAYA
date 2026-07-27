@@ -611,7 +611,7 @@ export function RuleBehaviorAnimations() {
   const [open, setOpen] = useState(true);
 
   return (
-    <section className="rounded border border-slate-800 bg-slate-900/50">
+    <section className="rounded-lg border border-stone-300 bg-stone-100">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -619,15 +619,15 @@ export function RuleBehaviorAnimations() {
         aria-expanded={open}
       >
         <div>
-          <div className="text-sm font-semibold text-slate-200">
+          <div className="text-sm font-semibold text-stone-800">
             How rules behave
           </div>
-          <div className="text-[11px] text-slate-500">
+          <div className="text-[11px] text-stone-500">
             Two short animations explaining standard rules vs. pickup rules.
           </div>
         </div>
         <span
-          className={`text-slate-400 transition-transform duration-300 ${
+          className={`text-stone-500 transition-transform duration-300 ${
             open ? "rotate-180" : ""
           }`}
           aria-hidden
@@ -637,7 +637,7 @@ export function RuleBehaviorAnimations() {
       </button>
 
       {open && (
-        <div className="space-y-4 border-t border-slate-800 p-4">
+        <div className="space-y-4 border-t border-stone-200 p-4">
           <RuleCancellationScene />
           <StandardVsPickupScene />
           <p className="text-[11px] leading-relaxed text-slate-500">
