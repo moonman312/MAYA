@@ -9,6 +9,12 @@
  * trimmed mean over the comparables, and often fractional — 0.4 expected
  * bookings is an honest statement about a quiet far-out date, not an error.
  *
+ * When the comparable-date matcher couldn't find enough dates even after
+ * relaxing (see comparable-dates.ts), this reaches for the momentum
+ * fallback before giving up: how nearby dates are pacing right now versus a
+ * year ago (momentum.ts). Only when even that has nothing to go on does it
+ * report `insufficient_data` rather than guess.
+ *
  * Counts reflect currently known reservations from the slim import rows:
  * a canceled booking disappears rather than counting negative. Pure
  * functions; the caller supplies rows and dates.
@@ -21,56 +27,27 @@ import {
   type BookingSpeedClassification,
 } from "./booking-speed.ts";
 import {
+  MIN_TARGET_COMPARABLES,
   describeComparableSelection,
   type ComparableSelection,
 } from "./comparable-dates.ts";
+import {
+  DEFAULT_WINDOW_DAYS,
+  pickupInWindow,
+  round2,
+  trimmedMean,
+  type SlimReservationRow,
+} from "./booking-rows.ts";
+import {
+  MOMENTUM_ASSUMED_COMPARABLE_COUNT,
+  describeMomentum,
+  estimateMomentumFallback,
+  type MomentumEstimate,
+} from "./momentum.ts";
 
-export const DEFAULT_WINDOW_DAYS = 7;
+export { DEFAULT_WINDOW_DAYS, pickupInWindow, trimmedMean, type SlimReservationRow } from "./booking-rows.ts";
 
-export interface SlimReservationRow {
-  stay_date: string;
-  booking_date?: string | null;
-  booking_window_days?: number | null;
-}
-
-/** Days from booking to stay, from whichever field the row carries. */
-function bookingWindowOf(row: SlimReservationRow): number | null {
-  if (typeof row.booking_window_days === "number") return row.booking_window_days;
-  if (row.booking_date) return daysBetween(row.booking_date, row.stay_date);
-  return null;
-}
-
-/**
- * Bookings for `stayDate` whose booking window falls in
- * [daysOut, daysOut + windowDays) — i.e. made during that stretch of the
- * booking curve.
- */
-export function pickupInWindow(
-  rows: SlimReservationRow[],
-  stayDate: string,
-  daysOut: number,
-  windowDays: number,
-): number {
-  let count = 0;
-  for (const row of rows) {
-    if (row.stay_date !== stayDate) continue;
-    const bw = bookingWindowOf(row);
-    if (bw === null) continue;
-    if (bw >= daysOut && bw < daysOut + windowDays) count++;
-  }
-  return count;
-}
-
-/** Mean with the single min and max dropped once there are 5+ values. */
-export function trimmedMean(values: number[]): number {
-  if (values.length === 0) return 0;
-  let vals = values;
-  if (values.length >= 5) {
-    const sorted = [...values].sort((a, b) => a - b);
-    vals = sorted.slice(1, -1);
-  }
-  return vals.reduce((a, b) => a + b, 0) / vals.length;
-}
+export type BookingSpeedMethod = "comparable" | "momentum" | "insufficient_data";
 
 export interface ComparablePickup {
   date: string;
@@ -86,7 +63,12 @@ export interface BookingSpeedObservation {
   windowDays: number;
   recentBookings: number;
   expectedBookings: number;
+  /** How the expectation was derived — governs which Level 2 explanation applies. */
+  method: BookingSpeedMethod;
+  /** Whatever comparables were found, even in momentum/insufficient_data mode (for audit purposes). */
   perComparable: ComparablePickup[];
+  /** Present only when method === "momentum". */
+  momentum?: MomentumEstimate;
   selection: ComparableSelection;
   classification: BookingSpeedClassification;
 }
@@ -97,14 +79,15 @@ export interface ObserveBookingSpeedOptions {
   asOf: string;
   selection: ComparableSelection;
   windowDays?: number;
+  /** Same exclusion predicate passed to selectComparableDates — reused for momentum's neighbor search. */
+  isExcluded?: (date: string) => boolean;
 }
 
 /**
- * The full Layer 1 pipeline for one stay date: recent pickup, per-comparable
- * pickup over the matching booking-curve stretch, trimmed-mean expectation,
- * and the classified Booking Speed. The returned object is the audit
- * snapshot — persist it with the evaluation so explanations replay what was
- * actually known, not what is known later.
+ * The full Layer 1 pipeline for one stay date: recent pickup, comparable
+ * pickup (or momentum fallback), and the classified Booking Speed. The
+ * returned object is the audit snapshot — persist it with the evaluation so
+ * explanations replay what was actually known, not what is known later.
  */
 export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSpeedObservation {
   const windowDays = opts.windowDays ?? DEFAULT_WINDOW_DAYS;
@@ -130,25 +113,58 @@ export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSp
     reasons: c.reasons,
   }));
 
-  const expectedBookings =
-    Math.round(trimmedMean(perComparable.map((c) => c.bookings)) * 100) / 100;
-
-  const classification = classifyBookingSpeed({
-    recentBookings,
-    expectedBookings,
-    comparableCount: perComparable.length,
-  });
-
-  return {
+  const base = {
     target: opts.target,
     asOf: opts.asOf,
     daysOut,
     windowDays,
     recentBookings,
-    expectedBookings,
     perComparable,
     selection: opts.selection,
-    classification,
+  };
+
+  if (perComparable.length >= MIN_TARGET_COMPARABLES) {
+    const expectedBookings = round2(trimmedMean(perComparable.map((c) => c.bookings)));
+    return {
+      ...base,
+      expectedBookings,
+      method: "comparable",
+      classification: classifyBookingSpeed({
+        recentBookings,
+        expectedBookings,
+        comparableCount: perComparable.length,
+      }),
+    };
+  }
+
+  const momentum = estimateMomentumFallback({
+    rows: opts.rows,
+    target: opts.target,
+    asOf: opts.asOf,
+    windowDays,
+    isExcluded: opts.isExcluded,
+  });
+
+  if (momentum) {
+    return {
+      ...base,
+      expectedBookings: momentum.expectedBookings,
+      method: "momentum",
+      momentum,
+      classification: classifyBookingSpeed({
+        recentBookings,
+        expectedBookings: momentum.expectedBookings,
+        comparableCount: MOMENTUM_ASSUMED_COMPARABLE_COUNT,
+      }),
+    };
+  }
+
+  // Truly nothing to go on: stay honest rather than guess.
+  return {
+    ...base,
+    expectedBookings: 0,
+    method: "insufficient_data",
+    classification: classifyBookingSpeed({ recentBookings, expectedBookings: 0, comparableCount: 0 }),
   };
 }
 
@@ -156,11 +172,26 @@ export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSp
 
 /** Level 1: the classification sentence for this observation's window. */
 export function describeObservation(obs: BookingSpeedObservation): string {
+  if (obs.method === "insufficient_data") {
+    const seen =
+      obs.recentBookings === 0
+        ? "has not received any bookings"
+        : obs.recentBookings === 1
+          ? "has received 1 booking"
+          : `has received ${obs.recentBookings} bookings`;
+    return `This stay date ${seen} in the last ${obs.windowDays} days. We do not have enough history yet to say whether that pace is unusual.`;
+  }
   return describeBookingSpeed(obs.classification, { windowDays: obs.windowDays });
 }
 
 /** Level 2: where the expectation came from, in plain words. */
 export function describeExpectation(obs: BookingSpeedObservation): string {
+  if (obs.method === "momentum" && obs.momentum) {
+    return describeMomentum(obs.momentum);
+  }
+  if (obs.method === "insufficient_data") {
+    return "We do not have enough booking history yet for this date or its neighbors, so we are not calling out its pace as unusual either way.";
+  }
   const n = obs.perComparable.length;
   const dates = n === 1 ? "1 similar past date" : `${n} similar past dates`;
   const lead =
