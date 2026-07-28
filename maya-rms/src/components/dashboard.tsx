@@ -797,11 +797,11 @@ export function Dashboard() {
                           ? rule.room_types.join(", ")
                           : "All"}
                       </td>
-                      <td className="py-2 pr-3">
+                      <td className="py-2 pr-3 tabular-nums">
                         {rule.action.adjust_rate_percent !== undefined &&
-                          `${rule.action.adjust_rate_percent}% `}
+                          `${rule.action.adjust_rate_percent > 0 ? "+" : ""}${rule.action.adjust_rate_percent}% `}
                         {rule.action.adjust_rate_dollars !== undefined &&
-                          `$${rule.action.adjust_rate_dollars}`}
+                          `${rule.action.adjust_rate_dollars < 0 ? "-" : "+"}$${Math.abs(rule.action.adjust_rate_dollars)}`}
                       </td>
                       <td className="py-2 pr-3">
                         <span
