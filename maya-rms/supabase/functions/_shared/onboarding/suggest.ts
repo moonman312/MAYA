@@ -111,7 +111,9 @@ export type GuardrailState = {
   name: string;
   floor_price: number;
   ceiling_price: number;
-  observed_max_rate: number | null;
+  /** p99 nightly rate — outlier-resistant. Never use the raw max here: a
+   *  single fat-fingered rate would become the basis of the ceiling. */
+  observed_p99_rate: number | null;
 };
 
 export type GuardrailSuggestion = {
@@ -135,9 +137,13 @@ const CEILING_UNSET_MIN = 99_000;
 export function computeGuardrailSuggestions(
   roomTypes: GuardrailState[],
   strategy: { floor: number | null; ceiling: number | null },
+  /** Room types the same analysis flagged as probably-not-rooms — don't
+   *  suggest guardrails for something we're also suggesting excluding. */
+  suspectRoomTypeIds: ReadonlySet<string> = new Set(),
 ): GuardrailSuggestion[] {
   const out: GuardrailSuggestion[] = [];
   for (const rt of roomTypes) {
+    if (suspectRoomTypeIds.has(rt.room_type_id)) continue;
     if (rt.floor_price <= FLOOR_UNSET_MAX && strategy.floor && strategy.floor > 0) {
       out.push({
         suggestion_type: "set_guardrail",
@@ -151,10 +157,10 @@ export function computeGuardrailSuggestions(
     }
     if (rt.ceiling_price >= CEILING_UNSET_MIN) {
       const target =
-        strategy.ceiling && strategy.ceiling > (rt.observed_max_rate ?? 0)
+        strategy.ceiling && strategy.ceiling > (rt.observed_p99_rate ?? 0)
           ? strategy.ceiling
-          : rt.observed_max_rate
-            ? Math.round(rt.observed_max_rate * 1.25)
+          : rt.observed_p99_rate
+            ? Math.round((rt.observed_p99_rate * 1.5) / 10) * 10
             : null;
       if (target && target > 0) {
         out.push({

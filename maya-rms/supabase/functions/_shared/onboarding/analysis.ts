@@ -632,10 +632,26 @@ async function buildSuggestionInserts(
       (settings?.pricing_confidence as "automate_current" | "find_upside" | null) ?? null,
   });
 
-  const maxRateByRoomType = new Map<string, number>();
+  const p99ByRoomType = new Map<string, number>();
   for (const s of rtStats ?? []) {
-    if (s.max_rate != null) maxRateByRoomType.set(String(s.room_type_id), Number(s.max_rate));
+    if (s.p99_rate != null) p99ByRoomType.set(String(s.room_type_id), Number(s.p99_rate));
   }
+  const parsedStats: RoomTypeStats[] = (rtStats ?? []).map(
+    (r: Record<string, unknown>) => ({
+      room_type_id: String(r.room_type_id),
+      external_room_type_id: String(r.external_room_type_id ?? ""),
+      name: String(r.name ?? ""),
+      is_active: r.is_active === true,
+      row_count: Number(r.row_count ?? 0),
+      median_rate: r.median_rate != null ? Number(r.median_rate) : null,
+      p99_rate: r.p99_rate != null ? Number(r.p99_rate) : null,
+      max_rate: r.max_rate != null ? Number(r.max_rate) : null,
+      reservation_count: Number(r.reservation_count ?? 0),
+      single_night_reservations: Number(r.single_night_reservations ?? 0),
+      median_los: r.median_los != null ? Number(r.median_los) : null,
+    }),
+  );
+  const suspectIds = new Set(findSuspectRoomTypes(parsedStats).map((f) => f.room_type_id));
 
   const ruleSuggestions = computeRuleSuggestions(existing, dataSpecs);
   const guardrailSuggestions = computeGuardrailSuggestions(
@@ -644,12 +660,13 @@ async function buildSuggestionInserts(
       name: String(rt.name),
       floor_price: Number(rt.floor_price),
       ceiling_price: Number(rt.ceiling_price),
-      observed_max_rate: maxRateByRoomType.get(String(rt.id)) ?? null,
+      observed_p99_rate: p99ByRoomType.get(String(rt.id)) ?? null,
     })),
     {
       floor: settings?.strategy_floor != null ? Number(settings.strategy_floor) : null,
       ceiling: settings?.strategy_ceiling != null ? Number(settings.strategy_ceiling) : null,
     },
+    suspectIds,
   );
 
   const allRoomTypeIds = (roomTypes ?? []).map((rt) => String(rt.id));

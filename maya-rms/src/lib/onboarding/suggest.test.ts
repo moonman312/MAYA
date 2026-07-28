@@ -111,14 +111,15 @@ describe("computeGuardrailSuggestions", () => {
     name: "Deluxe King",
     floor_price: 1.0, // schema default = unset
     ceiling_price: 99999.99, // schema default = unset
-    observed_max_rate: 400,
+    observed_p99_rate: 400,
     ...o,
   });
 
-  it("fills unset guardrails", () => {
+  it("fills unset guardrails, preferring the user's own strategy answers", () => {
     const out = computeGuardrailSuggestions([rt({})], { floor: 79, ceiling: 500 });
     expect(out).toHaveLength(2);
     expect(out[0]).toMatchObject({ field: "floor_price", suggested: 79 });
+    // Their stated ceiling (500) beats the p99-derived 600.
     expect(out[1]).toMatchObject({ field: "ceiling_price", suggested: 500 });
   });
 
@@ -133,11 +134,31 @@ describe("computeGuardrailSuggestions", () => {
   it("derives a ceiling from observed rates when no strategy answer exists", () => {
     const out = computeGuardrailSuggestions([rt({})], { floor: null, ceiling: null });
     expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({ field: "ceiling_price", suggested: 500 }); // 400 * 1.25
+    expect(out[0]).toMatchObject({ field: "ceiling_price", suggested: 600 }); // p99 400 * 1.5
+  });
+
+  it("a single fat-fingered rate cannot inflate the suggested ceiling", () => {
+    // The $24,000 typo scenario: max is absurd but p99 stays sane, and the
+    // ceiling suggestion follows p99 — the typo never becomes the baseline.
+    const out = computeGuardrailSuggestions([rt({ observed_p99_rate: 418 })], {
+      floor: null,
+      ceiling: null,
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].suggested).toBeLessThan(1000);
+  });
+
+  it("suggests no guardrails for room types flagged as probably-not-rooms", () => {
+    const out = computeGuardrailSuggestions(
+      [rt({})],
+      { floor: 79, ceiling: 500 },
+      new Set(["rt1"]),
+    );
+    expect(out).toHaveLength(0);
   });
 
   it("suggests nothing when there is nothing to go on", () => {
-    const out = computeGuardrailSuggestions([rt({ observed_max_rate: null })], {
+    const out = computeGuardrailSuggestions([rt({ observed_p99_rate: null })], {
       floor: null,
       ceiling: null,
     });
