@@ -548,7 +548,7 @@ export function Dashboard() {
   function addConditionRow() {
     const used = new Set(condRows.map((r) => r.metric));
     const next: ConditionMetric | undefined = (
-      ["occupancy", "booking_speed", "booking_window", "pickup"] as const
+      ["occupancy", "booking_speed", "booking_window"] as const
     ).find((m) => !used.has(m));
     if (!next) return;
     setCondRows((prev) => [...prev, newConditionRow(next)]);
@@ -1178,12 +1178,6 @@ export function Dashboard() {
                                 >
                                   Booking window (days to stay)
                                 </option>
-                                <option
-                                  value="pickup"
-                                  disabled={taken.has("pickup")}
-                                >
-                                  Pickup (net change in window)
-                                </option>
                               </select>
                             </div>
                             {row.metric === "booking_speed" ? (
@@ -1355,7 +1349,7 @@ export function Dashboard() {
                       );
                     })}
                   </div>
-                  {condRows.length < 4 ? (
+                  {condRows.length < 3 ? (
                     <button
                       type="button"
                       className="mt-2 text-xs font-medium text-sky-400 hover:text-sky-300"

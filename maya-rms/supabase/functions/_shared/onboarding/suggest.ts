@@ -22,6 +22,8 @@ export type ExistingRuleSummary = {
   occupancy_threshold: number | null; // fraction
   pickup_operator: string | null;
   pickup_threshold: number | null;
+  /** True when the rule carries a booking-speed condition. */
+  has_booking_speed: boolean;
 };
 
 export type RuleSuggestion =
@@ -44,63 +46,53 @@ const ADJUST_TOLERANCE_PTS = 10;
 
 export function computeRuleSuggestions(
   existing: ExistingRuleSummary[],
-  dataSpecs: StarterRuleSpec[],
+  paceSpecs: StarterRuleSpec[],
+  occupancyRef: { surgePct: number; peakPct: number } | null,
 ): RuleSuggestion[] {
   const out: RuleSuggestion[] = [];
   const active = existing.filter((r) => r.is_active);
 
-  const occupancyRules = active.filter(
-    (r) => !r.is_pickup_rule && r.occupancy_operator === "gt" && r.occupancy_threshold != null,
-  );
-  const hasPickupRule = active.some((r) => r.is_pickup_rule);
+  // The pace ladder is all-or-nothing: a hotel with ANY booking-speed rule
+  // has a pace setup someone owns, and second-guessing their chosen levels
+  // would be exactly the overreach suggestion mode exists to avoid. A hotel
+  // with none gets the whole ladder offered, one accept/reject each.
+  const hasBookingSpeedRule = active.some((r) => r.has_booking_speed);
+  if (!hasBookingSpeedRule) {
+    for (const spec of paceSpecs) {
+      const rationale =
+        spec.action.action_direction === "decrease"
+          ? "Nothing watches for dates falling behind their normal booking pace — slow nights sit at full price until it is too late to rescue them."
+          : "Nothing watches for dates booking ahead of their normal pace — demand spikes pass by unpriced.";
+      out.push({ suggestion_type: "add_rule", spec, rationale });
+    }
+  }
 
-  for (const spec of dataSpecs) {
-    if (spec.is_pickup_rule) {
-      if (!hasPickupRule) {
+  // Existing occupancy rules get a sanity check against the marks the
+  // history actually supports. Adjust-only: new-rule suggestions are pace
+  // rules now, so nothing here proposes fresh occupancy rules.
+  if (occupancyRef) {
+    const occupancyRules = active.filter(
+      (r) => !r.is_pickup_rule && r.occupancy_operator === "gt" && r.occupancy_threshold != null,
+    );
+    for (const r of occupancyRules) {
+      const currentPct = Math.round(r.occupancy_threshold! * 100);
+      const nearestMark =
+        Math.abs(currentPct - occupancyRef.surgePct) <= Math.abs(currentPct - occupancyRef.peakPct)
+          ? occupancyRef.surgePct
+          : occupancyRef.peakPct;
+      if (Math.abs(currentPct - nearestMark) > ADJUST_TOLERANCE_PTS) {
         out.push({
-          suggestion_type: "add_rule",
-          spec,
+          suggestion_type: "adjust_rule",
+          rule_id: r.id,
+          rule_name: r.name,
+          current_threshold: r.occupancy_threshold!,
+          suggested_threshold: nearestMark / 100,
           rationale:
-            "You have no rule watching short-term pickup, so demand spikes " +
-            "(events, groups, sudden buzz) pass by unpriced.",
+            `"${r.name}" fires above ${currentPct}% occupancy, but your booking history ` +
+            `suggests ${nearestMark}% is where nights actually become scarce.`,
         });
       }
-      continue;
     }
-
-    const specPct = Math.round((spec.condition.occupancy_threshold ?? 0) * 100);
-    // Closest existing occupancy rule to this spec's threshold.
-    let closest: ExistingRuleSummary | null = null;
-    let closestGap = Infinity;
-    for (const r of occupancyRules) {
-      const gap = Math.abs(Math.round(r.occupancy_threshold! * 100) - specPct);
-      if (gap < closestGap) {
-        closest = r;
-        closestGap = gap;
-      }
-    }
-
-    if (!closest || closestGap > 25) {
-      // Nothing covers this band of occupancy at all.
-      out.push({
-        suggestion_type: "add_rule",
-        spec,
-        rationale: `No existing rule reacts around the ${specPct}% occupancy mark your history points to.`,
-      });
-    } else if (closestGap > ADJUST_TOLERANCE_PTS) {
-      const currentPct = Math.round(closest.occupancy_threshold! * 100);
-      out.push({
-        suggestion_type: "adjust_rule",
-        rule_id: closest.id,
-        rule_name: closest.name,
-        current_threshold: closest.occupancy_threshold!,
-        suggested_threshold: specPct / 100,
-        rationale:
-          `"${closest.name}" fires above ${currentPct}% occupancy, but your booking history ` +
-          `suggests ${specPct}% is where nights actually become scarce.`,
-      });
-    }
-    // Within tolerance: their rule already matches the data — say nothing.
   }
 
   return out;
@@ -172,6 +164,70 @@ export function computeGuardrailSuggestions(
           suggested: target,
           rationale: `"${rt.name}" has no ceiling — a runaway surge could price it absurdly and embarrass you on the OTAs.`,
         });
+      }
+    }
+  }
+  return out;
+}
+
+/* ── Initial (first-run) guardrails ──────────────────────────── */
+
+export type InitialGuardrailInput = GuardrailState & {
+  /** Median nightly rate — the anchor for a data-derived floor. */
+  observed_median_rate: number | null;
+  row_count: number;
+};
+
+export type InitialGuardrail = {
+  room_type_id: string;
+  field: "floor_price" | "ceiling_price";
+  value: number;
+};
+
+/**
+ * A floor well below normal discounting range still blocks a fat-fingered
+ * $10 rate; 40% of the median is comfortably under any sane promotion.
+ */
+export const DATA_FLOOR_FRACTION_OF_MEDIAN = 0.4;
+export const MIN_DATA_FLOOR = 10;
+export const MIN_ROWS_FOR_DATA_GUARDRAILS = 30;
+
+/**
+ * First-run gap-filling: data-derived floors and ceilings for room types
+ * still at schema defaults AFTER the strategy answers were projected.
+ * Room types whose guardrails were set by a human (or by strategy answers)
+ * are untouched; suspect room types are skipped — no point fitting
+ * guardrails to something the same analysis says is probably not a room.
+ * Ceilings use p99 x 1.5, never the raw max, so one typo'd rate can't
+ * become the basis of the cap.
+ */
+export function computeInitialGuardrails(
+  roomTypes: InitialGuardrailInput[],
+  suspectRoomTypeIds: ReadonlySet<string> = new Set(),
+): InitialGuardrail[] {
+  const out: InitialGuardrail[] = [];
+  for (const rt of roomTypes) {
+    if (suspectRoomTypeIds.has(rt.room_type_id)) continue;
+    if (rt.row_count < MIN_ROWS_FOR_DATA_GUARDRAILS) continue;
+
+    // Ceiling first so the floor below can respect it.
+    let newCeiling: number | null = null;
+    if (rt.ceiling_price >= CEILING_UNSET_MIN && rt.observed_p99_rate && rt.observed_p99_rate > 0) {
+      newCeiling = Math.round((rt.observed_p99_rate * 1.5) / 10) * 10;
+      if (newCeiling > 0) {
+        out.push({ room_type_id: rt.room_type_id, field: "ceiling_price", value: newCeiling });
+      }
+    }
+
+    if (rt.floor_price <= FLOOR_UNSET_MAX && rt.observed_median_rate && rt.observed_median_rate > 0) {
+      const floor = Math.max(
+        MIN_DATA_FLOOR,
+        Math.round((rt.observed_median_rate * DATA_FLOOR_FRACTION_OF_MEDIAN) / 5) * 5,
+      );
+      const effectiveCeiling =
+        newCeiling ?? (rt.ceiling_price < CEILING_UNSET_MIN ? rt.ceiling_price : null);
+      if (effectiveCeiling === null || floor < effectiveCeiling) {
+        out.push({ room_type_id: rt.room_type_id, field: "floor_price", value: floor });
       }
     }
   }
