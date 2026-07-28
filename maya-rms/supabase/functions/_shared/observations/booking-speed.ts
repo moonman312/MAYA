@@ -9,40 +9,46 @@
  * Design rules:
  * - The levels are an ordered vocabulary, not statistics. The underlying
  *   ratio is kept on the result for audit snapshots only.
- * - Bands are symmetric in log space: twice normal speed mirrors half normal
- *   speed, so slow and fast demand shocks are treated identically.
- * - Small samples get pulled toward Normal. A loud call like Surging needs
- *   real evidence; a big ratio built on two bookings stays quiet. At typical
- *   independent-hotel volumes the difference between adjacent fine-grained
- *   buckets is less than one booking, which is why the scale stops at seven
- *   levels — anything finer would be labeling noise.
+ * - Bands are symmetric in log space: 30% above normal pace mirrors 30%
+ *   below it, so slow and fast demand shocks are treated identically.
+ * - Expected pickup for a 7 or 14 day window typically runs 20-400 bookings,
+ *   which is enough volume to support the Slightly tiers — but far-out or
+ *   shoulder-season dates still expect a handful, so evidence guards scale
+ *   with volume: the deviation needed to leave Normal grows with the square
+ *   root of the expectation (small counts are noisy in proportion). A big
+ *   ratio built on three bookings stays quiet; wrongly shouting on noise is
+ *   how trust dies.
  */
 
 export type BookingSpeed =
   | "stalled"
   | "much_slower"
   | "slower"
+  | "slightly_slower"
   | "normal"
+  | "slightly_faster"
   | "faster"
   | "much_faster"
   | "surging";
 
 export interface BookingSpeedLevel {
   key: BookingSpeed;
-  /** Ordinal position, -3 (stalled) through +3 (surging); 0 is normal. */
+  /** Ordinal position, -4 (stalled) through +4 (surging); 0 is normal. */
   rank: number;
   /** Human label shown in rules, explanations, and dropdowns. */
   label: string;
 }
 
 export const BOOKING_SPEED_LEVELS: BookingSpeedLevel[] = [
-  { key: "stalled", rank: -3, label: "Stalled" },
-  { key: "much_slower", rank: -2, label: "Much Slower Than Normal" },
-  { key: "slower", rank: -1, label: "Slower Than Normal" },
+  { key: "stalled", rank: -4, label: "Stalled" },
+  { key: "much_slower", rank: -3, label: "Much Slower Than Normal" },
+  { key: "slower", rank: -2, label: "Slower Than Normal" },
+  { key: "slightly_slower", rank: -1, label: "Slightly Slower Than Normal" },
   { key: "normal", rank: 0, label: "Normal" },
-  { key: "faster", rank: 1, label: "Faster Than Normal" },
-  { key: "much_faster", rank: 2, label: "Much Faster Than Normal" },
-  { key: "surging", rank: 3, label: "Surging" },
+  { key: "slightly_faster", rank: 1, label: "Slightly Faster Than Normal" },
+  { key: "faster", rank: 2, label: "Faster Than Normal" },
+  { key: "much_faster", rank: 3, label: "Much Faster Than Normal" },
+  { key: "surging", rank: 4, label: "Surging" },
 ];
 
 const BY_KEY = new Map(BOOKING_SPEED_LEVELS.map((l) => [l.key, l]));
@@ -75,25 +81,27 @@ export function isSpeedAtMost(speed: BookingSpeed, ceiling: BookingSpeed): boole
 /**
  * Band edges as multiples of expected pace. The slow side uses the
  * reciprocals, which keeps the scale symmetric in log space: recent/expected
- * of 2 lands exactly as far from Normal as 1/2 does.
+ * of 1.3 lands exactly as far from Normal as 1/1.3 does.
  */
 export const SPEED_BAND_MULTIPLES = {
-  faster: 1.25,
-  muchFaster: 2,
-  surging: 3.5,
+  slightlyFaster: 1.1,
+  faster: 1.3,
+  muchFaster: 1.75,
+  surging: 2.75,
 } as const;
 
 /**
- * Leaving Normal requires the recent count to differ from expected by at
- * least this many bookings. Ratios lie when the numbers are tiny — 2 observed
- * vs 0.9 expected is "more than double" and also just one extra booking.
+ * Evidence guards. Count noise scales with the square root of the count
+ * (Poisson-style), so the deviation required before we leave Normal does
+ * too: leaving Normal needs |recent - expected| of at least
+ * Z_LEAVE_NORMAL * sqrt(expected), and the extreme calls (Stalled, Surging)
+ * need Z_EXTREME * sqrt(expected) or they demote one step inward. The
+ * absolute floors keep tiny expectations honest — 2 observed vs 0.9
+ * expected is "more than double" and also just one extra booking.
  */
+export const Z_LEAVE_NORMAL = 1.5;
+export const Z_EXTREME = 2;
 export const MIN_DELTA_LEAVE_NORMAL = 2;
-
-/**
- * The extreme calls (Stalled, Surging) additionally require this much
- * absolute difference; otherwise they demote one step inward.
- */
 export const MIN_DELTA_EXTREME = 4;
 
 /**
@@ -112,9 +120,9 @@ export const MIN_COMPARABLES_FULL_RANGE = 3;
 
 export type BookingSpeedGuard =
   | "none"
-  /** Difference under MIN_DELTA_LEAVE_NORMAL — snapped back to Normal. */
+  /** Deviation within normal noise for this volume — snapped back to Normal. */
   | "small_difference"
-  /** Stalled/Surging demoted one step: difference under MIN_DELTA_EXTREME. */
+  /** Stalled/Surging demoted one step: not enough deviation for the strongest call. */
   | "extreme_demoted"
   /** Capped one step from Normal: too few comparable dates. */
   | "few_comparables";
@@ -143,13 +151,15 @@ export interface BookingSpeedClassification {
 }
 
 function rankFromRatio(ratio: number): number {
-  const { faster, muchFaster, surging } = SPEED_BAND_MULTIPLES;
-  if (ratio >= surging) return 3;
-  if (ratio >= muchFaster) return 2;
-  if (ratio >= faster) return 1;
-  if (ratio <= 1 / surging) return -3;
-  if (ratio <= 1 / muchFaster) return -2;
-  if (ratio <= 1 / faster) return -1;
+  const { slightlyFaster, faster, muchFaster, surging } = SPEED_BAND_MULTIPLES;
+  if (ratio >= surging) return 4;
+  if (ratio >= muchFaster) return 3;
+  if (ratio >= faster) return 2;
+  if (ratio >= slightlyFaster) return 1;
+  if (ratio <= 1 / surging) return -4;
+  if (ratio <= 1 / muchFaster) return -3;
+  if (ratio <= 1 / faster) return -2;
+  if (ratio <= 1 / slightlyFaster) return -1;
   return 0;
 }
 
@@ -161,18 +171,22 @@ export function classifyBookingSpeed(input: BookingSpeedInput): BookingSpeedClas
   const ratio = Math.max(recent, 0) / Math.max(expected, EXPECTED_FLOOR);
   const difference = Math.abs(recent - expected);
 
+  const noise = Math.sqrt(expected);
+  const leaveNormalDelta = Math.max(MIN_DELTA_LEAVE_NORMAL, Z_LEAVE_NORMAL * noise);
+  const extremeDelta = Math.max(MIN_DELTA_EXTREME, Z_EXTREME * noise);
+
   const rawRank = rankFromRatio(ratio);
   let rank = rawRank;
   let guard: BookingSpeedGuard = "none";
 
-  if (difference < MIN_DELTA_LEAVE_NORMAL) {
+  if (difference < leaveNormalDelta) {
     // Only report a guard when it actually suppressed a signal; with
     // identical counts the raw verdict is an artifact of the ratio floor.
     if (rawRank !== 0 && difference > 0) guard = "small_difference";
     rank = 0;
   } else {
-    if (Math.abs(rank) === 3 && difference < MIN_DELTA_EXTREME) {
-      rank = Math.sign(rank) * 2;
+    if (Math.abs(rank) === 4 && difference < extremeDelta) {
+      rank = Math.sign(rank) * 3;
       guard = "extreme_demoted";
     }
     const comparables = input.comparableCount;
@@ -202,7 +216,7 @@ export function classifyBookingSpeed(input: BookingSpeedInput): BookingSpeedClas
 /* ── Level 1 narrative ────────────────────────────────────────── */
 
 export interface DescribeBookingSpeedOptions {
-  /** Length of the recent-pickup window the counts came from. Default 14. */
+  /** Length of the recent-pickup window the counts came from. Default 7. */
   windowDays?: number;
 }
 
@@ -214,7 +228,7 @@ export function describeBookingSpeed(
   c: BookingSpeedClassification,
   opts: DescribeBookingSpeedOptions = {},
 ): string {
-  const windowDays = opts.windowDays ?? 14;
+  const windowDays = opts.windowDays ?? 7;
   const windowPhrase = `in the last ${windowDays} days`;
 
   let observed: string;
@@ -237,12 +251,14 @@ export function describeBookingSpeed(
 
   let caveat = "";
   if (c.guard === "small_difference") {
-    caveat = " The difference is only a couple of bookings, so we treat that as Normal.";
+    caveat =
+      " That difference is within the normal ups and downs for a date like this, so we call it Normal.";
   } else if (c.guard === "few_comparables") {
     caveat =
       " We only have a few similar past dates to compare against, so we keep the call conservative.";
   } else if (c.guard === "extreme_demoted") {
-    caveat = " The numbers involved are small, so we hold back from the strongest call.";
+    caveat =
+      " The difference is not quite big enough for the strongest call, so we hold back one step.";
   }
 
   return `${observed} ${expected} ${verdict}${caveat}`;
