@@ -581,7 +581,11 @@ export async function updateRule(
   }
 
   if (input.condition) {
-    updates.is_pickup_rule = !!input.condition.pickup_operator;
+    // Event-class covers BOTH trigger families — dropping booking_speed
+    // here silently demoted an edited booking-speed rule to the ladder
+    // path, which ignores its cooldown entirely.
+    updates.is_pickup_rule =
+      !!input.condition.pickup_operator || !!input.condition.booking_speed_operator;
   }
 
   if (isBehavioralEdit) {
