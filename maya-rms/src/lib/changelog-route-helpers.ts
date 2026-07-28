@@ -108,10 +108,22 @@ function toNarrativeMetrics(
   const occupancy = metrics.occupancy;
   const dta = metrics.dta;
   const pickup = metrics.net_pickup_units;
+  const bs = metrics.booking_speed as
+    | { label?: unknown; recent?: unknown; expected?: unknown }
+    | null
+    | undefined;
+  const bookingSpeed =
+    bs &&
+    typeof bs.label === "string" &&
+    typeof bs.recent === "number" &&
+    typeof bs.expected === "number"
+      ? { label: bs.label, recent: bs.recent, expected: bs.expected }
+      : null;
   return {
     occupancy: typeof occupancy === "number" ? occupancy : null,
     dta: typeof dta === "number" ? dta : null,
     pickup_units: typeof pickup === "number" ? pickup : null,
+    booking_speed: bookingSpeed,
   };
 }
 

@@ -146,7 +146,7 @@ describe("buildApplications", () => {
     expect(apps).toHaveLength(1);
     expect(apps[0].rule_name).toBe("Busy-day bump");
     expect(apps[0].action).toEqual({ kind: "percent", direction: "increase", value: 10 });
-    expect(apps[0].metrics).toEqual({ occupancy: 0.82, dta: 12, pickup_units: null });
+    expect(apps[0].metrics).toEqual({ occupancy: 0.82, dta: 12, pickup_units: null, booking_speed: null });
     expect(apps[0].condition).toEqual({ occupancy_operator: "gt", occupancy_threshold: 0.7 });
     expect(apps[0].is_pickup).toBe(false);
   });
@@ -169,7 +169,7 @@ describe("buildApplications", () => {
     expect(apps[0].rule_name).toBe("Demand-spike catcher");
     expect(apps[0].is_pickup).toBe(true);
     expect(apps[0].action).toEqual({ kind: "percent", direction: "increase", value: 12 });
-    expect(apps[0].metrics).toEqual({ occupancy: 0.9, dta: 3, pickup_units: 9 });
+    expect(apps[0].metrics).toEqual({ occupancy: 0.9, dta: 3, pickup_units: 9, booking_speed: null });
   });
 
   it("falls back to the rule lookup with null metrics for carried-over effects", () => {

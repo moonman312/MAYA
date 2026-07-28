@@ -6,6 +6,7 @@ import { useCalendarLive } from "@/lib/use-calendar-live";
 import { PropertySelect } from "@/components/property-select";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { SAMPLE_RESERVATIONS } from "@/lib/demo-data";
+import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
 import {
   conditionRowsToRuleCondition,
   formatRuleConditionsDisplay,
@@ -18,6 +19,7 @@ import {
   type ConditionMetric,
 } from "@/lib/rule-form";
 import type {
+  BookingSpeedRuleOperator,
   CalendarResponse,
   ChangelogCycle,
   RuleAction,
@@ -546,7 +548,7 @@ export function Dashboard() {
   function addConditionRow() {
     const used = new Set(condRows.map((r) => r.metric));
     const next: ConditionMetric | undefined = (
-      ["occupancy", "booking_window", "pickup"] as const
+      ["occupancy", "booking_speed", "booking_window", "pickup"] as const
     ).find((m) => !used.has(m));
     if (!next) return;
     setCondRows((prev) => [...prev, newConditionRow(next)]);
@@ -1118,7 +1120,7 @@ export function Dashboard() {
                   </p>
                   <p className="mb-3 text-xs text-slate-500">
                     Matches when <span className="text-slate-400">all</span> of
-                    the following are true (engine supports &gt; and &lt; only).
+                    the following are true.
                   </p>
                   <div className="flex flex-col gap-3">
                     {condRows.map((row) => {
@@ -1152,6 +1154,9 @@ export function Dashboard() {
                                           : "5",
                                     pickup_window_days: 3,
                                     pickup_metric: "room_nights",
+                                    booking_speed_operator: "at_least",
+                                    booking_speed_level: "faster",
+                                    booking_speed_window_days: 7,
                                   });
                                 }}
                               >
@@ -1160,6 +1165,12 @@ export function Dashboard() {
                                   disabled={taken.has("occupancy")}
                                 >
                                   Occupancy (%)
+                                </option>
+                                <option
+                                  value="booking_speed"
+                                  disabled={taken.has("booking_speed")}
+                                >
+                                  Booking speed (vs. normal pace)
                                 </option>
                                 <option
                                   value="booking_window"
@@ -1175,39 +1186,85 @@ export function Dashboard() {
                                 </option>
                               </select>
                             </div>
-                            <div>
-                              <label className="mb-0.5 block text-[11px] text-slate-500">
-                                Compare
-                              </label>
-                              <select
-                                value={row.operator}
-                                className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
-                                onChange={(e) =>
-                                  updateCondRow(row.id, {
-                                    operator: e.target.value as "gt" | "lt",
-                                  })
-                                }
-                              >
-                                <option value="gt">Greater than</option>
-                                <option value="lt">Less than</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="mb-0.5 block text-[11px] text-slate-500">
-                                Threshold
-                              </label>
-                              <input
-                                type="number"
-                                step="any"
-                                className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
-                                value={row.value}
-                                onChange={(e) =>
-                                  updateCondRow(row.id, {
-                                    value: e.target.value,
-                                  })
-                                }
-                              />
-                            </div>
+                            {row.metric === "booking_speed" ? (
+                              <>
+                                <div>
+                                  <label className="mb-0.5 block text-[11px] text-slate-500">
+                                    Compare
+                                  </label>
+                                  <select
+                                    value={row.booking_speed_operator}
+                                    className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
+                                    onChange={(e) =>
+                                      updateCondRow(row.id, {
+                                        booking_speed_operator: e.target
+                                          .value as BookingSpeedRuleOperator,
+                                      })
+                                    }
+                                  >
+                                    <option value="at_least">At least</option>
+                                    <option value="is">Exactly</option>
+                                    <option value="at_most">At most</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="mb-0.5 block text-[11px] text-slate-500">
+                                    Speed
+                                  </label>
+                                  <select
+                                    value={row.booking_speed_level}
+                                    className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
+                                    onChange={(e) =>
+                                      updateCondRow(row.id, {
+                                        booking_speed_level: e.target.value,
+                                      })
+                                    }
+                                  >
+                                    {BOOKING_SPEED_LEVELS.map((l) => (
+                                      <option key={l.key} value={l.key}>
+                                        {l.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div>
+                                  <label className="mb-0.5 block text-[11px] text-slate-500">
+                                    Compare
+                                  </label>
+                                  <select
+                                    value={row.operator}
+                                    className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
+                                    onChange={(e) =>
+                                      updateCondRow(row.id, {
+                                        operator: e.target.value as "gt" | "lt",
+                                      })
+                                    }
+                                  >
+                                    <option value="gt">Greater than</option>
+                                    <option value="lt">Less than</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="mb-0.5 block text-[11px] text-slate-500">
+                                    Threshold
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
+                                    value={row.value}
+                                    onChange={(e) =>
+                                      updateCondRow(row.id, {
+                                        value: e.target.value,
+                                      })
+                                    }
+                                  />
+                                </div>
+                              </>
+                            )}
                             <div className="flex justify-end sm:justify-end">
                               <button
                                 type="button"
@@ -1266,11 +1323,39 @@ export function Dashboard() {
                               </div>
                             </div>
                           ) : null}
+                          {row.metric === "booking_speed" ? (
+                            <div className="mt-3 grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-2">
+                              <div>
+                                <label className="mb-0.5 block text-[11px] text-slate-500">
+                                  Measured over
+                                </label>
+                                <select
+                                  className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
+                                  value={String(row.booking_speed_window_days)}
+                                  onChange={(e) =>
+                                    updateCondRow(row.id, {
+                                      booking_speed_window_days: Number(
+                                        e.target.value,
+                                      ) as 1 | 7 | 30,
+                                    })
+                                  }
+                                >
+                                  <option value="1">Past day</option>
+                                  <option value="7">Past week</option>
+                                  <option value="30">Past month</option>
+                                </select>
+                              </div>
+                              <p className="self-end pb-2 text-[11px] leading-4 text-slate-500">
+                                Compared with how similar past dates were
+                                booking when they were this far from arrival.
+                              </p>
+                            </div>
+                          ) : null}
                         </div>
                       );
                     })}
                   </div>
-                  {condRows.length < 3 ? (
+                  {condRows.length < 4 ? (
                     <button
                       type="button"
                       className="mt-2 text-xs font-medium text-sky-400 hover:text-sky-300"
