@@ -1771,7 +1771,8 @@ exception when duplicate_object then null; end $$;
 do $$ begin
   create type finding_kind as enum (
     'closed_period', 'suspect_room_type', 'duplicate_room_type',
-    'rate_outlier', 'zero_rate_rows', 'unmapped_room_type', 'other'
+    'rate_outlier', 'zero_rate_rows', 'unmapped_room_type',
+    'rule_suggestion', 'guardrail_suggestion', 'other'
   );
 exception when duplicate_object then null; end $$;
 

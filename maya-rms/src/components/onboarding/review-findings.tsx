@@ -327,6 +327,32 @@ function describeFinding(f: Finding): {
         confirmLabel: "Got it",
         dismissLabel: "Dismiss",
       };
+    case "rule_suggestion": {
+      if (p.suggestion_type === "adjust_rule") {
+        return {
+          title: `Tune "${String(p.rule_name)}"?`,
+          body: `${String(p.rationale)} We'd move its trigger from ${Math.round(Number(p.current_threshold) * 100)}% to ${Math.round(Number(p.suggested_threshold) * 100)}% occupancy.`,
+          confirmLabel: "Make that change",
+          dismissLabel: "Leave it as is",
+        };
+      }
+      const spec = (p.spec ?? {}) as { name?: string; explanation?: string };
+      return {
+        title: `Add a rule: "${String(spec.name ?? "New rule")}"?`,
+        body: `${String(p.rationale)} ${String(spec.explanation ?? "")}`,
+        confirmLabel: "Add this rule",
+        dismissLabel: "No thanks",
+      };
+    }
+    case "guardrail_suggestion": {
+      const isFloor = p.field === "floor_price";
+      return {
+        title: `Set a ${isFloor ? "floor" : "ceiling"} for "${String(p.room_type_name)}"?`,
+        body: `${String(p.rationale)} We'd set it to ${Number(p.suggested).toLocaleString()}.`,
+        confirmLabel: `Set it to ${Number(p.suggested).toLocaleString()}`,
+        dismissLabel: "No thanks",
+      };
+    }
     case "unmapped_room_type":
       return {
         title: "Some old stays reference deleted room types",

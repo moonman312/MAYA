@@ -1,8 +1,78 @@
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+
+/**
+ * Apply an accepted rule suggestion: either create the suggested rule or
+ * adjust an existing rule's threshold. Runs on the user's own session so
+ * RLS enforces their manage rights. Returns an error message or null.
+ */
+async function applyRuleSuggestion(
+  supabase: SupabaseClient,
+  hotelId: string,
+  payload: Record<string, unknown>,
+): Promise<string | null> {
+  if (payload.suggestion_type === "adjust_rule" && payload.rule_id) {
+    const { error } = await supabase
+      .from("rule_condition")
+      .update({ occupancy_threshold: Number(payload.suggested_threshold) })
+      .eq("rule_id", String(payload.rule_id));
+    return error?.message ?? null;
+  }
+
+  if (payload.suggestion_type === "add_rule" && payload.spec) {
+    const spec = payload.spec as {
+      name: string;
+      priority: number;
+      condition: Record<string, unknown>;
+      action: { action_type: string; action_direction: string; action_value: number };
+      is_pickup_rule: boolean;
+    };
+    const { data: ruleRow, error: insErr } = await supabase
+      .from("pricing_rules")
+      .insert({
+        hotel_id: hotelId,
+        name: spec.name,
+        priority: spec.priority,
+        is_active: true,
+        version: 1,
+        start_date: null,
+        end_date: null,
+        is_annual: false,
+        dow_mask: 127,
+        action_type: spec.action.action_type,
+        action_direction: spec.action.action_direction,
+        action_value: spec.action.action_value,
+        is_pickup_rule: spec.is_pickup_rule,
+      })
+      .select("id")
+      .single();
+    if (insErr || !ruleRow) return insErr?.message ?? "rule insert failed";
+    const ruleId = String(ruleRow.id);
+
+    const { error: condErr } = await supabase
+      .from("rule_condition")
+      .insert({ rule_id: ruleId, ...spec.condition });
+    if (condErr) return condErr.message;
+
+    const roomTypeIds = Array.isArray(payload.room_type_ids)
+      ? (payload.room_type_ids as string[])
+      : [];
+    if (roomTypeIds.length > 0) {
+      const joins = roomTypeIds.map((rtId) => ({ rule_id: ruleId, room_type_id: rtId }));
+      const { error: sigErr } = await supabase.from("rule_signal_room_type").insert(joins);
+      if (sigErr) return sigErr.message;
+      const { error: affErr } = await supabase.from("rule_affected_room_type").insert(joins);
+      if (affErr) return affErr.message;
+    }
+    return null;
+  }
+
+  return "Unrecognized suggestion payload";
+}
 
 /**
  * Confirm or dismiss a finding, applying its side effect:
@@ -80,6 +150,38 @@ export async function POST(
         .eq("hotel_id", hotelId);
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+    }
+    // Refresh-mode duplicate: the deactivation was only proposed — apply now.
+    if (
+      finding.kind === "duplicate_room_type" &&
+      finding.status === "proposed" &&
+      payload.deactivate_room_type_id
+    ) {
+      await supabase
+        .from("room_types")
+        .update({ is_active: false })
+        .eq("id", String(payload.deactivate_room_type_id))
+        .eq("hotel_id", hotelId);
+    }
+    if (finding.kind === "guardrail_suggestion" && payload.room_type_id && payload.field) {
+      const field = String(payload.field);
+      if (field !== "floor_price" && field !== "ceiling_price") {
+        return NextResponse.json({ error: "Bad guardrail field" }, { status: 400 });
+      }
+      const { error } = await supabase
+        .from("room_types")
+        .update({ [field]: Number(payload.suggested) })
+        .eq("id", String(payload.room_type_id))
+        .eq("hotel_id", hotelId);
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+    }
+    if (finding.kind === "rule_suggestion") {
+      const err = await applyRuleSuggestion(supabase, hotelId, payload);
+      if (err) {
+        return NextResponse.json({ error: err }, { status: 500 });
       }
     }
   }
