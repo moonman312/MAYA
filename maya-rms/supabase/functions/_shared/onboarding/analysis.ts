@@ -11,7 +11,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ImportJobRow } from "./worker-core.ts";
 import { projectStrategyOntoRoomTypes } from "./project-strategy.ts";
-import { generateStarterRules } from "./generate-rules.ts";
+import { computeStarterRules, generateStarterRules } from "./generate-rules.ts";
+import {
+  computeGuardrailSuggestions,
+  computeRuleSuggestions,
+  type ExistingRuleSummary,
+} from "./suggest.ts";
 
 /* ── Pure decision logic ─────────────────────────────────────────────────── */
 
@@ -385,6 +390,9 @@ export async function analyzeImport(
 ): Promise<void> {
   const hotelId = job.hotel_id;
   const today = new Date().toISOString().slice(0, 10);
+  // "refresh" = user asked for help on a hotel with existing config: analysis
+  // only ever SUGGESTS — nothing is written without an explicit accept.
+  const refreshMode = job.stats.mode === "refresh";
 
   const [{ data: dailyRaw }, { data: statsRaw }] = await Promise.all([
     supabase.rpc("onboarding_daily_room_nights", { p_hotel_id: hotelId }),
@@ -490,17 +498,20 @@ export async function analyzeImport(
     });
   }
 
-  // Auto-applied: deactivate exact-duplicate room types with zero bookings.
+  // Duplicates: auto-fix on first import (reversible); on a refresh of an
+  // established hotel, only propose — their setup is theirs.
   for (const d of duplicates) {
-    await supabase
-      .from("room_types")
-      .update({ is_active: false })
-      .eq("id", d.deactivate_room_type_id);
+    if (!refreshMode) {
+      await supabase
+        .from("room_types")
+        .update({ is_active: false })
+        .eq("id", d.deactivate_room_type_id);
+    }
     inserts.push({
       hotel_id: hotelId,
       job_id: job.id,
       kind: "duplicate_room_type",
-      status: "auto_applied",
+      status: refreshMode ? "proposed" : "auto_applied",
       payload: d as unknown as Record<string, unknown>,
     });
   }
@@ -525,10 +536,16 @@ export async function analyzeImport(
     });
   }
 
+  if (refreshMode) {
+    inserts.push(...(await buildSuggestionInserts(supabase, hotelId, job.id, daily, today)));
+  }
+
   if (inserts.length > 0) {
     const { error } = await supabase.from("onboarding_findings").insert(inserts);
     if (error) throw new Error(`onboarding_findings insert failed: ${error.message}`);
   }
+
+  if (refreshMode) return; // suggestions only — no direct writes past this point
 
   // Strategy answers may have arrived while the import ran — re-project so
   // room types created by the import get their guardrails too.
@@ -551,4 +568,105 @@ export async function analyzeImport(
       .eq("id", job.id);
     job.stats = { ...job.stats, starterRules: starterRules.map((r) => r.name) };
   }
+}
+
+/** Refresh-mode: compare data-derived config against what exists; emit suggestions. */
+async function buildSuggestionInserts(
+  supabase: SupabaseClient,
+  hotelId: string,
+  jobId: string,
+  daily: DailyRoomNights[],
+  today: string,
+): Promise<
+  Array<{ hotel_id: string; job_id: string; kind: string; status: string; payload: Record<string, unknown> }>
+> {
+  const [{ data: ruleRows }, { data: roomTypes }, { data: settings }, { data: rtStats }] =
+    await Promise.all([
+      supabase
+        .from("pricing_rules")
+        .select(
+          "id, name, is_active, is_pickup_rule, rule_condition(occupancy_operator, occupancy_threshold, pickup_operator, pickup_threshold)",
+        )
+        .eq("hotel_id", hotelId),
+      supabase
+        .from("room_types")
+        .select("id, name, total_rooms, floor_price, ceiling_price")
+        .eq("hotel_id", hotelId)
+        .eq("is_active", true),
+      supabase
+        .from("hotel_settings")
+        .select("strategy_floor, strategy_ceiling, pricing_confidence")
+        .eq("hotel_id", hotelId)
+        .maybeSingle(),
+      supabase.rpc("onboarding_room_type_stats", { p_hotel_id: hotelId }),
+    ]);
+
+  const totalRooms = (roomTypes ?? []).reduce(
+    (sum, rt) => sum + (Number(rt.total_rooms) || 0),
+    0,
+  );
+  if (totalRooms === 0) return [];
+
+  const existing: ExistingRuleSummary[] = (ruleRows ?? []).map((r) => {
+    const rc = (Array.isArray(r.rule_condition) ? r.rule_condition[0] : r.rule_condition) as
+      | Record<string, unknown>
+      | null;
+    return {
+      id: String(r.id),
+      name: String(r.name),
+      is_active: r.is_active === true,
+      is_pickup_rule: r.is_pickup_rule === true,
+      occupancy_operator: (rc?.occupancy_operator as string | null) ?? null,
+      occupancy_threshold: rc?.occupancy_threshold != null ? Number(rc.occupancy_threshold) : null,
+      pickup_operator: (rc?.pickup_operator as string | null) ?? null,
+      pickup_threshold: rc?.pickup_threshold != null ? Number(rc.pickup_threshold) : null,
+    };
+  });
+
+  const dataSpecs = computeStarterRules({
+    dailyOccupancyFractions: daily
+      .filter((d) => d.stay_date < today)
+      .map((d) => Math.min(1, d.room_nights / totalRooms)),
+    totalRooms,
+    pricingConfidence:
+      (settings?.pricing_confidence as "automate_current" | "find_upside" | null) ?? null,
+  });
+
+  const maxRateByRoomType = new Map<string, number>();
+  for (const s of rtStats ?? []) {
+    if (s.max_rate != null) maxRateByRoomType.set(String(s.room_type_id), Number(s.max_rate));
+  }
+
+  const ruleSuggestions = computeRuleSuggestions(existing, dataSpecs);
+  const guardrailSuggestions = computeGuardrailSuggestions(
+    (roomTypes ?? []).map((rt) => ({
+      room_type_id: String(rt.id),
+      name: String(rt.name),
+      floor_price: Number(rt.floor_price),
+      ceiling_price: Number(rt.ceiling_price),
+      observed_max_rate: maxRateByRoomType.get(String(rt.id)) ?? null,
+    })),
+    {
+      floor: settings?.strategy_floor != null ? Number(settings.strategy_floor) : null,
+      ceiling: settings?.strategy_ceiling != null ? Number(settings.strategy_ceiling) : null,
+    },
+  );
+
+  const allRoomTypeIds = (roomTypes ?? []).map((rt) => String(rt.id));
+  return [
+    ...ruleSuggestions.map((s) => ({
+      hotel_id: hotelId,
+      job_id: jobId,
+      kind: "rule_suggestion",
+      status: "proposed",
+      payload: { ...s, room_type_ids: allRoomTypeIds } as unknown as Record<string, unknown>,
+    })),
+    ...guardrailSuggestions.map((s) => ({
+      hotel_id: hotelId,
+      job_id: jobId,
+      kind: "guardrail_suggestion",
+      status: "proposed",
+      payload: s as unknown as Record<string, unknown>,
+    })),
+  ];
 }

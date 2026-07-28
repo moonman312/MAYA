@@ -1,5 +1,6 @@
 "use client";
 
+import { AskForHelp } from "@/components/onboarding/ask-for-help";
 import { OnboardingReviewBanner } from "@/components/onboarding/review-banner";
 import { PropertySelect } from "@/components/property-select";
 import { formatUtcLongDate, formatUtcMonthYear } from "@/lib/calendar-month-label";
@@ -724,7 +725,10 @@ export function Dashboard() {
         {tab === "rules" && (
           <section className="space-y-5 rounded-lg border border-slate-800 bg-slate-900 p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold">Pricing Rules</h2>
+              <div className="flex items-center gap-4">
+                <h2 className="text-lg font-semibold">Pricing Rules</h2>
+                <AskForHelp />
+              </div>
               <div className="flex items-center gap-1 rounded-full border border-slate-800 bg-slate-950 p-1">
                 {(["all", "enabled", "disabled"] as const).map((f) => (
                   <button
