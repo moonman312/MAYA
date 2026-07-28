@@ -107,9 +107,17 @@ describe("corroboration is counted by distinct YEARS, not distinct dates", () =>
       { now: "2025-03-15" },
     );
     expect(model.promotedSeasonExclusionWindows).toHaveLength(0);
-    expect(model.pending).toHaveLength(1);
-    expect(model.pending[0].count).toBe(1); // one distinct year, however many dates
-    expect(model.pending[0].needed).toBe(3);
+    expect(model.promotedAnnualWindows).toHaveLength(0);
+    // One cluster reports progress toward BOTH milestones it could reach:
+    // the annual generalization (any pattern-scope report counts) and the
+    // season-model change (explicit improve_future reports only).
+    expect(model.pending).toHaveLength(2);
+    const annualPending = model.pending.find((p) => p.scope === "annual");
+    const seasonPending = model.pending.find((p) => p.scope === "improve_future");
+    expect(annualPending?.count).toBe(1); // one distinct year, however many dates
+    expect(annualPending?.needed).toBe(2);
+    expect(seasonPending?.count).toBe(1);
+    expect(seasonPending?.needed).toBe(3);
     // The three individual dates are still excluded outright (this_date-level safety).
     expect(isDateReinforcementExcluded(model, "2025-03-10")).toBe(true);
   });
@@ -139,6 +147,106 @@ describe("corroboration is counted by distinct YEARS, not distinct dates", () =>
     );
     expect(model.promotedSeasonExclusionWindows).toHaveLength(0);
     expect(model.pending[0].count).toBe(2);
+  });
+});
+
+describe("years are occurrences, not calendar-year strings", () => {
+  it("does NOT let one New Year's incident spanning Dec 31 and Jan 1 count as two years", () => {
+    // One party, flagged in one sitting: the dates straddle the calendar
+    // boundary but they are ONE occurrence — no promotion.
+    const model = buildReinforcementModel(
+      [
+        challenge({ id: "c1", date: "2025-12-31", reasonKey: "local_event", scope: "annual", raisedAt: "2026-01-02" }),
+        challenge({ id: "c2", date: "2026-01-01", reasonKey: "local_event", scope: "annual", raisedAt: "2026-01-02" }),
+      ],
+      { now: "2026-01-05" },
+    );
+    expect(model.promotedAnnualWindows).toHaveLength(0);
+    expect(model.pending).toHaveLength(1);
+    expect(model.pending[0].count).toBe(1);
+  });
+
+  it("still promotes a genuinely recurring New Year's pattern reported in two different years", () => {
+    const model = buildReinforcementModel(
+      [
+        challenge({ id: "c1", date: "2024-12-31", reasonKey: "local_event", scope: "annual", raisedAt: "2025-01-02" }),
+        challenge({ id: "c2", date: "2026-01-01", reasonKey: "local_event", scope: "annual", raisedAt: "2026-01-02" }),
+      ],
+      { now: "2026-01-05" },
+    );
+    // Dec 31 2024 belongs to the 2024/25 turn; Jan 1 2026 to the 2025/26
+    // turn — two distinct occurrences, so the pattern is corroborated.
+    expect(model.promotedAnnualWindows).toHaveLength(1);
+    expect(model.promotedAnnualWindows[0].distinctYears).toBe(2);
+  });
+
+  it("does not halve the improve_future bar via boundary-spanning incidents", () => {
+    // Two incidents (2024/25 turn and 2025/26 turn) touching three
+    // calendar-year strings — still only two occurrence-years, short of 3.
+    const model = buildReinforcementModel(
+      [
+        challenge({ id: "c1", date: "2024-12-31", reasonKey: "local_event", scope: "improve_future", raisedAt: "2025-01-02" }),
+        challenge({ id: "c2", date: "2025-01-01", reasonKey: "local_event", scope: "improve_future", raisedAt: "2025-01-02" }),
+        challenge({ id: "c3", date: "2025-12-30", reasonKey: "local_event", scope: "improve_future", raisedAt: "2026-01-02" }),
+        challenge({ id: "c4", date: "2026-01-02", reasonKey: "local_event", scope: "improve_future", raisedAt: "2026-01-03" }),
+      ],
+      { now: "2026-01-05" },
+    );
+    expect(model.promotedSeasonExclusionWindows).toHaveLength(0);
+    // Two occurrences DO earn the weaker annual generalization.
+    expect(model.promotedAnnualWindows).toHaveLength(1);
+    expect(model.promotedAnnualWindows[0].scope).toBe("annual");
+  });
+});
+
+describe("pattern scopes corroborate each other (each level does strictly more)", () => {
+  it("counts an improve_future report toward the annual threshold", () => {
+    const model = buildReinforcementModel(
+      [
+        challenge({ id: "c1", date: "2024-07-10", reasonKey: "local_event", scope: "annual" }),
+        challenge({ id: "c2", date: "2025-07-11", reasonKey: "local_event", scope: "improve_future" }),
+      ],
+      { now: "2025-07-15" },
+    );
+    // Same reason, two years, two pattern-scope reports: the annual window
+    // promotes even though the scopes differ.
+    expect(model.promotedAnnualWindows).toHaveLength(1);
+    expect(model.promotedAnnualWindows[0].scope).toBe("annual");
+    // The season-model change still waits for explicit improve_future years.
+    expect(model.promotedSeasonExclusionWindows).toHaveLength(0);
+    const seasonPending = model.pending.find((p) => p.scope === "improve_future");
+    expect(seasonPending?.count).toBe(1);
+    expect(seasonPending?.needed).toBe(3);
+  });
+
+  it("never counts this_date reports toward any pattern", () => {
+    const model = buildReinforcementModel(
+      [
+        challenge({ id: "c1", date: "2024-07-10", reasonKey: "local_event", scope: "this_date" }),
+        challenge({ id: "c2", date: "2025-07-11", reasonKey: "local_event", scope: "annual" }),
+      ],
+      { now: "2025-07-15" },
+    );
+    // this_date is deliberately not a recurrence claim: only the annual
+    // report counts, so nothing promotes.
+    expect(model.promotedAnnualWindows).toHaveLength(0);
+    const annualPending = model.pending.find((p) => p.scope === "annual");
+    expect(annualPending?.count).toBe(1);
+  });
+
+  it("promotes the season change once three distinct years explicitly ask for it", () => {
+    const model = buildReinforcementModel(
+      [
+        challenge({ id: "c1", date: "2023-07-10", reasonKey: "local_event", scope: "improve_future" }),
+        challenge({ id: "c2", date: "2024-07-11", reasonKey: "local_event", scope: "improve_future" }),
+        challenge({ id: "c3", date: "2025-07-12", reasonKey: "local_event", scope: "improve_future" }),
+      ],
+      { now: "2025-07-15" },
+    );
+    expect(model.promotedSeasonExclusionWindows).toHaveLength(1);
+    // One promoted entry serves both arrays — no duplicate description.
+    expect(model.promotedAnnualWindows).toHaveLength(1);
+    expect(model.pending).toHaveLength(0);
   });
 });
 

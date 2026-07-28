@@ -73,7 +73,8 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
            rule_condition (
              occupancy_operator, occupancy_threshold,
              dta_operator, dta_threshold_days,
-             pickup_operator, pickup_threshold, pickup_window_days, pickup_metric
+             pickup_operator, pickup_threshold, pickup_window_days, pickup_metric,
+             booking_speed_operator, booking_speed_level, booking_speed_window_days
            )`,
         )
         .eq("hotel_id", hotelId),
@@ -113,6 +114,12 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
             ? (Number(rc.pickup_window_days) as 1 | 3 | 7)
             : null,
         pickup_metric: rc.pickup_metric ?? null,
+        booking_speed_operator: rc.booking_speed_operator ?? null,
+        booking_speed_level: rc.booking_speed_level ?? null,
+        booking_speed_window_days:
+          rc.booking_speed_window_days != null
+            ? (Number(rc.booking_speed_window_days) as 1 | 7 | 30)
+            : null,
       });
     }
   }

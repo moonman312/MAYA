@@ -42,6 +42,14 @@ export const MOMENTUM_LOW_CONFIDENCE_SAMPLES = 3;
 
 export type MomentumBaselineSource = "target_year_ago" | "neighbor_pace";
 
+/** One neighbor pairing the momentum ratio is built from — kept so the read is falsifiable date by date. */
+export interface MomentumPair {
+  date: string;
+  bookings: number;
+  yearAgoDate: string;
+  yearAgoBookings: number;
+}
+
 export interface MomentumEstimate {
   expectedBookings: number;
   /** Recent neighbor pace over year-ago neighbor pace, clamped. 1 = no evidence of change. */
@@ -49,8 +57,12 @@ export interface MomentumEstimate {
   neighborsUsed: number;
   /** How many neighbors actually had BOTH a current and a year-ago usable comparison — what momentumRatio is built from. */
   matchedPairs: number;
+  /** The actual pairings behind momentumRatio, so an owner can challenge any date that was not normal. */
+  pairs: MomentumPair[];
   naiveBaselineBookings: number;
   baselineSource: MomentumBaselineSource;
+  /** The date the baseline came from when baselineSource is "target_year_ago"; null for neighbor_pace. */
+  baselineDate: string | null;
 }
 
 export interface EstimateMomentumOptions {
@@ -105,7 +117,7 @@ export function estimateMomentumFallback(opts: EstimateMomentumOptions): Momentu
   let neighborsUsed = 0;
   let matchedRecentTotal = 0;
   let matchedHistoricalTotal = 0;
-  let matchedPairs = 0;
+  const pairs: MomentumPair[] = [];
   const neighborRecentPaces: number[] = [];
 
   for (const neighbor of neighbors) {
@@ -132,7 +144,12 @@ export function estimateMomentumFallback(opts: EstimateMomentumOptions): Momentu
       const historical = pickupInWindow(opts.rows, priorNeighbor, priorDaysOut, opts.windowDays);
       matchedRecentTotal += recent;
       matchedHistoricalTotal += historical;
-      matchedPairs++;
+      pairs.push({
+        date: neighbor,
+        bookings: recent,
+        yearAgoDate: priorNeighbor,
+        yearAgoBookings: historical,
+      });
     }
   }
 
@@ -141,7 +158,7 @@ export function estimateMomentumFallback(opts: EstimateMomentumOptions): Momentu
   // No matched pair anywhere nearby means no evidence of a pace change
   // either way — neutral, not a runaway ratio from mismatched populations.
   const momentumRatio =
-    matchedPairs > 0 && matchedHistoricalTotal > 0
+    pairs.length > 0 && matchedHistoricalTotal > 0
       ? Math.min(MOMENTUM_RATIO_CEILING, Math.max(MOMENTUM_RATIO_FLOOR, matchedRecentTotal / matchedHistoricalTotal))
       : 1;
 
@@ -151,6 +168,7 @@ export function estimateMomentumFallback(opts: EstimateMomentumOptions): Momentu
 
   let naiveBaselineBookings: number;
   let baselineSource: MomentumBaselineSource;
+  let baselineDate: string | null;
   if (
     priorTargetDaysOut >= 0 &&
     hasAnyRow(opts.rows, priorTarget) &&
@@ -158,18 +176,22 @@ export function estimateMomentumFallback(opts: EstimateMomentumOptions): Momentu
   ) {
     naiveBaselineBookings = pickupInWindow(opts.rows, priorTarget, priorTargetDaysOut, opts.windowDays);
     baselineSource = "target_year_ago";
+    baselineDate = priorTarget;
   } else {
     naiveBaselineBookings = trimmedMean(neighborRecentPaces);
     baselineSource = "neighbor_pace";
+    baselineDate = null;
   }
 
   return {
     expectedBookings: round2(Math.max(0, naiveBaselineBookings * momentumRatio)),
     momentumRatio: round2(momentumRatio),
     neighborsUsed,
-    matchedPairs,
+    matchedPairs: pairs.length,
+    pairs,
     naiveBaselineBookings: round2(naiveBaselineBookings),
     baselineSource,
+    baselineDate,
   };
 }
 

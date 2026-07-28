@@ -92,6 +92,7 @@ end $$;
 /*
 drop table if exists
   app_roles,
+  assumption_challenges,
   audit_events,
   competitor_rates,
   evaluation_audit,

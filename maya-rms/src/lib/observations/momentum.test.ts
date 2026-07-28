@@ -219,7 +219,9 @@ describe("describeMomentum", () => {
     expectedBookings: 4,
     neighborsUsed: 6,
     matchedPairs: 6,
+    pairs: [],
     naiveBaselineBookings: 2,
+    baselineDate: null,
   };
 
   it("describes accelerating, decelerating, and flat momentum in words", () => {

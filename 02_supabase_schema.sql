@@ -1893,6 +1893,35 @@ create table if not exists hotel_closed_periods (
 create index if not exists idx_hotel_closed_periods
   on hotel_closed_periods(hotel_id, start_date);
 
+-- ── assumption_challenges: owner-flagged non-comparable dates ───────────────
+-- Owners never edit observation outputs; they flag a date as not a fair
+-- comparison and say why. The flagged date is excluded immediately; annual /
+-- season-model generalization needs corroboration from distinct YEARS (see
+-- observations/reinforcement.ts).
+
+create table if not exists assumption_challenges (
+  id uuid primary key default gen_random_uuid(),
+  hotel_id uuid not null references hotels(id) on delete cascade,
+  challenged_date date not null,
+  reason_key text not null,
+  other_text text, -- required when reason_key = 'other' (checked below + in API)
+  scope text not null default 'this_date',
+  raised_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  check (scope in ('this_date', 'annual', 'improve_future')),
+  check (reason_key <> 'other' or other_text is not null),
+  constraint assumption_challenges_other_text_len_check
+    check (other_text is null or char_length(other_text) <= 300)
+);
+
+create index if not exists idx_assumption_challenges
+  on assumption_challenges(hotel_id, challenged_date);
+
+-- Repeat submits of the same flag are conflicts, not duplicate evidence —
+-- corroboration is counted by distinct years, never by row count.
+create unique index if not exists uq_assumption_challenges
+  on assumption_challenges(hotel_id, challenged_date, reason_key, scope);
+
 -- ── hotel_settings: strategy answers ────────────────────────────────────────
 
 alter table hotel_settings
@@ -2032,6 +2061,7 @@ alter table import_jobs enable row level security;
 alter table onboarding_states enable row level security;
 alter table onboarding_findings enable row level security;
 alter table hotel_closed_periods enable row level security;
+alter table assumption_challenges enable row level security;
 
 -- Members can watch import progress; only the service-role worker writes.
 drop policy if exists import_jobs_read on import_jobs;
@@ -2053,6 +2083,28 @@ drop policy if exists hotel_closed_periods_access on hotel_closed_periods;
 create policy hotel_closed_periods_access on hotel_closed_periods
   for all using (is_hotel_accessible(hotel_id))
   with check (can_manage_hotel(hotel_id));
+
+-- Reading is for every member; raising and retracting are owner controls
+-- (managers up). Split per command: a FOR ALL policy's WITH CHECK never
+-- runs on DELETE, which would let read-only roles retract corrections.
+-- raised_by is pinned to the caller so attribution can't be forged.
+drop policy if exists assumption_challenges_access on assumption_challenges;
+drop policy if exists assumption_challenges_read on assumption_challenges;
+create policy assumption_challenges_read on assumption_challenges
+  for select using (is_hotel_accessible(hotel_id));
+drop policy if exists assumption_challenges_insert on assumption_challenges;
+create policy assumption_challenges_insert on assumption_challenges
+  for insert with check (
+    can_manage_hotel(hotel_id)
+    and (raised_by is null or raised_by = auth.uid())
+  );
+drop policy if exists assumption_challenges_update on assumption_challenges;
+create policy assumption_challenges_update on assumption_challenges
+  for update using (can_manage_hotel(hotel_id))
+  with check (can_manage_hotel(hotel_id));
+drop policy if exists assumption_challenges_delete on assumption_challenges;
+create policy assumption_challenges_delete on assumption_challenges
+  for delete using (can_manage_hotel(hotel_id));
 
 -- ============================================================================
 -- PMS REQUEST LOG (mirrors 99_supabase_migration_pms_request_log_v1)
