@@ -10,6 +10,24 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RoomTypeRow, SnapshotRow } from "./types";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function fetchAllRows(makeQuery: () => any, pageSize = 1000): Promise<any[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const all: any[] = [];
+  let from = 0;
+  let guard = 0;
+  for (;;) {
+    if (++guard > 1000) break; // safety backstop (~1M rows)
+    const { data, error } = await makeQuery().range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const rows = data ?? [];
+    all.push(...rows);
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
+
 /**
  * Insert one snapshot row per (stay_date, room_type) across the full horizon
  * for a single hotel. Uses a consistent snapshot_ts for the whole run.

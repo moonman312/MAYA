@@ -26,7 +26,7 @@ import { computeRuleMetrics } from "./metrics";
 import { computeBaselineTs, runPickupPass } from "./pickup";
 import { assemblePrice, maybePublish } from "./pricing";
 import { ruleScopeMatches } from "./scope";
-import { purgeOldSnapshots, snapshotCurrentState } from "./snapshots";
+import { fetchAllRows, purgeOldSnapshots, snapshotCurrentState } from "./snapshots";
 import { addCalendarDays, evalIsoToHotelDateString } from "./timezone";
 import type { PickupCandidate, RoomTypeRow } from "./types";
 
@@ -187,33 +187,65 @@ export async function evaluateHotel(
     if (w != null) maxPickupWindowDays = Math.max(maxPickupWindowDays, w);
   }
 
+  // Base prices — batched: one reservations read + one published_price read for
+  // the whole horizon, resolved in memory. (Previously this was ~2 queries per
+  // (stay_date, room_type) cell — thousands of sequential round-trips.)
+  // Semantics preserved: prefer the most-recent reservation's base_rate (when
+  // truthy), else the current published_price.
+  const firstDate = stayDates[0];
+  const lastDate = stayDates[stayDates.length - 1];
+
+  const resRows = await fetchAllRows(() =>
+    supabase
+      .from("reservations")
+      .select("stay_date, room_type_id, base_rate, created_at")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", firstDate)
+      .lte("stay_date", lastDate)
+      .order("id", { ascending: true }),
+  );
+
+  const latestResByCell = new Map<string, { base_rate: number | null; created_at: string }>();
+  for (const r of resRows ?? []) {
+    if (!r.room_type_id) continue;
+    const key = `${r.stay_date}|${r.room_type_id}`;
+    const createdAt = String(r.created_at ?? "");
+    const prev = latestResByCell.get(key);
+    if (!prev || createdAt > prev.created_at) {
+      latestResByCell.set(key, {
+        base_rate: r.base_rate != null ? Number(r.base_rate) : null,
+        created_at: createdAt,
+      });
+    }
+  }
+
+  const ppRows = await fetchAllRows(() =>
+    supabase
+      .from("published_price")
+      .select("stay_date, room_type_id, price")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", firstDate)
+      .lte("stay_date", lastDate)
+      .order("stay_date", { ascending: true })
+      .order("room_type_id", { ascending: true }),
+  );
+
+  const ppByCell = new Map<string, number>();
+  for (const p of ppRows) {
+    if (!p.room_type_id) continue;
+    ppByCell.set(`${p.stay_date}|${p.room_type_id}`, Number(p.price));
+  }
+
   const basePrices = new Map<string, number>();
   for (const sd of stayDates) {
     for (const rt of roomTypes) {
       const key = `${sd}|${rt.id}`;
-      const { data: res } = await supabase
-        .from("reservations")
-        .select("base_rate")
-        .eq("hotel_id", hotelId)
-        .eq("stay_date", sd)
-        .eq("room_type_id", rt.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (res?.base_rate) {
-        basePrices.set(key, Number(res.base_rate));
+      const latest = latestResByCell.get(key);
+      if (latest && latest.base_rate) {
+        basePrices.set(key, latest.base_rate);
       } else {
-        const { data: pp } = await supabase
-          .from("published_price")
-          .select("price")
-          .eq("hotel_id", hotelId)
-          .eq("stay_date", sd)
-          .eq("room_type_id", rt.id)
-          .maybeSingle();
-        if (pp?.price) {
-          basePrices.set(key, Number(pp.price));
-        }
+        const pp = ppByCell.get(key);
+        if (pp) basePrices.set(key, pp);
       }
     }
   }
