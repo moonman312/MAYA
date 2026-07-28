@@ -12,6 +12,7 @@
  */
 
 import { INITIAL_RULES } from "@/lib/demo-data";
+import { bookingSpeedLabel, isBookingSpeed } from "@/lib/observations/booking-speed";
 import {
   isRuleConditionEmpty,
   ruleConditionForInsert,
@@ -128,6 +129,16 @@ function uiActionToDb(action: RuleAction): {
 
 /* ── DB row converters ─────────────────────────────────────────── */
 
+/** "at least Much Faster Than Normal (past week)" — the rules-table summary text. */
+function formatBookingSpeedCondition(operator: string, levelKey: string, windowDays: number): string {
+  const label = isBookingSpeed(levelKey) ? bookingSpeedLabel(levelKey) : levelKey;
+  const opWords =
+    operator === "at_least" ? "at least " : operator === "at_most" ? "at most " : "";
+  const windowWords =
+    windowDays === 1 ? "past day" : windowDays === 30 ? "past month" : "past week";
+  return `${opWords}${label} (${windowWords})`;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function embedRoomTypeName(rt: any): string | undefined {
   const r = rt?.room_types;
@@ -155,6 +166,13 @@ function dbRowToRuleConfig(row: any): RuleConfig {
     if (rc.pickup_operator && rc.pickup_threshold != null) {
       const sym = OP_TO_SYM[rc.pickup_operator as RuleOperator] ?? ">";
       conditions.pickup_rate = `${sym}${rc.pickup_threshold}`;
+    }
+    if (rc.booking_speed_operator && rc.booking_speed_level) {
+      conditions.booking_speed = formatBookingSpeedCondition(
+        String(rc.booking_speed_operator),
+        String(rc.booking_speed_level),
+        rc.booking_speed_window_days != null ? Number(rc.booking_speed_window_days) : 7,
+      );
     }
   } else {
     for (const c of row.pricing_rule_conditions ?? []) {
@@ -206,6 +224,12 @@ function dbRowToEngineRule(row: any): EngineRule {
     condition.pickup_threshold = rc.pickup_threshold != null ? Number(rc.pickup_threshold) : null;
     condition.pickup_window_days = rc.pickup_window_days != null ? (Number(rc.pickup_window_days) as 1 | 3 | 7) : null;
     condition.pickup_metric = (rc.pickup_metric as PickupMetric) ?? null;
+    condition.booking_speed_operator = rc.booking_speed_operator ?? null;
+    condition.booking_speed_level = rc.booking_speed_level ?? null;
+    condition.booking_speed_window_days =
+      rc.booking_speed_window_days != null ? (Number(rc.booking_speed_window_days) as 1 | 7 | 30) : null;
+    condition.booking_speed_cooldown_days =
+      rc.booking_speed_cooldown_days != null ? Number(rc.booking_speed_cooldown_days) : null;
   }
 
   const signal_ids: string[] = (row.rule_signal_room_type ?? []).map(
@@ -250,7 +274,9 @@ const RULE_SELECT = `
   rule_condition (
     occupancy_operator, occupancy_threshold,
     dta_operator, dta_threshold_days,
-    pickup_operator, pickup_threshold, pickup_window_days, pickup_metric
+    pickup_operator, pickup_threshold, pickup_window_days, pickup_metric,
+    booking_speed_operator, booking_speed_level,
+    booking_speed_window_days, booking_speed_cooldown_days
   ),
   rule_signal_room_type ( room_type_id, room_types ( name ) ),
   rule_affected_room_type ( room_type_id, room_types ( name ) ),
@@ -350,7 +376,13 @@ export async function createRule(
     throw new Error("Rule must include at least one valid condition.");
   }
 
-  let hasPickup = !!structuredCondition?.pickup_operator;
+  // Booking-speed rules run event-style (fire once, effect persists, then a
+  // per-stay-date cooldown before re-firing) — same machinery as pickup
+  // rules. A continuously-held effect would whipsaw: the price change
+  // itself shifts the classification back toward Normal, deactivating the
+  // very adjustment that caused it.
+  let hasPickup =
+    !!structuredCondition?.pickup_operator || !!structuredCondition?.booking_speed_operator;
   if (!structuredCondition) {
     for (const [key, val] of Object.entries(input.conditions)) {
       if (key !== "pickup_rate") continue;

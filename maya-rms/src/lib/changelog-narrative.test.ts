@@ -257,3 +257,71 @@ describe("narrateHeadline", () => {
     ).toBe("Deluxe King: $200.00 up to $263.20 (+31.6%)");
   });
 });
+
+describe("booking speed narration", () => {
+  it("narrates the starter-ladder slow rule exactly as an owner should read it", () => {
+    const sentences = narrateChange({
+      room_type: "Deluxe King",
+      base_price: 200,
+      final_price: 170,
+      applications: [
+        {
+          rule_name: "Slow month catch-up",
+          condition: {
+            booking_speed_operator: "at_least",
+            booking_speed_level: "much_slower",
+            booking_speed_window_days: 30,
+          },
+          action: { kind: "percent", direction: "decrease", value: 15 },
+          metrics: { booking_speed: { label: "Much Slower Than Normal", recent: 3, expected: 9.2 } },
+          is_pickup: true,
+        },
+      ],
+    });
+    const text = sentences.join(" ");
+    expect(text).toContain("booking speed over the past month");
+    expect(text).toContain("(3 bookings, expected about 9)");
+    expect(text).toContain("lowered the rate 15%, from $200.00 to $170.00");
+    for (const s of sentences) expect(s).not.toMatch(NO_MATH_SYMBOLS);
+  });
+
+  it("phrases each operator distinctly and handles the almost-none expectation", () => {
+    const is = describeConditions(
+      { booking_speed_operator: "is", booking_speed_level: "surging", booking_speed_window_days: 1 },
+      { booking_speed: { label: "Surging", recent: 6, expected: 0.4 } },
+    );
+    expect(is).toContain("booking speed over the past day was Surging");
+    expect(is).toContain("(6 bookings, expected almost none)");
+
+    const atMost = describeConditions({
+      booking_speed_operator: "at_most",
+      booking_speed_level: "slower",
+      booking_speed_window_days: 7,
+    });
+    expect(atMost).toBe("booking speed over the past week stayed at or below Slower Than Normal");
+
+    const atLeast = describeConditions({
+      booking_speed_operator: "at_least",
+      booking_speed_level: "much_faster",
+      booking_speed_window_days: 7,
+    });
+    expect(atLeast).toContain("reached Much Faster Than Normal");
+    for (const s of [is, atMost, atLeast]) expect(s).not.toMatch(NO_MATH_SYMBOLS);
+  });
+
+  it("joins booking speed with other condition families", () => {
+    const s = describeConditions(
+      {
+        occupancy_operator: "gt",
+        occupancy_threshold: 0.6,
+        booking_speed_operator: "at_least",
+        booking_speed_level: "faster",
+        booking_speed_window_days: 7,
+      },
+      { occupancy: 0.72, booking_speed: { label: "Faster Than Normal", recent: 11, expected: 6 } },
+    );
+    expect(s).toContain("occupancy (72%) was above 60%");
+    expect(s).toContain("and booking speed over the past week reached Faster Than Normal");
+    expect(s).not.toMatch(NO_MATH_SYMBOLS);
+  });
+});

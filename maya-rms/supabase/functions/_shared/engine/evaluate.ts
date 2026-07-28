@@ -7,6 +7,15 @@ import type { EngineRule } from "./domain.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AuditInput } from "./audit.ts";
 import { writeAudit } from "./audit.ts";
+import {
+  DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS,
+  bookingSpeedAuditSnapshots,
+  bookingSpeedMetrics,
+  isWithinCooldown,
+  loadBookingSpeedContext,
+  observeForStayDate,
+  type BookingSpeedContext,
+} from "./booking-speed-provider.ts";
 import { ruleConditionsMatch } from "./conditions.ts";
 import type { LadderPassResult } from "./ladder.ts";
 import { evaluateLadderTriple } from "./ladder.ts";
@@ -104,7 +113,9 @@ export async function evaluateHotel(
       rule_condition (
         occupancy_operator, occupancy_threshold,
         dta_operator, dta_threshold_days,
-        pickup_operator, pickup_threshold, pickup_window_days, pickup_metric
+        pickup_operator, pickup_threshold, pickup_window_days, pickup_metric,
+        booking_speed_operator, booking_speed_level,
+        booking_speed_window_days, booking_speed_cooldown_days
       ),
       rule_signal_room_type ( room_type_id ),
       rule_affected_room_type ( room_type_id )
@@ -141,6 +152,16 @@ export async function evaluateHotel(
         pickup_threshold: rc?.pickup_threshold != null ? Number(rc.pickup_threshold) : null,
         pickup_window_days: rc?.pickup_window_days != null ? (Number(rc.pickup_window_days) as 1 | 3 | 7) : null,
         pickup_metric: rc?.pickup_metric ?? null,
+        booking_speed_operator: rc?.booking_speed_operator ?? null,
+        booking_speed_level: rc?.booking_speed_level ?? null,
+        booking_speed_window_days:
+          rc?.booking_speed_window_days != null
+            ? (Number(rc.booking_speed_window_days) as 1 | 7 | 30)
+            : null,
+        booking_speed_cooldown_days:
+          rc?.booking_speed_cooldown_days != null
+            ? Number(rc.booking_speed_cooldown_days)
+            : null,
       },
       // deno-lint-ignore no-explicit-any
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -225,6 +246,50 @@ export async function evaluateHotel(
   const ladderRules = rules.filter((r) => !r.is_pickup_rule);
   const pickupRules = rules.filter((r) => r.is_pickup_rule);
 
+  // Booking Speed context: loaded once, and only when some active rule
+  // actually uses the observation — everyone else pays nothing.
+  const usesBookingSpeed = rules.some((r) => r.condition.booking_speed_operator);
+  let bsCtx: BookingSpeedContext | null = null;
+  let lastBsFire: Map<string, string> | null = null;
+  if (usesBookingSpeed) {
+    const totalCapacity = roomTypes.reduce((sum, rt) => sum + rt.total_rooms, 0);
+    bsCtx = await loadBookingSpeedContext(supabase, hotelId, localDate, totalCapacity);
+
+    // Most recent fire per (rule, stay date), for cooldown throttling of
+    // event-style booking-speed rules. One query, built into a map.
+    const cooldownHorizon = new Date(Date.parse(now) - 31 * 86_400_000).toISOString();
+    const { data: fires } = await supabase
+      .from("pickup_event")
+      .select("rule_id, stay_date, applied_at")
+      .eq("hotel_id", hotelId)
+      .gte("applied_at", cooldownHorizon);
+    lastBsFire = new Map();
+    for (const f of fires ?? []) {
+      const key = `${f.rule_id}|${f.stay_date}`;
+      const prev = lastBsFire.get(key);
+      if (!prev || String(f.applied_at) > prev) lastBsFire.set(key, String(f.applied_at));
+    }
+  }
+
+  const attachBookingSpeed = (
+    rule: EngineRule,
+    stayDate: string,
+    metrics: Awaited<ReturnType<typeof computeRuleMetrics>>,
+  ) => {
+    if (!rule.condition.booking_speed_operator) return;
+    if (!bsCtx) {
+      metrics.booking_speed_block_reason = "insufficient_data";
+      return;
+    }
+    const windowDays = rule.condition.booking_speed_window_days ?? 7;
+    const observation = observeForStayDate(bsCtx, stayDate, windowDays);
+    if (observation.method === "insufficient_data") {
+      metrics.booking_speed_block_reason = "insufficient_data";
+      return;
+    }
+    metrics.booking_speed = bookingSpeedMetrics(observation);
+  };
+
   let ladderActivations = 0;
   let ladderDeactivations = 0;
   let pickupEventsCreated = 0;
@@ -246,6 +311,7 @@ export async function evaluateHotel(
         now,
         null,
       );
+      attachBookingSpeed(rule, stayDate, metrics);
 
       for (const rtId of rule.affected_room_type_ids) {
         const result = await evaluateLadderTriple(
@@ -278,6 +344,17 @@ export async function evaluateHotel(
     for (const stayDate of stayDates) {
       if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone)) continue;
 
+      // Event-style booking-speed rules are throttled per stay date: after
+      // firing, the rule waits out its cooldown before it may re-fire, so a
+      // persistent slow/fast state stacks corrections weekly, not every run.
+      if (rule.condition.booking_speed_operator) {
+        const cooldownDays =
+          rule.condition.booking_speed_cooldown_days ?? DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS;
+        if (isWithinCooldown(lastBsFire?.get(`${rule.id}|${stayDate}`), now, cooldownDays)) {
+          continue;
+        }
+      }
+
       const baselineTs = await computeBaselineTs(supabase, rule, stayDate, now);
       if (!baselineTs) continue;
 
@@ -291,6 +368,7 @@ export async function evaluateHotel(
         now,
         baselineTs,
       );
+      attachBookingSpeed(rule, stayDate, metrics);
 
       if (!ruleConditionsMatch(rule, metrics)) continue;
 
@@ -369,6 +447,9 @@ export async function evaluateHotel(
         pickupLosers: allPickupLosers.get(key) ?? [],
         pickupIdempotentSkips: allPickupIdempotent.get(key) ?? [],
         basePrices,
+        bookingSpeedObservations: bsCtx
+          ? bookingSpeedAuditSnapshots(bsCtx, stayDate)
+          : [],
       };
       await writeAudit(supabase, auditInput);
     }

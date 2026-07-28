@@ -349,6 +349,11 @@ create table if not exists rule_condition (
   pickup_threshold      numeric(10,2),
   pickup_window_days    integer check (pickup_window_days in (1,3,7)),
   pickup_metric         text check (pickup_metric in ('room_nights','revenue')),
+  booking_speed_operator      text check (booking_speed_operator is null or booking_speed_operator in ('at_least','at_most','is')),
+  booking_speed_level         text check (booking_speed_level is null or booking_speed_level in
+    ('stalled','much_slower','slower','normal','faster','much_faster','surging')),
+  booking_speed_window_days   integer check (booking_speed_window_days is null or booking_speed_window_days in (1, 7, 30)),
+  booking_speed_cooldown_days integer check (booking_speed_cooldown_days is null or booking_speed_cooldown_days >= 0),
   check (
     (pickup_operator is null and pickup_threshold is null
      and pickup_window_days is null and pickup_metric is null)
@@ -357,9 +362,17 @@ create table if not exists rule_condition (
      and pickup_window_days is not null and pickup_metric is not null)
   ),
   check (
+    (booking_speed_operator is null and booking_speed_level is null
+     and booking_speed_window_days is null and booking_speed_cooldown_days is null)
+    or
+    (booking_speed_operator is not null and booking_speed_level is not null
+     and booking_speed_window_days is not null)
+  ),
+  check (
     occupancy_operator is not null
     or dta_operator is not null
     or pickup_operator is not null
+    or booking_speed_operator is not null
   )
 );
 
