@@ -76,10 +76,8 @@ describe("observeBookingSpeed", () => {
   const rowsFor = (stayDate: string, windows: number[]): SlimReservationRow[] =>
     windows.map((w) => ({ stay_date: stayDate, booking_window_days: w }));
 
-  // Four comparables — one more than MIN_TARGET_COMPARABLES — so these
-  // exercise the direct comparable path rather than the momentum fallback,
-  // which only kicks in below that threshold (see momentum.test.ts and
-  // expected-bookings.test.ts's own "falls back to momentum" case below).
+  // Four comparables — one more than MIN_COMPARABLES_FULL_RANGE — so these
+  // exercise the comparable path with the classifier's guards fully open.
   const FOUR_COMPARABLES = ["2025-08-16", "2025-08-09", "2025-08-02", "2024-08-17"];
 
   it("measures every date over the same stretch of its booking curve", () => {
@@ -103,14 +101,13 @@ describe("observeBookingSpeed", () => {
     expect(obs.daysOut).toBe(14);
     expect(obs.method).toBe("comparable");
     expect(obs.recentBookings).toBe(8);
+    expect(obs.perComparable.every((c) => c.hasData)).toBe(true);
     expect(obs.perComparable.map((c) => c.bookings)).toEqual([4, 4, 5, 4]);
     expect(obs.expectedBookings).toBeCloseTo(4.25, 2);
     expect(obs.classification.speed).toBe("faster");
   });
 
   it("stays Normal when the gap from expectation is within noise for the volume", () => {
-    // Same comparables (expected ~4.25), but only 7 recent bookings — a
-    // 2.75 gap, below the sqrt-scaled bar at this expectation.
     const rows = [
       ...rowsFor("2026-08-15", [14, 15, 16, 17, 18, 19, 20, 5, 30, 3]),
       ...rowsFor("2025-08-16", [14, 16, 18, 20, 2, 40]),
@@ -148,12 +145,15 @@ describe("observeBookingSpeed", () => {
     expect(obs.classification.speed).toBe("much_faster");
   });
 
-  it("keeps fractional expectations honest on quiet far-out dates", () => {
+  it("keeps fractional expectations honest when real comparables mostly miss the window", () => {
+    // Each comparable HAS reservation history (hasData true) — they just
+    // mostly don't have anything landing in this specific window, a
+    // genuine "verified zero", not a "we don't know".
     const rows = [
       ...rowsFor("2025-08-16", [15]),
-      ...rowsFor("2025-08-09", []),
-      ...rowsFor("2025-08-02", []),
-      ...rowsFor("2024-08-17", []),
+      ...rowsFor("2025-08-09", [999]),
+      ...rowsFor("2025-08-02", [999]),
+      ...rowsFor("2024-08-17", [999]),
     ];
     const obs = observeBookingSpeed({
       rows,
@@ -162,23 +162,68 @@ describe("observeBookingSpeed", () => {
       selection: fakeSelection(FOUR_COMPARABLES),
     });
     expect(obs.recentBookings).toBe(0);
+    expect(obs.perComparable.every((c) => c.hasData)).toBe(true);
     expect(obs.expectedBookings).toBeCloseTo(0.25, 2);
     expect(obs.classification.speed).toBe("normal");
     expect(describeExpectation(obs)).toContain("almost no bookings");
   });
 
-  it("falls back to momentum when fewer than the minimum comparables were found", () => {
-    // Only 2 comparables — below MIN_TARGET_COMPARABLES — so this must NOT
-    // use the plain trimmed-mean path even though comparable data exists.
+  it("uses real comparables even when there are only a couple of them, rather than discarding them for momentum", () => {
+    // Only 2 real, data-backed comparables — below the full-confidence
+    // range, but genuine day-of-week/season-matched evidence is still
+    // better than a calendar-neighbor proxy. The classifier's own
+    // few_comparables guard (not this pipeline) is what keeps the call
+    // conservative here.
     const rows = [
       ...rowsFor("2026-08-15", [14, 15, 16]), // 3 recent
-      ...rowsFor("2025-08-16", [14]), // weak comparable, ignored for the number
+      ...rowsFor("2025-08-16", [14]),
       ...rowsFor("2025-08-09", [15]),
+    ];
+    const obs = observeBookingSpeed({
+      rows,
+      target: "2026-08-15",
+      asOf: "2026-08-01",
+      selection: fakeSelection(["2025-08-16", "2025-08-09"]),
+    });
+    expect(obs.method).toBe("comparable");
+    expect(obs.perComparable).toHaveLength(2);
+    expect(obs.perComparable.every((c) => c.hasData)).toBe(true);
+    expect(obs.expectedBookings).toBe(1);
+    // Only 2 comparables backed the call — the classifier's own
+    // thin-history guard engages and holds the call back a step.
+    expect(obs.classification.speed).toBe("faster");
+    expect(obs.classification.guard).toBe("few_comparables");
+  });
+
+  it("does not let a phantom (no-data) comparable masquerade as a verified zero", () => {
+    // 4 selected comparables, but 3 have no reservation rows at all — only
+    // 2025-08-16's 1 real booking should drive the expectation.
+    const rows = [...rowsFor("2026-08-15", [14, 15]), ...rowsFor("2025-08-16", [15])];
+    const obs = observeBookingSpeed({
+      rows,
+      target: "2026-08-15",
+      asOf: "2026-08-01",
+      selection: fakeSelection(FOUR_COMPARABLES),
+    });
+    const byDate = new Map(obs.perComparable.map((c) => [c.date, c]));
+    expect(byDate.get("2025-08-16")?.hasData).toBe(true);
+    expect(byDate.get("2025-08-09")?.hasData).toBe(false);
+    expect(byDate.get("2025-08-02")?.hasData).toBe(false);
+    expect(byDate.get("2024-08-17")?.hasData).toBe(false);
+    expect(obs.expectedBookings).toBe(1); // from the one real comparable, not diluted to 0.25
+    expect(obs.classification.speed).toBe("normal");
+    expect(obs.classification.guard).toBe("small_difference");
+  });
+
+  it("falls back to momentum only when there are literally zero usable comparables", () => {
+    const rows = [
+      ...rowsFor("2026-08-15", [14, 15, 16]), // 3 recent
+      // No rows at all for either selected comparable date.
       // Momentum neighbors, correctly aligned to their own daysOut bands.
       ...rowsFor("2026-08-13", [12, 12]),
-      ...rowsFor("2025-08-13", [12]),
+      ...rowsFor("2025-08-14", [12]),
       ...rowsFor("2026-08-17", [16, 16]),
-      ...rowsFor("2025-08-17", [16]),
+      ...rowsFor("2025-08-18", [16]),
     ];
     const obs = observeBookingSpeed({
       rows,
@@ -188,7 +233,7 @@ describe("observeBookingSpeed", () => {
     });
     expect(obs.method).toBe("momentum");
     expect(obs.momentum).toBeDefined();
-    expect(obs.perComparable).toHaveLength(2); // still recorded, just not used
+    expect(obs.perComparable.every((c) => !c.hasData)).toBe(true);
     expect(describeExpectation(obs)).toContain("booking momentum from neighboring dates");
   });
 

@@ -18,20 +18,27 @@
  */
 
 import { addDays, daysBetween, holidayContextForDate } from "./calendar.ts";
-import { hasAnyRow, pickupInWindow, round2, type SlimReservationRow } from "./booking-rows.ts";
+import { hasAnyRow, pickupInWindow, round2, trimmedMean, type SlimReservationRow } from "./booking-rows.ts";
 
 export const MOMENTUM_RADIUS_DAYS = 10;
 /**
- * Approximate — a fixed 365-day offset drifts by a day across leap years.
- * Fine for a fallback that is already trading precision for coverage.
+ * 52 weeks, not 365 days: this keeps day-of-week aligned exactly
+ * (52*7=364), which matters far more for a same-time-last-year pickup
+ * comparison than hitting the exact solar-calendar anniversary. A fixed
+ * 365-day offset silently compares a Saturday against a Friday every
+ * single ordinary year (365 mod 7 = 1, not just across leap years), baking
+ * a persistent weekend-vs-weekday bias into what's supposed to be a pace
+ * comparison.
  */
-export const MOMENTUM_YEAR_OFFSET_DAYS = 365;
+export const MOMENTUM_YEAR_OFFSET_DAYS = 364;
 /** Momentum needs at least this many neighbor dates with any real history behind them. */
 export const MOMENTUM_MIN_NEIGHBORS = 2;
 export const MOMENTUM_RATIO_FLOOR = 0.15;
 export const MOMENTUM_RATIO_CEILING = 6;
 /** Always below the classifier's full-range threshold, so its thin-history guard stays engaged. */
 export const MOMENTUM_ASSUMED_COMPARABLE_COUNT = 1;
+/** Below this many matched pairs (or this many neighbor-pace samples), describeMomentum adds an honest small-sample caveat. */
+export const MOMENTUM_LOW_CONFIDENCE_SAMPLES = 3;
 
 export type MomentumBaselineSource = "target_year_ago" | "neighbor_pace";
 
@@ -40,6 +47,8 @@ export interface MomentumEstimate {
   /** Recent neighbor pace over year-ago neighbor pace, clamped. 1 = no evidence of change. */
   momentumRatio: number;
   neighborsUsed: number;
+  /** How many neighbors actually had BOTH a current and a year-ago usable comparison — what momentumRatio is built from. */
+  matchedPairs: number;
   naiveBaselineBookings: number;
   baselineSource: MomentumBaselineSource;
 }
@@ -51,6 +60,11 @@ export interface EstimateMomentumOptions {
   windowDays: number;
   radiusDays?: number;
   isExcluded?: (date: string) => boolean;
+}
+
+/** Not a holiday and not caller-excluded — safe to use as a comparison point on either side of a momentum pairing. */
+function isUsableComparisonDate(date: string, isExcluded: (d: string) => boolean): boolean {
+  return !isExcluded(date) && holidayContextForDate(date) === null;
 }
 
 /**
@@ -69,8 +83,7 @@ function neighborDates(
     if (offset === 0) continue;
     const d = addDays(target, offset);
     if (d < asOf) continue;
-    if (isExcluded(d)) continue;
-    if (holidayContextForDate(d) !== null) continue;
+    if (!isUsableComparisonDate(d, isExcluded)) continue;
     out.push(d);
   }
   return out;
@@ -89,9 +102,10 @@ export function estimateMomentumFallback(opts: EstimateMomentumOptions): Momentu
 
   const neighbors = neighborDates(opts.target, opts.asOf, radiusDays, isExcluded);
 
-  let recentTotal = 0;
-  let historicalTotal = 0;
   let neighborsUsed = 0;
+  let matchedRecentTotal = 0;
+  let matchedHistoricalTotal = 0;
+  let matchedPairs = 0;
   const neighborRecentPaces: number[] = [];
 
   for (const neighbor of neighbors) {
@@ -100,24 +114,35 @@ export function estimateMomentumFallback(opts: EstimateMomentumOptions): Momentu
     const neighborDaysOut = daysBetween(opts.asOf, neighbor);
     const recent = pickupInWindow(opts.rows, neighbor, neighborDaysOut, opts.windowDays);
     neighborsUsed++;
-    recentTotal += recent;
     neighborRecentPaces.push(recent);
 
+    // Only pair a neighbor into the ratio when its year-ago counterpart is
+    // itself a usable comparison point — otherwise recentTotal ends up
+    // summing a different (larger) population of dates than
+    // historicalTotal, which silently inflates or deflates the ratio
+    // toward whichever side happens to have more data behind it.
     const priorAsOf = addDays(opts.asOf, -MOMENTUM_YEAR_OFFSET_DAYS);
     const priorNeighbor = addDays(neighbor, -MOMENTUM_YEAR_OFFSET_DAYS);
     const priorDaysOut = daysBetween(priorAsOf, priorNeighbor);
-    if (priorDaysOut >= 0 && hasAnyRow(opts.rows, priorNeighbor)) {
-      historicalTotal += pickupInWindow(opts.rows, priorNeighbor, priorDaysOut, opts.windowDays);
+    if (
+      priorDaysOut >= 0 &&
+      hasAnyRow(opts.rows, priorNeighbor) &&
+      isUsableComparisonDate(priorNeighbor, isExcluded)
+    ) {
+      const historical = pickupInWindow(opts.rows, priorNeighbor, priorDaysOut, opts.windowDays);
+      matchedRecentTotal += recent;
+      matchedHistoricalTotal += historical;
+      matchedPairs++;
     }
   }
 
   if (neighborsUsed < MOMENTUM_MIN_NEIGHBORS) return null;
 
-  // No year-ago baseline anywhere nearby means no evidence of a pace
-  // change either way — neutral, not a runaway ratio from dividing by zero.
+  // No matched pair anywhere nearby means no evidence of a pace change
+  // either way — neutral, not a runaway ratio from mismatched populations.
   const momentumRatio =
-    historicalTotal > 0
-      ? Math.min(MOMENTUM_RATIO_CEILING, Math.max(MOMENTUM_RATIO_FLOOR, recentTotal / historicalTotal))
+    matchedPairs > 0 && matchedHistoricalTotal > 0
+      ? Math.min(MOMENTUM_RATIO_CEILING, Math.max(MOMENTUM_RATIO_FLOOR, matchedRecentTotal / matchedHistoricalTotal))
       : 1;
 
   const priorAsOf = addDays(opts.asOf, -MOMENTUM_YEAR_OFFSET_DAYS);
@@ -126,12 +151,15 @@ export function estimateMomentumFallback(opts: EstimateMomentumOptions): Momentu
 
   let naiveBaselineBookings: number;
   let baselineSource: MomentumBaselineSource;
-  if (priorTargetDaysOut >= 0 && hasAnyRow(opts.rows, priorTarget)) {
+  if (
+    priorTargetDaysOut >= 0 &&
+    hasAnyRow(opts.rows, priorTarget) &&
+    isUsableComparisonDate(priorTarget, isExcluded)
+  ) {
     naiveBaselineBookings = pickupInWindow(opts.rows, priorTarget, priorTargetDaysOut, opts.windowDays);
     baselineSource = "target_year_ago";
   } else {
-    naiveBaselineBookings =
-      neighborRecentPaces.reduce((a, b) => a + b, 0) / neighborRecentPaces.length;
+    naiveBaselineBookings = trimmedMean(neighborRecentPaces);
     baselineSource = "neighbor_pace";
   }
 
@@ -139,6 +167,7 @@ export function estimateMomentumFallback(opts: EstimateMomentumOptions): Momentu
     expectedBookings: round2(Math.max(0, naiveBaselineBookings * momentumRatio)),
     momentumRatio: round2(momentumRatio),
     neighborsUsed,
+    matchedPairs,
     naiveBaselineBookings: round2(naiveBaselineBookings),
     baselineSource,
   };
@@ -149,14 +178,21 @@ export function describeMomentum(est: MomentumEstimate): string {
   const lead =
     "We did not have enough matching history for this exact date, so we looked at booking momentum from neighboring dates instead.";
   const pace =
-    est.momentumRatio > 1.05
-      ? "Nearby dates are booking faster than they were around this time last year."
-      : est.momentumRatio < 0.95
-        ? "Nearby dates are booking slower than they were around this time last year."
-        : "Nearby dates are booking at about the same pace as a year ago.";
+    est.matchedPairs === 0
+      ? "We do not have a year-ago comparison for any of those nearby dates, so we cannot say whether the pace has changed."
+      : est.momentumRatio > 1.05
+        ? "Nearby dates are booking faster than they were around this time last year."
+        : est.momentumRatio < 0.95
+          ? "Nearby dates are booking slower than they were around this time last year."
+          : "Nearby dates are booking at about the same pace as a year ago.";
   const baseline =
     est.baselineSource === "target_year_ago"
       ? "We started from what this date itself did a year ago and adjusted for that trend."
       : "We do not have a year-ago baseline for this exact date either, so we used the current pace of nearby dates as our best estimate.";
-  return `${lead} ${pace} ${baseline}`;
+  const sampleSize = est.baselineSource === "target_year_ago" ? est.matchedPairs : est.neighborsUsed;
+  const caveat =
+    sampleSize > 0 && sampleSize < MOMENTUM_LOW_CONFIDENCE_SAMPLES
+      ? " This is based on very little data, so treat it as a rough guide rather than a firm number."
+      : "";
+  return `${lead} ${pace} ${baseline}${caveat}`;
 }

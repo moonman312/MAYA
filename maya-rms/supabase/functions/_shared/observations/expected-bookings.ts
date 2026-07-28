@@ -9,11 +9,18 @@
  * trimmed mean over the comparables, and often fractional — 0.4 expected
  * bookings is an honest statement about a quiet far-out date, not an error.
  *
- * When the comparable-date matcher couldn't find enough dates even after
- * relaxing (see comparable-dates.ts), this reaches for the momentum
- * fallback before giving up: how nearby dates are pacing right now versus a
- * year ago (momentum.ts). Only when even that has nothing to go on does it
- * report `insufficient_data` rather than guess.
+ * Only comparables with actual reservation history behind them count —
+ * a comparable date with zero ROWS is "we don't know", not "zero bookings",
+ * and must not silently dilute the expectation as if it were real evidence.
+ *
+ * A real, day-of-week/season-matched comparable is better evidence than a
+ * calendar-neighbor proxy, even when there are very few of them, so this
+ * only reaches for the momentum fallback (momentum.ts — how nearby dates
+ * are pacing right now versus a year ago) when NO usable comparable exists
+ * at all; the classifier's own thin-history guard already keeps a call
+ * built from just 1-3 real comparables appropriately conservative. Only
+ * when even momentum has nothing to go on does this report
+ * `insufficient_data` rather than guess.
  *
  * Counts reflect currently known reservations from the slim import rows:
  * a canceled booking disappears rather than counting negative. Pure
@@ -26,13 +33,10 @@ import {
   describeBookingSpeed,
   type BookingSpeedClassification,
 } from "./booking-speed.ts";
-import {
-  MIN_TARGET_COMPARABLES,
-  describeComparableSelection,
-  type ComparableSelection,
-} from "./comparable-dates.ts";
+import { describeComparableSelection, type ComparableSelection } from "./comparable-dates.ts";
 import {
   DEFAULT_WINDOW_DAYS,
+  hasAnyRow,
   pickupInWindow,
   round2,
   trimmedMean,
@@ -54,6 +58,8 @@ export interface ComparablePickup {
   bookings: number;
   tier: number;
   reasons: string[];
+  /** False when this comparable has no reservation history at all — "we don't know", not "zero bookings". */
+  hasData: boolean;
 }
 
 export interface BookingSpeedObservation {
@@ -65,7 +71,7 @@ export interface BookingSpeedObservation {
   expectedBookings: number;
   /** How the expectation was derived — governs which Level 2 explanation applies. */
   method: BookingSpeedMethod;
-  /** Whatever comparables were found, even in momentum/insufficient_data mode (for audit purposes). */
+  /** Every comparable the matcher found, including any with no data (for audit purposes — see hasData). */
   perComparable: ComparablePickup[];
   /** Present only when method === "momentum". */
   momentum?: MomentumEstimate;
@@ -111,7 +117,9 @@ export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSp
     bookings: pickupInWindow(rowsFor(c.date), c.date, daysOut, windowDays),
     tier: c.tier,
     reasons: c.reasons,
+    hasData: hasAnyRow(opts.rows, c.date),
   }));
+  const usableComparables = perComparable.filter((c) => c.hasData);
 
   const base = {
     target: opts.target,
@@ -123,8 +131,8 @@ export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSp
     selection: opts.selection,
   };
 
-  if (perComparable.length >= MIN_TARGET_COMPARABLES) {
-    const expectedBookings = round2(trimmedMean(perComparable.map((c) => c.bookings)));
+  if (usableComparables.length > 0) {
+    const expectedBookings = round2(trimmedMean(usableComparables.map((c) => c.bookings)));
     return {
       ...base,
       expectedBookings,
@@ -132,7 +140,7 @@ export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSp
       classification: classifyBookingSpeed({
         recentBookings,
         expectedBookings,
-        comparableCount: perComparable.length,
+        comparableCount: usableComparables.length,
       }),
     };
   }
@@ -192,7 +200,7 @@ export function describeExpectation(obs: BookingSpeedObservation): string {
   if (obs.method === "insufficient_data") {
     return "We do not have enough booking history yet for this date or its neighbors, so we are not calling out its pace as unusual either way.";
   }
-  const n = obs.perComparable.length;
+  const n = obs.perComparable.filter((c) => c.hasData).length;
   const dates = n === 1 ? "1 similar past date" : `${n} similar past dates`;
   const lead =
     obs.expectedBookings < 1

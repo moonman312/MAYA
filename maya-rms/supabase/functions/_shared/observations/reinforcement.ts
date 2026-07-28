@@ -9,10 +9,13 @@
  * date they flagged stops being used as a comparable or as season-modeling
  * input. Anything bigger than that — generalizing the fix to every future
  * occurrence of a recurring pattern, or feeding it into the season model
- * itself — requires multiple independent reports pointing the same
- * direction first. A single disgruntled correction should never be able to
- * bend the model; a real recurring pattern, reported a few times over a
- * few years, should.
+ * itself — requires multiple independent YEARS of corroborating evidence
+ * first. A single renovation that keeps three nights closed is one
+ * incident, not three data points — corroboration is counted by distinct
+ * YEARS represented, not distinct dates, so nothing about a single event
+ * (however many nights it spans) can defeat this on its own. A single
+ * disgruntled correction should never be able to bend the model; a real
+ * recurring pattern, reported a few times over a few years, should.
  *
  * Scope ladder (each level does strictly more than the one below it):
  * - "this_date": only this exact instance is set aside. Always applied
@@ -20,24 +23,21 @@
  *   overfit.
  * - "annual": the owner believes this happens every year (an annual
  *   festival, a recurring closure window). Generalizes to a whole
- *   recurring calendar window, once corroborated by CORROBORATION_DISTINCT_DATES
- *   distinct dates.
+ *   recurring calendar window, once corroborated by challenges spanning
+ *   CORROBORATION_DISTINCT_YEARS distinct years.
  * - "improve_future": the owner believes this should also stop distorting
  *   the season model itself (the window shouldn't count as "normal"
  *   Winter/Summer/whatever demand). Requires the most corroboration, since
  *   it changes shared model output, not just one comparison.
- *
- * Corroboration is counted by DISTINCT dates, not distinct challenges — one
- * person flagging the same date five times is one data point, not five.
  */
 
 import {
+  YEAR_KEYS,
   addDays,
   circularDayDistance,
   dayOfYearIndex,
   foldedKeyIndex,
   keyToHuman,
-  YEAR_KEYS,
 } from "./calendar.ts";
 import type { DatePeriod } from "./seasons.ts";
 
@@ -118,14 +118,20 @@ export function createChallenge(input: CreateChallengeInput): AssumptionChalleng
 
 /* ── Corroboration thresholds ────────────────────────────────── */
 
-/** Distinct dates required before a scope generalizes beyond its own instance. */
-export const CORROBORATION_DISTINCT_DATES: Record<ChallengeScope, number> = {
+/**
+ * Distinct YEARS required before a scope generalizes beyond its own
+ * instance — not distinct dates. A single incident (a renovation spanning
+ * several nights, a storm week flagged on three separate stay-dates) is
+ * still just one year of evidence no matter how many dates it touches;
+ * only reports from genuinely different years show the pattern recurs.
+ */
+export const CORROBORATION_DISTINCT_YEARS: Record<ChallengeScope, number> = {
   this_date: 1,
   annual: 2,
   improve_future: 3,
 };
 
-/** Calendar-day tolerance for treating two challenged dates as "the same recurring thing". */
+/** Calendar-day tolerance for treating challenged dates as "the same recurring thing". */
 export const RECURRENCE_TOLERANCE_DAYS = 5;
 
 /** Challenges older than this, relative to `now`, stop counting toward corroboration. */
@@ -138,6 +144,7 @@ export interface PendingCluster {
   scope: ChallengeScope;
   dates: string[];
   centerKey: string;
+  /** Distinct years represented so far. */
   count: number;
   needed: number;
 }
@@ -167,33 +174,71 @@ function dedupeByDate(list: AssumptionChallenge[]): AssumptionChallenge[] {
   return [...seen.values()];
 }
 
-/** Union-find over circular day-of-year distance: groups dates that recur "in the same spot" each year. */
-function clusterByProximity(dates: string[], toleranceDays: number): number[] {
-  const idx = dates.map((d) => dayOfYearIndex(d));
-  const parent = dates.map((_, i) => i);
-  function find(i: number): number {
-    while (parent[i] !== i) {
-      parent[i] = parent[parent[i]];
-      i = parent[i];
-    }
-    return i;
+/** True calendar-year subtraction (not a fixed day count), so a Feb 29 in the span never shifts the boundary by a day. */
+function yearsBefore(date: string, years: number): string {
+  const year = Number(date.slice(0, 4)) - years;
+  const rest = date.slice(5);
+  if (rest === "02-29" && !((year % 4 === 0 && year % 100 !== 0) || year % 400 === 0)) {
+    return `${year}-02-28`;
   }
-  function union(i: number, j: number) {
-    const ri = find(i);
-    const rj = find(j);
-    if (ri !== rj) parent[ri] = rj;
-  }
-  for (let i = 0; i < dates.length; i++) {
-    for (let j = i + 1; j < dates.length; j++) {
-      if (circularDayDistance(idx[i], idx[j]) <= toleranceDays) union(i, j);
-    }
-  }
-  return dates.map((_, i) => find(i));
+  return `${year}-${rest}`;
 }
 
-function medianFoldedKey(dates: string[]): string {
-  const idxs = dates.map((d) => dayOfYearIndex(d)).sort((a, b) => a - b);
-  return YEAR_KEYS[idxs[Math.floor(idxs.length / 2)]];
+/**
+ * Groups dates that recur "in the same spot" each year, anchoring each
+ * cluster to the day-of-year of its own first (chronological, post-gap)
+ * member rather than chaining pairwise — so every member of a cluster is
+ * guaranteed within toleranceDays of that cluster's own anchor. Plain
+ * single-linkage clustering can chain a string of pairwise-close dates
+ * arbitrarily far from each other; anchoring bounds the whole cluster.
+ *
+ * Rotates to start right after the widest circular gap between sorted
+ * points, so the walk never has to reason about wrapping past Dec 31/Jan 1
+ * mid-cluster — the center this produces is a genuine circular median.
+ */
+function clusterDatesByProximity(
+  dates: string[],
+  toleranceDays: number,
+): { dates: string[]; centerKey: string }[] {
+  const n = dates.length;
+  if (n === 0) return [];
+  const items = dates.map((d) => ({ d, idx: dayOfYearIndex(d) }));
+  const byIdx = [...items].sort((a, b) => a.idx - b.idx);
+
+  let gapAfter = 0;
+  let maxGap = -1;
+  for (let k = 0; k < byIdx.length; k++) {
+    const cur = byIdx[k].idx;
+    const next = byIdx[(k + 1) % byIdx.length].idx;
+    const gap = ((next - cur + 365) % 365) || 365;
+    if (gap > maxGap) {
+      maxGap = gap;
+      gapAfter = k;
+    }
+  }
+
+  const base = byIdx[(gapAfter + 1) % n].idx;
+  const unwrapped = Array.from({ length: n }, (_, k) => {
+    const item = byIdx[(gapAfter + 1 + k) % n];
+    return { d: item.d, u: item.idx >= base ? item.idx : item.idx + 365 };
+  });
+
+  const groups: { d: string; u: number }[][] = [];
+  let anchor = -Infinity;
+  for (const item of unwrapped) {
+    if (groups.length === 0 || item.u - anchor > toleranceDays) {
+      groups.push([]);
+      anchor = item.u;
+    }
+    groups[groups.length - 1].push(item);
+  }
+
+  return groups.map((g) => {
+    const us = g.map((x) => x.u).sort((a, b) => a - b);
+    const centerU = us[Math.floor(us.length / 2)];
+    const foldedIdx = ((centerU % 365) + 365) % 365;
+    return { dates: g.map((x) => x.d), centerKey: YEAR_KEYS[foldedIdx] };
+  });
 }
 
 export interface BuildReinforcementModelOptions {
@@ -209,7 +254,7 @@ export function buildReinforcementModel(
 ): ReinforcementModel {
   const maxAgeYears = opts.maxAgeYears ?? CORROBORATION_MAX_AGE_YEARS;
   const toleranceDays = opts.toleranceDays ?? RECURRENCE_TOLERANCE_DAYS;
-  const cutoff = addDays(opts.now, -maxAgeYears * 365);
+  const cutoff = yearsBefore(opts.now, maxAgeYears);
   const fresh = challenges.filter((c) => c.raisedAt >= cutoff && c.raisedAt <= opts.now);
 
   const instanceExclusions = new Set(fresh.map((c) => c.date));
@@ -229,32 +274,32 @@ export function buildReinforcementModel(
     for (const [reasonKey, list] of byReason) {
       const uniqueByDate = dedupeByDate(list);
       const dates = uniqueByDate.map((c) => c.date);
-      const clusterIds = clusterByProximity(dates, toleranceDays);
-      const groups = new Map<number, string[]>();
-      dates.forEach((d, i) => {
-        const id = clusterIds[i];
-        const g = groups.get(id);
-        if (g) g.push(d);
-        else groups.set(id, [d]);
-      });
+      const clusters = clusterDatesByProximity(dates, toleranceDays);
 
-      for (const groupDates of groups.values()) {
-        const sorted = [...groupDates].sort();
-        const needed = CORROBORATION_DISTINCT_DATES[scope];
-        const centerKey = medianFoldedKey(sorted);
+      for (const cluster of clusters) {
+        const sorted = [...cluster.dates].sort();
+        const distinctYears = new Set(sorted.map((d) => d.slice(0, 4))).size;
+        const needed = CORROBORATION_DISTINCT_YEARS[scope];
 
-        if (sorted.length >= needed) {
+        if (distinctYears >= needed) {
           const promoted: PromotedWindow = {
             reasonKey,
             scope,
-            centerKey,
+            centerKey: cluster.centerKey,
             toleranceDays,
             supportingDates: sorted,
           };
           promotedAnnualWindows.push(promoted);
           if (scope === "improve_future") promotedSeasonExclusionWindows.push(promoted);
         } else {
-          pending.push({ reasonKey, scope, dates: sorted, centerKey, count: sorted.length, needed });
+          pending.push({
+            reasonKey,
+            scope,
+            dates: sorted,
+            centerKey: cluster.centerKey,
+            count: distinctYears,
+            needed,
+          });
         }
       }
     }
@@ -282,7 +327,12 @@ export function reinforcementExclusionPredicate(model: ReinforcementModel): (dat
 /**
  * Expands a promoted window into concrete [start, end] periods per calendar
  * year — ready to feed directly into detectSeasons's `exclusions` option
- * alongside closed periods.
+ * alongside closed periods. Pads one year on each side of the requested
+ * range: a window centered late in the year also covers early days of the
+ * FOLLOWING calendar year (and vice versa for one centered early), so
+ * without the padding, dates isDateReinforcementExcluded already treats as
+ * excluded could silently leak back into season-detection's input at
+ * either edge of the caller's requested span.
  */
 export function expandPromotedWindowToPeriods(
   window: PromotedWindow,
@@ -290,7 +340,7 @@ export function expandPromotedWindowToPeriods(
   toYear: number,
 ): DatePeriod[] {
   const periods: DatePeriod[] = [];
-  for (let y = fromYear; y <= toYear; y++) {
+  for (let y = fromYear - 1; y <= toYear + 1; y++) {
     const center = `${y}-${window.centerKey}`;
     periods.push({
       start_date: addDays(center, -window.toleranceDays),
@@ -324,7 +374,9 @@ export function describePendingProgress(cluster: PendingCluster): string {
     cluster.scope === "annual"
       ? "a pattern that repeats every year"
       : "a change to how we read the season around here";
-  return `We have seen ${cluster.count} of the ${cluster.needed} reports we would want before treating "${label}" near ${keyToHuman(cluster.centerKey)} as ${consequence}.`;
+  const years = cluster.count === 1 ? "1 year" : `${cluster.count} different years`;
+  const neededYears = cluster.needed === 1 ? "1 year" : `${cluster.needed} different years`;
+  return `We have seen this reported in ${years} of the ${neededYears} we would want before treating "${label}" near ${keyToHuman(cluster.centerKey)} as ${consequence}.`;
 }
 
 export function describePromotedWindow(window: PromotedWindow): string {
@@ -333,7 +385,7 @@ export function describePromotedWindow(window: PromotedWindow): string {
     window.scope === "improve_future"
       ? "we now leave it out of comparisons and out of our seasonal calculations, every year"
       : "we now leave it out of comparisons every year";
-  const count = window.supportingDates.length;
-  const times = count === 1 ? "1 report" : `${count} separate reports`;
-  return `${times} flagged "${label}" near ${keyToHuman(window.centerKey)}, so ${consequence}.`;
+  const years = new Set(window.supportingDates.map((d) => d.slice(0, 4))).size;
+  const times = years === 1 ? "1 year" : `${years} different years`;
+  return `Reports across ${times} flagged "${label}" near ${keyToHuman(window.centerKey)}, so ${consequence}.`;
 }
