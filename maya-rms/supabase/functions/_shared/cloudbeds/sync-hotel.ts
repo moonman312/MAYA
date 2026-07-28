@@ -23,6 +23,7 @@ import {
 import type { CloudbedsParsedReservationRow, CloudbedsResolvedCredentials } from "./types.ts";
 import { mwsEnv } from "../mews/env.ts";
 import { persistPropertyId, resolveOAuthCredentials } from "../pms/oauth-credentials.ts";
+import { installCloudbedsRequestLogging } from "./request-log.ts";
 
 const RECONCILE_IN_CHUNK = 200;
 const DEFAULT_BACK = 30;
@@ -130,6 +131,9 @@ export async function runCloudbedsSyncForHotel(
   options?: CloudbedsSyncOptions,
 ): Promise<CloudbedsSyncSuccess | CloudbedsSyncFailure> {
   try {
+    // Mirror every Cloudbeds API call into pms_request_log (fire-and-forget).
+    installCloudbedsRequestLogging(supabase, hotelId);
+
     // 1. Credentials (auto-refresh if near expiry).
     const resolved = await resolveOAuthCredentials(supabase, hotelId, "cloudbeds");
     if ("error" in resolved) return { ok: false, error: resolved.error };

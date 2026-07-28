@@ -2,8 +2,9 @@
 
 import { AskForHelp } from "@/components/onboarding/ask-for-help";
 import { OnboardingReviewBanner } from "@/components/onboarding/review-banner";
+import { useCalendarLive } from "@/lib/use-calendar-live";
 import { PropertySelect } from "@/components/property-select";
-import { formatUtcLongDate, formatUtcMonthYear } from "@/lib/calendar-month-label";
+import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { SAMPLE_RESERVATIONS } from "@/lib/demo-data";
 import {
   conditionRowsToRuleCondition,
@@ -26,6 +27,11 @@ import type {
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type TabKey = "calendar" | "rules" | "simulator" | "changelog" | "pms";
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
 
 const tabs: { key: TabKey; label: string }[] = [
   { key: "calendar", label: "Calendar" },
@@ -147,7 +153,82 @@ function formatRelativeAge(iso: string): string | null {
   }
 }
 
-function MewsStatusBadge({ status }: { status: string | null }) {
+type PmsActivity = {
+  connection: {
+    pms_type: string;
+    status: string | null;
+    last_sync_at: string | null;
+    last_tested_at: string | null;
+  } | null;
+  health: {
+    state: "healthy" | "degraded" | "down" | "unknown";
+    successRate: number | null;
+    total: number;
+    failures: number;
+  };
+  log: Array<{
+    id: string;
+    created_at: string;
+    http_method: string;
+    endpoint: string;
+    status_code: number | null;
+    ok: boolean;
+    duration_ms: number | null;
+    message: string | null;
+  }>;
+};
+
+function formatPmsName(pmsType: string): string {
+  const names: Record<string, string> = {
+    cloudbeds: "Cloudbeds",
+    mews: "Mews",
+    think: "Think Reservations",
+    opera: "Opera",
+  };
+  return names[pmsType] ?? pmsType;
+}
+
+function PmsHealthBadge({ health }: { health: PmsActivity["health"] }) {
+  const styles: Record<PmsActivity["health"]["state"], { cls: string; label: string }> = {
+    healthy: {
+      cls: "bg-emerald-600/30 text-emerald-200 ring-1 ring-emerald-500/40",
+      label: "Healthy",
+    },
+    degraded: {
+      cls: "bg-amber-600/25 text-amber-100 ring-1 ring-amber-500/35",
+      label: "Degraded",
+    },
+    down: {
+      cls: "bg-rose-600/30 text-rose-100 ring-1 ring-rose-500/40",
+      label: "Having trouble",
+    },
+    unknown: {
+      cls: "bg-slate-700 text-slate-200 ring-1 ring-slate-600",
+      label: "No recent activity",
+    },
+  };
+  const s = styles[health.state];
+  return (
+    <div className="flex items-center gap-2">
+      <span className={`rounded px-2 py-0.5 text-xs font-medium ${s.cls}`}>{s.label}</span>
+      {health.total > 0 && health.successRate != null ? (
+        <span className="text-[11px] tabular-nums text-slate-500">
+          {Math.round(health.successRate * 100)}% of {health.total} requests OK
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/** True when the calendar day is today or later (UTC date semantics). */
+function isFutureDay(year: number, month: number, day: number): boolean {
+  const target = Date.UTC(year, month - 1, day);
+  const now = new Date();
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return target >= today;
+}
+
+function PmsStatusBadge({ status }: { status: string | null }) {
   if (!status) {
     return (
       <span className="rounded bg-slate-700 px-2 py-0.5 text-xs font-medium text-slate-200">
@@ -195,12 +276,7 @@ export function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  const [mewsConnection, setMewsConnection] = useState<{
-    configured: boolean;
-    status: string | null;
-    lastSyncAt: string | null;
-    lastTestedAt: string | null;
-  } | null>(null);
+  const [pmsActivity, setPmsActivity] = useState<PmsActivity | null>(null);
 
   const [accessibleHotels, setAccessibleHotels] = useState<
     { id: string; name: string }[]
@@ -247,20 +323,14 @@ export function Dashboard() {
     }
     void (async () => {
       try {
-        const res = await fetch("/api/pms/mews/connection");
+        const res = await fetch("/api/pms/activity");
         if (!res.ok) {
-          setMewsConnection(null);
+          setPmsActivity(null);
           return;
         }
-        const data = (await res.json()) as {
-          configured: boolean;
-          status: string | null;
-          lastSyncAt: string | null;
-          lastTestedAt: string | null;
-        };
-        setMewsConnection(data);
+        setPmsActivity((await res.json()) as PmsActivity);
       } catch {
-        setMewsConnection(null);
+        setPmsActivity(null);
       }
     })();
   }, [tab, activeHotelId]);
@@ -311,16 +381,22 @@ export function Dashboard() {
     }
   }, [reloadCalendar, reloadChangelog, tab]);
 
-  // Poll the calendar every 60s while it's the active tab so prices written by
-  // the 5-minute cron surface automatically. Also refresh when the tab regains
-  // focus (quick catch-up after the browser was in the background). Uses the
-  // quiet reload so there's no skeleton flicker or lost day selection.
+  // Event-driven refresh: a realtime subscription fires when published_price
+  // or reservations change for this hotel, so updates land in ~2s instead of
+  // on a polling interval — and nothing refreshes when nothing changed. The
+  // slow interval below is only a safety net for environments where realtime
+  // isn't enabled on those tables; visibility-change gives a quick catch-up
+  // after the browser was backgrounded.
+  useCalendarLive(activeHotelId, () => {
+    if (tab === "calendar") void reloadCalendarQuiet();
+  });
+
   useEffect(() => {
     if (tab !== "calendar") return;
-    const POLL_MS = 60_000;
+    const FALLBACK_POLL_MS = 300_000;
     const id = setInterval(() => {
       void reloadCalendarQuiet();
-    }, POLL_MS);
+    }, FALLBACK_POLL_MS);
     const onVisible = () => {
       if (document.visibilityState === "visible") void reloadCalendarQuiet();
     };
@@ -514,8 +590,21 @@ export function Dashboard() {
   );
 
   const calendarBusy = loading || hotelSwitching;
-  /** Same label as API `month_name`, without `toLocaleString` (avoids SSR/client hydration mismatch). */
-  const calendarTitle = formatUtcMonthYear(year, month);
+
+  // Year options come from the property's actual data range when the API
+  // reports one; otherwise a sensible window around the current year.
+  const calendarYears = useMemo(() => {
+    const nowYear = new Date().getUTCFullYear();
+    const minYear = calendar?.range?.min
+      ? Number(calendar.range.min.slice(0, 4))
+      : nowYear - 2;
+    const maxYear = calendar?.range?.max
+      ? Number(calendar.range.max.slice(0, 4))
+      : nowYear + 1;
+    const years: number[] = [];
+    for (let y = Math.min(minYear, year); y <= Math.max(maxYear, year); y++) years.push(y);
+    return years;
+  }, [calendar?.range?.min, calendar?.range?.max, year]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -523,9 +612,12 @@ export function Dashboard() {
         <header className="mb-8">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">MAYA RMS</h1>
+              <h1 className="text-3xl font-bold tracking-tight">MAYA</h1>
               <p className="mt-2 text-sm text-slate-300">
-                Occupancy, pricing rules, and PMS sync in one place.
+                Machine Assisted Yield Automation
+              </p>
+              <p className="text-sm text-slate-500">
+                Dynamic Pricing That Leaves You In Control
               </p>
             </div>
             <div className="flex flex-col items-stretch gap-2 sm:items-end">
@@ -589,7 +681,38 @@ export function Dashboard() {
               >
                 Prev
               </button>
-              <h2 className="text-lg font-semibold">{calendarTitle}</h2>
+              <div className="flex items-center gap-1.5">
+                <select
+                  aria-label="Month"
+                  value={month}
+                  onChange={(e) => {
+                    setSelectedDay(null);
+                    setMonth(Number(e.target.value));
+                  }}
+                  className="cursor-pointer rounded bg-slate-800 px-2 py-1.5 text-sm font-semibold hover:bg-slate-700"
+                >
+                  {MONTH_NAMES.map((name, i) => (
+                    <option key={name} value={i + 1}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Year"
+                  value={year}
+                  onChange={(e) => {
+                    setSelectedDay(null);
+                    setYear(Number(e.target.value));
+                  }}
+                  className="cursor-pointer rounded bg-slate-800 px-2 py-1.5 text-sm font-semibold hover:bg-slate-700"
+                >
+                  {calendarYears.map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <button
                 className="cursor-pointer rounded bg-slate-800 px-3 py-1 text-sm hover:bg-slate-700"
                 onClick={() => {
@@ -604,9 +727,12 @@ export function Dashboard() {
               >
                 Next
               </button>
-              <span className="ml-auto text-xs text-slate-500" title="Calendar auto-refreshes every 60s">
+              <span
+                className="ml-auto text-xs text-slate-500"
+                title="Updates the moment prices or bookings change"
+              >
                 {lastUpdated
-                  ? `Updated ${lastUpdated.toLocaleTimeString()} · auto-refresh 60s`
+                  ? `Updated ${lastUpdated.toLocaleTimeString()} · live`
                   : "Loading…"}
               </span>
             </div>
@@ -626,8 +752,14 @@ export function Dashboard() {
                       (_, idx) => {
                         const day = idx + 1;
                         const data = calendar.days[String(day)];
-                        const color =
-                          data.occupancy_pct >= calendar.thresholds.high
+                        // Colors are property-relative RevPAR terciles from the
+                        // API; fall back to the legacy occupancy cutoffs for
+                        // payloads that predate them.
+                        const color = data.color
+                          ? { green: "bg-emerald-600", orange: "bg-amber-500", red: "bg-rose-600" }[
+                              data.color
+                            ]
+                          : data.occupancy_pct >= calendar.thresholds.high
                             ? "bg-emerald-600"
                             : data.occupancy_pct >= calendar.thresholds.low
                               ? "bg-amber-500"
@@ -666,6 +798,26 @@ export function Dashboard() {
                     )}
                   </div>
 
+                  <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
+                    <span className="flex items-center gap-1.5">
+                      <span className="inline-block h-1 w-4 rounded bg-emerald-600" />
+                      strong night
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="inline-block h-1 w-4 rounded bg-amber-500" />
+                      typical night
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="inline-block h-1 w-4 rounded bg-rose-600" />
+                      weak night
+                    </span>
+                    <span>
+                      — measured by revenue per room, relative to this
+                      property&apos;s own results (future nights compare
+                      against other upcoming nights)
+                    </span>
+                  </p>
+
                   {selectedDay ? (
                     <div className="rounded-md border border-slate-800 bg-slate-950 p-4">
                       <h3 className="mb-2 text-base font-semibold">
@@ -676,7 +828,10 @@ export function Dashboard() {
                         {calendar.days[String(selectedDay)].booked}/
                         {calendar.days[String(selectedDay)].total} rooms ·{" "}
                         {calendar.days[String(selectedDay)].occupancy_pct}%
-                        occupancy · room revenue{" "}
+                        occupancy ·{" "}
+                        {isFutureDay(year, month, selectedDay)
+                          ? "revenue on the books"
+                          : "revenue"}{" "}
                         <span className="font-medium text-slate-200">
                           $
                           {calendar.days[
@@ -703,8 +858,8 @@ export function Dashboard() {
                               </p>
                               <p className="text-sm text-sky-300">
                                 Current price{" "}
-                                {rt.current_price != null
-                                  ? `$${rt.current_price.toFixed(2)}`
+                                {(rt.current_rate ?? rt.current_price) != null
+                                  ? `$${(rt.current_rate ?? rt.current_price)!.toFixed(2)}`
                                   : "—"}
                               </p>
                               <p className="text-sm text-slate-300">
@@ -754,10 +909,10 @@ export function Dashboard() {
                     <th className="py-2">Name</th>
                     <th className="py-2">Fired</th>
                     <th className="py-2">Conditions</th>
-                    <th className="py-2">Scope</th>
-                    <th className="py-2">Action</th>
+                    <th className="py-2">Room Types</th>
+                    <th className="py-2">Price Change</th>
                     <th className="py-2">Status</th>
-                    <th className="py-2">Ops</th>
+                    <th className="py-2"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -804,36 +959,41 @@ export function Dashboard() {
                           `${rule.action.adjust_rate_dollars < 0 ? "-" : "+"}$${Math.abs(rule.action.adjust_rate_dollars)}`}
                       </td>
                       <td className="py-2 pr-3">
-                        <span
-                          className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${
-                            rule.enabled
-                              ? "bg-emerald-500/15 text-emerald-300"
-                              : "bg-slate-800 text-slate-500"
-                          }`}
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={rule.enabled}
+                          aria-label={`${rule.enabled ? "Disable" : "Enable"} ${rule.rule_name}`}
+                          onClick={() => onToggleRule(rule.id)}
+                          className="group inline-flex cursor-pointer items-center gap-2"
                         >
                           <span
-                            className={`size-1.5 rounded-full ${
-                              rule.enabled ? "bg-emerald-400" : "bg-slate-600"
+                            className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${
+                              rule.enabled ? "bg-emerald-500" : "bg-slate-700"
                             }`}
-                          />
-                          {rule.enabled ? "Enabled" : "Disabled"}
-                        </span>
+                          >
+                            <span
+                              className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform ${
+                                rule.enabled ? "translate-x-[18px]" : "translate-x-0.5"
+                              }`}
+                            />
+                          </span>
+                          <span
+                            className={`text-xs font-medium ${
+                              rule.enabled ? "text-emerald-300" : "text-slate-500"
+                            }`}
+                          >
+                            {rule.enabled ? "On" : "Off"}
+                          </span>
+                        </button>
                       </td>
                       <td className="py-2 pr-3">
-                        <div className="flex gap-2">
-                          <button
-                            className="cursor-pointer rounded bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
-                            onClick={() => onToggleRule(rule.id)}
-                          >
-                            Toggle
-                          </button>
-                          <button
-                            className="cursor-pointer rounded bg-rose-700 px-2 py-1 text-xs hover:bg-rose-600"
-                            onClick={() => onDeleteRule(rule.id)}
-                          >
-                            Delete
-                          </button>
-                        </div>
+                        <button
+                          className="cursor-pointer rounded bg-rose-700 px-2 py-1 text-xs hover:bg-rose-600"
+                          onClick={() => onDeleteRule(rule.id)}
+                        >
+                          Delete
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -1266,7 +1426,7 @@ export function Dashboard() {
                         className="not-italic"
                       >
                         <span className="font-medium text-slate-300">
-                          Cycle #{cycle.cycle}
+                          Pricing run
                         </span>
                         <span className="text-slate-500"> · </span>
                         <span>{formatFriendlyDateTime(cycle.timestamp)}</span>
@@ -1279,19 +1439,40 @@ export function Dashboard() {
                       </time>
                     </p>
                     {cycle.has_changes ? (
-                      <ul className="mt-2 space-y-1 text-sm text-slate-200">
+                      <ul className="mt-2 space-y-3">
                         {cycle.changes.map((ch, idx) => (
                           <li key={`${cycle.cycle}-${idx}`}>
-                            {ch.room_type}: ${ch.original_rate.toFixed(2)} -{" "}
-                            {">"} ${ch.new_rate.toFixed(2)} (
-                            {ch.change_pct >= 0 ? "+" : ""}
-                            {ch.change_pct}%)
+                            <div className="text-sm font-medium text-slate-200">
+                              {ch.room_type}
+                              {ch.stay_date ? (
+                                <span className="text-slate-400">
+                                  {" "}
+                                  · stay {ch.stay_date}
+                                </span>
+                              ) : null}
+                              : ${ch.original_rate.toFixed(2)}{" "}
+                              {ch.new_rate >= ch.original_rate ? "up" : "down"} to $
+                              {ch.new_rate.toFixed(2)} (
+                              {ch.change_pct >= 0 ? "+" : ""}
+                              {ch.change_pct}%)
+                            </div>
+                            {(ch.narrative && ch.narrative.length > 0
+                              ? ch.narrative
+                              : [ch.description]
+                            ).map((sentence, si) => (
+                              <p
+                                key={si}
+                                className="mt-0.5 text-[13px] leading-relaxed text-slate-400"
+                              >
+                                {sentence}
+                              </p>
+                            ))}
                           </li>
                         ))}
                       </ul>
                     ) : (
                       <p className="mt-2 text-sm text-slate-300">
-                        No actionable conditions detected.
+                        Prices checked — nothing needed to change.
                       </p>
                     )}
                   </div>
@@ -1303,56 +1484,96 @@ export function Dashboard() {
 
         {tab === "pms" && (
           <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
-            <h2 className="text-lg font-semibold">PMS (Mews)</h2>
+            <h2 className="text-lg font-semibold">
+              Property System
+              {pmsActivity?.connection
+                ? ` (${formatPmsName(pmsActivity.connection.pms_type)})`
+                : ""}
+            </h2>
             <p className="text-sm text-slate-300">
-              Reservations sync on a schedule from your Supabase project (Edge
-              Function + cron). Manual sync was removed in favor of automation.
+              Bookings sync automatically on a schedule. This page shows how
+              that connection is doing.
             </p>
             {!activeHotelId ? (
               <p className="text-sm text-slate-400">
                 Select a property to view status.
               </p>
-            ) : mewsConnection === null ? (
-              <p className="text-sm text-slate-400">
-                Loading connection status…
-              </p>
-            ) : !mewsConnection.configured ? (
+            ) : pmsActivity === null ? (
+              <p className="text-sm text-slate-400">Loading connection status…</p>
+            ) : !pmsActivity.connection ? (
               <p className="text-sm text-amber-200/90">
-                No Mews integration is configured for this property yet (
-                <code className="text-xs">pms_connections</code>).
+                No property system is connected for this property yet.
               </p>
             ) : (
-              <div className="space-y-3 rounded border border-slate-800 bg-slate-950 p-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                    Mews connection
-                  </span>
-                  <MewsStatusBadge status={mewsConnection.status} />
+              <>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="space-y-1.5 rounded border border-slate-800 bg-slate-950 p-4">
+                    <div className="text-xs text-slate-500">Connection</div>
+                    <PmsStatusBadge status={pmsActivity.connection.status} />
+                  </div>
+                  <div className="space-y-1.5 rounded border border-slate-800 bg-slate-950 p-4">
+                    <div className="text-xs text-slate-500">
+                      Health (last 24 hours)
+                    </div>
+                    <PmsHealthBadge health={pmsActivity.health} />
+                  </div>
+                  <div className="space-y-1.5 rounded border border-slate-800 bg-slate-950 p-4">
+                    <div className="text-xs text-slate-500">Last sync</div>
+                    <div className="text-sm text-slate-200">
+                      {pmsActivity.connection.last_sync_at
+                        ? formatDisplayTime(pmsActivity.connection.last_sync_at)
+                        : "—"}
+                    </div>
+                  </div>
                 </div>
-                <dl className="grid gap-2 text-sm text-slate-300 sm:grid-cols-2">
-                  <div>
-                    <dt className="text-xs text-slate-500">Last sync</dt>
-                    <dd>
-                      {mewsConnection.lastSyncAt
-                        ? formatDisplayTime(mewsConnection.lastSyncAt)
-                        : "—"}
-                    </dd>
+
+                <div className="rounded border border-slate-800 bg-slate-950">
+                  <div className="border-b border-slate-800 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-400">
+                    Recent requests to {formatPmsName(pmsActivity.connection.pms_type)}
                   </div>
-                  <div>
-                    <dt className="text-xs text-slate-500">Last tested</dt>
-                    <dd>
-                      {mewsConnection.lastTestedAt
-                        ? formatDisplayTime(mewsConnection.lastTestedAt)
-                        : "—"}
-                    </dd>
-                  </div>
-                </dl>
-                <p className="text-xs text-slate-500">
-                  Status updates when a scheduled sync completes successfully.
-                  If syncs fail, timestamps may stop moving even if the status
-                  still shows connected.
-                </p>
-              </div>
+                  {pmsActivity.log.length === 0 ? (
+                    <p className="px-4 py-3 text-sm text-slate-500">
+                      No requests recorded yet — the log fills as syncs run.
+                    </p>
+                  ) : (
+                    <div className="max-h-80 overflow-y-auto">
+                      <table className="w-full border-collapse text-xs">
+                        <tbody>
+                          {pmsActivity.log.map((entry) => (
+                            <tr
+                              key={entry.id}
+                              className="border-b border-slate-800/60 last:border-b-0"
+                            >
+                              <td className="whitespace-nowrap px-4 py-1.5 text-slate-500">
+                                {formatDisplayTime(entry.created_at)}
+                              </td>
+                              <td className="px-2 py-1.5 font-mono text-slate-400">
+                                {entry.http_method}
+                              </td>
+                              <td className="px-2 py-1.5 font-mono text-slate-300">
+                                {entry.endpoint}
+                              </td>
+                              <td
+                                className={`px-2 py-1.5 font-mono ${
+                                  entry.ok ? "text-emerald-400" : "text-rose-400"
+                                }`}
+                              >
+                                {entry.status_code ?? "ERR"}
+                              </td>
+                              <td className="whitespace-nowrap px-2 py-1.5 text-slate-500">
+                                {entry.duration_ms != null ? `${entry.duration_ms}ms` : ""}
+                              </td>
+                              <td className="max-w-[16rem] truncate px-2 py-1.5 text-slate-500">
+                                {entry.message ?? ""}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </section>
         )}

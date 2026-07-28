@@ -129,17 +129,25 @@ export function ruleConditionToLegacyConditions(c: RuleCondition): Record<string
   return out;
 }
 
+/** ">80" -> "above 80", "<7" -> "below 7" — hoteliers read words, not math. */
+function wordify(value: RuleConditionValue, unit = ""): string {
+  const s = String(value).trim();
+  if (s.startsWith(">")) return `above ${s.slice(1).trim()}${unit}`;
+  if (s.startsWith("<")) return `below ${s.slice(1).trim()}${unit}`;
+  return `${s}${unit}`;
+}
+
 export function formatRuleConditionsDisplay(conditions: Record<string, RuleConditionValue>): string {
   const parts: string[] = [];
   const occ = conditions.occupancy_percentage;
-  if (occ != null) parts.push(`Occupancy ${String(occ)}%`);
+  if (occ != null) parts.push(`Occupancy ${wordify(occ, "%")}`);
   const bw = conditions.booking_window;
-  if (bw != null) parts.push(`Booking window ${String(bw)} d`);
+  if (bw != null) parts.push(`Booking window ${wordify(bw, " days")}`);
   const pu = conditions.pickup_rate;
-  if (pu != null) parts.push(`Pickup ${String(pu)}`);
+  if (pu != null) parts.push(`Pickup ${wordify(pu, " bookings")}`);
   for (const [k, v] of Object.entries(conditions)) {
     if (k === "occupancy_percentage" || k === "booking_window" || k === "pickup_rate") continue;
-    parts.push(`${k} ${String(v)}`);
+    parts.push(`${k.replace(/_/g, " ")} ${wordify(v)}`);
   }
   return parts.length ? parts.join(" · ") : "—";
 }
