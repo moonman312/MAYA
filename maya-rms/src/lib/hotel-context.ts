@@ -18,26 +18,25 @@ export async function listAccessibleHotels(
   } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const { data: memberships, error: mErr } = await supabase
+  // Single round-trip: memberships joined to hotels (was two sequential
+  // queries — this path runs on nearly every API request, so it adds up).
+  const { data: rows, error } = await supabase
     .from("hotel_memberships")
-    .select("hotel_id")
+    .select("hotel_id, hotels!inner(id, name, is_active)")
     .eq("user_id", user.id)
-    .eq("status", "active");
+    .eq("status", "active")
+    .eq("hotels.is_active", true);
 
-  if (mErr || !memberships?.length) return [];
+  if (error || !rows?.length) return [];
 
-  const ids = [...new Set(memberships.map((r) => String(r.hotel_id)))];
-
-  const { data: hotels, error: hErr } = await supabase
-    .from("hotels")
-    .select("id, name")
-    .in("id", ids)
-    .eq("is_active", true)
-    .order("name", { ascending: true });
-
-  if (hErr || !hotels) return [];
-
-  return hotels.map((h) => ({ id: String(h.id), name: String(h.name) }));
+  const byId = new Map<string, AccessibleHotel>();
+  for (const r of rows) {
+    const h = (Array.isArray(r.hotels) ? r.hotels[0] : r.hotels) as
+      | { id: string; name: string }
+      | undefined;
+    if (h?.id) byId.set(String(h.id), { id: String(h.id), name: String(h.name) });
+  }
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**
