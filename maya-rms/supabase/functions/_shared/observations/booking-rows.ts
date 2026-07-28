@@ -14,7 +14,7 @@ export interface SlimReservationRow {
   booking_window_days?: number | null;
 }
 
-function bookingWindowOf(row: SlimReservationRow): number | null {
+export function bookingWindowOf(row: SlimReservationRow): number | null {
   if (typeof row.booking_window_days === "number") return row.booking_window_days;
   if (row.booking_date) return daysBetween(row.booking_date, row.stay_date);
   return null;

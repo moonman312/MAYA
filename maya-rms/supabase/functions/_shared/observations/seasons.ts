@@ -82,6 +82,8 @@ export interface Season {
   days: number;
   /** Raw demand level relative to the yearly norm, 2dp. */
   meanIndex: number;
+  /** Booking-pace level relative to the yearly norm, 2dp — present only when a pace series was supplied. */
+  paceIndex?: number;
   label: string;
   dow: SeasonDowProfile;
 }
@@ -125,6 +127,13 @@ export const MAX_OUTLIER_RUN_DAYS = 7;
 export const MIN_YEARS_FOR_TRUST = 2;
 export const LEVEL_SHIFT_THRESHOLD = 0.25;
 export const SHAPE_SHIFT_THRESHOLD = 0.25;
+/**
+ * Booking-pace scores swing across a wider natural range than level or
+ * shape (a date filling 60 days out vs 5 days out is a 12x ratio, where
+ * demand levels rarely move 3x), so the pace signal gets a slightly higher
+ * bar before it alone can declare a boundary.
+ */
+export const PACE_SHIFT_THRESHOLD = 0.35;
 export const MIN_SHIFT_RUN_DAYS = 10;
 /** How many of the confirming run's most recent days seed a new segment's running mean — see walkYear. */
 export const TREND_SEED_TAIL_DAYS = 3;
@@ -406,73 +415,87 @@ function segMean(series: number[], seg: Seg): number {
   return sum / seg.len;
 }
 
-function segsSimilar(a: Seg, b: Seg, level: number[], shape: number[]): boolean {
-  const lr = Math.abs(Math.log(segMean(level, a) / segMean(level, b)));
-  const sr = Math.abs(Math.log(segMean(shape, a) / segMean(shape, b)));
-  return lr <= Math.log(1 + LEVEL_SHIFT_THRESHOLD) && sr <= Math.log(1 + SHAPE_SHIFT_THRESHOLD);
+/**
+ * One boundary signal for the segmentation walk: a normalized circular
+ * series plus the log-space shift threshold that counts as a deviation for
+ * it. The walk itself is signal-agnostic — level, weekly shape, and
+ * booking pace all ride through the same machinery, and any one of them
+ * sustaining a shift starts a season.
+ */
+interface SegSignal {
+  values: number[];
+  logThreshold: number;
 }
 
-function segDistance(a: Seg, b: Seg, level: number[], shape: number[]): number {
-  const lr = Math.abs(Math.log(segMean(level, a) / segMean(level, b)));
-  const sr = Math.abs(Math.log(segMean(shape, a) / segMean(shape, b)));
-  return Math.max(lr, sr);
+const logShift = (threshold: number) => Math.log(1 + threshold);
+
+/**
+ * Distance between two segments in threshold units: each signal's absolute
+ * log-ratio divided by its own threshold, max over signals. 1.0 means
+ * "exactly at some signal's boundary bar", so similar = distance <= 1.
+ */
+function segDistance(a: Seg, b: Seg, signals: SegSignal[]): number {
+  let worst = 0;
+  for (const s of signals) {
+    const d = Math.abs(Math.log(segMean(s.values, a) / segMean(s.values, b))) / s.logThreshold;
+    if (d > worst) worst = d;
+  }
+  return worst;
+}
+
+function segsSimilar(a: Seg, b: Seg, signals: SegSignal[]): boolean {
+  return segDistance(a, b, signals) <= 1;
 }
 
 /**
- * Walk the year watching both signals against the current season's running
- * mean. A sustained deviation (same direction, MIN_SHIFT_RUN_DAYS long)
- * starts a new season; shorter excursions are absorbed as dips. Staggered
- * onsets are tolerated: a pending run survives as long as neither signal
- * reverses direction.
+ * Walk the year watching every signal against the current season's running
+ * means. A sustained deviation in ANY signal (same direction,
+ * MIN_SHIFT_RUN_DAYS long) starts a new season; shorter excursions are
+ * absorbed as dips. Staggered onsets are tolerated: a pending run survives
+ * as long as no signal reverses direction.
  */
-function walkYear(level: number[], shape: number[]): Seg[] {
-  const LOG_L = Math.log(1 + LEVEL_SHIFT_THRESHOLD);
-  const LOG_S = Math.log(1 + SHAPE_SHIFT_THRESHOLD);
-
+function walkYear(signals: SegSignal[]): Seg[] {
+  const n = signals.length;
   const bounds: { start: number; end: number }[] = [];
   let segStart = 0;
-  let lm = level[0];
-  let sm = shape[0];
+  const means = signals.map((s) => s.values[0]);
   let count = 1;
   let pendStart = -1;
-  let pendSig: [number, number] = [0, 0];
-  let pendL: number[] = [];
-  let pendS: number[] = [];
+  let pendSig: number[] = new Array(n).fill(0);
+  let pendVals: number[][] = signals.map(() => []);
 
   const clearPending = () => {
     pendStart = -1;
-    pendSig = [0, 0];
-    pendL = [];
-    pendS = [];
+    pendSig = new Array(n).fill(0);
+    pendVals = signals.map(() => []);
   };
   const absorbPending = () => {
-    for (let j = 0; j < pendL.length; j++) {
-      lm = (lm * count + pendL[j]) / (count + 1);
-      sm = (sm * count + pendS[j]) / (count + 1);
+    for (let j = 0; j < pendVals[0].length; j++) {
+      for (let k = 0; k < n; k++) {
+        means[k] = (means[k] * count + pendVals[k][j]) / (count + 1);
+      }
       count++;
     }
     clearPending();
   };
 
   for (let i = 1; i < 365; i++) {
-    const dl = Math.log(level[i] / lm);
-    const ds = Math.log(shape[i] / sm);
-    const sigL = Math.abs(dl) > LOG_L ? Math.sign(dl) : 0;
-    const sigS = Math.abs(ds) > LOG_S ? Math.sign(ds) : 0;
+    const sigs = signals.map((s, k) => {
+      const d = Math.log(s.values[i] / means[k]);
+      return Math.abs(d) > s.logThreshold ? Math.sign(d) : 0;
+    });
 
-    if (sigL !== 0 || sigS !== 0) {
-      const reverses = sigL * pendSig[0] === -1 || sigS * pendSig[1] === -1;
+    if (sigs.some((s) => s !== 0)) {
+      const reverses = sigs.some((s, k) => s * pendSig[k] === -1);
       if (pendStart === -1 || reverses) {
         pendStart = i;
-        pendSig = [sigL, sigS];
-        pendL = [level[i]];
-        pendS = [shape[i]];
+        pendSig = sigs;
+        pendVals = signals.map((s) => [s.values[i]]);
       } else {
-        pendSig = [pendSig[0] || sigL, pendSig[1] || sigS];
-        pendL.push(level[i]);
-        pendS.push(shape[i]);
+        pendSig = pendSig.map((p, k) => p || sigs[k]);
+        signals.forEach((s, k) => pendVals[k].push(s.values[i]));
       }
-      if (pendL.length >= MIN_SHIFT_RUN_DAYS) {
+      if (pendVals[0].length >= MIN_SHIFT_RUN_DAYS) {
         bounds.push({ start: segStart, end: pendStart - 1 });
         segStart = pendStart;
         // Seed the new segment from the TAIL of the confirming run, not its
@@ -484,16 +507,16 @@ function walkYear(level: number[], shape: number[]): Seg[] {
         // sample (already past the ramp by the time MIN_SHIFT_RUN_DAYS
         // elapses) is a much closer estimate of where the segment lands,
         // and a small starting count lets it adapt fast to what follows.
-        const tail = Math.min(TREND_SEED_TAIL_DAYS, pendL.length);
-        lm = mean(pendL.slice(-tail));
-        sm = mean(pendS.slice(-tail));
+        const tail = Math.min(TREND_SEED_TAIL_DAYS, pendVals[0].length);
+        for (let k = 0; k < n; k++) means[k] = mean(pendVals[k].slice(-tail));
         count = tail;
         clearPending();
       }
     } else {
       if (pendStart !== -1) absorbPending();
-      lm = (lm * count + level[i]) / (count + 1);
-      sm = (sm * count + shape[i]) / (count + 1);
+      for (let k = 0; k < n; k++) {
+        means[k] = (means[k] * count + signals[k].values[i]) / (count + 1);
+      }
       count++;
     }
   }
@@ -502,12 +525,12 @@ function walkYear(level: number[], shape: number[]): Seg[] {
   return bounds.map((b) => ({ start: b.start, len: b.end - b.start + 1 }));
 }
 
-function segmentYear(level: number[], shape: number[]): Seg[] {
-  let segs = walkYear(level, shape);
+function segmentYear(signals: SegSignal[]): Seg[] {
+  let segs = walkYear(signals);
 
   // The walk starts at January 1, which is usually mid-season: if the first
   // and last segments look alike, they are one season wrapping the year end.
-  if (segs.length > 1 && segsSimilar(segs[0], segs[segs.length - 1], level, shape)) {
+  if (segs.length > 1 && segsSimilar(segs[0], segs[segs.length - 1], signals)) {
     const last = segs[segs.length - 1];
     const first = segs[0];
     segs = [{ start: last.start, len: last.len + first.len }, ...segs.slice(1, -1)];
@@ -521,8 +544,8 @@ function segmentYear(level: number[], shape: number[]): Seg[] {
     const prev = (shortest - 1 + segs.length) % segs.length;
     const next = (shortest + 1) % segs.length;
     const mergeWithPrev =
-      segDistance(segs[shortest], segs[prev], level, shape) <=
-      segDistance(segs[shortest], segs[next], level, shape);
+      segDistance(segs[shortest], segs[prev], signals) <=
+      segDistance(segs[shortest], segs[next], signals);
     segs = mergeAdjacent(segs, mergeWithPrev ? prev : shortest);
   }
 
@@ -531,7 +554,7 @@ function segmentYear(level: number[], shape: number[]): Seg[] {
     let bestI = 0;
     let bestD = Infinity;
     for (let i = 0; i < segs.length; i++) {
-      const d = segDistance(segs[i], segs[(i + 1) % segs.length], level, shape);
+      const d = segDistance(segs[i], segs[(i + 1) % segs.length], signals);
       if (d < bestD) {
         bestD = d;
         bestI = i;
@@ -611,7 +634,12 @@ function labelSeasons(entries: { meanIndex: number; start: number; len: number }
   return labels;
 }
 
-function assembleSeasons(segs: Seg[], rawSeries: number[], obs: Obs[]): Season[] {
+function assembleSeasons(
+  segs: Seg[],
+  rawSeries: number[],
+  obs: Obs[],
+  paceSeries: number[] | null,
+): Season[] {
   const member = segMembership(segs);
   const entries = segs.map((seg) => ({
     start: seg.start,
@@ -625,6 +653,7 @@ function assembleSeasons(segs: Seg[], rawSeries: number[], obs: Obs[]): Season[]
     endKey: YEAR_KEYS[(seg.start + seg.len - 1) % 365],
     days: seg.len,
     meanIndex: entries[id].meanIndex,
+    ...(paceSeries ? { paceIndex: round2(segMean(paceSeries, seg)) } : {}),
     label: labels[id],
     dow: dowProfileForSeg(obs, member, id),
   }));
@@ -642,6 +671,15 @@ function segSignature(segs: Seg[]): string {
 export interface DetectSeasonsOptions {
   /** Closed periods, renovations, challenged dates — never used for seasons. */
   exclusions?: DatePeriod[];
+  /**
+   * Optional booking-pace series (see booking-pace.ts's dailyPaceSeries):
+   * how early each historical stay date filled through its occupancy
+   * milestones. A third boundary signal, catching demand-intensity shifts
+   * occupancy alone cannot see — two periods that both end near sellout
+   * look identical in occupancy even when one filled six weeks out and the
+   * other filled in the final days. Pass fully observed (past) dates only.
+   */
+  pace?: DailyDemand[];
 }
 
 export function detectSeasons(
@@ -688,8 +726,29 @@ export function detectSeasons(
   const shape = buildShapeSeries(obs, outlierIdx);
   const raw = buildSeries(slotify(obs, (o) => o.value), yearCounts);
 
-  const segs1 = segmentYear(det1.series, shape);
-  const seasons1 = assembleSeasons(segs1, raw.series, obs);
+  // Optional third signal: booking pace, with its own weekly detrend
+  // (weekend dates routinely fill on a different schedule than weekdays,
+  // and that weekly rhythm must not read as tiny seasons any more than the
+  // level series' weekly rhythm does). Ignored entirely when too sparse to
+  // trust — a handful of paced dates is noise, not a boundary signal.
+  const paceObs = opts.pace ? prepareObservations(opts.pace, opts.exclusions ?? []) : [];
+  let paceSeries: number[] | null = null;
+  if (paceObs.length >= MIN_OBSERVATIONS) {
+    const paceFactors = globalDowFactors(paceObs);
+    paceSeries = buildSeries(
+      slotify(paceObs, (o) => o.value / paceFactors[o.dow]),
+      slotYearCounts(paceObs),
+    ).series;
+  }
+
+  const boundarySignals = (levelSeries: number[]): SegSignal[] => [
+    { values: levelSeries, logThreshold: logShift(LEVEL_SHIFT_THRESHOLD) },
+    { values: shape, logThreshold: logShift(SHAPE_SHIFT_THRESHOLD) },
+    ...(paceSeries ? [{ values: paceSeries, logThreshold: logShift(PACE_SHIFT_THRESHOLD) }] : []),
+  ];
+
+  const segs1 = segmentYear(boundarySignals(det1.series));
+  const seasons1 = assembleSeasons(segs1, raw.series, obs, paceSeries);
 
   // Pass 2: each season's own weekly profile detrends its stretch of the year.
   const member1 = segMembership(segs1);
@@ -700,8 +759,8 @@ export function detectSeasons(
     }),
     yearCounts,
   );
-  const segs2 = segmentYear(det2.series, shape);
-  const seasons2 = assembleSeasons(segs2, raw.series, obs);
+  const segs2 = segmentYear(boundarySignals(det2.series));
+  const seasons2 = assembleSeasons(segs2, raw.series, obs, paceSeries);
 
   return {
     seasons: seasons2,
@@ -736,6 +795,13 @@ function dowPhrase(weekendLift: number): string {
   return "weekends and weekdays run about even";
 }
 
+function pacePhrase(paceIndex: number | undefined): string {
+  if (paceIndex == null) return "";
+  if (paceIndex >= 1.35) return ", and it books up earlier than the rest of your year";
+  if (paceIndex <= 0.75) return ", and it books up closer to arrival than the rest of your year";
+  return "";
+}
+
 /** Plain-language season summary — no thresholds, no math symbols. */
 export function describeSeasonModel(model: SeasonModel): string {
   if (model.seasons.length === 1 && model.seasons[0].label === "Year-Round") {
@@ -746,7 +812,7 @@ export function describeSeasonModel(model: SeasonModel): string {
   );
   const lines = ordered.map(
     (s) =>
-      `${s.label}, ${keyToHuman(s.startKey)} through ${keyToHuman(s.endKey)}: ${levelPhrase(s.meanIndex)}, and ${dowPhrase(s.dow.weekendLift)}.`,
+      `${s.label}, ${keyToHuman(s.startKey)} through ${keyToHuman(s.endKey)}: ${levelPhrase(s.meanIndex)}, and ${dowPhrase(s.dow.weekendLift)}${pacePhrase(s.paceIndex)}.`,
   );
   if (model.outlierKeys.length > 0) {
     lines.push(

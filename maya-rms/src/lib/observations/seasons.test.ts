@@ -10,6 +10,8 @@ import {
   seasonForDate,
   type DailyDemand,
 } from "../../../supabase/functions/_shared/observations/seasons";
+import { dailyPaceSeries } from "../../../supabase/functions/_shared/observations/booking-pace";
+import type { SlimReservationRow } from "../../../supabase/functions/_shared/observations/booking-rows";
 
 const NO_MATH_SYMBOLS = /[<>]/;
 
@@ -240,5 +242,60 @@ describe("a real, unevenly-spaced nine-season property", () => {
     // event — it should fall back to fewer, cruder seasons rather than
     // confidently declaring a pattern from a single occurrence.
     expect(model.seasons.length).toBeLessThan(9);
+  });
+});
+
+describe("booking pace as a third season signal", () => {
+  // The sellout-blindness problem: a period sold out at a premium and a
+  // period sold out at a discount read identically in occupancy — and so
+  // do a period that filled six weeks out and one that filled in the final
+  // days. Here both regimes end at 19 of 20 rooms every night (level and
+  // weekly shape are dead flat all year); only WHEN the bookings arrived
+  // differs. Occupancy alone must see one season; pace must split them.
+  const CAPACITY = 20;
+  const FAST_WINDOWS = [80, 75, 70, 65, 60, 55, 50, 45, 40, 38, 36, 34, 32, 30, 28, 26, 24, 22, 20];
+  const SLOW_WINDOWS = [7, 7, 6, 6, 5, 5, 4, 4, 3, 3, 2, 2, 2, 1, 1, 1, 0, 0, 0];
+
+  function build(): { daily: DailyDemand[]; rows: SlimReservationRow[] } {
+    const daily: DailyDemand[] = [];
+    const rows: SlimReservationRow[] = [];
+    for (let d = "2024-01-01"; d <= "2025-12-31"; d = addDays(d, 1)) {
+      const m = month(d);
+      const fast = m >= 3 && m <= 6;
+      daily.push({ stay_date: d, value: 19 });
+      for (const bw of fast ? FAST_WINDOWS : SLOW_WINDOWS) {
+        rows.push({ stay_date: d, booking_window_days: bw });
+      }
+    }
+    return { daily, rows };
+  }
+
+  it("splits two near-sellout regimes that occupancy alone cannot tell apart", () => {
+    const { daily, rows } = build();
+
+    const withoutPace = detectSeasons(daily);
+    expect(withoutPace.seasons).toHaveLength(1); // occupancy is blind here
+
+    const model = detectSeasons(daily, { pace: dailyPaceSeries(rows, CAPACITY) });
+    expect(model.seasons).toHaveLength(2);
+
+    const fastSeason = seasonForDate(model, "2025-04-15");
+    const slowSeason = seasonForDate(model, "2025-09-15");
+    expect(fastSeason.id).not.toBe(slowSeason.id);
+    expect(fastSeason.paceIndex!).toBeGreaterThan(slowSeason.paceIndex!);
+    // The slow regime wraps the year end.
+    expect(seasonForDate(model, "2025-01-15").id).toBe(slowSeason.id);
+
+    const text = describeSeasonModel(model);
+    expect(text).toContain("books up earlier than the rest of your year");
+    expect(text).not.toMatch(NO_MATH_SYMBOLS);
+  });
+
+  it("ignores a pace series too sparse to trust", () => {
+    const { daily, rows } = build();
+    const sparse = dailyPaceSeries(rows, CAPACITY).slice(0, 10);
+    const model = detectSeasons(daily, { pace: sparse });
+    expect(model.seasons).toHaveLength(1);
+    expect(model.seasons[0].paceIndex).toBeUndefined();
   });
 });
