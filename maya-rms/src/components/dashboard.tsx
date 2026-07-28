@@ -2,6 +2,7 @@
 
 import { AskForHelp } from "@/components/onboarding/ask-for-help";
 import { OnboardingReviewBanner } from "@/components/onboarding/review-banner";
+import { CorrectionsPanel, ExplainDrilldown } from "@/components/explain-drilldown";
 import { useCalendarLive } from "@/lib/use-calendar-live";
 import { PropertySelect } from "@/components/property-select";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
@@ -1215,11 +1216,11 @@ export function Dashboard() {
                                   {BOOKING_SPEED_LEVELS.map((l) => (
                                     <option key={l.key} value={l.key}>
                                       {l.rank < 0 && l.rank > -3
-                                        ? `${l.label} (or slower)`
+                                        ? `${l.label}`
                                         : l.rank > 0 && l.rank < 3
-                                          ? `${l.label} (or faster)`
+                                          ? `${l.label}`
                                           : l.rank === 0
-                                            ? `${l.label} (exactly)`
+                                            ? `${l.label}`
                                             : l.label}
                                     </option>
                                   ))}
@@ -1589,6 +1590,7 @@ export function Dashboard() {
                 {changesOnly ? "Show All Cycles" : "Show Changes Only"}
               </button>
             </div>
+            <CorrectionsPanel />
             <div className="space-y-2">
               {visibleCycles.map((cycle) => {
                 const whenRelative = formatRelativeAge(cycle.timestamp);
@@ -1645,6 +1647,16 @@ export function Dashboard() {
                                 {sentence}
                               </p>
                             ))}
+                            {ch.has_booking_speed_details &&
+                            ch.evaluation_run_id &&
+                            ch.stay_date &&
+                            ch.room_type_id ? (
+                              <ExplainDrilldown
+                                runId={ch.evaluation_run_id}
+                                stayDate={ch.stay_date}
+                                roomTypeId={ch.room_type_id}
+                              />
+                            ) : null}
                           </li>
                         ))}
                       </ul>

@@ -280,6 +280,11 @@ export type ChangelogEntry = {
   stay_date?: string;
   /** Sentence-per-step story of the change, from narrateChange. */
   narrative?: string[];
+  /** Keys for fetching the drill-down (/api/explain). Absent in demo shapes. */
+  evaluation_run_id?: string;
+  room_type_id?: string;
+  /** True when the audit row carries booking-speed observation snapshots — the "How did we know?" expander only shows then. */
+  has_booking_speed_details?: boolean;
 };
 
 export type ChangelogCycle = {

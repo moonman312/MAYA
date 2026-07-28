@@ -37,6 +37,14 @@ import {
   type BookingSpeedObservation,
   type SlimReservationRow,
 } from "../observations/expected-bookings.ts";
+import {
+  buildReinforcementModel,
+  isDateReinforcementExcluded,
+  isKnownChallengeReason,
+  seasonExclusionPeriods,
+  type AssumptionChallenge,
+  type ChallengeScope,
+} from "../observations/reinforcement.ts";
 import type { RuleMetrics } from "./types.ts";
 
 export const HISTORY_YEARS_BACK = 3;
@@ -102,8 +110,37 @@ export async function loadBookingSpeedContext(
     start_date: String(p.start_date),
     end_date: String(p.end_date),
   }));
+
+  // Owner-raised challenges: every flagged date stops being comparable
+  // immediately; corroborated recurring windows widen that to every year,
+  // and improve_future promotions also come out of season detection's input.
+  // (other_text is deliberately not selected — the model never reads it.)
+  const { data: challengeRows } = await supabase
+    .from("assumption_challenges")
+    .select("id, challenged_date, reason_key, scope, created_at")
+    .eq("hotel_id", hotelId);
+  const challenges: AssumptionChallenge[] = (challengeRows ?? [])
+    .filter((c) => isKnownChallengeReason(String(c.reason_key)))
+    .map((c) => {
+      // created_at truncates to a UTC date; for hotels west of UTC an
+      // evening challenge lands "tomorrow" and the model's freshness filter
+      // would drop it as future-dated, breaking the promised next-run
+      // effect. Clamp to the hotel-local evaluation date — a challenge can
+      // never be fresher than the run reading it.
+      const raised = String(c.created_at).slice(0, 10);
+      return {
+        id: String(c.id),
+        date: String(c.challenged_date),
+        reasonKey: String(c.reason_key),
+        scope: String(c.scope) as ChallengeScope,
+        raisedAt: raised > localDate ? localDate : raised,
+      };
+    });
+  const reinforcement = buildReinforcementModel(challenges, { now: localDate });
+
   const isExcluded = (date: string) =>
-    exclusions.some((p) => date >= p.start_date && date <= p.end_date);
+    exclusions.some((p) => date >= p.start_date && date <= p.end_date) ||
+    isDateReinforcementExcluded(reinforcement, date);
 
   const rowsByDate = new Map<string, SlimReservationRow[]>();
   for (const row of rows) {
@@ -125,8 +162,23 @@ export async function loadBookingSpeedContext(
   daily.sort((a, b) => a.stay_date.localeCompare(b.stay_date));
 
   const pace = totalCapacity > 0 ? dailyPaceSeries(historyRows, totalCapacity) : [];
+  // Season detection skips closed periods, every individually flagged date
+  // (a flagged date stops being season-modeling input immediately — the
+  // module's contract), and any challenge windows that earned
+  // improve_future promotion.
+  const seasonExclusions = exclusions
+    .concat(
+      [...reinforcement.instanceExclusions].map((d) => ({ start_date: d, end_date: d })),
+    )
+    .concat(
+      seasonExclusionPeriods(
+        reinforcement,
+        Number(historyStart.slice(0, 4)),
+        Number(historyEnd.slice(0, 4)),
+      ),
+    );
   const seasonModel = detectSeasons(daily, {
-    exclusions,
+    exclusions: seasonExclusions,
     ...(pace.length > 0 ? { pace } : {}),
   });
 

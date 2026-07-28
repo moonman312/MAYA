@@ -231,6 +231,10 @@ export function buildEntry(
     stay_date: row.stay_date,
     narrative,
     description: narrative.join(" "),
+    evaluation_run_id: row.evaluation_run_id,
+    room_type_id: row.room_type_id,
+    has_booking_speed_details:
+      (row.details?.booking_speed_observations ?? []).length > 0,
   };
 }
 

@@ -20,7 +20,8 @@
  * Scope ladder (each level does strictly more than the one below it):
  * - "this_date": only this exact instance is set aside. Always applied
  *   immediately — the blast radius is one date, so there is nothing to
- *   overfit.
+ *   overfit. Deliberately NOT a recurrence claim: it never counts toward
+ *   promoting a pattern.
  * - "annual": the owner believes this happens every year (an annual
  *   festival, a recurring closure window). Generalizes to a whole
  *   recurring calendar window, once corroborated by challenges spanning
@@ -29,6 +30,18 @@
  *   the season model itself (the window shouldn't count as "normal"
  *   Winter/Summer/whatever demand). Requires the most corroboration, since
  *   it changes shared model output, not just one comparison.
+ *
+ * Because each level strictly contains the one below it, an improve_future
+ * report is also evidence for the weaker annual claim: annual promotion
+ * counts reports from BOTH pattern scopes, while season-model promotion
+ * counts only explicit improve_future reports.
+ *
+ * "Distinct years" means distinct OCCURRENCES, not calendar-year strings:
+ * a New Year's incident flagged on Dec 31 and Jan 1 is one occurrence even
+ * though the dates straddle a calendar-year boundary — clustering already
+ * bridges the Dec 31/Jan 1 seam, and year counting folds a
+ * wrapped-into-January date back onto the occurrence anchored in the
+ * previous year.
  */
 
 import {
@@ -155,6 +168,8 @@ export interface PromotedWindow {
   centerKey: string;
   toleranceDays: number;
   supportingDates: string[];
+  /** Distinct occurrence-years of the supporting reports (seam-safe — see header). */
+  distinctYears: number;
 }
 
 export interface ReinforcementModel {
@@ -166,12 +181,6 @@ export interface ReinforcementModel {
   promotedSeasonExclusionWindows: PromotedWindow[];
   /** Clusters short of their threshold, with progress for transparent messaging. */
   pending: PendingCluster[];
-}
-
-function dedupeByDate(list: AssumptionChallenge[]): AssumptionChallenge[] {
-  const seen = new Map<string, AssumptionChallenge>();
-  for (const c of list) if (!seen.has(c.date)) seen.set(c.date, c);
-  return [...seen.values()];
 }
 
 /** True calendar-year subtraction (not a fixed day count), so a Feb 29 in the span never shifts the boundary by a day. */
@@ -199,7 +208,7 @@ function yearsBefore(date: string, years: number): string {
 function clusterDatesByProximity(
   dates: string[],
   toleranceDays: number,
-): { dates: string[]; centerKey: string }[] {
+): { dates: string[]; centerKey: string; occurrenceYearOf: Map<string, string> }[] {
   const n = dates.length;
   if (n === 0) return [];
   const items = dates.map((d) => ({ d, idx: dayOfYearIndex(d) }));
@@ -237,7 +246,14 @@ function clusterDatesByProximity(
     const us = g.map((x) => x.u).sort((a, b) => a - b);
     const centerU = us[Math.floor(us.length / 2)];
     const foldedIdx = ((centerU % 365) + 365) % 365;
-    return { dates: g.map((x) => x.d), centerKey: YEAR_KEYS[foldedIdx] };
+    // A member wrapped past the Dec 31/Jan 1 seam (u >= 365) is an
+    // early-January date belonging to the occurrence anchored in the
+    // PREVIOUS calendar year — Dec 31 + Jan 1 of one party is one
+    // occurrence, not two years of evidence.
+    const occurrenceYearOf = new Map(
+      g.map((x) => [x.d, String(Number(x.d.slice(0, 4)) - (x.u >= 365 ? 1 : 0))]),
+    );
+    return { dates: g.map((x) => x.d), centerKey: YEAR_KEYS[foldedIdx], occurrenceYearOf };
   });
 }
 
@@ -262,45 +278,77 @@ export function buildReinforcementModel(
   const promotedSeasonExclusionWindows: PromotedWindow[] = [];
   const pending: PendingCluster[] = [];
 
-  for (const scope of ["annual", "improve_future"] as const) {
-    const byReason = new Map<string, AssumptionChallenge[]>();
-    for (const c of fresh) {
-      if (c.scope !== scope) continue;
-      const list = byReason.get(c.reasonKey);
-      if (list) list.push(c);
-      else byReason.set(c.reasonKey, [c]);
+  // Pattern scopes are counted together per reason ("strictly more"): an
+  // improve_future report is also evidence for the annual claim, so both
+  // feed one clustering pass. Per date we keep only the strongest claim.
+  const byReason = new Map<string, Map<string, "annual" | "improve_future">>();
+  for (const c of fresh) {
+    if (c.scope !== "annual" && c.scope !== "improve_future") continue;
+    let scopeByDate = byReason.get(c.reasonKey);
+    if (!scopeByDate) {
+      scopeByDate = new Map();
+      byReason.set(c.reasonKey, scopeByDate);
     }
+    const prev = scopeByDate.get(c.date);
+    if (!prev || (prev === "annual" && c.scope === "improve_future")) {
+      scopeByDate.set(c.date, c.scope);
+    }
+  }
 
-    for (const [reasonKey, list] of byReason) {
-      const uniqueByDate = dedupeByDate(list);
-      const dates = uniqueByDate.map((c) => c.date);
-      const clusters = clusterDatesByProximity(dates, toleranceDays);
+  for (const [reasonKey, scopeByDate] of byReason) {
+    const clusters = clusterDatesByProximity([...scopeByDate.keys()], toleranceDays);
 
-      for (const cluster of clusters) {
-        const sorted = [...cluster.dates].sort();
-        const distinctYears = new Set(sorted.map((d) => d.slice(0, 4))).size;
-        const needed = CORROBORATION_DISTINCT_YEARS[scope];
+    for (const cluster of clusters) {
+      const sorted = [...cluster.dates].sort();
+      const allYears = new Set(sorted.map((d) => cluster.occurrenceYearOf.get(d)));
+      const seasonDates = sorted.filter((d) => scopeByDate.get(d) === "improve_future");
+      const seasonYears = new Set(seasonDates.map((d) => cluster.occurrenceYearOf.get(d)));
 
-        if (distinctYears >= needed) {
-          const promoted: PromotedWindow = {
-            reasonKey,
-            scope,
-            centerKey: cluster.centerKey,
-            toleranceDays,
-            supportingDates: sorted,
-          };
-          promotedAnnualWindows.push(promoted);
-          if (scope === "improve_future") promotedSeasonExclusionWindows.push(promoted);
-        } else {
-          pending.push({
-            reasonKey,
-            scope,
-            dates: sorted,
-            centerKey: cluster.centerKey,
-            count: distinctYears,
-            needed,
-          });
-        }
+      // Season-model promotion wants explicit improve_future reports only,
+      // and subsumes the annual window (one entry serves both arrays).
+      if (seasonYears.size >= CORROBORATION_DISTINCT_YEARS.improve_future) {
+        const promoted: PromotedWindow = {
+          reasonKey,
+          scope: "improve_future",
+          centerKey: cluster.centerKey,
+          toleranceDays,
+          supportingDates: sorted,
+          distinctYears: allYears.size,
+        };
+        promotedAnnualWindows.push(promoted);
+        promotedSeasonExclusionWindows.push(promoted);
+        continue;
+      }
+
+      if (allYears.size >= CORROBORATION_DISTINCT_YEARS.annual) {
+        promotedAnnualWindows.push({
+          reasonKey,
+          scope: "annual",
+          centerKey: cluster.centerKey,
+          toleranceDays,
+          supportingDates: sorted,
+          distinctYears: allYears.size,
+        });
+      } else {
+        pending.push({
+          reasonKey,
+          scope: "annual",
+          dates: sorted,
+          centerKey: cluster.centerKey,
+          count: allYears.size,
+          needed: CORROBORATION_DISTINCT_YEARS.annual,
+        });
+      }
+
+      if (seasonYears.size >= 1) {
+        pending.push({
+          reasonKey,
+          scope: "improve_future",
+          dates: seasonDates,
+          centerKey: cluster.centerKey,
+          count: seasonYears.size,
+          needed: CORROBORATION_DISTINCT_YEARS.improve_future,
+        });
       }
     }
   }
@@ -385,7 +433,7 @@ export function describePromotedWindow(window: PromotedWindow): string {
     window.scope === "improve_future"
       ? "we now leave it out of comparisons and out of our seasonal calculations, every year"
       : "we now leave it out of comparisons every year";
-  const years = new Set(window.supportingDates.map((d) => d.slice(0, 4))).size;
-  const times = years === 1 ? "1 year" : `${years} different years`;
+  const times =
+    window.distinctYears === 1 ? "1 year" : `${window.distinctYears} different years`;
   return `Reports across ${times} flagged "${label}" near ${keyToHuman(window.centerKey)}, so ${consequence}.`;
 }
