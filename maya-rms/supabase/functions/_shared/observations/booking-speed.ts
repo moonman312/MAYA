@@ -9,46 +9,47 @@
  * Design rules:
  * - The levels are an ordered vocabulary, not statistics. The underlying
  *   ratio is kept on the result for audit snapshots only.
- * - Bands are symmetric in log space: 30% above normal pace mirrors 30%
- *   below it, so slow and fast demand shocks are treated identically.
- * - Expected pickup for a 7 or 14 day window typically runs 20-400 bookings,
- *   which is enough volume to support the Slightly tiers — but far-out or
- *   shoulder-season dates still expect a handful, so evidence guards scale
- *   with volume: the deviation needed to leave Normal grows with the square
- *   root of the expectation (small counts are noisy in proportion). A big
- *   ratio built on three bookings stays quiet; wrongly shouting on noise is
- *   how trust dies.
+ * - Bands are symmetric in log space: twice normal pace mirrors half normal
+ *   pace, so slow and fast demand shocks are treated identically.
+ * - The counts here are per stay date, not property-wide: bookings received
+ *   FOR one arrival date during the recent window. At a small hotel, or for
+ *   a date still far out, the expectation is a handful — often zero for the
+ *   whole window. That is why the scale stops at seven levels (finer tiers
+ *   would be labeling sub-one-booking noise) and why the evidence guards
+ *   scale with the square root of the expectation: small counts are noisy
+ *   in proportion, and a big ratio built on two bookings must stay quiet.
+ *   Wrongly shouting on noise is how trust dies.
+ * - A quiet expectation is not a blind spot: real pickup against an
+ *   almost-zero expectation is exactly the far-out demand-shock signal
+ *   (concert announced eight months ahead), and it classifies fast once it
+ *   clears the same guards as everything else.
  */
 
 export type BookingSpeed =
   | "stalled"
   | "much_slower"
   | "slower"
-  | "slightly_slower"
   | "normal"
-  | "slightly_faster"
   | "faster"
   | "much_faster"
   | "surging";
 
 export interface BookingSpeedLevel {
   key: BookingSpeed;
-  /** Ordinal position, -4 (stalled) through +4 (surging); 0 is normal. */
+  /** Ordinal position, -3 (stalled) through +3 (surging); 0 is normal. */
   rank: number;
   /** Human label shown in rules, explanations, and dropdowns. */
   label: string;
 }
 
 export const BOOKING_SPEED_LEVELS: BookingSpeedLevel[] = [
-  { key: "stalled", rank: -4, label: "Stalled" },
-  { key: "much_slower", rank: -3, label: "Much Slower Than Normal" },
-  { key: "slower", rank: -2, label: "Slower Than Normal" },
-  { key: "slightly_slower", rank: -1, label: "Slightly Slower Than Normal" },
+  { key: "stalled", rank: -3, label: "Stalled" },
+  { key: "much_slower", rank: -2, label: "Much Slower Than Normal" },
+  { key: "slower", rank: -1, label: "Slower Than Normal" },
   { key: "normal", rank: 0, label: "Normal" },
-  { key: "slightly_faster", rank: 1, label: "Slightly Faster Than Normal" },
-  { key: "faster", rank: 2, label: "Faster Than Normal" },
-  { key: "much_faster", rank: 3, label: "Much Faster Than Normal" },
-  { key: "surging", rank: 4, label: "Surging" },
+  { key: "faster", rank: 1, label: "Faster Than Normal" },
+  { key: "much_faster", rank: 2, label: "Much Faster Than Normal" },
+  { key: "surging", rank: 3, label: "Surging" },
 ];
 
 const BY_KEY = new Map(BOOKING_SPEED_LEVELS.map((l) => [l.key, l]));
@@ -81,13 +82,12 @@ export function isSpeedAtMost(speed: BookingSpeed, ceiling: BookingSpeed): boole
 /**
  * Band edges as multiples of expected pace. The slow side uses the
  * reciprocals, which keeps the scale symmetric in log space: recent/expected
- * of 1.3 lands exactly as far from Normal as 1/1.3 does.
+ * of 2 lands exactly as far from Normal as 1/2 does.
  */
 export const SPEED_BAND_MULTIPLES = {
-  slightlyFaster: 1.1,
-  faster: 1.3,
-  muchFaster: 1.75,
-  surging: 2.75,
+  faster: 1.25,
+  muchFaster: 2,
+  surging: 3.5,
 } as const;
 
 /**
@@ -96,8 +96,8 @@ export const SPEED_BAND_MULTIPLES = {
  * too: leaving Normal needs |recent - expected| of at least
  * Z_LEAVE_NORMAL * sqrt(expected), and the extreme calls (Stalled, Surging)
  * need Z_EXTREME * sqrt(expected) or they demote one step inward. The
- * absolute floors keep tiny expectations honest — 2 observed vs 0.9
- * expected is "more than double" and also just one extra booking.
+ * absolute floors carry the tiny expectations — 2 observed vs 0.9 expected
+ * is "more than double" and also just one extra booking.
  */
 export const Z_LEAVE_NORMAL = 1.5;
 export const Z_EXTREME = 2;
@@ -151,15 +151,13 @@ export interface BookingSpeedClassification {
 }
 
 function rankFromRatio(ratio: number): number {
-  const { slightlyFaster, faster, muchFaster, surging } = SPEED_BAND_MULTIPLES;
-  if (ratio >= surging) return 4;
-  if (ratio >= muchFaster) return 3;
-  if (ratio >= faster) return 2;
-  if (ratio >= slightlyFaster) return 1;
-  if (ratio <= 1 / surging) return -4;
-  if (ratio <= 1 / muchFaster) return -3;
-  if (ratio <= 1 / faster) return -2;
-  if (ratio <= 1 / slightlyFaster) return -1;
+  const { faster, muchFaster, surging } = SPEED_BAND_MULTIPLES;
+  if (ratio >= surging) return 3;
+  if (ratio >= muchFaster) return 2;
+  if (ratio >= faster) return 1;
+  if (ratio <= 1 / surging) return -3;
+  if (ratio <= 1 / muchFaster) return -2;
+  if (ratio <= 1 / faster) return -1;
   return 0;
 }
 
@@ -185,8 +183,8 @@ export function classifyBookingSpeed(input: BookingSpeedInput): BookingSpeedClas
     if (rawRank !== 0 && difference > 0) guard = "small_difference";
     rank = 0;
   } else {
-    if (Math.abs(rank) === 4 && difference < extremeDelta) {
-      rank = Math.sign(rank) * 3;
+    if (Math.abs(rank) === 3 && difference < extremeDelta) {
+      rank = Math.sign(rank) * 2;
       guard = "extreme_demoted";
     }
     const comparables = input.comparableCount;
