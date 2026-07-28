@@ -39,6 +39,12 @@ export type RuleSuggestion =
       current_threshold: number; // occupancy fraction
       suggested_threshold: number;
       rationale: string;
+    }
+  | {
+      suggestion_type: "remove_rule";
+      rule_id: string;
+      rule_name: string;
+      rationale: string;
     };
 
 /** How far (in occupancy points) an existing threshold may drift before we say something. */
@@ -64,6 +70,27 @@ export function computeRuleSuggestions(
           ? "Nothing watches for dates falling behind their normal booking pace — slow nights sit at full price until it is too late to rescue them."
           : "Nothing watches for dates booking ahead of their normal pace — demand spikes pass by unpriced.";
       out.push({ suggestion_type: "add_rule", spec, rationale });
+    }
+  }
+
+  // Raw-pickup rules conflict with the booking-speed ladder outright: both
+  // react to the same demand signal, but pickup fires on a fixed count with
+  // no idea what "normal" looks like for the date. Whether the ladder is
+  // being offered now or pace rules already exist, keeping raw pickup
+  // alongside means two reactions stacking on the same demand — so each one
+  // gets a named removal suggestion the owner can accept or ignore.
+  const paceCoverageExists = hasBookingSpeedRule || paceSpecs.length > 0;
+  if (paceCoverageExists) {
+    for (const r of active) {
+      if (!r.is_pickup_rule || r.pickup_operator == null || r.has_booking_speed) continue;
+      out.push({
+        suggestion_type: "remove_rule",
+        rule_id: r.id,
+        rule_name: r.name,
+        rationale:
+          `"${r.name}" reacts to a fixed booking count, which the booking-speed rules now cover ` +
+          "with pace awareness. Keeping both would stack two price reactions on the same demand.",
+      });
     }
   }
 

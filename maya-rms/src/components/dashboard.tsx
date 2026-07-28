@@ -19,7 +19,6 @@ import {
   type ConditionMetric,
 } from "@/lib/rule-form";
 import type {
-  BookingSpeedRuleOperator,
   CalendarResponse,
   ChangelogCycle,
   RuleAction,
@@ -294,6 +293,9 @@ export function Dashboard() {
   const [adjDolEnabled, setAdjDolEnabled] = useState(false);
   const [adjPercent, setAdjPercent] = useState("10");
   const [adjDollars, setAdjDollars] = useState("");
+  // Deliberately no default: making the owner choose increase vs decrease
+  // beats a silent sign convention they'd have to remember.
+  const [adjDirection, setAdjDirection] = useState<"" | "increase" | "decrease">("");
   const [selectedRoomTypeIds, setSelectedRoomTypeIds] = useState<string[]>([]);
   const [ruleFormError, setRuleFormError] = useState<string | null>(null);
 
@@ -588,6 +590,12 @@ export function Dashboard() {
       return;
     }
 
+    if (adjDirection === "") {
+      setRuleFormError("Choose whether this rule increases or decreases the rate.");
+      return;
+    }
+    const sign = adjDirection === "decrease" ? -1 : 1;
+
     const action: RuleAction = {};
     if (adjPctEnabled) {
       const p = adjPercent.trim();
@@ -596,11 +604,13 @@ export function Dashboard() {
         return;
       }
       const n = Number(p);
-      if (!Number.isFinite(n)) {
-        setRuleFormError("Percentage must be a number.");
+      if (!Number.isFinite(n) || n < 0) {
+        setRuleFormError(
+          "Enter the percentage as a positive number — the direction dropdown decides increase or decrease.",
+        );
         return;
       }
-      action.adjust_rate_percent = n;
+      action.adjust_rate_percent = sign * n;
     }
     if (adjDolEnabled) {
       const p = adjDollars.trim();
@@ -609,11 +619,13 @@ export function Dashboard() {
         return;
       }
       const n = Number(p);
-      if (!Number.isFinite(n)) {
-        setRuleFormError("Dollar amount must be a number.");
+      if (!Number.isFinite(n) || n < 0) {
+        setRuleFormError(
+          "Enter the amount as a positive number — the direction dropdown decides increase or decrease.",
+        );
         return;
       }
-      action.adjust_rate_dollars = n;
+      action.adjust_rate_dollars = sign * n;
     }
     if (isRuleActionEmpty(action)) {
       setRuleFormError("Enable at least one rate adjustment (% or $).");
@@ -655,6 +667,7 @@ export function Dashboard() {
     setAdjDolEnabled(false);
     setAdjPercent("10");
     setAdjDollars("");
+    setAdjDirection("");
     setSelectedRoomTypeIds(roomTypeOptions.map((r) => r.id));
     await reloadRules();
   }
@@ -1154,7 +1167,6 @@ export function Dashboard() {
                                           : "5",
                                     pickup_window_days: 3,
                                     pickup_metric: "room_nights",
-                                    booking_speed_operator: "at_least",
                                     booking_speed_level: "faster",
                                     booking_speed_window_days: 7,
                                   });
@@ -1181,47 +1193,32 @@ export function Dashboard() {
                               </select>
                             </div>
                             {row.metric === "booking_speed" ? (
-                              <>
-                                <div>
-                                  <label className="mb-0.5 block text-[11px] text-slate-500">
-                                    Compare
-                                  </label>
-                                  <select
-                                    value={row.booking_speed_operator}
-                                    className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
-                                    onChange={(e) =>
-                                      updateCondRow(row.id, {
-                                        booking_speed_operator: e.target
-                                          .value as BookingSpeedRuleOperator,
-                                      })
-                                    }
-                                  >
-                                    <option value="at_least">At least</option>
-                                    <option value="is">Exactly</option>
-                                    <option value="at_most">At most</option>
-                                  </select>
-                                </div>
-                                <div>
-                                  <label className="mb-0.5 block text-[11px] text-slate-500">
-                                    Speed
-                                  </label>
-                                  <select
-                                    value={row.booking_speed_level}
-                                    className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
-                                    onChange={(e) =>
-                                      updateCondRow(row.id, {
-                                        booking_speed_level: e.target.value,
-                                      })
-                                    }
-                                  >
-                                    {BOOKING_SPEED_LEVELS.map((l) => (
-                                      <option key={l.key} value={l.key}>
-                                        {l.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </div>
-                              </>
+                              <div className="sm:col-span-2">
+                                <label className="mb-0.5 block text-[11px] text-slate-500">
+                                  Speed
+                                </label>
+                                <select
+                                  value={row.booking_speed_level}
+                                  className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
+                                  onChange={(e) =>
+                                    updateCondRow(row.id, {
+                                      booking_speed_level: e.target.value,
+                                    })
+                                  }
+                                >
+                                  {BOOKING_SPEED_LEVELS.map((l) => (
+                                    <option key={l.key} value={l.key}>
+                                      {l.rank < 0 && l.rank > -3
+                                        ? `${l.label} (or slower)`
+                                        : l.rank > 0 && l.rank < 3
+                                          ? `${l.label} (or faster)`
+                                          : l.rank === 0
+                                            ? `${l.label} (exactly)`
+                                            : l.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
                             ) : (
                               <>
                                 <div>
@@ -1365,10 +1362,31 @@ export function Dashboard() {
                     Rate adjustment
                   </p>
                   <p className="mb-3 text-xs text-slate-500">
-                    Enable one or both. Percent and dollar both apply when
-                    present.
+                    Choose a direction, then enable one or both amounts.
+                    Percent and dollar both apply when present.
                   </p>
                   <div className="space-y-3 rounded border border-slate-800 bg-slate-950/80 p-3">
+                    <div>
+                      <label className="mb-0.5 block text-[11px] text-slate-500">
+                        Direction (required)
+                      </label>
+                      <select
+                        required
+                        value={adjDirection}
+                        className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
+                        onChange={(e) =>
+                          setAdjDirection(
+                            e.target.value as "" | "increase" | "decrease",
+                          )
+                        }
+                      >
+                        <option value="" disabled>
+                          Choose: increase or decrease the rate…
+                        </option>
+                        <option value="increase">Increase the rate</option>
+                        <option value="decrease">Decrease the rate</option>
+                      </select>
+                    </div>
                     <label className="flex cursor-pointer flex-wrap items-center gap-3">
                       <input
                         type="checkbox"
@@ -1385,10 +1403,11 @@ export function Dashboard() {
                       <input
                         type="number"
                         step="any"
+                        min="0"
                         disabled={!adjPctEnabled}
                         value={adjPercent}
                         onChange={(e) => setAdjPercent(e.target.value)}
-                        placeholder="e.g. 10 or -5"
+                        placeholder="e.g. 10"
                         className="min-w-32 flex-1 rounded border border-slate-700 bg-slate-950 p-2 text-sm disabled:opacity-40"
                       />
                     </label>
@@ -1408,10 +1427,11 @@ export function Dashboard() {
                       <input
                         type="number"
                         step="any"
+                        min="0"
                         disabled={!adjDolEnabled}
                         value={adjDollars}
                         onChange={(e) => setAdjDollars(e.target.value)}
-                        placeholder="e.g. 25 or -10"
+                        placeholder="e.g. 25"
                         className="min-w-32 flex-1 rounded border border-slate-700 bg-slate-950 p-2 text-sm disabled:opacity-40"
                       />
                     </label>

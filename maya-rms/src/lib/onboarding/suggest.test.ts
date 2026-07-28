@@ -88,6 +88,47 @@ describe("computeRuleSuggestions", () => {
     const existing = [rule({ id: "a", occupancy_threshold: 0.4 }), bookingSpeedRule()];
     expect(computeRuleSuggestions(existing, PACE_SPECS, null)).toHaveLength(0);
   });
+
+  it("recommends deleting raw-pickup rules that conflict with the pace ladder, by name", () => {
+    const pickupRule = rule({
+      id: "pk1",
+      name: "Old pickup spike",
+      is_pickup_rule: true,
+      occupancy_operator: null,
+      occupancy_threshold: null,
+      pickup_operator: "gt",
+      pickup_threshold: 6,
+    });
+    // Case 1: ladder being offered — conflict flagged alongside the adds.
+    const offered = computeRuleSuggestions([pickupRule], PACE_SPECS, null);
+    const removes = offered.filter((s) => s.suggestion_type === "remove_rule");
+    expect(removes).toHaveLength(1);
+    expect(removes[0]).toMatchObject({ rule_id: "pk1", rule_name: "Old pickup spike" });
+
+    // Case 2: pace rules already exist — the pickup rule still conflicts.
+    const existing = computeRuleSuggestions([pickupRule, bookingSpeedRule()], PACE_SPECS, null);
+    expect(existing.filter((s) => s.suggestion_type === "remove_rule")).toHaveLength(1);
+  });
+
+  it("never flags booking-speed rules or disabled pickup rules as conflicts", () => {
+    const out = computeRuleSuggestions(
+      [
+        bookingSpeedRule(),
+        rule({
+          id: "pk2",
+          is_active: false,
+          is_pickup_rule: true,
+          occupancy_operator: null,
+          occupancy_threshold: null,
+          pickup_operator: "gt",
+          pickup_threshold: 4,
+        }),
+      ],
+      PACE_SPECS,
+      null,
+    );
+    expect(out.filter((s) => s.suggestion_type === "remove_rule")).toHaveLength(0);
+  });
 });
 
 describe("computeInitialGuardrails", () => {

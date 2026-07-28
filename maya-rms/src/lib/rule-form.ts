@@ -3,7 +3,7 @@
  * legacy conditions (simulation / in-memory store), and API payloads.
  */
 
-import { isBookingSpeed } from "@/lib/observations/booking-speed";
+import { bookingSpeedRank, isBookingSpeed } from "@/lib/observations/booking-speed";
 import type {
   BookingSpeedRuleOperator,
   BookingSpeedWindowDays,
@@ -25,8 +25,9 @@ export type ConditionFormRow = {
   value: string;
   pickup_window_days: 1 | 3 | 7;
   pickup_metric: PickupMetric;
-  booking_speed_operator: BookingSpeedRuleOperator;
-  /** A BookingSpeed level key ("faster", "much_slower", ...). */
+  /** A BookingSpeed level key ("faster", "much_slower", ...). The compare
+   *  operator is DERIVED from the level's side of Normal — see
+   *  directionalBookingSpeedOperator — so the form never asks for it. */
   booking_speed_level: string;
   booking_speed_window_days: BookingSpeedWindowDays;
 };
@@ -44,10 +45,21 @@ export function newConditionRow(
     value: partial?.value ?? (metric === "occupancy" ? "80" : metric === "booking_window" ? "7" : "5"),
     pickup_window_days: partial?.pickup_window_days ?? 3,
     pickup_metric: partial?.pickup_metric ?? "room_nights",
-    booking_speed_operator: partial?.booking_speed_operator ?? "at_least",
     booking_speed_level: partial?.booking_speed_level ?? "faster",
     booking_speed_window_days: partial?.booking_speed_window_days ?? 7,
   };
+}
+
+/**
+ * The one sane compare for each speed level: picking a level below Normal
+ * means "that slow or slower", above Normal means "that fast or faster",
+ * Normal means exactly Normal. Owners phrase it this way naturally, so the
+ * form derives the operator instead of asking.
+ */
+export function directionalBookingSpeedOperator(levelKey: string): BookingSpeedRuleOperator {
+  if (!isBookingSpeed(levelKey)) return "is";
+  const rank = bookingSpeedRank(levelKey);
+  return rank < 0 ? "at_most" : rank > 0 ? "at_least" : "is";
 }
 
 /** True when no usable condition family is set. */
@@ -86,7 +98,7 @@ export function conditionRowsToRuleCondition(rows: ConditionFormRow[]): RuleCond
       c.dta_threshold_days = Math.max(0, Math.round(n));
     } else if (row.metric === "booking_speed") {
       if (!isBookingSpeed(row.booking_speed_level)) continue;
-      c.booking_speed_operator = row.booking_speed_operator;
+      c.booking_speed_operator = directionalBookingSpeedOperator(row.booking_speed_level);
       c.booking_speed_level = row.booking_speed_level;
       c.booking_speed_window_days = row.booking_speed_window_days;
     } else {

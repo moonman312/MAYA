@@ -673,6 +673,13 @@ export async function deleteRule(id: string, supabase?: SupabaseClient): Promise
     return true;
   }
 
+  // pickup_event references the rule WITHOUT a cascade (it is the engine's
+  // effect ledger), so its rows must go first or the rule delete hits a
+  // foreign-key wall — which silently broke deletion for any rule that had
+  // ever fired. Removing the events also removes the rule's persisted price
+  // effects, which is what deleting a rule should mean.
+  const { error: eventErr } = await supabase.from("pickup_event").delete().eq("rule_id", id);
+  if (eventErr) return false;
   const { error } = await supabase.from("pricing_rules").delete().eq("id", id);
   return !error;
 }
