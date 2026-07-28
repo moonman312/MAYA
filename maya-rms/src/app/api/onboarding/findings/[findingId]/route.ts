@@ -120,11 +120,19 @@ export async function POST(
   }
 
   const { findingId } = await params;
-  const body = (await request.json().catch(() => null)) as { action?: string } | null;
+  const body = (await request.json().catch(() => null)) as {
+    action?: string;
+    /** Owner's own number for value-bearing recommendations (guardrails): accept as-is, pad it, or replace it. */
+    value?: number;
+  } | null;
   const action = body?.action;
   if (action !== "confirm" && action !== "dismiss") {
     return NextResponse.json({ error: "action must be confirm or dismiss" }, { status: 400 });
   }
+  const overrideValue =
+    typeof body?.value === "number" && Number.isFinite(body.value) && body.value > 0
+      ? body.value
+      : null;
 
   const { data: finding } = await supabase
     .from("onboarding_findings")
@@ -188,9 +196,11 @@ export async function POST(
       if (field !== "floor_price" && field !== "ceiling_price") {
         return NextResponse.json({ error: "Bad guardrail field" }, { status: 400 });
       }
+      // The owner's own number wins over the suggestion when they typed one
+      // (the DB check still guards floor <= ceiling and surfaces as an error).
       const { error } = await supabase
         .from("room_types")
-        .update({ [field]: Number(payload.suggested) })
+        .update({ [field]: overrideValue ?? Number(payload.suggested) })
         .eq("id", String(payload.room_type_id))
         .eq("hotel_id", hotelId);
       if (error) {

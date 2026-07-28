@@ -42,14 +42,14 @@ export function ReviewFindings() {
     load();
   }, []);
 
-  async function act(id: string, action: "confirm" | "dismiss") {
+  async function act(id: string, action: "confirm" | "dismiss", value?: number) {
     setBusy(id);
     setError(null);
     try {
       const res = await fetch(`/api/onboarding/findings/${id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify(value != null ? { action, value } : { action }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -110,7 +110,7 @@ export function ReviewFindings() {
                 key={f.id}
                 finding={f}
                 busy={busy === f.id}
-                onConfirm={() => act(f.id, "confirm")}
+                onConfirm={(value) => act(f.id, "confirm", value)}
                 onDismiss={() => act(f.id, "dismiss")}
               />
             ))}
@@ -165,7 +165,7 @@ export function ReviewFindings() {
                   key={f.id}
                   finding={f}
                   busy={busy === f.id}
-                  onConfirm={() => act(f.id, "confirm")}
+                  onConfirm={(value) => act(f.id, "confirm", value)}
                   onDismiss={() => act(f.id, "dismiss")}
                 />
               ))}
@@ -295,10 +295,19 @@ function FindingCard({
 }: {
   finding: Finding;
   busy: boolean;
-  onConfirm: () => void;
+  onConfirm: (value?: number) => void;
   onDismiss: () => void;
 }) {
   const c = describeFinding(finding);
+  // Recommendations with a number should never send the owner hunting for a
+  // setting: the suggested value sits in an input right on the card, so
+  // "accept", "pad it a bit", and "use my own number" are all one click.
+  const editable = finding.kind === "guardrail_suggestion";
+  const suggested = editable ? Number(finding.payload.suggested ?? 0) : 0;
+  const [value, setValue] = useState<string>(editable ? String(suggested) : "");
+  const parsed = Number(value);
+  const valueOk = Number.isFinite(parsed) && parsed > 0;
+  const customized = editable && valueOk && parsed !== suggested;
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
       <div className="flex items-start justify-between gap-4">
@@ -312,14 +321,28 @@ function FindingCard({
           ) : null}
         </div>
       </div>
-      <div className="mt-3 flex items-center gap-3">
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        {editable ? (
+          <label className="flex items-center gap-2 text-xs text-slate-400">
+            $
+            <input
+              type="number"
+              step="any"
+              min="0"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              className="w-28 rounded border border-slate-700 bg-slate-950 p-1.5 text-sm text-slate-200"
+              aria-label="Amount to set"
+            />
+          </label>
+        ) : null}
         <button
           type="button"
-          disabled={busy}
-          onClick={onConfirm}
+          disabled={busy || (editable && !valueOk)}
+          onClick={() => onConfirm(editable ? parsed : undefined)}
           className="cursor-pointer rounded bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
         >
-          {c.confirmLabel}
+          {customized ? `Set it to ${parsed.toLocaleString()}` : c.confirmLabel}
         </button>
         {c.acknowledgeOnly ? null : (
           <button
