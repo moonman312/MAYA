@@ -295,26 +295,54 @@ async function getCalendarFromDb(
     return getCalendarDemo(year, month);
   }
 
-  const { data: hotelRow } = await supabase
-    .from("hotels")
-    .select("total_rooms_per_type, timezone")
-    .eq("id", hotelId)
-    .maybeSingle();
-
-  const hotelFallbackRooms = hotelRow?.total_rooms_per_type ?? 100;
-  const defaultBaseRate = 150;
-  const todayStr = evalIsoToHotelDateString(new Date().toISOString(), hotelRow?.timezone ?? "UTC");
-
   const startDate = `${year}-${pad2(month)}-01`;
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const endDate = `${year}-${pad2(month)}-${pad2(daysInMonth)}`;
 
-  const { data: roomTypeRows } = await supabase
-    .from("room_types")
-    .select("id, name, total_rooms")
-    .eq("hotel_id", hotelId)
-    .eq("is_active", true)
-    .order("name");
+  // Every query below depends only on hotelId, so they all fly at once —
+  // this used to be a sequential chain, and each hop is a full round-trip
+  // from the app server to Supabase.
+  const [
+    { data: hotelRow },
+    { data: roomTypeRows },
+    { data: reservations },
+    { data: publishedPrices },
+    history,
+  ] = await Promise.all([
+    supabase
+      .from("hotels")
+      .select("total_rooms_per_type, timezone")
+      .eq("id", hotelId)
+      .maybeSingle(),
+    supabase
+      .from("room_types")
+      .select("id, name, total_rooms")
+      .eq("hotel_id", hotelId)
+      .eq("is_active", true)
+      .order("name"),
+    supabase
+      .from("reservations")
+      .select("stay_date, room_type_id, base_rate, current_rate")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", startDate)
+      .lte("stay_date", endDate),
+    // Engine-published prices (the current asking price after rules +
+    // clamps). Absent until the first evaluation run, so the UI treats
+    // null as "not priced yet".
+    supabase
+      .from("published_price")
+      .select("stay_date, room_type_id, price")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", startDate)
+      .lte("stay_date", endDate),
+    // Hotel-wide history (RevPAR series, closures, navigable range) —
+    // cached for a few minutes per hotel; see HotelHistory above.
+    historyCache.getOrLoad(hotelId, () => loadHotelHistory(supabase, hotelId)),
+  ]);
+
+  const hotelFallbackRooms = hotelRow?.total_rooms_per_type ?? 100;
+  const defaultBaseRate = 150;
+  const todayStr = evalIsoToHotelDateString(new Date().toISOString(), hotelRow?.timezone ?? "UTC");
 
   const rtList =
     roomTypeRows && roomTypeRows.length > 0
@@ -331,23 +359,6 @@ async function getCalendarFromDb(
           base_rate: rt.base_rate,
         }));
 
-  const { data: reservations } = await supabase
-    .from("reservations")
-    .select("stay_date, room_type_id, base_rate, current_rate")
-    .eq("hotel_id", hotelId)
-    .gte("stay_date", startDate)
-    .lte("stay_date", endDate);
-
-  // Engine-published prices (the current asking price after rules + clamps).
-  // Written by /api/evaluate into published_price; absent until the first
-  // evaluation run, so the UI treats null as "not priced yet".
-  const { data: publishedPrices } = await supabase
-    .from("published_price")
-    .select("stay_date, room_type_id, price")
-    .eq("hotel_id", hotelId)
-    .gte("stay_date", startDate)
-    .lte("stay_date", endDate);
-
   const publishedByKey = new Map<string, number>();
   for (const p of publishedPrices ?? []) {
     const price = p.price != null ? Number(p.price) : NaN;
@@ -356,11 +367,6 @@ async function getCalendarFromDb(
     }
   }
 
-  // Hotel-wide history (RevPAR series, closures, navigable range) — cached
-  // for a few minutes per hotel; see HotelHistory above for the trade-off.
-  const history = await historyCache.getOrLoad(hotelId, () =>
-    loadHotelHistory(supabase, hotelId),
-  );
   const { revenueByDate, closedPeriods } = history;
 
   const totalRoomsProperty = rtList.reduce((s, rt) => s + rt.total_rooms, 0);

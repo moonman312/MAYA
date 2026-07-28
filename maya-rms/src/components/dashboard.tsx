@@ -24,7 +24,7 @@ import type {
   RuleConfig,
   SimulationResult,
 } from "@/types/domain";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type TabKey = "calendar" | "rules" | "simulator" | "changelog" | "pms";
 
@@ -335,19 +335,63 @@ export function Dashboard() {
     })();
   }, [tab, activeHotelId]);
 
+  // Month responses cached client-side so Prev/Next renders instantly from
+  // the last known data (revalidated quietly), and the neighboring months
+  // prefetch after every load so the next click is usually already there.
+  const calendarCacheRef = useRef(new Map<string, CalendarResponse>());
+  const calendarCacheKey = useCallback(
+    (y: number, m: number) => `${activeHotelId ?? "demo"}|${y}-${m}`,
+    [activeHotelId],
+  );
+
+  const prefetchNeighborMonths = useCallback(
+    (y: number, m: number) => {
+      const neighbors = [
+        m === 1 ? { y: y - 1, m: 12 } : { y, m: m - 1 },
+        m === 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 },
+      ];
+      for (const n of neighbors) {
+        const key = calendarCacheKey(n.y, n.m);
+        if (calendarCacheRef.current.has(key)) continue;
+        void api<CalendarResponse>(`/api/calendar/${n.y}/${n.m}`)
+          .then((data) => calendarCacheRef.current.set(key, data))
+          .catch(() => {});
+      }
+    },
+    [calendarCacheKey],
+  );
+
   const reloadCalendar = useCallback(async () => {
-    setLoading(true);
     setSelectedDay(null);
+    const key = calendarCacheKey(year, month);
+    const cached = calendarCacheRef.current.get(key);
+    if (cached) {
+      // Instant paint from cache, then quietly refresh in the background.
+      setCalendar(cached);
+      prefetchNeighborMonths(year, month);
+      try {
+        const data = await api<CalendarResponse>(`/api/calendar/${year}/${month}`);
+        calendarCacheRef.current.set(key, data);
+        setCalendar(data);
+        setLastUpdated(new Date());
+      } catch {
+        // keep showing the cached month
+      }
+      return;
+    }
+    setLoading(true);
     try {
       const data = await api<CalendarResponse>(
         `/api/calendar/${year}/${month}`,
       );
+      calendarCacheRef.current.set(key, data);
       setCalendar(data);
       setLastUpdated(new Date());
+      prefetchNeighborMonths(year, month);
     } finally {
       setLoading(false);
     }
-  }, [month, year]);
+  }, [month, year, calendarCacheKey, prefetchNeighborMonths]);
 
   /**
    * Background refresh used by polling / tab-focus: updates the calendar in
@@ -360,12 +404,13 @@ export function Dashboard() {
       const data = await api<CalendarResponse>(
         `/api/calendar/${year}/${month}`,
       );
+      calendarCacheRef.current.set(calendarCacheKey(year, month), data);
       setCalendar(data);
       setLastUpdated(new Date());
     } catch {
       // keep showing the last good calendar
     }
-  }, [month, year]);
+  }, [month, year, calendarCacheKey]);
 
   const reloadChangelog = useCallback(async () => {
     const data = await api<ChangelogCycle[]>("/api/changelog");
@@ -388,6 +433,9 @@ export function Dashboard() {
   // isn't enabled on those tables; visibility-change gives a quick catch-up
   // after the browser was backgrounded.
   useCalendarLive(activeHotelId, () => {
+    // Real change on the wire: every cached month is now suspect, not just
+    // the visible one (a multi-night booking spans months).
+    calendarCacheRef.current.clear();
     if (tab === "calendar") void reloadCalendarQuiet();
   });
 
@@ -429,6 +477,7 @@ export function Dashboard() {
     if (!hotelId || hotelId === activeHotelId) return;
     setHotelSwitching(true);
     setSelectedDay(null);
+    calendarCacheRef.current.clear();
     try {
       const res = await fetch("/api/hotels/active", {
         method: "POST",
