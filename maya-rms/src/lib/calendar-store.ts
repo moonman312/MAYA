@@ -116,21 +116,29 @@ async function loadHotelHistory(
   // (one row per distinct stay date) instead of pulling every reservation
   // row into Node — a mature property can have tens of thousands of
   // reservation rows but only a few hundred/thousand distinct stay dates.
-  const { data: seriesRows, error: seriesErr } = await supabase.rpc(
-    "calendar_daily_revenue",
-    { p_hotel_id: hotelId },
-  );
-  if (seriesErr) throw new Error(seriesErr.message);
-
+  //
+  // Paged because PostgREST caps ANY response (RPCs included) at its
+  // "Max rows" setting — typically 1000. Three years of history is already
+  // ~1100 distinct dates, and the rows a single call would silently drop
+  // are the NEWEST ones: exactly the future days the color scale needs.
   const revenueByDate = new Map<string, number>();
   let minStayDate: string | null = null;
   let maxStayDate: string | null = null;
-  for (const row of (seriesRows ?? []) as { stay_date: string; revenue: number | string | null }[]) {
-    const stayDate = String(row.stay_date);
-    const amount = Number(row.revenue ?? 0);
-    revenueByDate.set(stayDate, Number.isFinite(amount) ? amount : 0);
-    if (minStayDate === null || stayDate < minStayDate) minStayDate = stayDate;
-    if (maxStayDate === null || stayDate > maxStayDate) maxStayDate = stayDate;
+  const PAGE = 1000;
+  for (let from = 0, guard = 0; guard < 100; from += PAGE, guard++) {
+    const { data: seriesRows, error: seriesErr } = await supabase
+      .rpc("calendar_daily_revenue", { p_hotel_id: hotelId })
+      .range(from, from + PAGE - 1);
+    if (seriesErr) throw new Error(seriesErr.message);
+    const rows = (seriesRows ?? []) as { stay_date: string; revenue: number | string | null }[];
+    for (const row of rows) {
+      const stayDate = String(row.stay_date);
+      const amount = Number(row.revenue ?? 0);
+      revenueByDate.set(stayDate, Number.isFinite(amount) ? amount : 0);
+      if (minStayDate === null || stayDate < minStayDate) minStayDate = stayDate;
+      if (maxStayDate === null || stayDate > maxStayDate) maxStayDate = stayDate;
+    }
+    if (rows.length < PAGE) break;
   }
 
   // Confirmed closures are excluded from threshold computation (a closed day
