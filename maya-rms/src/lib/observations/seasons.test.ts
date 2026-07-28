@@ -181,3 +181,64 @@ describe("detectSeasons on synthetic hotels", () => {
     expect(detectSeasons(daily)).toEqual(detectSeasons(daily));
   });
 });
+
+describe("a real, unevenly-spaced nine-season property", () => {
+  // A concrete property Jake described: nine non-uniform demand windows,
+  // including a genuinely short (10-day) holiday-week regime nested between
+  // two much longer, much quieter stretches. Nothing about season detection
+  // should assume four evenly-spaced seasons, a minimum length longer than
+  // ten days, or a cap anywhere near nine — this is what "let the data
+  // decide" has to actually handle.
+  function nineSeasonValue(date: string): number {
+    const key = date.slice(5);
+    if (key >= "07-01" && key <= "07-30") return 100; // Jul 1 - Jul 30
+    if (key >= "08-01" && key <= "09-15") return 60; // Aug 1 - Sep 15
+    if (key >= "09-16" && key <= "10-31") return 30; // Sep 16 - Oct 31
+    if (key >= "11-01" && key <= "12-23") return 15; // Nov 1 - Dec 23
+    if (key >= "12-24" || key <= "01-02") return 50; // Dec 24 - Jan 2 (10 days, wraps)
+    if (key >= "01-03" && key <= "02-12") return 15; // Jan 3 - Feb 12
+    if (key >= "02-13" && key <= "04-30") return 35; // Feb 13 - Apr 30
+    if (key >= "05-01" && key <= "05-24") return 55; // May 1 - May 24
+    return 75; // May 25 - Jun 30
+  }
+
+  it("finds all nine seasons, including the short holiday week, once corroborated across years", () => {
+    const daily = genDaily("2022-01-01", "2025-12-31", (d) => nineSeasonValue(d));
+    const model = detectSeasons(daily);
+    expect(model.seasons).toHaveLength(9);
+
+    const holidayWeek = seasonForDate(model, "2025-12-28");
+    expect(holidayWeek.days).toBeLessThanOrEqual(15);
+    expect(holidayWeek.meanIndex).toBeGreaterThan(seasonForDate(model, "2025-12-10").meanIndex);
+    expect(holidayWeek.meanIndex).toBeGreaterThan(seasonForDate(model, "2026-01-10").meanIndex);
+    // The holiday week sits between two distinct, quieter neighbors, not
+    // absorbed into either.
+    expect(seasonForDate(model, "2025-12-10").id).not.toBe(holidayWeek.id);
+    expect(seasonForDate(model, "2026-01-10").id).not.toBe(holidayWeek.id);
+
+    // Every other described window resolves to its own season too.
+    const julPeak = seasonForDate(model, "2025-07-15");
+    const augShoulder = seasonForDate(model, "2025-08-20");
+    const fallShoulder = seasonForDate(model, "2025-10-15");
+    const novLow = seasonForDate(model, "2025-11-15");
+    const janLow = seasonForDate(model, "2026-01-20");
+    const springShoulder = seasonForDate(model, "2026-03-15");
+    const mayShoulder = seasonForDate(model, "2026-05-10");
+    const juneRamp = seasonForDate(model, "2026-06-15");
+    const ids = new Set(
+      [julPeak, augShoulder, fallShoulder, novLow, holidayWeek, janLow, springShoulder, mayShoulder, juneRamp].map(
+        (s) => s.id,
+      ),
+    );
+    expect(ids.size).toBe(9);
+  });
+
+  it("does not invent the holiday week from a single year", () => {
+    const daily = genDaily("2025-01-01", "2025-12-31", (d) => nineSeasonValue(d));
+    const model = detectSeasons(daily);
+    // One year alone can't corroborate a 10-day regime against a one-off
+    // event — it should fall back to fewer, cruder seasons rather than
+    // confidently declaring a pattern from a single occurrence.
+    expect(model.seasons.length).toBeLessThan(9);
+  });
+});
