@@ -13,6 +13,9 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveOAuthCredentials } from "./oauth-credentials.ts";
+// Static import: the edge-function bundler only follows static imports, so a
+// dynamic import() here deploys without the module and crashes at runtime.
+import { createCloudbedsOnboardingAdapter } from "../cloudbeds/onboarding-adapter.ts";
 
 export type PmsPropertyProfile = {
   externalPropertyId: string;
@@ -89,12 +92,8 @@ export async function createOnboardingAdapter(
   preResolved?: PreResolvedOAuthCredentials,
 ): Promise<OnboardingPmsAdapter> {
   switch (pmsType) {
-    case "cloudbeds": {
-      const { createCloudbedsOnboardingAdapter } = await import(
-        "../cloudbeds/onboarding-adapter.ts"
-      );
+    case "cloudbeds":
       return createCloudbedsOnboardingAdapter(supabase, hotelId, preResolved);
-    }
     default:
       throw new Error(
         `PMS '${pmsType}' does not support onboarding import yet. ` +
