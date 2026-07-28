@@ -55,6 +55,120 @@ function monthKey(year: number, month: number): string {
   return `${year}-${pad2(month)}`;
 }
 
+/* ── Hotel history cache ──────────────────────────────────────── */
+
+/**
+ * The RevPAR series, closed periods, and navigable range are hotel-wide facts
+ * that don't depend on which month is being viewed — but they were being
+ * recomputed on every month navigation and every live refresh. Cache them
+ * briefly per hotel so Prev/Next clicks and realtime-triggered reloads only
+ * pay for the visible month's queries.
+ *
+ * TTL trade-off: colors may lag a real booking by up to 5 minutes (the
+ * booked counts and revenue on the visible month always come from fresh
+ * queries — only the threshold context ages). Kept deliberately short
+ * because future-day thresholds are judged against on-the-books peers,
+ * a distribution that genuinely moves as bookings land.
+ */
+export type HotelHistory = {
+  revenueByDate: Map<string, number>;
+  minStayDate: string | null;
+  maxStayDate: string | null;
+  closedPeriods: { start_date: string; end_date: string }[];
+  ppMin: string | null;
+  ppMax: string | null;
+};
+
+const HISTORY_TTL_MS = 5 * 60 * 1000;
+
+type TtlEntry<T> = { expiresAt: number; value: T };
+
+/** Tiny keyed TTL cache with an injectable clock (exported for tests). */
+export function createTtlCache<T>(ttlMs: number, now: () => number = Date.now) {
+  const entries = new Map<string, TtlEntry<T>>();
+  return {
+    async getOrLoad(key: string, loader: () => Promise<T>): Promise<T> {
+      const hit = entries.get(key);
+      if (hit && hit.expiresAt > now()) return hit.value;
+      const value = await loader();
+      entries.set(key, { expiresAt: now() + ttlMs, value });
+      return value;
+    },
+    clear(): void {
+      entries.clear();
+    },
+  };
+}
+
+const historyCache = createTtlCache<HotelHistory>(HISTORY_TTL_MS);
+
+/** Exported so tests (or future cache-busting hooks) can force a recompute. */
+export function clearCalendarHistoryCache(): void {
+  historyCache.clear();
+}
+
+async function loadHotelHistory(
+  supabase: SupabaseClient,
+  hotelId: string,
+): Promise<HotelHistory> {
+  // Hotel-wide nightly revenue (sum of current_rate per stay date) — the
+  // RevPAR series day colors are judged against. Grouped in Postgres
+  // (one row per distinct stay date) instead of pulling every reservation
+  // row into Node — a mature property can have tens of thousands of
+  // reservation rows but only a few hundred/thousand distinct stay dates.
+  const { data: seriesRows, error: seriesErr } = await supabase.rpc(
+    "calendar_daily_revenue",
+    { p_hotel_id: hotelId },
+  );
+  if (seriesErr) throw new Error(seriesErr.message);
+
+  const revenueByDate = new Map<string, number>();
+  let minStayDate: string | null = null;
+  let maxStayDate: string | null = null;
+  for (const row of (seriesRows ?? []) as { stay_date: string; revenue: number | string | null }[]) {
+    const stayDate = String(row.stay_date);
+    const amount = Number(row.revenue ?? 0);
+    revenueByDate.set(stayDate, Number.isFinite(amount) ? amount : 0);
+    if (minStayDate === null || stayDate < minStayDate) minStayDate = stayDate;
+    if (maxStayDate === null || stayDate > maxStayDate) maxStayDate = stayDate;
+  }
+
+  // Confirmed closures are excluded from threshold computation (a closed day
+  // says nothing about how a normal day performs) but still get colored.
+  const { data: closedRows } = await supabase
+    .from("hotel_closed_periods")
+    .select("start_date, end_date")
+    .eq("hotel_id", hotelId);
+  const closedPeriods = (closedRows ?? []).map((p) => ({
+    start_date: String(p.start_date),
+    end_date: String(p.end_date),
+  }));
+
+  const { data: ppMinRow } = await supabase
+    .from("published_price")
+    .select("stay_date")
+    .eq("hotel_id", hotelId)
+    .order("stay_date", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const { data: ppMaxRow } = await supabase
+    .from("published_price")
+    .select("stay_date")
+    .eq("hotel_id", hotelId)
+    .order("stay_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return {
+    revenueByDate,
+    minStayDate,
+    maxStayDate,
+    closedPeriods,
+    ppMin: ppMinRow?.stay_date != null ? String(ppMinRow.stay_date) : null,
+    ppMax: ppMaxRow?.stay_date != null ? String(ppMaxRow.stay_date) : null,
+  };
+}
+
 /* ── Demo / fallback calendar ─────────────────────────────────── */
 
 /** Deterministic pseudo-random demo numbers for one stay date. */
@@ -234,41 +348,17 @@ async function getCalendarFromDb(
     }
   }
 
-  // Hotel-wide nightly revenue (sum of current_rate per stay date) — the
-  // RevPAR series day colors are judged against. Grouped in Postgres
-  // (one row per distinct stay date) instead of pulling every reservation
-  // row into Node — a mature property can have tens of thousands of
-  // reservation rows but only a few hundred/thousand distinct stay dates.
-  const { data: seriesRows, error: seriesErr } = await supabase.rpc(
-    "calendar_daily_revenue",
-    { p_hotel_id: hotelId },
+  // Hotel-wide history (RevPAR series, closures, navigable range) — cached
+  // for a few minutes per hotel; see HotelHistory above for the trade-off.
+  const history = await historyCache.getOrLoad(hotelId, () =>
+    loadHotelHistory(supabase, hotelId),
   );
-  if (seriesErr) throw new Error(seriesErr.message);
-
-  const revenueByDate = new Map<string, number>();
-  let minStayDate: string | null = null;
-  let maxStayDate: string | null = null;
-  for (const row of (seriesRows ?? []) as { stay_date: string; revenue: number | string | null }[]) {
-    const stayDate = String(row.stay_date);
-    const amount = Number(row.revenue ?? 0);
-    revenueByDate.set(stayDate, Number.isFinite(amount) ? amount : 0);
-    if (minStayDate === null || stayDate < minStayDate) minStayDate = stayDate;
-    if (maxStayDate === null || stayDate > maxStayDate) maxStayDate = stayDate;
-  }
-
-  // Confirmed closures are excluded from threshold computation (a closed day
-  // says nothing about how a normal day performs) but still get colored.
-  const { data: closedRows } = await supabase
-    .from("hotel_closed_periods")
-    .select("start_date, end_date")
-    .eq("hotel_id", hotelId);
-  const closedPeriods = (closedRows ?? []).map((p) => ({
-    start_date: String(p.start_date),
-    end_date: String(p.end_date),
-  }));
+  const { revenueByDate, closedPeriods } = history;
 
   const totalRoomsProperty = rtList.reduce((s, rt) => s + rt.total_rooms, 0);
 
+  // Split/scale are recomputed per request: they depend on "today", which the
+  // cached series must not bake in (a cache entry can straddle midnight).
   const series: RevparDatum[] = [];
   for (const [date, revenue] of revenueByDate) {
     series.push({
@@ -280,27 +370,11 @@ async function getCalendarFromDb(
   const split = splitRevparSeries(series, todayStr);
   const scale = buildRevparScale(split.past, split.future);
 
-  // Navigable range: first/last month with any reservation or published price.
-  const { data: ppMinRow } = await supabase
-    .from("published_price")
-    .select("stay_date")
-    .eq("hotel_id", hotelId)
-    .order("stay_date", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  const { data: ppMaxRow } = await supabase
-    .from("published_price")
-    .select("stay_date")
-    .eq("hotel_id", hotelId)
-    .order("stay_date", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
   const dateCandidates = [
-    minStayDate,
-    maxStayDate,
-    ppMinRow?.stay_date != null ? String(ppMinRow.stay_date) : null,
-    ppMaxRow?.stay_date != null ? String(ppMaxRow.stay_date) : null,
+    history.minStayDate,
+    history.maxStayDate,
+    history.ppMin,
+    history.ppMax,
   ].filter((v): v is string => typeof v === "string" && v.length >= 7);
 
   const requestedMonth = monthKey(year, month);
