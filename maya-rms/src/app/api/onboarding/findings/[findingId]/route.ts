@@ -23,6 +23,25 @@ async function applyRuleSuggestion(
     return error?.message ?? null;
   }
 
+  if (payload.suggestion_type === "remove_rule" && payload.rule_id) {
+    // Same deletion the rules page performs. pickup_event rows go first —
+    // that FK has no cascade — then the rule; the cascade takes the
+    // condition row and room-type joins. The hotel filter keeps a stale
+    // suggestion from ever reaching across hotels.
+    const { error: eventErr } = await supabase
+      .from("pickup_event")
+      .delete()
+      .eq("rule_id", String(payload.rule_id))
+      .eq("hotel_id", hotelId);
+    if (eventErr) return eventErr.message;
+    const { error } = await supabase
+      .from("pricing_rules")
+      .delete()
+      .eq("id", String(payload.rule_id))
+      .eq("hotel_id", hotelId);
+    return error?.message ?? null;
+  }
+
   if (payload.suggestion_type === "add_rule" && payload.spec) {
     const spec = payload.spec as {
       name: string;

@@ -24,6 +24,7 @@ export function ReviewFindings() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
+  const [step, setStep] = useState<"assumptions" | "recommendations">("assumptions");
 
   async function load() {
     try {
@@ -79,65 +80,127 @@ export function ReviewFindings() {
     (f) => f.status === "confirmed" || f.status === "dismissed",
   );
 
+  // Two passes: first the data assumptions (closures, suspect room types,
+  // typos...) so recommendations are judged against validated data, THEN
+  // the rule and guardrail recommendations built on those assumptions.
+  const RECOMMENDATION_KINDS = new Set(["rule_suggestion", "guardrail_suggestion"]);
+  const assumptions = open.filter((f) => !RECOMMENDATION_KINDS.has(f.kind));
+  const recommendations = open.filter((f) => RECOMMENDATION_KINDS.has(f.kind));
+  const showAssumptionStep = step === "assumptions" && assumptions.length > 0;
+
   return (
     <div className="flex flex-col gap-6 pt-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-100">
-          Here&apos;s what we noticed in your data
-        </h1>
-        <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-400">
-          A quick sanity check so your pricing runs on clean data. Confirm what
-          we got right, dismiss what we got wrong — takes a minute.
-        </p>
-      </div>
+      {showAssumptionStep ? (
+        <>
+          <div>
+            <h1 className="text-2xl font-semibold text-slate-100">
+              First: does this match reality?
+            </h1>
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-400">
+              A quick sanity check so your pricing runs on clean data — and so
+              the recommendations on the next screen are built on facts you
+              have confirmed. Confirm what we got right, dismiss what we got
+              wrong.
+            </p>
+          </div>
 
-      {findings === null ? (
-        <div className="h-24 animate-pulse rounded-lg bg-slate-900" />
-      ) : open.length === 0 ? (
-        <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-5 py-4 text-sm text-emerald-200">
-          Nothing left to review — your data looks clean.
-        </div>
+          <div className="space-y-3">
+            {assumptions.map((f) => (
+              <FindingCard
+                key={f.id}
+                finding={f}
+                busy={busy === f.id}
+                onConfirm={() => act(f.id, "confirm")}
+                onDismiss={() => act(f.id, "dismiss")}
+              />
+            ))}
+          </div>
+
+          {error ? (
+            <p className="rounded border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-sm text-rose-300">
+              {error}
+            </p>
+          ) : null}
+
+          <div>
+            <button
+              type="button"
+              onClick={() => setStep("recommendations")}
+              className="cursor-pointer rounded bg-sky-500 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-sky-400"
+            >
+              Continue to recommendations
+            </button>
+            <p className="mt-2 text-[11px] text-slate-600">
+              Anything you skip stays available later — this isn&apos;t your only chance.
+            </p>
+          </div>
+        </>
       ) : (
-        <div className="space-y-3">
-          {open.map((f) => (
-            <FindingCard
-              key={f.id}
-              finding={f}
-              busy={busy === f.id}
-              onConfirm={() => act(f.id, "confirm")}
-              onDismiss={() => act(f.id, "dismiss")}
-            />
-          ))}
-        </div>
+        <>
+          <div>
+            <h1 className="text-2xl font-semibold text-slate-100">
+              Recommendations from your data
+            </h1>
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-400">
+              Rules and guardrails your booking history supports — including
+              anything that would conflict with them. Approve what you like,
+              ignore the rest; nothing changes without your say-so.
+            </p>
+          </div>
+
+          {findings === null ? (
+            <div className="h-24 animate-pulse rounded-lg bg-slate-900" />
+          ) : recommendations.length === 0 && open.length === 0 ? (
+            <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-5 py-4 text-sm text-emerald-200">
+              Nothing left to review — your data looks clean.
+            </div>
+          ) : recommendations.length === 0 ? (
+            <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-5 py-4 text-sm text-slate-400">
+              No new recommendations this time.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {recommendations.map((f) => (
+                <FindingCard
+                  key={f.id}
+                  finding={f}
+                  busy={busy === f.id}
+                  onConfirm={() => act(f.id, "confirm")}
+                  onDismiss={() => act(f.id, "dismiss")}
+                />
+              ))}
+            </div>
+          )}
+
+          {error ? (
+            <p className="rounded border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-sm text-rose-300">
+              {error}
+            </p>
+          ) : null}
+
+          {resolved.length > 0 ? (
+            <div className="text-[11px] text-slate-600">
+              {resolved.length} item{resolved.length === 1 ? "" : "s"} already handled
+            </div>
+          ) : null}
+
+          <StarterRules />
+
+          <div>
+            <button
+              type="button"
+              disabled={finishing}
+              onClick={finish}
+              className="cursor-pointer rounded bg-sky-500 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-sky-400 disabled:opacity-60"
+            >
+              {finishing ? "Finishing up…" : "Finish — take me to my dashboard"}
+            </button>
+            <p className="mt-2 text-[11px] text-slate-600">
+              Anything you skip stays available later — this isn&apos;t your only chance.
+            </p>
+          </div>
+        </>
       )}
-
-      {error ? (
-        <p className="rounded border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-sm text-rose-300">
-          {error}
-        </p>
-      ) : null}
-
-      {resolved.length > 0 ? (
-        <div className="text-[11px] text-slate-600">
-          {resolved.length} item{resolved.length === 1 ? "" : "s"} already handled
-        </div>
-      ) : null}
-
-      <StarterRules />
-
-      <div>
-        <button
-          type="button"
-          disabled={finishing}
-          onClick={finish}
-          className="cursor-pointer rounded bg-sky-500 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-sky-400 disabled:opacity-60"
-        >
-          {finishing ? "Finishing up…" : "Finish — take me to my dashboard"}
-        </button>
-        <p className="mt-2 text-[11px] text-slate-600">
-          Anything you skip stays available later — this isn&apos;t your only chance.
-        </p>
-      </div>
     </div>
   );
 }
@@ -339,6 +402,14 @@ export function describeFinding(f: Finding): {
           body: `${String(p.rationale)} We'd move its trigger from ${Math.round(Number(p.current_threshold) * 100)}% to ${Math.round(Number(p.suggested_threshold) * 100)}% occupancy.`,
           confirmLabel: "Make that change",
           dismissLabel: "Leave it as is",
+        };
+      }
+      if (p.suggestion_type === "remove_rule") {
+        return {
+          title: `Remove "${String(p.rule_name)}"?`,
+          body: String(p.rationale),
+          confirmLabel: "Remove it",
+          dismissLabel: "Keep it",
         };
       }
       const spec = (p.spec ?? {}) as { name?: string; explanation?: string };
