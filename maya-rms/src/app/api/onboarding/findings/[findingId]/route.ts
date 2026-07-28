@@ -50,16 +50,26 @@ export async function POST(
   const payload = (finding.payload ?? {}) as Record<string, unknown>;
 
   if (action === "confirm") {
-    if (finding.kind === "closed_period" && payload.start_date && payload.end_date) {
-      const { error } = await supabase.from("hotel_closed_periods").insert({
-        hotel_id: hotelId,
-        room_type_id: null,
-        start_date: String(payload.start_date),
-        end_date: String(payload.end_date),
-        source: "onboarding",
-      });
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+    if (finding.kind === "closed_period") {
+      // Seasonal findings carry every observed instance; one-offs carry one.
+      const periods = Array.isArray(payload.periods)
+        ? (payload.periods as Array<{ start_date: string; end_date: string }>)
+        : payload.start_date && payload.end_date
+          ? [{ start_date: String(payload.start_date), end_date: String(payload.end_date) }]
+          : [];
+      if (periods.length > 0) {
+        const { error } = await supabase.from("hotel_closed_periods").insert(
+          periods.map((p) => ({
+            hotel_id: hotelId,
+            room_type_id: null,
+            start_date: p.start_date,
+            end_date: p.end_date,
+            source: "onboarding",
+          })),
+        );
+        if (error) {
+          return NextResponse.json({ error: error.message }, { status: 500 });
+        }
       }
     }
     if (finding.kind === "suspect_room_type" && payload.room_type_id) {

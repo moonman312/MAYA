@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useOnboardingStatus } from "@/components/onboarding/import-progress";
 
 /**
  * Post-import review: everything the analysis flagged, in plain language,
@@ -122,6 +123,8 @@ export function ReviewFindings() {
         </div>
       ) : null}
 
+      <StarterRules />
+
       <div>
         <button
           type="button"
@@ -135,6 +138,86 @@ export function ReviewFindings() {
           Anything you skip stays available later — this isn&apos;t your only chance.
         </p>
       </div>
+    </div>
+  );
+}
+
+/* ── Starter rules: the payoff ────────────────────────────────────────────── */
+
+function StarterRules() {
+  const status = useOnboardingStatus(15000);
+  const [going, setGoing] = useState(false);
+  const [live, setLive] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const rules = (status?.job?.stats?.starterRules ?? []) as Array<{
+    name: string;
+    explanation: string;
+  }>;
+  if (rules.length === 0) return null;
+
+  const inSimulation = !live && status?.simulationMode !== false;
+
+  async function goLive() {
+    setGoing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/onboarding/activate", { method: "POST" });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Couldn't switch to live — try again.");
+      }
+      setLive(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't switch to live — try again.");
+    } finally {
+      setGoing(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-5">
+      <h2 className="text-base font-semibold text-slate-100">
+        While you were here, we built your first pricing rules
+      </h2>
+      <p className="mt-1 text-[13px] leading-relaxed text-slate-400">
+        Based on your own booking history — they&apos;re already running in{" "}
+        <span className="text-slate-300">simulation mode</span>: watching every
+        night and showing what they <em>would</em> do, without touching a
+        single price.
+      </p>
+
+      <div className="mt-4 space-y-2.5">
+        {rules.map((r) => (
+          <div key={r.name} className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-3">
+            <div className="text-sm font-semibold text-slate-200">{r.name}</div>
+            <p className="mt-0.5 text-xs leading-relaxed text-slate-400">{r.explanation}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 flex items-center gap-3">
+        {inSimulation ? (
+          <>
+            <button
+              type="button"
+              disabled={going}
+              onClick={goLive}
+              className="cursor-pointer rounded bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-60"
+            >
+              {going ? "Switching…" : "Turn them on for real"}
+            </button>
+            <span className="text-[11px] text-slate-500">
+              Or leave them in simulation and watch for a while — also a great choice.
+            </span>
+          </>
+        ) : (
+          <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-medium text-emerald-300">
+            ✓ Live — your rules are now managing prices
+          </span>
+        )}
+      </div>
+      {error ? <p className="mt-2 text-xs text-rose-300">{error}</p> : null}
     </div>
   );
 }
@@ -196,13 +279,24 @@ function describeFinding(f: Finding): {
 } {
   const p = f.payload;
   switch (f.kind) {
-    case "closed_period":
+    case "closed_period": {
+      // Seasonal pattern: one question for the whole recurring closure.
+      if (p.recurring === true) {
+        const years = Number(p.years_observed ?? 0);
+        return {
+          title: `Is your property normally closed ${String(p.season_label)}?`,
+          body: `We see the same closure ${years} years running. One confirmation covers all of them — we'll keep those stretches from skewing your pricing analysis.`,
+          confirmLabel: "Yes, that's our season",
+          dismissLabel: "No, we were open",
+        };
+      }
       return {
         title: `Were you closed ${String(p.start_date)} → ${String(p.end_date)}?`,
         body: `We found ${String(p.days)} straight days with zero occupancy, with normal bookings on both sides. If the property was closed (renovation, season, anything), confirming keeps this stretch from skewing your pricing analysis.`,
         confirmLabel: "Yes, we were closed",
         dismissLabel: "No, we were open",
       };
+    }
     case "suspect_room_type": {
       const reasons = Array.isArray(p.reasons) ? (p.reasons as string[]).join("; ") : "";
       return {

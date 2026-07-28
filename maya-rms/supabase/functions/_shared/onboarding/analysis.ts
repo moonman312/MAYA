@@ -11,6 +11,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ImportJobRow } from "./worker-core.ts";
 import { projectStrategyOntoRoomTypes } from "./project-strategy.ts";
+import { generateStarterRules } from "./generate-rules.ts";
 
 /* ── Pure decision logic ─────────────────────────────────────────────────── */
 
@@ -100,6 +101,112 @@ export function findClosedPeriods(
   if (runStart !== null) flush(runStart, days.length - 1);
 
   return findings;
+}
+
+/* ── Seasonal closure merging ────────────────────────────────────────────── */
+
+export type SeasonalClosureFinding = {
+  recurring: true;
+  season_label: string; // "mid-December to mid-February", "all of August"
+  years_observed: number;
+  periods: ClosedPeriodFinding[];
+};
+
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+function dayOfYear(ymd: string): number {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  const start = Date.UTC(d.getUTCFullYear(), 0, 1);
+  return Math.floor((d.getTime() - start) / 86_400_000); // 0-based, leap-safe enough
+}
+
+function describeDoy(doy: number): { label: string; month: number; day: number } {
+  // Use a non-leap reference year so labels are stable.
+  const d = new Date(Date.UTC(2025, 0, 1) + doy * 86_400_000);
+  const month = d.getUTCMonth();
+  const day = d.getUTCDate();
+  const part = day <= 10 ? "early" : day <= 20 ? "mid" : "late";
+  return { label: `${part}-${MONTHS[month]}`, month, day };
+}
+
+/** Human phrasing for a recurring window: the way a hotelier would say it. */
+export function describeSeason(startDoy: number, endDoy: number): string {
+  const s = describeDoy(startDoy);
+  const e = describeDoy(endDoy);
+  // Whole calendar month ("every August")
+  if (s.month === e.month && s.day <= 5 && e.day >= 25) {
+    return `all of ${MONTHS[s.month]}`;
+  }
+  return `${s.label} to ${e.label}`;
+}
+
+/**
+ * Collapse closures that recur at the same time of year into one seasonal
+ * finding — "closed every winter" is one fact about the property, not one
+ * question per year. Windows within ~3 weeks of each other in day-of-year
+ * space (with December→January wraparound) count as the same season.
+ */
+export function mergeSeasonalClosures(periods: ClosedPeriodFinding[]): {
+  seasonal: SeasonalClosureFinding[];
+  oneOff: ClosedPeriodFinding[];
+} {
+  const TOLERANCE = 21; // days of drift allowed between years
+  type Tagged = ClosedPeriodFinding & { startDoy: number };
+  const tagged: Tagged[] = periods.map((p) => ({ ...p, startDoy: dayOfYear(p.start_date) }));
+  const untag = (t: Tagged): ClosedPeriodFinding => ({
+    start_date: t.start_date,
+    end_date: t.end_date,
+    days: t.days,
+    surrounding_median: t.surrounding_median,
+  });
+
+  // Group by circular proximity of start day-of-year.
+  const groups: Tagged[][] = [];
+  for (const p of tagged) {
+    const home = groups.find((g) =>
+      g.some((m) => {
+        const diff = Math.abs(m.startDoy - p.startDoy);
+        return Math.min(diff, 365 - diff) <= TOLERANCE;
+      }),
+    );
+    if (home) home.push(p);
+    else groups.push([p]);
+  }
+
+  const seasonal: SeasonalClosureFinding[] = [];
+  const oneOff: ClosedPeriodFinding[] = [];
+  for (const g of groups) {
+    const distinctYears = new Set(g.map((p) => p.start_date.slice(0, 4)));
+    if (g.length < 2 || distinctYears.size < 2) {
+      oneOff.push(...g.map(untag));
+      continue;
+    }
+    // Representative window: median start, median end (handling wrap by using
+    // the group's anchor to unwrap starts near the year boundary).
+    const anchor = g[0].startDoy;
+    const unwrap = (doy: number) => {
+      const diff = doy - anchor;
+      if (diff > 182) return doy - 365;
+      if (diff < -182) return doy + 365;
+      return doy;
+    };
+    const starts = g.map((p) => unwrap(p.startDoy)).sort((a, b) => a - b);
+    const midStart = ((starts[Math.floor(starts.length / 2)] % 365) + 365) % 365;
+    const avgLen = Math.round(g.reduce((sum, p) => sum + p.days, 0) / g.length);
+    const midEnd = (midStart + avgLen - 1) % 365;
+
+    seasonal.push({
+      recurring: true,
+      season_label: describeSeason(midStart, midEnd),
+      years_observed: distinctYears.size,
+      periods: g.map(untag).sort((a, b) => a.start_date.localeCompare(b.start_date)),
+    });
+  }
+
+  return { seasonal, oneOff };
 }
 
 export type RoomTypeStats = {
@@ -325,7 +432,7 @@ export async function analyzeImport(
         .is("room_type_id", null),
     ]);
 
-  const closed = findClosedPeriods(daily, today);
+  const { seasonal, oneOff } = mergeSeasonalClosures(findClosedPeriods(daily, today));
   const suspects = findSuspectRoomTypes(stats);
   const duplicates = findDuplicateRoomTypes(stats);
   const outliers = findRateOutliers(stats);
@@ -346,7 +453,16 @@ export async function analyzeImport(
   };
   const inserts: FindingInsert[] = [];
 
-  for (const c of closed) {
+  for (const s of seasonal) {
+    inserts.push({
+      hotel_id: hotelId,
+      job_id: job.id,
+      kind: "closed_period",
+      status: "proposed",
+      payload: s as unknown as Record<string, unknown>,
+    });
+  }
+  for (const c of oneOff) {
     inserts.push({
       hotel_id: hotelId,
       job_id: job.id,
@@ -417,4 +533,22 @@ export async function analyzeImport(
   // Strategy answers may have arrived while the import ran — re-project so
   // room types created by the import get their guardrails too.
   await projectStrategyOntoRoomTypes(supabase, hotelId);
+
+  // The payoff: starter rules built from their own history, live-in-simulation.
+  const starterRules = await generateStarterRules(supabase, hotelId);
+  if (starterRules.length > 0) {
+    await supabase
+      .from("import_jobs")
+      .update({
+        stats: {
+          ...job.stats,
+          starterRules: starterRules.map((r) => ({
+            name: r.name,
+            explanation: r.explanation,
+          })),
+        },
+      })
+      .eq("id", job.id);
+    job.stats = { ...job.stats, starterRules: starterRules.map((r) => r.name) };
+  }
 }
