@@ -13,9 +13,18 @@ export type AccessibleHotel = { id: string; name: string };
 export async function listAccessibleHotels(
   supabase: SupabaseClient,
 ): Promise<AccessibleHotel[]> {
+  // getSession reads the cookie without a network hop. The real validation
+  // already happened twice for this request: middleware ran getUser() against
+  // the auth service, and every query below carries the JWT to PostgREST,
+  // which verifies its signature before RLS runs — a forged or expired token
+  // returns zero rows, not someone else's hotels. Calling getUser() here as
+  // well was a third auth round-trip per API request, and under bursts
+  // (calendar prefetching) it tripped Supabase Auth's rate limiter, stalling
+  // random requests for tens of seconds.
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
+  const user = session?.user;
   if (!user) return [];
 
   // Single round-trip: memberships joined to hotels (was two sequential
@@ -48,11 +57,13 @@ export async function resolveAccessibleHotelId(
 ): Promise<string | null> {
   const envHotelId = process.env.MAYA_DEFAULT_HOTEL_ID?.trim() || null;
 
+  // Cookie read only — see the note in listAccessibleHotels for why this
+  // deliberately skips the auth-service round-trip.
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
 
-  if (!user) {
+  if (!session?.user) {
     return envHotelId;
   }
 
