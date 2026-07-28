@@ -2073,3 +2073,22 @@ drop policy if exists pms_request_log_read on pms_request_log;
 create policy pms_request_log_read on pms_request_log
   for select using (is_hotel_accessible(hotel_id));
 revoke insert, update, delete on pms_request_log from anon, authenticated;
+
+-- ============================================================================
+-- CALENDAR REVENUE (mirrors 99_supabase_migration_calendar_revenue_v1)
+-- ============================================================================
+
+create or replace function public.calendar_daily_revenue(p_hotel_id uuid)
+returns table(stay_date date, revenue numeric)
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select r.stay_date, sum(coalesce(r.current_rate, 0))::numeric as revenue
+  from reservations r
+  where r.hotel_id = p_hotel_id
+  group by r.stay_date
+  order by r.stay_date;
+$$;
+
+grant execute on function public.calendar_daily_revenue(uuid) to authenticated;
