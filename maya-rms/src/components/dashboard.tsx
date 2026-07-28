@@ -180,6 +180,9 @@ export function Dashboard() {
   const [month, setMonth] = useState(new Date().getUTCMonth() + 1);
 
   const [rules, setRules] = useState<RuleConfig[]>([]);
+  const [fireCounts, setFireCounts] = useState<Record<string, number>>({});
+  const [ruleFilter, setRuleFilter] = useState<"all" | "enabled" | "disabled">("all");
+  const [ruleFormOpen, setRuleFormOpen] = useState(false);
   const [roomTypeOptions, setRoomTypeOptions] = useState<
     { id: string; name: string }[]
   >([]);
@@ -330,6 +333,12 @@ export function Dashboard() {
   async function reloadRules() {
     const data = await api<RuleConfig[]>("/api/rules");
     setRules(data);
+    try {
+      const counts = await api<Record<string, number>>("/api/rules/fire-counts");
+      setFireCounts(counts);
+    } catch {
+      // fire counts are decoration — never block the rules list on them
+    }
   }
 
   async function reloadRoomTypes() {
@@ -714,10 +723,143 @@ export function Dashboard() {
 
         {tab === "rules" && (
           <section className="space-y-5 rounded-lg border border-slate-800 bg-slate-900 p-5">
-            <h2 className="text-lg font-semibold">Pricing Rules</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold">Pricing Rules</h2>
+              <div className="flex items-center gap-1 rounded-full border border-slate-800 bg-slate-950 p-1">
+                {(["all", "enabled", "disabled"] as const).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setRuleFilter(f)}
+                    className={`cursor-pointer rounded-full px-3 py-1 text-xs font-medium capitalize transition-colors ${
+                      ruleFilter === f
+                        ? "bg-slate-700 text-slate-100"
+                        : "text-slate-500 hover:text-slate-300"
+                    }`}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700 text-left text-slate-300">
+                    <th className="py-2">Name</th>
+                    <th className="py-2">Fired</th>
+                    <th className="py-2">Conditions</th>
+                    <th className="py-2">Scope</th>
+                    <th className="py-2">Action</th>
+                    <th className="py-2">Status</th>
+                    <th className="py-2">Ops</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rules
+                    .filter((rule) =>
+                      ruleFilter === "all"
+                        ? true
+                        : ruleFilter === "enabled"
+                          ? rule.enabled
+                          : !rule.enabled,
+                    )
+                    .sort(
+                      (a, b) =>
+                        (fireCounts[b.id] ?? 0) - (fireCounts[a.id] ?? 0) ||
+                        Number(b.enabled) - Number(a.enabled) ||
+                        a.rule_name.localeCompare(b.rule_name),
+                    )
+                    .map((rule) => (
+                    <tr key={rule.id} className="border-b border-slate-800">
+                      <td className="py-2 pr-3 font-medium text-slate-200">
+                        {rule.rule_name}
+                      </td>
+                      <td className="py-2 pr-3 tabular-nums">
+                        {fireCounts[rule.id] ? (
+                          <span className="font-semibold text-sky-300">
+                            {fireCounts[rule.id]}×
+                          </span>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {formatRuleConditionsDisplay(rule.conditions)}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {rule.room_types.length
+                          ? rule.room_types.join(", ")
+                          : "All"}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {rule.action.adjust_rate_percent !== undefined &&
+                          `${rule.action.adjust_rate_percent}% `}
+                        {rule.action.adjust_rate_dollars !== undefined &&
+                          `$${rule.action.adjust_rate_dollars}`}
+                      </td>
+                      <td className="py-2 pr-3">
+                        <span
+                          className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${
+                            rule.enabled
+                              ? "bg-emerald-500/15 text-emerald-300"
+                              : "bg-slate-800 text-slate-500"
+                          }`}
+                        >
+                          <span
+                            className={`size-1.5 rounded-full ${
+                              rule.enabled ? "bg-emerald-400" : "bg-slate-600"
+                            }`}
+                          />
+                          {rule.enabled ? "Enabled" : "Disabled"}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-3">
+                        <div className="flex gap-2">
+                          <button
+                            className="cursor-pointer rounded bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
+                            onClick={() => onToggleRule(rule.id)}
+                          >
+                            Toggle
+                          </button>
+                          <button
+                            className="cursor-pointer rounded bg-rose-700 px-2 py-1 text-xs hover:bg-rose-600"
+                            onClick={() => onDeleteRule(rule.id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="rounded border border-slate-800 bg-slate-950/40">
+              <button
+                type="button"
+                onClick={() => setRuleFormOpen((o) => !o)}
+                aria-expanded={ruleFormOpen}
+                className="flex w-full cursor-pointer items-center justify-between px-4 py-3 text-left"
+              >
+                <span className="text-sm font-medium text-slate-300">
+                  + Add a rule
+                </span>
+                <span
+                  className={`text-slate-500 transition-transform duration-200 ${
+                    ruleFormOpen ? "rotate-180" : ""
+                  }`}
+                  aria-hidden
+                >
+                  ▾
+                </span>
+              </button>
+              {ruleFormOpen ? (
             <form
               onSubmit={onCreateRule}
-              className="space-y-4 rounded border border-slate-800 p-4"
+              className="space-y-4 border-t border-slate-800 p-4"
             >
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="md:col-span-2">
@@ -1025,60 +1167,7 @@ export function Dashboard() {
                 Add Rule
               </button>
             </form>
-
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] border-collapse text-sm">
-                <thead>
-                  <tr className="border-b border-slate-700 text-left text-slate-300">
-                    <th className="py-2">Name</th>
-                    <th className="py-2">Conditions</th>
-                    <th className="py-2">Scope</th>
-                    <th className="py-2">Action</th>
-                    <th className="py-2">Status</th>
-                    <th className="py-2">Ops</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rules.map((rule) => (
-                    <tr key={rule.id} className="border-b border-slate-800">
-                      <td className="py-2 pr-3">{rule.rule_name}</td>
-                      <td className="py-2 pr-3">
-                        {formatRuleConditionsDisplay(rule.conditions)}
-                      </td>
-                      <td className="py-2 pr-3">
-                        {rule.room_types.length
-                          ? rule.room_types.join(", ")
-                          : "All"}
-                      </td>
-                      <td className="py-2 pr-3">
-                        {rule.action.adjust_rate_percent !== undefined &&
-                          `${rule.action.adjust_rate_percent}% `}
-                        {rule.action.adjust_rate_dollars !== undefined &&
-                          `$${rule.action.adjust_rate_dollars}`}
-                      </td>
-                      <td className="py-2 pr-3">
-                        {rule.enabled ? "Enabled" : "Disabled"}
-                      </td>
-                      <td className="py-2 pr-3">
-                        <div className="flex gap-2">
-                          <button
-                            className="cursor-pointer rounded bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
-                            onClick={() => onToggleRule(rule.id)}
-                          >
-                            Toggle
-                          </button>
-                          <button
-                            className="cursor-pointer rounded bg-rose-700 px-2 py-1 text-xs hover:bg-rose-600"
-                            onClick={() => onDeleteRule(rule.id)}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              ) : null}
             </div>
           </section>
         )}
