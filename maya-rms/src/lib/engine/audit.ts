@@ -22,6 +22,8 @@ export type AuditInput = {
   pickupLosers: PickupCandidate[];
   pickupIdempotentSkips: PickupCandidate[];
   basePrices: Map<string, number>;
+  /** Layer 1 Booking Speed observations consulted for this stay date this run. */
+  bookingSpeedObservations?: Record<string, unknown>[];
 };
 
 /**
@@ -85,6 +87,9 @@ export async function writeAudit(supabase: SupabaseClient, input: AuditInput): P
     ],
     pre_clamp_price: assembled.pre_clamp_price.toFixed(2),
     clamped_by: assembled.clamped_by,
+    ...(input.bookingSpeedObservations && input.bookingSpeedObservations.length > 0
+      ? { booking_speed_observations: input.bookingSpeedObservations }
+      : {}),
   };
 
   await supabase.from("evaluation_audit").insert({

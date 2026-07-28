@@ -178,3 +178,78 @@ describe("conditionCount", () => {
     }))).toBe(3);
   });
 });
+
+describe("booking speed conditions", () => {
+  const speedMetrics = (rank: number, speed: string, extra: Partial<RuleMetrics> = {}): RuleMetrics => ({
+    ...baseMetrics,
+    booking_speed: {
+      speed,
+      rank,
+      label: speed,
+      recent: 9,
+      expected: 4,
+      window_days: 7,
+      method: "comparable",
+    },
+    ...extra,
+  });
+
+  it("at_least matches at and above the target level, not below", () => {
+    const rule = makeRule({
+      condition: { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 7 },
+    });
+    expect(ruleConditionsMatch(rule, speedMetrics(1, "faster"))).toBe(true);
+    expect(ruleConditionsMatch(rule, speedMetrics(3, "surging"))).toBe(true);
+    expect(ruleConditionsMatch(rule, speedMetrics(0, "normal"))).toBe(false);
+  });
+
+  it("at_most matches at and below the target level, not above", () => {
+    const rule = makeRule({
+      condition: { booking_speed_operator: "at_most", booking_speed_level: "slower", booking_speed_window_days: 30 },
+    });
+    expect(ruleConditionsMatch(rule, speedMetrics(-1, "slower"))).toBe(true);
+    expect(ruleConditionsMatch(rule, speedMetrics(-3, "stalled"))).toBe(true);
+    expect(ruleConditionsMatch(rule, speedMetrics(0, "normal"))).toBe(false);
+  });
+
+  it("is matches exactly one level", () => {
+    const rule = makeRule({
+      condition: { booking_speed_operator: "is", booking_speed_level: "much_faster", booking_speed_window_days: 7 },
+    });
+    expect(ruleConditionsMatch(rule, speedMetrics(2, "much_faster"))).toBe(true);
+    expect(ruleConditionsMatch(rule, speedMetrics(3, "surging"))).toBe(false);
+    expect(ruleConditionsMatch(rule, speedMetrics(1, "faster"))).toBe(false);
+  });
+
+  it("never matches without an observation or with a block reason", () => {
+    const rule = makeRule({
+      condition: { booking_speed_operator: "at_least", booking_speed_level: "normal", booking_speed_window_days: 7 },
+    });
+    expect(ruleConditionsMatch(rule, baseMetrics)).toBe(false);
+    expect(
+      ruleConditionsMatch(rule, speedMetrics(3, "surging", { booking_speed_block_reason: "insufficient_data" })),
+    ).toBe(false);
+  });
+
+  it("never matches an unknown stored level key", () => {
+    const rule = makeRule({
+      condition: { booking_speed_operator: "at_least", booking_speed_level: "way_too_fast", booking_speed_window_days: 7 },
+    });
+    expect(ruleConditionsMatch(rule, speedMetrics(3, "surging"))).toBe(false);
+  });
+
+  it("combines with other families under AND logic", () => {
+    const rule = makeRule({
+      condition: {
+        occupancy_operator: "gt",
+        occupancy_threshold: 0.6,
+        booking_speed_operator: "at_least",
+        booking_speed_level: "faster",
+        booking_speed_window_days: 7,
+      },
+    });
+    expect(ruleConditionsMatch(rule, speedMetrics(2, "much_faster"))).toBe(true);
+    expect(ruleConditionsMatch(rule, { ...speedMetrics(2, "much_faster"), occupancy: 0.5 })).toBe(false);
+    expect(conditionCount(rule)).toBe(2);
+  });
+});

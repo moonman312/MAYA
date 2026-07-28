@@ -17,7 +17,13 @@
  *     kind of thing an owner wants to notice.
  */
 
+import { bookingSpeedLabel as speedLabel, isBookingSpeed } from "@/lib/observations/booking-speed";
 import type { RuleCondition } from "@/types/domain";
+
+/** Label for a stored level key; falls back to the raw key for unknown values. */
+function bookingSpeedLabel(levelKey: string): string {
+  return isBookingSpeed(levelKey) ? speedLabel(levelKey) : levelKey;
+}
 
 export type NarrativeMetrics = {
   /** Occupancy as a fraction (0.82) — matches the engine's RuleMetrics. */
@@ -26,6 +32,12 @@ export type NarrativeMetrics = {
   dta?: number | null;
   /** Net pickup units over the rule's window. */
   pickup_units?: number | null;
+  /** Booking Speed observation snapshot, from the engine's RuleMetrics. */
+  booking_speed?: {
+    label: string;
+    recent: number;
+    expected: number;
+  } | null;
 };
 
 export type NarrativeApplication = {
@@ -102,6 +114,27 @@ export function describeConditions(
     parts.push(
       `${observed} arrived in the last ${dayWord(windowDays)}, ${dir} the ${bookingWord(Number(condition.pickup_threshold))} trigger`,
     );
+  }
+
+  if (condition.booking_speed_operator && condition.booking_speed_level) {
+    const windowPhrase =
+      condition.booking_speed_window_days === 1
+        ? "the past day"
+        : condition.booking_speed_window_days === 30
+          ? "the past month"
+          : "the past week";
+    const label = bookingSpeedLabel(condition.booking_speed_level);
+    const verb =
+      condition.booking_speed_operator === "at_least"
+        ? `reached ${label}`
+        : condition.booking_speed_operator === "at_most"
+          ? `stayed at or below ${label}`
+          : `was ${label}`;
+    const bs = metrics?.booking_speed;
+    const observed = bs
+      ? ` (${bookingWord(bs.recent)}, expected ${bs.expected < 1 ? "almost none" : `about ${Math.round(bs.expected)}`})`
+      : "";
+    parts.push(`booking speed over ${windowPhrase} ${verb}${observed}`);
   }
 
   if (parts.length === 0) return "its conditions were met";

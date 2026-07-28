@@ -3,12 +3,15 @@
  * legacy conditions (simulation / in-memory store), and API payloads.
  */
 
+import { isBookingSpeed } from "@/lib/observations/booking-speed";
 import type {
   PickupMetric,
   RuleAction,
   RuleCondition,
   RuleConditionValue,
 } from "@/types/domain";
+
+const BOOKING_SPEED_WINDOWS: readonly number[] = [1, 7, 30];
 
 export type ConditionMetric = "occupancy" | "booking_window" | "pickup";
 
@@ -51,7 +54,12 @@ export function isRuleConditionEmpty(c: RuleCondition | undefined | null): boole
     Number.isFinite(c.pickup_threshold) &&
     c.pickup_window_days != null &&
     !!c.pickup_metric;
-  return !hasOcc && !hasDta && !hasPu;
+  const hasBs =
+    !!c.booking_speed_operator &&
+    isBookingSpeed(c.booking_speed_level) &&
+    c.booking_speed_window_days != null &&
+    BOOKING_SPEED_WINDOWS.includes(c.booking_speed_window_days);
+  return !hasOcc && !hasDta && !hasPu && !hasBs;
 }
 
 export function conditionRowsToRuleCondition(rows: ConditionFormRow[]): RuleCondition {
@@ -109,6 +117,23 @@ export function ruleConditionForInsert(c: RuleCondition): RuleCondition {
     row.pickup_threshold = c.pickup_threshold;
     row.pickup_window_days = c.pickup_window_days;
     row.pickup_metric = c.pickup_metric;
+  }
+  if (
+    c.booking_speed_operator &&
+    isBookingSpeed(c.booking_speed_level) &&
+    c.booking_speed_window_days != null &&
+    BOOKING_SPEED_WINDOWS.includes(c.booking_speed_window_days)
+  ) {
+    row.booking_speed_operator = c.booking_speed_operator;
+    row.booking_speed_level = c.booking_speed_level;
+    row.booking_speed_window_days = c.booking_speed_window_days;
+    if (
+      c.booking_speed_cooldown_days != null &&
+      Number.isFinite(c.booking_speed_cooldown_days) &&
+      c.booking_speed_cooldown_days >= 0
+    ) {
+      row.booking_speed_cooldown_days = Math.round(c.booking_speed_cooldown_days);
+    }
   }
   return row;
 }
