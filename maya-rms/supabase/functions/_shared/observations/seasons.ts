@@ -2,12 +2,21 @@
  * Data-driven season detection for the Observation Engine.
  *
  * Hotels do not have four seasons because the calendar says so — they have
- * however many demand regimes their history shows. This module finds them:
+ * however many demand regimes their history shows, however oddly shaped
+ * or short-lived. This module finds them:
  *
- * 1. Holiday-context days and excluded periods (closures, challenged dates)
- *    are removed up front; recurring holidays are spikes, not seasons.
- * 2. Statistical outliers (one-off events) are removed against a wide
- *    rolling median before any boundary decisions are made.
+ * 1. Excluded periods (closures, challenged dates) are removed up front.
+ *    Holidays are deliberately NOT pre-filtered here (see below) — a
+ *    sustained holiday-week regime (a property's "Christmas week" being its
+ *    own distinct demand season) is exactly the kind of structure this
+ *    module exists to find on its own, not erase.
+ * 2. Statistical outliers are removed against a rolling median, but ONLY
+ *    when the anomalous run is short (a handful of days) OR lacks
+ *    corroboration across multiple years of history. A single Thanksgiving
+ *    Thursday spike is noise and gets smoothed away regardless of how many
+ *    years back it goes; a 10-day stretch that shows up consistently across
+ *    several years of data is not noise, however short — it is a season,
+ *    and is left alone for segmentation to find.
  * 3. The weekly rhythm is divided out before segmentation so a strong
  *    weekend pattern is not mistaken for tiny seasons.
  * 4. Segmentation watches TWO signals: overall demand level AND weekly
@@ -15,10 +24,21 @@
  *    and weekdays are dead can sit at the same average level as a season
  *    with the opposite profile — level alone would never see the boundary.
  * 5. A new season needs a sustained shift (threshold + minimum run); short
- *    dips are absorbed. Seasons wrap across the year end.
+ *    dips are absorbed. Seasons wrap across the year end. There is no
+ *    target season count — the cap here is a backstop against pathological
+ *    fragmentation, not a realistic ceiling; real properties with genuinely
+ *    complex, unevenly-spaced calendars can and do produce many seasons.
  * 6. After a first pass, day-of-week factors are recomputed per season and
  *    the detection runs once more — a season's own weekly profile sharpens
  *    the boundaries around it.
+ *
+ * On the input metric: `DailyDemand.value` should be a pure demand signal —
+ * occupancy or room-nights sold — never RevPAR or ADR. Price-based metrics
+ * partly reflect MAYA's own past pricing decisions, which would make season
+ * detection circular (a pricing rule reacting to "the season," where the
+ * season was partly computed from earlier pricing). Keeping the input
+ * price-independent is what lets rules safely react to the seasons this
+ * module finds.
  *
  * None of this is user-facing. The outcome (season spans, relative levels,
  * weekly character) plus plain-language reasoning is; the algorithm is not.
@@ -30,7 +50,6 @@ import {
   dayOfWeek,
   dayOfYearIndex,
   foldedMonthDayKey,
-  holidayContextForDate,
   keyToHuman,
   MONTH_NAMES,
 } from "./calendar.ts";
@@ -39,7 +58,7 @@ import {
 
 export interface DailyDemand {
   stay_date: string;
-  /** Demand metric for the day (room-nights sold works well). */
+  /** Demand metric for the day. Use occupancy or room-nights sold — never RevPAR or ADR (see file header). */
   value: number;
 }
 
@@ -78,18 +97,60 @@ export interface SeasonModel {
 
 /* ── Tunables (Observation Engine internals) ─────────────────── */
 
-export const SMOOTH_WINDOW_DAYS = 15;
+/**
+ * Kept comfortably below MIN_SHIFT_RUN_DAYS: at a genuinely hard demand
+ * boundary, this rolling mean blends roughly SMOOTH_WINDOW_DAYS worth of
+ * points into a ramp — if that ramp were as wide as the walk's own entry
+ * bar, the smoothing step could manufacture a pseudo-season out of its own
+ * transition zone. Narrower than the entry bar, a pure ramp can never
+ * itself sustain long enough to be mistaken for a season.
+ */
+export const SMOOTH_WINDOW_DAYS = 7;
 export const OUTLIER_WINDOW_DAYS = 31;
 export const OUTLIER_MAD_MULTIPLE = 3.5;
+/**
+ * A deviating run this long or shorter is always treated as noise and
+ * smoothed away, regardless of how many years of history back it. Longer
+ * runs are only smoothed if they ALSO lack multi-year corroboration
+ * (see MIN_YEARS_FOR_TRUST) — otherwise they are real, if short, seasons.
+ */
+export const MAX_OUTLIER_RUN_DAYS = 7;
+/**
+ * A sustained deviation longer than MAX_OUTLIER_RUN_DAYS is only trusted as
+ * real seasonal structure once at least this many distinct years agree it
+ * happens there. Below that, even a multi-week run in the data could just
+ * be a single unrepeated event (a one-time promotion, a fluke), so it gets
+ * smoothed like any other outlier.
+ */
+export const MIN_YEARS_FOR_TRUST = 2;
 export const LEVEL_SHIFT_THRESHOLD = 0.25;
 export const SHAPE_SHIFT_THRESHOLD = 0.25;
 export const MIN_SHIFT_RUN_DAYS = 10;
-export const MIN_SEASON_LENGTH_DAYS = 21;
-export const MAX_SEASONS = 8;
+/** How many of the confirming run's most recent days seed a new segment's running mean — see walkYear. */
+export const TREND_SEED_TAIL_DAYS = 3;
+/**
+ * Equal to MIN_SHIFT_RUN_DAYS: a season this length was already trusted
+ * enough to clear the segmentation walk's own entry bar, so the post-hoc
+ * merge step only cleans up genuinely degenerate leftover fragments, never
+ * a real minimal-length season (e.g. a property's holiday week).
+ */
+export const MIN_SEASON_LENGTH_DAYS = 10;
+/**
+ * A backstop against pathological fragmentation, not a realistic target.
+ * Real properties can legitimately have many unevenly-spaced seasons;
+ * this only guards against runaway noise producing dozens of "seasons".
+ */
+export const MAX_SEASONS = 16;
 export const MIN_OBSERVATIONS = 60;
 export const MIN_SLOT_COVERAGE = 120;
 export const MIN_DOW_OBSERVATIONS = 5;
-export const SHAPE_WINDOW_DAYS = 15;
+/**
+ * Same reasoning as SMOOTH_WINDOW_DAYS: kept below MIN_SHIFT_RUN_DAYS so the
+ * shape series' own windowing can't manufacture a transition ramp wide
+ * enough to pass as a season boundary on its own.
+ */
+export const SHAPE_WINDOW_DAYS = 7;
+export const SHAPE_SMOOTH_WINDOW_DAYS = 5;
 export const MIN_SHAPE_CLASS_OBS = 3;
 /** Below this peak-to-trough spread, seasons differ by shape, not level. */
 export const LEVEL_LABEL_SPREAD = 1.15;
@@ -154,11 +215,37 @@ function interpolateCircular(base: (number | null)[]): number[] {
   return out as number[];
 }
 
+/**
+ * Groups a boolean flag array into contiguous circular runs, without ever
+ * treating the array's [0]/[364] join as a false boundary. Rotates to start
+ * right after a confirmed `false` slot (guaranteed to exist unless every
+ * slot is flagged, an degenerate case handled by returning no runs at all).
+ */
+function circularRuns(flags: boolean[]): number[][] {
+  const n = flags.length;
+  const seam = flags.findIndex((v) => !v);
+  if (seam === -1) return [];
+  const runs: number[][] = [];
+  let current: number[] = [];
+  for (let k = 0; k < n; k++) {
+    const idx = (seam + 1 + k) % n;
+    if (flags[idx]) {
+      current.push(idx);
+    } else if (current.length) {
+      runs.push(current);
+      current = [];
+    }
+  }
+  if (current.length) runs.push(current);
+  return runs;
+}
+
 /* ── Observation prep ────────────────────────────────────────── */
 
 interface Obs {
   idx: number;
   dow: number;
+  year: number;
   value: number;
 }
 
@@ -171,14 +258,21 @@ function prepareObservations(daily: DailyDemand[], exclusions: DatePeriod[]): Ob
   for (const d of daily) {
     if (d.value == null || !Number.isFinite(d.value) || d.value < 0) continue;
     if (inAnyPeriod(d.stay_date, exclusions)) continue;
-    if (holidayContextForDate(d.stay_date) !== null) continue;
     obs.push({
       idx: KEY_IDX.get(foldedMonthDayKey(d.stay_date))!,
       dow: dayOfWeek(d.stay_date),
+      year: Number(d.stay_date.slice(0, 4)),
       value: d.value,
     });
   }
   return obs;
+}
+
+/** Distinct source years behind each of the 365 folded slots — the corroboration signal for outlier trust. */
+function slotYearCounts(obs: Obs[]): number[] {
+  const slots: Set<number>[] = Array.from({ length: 365 }, () => new Set());
+  for (const o of obs) slots[o.idx].add(o.year);
+  return slots.map((s) => s.size);
 }
 
 function globalDowFactors(obs: Obs[]): number[] {
@@ -199,8 +293,16 @@ interface BuiltSeries {
   outlierKeys: string[];
 }
 
-/** Slot medians → outlier cleanup → gap fill → smooth → normalize to 1. */
-function buildSeries(slotValues: number[][]): BuiltSeries {
+/**
+ * Slot medians → outlier cleanup → gap fill → smooth → normalize to 1.
+ *
+ * Outlier cleanup groups deviating slots into contiguous runs and only
+ * smooths a run away when it is short (<= MAX_OUTLIER_RUN_DAYS) or, for a
+ * longer run, when it lacks corroboration across MIN_YEARS_FOR_TRUST
+ * distinct years. A short run is always noise; a long, multi-year-agreed
+ * run is a real season, however unusually short it is on the calendar.
+ */
+function buildSeries(slotValues: number[][], yearCounts: number[]): BuiltSeries {
   const base: (number | null)[] = slotValues.map((vs) => (vs.length ? median(vs) : null));
 
   const rolling = rollingCircularMedian(base, OUTLIER_WINDOW_DAYS);
@@ -214,13 +316,30 @@ function buildSeries(slotValues: number[][]): BuiltSeries {
   const level = median(base.filter((v): v is number => v !== null).map(Math.abs));
   const scale = Math.max(1.4826 * mad, 0.02 * level, 1e-6);
 
-  const outlierKeys: string[] = [];
+  const isAnomalous = base.map(
+    (v, i) =>
+      v !== null &&
+      rolling[i] !== null &&
+      Math.abs((v as number) - (rolling[i] as number)) > OUTLIER_MAD_MULTIPLE * scale,
+  );
+  const runs = circularRuns(isAnomalous);
+
+  // Cleaned slots are removed entirely (not patched with a per-index rolling
+  // value) so interpolateCircular below bridges them with one straight line
+  // from the nearest genuine data on each side. A per-index rolling median
+  // varies slightly point-to-point across a run — patching with it can
+  // leave a faint residual bump that the segmentation walk later mistakes
+  // for a boundary of its own.
   const cleaned = base.slice();
-  for (let i = 0; i < cleaned.length; i++) {
-    if (cleaned[i] === null || rolling[i] === null) continue;
-    if (Math.abs((cleaned[i] as number) - (rolling[i] as number)) > OUTLIER_MAD_MULTIPLE * scale) {
-      cleaned[i] = rolling[i];
-      outlierKeys.push(YEAR_KEYS[i]);
+  const outlierKeys: string[] = [];
+  for (const run of runs) {
+    const corroborated =
+      run.length > MAX_OUTLIER_RUN_DAYS &&
+      mean(run.map((idx) => yearCounts[idx])) >= MIN_YEARS_FOR_TRUST;
+    if (corroborated) continue; // real, if short, seasonal structure — leave it alone
+    for (const idx of run) {
+      cleaned[idx] = null;
+      outlierKeys.push(YEAR_KEYS[idx]);
     }
   }
 
@@ -244,9 +363,12 @@ function slotify(obs: Obs[], transform: (o: Obs) => number): number[][] {
  * from raw observations. This is the signal that catches seasons whose
  * overall level matches but whose weekly profile flips.
  */
-function buildShapeSeries(obs: Obs[]): number[] {
+function buildShapeSeries(obs: Obs[], excludeIdx: Set<number>): number[] {
   const byIdx: Obs[][] = Array.from({ length: 365 }, () => []);
-  for (const o of obs) byIdx[o.idx].push(o);
+  for (const o of obs) {
+    if (excludeIdx.has(o.idx)) continue;
+    byIdx[o.idx].push(o);
+  }
   const half = Math.floor(SHAPE_WINDOW_DAYS / 2);
 
   const ratios: (number | null)[] = [];
@@ -266,7 +388,7 @@ function buildShapeSeries(obs: Obs[]): number[] {
   }
 
   const filled = interpolateCircular(ratios);
-  const smoothed = rollingCircularMean(filled, 7);
+  const smoothed = rollingCircularMean(filled, SHAPE_SMOOTH_WINDOW_DAYS);
   const norm = median(smoothed) || 1;
   return smoothed.map((v) => clamp(v / norm, 0.1, 10));
 }
@@ -353,9 +475,19 @@ function walkYear(level: number[], shape: number[]): Seg[] {
       if (pendL.length >= MIN_SHIFT_RUN_DAYS) {
         bounds.push({ start: segStart, end: pendStart - 1 });
         segStart = pendStart;
-        lm = mean(pendL);
-        sm = mean(pendS);
-        count = pendL.length;
+        // Seed the new segment from the TAIL of the confirming run, not its
+        // full average. The run itself is often a gradual ramp rather than
+        // an instant step, so its average sits at the ramp's midpoint —
+        // anchoring there makes the segment look "wrong" the moment the
+        // series actually settles, which can immediately trigger a second,
+        // spurious boundary right behind a real one. A small trailing
+        // sample (already past the ramp by the time MIN_SHIFT_RUN_DAYS
+        // elapses) is a much closer estimate of where the segment lands,
+        // and a small starting count lets it adapt fast to what follows.
+        const tail = Math.min(TREND_SEED_TAIL_DAYS, pendL.length);
+        lm = mean(pendL.slice(-tail));
+        sm = mean(pendS.slice(-tail));
+        count = tail;
         clearPending();
       }
     } else {
@@ -541,12 +673,21 @@ export function detectSeasons(
     };
   }
 
-  const shape = buildShapeSeries(obs);
-  const raw = buildSeries(slotify(obs, (o) => o.value));
+  const yearCounts = slotYearCounts(obs);
   const globalFactors = globalDowFactors(obs);
 
-  // Pass 1: global weekly detrend.
-  const det1 = buildSeries(slotify(obs, (o) => o.value / globalFactors[o.dow]));
+  // Pass 1: global weekly detrend. Done before the shape series so its
+  // outlier list — computed on DOW-detrended values — can be reused to keep
+  // the shape computation clean too. The plain (undetrended) raw series
+  // used only for level labeling is NOT a safe source for that exclusion
+  // set: raw naturally oscillates weekly, and that expected oscillation can
+  // itself trip the MAD threshold, feeding false "outliers" into the shape
+  // computation that a one-off spike detector was never meant to produce.
+  const det1 = buildSeries(slotify(obs, (o) => o.value / globalFactors[o.dow]), yearCounts);
+  const outlierIdx = new Set(det1.outlierKeys.map((k) => KEY_IDX.get(k)!));
+  const shape = buildShapeSeries(obs, outlierIdx);
+  const raw = buildSeries(slotify(obs, (o) => o.value), yearCounts);
+
   const segs1 = segmentYear(det1.series, shape);
   const seasons1 = assembleSeasons(segs1, raw.series, obs);
 
@@ -557,6 +698,7 @@ export function detectSeasons(
       const f = seasons1[member1[o.idx]].dow.factors[o.dow];
       return o.value / (f > 0 ? f : globalFactors[o.dow]);
     }),
+    yearCounts,
   );
   const segs2 = segmentYear(det2.series, shape);
   const seasons2 = assembleSeasons(segs2, raw.series, obs);
