@@ -212,3 +212,6 @@ __marimo__/
 
 # Node
 node_modules/
+
+# Local-only worker runner (delete once the edge function is deployed)
+maya-rms/run-worker-local.mts
