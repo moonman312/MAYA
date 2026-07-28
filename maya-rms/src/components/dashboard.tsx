@@ -336,29 +336,59 @@ export function Dashboard() {
   }, [tab, activeHotelId]);
 
   // Month responses cached client-side so Prev/Next renders instantly from
-  // the last known data (revalidated quietly), and the neighboring months
-  // prefetch after every load so the next click is usually already there.
-  const calendarCacheRef = useRef(new Map<string, CalendarResponse>());
+  // the last known data, with three guards that keep fast clicking from
+  // turning into a request storm (each API call costs auth + several DB
+  // round-trips server-side, and bursts can trip upstream rate limits):
+  //   - entries fresher than CAL_FRESH_MS aren't refetched at all — the
+  //     realtime subscription clears the cache when data actually changes
+  //   - at most one in-flight request per month, shared by everything
+  //   - neighbor prefetch waits for navigation to settle before firing
+  const CAL_FRESH_MS = 2 * 60 * 1000;
+  const calendarCacheRef = useRef(
+    new Map<string, { data: CalendarResponse; fetchedAt: number }>(),
+  );
+  const calendarInFlightRef = useRef(new Map<string, Promise<CalendarResponse | null>>());
+  const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const calendarCacheKey = useCallback(
     (y: number, m: number) => `${activeHotelId ?? "demo"}|${y}-${m}`,
     [activeHotelId],
   );
 
-  const prefetchNeighborMonths = useCallback(
-    (y: number, m: number) => {
-      const neighbors = [
-        m === 1 ? { y: y - 1, m: 12 } : { y, m: m - 1 },
-        m === 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 },
-      ];
-      for (const n of neighbors) {
-        const key = calendarCacheKey(n.y, n.m);
-        if (calendarCacheRef.current.has(key)) continue;
-        void api<CalendarResponse>(`/api/calendar/${n.y}/${n.m}`)
-          .then((data) => calendarCacheRef.current.set(key, data))
-          .catch(() => {});
-      }
+  /** Fetch one month with in-flight dedupe; resolves null on failure. */
+  const fetchMonth = useCallback(
+    (y: number, m: number): Promise<CalendarResponse | null> => {
+      const key = calendarCacheKey(y, m);
+      const inFlight = calendarInFlightRef.current.get(key);
+      if (inFlight) return inFlight;
+      const p = api<CalendarResponse>(`/api/calendar/${y}/${m}`)
+        .then((data) => {
+          calendarCacheRef.current.set(key, { data, fetchedAt: Date.now() });
+          return data;
+        })
+        .catch(() => null)
+        .finally(() => calendarInFlightRef.current.delete(key));
+      calendarInFlightRef.current.set(key, p);
+      return p;
     },
     [calendarCacheKey],
+  );
+
+  const prefetchNeighborMonths = useCallback(
+    (y: number, m: number) => {
+      if (prefetchTimerRef.current) clearTimeout(prefetchTimerRef.current);
+      prefetchTimerRef.current = setTimeout(() => {
+        const neighbors = [
+          m === 1 ? { y: y - 1, m: 12 } : { y, m: m - 1 },
+          m === 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 },
+        ];
+        for (const n of neighbors) {
+          const hit = calendarCacheRef.current.get(calendarCacheKey(n.y, n.m));
+          if (hit && Date.now() - hit.fetchedAt < CAL_FRESH_MS) continue;
+          void fetchMonth(n.y, n.m);
+        }
+      }, 400);
+    },
+    [calendarCacheKey, fetchMonth, CAL_FRESH_MS],
   );
 
   const reloadCalendar = useCallback(async () => {
@@ -366,32 +396,30 @@ export function Dashboard() {
     const key = calendarCacheKey(year, month);
     const cached = calendarCacheRef.current.get(key);
     if (cached) {
-      // Instant paint from cache, then quietly refresh in the background.
-      setCalendar(cached);
+      // Instant paint from cache; refetch only if it's aged past freshness.
+      setCalendar(cached.data);
       prefetchNeighborMonths(year, month);
-      try {
-        const data = await api<CalendarResponse>(`/api/calendar/${year}/${month}`);
-        calendarCacheRef.current.set(key, data);
-        setCalendar(data);
-        setLastUpdated(new Date());
-      } catch {
-        // keep showing the cached month
+      if (Date.now() - cached.fetchedAt >= CAL_FRESH_MS) {
+        const data = await fetchMonth(year, month);
+        if (data) {
+          setCalendar(data);
+          setLastUpdated(new Date());
+        }
       }
       return;
     }
     setLoading(true);
     try {
-      const data = await api<CalendarResponse>(
-        `/api/calendar/${year}/${month}`,
-      );
-      calendarCacheRef.current.set(key, data);
-      setCalendar(data);
-      setLastUpdated(new Date());
+      const data = await fetchMonth(year, month);
+      if (data) {
+        setCalendar(data);
+        setLastUpdated(new Date());
+      }
       prefetchNeighborMonths(year, month);
     } finally {
       setLoading(false);
     }
-  }, [month, year, calendarCacheKey, prefetchNeighborMonths]);
+  }, [month, year, calendarCacheKey, fetchMonth, prefetchNeighborMonths, CAL_FRESH_MS]);
 
   /**
    * Background refresh used by polling / tab-focus: updates the calendar in
@@ -400,17 +428,13 @@ export function Dashboard() {
    * Errors are swallowed so a transient failure just keeps the current data.
    */
   const reloadCalendarQuiet = useCallback(async () => {
-    try {
-      const data = await api<CalendarResponse>(
-        `/api/calendar/${year}/${month}`,
-      );
-      calendarCacheRef.current.set(calendarCacheKey(year, month), data);
+    const data = await fetchMonth(year, month);
+    if (data) {
       setCalendar(data);
       setLastUpdated(new Date());
-    } catch {
-      // keep showing the last good calendar
     }
-  }, [month, year, calendarCacheKey]);
+    // On failure, keep showing the last good calendar.
+  }, [month, year, fetchMonth]);
 
   const reloadChangelog = useCallback(async () => {
     const data = await api<ChangelogCycle[]>("/api/changelog");

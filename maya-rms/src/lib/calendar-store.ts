@@ -83,16 +83,30 @@ const HISTORY_TTL_MS = 5 * 60 * 1000;
 
 type TtlEntry<T> = { expiresAt: number; value: T };
 
-/** Tiny keyed TTL cache with an injectable clock (exported for tests). */
+/**
+ * Tiny keyed TTL cache with an injectable clock (exported for tests).
+ * Stampede-proof: concurrent misses for the same key share one loader call
+ * instead of each firing their own — without this, a burst of calendar
+ * requests hitting an expired entry would all reload the full history at
+ * once (the classic cache-stampede failure).
+ */
 export function createTtlCache<T>(ttlMs: number, now: () => number = Date.now) {
   const entries = new Map<string, TtlEntry<T>>();
+  const inFlight = new Map<string, Promise<T>>();
   return {
     async getOrLoad(key: string, loader: () => Promise<T>): Promise<T> {
       const hit = entries.get(key);
       if (hit && hit.expiresAt > now()) return hit.value;
-      const value = await loader();
-      entries.set(key, { expiresAt: now() + ttlMs, value });
-      return value;
+      const pending = inFlight.get(key);
+      if (pending) return pending;
+      const p = loader()
+        .then((value) => {
+          entries.set(key, { expiresAt: now() + ttlMs, value });
+          return value;
+        })
+        .finally(() => inFlight.delete(key));
+      inFlight.set(key, p);
+      return p;
     },
     clear(): void {
       entries.clear();

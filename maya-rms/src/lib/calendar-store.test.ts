@@ -221,3 +221,38 @@ describe("createTtlCache", () => {
     expect(loads).toBe(2);
   });
 });
+
+describe("createTtlCache stampede protection", () => {
+  it("concurrent misses share one loader call", async () => {
+    const { createTtlCache } = await import("./calendar-store");
+    const cache = createTtlCache<number>(5000, () => 0);
+    let loads = 0;
+    const slowLoader = () =>
+      new Promise<number>((resolve) => setTimeout(() => resolve(++loads), 20));
+
+    const results = await Promise.all([
+      cache.getOrLoad("k", slowLoader),
+      cache.getOrLoad("k", slowLoader),
+      cache.getOrLoad("k", slowLoader),
+      cache.getOrLoad("k", slowLoader),
+      cache.getOrLoad("k", slowLoader),
+      cache.getOrLoad("k", slowLoader),
+    ]);
+
+    expect(loads).toBe(1);
+    expect(results).toEqual([1, 1, 1, 1, 1, 1]);
+  });
+
+  it("a failed load is not cached — the next call retries", async () => {
+    const { createTtlCache } = await import("./calendar-store");
+    const cache = createTtlCache<number>(5000, () => 0);
+    let calls = 0;
+    const flaky = async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("transient");
+      return 42;
+    };
+    await expect(cache.getOrLoad("k", flaky)).rejects.toThrow("transient");
+    expect(await cache.getOrLoad("k", flaky)).toBe(42);
+  });
+});
