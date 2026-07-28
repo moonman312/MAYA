@@ -5,6 +5,8 @@
 
 import { isBookingSpeed } from "@/lib/observations/booking-speed";
 import type {
+  BookingSpeedRuleOperator,
+  BookingSpeedWindowDays,
   PickupMetric,
   RuleAction,
   RuleCondition,
@@ -13,7 +15,7 @@ import type {
 
 const BOOKING_SPEED_WINDOWS: readonly number[] = [1, 7, 30];
 
-export type ConditionMetric = "occupancy" | "booking_window" | "pickup";
+export type ConditionMetric = "occupancy" | "booking_window" | "pickup" | "booking_speed";
 
 export type ConditionFormRow = {
   id: string;
@@ -23,6 +25,10 @@ export type ConditionFormRow = {
   value: string;
   pickup_window_days: 1 | 3 | 7;
   pickup_metric: PickupMetric;
+  booking_speed_operator: BookingSpeedRuleOperator;
+  /** A BookingSpeed level key ("faster", "much_slower", ...). */
+  booking_speed_level: string;
+  booking_speed_window_days: BookingSpeedWindowDays;
 };
 
 const SYM: Record<"gt" | "lt", string> = { gt: ">", lt: "<" };
@@ -38,6 +44,9 @@ export function newConditionRow(
     value: partial?.value ?? (metric === "occupancy" ? "80" : metric === "booking_window" ? "7" : "5"),
     pickup_window_days: partial?.pickup_window_days ?? 3,
     pickup_metric: partial?.pickup_metric ?? "room_nights",
+    booking_speed_operator: partial?.booking_speed_operator ?? "at_least",
+    booking_speed_level: partial?.booking_speed_level ?? "faster",
+    booking_speed_window_days: partial?.booking_speed_window_days ?? 7,
   };
 }
 
@@ -75,6 +84,11 @@ export function conditionRowsToRuleCondition(rows: ConditionFormRow[]): RuleCond
       if (!Number.isFinite(n)) continue;
       c.dta_operator = row.operator;
       c.dta_threshold_days = Math.max(0, Math.round(n));
+    } else if (row.metric === "booking_speed") {
+      if (!isBookingSpeed(row.booking_speed_level)) continue;
+      c.booking_speed_operator = row.booking_speed_operator;
+      c.booking_speed_level = row.booking_speed_level;
+      c.booking_speed_window_days = row.booking_speed_window_days;
     } else {
       const n = Number(row.value);
       if (!Number.isFinite(n)) continue;
