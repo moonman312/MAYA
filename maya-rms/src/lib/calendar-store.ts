@@ -55,37 +55,6 @@ function monthKey(year: number, month: number): string {
   return `${year}-${pad2(month)}`;
 }
 
-/**
- * Fetch ALL rows for a query, paging past Supabase's "Max rows" API cap
- * (default 1000). `makeQuery` must return a fresh query builder with a STABLE
- * `.order(...)` applied (so page ranges don't overlap or skip rows); this
- * helper only appends `.range()`. Without it, bulk reads silently truncate
- * at 1000 rows.
- */
-async function fetchAllRows<T>(
-  makeQuery: () => {
-    range: (
-      from: number,
-      to: number,
-    ) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>;
-  },
-  pageSize = 1000,
-): Promise<T[]> {
-  const all: T[] = [];
-  let from = 0;
-  let guard = 0;
-  for (;;) {
-    if (++guard > 1000) break; // safety backstop (~1M rows)
-    const { data, error } = await makeQuery().range(from, from + pageSize - 1);
-    if (error) throw new Error(error.message);
-    const rows = (data ?? []) as T[];
-    all.push(...rows);
-    if (rows.length < pageSize) break;
-    from += pageSize;
-  }
-  return all;
-}
-
 /* ── Demo / fallback calendar ─────────────────────────────────── */
 
 /** Deterministic pseudo-random demo numbers for one stay date. */
@@ -265,26 +234,24 @@ async function getCalendarFromDb(
     }
   }
 
-  // Full-history nightly revenue (sum of current_rate per stay date) — the
-  // hotel-wide RevPAR series that the day colors are judged against.
-  const seriesRows = await fetchAllRows<{ stay_date: string; current_rate: number | string | null }>(() =>
-    supabase
-      .from("reservations")
-      .select("stay_date, current_rate")
-      .eq("hotel_id", hotelId)
-      .order("id", { ascending: true }),
+  // Hotel-wide nightly revenue (sum of current_rate per stay date) — the
+  // RevPAR series day colors are judged against. Grouped in Postgres
+  // (one row per distinct stay date) instead of pulling every reservation
+  // row into Node — a mature property can have tens of thousands of
+  // reservation rows but only a few hundred/thousand distinct stay dates.
+  const { data: seriesRows, error: seriesErr } = await supabase.rpc(
+    "calendar_daily_revenue",
+    { p_hotel_id: hotelId },
   );
+  if (seriesErr) throw new Error(seriesErr.message);
 
   const revenueByDate = new Map<string, number>();
   let minStayDate: string | null = null;
   let maxStayDate: string | null = null;
-  for (const row of seriesRows) {
+  for (const row of (seriesRows ?? []) as { stay_date: string; revenue: number | string | null }[]) {
     const stayDate = String(row.stay_date);
-    const amount = Number(row.current_rate ?? 0);
-    revenueByDate.set(
-      stayDate,
-      (revenueByDate.get(stayDate) ?? 0) + (Number.isFinite(amount) ? amount : 0),
-    );
+    const amount = Number(row.revenue ?? 0);
+    revenueByDate.set(stayDate, Number.isFinite(amount) ? amount : 0);
     if (minStayDate === null || stayDate < minStayDate) minStayDate = stayDate;
     if (maxStayDate === null || stayDate > maxStayDate) maxStayDate = stayDate;
   }
