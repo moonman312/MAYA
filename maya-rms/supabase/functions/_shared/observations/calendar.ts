@@ -103,6 +103,11 @@ export function dayOfYearIndex(date: string): number {
   return KEY_INDEX.get(foldedMonthDayKey(date))!;
 }
 
+/** 0..364 slot for an already-folded "MM-DD" key. */
+export function foldedKeyIndex(key: string): number {
+  return KEY_INDEX.get(key)!;
+}
+
 /** Shortest circular distance between two year slots, in days. */
 export function circularDayDistance(idxA: number, idxB: number): number {
   const d = Math.abs(idxA - idxB);

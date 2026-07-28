@@ -76,9 +76,15 @@ describe("observeBookingSpeed", () => {
   const rowsFor = (stayDate: string, windows: number[]): SlimReservationRow[] =>
     windows.map((w) => ({ stay_date: stayDate, booking_window_days: w }));
 
+  // Four comparables — one more than MIN_TARGET_COMPARABLES — so these
+  // exercise the direct comparable path rather than the momentum fallback,
+  // which only kicks in below that threshold (see momentum.test.ts and
+  // expected-bookings.test.ts's own "falls back to momentum" case below).
+  const FOUR_COMPARABLES = ["2025-08-16", "2025-08-09", "2025-08-02", "2024-08-17"];
+
   it("measures every date over the same stretch of its booking curve", () => {
     const rows = [
-      // 8 in window: enough over the ~4.3 expectation to clear the
+      // 8 in window: enough over the ~4.25 expectation to clear the
       // sqrt-scaled noise guard at this volume (see the guard suite in
       // booking-speed.test.ts — a gap this small at low counts is designed
       // to read as Normal until it clears that bar).
@@ -86,34 +92,37 @@ describe("observeBookingSpeed", () => {
       ...rowsFor("2025-08-16", [14, 16, 18, 20, 2, 40]), // 4 in window
       ...rowsFor("2025-08-09", [15, 17, 19, 20, 90]), // 4 in window
       ...rowsFor("2025-08-02", [14, 15, 16, 18, 19, 1]), // 5 in window
+      ...rowsFor("2024-08-17", [14, 16, 18, 20, 2, 40]), // 4 in window
     ];
     const obs = observeBookingSpeed({
       rows,
       target: "2026-08-15",
       asOf: "2026-08-01",
-      selection: fakeSelection(["2025-08-16", "2025-08-09", "2025-08-02"]),
+      selection: fakeSelection(FOUR_COMPARABLES),
     });
     expect(obs.daysOut).toBe(14);
+    expect(obs.method).toBe("comparable");
     expect(obs.recentBookings).toBe(8);
-    expect(obs.perComparable.map((c) => c.bookings)).toEqual([4, 4, 5]);
-    expect(obs.expectedBookings).toBeCloseTo(4.33, 2);
+    expect(obs.perComparable.map((c) => c.bookings)).toEqual([4, 4, 5, 4]);
+    expect(obs.expectedBookings).toBeCloseTo(4.25, 2);
     expect(obs.classification.speed).toBe("faster");
   });
 
   it("stays Normal when the gap from expectation is within noise for the volume", () => {
-    // Same comparables (expected ~4.33), but only 7 recent bookings — a
-    // 2.67 gap, below the sqrt-scaled bar at this expectation.
+    // Same comparables (expected ~4.25), but only 7 recent bookings — a
+    // 2.75 gap, below the sqrt-scaled bar at this expectation.
     const rows = [
       ...rowsFor("2026-08-15", [14, 15, 16, 17, 18, 19, 20, 5, 30, 3]),
       ...rowsFor("2025-08-16", [14, 16, 18, 20, 2, 40]),
       ...rowsFor("2025-08-09", [15, 17, 19, 20, 90]),
       ...rowsFor("2025-08-02", [14, 15, 16, 18, 19, 1]),
+      ...rowsFor("2024-08-17", [14, 16, 18, 20, 2, 40]),
     ];
     const obs = observeBookingSpeed({
       rows,
       target: "2026-08-15",
       asOf: "2026-08-01",
-      selection: fakeSelection(["2025-08-16", "2025-08-09", "2025-08-02"]),
+      selection: fakeSelection(FOUR_COMPARABLES),
     });
     expect(obs.recentBookings).toBe(7);
     expect(obs.classification.speed).toBe("normal");
@@ -126,12 +135,13 @@ describe("observeBookingSpeed", () => {
       ...rowsFor("2025-08-16", [14, 16, 18, 20]),
       ...rowsFor("2025-08-09", [15, 17, 19, 20]),
       ...rowsFor("2025-08-02", [14, 15, 16, 18]),
+      ...rowsFor("2024-08-17", [14, 16, 18, 20]),
     ];
     const obs = observeBookingSpeed({
       rows,
       target: "2026-08-15",
       asOf: "2026-08-01",
-      selection: fakeSelection(["2025-08-16", "2025-08-09", "2025-08-02"]),
+      selection: fakeSelection(FOUR_COMPARABLES),
     });
     expect(obs.recentBookings).toBe(9);
     expect(obs.expectedBookings).toBe(4);
@@ -139,17 +149,60 @@ describe("observeBookingSpeed", () => {
   });
 
   it("keeps fractional expectations honest on quiet far-out dates", () => {
-    const rows = [...rowsFor("2025-08-16", [15]), ...rowsFor("2025-08-09", []), ...rowsFor("2025-08-02", [])];
+    const rows = [
+      ...rowsFor("2025-08-16", [15]),
+      ...rowsFor("2025-08-09", []),
+      ...rowsFor("2025-08-02", []),
+      ...rowsFor("2024-08-17", []),
+    ];
     const obs = observeBookingSpeed({
       rows,
       target: "2026-08-15",
       asOf: "2026-08-01",
-      selection: fakeSelection(["2025-08-16", "2025-08-09", "2025-08-02"]),
+      selection: fakeSelection(FOUR_COMPARABLES),
     });
     expect(obs.recentBookings).toBe(0);
-    expect(obs.expectedBookings).toBeCloseTo(0.33, 2);
+    expect(obs.expectedBookings).toBeCloseTo(0.25, 2);
     expect(obs.classification.speed).toBe("normal");
     expect(describeExpectation(obs)).toContain("almost no bookings");
+  });
+
+  it("falls back to momentum when fewer than the minimum comparables were found", () => {
+    // Only 2 comparables — below MIN_TARGET_COMPARABLES — so this must NOT
+    // use the plain trimmed-mean path even though comparable data exists.
+    const rows = [
+      ...rowsFor("2026-08-15", [14, 15, 16]), // 3 recent
+      ...rowsFor("2025-08-16", [14]), // weak comparable, ignored for the number
+      ...rowsFor("2025-08-09", [15]),
+      // Momentum neighbors, correctly aligned to their own daysOut bands.
+      ...rowsFor("2026-08-13", [12, 12]),
+      ...rowsFor("2025-08-13", [12]),
+      ...rowsFor("2026-08-17", [16, 16]),
+      ...rowsFor("2025-08-17", [16]),
+    ];
+    const obs = observeBookingSpeed({
+      rows,
+      target: "2026-08-15",
+      asOf: "2026-08-01",
+      selection: fakeSelection(["2025-08-16", "2025-08-09"]),
+    });
+    expect(obs.method).toBe("momentum");
+    expect(obs.momentum).toBeDefined();
+    expect(obs.perComparable).toHaveLength(2); // still recorded, just not used
+    expect(describeExpectation(obs)).toContain("booking momentum from neighboring dates");
+  });
+
+  it("reports insufficient_data honestly when even momentum has nothing to go on", () => {
+    const obs = observeBookingSpeed({
+      rows: [],
+      target: "2026-08-15",
+      asOf: "2026-08-01",
+      selection: fakeSelection([]),
+    });
+    expect(obs.method).toBe("insufficient_data");
+    expect(obs.expectedBookings).toBe(0);
+    expect(describeObservation(obs)).toContain("do not have enough history");
+    expect(describeExpectation(obs)).toContain("do not have enough booking history");
   });
 
   it("refuses targets in the past", () => {
@@ -169,16 +222,17 @@ describe("observeBookingSpeed", () => {
       ...rowsFor("2025-08-16", [14, 16]),
       ...rowsFor("2025-08-09", [15]),
       ...rowsFor("2025-08-02", [18]),
+      ...rowsFor("2024-08-17", [16]),
     ];
     const obs = observeBookingSpeed({
       rows,
       target: "2026-08-15",
       asOf: "2026-08-01",
-      selection: fakeSelection(["2025-08-16", "2025-08-09", "2025-08-02"]),
+      selection: fakeSelection(FOUR_COMPARABLES),
     });
     expect(describeObservation(obs)).not.toMatch(NO_MATH_SYMBOLS);
     const expectation = describeExpectation(obs);
-    expect(expectation).toContain("3 similar past dates");
+    expect(expectation).toContain("4 similar past dates");
     expect(expectation).toContain("days before arrival");
     expect(expectation).not.toMatch(NO_MATH_SYMBOLS);
   });
