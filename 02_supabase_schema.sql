@@ -2040,3 +2040,36 @@ drop policy if exists hotel_closed_periods_access on hotel_closed_periods;
 create policy hotel_closed_periods_access on hotel_closed_periods
   for all using (is_hotel_accessible(hotel_id))
   with check (can_manage_hotel(hotel_id));
+
+-- ============================================================================
+-- PMS REQUEST LOG (mirrors 99_supabase_migration_pms_request_log_v1)
+-- ============================================================================
+
+-- ── pms_request_log: one row per outbound PMS API request ───────────────────
+-- Written fire-and-forget by the service-role sync / onboarding workers;
+-- powers the dashboard PMS health strip (24h success rate + activity feed).
+
+create table if not exists pms_request_log (
+  id uuid primary key default gen_random_uuid(),
+  hotel_id uuid not null references hotels(id) on delete cascade,
+  pms_type pms_type not null,
+  http_method text not null,
+  endpoint text not null,
+  status_code integer,
+  ok boolean not null,
+  duration_ms integer,
+  message text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_pms_request_log_hotel
+  on pms_request_log(hotel_id, created_at desc);
+
+-- Members can watch their hotel's PMS traffic; only the service-role
+-- workers write (same pattern as import_jobs).
+alter table pms_request_log enable row level security;
+
+drop policy if exists pms_request_log_read on pms_request_log;
+create policy pms_request_log_read on pms_request_log
+  for select using (is_hotel_accessible(hotel_id));
+revoke insert, update, delete on pms_request_log from anon, authenticated;

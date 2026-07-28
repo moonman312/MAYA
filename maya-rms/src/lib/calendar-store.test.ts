@@ -9,9 +9,24 @@ describe("getCalendar (demo mode — no Supabase)", () => {
     expect(cal.year).toBe(2026);
     expect(cal.month).toBe(3);
     expect(cal.days_in_month).toBe(31);
-    expect(cal.thresholds).toEqual({ low: 60, high: 80 });
+    expect(cal.thresholds).toMatchObject({ low: 60, high: 80, basis: "revpar" });
     expect(cal.month_name).toContain("March");
     expect(cal.month_name).toContain("2026");
+  });
+
+  it("exposes RevPAR tercile thresholds for past and future", async () => {
+    const cal = await getCalendar(2026, 3);
+    for (const side of [cal.thresholds.past, cal.thresholds.future]) {
+      expect(side.p33).toBeGreaterThan(0);
+      expect(side.p67).toBeGreaterThanOrEqual(side.p33);
+    }
+  });
+
+  it("reports a navigable range spanning the demo window", async () => {
+    const cal = await getCalendar(2026, 3);
+    expect(cal.range.min).toMatch(/^\d{4}-\d{2}$/);
+    expect(cal.range.max).toMatch(/^\d{4}-\d{2}$/);
+    expect(cal.range.min < cal.range.max).toBe(true);
   });
 
   it("has an entry for every day of the month", async () => {
@@ -46,6 +61,27 @@ describe("getCalendar (demo mode — no Supabase)", () => {
     expect(day).toHaveProperty("revenue");
     expect(day).toHaveProperty("weekday");
     expect(day).toHaveProperty("room_types");
+    expect(day).toHaveProperty("revpar");
+    expect(day).toHaveProperty("color");
+  });
+
+  it("each day carries a RevPAR consistent with its revenue and a valid color", async () => {
+    const cal = await getCalendar(2026, 6);
+    for (const key of Object.keys(cal.days)) {
+      const day = cal.days[key];
+      expect(day.revpar).toBe(Math.round((day.revenue / day.total) * 100) / 100);
+      expect(["green", "orange", "red"]).toContain(day.color);
+    }
+  });
+
+  it("every room type entry carries a numeric current_rate in demo mode", async () => {
+    const cal = await getCalendar(2026, 6);
+    for (const key of Object.keys(cal.days)) {
+      for (const rt of cal.days[key].room_types) {
+        expect(typeof rt.current_rate).toBe("number");
+        expect(rt.current_rate).toBeGreaterThan(0);
+      }
+    }
   });
 
   it("weekday names are valid", async () => {

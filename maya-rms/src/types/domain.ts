@@ -180,6 +180,12 @@ export type CalendarRoomType = {
    * Distinct from `rate`, which is the backward-looking ADR of bookings.
    */
   current_price?: number | null;
+  /**
+   * Current asking price for this night: the `published_price` row for this
+   * (stay_date, room_type) when one exists, else null. Demo mode fills it
+   * from the generated demo rate so the day detail always has a price.
+   */
+  current_rate: number | null;
 };
 
 export type CalendarDay = {
@@ -189,6 +195,13 @@ export type CalendarDay = {
   revenue: number;
   weekday: string;
   room_types: CalendarRoomType[];
+  /** Booked revenue / total property rooms for the day, 2dp; 0 when no rooms. */
+  revpar: number;
+  /**
+   * Property-relative RevPAR bucket. Past days are judged against the
+   * hotel's historical terciles, future days against the on-the-books ones.
+   */
+  color: "green" | "orange" | "red";
 };
 
 export type CalendarResponse = {
@@ -197,7 +210,23 @@ export type CalendarResponse = {
   month_name: string;
   days_in_month: number;
   first_weekday: number;
-  thresholds: { low: number; high: number };
+  /**
+   * `low`/`high` are the legacy occupancy-percent cutoffs (kept for older
+   * consumers). `basis`/`past`/`future` are the property-relative RevPAR
+   * tercile cutoffs that back each day's `color`.
+   */
+  thresholds: {
+    low: number;
+    high: number;
+    basis: "revpar";
+    past: { p33: number; p67: number };
+    future: { p33: number; p67: number };
+  };
+  /**
+   * First and last month (YYYY-MM) with any reservation or published price
+   * for the hotel; the demo window when no Supabase data backs the calendar.
+   */
+  range: { min: string; max: string };
   days: Record<string, CalendarDay>;
 };
 
@@ -228,6 +257,10 @@ export type ChangelogEntry = {
   change_pct: number;
   occupancy_pct: number;
   description: string;
+  /** Stay night the change applies to (ISO date). Absent in legacy/demo shapes. */
+  stay_date?: string;
+  /** Sentence-per-step story of the change, from narrateChange. */
+  narrative?: string[];
 };
 
 export type ChangelogCycle = {

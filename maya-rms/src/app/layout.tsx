@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MAYA RMS",
+  title: "MAYA",
   description: "Machine Assisted Yield Automation — revenue management for hotels",
 };
 

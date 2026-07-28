@@ -258,24 +258,28 @@ function FindingCard({
         >
           {c.confirmLabel}
         </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onDismiss}
-          className="cursor-pointer rounded border border-slate-700 px-4 py-1.5 text-xs font-medium text-slate-300 hover:border-slate-500 disabled:opacity-60"
-        >
-          {c.dismissLabel}
-        </button>
+        {c.acknowledgeOnly ? null : (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onDismiss}
+            className="cursor-pointer rounded border border-slate-700 px-4 py-1.5 text-xs font-medium text-slate-300 hover:border-slate-500 disabled:opacity-60"
+          >
+            {c.dismissLabel}
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
-function describeFinding(f: Finding): {
+export function describeFinding(f: Finding): {
   title: string;
   body: string;
   confirmLabel: string;
   dismissLabel: string;
+  /** Purely informational — show a single acknowledgement button, no dismiss. */
+  acknowledgeOnly?: boolean;
 } {
   const p = f.payload;
   switch (f.kind) {
@@ -323,9 +327,10 @@ function describeFinding(f: Finding): {
     case "zero_rate_rows":
       return {
         title: "Some stays have a $0 rate",
-        body: `${Number(p.count).toLocaleString()} room-nights came through with no rate — usually comps or data gaps. Just a heads-up; they're excluded from rate analysis.`,
+        body: `${Number(p.count).toLocaleString()} room-nights came through with no rate — usually comps or data gaps. Nothing you have to do — we'll ignore them for the purpose of this analysis.`,
         confirmLabel: "Got it",
         dismissLabel: "Dismiss",
+        acknowledgeOnly: true,
       };
     case "rule_suggestion": {
       if (p.suggestion_type === "adjust_rule") {
@@ -356,9 +361,10 @@ function describeFinding(f: Finding): {
     case "unmapped_room_type":
       return {
         title: "Some old stays reference deleted room types",
-        body: `${Number(p.count).toLocaleString()} room-nights point at room types that no longer exist in your PMS. They still count toward history totals but can't be priced.`,
+        body: `${Number(p.count).toLocaleString()} room-nights point at room types that no longer exist in your PMS. They still count toward history totals but can't be priced. Nothing you have to do here — we've already accounted for them.`,
         confirmLabel: "Got it",
         dismissLabel: "Dismiss",
+        acknowledgeOnly: true,
       };
     default:
       return {

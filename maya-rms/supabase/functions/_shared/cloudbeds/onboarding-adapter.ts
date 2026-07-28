@@ -25,6 +25,7 @@ import {
 } from "./client.ts";
 import { parseCloudbedsReservations, parseCloudbedsRoomTypes } from "./etl.ts";
 import { CLOUDBEDS_ACTIVE_STATUSES, defaultCloudbedsBaseUrl } from "./constants.ts";
+import { installCloudbedsRequestLogging } from "./request-log.ts";
 import type { CloudbedsResolvedCredentials } from "./types.ts";
 
 type CloudbedsCursor = { statusIndex: number; pageNumber: number };
@@ -45,6 +46,9 @@ export async function createCloudbedsOnboardingAdapter(
   hotelId: string,
   preResolved?: PreResolvedOAuthCredentials,
 ): Promise<OnboardingPmsAdapter> {
+  // Mirror every Cloudbeds API call into pms_request_log (fire-and-forget).
+  installCloudbedsRequestLogging(supabase, hotelId);
+
   // pms_connections.base_url wins over the env default (same as sync-hotel).
   const { data: connRow } = await supabase
     .from("pms_connections")

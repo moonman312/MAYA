@@ -28,6 +28,44 @@ export class CloudbedsHttpError extends Error {
   }
 }
 
+/* ── Request logging (pluggable, fire-and-forget) ─────────────────────────── */
+
+export type CloudbedsRequestLogEntry = {
+  method: "GET" | "POST";
+  endpoint: string;
+  statusCode: number | null;
+  ok: boolean;
+  durationMs: number;
+  message?: string;
+};
+
+let requestLogger: ((e: CloudbedsRequestLogEntry) => void) | null = null;
+
+/**
+ * Install a logger invoked once per cloudbedsGet/cloudbedsPost call with its
+ * final outcome (429 retries are internal; only the attempt that resolves or
+ * fails the call is reported). Never awaited and never allowed to throw, so
+ * the callback must handle its own async errors (e.g. a void'ed insert).
+ */
+export function setCloudbedsRequestLogger(
+  fn: ((e: CloudbedsRequestLogEntry) => void) | null,
+): void {
+  requestLogger = fn;
+}
+
+function emitRequestLog(entry: CloudbedsRequestLogEntry): void {
+  if (!requestLogger) return;
+  try {
+    requestLogger(entry);
+  } catch {
+    // Logging must never break the request path.
+  }
+}
+
+function errorText(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).slice(0, 200);
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -70,6 +108,8 @@ export async function cloudbedsGet(
     await pace();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const startedAt = Date.now();
+    let statusCode: number | null = null;
     try {
       const res = await fetch(url.toString(), {
         method: "GET",
@@ -79,6 +119,7 @@ export async function cloudbedsGet(
         },
         signal: controller.signal,
       });
+      statusCode = res.status;
       const text = await res.text();
       let data: unknown;
       try {
@@ -111,7 +152,24 @@ export async function cloudbedsGet(
         );
       }
 
+      emitRequestLog({
+        method: "GET",
+        endpoint: method,
+        statusCode,
+        ok: true,
+        durationMs: Date.now() - startedAt,
+      });
       return rec;
+    } catch (error) {
+      emitRequestLog({
+        method: "GET",
+        endpoint: method,
+        statusCode,
+        ok: false,
+        durationMs: Date.now() - startedAt,
+        message: errorText(error),
+      });
+      throw error;
     } finally {
       clearTimeout(timer);
     }
@@ -300,6 +358,8 @@ export async function cloudbedsPost(
     await pace();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const startedAt = Date.now();
+    let statusCode: number | null = null;
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -311,6 +371,7 @@ export async function cloudbedsPost(
         body: JSON.stringify(body),
         signal: controller.signal,
       });
+      statusCode = res.status;
       const text = await res.text();
       let data: unknown;
       try {
@@ -338,7 +399,24 @@ export async function cloudbedsPost(
           res.status === 429 ? parseRetryAfterMs(res) : null,
         );
       }
+      emitRequestLog({
+        method: "POST",
+        endpoint: method,
+        statusCode,
+        ok: true,
+        durationMs: Date.now() - startedAt,
+      });
       return rec;
+    } catch (error) {
+      emitRequestLog({
+        method: "POST",
+        endpoint: method,
+        statusCode,
+        ok: false,
+        durationMs: Date.now() - startedAt,
+        message: errorText(error),
+      });
+      throw error;
     } finally {
       clearTimeout(timer);
     }

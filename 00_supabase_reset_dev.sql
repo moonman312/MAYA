@@ -119,6 +119,7 @@ drop table if exists
   published_price,
   pms_connection_secrets,
   pms_connections,
+  pms_request_log,
   rate_updates,
   reservations,
   room_constraints,
