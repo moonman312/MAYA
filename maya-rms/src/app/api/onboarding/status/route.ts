@@ -43,12 +43,18 @@ export async function GET() {
     const { data } = await supabase
       .from("import_jobs")
       .select(
-        "status, phase, window_index, windows_completed, rows_upserted, reservations_enumerated, oldest_stay_date, newest_stay_date, last_error, started_at, finished_at",
+        "status, phase, window_index, windows_completed, rows_upserted, reservations_enumerated, oldest_stay_date, newest_stay_date, last_error, started_at, finished_at, stats",
       )
       .eq("id", state.import_job_id)
       .maybeSingle();
     job = data;
   }
+
+  const { data: settings } = await supabase
+    .from("hotel_settings")
+    .select("simulation_mode")
+    .eq("hotel_id", hotelId)
+    .maybeSingle();
 
   const { count: proposedFindings } = await supabase
     .from("onboarding_findings")
@@ -64,5 +70,6 @@ export async function GET() {
     state: state ?? null,
     job,
     proposedFindings: proposedFindings ?? 0,
+    simulationMode: settings?.simulation_mode !== false,
   });
 }

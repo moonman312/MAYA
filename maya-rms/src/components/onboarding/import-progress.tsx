@@ -21,8 +21,13 @@ export type OnboardingStatus = {
     newest_stay_date: string | null;
     last_error: string | null;
     finished_at: string | null;
+    stats?: {
+      starterRules?: Array<{ name: string; explanation: string }>;
+      [key: string]: unknown;
+    };
   } | null;
   proposedFindings?: number;
+  simulationMode?: boolean;
 };
 
 export function useOnboardingStatus(pollMs = 4000): OnboardingStatus | null {
