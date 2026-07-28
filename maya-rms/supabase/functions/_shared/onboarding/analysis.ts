@@ -11,11 +11,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ImportJobRow } from "./worker-core.ts";
 import { projectStrategyOntoRoomTypes } from "./project-strategy.ts";
-import { computeStarterRules, generateStarterRules } from "./generate-rules.ts";
+import { computeOccupancyReference, computeStarterRules, generateStarterRules } from "./generate-rules.ts";
 import {
   computeGuardrailSuggestions,
+  computeInitialGuardrails,
   computeRuleSuggestions,
   type ExistingRuleSummary,
+  type InitialGuardrailInput,
 } from "./suggest.ts";
 
 /* ── Pure decision logic ─────────────────────────────────────────────────── */
@@ -551,6 +553,11 @@ export async function analyzeImport(
   // room types created by the import get their guardrails too.
   await projectStrategyOntoRoomTypes(supabase, hotelId);
 
+  // Then data fills whatever the answers left at schema defaults: ceilings
+  // from p99 x 1.5, floors from a fraction of the median — the guardrail
+  // half of the starter package, applied while still in simulation mode.
+  await applyInitialGuardrails(supabase, hotelId, stats, new Set(suspects.map((s) => s.room_type_id)));
+
   // The payoff: starter rules built from their own history, live-in-simulation.
   const starterRules = await generateStarterRules(supabase, hotelId);
   if (starterRules.length > 0) {
@@ -585,7 +592,7 @@ async function buildSuggestionInserts(
       supabase
         .from("pricing_rules")
         .select(
-          "id, name, is_active, is_pickup_rule, rule_condition(occupancy_operator, occupancy_threshold, pickup_operator, pickup_threshold)",
+          "id, name, is_active, is_pickup_rule, rule_condition(occupancy_operator, occupancy_threshold, pickup_operator, pickup_threshold, booking_speed_operator)",
         )
         .eq("hotel_id", hotelId),
       supabase
@@ -620,17 +627,15 @@ async function buildSuggestionInserts(
       occupancy_threshold: rc?.occupancy_threshold != null ? Number(rc.occupancy_threshold) : null,
       pickup_operator: (rc?.pickup_operator as string | null) ?? null,
       pickup_threshold: rc?.pickup_threshold != null ? Number(rc.pickup_threshold) : null,
+      has_booking_speed: rc?.booking_speed_operator != null,
     };
   });
 
-  const dataSpecs = computeStarterRules({
-    dailyOccupancyFractions: daily
-      .filter((d) => d.stay_date < today)
-      .map((d) => Math.min(1, d.room_nights / totalRooms)),
-    totalRooms,
-    pricingConfidence:
-      (settings?.pricing_confidence as "automate_current" | "find_upside" | null) ?? null,
-  });
+  const historyDays = daily.filter((d) => d.stay_date < today);
+  const paceSpecs = computeStarterRules({ daysOfHistory: historyDays.length });
+  const occupancyRef = computeOccupancyReference(
+    historyDays.map((d) => Math.min(1, d.room_nights / totalRooms)),
+  );
 
   const p99ByRoomType = new Map<string, number>();
   for (const s of rtStats ?? []) {
@@ -653,7 +658,7 @@ async function buildSuggestionInserts(
   );
   const suspectIds = new Set(findSuspectRoomTypes(parsedStats).map((f) => f.room_type_id));
 
-  const ruleSuggestions = computeRuleSuggestions(existing, dataSpecs);
+  const ruleSuggestions = computeRuleSuggestions(existing, paceSpecs, occupancyRef);
   const guardrailSuggestions = computeGuardrailSuggestions(
     (roomTypes ?? []).map((rt) => ({
       room_type_id: String(rt.id),
@@ -686,4 +691,48 @@ async function buildSuggestionInserts(
       payload: s as unknown as Record<string, unknown>,
     })),
   ];
+}
+
+/**
+ * First-run guardrail application: computeInitialGuardrails decides, this
+ * writes. Separate from projectStrategyOntoRoomTypes because strategy
+ * answers are the human's numbers and always win — this only ever touches
+ * room types the projection left at schema defaults.
+ */
+async function applyInitialGuardrails(
+  supabase: SupabaseClient,
+  hotelId: string,
+  stats: RoomTypeStats[],
+  suspectRoomTypeIds: ReadonlySet<string>,
+): Promise<void> {
+  const { data: roomTypes } = await supabase
+    .from("room_types")
+    .select("id, name, floor_price, ceiling_price")
+    .eq("hotel_id", hotelId)
+    .eq("is_active", true);
+  if (!roomTypes?.length) return;
+
+  const statsById = new Map(stats.map((s) => [s.room_type_id, s]));
+  const inputs: InitialGuardrailInput[] = roomTypes.map((rt) => {
+    const s = statsById.get(String(rt.id));
+    return {
+      room_type_id: String(rt.id),
+      name: String(rt.name ?? ""),
+      floor_price: Number(rt.floor_price),
+      ceiling_price: Number(rt.ceiling_price),
+      observed_p99_rate: s?.p99_rate ?? null,
+      observed_median_rate: s?.median_rate ?? null,
+      row_count: s?.row_count ?? 0,
+    };
+  });
+
+  const patches = new Map<string, Record<string, number>>();
+  for (const g of computeInitialGuardrails(inputs, suspectRoomTypeIds)) {
+    const patch = patches.get(g.room_type_id) ?? {};
+    patch[g.field] = g.value;
+    patches.set(g.room_type_id, patch);
+  }
+  for (const [roomTypeId, patch] of patches) {
+    await supabase.from("room_types").update(patch).eq("id", roomTypeId);
+  }
 }

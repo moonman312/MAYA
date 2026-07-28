@@ -1,21 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   computeGuardrailSuggestions,
+  computeInitialGuardrails,
   computeRuleSuggestions,
   type ExistingRuleSummary,
+  type InitialGuardrailInput,
 } from "../../../supabase/functions/_shared/onboarding/suggest";
 import { computeStarterRules } from "../../../supabase/functions/_shared/onboarding/generate-rules";
 
-function specs() {
-  // This series yields p80 -> 85% and p95 -> 95% thresholds.
-  const occ: number[] = [];
-  for (let i = 0; i < 700; i++) occ.push(i % 100 < 20 ? 0.9 : 0.5);
-  return computeStarterRules({
-    dailyOccupancyFractions: occ,
-    totalRooms: 40,
-    pricingConfidence: null,
-  });
-}
+const PACE_SPECS = computeStarterRules({ daysOfHistory: 400 });
+const OCC_REF = { surgePct: 85, peakPct: 95 };
 
 function rule(o: Partial<ExistingRuleSummary>): ExistingRuleSummary {
   return {
@@ -27,81 +21,126 @@ function rule(o: Partial<ExistingRuleSummary>): ExistingRuleSummary {
     occupancy_threshold: 0.85,
     pickup_operator: null,
     pickup_threshold: null,
+    has_booking_speed: false,
     ...o,
   };
 }
 
+function bookingSpeedRule(o: Partial<ExistingRuleSummary> = {}): ExistingRuleSummary {
+  return rule({
+    id: "bs1",
+    name: "Pace rule",
+    is_pickup_rule: true,
+    occupancy_operator: null,
+    occupancy_threshold: null,
+    has_booking_speed: true,
+    ...o,
+  });
+}
+
 describe("computeRuleSuggestions", () => {
-  it("suggests everything for a hotel with no rules", () => {
-    const out = computeRuleSuggestions([], specs());
-    expect(out.filter((s) => s.suggestion_type === "add_rule")).toHaveLength(3);
+  it("offers the whole pace ladder to a hotel with no rules", () => {
+    const out = computeRuleSuggestions([], PACE_SPECS, null);
+    const adds = out.filter((s) => s.suggestion_type === "add_rule");
+    expect(adds).toHaveLength(5);
+    for (const a of adds) {
+      const spec = (a as { spec: { condition: Record<string, unknown> } }).spec;
+      expect(spec.condition.booking_speed_operator).toBeDefined();
+    }
   });
 
-  it("stays silent when existing rules already match the data", () => {
-    const existing = [
-      rule({ id: "a", occupancy_threshold: 0.85 }),
-      rule({ id: "b", occupancy_threshold: 0.95 }),
-      rule({
-        id: "c",
-        is_pickup_rule: true,
-        occupancy_operator: null,
-        occupancy_threshold: null,
-        pickup_operator: "gt",
-        pickup_threshold: 6,
-      }),
-    ];
-    expect(computeRuleSuggestions(existing, specs())).toHaveLength(0);
+  it("stays silent about pace once ANY booking-speed rule exists — their setup is theirs", () => {
+    const out = computeRuleSuggestions([bookingSpeedRule()], PACE_SPECS, null);
+    expect(out.filter((s) => s.suggestion_type === "add_rule")).toHaveLength(0);
   });
 
-  it("suggests adjusting a threshold that drifted far from the data", () => {
+  it("suggests adjusting an occupancy threshold that drifted far from the data's marks", () => {
     const existing = [
       rule({ id: "a", name: "High season bump", occupancy_threshold: 0.7 }),
-      rule({
-        id: "c",
-        is_pickup_rule: true,
-        occupancy_operator: null,
-        occupancy_threshold: null,
-        pickup_operator: "gt",
-        pickup_threshold: 6,
-      }),
+      bookingSpeedRule(),
     ];
-    const out = computeRuleSuggestions(existing, specs());
+    const out = computeRuleSuggestions(existing, PACE_SPECS, OCC_REF);
     const adjusts = out.filter((s) => s.suggestion_type === "adjust_rule");
-    expect(adjusts.length).toBeGreaterThanOrEqual(1);
-    expect(adjusts[0]).toMatchObject({ rule_id: "a", rule_name: "High season bump" });
+    expect(adjusts).toHaveLength(1);
+    expect(adjusts[0]).toMatchObject({
+      rule_id: "a",
+      rule_name: "High season bump",
+      suggested_threshold: 0.85,
+    });
   });
 
-  it("never suggests touching a rule within tolerance of the data", () => {
-    // 88/93 vs the data's 85/95 — close enough; silence.
+  it("never suggests touching an occupancy rule within tolerance of the marks", () => {
     const existing = [
       rule({ id: "a", occupancy_threshold: 0.88 }),
       rule({ id: "b", occupancy_threshold: 0.93 }),
-      rule({
-        id: "c",
-        is_pickup_rule: true,
-        occupancy_operator: null,
-        occupancy_threshold: null,
-        pickup_operator: "gt",
-        pickup_threshold: 4,
-      }),
+      bookingSpeedRule(),
     ];
-    const out = computeRuleSuggestions(existing, specs());
+    const out = computeRuleSuggestions(existing, PACE_SPECS, OCC_REF);
     expect(out.filter((s) => s.suggestion_type === "adjust_rule")).toHaveLength(0);
   });
 
-  it("suggests a pickup rule when none exists", () => {
-    const existing = [rule({ id: "a" }), rule({ id: "b", occupancy_threshold: 0.95 })];
-    const out = computeRuleSuggestions(existing, specs());
-    const adds = out.filter((s) => s.suggestion_type === "add_rule");
-    expect(adds).toHaveLength(1);
-    expect((adds[0] as { spec: { is_pickup_rule: boolean } }).spec.is_pickup_rule).toBe(true);
+  it("ignores disabled rules when judging pace coverage", () => {
+    const out = computeRuleSuggestions([bookingSpeedRule({ is_active: false })], PACE_SPECS, null);
+    expect(out.filter((s) => s.suggestion_type === "add_rule")).toHaveLength(5);
   });
 
-  it("ignores disabled rules when judging coverage", () => {
-    const existing = [rule({ id: "a", is_active: false })];
-    const out = computeRuleSuggestions(existing, specs());
-    // Disabled rule covers nothing — all three should be suggested.
-    expect(out.filter((s) => s.suggestion_type === "add_rule")).toHaveLength(3);
+  it("makes no occupancy adjustments without a reference", () => {
+    const existing = [rule({ id: "a", occupancy_threshold: 0.4 }), bookingSpeedRule()];
+    expect(computeRuleSuggestions(existing, PACE_SPECS, null)).toHaveLength(0);
+  });
+});
+
+describe("computeInitialGuardrails", () => {
+  const rtIn = (o: Partial<InitialGuardrailInput>): InitialGuardrailInput => ({
+    room_type_id: "rt1",
+    name: "Deluxe King",
+    floor_price: 1.0, // schema default = unset
+    ceiling_price: 99999.99, // schema default = unset
+    observed_p99_rate: 400,
+    observed_median_rate: 220,
+    row_count: 500,
+    ...o,
+  });
+
+  it("fills both guardrails from the data when everything is at defaults", () => {
+    const out = computeInitialGuardrails([rtIn({})]);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatchObject({ field: "ceiling_price", value: 600 }); // p99 400 * 1.5
+    expect(out[1]).toMatchObject({ field: "floor_price", value: 90 }); // median 220 * 0.4 -> 88 -> 90
+  });
+
+  it("NEVER touches a guardrail a human (or the strategy answers) already set", () => {
+    expect(computeInitialGuardrails([rtIn({ floor_price: 45, ceiling_price: 350 })])).toHaveLength(0);
+    // One set, one default: only the default gets filled.
+    const out = computeInitialGuardrails([rtIn({ floor_price: 60 })]);
+    expect(out).toHaveLength(1);
+    expect(out[0].field).toBe("ceiling_price");
+  });
+
+  it("a fat-fingered max cannot inflate the ceiling — p99 is the basis", () => {
+    const out = computeInitialGuardrails([rtIn({ observed_p99_rate: 418 })]);
+    expect(out.find((g) => g.field === "ceiling_price")!.value).toBeLessThan(1000);
+  });
+
+  it("keeps the floor below the ceiling, even against a human-set low ceiling", () => {
+    // Median 220 would put the data floor at 90 — fine normally, but this
+    // room type has a human-set $80 ceiling, so no floor is applied.
+    const out = computeInitialGuardrails([rtIn({ ceiling_price: 80 })]);
+    expect(out).toHaveLength(0);
+  });
+
+  it("skips suspect room types and thin data", () => {
+    expect(computeInitialGuardrails([rtIn({})], new Set(["rt1"]))).toHaveLength(0);
+    expect(computeInitialGuardrails([rtIn({ row_count: 10 })])).toHaveLength(0);
+    expect(
+      computeInitialGuardrails([rtIn({ observed_p99_rate: null, observed_median_rate: null })]),
+    ).toHaveLength(0);
+  });
+
+  it("enforces the minimum data floor for very cheap properties", () => {
+    const out = computeInitialGuardrails([rtIn({ observed_median_rate: 18, observed_p99_rate: 40 })]);
+    const floor = out.find((g) => g.field === "floor_price");
+    expect(floor!.value).toBe(10); // 18 * 0.4 = 7.2 -> clamped to MIN_DATA_FLOOR
   });
 });
 

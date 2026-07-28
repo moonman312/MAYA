@@ -7,6 +7,7 @@ import {
   type DailyRoomNights,
 } from "../../../supabase/functions/_shared/onboarding/analysis";
 import {
+  computeOccupancyReference,
   computeStarterRules,
 } from "../../../supabase/functions/_shared/onboarding/generate-rules";
 
@@ -103,74 +104,119 @@ function occupancySeries(shape: { busyShare: number; busyLevel: number; quietLev
   return out;
 }
 
-describe("computeStarterRules", () => {
-  it("derives thresholds from the property's own distribution", () => {
-    const rules = computeStarterRules({
-      dailyOccupancyFractions: occupancySeries({ busyShare: 0.2, busyLevel: 0.9, quietLevel: 0.5 }),
-      totalRooms: 40,
-      pricingConfidence: null,
-    });
-    expect(rules).toHaveLength(3);
-    const surge = rules[0];
-    expect(surge.condition.occupancy_threshold).toBeGreaterThanOrEqual(0.6);
-    expect(surge.condition.occupancy_threshold).toBeLessThanOrEqual(0.85);
-    // peak strictly above surge
-    expect(rules[1].condition.occupancy_threshold!).toBeGreaterThan(
-      surge.condition.occupancy_threshold!,
-    );
-    // pickup scaled to 40 rooms
-    expect(rules[2].condition.pickup_threshold).toBe(6);
-    expect(rules[2].is_pickup_rule).toBe(true);
+describe("computeStarterRules: the booking-speed ladder", () => {
+  const NO_MATH_SYMBOLS = /[<>]/;
+  const rules = computeStarterRules({ daysOfHistory: 400 });
+  const byName = new Map(rules.map((r) => [r.name, r]));
+
+  it("generates exactly the five-rule pace ladder, every rule event-style", () => {
+    expect(rules).toHaveLength(5);
+    for (const r of rules) {
+      expect(r.is_pickup_rule).toBe(true);
+      expect(r.condition.booking_speed_operator).toBeDefined();
+      expect(r.condition.occupancy_operator).toBeUndefined();
+      expect(r.condition.pickup_operator).toBeUndefined();
+    }
   });
 
-  it("is bolder for find_upside than automate_current", () => {
-    const base = {
-      dailyOccupancyFractions: occupancySeries({ busyShare: 0.2, busyLevel: 0.9, quietLevel: 0.5 }),
-      totalRooms: 40,
-    };
-    const gentle = computeStarterRules({ ...base, pricingConfidence: "automate_current" });
-    const bold = computeStarterRules({ ...base, pricingConfidence: "find_upside" });
-    expect(bold[0].action.action_value).toBeGreaterThan(gentle[0].action.action_value);
+  it("matches the agreed ladder: windows, levels, percentages, cooldowns", () => {
+    expect(byName.get("Slow-date rescue")).toMatchObject({
+      condition: {
+        booking_speed_operator: "at_most",
+        booking_speed_level: "much_slower",
+        booking_speed_window_days: 30,
+        booking_speed_cooldown_days: 7,
+      },
+      action: { action_direction: "decrease", action_value: 15 },
+    });
+    expect(byName.get("Slow-date trim")).toMatchObject({
+      condition: {
+        booking_speed_operator: "is",
+        booking_speed_level: "slower",
+        booking_speed_window_days: 30,
+        booking_speed_cooldown_days: 7,
+      },
+      action: { action_direction: "decrease", action_value: 7 },
+    });
+    expect(byName.get("Warm-date bump")).toMatchObject({
+      condition: {
+        booking_speed_operator: "at_least",
+        booking_speed_level: "faster",
+        booking_speed_window_days: 30,
+        booking_speed_cooldown_days: 3,
+      },
+      action: { action_direction: "increase", action_value: 10 },
+    });
+    expect(byName.get("Hot-week surge")).toMatchObject({
+      condition: {
+        booking_speed_operator: "at_least",
+        booking_speed_level: "much_faster",
+        booking_speed_window_days: 7,
+        booking_speed_cooldown_days: 2,
+      },
+      action: { action_direction: "increase", action_value: 25 },
+    });
+    expect(byName.get("Sudden-spike catcher")).toMatchObject({
+      condition: {
+        booking_speed_operator: "at_least",
+        booking_speed_level: "surging",
+        booking_speed_window_days: 1,
+        booking_speed_cooldown_days: 1,
+      },
+      action: { action_direction: "increase", action_value: 25 },
+    });
+  });
+
+  it("keeps the two slow rules disjoint: rescue takes much_slower and below, trim takes exactly slower", () => {
+    const rescue = byName.get("Slow-date rescue")!;
+    const trim = byName.get("Slow-date trim")!;
+    expect(rescue.condition.booking_speed_operator).toBe("at_most");
+    expect(trim.condition.booking_speed_operator).toBe("is");
+    expect(rescue.condition.booking_speed_level).not.toBe(trim.condition.booking_speed_level);
+  });
+
+  it("waits longer after decreases than after increases", () => {
+    const cuts = rules.filter((r) => r.action.action_direction === "decrease");
+    const raises = rules.filter((r) => r.action.action_direction === "increase");
+    const minCutCooldown = Math.min(...cuts.map((r) => r.condition.booking_speed_cooldown_days!));
+    const maxRaiseCooldown = Math.max(...raises.map((r) => r.condition.booking_speed_cooldown_days!));
+    expect(minCutCooldown).toBeGreaterThan(maxRaiseCooldown);
+  });
+
+  it("gives stronger rules higher priority so same-run competition escalates correctly", () => {
+    const p = (name: string) => byName.get(name)!.priority;
+    expect(p("Sudden-spike catcher")).toBeGreaterThan(p("Hot-week surge"));
+    expect(p("Hot-week surge")).toBeGreaterThan(p("Warm-date bump"));
+    expect(p("Slow-date rescue")).toBeGreaterThan(p("Slow-date trim"));
   });
 
   it("refuses to generate rules from thin history", () => {
-    expect(
-      computeStarterRules({
-        dailyOccupancyFractions: Array(30).fill(0.5),
-        totalRooms: 40,
-        pricingConfidence: null,
-      }),
-    ).toHaveLength(0);
+    expect(computeStarterRules({ daysOfHistory: 30 })).toHaveLength(0);
   });
 
-  it("keeps thresholds sane even for a always-full property", () => {
-    const rules = computeStarterRules({
-      dailyOccupancyFractions: Array(400).fill(0.98),
-      totalRooms: 40,
-      pricingConfidence: null,
-    });
-    expect(rules[0].condition.occupancy_threshold).toBeLessThanOrEqual(0.85);
-    expect(rules[1].condition.occupancy_threshold).toBeLessThanOrEqual(0.95);
-  });
-
-  it("small properties still get a reachable pickup threshold", () => {
-    const rules = computeStarterRules({
-      dailyOccupancyFractions: occupancySeries({ busyShare: 0.2, busyLevel: 0.9, quietLevel: 0.4 }),
-      totalRooms: 6, // tiny B&B
-      pricingConfidence: null,
-    });
-    expect(rules[2].condition.pickup_threshold).toBe(3);
-  });
-
-  it("every rule explains itself in the user's terms", () => {
-    const rules = computeStarterRules({
-      dailyOccupancyFractions: occupancySeries({ busyShare: 0.2, busyLevel: 0.9, quietLevel: 0.5 }),
-      totalRooms: 40,
-      pricingConfidence: null,
-    });
+  it("every rule explains itself plainly, without math symbols", () => {
     for (const r of rules) {
-      expect(r.explanation.length).toBeGreaterThan(30);
-      expect(r.explanation).toMatch(/%/);
+      expect(r.explanation.length).toBeGreaterThan(40);
+      expect(r.explanation).not.toMatch(NO_MATH_SYMBOLS);
     }
+  });
+});
+
+describe("computeOccupancyReference", () => {
+  it("derives the surge and peak marks from the property's own distribution", () => {
+    const ref = computeOccupancyReference(
+      occupancySeries({ busyShare: 0.2, busyLevel: 0.9, quietLevel: 0.5 }),
+    );
+    expect(ref).toEqual({ surgePct: 85, peakPct: 95 });
+  });
+
+  it("clamps marks for an always-full property", () => {
+    const ref = computeOccupancyReference(Array(400).fill(0.98));
+    expect(ref!.surgePct).toBeLessThanOrEqual(85);
+    expect(ref!.peakPct).toBeLessThanOrEqual(95);
+  });
+
+  it("returns null on thin history", () => {
+    expect(computeOccupancyReference(Array(30).fill(0.5))).toBeNull();
   });
 });
