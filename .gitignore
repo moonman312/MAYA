@@ -215,3 +215,4 @@ node_modules/
 
 # Local-only worker runner (delete once the edge function is deployed)
 maya-rms/run-worker-local.mts
+maya-rms/seed-analysis-fixture.mts
