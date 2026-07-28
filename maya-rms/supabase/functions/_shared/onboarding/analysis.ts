@@ -118,8 +118,27 @@ export type RoomTypeStats = {
 
 // Bookable spaces that aren't sleeping rooms — PMSes model everything as a
 // "room type": event spaces, spas, courts, parking, day-use, retail.
-const NON_ROOM_KEYWORDS =
-  /\b(spa|event|meeting|conference|banquet|ballroom|hall|court|pickleball|tennis|parking|venue|wedding|day\s?use|pool|cabana|boardroom|gym|massage|treatment|tour|rental|bike|kayak|golf|gift|package|fee|misc|storage|addon|add-on)\b/i;
+//
+// Naive keyword matching is a trap here: "Cabana Suite", "Spa Suite",
+// "Poolside King" and "Ballroom Suite" are all real bedrooms at real resorts.
+// So we split the signals in two.
+
+/** Never a sleeping room, whatever else the name says. */
+const NON_ROOM_STRONG =
+  /\b(parking|pickleball|boardroom|banquet|conference|meeting|treatment|massage|storage|locker|kayak|excursion|day\s?-?use|gift\s?shop|deposit|resort\s?fee|service\s?fee|add-?on|misc)\b/i;
+
+/** Suggestive, but only damning when the name has no bedroom noun in it. */
+const NON_ROOM_WEAK =
+  /\b(spa|pool|cabana|golf|tennis|court|event|hall|ballroom|venue|gym|tour|rental|bike|wedding|package|fee)\b/i;
+
+/** If one of these appears, someone sleeps there. */
+const ROOM_NOUN =
+  /\b(rooms?|suites?|kings?|queens?|doubles?|twins?|singles?|studios?|villas?|cabins?|bungalows?|apartments?|dorms?|beds?|bunks?|penthouses?|lofts?|cottages?|chalets?|casitas?)\b/i;
+
+function nameLooksLikeNonRoom(name: string): boolean {
+  if (NON_ROOM_STRONG.test(name)) return true;
+  return NON_ROOM_WEAK.test(name) && !ROOM_NOUN.test(name);
+}
 
 export type SuspectRoomTypeFinding = {
   room_type_id: string;
@@ -141,10 +160,22 @@ export function findSuspectRoomTypes(stats: RoomTypeStats[]): SuspectRoomTypeFin
 
   const findings: SuspectRoomTypeFinding[] = [];
   for (const s of active) {
-    const reasons: string[] = [];
+    // Signals strong enough to accuse a room type on their own.
+    const triggers: string[] = [];
+    // True but unremarkable on its own — a rare, pricey penthouse looks exactly
+    // like this, so it may only corroborate, never accuse.
+    const corroborating: string[] = [];
 
-    if (NON_ROOM_KEYWORDS.test(s.name)) {
-      reasons.push(`name looks like a non-room space ("${s.name}")`);
+    if (nameLooksLikeNonRoom(s.name)) {
+      triggers.push(`the name doesn't read like a bedroom ("${s.name}")`);
+    }
+
+    if (
+      s.reservation_count >= 20 &&
+      s.single_night_reservations === s.reservation_count &&
+      hotelMedianLos >= 2
+    ) {
+      triggers.push("every booking is exactly one night while the rest of the property isn't");
     }
 
     if (
@@ -155,20 +186,13 @@ export function findSuspectRoomTypes(stats: RoomTypeStats[]): SuspectRoomTypeFin
       hotelMedianRate > 0 &&
       (s.median_rate > hotelMedianRate * 3 || s.median_rate < hotelMedianRate / 3)
     ) {
-      reasons.push(
-        `tiny share of bookings (${((s.row_count / totalRows) * 100).toFixed(2)}%) at an unusual rate`,
+      corroborating.push(
+        `it's a tiny share of bookings (${((s.row_count / totalRows) * 100).toFixed(2)}%) at an unusual rate`,
       );
     }
 
-    if (
-      s.reservation_count >= 20 &&
-      s.single_night_reservations === s.reservation_count &&
-      hotelMedianLos >= 2
-    ) {
-      reasons.push("every booking is exactly one night while the rest of the property isn't");
-    }
-
-    if (reasons.length > 0) {
+    const reasons = [...triggers, ...corroborating];
+    if (triggers.length > 0) {
       findings.push({
         room_type_id: s.room_type_id,
         name: s.name,

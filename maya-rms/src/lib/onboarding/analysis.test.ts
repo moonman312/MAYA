@@ -95,15 +95,25 @@ describe("findSuspectRoomTypes", () => {
     ]);
     expect(found).toHaveLength(1);
     expect(found[0].room_type_id).toBe("rt-2");
-    expect(found[0].reasons[0]).toContain("non-room");
+    expect(found[0].reasons[0]).toContain("bedroom");
   });
 
-  it("flags tiny share at weird rates", () => {
-    const found = findSuspectRoomTypes([
+  it("uses tiny-share-at-odd-rate only to corroborate, never to accuse", () => {
+    // On its own this shape is indistinguishable from a rare, pricey suite,
+    // so it must not flag alone — but it should enrich a real finding.
+    const alone = findSuspectRoomTypes([
       rt({ row_count: 10_000 }),
       rt({ room_type_id: "rt-2", name: "Mystery Space", row_count: 20, median_rate: 20 }),
     ]);
-    expect(found.map((f) => f.room_type_id)).toContain("rt-2");
+    expect(alone.map((f) => f.room_type_id)).not.toContain("rt-2");
+
+    const corroborated = findSuspectRoomTypes([
+      rt({ row_count: 10_000 }),
+      rt({ room_type_id: "rt-3", name: "Parking Space", row_count: 20, median_rate: 20 }),
+    ]);
+    const hit = corroborated.find((f) => f.room_type_id === "rt-3");
+    expect(hit).toBeDefined();
+    expect(hit!.reasons.length).toBe(2);
   });
 
   it("flags all-single-night patterns when the hotel isn't", () => {
