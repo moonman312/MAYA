@@ -180,3 +180,44 @@ describe("getCalendar (demo mode — no Supabase)", () => {
     expect(b.days_in_month).toBe(30);
   });
 });
+
+describe("createTtlCache", () => {
+  it("serves the cached value within the TTL and reloads after expiry", async () => {
+    let clock = 0;
+    let loads = 0;
+    const { createTtlCache } = await import("./calendar-store");
+    const cache = createTtlCache<number>(5000, () => clock);
+    const loader = async () => {
+      loads += 1;
+      return loads;
+    };
+
+    expect(await cache.getOrLoad("hotel-a", loader)).toBe(1);
+    clock = 4999; // still fresh
+    expect(await cache.getOrLoad("hotel-a", loader)).toBe(1);
+    expect(loads).toBe(1);
+
+    clock = 5001; // expired
+    expect(await cache.getOrLoad("hotel-a", loader)).toBe(2);
+    expect(loads).toBe(2);
+  });
+
+  it("caches per key — one hotel's history never leaks to another", async () => {
+    const { createTtlCache } = await import("./calendar-store");
+    const cache = createTtlCache<string>(5000, () => 0);
+    expect(await cache.getOrLoad("hotel-a", async () => "a")).toBe("a");
+    expect(await cache.getOrLoad("hotel-b", async () => "b")).toBe("b");
+    expect(await cache.getOrLoad("hotel-a", async () => "never")).toBe("a");
+  });
+
+  it("clear() forces the next read to reload", async () => {
+    const { createTtlCache } = await import("./calendar-store");
+    const cache = createTtlCache<number>(5000, () => 0);
+    let loads = 0;
+    const loader = async () => ++loads;
+    await cache.getOrLoad("k", loader);
+    cache.clear();
+    await cache.getOrLoad("k", loader);
+    expect(loads).toBe(2);
+  });
+});
