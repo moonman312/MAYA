@@ -414,6 +414,25 @@ function buildSeries(slotValues: number[][], yearSlots: Map<number, number[][]>)
   };
 }
 
+/**
+ * Un-detrended level series, for meanIndex/labeling display only — never
+ * fed into segmentation. Cleans exactly the outlier slots already correctly
+ * identified from a DOW-detrended pass (outlierIdx) instead of running
+ * buildSeries' own MAD-based detection on this series directly: this series
+ * oscillates weekly by design, and that expected oscillation trips a fresh
+ * detector on its own, nulling and re-interpolating ordinary weekend levels
+ * out of every season's reported mean.
+ */
+function buildDisplaySeries(slotValues: number[][], outlierIdx: Set<number>): number[] {
+  const base: (number | null)[] = slotValues.map((vs) => (vs.length ? median(vs) : null));
+  const cleaned = base.slice();
+  for (const idx of outlierIdx) cleaned[idx] = null;
+  const filled = interpolateCircular(cleaned);
+  const smoothed = rollingCircularMean(filled, SMOOTH_WINDOW_DAYS);
+  const norm = median(smoothed) || 1;
+  return smoothed.map((v) => clamp(v / norm, 0.05, 20));
+}
+
 function slotify(obs: Obs[], transform: (o: Obs) => number): number[][] {
   const slots: number[][] = Array.from({ length: 365 }, () => []);
   for (const o of obs) slots[o.idx].push(transform(o));
@@ -801,8 +820,7 @@ export function detectSeasons(
   const det1 = buildSeries(slotify(obs, det1Transform), slotifyByYear(obs, det1Transform));
   const outlierIdx = new Set(det1.outlierKeys.map((k) => KEY_IDX.get(k)!));
   const shape = buildShapeSeries(obs, outlierIdx);
-  const rawTransform = (o: Obs) => o.value;
-  const raw = buildSeries(slotify(obs, rawTransform), slotifyByYear(obs, rawTransform));
+  const raw = buildDisplaySeries(slotify(obs, (o) => o.value), outlierIdx);
 
   // Optional third signal: booking pace, with its own weekly detrend
   // (weekend dates routinely fill on a different schedule than weekdays,
@@ -824,7 +842,7 @@ export function detectSeasons(
   ];
 
   const segs1 = segmentYear(boundarySignals(det1.series));
-  const seasons1 = assembleSeasons(segs1, raw.series, obs, paceSeries);
+  const seasons1 = assembleSeasons(segs1, raw, obs, paceSeries);
 
   // Pass 2: each season's own weekly profile detrends its stretch of the year.
   const member1 = segMembership(segs1);
@@ -834,11 +852,11 @@ export function detectSeasons(
   };
   const det2 = buildSeries(slotify(obs, det2Transform), slotifyByYear(obs, det2Transform));
   const segs2 = segmentYear(boundarySignals(det2.series));
-  const seasons2 = assembleSeasons(segs2, raw.series, obs, paceSeries);
+  const seasons2 = assembleSeasons(segs2, raw, obs, paceSeries);
 
   return {
     seasons: seasons2,
-    outlierKeys: raw.outlierKeys,
+    outlierKeys: det2.outlierKeys,
     observationsUsed: obs.length,
     refined: segSignature(segs1) !== segSignature(segs2),
   };
