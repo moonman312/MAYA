@@ -83,6 +83,7 @@ export async function evaluateHotel(
     floor_price: Number(r.floor_price),
     ceiling_price: Number(r.ceiling_price),
   }));
+  const activeRoomTypeIds = new Set(roomTypes.map((rt) => rt.id));
 
   if (roomTypes.length === 0) {
     return {
@@ -185,10 +186,19 @@ export async function evaluateHotel(
             ? Number(rc.booking_speed_cooldown_days)
             : null,
       },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      signal_room_type_ids: (r.rule_signal_room_type ?? []).map((x: any) =>
-        String(x.room_type_id),
-      ),
+      // A deactivated room type is never cleaned out of rule_signal_room_type
+      // (deactivation is routine — onboarding auto-deactivates duplicates and
+      // suspect room types on confirm, long after rules exist). Left
+      // unfiltered, a stale signal room type stops accruing snapshots and its
+      // permanently-missing baseline reads as pickup_block_reason
+      // 'insufficient_snapshot_history' / 'stale_baseline_snapshot' — blocking
+      // the WHOLE rule even though its other signals are fine. Filtering here
+      // drops only the dead entry, matching what deactivating a room type
+      // ought to mean for a rule that also signals on other room types.
+      signal_room_type_ids: (r.rule_signal_room_type ?? [])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((x: any) => String(x.room_type_id))
+        .filter((id: string) => activeRoomTypeIds.has(id)),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       affected_room_type_ids: (r.rule_affected_room_type ?? []).map((x: any) =>
         String(x.room_type_id),

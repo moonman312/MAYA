@@ -10,7 +10,11 @@ export type RuleMetrics = {
   net_pickup_units: number | null;
   net_pickup_revenue: number | null;
   /** §8.1 / §16.3 — when set, pickup must not match (audit / debug). */
-  pickup_block_reason?: "insufficient_snapshot_history" | "stale_baseline_snapshot" | null;
+  pickup_block_reason?:
+    | "insufficient_snapshot_history"
+    | "stale_baseline_snapshot"
+    | "no_active_signal_room_types"
+    | null;
   /** Booking Speed classification for this stay date over the rule's window (Layer 1 observation). */
   booking_speed?: {
     speed: string;
