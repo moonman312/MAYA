@@ -245,6 +245,64 @@ describe("a real, unevenly-spaced nine-season property", () => {
   });
 });
 
+describe("year-end season boundary (the segmentation walk's own seam no longer sits on Jan 1)", () => {
+  // The walk used to always start its scan on January 1 — so a regime
+  // starting in late December sat right where the walk begins, and never
+  // got enough days of runway to confirm a boundary before the array's own
+  // hard end. It was silently absorbed into whatever ran the rest of the
+  // year, instead of standing on its own the way an identically-shaped
+  // peak anywhere else in the year already did.
+  function windowValue(date: string, startKey: string, endKey: string, base: number, peak: number): number {
+    const key = date.slice(5);
+    const inWindow = startKey <= endKey ? key >= startKey && key <= endKey : key >= startKey || key <= endKey;
+    return inWindow ? peak : base;
+  }
+
+  it("detects a Dec 28 - Jan 10 peak as its own season, same as an equivalent April peak", () => {
+    const daily = genDaily("2023-01-01", "2025-12-31", (d) => windowValue(d, "12-28", "01-10", 40, 100));
+    const model = detectSeasons(daily);
+    const dec = seasonForDate(model, "2025-12-30");
+    expect(dec.id).not.toBe(seasonForDate(model, "2025-11-15").id);
+    expect(dec.id).not.toBe(seasonForDate(model, "2026-01-20").id);
+    expect(dec.meanIndex).toBeGreaterThan(1.8);
+    expect(dec.days).toBeLessThan(20);
+
+    const aprilDaily = genDaily("2023-01-01", "2025-12-31", (d) => windowValue(d, "04-01", "04-14", 40, 100));
+    const aprilModel = detectSeasons(aprilDaily);
+    const april = seasonForDate(aprilModel, "2025-04-07");
+    expect(april.id).not.toBe(seasonForDate(aprilModel, "2025-03-01").id);
+    // An equally-shaped peak resolves about the same way regardless of
+    // where in the year it falls.
+    expect(Math.abs(dec.days - april.days)).toBeLessThanOrEqual(2);
+    expect(dec.meanIndex).toBeCloseTo(april.meanIndex, 1);
+  });
+
+  it("still finds the nine-season property's holiday week shifted 2 days later than originally tested", () => {
+    // The old fixed-seam walk kept this fixture's holiday window passing
+    // only because it sat almost exactly on Jan 1, close enough for the
+    // wrap-merge step to stitch it back together; shifting it a couple of
+    // days later used to break detection outright. It shouldn't anymore.
+    function shifted(date: string): number {
+      const key = date.slice(5);
+      if (key >= "07-01" && key <= "07-30") return 100;
+      if (key >= "08-01" && key <= "09-15") return 60;
+      if (key >= "09-16" && key <= "10-31") return 30;
+      if (key >= "11-01" && key <= "12-25") return 15;
+      if (key >= "12-26" || key <= "01-04") return 50; // shifted 2 days later
+      if (key >= "01-05" && key <= "02-12") return 15;
+      if (key >= "02-13" && key <= "04-30") return 35;
+      if (key >= "05-01" && key <= "05-24") return 55;
+      return 75;
+    }
+    const daily = genDaily("2022-01-01", "2025-12-31", (d) => shifted(d));
+    const model = detectSeasons(daily);
+    const holidayWeek = seasonForDate(model, "2025-12-30");
+    expect(seasonForDate(model, "2025-12-10").id).not.toBe(holidayWeek.id);
+    expect(seasonForDate(model, "2026-01-10").id).not.toBe(holidayWeek.id);
+    expect(holidayWeek.days).toBeLessThanOrEqual(15);
+  });
+});
+
 describe("booking pace as a third season signal", () => {
   // The sellout-blindness problem: a period sold out at a premium and a
   // period sold out at a discount read identically in occupancy — and so
