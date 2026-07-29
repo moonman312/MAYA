@@ -20,7 +20,7 @@ import { ruleConditionsMatch } from "./conditions.ts";
 import type { LadderPassResult } from "./ladder.ts";
 import { evaluateLadderTriple } from "./ladder.ts";
 import { computeRuleMetrics } from "./metrics.ts";
-import { computeBaselineTs, runPickupPass } from "./pickup.ts";
+import { computeBaselineTs, retireUndonePickupEvents, runPickupPass } from "./pickup.ts";
 import { assemblePrice, maybePublish } from "./pricing.ts";
 import { ruleScopeMatches } from "./scope.ts";
 import { fetchAllRows, purgeOldSnapshots, snapshotCurrentState } from "./snapshots.ts";
@@ -478,6 +478,11 @@ export async function evaluateHotel(
     .eq("hotel_id", hotelId)
     .lt("stay_date", localDate)
     .is("retired_at", null);
+
+  // An event whose bookings have all cancelled is holding a price on
+  // evidence that no longer exists. Retire it; if the date still has real
+  // momentum the observation engine sees it and the rule fires again.
+  await retireUndonePickupEvents(supabase, hotelId, rules, now, now);
 
   await purgeOldSnapshots(supabase, hotelId, maxPickupWindowDays + 7);
 

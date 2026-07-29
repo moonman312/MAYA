@@ -244,3 +244,76 @@ export async function runPickupPass(
 
   return { winners, losers, idempotent_skips };
 }
+
+/**
+ * Retire pickup events whose triggering bookings have gone away.
+ *
+ * A pickup event is a frozen decision: it fired because bookings for a stay
+ * date jumped, and it keeps adjusting the price until the stay date passes.
+ * That is right while the demand is real, but when the bookings behind it
+ * cancel, the event goes on holding a price up (or down) on evidence that no
+ * longer exists — and unlike a ladder rule it has no path back, because
+ * nothing re-checks it.
+ *
+ * The bar is deliberately high: retire only when bookings have fallen all
+ * the way back to where they were before the event fired. A cancellation or
+ * two out of a genuine surge is noise and must not undo the correction.
+ *
+ * Nothing is lost by retiring. The observation engine recomputes pace from
+ * current data every run, so a date with real remaining momentum simply
+ * triggers again once its cooldown clears.
+ */
+export async function retireUndonePickupEvents(
+  supabase: SupabaseClient,
+  hotelId: string,
+  rules: EngineRule[],
+  snapshotTs: string,
+  now: string,
+): Promise<number> {
+  const { data: events } = await supabase
+    .from("pickup_event")
+    .select("id, rule_id, stay_date, signal_booked_units_start")
+    .eq("hotel_id", hotelId)
+    .is("retired_at", null);
+  if (!events || events.length === 0) return 0;
+
+  // Current booked units come from the snapshot this run just wrote, so the
+  // comparison uses exactly the numbers the rest of the run reasoned about.
+  const { data: snapRows } = await supabase
+    .from("stay_date_snapshot")
+    .select("stay_date, room_type_id, booked_units")
+    .eq("hotel_id", hotelId)
+    .eq("snapshot_ts", snapshotTs);
+  const bookedByCell = new Map<string, number>();
+  for (const s of snapRows ?? []) {
+    bookedByCell.set(`${s.stay_date}|${s.room_type_id}`, Number(s.booked_units ?? 0));
+  }
+
+  const signalRoomTypesByRule = new Map(rules.map((r) => [r.id, r.signal_room_type_ids]));
+
+  const undone: string[] = [];
+  for (const ev of events) {
+    const signalRoomTypes = signalRoomTypesByRule.get(String(ev.rule_id));
+    // A rule that is gone or out of scope this run tells us nothing about
+    // whether its trigger still holds; leave those alone.
+    if (!signalRoomTypes || signalRoomTypes.length === 0) continue;
+
+    let current = 0;
+    let sawAnyCell = false;
+    for (const rtId of signalRoomTypes) {
+      const cell = bookedByCell.get(`${ev.stay_date}|${rtId}`);
+      if (cell === undefined) continue;
+      sawAnyCell = true;
+      current += cell;
+    }
+    if (!sawAnyCell) continue;
+
+    if (current <= Number(ev.signal_booked_units_start ?? 0)) {
+      undone.push(String(ev.id));
+    }
+  }
+
+  if (undone.length === 0) return 0;
+  await supabase.from("pickup_event").update({ retired_at: now }).in("id", undone);
+  return undone.length;
+}
