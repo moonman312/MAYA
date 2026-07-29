@@ -125,6 +125,138 @@ describe("selectComparableDates for holidays", () => {
     const y2024 = sel.comparables.find((c) => c.date === "2024-07-04");
     expect(y2024?.reasons).not.toContain("similar weekend placement");
   });
+
+  it("anchors New Year's Eve on the correct prior years, not one year too far back", () => {
+    // Dec 31 sits 1 day before the NEXT calendar year's New Year's Day —
+    // closer than Christmas — so holidayContextForDate anchors it on
+    // year+1. Anchoring candidates on the target's own calendar year
+    // instead of the holiday's actual year skipped the most recent real
+    // NYE and reached an extra year further back than intended.
+    const sel = selectComparableDates("2026-12-31", {
+      seasonModel: null,
+      historyStart: "2018-01-01",
+      historyEnd: "2026-12-20",
+    });
+    expect(sel.comparables.map((c) => c.date)).toEqual([
+      "2025-12-31",
+      "2024-12-31",
+      "2023-12-31",
+    ]);
+    // The label names the New Year's Day instance the candidate is offset
+    // from (Dec 31 2025 is "1 day before" New Year's Day 2026) — internally
+    // consistent, unlike the bug, which named a holiday year that didn't
+    // match either the candidate's date or the anchor actually used.
+    expect(sel.comparables[0].reasons.join(" ")).toContain("New Year's Day 2026");
+    expect(sel.comparables[1].reasons.join(" ")).toContain("New Year's Day 2025");
+  });
+
+  it("still selects New Year's Day comparables correctly (control — not shifted)", () => {
+    const sel = selectComparableDates("2027-01-01", {
+      seasonModel: null,
+      historyStart: "2018-01-01",
+      historyEnd: "2026-12-20",
+    });
+    expect(sel.comparables.map((c) => c.date)).toEqual([
+      "2026-01-01",
+      "2025-01-01",
+      "2024-01-01",
+    ]);
+  });
+
+  it("demotes (never hard-rejects) a candidate that lands on a different holiday's peak day", () => {
+    // 2028-06-20 is Juneteenth+1. Its reconstructed candidates in 2027 and
+    // 2026 land on/beside Father's Day instead — a different demand driver
+    // — and must not outrank the genuine same-holiday 2025 comparable.
+    const sel = selectComparableDates("2028-06-20", {
+      seasonModel: null,
+      historyStart: "2023-01-01",
+      historyEnd: "2027-12-31",
+    });
+    const byDate = new Map(sel.comparables.map((c) => [c.date, c]));
+    const crossYear = byDate.get("2027-06-20");
+    const sameHolidayYear = byDate.get("2025-06-20");
+    expect(crossYear?.tier).toBe(2);
+    expect(crossYear?.reasons.join(" ")).toMatch(/Father's Day/i);
+    expect(sameHolidayYear?.tier).toBe(1);
+    // The genuine same-holiday comparable must outrank the cross-holiday one.
+    expect(sameHolidayYear!.score).toBeGreaterThan(crossYear!.score);
+  });
+});
+
+describe("yearsAgoText never claims a comparable is 'this year' when it isn't", () => {
+  it("labels a prior-calendar-year comparable correctly even under the old 320-day bucket", () => {
+    // Year-Round model: target 2026-03-02, closest same-DOW comparables
+    // land ~245 days back in 2025 — a different calendar year, but under
+    // the old day-count threshold that used to say "earlier this year".
+    const flat: DailyDemand[] = [];
+    for (let d = "2022-01-01"; d <= "2026-02-28"; d = addDays(d, 1)) {
+      flat.push({ stay_date: d, value: 50 });
+    }
+    const model = detectSeasons(flat);
+    const sel = selectComparableDates("2026-03-02", {
+      seasonModel: model,
+      historyStart: "2022-01-01",
+      historyEnd: "2025-06-30",
+    });
+    const priorYear = sel.comparables.find((c) => c.date.startsWith("2025-"));
+    expect(priorYear).toBeDefined();
+    expect(priorYear!.reasons.join(" ")).not.toContain("earlier this year");
+    expect(priorYear!.reasons.join(" ")).toContain("about a year earlier");
+  });
+
+  it("does not say 'about a year earlier' for a candidate that is only weeks away but crosses Jan 1", () => {
+    // The most mundane case: pricing Jan 5 on Jan 1, closest same-Monday
+    // comparable is Dec 22 the year before — 14 days away, a different
+    // calendar year. Calling that "about a year earlier" would be its own
+    // false claim in the opposite direction.
+    const flat: DailyDemand[] = [];
+    for (let d = "2022-01-01"; d <= "2025-12-31"; d = addDays(d, 1)) {
+      flat.push({ stay_date: d, value: 50 });
+    }
+    const model = detectSeasons(flat);
+    const sel = selectComparableDates("2026-01-05", {
+      seasonModel: model,
+      historyStart: "2022-01-01",
+      historyEnd: "2025-12-31",
+    });
+    const nearTerm = sel.comparables.find((c) => c.date === "2025-12-22");
+    expect(nearTerm).toBeDefined();
+    expect(nearTerm!.reasons.join(" ")).not.toContain("earlier this year");
+    expect(nearTerm!.reasons.join(" ")).not.toContain("a year earlier");
+    expect(nearTerm!.reasons.join(" ")).toContain("recently");
+  });
+
+  it("says an exact number of years, not 'about', once the gap is unambiguous", () => {
+    const flat: DailyDemand[] = [];
+    for (let d = "2020-01-01"; d <= "2024-08-25"; d = addDays(d, 1)) {
+      flat.push({ stay_date: d, value: 50 });
+    }
+    const model = detectSeasons(flat);
+    const sel = selectComparableDates("2026-03-02", {
+      seasonModel: model,
+      historyStart: "2020-01-01",
+      historyEnd: "2024-08-25",
+    });
+    const twoYearsBack = sel.comparables.find((c) => c.date.startsWith("2024-"));
+    expect(twoYearsBack).toBeDefined();
+    expect(twoYearsBack!.reasons.join(" ")).toContain("2 years earlier");
+  });
+
+  it("still says 'earlier this year' for a genuine same-calendar-year comparable", () => {
+    const flat: DailyDemand[] = [];
+    for (let d = "2024-01-01"; d <= "2026-10-01"; d = addDays(d, 1)) {
+      flat.push({ stay_date: d, value: 50 });
+    }
+    const model = detectSeasons(flat);
+    const sel = selectComparableDates("2026-11-02", {
+      seasonModel: model,
+      historyStart: "2024-01-01",
+      historyEnd: "2026-10-01",
+    });
+    const sameYear = sel.comparables.find((c) => c.date.startsWith("2026-"));
+    expect(sameYear).toBeDefined();
+    expect(sameYear!.reasons.join(" ")).toContain("earlier this year");
+  });
 });
 
 describe("relaxation on thin history", () => {
