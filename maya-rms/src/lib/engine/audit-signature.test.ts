@@ -52,6 +52,7 @@ function baseInput(overrides: Partial<AuditInput> = {}): AuditInput {
     pickupWinners: [],
     pickupLosers: [],
     pickupIdempotentSkips: [],
+    pickupWriteFailures: [],
     basePrices: new Map(),
     ...overrides,
   };

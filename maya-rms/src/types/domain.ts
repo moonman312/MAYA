@@ -143,7 +143,7 @@ export type EvaluationAuditDetails = {
   }[];
   pickup_candidates: {
     rule_id: string;
-    outcome: "won" | "lost_competition" | "idempotency_skip";
+    outcome: "won" | "lost_competition" | "idempotency_skip" | "write_failed";
     metrics: Record<string, unknown>;
     tie_break_trace: string[];
   }[];

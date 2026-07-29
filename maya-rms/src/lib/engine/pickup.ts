@@ -176,11 +176,22 @@ export function pickupTieBreakTrace(winner: PickupCandidate, other: PickupCandid
 
 /* ── Event insertion (§7.3, §11 step 8) ──────────────────────── */
 
+/**
+ * "already_active" (a unique-violation on uq_pickup_event_active_per_rule_stay_room)
+ * means a concurrent run already inserted this exact (rule, stay date, room
+ * type)'s active event — the desired state exists either way, not a
+ * failure. "write_failed" is any other error: a genuine write that did not
+ * happen, which callers must not treat the same as either of the above —
+ * conflating it with idempotency previously hid real data loss (a rule that
+ * fired leaving no event, and no record that anything went wrong).
+ */
+export type PickupInsertResult = "inserted" | "already_active" | "write_failed";
+
 export async function insertPickupEvent(
   supabase: SupabaseClient,
   candidate: PickupCandidate,
   hotelId: string,
-): Promise<boolean> {
+): Promise<PickupInsertResult> {
   const { error } = await supabase.from("pickup_event").insert({
     hotel_id: hotelId,
     rule_id: candidate.rule.id,
@@ -200,22 +211,23 @@ export async function insertPickupEvent(
     action_value: candidate.rule.action_value,
   });
 
-  if (!error) return true;
+  if (!error) return "inserted";
   // Two overlapping runs can both read the same stale baseline before
   // either inserts (the read-then-insert window spans the whole
   // candidate-collection phase of a run, not a few milliseconds) and would
   // otherwise both insert an active event here, compounding the price
   // adjustment twice. uq_pickup_event_active_per_rule_stay_room catches
-  // that race; an active event for this cell now exists either way, so this
-  // is the desired outcome, not a failure.
-  if (error.code === "23505") return true;
-  return false;
+  // that race; an active event for this cell now exists either way.
+  if (error.code === "23505") return "already_active";
+  return "write_failed";
 }
 
 export type PickupPassOutcome = {
   winners: PickupCandidate[];
   losers: PickupCandidate[];
   idempotent_skips: PickupCandidate[];
+  /** A rule genuinely fired and lost its price effect to a write error — never the same as an idempotency skip. */
+  write_failures: PickupCandidate[];
 };
 
 /**
@@ -240,6 +252,7 @@ export async function runPickupPass(
   const winners: PickupCandidate[] = [];
   const losers: PickupCandidate[] = [];
   const idempotent_skips: PickupCandidate[] = [];
+  const write_failures: PickupCandidate[] = [];
 
   for (const [, group] of groups) {
     const winner = selectPickupWinner(group, basePrices);
@@ -254,22 +267,22 @@ export async function runPickupPass(
       continue;
     }
 
-    const inserted = await insertPickupEvent(supabase, winner, hotelId);
-    if (inserted) {
+    const result = await insertPickupEvent(supabase, winner, hotelId);
+    if (result === "inserted" || result === "already_active") {
       insertedKeys.add(idKey);
       winners.push(winner);
       for (const c of group) {
         if (c !== winner) losers.push(c);
       }
     } else {
-      idempotent_skips.push(winner);
+      write_failures.push(winner);
       for (const c of group) {
         if (c !== winner) losers.push(c);
       }
     }
   }
 
-  return { winners, losers, idempotent_skips };
+  return { winners, losers, idempotent_skips, write_failures };
 }
 
 /**

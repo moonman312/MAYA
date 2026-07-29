@@ -21,6 +21,8 @@ export type AuditInput = {
   pickupWinners: PickupCandidate[];
   pickupLosers: PickupCandidate[];
   pickupIdempotentSkips: PickupCandidate[];
+  /** A rule fired and lost its price effect to a write error — must read distinctly from an idempotency skip. */
+  pickupWriteFailures: PickupCandidate[];
   basePrices: Map<string, number>;
   /** Layer 1 Booking Speed observations consulted for this stay date this run. */
   bookingSpeedObservations?: Record<string, unknown>[];
@@ -102,6 +104,12 @@ export async function writeAudit(supabase: SupabaseClient, input: AuditInput): P
         outcome: "idempotency_skip" as const,
         metrics: enrichPickupMetrics(c, basePrices),
         tie_break_trace: ["idempotency_guard_same_run"],
+      })),
+      ...input.pickupWriteFailures.map((c) => ({
+        rule_id: c.rule.id,
+        outcome: "write_failed" as const,
+        metrics: enrichPickupMetrics(c, basePrices),
+        tie_break_trace: ["pickup_event_insert_failed"],
       })),
     ],
     active_ladder_effects: assembled.ladder_effects.map((e) => ({
