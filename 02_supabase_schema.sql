@@ -493,6 +493,13 @@ create index if not exists idx_pickup_event_active
 create index if not exists idx_pickup_event_rule_stay
   on pickup_event (rule_id, stay_date, applied_at desc);
 
+-- Guards against two overlapping evaluation runs both inserting an active
+-- event for the same (rule, stay date, room type) — see
+-- 99_supabase_migration_pickup_event_unique_v1.sql for the failure mode.
+create unique index if not exists uq_pickup_event_active_per_rule_stay_room
+  on pickup_event (rule_id, stay_date, affected_room_type_id)
+  where retired_at is null;
+
 -- ============================================================================
 -- PUBLISHED PRICES (Implementation Guide §3.6)
 -- ============================================================================

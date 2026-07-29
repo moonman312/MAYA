@@ -200,7 +200,16 @@ export async function insertPickupEvent(
     action_value: candidate.rule.action_value,
   });
 
-  return !error;
+  if (!error) return true;
+  // Two overlapping runs can both read the same stale baseline before
+  // either inserts (the read-then-insert window spans the whole
+  // candidate-collection phase of a run, not a few milliseconds) and would
+  // otherwise both insert an active event here, compounding the price
+  // adjustment twice. uq_pickup_event_active_per_rule_stay_room catches
+  // that race; an active event for this cell now exists either way, so this
+  // is the desired outcome, not a failure.
+  if (error.code === "23505") return true;
+  return false;
 }
 
 export type PickupPassOutcome = {
