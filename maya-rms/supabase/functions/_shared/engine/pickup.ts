@@ -69,13 +69,22 @@ export function selectPickupWinner(
     const specDiff = conditionCount(b.rule) - conditionCount(a.rule);
     if (specDiff !== 0) return specDiff;
 
-    const aThresh = a.rule.condition.pickup_threshold ?? 0;
-    const bThresh = b.rule.condition.pickup_threshold ?? 0;
+    // Thresholds are only comparable when both sides share the same
+    // operator — "greater than 10" and "less than 2" aren't points on the
+    // same number line, so ranking one against the other isn't well
+    // defined. Branching on `a`'s operator alone made the comparator
+    // asymmetric (compare(P,Q) and compare(Q,P) could both claim to go
+    // first), so the winner — and the sign of the price move — depended on
+    // unspecified DB row order. A booking-speed rule's null pickup_operator
+    // falls through the same way, for the same reason.
     const aOp = a.rule.condition.pickup_operator;
-    if (aOp === "gt") {
-      if (bThresh !== aThresh) return bThresh - aThresh;
-    } else if (aOp === "lt") {
-      if (aThresh !== bThresh) return aThresh - bThresh;
+    const bOp = b.rule.condition.pickup_operator;
+    if (aOp != null && aOp === bOp) {
+      const aThresh = a.rule.condition.pickup_threshold ?? 0;
+      const bThresh = b.rule.condition.pickup_threshold ?? 0;
+      if (aThresh !== bThresh) {
+        return aOp === "gt" ? bThresh - aThresh : aThresh - bThresh;
+      }
     }
 
     const baseA = basePrices.get(basePriceKey(a.stay_date, a.affected_room_type_id)) ?? 100;
@@ -111,18 +120,27 @@ export function pickupTieBreakTrace(winner: PickupCandidate, other: PickupCandid
   }
   trace.push(`specificity: tie at ${wSpec}`);
 
-  const wTh = winner.rule.condition.pickup_threshold ?? 0;
-  const oTh = other.rule.condition.pickup_threshold ?? 0;
-  const op = winner.rule.condition.pickup_operator;
-  if (op === "gt" && wTh !== oTh) {
-    trace.push(`pickup_threshold(gt): ${wTh} beats ${oTh}`);
-    return trace;
+  const wOp = winner.rule.condition.pickup_operator;
+  const oOp = other.rule.condition.pickup_operator;
+  // Only claim a threshold win when both sides share the same operator —
+  // see selectPickupWinner's comment. Different (or null) operators aren't
+  // comparable, so the trace says so honestly instead of ranking numbers
+  // that don't mean the same thing.
+  if (wOp != null && wOp === oOp) {
+    const wTh = winner.rule.condition.pickup_threshold ?? 0;
+    const oTh = other.rule.condition.pickup_threshold ?? 0;
+    if (wTh !== oTh) {
+      trace.push(
+        wOp === "gt"
+          ? `pickup_threshold(gt): ${wTh} beats ${oTh}`
+          : `pickup_threshold(lt): stricter is lower; ${wTh} beats ${oTh}`,
+      );
+      return trace;
+    }
+    trace.push(`pickup_threshold: tie`);
+  } else {
+    trace.push(`pickup_threshold: not comparable (different operators)`);
   }
-  if (op === "lt" && wTh !== oTh) {
-    trace.push(`pickup_threshold(lt): stricter is lower; ${wTh} beats ${oTh}`);
-    return trace;
-  }
-  trace.push(`pickup_threshold: tie`);
 
   const baseW = basePrices.get(basePriceKey(winner.stay_date, winner.affected_room_type_id)) ?? 100;
   const baseO = basePrices.get(basePriceKey(other.stay_date, other.affected_room_type_id)) ?? 100;

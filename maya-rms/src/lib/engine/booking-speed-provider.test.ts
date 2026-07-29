@@ -3,6 +3,7 @@ import {
   DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS,
   bookingSpeedAuditSnapshots,
   bookingSpeedMetrics,
+  cooldownLookbackDays,
   isWithinCooldown,
   observeForStayDate,
   type BookingSpeedContext,
@@ -41,6 +42,35 @@ describe("isWithinCooldown", () => {
 
   it("defaults to a week, per the starter-ladder design", () => {
     expect(DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS).toBe(7);
+  });
+});
+
+describe("cooldownLookbackDays", () => {
+  function bsRule(cooldownDays: number | null | undefined) {
+    return { condition: { booking_speed_operator: "at_least", booking_speed_cooldown_days: cooldownDays } };
+  }
+  function nonBsRule() {
+    return { condition: { booking_speed_operator: null, booking_speed_cooldown_days: 90 } };
+  }
+
+  it("stays at the 31-day floor when no rule configures a longer cooldown", () => {
+    expect(cooldownLookbackDays([bsRule(7), bsRule(3)])).toBe(31);
+    expect(cooldownLookbackDays([bsRule(null)])).toBe(31); // defaults to 7
+    expect(cooldownLookbackDays([])).toBe(31);
+  });
+
+  it("extends past the floor for a rule with a longer cooldown — the actual bug", () => {
+    // A 60-day cooldown whose last fire was 35 days ago used to be
+    // invisible to a fixed 31-day lookback, so the rule re-fired ~25 days
+    // before its own cooldown said it should.
+    expect(cooldownLookbackDays([bsRule(60)])).toBe(61);
+    expect(cooldownLookbackDays([bsRule(7), bsRule(60), bsRule(3)])).toBe(61);
+  });
+
+  it("ignores cooldown_days on rules that aren't booking-speed rules", () => {
+    // A non-booking-speed rule's cooldown_days column (if ever populated)
+    // must not stretch a horizon that exists only for booking-speed fires.
+    expect(cooldownLookbackDays([nonBsRule()])).toBe(31);
   });
 });
 
