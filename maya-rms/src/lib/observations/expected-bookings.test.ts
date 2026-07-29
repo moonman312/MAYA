@@ -16,6 +16,7 @@ import {
   trimmedMean,
   type SlimReservationRow,
 } from "../../../supabase/functions/_shared/observations/expected-bookings";
+import { classifyBookingSpeed } from "../../../supabase/functions/_shared/observations/booking-speed";
 
 const NO_MATH_SYMBOLS = /[<>]/;
 
@@ -54,6 +55,39 @@ describe("trimmedMean", () => {
   });
 });
 
+describe("trimmedMean and MIN_COMPARABLES_FULL_RANGE stay in step", () => {
+  // Below 5 comparables trimmedMean hasn't started trimming, so a single
+  // anomalous comparable (a one-off event, a wedding block) still sets the
+  // whole expectation on its own. The few_comparables guard has to still be
+  // capping the call at exactly the counts trimmedMean doesn't yet protect.
+  it("does not let one outlier comparable at n=3 manufacture an unguarded Stalled call", () => {
+    const expected = trimmedMean([0, 0, 21]);
+    expect(expected).toBe(7);
+    const c = classifyBookingSpeed({ recentBookings: 0, expectedBookings: expected, comparableCount: 3 });
+    expect(c.speed).not.toBe("stalled");
+    expect(c.guard).toBe("few_comparables");
+  });
+
+  it("does not let one outlier comparable at n=4 manufacture an unguarded Stalled call", () => {
+    const expected = trimmedMean([1, 1, 1, 25]);
+    expect(expected).toBe(7);
+    const c = classifyBookingSpeed({ recentBookings: 0, expectedBookings: expected, comparableCount: 4 });
+    expect(c.speed).not.toBe("stalled");
+    expect(c.guard).toBe("few_comparables");
+  });
+
+  it("allows the same shape of outlier through once n=5 trims it away", () => {
+    // Same lone-event outlier, now alongside two ordinary comparables.
+    // trimmedMean drops the min and max (the outlier and a zero), so the
+    // expectation reflects the honest comparables and the classifier's full
+    // range is open to call it Stalled outright.
+    const expected = trimmedMean([0, 0, 21, 6, 7]);
+    const c = classifyBookingSpeed({ recentBookings: 0, expectedBookings: expected, comparableCount: 5 });
+    expect(c.guard).not.toBe("few_comparables");
+    expect(c.speed).toBe("stalled");
+  });
+});
+
 describe("observeBookingSpeed", () => {
   const fakeSelection = (comparables: string[]): ComparableSelection => ({
     target: "2026-08-15",
@@ -76,8 +110,11 @@ describe("observeBookingSpeed", () => {
   const rowsFor = (stayDate: string, windows: number[]): SlimReservationRow[] =>
     windows.map((w) => ({ stay_date: stayDate, booking_window_days: w }));
 
-  // Four comparables — one more than MIN_COMPARABLES_FULL_RANGE — so these
-  // exercise the comparable path with the classifier's guards fully open.
+  // Four comparables — one short of MIN_COMPARABLES_FULL_RANGE, and of
+  // trimmedMean's own n>=5 trim threshold — so an extreme call built from
+  // these is still capped one step by the few_comparables guard; only
+  // faster/slower (not much_faster/much_slower/stalled/surging) pass through
+  // unguarded at this count.
   const FOUR_COMPARABLES = ["2025-08-16", "2025-08-09", "2025-08-02", "2024-08-17"];
 
   it("measures every date over the same stretch of its booking curve", () => {
@@ -126,7 +163,7 @@ describe("observeBookingSpeed", () => {
     expect(obs.classification.guard).toBe("small_difference");
   });
 
-  it("classifies elevated pickup against the comparables", () => {
+  it("caps elevated pickup one step when only four comparables back it", () => {
     const rows = [
       ...rowsFor("2026-08-15", [14, 15, 16, 17, 18, 19, 20, 14, 15]), // 9 in window
       ...rowsFor("2025-08-16", [14, 16, 18, 20]),
@@ -142,7 +179,11 @@ describe("observeBookingSpeed", () => {
     });
     expect(obs.recentBookings).toBe(9);
     expect(obs.expectedBookings).toBe(4);
-    expect(obs.classification.speed).toBe("much_faster");
+    // Raw ratio (9/4) lands in much_faster territory, but only 4 comparables
+    // (still an untrimmed mean) back that expectation, so the
+    // few_comparables guard holds it to one step from Normal.
+    expect(obs.classification.speed).toBe("faster");
+    expect(obs.classification.guard).toBe("few_comparables");
   });
 
   it("keeps fractional expectations honest when real comparables mostly miss the window", () => {
@@ -237,12 +278,33 @@ describe("observeBookingSpeed", () => {
     expect(describeExpectation(obs)).toContain("booking momentum from neighboring dates");
   });
 
-  it("reports insufficient_data honestly when even momentum has nothing to go on", () => {
+  it("falls back to momentum (not insufficient_data) on an empty import, reading the quiet neighborhood as verified zero", () => {
+    // No rows anywhere, but the target still has a full radius of future,
+    // non-holiday, non-excluded neighbor dates to read as genuinely quiet
+    // rather than unknown — so this is honestly "momentum says ~0", not
+    // "we have nothing to go on".
     const obs = observeBookingSpeed({
       rows: [],
       target: "2026-08-15",
       asOf: "2026-08-01",
       selection: fakeSelection([]),
+    });
+    expect(obs.method).toBe("momentum");
+    expect(obs.expectedBookings).toBe(0);
+    expect(obs.momentum?.neighborsUsed).toBe(20);
+    expect(describeExpectation(obs)).toContain("booking momentum from neighboring dates");
+  });
+
+  it("reports insufficient_data honestly when even momentum has nothing to go on", () => {
+    // Every candidate neighbor date is caller-excluded (e.g. the whole
+    // nearby stretch is closed), so there is truly nothing to read — this
+    // is the genuine insufficient_data path, not a zero-row artifact.
+    const obs = observeBookingSpeed({
+      rows: [],
+      target: "2026-08-15",
+      asOf: "2026-08-01",
+      selection: fakeSelection([]),
+      isExcluded: () => true,
     });
     expect(obs.method).toBe("insufficient_data");
     expect(obs.expectedBookings).toBe(0);

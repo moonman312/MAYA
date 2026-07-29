@@ -114,9 +114,13 @@ export const EXPECTED_FLOOR = 0.5;
 
 /**
  * With fewer comparable dates than this behind the expectation, the call is
- * capped one step from Normal in either direction.
+ * capped one step from Normal in either direction. Kept in step with
+ * trimmedMean's own n>=5 trim threshold (booking-rows.ts) — below 5 values
+ * the expectation is a plain, untrimmed mean, so a single outlier comparable
+ * can still dominate it; the cap has to stay on until trimming does too, or
+ * an extreme call can be built entirely off one bad comparable date.
  */
-export const MIN_COMPARABLES_FULL_RANGE = 3;
+export const MIN_COMPARABLES_FULL_RANGE = 5;
 
 export type BookingSpeedGuard =
   | "none"
