@@ -34,6 +34,16 @@ export type ClosedPeriodFinding = {
 
 const MIN_CLOSED_RUN_DAYS = 14;
 const SURROUND_DAYS = 30;
+/**
+ * How many short gaps findClosedPeriods will bridge into one candidate
+ * closure. 3 absorbs a realistic run of isolated incidents (a couple of
+ * stray bookings, or a short reopening between two closures) while staying
+ * short of what it takes to cascade a genuinely recurring low-occupancy
+ * season into one false-positive closure — empirically, a real quiet
+ * season's own booking-every-few-weeks cadence needs 4+ bridges before its
+ * merged span reaches far enough to touch genuine business on the far side.
+ */
+const MAX_BRIDGED_GAPS = 3;
 
 function addDays(ymd: string, days: number): string {
   const [y, m, d] = ymd.split("-").map(Number);
@@ -54,6 +64,8 @@ function median(values: number[]): number {
  * clearly operating on both sides (nonzero median room-nights in the 30 days
  * before AND after). Leading zeros before the first-ever reservation are
  * pre-opening, not a closure; trailing gaps that reach `today` are future.
+ * A short nonzero gap inside a run (a stray booking, or a brief reopening
+ * too short to count on its own) is bridged before scoring — see below.
  */
 export function findClosedPeriods(
   series: DailyRoomNights[],
@@ -72,8 +84,51 @@ export function findClosedPeriods(
     days.push({ date: d, nights: byDate.get(d) ?? 0 });
   }
 
-  const findings: ClosedPeriodFinding[] = [];
+  // Raw zero-runs as (start, end) index pairs.
+  const rawRuns: Array<[number, number]> = [];
   let runStart: number | null = null;
+  for (let i = 0; i < days.length; i++) {
+    if (days[i].nights === 0) {
+      if (runStart === null) runStart = i;
+    } else if (runStart !== null) {
+      rawRuns.push([runStart, i - 1]);
+      runStart = null;
+    }
+  }
+  if (runStart !== null) rawRuns.push([runStart, days.length - 1]);
+
+  // A stray booking (comped stay, maintenance hold, staff test, bad PMS row)
+  // landing inside a real closure splits one long zero-run into two — each
+  // half's before/after window then looks straight into the OTHER half's
+  // zeros, so both get rejected below and the whole closure vanishes. Same
+  // failure for two genuine closures split by a too-brief reopening. Bridge
+  // a nonzero gap that's shorter than a real operating stretch (same bar as
+  // MIN_CLOSED_RUN_DAYS) back into a single run before scoring it.
+  //
+  // Bridging has to stop after a few gaps, not run indefinitely: a property
+  // with a genuinely quiet season (a booking every couple of weeks, for
+  // months) looks IDENTICAL to a closure-with-strays one gap at a time, and
+  // an unbounded chain would walk the whole season out to the real business
+  // on the far side and report it as one giant false-positive closure.
+  // MAX_BRIDGED_GAPS caps how far a single chain can reach — enough to
+  // absorb a handful of isolated incidents in one closure (the cases this
+  // exists for), not enough to escape a recurring low-activity cadence.
+  const runs: Array<[number, number]> = [];
+  let i = 0;
+  while (i < rawRuns.length) {
+    const run: [number, number] = [rawRuns[i][0], rawRuns[i][1]];
+    let bridged = 0;
+    while (bridged < MAX_BRIDGED_GAPS) {
+      const next = rawRuns[i + 1 + bridged];
+      if (!next || next[0] - run[1] - 1 > MIN_CLOSED_RUN_DAYS) break;
+      run[1] = next[1];
+      bridged++;
+    }
+    runs.push(run);
+    i += 1 + bridged;
+  }
+
+  const findings: ClosedPeriodFinding[] = [];
 
   const flush = (startIdx: number, endIdx: number) => {
     const runLen = endIdx - startIdx + 1;
@@ -98,15 +153,7 @@ export function findClosedPeriods(
     });
   };
 
-  for (let i = 0; i < days.length; i++) {
-    if (days[i].nights === 0) {
-      if (runStart === null) runStart = i;
-    } else if (runStart !== null) {
-      flush(runStart, i - 1);
-      runStart = null;
-    }
-  }
-  if (runStart !== null) flush(runStart, days.length - 1);
+  for (const [s, e] of runs) flush(s, e);
 
   return findings;
 }
