@@ -16,6 +16,7 @@ import {
   computeGuardrailSuggestions,
   computeInitialGuardrails,
   computeRuleSuggestions,
+  MIN_ROWS_TO_TRUST_P99,
   type ExistingRuleSummary,
   type InitialGuardrailInput,
 } from "./suggest.ts";
@@ -370,7 +371,15 @@ export function findRateOutliers(stats: RoomTypeStats[]): RateOutlierFinding[] {
   for (const s of stats) {
     if (!s.is_active || s.median_rate == null || s.p99_rate == null || s.max_rate == null) continue;
     if (s.row_count < 30) continue; // not enough data to call anything an outlier
-    const threshold = Math.max(s.p99_rate * 3, s.median_rate * 10);
+    // Below MIN_ROWS_TO_TRUST_P99, p99 itself can BE the outlier row (the
+    // interpolation weight on the single highest value is still large), so
+    // a contaminated p99*3 must not be allowed to raise the bar past what
+    // median_rate*10 alone would catch — that was exactly how one bad row
+    // both became the ceiling AND defeated its own detector.
+    const threshold =
+      s.row_count >= MIN_ROWS_TO_TRUST_P99
+        ? Math.max(s.p99_rate * 3, s.median_rate * 10)
+        : s.median_rate * 10;
     if (s.max_rate > threshold) {
       findings.push({
         room_type_id: s.room_type_id,
@@ -638,8 +647,10 @@ async function buildSuggestionInserts(
   );
 
   const p99ByRoomType = new Map<string, number>();
+  const rowCountByRoomType = new Map<string, number>();
   for (const s of rtStats ?? []) {
     if (s.p99_rate != null) p99ByRoomType.set(String(s.room_type_id), Number(s.p99_rate));
+    rowCountByRoomType.set(String(s.room_type_id), Number(s.row_count ?? 0));
   }
   const parsedStats: RoomTypeStats[] = (rtStats ?? []).map(
     (r: Record<string, unknown>) => ({
@@ -666,6 +677,7 @@ async function buildSuggestionInserts(
       floor_price: Number(rt.floor_price),
       ceiling_price: Number(rt.ceiling_price),
       observed_p99_rate: p99ByRoomType.get(String(rt.id)) ?? null,
+      row_count: rowCountByRoomType.get(String(rt.id)) ?? 0,
     })),
     {
       floor: settings?.strategy_floor != null ? Number(settings.strategy_floor) : null,

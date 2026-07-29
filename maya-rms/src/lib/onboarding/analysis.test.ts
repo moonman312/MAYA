@@ -168,4 +168,28 @@ describe("findRateOutliers", () => {
   it("stays quiet on normal spreads", () => {
     expect(findRateOutliers([rt({})])).toHaveLength(0);
   });
+
+  it("still catches the fat-finger at n=50, where a contaminated p99 used to hide it", () => {
+    // The exact reproduction from the review: 49 nights @ $200 plus one
+    // $10,000 fat-finger. percentile_cont(0.99) at n=50 lands at ~5198 —
+    // the outlier is most of what p99 IS at this sample size — so the old
+    // threshold (max(p99*3, median*10) = max(15594, 2000)) sat above the
+    // $10,000 max and never fired.
+    const found = findRateOutliers([
+      rt({ row_count: 50, median_rate: 200, p99_rate: 5198, max_rate: 10_000 }),
+    ]);
+    expect(found).toHaveLength(1);
+    expect(found[0].max_rate).toBe(10_000);
+  });
+
+  it("trusts p99 again once row_count clears MIN_ROWS_TO_TRUST_P99", () => {
+    // median*10 = 2000, p99*3 = 2700: below MIN_ROWS_TO_TRUST_P99 only the
+    // median term would apply and this max would be flagged; at enough rows
+    // for p99 to be trustworthy, a legitimately wide (but clean) spread up
+    // to 2700 should not be.
+    const found = findRateOutliers([
+      rt({ row_count: 250, median_rate: 200, p99_rate: 900, max_rate: 2500 }),
+    ]);
+    expect(found).toHaveLength(0);
+  });
 });

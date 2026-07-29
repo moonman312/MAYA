@@ -183,6 +183,24 @@ describe("computeInitialGuardrails", () => {
     const floor = out.find((g) => g.field === "floor_price");
     expect(floor!.value).toBe(10); // 18 * 0.4 = 7.2 -> clamped to MIN_DATA_FLOOR
   });
+
+  it("does not set a p99-derived ceiling below MIN_ROWS_TO_TRUST_P99, even though the floor still applies", () => {
+    // The review's exact reproduction: 49 nights @ $200 plus one $10,000
+    // fat-finger (n=50) gives percentile_cont(0.99) ~5198 — at that row
+    // count the outlier IS most of what p99 measures, so "p99 x 1.5, never
+    // the raw max" was false. Below MIN_ROWS_TO_TRUST_P99 the ceiling must
+    // stay unset rather than land at a contaminated $7,800 on a $200 room.
+    const out = computeInitialGuardrails([
+      rtIn({ row_count: 50, observed_median_rate: 200, observed_p99_rate: 5198 }),
+    ]);
+    expect(out.find((g) => g.field === "ceiling_price")).toBeUndefined();
+    expect(out.find((g) => g.field === "floor_price")).toMatchObject({ value: 80 }); // median-based, unaffected
+  });
+
+  it("sets the p99-derived ceiling again once row_count clears MIN_ROWS_TO_TRUST_P99", () => {
+    const out = computeInitialGuardrails([rtIn({ row_count: 200, observed_p99_rate: 400 })]);
+    expect(out.find((g) => g.field === "ceiling_price")).toMatchObject({ value: 600 });
+  });
 });
 
 describe("computeGuardrailSuggestions", () => {
@@ -192,6 +210,7 @@ describe("computeGuardrailSuggestions", () => {
     floor_price: 1.0, // schema default = unset
     ceiling_price: 99999.99, // schema default = unset
     observed_p99_rate: 400,
+    row_count: 500,
     ...o,
   });
 
@@ -235,6 +254,22 @@ describe("computeGuardrailSuggestions", () => {
       new Set(["rt1"]),
     );
     expect(out).toHaveLength(0);
+  });
+
+  it("does not suggest a p99-derived ceiling below MIN_ROWS_TO_TRUST_P99 (refresh mode has the same exposure)", () => {
+    const out = computeGuardrailSuggestions(
+      [rt({ row_count: 50, observed_p99_rate: 5198 })],
+      { floor: null, ceiling: null },
+    );
+    expect(out.find((s) => s.field === "ceiling_price")).toBeUndefined();
+  });
+
+  it("still lets the owner's own strategy ceiling apply even when p99 is untrusted", () => {
+    const out = computeGuardrailSuggestions(
+      [rt({ row_count: 50, observed_p99_rate: 5198 })],
+      { floor: null, ceiling: 450 },
+    );
+    expect(out.find((s) => s.field === "ceiling_price")).toMatchObject({ suggested: 450 });
   });
 
   it("suggests nothing when there is nothing to go on", () => {
