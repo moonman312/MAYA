@@ -18,7 +18,7 @@
  * only reaches for the momentum fallback (momentum.ts — how nearby dates
  * are pacing right now versus a year ago) when NO usable comparable exists
  * at all; the classifier's own thin-history guard already keeps a call
- * built from just 1-3 real comparables appropriately conservative. Only
+ * built from just 1-4 real comparables appropriately conservative. Only
  * when even momentum has nothing to go on does this report
  * `insufficient_data` rather than guess.
  *
