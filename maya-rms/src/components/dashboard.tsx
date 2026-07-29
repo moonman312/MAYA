@@ -1318,6 +1318,8 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                                   <input
                                     type="number"
                                     step="any"
+                                    min="0"
+                                    required
                                     className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
                                     value={row.value}
                                     onChange={(e) =>

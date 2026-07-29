@@ -80,6 +80,32 @@ function parseConditionString(raw: string): { op: RuleOperator; num: number } | 
   return null;
 }
 
+/**
+ * Same as parseConditionString, but only accepts gt/lt — the only operators
+ * rule_condition's CHECK constraints allow for occupancy/dta/pickup
+ * (02_supabase_schema.sql). A legacy value like ">=80" parses fine under
+ * parseConditionString but would fail the insert AFTER pricing_rules
+ * already has a live row, leaving an orphaned active rule with no
+ * conditions. Rejecting it here, before anything is written, is the only
+ * point where that's still cheap to do.
+ */
+function parseLegacyConditionForDb(raw: string): { op: "gt" | "lt"; num: number } | null {
+  const parsed = parseConditionString(raw);
+  if (!parsed || (parsed.op !== "gt" && parsed.op !== "lt")) return null;
+  return { op: parsed.op, num: parsed.num };
+}
+
+const LEGACY_NUMERIC_KEYS = new Set(["occupancy_percentage", "booking_window", "pickup_rate"]);
+
+/** True when the legacy conditions map has at least one key the engine can actually act on. */
+function legacyConditionsHaveUsableFamily(conditions: Record<string, RuleConditionValue>): boolean {
+  for (const [key, val] of Object.entries(conditions)) {
+    if (!LEGACY_NUMERIC_KEYS.has(key)) continue;
+    if (parseLegacyConditionForDb(String(val))) return true;
+  }
+  return false;
+}
+
 function uiMetricToDb(key: string): RuleMetric | null {
   if (key === "booking_window") return "booking_window_days";
   if (key === "occupancy_percentage") return "occupancy_percentage";
@@ -375,6 +401,16 @@ export async function createRule(
   if (structuredCondition && isRuleConditionEmpty(structuredCondition)) {
     throw new Error("Rule must include at least one valid condition.");
   }
+  // When no structured condition is given, the legacy map is the only
+  // source of truth. Validate it BEFORE inserting pricing_rules — a map
+  // whose values don't parse (missing operator prefix, a bare number, an
+  // unrecognized key, or an operator like ">=" that rule_condition's CHECK
+  // constraint doesn't allow) used to create a live, active rule with zero
+  // condition rows, which the engine then treats as "always matches" for
+  // every stay date in scope.
+  if (!structuredCondition && !legacyConditionsHaveUsableFamily(input.conditions)) {
+    throw new Error("Rule must include at least one valid condition.");
+  }
 
   // Booking-speed rules run event-style (fire once, effect persists, then a
   // per-stay-date cooldown before re-firing) — same machinery as pickup
@@ -386,7 +422,7 @@ export async function createRule(
   if (!structuredCondition) {
     for (const [key, val] of Object.entries(input.conditions)) {
       if (key !== "pickup_rate") continue;
-      if (!parseConditionString(String(val))) continue;
+      if (!parseLegacyConditionForDb(String(val))) continue;
       hasPickup = true;
       break;
     }
@@ -426,11 +462,14 @@ export async function createRule(
     });
     if (condErr) throw new Error(condErr.message);
   } else {
-    // Build from legacy conditions map.
+    // Build from legacy conditions map. Uses the gt/lt-only parser — see
+    // parseLegacyConditionForDb — so an operator the CHECK constraint
+    // would reject (>=, <=, =, !=) is dropped here rather than reaching
+    // the insert and throwing after pricing_rules already has a live row.
     const cond: Record<string, unknown> = { rule_id: ruleId };
     let hasAnyCond = false;
     for (const [key, val] of Object.entries(input.conditions)) {
-      const parsed = parseConditionString(String(val));
+      const parsed = parseLegacyConditionForDb(String(val));
       if (!parsed) continue;
       if (key === "occupancy_percentage") {
         cond.occupancy_operator = parsed.op;
@@ -552,6 +591,18 @@ export async function updateRule(
   input: UpdateRuleInput,
   supabase: SupabaseClient,
 ): Promise<boolean> {
+  // Validate the new condition BEFORE any mutation. This used to run after
+  // the pricing_rules row was already updated, the version bumped, and any
+  // active pickup events retired — a rejected edit still left all of that
+  // applied to the rule while reporting "failed" to the caller, which is
+  // worse than doing nothing: it silently changes the rule's action/scope
+  // and destroys its pickup history for an edit that never actually landed.
+  let cleanCondition: RuleCondition | null = null;
+  if (input.condition) {
+    cleanCondition = ruleConditionForInsert(input.condition);
+    if (isRuleConditionEmpty(cleanCondition)) return false;
+  }
+
   const isBehavioralEdit = !!(
     input.action ||
     input.condition ||
@@ -611,12 +662,27 @@ export async function updateRule(
 
   if (error) return false;
 
-  // Update condition row.
-  if (input.condition) {
-    const clean = ruleConditionForInsert(input.condition);
-    if (isRuleConditionEmpty(clean)) return false;
-    await supabase.from("rule_condition").delete().eq("rule_id", id);
-    await supabase.from("rule_condition").insert({ rule_id: id, ...clean });
+  // Update condition row. The old row is fetched first so a failed insert
+  // can be repaired rather than leaving the rule with zero conditions —
+  // which the engine reads as "always matches every stay date," not as
+  // "this edit didn't happen."
+  if (cleanCondition) {
+    const { data: previous } = await supabase
+      .from("rule_condition")
+      .select("*")
+      .eq("rule_id", id)
+      .maybeSingle();
+
+    const { error: delErr } = await supabase.from("rule_condition").delete().eq("rule_id", id);
+    if (delErr) return false;
+
+    const { error: insErr } = await supabase
+      .from("rule_condition")
+      .insert({ rule_id: id, ...cleanCondition });
+    if (insErr) {
+      if (previous) await supabase.from("rule_condition").insert(previous);
+      return false;
+    }
   }
 
   // Update room-type mappings.
