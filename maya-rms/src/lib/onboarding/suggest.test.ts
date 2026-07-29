@@ -298,4 +298,43 @@ describe("computeGuardrailSuggestions", () => {
     });
     expect(out).toHaveLength(0);
   });
+
+  it("never suggests a floor that meets or exceeds the ceiling it's about to suggest (regression)", () => {
+    // The review's exact reproduction: strategy.floor=150 (a hotel-wide
+    // answer keyed to standard rooms) against a Budget Single whose own
+    // p99 is 90 — a floor=150/ceiling=140 pair is impossible to accept,
+    // since whichever field lands second violates floor<=ceiling and 500s.
+    const out = computeGuardrailSuggestions([rt({ observed_p99_rate: 90 })], {
+      floor: 150,
+      ceiling: null,
+    });
+    expect(out.find((s) => s.field === "floor_price")).toBeUndefined();
+    expect(out.find((s) => s.field === "ceiling_price")).toMatchObject({ suggested: 140 });
+  });
+
+  it("also skips the floor when it would only tie the ceiling (a fixed-price pin, not just a violation)", () => {
+    const out = computeGuardrailSuggestions([rt({ observed_p99_rate: 100 })], {
+      floor: 150,
+      ceiling: null,
+    });
+    expect(out.find((s) => s.field === "ceiling_price")).toMatchObject({ suggested: 150 });
+    expect(out.find((s) => s.field === "floor_price")).toBeUndefined();
+  });
+
+  it("still suggests the floor when it genuinely clears the ceiling target", () => {
+    const out = computeGuardrailSuggestions([rt({ observed_p99_rate: 400 })], {
+      floor: 79,
+      ceiling: null,
+    });
+    expect(out.find((s) => s.field === "floor_price")).toMatchObject({ suggested: 79 });
+    expect(out.find((s) => s.field === "ceiling_price")).toMatchObject({ suggested: 600 });
+  });
+
+  it("checks the floor against an already-set ceiling too, not just a freshly-computed one", () => {
+    const out = computeGuardrailSuggestions([rt({ ceiling_price: 120 })], {
+      floor: 150,
+      ceiling: null,
+    });
+    expect(out.find((s) => s.field === "floor_price")).toBeUndefined();
+  });
 });
