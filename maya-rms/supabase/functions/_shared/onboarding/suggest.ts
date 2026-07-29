@@ -61,8 +61,13 @@ export function computeRuleSuggestions(
   // The pace ladder is all-or-nothing: a hotel with ANY booking-speed rule
   // has a pace setup someone owns, and second-guessing their chosen levels
   // would be exactly the overreach suggestion mode exists to avoid. A hotel
-  // with none gets the whole ladder offered, one accept/reject each.
-  const hasBookingSpeedRule = active.some((r) => r.has_booking_speed);
+  // with none gets the whole ladder offered, one accept/reject each. This
+  // checks ALL rules, not just active ones — pausing the ladder (is_active
+  // false) is a normal seasonal action, not an invitation to re-offer the
+  // same five rules as fresh "add" suggestions and create active duplicates
+  // of a set the owner will likely re-enable later. Same guard
+  // generateStarterRules already uses.
+  const hasBookingSpeedRule = existing.some((r) => r.has_booking_speed);
   if (!hasBookingSpeedRule) {
     for (const spec of paceSpecs) {
       const rationale =
