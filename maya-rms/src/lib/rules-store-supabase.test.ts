@@ -15,7 +15,7 @@
  * chaining to exercise both functions' real control flow.
  */
 import { describe, expect, it } from "vitest";
-import { createRule, updateRule, type CreateRuleInput } from "./rules-store";
+import { createRule, listRules, updateRule, type CreateRuleInput } from "./rules-store";
 
 type Row = Record<string, unknown>;
 
@@ -52,6 +52,9 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
       },
       is(col: string, val: unknown) {
         filters.push([col, val]);
+        return api;
+      },
+      order() {
         return api;
       },
       insert(payload: Row | Row[]) {
@@ -205,5 +208,30 @@ describe("updateRule: validates before mutating, repairs a failed condition writ
     expect(tables.get("pickup_event")?.[0]).toMatchObject({ retired_at: expect.any(String) });
     expect(tables.get("rule_condition")).toHaveLength(1);
     expect(tables.get("rule_condition")?.[0]).toMatchObject({ occupancy_operator: "lt", occupancy_threshold: 0.3 });
+  });
+});
+
+describe("listRules: occupancy percentage display does not show float noise", () => {
+  // numeric(8,4) 0.57 * 100 without rounding is 56.99999999999999 in
+  // floating point — every one of these is a perfectly ordinary threshold.
+  it.each([7, 14, 28, 29, 55, 56, 57, 58, 75])("round-trips %d%% exactly, no trailing float noise", async (pct) => {
+    const { client } = fakeSupabase({
+      pricing_rules: [
+        {
+          id: "r1",
+          hotel_id: "h1",
+          name: "Test",
+          is_active: true,
+          version: 1,
+          action_type: "percent",
+          action_direction: "increase",
+          action_value: 10,
+          is_pickup_rule: false,
+          rule_condition: { occupancy_operator: "gt", occupancy_threshold: pct / 100 },
+        },
+      ],
+    });
+    const rules = await listRules(client, "h1");
+    expect(rules[0].conditions.occupancy_percentage).toBe(`>${pct}`);
   });
 });
