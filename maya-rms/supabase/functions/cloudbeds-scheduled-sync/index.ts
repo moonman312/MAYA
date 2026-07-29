@@ -17,6 +17,33 @@ import { evaluateHotel } from "../_shared/engine/index.ts";
 import { createCloudbedsRateAdapter } from "../_shared/cloudbeds/rate-push.ts";
 import { pushRatesForHotel } from "../_shared/pms/rate-push.ts";
 
+/**
+ * The sync result carries live Cloudbeds credentials because the rate-push
+ * step needs them in-process. They must never leave this function: the
+ * response body is persisted by pg_net, and this endpoint runs with
+ * verify_jwt=false, so anything returned here is readable by anyone who can
+ * reach it. Project an explicit allowlist rather than spreading the result,
+ * so a field added to the sync type later cannot silently start leaking.
+ */
+function publicSyncResult(sync: Awaited<ReturnType<typeof runCloudbedsSyncForHotel>>) {
+  if (!sync.ok) {
+    return {
+      ok: false as const,
+      error: sync.error,
+      cloudbedsStatus: sync.cloudbedsStatus,
+      retryAfterMs: sync.retryAfterMs,
+    };
+  }
+  return {
+    ok: true as const,
+    fetchWindow: sync.fetchWindow,
+    apiPages: sync.apiPages,
+    roomTypesUpserted: sync.roomTypesUpserted,
+    reservationRowsUpserted: sync.reservationRowsUpserted,
+    ingest: sync.ingest,
+  };
+}
+
 function getEnv(name: string): string | undefined {
   const v = Deno.env.get(name);
   return v && v !== "" ? v : undefined;
@@ -90,7 +117,7 @@ Deno.serve(async (req) => {
 
   const results: Array<{
     hotelId: string;
-    sync: Awaited<ReturnType<typeof runCloudbedsSyncForHotel>>;
+    sync: ReturnType<typeof publicSyncResult>;
     evaluate?: Awaited<ReturnType<typeof evaluateHotel>> | { error: string } | { skipped: true };
     // deno-lint-ignore no-explicit-any
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -148,7 +175,7 @@ Deno.serve(async (req) => {
       }),
     );
 
-    results.push({ hotelId, sync, evaluate, push });
+    results.push({ hotelId, sync: publicSyncResult(sync), evaluate, push });
   }
 
   const failed = results.filter(
