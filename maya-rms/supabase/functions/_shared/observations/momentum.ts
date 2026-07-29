@@ -31,7 +31,7 @@ export const MOMENTUM_RADIUS_DAYS = 10;
  * comparison.
  */
 export const MOMENTUM_YEAR_OFFSET_DAYS = 364;
-/** Momentum needs at least this many neighbor dates with any real history behind them. */
+/** Momentum needs at least this many usable neighbor dates in the radius (rows or verified zero) to trust a pace read. */
 export const MOMENTUM_MIN_NEIGHBORS = 2;
 export const MOMENTUM_RATIO_FLOOR = 0.15;
 export const MOMENTUM_RATIO_CEILING = 6;
@@ -104,9 +104,9 @@ function neighborDates(
 /**
  * Booking momentum estimate: how nearby dates are pacing right now versus a
  * year ago, applied to the best available single-instance baseline. Returns
- * null when there is nothing at all to reason from — not enough neighbor
- * dates with any history behind them (a brand-new property, or a date
- * deep in a sparsely-booked future with nothing nearby to lean on).
+ * null when there is nothing at all to reason from — too few usable date
+ * slots in the radius (a target crowded by holiday/excluded neighbors, or
+ * too small a radius), not merely because those slots turned out quiet.
  */
 export function estimateMomentumFallback(opts: EstimateMomentumOptions): MomentumEstimate | null {
   const radiusDays = opts.radiusDays ?? MOMENTUM_RADIUS_DAYS;
@@ -121,8 +121,12 @@ export function estimateMomentumFallback(opts: EstimateMomentumOptions): Momentu
   const neighborRecentPaces: number[] = [];
 
   for (const neighbor of neighbors) {
-    if (!hasAnyRow(opts.rows, neighbor)) continue;
-
+    // No hasAnyRow gate here on purpose: neighborDates only ever returns
+    // today-or-later dates against a full, unfiltered import, so a zero-row
+    // neighbor is a verified zero (nobody has booked it yet), not a data
+    // gap — closed/challenged dates are already dropped by isExcluded above.
+    // Skipping it would keep only the busy exceptions and inflate
+    // neighborRecentPaces toward whichever dates happen to have rows.
     const neighborDaysOut = daysBetween(opts.asOf, neighbor);
     const recent = pickupInWindow(opts.rows, neighbor, neighborDaysOut, opts.windowDays);
     neighborsUsed++;

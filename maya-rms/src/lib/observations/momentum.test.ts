@@ -36,13 +36,18 @@ describe("MOMENTUM_YEAR_OFFSET_DAYS", () => {
 });
 
 describe("estimateMomentumFallback", () => {
-  it("returns null when fewer than the minimum neighbors have any data", () => {
+  it("returns null when fewer than the minimum neighbor dates fall within the usable radius", () => {
     expect(MOMENTUM_MIN_NEIGHBORS).toBeGreaterThanOrEqual(2);
+    // radiusDays 1 with asOf == target leaves only one candidate (target+1);
+    // target-1 is dropped for being before asOf. This is now the only way
+    // to fall short of MOMENTUM_MIN_NEIGHBORS: rows or no rows, every
+    // future, non-holiday, non-excluded date in the radius counts.
     const est = estimateMomentumFallback({
-      rows: windowRow("2026-08-15", 5),
+      rows: [],
       target: "2026-08-15",
-      asOf: "2026-08-01",
+      asOf: "2026-08-15",
       windowDays: 7,
+      radiusDays: 1,
     });
     expect(est).toBeNull();
   });
@@ -63,7 +68,9 @@ describe("estimateMomentumFallback", () => {
       radiusDays: 2,
     });
     expect(est).not.toBeNull();
-    expect(est!.neighborsUsed).toBe(2);
+    // Radius 2 covers 4 candidate dates (08-13, 08-14, 08-16, 08-17); all 4
+    // count now, including the two with no rows of their own (verified zero).
+    expect(est!.neighborsUsed).toBe(4);
     expect(est!.matchedPairs).toBe(2);
     expect(est!.momentumRatio).toBe(2); // 12/6
     expect(est!.baselineSource).toBe("target_year_ago");
@@ -87,15 +94,19 @@ describe("estimateMomentumFallback", () => {
     expect(est!.matchedPairs).toBe(0);
     expect(est!.momentumRatio).toBe(1);
     expect(est!.baselineSource).toBe("neighbor_pace");
-    expect(est!.naiveBaselineBookings).toBe(2);
-    expect(est!.expectedBookings).toBe(2);
+    // Honest mean over all 4 future neighbors (08-13, 08-14, 08-16, 08-17),
+    // counting the two zero-row ones as verified zero: [2, 0, 0, 2] -> 1.
+    // Not 2, which is what you get by only averaging the two busy ones.
+    expect(est!.neighborsUsed).toBe(4);
+    expect(est!.naiveBaselineBookings).toBe(1);
+    expect(est!.expectedBookings).toBe(1);
   });
 
   it("only counts a neighbor toward the ratio when BOTH its current and year-ago side have usable data (no mixed-population ratio)", () => {
-    // 4 neighbors, all with current-year data (recentTotal would be large
-    // if every neighbor counted) but only ONE has a matched year-ago pair.
-    // The unmatched ratio would be 4*2 / 2 = 4; the correct matched-only
-    // ratio is 2/2 = 1.
+    // 8 candidate future dates (radius 4), of which only 3 have their own
+    // rows (recentTotal would be large if every one of those counted) but
+    // only ONE has a matched year-ago pair. The unmatched ratio would be
+    // 4*2 / 2 = 4; the correct matched-only ratio is 2/2 = 1.
     const rows: SlimReservationRow[] = [
       ...windowRow("2026-08-11", 10, 2),
       ...windowRow("2026-08-12", 11, 2),
@@ -110,7 +121,9 @@ describe("estimateMomentumFallback", () => {
       windowDays: 7,
       radiusDays: 4,
     });
-    expect(est!.neighborsUsed).toBe(4);
+    // 08-11, 08-12, 08-13, 08-14, 08-16, 08-17, 08-18, 08-19: all 8 count,
+    // including the zero-row ones (08-14, 08-16, 08-18, 08-19 as futures).
+    expect(est!.neighborsUsed).toBe(8);
     expect(est!.matchedPairs).toBe(1);
     expect(est!.momentumRatio).toBe(1);
   });
@@ -135,7 +148,7 @@ describe("estimateMomentumFallback", () => {
       radiusDays: 2,
       isExcluded: (d) => d === "2025-08-14",
     });
-    expect(est!.neighborsUsed).toBe(2); // both neighbors still count as neighbors
+    expect(est!.neighborsUsed).toBe(4); // all 4 future candidates count, poisoned or not
     expect(est!.matchedPairs).toBe(1); // but only one pairs cleanly
     expect(est!.momentumRatio).toBe(2); // 6/3, unaffected by the poisoned 100
   });
@@ -189,9 +202,14 @@ describe("estimateMomentumFallback", () => {
       radiusDays: 3,
       isExcluded: (d) => d === "2026-07-09",
     });
-    // 07-04 is a holiday, 07-09 is caller-excluded: only 07-08 remains
-    // eligible, below MOMENTUM_MIN_NEIGHBORS.
-    expect(est).toBeNull();
+    // Radius 3 has 6 raw candidates (07-03, 07-04, 07-05, 07-07, 07-08,
+    // 07-09). Independence Day's influence window (before 2, after 2) also
+    // catches 07-03 and 07-05 alongside 07-04 itself, and 07-09 is
+    // caller-excluded, so only 07-07 and 07-08 remain — proven by
+    // neighborsUsed, since a zero-row future date no longer drops out on
+    // its own.
+    expect(est).not.toBeNull();
+    expect(est!.neighborsUsed).toBe(2);
   });
 
   it("never counts a neighbor date before asOf, even when it is within the radius", () => {
@@ -208,9 +226,46 @@ describe("estimateMomentumFallback", () => {
       radiusDays: 5,
     });
     expect(est).not.toBeNull();
-    expect(est!.neighborsUsed).toBe(2);
+    // Of the 5 raw candidates on/after asOf (07-06..07-10), 07-06 falls in
+    // Independence Day's after-influence window and drops out, leaving
+    // 07-07..07-10. 07-01 is correctly never in that set at all (before
+    // asOf). Only 07-09 and 07-10 have rows, but 07-07 and 07-08 count too,
+    // as verified zeros: mean of [0, 0, 2, 2] -> 1, not 2 (the old,
+    // data-only average of just the two busy dates).
+    expect(est!.neighborsUsed).toBe(4);
     expect(est!.baselineSource).toBe("neighbor_pace");
-    expect(est!.naiveBaselineBookings).toBe(2);
+    expect(est!.naiveBaselineBookings).toBe(1);
+  });
+
+  it("counts verified-zero future neighbors instead of only averaging the rare busy ones (quiet-neighborhood regression)", () => {
+    // Brand-new property shape: 20 future neighbor dates (radius 10), only
+    // 2 of which have any rows at all (one small group block each, 2 rows).
+    // The old skip-if-no-rows behavior threw out the other 18 and averaged
+    // just those two -> naiveBaselineBookings of 2.0, which is exactly the
+    // inflated fallback baseline the finding flagged (it would make a truly
+    // quiet, normal target look like a "slowdown" against nothing).
+    const target = "2026-08-10";
+    const asOf = "2026-07-27";
+    const busyDates = ["2026-07-31", "2026-08-15"];
+    const rows: SlimReservationRow[] = busyDates.flatMap((d) => {
+      const daysOut = Math.round((Date.parse(`${d}T00:00:00Z`) - Date.parse(`${asOf}T00:00:00Z`)) / 86_400_000);
+      return windowRow(d, daysOut, 2);
+    });
+    const est = estimateMomentumFallback({
+      rows,
+      target,
+      asOf,
+      windowDays: 7,
+      radiusDays: 10,
+    });
+    expect(est).not.toBeNull();
+    expect(est!.neighborsUsed).toBe(20);
+    expect(est!.baselineSource).toBe("neighbor_pace");
+    // Honest trimmed mean over all 20 (18 verified zeros + 2, 2): far below
+    // the old, busy-only average of 2.0, not close to it.
+    expect(est!.naiveBaselineBookings).toBe(0.11);
+    expect(est!.naiveBaselineBookings).toBeLessThan(0.5);
+    expect(est!.expectedBookings).toBe(0.11);
   });
 });
 
