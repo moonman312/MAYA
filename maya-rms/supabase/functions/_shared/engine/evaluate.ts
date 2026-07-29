@@ -17,6 +17,7 @@ import {
   DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS,
   bookingSpeedAuditSnapshots,
   bookingSpeedMetrics,
+  cooldownLookbackDays,
   isWithinCooldown,
   loadBookingSpeedContext,
   observeForStayDate,
@@ -278,8 +279,11 @@ export async function evaluateHotel(
     bsCtx = await loadBookingSpeedContext(supabase, hotelId, localDate, totalCapacity);
 
     // Most recent fire per (rule, stay date), for cooldown throttling of
-    // event-style booking-speed rules. One query, built into a map.
-    const cooldownHorizon = new Date(Date.parse(now) - 31 * 86_400_000).toISOString();
+    // event-style booking-speed rules. One query, built into a map. See
+    // cooldownLookbackDays for why this can't be a fixed 31 days.
+    const cooldownHorizon = new Date(
+      Date.parse(now) - cooldownLookbackDays(rules) * 86_400_000,
+    ).toISOString();
     const { data: fires } = await supabase
       .from("pickup_event")
       .select("rule_id, stay_date, applied_at")

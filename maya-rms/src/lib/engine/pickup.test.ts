@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { basePriceKey, selectPickupWinner } from "./pickup";
+import { basePriceKey, pickupTieBreakTrace, selectPickupWinner } from "./pickup";
 import type { EngineRule } from "@/types/domain";
 import type { PickupCandidate, RuleMetrics } from "./types";
 
@@ -195,5 +195,97 @@ describe("pickup competition (§7.3, §15.5)", () => {
 
   it("empty candidates returns null", () => {
     expect(selectPickupWinner([], new Map())).toBeNull();
+  });
+
+  describe("cross-operator threshold comparisons never decide the winner (regression)", () => {
+    // P(gt, 10) vs Q(lt, 2): naive branching on the first candidate's
+    // operator gave compare(P,Q) = 2-10 = -8 AND compare(Q,P) = 2-10 = -8 —
+    // both claimed to go first, so the winner (and the sign of the price
+    // move) depended on unspecified DB row order alone.
+    function slowFastPair() {
+      const fast = makeRule({
+        id: "fast-gt",
+        action_direction: "increase",
+        action_value: 8,
+        condition: { ...makeRule().condition, pickup_operator: "gt", pickup_threshold: 10 },
+      });
+      const slow = makeRule({
+        id: "slow-lt",
+        action_direction: "decrease",
+        action_value: 5,
+        condition: { ...makeRule().condition, pickup_operator: "lt", pickup_threshold: 2 },
+      });
+      return { fast, slow };
+    }
+
+    it("picks the same winner regardless of candidate array order", () => {
+      const { fast, slow } = slowFastPair();
+      const sd = "2026-07-15";
+      const basePrices = new Map([[basePriceKey(sd, "rt1"), 100]]);
+      const winnerForward = selectPickupWinner(
+        [makeCandidate(fast, "rt1", sd), makeCandidate(slow, "rt1", sd)],
+        basePrices,
+      );
+      const winnerReversed = selectPickupWinner(
+        [makeCandidate(slow, "rt1", sd), makeCandidate(fast, "rt1", sd)],
+        basePrices,
+      );
+      expect(winnerForward!.rule.id).toBe(winnerReversed!.rule.id);
+    });
+
+    it("falls through to the next tie-break level (adjustment size) rather than a coin flip", () => {
+      // 8% beats 5%, unambiguously, once thresholds stop being compared
+      // across incompatible operators.
+      const { fast, slow } = slowFastPair();
+      const sd = "2026-07-15";
+      const basePrices = new Map([[basePriceKey(sd, "rt1"), 100]]);
+      const winner = selectPickupWinner(
+        [makeCandidate(fast, "rt1", sd), makeCandidate(slow, "rt1", sd)],
+        basePrices,
+      );
+      expect(winner!.rule.id).toBe("fast-gt");
+    });
+
+    it("treats a null pickup_operator (booking-speed rules) the same way — falls through, never compares", () => {
+      const bookingSpeedRule = makeRule({
+        id: "bs-rule",
+        action_direction: "decrease",
+        action_value: 7,
+        condition: {
+          booking_speed_operator: "at_most",
+          booking_speed_level: "slower",
+          booking_speed_window_days: 7,
+        },
+      });
+      const pickupRule = makeRule({
+        id: "pu-rule",
+        action_direction: "increase",
+        action_value: 7,
+        condition: { ...makeRule().condition, pickup_operator: "gt", pickup_threshold: 5 },
+      });
+      const sd = "2026-07-15";
+      const basePrices = new Map([[basePriceKey(sd, "rt1"), 100]]);
+      const forward = selectPickupWinner(
+        [makeCandidate(bookingSpeedRule, "rt1", sd), makeCandidate(pickupRule, "rt1", sd)],
+        basePrices,
+      );
+      const reversed = selectPickupWinner(
+        [makeCandidate(pickupRule, "rt1", sd), makeCandidate(bookingSpeedRule, "rt1", sd)],
+        basePrices,
+      );
+      expect(forward!.rule.id).toBe(reversed!.rule.id);
+    });
+
+    it("the audit trace never claims a threshold win across different operators", () => {
+      const { fast, slow } = slowFastPair();
+      const sd = "2026-07-15";
+      const basePrices = new Map([[basePriceKey(sd, "rt1"), 100]]);
+      const winner = makeCandidate(fast, "rt1", sd);
+      const loser = makeCandidate(slow, "rt1", sd);
+      const trace = pickupTieBreakTrace(winner, loser, basePrices);
+      const joined = trace.join(" | ");
+      expect(joined).not.toMatch(/pickup_threshold\((gt|lt)\):/);
+      expect(joined).toContain("not comparable");
+    });
   });
 });

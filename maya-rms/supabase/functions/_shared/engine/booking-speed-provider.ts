@@ -302,3 +302,24 @@ export function isWithinCooldown(
   if (!lastAppliedAt) return false;
   return Date.parse(nowIso) - Date.parse(lastAppliedAt) < cooldownDays * 86_400_000;
 }
+
+/**
+ * How far back to look for prior fires when building the cooldown map.
+ *
+ * Must cover the LONGEST cooldown any active booking-speed rule actually
+ * uses — a fixed 31-day lookback made a rule configured with a longer
+ * cooldown invisible past that horizon, so isWithinCooldown would never see
+ * its last fire and the rule would re-fire (stacking another persistent
+ * pickup adjustment) weeks before its own cooldown said it should. 31 stays
+ * the floor so ordinary cooldowns are unaffected; +1 pads the boundary.
+ */
+export function cooldownLookbackDays(
+  rules: { condition: { booking_speed_operator?: string | null; booking_speed_cooldown_days?: number | null } }[],
+): number {
+  const maxCooldown = rules.reduce((max, r) => {
+    if (!r.condition.booking_speed_operator) return max;
+    const cd = r.condition.booking_speed_cooldown_days ?? DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS;
+    return Math.max(max, cd);
+  }, DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS);
+  return Math.max(31, maxCooldown + 1);
+}
