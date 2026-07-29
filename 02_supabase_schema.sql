@@ -502,9 +502,17 @@ create table if not exists published_price (
   stay_date    date not null,
   room_type_id uuid not null,
   price        numeric(10,2) not null,
+  -- The clean pre-adjustment price this row was computed from. The engine
+  -- reads THIS as its base when no reservation carries a base_rate — never
+  -- `price`, which already contains the rules' effects, and re-applying them
+  -- to it compounds the adjustment on every run.
+  base_price   numeric(10,2),
   computed_at  timestamptz not null,
   primary key (hotel_id, stay_date, room_type_id)
 );
+
+alter table published_price
+  add column if not exists base_price numeric(10,2);
 
 -- ============================================================================
 -- EVALUATION AUDIT LOG (Implementation Guide §3.10)

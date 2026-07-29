@@ -134,16 +134,27 @@ export async function maybePublish(
   roomTypeId: string,
   finalPrice: number,
   computedAt: string,
+  basePrice?: number,
 ): Promise<boolean> {
   const { data: current } = await supabase
     .from("published_price")
-    .select("price")
+    .select("price, base_price")
     .eq("hotel_id", hotelId)
     .eq("stay_date", stayDate)
     .eq("room_type_id", roomTypeId)
     .maybeSingle();
 
-  if (current && Number(current.price) === finalPrice) {
+  const priceUnchanged = current != null && Number(current.price) === finalPrice;
+  // The remembered base has to be written even on a run that does not move
+  // the price, or a cell whose price is stable never records one — and it is
+  // exactly those quiet cells that later lose their last reservation.
+  const baseUnchanged =
+    basePrice === undefined ||
+    (current != null &&
+      current.base_price != null &&
+      Number(current.base_price) === basePrice);
+
+  if (priceUnchanged && baseUnchanged) {
     return false;
   }
 
@@ -153,10 +164,13 @@ export async function maybePublish(
       stay_date: stayDate,
       room_type_id: roomTypeId,
       price: finalPrice,
+      ...(basePrice !== undefined ? { base_price: basePrice } : {}),
       computed_at: computedAt,
     },
     { onConflict: "hotel_id,stay_date,room_type_id" },
   );
 
-  return true;
+  // Only a real price move counts as a publish — a base-only correction is
+  // bookkeeping and should not read as a rate change in the change log.
+  return !priceUnchanged;
 }
