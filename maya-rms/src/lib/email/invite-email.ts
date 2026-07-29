@@ -1,5 +1,6 @@
 import "server-only";
 import type { HotelRole } from "@/lib/admin/types";
+import { roleLabel as roleLabelFor } from "@/lib/roles";
 
 /**
  * MAYA invite email, rendered server-side and sent through Resend.
@@ -10,13 +11,6 @@ import type { HotelRole } from "@/lib/admin/types";
  * visual theme mirrors the app's accept-invite page: slate-950 backdrop,
  * slate-900 card with a slate-800 border, and the sky-500 CTA button.
  */
-
-const ROLE_LABELS: Record<HotelRole, string> = {
-  hotel_admin: "Hotel Admin",
-  manager: "Manager",
-  staff: "Staff",
-  viewer: "Viewer",
-};
 
 // Tailwind slate/sky values used across the app (globals + accept-invite page).
 const COLORS = {
@@ -44,7 +38,7 @@ export function inviteEmailSubject(input: InviteEmailInput): string {
 }
 
 export function inviteEmailText(input: InviteEmailInput): string {
-  const roleLabel = ROLE_LABELS[input.role] ?? input.role;
+  const roleLabel = roleLabelFor(input.role);
   const inviterLine = input.inviterEmail
     ? `${input.inviterEmail} has invited you`
     : "You have been invited";
@@ -61,7 +55,7 @@ export function inviteEmailText(input: InviteEmailInput): string {
 }
 
 export function inviteEmailHtml(input: InviteEmailInput): string {
-  const roleLabel = ROLE_LABELS[input.role] ?? input.role;
+  const roleLabel = roleLabelFor(input.role);
   const hotelName = escapeHtml(input.hotelName);
   const inviterLine = input.inviterEmail
     ? `<strong style="color:${COLORS.heading};">${escapeHtml(input.inviterEmail)}</strong> has invited you`
