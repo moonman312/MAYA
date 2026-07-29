@@ -72,10 +72,18 @@ async function applyRuleSuggestion(
     if (insErr || !ruleRow) return insErr?.message ?? "rule insert failed";
     const ruleId = String(ruleRow.id);
 
+    // No transaction spans these inserts, so a failure partway through would
+    // otherwise leave an active rule with no condition row — which the
+    // engine treats as always-matching. Delete the orphaned rule (cascades
+    // to whichever of condition/room-type joins already landed) instead of
+    // returning with it still live.
     const { error: condErr } = await supabase
       .from("rule_condition")
       .insert({ rule_id: ruleId, ...spec.condition });
-    if (condErr) return condErr.message;
+    if (condErr) {
+      await supabase.from("pricing_rules").delete().eq("id", ruleId);
+      return condErr.message;
+    }
 
     const roomTypeIds = Array.isArray(payload.room_type_ids)
       ? (payload.room_type_ids as string[])
@@ -83,9 +91,15 @@ async function applyRuleSuggestion(
     if (roomTypeIds.length > 0) {
       const joins = roomTypeIds.map((rtId) => ({ rule_id: ruleId, room_type_id: rtId }));
       const { error: sigErr } = await supabase.from("rule_signal_room_type").insert(joins);
-      if (sigErr) return sigErr.message;
+      if (sigErr) {
+        await supabase.from("pricing_rules").delete().eq("id", ruleId);
+        return sigErr.message;
+      }
       const { error: affErr } = await supabase.from("rule_affected_room_type").insert(joins);
-      if (affErr) return affErr.message;
+      if (affErr) {
+        await supabase.from("pricing_rules").delete().eq("id", ruleId);
+        return affErr.message;
+      }
     }
     return null;
   }
@@ -144,6 +158,38 @@ export async function POST(
     return NextResponse.json({ error: "Finding not found" }, { status: 404 });
   }
 
+  const originalStatus = String(finding.status);
+  const newStatus = action === "confirm" ? "confirmed" : "dismissed";
+
+  // Claim the finding before any side effect runs. None of the side effects
+  // below are safe to repeat — a second confirm inserts a second pricing
+  // rule or a second closed period — so a finding already resolved by an
+  // earlier request (a retry, a double-click past the busy guard, two open
+  // tabs) must stop here rather than re-apply.
+  const { data: claimed, error: claimErr } = await supabase
+    .from("onboarding_findings")
+    .update({ status: newStatus, resolved_by: user.id, resolved_at: new Date().toISOString() })
+    .eq("id", findingId)
+    .eq("hotel_id", hotelId)
+    .in("status", ["proposed", "auto_applied"])
+    .select("id")
+    .maybeSingle();
+  if (claimErr) {
+    return NextResponse.json({ error: claimErr.message }, { status: 500 });
+  }
+  if (!claimed) {
+    return NextResponse.json({ error: "Finding was already resolved" }, { status: 409 });
+  }
+
+  // If a side effect fails after the claim, put status back the way it was
+  // so a genuine retry (not a duplicate click) can still claim and apply it.
+  const revertClaim = async () => {
+    await supabase
+      .from("onboarding_findings")
+      .update({ status: originalStatus, resolved_by: null, resolved_at: null })
+      .eq("id", findingId);
+  };
+
   const payload = (finding.payload ?? {}) as Record<string, unknown>;
 
   if (action === "confirm") {
@@ -165,6 +211,7 @@ export async function POST(
           })),
         );
         if (error) {
+          await revertClaim();
           return NextResponse.json({ error: error.message }, { status: 500 });
         }
       }
@@ -176,24 +223,30 @@ export async function POST(
         .eq("id", String(payload.room_type_id))
         .eq("hotel_id", hotelId);
       if (error) {
+        await revertClaim();
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
     }
     // Refresh-mode duplicate: the deactivation was only proposed — apply now.
     if (
       finding.kind === "duplicate_room_type" &&
-      finding.status === "proposed" &&
+      originalStatus === "proposed" &&
       payload.deactivate_room_type_id
     ) {
-      await supabase
+      const { error } = await supabase
         .from("room_types")
         .update({ is_active: false })
         .eq("id", String(payload.deactivate_room_type_id))
         .eq("hotel_id", hotelId);
+      if (error) {
+        await revertClaim();
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
     }
     if (finding.kind === "guardrail_suggestion" && payload.room_type_id && payload.field) {
       const field = String(payload.field);
       if (field !== "floor_price" && field !== "ceiling_price") {
+        await revertClaim();
         return NextResponse.json({ error: "Bad guardrail field" }, { status: 400 });
       }
       // The owner's own number wins over the suggestion when they typed one
@@ -204,12 +257,14 @@ export async function POST(
         .eq("id", String(payload.room_type_id))
         .eq("hotel_id", hotelId);
       if (error) {
+        await revertClaim();
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
     }
     if (finding.kind === "rule_suggestion") {
       const err = await applyRuleSuggestion(supabase, hotelId, payload);
       if (err) {
+        await revertClaim();
         return NextResponse.json({ error: err }, { status: 500 });
       }
     }
@@ -218,27 +273,19 @@ export async function POST(
   if (
     action === "dismiss" &&
     finding.kind === "duplicate_room_type" &&
-    finding.status === "auto_applied" &&
+    originalStatus === "auto_applied" &&
     payload.deactivate_room_type_id
   ) {
     // Undo the auto-fix: bring the room type back.
-    await supabase
+    const { error } = await supabase
       .from("room_types")
       .update({ is_active: true })
       .eq("id", String(payload.deactivate_room_type_id))
       .eq("hotel_id", hotelId);
-  }
-
-  const { error: updErr } = await supabase
-    .from("onboarding_findings")
-    .update({
-      status: action === "confirm" ? "confirmed" : "dismissed",
-      resolved_by: user.id,
-      resolved_at: new Date().toISOString(),
-    })
-    .eq("id", findingId);
-  if (updErr) {
-    return NextResponse.json({ error: updErr.message }, { status: 500 });
+    if (error) {
+      await revertClaim();
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
   }
 
   return NextResponse.json({ ok: true });
