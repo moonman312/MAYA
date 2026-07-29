@@ -6,6 +6,8 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 export default async function Home() {
+  let isPlatformAdmin = false;
+
   if (isSupabaseConfigured()) {
     const supabase = createClient(await cookies());
     const {
@@ -27,6 +29,14 @@ export default async function Home() {
         redirect("/onboarding");
       }
     }
+
+    // Command Center had no entry point anywhere in the app — a platform
+    // admin had to know the URL. Surface it only to those who can use it.
+    const { data: admin } = await supabase.rpc("is_platform_admin", {
+      p_user_id: user.id,
+    });
+    isPlatformAdmin = Boolean(admin);
   }
-  return <Dashboard />;
+
+  return <Dashboard isPlatformAdmin={isPlatformAdmin} />;
 }

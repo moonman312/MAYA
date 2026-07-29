@@ -258,7 +258,7 @@ function PmsStatusBadge({ status }: { status: string | null }) {
   );
 }
 
-export function Dashboard() {
+export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boolean }) {
   const [tab, setTab] = useState<TabKey>("calendar");
   const [year, setYear] = useState(new Date().getUTCFullYear());
   const [month, setMonth] = useState(new Date().getUTCMonth() + 1);
@@ -709,7 +709,15 @@ export function Dashboard() {
                 Dynamic Pricing That Leaves You In Control
               </p>
             </div>
-            <div className="flex flex-col items-stretch gap-2 sm:items-end">
+            <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end">
+              {isPlatformAdmin ? (
+                <a
+                  href="/admin"
+                  className="w-full cursor-pointer rounded border border-slate-700 px-3 py-2 text-center text-sm text-slate-200 hover:bg-slate-800 sm:w-auto"
+                >
+                  Command Center
+                </a>
+              ) : null}
               <form action="/auth/logout" method="post">
                 <button
                   type="submit"
