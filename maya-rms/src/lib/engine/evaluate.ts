@@ -23,7 +23,7 @@ import { ruleConditionsMatch } from "./conditions";
 import type { LadderPassResult } from "./ladder";
 import { evaluateLadderTriple } from "./ladder";
 import { computeRuleMetrics } from "./metrics";
-import { computeBaselineTs, runPickupPass } from "./pickup";
+import { computeBaselineTs, retireUndonePickupEvents, runPickupPass } from "./pickup";
 import { assemblePrice, maybePublish } from "./pricing";
 import { ruleScopeMatches } from "./scope";
 import { fetchAllRows, purgeOldSnapshots, snapshotCurrentState } from "./snapshots";
@@ -492,6 +492,11 @@ export async function evaluateHotel(
     .eq("hotel_id", hotelId)
     .lt("stay_date", localDate)
     .is("retired_at", null);
+
+  // An event whose bookings have all cancelled is holding a price on
+  // evidence that no longer exists. Retire it; if the date still has real
+  // momentum the observation engine sees it and the rule fires again.
+  await retireUndonePickupEvents(supabase, hotelId, rules, now, now);
 
   await purgeOldSnapshots(supabase, hotelId, maxPickupWindowDays + 7);
 
