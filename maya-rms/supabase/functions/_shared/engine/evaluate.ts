@@ -102,7 +102,7 @@ export async function evaluateHotel(
 
   await snapshotCurrentState(supabase, hotelId, now, stayDates, roomTypes);
 
-  const { data: rulesData } = await supabase
+  const { data: rulesData, error: rulesErr } = await supabase
     .from("pricing_rules")
     .select(
       `
@@ -123,6 +123,16 @@ export async function evaluateHotel(
     )
     .eq("hotel_id", hotelId)
     .eq("is_active", true);
+
+  // Never proceed on a failed rule load. Discarding this error made the run
+  // continue with zero rules, which quietly publishes the base price for
+  // every room-night — the hotel's entire pricing strategy silently switched
+  // off, and pushed to the PMS, with nothing surfaced anywhere. A missing
+  // rule_condition column (the documented fresh-install path) does exactly
+  // this.
+  if (rulesErr) {
+    throw new Error(`Failed to load pricing rules: ${rulesErr.message}`);
+  }
 
   const rules: EngineRule[] = (rulesData ?? []).map((r) => {
     // deno-lint-ignore no-explicit-any
