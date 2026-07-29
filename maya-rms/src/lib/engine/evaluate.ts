@@ -190,8 +190,11 @@ export async function evaluateHotel(
   // Base prices — batched: one reservations read + one published_price read for
   // the whole horizon, resolved in memory. (Previously this was ~2 queries per
   // (stay_date, room_type) cell — thousands of sequential round-trips.)
-  // Semantics preserved: prefer the most-recent reservation's base_rate (when
-  // truthy), else the current published_price.
+  //
+  // Order: the most recent reservation's base_rate, else the base price we
+  // remembered the last time this cell was priced. NEVER published_price.price
+  // — that is this engine's own output, already carrying every active effect,
+  // and feeding it back in compounds those effects once per run.
   const firstDate = stayDates[0];
   const lastDate = stayDates[stayDates.length - 1];
 
@@ -222,7 +225,7 @@ export async function evaluateHotel(
   const ppRows = await fetchAllRows(() =>
     supabase
       .from("published_price")
-      .select("stay_date, room_type_id, price")
+      .select("stay_date, room_type_id, base_price")
       .eq("hotel_id", hotelId)
       .gte("stay_date", firstDate)
       .lte("stay_date", lastDate)
@@ -230,10 +233,10 @@ export async function evaluateHotel(
       .order("room_type_id", { ascending: true }),
   );
 
-  const ppByCell = new Map<string, number>();
+  const rememberedBaseByCell = new Map<string, number>();
   for (const p of ppRows) {
-    if (!p.room_type_id) continue;
-    ppByCell.set(`${p.stay_date}|${p.room_type_id}`, Number(p.price));
+    if (!p.room_type_id || p.base_price == null) continue;
+    rememberedBaseByCell.set(`${p.stay_date}|${p.room_type_id}`, Number(p.base_price));
   }
 
   const basePrices = new Map<string, number>();
@@ -241,11 +244,14 @@ export async function evaluateHotel(
     for (const rt of roomTypes) {
       const key = `${sd}|${rt.id}`;
       const latest = latestResByCell.get(key);
-      if (latest && latest.base_rate) {
+      // `!= null` rather than truthiness: a genuine 0 base_rate (comp or
+      // house-use night) is a real rate, and treating it as missing sent the
+      // cell down the fallback path for no reason.
+      if (latest && latest.base_rate != null) {
         basePrices.set(key, latest.base_rate);
       } else {
-        const pp = ppByCell.get(key);
-        if (pp) basePrices.set(key, pp);
+        const remembered = rememberedBaseByCell.get(key);
+        if (remembered != null) basePrices.set(key, remembered);
       }
     }
   }
@@ -448,6 +454,7 @@ export async function evaluateHotel(
         rt.id,
         assembled.final_price,
         now,
+        basePrice,
       );
       if (published) pricesPublished++;
 
