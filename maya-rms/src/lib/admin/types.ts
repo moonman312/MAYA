@@ -1,4 +1,6 @@
-export type HotelRole = "hotel_admin" | "manager" | "staff" | "viewer";
+import type { HotelRole } from "@/lib/roles";
+
+export type { HotelRole };
 export type AppRole = "platform_admin" | "platform_support";
 export type MembershipStatus = "invited" | "active" | "suspended" | "revoked";
 export type PendingInviteStatus = "pending" | "accepted" | "expired" | "revoked";
