@@ -303,6 +303,50 @@ describe("year-end season boundary (the segmentation walk's own seam no longer s
   });
 });
 
+describe("outlier corroboration requires the deviation itself to recur, not just any data in that year", () => {
+  // Corroboration used to count years that had ANY observation at a slot,
+  // which is nearly every year of any multi-year history regardless of
+  // whether anything unusual happened there — so a one-time event
+  // "corroborated" itself just by existing.
+  function baseWithWeekendLift(dow: number): number {
+    return dow === 5 || dow === 6 ? 75 : 50;
+  }
+
+  it("does not mint a phantom season from a one-time event with only 2 years of history", () => {
+    const daily = genDaily("2024-01-01", "2025-12-31", (d, dow) => {
+      const lift = baseWithWeekendLift(dow);
+      return d >= "2024-09-05" && d <= "2024-09-18" ? lift * 4 : lift;
+    });
+    const model = detectSeasons(daily);
+    expect(model.seasons).toHaveLength(1);
+    expect(model.seasons[0].label).toBe("Year-Round");
+  });
+
+  it("does not mint a phantom season when a data gap in one year masks the missing corroboration", () => {
+    const daily: DailyDemand[] = [];
+    for (let d = "2023-01-01"; d <= "2025-12-31"; d = addDays(d, 1)) {
+      if (d >= "2023-09-05" && d <= "2023-09-18") continue; // import gap
+      const lift = baseWithWeekendLift(dayOfWeek(d));
+      daily.push({ stay_date: d, value: d >= "2024-09-05" && d <= "2024-09-18" ? lift * 4 : lift });
+    }
+    const model = detectSeasons(daily);
+    expect(model.seasons).toHaveLength(1);
+  });
+
+  it("still finds a season when the event genuinely recurs every year", () => {
+    const daily = genDaily("2023-01-01", "2025-12-31", (d, dow) => {
+      const lift = baseWithWeekendLift(dow);
+      const key = d.slice(5);
+      return key >= "09-05" && key <= "09-18" ? lift * 4 : lift;
+    });
+    const model = detectSeasons(daily);
+    expect(model.seasons.length).toBeGreaterThan(1);
+    const event = seasonForDate(model, "2025-09-10");
+    expect(event.label).toBe("Peak Season");
+    expect(event.id).not.toBe(seasonForDate(model, "2025-08-01").id);
+  });
+});
+
 describe("booking pace as a third season signal", () => {
   // The sellout-blindness problem: a period sold out at a premium and a
   // period sold out at a discount read identically in occupancy — and so
