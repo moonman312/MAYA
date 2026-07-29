@@ -648,7 +648,7 @@ async function buildSuggestionInserts(
       supabase
         .from("pricing_rules")
         .select(
-          "id, name, is_active, is_pickup_rule, rule_condition(occupancy_operator, occupancy_threshold, pickup_operator, pickup_threshold, booking_speed_operator)",
+          "id, name, is_active, is_pickup_rule, start_date, end_date, is_annual, dow_mask, rule_condition(occupancy_operator, occupancy_threshold, pickup_operator, pickup_threshold, booking_speed_operator), rule_signal_room_type(room_type_id), rule_affected_room_type(room_type_id)",
         )
         .eq("hotel_id", hotelId),
       supabase
@@ -684,6 +684,16 @@ async function buildSuggestionInserts(
       pickup_operator: (rc?.pickup_operator as string | null) ?? null,
       pickup_threshold: rc?.pickup_threshold != null ? Number(rc.pickup_threshold) : null,
       has_booking_speed: rc?.booking_speed_operator != null,
+      start_date: r.start_date != null ? String(r.start_date) : null,
+      end_date: r.end_date != null ? String(r.end_date) : null,
+      is_annual: r.is_annual === true,
+      dow_mask: Number(r.dow_mask ?? 127),
+      signal_room_type_ids: ((r.rule_signal_room_type ?? []) as Array<{ room_type_id: unknown }>).map(
+        (x) => String(x.room_type_id),
+      ),
+      affected_room_type_ids: ((r.rule_affected_room_type ?? []) as Array<{ room_type_id: unknown }>).map(
+        (x) => String(x.room_type_id),
+      ),
     };
   });
 

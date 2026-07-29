@@ -22,6 +22,12 @@ function rule(o: Partial<ExistingRuleSummary>): ExistingRuleSummary {
     pickup_operator: null,
     pickup_threshold: null,
     has_booking_speed: false,
+    start_date: null,
+    end_date: null,
+    is_annual: false,
+    dow_mask: 127,
+    signal_room_type_ids: ["rt1"],
+    affected_room_type_ids: ["rt1"],
     ...o,
   };
 }
@@ -115,6 +121,109 @@ describe("computeRuleSuggestions", () => {
     const removes = existing.filter((s) => s.suggestion_type === "remove_rule");
     expect(removes).toHaveLength(1);
     expect(removes[0]).toMatchObject({ rule_id: "pk1", rule_name: "Old pickup spike" });
+  });
+
+  it("never suggests removing a pickup rule the ladder's scope doesn't actually contain", () => {
+    const pickup = (o: Partial<ExistingRuleSummary>) =>
+      rule({
+        id: "pk1",
+        name: "Scoped pickup",
+        is_pickup_rule: true,
+        occupancy_operator: null,
+        occupancy_threshold: null,
+        pickup_operator: "gt",
+        pickup_threshold: 6,
+        ...o,
+      });
+    const removesFor = (bs: ExistingRuleSummary, pk: ExistingRuleSummary) =>
+      computeRuleSuggestions([bs, pk], PACE_SPECS, null).filter(
+        (s) => s.suggestion_type === "remove_rule",
+      );
+
+    // Pickup prices a room type the ladder doesn't touch — e.g. a Penthouse
+    // added to the PMS after the ladder was generated.
+    expect(
+      removesFor(
+        bookingSpeedRule({ affected_room_type_ids: ["rt1", "rt2"] }),
+        pickup({ affected_room_type_ids: ["rt-penthouse"] }),
+      ),
+    ).toHaveLength(0);
+    // Partial overlap is still not containment.
+    expect(
+      removesFor(
+        bookingSpeedRule({ affected_room_type_ids: ["rt1"] }),
+        pickup({ affected_room_type_ids: ["rt1", "rt2"] }),
+      ),
+    ).toHaveLength(0);
+    // Ladder only runs weekdays; pickup covers all days.
+    expect(
+      removesFor(bookingSpeedRule({ dow_mask: 31 }), pickup({ dow_mask: 127 })),
+    ).toHaveLength(0);
+    // Ladder windowed to one season; pickup is always-on.
+    expect(
+      removesFor(
+        bookingSpeedRule({ start_date: "2026-06-01", end_date: "2026-08-31" }),
+        pickup({}),
+      ),
+    ).toHaveLength(0);
+    // A ladder rule with no signal or no affected room types never fires,
+    // so it covers nothing.
+    expect(removesFor(bookingSpeedRule({ signal_room_type_ids: [] }), pickup({}))).toHaveLength(0);
+    expect(
+      removesFor(
+        bookingSpeedRule({ affected_room_type_ids: [] }),
+        pickup({ affected_room_type_ids: [] }),
+      ),
+    ).toHaveLength(0);
+    // A PAUSED ladder covers nothing either — it also suppresses re-offering
+    // the adds, so without this a hotel with a paused ladder would get
+    // removal suggestions with no active coverage anywhere.
+    expect(removesFor(bookingSpeedRule({ is_active: false }), pickup({}))).toHaveLength(0);
+  });
+
+  it("still suggests removal when the ladder's scope genuinely contains the pickup rule's", () => {
+    const pickup = (o: Partial<ExistingRuleSummary>) =>
+      rule({
+        id: "pk1",
+        name: "Scoped pickup",
+        is_pickup_rule: true,
+        occupancy_operator: null,
+        occupancy_threshold: null,
+        pickup_operator: "gt",
+        pickup_threshold: 6,
+        ...o,
+      });
+    const removesFor = (bs: ExistingRuleSummary, pk: ExistingRuleSummary) =>
+      computeRuleSuggestions([bs, pk], PACE_SPECS, null).filter(
+        (s) => s.suggestion_type === "remove_rule",
+      );
+
+    // Ladder covers more room types than the pickup rule prices.
+    expect(
+      removesFor(
+        bookingSpeedRule({ affected_room_type_ids: ["rt1", "rt2", "rt3"] }),
+        pickup({ affected_room_type_ids: ["rt2"] }),
+      ),
+    ).toHaveLength(1);
+    // Weekend-only pickup under an all-days ladder.
+    expect(
+      removesFor(bookingSpeedRule({ dow_mask: 127 }), pickup({ dow_mask: 96 })),
+    ).toHaveLength(1);
+    // Always-on ladder covers a date-windowed pickup rule.
+    expect(
+      removesFor(
+        bookingSpeedRule({}),
+        pickup({ start_date: "2026-12-01", end_date: "2026-12-31" }),
+      ),
+    ).toHaveLength(1);
+    // Annual windows compare month-day with year-end wrap, same as the
+    // engine: a Nov-Feb ladder contains a Dec-Jan pickup rule.
+    expect(
+      removesFor(
+        bookingSpeedRule({ is_annual: true, start_date: "2026-11-01", end_date: "2027-02-28" }),
+        pickup({ is_annual: true, start_date: "2026-12-01", end_date: "2027-01-31" }),
+      ),
+    ).toHaveLength(1);
   });
 
   it("never flags booking-speed rules or disabled pickup rules as conflicts", () => {

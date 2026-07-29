@@ -24,6 +24,12 @@ export type ExistingRuleSummary = {
   pickup_threshold: number | null;
   /** True when the rule carries a booking-speed condition. */
   has_booking_speed: boolean;
+  start_date: string | null;
+  end_date: string | null;
+  is_annual: boolean;
+  dow_mask: number;
+  signal_room_type_ids: string[];
+  affected_room_type_ids: string[];
 };
 
 export type RuleSuggestion =
@@ -49,6 +55,53 @@ export type RuleSuggestion =
 
 /** How far (in occupancy points) an existing threshold may drift before we say something. */
 const ADJUST_TOLERANCE_PTS = 10;
+
+const monthDay = (ymd: string) => Number(ymd.slice(5, 7)) * 100 + Number(ymd.slice(8, 10));
+
+/**
+ * Whether a booking-speed rule's scope contains a pickup rule's, i.e.
+ * whether removing the pickup rule leaves every date/room it was pricing
+ * still covered. Booking speed reads pace at the hotel level, so the signal
+ * sets don't need to line up — what has to line up is where the PRICE
+ * lands: dates, days of week, and affected room types. Every comparison
+ * errs toward "not covered": a wrongly-suppressed removal suggestion costs
+ * nothing, a wrongly-offered one deletes a rule the ladder never replaced.
+ */
+function coversScopeOf(bs: ExistingRuleSummary, r: ExistingRuleSummary): boolean {
+  // A rule with no signal or no affected room types never fires (see
+  // engine/scope.ts), so it can't cover anything no matter what its other
+  // columns say.
+  if (bs.signal_room_type_ids.length === 0) return false;
+  if (bs.affected_room_type_ids.length === 0) return false;
+
+  const bsAffected = new Set(bs.affected_room_type_ids);
+  if (!r.affected_room_type_ids.every((id) => bsAffected.has(id))) return false;
+
+  if ((r.dow_mask & ~bs.dow_mask & 127) !== 0) return false;
+
+  // Date window. Unbounded covers everything; otherwise only like-shaped
+  // windows are compared, and annual ones get the same month-day wrap
+  // semantics the engine applies (engine/scope.ts annualWindowMatches).
+  if (bs.start_date == null && bs.end_date == null) return true;
+  if (bs.is_annual !== r.is_annual) return false;
+  if (bs.is_annual) {
+    if (!bs.start_date || !bs.end_date || !r.start_date || !r.end_date) return false;
+    const bsS = monthDay(bs.start_date);
+    const bsE = monthDay(bs.end_date);
+    const rS = monthDay(r.start_date);
+    const rE = monthDay(r.end_date);
+    if (bsS <= bsE) {
+      return rS <= rE && bsS <= rS && rE <= bsE;
+    }
+    // bs wraps the year end: r fits if it wraps inside it, or sits entirely
+    // in either the tail-of-year or start-of-year segment.
+    if (rS > rE) return bsS <= rS && rE <= bsE;
+    return rS >= bsS || rE <= bsE;
+  }
+  const rStart = r.start_date ?? "";
+  const rEnd = r.end_date ?? "9999-12-31";
+  return (bs.start_date ?? "") <= rStart && rEnd <= (bs.end_date ?? "9999-12-31");
+}
 
 export function computeRuleSuggestions(
   existing: ExistingRuleSummary[],
@@ -81,24 +134,26 @@ export function computeRuleSuggestions(
   // Raw-pickup rules conflict with the booking-speed ladder outright: both
   // react to the same demand signal, but pickup fires on a fixed count with
   // no idea what "normal" looks like for the date. Removal is only offered
-  // when the ladder actually already exists (hasBookingSpeedRule) — this
-  // used to also fire whenever paceSpecs.length > 0, i.e. whenever a ladder
-  // was merely ABOUT to be proposed in a sibling add_rule finding. Each
-  // finding resolves independently, so an owner who accepted the removals
-  // and dismissed (or never reached) the adds was left with zero demand-
-  // reactive rules while the rationale claimed coverage already existed.
-  if (hasBookingSpeedRule) {
-    for (const r of active) {
-      if (!r.is_pickup_rule || r.pickup_operator == null || r.has_booking_speed) continue;
-      out.push({
-        suggestion_type: "remove_rule",
-        rule_id: r.id,
-        rule_name: r.name,
-        rationale:
-          `"${r.name}" reacts to a fixed booking count, which the booking-speed rules now cover ` +
-          "with pace awareness. Keeping both would stack two price reactions on the same demand.",
-      });
-    }
+  // when an ACTIVE booking-speed rule's scope actually contains the pickup
+  // rule's — not when a ladder is merely proposed in a sibling add_rule
+  // finding (each finding resolves independently, so the owner could accept
+  // the removal and dismiss the adds), not when the ladder is paused, and
+  // not when the pickup rule prices dates or room types the ladder never
+  // touches (a Penthouse-only December rule is not "covered" by a ladder
+  // scoped to standard rooms, or one generated before the Penthouse
+  // existed).
+  const paceRules = active.filter((r) => r.has_booking_speed);
+  for (const r of active) {
+    if (!r.is_pickup_rule || r.pickup_operator == null || r.has_booking_speed) continue;
+    if (!paceRules.some((bs) => coversScopeOf(bs, r))) continue;
+    out.push({
+      suggestion_type: "remove_rule",
+      rule_id: r.id,
+      rule_name: r.name,
+      rationale:
+        `"${r.name}" reacts to a fixed booking count, which the booking-speed rules now cover ` +
+        "with pace awareness. Keeping both would stack two price reactions on the same demand.",
+    });
   }
 
   // Existing occupancy rules get a sanity check against the marks the
