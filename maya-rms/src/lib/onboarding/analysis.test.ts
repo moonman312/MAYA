@@ -68,6 +68,113 @@ describe("findClosedPeriods", () => {
     const series2 = seriesRange("2025-01-01", 120, (i) => (i === 0 ? 1 : i < 60 ? 0 : 20));
     expect(findClosedPeriods(series2, TODAY)).toHaveLength(0);
   });
+
+  it("rescues a real closure split in half by a single stray booking", () => {
+    // 90 busy, 30 zero, one comped/test night, 29 more zero, 90 busy. Without
+    // bridging, each half's after/before window looks into the other half's
+    // zeros and both get rejected — the 60-day closure vanishes entirely.
+    const series = seriesRange("2025-01-01", 240, (i) => {
+      if (i < 90) return 20;
+      if (i < 120) return 0;
+      if (i === 120) return 1;
+      if (i < 150) return 0;
+      return 20;
+    });
+    const found = findClosedPeriods(series, TODAY);
+    expect(found).toHaveLength(1);
+    expect(found[0].start_date).toBe("2025-04-01");
+    expect(found[0].end_date).toBe("2025-05-30");
+    expect(found[0].days).toBe(60);
+  });
+
+  it("rescues two closures separated by a too-short reopening", () => {
+    // A 12-day reopening between two real closures is shorter than
+    // MIN_CLOSED_RUN_DAYS, so it can't be a genuine operating stretch —
+    // the fix bridges it, reporting the whole span as one closure.
+    const series = seriesRange("2025-01-01", 300, (i) => {
+      if (i < 50) return 15;
+      if (i < 100) return 0; // 50-day closure
+      if (i < 112) return 15; // 12-day reopening
+      if (i < 172) return 0; // 60-day closure
+      return 15;
+    });
+    const found = findClosedPeriods(series, TODAY);
+    expect(found).toHaveLength(1);
+    expect(found[0].start_date).toBe("2025-02-20");
+    expect(found[0].end_date).toBe("2025-06-21");
+    expect(found[0].days).toBe(122);
+  });
+
+  it("still reports two separate closures when the reopening is a genuine 15+ day stretch", () => {
+    // One day longer than the previous case flips it: 15 days clears
+    // MIN_CLOSED_RUN_DAYS, so it's long enough to be real — no bridging,
+    // and the two closures stay distinct findings (already-correct case).
+    const series = seriesRange("2025-01-01", 300, (i) => {
+      if (i < 50) return 15;
+      if (i < 100) return 0; // 50-day closure
+      if (i < 115) return 15; // 15-day reopening
+      if (i < 175) return 0; // 60-day closure
+      return 15;
+    });
+    const found = findClosedPeriods(series, TODAY);
+    expect(found).toHaveLength(2);
+    expect(found[0]).toMatchObject({ start_date: "2025-02-20", end_date: "2025-04-10", days: 50 });
+    expect(found[1]).toMatchObject({ start_date: "2025-04-26", end_date: "2025-06-24", days: 60 });
+  });
+
+  it("rescues a closure with TWO stray bookings, not just one", () => {
+    // Bridging a single gap isn't enough on its own — a renovation is just
+    // as likely to have two stray test/comped nights as one, and a chain
+    // that stops after its first bridge would suppress the closure exactly
+    // as badly as having no bridging at all.
+    const series = seriesRange("2025-01-01", 270, (i) => {
+      if (i < 90) return 20;
+      if (i < 120) return 0;
+      if (i === 120) return 1;
+      if (i < 149) return 0;
+      if (i === 149) return 1;
+      if (i < 178) return 0;
+      return 20;
+    });
+    const found = findClosedPeriods(series, TODAY);
+    expect(found).toHaveLength(1);
+    expect(found[0].start_date).toBe("2025-04-01");
+    expect(found[0].end_date).toBe("2025-06-27");
+    expect(found[0].days).toBe(88);
+  });
+
+  it("rescues three closures split by two short reopenings", () => {
+    // Same shape as the two-closure case, one more reopening added — the
+    // chain has to bridge two gaps in a row, not just one.
+    const series = seriesRange("2025-01-01", 350, (i) => {
+      if (i < 90) return 15;
+      if (i < 140) return 0; // 50-day closure
+      if (i < 150) return 15; // 10-day reopening
+      if (i < 200) return 0; // 50-day closure
+      if (i < 210) return 15; // 10-day reopening
+      if (i < 260) return 0; // 50-day closure
+      return 15;
+    });
+    const found = findClosedPeriods(series, TODAY);
+    expect(found).toHaveLength(1);
+    expect(found[0].start_date).toBe("2025-04-01");
+    expect(found[0].end_date).toBe("2025-09-17");
+    expect(found[0].days).toBe(170);
+  });
+
+  it("does not cascade a genuinely recurring low-occupancy cadence into a false-positive closure", () => {
+    // The failure mode bridging exists to avoid overcorrecting into: a
+    // property with a booking every few weeks for months looks, one gap at
+    // a time, identical to a closure interrupted by strays. Unbounded
+    // bridging would walk the whole quiet stretch out to real business on
+    // the far side and report it as one giant closure that never existed.
+    const series = seriesRange("2025-01-01", 400, (i) => {
+      const inQuietStretch = i >= 90 && i < 230; // ~140-day low season
+      if (inQuietStretch) return (i - 90) % 23 === 0 ? 1 : 0; // a booking every ~3 weeks
+      return 15;
+    });
+    expect(findClosedPeriods(series, TODAY)).toHaveLength(0);
+  });
 });
 
 function rt(overrides: Partial<RoomTypeStats>): RoomTypeStats {
