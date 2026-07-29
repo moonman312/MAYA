@@ -68,11 +68,13 @@ export type AuditRun = {
   rows: AuditChangeRow[];
 };
 
-/**
- * Group audit rows by evaluation_run_id and keep the MAX_RUNS most recent
- * runs (by max evaluated_at), newest first.
- */
-export function groupAuditRuns(rows: AuditChangeRow[]): AuditRun[] {
+/** One heartbeat row from evaluation_run_log — a run happened, nothing more. */
+export type RunHeartbeat = {
+  evaluation_run_id: string;
+  evaluated_at: string;
+};
+
+function groupAuditRunsUncapped(rows: AuditChangeRow[]): AuditRun[] {
   const byRun = new Map<string, AuditRun>();
   for (const row of rows) {
     const existing = byRun.get(row.evaluation_run_id);
@@ -89,9 +91,37 @@ export function groupAuditRuns(rows: AuditChangeRow[]): AuditRun[] {
       }
     }
   }
-  return [...byRun.values()]
-    .sort((a, b) => (a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0))
-    .slice(0, MAX_RUNS);
+  return [...byRun.values()].sort((a, b) =>
+    a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0,
+  );
+}
+
+/**
+ * Group audit rows by evaluation_run_id and keep the MAX_RUNS most recent
+ * runs (by max evaluated_at), newest first.
+ */
+export function groupAuditRuns(rows: AuditChangeRow[]): AuditRun[] {
+  return groupAuditRunsUncapped(rows).slice(0, MAX_RUNS);
+}
+
+/**
+ * Fold in heartbeat-only runs — ones where write-on-change left no
+ * evaluation_audit rows because nothing changed anywhere. A run that
+ * already has audit rows is left alone; only run ids missing from
+ * `auditRuns` gain a synthetic zero-change entry, dated from the
+ * heartbeat's own timestamp.
+ */
+function mergeHeartbeats(auditRuns: AuditRun[], heartbeats: RunHeartbeat[]): AuditRun[] {
+  const seen = new Set(auditRuns.map((r) => r.evaluation_run_id));
+  const extra: AuditRun[] = [];
+  for (const h of heartbeats) {
+    if (seen.has(h.evaluation_run_id)) continue;
+    seen.add(h.evaluation_run_id);
+    extra.push({ evaluation_run_id: h.evaluation_run_id, timestamp: h.evaluated_at, rows: [] });
+  }
+  return [...auditRuns, ...extra].sort((a, b) =>
+    a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0,
+  );
 }
 
 /** A row counts as a change when the price moved at least a cent or any rule applied. */
@@ -240,13 +270,17 @@ export function buildEntry(
 
 /**
  * Full transformation: audit rows -> ChangelogCycle[] (newest run first,
- * newest run gets the highest cycle number).
+ * newest run gets the highest cycle number). Heartbeat-only runs (nothing
+ * changed anywhere, so write-on-change left no audit rows) are merged in
+ * before the top-MAX_RUNS cut, so a recent quiet run can't be crowded out
+ * by older runs that happened to have changes.
  */
 export function buildCyclesFromAudit(
   rows: AuditChangeRow[],
   lookups: ChangelogLookups,
+  heartbeats: RunHeartbeat[] = [],
 ): ChangelogCycle[] {
-  const runs = groupAuditRuns(rows);
+  const runs = mergeHeartbeats(groupAuditRunsUncapped(rows), heartbeats).slice(0, MAX_RUNS);
   return runs.map((run, index) => {
     const changeRows = run.rows.filter(isChangeRow);
     const changes = changeRows

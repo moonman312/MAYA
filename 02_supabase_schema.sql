@@ -544,6 +544,28 @@ create index if not exists idx_evaluation_audit_hotel_evaluated
 create index if not exists idx_evaluation_audit_cell
   on evaluation_audit(hotel_id, stay_date, room_type_id, evaluated_at desc);
 
+-- ── evaluation_run_log: one tiny row per evaluation run ─────────────────────
+-- evaluation_audit now only writes when a cell actually changed (see the
+-- write-on-change migration this follows), so a fully quiet run leaves no
+-- trace there. This table is the cheap heartbeat that keeps it visible: no
+-- JSONB, no per-cell rows, just a timestamp and two counts — enough for the
+-- Change Log's "Show All Cycles" toggle to prove the engine checked. The
+-- narrative text is never stored; it's rendered from these numbers at read
+-- time, same as every other changelog entry.
+
+create table if not exists evaluation_run_log (
+  id                 uuid primary key default gen_random_uuid(),
+  hotel_id           uuid not null references hotels(id) on delete cascade,
+  evaluation_run_id  uuid not null,
+  evaluated_at       timestamptz not null,
+  cells_checked      integer not null default 0,
+  cells_changed      integer not null default 0,
+  unique (hotel_id, evaluation_run_id)
+);
+
+create index if not exists idx_evaluation_run_log_hotel
+  on evaluation_run_log(hotel_id, evaluated_at desc);
+
 create index if not exists idx_eval_audit_hotel_stay
   on evaluation_audit (hotel_id, stay_date, room_type_id, evaluated_at desc);
 
@@ -2121,6 +2143,23 @@ create policy assumption_challenges_update on assumption_challenges
   with check (can_manage_hotel(hotel_id));
 drop policy if exists assumption_challenges_delete on assumption_challenges;
 create policy assumption_challenges_delete on assumption_challenges
+  for delete using (can_manage_hotel(hotel_id));
+
+-- Same split-per-command shape as evaluation_audit: every member reads,
+-- revenue_manager and up writes (matches who may trigger /api/evaluate).
+alter table evaluation_run_log enable row level security;
+drop policy if exists evaluation_run_log_read on evaluation_run_log;
+create policy evaluation_run_log_read on evaluation_run_log
+  for select using (is_hotel_accessible(hotel_id));
+drop policy if exists evaluation_run_log_insert on evaluation_run_log;
+create policy evaluation_run_log_insert on evaluation_run_log
+  for insert with check (can_manage_hotel(hotel_id));
+drop policy if exists evaluation_run_log_update on evaluation_run_log;
+create policy evaluation_run_log_update on evaluation_run_log
+  for update using (can_manage_hotel(hotel_id))
+  with check (can_manage_hotel(hotel_id));
+drop policy if exists evaluation_run_log_delete on evaluation_run_log;
+create policy evaluation_run_log_delete on evaluation_run_log
   for delete using (can_manage_hotel(hotel_id));
 
 -- ============================================================================

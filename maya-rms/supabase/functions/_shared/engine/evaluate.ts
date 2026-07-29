@@ -6,7 +6,13 @@
 import type { EngineRule } from "./domain.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AuditInput } from "./audit.ts";
-import { loadLastAuditSignatures, purgeOldAuditRows, writeAudit } from "./audit.ts";
+import {
+  loadLastAuditSignatures,
+  purgeOldAuditRows,
+  purgeOldRunLogRows,
+  recordRunHeartbeat,
+  writeAudit,
+} from "./audit.ts";
 import {
   DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS,
   bookingSpeedAuditSnapshots,
@@ -446,11 +452,15 @@ export async function evaluateHotel(
     stayDates[stayDates.length - 1],
   );
 
+  let cellsChecked = 0;
+  let cellsChanged = 0;
+
   for (const stayDate of stayDates) {
     for (const rt of roomTypes) {
       const key = `${stayDate}|${rt.id}`;
       const basePrice = basePrices.get(key);
       if (basePrice === undefined) continue;
+      cellsChecked++;
 
       const assembled = await assemblePrice(supabase, hotelId, stayDate, rt, basePrice);
       const published = await maybePublish(
@@ -479,7 +489,7 @@ export async function evaluateHotel(
           : [],
         previousSignature: lastAuditSignatures.get(key) ?? null,
       };
-      await writeAudit(supabase, auditInput);
+      if (await writeAudit(supabase, auditInput)) cellsChanged++;
     }
   }
 
@@ -495,8 +505,33 @@ export async function evaluateHotel(
   // momentum the observation engine sees it and the rule fires again.
   await retireUndonePickupEvents(supabase, hotelId, rules, now, now);
 
-  await purgeOldSnapshots(supabase, hotelId, maxPickupWindowDays + 7);
-  await purgeOldAuditRows(supabase, hotelId);
+  // Bookkeeping only, past this point — the correct prices are already
+  // computed and published above. None of it may be allowed to fail the
+  // whole run: a missing table, a transient error, or (concretely) the
+  // heartbeat migration not having been run yet must degrade to "this run's
+  // housekeeping was skipped," never to "this run never returned a result."
+  // Discovered the hard way — before this guard, an unmigrated
+  // evaluation_run_log took down every evaluation, scheduled and manual,
+  // with prices already correctly published and then thrown away.
+  try {
+    // One tiny row regardless of cellsChanged — this is what keeps a fully
+    // quiet run visible in the Change Log even though write-on-change means
+    // no evaluation_audit rows exist for it.
+    await recordRunHeartbeat(supabase, hotelId, runId, now, cellsChecked, cellsChanged);
+    await purgeOldSnapshots(supabase, hotelId, maxPickupWindowDays + 7);
+    await purgeOldAuditRows(supabase, hotelId);
+    await purgeOldRunLogRows(supabase, hotelId);
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "evaluateHotel",
+        step: "post_run_bookkeeping",
+        hotelId,
+        runId,
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+  }
 
   return {
     run_id: runId,
