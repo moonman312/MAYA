@@ -31,6 +31,7 @@ import {
   dowClass,
   holidayContextForDate,
   holidayDateInYear,
+  holidayPlacement,
   keyToHuman,
   circularDayDistance,
   type DowClass,
@@ -88,11 +89,34 @@ export interface SelectComparableOptions {
 
 /* ── Helpers ─────────────────────────────────────────────────── */
 
+/**
+ * Labels a comparable by how long ago it falls, for the drill-down's
+ * "reasons" text — which sits one line above the comparable's own date
+ * (with its year printed in full). A pure elapsed-day bucket doesn't know
+ * about calendar-year boundaries: every comparable is at or before
+ * historyEnd (always yesterday or earlier) and every target is a future
+ * stay date, so for any target in roughly the first ten months of a
+ * calendar year, the closest same-day-of-week comparables routinely land
+ * in the PREVIOUS calendar year while still only weeks away — a day-count
+ * bucket alone called that "earlier this year," directly contradicting the
+ * year printed right next to it.
+ *
+ * Comparing calendar years directly fixes that, but naively — "different
+ * year, so it must be about a year back" — creates the opposite mistake at
+ * the boundary itself: a candidate just 1-2 weeks before target that
+ * happens to cross Dec 31/Jan 1 is genuinely recent, not "about a year
+ * earlier." Recency wins for a short crossing; the calendar-year label
+ * only applies once the gap is large enough that "recent" would itself be
+ * misleading.
+ */
 function yearsAgoText(target: string, candidate: string): string {
   const days = daysBetween(candidate, target);
-  if (days < 320) return "earlier this year";
-  if (days < 550) return "about a year earlier";
-  return `about ${Math.round(days / 365)} years earlier`;
+  const targetYear = Number(target.slice(0, 4));
+  const candidateYear = Number(candidate.slice(0, 4));
+  if (candidateYear === targetYear) return "earlier this year";
+  if (days < 45) return "recently";
+  const yearsBack = Math.max(1, targetYear - candidateYear);
+  return yearsBack === 1 ? "about a year earlier" : `${yearsBack} years earlier`;
 }
 
 function offsetText(offset: number): string {
@@ -126,24 +150,44 @@ export function selectComparableDates(
   let relaxed = false;
 
   if (targetCtx) {
-    // Holiday targets: same holiday, same offset, in earlier years.
-    const targetYear = Number(target.slice(0, 4));
+    // Holiday targets: same holiday, same offset, in earlier years. Anchor
+    // on the YEAR THE HOLIDAY ITSELF FALLS IN (targetCtx.holidayDate),
+    // never the target date's own calendar year — a date can carry a
+    // holiday context from the NEXT calendar year (Dec 31 sits 1 day
+    // before New Year's Day of year+1, closer than Christmas), and anchoring
+    // on the target's year in that case silently skips the most recent real
+    // occurrence and reaches an extra year further back than intended.
+    const anchorYear = Number(targetCtx.holidayDate.slice(0, 4));
     for (let back = 1; back <= maxYearsBack; back++) {
-      const holidayThatYear = holidayDateInYear(targetCtx.key, targetYear - back);
+      const holidayThatYear = holidayDateInYear(targetCtx.key, anchorYear - back);
       const candidate = addDays(holidayThatYear, targetCtx.offset);
       if (!usable(candidate)) continue;
       const candidateCtx = holidayContextForDate(candidate);
-      const placementMatch = candidateCtx?.placement === targetCtx.placement;
+      // The placement bonus is about whether THIS holiday landed on a
+      // similar weekday in the candidate year — computed from the target's
+      // own holiday date that year, never from candidateCtx.placement,
+      // which describes whichever holiday the candidate happens to sit
+      // nearest to and can be a different one entirely (see below).
+      const placementMatch = holidayPlacement(dayOfWeek(holidayThatYear)) === targetCtx.placement;
+      // Two holidays with overlapping influence windows (Juneteenth/Father's
+      // Day, Valentine's/Presidents Day) can put the reconstructed candidate
+      // date closer to a DIFFERENT holiday than the one it was built from.
+      // That candidate's demand driver isn't the one being priced for, so it
+      // is demoted rather than trusted at full strength — but not thrown
+      // out, since it's still the same time of year and often still a
+      // reasonable comparison.
+      const crossHoliday = !!candidateCtx && candidateCtx.key !== targetCtx.key;
       const reasons = [
-        `${targetCtx.label} ${targetYear - back}`,
+        `${targetCtx.label} ${anchorYear - back}`,
         offsetText(targetCtx.offset),
       ];
       if (placementMatch) reasons.push("similar weekend placement");
+      if (crossHoliday) reasons.push(`also ${candidateCtx!.label} that year`);
       comparables.push({
         date: candidate,
-        tier: 1,
+        tier: crossHoliday ? 2 : 1,
         reasons,
-        score: 10_000 - back * 1_000 + (placementMatch ? 500 : 0),
+        score: (crossHoliday ? 4_000 : 10_000) - back * 1_000 + (placementMatch ? 500 : 0),
       });
     }
   } else {
