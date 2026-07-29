@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { basePriceKey, insertPickupEvent, pickupTieBreakTrace, selectPickupWinner } from "./pickup";
+import { basePriceKey, insertPickupEvent, pickupTieBreakTrace, runPickupPass, selectPickupWinner } from "./pickup";
 import type { EngineRule } from "@/types/domain";
 import type { PickupCandidate, RuleMetrics } from "./types";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -295,9 +295,12 @@ describe("insertPickupEvent: concurrent runs racing the same cell (regression)",
   // Two overlapping evaluation runs can both read the same stale baseline
   // and both decide to insert an active event for the same (rule, stay
   // date, room type) — uq_pickup_event_active_per_rule_stay_room is the DB
-  // guard against that. This pins how insertPickupEvent must respond when
-  // it loses that race: as success, not failure, since the desired state
-  // (one active event for this cell) already exists via the other run.
+  // guard against that. This pins the tri-state insertPickupEvent must
+  // return: losing that race is "already_active" (the desired state exists
+  // via the other run, not a failure), while any OTHER error is
+  // "write_failed" and must never be confused with either success case —
+  // that confusion is what previously let a genuine write failure get
+  // recorded as a mere idempotency skip.
   function fakeSupabaseRejectingWith(code: string | null) {
     return {
       from: () => ({
@@ -309,24 +312,64 @@ describe("insertPickupEvent: concurrent runs racing the same cell (regression)",
     } as unknown as SupabaseClient;
   }
 
-  it("treats a unique-violation (23505) as success — a concurrent run already won", async () => {
+  it("treats a unique-violation (23505) as already_active — a concurrent run already won", async () => {
     const rule = makeRule();
     const candidate = makeCandidate(rule);
-    const ok = await insertPickupEvent(fakeSupabaseRejectingWith("23505"), candidate, "hotel-1");
-    expect(ok).toBe(true);
+    const result = await insertPickupEvent(fakeSupabaseRejectingWith("23505"), candidate, "hotel-1");
+    expect(result).toBe("already_active");
   });
 
-  it("still reports failure for any other error", async () => {
+  it("reports write_failed for any other error", async () => {
     const rule = makeRule();
     const candidate = makeCandidate(rule);
-    const ok = await insertPickupEvent(fakeSupabaseRejectingWith("42501"), candidate, "hotel-1");
-    expect(ok).toBe(false);
+    const result = await insertPickupEvent(fakeSupabaseRejectingWith("42501"), candidate, "hotel-1");
+    expect(result).toBe("write_failed");
   });
 
-  it("reports success on a clean insert with no error", async () => {
+  it("reports inserted on a clean insert with no error", async () => {
     const rule = makeRule();
     const candidate = makeCandidate(rule);
-    const ok = await insertPickupEvent(fakeSupabaseRejectingWith(null), candidate, "hotel-1");
-    expect(ok).toBe(true);
+    const result = await insertPickupEvent(fakeSupabaseRejectingWith(null), candidate, "hotel-1");
+    expect(result).toBe("inserted");
+  });
+});
+
+describe("runPickupPass: a genuine write failure is never mislabeled as an idempotency skip (regression)", () => {
+  function fakeSupabaseAlwaysFailingWith(code: string) {
+    return {
+      from: () => ({
+        insert: () => Promise.resolve({ error: { code, message: "insert failed" } }),
+      }),
+    } as unknown as SupabaseClient;
+  }
+
+  it("puts a real insert failure in write_failures, not idempotent_skips", async () => {
+    const rule = makeRule();
+    const candidate = makeCandidate(rule);
+    const outcome = await runPickupPass(
+      fakeSupabaseAlwaysFailingWith("57014"), // statement timeout — a real failure
+      [candidate],
+      "hotel-1",
+      new Set(),
+      new Map([[basePriceKey(candidate.stay_date, candidate.affected_room_type_id), 200]]),
+    );
+    expect(outcome.write_failures).toHaveLength(1);
+    expect(outcome.write_failures[0].rule.id).toBe(rule.id);
+    expect(outcome.idempotent_skips).toHaveLength(0);
+    expect(outcome.winners).toHaveLength(0);
+  });
+
+  it("still counts a concurrent-run conflict as a winner, not a write failure", async () => {
+    const rule = makeRule();
+    const candidate = makeCandidate(rule);
+    const outcome = await runPickupPass(
+      fakeSupabaseAlwaysFailingWith("23505"), // a concurrent run already inserted this exact cell
+      [candidate],
+      "hotel-1",
+      new Set(),
+      new Map([[basePriceKey(candidate.stay_date, candidate.affected_room_type_id), 200]]),
+    );
+    expect(outcome.winners).toHaveLength(1);
+    expect(outcome.write_failures).toHaveLength(0);
   });
 });

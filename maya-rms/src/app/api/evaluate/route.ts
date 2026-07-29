@@ -37,6 +37,22 @@ export async function POST() {
       );
     }
 
+    // The engine runs entirely under this request's cookie-scoped client, so
+    // every write it makes (published_price, evaluation_audit, pickup_event)
+    // is subject to RLS' can_manage_hotel check regardless of what runs here.
+    // Without this gate, a staff/viewer member's reads all succeed while
+    // every write is silently rejected — the run reports success with
+    // non-zero counters despite having written nothing.
+    const { data: canManage } = await supabase.rpc("can_manage_hotel", {
+      target_hotel_id: hotelId,
+    });
+    if (!canManage) {
+      return NextResponse.json(
+        { error: "You need manager access on this property to run pricing." },
+        { status: 403 },
+      );
+    }
+
     const result = await evaluateHotel(supabase, hotelId);
 
     return NextResponse.json(result);

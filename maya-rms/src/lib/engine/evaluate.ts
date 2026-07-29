@@ -382,6 +382,7 @@ export async function evaluateHotel(
   const allPickupWinners: Map<string, PickupCandidate[]> = new Map();
   const allPickupLosers: Map<string, PickupCandidate[]> = new Map();
   const allPickupIdempotent: Map<string, PickupCandidate[]> = new Map();
+  const allPickupWriteFailures: Map<string, PickupCandidate[]> = new Map();
 
   for (const rule of pickupRules) {
     for (const stayDate of stayDates) {
@@ -435,7 +436,7 @@ export async function evaluateHotel(
 
   const pickupInsertedKeys = new Set<string>();
   if (allPickupCandidates.length > 0) {
-    const { winners, losers, idempotent_skips } = await runPickupPass(
+    const { winners, losers, idempotent_skips, write_failures } = await runPickupPass(
       supabase,
       allPickupCandidates,
       hotelId,
@@ -461,6 +462,24 @@ export async function evaluateHotel(
       const list = allPickupIdempotent.get(key) ?? [];
       list.push(s);
       allPickupIdempotent.set(key, list);
+    }
+    for (const f of write_failures) {
+      const key = `${f.stay_date}|${f.affected_room_type_id}`;
+      const list = allPickupWriteFailures.get(key) ?? [];
+      list.push(f);
+      allPickupWriteFailures.set(key, list);
+    }
+    if (write_failures.length > 0) {
+      console.error(
+        JSON.stringify({
+          fn: "evaluateHotel",
+          step: "pickup_event_insert",
+          hotelId,
+          runId,
+          failed_count: write_failures.length,
+          rule_ids: write_failures.map((f) => f.rule.id),
+        }),
+      );
     }
   }
 
@@ -511,6 +530,7 @@ export async function evaluateHotel(
         pickupWinners: allPickupWinners.get(key) ?? [],
         pickupLosers: allPickupLosers.get(key) ?? [],
         pickupIdempotentSkips: allPickupIdempotent.get(key) ?? [],
+        pickupWriteFailures: allPickupWriteFailures.get(key) ?? [],
         basePrices,
         bookingSpeedObservations: bsCtx
           ? bookingSpeedAuditSnapshots(bsCtx, stayDate)

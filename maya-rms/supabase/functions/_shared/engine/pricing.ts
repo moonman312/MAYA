@@ -158,7 +158,7 @@ export async function maybePublish(
     return false;
   }
 
-  await supabase.from("published_price").upsert(
+  const { error } = await supabase.from("published_price").upsert(
     {
       hotel_id: hotelId,
       stay_date: stayDate,
@@ -169,6 +169,20 @@ export async function maybePublish(
     },
     { onConflict: "hotel_id,stay_date,room_type_id" },
   );
+  if (error) {
+    // A failed write must not report as a successful publish. Every caller
+    // of maybePublish treats a `true` return as "the new price is now live":
+    // pricesPublished increments and the audit row for this cell is written
+    // as though it happened. Left unchecked, a transient error (or an RLS
+    // rejection when this runs under a non-manager's session) leaves the
+    // OLD price in published_price while the run reports the change as
+    // done — and the PMS rate-push, which reads published_price, never
+    // sends the new rate.
+    console.error(
+      JSON.stringify({ fn: "maybePublish", hotelId, stayDate, roomTypeId, error: error.message }),
+    );
+    return false;
+  }
 
   // Only a real price move counts as a publish — a base-only correction is
   // bookkeeping and should not read as a rate change in the change log.
