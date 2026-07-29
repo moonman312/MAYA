@@ -249,7 +249,13 @@ export function computeInitialGuardrails(
   for (const rt of roomTypes) {
     if (suspectRoomTypeIds.has(rt.room_type_id)) continue;
 
-    // Ceiling first so the floor below can respect it.
+    // Ceiling first so the floor below can respect it. The strategy
+    // projection (which runs immediately before this) can already have set
+    // floor_price above what this room type's own rates support — a
+    // data-derived ceiling below that floor violates the DB's floor<=ceiling
+    // check constraint and would be silently rejected on write. Skip it
+    // rather than propose a patch that can never land: the room type keeps
+    // no cap, but at least doesn't waste a doomed write pretending it tried.
     let newCeiling: number | null = null;
     if (
       rt.row_count >= MIN_ROWS_TO_TRUST_P99 &&
@@ -257,8 +263,9 @@ export function computeInitialGuardrails(
       rt.observed_p99_rate &&
       rt.observed_p99_rate > 0
     ) {
-      newCeiling = Math.round((rt.observed_p99_rate * 1.5) / 10) * 10;
-      if (newCeiling > 0) {
+      const candidate = Math.round((rt.observed_p99_rate * 1.5) / 10) * 10;
+      if (candidate > 0 && candidate > rt.floor_price) {
+        newCeiling = candidate;
         out.push({ room_type_id: rt.room_type_id, field: "ceiling_price", value: newCeiling });
       }
     }
