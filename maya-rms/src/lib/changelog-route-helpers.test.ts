@@ -314,4 +314,62 @@ describe("buildCyclesFromAudit", () => {
     expect(cycles[0].changes[0].change_pct).toBe(-20);
     expect(cycles[0].changes[1].change_pct).toBe(5);
   });
+
+  describe("heartbeat-only runs", () => {
+    it("surfaces a run with no audit rows as a changeless cycle, dated from the heartbeat", () => {
+      // write-on-change means a fully quiet run leaves nothing in
+      // evaluation_audit — the heartbeat is the only evidence it happened.
+      const cycles = buildCyclesFromAudit(
+        [row({ evaluation_run_id: "changed", evaluated_at: "2026-07-28T09:00:00Z" })],
+        lookups(),
+        [{ evaluation_run_id: "quiet", evaluated_at: "2026-07-28T10:00:00Z" }],
+      );
+      expect(cycles).toHaveLength(2);
+      expect(cycles[0]).toMatchObject({
+        cycle: 2,
+        timestamp: "2026-07-28T10:00:00Z",
+        has_changes: false,
+        changes: [],
+      });
+      expect(cycles[1]).toMatchObject({ cycle: 1, has_changes: true });
+    });
+
+    it("never lets a heartbeat shadow a run that has real audit rows", () => {
+      const cycles = buildCyclesFromAudit(
+        [row({ evaluation_run_id: "changed", evaluated_at: "2026-07-28T10:00:00Z" })],
+        lookups(),
+        [{ evaluation_run_id: "changed", evaluated_at: "2026-07-28T10:00:00Z" }],
+      );
+      expect(cycles).toHaveLength(1);
+      expect(cycles[0]).toMatchObject({ has_changes: true });
+      expect(cycles[0].changes).toHaveLength(1);
+    });
+
+    it("interleaves heartbeats with change runs by time before applying the top-10 cut", () => {
+      // A heartbeat between two change runs must not get crowded out by
+      // capping audit-derived runs to 10 BEFORE the merge.
+      const changeRuns = Array.from({ length: 10 }, (_, i) =>
+        row({
+          evaluation_run_id: `change-${i}`,
+          evaluated_at: `2026-07-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
+        }),
+      );
+      const cycles = buildCyclesFromAudit(changeRuns, lookups(), [
+        { evaluation_run_id: "quiet-newest", evaluated_at: "2026-07-20T00:00:00Z" },
+      ]);
+      expect(cycles).toHaveLength(10);
+      expect(cycles[0]).toMatchObject({ timestamp: "2026-07-20T00:00:00Z", has_changes: false });
+      // The oldest change run (change-0) should have been the one squeezed
+      // out, not silently replaced by an arbitrary drop.
+      expect(cycles.some((c) => c.timestamp === "2026-07-10T00:00:00Z")).toBe(false);
+    });
+
+    it("defaults to no heartbeats and behaves exactly as before", () => {
+      const cycles = buildCyclesFromAudit(
+        [row({ evaluation_run_id: "only", evaluated_at: "2026-07-28T10:00:00Z" })],
+        lookups(),
+      );
+      expect(cycles).toHaveLength(1);
+    });
+  });
 });

@@ -214,6 +214,55 @@ export async function purgeOldAuditRows(
   if (error) throw new Error(`Audit purge failed: ${error.message}`);
 }
 
+/**
+ * Record that a run happened, regardless of whether anything changed.
+ *
+ * One tiny row per run — a timestamp and two counts, no JSONB, no per-cell
+ * detail — so the Change Log can still show "checked at 4:32, nothing
+ * needed to change" for a fully quiet run even though write-on-change means
+ * no evaluation_audit rows exist for it. The narrative text itself is never
+ * stored here either; it's rendered from cellsChecked/cellsChanged at read
+ * time, same as every other changelog entry.
+ */
+export async function recordRunHeartbeat(
+  supabase: SupabaseClient,
+  hotelId: string,
+  runId: string,
+  evalTs: string,
+  cellsChecked: number,
+  cellsChanged: number,
+): Promise<void> {
+  const { error } = await supabase.from("evaluation_run_log").upsert(
+    {
+      hotel_id: hotelId,
+      evaluation_run_id: runId,
+      evaluated_at: evalTs,
+      cells_checked: cellsChecked,
+      cells_changed: cellsChanged,
+    },
+    { onConflict: "hotel_id,evaluation_run_id" },
+  );
+  if (error) throw new Error(`Run heartbeat failed: ${error.message}`);
+}
+
+/** Delete evaluation_run_log rows older than the retention window. */
+export async function purgeOldRunLogRows(
+  supabase: SupabaseClient,
+  hotelId: string,
+  retentionDays: number = 90,
+): Promise<void> {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - retentionDays);
+
+  const { error } = await supabase
+    .from("evaluation_run_log")
+    .delete()
+    .eq("hotel_id", hotelId)
+    .lt("evaluated_at", cutoff.toISOString());
+
+  if (error) throw new Error(`Run log purge failed: ${error.message}`);
+}
+
 function enrichPickupMetrics(c: PickupCandidate, basePrices: Map<string, number>): Record<string, unknown> {
   return {
     ...c.metrics,

@@ -11,6 +11,7 @@ import {
   type AuditChangeRow,
   type ChangelogLookups,
   type RuleLookupEntry,
+  type RunHeartbeat,
   buildCyclesFromAudit,
   currencySymbolFor,
 } from "@/lib/changelog-route-helpers";
@@ -24,6 +25,10 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 const AUDIT_ROW_LIMIT = 600;
+// Heartbeat rows are one per run and tiny (no JSONB) — a generous cap still
+// costs nothing and comfortably covers MAX_RUNS worth of history even at a
+// busy property.
+const RUN_LOG_LIMIT = 200;
 
 export async function GET() {
   if (!isSupabaseConfigured()) {
@@ -62,7 +67,7 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
 
   if (auditErr) throw new Error(auditErr.message);
 
-  const [{ data: hotel }, { data: roomTypes }, { data: rules }] =
+  const [{ data: hotel }, { data: roomTypes }, { data: rules }, { data: runLogRows }] =
     await Promise.all([
       supabase.from("hotels").select("currency").eq("id", hotelId).maybeSingle(),
       supabase.from("room_types").select("id, name").eq("hotel_id", hotelId),
@@ -78,6 +83,12 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
            )`,
         )
         .eq("hotel_id", hotelId),
+      supabase
+        .from("evaluation_run_log")
+        .select("evaluation_run_id, evaluated_at")
+        .eq("hotel_id", hotelId)
+        .order("evaluated_at", { ascending: false })
+        .limit(RUN_LOG_LIMIT),
     ]);
 
   const roomTypeNames = new Map<string, string>(
@@ -144,5 +155,10 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
     details: r.details,
   }));
 
-  return buildCyclesFromAudit(rows, lookups);
+  const heartbeats: RunHeartbeat[] = (runLogRows ?? []).map((r) => ({
+    evaluation_run_id: String(r.evaluation_run_id),
+    evaluated_at: String(r.evaluated_at),
+  }));
+
+  return buildCyclesFromAudit(rows, lookups, heartbeats);
 }

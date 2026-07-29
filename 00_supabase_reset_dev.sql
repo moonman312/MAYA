@@ -96,6 +96,7 @@ drop table if exists
   audit_events,
   competitor_rates,
   evaluation_audit,
+  evaluation_run_log,
   hotel_closed_periods,
   hotel_memberships,
   hotel_settings,
