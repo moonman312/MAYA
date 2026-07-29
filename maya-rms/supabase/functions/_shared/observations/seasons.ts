@@ -282,11 +282,52 @@ function prepareObservations(daily: DailyDemand[], exclusions: DatePeriod[]): Ob
   return obs;
 }
 
-/** Distinct source years behind each of the 365 folded slots — the corroboration signal for outlier trust. */
-function slotYearCounts(obs: Obs[]): number[] {
-  const slots: Set<number>[] = Array.from({ length: 365 }, () => new Set());
-  for (const o of obs) slots[o.idx].add(o.year);
-  return slots.map((s) => s.size);
+/**
+ * Same slot partitioning as slotify, kept separate per source year — the
+ * corroboration check needs to see whether a SPECIFIC year's own values
+ * deviate, not just that some year has data there at all.
+ */
+function slotifyByYear(obs: Obs[], transform: (o: Obs) => number): Map<number, number[][]> {
+  const byYear = new Map<number, number[][]>();
+  for (const o of obs) {
+    let slots = byYear.get(o.year);
+    if (!slots) {
+      slots = Array.from({ length: 365 }, () => []);
+      byYear.set(o.year, slots);
+    }
+    slots[o.idx].push(transform(o));
+  }
+  return byYear;
+}
+
+/**
+ * How many distinct years show the run's own deviation themselves, checked
+ * against the same rolling baseline and threshold the aggregate anomaly was
+ * flagged with — not merely how many years have any data at these slots.
+ * With only two or three years of history, most slots have data in every
+ * year regardless of whether anything unusual happened there, so "years
+ * with data" never actually gated anything; a one-time event corroborated
+ * itself by existing.
+ */
+function corroboratingYears(
+  run: number[],
+  yearSlots: Map<number, number[][]>,
+  rolling: (number | null)[],
+  scale: number,
+): number {
+  let count = 0;
+  for (const slots of yearSlots.values()) {
+    const vals: number[] = [];
+    const bases: number[] = [];
+    for (const idx of run) {
+      if (slots[idx].length === 0 || rolling[idx] === null) continue;
+      vals.push(median(slots[idx]));
+      bases.push(rolling[idx] as number);
+    }
+    if (vals.length === 0) continue;
+    if (Math.abs(median(vals) - median(bases)) > OUTLIER_MAD_MULTIPLE * scale) count++;
+  }
+  return count;
 }
 
 function globalDowFactors(obs: Obs[]): number[] {
@@ -315,8 +356,15 @@ interface BuiltSeries {
  * longer run, when it lacks corroboration across MIN_YEARS_FOR_TRUST
  * distinct years. A short run is always noise; a long, multi-year-agreed
  * run is a real season, however unusually short it is on the calendar.
+ *
+ * Known gap: this only catches a one-time event short enough that
+ * OUTLIER_WINDOW_DAYS' rolling median still sees past it. A one-off run
+ * that itself approaches that window's width pulls the rolling median
+ * along with it, so its interior never reads as deviating in the first
+ * place and corroboration is never even asked. Segmentation then treats it
+ * as a real, uncorroborated level shift on its own terms.
  */
-function buildSeries(slotValues: number[][], yearCounts: number[]): BuiltSeries {
+function buildSeries(slotValues: number[][], yearSlots: Map<number, number[][]>): BuiltSeries {
   const base: (number | null)[] = slotValues.map((vs) => (vs.length ? median(vs) : null));
 
   const rolling = rollingCircularMedian(base, OUTLIER_WINDOW_DAYS);
@@ -349,7 +397,7 @@ function buildSeries(slotValues: number[][], yearCounts: number[]): BuiltSeries 
   for (const run of runs) {
     const corroborated =
       run.length > MAX_OUTLIER_RUN_DAYS &&
-      mean(run.map((idx) => yearCounts[idx])) >= MIN_YEARS_FOR_TRUST;
+      corroboratingYears(run, yearSlots, rolling, scale) >= MIN_YEARS_FOR_TRUST;
     if (corroborated) continue; // real, if short, seasonal structure — leave it alone
     for (const idx of run) {
       cleaned[idx] = null;
@@ -740,7 +788,6 @@ export function detectSeasons(
     };
   }
 
-  const yearCounts = slotYearCounts(obs);
   const globalFactors = globalDowFactors(obs);
 
   // Pass 1: global weekly detrend. Done before the shape series so its
@@ -750,10 +797,12 @@ export function detectSeasons(
   // set: raw naturally oscillates weekly, and that expected oscillation can
   // itself trip the MAD threshold, feeding false "outliers" into the shape
   // computation that a one-off spike detector was never meant to produce.
-  const det1 = buildSeries(slotify(obs, (o) => o.value / globalFactors[o.dow]), yearCounts);
+  const det1Transform = (o: Obs) => o.value / globalFactors[o.dow];
+  const det1 = buildSeries(slotify(obs, det1Transform), slotifyByYear(obs, det1Transform));
   const outlierIdx = new Set(det1.outlierKeys.map((k) => KEY_IDX.get(k)!));
   const shape = buildShapeSeries(obs, outlierIdx);
-  const raw = buildSeries(slotify(obs, (o) => o.value), yearCounts);
+  const rawTransform = (o: Obs) => o.value;
+  const raw = buildSeries(slotify(obs, rawTransform), slotifyByYear(obs, rawTransform));
 
   // Optional third signal: booking pace, with its own weekly detrend
   // (weekend dates routinely fill on a different schedule than weekdays,
@@ -764,10 +813,8 @@ export function detectSeasons(
   let paceSeries: number[] | null = null;
   if (paceObs.length >= MIN_OBSERVATIONS) {
     const paceFactors = globalDowFactors(paceObs);
-    paceSeries = buildSeries(
-      slotify(paceObs, (o) => o.value / paceFactors[o.dow]),
-      slotYearCounts(paceObs),
-    ).series;
+    const paceTransform = (o: Obs) => o.value / paceFactors[o.dow];
+    paceSeries = buildSeries(slotify(paceObs, paceTransform), slotifyByYear(paceObs, paceTransform)).series;
   }
 
   const boundarySignals = (levelSeries: number[]): SegSignal[] => [
@@ -781,13 +828,11 @@ export function detectSeasons(
 
   // Pass 2: each season's own weekly profile detrends its stretch of the year.
   const member1 = segMembership(segs1);
-  const det2 = buildSeries(
-    slotify(obs, (o) => {
-      const f = seasons1[member1[o.idx]].dow.factors[o.dow];
-      return o.value / (f > 0 ? f : globalFactors[o.dow]);
-    }),
-    yearCounts,
-  );
+  const det2Transform = (o: Obs) => {
+    const f = seasons1[member1[o.idx]].dow.factors[o.dow];
+    return o.value / (f > 0 ? f : globalFactors[o.dow]);
+  };
+  const det2 = buildSeries(slotify(obs, det2Transform), slotifyByYear(obs, det2Transform));
   const segs2 = segmentYear(boundarySignals(det2.series));
   const seasons2 = assembleSeasons(segs2, raw.series, obs, paceSeries);
 
