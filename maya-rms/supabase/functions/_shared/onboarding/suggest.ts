@@ -165,36 +165,59 @@ export function computeGuardrailSuggestions(
   const out: GuardrailSuggestion[] = [];
   for (const rt of roomTypes) {
     if (suspectRoomTypeIds.has(rt.room_type_id)) continue;
-    if (rt.floor_price <= FLOOR_UNSET_MAX && strategy.floor && strategy.floor > 0) {
-      out.push({
-        suggestion_type: "set_guardrail",
-        room_type_id: rt.room_type_id,
-        room_type_name: rt.name,
-        field: "floor_price",
-        current: rt.floor_price,
-        suggested: strategy.floor,
-        rationale: `"${rt.name}" has no price floor — nothing stops a rule from discounting it below what you'd ever accept.`,
-      });
-    }
+
+    // Computed before either suggestion is pushed (but pushed in the
+    // original floor-then-ceiling order below): the hotel-wide strategy
+    // floor answer has no idea what THIS room type's own rates are, and a
+    // cheaper room type (or one still at schema defaults after a refresh,
+    // which skips the strategy projection entirely) can have a p99-derived
+    // ceiling below that floor. The pair would be impossible to accept —
+    // whichever field is applied second violates floor<=ceiling and the
+    // findings route 500s on it — so the floor suggestion below must know
+    // the ceiling target ahead of time, same discipline
+    // computeInitialGuardrails already applies.
+    let ceilingTarget: number | null = null;
     if (rt.ceiling_price >= CEILING_UNSET_MIN) {
       const p99Basis = rt.row_count >= MIN_ROWS_TO_TRUST_P99 ? rt.observed_p99_rate : null;
-      const target =
+      ceilingTarget =
         strategy.ceiling && strategy.ceiling > (p99Basis ?? 0)
           ? strategy.ceiling
           : p99Basis
             ? Math.round((p99Basis * 1.5) / 10) * 10
             : null;
-      if (target && target > 0) {
+    }
+
+    if (rt.floor_price <= FLOOR_UNSET_MAX && strategy.floor && strategy.floor > 0) {
+      // Whatever ceiling this room type is about to have (the target just
+      // computed, an already-set ceiling, or failing that its own observed
+      // p99) must clear the floor strictly — equal would pin the room to a
+      // single fixed price, which passes the DB check but is its own kind
+      // of wrong.
+      const effectiveCeiling =
+        ceilingTarget ?? (rt.ceiling_price < CEILING_UNSET_MIN ? rt.ceiling_price : rt.observed_p99_rate);
+      if (effectiveCeiling == null || strategy.floor < effectiveCeiling) {
         out.push({
           suggestion_type: "set_guardrail",
           room_type_id: rt.room_type_id,
           room_type_name: rt.name,
-          field: "ceiling_price",
-          current: rt.ceiling_price,
-          suggested: target,
-          rationale: `"${rt.name}" has no ceiling — a runaway surge could price it absurdly and embarrass you on the OTAs.`,
+          field: "floor_price",
+          current: rt.floor_price,
+          suggested: strategy.floor,
+          rationale: `"${rt.name}" has no price floor — nothing stops a rule from discounting it below what you'd ever accept.`,
         });
       }
+    }
+
+    if (ceilingTarget && ceilingTarget > 0) {
+      out.push({
+        suggestion_type: "set_guardrail",
+        room_type_id: rt.room_type_id,
+        room_type_name: rt.name,
+        field: "ceiling_price",
+        current: rt.ceiling_price,
+        suggested: ceilingTarget,
+        rationale: `"${rt.name}" has no ceiling — a runaway surge could price it absurdly and embarrass you on the OTAs.`,
+      });
     }
   }
   return out;
