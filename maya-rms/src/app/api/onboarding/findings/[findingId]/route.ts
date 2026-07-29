@@ -14,6 +14,7 @@ async function applyRuleSuggestion(
   supabase: SupabaseClient,
   hotelId: string,
   payload: Record<string, unknown>,
+  keepRule: boolean,
 ): Promise<string | null> {
   if (payload.suggestion_type === "adjust_rule" && payload.rule_id) {
     const { error } = await supabase
@@ -24,6 +25,19 @@ async function applyRuleSuggestion(
   }
 
   if (payload.suggestion_type === "remove_rule" && payload.rule_id) {
+    // The middle path on the removal card: accept that the rule shouldn't
+    // keep firing, but pause it instead of deleting — same semantics as the
+    // rules page's "turn it off and keep its changes". Deletion is
+    // unrecoverable (the rule AND its pickup-event history go), so the
+    // owner gets to choose the reversible version.
+    if (keepRule) {
+      const { error } = await supabase
+        .from("pricing_rules")
+        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .eq("id", String(payload.rule_id))
+        .eq("hotel_id", hotelId);
+      return error?.message ?? null;
+    }
     // Same deletion the rules page performs. pickup_event rows go first —
     // that FK has no cascade — then the rule; the cascade takes the
     // condition row and room-type joins. The hotel filter keeps a stale
@@ -138,6 +152,8 @@ export async function POST(
     action?: string;
     /** Owner's own number for value-bearing recommendations (guardrails): accept as-is, pad it, or replace it. */
     value?: number;
+    /** remove_rule confirms only: pause the rule (is_active false) instead of deleting it. */
+    keepRule?: boolean;
   } | null;
   const action = body?.action;
   if (action !== "confirm" && action !== "dismiss") {
@@ -147,6 +163,7 @@ export async function POST(
     typeof body?.value === "number" && Number.isFinite(body.value) && body.value > 0
       ? body.value
       : null;
+  const keepRule = body?.keepRule === true;
 
   const { data: finding } = await supabase
     .from("onboarding_findings")
@@ -262,7 +279,7 @@ export async function POST(
       }
     }
     if (finding.kind === "rule_suggestion") {
-      const err = await applyRuleSuggestion(supabase, hotelId, payload);
+      const err = await applyRuleSuggestion(supabase, hotelId, payload, keepRule);
       if (err) {
         await revertClaim();
         return NextResponse.json({ error: err }, { status: 500 });

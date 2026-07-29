@@ -41,6 +41,35 @@ describe("describeFinding", () => {
     }
   });
 
+  it("gives removal cards a third, reversible option alongside remove/keep", () => {
+    const c = describeFinding(
+      finding("rule_suggestion", {
+        suggestion_type: "remove_rule",
+        rule_id: "pk1",
+        rule_name: "Old pickup spike",
+        rationale: "It overlaps the pace rules.",
+      }),
+    );
+    expect(c.confirmLabel).toBe("Remove it");
+    expect(c.keepLabel).toBe("Turn it off, keep it");
+    expect(c.dismissLabel).toBe("Leave it running");
+    // The body must explain the difference — deleting is permanent, pausing
+    // is recoverable — or three buttons is just a guessing game.
+    expect(c.body).toContain("re-enable");
+  });
+
+  it("only removal cards get the third option", () => {
+    const kinds: Array<[string, Record<string, unknown>]> = [
+      ["closed_period", { start_date: "2025-01-01", end_date: "2025-01-10", days: 10 }],
+      ["suspect_room_type", { name: "Spa Slot", reasons: ["no beds"] }],
+      ["rule_suggestion", { suggestion_type: "add_rule", spec: { name: "X" }, rationale: "r" }],
+      ["guardrail_suggestion", { field: "floor_price", room_type_name: "Suite", rationale: "r", suggested: 120 }],
+    ];
+    for (const [kind, payload] of kinds) {
+      expect(describeFinding(finding(kind, payload)).keepLabel).toBeUndefined();
+    }
+  });
+
   it("keeps the fallback for unknown kinds intact", () => {
     const c = describeFinding(finding("mystery_kind", { foo: "bar" }));
     expect(c.acknowledgeOnly).toBeUndefined();
