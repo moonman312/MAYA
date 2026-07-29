@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { basePriceKey, pickupTieBreakTrace, selectPickupWinner } from "./pickup";
+import { basePriceKey, insertPickupEvent, pickupTieBreakTrace, selectPickupWinner } from "./pickup";
 import type { EngineRule } from "@/types/domain";
 import type { PickupCandidate, RuleMetrics } from "./types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 function makeRule(overrides: Partial<EngineRule> = {}): EngineRule {
   return {
@@ -287,5 +288,45 @@ describe("pickup competition (§7.3, §15.5)", () => {
       expect(joined).not.toMatch(/pickup_threshold\((gt|lt)\):/);
       expect(joined).toContain("not comparable");
     });
+  });
+});
+
+describe("insertPickupEvent: concurrent runs racing the same cell (regression)", () => {
+  // Two overlapping evaluation runs can both read the same stale baseline
+  // and both decide to insert an active event for the same (rule, stay
+  // date, room type) — uq_pickup_event_active_per_rule_stay_room is the DB
+  // guard against that. This pins how insertPickupEvent must respond when
+  // it loses that race: as success, not failure, since the desired state
+  // (one active event for this cell) already exists via the other run.
+  function fakeSupabaseRejectingWith(code: string | null) {
+    return {
+      from: () => ({
+        insert: () =>
+          Promise.resolve(
+            code ? { error: { code, message: "duplicate key value violates unique constraint" } } : { error: null },
+          ),
+      }),
+    } as unknown as SupabaseClient;
+  }
+
+  it("treats a unique-violation (23505) as success — a concurrent run already won", async () => {
+    const rule = makeRule();
+    const candidate = makeCandidate(rule);
+    const ok = await insertPickupEvent(fakeSupabaseRejectingWith("23505"), candidate, "hotel-1");
+    expect(ok).toBe(true);
+  });
+
+  it("still reports failure for any other error", async () => {
+    const rule = makeRule();
+    const candidate = makeCandidate(rule);
+    const ok = await insertPickupEvent(fakeSupabaseRejectingWith("42501"), candidate, "hotel-1");
+    expect(ok).toBe(false);
+  });
+
+  it("reports success on a clean insert with no error", async () => {
+    const rule = makeRule();
+    const candidate = makeCandidate(rule);
+    const ok = await insertPickupEvent(fakeSupabaseRejectingWith(null), candidate, "hotel-1");
+    expect(ok).toBe(true);
   });
 });
