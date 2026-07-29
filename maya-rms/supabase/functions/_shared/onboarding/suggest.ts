@@ -130,9 +130,11 @@ export type GuardrailState = {
   name: string;
   floor_price: number;
   ceiling_price: number;
-  /** p99 nightly rate — outlier-resistant. Never use the raw max here: a
-   *  single fat-fingered rate would become the basis of the ceiling. */
+  /** p99 nightly rate — outlier-resistant only once row_count clears
+   *  MIN_ROWS_TO_TRUST_P99. Never use the raw max here: a single
+   *  fat-fingered rate would become the basis of the ceiling. */
   observed_p99_rate: number | null;
+  row_count: number;
 };
 
 export type GuardrailSuggestion = {
@@ -175,11 +177,12 @@ export function computeGuardrailSuggestions(
       });
     }
     if (rt.ceiling_price >= CEILING_UNSET_MIN) {
+      const p99Basis = rt.row_count >= MIN_ROWS_TO_TRUST_P99 ? rt.observed_p99_rate : null;
       const target =
-        strategy.ceiling && strategy.ceiling > (rt.observed_p99_rate ?? 0)
+        strategy.ceiling && strategy.ceiling > (p99Basis ?? 0)
           ? strategy.ceiling
-          : rt.observed_p99_rate
-            ? Math.round((rt.observed_p99_rate * 1.5) / 10) * 10
+          : p99Basis
+            ? Math.round((p99Basis * 1.5) / 10) * 10
             : null;
       if (target && target > 0) {
         out.push({
@@ -202,7 +205,6 @@ export function computeGuardrailSuggestions(
 export type InitialGuardrailInput = GuardrailState & {
   /** Median nightly rate — the anchor for a data-derived floor. */
   observed_median_rate: number | null;
-  row_count: number;
 };
 
 export type InitialGuardrail = {
@@ -218,6 +220,16 @@ export type InitialGuardrail = {
 export const DATA_FLOOR_FRACTION_OF_MEDIAN = 0.4;
 export const MIN_DATA_FLOOR = 10;
 export const MIN_ROWS_FOR_DATA_GUARDRAILS = 30;
+/**
+ * percentile_cont interpolates: at n=30 the p99 rank sits 71% of the way to
+ * the single highest row, so "p99 x 1.5, never the raw max" (the ceiling's
+ * whole anti-surge premise) is false at the row counts MIN_ROWS_FOR_DATA_
+ * GUARDRAILS alone admits — one fat-fingered rate can BE p99 there. This is
+ * the row count past which a single outlier's interpolation weight is small
+ * enough that p99 is actually a safe basis for a hard price cap. The floor
+ * (median-based) has no such problem and keeps the lower bar.
+ */
+export const MIN_ROWS_TO_TRUST_P99 = 200;
 
 /**
  * First-run gap-filling: data-derived floors and ceilings for room types
@@ -226,7 +238,8 @@ export const MIN_ROWS_FOR_DATA_GUARDRAILS = 30;
  * are untouched; suspect room types are skipped — no point fitting
  * guardrails to something the same analysis says is probably not a room.
  * Ceilings use p99 x 1.5, never the raw max, so one typo'd rate can't
- * become the basis of the cap.
+ * become the basis of the cap — which requires enough rows that the typo
+ * itself isn't what p99 is measuring (MIN_ROWS_TO_TRUST_P99).
  */
 export function computeInitialGuardrails(
   roomTypes: InitialGuardrailInput[],
@@ -235,18 +248,27 @@ export function computeInitialGuardrails(
   const out: InitialGuardrail[] = [];
   for (const rt of roomTypes) {
     if (suspectRoomTypeIds.has(rt.room_type_id)) continue;
-    if (rt.row_count < MIN_ROWS_FOR_DATA_GUARDRAILS) continue;
 
     // Ceiling first so the floor below can respect it.
     let newCeiling: number | null = null;
-    if (rt.ceiling_price >= CEILING_UNSET_MIN && rt.observed_p99_rate && rt.observed_p99_rate > 0) {
+    if (
+      rt.row_count >= MIN_ROWS_TO_TRUST_P99 &&
+      rt.ceiling_price >= CEILING_UNSET_MIN &&
+      rt.observed_p99_rate &&
+      rt.observed_p99_rate > 0
+    ) {
       newCeiling = Math.round((rt.observed_p99_rate * 1.5) / 10) * 10;
       if (newCeiling > 0) {
         out.push({ room_type_id: rt.room_type_id, field: "ceiling_price", value: newCeiling });
       }
     }
 
-    if (rt.floor_price <= FLOOR_UNSET_MAX && rt.observed_median_rate && rt.observed_median_rate > 0) {
+    if (
+      rt.row_count >= MIN_ROWS_FOR_DATA_GUARDRAILS &&
+      rt.floor_price <= FLOOR_UNSET_MAX &&
+      rt.observed_median_rate &&
+      rt.observed_median_rate > 0
+    ) {
       const floor = Math.max(
         MIN_DATA_FLOOR,
         Math.round((rt.observed_median_rate * DATA_FLOOR_FRACTION_OF_MEDIAN) / 5) * 5,
