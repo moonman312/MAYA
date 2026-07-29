@@ -182,7 +182,10 @@ function dbRowToRuleConfig(row: any): RuleConfig {
   if (rc) {
     if (rc.occupancy_operator && rc.occupancy_threshold != null) {
       const sym = OP_TO_SYM[rc.occupancy_operator as RuleOperator] ?? ">";
-      const pct = Number(rc.occupancy_threshold) * 100;
+      // Rounded to match ruleConditionToLegacyConditions (rule-form.ts) —
+      // an unrounded *100 on a numeric(8,4) fraction shows float noise like
+      // "56.99999999999999%" for a perfectly ordinary "above 57%" rule.
+      const pct = Math.round(Number(rc.occupancy_threshold) * 10_000) / 100;
       conditions.occupancy_percentage = `${sym}${pct}`;
     }
     if (rc.dta_operator && rc.dta_threshold_days != null) {
