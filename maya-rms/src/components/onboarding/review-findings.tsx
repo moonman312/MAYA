@@ -58,6 +58,9 @@ export function ReviewFindings() {
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "That didn't save — try again.");
+      // A 409 means another tab or an earlier retry already resolved this
+      // one — refresh so the stale card doesn't sit there looking actionable.
+      await load();
     } finally {
       setBusy(null);
     }
