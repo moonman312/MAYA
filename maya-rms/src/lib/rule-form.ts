@@ -83,27 +83,46 @@ export function isRuleConditionEmpty(c: RuleCondition | undefined | null): boole
   return !hasOcc && !hasDta && !hasPu && !hasBs;
 }
 
+/**
+ * Parses a threshold input string, distinguishing "the user typed nothing"
+ * (or only whitespace) from "the user typed 0" — Number("") and Number("  ")
+ * are both 0 and finite, so a cleared-then-submitted field would otherwise
+ * silently become a legitimate zero threshold (e.g. "occupancy above 0%",
+ * true for every stay date with any booking at all) instead of being
+ * rejected. Negative values are rejected outright rather than clamped to 0,
+ * since clamping a typo like "-5" produces that exact same always-true
+ * condition. An intentional literal 0 stays legal — the check is on the
+ * string, never on the parsed value being non-zero.
+ */
+function parseThreshold(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
 export function conditionRowsToRuleCondition(rows: ConditionFormRow[]): RuleCondition {
   const c: RuleCondition = {};
   for (const row of rows) {
     if (row.metric === "occupancy") {
-      const n = Number(row.value);
-      if (!Number.isFinite(n)) continue;
+      const n = parseThreshold(row.value);
+      if (n === null) continue;
       c.occupancy_operator = row.operator;
-      c.occupancy_threshold = Math.min(100, Math.max(0, n)) / 100;
+      c.occupancy_threshold = Math.min(100, n) / 100;
     } else if (row.metric === "booking_window") {
-      const n = Number(row.value);
-      if (!Number.isFinite(n)) continue;
+      const n = parseThreshold(row.value);
+      if (n === null) continue;
       c.dta_operator = row.operator;
-      c.dta_threshold_days = Math.max(0, Math.round(n));
+      c.dta_threshold_days = Math.round(n);
     } else if (row.metric === "booking_speed") {
       if (!isBookingSpeed(row.booking_speed_level)) continue;
       c.booking_speed_operator = directionalBookingSpeedOperator(row.booking_speed_level);
       c.booking_speed_level = row.booking_speed_level;
       c.booking_speed_window_days = row.booking_speed_window_days;
     } else {
-      const n = Number(row.value);
-      if (!Number.isFinite(n)) continue;
+      const n = parseThreshold(row.value);
+      if (n === null) continue;
       c.pickup_operator = row.operator;
       c.pickup_threshold = n;
       c.pickup_window_days = row.pickup_window_days;
