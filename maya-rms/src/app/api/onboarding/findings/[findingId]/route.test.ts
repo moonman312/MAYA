@@ -218,3 +218,44 @@ describe("findings confirm route: claims before side effects", () => {
     expect(tables.get("onboarding_findings")?.[0]).toMatchObject({ status: "proposed" });
   });
 });
+
+describe("remove_rule: delete vs turn-it-off", () => {
+  function seedRemoveRuleFinding() {
+    return fakeSupabase({
+      onboarding_findings: [
+        {
+          id: "f1",
+          hotel_id: HOTEL,
+          kind: "rule_suggestion",
+          status: "proposed",
+          payload: { suggestion_type: "remove_rule", rule_id: "pk1", rule_name: "Old pickup spike" },
+        },
+      ],
+      pricing_rules: [{ id: "pk1", hotel_id: HOTEL, name: "Old pickup spike", is_active: true }],
+      pickup_event: [
+        { id: "pe1", hotel_id: HOTEL, rule_id: "pk1", stay_date: "2026-08-01" },
+        { id: "pe2", hotel_id: HOTEL, rule_id: "pk1", stay_date: "2026-08-02" },
+      ],
+    });
+  }
+
+  it("plain confirm deletes the rule and its pickup events", async () => {
+    const { client, tables } = seedRemoveRuleFinding();
+    state.client = client;
+    const res = await post({ action: "confirm" });
+    expect(res.status).toBe(200);
+    expect(tables.get("pricing_rules")).toHaveLength(0);
+    expect(tables.get("pickup_event")).toHaveLength(0);
+    expect(tables.get("onboarding_findings")?.[0]).toMatchObject({ status: "confirmed" });
+  });
+
+  it("confirm with keepRule pauses the rule and leaves its history intact", async () => {
+    const { client, tables } = seedRemoveRuleFinding();
+    state.client = client;
+    const res = await post({ action: "confirm", keepRule: true });
+    expect(res.status).toBe(200);
+    expect(tables.get("pricing_rules")?.[0]).toMatchObject({ id: "pk1", is_active: false });
+    expect(tables.get("pickup_event")).toHaveLength(2);
+    expect(tables.get("onboarding_findings")?.[0]).toMatchObject({ status: "confirmed" });
+  });
+});

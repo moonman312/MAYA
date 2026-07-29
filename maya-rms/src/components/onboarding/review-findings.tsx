@@ -42,14 +42,18 @@ export function ReviewFindings() {
     load();
   }, []);
 
-  async function act(id: string, action: "confirm" | "dismiss", value?: number) {
+  async function act(id: string, action: "confirm" | "dismiss", value?: number, keepRule?: boolean) {
     setBusy(id);
     setError(null);
     try {
       const res = await fetch(`/api/onboarding/findings/${id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(value != null ? { action, value } : { action }),
+        body: JSON.stringify({
+          action,
+          ...(value != null ? { value } : {}),
+          ...(keepRule ? { keepRule: true } : {}),
+        }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -114,6 +118,7 @@ export function ReviewFindings() {
                 finding={f}
                 busy={busy === f.id}
                 onConfirm={(value) => act(f.id, "confirm", value)}
+                onKeep={() => act(f.id, "confirm", undefined, true)}
                 onDismiss={() => act(f.id, "dismiss")}
               />
             ))}
@@ -169,6 +174,7 @@ export function ReviewFindings() {
                   finding={f}
                   busy={busy === f.id}
                   onConfirm={(value) => act(f.id, "confirm", value)}
+                  onKeep={() => act(f.id, "confirm", undefined, true)}
                   onDismiss={() => act(f.id, "dismiss")}
                 />
               ))}
@@ -294,11 +300,14 @@ function FindingCard({
   finding,
   busy,
   onConfirm,
+  onKeep,
   onDismiss,
 }: {
   finding: Finding;
   busy: boolean;
   onConfirm: (value?: number) => void;
+  /** Middle option on removal cards: accept the conflict, pause the rule instead of deleting it. */
+  onKeep: () => void;
   onDismiss: () => void;
 }) {
   const c = describeFinding(finding);
@@ -347,6 +356,16 @@ function FindingCard({
         >
           {customized ? `Set it to ${parsed.toLocaleString()}` : c.confirmLabel}
         </button>
+        {c.keepLabel ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onKeep}
+            className="cursor-pointer rounded border border-emerald-700/60 px-4 py-1.5 text-xs font-medium text-emerald-300 hover:border-emerald-500 disabled:opacity-60"
+          >
+            {c.keepLabel}
+          </button>
+        ) : null}
         {c.acknowledgeOnly ? null : (
           <button
             type="button"
@@ -369,6 +388,8 @@ export function describeFinding(f: Finding): {
   dismissLabel: string;
   /** Purely informational — show a single acknowledgement button, no dismiss. */
   acknowledgeOnly?: boolean;
+  /** Middle option (removal cards): accept the conflict but pause the rule instead of deleting it. */
+  keepLabel?: string;
 } {
   const p = f.payload;
   switch (f.kind) {
@@ -433,9 +454,10 @@ export function describeFinding(f: Finding): {
       if (p.suggestion_type === "remove_rule") {
         return {
           title: `Remove "${String(p.rule_name)}"?`,
-          body: String(p.rationale),
+          body: `${String(p.rationale)} Removing deletes it and undoes its price changes; turning it off just pauses it, and you can re-enable it from your rules page anytime.`,
           confirmLabel: "Remove it",
-          dismissLabel: "Keep it",
+          keepLabel: "Turn it off, keep it",
+          dismissLabel: "Leave it running",
         };
       }
       const spec = (p.spec ?? {}) as { name?: string; explanation?: string };
