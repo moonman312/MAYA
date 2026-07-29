@@ -79,9 +79,13 @@ describe("computeRuleSuggestions", () => {
     expect(out.filter((s) => s.suggestion_type === "adjust_rule")).toHaveLength(0);
   });
 
-  it("ignores disabled rules when judging pace coverage", () => {
+  it("does not re-offer the pace ladder when it's merely paused, not gone (regression)", () => {
+    // A disabled booking-speed rule still counts as "someone owns pace
+    // coverage here" — pausing the ladder is a normal seasonal action, not
+    // an invitation to re-offer all 5 rules as fresh adds and create active
+    // duplicates of a set the owner will likely re-enable later.
     const out = computeRuleSuggestions([bookingSpeedRule({ is_active: false })], PACE_SPECS, null);
-    expect(out.filter((s) => s.suggestion_type === "add_rule")).toHaveLength(5);
+    expect(out.filter((s) => s.suggestion_type === "add_rule")).toHaveLength(0);
   });
 
   it("makes no occupancy adjustments without a reference", () => {
