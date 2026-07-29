@@ -52,14 +52,21 @@ export async function snapshotCurrentState(
   const rtIds = roomTypes.map((rt) => rt.id);
 
   // Aggregate booked_units and booked_revenue per (stay_date, room_type_id)
-  const { data: agg, error: aggErr } = await supabase
-    .from("reservations")
-    .select("stay_date, room_type_id, current_rate")
-    .eq("hotel_id", hotelId)
-    .in("stay_date", stayDates)
-    .in("room_type_id", rtIds);
-
-  if (aggErr) throw new Error(`Snapshot aggregation failed: ${aggErr.message}`);
+  // Paged, with a stable order. An unpaginated select silently stops at
+  // PostgREST's 1000-row cap, which for a 50-room property at 60% occupancy
+  // is reached about 33 days out — every stay date beyond that then
+  // snapshots as zero booked, so occupancy reads 0 and pickup deltas go
+  // negative. Discount ladders wrongly activate and increase ladders wrongly
+  // deactivate for the whole far horizon.
+  const agg = await fetchAllRows(() =>
+    supabase
+      .from("reservations")
+      .select("stay_date, room_type_id, current_rate")
+      .eq("hotel_id", hotelId)
+      .in("stay_date", stayDates)
+      .in("room_type_id", rtIds)
+      .order("id", { ascending: true }),
+  );
 
   const bookedMap = new Map<string, { units: number; revenue: number }>();
   for (const row of agg ?? []) {

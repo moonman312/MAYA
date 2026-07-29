@@ -87,7 +87,13 @@ export async function loadBookingSpeedContext(
       .order("stay_date", { ascending: true })
       .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
-    if (error || !data) break;
+    // A mid-run failure is not the end of the history. Treating it as one
+    // silently truncated the reservation set, so every stay date past the
+    // cut-off measured as having no bookings and read as Stalled.
+    if (error) {
+      throw new Error(`Failed to load booking history: ${error.message}`);
+    }
+    if (!data) break;
     for (const r of data) {
       rows.push({
         stay_date: String(r.stay_date),
@@ -97,6 +103,15 @@ export async function loadBookingSpeedContext(
       });
     }
     if (data.length < PAGE) break;
+    // Hitting the page ceiling means there is more history than we read, and
+    // carrying on with a partial set would misreport pace for the tail of
+    // the horizon. Say so rather than quietly measuring against a fragment.
+    if (page === MAX_PAGES - 1) {
+      throw new Error(
+        `Booking history exceeded ${MAX_PAGES * PAGE} rows for hotel ${hotelId}; ` +
+          `raise MAX_PAGES or narrow HISTORY_YEARS_BACK before trusting booking speed here.`,
+      );
+    }
   }
   if (rows.length === 0) return null;
 
