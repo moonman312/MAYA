@@ -150,6 +150,11 @@ export const MIN_SEASON_LENGTH_DAYS = 10;
  * this only guards against runaway noise producing dozens of "seasons".
  */
 export const MAX_SEASONS = 16;
+/**
+ * Where the segmentation walk's own array boundary sits, in day-of-year
+ * terms — see WALK_ROTATION_OFFSET below for why this isn't 0.
+ */
+export const WALK_ROTATION_OFFSET = 182;
 export const MIN_OBSERVATIONS = 60;
 export const MIN_SLOT_COVERAGE = 120;
 export const MIN_DOW_OBSERVATIONS = 5;
@@ -525,11 +530,35 @@ function walkYear(signals: SegSignal[]): Seg[] {
   return bounds.map((b) => ({ start: b.start, len: b.end - b.start + 1 }));
 }
 
-function segmentYear(signals: SegSignal[]): Seg[] {
-  let segs = walkYear(signals);
+function rotate<T>(arr: T[], offset: number): T[] {
+  return arr.slice(offset).concat(arr.slice(0, offset));
+}
 
-  // The walk starts at January 1, which is usually mid-season: if the first
-  // and last segments look alike, they are one season wrapping the year end.
+/**
+ * walkYear scans linearly and can never confirm a pending run that starts
+ * too close to its array's own hard end — there aren't enough remaining
+ * days left to reach MIN_SHIFT_RUN_DAYS. Scanning day-of-year 0..364
+ * unrotated puts that blind spot exactly on Dec 31 / Jan 1, which for a
+ * hotel is the single worst place for it: a demand regime starting in late
+ * December (a property's Christmas/New Year's week) gets silently absorbed
+ * into whatever segment was already running, with no run of days left to
+ * prove itself before the array ends. Rotating the walk's own seam to
+ * WALK_ROTATION_OFFSET (~July 1, the point of the year furthest from that
+ * boundary) moves the blind spot to a date generic enough that almost no
+ * property has a real season boundary sitting exactly on it — and even
+ * where one does, that's no worse than the guaranteed miss every property
+ * had at the old, calendar-driven seam.
+ */
+function segmentYear(signals: SegSignal[]): Seg[] {
+  const rotated = signals.map((s) => ({ ...s, values: rotate(s.values, WALK_ROTATION_OFFSET) }));
+  let segs = walkYear(rotated).map((s) => ({
+    start: (s.start + WALK_ROTATION_OFFSET) % 365,
+    len: s.len,
+  }));
+
+  // The walk's own seam is usually mid-season: if the segments touching it
+  // (chronologically first and last in walk order) look alike, they are one
+  // season split by the seam, not two.
   if (segs.length > 1 && segsSimilar(segs[0], segs[segs.length - 1], signals)) {
     const last = segs[segs.length - 1];
     const first = segs[0];
