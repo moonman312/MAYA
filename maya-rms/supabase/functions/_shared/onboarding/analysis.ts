@@ -745,6 +745,15 @@ async function applyInitialGuardrails(
     patches.set(g.room_type_id, patch);
   }
   for (const [roomTypeId, patch] of patches) {
-    await supabase.from("room_types").update(patch).eq("id", roomTypeId);
+    const { error } = await supabase.from("room_types").update(patch).eq("id", roomTypeId);
+    // A constraint-rejected patch (e.g. a ceiling below a floor the
+    // strategy projection already set) must not disappear silently — this
+    // is the guardrail half of the starter package, and a hotel with no
+    // record of it failing has no way to know it's missing.
+    if (error) {
+      console.error(
+        JSON.stringify({ fn: "applyInitialGuardrails", hotelId, roomTypeId, patch, error: error.message }),
+      );
+    }
   }
 }

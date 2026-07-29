@@ -201,6 +201,25 @@ describe("computeInitialGuardrails", () => {
     const out = computeInitialGuardrails([rtIn({ row_count: 200, observed_p99_rate: 400 })]);
     expect(out.find((g) => g.field === "ceiling_price")).toMatchObject({ value: 600 });
   });
+
+  it("never proposes a ceiling below a floor the strategy projection already set (regression)", () => {
+    // projectStrategyOntoRoomTypes runs first and can set floor_price on
+    // every active room type regardless of that room type's own rates — a
+    // cheap add-on-ish room type (p99 80) under a $150 answered floor would
+    // otherwise get a ceiling patch of 120, violating floor<=ceiling and
+    // getting silently rejected by the DB.
+    const out = computeInitialGuardrails([
+      rtIn({ row_count: 200, floor_price: 150, observed_p99_rate: 80, observed_median_rate: 70 }),
+    ]);
+    expect(out.find((g) => g.field === "ceiling_price")).toBeUndefined();
+  });
+
+  it("still proposes the ceiling when it genuinely clears the already-set floor", () => {
+    const out = computeInitialGuardrails([
+      rtIn({ row_count: 200, floor_price: 90, observed_p99_rate: 400, observed_median_rate: 220 }),
+    ]);
+    expect(out.find((g) => g.field === "ceiling_price")).toMatchObject({ value: 600 });
+  });
 });
 
 describe("computeGuardrailSuggestions", () => {
