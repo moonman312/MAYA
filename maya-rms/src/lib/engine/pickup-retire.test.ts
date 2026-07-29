@@ -46,7 +46,7 @@ function fakeSupabase(events: Event[], snaps: Snap[]) {
         select() {
           return q;
         },
-        eq(col: string, _val: string) {
+        eq(col: string) {
           // second .eq resolves the query
           return col === "snapshot_ts" ? Promise.resolve({ data: snaps }) : q;
         },
