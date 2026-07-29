@@ -93,7 +93,7 @@ describe("computeRuleSuggestions", () => {
     expect(computeRuleSuggestions(existing, PACE_SPECS, null)).toHaveLength(0);
   });
 
-  it("recommends deleting raw-pickup rules that conflict with the pace ladder, by name", () => {
+  it("recommends deleting a raw-pickup rule only once the pace ladder actually already exists", () => {
     const pickupRule = rule({
       id: "pk1",
       name: "Old pickup spike",
@@ -103,15 +103,18 @@ describe("computeRuleSuggestions", () => {
       pickup_operator: "gt",
       pickup_threshold: 6,
     });
-    // Case 1: ladder being offered — conflict flagged alongside the adds.
+    // The ladder is merely being PROPOSED (a sibling add_rule finding), not
+    // live yet — each finding resolves independently, so suggesting removal
+    // here on a "the pace rules now cover this" rationale would be false if
+    // the owner accepts the removal and dismisses the adds.
     const offered = computeRuleSuggestions([pickupRule], PACE_SPECS, null);
-    const removes = offered.filter((s) => s.suggestion_type === "remove_rule");
+    expect(offered.filter((s) => s.suggestion_type === "remove_rule")).toHaveLength(0);
+
+    // Pace rules genuinely already exist — the pickup rule really does conflict.
+    const existing = computeRuleSuggestions([pickupRule, bookingSpeedRule()], PACE_SPECS, null);
+    const removes = existing.filter((s) => s.suggestion_type === "remove_rule");
     expect(removes).toHaveLength(1);
     expect(removes[0]).toMatchObject({ rule_id: "pk1", rule_name: "Old pickup spike" });
-
-    // Case 2: pace rules already exist — the pickup rule still conflicts.
-    const existing = computeRuleSuggestions([pickupRule, bookingSpeedRule()], PACE_SPECS, null);
-    expect(existing.filter((s) => s.suggestion_type === "remove_rule")).toHaveLength(1);
   });
 
   it("never flags booking-speed rules or disabled pickup rules as conflicts", () => {

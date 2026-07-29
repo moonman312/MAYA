@@ -80,12 +80,14 @@ export function computeRuleSuggestions(
 
   // Raw-pickup rules conflict with the booking-speed ladder outright: both
   // react to the same demand signal, but pickup fires on a fixed count with
-  // no idea what "normal" looks like for the date. Whether the ladder is
-  // being offered now or pace rules already exist, keeping raw pickup
-  // alongside means two reactions stacking on the same demand — so each one
-  // gets a named removal suggestion the owner can accept or ignore.
-  const paceCoverageExists = hasBookingSpeedRule || paceSpecs.length > 0;
-  if (paceCoverageExists) {
+  // no idea what "normal" looks like for the date. Removal is only offered
+  // when the ladder actually already exists (hasBookingSpeedRule) — this
+  // used to also fire whenever paceSpecs.length > 0, i.e. whenever a ladder
+  // was merely ABOUT to be proposed in a sibling add_rule finding. Each
+  // finding resolves independently, so an owner who accepted the removals
+  // and dismissed (or never reached) the adds was left with zero demand-
+  // reactive rules while the rationale claimed coverage already existed.
+  if (hasBookingSpeedRule) {
     for (const r of active) {
       if (!r.is_pickup_rule || r.pickup_operator == null || r.has_booking_speed) continue;
       out.push({
