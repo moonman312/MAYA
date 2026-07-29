@@ -9,7 +9,7 @@
 import type { EngineRule } from "@/types/domain";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AuditInput } from "./audit";
-import { writeAudit } from "./audit";
+import { loadLastAuditSignatures, purgeOldAuditRows, writeAudit } from "./audit";
 import {
   DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS,
   bookingSpeedAuditSnapshots,
@@ -444,6 +444,16 @@ export async function evaluateHotel(
     }
   }
 
+  // The signature of the last audit row per cell, so writeAudit can skip
+  // cells whose price and applied rules haven't moved since last time —
+  // see auditSignature's doc comment for why this matters.
+  const lastAuditSignatures = await loadLastAuditSignatures(
+    supabase,
+    hotelId,
+    stayDates[0],
+    stayDates[stayDates.length - 1],
+  );
+
   for (const stayDate of stayDates) {
     for (const rt of roomTypes) {
       const key = `${stayDate}|${rt.id}`;
@@ -481,6 +491,7 @@ export async function evaluateHotel(
         bookingSpeedObservations: bsCtx
           ? bookingSpeedAuditSnapshots(bsCtx, stayDate)
           : [],
+        previousSignature: lastAuditSignatures.get(key) ?? null,
       };
       await writeAudit(supabase, auditInput);
     }
@@ -499,6 +510,7 @@ export async function evaluateHotel(
   await retireUndonePickupEvents(supabase, hotelId, rules, now, now);
 
   await purgeOldSnapshots(supabase, hotelId, maxPickupWindowDays + 7);
+  await purgeOldAuditRows(supabase, hotelId);
 
   return {
     run_id: runId,

@@ -535,6 +535,15 @@ create table if not exists evaluation_audit (
   details                jsonb not null
 );
 
+-- Every read (the changelog route; the per-cell "last audit signature"
+-- lookup) filters on hotel_id and orders by evaluated_at — this table had no
+-- index at all until now.
+create index if not exists idx_evaluation_audit_hotel_evaluated
+  on evaluation_audit(hotel_id, evaluated_at desc);
+
+create index if not exists idx_evaluation_audit_cell
+  on evaluation_audit(hotel_id, stay_date, room_type_id, evaluated_at desc);
+
 create index if not exists idx_eval_audit_hotel_stay
   on evaluation_audit (hotel_id, stay_date, room_type_id, evaluated_at desc);
 
