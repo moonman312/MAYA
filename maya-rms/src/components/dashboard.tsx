@@ -264,6 +264,8 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
   const [month, setMonth] = useState(new Date().getUTCMonth() + 1);
 
   const [rules, setRules] = useState<RuleConfig[]>([]);
+  /** Rule awaiting the delete-or-disable choice; null when the dialog is closed. */
+  const [pendingDelete, setPendingDelete] = useState<RuleConfig | null>(null);
   const [fireCounts, setFireCounts] = useState<Record<string, number>>({});
   const [ruleFilter, setRuleFilter] = useState<"all" | "enabled" | "disabled">("all");
   const [ruleFormOpen, setRuleFormOpen] = useState(false);
@@ -545,6 +547,16 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
 
   async function onDeleteRule(ruleId: string) {
     await api(`/api/rules/${ruleId}`, { method: "DELETE" });
+    setPendingDelete(null);
+    await reloadRules();
+  }
+
+  async function onDisableRuleInstead(ruleId: string) {
+    const rule = rules.find((r) => r.id === ruleId);
+    if (rule?.enabled) {
+      await api(`/api/rules/${ruleId}/toggle`, { method: "POST" });
+    }
+    setPendingDelete(null);
     await reloadRules();
   }
 
@@ -697,6 +709,52 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
+      {pendingDelete ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-rule-title"
+        >
+          <div className="w-full max-w-lg rounded-lg border border-slate-700 bg-slate-900 p-5 shadow-xl">
+            <h3 id="delete-rule-title" className="text-lg font-semibold text-slate-100">
+              Delete &ldquo;{pendingDelete.rule_name}&rdquo;?
+            </h3>
+            <p className="mt-3 text-sm leading-relaxed text-slate-300">
+              Deleting this rule also undoes the price changes it has already
+              made. Any night it adjusted goes back to what the price would be
+              if this rule had never run.
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-slate-300">
+              If you only want it to stop acting from now on, turn it off
+              instead — the prices it has already set stay exactly as they are.
+            </p>
+            <p className="mt-3 text-sm font-medium text-amber-300">
+              Deleting cannot be undone.
+            </p>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row-reverse">
+              <button
+                className="cursor-pointer rounded bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-600"
+                onClick={() => void onDeleteRule(pendingDelete.id)}
+              >
+                Delete Rule and Undo Its Changes
+              </button>
+              <button
+                className="cursor-pointer rounded bg-slate-700 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-600"
+                onClick={() => void onDisableRuleInstead(pendingDelete.id)}
+              >
+                Turn It Off and Keep Its Changes
+              </button>
+              <button
+                className="cursor-pointer rounded px-4 py-2 text-sm text-slate-400 hover:text-slate-200 sm:mr-auto"
+                onClick={() => setPendingDelete(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="mx-auto max-w-6xl p-6 md:p-10">
         <header className="mb-8">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -1087,7 +1145,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                       <td className="py-2 pr-3">
                         <button
                           className="cursor-pointer rounded bg-rose-700 px-2 py-1 text-xs hover:bg-rose-600"
-                          onClick={() => onDeleteRule(rule.id)}
+                          onClick={() => setPendingDelete(rule)}
                         >
                           Delete
                         </button>

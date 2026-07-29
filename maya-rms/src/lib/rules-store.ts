@@ -677,13 +677,26 @@ export async function deleteRule(id: string, supabase?: SupabaseClient): Promise
     return true;
   }
 
-  // pickup_event references the rule WITHOUT a cascade (it is the engine's
-  // effect ledger), so its rows must go first or the rule delete hits a
-  // foreign-key wall — which silently broke deletion for any rule that had
-  // ever fired. Removing the events also removes the rule's persisted price
-  // effects, which is what deleting a rule should mean.
+  // Deleting a rule reverts its effects — the price goes back to what it
+  // would be without this rule ever having fired. Switching a rule OFF is
+  // the opposite and deliberately leaves its effects in place; the two are
+  // offered side by side in the UI so the choice is explicit.
+  //
+  // Both effect ledgers must be cleared, and pickup_event must go first
+  // regardless: it references the rule with no cascade, so leaving its rows
+  // behind hits a foreign-key wall and silently breaks deletion for any rule
+  // that had ever fired.
   const { error: eventErr } = await supabase.from("pickup_event").delete().eq("rule_id", id);
   if (eventErr) return false;
+  // ladder_rule_state has no cascade to pricing_rules either, and its rows
+  // keep being applied by loadActiveLadderEffects for as long as they are
+  // active — a deleted rule would otherwise go on adjusting prices with
+  // nothing left to explain it in the change log.
+  const { error: ladderErr } = await supabase
+    .from("ladder_rule_state")
+    .delete()
+    .eq("rule_id", id);
+  if (ladderErr) return false;
   const { error } = await supabase.from("pricing_rules").delete().eq("id", id);
   return !error;
 }
