@@ -347,6 +347,36 @@ describe("outlier corroboration requires the deviation itself to recur, not just
   });
 });
 
+describe("outlierKeys and meanIndex are not contaminated by ordinary weekly rhythm", () => {
+  // outlierKeys used to come from a series that never had its weekly rhythm
+  // divided out, so plain weekend highs tripped the same MAD-based
+  // detector real anomalies use, got nulled and re-interpolated, then
+  // reported back as "unusual days" — and that same nulling flattened
+  // weekend contribution out of every season's reported meanIndex.
+  it("does not flag ordinary weekend highs as unusual days", () => {
+    const daily = genDaily("2023-01-01", "2025-12-31", (d, dow) => {
+      const weekend = dow === 5 || dow === 6;
+      const base = weekend ? 75 : 50;
+      const key = d.slice(5);
+      return key >= "09-05" && key <= "09-18" ? base * 2 : base;
+    });
+    const model = detectSeasons(daily);
+    expect(model.outlierKeys.length).toBeLessThan(10);
+  });
+
+  it("reports different meanIndex for a season with real weekend lift vs one without", () => {
+    const daily = genDaily("2023-01-01", "2025-12-31", (d, dow) => {
+      const weekend = dow === 5 || dow === 6;
+      return d.slice(5) >= "07-01" ? (weekend ? 100 : 50) : 50;
+    });
+    const model = detectSeasons(daily);
+    expect(model.seasons).toHaveLength(2);
+    const h1 = seasonForDate(model, "2025-03-15");
+    const h2 = seasonForDate(model, "2025-08-15");
+    expect(h2.meanIndex).toBeGreaterThan(h1.meanIndex);
+  });
+});
+
 describe("booking pace as a third season signal", () => {
   // The sellout-blindness problem: a period sold out at a premium and a
   // period sold out at a discount read identically in occupancy — and so
