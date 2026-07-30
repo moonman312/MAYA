@@ -48,14 +48,17 @@ describe("projectSubscription", () => {
     expect(row.current_period_end).toBe("2026-08-29T12:00:00.000Z");
   });
 
-  it("anchors the card re-check on creation, so a replay can't push it forward", () => {
-    // Anchored on now() instead, every redelivery of an old event would move the
-    // deadline out and the check would never come due.
+  it("makes the first card check due at once, and pins it to creation", () => {
+    // Two checks: this one now, and a second at signup + 48h that patchFor arms
+    // after this one passes. Anchored on now() instead of the subscription's own
+    // creation, every redelivery of an old event would move the deadline out and
+    // the check would never come due.
     const first = projectSubscription(sub())!;
     const replayed = projectSubscription(sub())!;
     expect(first.card_verify_due_at).toBe(replayed.card_verify_due_at);
-    expect(first.card_verify_due_at).toBe(
-      new Date((CREATED + CARD_REVERIFY_AFTER_HOURS * 3600) * 1000).toISOString(),
+    expect(first.card_verify_due_at).toBe(new Date(CREATED * 1000).toISOString());
+    expect(Date.parse(first.card_verify_due_at!)).toBeLessThan(
+      CREATED * 1000 + CARD_REVERIFY_AFTER_HOURS * 3600_000,
     );
   });
 

@@ -77,10 +77,14 @@ export function projectSubscription(sub: Stripe.Subscription): SubscriptionProje
     current_period_end: iso(itemPeriodEnd ?? subPeriodEnd),
     trial_end: iso(sub.trial_end),
     cancel_at_period_end: sub.cancel_at_period_end === true,
-    // A card that authorizes today can be a virtual card cancelled tomorrow, so
-    // it gets checked once more. Anchored on the subscription's creation rather
-    // than now(): a replayed webhook must not keep pushing the check forward.
-    card_verify_due_at: iso(sub.created + CARD_REVERIFY_AFTER_HOURS * 3600),
+    // Due immediately, not in 48 hours: the card gets checked twice. Now, to
+    // catch one that was never good, and again at signup + 48h, to catch a
+    // virtual card cancelled after the fact — which is the only reason to wait
+    // at all. patchFor moves this deadline to +48h once the first check passes,
+    // and trg_hotel_subscriptions_reset_card_verify stops a later webhook
+    // dragging it back here. Anchored on the subscription's own creation so a
+    // replayed webhook can't keep pushing the first check forward.
+    card_verify_due_at: iso(sub.created),
     signup_code_id: sub.metadata?.signup_code_id || null,
   };
 }

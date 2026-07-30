@@ -1,9 +1,13 @@
 /**
- * The 48-hour card re-check.
+ * The card check, run twice: once at signup and again 48 hours later.
  *
- * Checkout proved the card worked on the day they signed up. This proves it
- * still works two days later, because the failure mode Jake is guarding against
- * is a virtual card that gets cancelled the moment the trial starts.
+ * Checkout won't complete on a card the issuer refuses, so the signup check is
+ * partly a belt to Stripe's braces — but only partly. It also catches a card
+ * removed or swapped in the minutes after checkout, and it is the run that
+ * proves this whole path works before anything depends on it. The 48-hour one is
+ * the one that earns its keep: the failure mode Jake is guarding against is a
+ * virtual card cancelled the moment the trial starts, which nothing at signup
+ * can see.
  *
  * The check is a confirmed SetupIntent against the card already on file. The two
  * obvious alternatives were both wrong:
@@ -36,6 +40,7 @@
 
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { CARD_REVERIFY_AFTER_HOURS } from "./sync";
 
 /** Subscriptions examined per invocation. Bounded so the route can't run long. */
 export const REVERIFY_BATCH_SIZE = 25;
@@ -59,6 +64,10 @@ export type DueSubscription = {
   stripe_subscription_id: string | null;
   card_verify_due_at: string | null;
   card_verify_attempts: number | null;
+  /** Set once the signup-time check passed. Null means this sweep IS that check. */
+  card_verified_at: string | null;
+  /** When we first recorded the subscription — what the 48 hours counts from. */
+  created_at: string | null;
 };
 
 export type ReverifyOutcome =
@@ -72,7 +81,7 @@ export type ReverifyOutcome =
   | { kind: "moot"; code: string };
 
 const SELECT_COLUMNS =
-  "hotel_id, stripe_customer_id, stripe_subscription_id, card_verify_due_at, card_verify_attempts";
+  "hotel_id, stripe_customer_id, stripe_subscription_id, card_verify_due_at, card_verify_attempts, card_verified_at, created_at";
 
 /**
  * Subscriptions whose re-check has come due and has no verdict yet. Matches
@@ -88,7 +97,10 @@ export async function dueSubscriptions(
     .from("hotel_subscriptions")
     .select(SELECT_COLUMNS)
     .lte("card_verify_due_at", now.toISOString())
-    .is("card_verified_at", null)
+    // card_rechecked_at, not card_verified_at: the signup check is not terminal.
+    // A row that passed it still owes its 48-hour recheck, and keying on
+    // verified_at would have taken it out of the sweep after the first stage.
+    .is("card_rechecked_at", null)
     .is("card_verify_failed_at", null)
     .order("card_verify_due_at", { ascending: true })
     .limit(limit);
@@ -237,8 +249,25 @@ export function patchFor(
   const at = now.toISOString();
 
   if (outcome.kind === "verified") {
+    // Two stages, and which one just passed is the difference between "come back
+    // in 48 hours" and "done". Anchored on created_at rather than now() so the
+    // recheck lands 48h after SIGNUP — a slow first sweep must not push the
+    // deadline out, which is the window a cancelled virtual card lives in.
+    if (!row.card_verified_at) {
+      const signup = row.created_at ? Date.parse(row.created_at) : now.getTime();
+      return {
+        card_verified_at: at,
+        card_verify_due_at: new Date(signup + CARD_REVERIFY_AFTER_HOURS * 3600_000).toISOString(),
+        card_verify_failed_at: null,
+        card_verify_last_code: null,
+        // The recheck gets its own retry budget; the signup check's inconclusive
+        // attempts should not eat into it.
+        card_verify_attempts: 0,
+      };
+    }
     return {
-      card_verified_at: at,
+      card_rechecked_at: at,
+      card_verify_due_at: null,
       card_verify_failed_at: null,
       card_verify_last_code: null,
       card_verify_attempts: attempts,
@@ -278,12 +307,25 @@ export async function recordOutcome(
   outcome: ReverifyOutcome,
   now: Date,
 ): Promise<{ ok: boolean; error?: string }> {
-  const { error } = await admin
+  // Which stamp means "already settled" depends on the stage. A recheck by
+  // definition has card_verified_at set, so guarding every write on that column
+  // would reject every stage-two verdict and leave the row due forever.
+  const settled = row.card_verified_at ? "card_rechecked_at" : "card_verified_at";
+
+  let q = admin
     .from("hotel_subscriptions")
     .update(patchFor(outcome, row, now))
     .eq("hotel_id", row.hotel_id)
-    .is("card_verified_at", null)
+    .is(settled, null)
     .is("card_verify_failed_at", null);
+
+  // Stage two also pins the stage-one stamp it read. If the hotel re-subscribed
+  // between the read and the write, the reset trigger cleared that stamp — and
+  // stamping card_rechecked_at on top would retire the row for good without the
+  // new card ever being checked.
+  if (row.card_verified_at) q = q.eq("card_verified_at", row.card_verified_at);
+
+  const { error } = await q;
 
   if (error) {
     console.error(
