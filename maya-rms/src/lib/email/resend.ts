@@ -26,6 +26,12 @@ export type SendEmailInput = {
   /** Plain-text alternative. Always provide one — improves deliverability. */
   text: string;
   replyTo?: string;
+  /**
+   * Resend collapses repeat sends carrying the same key (24h window). Set it for
+   * anything a webhook can trigger: Stripe redelivers, and the second delivery
+   * would otherwise mail the same person the same thing again.
+   */
+  idempotencyKey?: string;
 };
 
 /**
@@ -48,6 +54,7 @@ export async function sendEmail(input: SendEmailInput): Promise<{ id: string }> 
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
+      ...(input.idempotencyKey ? { "Idempotency-Key": input.idempotencyKey } : {}),
     },
     body: JSON.stringify({
       from,
