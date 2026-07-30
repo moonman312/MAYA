@@ -154,18 +154,27 @@ export async function runMewsSyncForHotel(
       return { ok: false, error: resolved.error };
     }
 
-    const { data: hotelRow } = await supabase
+    const { data: hotelRow, error: hotelErr } = await supabase
       .from("hotels")
-      .select("total_rooms_per_type")
+      .select("total_rooms_per_type, timezone")
       .eq("id", hotelId)
       .maybeSingle();
+    // Reading nothing is fine (defaults below); failing to read is not — the UTC
+    // fallback would write shifted stay nights and then prune the correct ones as
+    // stale. Skipping the tick is recoverable, that is not.
+    if (hotelErr) {
+      return { ok: false, error: hotelErr.message };
+    }
 
     const defaultRoomsPerCategory = hotelRow?.total_rooms_per_type ?? 100;
+    // Mews dates are UTC instants; stay nights belong to the hotel's calendar.
+    const hotelTimeZone = hotelRow?.timezone ?? "UTC";
 
     const { start, end } = resolveFetchWindow(options);
     const { data: raw, windows } = await mewsFetchReservationsRange(resolved.creds, start, end);
     const parsed = parseMewsApiResponse(raw as Record<string, unknown>, {
       defaultRoomsPerCategory,
+      hotelTimeZone,
     });
 
     let roomTypesUpserted = 0;
@@ -173,13 +182,16 @@ export async function runMewsSyncForHotel(
     let duplicateRoomTypeRowsMerged = 0;
 
     if (parsed.roomTypes.length > 0) {
+      // No is_active in the payload: the column list PostgREST is given comes
+      // from these keys, so a category the owner excluded (or a duplicate finding
+      // deactivated) is not resurrected and priced by the next cron. New rows
+      // still take the schema default and come in active.
       const { rows: rtRows, merged: rtMerged } = dedupeByKey(
         parsed.roomTypes.map((rt) => ({
           hotel_id: hotelId,
           external_room_type_id: rt.external_room_type_id,
           name: rt.name,
           display_name: rt.display_name,
-          is_active: true,
           total_rooms: rt.total_rooms,
         })),
         (r) => `${r.hotel_id}:${r.external_room_type_id}`,
