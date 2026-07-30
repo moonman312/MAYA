@@ -1,5 +1,6 @@
 import { listHotels } from "@/lib/admin/hotels";
 import { listPendingInvites } from "@/lib/admin/memberships";
+import { countSignupCodes } from "@/lib/admin/signup-codes";
 import { listPlatformUsers } from "@/lib/admin/users";
 import { createClient } from "@/utils/supabase/server";
 import { cookies } from "next/headers";
@@ -9,10 +10,11 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminOverviewPage() {
   const ssr = createClient(await cookies());
-  const [hotels, users, pending] = await Promise.all([
+  const [hotels, users, pending, signupCodes] = await Promise.all([
     listHotels(ssr),
     listPlatformUsers(ssr),
     listPendingInvites(ssr),
+    countSignupCodes(ssr),
   ]);
 
   const nowMs = new Date().getTime();
@@ -33,6 +35,7 @@ export default async function AdminOverviewPage() {
       href: "/admin/pending-invites",
     },
     { label: "Stale syncs", value: staleSync, href: "/admin/hotels" },
+    { label: "Signup codes", value: signupCodes, href: "/admin/signup-codes" },
   ];
 
   return (
@@ -52,7 +55,7 @@ export default async function AdminOverviewPage() {
         </Link>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
         {stats.map((s) => (
           <Link
             key={s.label}
