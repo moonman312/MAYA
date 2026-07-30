@@ -3,19 +3,27 @@
  * again from the top, and makes sure there's a code to walk it with.
  *
  *   npx tsx scripts/billing-test-reset.mts                 # show current state
- *   npx tsx scripts/billing-test-reset.mts --email you@x   # reset that user
- *   npx tsx scripts/billing-test-reset.mts --email you@x --keep-hotel
+ *   npx tsx scripts/billing-test-reset.mts --email you@x --project <ref>
+ *   npx tsx scripts/billing-test-reset.mts --email you@x --project <ref> --keep-hotel
  *
- * Sandbox only: refuses to run against a live Stripe key, since the Stripe half
- * cancels subscriptions and deletes customers.
+ * The Stripe half refuses a live key. The SUPABASE half needs its own guard and
+ * did not have one: there is a single Supabase project behind every environment
+ * here, so a test key on the Stripe side proved nothing about the database this
+ * was about to delete hotels out of. Naming the project on the command line is
+ * the whole point — it cannot be satisfied by muscle memory, so the destructive
+ * path can't be reached by pressing up-arrow in the wrong terminal.
  */
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
-const emailArg = args.indexOf("--email");
-const EMAIL = emailArg >= 0 ? args[emailArg + 1] : null;
+const argAfter = (flag: string): string | null => {
+  const i = args.indexOf(flag);
+  return i >= 0 ? (args[i + 1] ?? null) : null;
+};
+const EMAIL = argAfter("--email");
+const NAMED_PROJECT = argAfter("--project");
 const KEEP_HOTEL = args.includes("--keep-hotel");
 const APPLY = Boolean(EMAIL);
 
@@ -30,6 +38,17 @@ if (env.STRIPE_SECRET_KEY?.startsWith("sk_live_")) {
   throw new Error("This is a live key. This script cancels subscriptions — sandbox only.");
 }
 
+/** Supabase project ref, which is the first label of the project URL host. */
+const PROJECT_REF = new URL(env.NEXT_PUBLIC_SUPABASE_URL!).hostname.split(".")[0];
+
+if (APPLY && NAMED_PROJECT !== PROJECT_REF) {
+  throw new Error(
+    `This deletes hotels, subscriptions and redemptions from Supabase project "${PROJECT_REF}".\n` +
+      `Re-run naming it explicitly:\n\n` +
+      `  npx tsx scripts/billing-test-reset.mts --email ${EMAIL} --project ${PROJECT_REF}\n`,
+  );
+}
+
 const stripe = new Stripe(env.STRIPE_SECRET_KEY!);
 const f: typeof fetch = (i, o) => fetch(i, { ...o, signal: AbortSignal.timeout(20_000) });
 const admin = createClient(env.NEXT_PUBLIC_SUPABASE_URL!, env.SUPABASE_SERVICE_ROLE_KEY!, {
@@ -41,10 +60,14 @@ const TEST_CODE = "MHSFOUNDER";
 const { data: existingCode } = await admin
   .from("signup_codes")
   .select("id, code, kind, trial_days, is_active")
-  .ilike("code", TEST_CODE)
+  .eq("code", TEST_CODE)
   .maybeSingle();
 
-if (!existingCode) {
+// Only created on the reset path. Run with no arguments this prints state and
+// nothing else — it used to mint an uncapped, never-expiring signup code as a
+// side effect of "showing" you the database, which is not something a read
+// should ever do to a project holding real codes.
+if (APPLY && !existingCode) {
   const { data, error } = await admin
     .from("signup_codes")
     .insert({
@@ -57,8 +80,10 @@ if (!existingCode) {
     .single();
   if (error) throw new Error(`could not create ${TEST_CODE}: ${error.message}`);
   console.log(`created code ${data.code} (7-day trial)`);
-} else {
+} else if (existingCode) {
   console.log(`code ${existingCode.code} already exists (${existingCode.kind}, active=${existingCode.is_active})`);
+} else {
+  console.log(`code ${TEST_CODE} does not exist — it is created on the --email reset path.`);
 }
 
 const { data: codes } = await admin

@@ -17,6 +17,7 @@
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BillingInterval } from "./tiers";
+import { isEntitledStatus } from "./entitlement";
 
 /** How long after signup the card is checked a second time (Jake's call). */
 export const CARD_REVERIFY_AFTER_HOURS = 48;
@@ -104,6 +105,54 @@ export async function persistSubscription(
       JSON.stringify({ fn: "persistSubscription", reason: "non_billable_quantity", sub: row.stripe_subscription_id }),
     );
     return { ok: true };
+  }
+
+  // The row is keyed by hotel, so anything arriving for a DIFFERENT subscription
+  // would overwrite whatever is recorded. Two ways that goes wrong, and both
+  // have happened to real products:
+  //
+  //   - A late event for a subscription that has since been replaced. Stripe
+  //     redelivers for days, so a "canceled" for last month's subscription can
+  //     land after this month's is live and revoke a paying hotel's entitlement.
+  //   - Two subscriptions genuinely live at once, from two checkouts that raced.
+  //     Silently keeping one leaves the other billing the customer with nothing
+  //     locally pointing at it — which is how a double charge goes unnoticed.
+  const { data: current } = await admin
+    .from("hotel_subscriptions")
+    .select("stripe_subscription_id, status")
+    .eq("hotel_id", row.hotel_id)
+    .maybeSingle();
+
+  const replacingAnother =
+    current?.stripe_subscription_id && current.stripe_subscription_id !== row.stripe_subscription_id;
+
+  if (replacingAnother && isEntitledStatus(String(current.status))) {
+    // The recorded one is alive. Only let a live subscription displace it, and
+    // even then say so — that is the double-billing case and somebody has to
+    // refund it.
+    if (!isEntitledStatus(row.status)) {
+      console.error(
+        JSON.stringify({
+          fn: "persistSubscription",
+          reason: "stale_event_ignored",
+          hotel: row.hotel_id,
+          incoming: row.stripe_subscription_id,
+          incomingStatus: row.status,
+          keeping: current.stripe_subscription_id,
+        }),
+      );
+      return { ok: true };
+    }
+    console.error(
+      JSON.stringify({
+        fn: "persistSubscription",
+        reason: "duplicate_live_subscription",
+        hotel: row.hotel_id,
+        incoming: row.stripe_subscription_id,
+        existing: current.stripe_subscription_id,
+        action: "needs_manual_cancel_and_refund",
+      }),
+    );
   }
 
   const { error } = await admin

@@ -36,6 +36,12 @@ vi.mock("@/utils/supabase/admin", () => ({
   createAdminClient: () =>
     ({
       from: () => ({
+        // persistSubscription reads the recorded subscription first, so a late
+        // event can't revoke a live one. Nothing recorded here: this is a fresh
+        // signup, which is the case these tests are about.
+        select: () => ({
+          eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }),
+        }),
         upsert: (row: Record<string, unknown>) => {
           state.upserts.push(row);
           return Promise.resolve({ error: null });

@@ -252,7 +252,18 @@ export async function POST(request: Request) {
       // so arrives whenever it arrives. See ./return/route.ts.
       success_url: `${origin}/api/billing/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/onboarding?checkout=cancelled`,
-    });
+    },
+    // One session per hotel per offer. The 409 above only knows about a
+    // subscription that already exists, which is no help while two sessions are
+    // still open — a double-clicked button, or the page open in two tabs, made
+    // two, and completing both bills the property twice while persistSubscription
+    // upserts on hotel_id and keeps a single row. The second subscription then
+    // charges forever with nothing locally pointing at it.
+    //
+    // Keyed on everything that defines the offer, so genuinely changing the room
+    // count or the period still starts a new session rather than silently
+    // returning the old price.
+    { idempotencyKey: `maya_checkout_${hotelId}_${interval}_${billedRooms}_${codeCheck.code.id}` });
 
     if (!session.url) {
       return NextResponse.json({ error: "Stripe did not return a checkout URL." }, { status: 502 });
