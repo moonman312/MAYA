@@ -4,8 +4,8 @@
 -- Supabase Vault, accessed only through SECURITY DEFINER RPCs.
 --
 -- Run AFTER 02_supabase_schema.sql when upgrading a database that was created
--- before PMS Secrets v1 objects existed. If you load 01 + 02 from this repo on
--- a fresh project, you can skip this file (01 and 02 already include the model).
+-- before PMS Secrets v1 objects existed. If you load 02 from this repo on a
+-- fresh project, you can skip this file (02 already includes the model).
 --
 -- This migration:
 --   1) Ensures `supabase_vault` extension is available.

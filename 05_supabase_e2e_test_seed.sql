@@ -1,7 +1,7 @@
 -- ============================================================================
 -- 05_supabase_e2e_test_seed.sql — E2E test fixture: "MAYA E2E Test Hotel"
 -- ============================================================================
--- Run in Supabase SQL Editor (service role) AFTER 01 + 02 are applied.
+-- Run in Supabase SQL Editor (service role) AFTER 02_supabase_schema.sql is applied.
 -- Safe to re-run: every section is delete-then-insert or upsert, scoped to
 -- this one hotel. Nothing here touches the three 03_seed hotels.
 --
