@@ -35,14 +35,20 @@ export async function findPendingHotelForUser(
   client: SupabaseClient,
   userId: string,
 ): Promise<string | null> {
-  const { data: memberships } = await client
+  const { data: memberships, error: membershipErr } = await client
     .from("hotel_memberships")
     .select("hotel_id")
     .eq("user_id", userId)
     .eq("status", "active");
+  // A failed read is not "they have no pending hotel". Answering null on an
+  // error made provisionPendingHotel create a SECOND row beside the one the
+  // customer had already paid against, and left the connect callback unable to
+  // find the first — orphaning a live subscription. Throwing makes the caller
+  // fail visibly instead of quietly doing the wrong thing.
+  if (membershipErr) throw new Error(`Could not read memberships: ${membershipErr.message}`);
   if (!memberships?.length) return null;
 
-  const { data: pending } = await client
+  const { data: pending, error: pendingErr } = await client
     .from("hotels")
     .select("id")
     .in(
@@ -50,6 +56,7 @@ export async function findPendingHotelForUser(
       memberships.map((m) => String(m.hotel_id)),
     )
     .not("setup_pending_at", "is", null);
+  if (pendingErr) throw new Error(`Could not read pending properties: ${pendingErr.message}`);
   if (!pending?.length) return null;
   if (pending.length === 1) return String(pending[0].id);
 

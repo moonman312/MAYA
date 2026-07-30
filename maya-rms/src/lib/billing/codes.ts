@@ -47,7 +47,8 @@ export type CodeRejection =
   | "inactive"
   | "expired"
   | "exhausted"
-  | "already_redeemed";
+  | "already_redeemed"
+  | "wrong_interval";
 
 /** Plain-language reason, shown to whoever typed the code. */
 export function rejectionMessage(reason: CodeRejection): string {
@@ -62,6 +63,8 @@ export function rejectionMessage(reason: CodeRejection): string {
       return "That code has already been used the maximum number of times.";
     case "already_redeemed":
       return "This property already used that code.";
+    case "wrong_interval":
+      return "That code is for a different billing period — switch between monthly and yearly to use it.";
   }
 }
 
@@ -69,8 +72,15 @@ export type CodeCheck =
   | { ok: true; code: SignupCode; describe: string }
   | { ok: false; reason: CodeRejection; message: string };
 
-/** What the owner is told they're getting, before they commit to anything. */
-export function describeCode(code: SignupCode): string {
+/**
+ * What the owner is told they're getting, before they commit to anything.
+ *
+ * Takes the interval because a limited percentage does not mean the same thing
+ * on both — an annual buyer's discount is rescaled onto their single invoice, so
+ * promising "20% off for 3 months" to someone who will see 5% once is a number
+ * on screen that their receipt then contradicts.
+ */
+export function describeCode(code: SignupCode, interval: BillingInterval = "month"): string {
   if (code.kind === "trial") {
     const d = code.trial_days ?? 0;
     return `${d} day${d === 1 ? "" : "s"} free, then your normal rate. We'll ask for a card now but won't charge it until the trial ends.`;
@@ -78,9 +88,12 @@ export function describeCode(code: SignupCode): string {
   if (code.kind === "percent_off") {
     const pct = Number(code.percent_off ?? 0);
     const months = code.duration_months;
-    return months
-      ? `${pct}% off for your first ${months} month${months === 1 ? "" : "s"}.`
-      : `${pct}% off, for as long as you stay.`;
+    if (!months) return `${pct}% off, for as long as you stay.`;
+    if (interval === "year" && months < 12) {
+      const spec = checkoutEffectFor(code, "year").couponNeeded;
+      return `${pct}% off your first ${months} month${months === 1 ? "" : "s"} — taken as ${spec?.percentOff}% off your first year, which is the same saving.`;
+    }
+    return `${pct}% off for your first ${months} month${months === 1 ? "" : "s"}.`;
   }
   const dollars = ((code.fixed_price_cents ?? 0) / 100).toLocaleString("en-US", {
     minimumFractionDigits: 2,
@@ -97,7 +110,7 @@ export function describeCode(code: SignupCode): string {
 export async function checkCode(
   admin: SupabaseClient,
   raw: string,
-  opts: { hotelId?: string | null; now?: Date } = {},
+  opts: { hotelId?: string | null; now?: Date; interval?: BillingInterval } = {},
 ): Promise<CodeCheck> {
   const typed = raw.trim().toUpperCase();
 
@@ -154,7 +167,16 @@ export async function checkCode(
     }
   }
 
-  return { ok: true, code, describe: describeCode(code) };
+  // A fixed price was agreed against a billing period — "$99 a month" is not an
+  // offer of "$99 a year". Without this the buyer picks whichever period suits
+  // them and the deal means something different from what was struck.
+  if (code.kind === "fixed_price" && code.fixed_price_interval && opts.interval) {
+    if (code.fixed_price_interval !== opts.interval) {
+      return { ok: false, reason: "wrong_interval", message: rejectionMessage("wrong_interval") };
+    }
+  }
+
+  return { ok: true, code, describe: describeCode(code, opts.interval ?? "month") };
 }
 
 /**
@@ -164,27 +186,73 @@ export async function checkCode(
  * rather than creating one here, because creating Stripe objects belongs to the
  * caller that can also persist the resulting id back onto the code row.
  */
+export type CouponSpec = {
+  percentOff: number;
+  /** Stated outright rather than inferred from a null month count, which is how
+   *  a one-off discount previously became a permanent one. */
+  duration: "once" | "repeating" | "forever";
+  durationMonths?: number;
+  /**
+   * Whether this coupon may be cached on the code row and reused. False for the
+   * annual-rescaled form: it is worth the wrong amount on a monthly
+   * subscription, and one cached id is shared by every later redemption.
+   */
+  reusable: boolean;
+};
+
 export type CheckoutEffect = {
   trialDays?: number;
   discountCouponId?: string;
-  couponNeeded?: { percentOff: number; durationMonths: number | null };
+  couponNeeded?: CouponSpec;
   /** Bill this many rooms instead of what the owner stated. */
   roomsOverride?: number;
 };
 
-export function checkoutEffectFor(code: SignupCode): CheckoutEffect {
+/**
+ * A duration-limited discount, expressed so it is worth the same on either
+ * billing period.
+ *
+ * Stripe counts a repeating coupon's duration in MONTHS but applies it per
+ * INVOICE, and an annual invoice covers twelve of them — so "20% off for 3
+ * months" attached to an annual subscription discounted the whole first year,
+ * four times the intended giveaway. Scaling the percentage and charging it once
+ * hands over the same money the monthly buyer would have received.
+ */
+function annualEquivalent(percentOff: number, durationMonths: number): number {
+  // Two decimals is what Stripe accepts on percent_off.
+  return Math.round((percentOff * durationMonths * 100) / 12) / 100;
+}
+
+export function checkoutEffectFor(code: SignupCode, interval: BillingInterval): CheckoutEffect {
   if (code.kind === "trial") {
     return { trialDays: code.trial_days ?? undefined };
   }
   if (code.kind === "percent_off") {
-    return code.stripe_coupon_id
-      ? { discountCouponId: code.stripe_coupon_id }
-      : {
-          couponNeeded: {
-            percentOff: Number(code.percent_off ?? 0),
-            durationMonths: code.duration_months,
-          },
-        };
+    const percentOff = Number(code.percent_off ?? 0);
+    const months = code.duration_months;
+
+    // Only a LIMITED discount needs rescaling: "forever" is worth the same on
+    // either period, and twelve months or more already covers a whole annual
+    // invoice. The rescaled coupon is deliberately NOT cached — the stored id is
+    // shared by every later redemption of this code, so a monthly buyer would
+    // inherit a percentage computed for a year.
+    const rescale = interval === "year" && months != null && months < 12;
+    if (rescale) {
+      return {
+        couponNeeded: {
+          percentOff: annualEquivalent(percentOff, months),
+          duration: "once",
+          reusable: false,
+        },
+      };
+    }
+
+    if (code.stripe_coupon_id) return { discountCouponId: code.stripe_coupon_id };
+    return {
+      couponNeeded: months
+        ? { percentOff, duration: "repeating", durationMonths: months, reusable: true }
+        : { percentOff, duration: "forever", reusable: true },
+    };
   }
   // fixed_price: pinning the billed room count to the tier the deal was struck
   // at is how an agreed number is honoured without inventing a bespoke price

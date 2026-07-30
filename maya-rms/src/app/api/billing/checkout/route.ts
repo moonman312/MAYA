@@ -82,8 +82,26 @@ export async function POST(request: Request) {
   const admin = createAdminClient();
 
   // Reuse whatever an abandoned checkout left behind, so bouncing off the card
-  // form three times doesn't leave three properties.
-  let hotelId = existingHotelId ?? (await findPendingHotelForUser(admin, user.id));
+  // form three times doesn't leave three properties. A failed lookup throws
+  // rather than answering "none": carrying on would provision a second property
+  // beside one they may already be paying for, and the honest response to not
+  // knowing is to stop before Stripe is involved at all.
+  let hotelId: string | null;
+  try {
+    hotelId = existingHotelId ?? (await findPendingHotelForUser(admin, user.id));
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "billingCheckout",
+        step: "find_pending",
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+    return NextResponse.json(
+      { error: "We couldn't load your account just now. Please try again in a moment." },
+      { status: 503 },
+    );
+  }
 
   // One subscription per hotel. Sending someone to Checkout who already has one
   // would create a second and bill them twice.
@@ -110,11 +128,14 @@ export async function POST(request: Request) {
   // A code is required to reach checkout at all while signup is gated. Checked
   // against the service-role client because signup_codes is admin-only under
   // RLS and the person signing up is, by definition, not an admin.
-  const codeCheck = await checkCode(admin, body?.code ?? "", { hotelId });
+  // The interval goes in because a code's meaning can depend on it: a fixed
+  // price was agreed per period, and a duration-limited discount is worth
+  // different money on a yearly invoice than a monthly one.
+  const codeCheck = await checkCode(admin, body?.code ?? "", { hotelId, interval });
   if (!codeCheck.ok) {
     return NextResponse.json({ error: codeCheck.message, reason: codeCheck.reason }, { status: 403 });
   }
-  const effect = checkoutEffectFor(codeCheck.code);
+  const effect = checkoutEffectFor(codeCheck.code, interval);
 
   // After the code check so a rejected code leaves nothing behind; before Stripe
   // because a subscription without a hotel_id in its metadata is a payment
@@ -153,26 +174,31 @@ export async function POST(request: Request) {
     // and written back onto the code row, so every later redemption of the same
     // code reuses one coupon instead of littering the account with duplicates.
     let couponId = effect.discountCouponId;
-    if (!couponId && effect.couponNeeded) {
+    const spec = effect.couponNeeded;
+    if (!couponId && spec) {
       const coupon = await stripe.coupons.create({
-        percent_off: effect.couponNeeded.percentOff,
-        ...(effect.couponNeeded.durationMonths
-          ? { duration: "repeating", duration_in_months: effect.couponNeeded.durationMonths }
-          : { duration: "forever" }),
+        percent_off: spec.percentOff,
+        duration: spec.duration,
+        ...(spec.duration === "repeating" ? { duration_in_months: spec.durationMonths } : {}),
         name: `MAYA code ${codeCheck.code.code}`,
-        metadata: { signup_code_id: codeCheck.code.id },
+        metadata: { signup_code_id: codeCheck.code.id, billing_interval: interval },
       });
       couponId = coupon.id;
-      const { error: backfillErr } = await admin
-        .from("signup_codes")
-        .update({ stripe_coupon_id: coupon.id })
-        .eq("id", codeCheck.code.id);
-      // Not fatal: the coupon exists and this checkout can use it. The next
-      // redemption would just create another one, which is untidy but not wrong.
-      if (backfillErr) {
-        console.error(
-          JSON.stringify({ fn: "billingCheckout", step: "coupon_backfill", error: backfillErr.message }),
-        );
+
+      // Only the period-independent form gets remembered. Caching the annual
+      // rescaling would hand a monthly buyer a percentage worked out for a year.
+      if (spec.reusable) {
+        const { error: backfillErr } = await admin
+          .from("signup_codes")
+          .update({ stripe_coupon_id: coupon.id })
+          .eq("id", codeCheck.code.id);
+        // Not fatal: the coupon exists and this checkout can use it. The next
+        // redemption would just create another one, untidy but not wrong.
+        if (backfillErr) {
+          console.error(
+            JSON.stringify({ fn: "billingCheckout", step: "coupon_backfill", error: backfillErr.message }),
+          );
+        }
       }
     }
 

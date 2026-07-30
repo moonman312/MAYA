@@ -30,15 +30,22 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
-  const body = (await request.json().catch(() => null)) as { code?: string } | null;
+  const body = (await request.json().catch(() => null)) as
+    | { code?: string; interval?: string }
+    | null;
   const typed = (body?.code ?? "").trim();
   if (!typed) {
     return NextResponse.json({ valid: false, message: "Enter your code to continue." });
   }
 
+  // Checked against the period they are actually buying, so this verdict and the
+  // one checkout reaches cannot differ — a fixed price is agreed per period, and
+  // a limited discount is worth different money on a yearly invoice.
+  const interval = body?.interval === "year" ? "year" : "month";
+
   // signup_codes is platform-admin only under RLS, and whoever is signing up is
   // not an admin — so the lookup runs service-role and returns only a verdict.
-  const check = await checkCode(createAdminClient(), typed);
+  const check = await checkCode(createAdminClient(), typed, { interval });
 
   return NextResponse.json(
     check.ok

@@ -15,6 +15,7 @@ import { createAdminClient } from "@/utils/supabase/admin";
 import { isStripeConfigured, stripeClient } from "@/lib/billing/stripe";
 import { persistSubscription, projectSubscription } from "@/lib/billing/sync";
 import { decideNudge, sendRenewalNudge, type UpcomingInvoice } from "@/lib/billing/renewal-nudge";
+import { clearCardAlarmAfterPayment } from "@/lib/billing/reverify";
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 
@@ -110,6 +111,19 @@ export async function POST(request: Request) {
         }
       }
       return NextResponse.json({ received: true });
+    }
+
+    if (event.type === "invoice.payment_succeeded") {
+      // The only thing that takes the card warning back down. Without this the
+      // owner fixes their card, the charge goes through, and the banner telling
+      // them their card is broken stays up for the life of the subscription.
+      const inv = event.data.object as Stripe.Invoice;
+      const subRef = inv.parent?.subscription_details?.subscription ?? null;
+      const subId = typeof subRef === "string" ? subRef : (subRef?.id ?? null);
+      if (!subId) return NextResponse.json({ received: true, ignored: "no_subscription" });
+
+      const { cleared } = await clearCardAlarmAfterPayment(admin, subId);
+      return NextResponse.json({ received: true, cardAlarmCleared: cleared });
     }
 
     if (event.type === "invoice.upcoming") {

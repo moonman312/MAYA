@@ -36,6 +36,12 @@ export function SubscribeStep({ cancelled = false }: { cancelled?: boolean }) {
   const discount = roomsOk ? annualDiscountPct(rooms) : 0;
 
   // Check the code a beat after typing stops, so every keystroke isn't a request.
+  //
+  // Re-runs on the interval too, not just the text: a fixed price is agreed per
+  // period and a limited discount is worth different money on a yearly invoice,
+  // so the same code can be good monthly and refused annually. Without that,
+  // toggling the period left a stale "valid" verdict on screen that checkout
+  // would then reject.
   useEffect(() => {
     const typed = code.trim();
     if (!typed) {
@@ -43,25 +49,37 @@ export function SubscribeStep({ cancelled = false }: { cancelled?: boolean }) {
       return;
     }
     setCodeState({ status: "checking" });
+
+    // A request already in flight when this re-runs still resolves, and its
+    // answer is about the PREVIOUS code or period. Landing late, it would
+    // overwrite the newer verdict — approving a code that was since edited, or
+    // disabling the pay button over a rejection that no longer applies.
+    let current = true;
+
     const t = window.setTimeout(async () => {
       try {
         const res = await fetch("/api/billing/validate-code", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code: typed }),
+          body: JSON.stringify({ code: typed, interval }),
         });
         const body = (await res.json()) as { valid?: boolean; grants?: string; message?: string };
+        if (!current) return;
         setCodeState(
           body.valid
             ? { status: "good", grants: body.grants ?? "" }
             : { status: "bad", message: body.message ?? "That code didn't work." },
         );
       } catch {
-        setCodeState({ status: "bad", message: "Couldn't check that code — try again." });
+        if (current) setCodeState({ status: "bad", message: "Couldn't check that code — try again." });
       }
     }, 450);
-    return () => window.clearTimeout(t);
-  }, [code]);
+
+    return () => {
+      current = false;
+      window.clearTimeout(t);
+    };
+  }, [code, interval]);
 
   const canSubmit = roomsOk && codeState.status === "good" && !submitting;
 
