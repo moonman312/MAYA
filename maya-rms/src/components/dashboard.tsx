@@ -2,6 +2,7 @@
 
 import { AskForHelp } from "@/components/onboarding/ask-for-help";
 import { BillingBanner } from "@/components/billing/billing-banner";
+import { PmsReconnect } from "@/components/pms-reconnect";
 import { OnboardingReviewBanner } from "@/components/onboarding/review-banner";
 import { CorrectionsPanel, ExplainDrilldown } from "@/components/explain-drilldown";
 import { useCalendarLive } from "@/lib/use-calendar-live";
@@ -163,6 +164,8 @@ type PmsActivity = {
     last_sync_at: string | null;
     last_tested_at: string | null;
   } | null;
+  /** How this PMS authenticates — decides whether reconnecting is one click. */
+  pms: { authKind: string; displayName: string; canManage: boolean } | null;
   health: {
     state: "healthy" | "degraded" | "down" | "unknown";
     successRate: number | null;
@@ -832,6 +835,20 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
         </div>
 
         <BillingBanner />
+
+        {pmsActivity?.connection && pmsActivity.pms ? (
+          <div className="mb-6">
+            <PmsReconnect
+              hotelId={activeHotelId}
+              pmsType={pmsActivity.connection.pms_type}
+              status={pmsActivity.connection.status ?? "unknown"}
+              authKind={pmsActivity.pms.authKind}
+              displayName={pmsActivity.pms.displayName}
+              canManage={pmsActivity.pms.canManage}
+              placement="banner"
+            />
+          </div>
+        ) : null}
 
         <OnboardingReviewBanner />
 
@@ -1791,6 +1808,16 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
               </p>
             ) : (
               <>
+                {pmsActivity.pms ? (
+                  <PmsReconnect
+                    hotelId={activeHotelId}
+                    pmsType={pmsActivity.connection.pms_type}
+                    status={pmsActivity.connection.status ?? "unknown"}
+                    authKind={pmsActivity.pms.authKind}
+                    displayName={pmsActivity.pms.displayName}
+                    canManage={pmsActivity.pms.canManage}
+                  />
+                ) : null}
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="space-y-1.5 rounded border border-slate-800 bg-slate-950 p-4">
                     <div className="text-xs text-slate-500">Connection</div>
