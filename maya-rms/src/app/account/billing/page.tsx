@@ -163,9 +163,14 @@ function Shell({ children }: { children: React.ReactNode }) {
     <main className="mx-auto max-w-3xl space-y-4 px-6 py-10 text-slate-200">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Billing</h1>
-        <Link href="/" className="text-sm text-slate-400 hover:text-slate-200">
-          ← Back to MAYA
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link href="/account/team" className="text-sm text-slate-400 hover:text-slate-200">
+            Your team
+          </Link>
+          <Link href="/" className="text-sm text-slate-400 hover:text-slate-200">
+            ← Back to MAYA
+          </Link>
+        </div>
       </div>
       {children}
     </main>
