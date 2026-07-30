@@ -33,13 +33,69 @@ describe("pickupInWindow", () => {
     expect(pickupInWindow(rows, "2026-08-15", 14, 7)).toBe(2);
   });
 
-  it("uses booking_window_days when present and skips rows with neither field", () => {
+  it("recomputes from booking_date over the stored window, falls back to booking_window_days, skips rows with neither", () => {
     const mixed: SlimReservationRow[] = [
+      // Legacy arrival-relative stamp (13, out of band) on a row whose own
+      // lead time is 14 — booking_date must win.
+      { stay_date: "2026-08-15", booking_date: "2026-08-01", booking_window_days: 13 },
       { stay_date: "2026-08-15", booking_window_days: 15 },
       { stay_date: "2026-08-15", booking_window_days: 8 },
       { stay_date: "2026-08-15" },
     ];
-    expect(pickupInWindow(mixed, "2026-08-15", 14, 7)).toBe(1);
+    expect(pickupInWindow(mixed, "2026-08-15", 14, 7)).toBe(2);
+  });
+});
+
+describe("multi-night stays measure every night against itself", () => {
+  // Six 2-night Fri-arrival stays booked today. The ETLs used to stamp the
+  // check-in window (38) on the Saturday rows too, so a surge landing today
+  // was invisible to every night after check-in.
+  const asOf = "2026-07-28";
+  const stays: SlimReservationRow[] = [];
+  for (let i = 0; i < 6; i++) {
+    for (const stay_date of ["2026-09-04", "2026-09-05"]) {
+      stays.push({ stay_date, booking_date: asOf, booking_window_days: 38 });
+    }
+  }
+
+  it("counts the same booking at each night's own days-out", () => {
+    expect(pickupInWindow(stays, "2026-09-04", 38, 7)).toBe(6); // Friday, 38 out
+    expect(pickupInWindow(stays, "2026-09-05", 39, 7)).toBe(6); // Saturday, 39 out
+  });
+
+  it("observeBookingSpeed sees the surge on the second night", () => {
+    const comparables = ["2025-09-06", "2025-08-30", "2025-08-23", "2024-09-07"];
+    const selection: ComparableSelection = {
+      target: "2026-09-05",
+      comparables: comparables.map((date, i) => ({
+        date,
+        tier: 1,
+        reasons: ["a Saturday"],
+        score: 100 - i,
+      })),
+      assumptions: {
+        dayOfWeek: "Saturday",
+        dowClass: "weekend",
+        holiday: null,
+        seasonLabel: "Peak Season",
+        seasonRange: "June 1 through August 31",
+        relaxed: false,
+      },
+    };
+    const comparableRows: SlimReservationRow[] = comparables.flatMap((date) => [
+      { stay_date: date, booking_window_days: 40 },
+      { stay_date: date, booking_window_days: 42 },
+    ]);
+    const obs = observeBookingSpeed({
+      rows: [...stays, ...comparableRows],
+      target: "2026-09-05",
+      asOf,
+      selection,
+    });
+    expect(obs.daysOut).toBe(39);
+    expect(obs.recentBookings).toBe(6);
+    expect(obs.expectedBookings).toBe(2);
+    expect(["faster", "much_faster", "surging"]).toContain(obs.classification.speed);
   });
 });
 
