@@ -1,0 +1,52 @@
+-- Example: schedule the 48-hour card re-check hourly.
+--
+-- Unlike the other crons in this directory this one posts to the Next.js app,
+-- not an Edge Function: the sweep needs the same Stripe client and price lookup
+-- the rest of billing uses (src/lib/billing/*), so it lives in the app.
+--
+-- Hourly is deliberate. The check is due at signup + 48h and nothing about it is
+-- urgent to the minute; a batch of 25 per run drains any realistic backlog long
+-- before the next hour, and inconclusive checks re-arm themselves 6 hours out.
+--
+-- Prereqs: extensions `pg_cron`, `pg_net`; Vault secrets.
+--
+-- 0) Ensure extensions exist:
+--    create extension if not exists pg_net;
+--    create extension if not exists pg_cron;
+--
+-- 1) Store secrets (reuse `maya_app_url` if it already exists):
+--    select vault.create_secret('https://maya.your-domain.com', 'maya_app_url');
+--    select vault.create_secret('<long-random-string>', 'billing_cron_secret');
+--
+-- 2) App env (Vercel → Environment Variables, Production + Preview):
+--    BILLING_CRON_SECRET   (same value as vault `billing_cron_secret`)
+--    STRIPE_SECRET_KEY, SUPABASE_SERVICE_ROLE_KEY, NEXT_PUBLIC_SUPABASE_URL
+--    Without BILLING_CRON_SECRET the route answers 503 — it never runs unauthed.
+--
+-- 3) Schedule:
+--    select cron.schedule(
+--      'billing-card-reverify-hourly',
+--      '17 * * * *',
+--      $$
+--      select net.http_post(
+--        url := (select decrypted_secret from vault.decrypted_secrets where name = 'maya_app_url')
+--               || '/api/billing/reverify',
+--        headers := jsonb_build_object(
+--          'Content-Type', 'application/json',
+--          'x-billing-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'billing_cron_secret')
+--        ),
+--        body := jsonb_build_object('scheduled_at', now())
+--      ) as request_id;
+--      $$
+--    );
+--
+-- Inspect:    select jobid, jobname, schedule, active from cron.job;
+-- Runs log:   select * from cron.job_run_details order by start_time desc limit 20;
+-- Unschedule: select cron.unschedule('billing-card-reverify-hourly');
+--
+-- What it did:
+--   select hotel_id, card_verify_due_at, card_verified_at, card_verify_failed_at,
+--          card_verify_attempts, card_verify_last_code
+--     from hotel_subscriptions
+--    where card_verify_failed_at is not null or card_verify_due_at is not null
+--    order by card_verify_due_at nulls last;
