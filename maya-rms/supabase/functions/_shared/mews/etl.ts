@@ -3,6 +3,7 @@
  * detection, category names, Items-based rate lookup).
  */
 
+import { addCalendarDays } from "../engine/timezone.ts";
 import { redactMewsPayload } from "../pms/redact.ts";
 
 type Json = Record<string, unknown>;
@@ -151,10 +152,24 @@ export function buildCategoryMap(data: Json): Record<string, string> {
   return Object.fromEntries(Object.entries(inv).map(([k, v]) => [k, v.name]));
 }
 
+/** Real Mews Ids are GUIDs, but a numeric one still has to dedupe. */
+function itemDedupeKey(item: Json): string | null {
+  const id = item.Id;
+  if (typeof id === "string") return id || null;
+  if (typeof id === "number" && Number.isFinite(id)) return String(id);
+  return null;
+}
+
 export function buildRateLookup(data: Json): Record<string, number> {
   const rateMap: Record<string, number> = {};
   const items = data.Items ?? data.OrderItems;
   if (!Array.isArray(items)) return rateMap;
+
+  // The sync walks the range in 96h windows and Mews returns any stay that
+  // collides with a window — plus that stay's whole order — in every window it
+  // touches. The chunks are concatenated, so a stay crossing one boundary
+  // arrives with its items twice and would sum to double the stay total.
+  const countedItemIds = new Set<string>();
 
   for (const item of items) {
     if (!item || typeof item !== "object") continue;
@@ -166,9 +181,13 @@ export function buildRateLookup(data: Json): Record<string, number> {
     const val = a.GrossValue ?? a.Value;
     if (val === null || val === undefined) continue;
     const n = Number(val);
-    if (Number.isFinite(n)) {
-      rateMap[orderId] = (rateMap[orderId] ?? 0) + n;
+    if (!Number.isFinite(n)) continue;
+    const itemId = itemDedupeKey(item as Json);
+    if (itemId !== null) {
+      if (countedItemIds.has(itemId)) continue;
+      countedItemIds.add(itemId);
     }
+    rateMap[orderId] = (rateMap[orderId] ?? 0) + n;
   }
   return rateMap;
 }
@@ -207,31 +226,66 @@ function extractRate(raw: Json, rateField: string | null): number | null {
   return null;
 }
 
-function parseIsoDateOnly(iso: string): string | null {
-  const d = new Date(iso.replace(/Z$/, "+00:00"));
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString().slice(0, 10);
-}
+const ZONE_QUALIFIED = /(?:Z|[+-]\d{2}:?\d{2})$/i;
+const LEADING_YMD = /^(\d{4}-\d{2}-\d{2})/;
+const YMD_PARTS = { year: "numeric", month: "2-digit", day: "2-digit" } as const;
 
-function addOneUtcDay(ymd: string): string {
-  const [y, m, d] = ymd.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + 1);
-  return dt.toISOString().slice(0, 10);
+const formatterByTimeZone = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * One formatter per zone: a fleet sync parses tens of thousands of reservations
+ * in a single invocation and building these per row costs more than the rest of
+ * the parse put together. A junk `hotels.timezone` makes Intl throw, which would
+ * fail the whole hotel instead of one row, so it degrades to UTC.
+ */
+function hotelDateFormatter(timeZone: string): Intl.DateTimeFormat {
+  const cached = formatterByTimeZone.get(timeZone);
+  if (cached) return cached;
+  let fmt: Intl.DateTimeFormat;
+  try {
+    fmt = new Intl.DateTimeFormat("en-CA", { timeZone, ...YMD_PARTS });
+  } catch {
+    fmt = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC", ...YMD_PARTS });
+  }
+  formatterByTimeZone.set(timeZone, fmt);
+  return fmt;
 }
 
 /**
- * Inclusive arrival, exclusive departure (hotel-night semantics).
- * Same calendar day for arrival and departure yields a single stay night.
+ * Mews names its instants `…Utc`, and those already fold in the property's local
+ * check-in time — a 5pm Los Angeles arrival is midnight UTC the next day, so
+ * truncating in UTC drops that arrival night. `ArrivalDate` and friends name a
+ * civil day instead, and reading one of those as an instant shifts a hotel west
+ * of Greenwich a day early — the same bug pointing the other way. Zone-less
+ * timestamps are civil too: parsing them would use the machine's zone.
  */
-export function enumerateStayNights(raw: Json, fieldMap: FieldMap): { nights: string[] } {
-  const startVal = fieldMap.stay_date ? getNested(raw, fieldMap.stay_date) : null;
-  const startStr = typeof startVal === "string" ? parseIsoDateOnly(startVal) : null;
+function fieldToHotelDate(raw: Json, field: string | null, timeZone: string): string | null {
+  if (!field) return null;
+  const val = getNested(raw, field);
+  if (typeof val !== "string") return null;
+  const s = val.trim();
+  if (!field.endsWith("Utc") || !ZONE_QUALIFIED.test(s)) {
+    return LEADING_YMD.exec(s)?.[1] ?? null;
+  }
+  const d = new Date(s.replace(/Z$/, "+00:00"));
+  if (Number.isNaN(d.getTime())) return null;
+  if (timeZone === "UTC") return d.toISOString().slice(0, 10);
+  return hotelDateFormatter(timeZone).format(d);
+}
+
+/**
+ * Inclusive arrival, exclusive departure (hotel-night semantics), on the hotel's
+ * own calendar. Same local day for arrival and departure yields a single stay night.
+ */
+export function enumerateStayNights(
+  raw: Json,
+  fieldMap: FieldMap,
+  hotelTimeZone = "UTC",
+): { nights: string[] } {
+  const startStr = fieldToHotelDate(raw, fieldMap.stay_date, hotelTimeZone);
   if (!startStr) return { nights: [] };
 
-  const depField = detectDepartureField(raw);
-  const endVal = depField ? getNested(raw, depField) : null;
-  const endStr = typeof endVal === "string" ? parseIsoDateOnly(endVal) : null;
+  const endStr = fieldToHotelDate(raw, detectDepartureField(raw), hotelTimeZone);
 
   let nights: string[];
   if (!endStr || endStr <= startStr) {
@@ -241,7 +295,7 @@ export function enumerateStayNights(raw: Json, fieldMap: FieldMap): { nights: st
     let cur = startStr;
     while (cur < endStr) {
       nights.push(cur);
-      cur = addOneUtcDay(cur);
+      cur = addCalendarDays(cur, 1);
     }
   }
 
@@ -296,7 +350,7 @@ const emptyStats = (): ParsedMewsStats => ({
 
 export function parseMewsApiResponse(
   data: Json,
-  options?: { defaultRoomsPerCategory?: number },
+  options?: { defaultRoomsPerCategory?: number; hotelTimeZone?: string | null },
 ): {
   roomTypes: ParsedRoomType[];
   reservations: ParsedReservationRow[];
@@ -309,6 +363,7 @@ export function parseMewsApiResponse(
   }
 
   const fieldMap = detectFieldMap(rawList[0]);
+  const tz = options?.hotelTimeZone || "UTC";
   const defaultRooms = options?.defaultRoomsPerCategory ?? 100;
   const categories = buildCategoryInventory(data, defaultRooms);
   const rateLookup = buildRateLookup(data);
@@ -348,7 +403,7 @@ export function parseMewsApiResponse(
       }
     }
 
-    const { nights } = enumerateStayNights(raw, fieldMap);
+    const { nights } = enumerateStayNights(raw, fieldMap, tz);
     if (nights.length === 0) {
       stats.skippedNoStayNights += 1;
       continue;
@@ -357,9 +412,9 @@ export function parseMewsApiResponse(
     const denom = Math.max(1, nights.length);
     const nightly = rate !== null ? Math.round((rate / denom) * 100) / 100 : null;
 
-    const bookVal = fieldMap.booking_date ? getNested(raw, fieldMap.booking_date) : null;
-    const bookingDate =
-      typeof bookVal === "string" ? parseIsoDateOnly(bookVal) : null;
+    // Same calendar as the stay nights, or an evening booking would read as
+    // one day later than it was and shorten every lead time on the stay.
+    const bookingDate = fieldToHotelDate(raw, fieldMap.booking_date, tz);
 
     for (const night of nights) {
       const key = `${rid}:${night}`;
