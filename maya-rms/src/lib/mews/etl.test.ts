@@ -89,6 +89,16 @@ describe("mews etl", () => {
     expect(canceledExternalIds).toHaveLength(0);
   });
 
+  it("parseMewsApiResponse stamps each night's own booking window", () => {
+    const { reservations } = parseMewsApiResponse(sampleResponse as Record<string, unknown>);
+    const byNight = Object.fromEntries(
+      reservations.map((r) => [r.stay_date, r.booking_window_days]),
+    );
+    // Booked 2025-04-15: night 1 is 16 days out, night 2 is 17 — never the
+    // arrival window stamped on both.
+    expect(byNight).toEqual({ "2025-05-01": 16, "2025-05-02": 17 });
+  });
+
   it("parseMewsApiResponse skips canceled reservations and lists their ids", () => {
     const canceled = {
       ...sampleReservation,

@@ -224,13 +224,10 @@ function addOneUtcDay(ymd: string): string {
  * Inclusive arrival, exclusive departure (hotel-night semantics).
  * Same calendar day for arrival and departure yields a single stay night.
  */
-export function enumerateStayNights(
-  raw: Json,
-  fieldMap: FieldMap,
-): { nights: string[]; bookingWindowDays: number | null } {
+export function enumerateStayNights(raw: Json, fieldMap: FieldMap): { nights: string[] } {
   const startVal = fieldMap.stay_date ? getNested(raw, fieldMap.stay_date) : null;
   const startStr = typeof startVal === "string" ? parseIsoDateOnly(startVal) : null;
-  if (!startStr) return { nights: [], bookingWindowDays: null };
+  if (!startStr) return { nights: [] };
 
   const depField = detectDepartureField(raw);
   const endVal = depField ? getNested(raw, depField) : null;
@@ -248,18 +245,17 @@ export function enumerateStayNights(
     }
   }
 
-  const bookVal = fieldMap.booking_date ? getNested(raw, fieldMap.booking_date) : null;
-  let bookingWindowDays: number | null = null;
-  if (typeof bookVal === "string") {
-    const book = parseIsoDateOnly(bookVal);
-    if (book && nights[0]) {
-      const a = new Date(`${nights[0]}T00:00:00Z`).getTime();
-      const b = new Date(`${book}T00:00:00Z`).getTime();
-      bookingWindowDays = Math.max(0, Math.round((a - b) / 86400000));
-    }
-  }
+  return { nights };
+}
 
-  return { nights, bookingWindowDays };
+/**
+ * Lead time against the stay night itself, not arrival — night 2 of a stay
+ * is one day further out than night 1, and pickup windows compare per-night.
+ */
+function bookingWindowFor(bookingDate: string, stay: string): number {
+  const a = new Date(`${stay}T00:00:00Z`).getTime();
+  const b = new Date(`${bookingDate}T00:00:00Z`).getTime();
+  return Math.max(0, Math.round((a - b) / 86400000));
 }
 
 export type ParsedRoomType = {
@@ -352,7 +348,7 @@ export function parseMewsApiResponse(
       }
     }
 
-    const { nights, bookingWindowDays } = enumerateStayNights(raw, fieldMap);
+    const { nights } = enumerateStayNights(raw, fieldMap);
     if (nights.length === 0) {
       stats.skippedNoStayNights += 1;
       continue;
@@ -372,7 +368,7 @@ export function parseMewsApiResponse(
         external_room_type_id: externalRoomTypeId,
         stay_date: night,
         booking_date: bookingDate,
-        booking_window_days: bookingWindowDays,
+        booking_window_days: bookingDate ? bookingWindowFor(bookingDate, night) : null,
         current_rate: nightly,
         raw_payload: redactMewsPayload(raw),
       };

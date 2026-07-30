@@ -56,6 +56,16 @@ function addOneDay(ymd: string): string {
   return dt.toISOString().slice(0, 10);
 }
 
+/**
+ * Lead time against the stay night itself, not check-in — night 2 of a stay
+ * is one day further out than night 1, and pickup windows compare per-night.
+ */
+function bookingWindowFor(bookingDate: string, stay: string): number {
+  const a = new Date(`${stay}T00:00:00Z`).getTime();
+  const b = new Date(`${bookingDate}T00:00:00Z`).getTime();
+  return Math.max(0, Math.round((a - b) / 86_400_000));
+}
+
 /** [checkIn, checkOut) hotel-night semantics; same-day → single night. */
 function enumerateNights(checkIn: string, checkOut: string | null): string[] {
   if (!checkOut || checkOut <= checkIn) return [checkIn];
@@ -209,12 +219,6 @@ export function parseCloudbedsReservations(
 
     const externalRoomTypeId = reservationRoomTypeId(res);
     const bookingDate = toYmd(firstString(res, ["dateCreated", "created", "bookingDate"]) ?? "");
-    let bookingWindowDays: number | null = null;
-    if (bookingDate) {
-      const a = new Date(`${checkIn}T00:00:00Z`).getTime();
-      const b = new Date(`${bookingDate}T00:00:00Z`).getTime();
-      bookingWindowDays = Math.max(0, Math.round((a - b) / 86_400_000));
-    }
 
     const detailRates = nightlyRateByResId?.get(rid) ?? null;
     const total =
@@ -232,7 +236,7 @@ export function parseCloudbedsReservations(
         external_room_type_id: externalRoomTypeId,
         stay_date: night,
         booking_date: bookingDate,
-        booking_window_days: bookingWindowDays,
+        booking_window_days: bookingDate ? bookingWindowFor(bookingDate, night) : null,
         current_rate: nightly,
         raw_payload: redactCloudbedsPayload(res),
       });
@@ -291,19 +295,12 @@ export function parseCloudbedsReservationDetail(detail: Json): {
       if (!stay) continue;
       const rate = firstNumber(d, ["rate", "amount", "roomRate", "price"]);
 
-      let bookingWindowDays: number | null = null;
-      if (bookingDate) {
-        const a = new Date(`${stay}T00:00:00Z`).getTime();
-        const b = new Date(`${bookingDate}T00:00:00Z`).getTime();
-        bookingWindowDays = Math.max(0, Math.round((a - b) / 86_400_000));
-      }
-
       rows.push({
         external_reservation_id: String(subId),
         external_room_type_id: rtId,
         stay_date: stay,
         booking_date: bookingDate,
-        booking_window_days: bookingWindowDays,
+        booking_window_days: bookingDate ? bookingWindowFor(bookingDate, stay) : null,
         current_rate: rate,
         raw_payload: redactCloudbedsPayload(room),
       });

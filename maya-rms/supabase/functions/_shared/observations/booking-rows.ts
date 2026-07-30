@@ -15,8 +15,11 @@ export interface SlimReservationRow {
 }
 
 export function bookingWindowOf(row: SlimReservationRow): number | null {
-  if (typeof row.booking_window_days === "number") return row.booking_window_days;
+  // Each night measures lead time against itself, so booking_date wins:
+  // rows imported before the per-night backfill carry an arrival-relative
+  // booking_window_days that is k days short for night k of a stay.
   if (row.booking_date) return daysBetween(row.booking_date, row.stay_date);
+  if (typeof row.booking_window_days === "number") return row.booking_window_days;
   return null;
 }
 
