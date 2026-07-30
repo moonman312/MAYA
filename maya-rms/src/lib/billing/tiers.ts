@@ -65,3 +65,11 @@ export function formatUsd(cents: number): string {
     maximumFractionDigits: 2,
   })}`;
 }
+
+/**
+ * Per-room rates always show cents. Left to formatUsd, one bracket reads "$5"
+ * and the next "$5.50", which looks like a mistake rather than two rates.
+ */
+export function formatPerRoom(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
