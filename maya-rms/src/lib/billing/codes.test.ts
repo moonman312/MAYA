@@ -22,6 +22,19 @@ function code(o: Partial<SignupCode> = {}): SignupCode {
 }
 
 /**
+ * Postgres ILIKE, honestly.
+ *
+ * This used to be stubbed as an identity function that returned the row no
+ * matter what was searched for, which is precisely why the whole suite passed
+ * while a single `%` walked past the signup gate. Wildcards have to behave like
+ * wildcards here or these tests cannot see that class of bug at all.
+ */
+function ilikeMatches(pattern: string, value: string): boolean {
+  const rx = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".");
+  return new RegExp(`^${rx}$`, "i").test(value);
+}
+
+/**
  * Minimal stand-in for the two tables checkCode reads. `redemptions` is what a
  * count/lookup sees; `row` is the code it finds (null = unknown code).
  */
@@ -31,7 +44,12 @@ function fakeAdmin(row: SignupCode | null, redemptions: { hotel_id: string | nul
       if (table === "signup_codes") {
         return {
           select: () => ({
-            ilike: () => ({ maybeSingle: async () => ({ data: row, error: null }) }),
+            ilike: (_col: string, pattern: string) => ({
+              maybeSingle: async () =>
+                row && ilikeMatches(pattern, row.code)
+                  ? { data: row, error: null }
+                  : { data: null, error: null },
+            }),
           }),
         };
       }
@@ -228,5 +246,39 @@ describe("checkoutEffectFor", () => {
       tier_rooms_cap: null,
     });
     expect(checkoutEffectFor(loose)).toEqual({});
+  });
+});
+
+describe("checkCode rejects anything that is not shaped like a code", () => {
+  // The gate is the product decision — MAYA throttles demand deliberately — so
+  // walking past it is a business bypass, not just a validation slip.
+  it.each(["%", "%%", "M%", "%FOUNDER", "_________", "DRIFT%", "%WOOD%"])(
+    "refuses the wildcard pattern %j instead of matching a live code",
+    async (attempt) => {
+      const res = await checkCode(fakeAdmin(code({ code: "DRIFTWOOD" })), attempt);
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.reason).toBe("unknown");
+    },
+  );
+
+  it("gives a wildcard the same answer as a wrong code, so it reveals nothing", async () => {
+    const admin = fakeAdmin(code({ code: "DRIFTWOOD" }));
+    const wildcard = await checkCode(admin, "%");
+    const wrong = await checkCode(admin, "NOPETHISISWRONG");
+    expect(wildcard).toEqual(wrong);
+  });
+
+  it("still accepts the real code, case-insensitively and with padding", async () => {
+    for (const typed of ["DRIFTWOOD", "driftwood", "  DriftWood  "]) {
+      expect((await checkCode(fakeAdmin(code({ code: "DRIFTWOOD" })), typed)).ok).toBe(true);
+    }
+  });
+
+  it("accepts dashes, which real codes use", async () => {
+    expect((await checkCode(fakeAdmin(code({ code: "MHS-FOUNDER-1" })), "mhs-founder-1")).ok).toBe(true);
+  });
+
+  it("refuses a code too short to be one", async () => {
+    expect((await checkCode(fakeAdmin(code({ code: "AB" })), "AB")).ok).toBe(false);
   });
 });

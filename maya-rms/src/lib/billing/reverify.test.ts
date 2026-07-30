@@ -197,6 +197,17 @@ describe("verifySavedCard: how the card is checked", () => {
     expect(calls.creates[2].options?.idempotencyKey).not.toBe(calls.creates[0].options?.idempotencyKey);
   });
 
+  it("asks the issuer again at the 48-hour recheck instead of replaying the signup answer", async () => {
+    // The recheck resets card_verify_attempts to zero so it gets its own retry
+    // budget, which made both stages produce the same key — and a matching key
+    // means Stripe hands back the cached "succeeded" without contacting anyone.
+    // That is the whole point of the second check, silently not happening.
+    const { stripe, calls } = fakeStripe();
+    await verifySavedCard(stripe, row({ card_verified_at: null, card_verify_attempts: 0 }));
+    await verifySavedCard(stripe, row({ card_verified_at: "2026-07-30T00:00:00Z", card_verify_attempts: 0 }));
+    expect(calls.creates[1].options?.idempotencyKey).not.toBe(calls.creates[0].options?.idempotencyKey);
+  });
+
   it("falls back to the customer's invoice default when the subscription has none", async () => {
     const { stripe, calls } = fakeStripe({
       subscription: {

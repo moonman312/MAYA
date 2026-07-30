@@ -2,6 +2,8 @@ import "server-only";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { createClient as createSSRClient } from "@/utils/supabase/server";
 import { findPendingHotelForUser } from "@/lib/billing/pending-hotel";
+import { isStripeConfigured } from "@/lib/billing/stripe";
+import { resolveOnboardingStep } from "@/lib/onboarding/step";
 import { MAYA_ACTIVE_HOTEL_COOKIE } from "@/lib/hotel-context";
 import { createOnboardingAdapter } from "@/lib/pms/onboarding-adapter";
 import type { PmsType } from "@/lib/pms/registry";
@@ -53,6 +55,14 @@ export async function handleOnboardingConnect(
 
   const admin = createAdminClient();
 
+  // Checked here as well as at the authorize endpoint, because a signed state is
+  // replayable for its whole lifetime — someone who reached this callback once
+  // while entitled could otherwise re-run it later to mint further properties.
+  // Cheap, and the alternative is a free hotel.
+  if ((await resolveOnboardingStep(ssr)) !== "connect") {
+    return onboardingError("Payment is needed before connecting a PMS.");
+  }
+
   // 1. Ask the PMS who this property is. The adapter takes freshly-minted
   //    tokens directly (the Vault secret doesn't exist yet — no hotel does).
   //    The throwaway id only scopes reads that return nothing pre-creation.
@@ -78,6 +88,16 @@ export async function handleOnboardingConnect(
   //    (lib/billing/pending-hotel.ts). PMS name first; suffix on collision so
   //    this never blocks (hotels.name is globally unique). User can rename later.
   const pendingHotelId = await findPendingHotelForUser(admin, user.id);
+
+  // Creating a hotel outright is only ever right when there was no payment to
+  // attach one to. On a deployment that CAN charge, reaching here without a
+  // pending row means checkout never happened, and minting one anyway is how a
+  // property ends up live having paid nothing. Structural rather than a check, so
+  // no future edit to the guard above can quietly re-open it.
+  if (!pendingHotelId && isStripeConfigured()) {
+    return onboardingError("We couldn't find your subscription. Please start again from billing.");
+  }
+
   const baseName = profile.name?.trim() || "My Property";
   let hotelId: string | null = null;
   let lastErr: string | null = null;
