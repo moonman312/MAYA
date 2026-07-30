@@ -1,0 +1,131 @@
+/**
+ * Projects a Stripe subscription into hotel_subscriptions.
+ *
+ * Everything here writes with the service-role client: the billing tables
+ * revoke writes from `authenticated` on purpose, so the only path that can
+ * change what a hotel owes is a signature-verified webhook.
+ *
+ * Callers pass a subscription they have just RE-FETCHED from Stripe rather than
+ * the object embedded in the event. Webhooks arrive out of order and more than
+ * once — a `customer.subscription.updated` can land before the `created` that
+ * precedes it — so trusting event payloads means occasionally persisting an
+ * older state on top of a newer one. Re-fetching makes delivery order and
+ * duplicate delivery both irrelevant, which is cheaper than a version column
+ * and impossible to get subtly wrong.
+ */
+
+import type Stripe from "stripe";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { BillingInterval } from "./tiers";
+
+/** How long after signup the card is checked a second time (Jake's call). */
+export const CARD_REVERIFY_AFTER_HOURS = 48;
+
+export type SubscriptionProjection = {
+  hotel_id: string;
+  stripe_customer_id: string;
+  stripe_subscription_id: string;
+  status: string;
+  billing_interval: BillingInterval;
+  billed_rooms: number;
+  current_period_end: string | null;
+  trial_end: string | null;
+  cancel_at_period_end: boolean;
+  card_verify_due_at: string | null;
+  signup_code_id: string | null;
+};
+
+const iso = (unixSeconds: number | null | undefined): string | null =>
+  unixSeconds == null ? null : new Date(unixSeconds * 1000).toISOString();
+
+const idOf = (v: string | { id: string } | null | undefined): string | null =>
+  typeof v === "string" ? v : (v?.id ?? null);
+
+/**
+ * Turn a Stripe subscription into a row. Returns null when the subscription
+ * carries no hotel — a subscription created outside our checkout (by hand in
+ * the dashboard, say) has nothing to attach to and must not guess.
+ */
+export function projectSubscription(sub: Stripe.Subscription): SubscriptionProjection | null {
+  const hotelId = sub.metadata?.hotel_id;
+  if (!hotelId) return null;
+
+  const item = sub.items?.data?.[0];
+  if (!item) return null;
+
+  // Stripe types this as a branded string, so compare then re-state the type
+  // rather than relying on narrowing that doesn't happen.
+  const rawInterval = String(item.price?.recurring?.interval ?? "");
+  if (rawInterval !== "month" && rawInterval !== "year") return null;
+  const interval: BillingInterval = rawInterval;
+
+  const customerId = idOf(sub.customer);
+  if (!customerId) return null;
+
+  // current_period_end moved onto the item in recent API versions; read the
+  // item first and fall back so this keeps working across a version bump.
+  const itemPeriodEnd = (item as { current_period_end?: number }).current_period_end;
+  const subPeriodEnd = (sub as unknown as { current_period_end?: number }).current_period_end;
+
+  return {
+    hotel_id: hotelId,
+    stripe_customer_id: customerId,
+    stripe_subscription_id: sub.id,
+    status: sub.status,
+    billing_interval: interval,
+    billed_rooms: item.quantity ?? 0,
+    current_period_end: iso(itemPeriodEnd ?? subPeriodEnd),
+    trial_end: iso(sub.trial_end),
+    cancel_at_period_end: sub.cancel_at_period_end === true,
+    // A card that authorizes today can be a virtual card cancelled tomorrow, so
+    // it gets checked once more. Anchored on the subscription's creation rather
+    // than now(): a replayed webhook must not keep pushing the check forward.
+    card_verify_due_at: iso(sub.created + CARD_REVERIFY_AFTER_HOURS * 3600),
+    signup_code_id: sub.metadata?.signup_code_id || null,
+  };
+}
+
+/**
+ * Write the projection. `billed_rooms` of 0 would be a nonsense charge and the
+ * column rejects it, so a subscription whose item lost its quantity is dropped
+ * here with a log rather than failing the whole webhook and making Stripe retry
+ * something that will never succeed.
+ */
+export async function persistSubscription(
+  admin: SupabaseClient,
+  row: SubscriptionProjection,
+): Promise<{ ok: boolean; error?: string }> {
+  if (row.billed_rooms < 1) {
+    console.error(
+      JSON.stringify({ fn: "persistSubscription", reason: "non_billable_quantity", sub: row.stripe_subscription_id }),
+    );
+    return { ok: true };
+  }
+
+  const { error } = await admin
+    .from("hotel_subscriptions")
+    .upsert(row, { onConflict: "hotel_id" });
+  if (error) {
+    console.error(
+      JSON.stringify({ fn: "persistSubscription", sub: row.stripe_subscription_id, error: error.message }),
+    );
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
+}
+
+/** Statuses where MAYA should be doing its job. */
+const ENTITLED = new Set(["trialing", "active", "past_due"]);
+
+/**
+ * Whether a subscription state should keep prices flowing.
+ *
+ * `past_due` counts on purpose: Stripe retries a failed card for about two
+ * weeks, and cutting a hotel's pricing off on the first failed charge (an
+ * expired card, a bank's fraud hold) is a worse outcome than carrying them
+ * through the retry window with a banner. `unpaid`/`canceled` — after those
+ * retries have run out — is where it stops.
+ */
+export function isEntitled(status: string | null | undefined): boolean {
+  return ENTITLED.has(String(status));
+}
