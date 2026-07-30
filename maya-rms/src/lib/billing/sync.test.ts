@@ -106,10 +106,14 @@ describe("projectSubscription", () => {
 });
 
 describe("persistSubscription", () => {
-  function fakeAdmin() {
+  /** `current` is what hotel_subscriptions already holds for this hotel. */
+  function fakeAdmin(current: { stripe_subscription_id: string; status: string } | null = null) {
     const upserts: unknown[] = [];
     const admin = {
       from: () => ({
+        select: () => ({
+          eq: () => ({ maybeSingle: async () => ({ data: current, error: null }) }),
+        }),
         upsert: (row: unknown) => {
           upserts.push(row);
           return Promise.resolve({ error: null });
@@ -155,12 +159,55 @@ describe("persistSubscription", () => {
   it("reports a real write failure so Stripe retries", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const admin = {
-      from: () => ({ upsert: () => Promise.resolve({ error: { message: "deadlock" } }) }),
+      from: () => ({
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+        upsert: () => Promise.resolve({ error: { message: "deadlock" } }),
+      }),
     } as unknown as SupabaseClient;
     const res = await persistSubscription(admin, row());
     expect(res.ok).toBe(false);
     expect(res.error).toBe("deadlock");
     spy.mockRestore();
+  });
+
+  describe("one hotel, one subscription", () => {
+    it("ignores a late cancellation for a subscription that was already replaced", async () => {
+      // Stripe redelivers for days. A "canceled" for last month's subscription
+      // landing after this month's is live would otherwise switch off a hotel that
+      // is paying perfectly well.
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { admin, upserts } = fakeAdmin({ stripe_subscription_id: "sub_live", status: "active" });
+      const res = await persistSubscription(admin, row({ stripe_subscription_id: "sub_old", status: "canceled" }));
+      expect(res.ok).toBe(true);
+      expect(upserts).toHaveLength(0);
+      spy.mockRestore();
+    });
+
+    it("shouts when a second live subscription appears for one hotel", async () => {
+      // Two checkouts raced. Both bill the customer; only one can be recorded.
+      // Silence here is how a double charge goes unnoticed until they complain.
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { admin, upserts } = fakeAdmin({ stripe_subscription_id: "sub_first", status: "active" });
+      await persistSubscription(admin, row({ stripe_subscription_id: "sub_second", status: "active" }));
+      expect(upserts).toHaveLength(1);
+      const logged = String(spy.mock.calls.at(-1)?.[0] ?? "");
+      expect(logged).toContain("duplicate_live_subscription");
+      expect(logged).toContain("sub_first");
+      expect(logged).toContain("sub_second");
+      spy.mockRestore();
+    });
+
+    it("lets a re-subscribe through, because the old one is not alive", async () => {
+      const { admin, upserts } = fakeAdmin({ stripe_subscription_id: "sub_dead", status: "canceled" });
+      await persistSubscription(admin, row({ stripe_subscription_id: "sub_fresh", status: "active" }));
+      expect(upserts).toHaveLength(1);
+    });
+
+    it("updates the recorded subscription in place as usual", async () => {
+      const { admin, upserts } = fakeAdmin({ stripe_subscription_id: "sub_new", status: "trialing" });
+      await persistSubscription(admin, row({ stripe_subscription_id: "sub_new", status: "active" }));
+      expect(upserts).toHaveLength(1);
+    });
   });
 });
 
