@@ -4,9 +4,14 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 /**
- * First onboarding screen: pick how much help you want.
- * "Hold my hand" -> guided PMS connect + data analysis.
- * "Let me drive" -> straight to the dashboard, no questions asked.
+ * The last onboarding screen, and deliberately the only thing on it.
+ *
+ * By the time anyone gets here they have paid and their PMS is connected, so the
+ * import is already running either way and there is exactly one decision left:
+ * be walked through the rest, or go and drive. Two buttons in the middle of the
+ * screen. Anything else on this page is a reason to hesitate over a choice that
+ * cannot be got wrong — both paths end up in the same product, and it can be
+ * changed afterwards.
  */
 export function PathChoice() {
   const router = useRouter();
@@ -26,69 +31,38 @@ export function PathChoice() {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error ?? "Something went wrong. Please try again.");
       }
-      router.push(path === "guided" ? "/onboarding/connect" : "/");
+      // Guided goes to the strategy questions — the PMS connect that used to sit
+      // in front of them has already happened. Self-serve goes to a dashboard
+      // that has a property in it, with the import filling it in as they look.
+      router.push(path === "guided" ? "/onboarding/questions" : "/");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
       setPending(null);
     }
   }
 
-  return (
-    <div className="flex flex-col items-center pt-10 text-center">
-      <h1 className="text-3xl font-semibold text-slate-100">
-        Welcome to Maya
-      </h1>
-      <p className="mt-3 max-w-md text-sm leading-relaxed text-slate-400">
-        Two ways to get started. Both are easy — one just does more of the work
-        for you. You can always change your mind later.
-      </p>
+  const buttonBase =
+    "flex min-h-40 cursor-pointer items-center justify-center rounded-2xl border-2 px-8 text-center text-2xl font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50";
 
-      <div className="mt-10 grid w-full gap-4 sm:grid-cols-2">
-        {/* Hold my hand */}
+  return (
+    <div className="flex min-h-[70vh] flex-col items-center justify-center">
+      <div className="grid w-full gap-5 sm:grid-cols-2">
         <button
           type="button"
           onClick={() => choose("guided")}
           disabled={pending !== null}
-          className="group cursor-pointer rounded-xl border border-sky-500/40 bg-slate-900 p-6 text-left transition-colors hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
+          className={`${buttonBase} border-sky-500/50 bg-sky-500/10 text-sky-100 hover:border-sky-400 hover:bg-sky-500/20`}
         >
-          <div className="text-2xl">🤝</div>
-          <h2 className="mt-3 text-lg font-semibold text-slate-100">
-            Hold my hand
-          </h2>
-          <span className="mt-1 inline-block rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-300">
-            Recommended
-          </span>
-          <p className="mt-3 text-sm leading-relaxed text-slate-400">
-            Connect your property management system and we&apos;ll do the rest —
-            pull your booking history, study it, and suggest a pricing strategy
-            built for your property. A few optional questions, no homework.
-          </p>
-          <div className="mt-4 text-sm font-medium text-sky-400 group-hover:text-sky-300">
-            {pending === "guided" ? "One moment…" : "Start here →"}
-          </div>
+          {pending === "guided" ? "One moment…" : "Hold My Hand"}
         </button>
 
-        {/* Let me drive */}
         <button
           type="button"
           onClick={() => choose("self_serve")}
           disabled={pending !== null}
-          className="group cursor-pointer rounded-xl border border-slate-800 bg-slate-900 p-6 text-left transition-colors hover:border-slate-600 disabled:cursor-not-allowed disabled:opacity-60"
+          className={`${buttonBase} border-slate-700 bg-slate-900 text-slate-100 hover:border-slate-500 hover:bg-slate-800`}
         >
-          <div className="text-2xl">🚗</div>
-          <h2 className="mt-3 text-lg font-semibold text-slate-100">
-            Let me drive
-          </h2>
-          <span className="mt-1 inline-block rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400">
-            For the hands-on
-          </span>
-          <p className="mt-3 text-sm leading-relaxed text-slate-400">
-            Skip the setup and go straight to the dashboard. You can connect
-            your PMS and build pricing rules yourself, at your own pace.
-          </p>
-          <div className="mt-4 text-sm font-medium text-slate-400 group-hover:text-slate-300">
-            {pending === "self_serve" ? "One moment…" : "Take me to the dashboard →"}
-          </div>
+          {pending === "self_serve" ? "One moment…" : "Let Me Drive"}
         </button>
       </div>
 

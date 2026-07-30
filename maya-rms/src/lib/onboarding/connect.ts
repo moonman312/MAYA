@@ -1,6 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { createClient as createSSRClient } from "@/utils/supabase/server";
+import { findPendingHotelForUser } from "@/lib/billing/pending-hotel";
 import { MAYA_ACTIVE_HOTEL_COOKIE } from "@/lib/hotel-context";
 import { createOnboardingAdapter } from "@/lib/pms/onboarding-adapter";
 import type { PmsType } from "@/lib/pms/registry";
@@ -19,9 +20,14 @@ export type OnboardingTokens = {
 };
 
 /**
- * Finish the onboarding OAuth callback: the user has no hotel yet, so we
- * create everything from PMS data — hotel, membership, settings, connection —
- * then queue the background import and send them to the questions step.
+ * Finish the onboarding OAuth callback: fill in everything from PMS data —
+ * hotel, membership, settings, connection — then queue the background import and
+ * send them on to the one choice left to make.
+ *
+ * The hotel row usually already exists: payment is the first step of onboarding
+ * and a Stripe subscription needs a hotel_id to attach to, so checkout creates a
+ * placeholder that this adopts and renames. When billing isn't configured there
+ * is nothing to adopt and it creates one outright.
  *
  * The PMS is the source of truth: name, timezone, and currency come from
  * discoverProperty(). The user is asked for nothing; they can rename the
@@ -66,24 +72,41 @@ export async function handleOnboardingConnect(
     );
   }
 
-  // 2. Create the hotel. PMS name first; suffix on collision so creation
-  //    never blocks (hotels.name is globally unique). User can rename later.
+  // 2. The hotel row. Payment comes before this step now, and checkout had to
+  //    name a hotel for the subscription to attach to — so adopt the row it
+  //    created rather than making a second one beside the one they paid for
+  //    (lib/billing/pending-hotel.ts). PMS name first; suffix on collision so
+  //    this never blocks (hotels.name is globally unique). User can rename later.
+  const pendingHotelId = await findPendingHotelForUser(admin, user.id);
   const baseName = profile.name?.trim() || "My Property";
   let hotelId: string | null = null;
   let lastErr: string | null = null;
   for (let attempt = 0; attempt < 6; attempt++) {
     const name = attempt === 0 ? baseName : `${baseName} (${attempt + 1})`;
-    const { data, error } = await admin
-      .from("hotels")
-      .insert({
-        name,
-        timezone: profile.timezone ?? "UTC",
-        currency: profile.currency ?? "USD",
-        external_enterprise_id: null,
-        is_active: true,
-      })
-      .select("id")
-      .single();
+    const fields = {
+      name,
+      timezone: profile.timezone ?? "UTC",
+      currency: profile.currency ?? "USD",
+    };
+    // Deliberately NOT clearing setup_pending_at or activating here. Everything
+    // below this point can still fail — the Vault write especially — and
+    // resolveOnboardingStep reads an active property as "connect already
+    // finished". Flipping it up front meant a failed Vault write left a hotel
+    // that had paid looking fully set up, on a dashboard with no PMS behind it
+    // and no route back into this flow. Both flips happen at the end, once the
+    // connection actually exists.
+    const { data, error } = pendingHotelId
+      ? await admin
+          .from("hotels")
+          .update(fields)
+          .eq("id", pendingHotelId)
+          .select("id")
+          .single()
+      : await admin
+          .from("hotels")
+          .insert({ ...fields, is_active: true, external_enterprise_id: null })
+          .select("id")
+          .single();
     if (!error && data) {
       hotelId = String(data.id);
       break;
@@ -96,13 +119,17 @@ export async function handleOnboardingConnect(
   }
 
   // 3. Membership: service role means auth.uid() is null, so the
-  //    auto-membership trigger won't fire — insert explicitly.
-  const { error: memberErr } = await admin.from("hotel_memberships").insert({
-    hotel_id: hotelId,
-    user_id: user.id,
-    role: "hotel_admin",
-    status: "active",
-  });
+  //    auto-membership trigger won't fire — write it explicitly. Upsert because
+  //    an adopted row already has one from checkout.
+  const { error: memberErr } = await admin.from("hotel_memberships").upsert(
+    {
+      hotel_id: hotelId,
+      user_id: user.id,
+      role: "hotel_admin",
+      status: "active",
+    },
+    { onConflict: "hotel_id,user_id" },
+  );
   if (memberErr) {
     return onboardingError(`Could not link you to your property: ${memberErr.message}`);
   }
@@ -139,7 +166,7 @@ export async function handleOnboardingConnect(
   }
 
   const now = new Date().toISOString();
-  await admin.from("pms_connections").upsert(
+  const { error: connErr } = await admin.from("pms_connections").upsert(
     {
       hotel_id: hotelId,
       pms_type: pmsType,
@@ -149,6 +176,20 @@ export async function handleOnboardingConnect(
     },
     { onConflict: "hotel_id,pms_type" },
   );
+  if (connErr) {
+    return onboardingError(`Could not record your connection: ${connErr.message}`);
+  }
+
+  // The connection is real, so the property becomes one. Until this line a
+  // failure anywhere above leaves the row pending, which is what sends the owner
+  // back here instead of to a dashboard that cannot price anything.
+  const { error: activateErr } = await admin
+    .from("hotels")
+    .update({ is_active: true, setup_pending_at: null })
+    .eq("id", hotelId);
+  if (activateErr) {
+    return onboardingError(`Could not finish setting up your property: ${activateErr.message}`);
+  }
 
   // 6. Queue the background import + onboarding state.
   const { data: job } = await admin
@@ -185,9 +226,11 @@ export async function handleOnboardingConnect(
   //    guaranteed driver if this fetch is dropped.
   kickImportWorker();
 
-  // 8. Off to the questions, with the active-hotel cookie set.
+  // 8. Off to the last choice — hold my hand, or let me drive — with the
+  //    active-hotel cookie set. The questions used to come straight after this;
+  //    they now sit behind that choice, because the import is running either way.
   const base = process.env.MAYA_INVITE_REDIRECT_BASE?.replace(/\/$/, "") ?? "";
-  const res = NextResponse.redirect(`${base}/onboarding/questions`, { status: 302 });
+  const res = NextResponse.redirect(`${base}/onboarding`, { status: 302 });
   res.cookies.set(MAYA_ACTIVE_HOTEL_COOKIE, hotelId, {
     httpOnly: true,
     sameSite: "lax",

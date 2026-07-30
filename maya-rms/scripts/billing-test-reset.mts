@@ -150,7 +150,13 @@ if (KEEP_HOTEL) {
     await admin.from("hotels").delete().eq("id", m.hotel_id);
     console.log(`  deleted hotel "${name}"`);
   }
-  await admin.from("profiles").update({ onboarding_dismissed_at: null }).eq("id", user.id);
+  // onboarding_path too, not just the dismissal stamp: resolveOnboardingStep
+  // treats EITHER as "they already chose", so leaving the path set skipped the
+  // two-button screen on every run after the first.
+  await admin
+    .from("profiles")
+    .update({ onboarding_dismissed_at: null, onboarding_path: null })
+    .eq("id", user.id);
 }
 
 console.log(`\ndone — sign in as ${user.email} and you'll land at the start of the flow.`);

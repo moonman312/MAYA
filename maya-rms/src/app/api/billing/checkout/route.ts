@@ -6,12 +6,24 @@
  * import hasn't run yet at this point in the flow); what the import later
  * measures is reconciled separately and surfaced for a human, never silently
  * re-charged.
+ *
+ * This is the FIRST step of onboarding now, so it usually runs before any
+ * property exists. hotel_id in the subscription's metadata is the only thing
+ * sync.ts can attach a payment to, so the hotel row is created here and the PMS
+ * connect adopts it (lib/billing/pending-hotel.ts). Nothing reaches Stripe until
+ * that row exists.
  */
 
-import { requireSupabaseHotelRank } from "@/lib/require-supabase-hotel";
+import { hasHotelRank } from "@/lib/require-supabase-hotel";
+import { resolveAccessibleHotelId } from "@/lib/hotel-context";
+import { roleLabel } from "@/lib/roles";
 import { createAdminClient } from "@/utils/supabase/admin";
+import { createClient } from "@/utils/supabase/server";
+import { isSupabaseConfigured } from "@/utils/supabase/shared";
+import { findPendingHotelForUser, provisionPendingHotel } from "@/lib/billing/pending-hotel";
 import { isStripeConfigured, priceIdFor, stripeClient } from "@/lib/billing/stripe";
 import { checkCode, checkoutEffectFor } from "@/lib/billing/codes";
+import { isEntitled } from "@/lib/billing/sync";
 import { isBillableRoomCount, MAX_ROOMS, type BillingInterval } from "@/lib/billing/tiers";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -30,13 +42,11 @@ export async function POST(request: Request) {
   if (!isStripeConfigured()) {
     return NextResponse.json({ error: "Billing is not configured yet." }, { status: 503 });
   }
+  if (!isSupabaseConfigured()) {
+    return NextResponse.json({ error: "Supabase is not configured." }, { status: 503 });
+  }
 
-  // Committing a property to a recurring charge is a finance action, so it sits
-  // above the Revenue Manager line with the other money decisions.
-  const ctx = await requireSupabaseHotelRank(await cookies(), "general_manager");
-  if (!ctx.ok) return ctx.response;
-  const { supabase, hotelId } = ctx;
-
+  const supabase = createClient(await cookies());
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -57,14 +67,40 @@ export async function POST(request: Request) {
   }
   const interval: BillingInterval = body?.interval === "year" ? "year" : "month";
 
+  // Committing a property that already exists to a recurring charge is a finance
+  // action, so it stays above the Revenue Manager line with the other money
+  // decisions. A first-time signup has no property, and so nobody to outrank:
+  // the row is created below and whoever paid for it is its admin.
+  const existingHotelId = await resolveAccessibleHotelId(supabase);
+  if (existingHotelId && !(await hasHotelRank(supabase, existingHotelId, "general_manager"))) {
+    return NextResponse.json(
+      { error: `This needs ${roleLabel("general_manager")} access or higher on this property.` },
+      { status: 403 },
+    );
+  }
+
+  const admin = createAdminClient();
+
+  // Reuse whatever an abandoned checkout left behind, so bouncing off the card
+  // form three times doesn't leave three properties.
+  let hotelId = existingHotelId ?? (await findPendingHotelForUser(admin, user.id));
+
   // One subscription per hotel. Sending someone to Checkout who already has one
   // would create a second and bill them twice.
-  const { data: existing } = await supabase
-    .from("hotel_subscriptions")
-    .select("stripe_customer_id, stripe_subscription_id, status")
-    .eq("hotel_id", hotelId)
-    .maybeSingle();
-  if (existing?.stripe_subscription_id && existing.status !== "canceled") {
+  const { data: existing } = hotelId
+    ? await supabase
+        .from("hotel_subscriptions")
+        .select("stripe_customer_id, stripe_subscription_id, status")
+        .eq("hotel_id", hotelId)
+        .maybeSingle()
+    : { data: null };
+  // Only a subscription that is actually doing something blocks a new one.
+  // Testing for "not canceled" instead trapped every dead-but-not-canceled
+  // state — incomplete (they abandoned the card form), incomplete_expired,
+  // unpaid after dunning gave up — with a message telling them to manage a
+  // subscription in billing settings that would never charge or serve them.
+  // A hotel in that state has paid nothing and has no way forward.
+  if (existing?.stripe_subscription_id && isEntitled(existing.status)) {
     return NextResponse.json(
       { error: "This property already has a subscription. Manage it from billing settings." },
       { status: 409 },
@@ -74,18 +110,40 @@ export async function POST(request: Request) {
   // A code is required to reach checkout at all while signup is gated. Checked
   // against the service-role client because signup_codes is admin-only under
   // RLS and the person signing up is, by definition, not an admin.
-  const admin = createAdminClient();
   const codeCheck = await checkCode(admin, body?.code ?? "", { hotelId });
   if (!codeCheck.ok) {
     return NextResponse.json({ error: codeCheck.message, reason: codeCheck.reason }, { status: 403 });
   }
   const effect = checkoutEffectFor(codeCheck.code);
 
-  const { data: hotel } = await supabase
-    .from("hotels")
-    .select("name")
-    .eq("id", hotelId)
-    .maybeSingle();
+  // After the code check so a rejected code leaves nothing behind; before Stripe
+  // because a subscription without a hotel_id in its metadata is a payment
+  // nothing can be attached to.
+  if (!hotelId) {
+    const provisioned = await provisionPendingHotel(admin, user.id);
+    if (!provisioned.ok) {
+      console.error(
+        JSON.stringify({ fn: "billingCheckout", step: "provision", error: provisioned.error }),
+      );
+      return NextResponse.json(
+        { error: "Could not set your property up for billing. Please try again." },
+        { status: 500 },
+      );
+    }
+    hotelId = provisioned.hotelId;
+  }
+
+  // Only a real property has a name worth putting on the Stripe customer — a
+  // placeholder reads worse in the dashboard than the email on its own.
+  let customerName: string | undefined;
+  if (existingHotelId) {
+    const { data: hotel } = await supabase
+      .from("hotels")
+      .select("name")
+      .eq("id", existingHotelId)
+      .maybeSingle();
+    customerName = hotel?.name ?? undefined;
+  }
 
   try {
     const stripe = stripeClient();
@@ -129,7 +187,7 @@ export async function POST(request: Request) {
       existing?.stripe_customer_id ??
       (
         await stripe.customers.create({
-          name: hotel?.name ?? undefined,
+          name: customerName,
           email: user.email ?? undefined,
           metadata: { hotel_id: hotelId },
         })
@@ -150,9 +208,11 @@ export async function POST(request: Request) {
       // promo field is never the place one gets honoured.
       ...(couponId ? { discounts: [{ coupon: couponId }] } : { allow_promotion_codes: false }),
       // hotel_id on the subscription is what the webhook keys on — without it a
-      // completed payment has nothing to attach to (see sync.ts).
+      // completed payment has nothing to attach to (see sync.ts). user_id rides
+      // along because that hotel gets renamed on connect and could be deleted:
+      // it is what gets a human back to the person who actually paid.
       subscription_data: {
-        metadata: { hotel_id: hotelId, signup_code_id: codeCheck.code.id },
+        metadata: { hotel_id: hotelId, user_id: user.id, signup_code_id: codeCheck.code.id },
         ...(effect.trialDays ? { trial_period_days: effect.trialDays } : {}),
       },
       metadata: {
@@ -161,9 +221,10 @@ export async function POST(request: Request) {
         email: user.email ?? "",
         signup_code_id: codeCheck.code.id,
       },
-      // The session id lets the landing page confirm what actually happened
-      // rather than trusting that arriving here means the payment went through.
-      success_url: `${origin}/onboarding/connect?session_id={CHECKOUT_SESSION_ID}`,
+      // Through the return route rather than straight to the PMS picker: that
+      // page decides whether they have paid, and the webhook which would tell it
+      // so arrives whenever it arrives. See ./return/route.ts.
+      success_url: `${origin}/api/billing/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/onboarding?checkout=cancelled`,
     });
 
