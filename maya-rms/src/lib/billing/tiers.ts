@@ -59,6 +59,38 @@ export function isBillableRoomCount(rooms: unknown): rooms is number {
   return typeof rooms === "number" && Number.isInteger(rooms) && rooms >= 1 && rooms <= MAX_ROOMS;
 }
 
+export type RoomChangeQuote = { newPeriodCents: number; deltaCents: number; summary: string };
+
+/**
+ * What changing the room count does to the bill, phrased for the owner about to
+ * do it. Lives here rather than beside the page because the quote must come from
+ * the same brackets that price the change — quoting from a second copy is how a
+ * screen ends up promising a number Stripe does not charge.
+ *
+ * Says nothing about the exact proration: Stripe decides the credit, and the
+ * honest answer is that the next invoice is adjusted, not a figure computed here
+ * that could disagree with the invoice.
+ */
+export function describeRoomChange(
+  currentRooms: number,
+  newRooms: number,
+  interval: BillingInterval,
+): RoomChangeQuote {
+  const currentCents = priceCents(currentRooms, interval);
+  const newPeriodCents = priceCents(newRooms, interval);
+  const deltaCents = newPeriodCents - currentCents;
+  const per = interval === "year" ? "year" : "month";
+
+  if (deltaCents === 0) {
+    return { newPeriodCents, deltaCents, summary: `Still ${formatUsd(newPeriodCents)} per ${per}.` };
+  }
+  return {
+    newPeriodCents,
+    deltaCents,
+    summary: `${formatUsd(currentCents)} ${deltaCents > 0 ? "up" : "down"} to ${formatUsd(newPeriodCents)} per ${per}. Your next invoice is adjusted for the part of this period you have already paid.`,
+  };
+}
+
 export function formatUsd(cents: number): string {
   return `$${(cents / 100).toLocaleString("en-US", {
     minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
