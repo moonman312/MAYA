@@ -5,15 +5,32 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-function fakeUserClient(opts: { userId?: string | null; role?: string | null; platformAdmin?: boolean }) {
-  const api = {
-    select: () => api,
-    eq: () => api,
-    then(resolve: (v: { data: unknown; error: null }) => void) {
-      const rows = opts.role ? [{ role: opts.role }] : [];
-      return Promise.resolve({ data: rows, error: null }).then(resolve);
-    },
-  };
+function fakeUserClient(opts: {
+  userId?: string | null;
+  role?: string | null;
+  platformAdmin?: boolean;
+  /** Omitted means no subscription row at all, which is the entitled default. */
+  subscriptionStatus?: string;
+}) {
+  function table(name: string) {
+    const api = {
+      select: () => api,
+      eq: () => api,
+      in: () => api,
+      then(resolve: (v: { data: unknown; error: null }) => void) {
+        const rows =
+          name === "hotel_subscriptions"
+            ? opts.subscriptionStatus
+              ? [{ hotel_id: "hotel-1", status: opts.subscriptionStatus }]
+              : []
+            : opts.role
+              ? [{ role: opts.role }]
+              : [];
+        return Promise.resolve({ data: rows, error: null }).then(resolve);
+      },
+    };
+    return api;
+  }
   const client = {
     auth: {
       getUser: async () => ({ data: { user: opts.userId ? { id: opts.userId } : null } }),
@@ -21,7 +38,7 @@ function fakeUserClient(opts: { userId?: string | null; role?: string | null; pl
         data: { session: opts.userId ? { user: { id: opts.userId } } : null },
       }),
     },
-    from: () => api,
+    from: (name: string) => table(name),
     rpc: async () => ({ data: Boolean(opts.platformAdmin), error: null }),
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -101,5 +118,30 @@ describe("POST /api/pms/cloudbeds/sync rank gate", () => {
     const res = await post();
     const body = await res.json();
     expect(JSON.stringify(body)).not.toContain("accessToken");
+  });
+
+  it.each(["canceled", "unpaid"])("refuses to run for a %s subscription", async (status) => {
+    // The cron already skips these hotels; without this the same property could
+    // still pull its PMS and reprice on demand from the button.
+    state.userClient = fakeUserClient({
+      userId: "user-1",
+      role: "hotel_admin",
+      subscriptionStatus: status,
+    });
+    const res = await post();
+    expect(res.status).toBe(402);
+    expect(runCloudbedsSyncForHotel).not.toHaveBeenCalled();
+  });
+
+  it.each(["trialing", "past_due"])("still runs for a %s subscription", async (status) => {
+    // past_due is inside Stripe's retry window — cutting them off there is
+    // exactly what isEntitledStatus refuses to do.
+    state.userClient = fakeUserClient({
+      userId: "user-1",
+      role: "hotel_admin",
+      subscriptionStatus: status,
+    });
+    expect((await post()).status).toBe(200);
+    expect(runCloudbedsSyncForHotel).toHaveBeenCalled();
   });
 });

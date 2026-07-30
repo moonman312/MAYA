@@ -11,6 +11,7 @@
  */
 
 import { runCloudbedsSyncForHotel } from "@/lib/cloudbeds/sync-hotel";
+import { requireEntitledHotel } from "@/lib/billing/require-entitled";
 import { requireSupabaseHotelRank } from "@/lib/require-supabase-hotel";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { cookies } from "next/headers";
@@ -22,6 +23,9 @@ export async function POST(req: Request) {
   try {
     const ctx = await requireSupabaseHotelRank(await cookies(), "revenue_manager");
     if (!ctx.ok) return ctx.response;
+
+    const paid = await requireEntitledHotel(ctx.supabase, ctx.hotelId);
+    if (!paid.ok) return paid.response;
 
     if (!isAdminConfigured()) {
       return NextResponse.json(
