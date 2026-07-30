@@ -50,11 +50,27 @@ begin
     new.card_verify_last_code := null;
     new.card_verify_attempts := 0;
   else
-    -- Same subscription: whatever the sweep decided stands. persistSubscription
-    -- rewrites card_verify_due_at on every webhook, which would otherwise re-arm
-    -- a check already resolved — including pushing a row back to its immediate
-    -- check after the sweep had moved it out to 48 hours.
-    new.card_verify_due_at := old.card_verify_due_at;
+    -- Same subscription. persistSubscription re-projects the whole row on every
+    -- webhook and always includes card_verify_due_at, which would re-arm a check
+    -- the sweep had already resolved — including dragging a row back to its
+    -- immediate check after the sweep had moved it out to 48 hours.
+    --
+    -- But the sweep writes that column too, and ITS write has to survive. An
+    -- earlier version of this preserved old.card_verify_due_at unconditionally,
+    -- which threw away the sweep's own "come back in 48 hours" and left the row
+    -- permanently due — so the recheck ran minutes after signup instead of two
+    -- days later, which is the entire window a cancelled virtual card lives in.
+    --
+    -- The two writers are told apart by what else moves: every verdict the sweep
+    -- records also touches a stamp, the attempt count, or the decline code, and
+    -- the webhook touches none of them.
+    if new.card_verified_at      is not distinct from old.card_verified_at
+   and new.card_rechecked_at     is not distinct from old.card_rechecked_at
+   and new.card_verify_failed_at is not distinct from old.card_verify_failed_at
+   and new.card_verify_attempts  is not distinct from old.card_verify_attempts
+   and new.card_verify_last_code is not distinct from old.card_verify_last_code then
+      new.card_verify_due_at := old.card_verify_due_at;
+    end if;
   end if;
   return new;
 end;

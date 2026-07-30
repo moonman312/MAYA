@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { createClient as createSSRClient } from "@/utils/supabase/server";
 import { handleOnboardingConnect } from "@/lib/onboarding/connect";
+import { resolveOnboardingStep } from "@/lib/onboarding/step";
 import { pmsCallbackUrl, requireRegistry, type PmsType } from "@/lib/pms/registry";
 import { signOnboardingState, signState, verifyState } from "@/lib/pms/oauth-state";
 import { cookies } from "next/headers";
@@ -43,6 +44,22 @@ export async function buildAuthorizeRedirect(
     });
     if (!isAdmin && !canManage) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  } else {
+    // The paywall. Connecting a PMS is what turns a signup into a working
+    // property, so this endpoint is the thing payment actually gates — and it
+    // used to gate nothing but having an account, which /login hands out freely.
+    // Anyone who knew this URL got a permanent property for nothing.
+    //
+    // resolveOnboardingStep is asked rather than re-deriving it here: it is
+    // already the one agreed reading of where someone is in the flow, including
+    // the deliberate escape hatch for deployments with no Stripe keys. A fourth
+    // independent opinion about whether they have paid is how this got missed.
+    if ((await resolveOnboardingStep(ssr)) !== "connect") {
+      return NextResponse.json(
+        { error: "Payment is needed before connecting a PMS.", billingUrl: "/onboarding" },
+        { status: 402 },
+      );
     }
   }
 

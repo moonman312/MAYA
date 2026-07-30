@@ -15,6 +15,15 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BillingInterval } from "./tiers";
 
+/**
+ * The shape every code has: alphanumeric plus dashes, 3-40 characters.
+ *
+ * Enforced on the way IN when a code is created and on the way OUT when one is
+ * redeemed, from this single definition. The lookup side is not cosmetic
+ * validation — see checkCode for what a code containing `%` used to do.
+ */
+export const CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{2,39}$/;
+
 export type SignupCodeKind = "trial" | "percent_off" | "fixed_price";
 
 export type SignupCode = {
@@ -90,8 +99,18 @@ export async function checkCode(
   raw: string,
   opts: { hotelId?: string | null; now?: Date } = {},
 ): Promise<CodeCheck> {
-  const typed = raw.trim();
-  if (!typed) return { ok: false, reason: "unknown", message: rejectionMessage("unknown") };
+  const typed = raw.trim().toUpperCase();
+
+  // Shape check BEFORE the query, and it is a security boundary rather than
+  // politeness: the lookup below is a LIKE pattern match, so an unfiltered `%`
+  // matched whatever live code happened to be there and walked straight through
+  // the gate, while `M%` and `_______` turned this into an oracle for guessing
+  // real codes character by character. A well-formed code cannot contain either
+  // wildcard. Rejects with the same "unknown" as a wrong code so this adds no
+  // new signal about what exists.
+  if (!CODE_PATTERN.test(typed)) {
+    return { ok: false, reason: "unknown", message: rejectionMessage("unknown") };
+  }
 
   // Codes get read off a business card, so matching is case-insensitive —
   // uq_signup_codes_code indexes lower(code) to match.

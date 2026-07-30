@@ -97,11 +97,17 @@ export type BillingHeadline = { tone: BillingTone; title: string; detail: string
  */
 export function headlineFor(billing: AccountBilling, now = new Date()): BillingHeadline {
   if (!billing.entitled) {
+    // Two different fixes hide under "not entitled", and sending someone at the
+    // wrong one wastes their time: an unpaid subscription is still alive in
+    // Stripe and a working card revives it, whereas a cancelled one is gone and
+    // no amount of card-updating brings it back.
+    const recoverable = billing.status === "unpaid";
     return {
       tone: "stopped",
       title: "MAYA has paused work on this property",
-      detail:
-        "Prices are no longer being calculated or sent to your PMS. Restart the subscription and it picks up where it left off.",
+      detail: recoverable
+        ? "Prices are no longer being calculated or sent to your PMS. Update your card and the subscription restarts where it left off."
+        : "Prices are no longer being calculated or sent to your PMS. Your subscription was cancelled, so starting again means a new one — get in touch and we'll set it up.",
     };
   }
 

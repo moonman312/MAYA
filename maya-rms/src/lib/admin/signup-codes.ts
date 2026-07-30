@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { describeCode, type SignupCode, type SignupCodeKind } from "@/lib/billing/codes";
+import { CODE_PATTERN, describeCode, type SignupCode, type SignupCodeKind } from "@/lib/billing/codes";
 import { isEntitled } from "@/lib/billing/sync";
 import { formatUsd, MAX_ROOMS, priceCents, type BillingInterval } from "@/lib/billing/tiers";
 
@@ -206,8 +206,9 @@ export type SignupCodeInput = {
 
 export type ParsedSignupCode = { ok: true; row: SignupCodeInput } | { ok: false; error: string };
 
-/** Codes get read aloud and typed off business cards. */
-const CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{2,39}$/;
+// The shape lives in lib/billing/codes.ts, which is also where it is enforced on
+// redemption. Two copies could drift into a code this accepts but checkCode
+// refuses to look up.
 
 /** Longer than this stops being a trial, and Stripe won't take it either. */
 const MAX_TRIAL_DAYS = 730;

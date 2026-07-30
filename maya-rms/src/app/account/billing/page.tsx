@@ -77,14 +77,10 @@ export default async function BillingPage() {
       <section className={`rounded border p-4 ${TONE_STYLES[headline.tone]}`}>
         <h2 className="font-semibold text-slate-100">{headline.title}</h2>
         <p className="mt-1 max-w-2xl text-sm text-slate-300">{headline.detail}</p>
-        {!billing.entitled && (
-          <Link
-            href="/onboarding"
-            className="mt-3 inline-block rounded bg-sky-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-400"
-          >
-            Restart the subscription
-          </Link>
-        )}
+        {/* No CTA here on purpose. The obvious one — a link to /onboarding —
+            was a dead end: resolveOnboardingStep sees an active property and
+            sends them straight back to the dashboard. What actually helps is
+            below, and the headline says which of the two applies. */}
       </section>
 
       <section className="rounded border border-slate-800 bg-slate-900">

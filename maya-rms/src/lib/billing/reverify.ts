@@ -234,9 +234,16 @@ export async function verifySavedCard(
 /**
  * Keyed on the attempt, not on time: a re-run of the same attempt must reuse the
  * intent, while a deliberate retry hours later must be allowed to ask again.
+ *
+ * The STAGE is in the key too, and has to be. The recheck deliberately resets
+ * card_verify_attempts to zero so it gets its own retry budget, which meant both
+ * stages sent the identical key — so Stripe replayed the signup check's cached
+ * "succeeded" instead of asking the issuer, and the 48-hour check silently never
+ * asked anyone anything. Exactly the card it exists to catch.
  */
 function reverifyIdempotencyKey(row: DueSubscription): string {
-  return `maya_card_reverify_${row.stripe_subscription_id}_${row.card_verify_attempts ?? 0}`;
+  const stage = row.card_verified_at ? "recheck" : "signup";
+  return `maya_card_reverify_${row.stripe_subscription_id}_${stage}_${row.card_verify_attempts ?? 0}`;
 }
 
 /** What a verdict does to the row, before the write. */

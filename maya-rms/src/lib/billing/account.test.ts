@@ -44,6 +44,19 @@ describe("headlineFor", () => {
     expect(h.detail).toMatch(/no longer being calculated/i);
   });
 
+  it("points an unpaid property at its card, which genuinely revives it", async () => {
+    const h = headlineFor(billing({ entitled: false, status: "unpaid" }), NOW);
+    expect(h.detail).toMatch(/update your card/i);
+  });
+
+  it("does not promise a cancelled property that a new card will fix it", async () => {
+    // The subscription is gone from Stripe; no amount of card-updating restarts
+    // it, and saying otherwise sends someone round a loop that cannot work.
+    const h = headlineFor(billing({ entitled: false, status: "canceled" }), NOW);
+    expect(h.detail).not.toMatch(/update your card/i);
+    expect(h.detail).toMatch(/cancelled/i);
+  });
+
   it("reassures a past_due property that it is still being priced", () => {
     // Cutting them off on the first failed charge is exactly what isEntitled
     // refuses to do, so the copy must not imply it has happened.

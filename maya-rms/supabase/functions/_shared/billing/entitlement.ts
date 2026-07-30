@@ -39,9 +39,16 @@ export type EntitlementSplit = {
  * A hotel with NO subscription row is ALLOWED, and that default matters more
  * than the check itself: the sandbox property, anything an admin created by
  * hand, and every deployment with no Stripe keys have never had a row and must
- * keep working. Only an explicit lapsed subscription stops anything. A customer
- * cannot exploit that — hotel_subscriptions revokes writes from `authenticated`,
- * so the row only ever appears or changes via the signed webhook.
+ * keep working. Only an explicit lapsed subscription stops anything.
+ *
+ * That means this is NOT the paywall and must not be mistaken for one. It cannot
+ * tell a sandbox property from one that reached production without paying, so
+ * what protects the business is that no unpaid hotel gets created in the first
+ * place: lib/pms/oauth-flow.ts refuses to start a PMS connect unless
+ * resolveOnboardingStep says payment is done, and lib/onboarding/connect.ts will
+ * only ever ADOPT a row checkout already paid for when Stripe is configured.
+ * Weaken either of those and this function will happily serve the result
+ * forever.
  *
  * Fails OPEN. If the lookup itself errors, every hotel is allowed through: a
  * database blip must not silently stop pricing for the entire customer base,
