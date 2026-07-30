@@ -793,6 +793,12 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
               >
                 Billing
               </a>
+              <a
+                href="/account/team"
+                className="w-full cursor-pointer rounded border border-slate-700 px-3 py-2 text-center text-sm text-slate-200 hover:bg-slate-800 sm:w-auto"
+              >
+                Team
+              </a>
               <form action="/auth/logout" method="post">
                 <button
                   type="submit"
