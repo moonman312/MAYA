@@ -3,8 +3,8 @@
 -- maya-rms/FUTURE_IMPLEMENTATION_PLAN.md and command-center-plan.md.
 --
 -- Run AFTER 02_supabase_schema.sql when upgrading a database that was created
--- before Command Center v1 objects existed. If you load 01 + 02 from this repo
--- on a fresh project, you can skip this file (01 and 02 include the model).
+-- before Command Center v1 objects existed. If you load 02 from this repo
+-- on a fresh project, you can skip this file (02 includes the model).
 --
 -- This migration:
 --   1) Adds the `app_role` and `pending_membership_status` enums.

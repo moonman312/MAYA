@@ -9,7 +9,7 @@
 -- Fix: add `auth.role() = 'service_role'` as a bypass, mirroring the pattern
 -- already used correctly on pms_secret_get / pms_secret_set / pms_secret_delete.
 --
--- Idempotent. Safe to run on top of v1 + v2. Fresh 01+02 loads pick up the
+-- Idempotent. Safe to run on top of v1 + v2. Fresh 02 loads pick up the
 -- fixed definitions from 02_supabase_schema.sql — this file is only needed
 -- for existing DBs that already applied v2 with the buggy versions.
 
