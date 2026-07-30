@@ -98,7 +98,24 @@ export async function POST(request: Request) {
           email: session.customer_details?.email ?? session.metadata.email ?? "unknown",
         });
         // A duplicate is the expected outcome of a redelivery, not a failure.
-        if (error && error.code !== "23505") {
+        if (error?.code === "23514") {
+          // The cap trigger fired: more people reached checkout inside the
+          // window than the code allowed. Their money has already moved, so
+          // there is nothing to undo here and failing the webhook would only
+          // make Stripe retry something that can never succeed. It is logged as
+          // loudly as possible because someone got past a limit and a human has
+          // to decide whether to honour it or refund them.
+          console.error(
+            JSON.stringify({
+              fn: "stripeWebhook",
+              step: "redemption",
+              reason: "code_over_redeemed",
+              code_id: session.metadata.signup_code_id,
+              hotel_id: session.metadata.hotel_id,
+              action: "paid_but_uncounted_needs_review",
+            }),
+          );
+        } else if (error && error.code !== "23505") {
           console.error(JSON.stringify({ fn: "stripeWebhook", step: "redemption", error: error.message }));
         }
       }
