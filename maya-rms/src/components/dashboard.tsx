@@ -276,6 +276,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [simResults, setSimResults] = useState<SimulationResult[]>([]);
   const [changelog, setChangelog] = useState<ChangelogCycle[]>([]);
+  const [changelogError, setChangelogError] = useState<string | null>(null);
   const [changesOnly, setChangesOnly] = useState(true);
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -444,8 +445,14 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
   }, [month, year, fetchMonth]);
 
   const reloadChangelog = useCallback(async () => {
-    const data = await api<ChangelogCycle[]>("/api/changelog");
-    setChangelog(data);
+    setChangelogError(null);
+    try {
+      const data = await api<ChangelogCycle[]>("/api/changelog");
+      setChangelog(data);
+    } catch {
+      // Keep whatever loaded before — it was real. Never fill the gap.
+      setChangelogError("Couldn't load your price history.");
+    }
   }, []);
 
   useEffect(() => {
@@ -1659,6 +1666,17 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
               </button>
             </div>
             <CorrectionsPanel />
+            {changelogError ? (
+              <p className="text-sm text-rose-300">
+                {changelogError}{" "}
+                <button
+                  className="cursor-pointer text-sky-400 underline decoration-dotted hover:text-sky-300"
+                  onClick={() => void reloadChangelog()}
+                >
+                  Try again
+                </button>
+              </p>
+            ) : null}
             <div className="space-y-2">
               {visibleCycles.map((cycle) => {
                 const whenRelative = formatRelativeAge(cycle.timestamp);

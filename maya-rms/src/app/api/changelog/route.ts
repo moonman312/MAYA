@@ -3,10 +3,13 @@
  *
  * With Supabase configured and a resolvable hotel, cycles are rebuilt from
  * evaluation_audit rows (the 10 most recent runs) and narrated via
- * changelog-narrative. Without Supabase — or on any Supabase failure — the
- * demo changelog is served instead of a 500.
+ * changelog-narrative. The demo changelog is served only when Supabase is
+ * not configured at all; any failure past that point is a real error and
+ * must surface as one — this screen is the audit trail of what the system
+ * actually did, so inventing history here is worse than a 500.
  */
 
+import { dbErrorResponse } from "@/lib/api-guards";
 import {
   type AuditChangeRow,
   type ChangelogLookups,
@@ -35,23 +38,24 @@ export async function GET() {
     return NextResponse.json(buildChangelog());
   }
 
+  const supabase = createClient(await cookies());
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const hotelId = await resolveAccessibleHotelId(supabase);
+  if (!hotelId) {
+    return NextResponse.json({ error: "No hotel" }, { status: 400 });
+  }
+
   try {
-    const supabase = createClient(await cookies());
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const hotelId = await resolveAccessibleHotelId(supabase);
-    if (!hotelId) {
-      return NextResponse.json(buildChangelog());
-    }
-
     return NextResponse.json(await buildRealChangelog(supabase, hotelId));
-  } catch {
-    return NextResponse.json(buildChangelog());
+  } catch (error) {
+    const { status, message } = dbErrorResponse(error);
+    return NextResponse.json({ error: message }, { status });
   }
 }
 
@@ -65,7 +69,8 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
     .order("evaluated_at", { ascending: false })
     .limit(AUDIT_ROW_LIMIT);
 
-  if (auditErr) throw new Error(auditErr.message);
+  // Thrown as-is so dbErrorResponse can read the pg code (42501 -> 403).
+  if (auditErr) throw auditErr;
 
   const [{ data: hotel }, { data: roomTypes }, { data: rules }, { data: runLogRows }] =
     await Promise.all([
