@@ -1,14 +1,18 @@
 /**
  * POST /api/pms/cloudbeds/sync — manual single-hotel Cloudbeds sync.
  *
- * Parity with POST /api/pms/mews/sync: uses the user-scoped Supabase client
- * (RLS applies; caller must be able to manage the active hotel), resolves the
- * OAuth secret from Vault, runs the shared Cloudbeds pipeline. Useful for the
- * admin "Test/Sync" button and debugging. Cron uses the Edge Function instead.
+ * Parity with POST /api/pms/mews/sync: Revenue Manager and up may trigger it.
+ * The pipeline itself runs on the service-role client — the Vault credential
+ * RPCs are service-role-only since the RLS hardening, and the pms_connections
+ * status stamp is GM-gated under RLS, so a user-scoped run would fail before
+ * the first fetch. The rank gate above the client swap is the authorization.
+ * Useful for the admin "Test/Sync" button and debugging. Cron uses the Edge
+ * Function instead.
  */
 
 import { runCloudbedsSyncForHotel } from "@/lib/cloudbeds/sync-hotel";
-import { requireSupabaseHotel } from "@/lib/require-supabase-hotel";
+import { requireSupabaseHotelRank } from "@/lib/require-supabase-hotel";
+import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -16,8 +20,15 @@ type Body = { daysBack?: number; daysForward?: number };
 
 export async function POST(req: Request) {
   try {
-    const ctx = await requireSupabaseHotel(await cookies());
+    const ctx = await requireSupabaseHotelRank(await cookies(), "revenue_manager");
     if (!ctx.ok) return ctx.response;
+
+    if (!isAdminConfigured()) {
+      return NextResponse.json(
+        { error: "Manual sync needs SUPABASE_SERVICE_ROLE_KEY set on the server." },
+        { status: 503 },
+      );
+    }
 
     let body: Body = {};
     try {
@@ -27,7 +38,7 @@ export async function POST(req: Request) {
       body = {};
     }
 
-    const result = await runCloudbedsSyncForHotel(ctx.supabase, ctx.hotelId, {
+    const result = await runCloudbedsSyncForHotel(createAdminClient(), ctx.hotelId, {
       daysBack: body.daysBack,
       daysForward: body.daysForward,
     });
