@@ -158,7 +158,7 @@ export function ReviewFindings() {
             <button
               type="button"
               onClick={() => setStep("recommendations")}
-              className="cursor-pointer rounded bg-sky-500 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-sky-400"
+              className="cursor-pointer rounded bg-sky-500 px-6 py-2.5 text-sm font-semibold text-slate-950 transition-colors hover:bg-sky-400"
             >
               Continue to recommendations
             </button>
@@ -191,7 +191,7 @@ export function ReviewFindings() {
                   setLoadFailed(false);
                   void load();
                 }}
-                className="mt-3 rounded bg-amber-500 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-amber-400"
+                className="mt-3 rounded bg-amber-500 px-3 py-1.5 text-sm font-medium text-slate-950 transition hover:bg-amber-400"
               >
                 Try again
               </button>
@@ -240,7 +240,7 @@ export function ReviewFindings() {
               type="button"
               disabled={finishing}
               onClick={finish}
-              className="cursor-pointer rounded bg-sky-500 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-sky-400 disabled:opacity-60"
+              className="cursor-pointer rounded bg-sky-500 px-6 py-2.5 text-sm font-semibold text-slate-950 transition-colors hover:bg-sky-400 disabled:opacity-60"
             >
               {finishing ? "Finishing up…" : "Finish — take me to my dashboard"}
             </button>
@@ -319,7 +319,7 @@ function StarterRules() {
             >
               {going ? "Switching…" : "Turn them on for real"}
             </button>
-            <span className="text-[11px] text-slate-500">
+            <span className="text-[11px] text-slate-400">
               Or leave them in simulation and watch for a while — also a great choice.
             </span>
           </>
@@ -367,7 +367,7 @@ function FindingCard({
           <div className="text-sm font-semibold text-slate-100">{c.title}</div>
           <p className="mt-1 text-[13px] leading-relaxed text-slate-400">{c.body}</p>
           {finding.status === "auto_applied" ? (
-            <p className="mt-1.5 text-[11px] text-slate-500">
+            <p className="mt-1.5 text-[11px] text-slate-400">
               We already did this for you — dismiss to undo it.
             </p>
           ) : null}

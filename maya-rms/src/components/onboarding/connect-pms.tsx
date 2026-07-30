@@ -50,7 +50,7 @@ export function ConnectPms({ pmsOptions }: { pmsOptions: PmsRegistryStatus[] }) 
               <div className="text-sm font-semibold text-slate-100">
                 {pms.displayName}
               </div>
-              <div className="text-[11px] text-slate-500">
+              <div className="text-[11px] text-slate-400">
                 Sign in with your {pms.displayName} account
               </div>
             </div>

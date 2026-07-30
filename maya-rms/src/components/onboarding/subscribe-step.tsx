@@ -191,13 +191,13 @@ export function SubscribeStep({ cancelled = false }: { cancelled?: boolean }) {
             className="mt-2 w-full rounded border border-slate-700 bg-slate-950 p-2 font-mono text-sm uppercase tracking-wide text-slate-100"
           />
           {codeState.status === "checking" ? (
-            <p className="mt-1.5 text-xs text-slate-500">Checking…</p>
+            <p className="mt-1.5 text-xs text-slate-400">Checking…</p>
           ) : codeState.status === "good" ? (
             <p className="mt-1.5 text-xs text-emerald-300">{codeState.grants}</p>
           ) : codeState.status === "bad" ? (
             <p className="mt-1.5 text-xs text-rose-300">{codeState.message}</p>
           ) : (
-            <p className="mt-1.5 text-xs text-slate-500">
+            <p className="mt-1.5 text-xs text-slate-400">
               MAYA is invite-only for now — you&apos;ll have been given a code.
             </p>
           )}

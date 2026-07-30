@@ -86,7 +86,7 @@ export function PmsReconnect({
     return (
       <a
         href={href}
-        className="inline-block text-xs text-slate-500 underline-offset-4 transition hover:text-slate-300 hover:underline"
+        className="inline-block text-xs text-slate-400 underline-offset-4 transition hover:text-slate-300 hover:underline"
       >
         Reconnect {displayName}
       </a>
@@ -104,7 +104,7 @@ export function PmsReconnect({
       </p>
       <a
         href={href}
-        className="mt-3 inline-block rounded bg-amber-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-amber-400"
+        className="mt-3 inline-block rounded bg-amber-500 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-amber-400"
       >
         Reconnect {displayName}
       </a>

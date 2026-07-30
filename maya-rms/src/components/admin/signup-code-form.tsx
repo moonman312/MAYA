@@ -119,7 +119,7 @@ export function SignupCodeForm() {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400"
+          className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400"
         >
           + New code
         </button>
@@ -285,7 +285,7 @@ export function SignupCodeForm() {
           type="button"
           onClick={submit}
           disabled={!canSubmit || pending}
-          className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 disabled:opacity-60"
+          className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400 disabled:opacity-60"
         >
           {pending ? "Creating…" : "Create code"}
         </button>

@@ -812,7 +812,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                 key={item.key}
                 className={`cursor-pointer rounded-md px-4 py-2 text-sm font-medium transition ${
                   tab === item.key
-                    ? "bg-sky-500 text-white"
+                    ? "bg-sky-500 text-slate-950"
                     : "bg-slate-800 hover:bg-slate-700"
                 }`}
                 onClick={() => setTab(item.key)}
@@ -1606,7 +1606,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
 
               <button
                 type="submit"
-                className="cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400"
+                className="cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400"
               >
                 Add Rule
               </button>
@@ -1620,7 +1620,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
           <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
             <h2 className="text-lg font-semibold">Rate Simulator</h2>
             <button
-              className="cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400"
+              className="cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400"
               onClick={runSimulation}
             >
               Run Simulation

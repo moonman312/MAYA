@@ -75,7 +75,7 @@ export function ImportProgressView() {
         ) : null}
       </div>
 
-      <Link href="/" className="text-xs text-slate-500 hover:text-slate-300">
+      <Link href="/" className="text-xs text-slate-400 hover:text-slate-300">
         Go to my dashboard →
       </Link>
     </div>
@@ -86,7 +86,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
       <div className="text-lg font-semibold tabular-nums text-slate-100">{value}</div>
-      <div className="mt-0.5 text-[10px] uppercase tracking-wide text-slate-500">
+      <div className="mt-0.5 text-[10px] uppercase tracking-wide text-slate-400">
         {label}
       </div>
     </div>
