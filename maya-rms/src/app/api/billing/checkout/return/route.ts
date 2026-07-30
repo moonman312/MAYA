@@ -23,7 +23,7 @@ import { createAdminClient } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { isStripeConfigured, stripeClient } from "@/lib/billing/stripe";
-import { persistSubscription, projectSubscription } from "@/lib/billing/sync";
+import { isEntitled, persistSubscription, projectSubscription } from "@/lib/billing/sync";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -60,11 +60,16 @@ export async function GET(request: Request) {
       // and simply doesn't count as entitled.
       const sub = await stripe.subscriptions.retrieve(subId);
       const row = projectSubscription(sub);
-      if (row) await persistSubscription(createAdminClient(), row);
+      if (row) {
+        await persistSubscription(createAdminClient(), row);
+        // Straight on only when the payment is genuinely recorded AND live. A
+        // subscription still `incomplete` writes fine and entitles nobody, so
+        // treating a successful write as success would land them right back on
+        // the payment form.
+        if (isEntitled(row.status)) return to("/onboarding/connect");
+      }
     }
   } catch (e) {
-    // Carry on: the webhook writes the same row, and the PMS picker sends them
-    // back to payment if it never turns up.
     console.error(
       JSON.stringify({
         fn: "checkoutReturn",
@@ -73,5 +78,11 @@ export async function GET(request: Request) {
     );
   }
 
-  return to("/onboarding/connect");
+  // Anything else — Stripe unreachable, the subscription not live yet, the
+  // session carrying no subscription at all — goes to a screen that waits for
+  // the webhook and moves them on by itself. Sending them to the PMS picker
+  // meant its own guard bounced them to /onboarding, which renders the payment
+  // form: someone who had just paid was invited to pay again, with nothing on
+  // screen to suggest that would be a mistake.
+  return to("/onboarding/confirming");
 }

@@ -116,12 +116,15 @@ describe("beating the webhook", () => {
     });
   });
 
-  it("carries on to the picker when Stripe cannot be reached, writing nothing", async () => {
+  it("waits for the webhook when Stripe cannot be reached, rather than the payment form", async () => {
     state.throws = new Error("stripe unreachable");
     const res = await get();
-    // The webhook still writes the same row; the picker turns them back if it
-    // never arrives. Better than a dead end on a payment that went through.
-    expect(location(res)).toContain("/onboarding/connect");
+    // This used to go to the PMS picker on the theory that its guard would sort
+    // it out. Its guard sends anyone without a recorded payment to /onboarding,
+    // which renders the payment form — so someone who had just paid was invited
+    // to pay again. The confirming screen waits for the webhook and moves them
+    // on by itself.
+    expect(location(res)).toContain("/onboarding/confirming");
     expect(state.upserts).toHaveLength(0);
   });
 
@@ -154,5 +157,26 @@ describe("what it refuses to believe", () => {
     const res = await get();
     expect(location(res)).toContain("/login");
     expect(state.upserts).toHaveLength(0);
+  });
+});
+
+describe("nobody who paid is shown the payment form again", () => {
+  it("waits when the subscription exists but isn't live yet", async () => {
+    // `incomplete` writes fine and entitles nobody. Treating a successful write
+    // as success sent them to the picker, whose guard bounced them to the
+    // payment form — the exact screen a paying customer must never see next.
+    state.throws = null;
+    state.subscription = subscription({ status: "incomplete", trial_end: null });
+    const res = await get();
+    expect(location(res)).toContain("/onboarding/confirming");
+    // Still recorded: the row is how the webhook and the UI agree later.
+    expect(state.upserts).toHaveLength(1);
+  });
+
+  it("goes straight through once the subscription is live", async () => {
+    // No waiting screen when there is nothing to wait for.
+    state.throws = null;
+    state.subscription = subscription({ status: "trialing" });
+    expect(location(await get())).toContain("/onboarding/connect");
   });
 });
