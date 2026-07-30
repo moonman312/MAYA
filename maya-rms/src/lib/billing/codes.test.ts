@@ -1,0 +1,232 @@
+import { describe, expect, it } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { checkCode, checkoutEffectFor, describeCode, type SignupCode } from "./codes";
+
+function code(o: Partial<SignupCode> = {}): SignupCode {
+  return {
+    id: "code-1",
+    code: "DRIFTWOOD",
+    kind: "trial",
+    trial_days: 7,
+    percent_off: null,
+    duration_months: null,
+    fixed_price_cents: null,
+    fixed_price_interval: null,
+    tier_rooms_cap: null,
+    max_redemptions: null,
+    expires_at: null,
+    is_active: true,
+    stripe_coupon_id: null,
+    ...o,
+  };
+}
+
+/**
+ * Minimal stand-in for the two tables checkCode reads. `redemptions` is what a
+ * count/lookup sees; `row` is the code it finds (null = unknown code).
+ */
+function fakeAdmin(row: SignupCode | null, redemptions: { hotel_id: string | null }[] = []) {
+  const client = {
+    from: (table: string) => {
+      if (table === "signup_codes") {
+        return {
+          select: () => ({
+            ilike: () => ({ maybeSingle: async () => ({ data: row, error: null }) }),
+          }),
+        };
+      }
+      // signup_code_redemptions: either a head count, or a per-hotel lookup.
+      return {
+        select: (_cols: string, opts?: { count?: string; head?: boolean }) => {
+          if (opts?.head) {
+            return { eq: async () => ({ count: redemptions.length, error: null }) };
+          }
+          return {
+            eq: () => ({
+              eq: (_col: string, hotelId: string) => ({
+                maybeSingle: async () => ({
+                  data: redemptions.find((r) => r.hotel_id === hotelId) ?? null,
+                  error: null,
+                }),
+              }),
+            }),
+          };
+        },
+      };
+    },
+  } as unknown as SupabaseClient;
+  return client;
+}
+
+const NOW = new Date("2026-07-29T12:00:00Z");
+
+describe("checkCode gates signup", () => {
+  it("accepts a good code", async () => {
+    const res = await checkCode(fakeAdmin(code()), "DRIFTWOOD", { now: NOW });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.code.id).toBe("code-1");
+  });
+
+  it("matches case-insensitively and ignores surrounding whitespace", async () => {
+    // These come off business cards and out of emails.
+    for (const typed of ["driftwood", "  DriftWood  ", "DRIFTWOOD"]) {
+      const res = await checkCode(fakeAdmin(code()), typed, { now: NOW });
+      expect(res.ok).toBe(true);
+    }
+  });
+
+  it("refuses an empty code without hitting the database", async () => {
+    // No code at all is the common case while someone is still typing; it must
+    // not read as a lookup failure of some specific code.
+    const res = await checkCode(fakeAdmin(code()), "   ", { now: NOW });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toBe("unknown");
+  });
+
+  it("refuses an unknown code", async () => {
+    const res = await checkCode(fakeAdmin(null), "NOPE", { now: NOW });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toBe("unknown");
+  });
+
+  it("refuses a deactivated code without deleting its history", async () => {
+    const res = await checkCode(fakeAdmin(code({ is_active: false })), "DRIFTWOOD", { now: NOW });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toBe("inactive");
+  });
+
+  it("treats the expiry moment itself as expired", async () => {
+    const atExpiry = code({ expires_at: NOW.toISOString() });
+    const res = await checkCode(fakeAdmin(atExpiry), "DRIFTWOOD", { now: NOW });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toBe("expired");
+
+    const future = code({ expires_at: "2026-08-01T00:00:00Z" });
+    expect((await checkCode(fakeAdmin(future), "DRIFTWOOD", { now: NOW })).ok).toBe(true);
+  });
+
+  it("stops at the redemption cap — the limit on a leaked code", async () => {
+    const capped = code({ max_redemptions: 2 });
+    const twice = [{ hotel_id: "h1" }, { hotel_id: "h2" }];
+    const res = await checkCode(fakeAdmin(capped, twice), "DRIFTWOOD", { now: NOW });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toBe("exhausted");
+
+    const once = [{ hotel_id: "h1" }];
+    expect((await checkCode(fakeAdmin(capped, once), "DRIFTWOOD", { now: NOW })).ok).toBe(true);
+  });
+
+  it("ignores the cap when there isn't one", async () => {
+    const many = Array.from({ length: 500 }, (_, i) => ({ hotel_id: `h${i}` }));
+    const res = await checkCode(fakeAdmin(code({ max_redemptions: null }), many), "DRIFTWOOD", { now: NOW });
+    expect(res.ok).toBe(true);
+  });
+
+  it("refuses a code the same property already used", async () => {
+    // A retried checkout must not let one hotel bank a second trial.
+    const res = await checkCode(fakeAdmin(code(), [{ hotel_id: "hotel-1" }]), "DRIFTWOOD", {
+      hotelId: "hotel-1",
+      now: NOW,
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toBe("already_redeemed");
+  });
+
+  it("still accepts it for a different property", async () => {
+    const res = await checkCode(fakeAdmin(code(), [{ hotel_id: "hotel-other" }]), "DRIFTWOOD", {
+      hotelId: "hotel-1",
+      now: NOW,
+    });
+    expect(res.ok).toBe(true);
+  });
+});
+
+describe("describeCode tells the owner what they're getting", () => {
+  it("spells out that a trial still takes a card", async () => {
+    const text = describeCode(code({ kind: "trial", trial_days: 7 }));
+    expect(text).toContain("7 days free");
+    expect(text.toLowerCase()).toContain("card");
+  });
+
+  it("distinguishes a time-limited discount from a permanent one", () => {
+    const limited = describeCode(
+      code({ kind: "percent_off", trial_days: null, percent_off: 20, duration_months: 3 }),
+    );
+    expect(limited).toContain("20% off");
+    expect(limited).toContain("3 months");
+
+    const forever = describeCode(
+      code({ kind: "percent_off", trial_days: null, percent_off: 20, duration_months: null }),
+    );
+    expect(forever).toContain("as long as you stay");
+  });
+
+  it("states a fixed price with its interval", () => {
+    const text = describeCode(
+      code({
+        kind: "fixed_price",
+        trial_days: null,
+        fixed_price_cents: 9900,
+        fixed_price_interval: "month",
+      }),
+    );
+    expect(text).toContain("$99.00");
+    expect(text).toContain("month");
+  });
+
+  it("says day, not days, for a one-day trial", () => {
+    expect(describeCode(code({ trial_days: 1 }))).toContain("1 day free");
+  });
+});
+
+describe("checkoutEffectFor", () => {
+  it("turns a trial code into trial days", () => {
+    expect(checkoutEffectFor(code({ trial_days: 14 }))).toMatchObject({ trialDays: 14 });
+  });
+
+  it("reuses an existing coupon rather than asking for another", () => {
+    const withCoupon = code({
+      kind: "percent_off",
+      trial_days: null,
+      percent_off: 25,
+      stripe_coupon_id: "co_existing",
+    });
+    expect(checkoutEffectFor(withCoupon)).toEqual({ discountCouponId: "co_existing" });
+  });
+
+  it("asks for a coupon the first time a percent code is used", () => {
+    const fresh = code({ kind: "percent_off", trial_days: null, percent_off: 25, duration_months: 6 });
+    expect(checkoutEffectFor(fresh)).toEqual({
+      couponNeeded: { percentOff: 25, durationMonths: 6 },
+    });
+  });
+
+  it("carries 'forever' through as a null duration, not a missing one", () => {
+    const forever = code({ kind: "percent_off", trial_days: null, percent_off: 10, duration_months: null });
+    expect(checkoutEffectFor(forever)).toEqual({
+      couponNeeded: { percentOff: 10, durationMonths: null },
+    });
+  });
+
+  it("pins the billed room count for a fixed-price deal", () => {
+    const deal = code({
+      kind: "fixed_price",
+      trial_days: null,
+      fixed_price_cents: 20000,
+      fixed_price_interval: "month",
+      tier_rooms_cap: 40,
+    });
+    expect(checkoutEffectFor(deal)).toEqual({ roomsOverride: 40 });
+  });
+
+  it("leaves the stated count alone when a fixed-price code names no tier", () => {
+    const loose = code({
+      kind: "fixed_price",
+      trial_days: null,
+      fixed_price_cents: 20000,
+      fixed_price_interval: "month",
+      tier_rooms_cap: null,
+    });
+    expect(checkoutEffectFor(loose)).toEqual({});
+  });
+});
