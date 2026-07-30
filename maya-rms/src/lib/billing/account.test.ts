@@ -23,6 +23,9 @@ function billing(o: Partial<AccountBilling> = {}): AccountBilling {
     cardTrouble: null,
     signupCode: null,
     entitled: true,
+    roomTruth: { kind: "ok", measured: 40, billed: 40 },
+    roomGraceDaysLeft: 7,
+    notBilledFor: [],
     ...o,
   };
 }

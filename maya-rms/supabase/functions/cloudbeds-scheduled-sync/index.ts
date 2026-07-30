@@ -17,6 +17,7 @@ import { evaluateHotel } from "../_shared/engine/index.ts";
 import { createCloudbedsRateAdapter } from "../_shared/cloudbeds/rate-push.ts";
 import { pushRatesForHotel } from "../_shared/pms/rate-push.ts";
 import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
+import { recordRoomCount } from "../_shared/billing/room-count.ts";
 
 /**
  * The sync result carries live Cloudbeds credentials because the rate-push
@@ -133,6 +134,7 @@ Deno.serve(async (req) => {
     // deno-lint-ignore no-explicit-any
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     push?: any;
+    rooms?: Awaited<ReturnType<typeof recordRoomCount>> | null;
   }> = [];
 
   for (const hotelId of hotelIds) {
@@ -186,7 +188,13 @@ Deno.serve(async (req) => {
       }),
     );
 
-    results.push({ hotelId, sync: publicSyncResult(sync), evaluate, push });
+    // Re-measure what they actually run. room_types was just refreshed from the
+    // PMS, so this is the freshest the number ever gets. Measuring here rather
+    // than at onboarding is the point: properties grow, and the old one-off
+    // reading meant a hotel that opened a wing paid its old price forever.
+    const roomVerdict = sync.ok ? await recordRoomCount(supabase, hotelId, new Date()) : null;
+
+    results.push({ hotelId, sync: publicSyncResult(sync), evaluate, push, rooms: roomVerdict });
   }
 
   const failed = results.filter(

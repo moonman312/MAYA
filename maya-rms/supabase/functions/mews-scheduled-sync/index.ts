@@ -18,6 +18,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.99.3";
 import { runMewsSyncForHotel } from "../_shared/mews/sync-hotel.ts";
 import { evaluateHotel } from "../_shared/engine/index.ts";
 import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
+import { recordRoomCount } from "../_shared/billing/room-count.ts";
 
 function getEnv(name: string): string | undefined {
   const v = Deno.env.get(name);
@@ -100,6 +101,7 @@ Deno.serve(async (req) => {
     hotelId: string;
     sync: Awaited<ReturnType<typeof runMewsSyncForHotel>>;
     evaluate?: Awaited<ReturnType<typeof evaluateHotel>> | { error: string } | { skipped: true };
+    rooms?: Awaited<ReturnType<typeof recordRoomCount>> | null;
   }> = [];
 
   for (const hotelId of hotelIds) {
@@ -132,7 +134,13 @@ Deno.serve(async (req) => {
       }),
     );
 
-    results.push({ hotelId, sync, evaluate });
+    // Re-measure what they actually run. room_types was just refreshed from the
+    // PMS, so this is the freshest the number ever gets. Measuring here rather
+    // than at onboarding is the point: properties grow, and the old one-off
+    // reading meant a hotel that opened a wing paid its old price forever.
+    const roomVerdict = sync.ok ? await recordRoomCount(supabase, hotelId, new Date()) : null;
+
+    results.push({ hotelId, sync, evaluate, rooms: roomVerdict });
   }
 
   const failed = results.filter(

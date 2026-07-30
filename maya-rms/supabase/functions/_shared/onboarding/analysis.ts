@@ -297,7 +297,14 @@ const NON_ROOM_WEAK =
 const ROOM_NOUN =
   /\b(rooms?|suites?|kings?|queens?|doubles?|twins?|singles?|studios?|villas?|cabins?|bungalows?|apartments?|dorms?|beds?|bunks?|penthouses?|lofts?|cottages?|chalets?|casitas?)\b/i;
 
-function nameLooksLikeNonRoom(name: string): boolean {
+/**
+ * Exported because billing needs the same judgement, not a second copy of it.
+ * Every PMS models a pickleball court as a bookable room type, so the count MAYA
+ * charges for has to make this distinction as carefully as the review screen
+ * does — and from the same rules, or the two would eventually disagree about
+ * what a customer owes.
+ */
+export function nameLooksLikeNonRoom(name: string): boolean {
   if (NON_ROOM_STRONG.test(name)) return true;
   return NON_ROOM_WEAK.test(name) && !ROOM_NOUN.test(name);
 }

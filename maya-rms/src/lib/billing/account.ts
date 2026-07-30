@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isEntitledStatus } from "./entitlement";
+import { compareRooms, graceDaysLeft, measureRooms, type RoomVerdict } from "./room-count";
 import { formatUsd, priceCents, type BillingInterval } from "./tiers";
 
 /**
@@ -28,10 +29,16 @@ export type AccountBilling = {
   cardTrouble: CardTrouble | null;
   signupCode: string | null;
   entitled: boolean;
+  /** How the billed count compares to what their PMS says they run. */
+  roomTruth: RoomVerdict;
+  /** Days left to fix a shortfall themselves before MAYA does it. */
+  roomGraceDaysLeft: number;
+  /** Bookable spaces excluded from billing because nobody sleeps in them. */
+  notBilledFor: { name: string; rooms: number }[];
 };
 
 const COLUMNS =
-  "hotel_id, status, billing_interval, billed_rooms, current_period_end, trial_end, cancel_at_period_end, card_verify_failed_at, card_verify_last_code, signup_code_id";
+  "hotel_id, status, billing_interval, billed_rooms, current_period_end, trial_end, cancel_at_period_end, card_verify_failed_at, card_verify_last_code, signup_code_id, measured_rooms, room_shortfall_since";
 
 /**
  * Null means this property never went through checkout — an admin-created hotel,
@@ -52,6 +59,11 @@ export async function loadAccountBilling(
 
   const interval = String(data.billing_interval) === "year" ? "year" : "month";
   const rooms = Number(data.billed_rooms) || 0;
+
+  // Re-measured here rather than read off the row so the page can name the
+  // spaces being left out. Someone who counts their own PMS and gets a bigger
+  // number than their invoice needs to see why, or the invoice looks wrong.
+  const measurement = await measureRooms(supabase, hotelId);
 
   let signupCode: string | null = null;
   if (data.signup_code_id) {
@@ -80,6 +92,15 @@ export async function loadAccountBilling(
       : null,
     signupCode,
     entitled: isEntitledStatus(String(data.status)),
+    notBilledFor: measurement.excluded,
+    roomTruth: compareRooms(
+      data.measured_rooms == null ? null : Number(data.measured_rooms),
+      rooms,
+    ),
+    roomGraceDaysLeft: graceDaysLeft(
+      data.room_shortfall_since ? String(data.room_shortfall_since) : null,
+      new Date(),
+    ),
   };
 }
 
@@ -126,6 +147,24 @@ export function headlineFor(billing: AccountBilling, now = new Date()): BillingH
       title: "Your saved card stopped working",
       detail:
         "Nothing has failed yet, but the next charge will. Update it before your renewal to keep pricing running.",
+    };
+  }
+
+  // Above a scheduled cancellation and a trial countdown, because this is the
+  // only one where the amount they pay is about to change without them doing
+  // anything. Being surprised by a larger charge is what turns a fair correction
+  // into a chargeback, so it says the number and the date plainly.
+  if (billing.roomTruth.kind === "short") {
+    const { measured, billed, shortBy } = billing.roomTruth;
+    const days = billing.roomGraceDaysLeft;
+    return {
+      tone: "warn",
+      title: `You're billed for ${billed} rooms but running ${measured}`,
+      detail:
+        `MAYA charges per room, so ${shortBy} ${shortBy === 1 ? "room is" : "rooms are"} not being paid for. ` +
+        (days > 0
+          ? `Set the count right below within ${days} day${days === 1 ? "" : "s"} and nothing else happens — after that we'll update it to ${measured} for you and adjust your next invoice.`
+          : `We'll update it to ${measured} shortly and adjust your next invoice. Change it below if that isn't right.`),
     };
   }
 

@@ -127,6 +127,28 @@ export default async function BillingPage() {
             MAYA bills for the rooms you sell. Change it whenever the property does — the price moves
             to whichever bracket the new count lands in.
           </p>
+          {billing.notBilledFor.length > 0 && (
+            <p className="mt-2 max-w-2xl text-xs text-slate-400">
+              Not counted, because nobody sleeps in them:{" "}
+              <span className="text-slate-300">
+                {billing.notBilledFor.map((s) => s.name).join(", ")}
+              </span>
+              . Your PMS lists these as bookable, so your own room count may look higher than your
+              bill. If one of them really is a guest room, tell us and we&apos;ll include it.
+            </p>
+          )}
+          {billing.roomTruth.kind !== "unknown" && billing.roomTruth.kind !== "ok" && (
+            <p
+              className={`mt-2 max-w-2xl text-xs ${
+                billing.roomTruth.kind === "short" ? "text-amber-300" : "text-slate-300"
+              }`}
+            >
+              Your PMS currently shows <strong>{billing.roomTruth.measured} active rooms</strong>.
+              {billing.roomTruth.kind === "over"
+                ? " You're paying for more than that — lower it here and your next invoice drops."
+                : " We take this from your property management system, so it updates on its own as you open or close rooms."}
+            </p>
+          )}
           <div className="mt-3">
             <RoomCountForm currentRooms={billing.rooms} interval={billing.interval} />
           </div>
