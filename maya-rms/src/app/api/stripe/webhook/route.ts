@@ -145,16 +145,18 @@ export async function POST(request: Request) {
       let hotelId: string | null = null;
       let billedRooms = 0;
       let interval: "month" | "year" = "month";
+      let trialEnd: number | null = null;
       if (subId) {
         const { data: sub } = await admin
           .from("hotel_subscriptions")
-          .select("hotel_id, billed_rooms, billing_interval")
+          .select("hotel_id, billed_rooms, billing_interval, trial_end")
           .eq("stripe_subscription_id", subId)
           .maybeSingle();
         if (sub) {
           hotelId = String(sub.hotel_id);
           billedRooms = Number(sub.billed_rooms ?? 0);
           interval = sub.billing_interval === "year" ? "year" : "month";
+          trialEnd = sub.trial_end ? Date.parse(String(sub.trial_end)) : null;
         }
       }
 
@@ -168,9 +170,15 @@ export async function POST(request: Request) {
         customerEmail: inv.customer_email ?? null,
         billingInterval: interval,
         roomCount: billedRooms,
-        // No amount paid yet on this subscription means this is the first real
-        // charge — usually a trial ending, which reads differently.
-        isFirstCharge: (inv.amount_paid ?? 0) === 0 && (inv.attempt_count ?? 0) === 0,
+        // invoice.upcoming is a PREVIEW of an invoice Stripe has not built yet,
+        // so amount_paid and attempt_count are always zero on it. Deriving
+        // "first" from them made the test always true and addressed every
+        // renewing customer as a new signup. Stripe's own reason for the invoice
+        // is the real answer, plus a trial that has not converted yet — that
+        // charge is genuinely their first even though the reason says cycle.
+        isFirstCharge:
+          String(inv.billing_reason ?? "") === "subscription_create" ||
+          (trialEnd != null && trialEnd > Date.now()),
       };
 
       const decision = await decideNudge(admin, upcoming);

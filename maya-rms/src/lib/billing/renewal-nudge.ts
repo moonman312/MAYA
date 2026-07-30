@@ -123,9 +123,24 @@ function perRoomForPeriod(rooms: number, interval: BillingInterval): number {
   return Math.round(priceCents(rooms, interval) / rooms);
 }
 
+/**
+ * The billing page on the same deployment. Derived rather than threaded through
+ * every caller, since both links are the same origin — and tolerant of a caller
+ * that hands over something which isn't a parseable URL, because losing the
+ * whole email over the second link is a worse outcome than an odd-looking one.
+ */
+function billingUrlFrom(resumeUrl: string): string {
+  try {
+    return new URL("/account/billing", resumeUrl).toString();
+  } catch {
+    return `${resumeUrl.replace(/\/+$/, "")}/account/billing`;
+  }
+}
+
 export function buildNudge(invoice: UpcomingInvoice, resumeUrl: string): RenewalNudgeInput {
   return {
     resumeUrl,
+    billingUrl: billingUrlFrom(resumeUrl),
     amount: formatMoney(invoice.amountDue, invoice.currency),
     chargeDate: formatChargeDate(invoice.nextPaymentAttempt ?? invoice.periodEnd),
     billingInterval: invoice.billingInterval,

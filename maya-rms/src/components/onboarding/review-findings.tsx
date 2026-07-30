@@ -21,20 +21,27 @@ type Finding = {
 export function ReviewFindings() {
   const router = useRouter();
   const [findings, setFindings] = useState<Finding[] | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [step, setStep] = useState<"assumptions" | "recommendations">("assumptions");
 
   async function load() {
+    // A failure has to be visible. Leaving `findings` null renders the loading
+    // skeleton, and it renders it forever — so an owner sat watching a pulsing
+    // grey box had no way to tell that nothing was coming, and no way to retry.
     try {
       const res = await fetch("/api/onboarding/findings");
-      if (res.ok) {
-        const body = (await res.json()) as { findings: Finding[] };
-        setFindings(body.findings);
+      if (!res.ok) {
+        setLoadFailed(true);
+        return;
       }
+      const body = (await res.json()) as { findings: Finding[] };
+      setFindings(body.findings);
+      setLoadFailed(false);
     } catch {
-      // retry on next action
+      setLoadFailed(true);
     }
   }
 
@@ -173,7 +180,23 @@ export function ReviewFindings() {
             </p>
           </div>
 
-          {findings === null ? (
+          {loadFailed ? (
+            <div role="alert" className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4">
+              <p className="text-sm text-amber-100">
+                We couldn&apos;t load what we found in your booking history.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoadFailed(false);
+                  void load();
+                }}
+                className="mt-3 rounded bg-amber-500 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-amber-400"
+              >
+                Try again
+              </button>
+            </div>
+          ) : findings === null ? (
             <div className="h-24 animate-pulse rounded-lg bg-slate-900" />
           ) : recommendations.length === 0 && open.length === 0 ? (
             <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-5 py-4 text-sm text-emerald-200">
