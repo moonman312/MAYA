@@ -25,6 +25,8 @@ import {
 
 const NOW = new Date("2026-07-31T12:00:00Z");
 const DUE = "2026-07-31T10:00:00Z";
+/** When the subscription was recorded — what the 48 hours counts from. */
+const SIGNUP = "2026-07-29T12:00:00Z";
 
 type Row = Record<string, unknown>;
 
@@ -142,6 +144,10 @@ function row(o: Partial<DueSubscription> = {}): DueSubscription {
     stripe_subscription_id: "sub_1",
     card_verify_due_at: DUE,
     card_verify_attempts: 0,
+    // Default is the SIGNUP check: nothing verified yet. Pass card_verified_at
+    // to build a row that has passed it and owes only the 48-hour recheck.
+    card_verified_at: null,
+    created_at: SIGNUP,
     ...o,
   };
 }
@@ -152,8 +158,10 @@ function seedRow(o: Row = {}): Row {
     stripe_customer_id: "cus_1",
     stripe_subscription_id: "sub_1",
     status: "trialing",
+    created_at: SIGNUP,
     card_verify_due_at: DUE,
     card_verified_at: null,
+    card_rechecked_at: null,
     card_verify_failed_at: null,
     card_verify_attempts: 0,
     card_verify_last_code: null,
@@ -357,13 +365,47 @@ describe("patchFor", () => {
     }
   });
 
-  it("clears the reason once the card passes", () => {
-    expect(patchFor({ kind: "verified" }, row({ card_verify_attempts: 2 }), NOW)).toEqual({
+  it("passing the signup check arms the 48-hour one instead of settling", () => {
+    const signup = "2026-07-29T12:00:00Z";
+    const patch = patchFor(
+      { kind: "verified" },
+      row({ card_verify_attempts: 2, created_at: signup }),
+      NOW,
+    );
+    expect(patch).toEqual({
       card_verified_at: NOW.toISOString(),
+      // Signup + 48h, NOT now + 48h: a sweep that ran late must not push the
+      // recheck out, because the window it covers is when a virtual card gets
+      // cancelled.
+      card_verify_due_at: new Date(Date.parse(signup) + 48 * 3600_000).toISOString(),
       card_verify_failed_at: null,
       card_verify_last_code: null,
-      card_verify_attempts: 3,
+      // The recheck gets its own retry budget.
+      card_verify_attempts: 0,
     });
+    expect(patch).not.toHaveProperty("card_rechecked_at");
+  });
+
+  it("passing the 48-hour check settles the row for good", () => {
+    const patch = patchFor(
+      { kind: "verified" },
+      row({ card_verified_at: "2026-07-29T12:04:00Z", card_verify_attempts: 1 }),
+      NOW,
+    );
+    expect(patch).toEqual({
+      card_rechecked_at: NOW.toISOString(),
+      card_verify_due_at: null,
+      card_verify_failed_at: null,
+      card_verify_last_code: null,
+      card_verify_attempts: 2,
+    });
+    // Overwriting the signup stamp would lose when the card was first proven.
+    expect(patch).not.toHaveProperty("card_verified_at");
+  });
+
+  it("falls back to now when a row somehow has no creation time", () => {
+    const patch = patchFor({ kind: "verified" }, row({ created_at: null }), NOW);
+    expect(patch.card_verify_due_at).toBe(new Date(NOW.getTime() + 48 * 3600_000).toISOString());
   });
 
   it("re-arms an inconclusive check instead of settling it", () => {
@@ -400,7 +442,24 @@ describe("recordOutcome", () => {
   it("stamps the row", async () => {
     const { admin, rows } = fakeAdmin([seedRow()]);
     expect((await recordOutcome(admin, row(), { kind: "verified" }, NOW)).ok).toBe(true);
-    expect(rows[0]).toMatchObject({ card_verified_at: NOW.toISOString(), card_verify_attempts: 1 });
+    expect(rows[0]).toMatchObject({
+      card_verified_at: NOW.toISOString(),
+      card_verify_due_at: new Date(Date.parse(SIGNUP) + 48 * 3600_000).toISOString(),
+    });
+  });
+
+  it("writes the 48-hour verdict, whose row already has the signup stamp", async () => {
+    // The guard is per-stage. Keyed on card_verified_at for both, every recheck
+    // verdict would be silently dropped and the row would stay due forever.
+    const verified = "2026-07-29T12:04:00Z";
+    const { admin, rows } = fakeAdmin([seedRow({ card_verified_at: verified })]);
+    const res = await recordOutcome(admin, row({ card_verified_at: verified }), { kind: "verified" }, NOW);
+    expect(res.ok).toBe(true);
+    expect(rows[0]).toMatchObject({
+      card_verified_at: verified,
+      card_rechecked_at: NOW.toISOString(),
+      card_verify_due_at: null,
+    });
   });
 
   it("refuses to overwrite a verdict another runner already settled", async () => {
@@ -410,6 +469,16 @@ describe("recordOutcome", () => {
       card_verified_at: "2026-07-31T11:00:00Z",
       card_verify_failed_at: null,
     });
+  });
+
+  it("drops a recheck verdict for a card that is no longer the one it checked", async () => {
+    // Re-subscribing clears both stamps (trg_hotel_subscriptions_reset_card_verify).
+    // Landing a stale card_rechecked_at on the reset row would retire it without
+    // the NEW card ever being looked at.
+    const { admin, rows } = fakeAdmin([seedRow({ card_verified_at: null })]);
+    await recordOutcome(admin, row({ card_verified_at: "2026-07-29T12:04:00Z" }), { kind: "verified" }, NOW);
+    expect(rows[0].card_rechecked_at ?? null).toBeNull();
+    expect(rows[0].card_verified_at).toBeNull();
   });
 
   it("reports a write failure to the caller", async () => {
@@ -431,9 +500,10 @@ describe("sweepCardReverification", () => {
         card_verify_due_at: "2026-08-05T00:00:00Z",
       }),
       seedRow({
-        hotel_id: "already-ok",
+        hotel_id: "recheck-done",
         stripe_subscription_id: "sub_ok",
-        card_verified_at: "2026-07-30T00:00:00Z",
+        card_verified_at: "2026-07-29T12:04:00Z",
+        card_rechecked_at: "2026-07-31T12:04:00Z",
       }),
       seedRow({
         hotel_id: "already-bad",
@@ -451,6 +521,48 @@ describe("sweepCardReverification", () => {
       card_verified_at: NOW.toISOString(),
     });
     expect(rows.find((r) => r.hotel_id === "not-yet")).toMatchObject({ card_verified_at: null });
+  });
+
+  it("picks a row back up for its 48-hour check after the signup one passed", async () => {
+    // The regression this guards: keying the sweep on card_verified_at would take
+    // the row out after the first pass, and the check Jake actually asked for —
+    // the one that catches a cancelled virtual card — would never run at all.
+    const { admin, rows } = fakeAdmin([
+      seedRow({ card_verified_at: "2026-07-29T12:04:00Z", card_verify_due_at: DUE }),
+    ]);
+    const { stripe, calls } = fakeStripe();
+
+    const result = await sweepCardReverification({ admin, stripe, now: NOW });
+    expect(result).toMatchObject({ examined: 1, verified: 1 });
+    expect(calls.retrieves).toEqual(["sub_1"]);
+    expect(rows[0]).toMatchObject({
+      card_rechecked_at: NOW.toISOString(),
+      card_verify_due_at: null,
+    });
+  });
+
+  it("runs both stages end to end without a second card ever being needed", async () => {
+    const { admin, rows } = fakeAdmin([seedRow({ card_verify_due_at: SIGNUP })]);
+    const { stripe, calls } = fakeStripe();
+
+    // Signup check: minutes after checkout.
+    await sweepCardReverification({ admin, stripe, now: new Date(Date.parse(SIGNUP) + 4 * 60_000) });
+    const armed = new Date(Date.parse(SIGNUP) + 48 * 3600_000).toISOString();
+    expect(rows[0]).toMatchObject({ card_verify_due_at: armed, card_rechecked_at: null });
+
+    // Sweeps in between find nothing: the recheck is not due yet.
+    await sweepCardReverification({ admin, stripe, now: new Date(Date.parse(SIGNUP) + 24 * 3600_000) });
+    expect(calls.retrieves).toHaveLength(1);
+
+    // Two days later, the recheck runs and the row settles.
+    await sweepCardReverification({ admin, stripe, now: new Date(Date.parse(armed) + 60_000) });
+    expect(calls.retrieves).toHaveLength(2);
+    expect(rows[0].card_rechecked_at).not.toBeNull();
+    expect(rows[0].card_verify_due_at).toBeNull();
+
+    // And never again.
+    await sweepCardReverification({ admin, stripe, now: new Date(Date.parse(armed) + 86_400_000) });
+    expect(calls.retrieves).toHaveLength(2);
   });
 
   it("records a failure without touching the subscription's status", async () => {

@@ -1,12 +1,15 @@
--- Example: schedule the 48-hour card re-check hourly.
+-- Example: schedule the card check.
 --
 -- Unlike the other crons in this directory this one posts to the Next.js app,
 -- not an Edge Function: the sweep needs the same Stripe client and price lookup
 -- the rest of billing uses (src/lib/billing/*), so it lives in the app.
 --
--- Hourly is deliberate. The check is due at signup + 48h and nothing about it is
--- urgent to the minute; a batch of 25 per run drains any realistic backlog long
--- before the next hour, and inconclusive checks re-arm themselves 6 hours out.
+-- Every 15 minutes, because there are two checks and the first is due the moment
+-- the subscription exists — on an hourly cron "verified immediately" would mean
+-- "verified sometime in the next hour". The sweep is one indexed query that
+-- returns nothing on the vast majority of runs, so the frequency costs nothing.
+-- The 48-hour check is not urgent to the minute and inconclusive ones re-arm
+-- themselves 6 hours out; a batch of 25 per run drains any realistic backlog.
 --
 -- Prereqs: extensions `pg_cron`, `pg_net`; Vault secrets.
 --
@@ -25,8 +28,8 @@
 --
 -- 3) Schedule:
 --    select cron.schedule(
---      'billing-card-reverify-hourly',
---      '17 * * * *',
+--      'billing-card-reverify',
+--      '2,17,32,47 * * * *',
 --      $$
 --      select net.http_post(
 --        url := (select decrypted_secret from vault.decrypted_secrets where name = 'maya_app_url')
@@ -40,13 +43,17 @@
 --      $$
 --    );
 --
+-- If the hourly version was scheduled before this file changed:
+--    select cron.unschedule('billing-card-reverify-hourly');
+--
 -- Inspect:    select jobid, jobname, schedule, active from cron.job;
 -- Runs log:   select * from cron.job_run_details order by start_time desc limit 20;
--- Unschedule: select cron.unschedule('billing-card-reverify-hourly');
+-- Unschedule: select cron.unschedule('billing-card-reverify');
 --
--- What it did:
---   select hotel_id, card_verify_due_at, card_verified_at, card_verify_failed_at,
---          card_verify_attempts, card_verify_last_code
+-- What it did. card_verified_at is the signup check, card_rechecked_at the
+-- 48-hour one; a due date with neither stamp is a check not yet reached:
+--   select hotel_id, card_verify_due_at, card_verified_at, card_rechecked_at,
+--          card_verify_failed_at, card_verify_attempts, card_verify_last_code
 --     from hotel_subscriptions
 --    where card_verify_failed_at is not null or card_verify_due_at is not null
 --    order by card_verify_due_at nulls last;
