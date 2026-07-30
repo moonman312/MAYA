@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  analyzeImport,
   findClosedPeriods,
   findDuplicateRoomTypes,
   findRateOutliers,
@@ -7,6 +8,8 @@ import {
   type DailyRoomNights,
   type RoomTypeStats,
 } from "../../../supabase/functions/_shared/onboarding/analysis";
+import type { ImportJobRow } from "../../../supabase/functions/_shared/onboarding/worker-core";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 function seriesRange(
   from: string,
@@ -298,5 +301,228 @@ describe("findRateOutliers", () => {
       rt({ row_count: 250, median_rate: 200, p99_rate: 900, max_rate: 2500 }),
     ]);
     expect(found).toHaveLength(0);
+  });
+});
+
+/* ── analyzeImport bookkeeping (fake client, real orchestration) ─────────── */
+
+type Row = Record<string, unknown>;
+
+function makeJob(stats: Row = {}): ImportJobRow {
+  return {
+    id: "job-1",
+    hotel_id: "hotel-1",
+    pms_type: "cloudbeds",
+    status: "running",
+    phase: "analyze",
+    window_index: 0,
+    window_from: null,
+    window_to: null,
+    enum_cursor: {},
+    row_cap: 300_000,
+    max_windows: 10,
+    reservations_enumerated: 0,
+    rows_upserted: 0,
+    windows_completed: 0,
+    oldest_stay_date: null,
+    newest_stay_date: null,
+    attempts: 1,
+    stats,
+  };
+}
+
+/**
+ * Enough of PostgREST to run analyzeImport for real. room_types selects come
+ * back empty so the guardrail/starter-rule tail short-circuits — these tests
+ * are about which findings survive a re-run, not about rule generation.
+ */
+function makeAnalysisClient(opts: { stats: RoomTypeStats[]; findings?: Row[] }) {
+  const findings: Row[] = (opts.findings ?? []).map((f) => ({ ...f }));
+  const active = new Map(opts.stats.map((s) => [s.room_type_id, s.is_active]));
+  const deletes: Row[] = [];
+
+  function table(name: string) {
+    const eqs: Row = {};
+    let op = "select";
+    let body: unknown = null;
+
+    const matches = (row: Row) =>
+      Object.entries(eqs).every(([col, val]) => String(row[col]) === String(val));
+
+    const settle = () => {
+      if (name === "onboarding_findings") {
+        if (op === "delete") {
+          deletes.push({ ...eqs });
+          for (let i = findings.length - 1; i >= 0; i--) {
+            if (matches(findings[i])) findings.splice(i, 1);
+          }
+          return { data: null, error: null };
+        }
+        if (op === "insert") {
+          for (const row of body as Row[]) findings.push({ ...row });
+          return { data: null, error: null };
+        }
+        return { data: findings.filter(matches), error: null };
+      }
+      if (name === "room_types") {
+        if (op === "update" && typeof eqs.id === "string") {
+          active.set(eqs.id, (body as Row).is_active === true);
+        }
+        return { data: [], error: null };
+      }
+      // reservations / pricing_rules counts, hotel_settings lookup.
+      return { data: [], count: 0, error: null };
+    };
+
+    const chain = {
+      select: () => chain,
+      eq: (col: string, val: unknown) => {
+        eqs[col] = val;
+        return chain;
+      },
+      in: () => chain,
+      is: () => chain,
+      lte: () => chain,
+      not: () => chain,
+      order: () => chain,
+      limit: () => chain,
+      maybeSingle: async () => ({ data: null, error: null }),
+      insert: (rows: unknown) => {
+        op = "insert";
+        body = Array.isArray(rows) ? rows : [rows];
+        return chain;
+      },
+      update: (patch: Row) => {
+        op = "update";
+        body = patch;
+        return chain;
+      },
+      delete: () => {
+        op = "delete";
+        return chain;
+      },
+      then: (resolve: (value: unknown) => void) => resolve(settle()),
+    };
+    return chain;
+  }
+
+  const client = {
+    from: table,
+    rpc: async (fn: string) => ({
+      data: fn === "onboarding_room_type_stats" ? opts.stats : [],
+      error: null,
+    }),
+  } as unknown as SupabaseClient;
+
+  return {
+    client,
+    findings,
+    deletes,
+    isActive: (roomTypeId: string) => active.get(roomTypeId),
+  };
+}
+
+/** "Deluxe King" plus its never-booked twin — the auto-fix's bread and butter. */
+const DUPLICATE_PAIR = [
+  rt({ room_type_id: "rt-keep", name: "Deluxe King", row_count: 900 }),
+  rt({ room_type_id: "rt-dead", name: "Deluxe  King", row_count: 0, reservation_count: 0 }),
+];
+
+describe("analyzeImport re-runs", () => {
+  it("auto-deactivates the duplicate and records it", async () => {
+    const sb = makeAnalysisClient({ stats: DUPLICATE_PAIR });
+
+    await analyzeImport(sb.client, makeJob());
+
+    expect(sb.isActive("rt-dead")).toBe(false);
+    expect(sb.findings).toHaveLength(1);
+    expect(sb.findings[0].kind).toBe("duplicate_room_type");
+    expect(sb.findings[0].status).toBe("auto_applied");
+  });
+
+  it("keeps the auto_applied record a re-run can no longer re-derive", async () => {
+    // Anything between the deactivation and the job's completion patch can
+    // throw and get the job re-claimed; analyze then runs a second time with
+    // the duplicate already inactive, so the detector can't see it anymore.
+    const afterFirstPass = DUPLICATE_PAIR.map((s) =>
+      s.room_type_id === "rt-dead" ? { ...s, is_active: false } : s,
+    );
+    const sb = makeAnalysisClient({
+      stats: afterFirstPass,
+      findings: [
+        {
+          hotel_id: "hotel-1",
+          job_id: "job-1",
+          kind: "duplicate_room_type",
+          status: "auto_applied",
+          payload: { keep_room_type_id: "rt-keep", deactivate_room_type_id: "rt-dead", name: "Deluxe  King" },
+        },
+      ],
+    });
+
+    await analyzeImport(sb.client, makeJob());
+
+    expect(sb.findings).toHaveLength(1);
+    expect(sb.findings[0].status).toBe("auto_applied");
+    // Only proposed findings are up for replacement.
+    expect(sb.deletes).toEqual([{ hotel_id: "hotel-1", status: "proposed" }]);
+  });
+
+  it("replaces stale proposed findings", async () => {
+    const sb = makeAnalysisClient({
+      stats: DUPLICATE_PAIR,
+      findings: [
+        { hotel_id: "hotel-1", job_id: "old-job", kind: "rate_outlier", status: "proposed", payload: {} },
+      ],
+    });
+
+    await analyzeImport(sb.client, makeJob());
+
+    expect(sb.findings.map((f) => f.kind)).toEqual(["duplicate_room_type"]);
+  });
+
+  it("re-proposes the fix on a refresh, where nothing was applied on its behalf", async () => {
+    const sb = makeAnalysisClient({
+      stats: DUPLICATE_PAIR,
+      findings: [
+        {
+          hotel_id: "hotel-1",
+          job_id: "job-1",
+          kind: "duplicate_room_type",
+          status: "auto_applied",
+          payload: { keep_room_type_id: "rt-keep", deactivate_room_type_id: "rt-dead", name: "Deluxe  King" },
+        },
+      ],
+    });
+
+    await analyzeImport(sb.client, makeJob({ mode: "refresh" }));
+
+    // Refresh mode never writes, so skipping the proposal leaves the duplicate
+    // active with nothing to act on: the standing record only offers Dismiss,
+    // which re-activates what is already active.
+    expect(sb.isActive("rt-dead")).toBe(true);
+    expect(
+      sb.findings.filter((f) => f.kind === "duplicate_room_type").map((f) => f.status),
+    ).toEqual(["auto_applied", "proposed"]);
+  });
+
+  it("re-asserts the fix without filing a second record when the PMS hands the room type back active", async () => {
+    const sb = makeAnalysisClient({
+      stats: DUPLICATE_PAIR,
+      findings: [
+        {
+          hotel_id: "hotel-1",
+          job_id: "job-1",
+          kind: "duplicate_room_type",
+          status: "auto_applied",
+          payload: { keep_room_type_id: "rt-keep", deactivate_room_type_id: "rt-dead", name: "Deluxe  King" },
+        },
+      ],
+    });
+
+    await analyzeImport(sb.client, makeJob());
+
+    expect(sb.isActive("rt-dead")).toBe(false);
+    expect(sb.findings).toHaveLength(1);
   });
 });

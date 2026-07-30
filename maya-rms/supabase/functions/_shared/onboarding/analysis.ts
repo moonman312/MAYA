@@ -5,7 +5,7 @@
  * The decision logic is pure functions over aggregate rows (unit-tested with
  * fixtures); the SQL heavy lifting lives in the onboarding_* RPCs. Re-running
  * is safe: proposed findings for the hotel are replaced, auto-fixes are
- * idempotent.
+ * idempotent, and findings recording a fix we already applied are left alone.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -503,12 +503,27 @@ export async function analyzeImport(
   const duplicates = findDuplicateRoomTypes(stats);
   const outliers = findRateOutliers(stats);
 
-  // Replace this hotel's unresolved findings (idempotent re-run).
+  // Replace this hotel's proposed findings (idempotent re-run). auto_applied
+  // ones stay: no re-run can rebuild them — the duplicate detector only sees
+  // active room types — so deleting one left a room type deactivated with
+  // nothing on the review page to show it or undo it.
   await supabase
     .from("onboarding_findings")
     .delete()
     .eq("hotel_id", hotelId)
-    .in("status", ["proposed", "auto_applied"]);
+    .eq("status", "proposed");
+
+  const { data: appliedDuplicates } = await supabase
+    .from("onboarding_findings")
+    .select("payload")
+    .eq("hotel_id", hotelId)
+    .eq("kind", "duplicate_room_type")
+    .eq("status", "auto_applied");
+  const onRecordAsDeactivated = new Set(
+    (appliedDuplicates ?? []).map((f: { payload: Record<string, unknown> | null }) =>
+      String(f.payload?.deactivate_room_type_id ?? ""),
+    ),
+  );
 
   type FindingInsert = {
     hotel_id: string;
@@ -564,6 +579,12 @@ export async function analyzeImport(
         .from("room_types")
         .update({ is_active: false })
         .eq("id", d.deactivate_room_type_id);
+      // Re-asserted the deactivation just now and it is already on record (the
+      // PMS handed the room type back active, say) — no second copy of the
+      // same paperwork. Refresh mode writes nothing, so it still has to file:
+      // detection means the room type is active again, and the standing
+      // auto_applied record only offers Dismiss, which would re-activate it.
+      if (onRecordAsDeactivated.has(d.deactivate_room_type_id)) continue;
     }
     inserts.push({
       hotel_id: hotelId,
