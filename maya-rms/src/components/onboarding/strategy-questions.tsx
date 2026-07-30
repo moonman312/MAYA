@@ -83,13 +83,13 @@ export function StrategyQuestions() {
   return (
     <div className="flex flex-col gap-6 pt-6">
       <div className="flex items-center justify-between">
-        <div className="text-[11px] uppercase tracking-wide text-slate-500">
+        <div className="text-[11px] uppercase tracking-wide text-slate-400">
           A few quick questions · {stepIndex} of 5 · all optional
         </div>
         <button
           type="button"
           onClick={() => advance("done")}
-          className="cursor-pointer text-[11px] text-slate-500 hover:text-slate-300"
+          className="cursor-pointer text-[11px] text-slate-400 hover:text-slate-300"
         >
           Skip the rest →
         </button>
@@ -286,7 +286,7 @@ function FloorLadder({
         </button>
       </div>
       {declines >= 2 ? (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-slate-400">
           Remember — this is a night that would otherwise earn {symbol}0. Anything
           above your turn cost is profit.
         </p>
@@ -302,7 +302,7 @@ function FloorLadder({
         <button
           type="button"
           onClick={onSkip}
-          className="cursor-pointer text-xs text-slate-500 hover:text-slate-300"
+          className="cursor-pointer text-xs text-slate-400 hover:text-slate-300"
         >
           Skip this question
         </button>
@@ -353,7 +353,7 @@ function MoneyInput({
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <span className="text-sm text-slate-500">{symbol}</span>
+        <span className="text-sm text-slate-400">{symbol}</span>
         <input
           type="number"
           inputMode="decimal"
@@ -394,7 +394,7 @@ function StepActions({
           type="button"
           disabled={saving || !onNext}
           onClick={onNext}
-          className="cursor-pointer rounded bg-sky-500 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-400 disabled:opacity-60"
+          className="cursor-pointer rounded bg-sky-500 px-5 py-2 text-sm font-semibold text-slate-950 transition-colors hover:bg-sky-400 disabled:opacity-60"
         >
           {saving ? "Saving…" : nextLabel}
         </button>
@@ -403,7 +403,7 @@ function StepActions({
         type="button"
         disabled={saving}
         onClick={onSkip}
-        className="cursor-pointer text-xs text-slate-500 hover:text-slate-300"
+        className="cursor-pointer text-xs text-slate-400 hover:text-slate-300"
       >
         Skip this question
       </button>

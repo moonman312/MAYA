@@ -178,7 +178,7 @@ function Row({ label, value, hint }: { label: string; value: string; hint?: stri
       <dt className="text-sm text-slate-400">{label}</dt>
       <dd className="text-right">
         <div className="text-sm font-medium text-slate-100">{value}</div>
-        {hint && <div className="text-xs text-slate-500">{hint}</div>}
+        {hint && <div className="text-xs text-slate-400">{hint}</div>}
       </dd>
     </div>
   );

@@ -40,11 +40,11 @@ export function ManageBillingButton() {
         type="button"
         onClick={open}
         disabled={pending}
-        className="rounded bg-sky-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-400 disabled:opacity-60"
+        className="rounded bg-sky-500 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-sky-400 disabled:opacity-60"
       >
         {pending ? "Opening…" : "Update card, receipts & cancellation"}
       </button>
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-slate-400">
         Opens Stripe, where your card, invoices and cancellation all live.
       </p>
       {error && (

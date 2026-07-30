@@ -49,7 +49,7 @@ export default async function AdminOverviewPage() {
         </div>
         <Link
           href="/admin/hotels/new"
-          className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400"
+          className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400"
         >
           + New hotel
         </Link>
