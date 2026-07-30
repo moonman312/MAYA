@@ -118,18 +118,10 @@ export async function persistSubscription(
   return { ok: true };
 }
 
-/** Statuses where MAYA should be doing its job. */
-const ENTITLED = new Set(["trialing", "active", "past_due"]);
-
 /**
- * Whether a subscription state should keep prices flowing.
- *
- * `past_due` counts on purpose: Stripe retries a failed card for about two
- * weeks, and cutting a hotel's pricing off on the first failed charge (an
- * expired card, a bank's fraud hold) is a worse outcome than carrying them
- * through the retry window with a banner. `unpaid`/`canceled` — after those
- * retries have run out — is where it stops.
+ * Kept as a named re-export because most of the app reads it from here. The one
+ * definition lives in _shared/billing/entitlement.ts so the Deno cron that stops
+ * doing the work and the pages that explain why cannot disagree about who has
+ * paid.
  */
-export function isEntitled(status: string | null | undefined): boolean {
-  return ENTITLED.has(String(status));
-}
+export { isEntitledStatus as isEntitled } from "./entitlement";

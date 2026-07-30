@@ -16,6 +16,7 @@ import { runCloudbedsSyncForHotel } from "../_shared/cloudbeds/sync-hotel.ts";
 import { evaluateHotel } from "../_shared/engine/index.ts";
 import { createCloudbedsRateAdapter } from "../_shared/cloudbeds/rate-push.ts";
 import { pushRatesForHotel } from "../_shared/pms/rate-push.ts";
+import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
 
 /**
  * The sync result carries live Cloudbeds credentials because the rate-push
@@ -115,6 +116,16 @@ Deno.serve(async (req) => {
     hotelIds = [...new Set((connRows ?? []).map((r) => r.hotel_id).filter(Boolean))] as string[];
   }
 
+  // Lapsed hotels are dropped before any work happens, not after: syncing and
+  // evaluating them burns the PMS's rate limit and our compute, and pushing the
+  // result would be delivering the product to someone who stopped paying for it.
+  // Trialing and past_due still pass — see isEntitledStatus for why.
+  const { allowed: entitledHotelIds, blocked } = await splitByEntitlement(supabase, hotelIds);
+  if (blocked.length > 0) {
+    console.log(JSON.stringify({ fn: "cloudbeds-scheduled-sync", skippedUnpaid: blocked }));
+  }
+  hotelIds = entitledHotelIds;
+
   const results: Array<{
     hotelId: string;
     sync: ReturnType<typeof publicSyncResult>;
@@ -188,6 +199,9 @@ Deno.serve(async (req) => {
       hotels: hotelIds.length,
       failedHotels: failed.length,
       evaluated: runEvaluate,
+      // Reported rather than merely logged: a hotel silently absent from a run
+      // is indistinguishable from one that never had a connection.
+      skippedUnpaid: blocked,
       results,
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },

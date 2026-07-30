@@ -17,6 +17,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.99.3";
 import { runMewsSyncForHotel } from "../_shared/mews/sync-hotel.ts";
 import { evaluateHotel } from "../_shared/engine/index.ts";
+import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
 
 function getEnv(name: string): string | undefined {
   const v = Deno.env.get(name);
@@ -85,6 +86,16 @@ Deno.serve(async (req) => {
     hotelIds = [...new Set((connRows ?? []).map((r) => r.hotel_id).filter(Boolean))] as string[];
   }
 
+  // Lapsed hotels are dropped before any work happens, not after: syncing and
+  // evaluating them burns the PMS's rate limit and our compute, and pushing the
+  // result would be delivering the product to someone who stopped paying for it.
+  // Trialing and past_due still pass — see isEntitledStatus for why.
+  const { allowed: entitledHotelIds, blocked } = await splitByEntitlement(supabase, hotelIds);
+  if (blocked.length > 0) {
+    console.log(JSON.stringify({ fn: "mews-scheduled-sync", skippedUnpaid: blocked }));
+  }
+  hotelIds = entitledHotelIds;
+
   const results: Array<{
     hotelId: string;
     sync: Awaited<ReturnType<typeof runMewsSyncForHotel>>;
@@ -134,6 +145,9 @@ Deno.serve(async (req) => {
       hotels: hotelIds.length,
       failedHotels: failed.length,
       evaluated: runEvaluate,
+      // Reported rather than merely logged: a hotel silently absent from a run
+      // is indistinguishable from one that never had a connection.
+      skippedUnpaid: blocked,
       results,
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },
