@@ -134,6 +134,7 @@ describe("persistSubscription", () => {
     trial_end: null,
     cancel_at_period_end: false,
     card_verify_due_at: null,
+    card_verify_anchor_at: null,
     signup_code_id: null,
     ...o,
   });
