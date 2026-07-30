@@ -8,7 +8,8 @@
  */
 
 import { classifyPmsHealth } from "@/lib/pms/health";
-import { requireSupabaseHotel } from "@/lib/require-supabase-hotel";
+import { getRegistry, type PmsType } from "@/lib/pms/registry";
+import { hasHotelRank, requireSupabaseHotel } from "@/lib/require-supabase-hotel";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -85,8 +86,23 @@ export async function GET() {
 
   pruneOldRows(hotelId);
 
+  // How this PMS authenticates, so the dashboard knows whether reconnecting is
+  // one click out to the vendor or a credential the owner has to fetch. The
+  // registry is server-only, and a second copy of this fact on the client would
+  // eventually disagree with it.
+  const registry = connection ? getRegistry(connection.pms_type as PmsType) : null;
+
+  // Whether this caller could actually reconnect. The OAuth route enforces it
+  // regardless, but enforcing without telling the client means offering a button
+  // that answers with raw JSON — so the answer comes back here and the button
+  // simply isn't drawn for someone who can't use it.
+  const canManage = await hasHotelRank(ctx.supabase, hotelId, "general_manager");
+
   return NextResponse.json({
     connection,
+    pms: registry
+      ? { authKind: registry.authKind, displayName: registry.displayName, canManage }
+      : null,
     health: classifyPmsHealth(totalRes.count ?? 0, failureRes.count ?? 0),
     log: logRes.data ?? [],
   });
