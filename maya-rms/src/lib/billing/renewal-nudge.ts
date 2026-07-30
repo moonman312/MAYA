@@ -21,7 +21,7 @@ import {
   renewalNudgeText,
   type RenewalNudgeInput,
 } from "@/lib/email/renewal-nudge-email";
-import { formatPerRoom, tierFor } from "./tiers";
+import { formatPerRoom, priceCents, type BillingInterval } from "./tiers";
 
 /**
  * A connection in any of these states is doing its job or will recover on its
@@ -35,7 +35,9 @@ export type NudgeSkip =
   | "pms_connected"
   | "no_recipient"
   | "email_not_configured"
-  | "nothing_due";
+  | "nothing_due"
+  /** Couldn't read the connection state, so we decline to guess. */
+  | "pms_state_unknown";
 
 export type NudgeDecision =
   | { send: true; to: string; hotelId: string }
@@ -68,10 +70,21 @@ export async function decideNudge(
   if (!invoice.hotelId) return { send: false, reason: "no_hotel_metadata" };
   if (invoice.amountDue <= 0) return { send: false, reason: "nothing_due" };
 
-  const { data: connections } = await admin
+  const { data: connections, error } = await admin
     .from("pms_connections")
     .select("status")
     .eq("hotel_id", invoice.hotelId);
+
+  // A failed read used to look identical to "no connection", which sent a
+  // connected, paying customer an email telling them they had never set MAYA up.
+  // Staying quiet is the safe direction: the worst case is one missed nudge,
+  // against telling someone their working product doesn't work.
+  if (error) {
+    console.error(
+      JSON.stringify({ fn: "decideNudge", hotel: invoice.hotelId, error: error.message }),
+    );
+    return { send: false, reason: "pms_state_unknown" };
+  }
 
   const working = (connections ?? []).some((c) => WORKING_OR_RECOVERABLE.has(String(c.status)));
   if (working) return { send: false, reason: "pms_connected" };
@@ -101,6 +114,15 @@ function formatChargeDate(unixSeconds: number | null): string {
   });
 }
 
+/**
+ * What one room costs for a whole billing period, so room count times this rate
+ * reconstructs the total the customer is about to be charged.
+ */
+function perRoomForPeriod(rooms: number, interval: BillingInterval): number {
+  if (rooms < 1) return 0;
+  return Math.round(priceCents(rooms, interval) / rooms);
+}
+
 export function buildNudge(invoice: UpcomingInvoice, resumeUrl: string): RenewalNudgeInput {
   return {
     resumeUrl,
@@ -108,7 +130,11 @@ export function buildNudge(invoice: UpcomingInvoice, resumeUrl: string): Renewal
     chargeDate: formatChargeDate(invoice.nextPaymentAttempt ?? invoice.periodEnd),
     billingInterval: invoice.billingInterval,
     roomCount: invoice.roomCount,
-    perRoom: formatPerRoom(tierFor(invoice.roomCount).centsPerRoom),
+    // Per room FOR THIS PERIOD, so the sentence's own arithmetic holds. The
+    // bracket rate is per month, and printing it beside an annual total put two
+    // numbers a factor of ten apart in one line — the sort of thing that makes
+    // someone doubt the whole invoice.
+    perRoom: formatPerRoom(perRoomForPeriod(invoice.roomCount, invoice.billingInterval)),
     isFirstCharge: invoice.isFirstCharge,
   };
 }

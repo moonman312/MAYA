@@ -246,6 +246,38 @@ function reverifyIdempotencyKey(row: DueSubscription): string {
   return `maya_card_reverify_${row.stripe_subscription_id}_${stage}_${row.card_verify_attempts ?? 0}`;
 }
 
+/**
+ * Take the card alarm down after a charge actually goes through.
+ *
+ * card_verify_failed_at is what removes a row from the sweep, so before this
+ * nothing could ever clear it: an owner whose card failed the check saw the
+ * warning, replaced the card, and watched the warning stay — with MAYA never
+ * looking again for the life of the subscription.
+ *
+ * A settled payment is stronger evidence than the SetupIntent probe that raised
+ * the alarm, so it is allowed to overrule it outright rather than merely
+ * scheduling another probe.
+ */
+export async function clearCardAlarmAfterPayment(
+  admin: SupabaseClient,
+  subscriptionId: string,
+): Promise<{ cleared: boolean }> {
+  const { data, error } = await admin
+    .from("hotel_subscriptions")
+    .update({ card_verify_failed_at: null, card_verify_last_code: null, card_verify_attempts: 0 })
+    .eq("stripe_subscription_id", subscriptionId)
+    .not("card_verify_failed_at", "is", null)
+    .select("hotel_id");
+
+  if (error) {
+    console.error(
+      JSON.stringify({ fn: "clearCardAlarmAfterPayment", sub: subscriptionId, error: error.message }),
+    );
+    return { cleared: false };
+  }
+  return { cleared: (data ?? []).length > 0 };
+}
+
 /** What a verdict does to the row, before the write. */
 export function patchFor(
   outcome: ReverifyOutcome,

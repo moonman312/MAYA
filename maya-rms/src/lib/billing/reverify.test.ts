@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  clearCardAlarmAfterPayment,
   patchFor,
   recordOutcome,
   REVERIFY_MAX_ATTEMPTS,
@@ -625,5 +626,61 @@ describe("sweepCardReverification", () => {
     const result = await sweepCardReverification({ admin, stripe, now: NOW });
     expect(result).toMatchObject({ examined: 0, errors: ["connection reset"] });
     expect(calls.retrieves).toHaveLength(0);
+  });
+});
+
+describe("clearCardAlarmAfterPayment", () => {
+  function fakeAdmin(rows: { stripe_subscription_id: string; card_verify_failed_at: string | null }[]) {
+    const patched: Record<string, unknown>[] = [];
+    const admin = {
+      from: () => ({
+        update: (patch: Record<string, unknown>) => ({
+          eq: (_c: string, subId: string) => ({
+            not: () => ({
+              select: async () => {
+                const hit = rows.filter(
+                  (r) => r.stripe_subscription_id === subId && r.card_verify_failed_at !== null,
+                );
+                if (hit.length) patched.push(patch);
+                return { data: hit.map(() => ({ hotel_id: "h1" })), error: null };
+              },
+            }),
+          }),
+        }),
+      }),
+    };
+    return { admin: admin as unknown as SupabaseClient, patched };
+  }
+
+  it("takes the alarm down once a real charge settles", async () => {
+    // A payment going through is better evidence than the probe that raised it.
+    const { admin, patched } = fakeAdmin([
+      { stripe_subscription_id: "sub_1", card_verify_failed_at: "2026-07-28T00:00:00Z" },
+    ]);
+    expect(await clearCardAlarmAfterPayment(admin, "sub_1")).toEqual({ cleared: true });
+    expect(patched[0]).toMatchObject({ card_verify_failed_at: null, card_verify_last_code: null });
+  });
+
+  it("gives the next check a full retry budget rather than the exhausted one", async () => {
+    const { admin, patched } = fakeAdmin([
+      { stripe_subscription_id: "sub_1", card_verify_failed_at: "2026-07-28T00:00:00Z" },
+    ]);
+    await clearCardAlarmAfterPayment(admin, "sub_1");
+    expect(patched[0]).toMatchObject({ card_verify_attempts: 0 });
+  });
+
+  it("does nothing when no alarm was raised", async () => {
+    const { admin, patched } = fakeAdmin([
+      { stripe_subscription_id: "sub_1", card_verify_failed_at: null },
+    ]);
+    expect(await clearCardAlarmAfterPayment(admin, "sub_1")).toEqual({ cleared: false });
+    expect(patched).toHaveLength(0);
+  });
+
+  it("ignores a payment for someone else's subscription", async () => {
+    const { admin } = fakeAdmin([
+      { stripe_subscription_id: "sub_other", card_verify_failed_at: "2026-07-28T00:00:00Z" },
+    ]);
+    expect(await clearCardAlarmAfterPayment(admin, "sub_1")).toEqual({ cleared: false });
   });
 });

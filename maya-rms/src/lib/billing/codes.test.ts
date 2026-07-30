@@ -199,7 +199,7 @@ describe("describeCode tells the owner what they're getting", () => {
 
 describe("checkoutEffectFor", () => {
   it("turns a trial code into trial days", () => {
-    expect(checkoutEffectFor(code({ trial_days: 14 }))).toMatchObject({ trialDays: 14 });
+    expect(checkoutEffectFor(code({ trial_days: 14 }), "month")).toMatchObject({ trialDays: 14 });
   });
 
   it("reuses an existing coupon rather than asking for another", () => {
@@ -209,20 +209,20 @@ describe("checkoutEffectFor", () => {
       percent_off: 25,
       stripe_coupon_id: "co_existing",
     });
-    expect(checkoutEffectFor(withCoupon)).toEqual({ discountCouponId: "co_existing" });
+    expect(checkoutEffectFor(withCoupon, "month")).toEqual({ discountCouponId: "co_existing" });
   });
 
   it("asks for a coupon the first time a percent code is used", () => {
     const fresh = code({ kind: "percent_off", trial_days: null, percent_off: 25, duration_months: 6 });
-    expect(checkoutEffectFor(fresh)).toEqual({
-      couponNeeded: { percentOff: 25, durationMonths: 6 },
+    expect(checkoutEffectFor(fresh, "month")).toEqual({
+      couponNeeded: { percentOff: 25, duration: "repeating", durationMonths: 6, reusable: true },
     });
   });
 
-  it("carries 'forever' through as a null duration, not a missing one", () => {
+  it("states 'forever' outright rather than leaving it to be inferred", () => {
     const forever = code({ kind: "percent_off", trial_days: null, percent_off: 10, duration_months: null });
-    expect(checkoutEffectFor(forever)).toEqual({
-      couponNeeded: { percentOff: 10, durationMonths: null },
+    expect(checkoutEffectFor(forever, "month")).toEqual({
+      couponNeeded: { percentOff: 10, duration: "forever", reusable: true },
     });
   });
 
@@ -234,7 +234,7 @@ describe("checkoutEffectFor", () => {
       fixed_price_interval: "month",
       tier_rooms_cap: 40,
     });
-    expect(checkoutEffectFor(deal)).toEqual({ roomsOverride: 40 });
+    expect(checkoutEffectFor(deal, "month")).toEqual({ roomsOverride: 40 });
   });
 
   it("leaves the stated count alone when a fixed-price code names no tier", () => {
@@ -245,7 +245,92 @@ describe("checkoutEffectFor", () => {
       fixed_price_interval: "month",
       tier_rooms_cap: null,
     });
-    expect(checkoutEffectFor(loose)).toEqual({});
+    expect(checkoutEffectFor(loose, "month")).toEqual({});
+  });
+});
+
+describe("a duration-limited discount is worth the same on either period", () => {
+  const threeMonthsOff = () =>
+    code({ kind: "percent_off", trial_days: null, percent_off: 20, duration_months: 3 });
+
+  it("does not hand an annual buyer a whole year of a three-month discount", () => {
+    // Stripe counts a repeating coupon in months but applies it per INVOICE, and
+    // an annual invoice is twelve of them — so "20% for 3 months" discounted the
+    // entire first year, four times the intended giveaway.
+    const annual = checkoutEffectFor(threeMonthsOff(), "year");
+    expect(annual.couponNeeded).toEqual({ percentOff: 5, duration: "once", reusable: false });
+  });
+
+  it("gives the monthly buyer exactly what the code says", () => {
+    expect(checkoutEffectFor(threeMonthsOff(), "month").couponNeeded).toEqual({
+      percentOff: 20,
+      duration: "repeating",
+      durationMonths: 3,
+      reusable: true,
+    });
+  });
+
+  it("hands over the same money either way", () => {
+    // 20% off 3 of 12 months is 5% off the year. Same cash, different shape.
+    const monthlyPrice = 100;
+    const monthlyGiven = monthlyPrice * 0.2 * 3;
+    const annual = checkoutEffectFor(threeMonthsOff(), "year");
+    const annualGiven = monthlyPrice * 12 * (annual.couponNeeded!.percentOff / 100);
+    expect(annualGiven).toBeCloseTo(monthlyGiven, 6);
+  });
+
+  it("refuses to cache the rescaled coupon, which is wrong for monthly buyers", () => {
+    // One stripe_coupon_id is shared by every later redemption of the code.
+    expect(checkoutEffectFor(threeMonthsOff(), "year").couponNeeded?.reusable).toBe(false);
+    expect(checkoutEffectFor(threeMonthsOff(), "month").couponNeeded?.reusable).toBe(true);
+  });
+
+  it("ignores a cached coupon on the annual path, since it was built for months", () => {
+    const cached = code({
+      kind: "percent_off", trial_days: null, percent_off: 20, duration_months: 3,
+      stripe_coupon_id: "co_monthly_3mo",
+    });
+    expect(checkoutEffectFor(cached, "year").discountCouponId).toBeUndefined();
+    expect(checkoutEffectFor(cached, "month").discountCouponId).toBe("co_monthly_3mo");
+  });
+
+  it("leaves a permanent discount and a full-year one alone", () => {
+    // Both already mean the same thing on an annual invoice.
+    const forever = code({ kind: "percent_off", trial_days: null, percent_off: 15, duration_months: null });
+    expect(checkoutEffectFor(forever, "year").couponNeeded?.duration).toBe("forever");
+
+    const twelve = code({ kind: "percent_off", trial_days: null, percent_off: 15, duration_months: 12 });
+    expect(checkoutEffectFor(twelve, "year").couponNeeded).toMatchObject({
+      percentOff: 15, duration: "repeating", durationMonths: 12,
+    });
+  });
+});
+
+describe("a fixed price is pinned to the period it was agreed for", () => {
+  const monthlyDeal = () =>
+    code({
+      kind: "fixed_price", trial_days: null,
+      fixed_price_cents: 9900, fixed_price_interval: "month", tier_rooms_cap: 40,
+    });
+
+  it("refuses to sell a monthly deal as a yearly one", async () => {
+    // "$99 a month" is not an offer of "$99 a year".
+    const res = await checkCode(fakeAdmin(monthlyDeal()), "DRIFTWOOD", { interval: "year" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.reason).toBe("wrong_interval");
+      // Actionable: says which switch to flip.
+      expect(res.message).toMatch(/monthly and yearly/i);
+    }
+  });
+
+  it("accepts it on the period it was struck at", async () => {
+    expect((await checkCode(fakeAdmin(monthlyDeal()), "DRIFTWOOD", { interval: "month" })).ok).toBe(true);
+  });
+
+  it("does not constrain a code that names no period", async () => {
+    const loose = code({ kind: "fixed_price", trial_days: null, fixed_price_interval: null });
+    expect((await checkCode(fakeAdmin(loose), "DRIFTWOOD", { interval: "year" })).ok).toBe(true);
   });
 });
 

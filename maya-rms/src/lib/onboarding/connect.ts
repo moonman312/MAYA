@@ -155,8 +155,11 @@ export async function handleOnboardingConnect(
   }
 
   // 4. Settings (simulation mode ON — nothing touches live rates until the
-  //    user deliberately flips it).
-  await admin.from("hotel_settings").upsert(
+  //    user deliberately flips it). Checked, because a hotel with no settings
+  //    row reaches the dashboard and then cannot be taken live at all: the
+  //    go-live path reads simulation_mode and 403s on a row that isn't there,
+  //    with nothing on screen explaining why.
+  const { error: settingsErr } = await admin.from("hotel_settings").upsert(
     {
       hotel_id: hotelId,
       pricing_horizon_days: 365,
@@ -166,6 +169,9 @@ export async function handleOnboardingConnect(
     },
     { onConflict: "hotel_id" },
   );
+  if (settingsErr) {
+    return onboardingError(`Could not set up your pricing settings: ${settingsErr.message}`);
+  }
 
   // 5. Tokens into Vault (now that the hotel exists), incl. discovered
   //    property id so the worker skips re-discovery.
@@ -212,7 +218,13 @@ export async function handleOnboardingConnect(
   }
 
   // 6. Queue the background import + onboarding state.
-  const { data: job } = await admin
+  //
+  // Not fatal from here on: they have paid, connected, and the property is live.
+  // Failing the whole callback over the import queue would send them back to a
+  // connect screen for a connection that already works. But it must be LOUD —
+  // silently, this is a hotel that sits on the progress page forever waiting for
+  // an import that was never queued.
+  const { data: job, error: jobErr } = await admin
     .from("import_jobs")
     .insert({
       hotel_id: hotelId,
@@ -223,8 +235,13 @@ export async function handleOnboardingConnect(
     })
     .select("id")
     .single();
+  if (jobErr) {
+    console.error(
+      JSON.stringify({ fn: "handleOnboardingConnect", step: "queue_import", hotel: hotelId, error: jobErr.message }),
+    );
+  }
 
-  await admin.from("onboarding_states").upsert(
+  const { error: stateErr } = await admin.from("onboarding_states").upsert(
     {
       hotel_id: hotelId,
       path: "guided",
@@ -233,6 +250,11 @@ export async function handleOnboardingConnect(
     },
     { onConflict: "hotel_id" },
   );
+  if (stateErr) {
+    console.error(
+      JSON.stringify({ fn: "handleOnboardingConnect", step: "onboarding_state", hotel: hotelId, error: stateErr.message }),
+    );
+  }
 
   await admin.rpc("platform_log_event", {
     p_event_type: "onboarding.pms_connected",

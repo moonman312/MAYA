@@ -154,3 +154,33 @@ describe("the email shows the room count they can correct", () => {
     expect(renewalNudgeText(built)).toContain("per year");
   });
 });
+
+describe("the nudge's own arithmetic holds", () => {
+  // Someone checking whether the room count is right will multiply the two
+  // numbers in that sentence. If they don't reconcile, the email argues against
+  // itself at exactly the moment it is asking to be trusted about a charge.
+  it("quotes an annual per-room rate beside an annual total", () => {
+    const built = buildNudge(
+      invoice({ billingInterval: "year", roomCount: 40, amountDue: 216000 }),
+      "https://app.example/onboarding",
+    );
+    // 40 rooms bill at $5.00/room/month; a year is 12 of those less 10% = $54.00.
+    expect(built.perRoom).toBe("$54.00");
+    const perRoomCents = Math.round(Number(built.perRoom.replace("$", "")) * 100);
+    expect(perRoomCents * built.roomCount).toBe(216000);
+  });
+
+  it("still multiplies out for a monthly subscriber", () => {
+    const built = buildNudge(
+      invoice({ billingInterval: "month", roomCount: 40, amountDue: 20000 }),
+      "https://app.example/onboarding",
+    );
+    expect(built.perRoom).toBe("$5.00");
+    const perRoomCents = Math.round(Number(built.perRoom.replace("$", "")) * 100);
+    expect(perRoomCents * built.roomCount).toBe(20000);
+  });
+
+  it("does not divide by zero when the room count is missing", () => {
+    expect(buildNudge(invoice({ roomCount: 0 }), "https://app.example").perRoom).toBe("$0.00");
+  });
+});
