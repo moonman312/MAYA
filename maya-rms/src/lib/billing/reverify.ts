@@ -66,7 +66,9 @@ export type DueSubscription = {
   card_verify_attempts: number | null;
   /** Set once the signup-time check passed. Null means this sweep IS that check. */
   card_verified_at: string | null;
-  /** When we first recorded the subscription — what the 48 hours counts from. */
+  /** When the CURRENT subscription started — what the 48 hours counts from. */
+  card_verify_anchor_at: string | null;
+  /** Row creation. Only a fallback for rows written before the anchor existed. */
   created_at: string | null;
 };
 
@@ -81,7 +83,7 @@ export type ReverifyOutcome =
   | { kind: "moot"; code: string };
 
 const SELECT_COLUMNS =
-  "hotel_id, stripe_customer_id, stripe_subscription_id, card_verify_due_at, card_verify_attempts, card_verified_at, created_at";
+  "hotel_id, stripe_customer_id, stripe_subscription_id, card_verify_due_at, card_verify_attempts, card_verified_at, card_verify_anchor_at, created_at";
 
 /**
  * Subscriptions whose re-check has come due and has no verdict yet. Matches
@@ -293,7 +295,12 @@ export function patchFor(
     // recheck lands 48h after SIGNUP — a slow first sweep must not push the
     // deadline out, which is the window a cancelled virtual card lives in.
     if (!row.card_verified_at) {
-      const signup = row.created_at ? Date.parse(row.created_at) : now.getTime();
+      // The CURRENT subscription's start, not the row's. hotel_subscriptions is
+      // keyed by hotel and reused when someone re-subscribes, so created_at
+      // still points at the original signup and would put the recheck in the
+      // past — skipping the wait for exactly the customers who churned once.
+      const anchor = row.card_verify_anchor_at ?? row.created_at;
+      const signup = anchor ? Date.parse(anchor) : now.getTime();
       return {
         card_verified_at: at,
         card_verify_due_at: new Date(signup + CARD_REVERIFY_AFTER_HOURS * 3600_000).toISOString(),

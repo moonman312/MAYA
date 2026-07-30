@@ -148,6 +148,7 @@ function row(o: Partial<DueSubscription> = {}): DueSubscription {
     // Default is the SIGNUP check: nothing verified yet. Pass card_verified_at
     // to build a row that has passed it and owes only the 48-hour recheck.
     card_verified_at: null,
+    card_verify_anchor_at: SIGNUP,
     created_at: SIGNUP,
     ...o,
   };
@@ -162,6 +163,7 @@ function seedRow(o: Row = {}): Row {
     created_at: SIGNUP,
     card_verify_due_at: DUE,
     card_verified_at: null,
+    card_verify_anchor_at: SIGNUP,
     card_rechecked_at: null,
     card_verify_failed_at: null,
     card_verify_attempts: 0,
@@ -415,8 +417,30 @@ describe("patchFor", () => {
     expect(patch).not.toHaveProperty("card_verified_at");
   });
 
+  it("counts the 48 hours from THIS subscription, not from the row", () => {
+    // hotel_subscriptions is keyed by hotel and reused when someone
+    // re-subscribes, so created_at still points at the original signup. Using it
+    // put the recheck permanently in the past for anyone who had churned once —
+    // skipping the wait for exactly the customers most worth re-checking.
+    const patch = patchFor(
+      { kind: "verified" },
+      row({ created_at: "2026-01-01T00:00:00Z", card_verify_anchor_at: "2026-07-30T12:00:00Z" }),
+      NOW,
+    );
+    expect(patch.card_verify_due_at).toBe("2026-08-01T12:00:00.000Z");
+  });
+
+  it("falls back to the row's creation for rows written before the anchor existed", () => {
+    const patch = patchFor(
+      { kind: "verified" },
+      row({ card_verify_anchor_at: null, created_at: "2026-07-30T12:00:00Z" }),
+      NOW,
+    );
+    expect(patch.card_verify_due_at).toBe("2026-08-01T12:00:00.000Z");
+  });
+
   it("falls back to now when a row somehow has no creation time", () => {
-    const patch = patchFor({ kind: "verified" }, row({ created_at: null }), NOW);
+    const patch = patchFor({ kind: "verified" }, row({ created_at: null, card_verify_anchor_at: null }), NOW);
     expect(patch.card_verify_due_at).toBe(new Date(NOW.getTime() + 48 * 3600_000).toISOString());
   });
 

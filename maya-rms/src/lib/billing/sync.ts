@@ -33,6 +33,7 @@ export type SubscriptionProjection = {
   trial_end: string | null;
   cancel_at_period_end: boolean;
   card_verify_due_at: string | null;
+  card_verify_anchor_at: string | null;
   signup_code_id: string | null;
 };
 
@@ -86,6 +87,11 @@ export function projectSubscription(sub: Stripe.Subscription): SubscriptionProje
     // dragging it back here. Anchored on the subscription's own creation so a
     // replayed webhook can't keep pushing the first check forward.
     card_verify_due_at: iso(sub.created),
+    // What the 48-hour recheck counts from. Stripe's clock rather than the
+    // row's: hotel_subscriptions is keyed by hotel and reused on a re-subscribe,
+    // so created_at would still point at a signup months earlier and put the
+    // recheck permanently in the past.
+    card_verify_anchor_at: iso(sub.created),
     signup_code_id: sub.metadata?.signup_code_id || null,
   };
 }
