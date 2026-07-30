@@ -21,6 +21,21 @@ const state = vi.hoisted(() => ({
   insertError: null as { code?: string; message: string } | null,
   upsertError: null as { message: string } | null,
   upserts: [] as Record<string, unknown>[],
+  /** hotel_subscriptions row found by stripe_subscription_id, for invoice.upcoming. */
+  subRow: null as Record<string, unknown> | null,
+  /** pms_connections statuses for the hotel. */
+  pmsStatuses: [] as string[],
+  sentEmails: [] as { to: string; subject: string; idempotencyKey?: string }[],
+  sendError: null as Error | null,
+}));
+
+vi.mock("@/lib/email/resend", () => ({
+  isResendConfigured: () => true,
+  sendEmail: async (input: { to: string; subject: string; idempotencyKey?: string }) => {
+    if (state.sendError) throw state.sendError;
+    state.sentEmails.push(input);
+    return { id: "email_1" };
+  },
 }));
 
 vi.mock("@/lib/billing/stripe", async () => {
@@ -51,6 +66,19 @@ vi.mock("@/utils/supabase/admin", () => ({
           state.inserts.push({ table, row });
           return Promise.resolve({ error: state.insertError });
         },
+        // Two read shapes: hotel_subscriptions by subscription id (maybeSingle),
+        // and pms_connections by hotel (awaited directly).
+        select: () => ({
+          eq: () => {
+            const result =
+              table === "pms_connections"
+                ? { data: state.pmsStatuses.map((status) => ({ status })), error: null }
+                : { data: state.subRow, error: null };
+            return Object.assign(Promise.resolve(result), {
+              maybeSingle: async () => ({ data: state.subRow, error: null }),
+            });
+          },
+        }),
       }),
     }) as unknown as SupabaseClient,
 }));
@@ -257,6 +285,83 @@ describe("checkout.session.completed", () => {
     expect(res.status).toBe(200);
     expect(state.inserts).toHaveLength(0);
     expect(state.upserts).toHaveLength(1);
+  });
+});
+
+describe("invoice.upcoming nudges only the unconnected", () => {
+  const upcoming = (o: Record<string, unknown> = {}) => ({
+    id: "in_upcoming",
+    object: "invoice",
+    // No invoice id on a preview, and the subscription hangs off parent in this
+    // API version — both are why this path can't be written the obvious way.
+    parent: { subscription_details: { subscription: "sub_1" } },
+    amount_due: 13200,
+    amount_paid: 0,
+    attempt_count: 0,
+    currency: "usd",
+    customer_email: "gm@driftwood.example",
+    next_payment_attempt: Math.floor(Date.parse("2026-08-06T12:00:00Z") / 1000),
+    period_end: Math.floor(Date.parse("2026-08-06T12:00:00Z") / 1000),
+    ...o,
+  });
+
+  beforeEach(() => {
+    process.env.MAYA_INVITE_REDIRECT_BASE = "https://app.example";
+    state.subRow = { hotel_id: "hotel-1", billed_rooms: 24, billing_interval: "month" };
+    state.pmsStatuses = [];
+    state.sentEmails = [];
+    state.sendError = null;
+  });
+
+  it("emails a property that paid and never connected", async () => {
+    const res = await POST(
+      signedRequest({ id: "evt_up", type: "invoice.upcoming", data: { object: upcoming() } }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ nudge: "sent", hotel_id: "hotel-1" });
+    expect(state.sentEmails).toHaveLength(1);
+    expect(state.sentEmails[0].to).toBe("gm@driftwood.example");
+    // Keyed on subscription + period: a redelivered event must not mail twice,
+    // and there is no invoice id to key on.
+    expect(state.sentEmails[0].idempotencyKey).toContain("sub_1");
+  });
+
+  it("stays quiet when the PMS is already connected", async () => {
+    state.pmsStatuses = ["connected"];
+    const res = await POST(
+      signedRequest({ id: "evt_up", type: "invoice.upcoming", data: { object: upcoming() } }),
+    );
+    expect(await res.json()).toMatchObject({ nudge: "skipped", reason: "pms_connected" });
+    expect(state.sentEmails).toHaveLength(0);
+  });
+
+  it("stays quiet for a subscription it doesn't recognise", async () => {
+    state.subRow = null;
+    const res = await POST(
+      signedRequest({ id: "evt_up", type: "invoice.upcoming", data: { object: upcoming() } }),
+    );
+    expect(await res.json()).toMatchObject({ reason: "no_hotel_metadata" });
+    expect(state.sentEmails).toHaveLength(0);
+  });
+
+  it("would rather send nothing than a dead link", async () => {
+    delete process.env.MAYA_INVITE_REDIRECT_BASE;
+    const res = await POST(
+      signedRequest({ id: "evt_up", type: "invoice.upcoming", data: { object: upcoming() } }),
+    );
+    expect(await res.json()).toMatchObject({ reason: "no_base_url" });
+    expect(state.sentEmails).toHaveLength(0);
+  });
+
+  it("acknowledges a mail failure instead of making Stripe retry it", async () => {
+    // Stripe redelivering the event cannot fix Resend being down, and a charge
+    // should never be held up by an email.
+    state.sendError = new Error("resend down");
+    const res = await POST(
+      signedRequest({ id: "evt_up", type: "invoice.upcoming", data: { object: upcoming() } }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ nudge: "failed" });
   });
 });
 

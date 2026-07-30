@@ -14,6 +14,7 @@
 import { createAdminClient } from "@/utils/supabase/admin";
 import { isStripeConfigured, stripeClient } from "@/lib/billing/stripe";
 import { persistSubscription, projectSubscription } from "@/lib/billing/sync";
+import { decideNudge, sendRenewalNudge, type UpcomingInvoice } from "@/lib/billing/renewal-nudge";
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 
@@ -109,6 +110,76 @@ export async function POST(request: Request) {
         }
       }
       return NextResponse.json({ received: true });
+    }
+
+    if (event.type === "invoice.upcoming") {
+      // The highest-leverage moment in the whole flow: a few days out from a
+      // charge, before the money moves. A property that paid and never connected
+      // its PMS gets one nudge here; a connected one gets nothing, because it is
+      // already getting what it pays for.
+      //
+      // How many days ahead this fires is a Stripe dashboard setting
+      // (Settings > Billing > Subscriptions), not something we control here.
+      const inv = event.data.object as Stripe.Invoice;
+      // The subscription reference lives under parent.subscription_details in
+      // this API version, not on the invoice itself.
+      const subRef = inv.parent?.subscription_details?.subscription ?? null;
+      const subId = typeof subRef === "string" ? subRef : (subRef?.id ?? null);
+
+      // The invoice's own metadata is empty for an upcoming preview, so the
+      // hotel has to come off the subscription we already recorded.
+      let hotelId: string | null = null;
+      let billedRooms = 0;
+      let interval: "month" | "year" = "month";
+      if (subId) {
+        const { data: sub } = await admin
+          .from("hotel_subscriptions")
+          .select("hotel_id, billed_rooms, billing_interval")
+          .eq("stripe_subscription_id", subId)
+          .maybeSingle();
+        if (sub) {
+          hotelId = String(sub.hotel_id);
+          billedRooms = Number(sub.billed_rooms ?? 0);
+          interval = sub.billing_interval === "year" ? "year" : "month";
+        }
+      }
+
+      const upcoming: UpcomingInvoice = {
+        subscriptionId: subId,
+        hotelId,
+        amountDue: inv.amount_due ?? 0,
+        currency: inv.currency ?? "usd",
+        nextPaymentAttempt: inv.next_payment_attempt ?? null,
+        periodEnd: inv.period_end ?? null,
+        customerEmail: inv.customer_email ?? null,
+        billingInterval: interval,
+        roomCount: billedRooms,
+        // No amount paid yet on this subscription means this is the first real
+        // charge — usually a trial ending, which reads differently.
+        isFirstCharge: (inv.amount_paid ?? 0) === 0 && (inv.attempt_count ?? 0) === 0,
+      };
+
+      const decision = await decideNudge(admin, upcoming);
+      if (!decision.send) {
+        return NextResponse.json({ received: true, nudge: "skipped", reason: decision.reason });
+      }
+
+      const base = process.env.MAYA_INVITE_REDIRECT_BASE?.replace(/\/$/, "");
+      if (!base) {
+        // Without a base URL the mail would carry a dead link, which is worse
+        // than not sending — the whole point is a door back in.
+        console.error(JSON.stringify({ fn: "stripeWebhook", nudge: "no_base_url" }));
+        return NextResponse.json({ received: true, nudge: "skipped", reason: "no_base_url" });
+      }
+
+      const sent = await sendRenewalNudge(upcoming, decision.to, `${base}/onboarding/connect`);
+      if (!sent.ok) {
+        // Acknowledge anyway: Stripe retrying this event would not fix a mail
+        // provider problem, and the charge should not be held up by an email.
+        console.error(JSON.stringify({ fn: "stripeWebhook", nudge: "send_failed", error: sent.error }));
+        return NextResponse.json({ received: true, nudge: "failed" });
+      }
+      return NextResponse.json({ received: true, nudge: "sent", hotel_id: decision.hotelId });
     }
 
     // Payment outcomes are already reflected in the subscription's own status,
