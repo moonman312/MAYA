@@ -19,7 +19,7 @@ import {
  * bracket's rate and that is genuinely surprising the first time you see it —
  * better to watch the number move than to discover it on a card statement.
  */
-export function SubscribeStep() {
+export function SubscribeStep({ cancelled = false }: { cancelled?: boolean }) {
   const [roomsText, setRoomsText] = useState("");
   const [interval, setInterval] = useState<BillingInterval>("month");
   const [code, setCode] = useState("");
@@ -91,6 +91,13 @@ export function SubscribeStep() {
         Pricing is per room, per month. Tell us how big the property is and
         we&apos;ll show you the number before you commit to anything.
       </p>
+
+      {cancelled ? (
+        <p className="mt-5 max-w-lg rounded border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm text-slate-300">
+          No charge was made — you left checkout before finishing. Pick up where
+          you left off whenever you&apos;re ready.
+        </p>
+      ) : null}
 
       <div className="mt-8 max-w-lg space-y-6">
         <label className="block">

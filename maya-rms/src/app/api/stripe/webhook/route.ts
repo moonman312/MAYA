@@ -172,7 +172,11 @@ export async function POST(request: Request) {
         return NextResponse.json({ received: true, nudge: "skipped", reason: "no_base_url" });
       }
 
-      const sent = await sendRenewalNudge(upcoming, decision.to, `${base}/onboarding/connect`);
+      // /onboarding rather than /onboarding/connect: the connect page guards
+      // itself and redirects anyone it doesn't consider mid-connect, so a deep
+      // link from an email can bounce. /onboarding is the router — it resolves
+      // whichever step this owner is actually on, and cannot turn them away.
+      const sent = await sendRenewalNudge(upcoming, decision.to, `${base}/onboarding`);
       if (!sent.ok) {
         // Acknowledge anyway: Stripe retrying this event would not fix a mail
         // provider problem, and the charge should not be held up by an email.
