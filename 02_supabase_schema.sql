@@ -849,6 +849,13 @@ as $$
   select r.hotel_id from pricing_rules r where r.id = target_rule_id
 $$;
 
+-- Supabase's default privileges grant EXECUTE to anon directly, so revoking
+-- from public alone leaves these anon-callable via /rest/v1/rpc. Same pattern
+-- on every helper below.
+revoke all on function public.rule_hotel_id(uuid) from public, anon;
+grant execute on function public.rule_hotel_id(uuid)
+  to authenticated, service_role;
+
 create or replace function public.has_hotel_role(target_hotel_id uuid, allowed_roles text[])
 returns boolean
 language sql
@@ -866,9 +873,15 @@ as $$
   )
 $$;
 
+revoke all on function public.has_hotel_role(uuid, text[]) from public, anon;
+grant execute on function public.has_hotel_role(uuid, text[])
+  to authenticated, service_role;
+
 -- Platform-admin gateway: returns true iff the user is in app_roles with
 -- role='platform_admin'. Wrapped in SECURITY DEFINER so callers don't need
--- direct SELECT on the locked-down app_roles table.
+-- direct SELECT on the locked-down app_roles table. Non-service callers only
+-- get to ask about themselves; honoring an arbitrary p_user_id made this an
+-- admin-enumeration oracle for anyone with a uuid.
 create or replace function public.is_platform_admin(p_user_id uuid default auth.uid())
 returns boolean
 language sql
@@ -879,12 +892,15 @@ as $$
   select exists (
     select 1
     from public.app_roles
-    where user_id = p_user_id
+    where user_id = case
+        when (select auth.role()) = 'service_role' then p_user_id
+        else auth.uid()
+      end
       and role = 'platform_admin'
   )
 $$;
 
-revoke all on function public.is_platform_admin(uuid) from public;
+revoke all on function public.is_platform_admin(uuid) from public, anon;
 grant execute on function public.is_platform_admin(uuid)
   to authenticated, service_role;
 
@@ -904,6 +920,10 @@ as $$
          )
 $$;
 
+revoke all on function public.is_hotel_accessible(uuid) from public, anon;
+grant execute on function public.is_hotel_accessible(uuid)
+  to authenticated, service_role;
+
 create or replace function public.can_manage_hotel(target_hotel_id uuid)
 returns boolean
 language sql
@@ -917,6 +937,10 @@ as $$
            array['hotel_admin', 'manager']
          )
 $$;
+
+revoke all on function public.can_manage_hotel(uuid) from public, anon;
+grant execute on function public.can_manage_hotel(uuid)
+  to authenticated, service_role;
 
 -- ============================================================================
 -- PMS SECRETS: triggers + SECURITY DEFINER RPCs (Vault-backed credential store)
