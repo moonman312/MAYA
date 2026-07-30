@@ -12,6 +12,9 @@
  *     is enabled, so deploying the code changes nothing until you opt in.
  *   • Idempotency — a cell is skipped when the ledger already recorded a 'sent'
  *     push at the same price, so we never spam unchanged rates.
+ *   • Target freshness — the cached room-type→rate map is re-resolved whenever a
+ *     cell it doesn't cover shows up, and dropped after a push rejection, so a
+ *     new room type or a rebuilt rate catalog heals on the next tick.
  *
  * Vendor specifics live behind PmsRatePushAdapter (Cloudbeds today; Mews next).
  */
@@ -178,7 +181,7 @@ export async function pushRatesForHotel(
     };
   }
 
-  // ── Resolve rate targets (cached on the connection; resolve+cache if absent) ─
+  // ── Resolve rate targets (cached on the connection) ───────────────────────
   let targets: RateTargetMap = {};
   const { data: conn } = await supabase
     .from("pms_connections")
@@ -189,10 +192,33 @@ export async function pushRatesForHotel(
   if (!opts.refreshTargets && conn?.push_rate_targets && typeof conn.push_rate_targets === "object") {
     targets = conn.push_rate_targets as RateTargetMap;
   }
-  if (Object.keys(targets).length === 0) {
-    targets = await adapter.resolveRateTargets();
-    if (conn?.id && Object.keys(targets).length > 0) {
-      await supabase.from("pms_connections").update({ push_rate_targets: targets }).eq("id", conn.id);
+  // Coverage, not age, is what tells us the cache is out of date: a room type
+  // added in the PMS after the map was written is simply absent from it, and a
+  // non-empty map would otherwise never be re-resolved.
+  let usingCache = Object.keys(targets).length > 0;
+  const uncovered = changed.some((c) => !targets[c.externalRoomTypeId]);
+  if (!usingCache || uncovered) {
+    // A room type with only derived rate plans can never be covered, so this
+    // re-resolve then runs on every tick — a throwing catalog read must not take
+    // down the cells the cached map still targets.
+    let resolved: RateTargetMap = {};
+    try {
+      resolved = await adapter.resolveRateTargets();
+    } catch (e) {
+      if (!usingCache) throw e;
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(
+        `${adapter.pmsType} rate target re-resolve failed for hotel ${hotelId}, keeping cached map: ${msg}`,
+      );
+    }
+    // An empty catalog read is a vendor hiccup far more often than a real
+    // teardown — don't let it wipe a map that is still pushing rates.
+    if (Object.keys(resolved).length > 0) {
+      targets = resolved;
+      usingCache = false;
+      if (conn?.id) {
+        await supabase.from("pms_connections").update({ push_rate_targets: targets }).eq("id", conn.id);
+      }
     }
   }
   if (Object.keys(targets).length === 0) {
@@ -254,6 +280,15 @@ export async function pushRatesForHotel(
 
   const sent = results.filter((r) => r.ok).length;
   const failed = results.filter((r) => !r.ok).length;
+
+  // Rejections against cached rate ids usually mean the catalog was rebuilt and
+  // those ids are gone. Failed cells stay "changed" (only sends land in the
+  // ledger's lastSent), so dropping the cache is enough for the next tick to
+  // re-resolve and retry them instead of hammering dead ids forever.
+  if (failed > 0 && usingCache && conn?.id) {
+    await supabase.from("pms_connections").update({ push_rate_targets: null }).eq("id", conn.id);
+  }
+
   return {
     pushed: true,
     cellsConsidered: ppRows.length,
