@@ -1,6 +1,7 @@
 "use client";
 
 import { AskForHelp } from "@/components/onboarding/ask-for-help";
+import { BillingBanner } from "@/components/billing/billing-banner";
 import { OnboardingReviewBanner } from "@/components/onboarding/review-banner";
 import { CorrectionsPanel, ExplainDrilldown } from "@/components/explain-drilldown";
 import { useCalendarLive } from "@/lib/use-calendar-live";
@@ -783,6 +784,12 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                   Command Center
                 </a>
               ) : null}
+              <a
+                href="/account/billing"
+                className="w-full cursor-pointer rounded border border-slate-700 px-3 py-2 text-center text-sm text-slate-200 hover:bg-slate-800 sm:w-auto"
+              >
+                Billing
+              </a>
               <form action="/auth/logout" method="post">
                 <button
                   type="submit"
@@ -823,6 +830,8 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
             </div>
           ) : null}
         </div>
+
+        <BillingBanner />
 
         <OnboardingReviewBanner />
 
