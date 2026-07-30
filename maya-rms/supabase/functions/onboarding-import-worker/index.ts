@@ -3,8 +3,9 @@
  *
  * Claims the next runnable import job (claim_import_job RPC — queued, or
  * running with an expired lease) and drives it forward for a bounded time
- * budget, checkpointing continuously. If work remains, it re-invokes itself;
- * pg_cron (every minute) is the crash-recovery driver.
+ * budget, checkpointing continuously. If work remains it hands the lease back
+ * and re-invokes itself, so the chained call can claim the same job on the
+ * spot; pg_cron (every minute) is the crash-recovery driver.
  *
  * Auth: `x-onboarding-cron-secret` vs ONBOARDING_CRON_SECRET
  * (verify_jwt=false for this function — see supabase/config.toml).
@@ -15,6 +16,7 @@ import { createOnboardingAdapter } from "../_shared/pms/onboarding-adapter.ts";
 import { runCloudbedsSyncForHotel } from "../_shared/cloudbeds/sync-hotel.ts";
 import { analyzeImport } from "../_shared/onboarding/analysis.ts";
 import {
+  LEASE_SECONDS,
   processJob,
   type ImportJobRow,
   type WorkerDeps,
@@ -33,7 +35,11 @@ const deps: WorkerDeps = {
       return { ok: false, error: `No current-window sync for '${pmsType}'` };
     }
     const res = await runCloudbedsSyncForHotel(supabase, hotelId);
-    return res.ok ? { ok: true } : { ok: false, error: res.error };
+    // Report the window it actually covered — its depth is env-configurable
+    // (MAYA_SYNC_DAYS_BACK), so the historical phase must not assume one.
+    return res.ok
+      ? { ok: true, coveredFrom: res.fetchWindow.checkInFrom }
+      : { ok: false, error: res.error };
   },
   analyze: analyzeImport,
   now: () => Date.now(),
@@ -68,7 +74,7 @@ Deno.serve(async (req) => {
   });
 
   const { data: claimed, error: claimErr } = await supabase.rpc("claim_import_job", {
-    p_lease_seconds: 180,
+    p_lease_seconds: LEASE_SECONDS,
   });
   if (claimErr) {
     return new Response(JSON.stringify({ ok: false, error: claimErr.message }), {

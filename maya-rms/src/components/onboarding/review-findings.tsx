@@ -80,9 +80,26 @@ export function ReviewFindings() {
     router.push("/");
   }
 
-  const open = (findings ?? []).filter(
-    (f) => f.status === "proposed" || f.status === "auto_applied",
+  // A re-run keeps the standing auto_applied record (it documents a fix we
+  // can no longer re-derive) and files a fresh proposed finding when the same
+  // room type came back active. Both would render, and the auto_applied one
+  // would claim "we already did this for you" about something that is live
+  // again — and confirming it does nothing, since the deactivating branch only
+  // fires for a proposed finding. Show the actionable one; the record stays in
+  // the resolved list.
+  const supersededByProposed = new Set(
+    (findings ?? [])
+      .filter((f) => f.status === "proposed")
+      .map((f) => `${f.kind}|${String(f.payload.deactivate_room_type_id ?? "")}`)
+      .filter((k) => !k.endsWith("|")),
   );
+  const open = (findings ?? []).filter((f) => {
+    if (f.status === "proposed") return true;
+    if (f.status !== "auto_applied") return false;
+    return !supersededByProposed.has(
+      `${f.kind}|${String(f.payload.deactivate_room_type_id ?? "")}`,
+    );
+  });
   const resolved = (findings ?? []).filter(
     (f) => f.status === "confirmed" || f.status === "dismissed",
   );
