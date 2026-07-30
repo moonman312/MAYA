@@ -139,7 +139,9 @@ export async function createCloudbedsOnboardingAdapter(
         pageNumber,
       );
 
-      // Slim rows: nightly rate = total / nights, raw_payload dropped entirely.
+      // Slim rows: one row per room-night keyed the same way the detail sync
+      // keys its rows, nightly rate = total / (rooms × nights), raw_payload
+      // dropped entirely.
       const parsed = parseCloudbedsReservations(reservations);
       const rows: AdapterReservationRow[] = parsed.reservations.map((r) => ({
         external_reservation_id: r.external_reservation_id,

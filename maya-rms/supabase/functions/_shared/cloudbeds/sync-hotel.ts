@@ -11,12 +11,20 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   cloudbedsDiscoverPropertyId,
   cloudbedsGetReservationDetail,
+  cloudbedsGetReservationsPage,
   cloudbedsGetReservationsRange,
   cloudbedsGetRoomTypes,
   CloudbedsHttpError,
+  type CloudbedsReservation,
 } from "./client.ts";
-import { defaultCloudbedsBaseUrl, CLOUDBEDS_ACTIVE_STATUSES } from "./constants.ts";
 import {
+  defaultCloudbedsBaseUrl,
+  CLOUDBEDS_ACTIVE_STATUSES,
+  CLOUDBEDS_CANCELED_STATUSES,
+} from "./constants.ts";
+import {
+  cloudbedsRoomRowIds,
+  cloudbedsRoomSlots,
   parseCloudbedsReservationDetail,
   parseCloudbedsRoomTypes,
 } from "./etl.ts";
@@ -26,6 +34,7 @@ import { persistPropertyId, resolveOAuthCredentials } from "../pms/oauth-credent
 import { installCloudbedsRequestLogging } from "./request-log.ts";
 
 const RECONCILE_IN_CHUNK = 200;
+const PAGE_GUARD = 1000;
 const DEFAULT_BACK = 30;
 const DEFAULT_FORWARD = 396;
 const MAX_BACK = 365;
@@ -47,6 +56,10 @@ export type CloudbedsSyncSuccess = {
   ingest: {
     reservationsDetailFetched: number;
     reservationsDetailFailed: number;
+    canceledReservationsSeen: number;
+    canceledRowIdsDeleted: number;
+    canceledDetailFailed: number;
+    canceledStatusListFailures: number;
     duplicateStayNightKeysMerged: number;
     rowsWithMissingRate: number;
     tokenRefreshed: boolean;
@@ -87,9 +100,77 @@ function dedupeByKey<T>(rows: T[], keyFn: (r: T) => string): T[] {
   return [...m.values()];
 }
 
-// Exported for the (not yet wired) whole-reservation cancellation
-// reconciliation — see the note at the bottom of runCloudbedsSyncForHotel.
-export async function deleteCanceledReservationRows(
+function reservationIdOf(item: CloudbedsReservation): string {
+  return String((item.reservationID ?? item.reservationId ?? item.id) ?? "");
+}
+
+function isCanceledStatus(status: string | null): boolean {
+  if (!status) return false;
+  return (CLOUDBEDS_CANCELED_STATUSES as readonly string[]).includes(status.trim().toLowerCase());
+}
+
+/**
+ * Every external_reservation_id a booking's stored rows could be keyed by, so a
+ * cancellation can delete them. Rows are per physical room, not per booking, so
+ * the parent id alone matches nothing for a multi-room stay; it stays in the set
+ * because rows written before the per-room keying existed are under it. The
+ * per-room ids come from etl.ts rather than a second copy of its rule — a copy
+ * that drifted by one slot would leave phantom booked nights behind forever.
+ * They are derived from the payload's own room arrays rather than from parsed
+ * rows because a canceled booking can keep its assignments while dropping
+ * dailyRates, which leaves the parsed rows — and so the ids — empty.
+ */
+function rowIdsForReservation(rid: string, payload: Record<string, unknown>): string[] {
+  return [rid, ...cloudbedsRoomRowIds(rid, cloudbedsRoomSlots(payload))];
+}
+
+/**
+ * Enumerate canceled / no-show reservations over the same check-in window.
+ * Paged per status by hand instead of via cloudbedsGetReservationsRange so one
+ * rejected status value can't fail the sync: the canceled set carries both
+ * "canceled" and "cancelled" and an account that only accepts one spelling
+ * would otherwise 400 the whole run.
+ */
+async function listCanceledReservations(
+  creds: CloudbedsResolvedCredentials,
+  checkInFrom: string,
+  checkInTo: string,
+): Promise<{ items: CloudbedsReservation[]; pages: number; statusesFailed: number }> {
+  const items: CloudbedsReservation[] = [];
+  let pages = 0;
+  let statusesFailed = 0;
+
+  for (const status of CLOUDBEDS_CANCELED_STATUSES) {
+    let pageNumber = 1;
+    try {
+      for (let guard = 0; guard < PAGE_GUARD; guard += 1) {
+        const page = await cloudbedsGetReservationsPage(
+          creds,
+          checkInFrom,
+          checkInTo,
+          status,
+          pageNumber,
+        );
+        pages += 1;
+        items.push(...page.reservations);
+        if (!page.hasMore) break;
+        pageNumber += 1;
+      }
+    } catch (error) {
+      // Only the rejected-spelling case is survivable. A 401, a 5xx or a timeout
+      // here means the cancellation pass reconciled nothing, and swallowing it
+      // would report a healthy sync that silently left phantom nights booked.
+      const rejectedValue =
+        error instanceof CloudbedsHttpError && (error.status === 400 || error.status === 422);
+      if (!rejectedValue) throw error;
+      statusesFailed += 1;
+    }
+  }
+
+  return { items, pages, statusesFailed };
+}
+
+async function deleteCanceledReservationRows(
   supabase: SupabaseClient,
   hotelId: string,
   canceledIds: string[],
@@ -168,7 +249,10 @@ export async function runCloudbedsSyncForHotel(
       propertyId,
     };
 
-    // 4. Room types → room_types upsert.
+    // 4. Room types → room_types upsert. No is_active in the payload: PostgREST
+    //    only touches the columns it is given, so a type the owner excluded (or
+    //    the duplicate-dedup deactivated) is not resurrected and priced by the
+    //    next 5-minute cron. New rows still default to active.
     const { data: hotelRow } = await supabase
       .from("hotels")
       .select("total_rooms_per_type")
@@ -187,7 +271,6 @@ export async function runCloudbedsSyncForHotel(
           external_room_type_id: rt.external_room_type_id,
           name: rt.name,
           display_name: rt.display_name,
-          is_active: true,
           total_rooms: rt.total_rooms,
         })),
         (r) => `${r.hotel_id}:${r.external_room_type_id}`,
@@ -224,10 +307,12 @@ export async function runCloudbedsSyncForHotel(
 
     const seenResIds = new Set<string>();
     const allRows: CloudbedsParsedReservationRow[] = [];
+    const canceledRowIds = new Set<string>();
     let detailFetched = 0;
     let detailFailed = 0;
+    let canceledSeen = 0;
     for (const item of listItems) {
-      const rid = String((item.reservationID ?? item.reservationId ?? item.id) ?? "");
+      const rid = reservationIdOf(item);
       if (!rid || seenResIds.has(rid)) continue;
       seenResIds.add(rid);
       const detail = await cloudbedsGetReservationDetail(creds, rid);
@@ -236,7 +321,15 @@ export async function runCloudbedsSyncForHotel(
         continue;
       }
       detailFetched += 1;
-      allRows.push(...parseCloudbedsReservationDetail(detail).rows);
+      const parsed = parseCloudbedsReservationDetail(detail);
+      // The list was filtered to active statuses server-side, but a booking can
+      // cancel between that page and this detail call — the detail is newer.
+      if (isCanceledStatus(parsed.status)) {
+        canceledSeen += 1;
+        for (const id of rowIdsForReservation(rid, detail)) canceledRowIds.add(id);
+        continue;
+      }
+      allRows.push(...parsed.rows);
     }
 
     // Dedupe to the reservations unique key (external_reservation_id, stay_date).
@@ -270,19 +363,63 @@ export async function runCloudbedsSyncForHotel(
           });
         if (resErr) return { ok: false, error: resErr.message };
       }
-
-      // Prune stale nights for still-active bookings (date/rate changes).
-      // NOTE: whole-reservation cancellation reconciliation is a follow-up —
-      // canceled bookings drop out of the active list but their rows linger
-      // until we also pull canceled statuses and delete by id.
-      const activeNights = new Map<string, Set<string>>();
-      for (const r of rows) {
-        if (!activeNights.has(r.external_reservation_id)) activeNights.set(r.external_reservation_id, new Set());
-        activeNights.get(r.external_reservation_id)!.add(r.stay_date);
-      }
-      const staleDel = await deleteStaleStayNights(supabase, hotelId, activeNights);
-      if (staleDel.error) return { ok: false, error: staleDel.error.message };
     }
+
+    // Reconcile outside the upsert branch: a hotel whose entire book cancels
+    // fetches zero active rows and still has to lose those nights.
+    const activeNights = new Map<string, Set<string>>();
+    for (const r of rows) {
+      if (!activeNights.has(r.external_reservation_id)) activeNights.set(r.external_reservation_id, new Set());
+      activeNights.get(r.external_reservation_id)!.add(r.stay_date);
+    }
+
+    // Cancellations drop out of the active list entirely, so nothing above ever
+    // sees them again — without this pass their room-nights stay in
+    // `reservations` forever and keep counting as booked occupancy.
+    //
+    // Deliberately after the upsert: this pass hits the API again, and anything
+    // that isn't a rejected status spelling rethrows. Fetching it first meant a
+    // 503 or an expired token on THIS list threw away the active room-nights
+    // already parsed above — every hotel losing a whole cron cycle's data (and
+    // its rate push) over a cancellation-list hiccup. Failing after the upsert
+    // still reports ok:false; it just doesn't discard good data to do it.
+    const canceledList = await listCanceledReservations(creds, checkInFrom, checkInTo);
+    let canceledDetailFailed = 0;
+    for (const item of canceledList.items) {
+      const rid = reservationIdOf(item);
+      if (!rid || seenResIds.has(rid)) continue;
+      seenResIds.add(rid);
+      const detail = await cloudbedsGetReservationDetail(creds, rid);
+      if (!detail) {
+        // The list said canceled, so clear what the list item itself names —
+        // the parent id plus whatever rooms[] it carries. A list item that names
+        // no rooms leaves rooms 2..n of a multi-room cancellation behind until a
+        // run whose detail call succeeds. (cloudbedsGetReservationDetail returns
+        // null for a 5xx or timeout too, not only a genuinely missing booking.)
+        canceledDetailFailed += 1;
+        canceledSeen += 1;
+        for (const id of rowIdsForReservation(rid, item)) canceledRowIds.add(id);
+        continue;
+      }
+      const status = parseCloudbedsReservationDetail(detail).status;
+      // Reinstated between the list page and here — leave its rows alone and let
+      // the next sync pick it up as active. A detail payload with no status at all
+      // does not overrule the list, which said canceled.
+      if (status && !isCanceledStatus(status)) continue;
+      canceledSeen += 1;
+      for (const id of rowIdsForReservation(rid, detail)) canceledRowIds.add(id);
+    }
+
+    // Never delete an id this run just upserted. If a status flipped between the
+    // two passes, the nights we just confirmed as booked win; the next sync
+    // re-decides with a consistent read.
+    const canceledIds = [...canceledRowIds].filter((id) => !activeNights.has(id));
+    const canceledDel = await deleteCanceledReservationRows(supabase, hotelId, canceledIds);
+    if (canceledDel.error) return { ok: false, error: canceledDel.error.message };
+
+    // Prune stale nights for still-active bookings (date/rate changes).
+    const staleDel = await deleteStaleStayNights(supabase, hotelId, activeNights);
+    if (staleDel.error) return { ok: false, error: staleDel.error.message };
 
     // 7. Stamp connection status.
     if (connRow?.id) {
@@ -298,12 +435,16 @@ export async function runCloudbedsSyncForHotel(
       ok: true,
       creds,
       fetchWindow: { checkInFrom, checkInTo },
-      apiPages: pages,
+      apiPages: pages + canceledList.pages,
       roomTypesUpserted,
       reservationRowsUpserted,
       ingest: {
         reservationsDetailFetched: detailFetched,
         reservationsDetailFailed: detailFailed,
+        canceledReservationsSeen: canceledSeen,
+        canceledRowIdsDeleted: canceledIds.length,
+        canceledDetailFailed,
+        canceledStatusListFailures: canceledList.statusesFailed,
         duplicateStayNightKeysMerged,
         rowsWithMissingRate,
         tokenRefreshed: resolved.refreshed,
