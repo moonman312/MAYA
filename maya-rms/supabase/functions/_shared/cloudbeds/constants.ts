@@ -60,3 +60,18 @@ export const CLOUDBEDS_FETCH_RATE_DETAIL =
  */
 export const CLOUDBEDS_MIN_REQUEST_INTERVAL_MS =
   Number(mwsEnv("CLOUDBEDS_MIN_REQUEST_INTERVAL_MS") ?? "220") || 220;
+
+/**
+ * Wall clock one scheduled sync may spend pulling reservation detail.
+ *
+ * The loop is one Cloudbeds call per reservation at 220ms apiece, so 300 seconds
+ * of cron interval buys about 1,360 of them — a threshold a 30-room property
+ * already passes. Left unbounded the invocation was simply killed, and because
+ * the upsert ran after the loop, nothing was written: those hotels had no
+ * reservation data at all and retried from scratch every five minutes.
+ *
+ * 210s leaves room inside a 300s tick for the upserts, the reconcile, the
+ * evaluation and the room-count measurement that all follow.
+ */
+export const CLOUDBEDS_SYNC_BUDGET_MS =
+  Number(mwsEnv("CLOUDBEDS_SYNC_BUDGET_MS") ?? "210000") || 210_000;

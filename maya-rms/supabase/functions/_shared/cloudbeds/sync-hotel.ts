@@ -18,6 +18,7 @@ import {
   type CloudbedsReservation,
 } from "./client.ts";
 import {
+  CLOUDBEDS_SYNC_BUDGET_MS,
   defaultCloudbedsBaseUrl,
   CLOUDBEDS_ACTIVE_STATUSES,
   CLOUDBEDS_CANCELED_STATUSES,
@@ -47,6 +48,8 @@ export type CloudbedsSyncOptions = {
 
 export type CloudbedsSyncSuccess = {
   ok: true;
+  /** False when the detail budget expired before the window was covered. */
+  windowFullyCovered: boolean;
   /** Resolved, ready-to-use credentials (reused by the rate-push step). */
   creds: CloudbedsResolvedCredentials;
   fetchWindow: { checkInFrom: string; checkInTo: string };
@@ -311,7 +314,25 @@ export async function runCloudbedsSyncForHotel(
     let detailFetched = 0;
     let detailFailed = 0;
     let canceledSeen = 0;
+
+    // A budget, because this loop is one Cloudbeds call per reservation and the
+    // pacer spaces them 220ms apart. At 300s of wall clock that is ~1,360 calls,
+    // which a 30-room property already exceeds — and being killed mid-loop used
+    // to mean the upsert below never ran and NOTHING was written. A hotel above
+    // that size therefore had no reservation data at all, re-attempted and
+    // re-failed every five minutes, forever.
+    //
+    // Stopping deliberately, with what we have, is strictly better than being
+    // stopped arbitrarily with nothing. `truncated` says the window was not
+    // fully covered so the caller can decide whether to come straight back.
+    const deadlineAt = Date.now() + CLOUDBEDS_SYNC_BUDGET_MS;
+    let truncated = false;
+
     for (const item of listItems) {
+      if (Date.now() > deadlineAt) {
+        truncated = true;
+        break;
+      }
       const rid = reservationIdOf(item);
       if (!rid || seenResIds.has(rid)) continue;
       seenResIds.add(rid);
@@ -434,6 +455,10 @@ export async function runCloudbedsSyncForHotel(
     return {
       ok: true,
       creds,
+      // False when the detail budget ran out before the window was covered. A
+      // partial sync that looks complete is worse than one that says so: the
+      // next tick picks up where this stopped, but only if someone can tell.
+      windowFullyCovered: !truncated,
       fetchWindow: { checkInFrom, checkInTo },
       apiPages: pages + canceledList.pages,
       roomTypesUpserted,
