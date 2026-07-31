@@ -1,4 +1,5 @@
 import { resolveOnboardingStep } from "@/lib/onboarding/step";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { cookies } from "next/headers";
@@ -27,6 +28,12 @@ export async function GET() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+
+  // Polled by the confirming screen while it waits on the Stripe webhook. The
+  // poller eases off and gives up on its own; a 429 here just reads as "not
+  // yet" to it, so a client stuck in a tight loop costs a counter upsert.
+  const throttled = await enforceRateLimit("stepPoll", user.id);
+  if (throttled) return throttled;
 
   return NextResponse.json({ step: await resolveOnboardingStep(supabase) });
 }
