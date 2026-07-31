@@ -17,7 +17,6 @@ export type HotelRole =
   | "hotel_admin"
   | "general_manager"
   | "revenue_manager"
-  | "staff"
   | "viewer";
 
 export type HotelRoleInfo = {
@@ -50,7 +49,10 @@ export const HOTEL_ROLES: HotelRoleInfo[] = [
     description:
       "Day-to-day pricing: rules, rates, floor and ceiling guardrails, and reverting changes. Cannot take pricing live or change the team.",
   },
-  { key: "staff", label: "Staff", rank: 10, description: "Can look, cannot change anything." },
+  // Staff used to sit here at rank 10 with the identical description below.
+  // Merged into Viewer — see 99_supabase_migration_merge_staff_role_v1.sql —
+  // because two roles granting the same thing is a distinction with no
+  // difference, and the picker was making someone choose between them.
   { key: "viewer", label: "Viewer", rank: 0, description: "Can look, cannot change anything." },
 ];
 
