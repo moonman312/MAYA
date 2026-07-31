@@ -104,6 +104,9 @@ export async function dueSubscriptions(
     // verified_at would have taken it out of the sweep after the first stage.
     .is("card_rechecked_at", null)
     .is("card_verify_failed_at", null)
+    // Internal plans have no card. Without this they would be due forever,
+    // failing every check against a customer that does not exist in Stripe.
+    .eq("plan_kind", "stripe")
     .order("card_verify_due_at", { ascending: true })
     .limit(limit);
 

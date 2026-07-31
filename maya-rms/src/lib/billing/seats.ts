@@ -16,10 +16,10 @@ const SEAT_BANDS: readonly { maxRooms: number; seats: number }[] = [
   { maxRooms: 40, seats: 4 },
   { maxRooms: 60, seats: 5 },
   { maxRooms: 80, seats: 6 },
-  // The table Jake wrote stops at 100 rooms, but MAYA sells to 500. Extending
-  // the last band rather than inventing figures nobody agreed to: a property
-  // above 100 rooms gets the same 8 seats until someone decides otherwise. If
-  // that turns out to be tight for a 400-room resort, this is the line to change.
+  // 8 covers everything from 81 rooms to the 500-room ceiling — asked and
+  // answered, not a placeholder. A big resort has more staff but not more people
+  // who set rates, and the ones who only need to look at a calendar can share the
+  // Viewer role without each needing their own login.
   { maxRooms: MAX_ROOMS, seats: 8 },
 ];
 

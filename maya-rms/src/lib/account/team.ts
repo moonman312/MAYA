@@ -80,11 +80,12 @@ export async function loadTeam(
 
   const active = members.filter((m) => m.status === "active").length;
 
-  // A property with NO subscription is not on a plan, so there is no plan limit
-  // to apply — the sandbox, anything an admin created by hand, and every
-  // deployment without Stripe. Same rule splitByEntitlement follows for the same
-  // reason: the absence of billing must not read as the smallest billing.
+  // Every property is on a plan now, internal ones included — so a missing row
+  // is a fault, not a category. Seats are left unlimited rather than clamped to
+  // the smallest band, because the failure that matters here is locking a real
+  // customer out of their own team page over a billing row that went astray.
   if (!sub.data) {
+    console.error(JSON.stringify({ fn: "loadTeam", hotel: hotelId, error: "no_plan_row" }));
     return {
       members,
       invites,
