@@ -89,8 +89,21 @@ export async function decideNudge(
   const working = (connections ?? []).some((c) => WORKING_OR_RECOVERABLE.has(String(c.status)));
   if (working) return { send: false, reason: "pms_connected" };
 
-  if (!invoice.customerEmail) return { send: false, reason: "no_recipient" };
-  if (!isResendConfigured()) return { send: false, reason: "email_not_configured" };
+  // These two are faults, not decisions, so they log where the other skips
+  // don't: silent, a fleet with email misconfigured is indistinguishable from
+  // one where every customer already connected.
+  if (!invoice.customerEmail) {
+    console.error(
+      JSON.stringify({ fn: "decideNudge", hotel: invoice.hotelId, skipped: "no_recipient" }),
+    );
+    return { send: false, reason: "no_recipient" };
+  }
+  if (!isResendConfigured()) {
+    console.error(
+      JSON.stringify({ fn: "decideNudge", hotel: invoice.hotelId, skipped: "email_not_configured" }),
+    );
+    return { send: false, reason: "email_not_configured" };
+  }
 
   return { send: true, to: invoice.customerEmail, hotelId: invoice.hotelId };
 }

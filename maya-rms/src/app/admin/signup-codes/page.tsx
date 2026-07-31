@@ -106,24 +106,26 @@ function CodeCard({ code }: { code: AdminSignupCodeRow }) {
       {used === 0 ? (
         <p className="p-4 text-sm text-slate-500">Not used yet.</p>
       ) : (
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-950/50 text-xs uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="px-4 py-2">Account admin</th>
-              <th className="px-4 py-2">Hotel</th>
-              <th className="px-4 py-2">Redeemed</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800">
-            {code.redemptions.map((r) => (
-              <tr key={r.id}>
-                <td className="px-4 py-2 font-medium text-slate-100">{r.email}</td>
-                <td className="px-4 py-2 text-slate-300">{r.hotel_name ?? "—"}</td>
-                <td className="px-4 py-2 text-slate-400">{formatDate(r.redeemed_at)}</td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-950/50 text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-4 py-2">Account admin</th>
+                <th className="px-4 py-2">Hotel</th>
+                <th className="px-4 py-2">Redeemed</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {code.redemptions.map((r) => (
+                <tr key={r.id}>
+                  <td className="px-4 py-2 font-medium text-slate-100">{r.email}</td>
+                  <td className="px-4 py-2 text-slate-300">{r.hotel_name ?? "—"}</td>
+                  <td className="px-4 py-2 text-slate-400">{formatDate(r.redeemed_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );

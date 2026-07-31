@@ -19,15 +19,19 @@ export default async function AdminOverviewPage() {
 
   const nowMs = new Date().getTime();
   const outstandingInvites = pending.filter((p) => p.status === "pending");
-  const connectedPms = hotels.filter((h) => h.pms_status === "connected").length;
-  const staleSync = hotels.filter((h) => {
+  // Checkout leaves a placeholder row behind until the PMS connect adopts it.
+  // Counting those pads the hotel number and drags down the connected rate, so
+  // the tiles only count properties that finished starting.
+  const properties = hotels.filter((h) => !h.setup_pending_at);
+  const connectedPms = properties.filter((h) => h.pms_status === "connected").length;
+  const staleSync = properties.filter((h) => {
     if (!h.pms_last_sync_at) return h.pms_status === "connected";
     return nowMs - new Date(h.pms_last_sync_at).getTime() > 30 * 60 * 1000;
   }).length;
 
   const stats = [
-    { label: "Hotels", value: hotels.length, href: "/admin/hotels" },
-    { label: "PMS connected", value: `${connectedPms} / ${hotels.length}`, href: "/admin/hotels" },
+    { label: "Hotels", value: properties.length, href: "/admin/hotels" },
+    { label: "PMS connected", value: `${connectedPms} / ${properties.length}`, href: "/admin/hotels" },
     { label: "Users", value: users.length, href: "/admin/users" },
     {
       label: "Pending invites",

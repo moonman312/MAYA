@@ -1,5 +1,5 @@
 import { requirePlatformAdmin } from "@/lib/admin/require-platform-admin";
-import { flagSignupAbandoned } from "@/lib/admin/stalled-signups";
+import { flagSignupAbandoned, SignupFlagError } from "@/lib/admin/stalled-signups";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -35,7 +35,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ hotelI
     const message = error instanceof Error ? error.message : "Failed to update the signup";
     // P0002 is the RPC's own "no such hotel" — a 404 rather than a 400, because
     // the request was fine and the row is what's missing.
-    const status = message.includes("No such hotel") ? 404 : 400;
+    const status = error instanceof SignupFlagError && error.code === "P0002" ? 404 : 400;
     return NextResponse.json({ error: message }, { status });
   }
 }

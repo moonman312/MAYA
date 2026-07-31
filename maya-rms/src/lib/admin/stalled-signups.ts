@@ -156,17 +156,25 @@ export type StallTotals = {
   count: number;
   /** Signups that have been charged for a product they have never used. */
   burning: number;
-  /** Everything taken from those, so far. */
+  /** Everything taken across the whole list, so far. */
   spent_cents: number;
+  /**
+   * The share of that taken from the burning rows alone. Kept separate because
+   * the headline attributes a figure to them by name, and the list total grows
+   * with every single-charge row on the page.
+   */
+  burning_spent_cents: number;
   monthly_cents: number;
   unreachable: number;
 };
 
 export function rollUp(rows: TriagedSignup[]): StallTotals {
+  const burning = rows.filter((r) => r.severity === "burning");
   return {
     count: rows.length,
-    burning: rows.filter((r) => r.severity === "burning").length,
+    burning: burning.length,
     spent_cents: rows.reduce((sum, r) => sum + r.spent_cents, 0),
+    burning_spent_cents: burning.reduce((sum, r) => sum + r.spent_cents, 0),
     monthly_cents: rows.reduce((sum, r) => sum + r.monthly_cents, 0),
     unreachable: rows.filter((r) => !r.reachable).length,
   };
@@ -180,7 +188,7 @@ export function summarize(totals: StallTotals): string {
   ];
   if (totals.burning > 0) {
     parts.push(
-      `${totals.burning} of them charged at least twice — about ${formatUsd(totals.spent_cents)} taken for nothing`,
+      `${totals.burning} of them charged at least twice — about ${formatUsd(totals.burning_spent_cents)} taken for nothing`,
     );
   }
   if (totals.unreachable > 0) {
@@ -232,6 +240,21 @@ export async function listStalledSignups(
   return rows.sort((a, b) => rank[a.severity] - rank[b.severity] || b.stuck_hours - a.stuck_hours);
 }
 
+/**
+ * Carries the database's error code, so the route can tell a missing row
+ * (P0002, the RPC's own "no such hotel") from a bad request without matching on
+ * message prose that a rewording of the SQL would silently break.
+ */
+export class SignupFlagError extends Error {
+  constructor(
+    message: string,
+    readonly code: string | null,
+  ) {
+    super(message);
+    this.name = "SignupFlagError";
+  }
+}
+
 export async function flagSignupAbandoned(
   ssr: SupabaseClient,
   hotelId: string,
@@ -243,5 +266,7 @@ export async function flagSignupAbandoned(
     p_abandoned: abandoned,
     p_note: note ?? null,
   });
-  if (error) throw new Error(`platform_flag_signup_abandoned: ${error.message}`);
+  if (error) {
+    throw new SignupFlagError(`platform_flag_signup_abandoned: ${error.message}`, error.code ?? null);
+  }
 }

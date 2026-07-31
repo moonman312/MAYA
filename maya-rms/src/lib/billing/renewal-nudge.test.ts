@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildNudge, decideNudge, type UpcomingInvoice } from "./renewal-nudge";
 import {
@@ -87,17 +87,33 @@ describe("decideNudge only nudges a property that hasn't connected", () => {
     if (!d.send) expect(d.reason).toBe("no_hotel_metadata");
   });
 
-  it("stays quiet with nobody to write to", async () => {
+  it("stays quiet with nobody to write to, but says so in the log", async () => {
+    // A fault, not a decision: silent, it is indistinguishable from a fleet
+    // where nobody needed nudging.
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const d = await decideNudge(fakeAdmin([]), invoice({ customerEmail: null }));
     expect(d.send).toBe(false);
     if (!d.send) expect(d.reason).toBe("no_recipient");
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining("no_recipient"));
+    errors.mockRestore();
   });
 
-  it("stays quiet rather than throwing when email isn't set up", async () => {
+  it("stays quiet rather than throwing when email isn't set up, and logs that too", async () => {
     delete process.env.RESEND_API_KEY;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const d = await decideNudge(fakeAdmin([]), invoice());
     expect(d.send).toBe(false);
     if (!d.send) expect(d.reason).toBe("email_not_configured");
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining("email_not_configured"));
+    errors.mockRestore();
+  });
+
+  it("logs nothing for a skip that is the system working", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const d = await decideNudge(fakeAdmin(["connected"]), invoice());
+    expect(d.send).toBe(false);
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
   });
 });
 
@@ -120,6 +136,17 @@ describe("the email shows the room count they can correct", () => {
       // apostrophe as an entity, hence the loose match.)
       expect(body).toMatch(/isn(&rsquo;|')t right/);
       expect(body).toContain("https://app.example/onboarding/connect");
+    }
+  });
+
+  it("ties the room-count fix to connecting first", () => {
+    // Billing bounces a property that never finished setup back to onboarding,
+    // so a bare "change it here" link promises a page this audience cannot
+    // open — the copy has to put the connect step in front of the correction.
+    const built = buildNudge(invoice(), "https://app.example/onboarding");
+    for (const body of [renewalNudgeText(built), renewalNudgeHtml(built)]) {
+      expect(body).toContain("connect first");
+      expect(body).toContain("https://app.example/account/billing");
     }
   });
 

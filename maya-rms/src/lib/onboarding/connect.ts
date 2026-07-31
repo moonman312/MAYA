@@ -135,7 +135,10 @@ export async function handleOnboardingConnect(
     if (error?.code !== "23505") break; // only retry unique-name collisions
   }
   if (!hotelId) {
-    return onboardingError(`Could not create your property: ${lastErr}`);
+    console.error(
+      JSON.stringify({ fn: "handleOnboardingConnect", step: "hotel_row", hotel: pendingHotelId, error: lastErr }),
+    );
+    return onboardingError("Could not create your property. Try again in a moment.");
   }
 
   // 3. Membership: service role means auth.uid() is null, so the
@@ -151,7 +154,10 @@ export async function handleOnboardingConnect(
     { onConflict: "hotel_id,user_id" },
   );
   if (memberErr) {
-    return onboardingError(`Could not link you to your property: ${memberErr.message}`);
+    console.error(
+      JSON.stringify({ fn: "handleOnboardingConnect", step: "membership", hotel: hotelId, error: memberErr.message }),
+    );
+    return onboardingError("Could not link you to your property. Try again in a moment.");
   }
 
   // 4. Settings (simulation mode ON — nothing touches live rates until the
@@ -170,7 +176,10 @@ export async function handleOnboardingConnect(
     { onConflict: "hotel_id" },
   );
   if (settingsErr) {
-    return onboardingError(`Could not set up your pricing settings: ${settingsErr.message}`);
+    console.error(
+      JSON.stringify({ fn: "handleOnboardingConnect", step: "settings", hotel: hotelId, error: settingsErr.message }),
+    );
+    return onboardingError("Could not set up your pricing settings. Try again in a moment.");
   }
 
   // 5. Tokens into Vault (now that the hotel exists), incl. discovered
@@ -188,7 +197,10 @@ export async function handleOnboardingConnect(
     },
   });
   if (secretErr) {
-    return onboardingError(`Could not store your connection securely: ${secretErr.message}`);
+    console.error(
+      JSON.stringify({ fn: "handleOnboardingConnect", step: "store_secret", hotel: hotelId, error: secretErr.message }),
+    );
+    return onboardingError("Could not store your connection securely. Try again in a moment.");
   }
 
   const now = new Date().toISOString();
@@ -203,7 +215,10 @@ export async function handleOnboardingConnect(
     { onConflict: "hotel_id,pms_type" },
   );
   if (connErr) {
-    return onboardingError(`Could not record your connection: ${connErr.message}`);
+    console.error(
+      JSON.stringify({ fn: "handleOnboardingConnect", step: "connection_row", hotel: hotelId, error: connErr.message }),
+    );
+    return onboardingError("Could not record your connection. Try again in a moment.");
   }
 
   // The connection is real, so the property becomes one. Until this line a
@@ -214,7 +229,10 @@ export async function handleOnboardingConnect(
     .update({ is_active: true, setup_pending_at: null })
     .eq("id", hotelId);
   if (activateErr) {
-    return onboardingError(`Could not finish setting up your property: ${activateErr.message}`);
+    console.error(
+      JSON.stringify({ fn: "handleOnboardingConnect", step: "activate", hotel: hotelId, error: activateErr.message }),
+    );
+    return onboardingError("Could not finish setting up your property. Try again in a moment.");
   }
 
   // 6. Queue the background import + onboarding state.
@@ -294,6 +312,11 @@ function kickImportWorker(): void {
   });
 }
 
+/**
+ * Read by a customer who has just paid, so callers keep driver text in the
+ * server log and pass a plain sentence — PostgREST and Vault name their
+ * functions and tables in error messages.
+ */
 function onboardingError(message: string): Response {
   const html = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Connection problem</title></head>

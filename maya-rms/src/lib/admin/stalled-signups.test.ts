@@ -7,11 +7,14 @@
  * sends the wrong email to the wrong person.
  */
 import { describe, expect, it } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  flagSignupAbandoned,
   isReachable,
   monthlyCents,
   rollUp,
   severityOf,
+  SignupFlagError,
   spentCents,
   stuckFor,
   summarize,
@@ -136,6 +139,19 @@ describe("rollUp", () => {
     ]);
     expect(totals.unreachable).toBe(1);
   });
+
+  it("does not bill the whole list's spend to the burning rows", () => {
+    // One burning at $400 beside two warming at $200 each. The headline names
+    // the burning rows, so the figure next to them must be theirs alone —
+    // otherwise it inflates with every single-charge row on the page.
+    const totals = rollUp([
+      triage(row({ hotel_id: "a", billed_rooms: 40, periods_billed: 2 })),
+      triage(row({ hotel_id: "b", billed_rooms: 40, periods_billed: 1 })),
+      triage(row({ hotel_id: "c", billed_rooms: 40, periods_billed: 1 })),
+    ]);
+    expect(totals.burning_spent_cents).toBe(40_000);
+    expect(totals.spent_cents).toBe(80_000);
+  });
 });
 
 describe("summarize", () => {
@@ -153,6 +169,19 @@ describe("summarize", () => {
     const line = summarize(rollUp([triage(row({ status: "trialing", periods_billed: 0 }))]));
     expect(line).not.toContain("$");
   });
+
+  it("attributes to the twice-charged only what was taken from them", () => {
+    const line = summarize(
+      rollUp([
+        triage(row({ hotel_id: "a", billed_rooms: 40, periods_billed: 2 })),
+        triage(row({ hotel_id: "b", billed_rooms: 40, periods_billed: 1 })),
+      ]),
+    );
+    expect(line).toContain("1 of them charged at least twice");
+    // $400 from the burning row, not the $600 collected across the list.
+    expect(line).toContain("$400");
+    expect(line).not.toContain("$600");
+  });
 });
 
 describe("stuckFor", () => {
@@ -167,5 +196,25 @@ describe("stuckFor", () => {
   it("never reports zero for something that is on the list", () => {
     // Rounding a 20-minute-old row to "0h" would read as a bug in the list.
     expect(stuckFor(0.2)).toBe("1h");
+  });
+});
+
+describe("flagSignupAbandoned", () => {
+  const rpcReturns = (error: { message: string; code?: string } | null) =>
+    ({ rpc: async () => ({ error }) }) as unknown as SupabaseClient;
+
+  it("keeps the database's error code so the route can 404 a missing row", async () => {
+    const thrown = await flagSignupAbandoned(
+      rpcReturns({ message: "No such hotel abc", code: "P0002" }),
+      "abc",
+      true,
+    ).catch((e: unknown) => e);
+    expect(thrown).toBeInstanceOf(SignupFlagError);
+    expect((thrown as SignupFlagError).code).toBe("P0002");
+    expect((thrown as SignupFlagError).message).toContain("No such hotel");
+  });
+
+  it("resolves quietly when the flag lands", async () => {
+    await expect(flagSignupAbandoned(rpcReturns(null), "abc", true)).resolves.toBeUndefined();
   });
 });
