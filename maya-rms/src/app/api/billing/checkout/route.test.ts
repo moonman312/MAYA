@@ -149,6 +149,9 @@ const state = vi.hoisted(() => ({
   rank: true,
   sessions: [] as Record<string, unknown>[],
   customers: [] as Record<string, unknown>[],
+  customerOpts: [] as Record<string, unknown>[],
+  couponOpts: [] as Record<string, unknown>[],
+  priceFails: false,
 }));
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
@@ -167,15 +170,41 @@ vi.mock("@/lib/hotel-context", () => ({
 vi.mock("@/lib/require-supabase-hotel", () => ({ hasHotelRank: async () => state.rank }));
 vi.mock("@/lib/billing/stripe", () => ({
   isStripeConfigured: () => true,
-  priceIdFor: async () => "price_test",
+  priceIdFor: async () => {
+    if (state.priceFails) {
+      throw new Error(
+        'No active Stripe price with lookup_key "maya_rooms_monthly_v1". Run scripts/stripe-bootstrap.mts --apply against this account.',
+      );
+    }
+    return "price_test";
+  },
   stripeClient: () => ({
     customers: {
-      create: async (args: Record<string, unknown>) => {
+      create: async (args: Record<string, unknown>, opts?: Record<string, unknown>) => {
         state.customers.push(args);
-        return { id: "cus_test" };
+        state.customerOpts.push(opts ?? {});
+        return { id: `cus_test_${state.customers.length}` };
+      },
+      // Matches on the hotel_id the route stamps into metadata, same as the
+      // real search endpoint would once the customer is indexed.
+      search: async ({ query }: { query: string }) => {
+        const hotelId = /:'([^']+)'/.exec(query)?.[1];
+        return {
+          data: state.customers
+            .map((c, i) => ({
+              id: `cus_test_${i + 1}`,
+              metadata: c.metadata as Record<string, string> | undefined,
+            }))
+            .filter((c) => c.metadata?.hotel_id === hotelId),
+        };
       },
     },
-    coupons: { create: async () => ({ id: "coupon_test" }) },
+    coupons: {
+      create: async (_args: Record<string, unknown>, opts?: Record<string, unknown>) => {
+        state.couponOpts.push(opts ?? {});
+        return { id: "coupon_test" };
+      },
+    },
     checkout: {
       sessions: {
         create: async (args: Record<string, unknown>) => {
@@ -213,6 +242,9 @@ beforeEach(() => {
   state.rank = true;
   state.sessions = [];
   state.customers = [];
+  state.customerOpts = [];
+  state.couponOpts = [];
+  state.priceFails = false;
 });
 
 describe("a first-time signup, with no property yet", () => {
@@ -306,6 +338,10 @@ describe("a first-time signup, with no property yet", () => {
     const res = await post();
     expect(res.status).toBe(409);
     expect(state.sessions).toHaveLength(0);
+    // The message names a path that exists. "Billing settings" sent people
+    // looking for a screen with no such name; /billing and /settings both 404.
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("/account/billing");
   });
 
   it("lets a property retry after a subscription that never came to anything", async () => {
@@ -433,5 +469,96 @@ describe("the per-PMS access-code gate", () => {
     const res = await post({ rooms: 24, interval: "month", code: "NOTAREALCODE", pmsType: "cloudbeds" });
     expect(res.status).toBe(403);
     expect(state.sessions).toHaveLength(0);
+  });
+});
+
+describe("the Stripe customer, across repeated attempts", () => {
+  const pending = {
+    hotels: [{ id: "hotel-pending", is_active: false, setup_pending_at: "2026-07-01T00:00:00Z" }],
+    hotel_memberships: [
+      { hotel_id: "hotel-pending", user_id: USER, role: "hotel_admin", status: "active" },
+    ],
+  };
+
+  it("finds the customer an abandoned attempt minted instead of creating another", async () => {
+    // No subscription row exists until a payment completes, so an earlier
+    // attempt's customer is only reachable through the hotel_id on it. Without
+    // that lookup, three bounces off the card form left three customers on one
+    // email in the dashboard.
+    seed(pending);
+    await post();
+    await post();
+    expect(state.customers).toHaveLength(1);
+    expect(state.sessions).toHaveLength(2);
+    expect(state.sessions[1].customer).toBe(state.sessions[0].customer);
+  });
+
+  it("creates with an idempotency key keyed on the property", async () => {
+    // Search indexing lags creation, so a fast retry can miss the customer it
+    // just made. The key is what makes Stripe hand the same one back.
+    seed(pending);
+    await post();
+    expect(state.customerOpts[0]).toMatchObject({ idempotencyKey: "maya_customer_hotel-pending" });
+  });
+
+  it("prefers the customer recorded against a dead subscription", async () => {
+    seed({
+      ...pending,
+      hotel_subscriptions: [
+        {
+          hotel_id: "hotel-pending",
+          stripe_customer_id: "cus_prior",
+          stripe_subscription_id: "sub_dead",
+          status: "canceled",
+        },
+      ],
+    });
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(state.customers).toHaveLength(0);
+    expect(lastSession()?.customer).toBe("cus_prior");
+  });
+});
+
+describe("a percent code's coupon", () => {
+  it("is created under an idempotency key, so identical retries share one", async () => {
+    // The annual-rescaled coupon is deliberately never cached on the code row;
+    // the key is the only thing keeping a bounce-and-retry from minting a
+    // duplicate per attempt.
+    seed({
+      signup_codes: [
+        {
+          id: "code-pct",
+          code: "TWENTY",
+          kind: "percent_off",
+          percent_off: 20,
+          duration_months: 3,
+          is_active: true,
+          stripe_coupon_id: null,
+        },
+      ],
+    });
+    const res = await post({ rooms: 24, interval: "year", code: "TWENTY" });
+    expect(res.status).toBe(200);
+    const key = String(state.couponOpts[0]?.idempotencyKey);
+    expect(key).toContain("code-pct");
+    expect(key).toContain("year");
+  });
+});
+
+describe("when Stripe itself is broken", () => {
+  it("logs the real error and answers with something generic", async () => {
+    seed();
+    state.priceFails = true;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await post();
+
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { error: string };
+    // The lookup key and the repo script are for the log, not the card form.
+    expect(body.error).not.toContain("lookup_key");
+    expect(body.error).not.toContain("stripe-bootstrap");
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining("lookup_key"));
+    errors.mockRestore();
   });
 });
