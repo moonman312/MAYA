@@ -154,7 +154,12 @@ const state = vi.hoisted(() => ({
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
 vi.mock("@/utils/supabase/shared", () => ({ isSupabaseConfigured: () => true }));
 vi.mock("@/utils/supabase/server", () => ({ createClient: () => state.client }));
-vi.mock("@/utils/supabase/admin", () => ({ createAdminClient: () => state.client }));
+vi.mock("@/utils/supabase/admin", () => ({
+  createAdminClient: () => state.client,
+  // The rate limiter reads this and no-ops when it is false. These tests are
+  // about what checkout does, not about throttling it.
+  isAdminConfigured: () => false,
+}));
 vi.mock("@/lib/hotel-context", () => ({
   resolveAccessibleHotelId: async () => state.hotelId,
   MAYA_ACTIVE_HOTEL_COOKIE: "maya_active_hotel",
