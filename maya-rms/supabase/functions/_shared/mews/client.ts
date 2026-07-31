@@ -111,7 +111,9 @@ export async function mewsPost(
       if (res.status === 429 && attempt < MEWS_POST_MAX_ATTEMPTS - 1) {
         const fromHeader = parseRetryAfterMs(res);
         last429RetryAfterMs = fromHeader;
-        const waitMs = fromHeader ?? Math.min(backoffMs, 120_000);
+        // Retry-After is honoured but capped: a broken or hostile header must
+        // not park the whole invocation for as long as it likes.
+        const waitMs = Math.min(fromHeader ?? backoffMs, 120_000);
         backoffMs = Math.min(backoffMs * 2, 120_000);
         await sleep(waitMs);
         continue;

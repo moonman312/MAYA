@@ -8,8 +8,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { trueUpOne, type ShortfallRow } from "./room-truing";
+import { dueForTruing, shortfallsNeedingNotice, trueUpOne, type ShortfallRow } from "./room-truing";
 import { ROOM_SHORTFALL_GRACE_DAYS } from "./room-count";
+import { MAX_ROOMS } from "./tiers";
 
 const NOW = new Date("2026-08-10T12:00:00Z");
 /** Comfortably outside the grace window. */
@@ -184,5 +185,44 @@ describe("cases where correcting would be wrong", () => {
       kind: "skipped",
       reason: "no_subscription",
     });
+  });
+});
+
+function fakeQueryAdmin() {
+  const filters: Array<[string, string, unknown]> = [];
+  const chain = {
+    select: () => chain,
+    not: (col: string, op: string, val: unknown) => {
+      filters.push([`not.${op}`, col, val]);
+      return chain;
+    },
+    lte: (col: string, val: unknown) => {
+      filters.push(["lte", col, val]);
+      return chain;
+    },
+    eq: (col: string, val: unknown) => {
+      filters.push(["eq", col, val]);
+      return chain;
+    },
+    order: () => chain,
+    limit: async () => ({ data: [], error: null }),
+  };
+  return { admin: { from: () => chain } as unknown as SupabaseClient, filters };
+}
+
+describe("the batch windows exclude what only a human can price", () => {
+  // Both queries take the oldest 25 by room_shortfall_since, and an
+  // above-ceiling property never resolves on its own — a handful of them at
+  // the head would hold the window forever and starve every hotel behind.
+  it("keeps above-ceiling properties out of the correction batch", async () => {
+    const { admin, filters } = fakeQueryAdmin();
+    await dueForTruing(admin, NOW);
+    expect(filters).toContainEqual(["lte", "measured_rooms", MAX_ROOMS]);
+  });
+
+  it("keeps them out of the warning batch too", async () => {
+    const { admin, filters } = fakeQueryAdmin();
+    await shortfallsNeedingNotice(admin);
+    expect(filters).toContainEqual(["lte", "measured_rooms", MAX_ROOMS]);
   });
 });

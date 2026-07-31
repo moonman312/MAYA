@@ -563,8 +563,26 @@ async function runHistoricalStep(
   job.stats = { ...job.stats, currentWindowRows: windowRows };
 
   if (nextCursor) {
-    // Page checkpoint.
     job.enum_cursor = nextCursor;
+    // The row cap has to bind between pages, not just between windows: an
+    // enumeration that never stops handing back cursors — a PMS that ignores
+    // the page number, say — otherwise never reaches a window boundary for
+    // nextAfterWindow to stop it at, and the self-chain pages forever.
+    if (job.rows_upserted >= job.row_cap) {
+      job.phase = "analyze";
+      job.stats = { ...job.stats, historyStopReason: "row_cap" };
+      await patchJob(supabase, job.id, {
+        phase: job.phase,
+        enum_cursor: job.enum_cursor,
+        rows_upserted: job.rows_upserted,
+        reservations_enumerated: job.reservations_enumerated,
+        oldest_stay_date: job.oldest_stay_date,
+        newest_stay_date: job.newest_stay_date,
+        stats: job.stats,
+      }, lease);
+      return;
+    }
+    // Page checkpoint.
     await patchJob(supabase, job.id, {
       enum_cursor: job.enum_cursor,
       rows_upserted: job.rows_upserted,

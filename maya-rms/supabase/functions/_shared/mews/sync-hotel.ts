@@ -37,21 +37,56 @@ async function deleteCanceledReservationRows(
   return { error: null };
 }
 
+/**
+ * One DELETE per reservation here was most of a sync's round trips, spent on
+ * rows that almost never exist — a booking only sheds nights when its dates
+ * shrink. So read the stored nights back, diff against the active set, and
+ * delete just the leftovers, grouped by night so a date change costs one
+ * statement instead of one per booking.
+ */
 async function deleteStaleStayNightsForActiveReservations(
   supabase: SupabaseClient,
   hotelId: string,
   activeByExternalId: Map<string, Set<string>>,
 ): Promise<{ error: { message: string } | null }> {
-  for (const [extId, nights] of activeByExternalId) {
-    if (nights.size === 0) continue;
-    const list = [...nights].sort();
-    const { error } = await supabase
-      .from("reservations")
-      .delete()
-      .eq("hotel_id", hotelId)
-      .eq("external_reservation_id", extId)
-      .not("stay_date", "in", `(${list.join(",")})`);
-    if (error) return { error };
+  const extIds = [...activeByExternalId.keys()].filter(
+    (id) => activeByExternalId.get(id)!.size > 0,
+  );
+
+  const READ_PAGE = 1000;
+  const staleByDate = new Map<string, string[]>();
+  for (let i = 0; i < extIds.length; i += RECONCILE_IN_CHUNK) {
+    const chunk = extIds.slice(i, i + RECONCILE_IN_CHUNK);
+    for (let from = 0; ; from += READ_PAGE) {
+      const { data, error } = await supabase
+        .from("reservations")
+        .select("external_reservation_id, stay_date")
+        .eq("hotel_id", hotelId)
+        .in("external_reservation_id", chunk)
+        .range(from, from + READ_PAGE - 1);
+      if (error) return { error };
+      for (const row of data ?? []) {
+        const extId = String(row.external_reservation_id);
+        const stayDate = String(row.stay_date);
+        if (activeByExternalId.get(extId)?.has(stayDate)) continue;
+        const ids = staleByDate.get(stayDate);
+        if (ids) ids.push(extId);
+        else staleByDate.set(stayDate, [extId]);
+      }
+      if ((data ?? []).length < READ_PAGE) break;
+    }
+  }
+
+  for (const [stayDate, ids] of staleByDate) {
+    for (let i = 0; i < ids.length; i += RECONCILE_IN_CHUNK) {
+      const { error } = await supabase
+        .from("reservations")
+        .delete()
+        .eq("hotel_id", hotelId)
+        .eq("stay_date", stayDate)
+        .in("external_reservation_id", ids.slice(i, i + RECONCILE_IN_CHUNK));
+      if (error) return { error };
+    }
   }
   return { error: null };
 }

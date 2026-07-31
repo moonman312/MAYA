@@ -45,10 +45,14 @@ function fakeUserClient(opts: {
   return client as any;
 }
 
-const state = vi.hoisted(() => ({
-  userClient: null as unknown,
-  adminClient: { marker: "service-role" } as unknown,
-}));
+const state = vi.hoisted(() => {
+  const adminRpc = vi.fn();
+  return {
+    userClient: null as unknown,
+    adminRpc,
+    adminClient: { marker: "service-role", rpc: adminRpc } as unknown,
+  };
+});
 const runCloudbedsSyncForHotel = vi.hoisted(() => vi.fn());
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
@@ -86,7 +90,15 @@ const SYNC_OK = {
 beforeEach(() => {
   runCloudbedsSyncForHotel.mockReset();
   runCloudbedsSyncForHotel.mockResolvedValue(SYNC_OK);
+  state.adminRpc.mockReset();
+  state.adminRpc.mockImplementation(async (fn: string) =>
+    fn === "claim_pms_sync_one" ? { data: "claimed", error: null } : { data: null, error: null },
+  );
 });
+
+function rpcCalls(fn: string) {
+  return state.adminRpc.mock.calls.filter((c) => c[0] === fn);
+}
 
 describe("POST /api/pms/cloudbeds/sync rank gate", () => {
   it.each(["viewer", "staff"])("%s gets 403 and no sync runs", async (role) => {
@@ -143,5 +155,52 @@ describe("POST /api/pms/cloudbeds/sync rank gate", () => {
     });
     expect((await post()).status).toBe(200);
     expect(runCloudbedsSyncForHotel).toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/pms/cloudbeds/sync in-flight guard", () => {
+  beforeEach(() => {
+    state.userClient = fakeUserClient({ userId: "user-1", role: "revenue_manager" });
+  });
+
+  it("409s a press while another sync holds the connection's lease", async () => {
+    // The request counter bounds how often; the lease bounds how many at once.
+    // Six concurrent presses each pacing in their own isolate is what blows the
+    // property's PMS budget.
+    state.adminRpc.mockImplementation(async (fn: string) =>
+      fn === "claim_pms_sync_one" ? { data: "busy", error: null } : { data: null, error: null },
+    );
+    const res = await post();
+    expect(res.status).toBe(409);
+    expect(runCloudbedsSyncForHotel).not.toHaveBeenCalled();
+    expect(rpcCalls("release_pms_sync")).toHaveLength(0);
+  });
+
+  it("hands the lease back once the sync finishes", async () => {
+    expect((await post()).status).toBe(200);
+    const releases = rpcCalls("release_pms_sync");
+    expect(releases).toHaveLength(1);
+    expect(releases[0][1]).toMatchObject({ p_hotel_id: "hotel-1", p_pms_type: "cloudbeds", p_ok: true });
+  });
+
+  it("releases as a failure when the sync fails, so retries back off", async () => {
+    runCloudbedsSyncForHotel.mockResolvedValue({ ok: false, error: "token revoked" });
+    await post();
+    expect(rpcCalls("release_pms_sync")[0][1]).toMatchObject({ p_ok: false });
+  });
+
+  it("releases even when the pipeline throws", async () => {
+    runCloudbedsSyncForHotel.mockRejectedValue(new Error("boom"));
+    expect((await post()).status).toBe(502);
+    expect(rpcCalls("release_pms_sync")[0][1]).toMatchObject({ p_ok: false });
+  });
+
+  it("runs unleased when there is no connection row to hold", async () => {
+    state.adminRpc.mockImplementation(async (fn: string) =>
+      fn === "claim_pms_sync_one" ? { data: "missing", error: null } : { data: null, error: null },
+    );
+    expect((await post()).status).toBe(200);
+    expect(runCloudbedsSyncForHotel).toHaveBeenCalledTimes(1);
+    expect(rpcCalls("release_pms_sync")).toHaveLength(0);
   });
 });
