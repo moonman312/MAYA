@@ -40,7 +40,7 @@ Required for full Supabase mode:
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY` (or `NEXT_PUBLIC_SUPABASE_ANON_KEY`)
-- `MAYA_DEFAULT_HOTEL_ID`
+- `MAYA_DEFAULT_HOTEL_ID` (dev only — ignored in production)
 
 ## Run
 
