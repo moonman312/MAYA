@@ -38,6 +38,11 @@ function publicSyncResult(sync: Awaited<ReturnType<typeof runCloudbedsSyncForHot
   }
   return {
     ok: true as const,
+    // A partial window looks identical to a complete one in the counters, so it
+    // has to be said explicitly. Sustained false here means the property is too
+    // large for the current per-reservation detail fetch and needs the
+    // incremental path, not a bigger budget.
+    windowFullyCovered: sync.windowFullyCovered,
     fetchWindow: sync.fetchWindow,
     apiPages: sync.apiPages,
     roomTypesUpserted: sync.roomTypesUpserted,
@@ -201,6 +206,7 @@ Deno.serve(async (req) => {
         fn: "cloudbeds-scheduled-sync",
         hotelId,
         syncOk: sync.ok,
+        syncTruncated: sync.ok ? !sync.windowFullyCovered : undefined,
         syncError: sync.ok ? undefined : sync.error,
         evaluate,
         push,
