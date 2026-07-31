@@ -51,10 +51,57 @@ export async function POST(req: Request) {
       body = {};
     }
 
-    const result = await runCloudbedsSyncForHotel(createAdminClient(), ctx.hotelId, {
-      daysBack: body.daysBack,
-      daysForward: body.daysForward,
+    const admin = createAdminClient();
+
+    // The request counter above bounds how often; this bounds how many at
+    // once. It is the same lease the scheduled worker claims, so a second
+    // press — or a press during a cron tick — is told a sync is already
+    // running instead of starting a concurrent one on the same connection.
+    // 'missing' (no connection row) runs unleased: there is nothing to hold.
+    const { data: claim, error: claimErr } = await admin.rpc("claim_pms_sync_one", {
+      p_hotel_id: ctx.hotelId,
+      p_pms_type: "cloudbeds",
+      p_lease_seconds: 600,
+      p_owner: "manual",
     });
+    if (claimErr) {
+      return NextResponse.json(
+        { ok: false, error: "Could not start the sync — try again in a moment." },
+        { status: 503 },
+      );
+    }
+    if (claim === "busy") {
+      return NextResponse.json(
+        { ok: false, error: "A sync for this hotel is already running. Give it a minute to finish." },
+        { status: 409 },
+      );
+    }
+    const releaseClaim = async (ok: boolean) => {
+      if (claim !== "claimed") return;
+      const { error: releaseErr } = await admin.rpc("release_pms_sync", {
+        p_hotel_id: ctx.hotelId,
+        p_pms_type: "cloudbeds",
+        p_ok: ok,
+      });
+      if (releaseErr) {
+        // Not fatal: the lease expires on its own.
+        console.error(
+          JSON.stringify({ fn: "cloudbeds-manual-sync", step: "release", hotelId: ctx.hotelId, error: releaseErr.message }),
+        );
+      }
+    };
+
+    let result: Awaited<ReturnType<typeof runCloudbedsSyncForHotel>>;
+    try {
+      result = await runCloudbedsSyncForHotel(admin, ctx.hotelId, {
+        daysBack: body.daysBack,
+        daysForward: body.daysForward,
+      });
+    } catch (error) {
+      await releaseClaim(false);
+      throw error;
+    }
+    await releaseClaim(result.ok);
 
     if (!result.ok) {
       if (result.cloudbedsStatus != null) {

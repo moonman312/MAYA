@@ -42,7 +42,11 @@ type Row = Record<string, unknown>;
  * columns present in the payload, and an insert takes the schema defaults for the
  * rest (`is_active boolean not null default true`).
  */
-function makeSupabaseStub(seedRoomTypes: Row[] = [], hotelReadError?: string) {
+function makeSupabaseStub(
+  seedRoomTypes: Row[] = [],
+  hotelReadError?: string,
+  seedReservations: Row[] = [],
+) {
   const roomTypes: Row[] = seedRoomTypes.map((rt, i) => ({
     id: `rt-uuid-${i + 1}`,
     hotel_id: "hotel-1",
@@ -50,13 +54,45 @@ function makeSupabaseStub(seedRoomTypes: Row[] = [], hotelReadError?: string) {
     ...rt,
   }));
   const roomTypeUpserts: Row[] = [];
+  const reservations: Row[] = seedReservations.map((r) => ({ hotel_id: "hotel-1", ...r }));
 
   function deleteBuilder() {
+    const preds: Array<(r: Row) => boolean> = [];
     const builder = {
-      eq: () => builder,
-      in: () => builder,
-      not: () => builder,
-      then: <T>(resolve: (v: { error: null }) => T) => Promise.resolve({ error: null }).then(resolve),
+      eq(col: string, val: unknown) {
+        preds.push((r) => r[col] === val);
+        return builder;
+      },
+      in(col: string, vals: unknown[]) {
+        preds.push((r) => vals.includes(r[col]));
+        return builder;
+      },
+      then<T>(resolve: (v: { error: null }) => T) {
+        const survivors = reservations.filter((r) => !preds.every((p) => p(r)));
+        reservations.length = 0;
+        reservations.push(...survivors);
+        return Promise.resolve({ error: null }).then(resolve);
+      },
+    };
+    return builder;
+  }
+
+  /** The stale-night read-back: filtered rows, sliced the way .range() slices. */
+  function resSelectBuilder() {
+    const preds: Array<(r: Row) => boolean> = [];
+    const builder = {
+      eq(col: string, val: unknown) {
+        preds.push((r) => r[col] === val);
+        return builder;
+      },
+      in(col: string, vals: unknown[]) {
+        preds.push((r) => vals.includes(r[col]));
+        return builder;
+      },
+      range: async (from: number, to: number) => ({
+        data: reservations.filter((r) => preds.every((p) => p(r))).slice(from, to + 1),
+        error: null,
+      }),
     };
     return builder;
   }
@@ -73,6 +109,19 @@ function makeSupabaseStub(seedRoomTypes: Row[] = [], hotelReadError?: string) {
       update: () => ({ eq: async () => ({ error: null }) }),
       upsert: async (rows: Row | Row[]) => {
         const list = Array.isArray(rows) ? rows : [rows];
+        if (name === "reservations") {
+          for (const row of list) {
+            const idx = reservations.findIndex(
+              (r) =>
+                r.hotel_id === row.hotel_id &&
+                r.external_reservation_id === row.external_reservation_id &&
+                r.stay_date === row.stay_date,
+            );
+            if (idx >= 0) reservations[idx] = row;
+            else reservations.push(row);
+          }
+          return { error: null };
+        }
         if (name !== "room_types") return { error: null };
         roomTypeUpserts.push(...list);
         for (const row of list) {
@@ -92,12 +141,16 @@ function makeSupabaseStub(seedRoomTypes: Row[] = [], hotelReadError?: string) {
         select: () => ({ eq: async () => ({ data: roomTypes, error: null }) }),
       };
     }
+    if (name === "reservations") {
+      return { ...chain, select: resSelectBuilder };
+    }
     return chain;
   }
 
-  return { from: table, roomTypes, roomTypeUpserts } as unknown as SupabaseClient & {
+  return { from: table, roomTypes, roomTypeUpserts, reservations } as unknown as SupabaseClient & {
     roomTypes: Row[];
     roomTypeUpserts: Row[];
+    reservations: Row[];
   };
 }
 
@@ -123,6 +176,34 @@ describe("runMewsSyncForHotel room type upsert", () => {
     expect(supabase.roomTypes).toHaveLength(1);
     expect(supabase.roomTypes[0].is_active).toBe(true);
     expect(supabase.roomTypes[0].total_rooms).toBe(8);
+  });
+});
+
+describe("runMewsSyncForHotel stale-night reconcile", () => {
+  it("prunes nights an active booking no longer holds, and only its own", async () => {
+    const supabase = makeSupabaseStub([], undefined, [
+      // A night res_1 held before its dates moved.
+      { external_reservation_id: "res_1", stay_date: "2020-01-01", current_rate: 100 },
+      // Same stale date, different booking — the grouped delete must not
+      // sweep it up, and nothing this run mentions it.
+      { external_reservation_id: "other", stay_date: "2020-01-01", current_rate: 100 },
+    ]);
+
+    const result = await runMewsSyncForHotel(supabase, "hotel-1");
+
+    expect(result.ok).toBe(true);
+    expect(
+      supabase.reservations.filter(
+        (r) => r.external_reservation_id === "res_1" && r.stay_date === "2020-01-01",
+      ),
+    ).toEqual([]);
+    expect(
+      supabase.reservations.filter((r) => r.external_reservation_id === "other"),
+    ).toHaveLength(1);
+    // The booking's current nights were written, not lost with the stale one.
+    expect(
+      supabase.reservations.filter((r) => r.external_reservation_id === "res_1").length,
+    ).toBeGreaterThan(0);
   });
 });
 

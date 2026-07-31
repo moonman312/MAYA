@@ -66,6 +66,12 @@ export async function dueForTruing(
     .lte("room_shortfall_since", cutoff)
     // Nothing to true up on a plan that is never invoiced.
     .eq("plan_kind", "stripe")
+    // A property above the self-serve ceiling waits for a human, and it waits
+    // OUTSIDE this queue: oldest-first with a fixed batch means a handful of
+    // permanently-stuck rows would otherwise hold the whole window and starve
+    // every hotel behind them. The shortfall clock keeps running, so one that
+    // shrinks back into range resumes where it left off.
+    .lte("measured_rooms", MAX_ROOMS)
     .order("room_shortfall_since", { ascending: true })
     .limit(limit);
 
@@ -90,6 +96,9 @@ export async function shortfallsNeedingNotice(
     .select(SELECT_COLUMNS)
     .not("room_shortfall_since", "is", null)
     .eq("plan_kind", "stripe")
+    // Same ceiling as dueForTruing, for the same head-of-queue reason — and
+    // the warning quotes a corrected price, which does not exist up there.
+    .lte("measured_rooms", MAX_ROOMS)
     .order("room_shortfall_since", { ascending: true })
     .limit(limit);
 

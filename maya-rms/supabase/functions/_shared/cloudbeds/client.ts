@@ -141,7 +141,9 @@ export async function cloudbedsGet(
 
       if (res.status === 429) record("cloudbeds", lane, "throttled");
       if (res.status === 429 && attempt < MAX_ATTEMPTS - 1) {
-        const retry = parseRetryAfterMs(res) ?? Math.min(backoffMs, 60_000);
+        // Retry-After is honoured but capped: a broken or hostile header must
+        // not park the whole invocation for as long as it likes.
+        const retry = Math.min(parseRetryAfterMs(res) ?? backoffMs, 60_000);
         backoffMs = Math.min(backoffMs * 2, 60_000);
         await sleep(retry);
         continue;
@@ -413,12 +415,16 @@ export async function cloudbedsPost(
           method,
         );
       }
+      if (res.status === 429) record("cloudbeds", lane, "throttled");
       if (res.status === 429 && attempt < MAX_ATTEMPTS - 1) {
-        const retry = parseRetryAfterMs(res) ?? Math.min(backoffMs, 60_000);
+        // Retry-After is honoured but capped: a broken or hostile header must
+        // not park the whole invocation for as long as it likes.
+        const retry = Math.min(parseRetryAfterMs(res) ?? backoffMs, 60_000);
         backoffMs = Math.min(backoffMs * 2, 60_000);
         await sleep(retry);
         continue;
       }
+      if (res.ok) record("cloudbeds", lane, "ok");
       const rec = (data ?? {}) as JsonRecord;
       if (!res.ok || rec.success === false) {
         const msg = typeof rec.message === "string" ? rec.message : text.slice(0, 300);

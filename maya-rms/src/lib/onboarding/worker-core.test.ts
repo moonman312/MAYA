@@ -347,6 +347,33 @@ describe("processJob", () => {
     expect(job.rows_upserted).toBe(200); // finished window 1, then stopped
   });
 
+  it("stops mid-window at the row cap instead of paging forever", async () => {
+    const supabase = makeSupabaseStub();
+    // A cursor after every page is what a misbehaving list endpoint looks
+    // like — one that ignores the page number never reaches a window
+    // boundary, so the cap has to bind between pages.
+    const adapter = makeAdapter(
+      new Map([
+        [0, [
+          pageOfRows(100, "2025-01-10"),
+          pageOfRows(100, "2025-01-11"),
+          pageOfRows(100, "2025-01-12"),
+          pageOfRows(100, "2025-01-13"),
+          pageOfRows(100, "2025-01-14"),
+        ]],
+      ]),
+    );
+    const deps = makeDeps(adapter);
+    const job = makeJob({ row_cap: 250 });
+
+    const outcome = await processJob(supabase, job, deps, 60_000);
+
+    expect(outcome).toBe("completed");
+    expect(job.stats.historyStopReason).toBe("row_cap");
+    expect(job.rows_upserted).toBe(300); // the page that crossed the cap, and no more
+    expect(adapter.windows).toHaveLength(3);
+  });
+
   it("marks the job failed after too many invocations that moved nothing", async () => {
     const supabase = makeSupabaseStub();
     const deps = makeDeps(makeAdapter(new Map()));
