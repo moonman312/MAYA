@@ -44,6 +44,13 @@ export const RATE_LIMITS = {
   invite: { limit: 20, windowSeconds: 3600 },
   /** Re-running onboarding analysis, which re-reads a lot of history. */
   reanalyse: { limit: 5, windowSeconds: 900 },
+  /** Hand-run pricing evaluation. One run is minutes of database work. */
+  evaluate: { limit: 6, windowSeconds: 3600 },
+  /**
+   * The post-checkout screen asking whether the webhook landed. The client
+   * backs off on its own; this is the ceiling for the ones that don't.
+   */
+  stepPoll: { limit: 120, windowSeconds: 600 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;
