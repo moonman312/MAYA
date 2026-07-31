@@ -75,3 +75,25 @@ export const CLOUDBEDS_MIN_REQUEST_INTERVAL_MS =
  */
 export const CLOUDBEDS_SYNC_BUDGET_MS =
   Number(mwsEnv("CLOUDBEDS_SYNC_BUDGET_MS") ?? "210000") || 210_000;
+
+/**
+ * How far back an incremental pull reaches beyond the watermark.
+ *
+ * Their clock is not ours, and a booking can be written while a sweep is
+ * already running. Overlapping re-fetches a few unchanged reservations, which
+ * costs a little; missing one silently loses a booking until the next full
+ * sweep, which costs a wrong price.
+ */
+export const CLOUDBEDS_INCREMENTAL_OVERLAP_MS =
+  Number(mwsEnv("CLOUDBEDS_INCREMENTAL_OVERLAP_MS") ?? "7200000") || 7_200_000;
+
+/**
+ * How often the whole check-in window is swept regardless of the watermark.
+ *
+ * An incremental pull can only ever see bookings someone touched, so anything a
+ * dropped webhook, a clock skew or a mid-run failure lost stays lost until a
+ * full pass looks again. Daily is frequent enough that no error survives a day
+ * and rare enough that it costs one expensive run in 288.
+ */
+export const CLOUDBEDS_FULL_SYNC_INTERVAL_MS =
+  Number(mwsEnv("CLOUDBEDS_FULL_SYNC_INTERVAL_MS") ?? "86400000") || 86_400_000;
