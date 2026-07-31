@@ -3,44 +3,19 @@
  *
  * Returns the pms_connections row (preferring status=connected), a health
  * classification over the last 24h of pms_request_log traffic, and the latest
- * 50 log entries (newest first). Also prunes log rows older than 7 days for
- * this hotel as fire-and-forget housekeeping.
+ * 50 log entries (newest first). Retention is the nightly database sweep
+ * (pms_request_log_sweep, 7 days) — it used to be pruned here per request,
+ * which only ever ran for hotels somebody actually looked at.
  */
 
 import { classifyPmsHealth } from "@/lib/pms/health";
 import { getRegistry, type PmsType } from "@/lib/pms/registry";
 import { hasHotelRank, requireSupabaseHotel } from "@/lib/require-supabase-hotel";
-import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 const LOG_LIMIT = 50;
 const HEALTH_WINDOW_MS = 24 * 60 * 60 * 1000;
-const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
-
-function pruneOldRows(hotelId: string): void {
-  // Authenticated users can only read pms_request_log (writes are revoked),
-  // so housekeeping needs the service-role client. Safe here: access to the
-  // hotel was just verified and the delete is scoped to it.
-  if (!isAdminConfigured()) return;
-  const cutoff = new Date(Date.now() - RETENTION_MS).toISOString();
-  void createAdminClient()
-    .from("pms_request_log")
-    .delete()
-    .eq("hotel_id", hotelId)
-    .lt("created_at", cutoff)
-    .then(
-      ({ error }) => {
-        if (error) console.error("pms_request_log prune failed:", error.message);
-      },
-      (e: unknown) => {
-        console.error(
-          "pms_request_log prune failed:",
-          e instanceof Error ? e.message : String(e),
-        );
-      },
-    );
-}
 
 export async function GET() {
   const ctx = await requireSupabaseHotel(await cookies());
@@ -83,8 +58,6 @@ export async function GET() {
   const connections = connRes.data ?? [];
   const connection =
     connections.find((c) => c.status === "connected") ?? connections[0] ?? null;
-
-  pruneOldRows(hotelId);
 
   // How this PMS authenticates, so the dashboard knows whether reconnecting is
   // one click out to the vendor or a credential the owner has to fetch. The
