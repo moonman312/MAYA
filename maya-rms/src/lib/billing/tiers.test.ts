@@ -7,6 +7,7 @@ import {
   formatUsd,
   isBillableRoomCount,
   priceCents,
+  stripeVolumeTiers,
   tierFor,
 } from "./tiers";
 
@@ -88,6 +89,38 @@ describe("tierFor", () => {
 
   it("tops out at the last bracket rather than falling off the end", () => {
     expect(tierFor(MAX_ROOMS)).toBe(TIERS[TIERS.length - 1]);
+  });
+});
+
+describe("stripeVolumeTiers", () => {
+  it("produces the exact rows the live prices were built from", () => {
+    expect(stripeVolumeTiers("month")).toEqual([
+      { upTo: "20", cents: 550 },
+      { upTo: "40", cents: 500 },
+      { upTo: "60", cents: 400 },
+      { upTo: "80", cents: 300 },
+      { upTo: "inf", cents: 250 },
+    ]);
+    expect(stripeVolumeTiers("year")).toEqual([
+      { upTo: "20", cents: 6600 },
+      { upTo: "40", cents: 5400 },
+      { upTo: "60", cents: 4320 },
+      { upTo: "80", cents: 3240 },
+      { upTo: "inf", cents: 2700 },
+    ]);
+  });
+
+  it("agrees with priceCents at every count, so the quote matches the invoice", () => {
+    // Stripe charges unit_amount times quantity off these rows; priceCents
+    // quotes off TIERS. If a reprice ever splits them, this is what stops it.
+    for (const interval of ["month", "year"] as const) {
+      const rows = stripeVolumeTiers(interval);
+      for (let rooms = 1; rooms <= MAX_ROOMS; rooms++) {
+        const bracket =
+          rows.find((r) => r.upTo !== "inf" && rooms <= Number(r.upTo)) ?? rows[rows.length - 1];
+        expect(bracket.cents * rooms).toBe(priceCents(rooms, interval));
+      }
+    }
   });
 });
 

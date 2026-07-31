@@ -46,6 +46,26 @@ export function annualDiscountPct(rooms: number): number {
   return tierFor(rooms) === TIERS[0] ? 0 : ANNUAL_DISCOUNT_PCT;
 }
 
+/**
+ * The brackets in the shape Stripe's volume-tier prices take, for
+ * scripts/stripe-bootstrap.mts to push instead of keeping its own copy — a
+ * reprice must be one edit that the quotes, the validators, and Stripe all see.
+ * The last up_to is "inf": the Stripe price is uncapped, MAX_ROOMS is a sales
+ * cap the app enforces, not one Stripe knows about.
+ *
+ * Annual discounts the per-room rate and rounds there, because Stripe bills
+ * unit_amount times quantity. Keep rates where the discounted cents stay whole,
+ * or priceCents and the actual invoice drift by pennies.
+ */
+export function stripeVolumeTiers(interval: BillingInterval): { upTo: string; cents: number }[] {
+  return TIERS.map((t, i) => {
+    const upTo = t.maxRooms === MAX_ROOMS ? "inf" : String(t.maxRooms);
+    if (interval === "month") return { upTo, cents: t.centsPerRoom };
+    const full = t.centsPerRoom * 12;
+    return { upTo, cents: i === 0 ? full : Math.round((full * (100 - ANNUAL_DISCOUNT_PCT)) / 100) };
+  });
+}
+
 /** What the property pays per billing period, in cents. */
 export function priceCents(rooms: number, interval: BillingInterval): number {
   const monthly = rooms * tierFor(rooms).centsPerRoom;

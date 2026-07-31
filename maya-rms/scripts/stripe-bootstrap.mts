@@ -15,6 +15,11 @@
  * decided entirely by which key that is.
  */
 import { readFileSync } from "node:fs";
+import {
+  ANNUAL_LOOKUP_KEY,
+  MONTHLY_LOOKUP_KEY,
+  stripeVolumeTiers,
+} from "../src/lib/billing/tiers";
 
 const APPLY = process.argv.includes("--apply");
 
@@ -28,34 +33,16 @@ const SK = env.STRIPE_SECRET_KEY;
 if (!SK) throw new Error("STRIPE_SECRET_KEY missing from .env.local");
 const LIVE = SK.startsWith("sk_live_");
 
-export const MONTHLY_LOOKUP_KEY = "maya_rooms_monthly_v1";
-export const ANNUAL_LOOKUP_KEY = "maya_rooms_annual_v1";
-
 /**
- * Per-room cents by bracket. `volume` tiers_mode bills the WHOLE quantity at
- * the bracket its count lands in — Jake's step function, boundary inversions
- * included (a 21-room property pays less in total than a 20-room one, and that
- * is the intended, signed-off behaviour; do not "fix" it into graduated).
+ * Brackets come from src/lib/billing/tiers.ts — the same table the subscribe
+ * screen quotes from and checkout validates against, so a reprice is one edit
+ * everything sees. `volume` tiers_mode bills the WHOLE quantity at the bracket
+ * its count lands in — Jake's step function, boundary inversions included (a
+ * 21-room property pays less in total than a 20-room one, and that is the
+ * intended, signed-off behaviour; do not "fix" it into graduated).
  */
-const MONTHLY_TIERS = [
-  { upTo: "20", cents: 550 },
-  { upTo: "40", cents: 500 },
-  { upTo: "60", cents: 400 },
-  { upTo: "80", cents: 300 },
-  { upTo: "inf", cents: 250 },
-] as const;
-
-/**
- * Annual = 12x monthly, less 10% for every bracket above the first. The
- * smallest properties get no discount — annual is offered to them purely as
- * "pay once a year", and the UI must not imply a saving they aren't getting.
- * The discount boundary is deliberately the 20/21 bracket edge rather than a
- * literal "over 21 rooms", so one number decides both price and discount.
- */
-const ANNUAL_TIERS = MONTHLY_TIERS.map((t, i) => ({
-  upTo: t.upTo,
-  cents: i === 0 ? t.cents * 12 : Math.round(t.cents * 12 * 0.9),
-}));
+const MONTHLY_TIERS = stripeVolumeTiers("month");
+const ANNUAL_TIERS = stripeVolumeTiers("year");
 
 async function stripe(path: string, body?: Record<string, string>, method?: string) {
   const res = await fetch(`https://api.stripe.com/v1/${path}`, {
@@ -118,6 +105,7 @@ async function ensurePrice(
   tiers: readonly { upTo: string; cents: number }[],
 ) {
   const existing = await findByLookupKey(lookupKey);
+  let replacing: string | null = null;
   if (existing) {
     const e = existing as unknown as { id: string; tiers?: unknown; recurring?: { interval: string } };
     if (e.recurring?.interval === interval && tiersMatch(e.tiers, tiers)) {
@@ -126,8 +114,7 @@ async function ensurePrice(
     }
     console.log(`  ${lookupKey}: tiers changed — needs a new price (current ${e.id})`);
     if (!APPLY) return e.id;
-    // Free the key first; Stripe allows one active price per lookup_key.
-    await stripe(`prices/${e.id}`, { "lookup_key": "", active: "false" });
+    replacing = e.id;
   } else {
     console.log(`  ${lookupKey}: missing`);
     if (!APPLY) return "(would create)";
@@ -139,11 +126,19 @@ async function ensurePrice(
     billing_scheme: "tiered",
     tiers_mode: "volume",
     lookup_key: lookupKey,
+    // Moves the key off the old price atomically, so there is never a moment
+    // with no price behind it. Archiving first and creating second left exactly
+    // that gap when the create failed — every checkout 502s until someone
+    // notices and re-runs this.
     transfer_lookup_key: "true",
     ...tierParams(tiers),
   });
   const id = (created as unknown as { id: string }).id;
   console.log(`  ${lookupKey}: created ${id}`);
+  if (replacing) {
+    await stripe(`prices/${replacing}`, { active: "false" });
+    console.log(`  ${lookupKey}: archived ${replacing}`);
+  }
   return id;
 }
 

@@ -27,8 +27,10 @@ create table if not exists hotel_subscriptions (
   trial_end               timestamptz,
   cancel_at_period_end    boolean not null default false,
   -- A trial card that authorizes today can be a virtual card cancelled tomorrow,
-  -- so the card is re-checked once more after ~48h. failed_at set with
-  -- verified_at still null is the state the dunning banner reads.
+  -- so the card is checked at signup and again ~48h later. verified_at is only
+  -- the signup-time stage and is not terminal (card_rechecked_at, added in
+  -- 99_supabase_migration_card_reverify_v2_two_stage.sql, is); failed_at set is
+  -- the state the dunning banner reads — on its own, with no verified_at filter.
   card_verify_due_at      timestamptz,
   card_verified_at        timestamptz,
   card_verify_failed_at   timestamptz,
