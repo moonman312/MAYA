@@ -219,12 +219,6 @@ export function SubscribeStep({
             <span className="text-sm font-medium text-slate-200">
               Which property management system do you use?
             </span>
-            {/* "System that runs your bookings" reads as a booking engine or
-                CRS to plenty of hoteliers — name the PMS and say what counts. */}
-            <p className="mt-1 text-xs text-slate-400">
-              Your PMS — the system where reservations actually live, not your
-              booking engine or channel manager.
-            </p>
             <div className="mt-2 flex flex-wrap gap-3">
               {pmsOptions.map((pms) => {
                 const active = pmsType === pms.type;
