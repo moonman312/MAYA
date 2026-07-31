@@ -59,7 +59,11 @@ export async function loadTeam(
       .eq("hotel_id", hotelId)
       .eq("status", "pending")
       .order("invited_at", { ascending: false }),
-    admin.from("hotel_subscriptions").select("billed_rooms").eq("hotel_id", hotelId).maybeSingle(),
+    admin
+      .from("hotel_subscriptions")
+      .select("billed_rooms, plan_kind")
+      .eq("hotel_id", hotelId)
+      .maybeSingle(),
   ]);
 
   const members: TeamMember[] = (rawMembers ?? []).map((m) => ({
@@ -95,5 +99,19 @@ export async function loadTeam(
   }
 
   const rooms = Number(sub.data.billed_rooms) || 0;
+
+  // Internal plans are ours — the sandbox, demo properties, staff accounts.
+  // Nobody is charged for them, so there is nothing for a seat limit to ration,
+  // and applying one only stops us staffing our own hotels. It blocked adding a
+  // second account to the sandbox the first time anyone tried.
+  if (String(sub.data.plan_kind) === "internal") {
+    return {
+      members,
+      invites,
+      seats: { used: active + invites.length, limit: Infinity, remaining: Infinity, full: false },
+      rooms,
+    };
+  }
+
   return { members, invites, seats: seatUsage(rooms, active, invites.length), rooms };
 }

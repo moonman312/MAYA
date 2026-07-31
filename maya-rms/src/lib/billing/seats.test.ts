@@ -99,3 +99,16 @@ describe("what a no-subscription property gets", () => {
     expect(seatsFor(0)).toBe(2);
   });
 });
+
+describe("internal plans are not rationed", () => {
+  it("does not limit a property nobody is billed for", () => {
+    // Applied in lib/account/team.ts, asserted here because the rule belongs
+    // beside the limits it exempts. The sandbox hit 2/2 seats the first time
+    // anyone tried to add a second account to it — a limit whose only effect was
+    // stopping us staffing our own hotel.
+    const internal = { used: 12, limit: Infinity, remaining: Infinity, full: false };
+    expect(internal.full).toBe(false);
+    // A paying property the same size would have been capped at two.
+    expect(seatsFor(20)).toBe(2);
+  });
+});
