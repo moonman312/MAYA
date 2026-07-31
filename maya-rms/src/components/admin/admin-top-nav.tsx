@@ -9,6 +9,7 @@ const links = [
   { href: "/admin/users", label: "Users" },
   { href: "/admin/pending-invites", label: "Pending Invites" },
   { href: "/admin/signup-codes", label: "Signup Codes" },
+  { href: "/admin/pms-access", label: "PMS Access" },
   { href: "/admin/stalled-signups", label: "Stalled Signups" },
 ];
 

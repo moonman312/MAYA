@@ -382,3 +382,56 @@ describe("a property that already exists", () => {
     expect(state.customers[0]).toMatchObject({ name: "Driftwood" });
   });
 });
+
+describe("the per-PMS access-code gate", () => {
+  it("changes nothing when no PMS is declared — every caller today", async () => {
+    // No pmsType means every existing caller. Confirms the refactor that
+    // threads codeRequired through didn't quietly change the default path: no
+    // code, no pmsType, still refused exactly as before.
+    seed();
+    const res = await post({ rooms: 24, interval: "month", code: "" });
+    expect(res.status).toBe(403);
+    expect(state.sessions).toHaveLength(0);
+  });
+
+  it("still requires a code when the declared PMS has no gate row at all", async () => {
+    // A PMS the table doesn't know about yet — fresh environment, a typo, a
+    // migration not yet run. Failing toward MORE scarcity is the safe default.
+    seed();
+    const res = await post({ rooms: 24, interval: "month", code: "", pmsType: "cloudbeds" });
+    expect(res.status).toBe(403);
+  });
+
+  it("lets checkout through with no code once that PMS's gate is off", async () => {
+    seed({ pms_signup_gates: [{ pms_type: "cloudbeds", requires_signup_code: false }] });
+    const res = await post({ rooms: 24, interval: "month", code: "", pmsType: "cloudbeds" });
+    expect(res.status).toBe(200);
+    // No code was used, so nothing to attribute the subscription to.
+    expect(lastSession()?.subscription_data).not.toHaveProperty("metadata.signup_code_id");
+    expect((lastSession()?.metadata as Record<string, unknown>)?.signup_code_id).toBeUndefined();
+  });
+
+  it("does not open every PMS just because one gate is off", async () => {
+    seed({ pms_signup_gates: [{ pms_type: "cloudbeds", requires_signup_code: false }] });
+    const res = await post({ rooms: 24, interval: "month", code: "", pmsType: "mews" });
+    expect(res.status).toBe(403);
+  });
+
+  it("still honours a real code even when the gate is off", async () => {
+    // The gate only ever widens who may check out with NO code. A discount or
+    // trial code the customer actually has keeps working exactly as before.
+    seed({ pms_signup_gates: [{ pms_type: "cloudbeds", requires_signup_code: false }] });
+    const res = await post({ rooms: 24, interval: "month", code: "MHSFOUNDER", pmsType: "cloudbeds" });
+    expect(res.status).toBe(200);
+    expect(lastSession()?.subscription_data).toMatchObject({ trial_period_days: 30 });
+  });
+
+  it("still rejects a typo'd code even when the gate is off", async () => {
+    // Silently discarding a bad code would leave someone who thought they had a
+    // discount finding out on their card statement instead.
+    seed({ pms_signup_gates: [{ pms_type: "cloudbeds", requires_signup_code: false }] });
+    const res = await post({ rooms: 24, interval: "month", code: "NOTAREALCODE", pmsType: "cloudbeds" });
+    expect(res.status).toBe(403);
+    expect(state.sessions).toHaveLength(0);
+  });
+});
