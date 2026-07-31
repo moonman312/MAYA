@@ -20,9 +20,9 @@ export function ConnectPms({ pmsOptions }: { pmsOptions: PmsRegistryStatus[] }) 
         Connect your property system
       </h1>
       <p className="mt-3 max-w-lg text-center text-sm leading-relaxed text-slate-400">
-        Last thing. Pick the system you use to manage bookings, sign in on their
-        site, and you&apos;ll be brought right back — no keys to copy, nothing to
-        configure on their end.
+        Last thing. Pick your property management system — the one where your
+        reservations live — sign in on their site, and you&apos;ll be brought
+        right back. No keys to copy, nothing to configure on their end.
       </p>
 
       {/* What happens when you connect */}
