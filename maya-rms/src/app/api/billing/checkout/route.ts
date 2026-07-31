@@ -59,11 +59,11 @@ export async function POST(request: Request) {
     interval?: string;
     code?: string;
     /**
-     * Which PMS they intend to use — optional, and never sent by the live
-     * subscribe screen today, so every current caller keeps the exact behavior
-     * below: a code is required. This is the hook for opening a specific
-     * integration to self-serve later (see /admin/pms-access) without it
-     * changing anything until a caller actually declares one.
+     * Which PMS they intend to use, from the subscribe screen's picker.
+     * Optional — "Something else" and older callers send none, and no
+     * declaration means a code is required. Self-declared and therefore not
+     * trusted on its own: connecting a gated PMS is separately enforced at the
+     * OAuth kickoff (lib/pms/oauth-flow.ts), so lying here buys nothing.
      */
     pmsType?: string;
   } | null;
