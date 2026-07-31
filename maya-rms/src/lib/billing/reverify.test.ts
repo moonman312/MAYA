@@ -160,6 +160,8 @@ function seedRow(o: Row = {}): Row {
     stripe_customer_id: "cus_1",
     stripe_subscription_id: "sub_1",
     status: "trialing",
+    // Internal plans have no card, so the sweep filters them out entirely.
+    plan_kind: "stripe",
     created_at: SIGNUP,
     card_verify_due_at: DUE,
     card_verified_at: null,
@@ -706,5 +708,31 @@ describe("clearCardAlarmAfterPayment", () => {
       { stripe_subscription_id: "sub_other", card_verify_failed_at: "2026-07-28T00:00:00Z" },
     ]);
     expect(await clearCardAlarmAfterPayment(admin, "sub_1")).toEqual({ cleared: false });
+  });
+});
+
+describe("internal plans are not swept", () => {
+  it("leaves an internal plan alone even when it looks due", async () => {
+    // Our own properties have no card and no Stripe customer. Without the filter
+    // they would be due forever, failing every check against a customer that
+    // does not exist — and eventually latching card_verify_failed_at on a hotel
+    // nobody is billing.
+    const { admin, rows } = fakeAdmin([
+      seedRow({ hotel_id: "ours", plan_kind: "internal", stripe_customer_id: null }),
+    ]);
+    const { stripe, calls } = fakeStripe();
+    const result = await sweepCardReverification({ admin, stripe, now: NOW });
+    expect(result).toMatchObject({ examined: 0 });
+    expect(calls.creates).toHaveLength(0);
+    expect(rows[0].card_verify_failed_at).toBeNull();
+  });
+
+  it("still sweeps a real plan sitting beside one", async () => {
+    const { admin } = fakeAdmin([
+      seedRow({ hotel_id: "ours", plan_kind: "internal", stripe_customer_id: null }),
+      seedRow({ hotel_id: "paying", stripe_subscription_id: "sub_paying" }),
+    ]);
+    const { stripe } = fakeStripe();
+    expect(await sweepCardReverification({ admin, stripe, now: NOW })).toMatchObject({ examined: 1 });
   });
 });

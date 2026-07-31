@@ -20,9 +20,9 @@ describe("seatsFor", () => {
     expect(seatsFor(rooms)).toBe(seats);
   });
 
-  it("carries the top band past 100, where the table stops", () => {
-    // MAYA sells to 500 rooms; the agreed table ends at 100. Extending the last
-    // band beats inventing numbers, but it is a decision worth being able to see.
+  it("gives 8 seats to everything from 81 rooms to the ceiling", () => {
+    // Signed off: a 400-room resort has more staff but not more people setting
+    // rates, and viewers can share a login-free look at the calendar.
     expect(seatsFor(250)).toBe(8);
     expect(seatsFor(MAX_ROOMS)).toBe(8);
   });

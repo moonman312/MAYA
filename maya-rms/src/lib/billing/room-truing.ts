@@ -64,6 +64,8 @@ export async function dueForTruing(
     .select(SELECT_COLUMNS)
     .not("room_shortfall_since", "is", null)
     .lte("room_shortfall_since", cutoff)
+    // Nothing to true up on a plan that is never invoiced.
+    .eq("plan_kind", "stripe")
     .order("room_shortfall_since", { ascending: true })
     .limit(limit);
 
@@ -87,6 +89,7 @@ export async function shortfallsNeedingNotice(
     .from("hotel_subscriptions")
     .select(SELECT_COLUMNS)
     .not("room_shortfall_since", "is", null)
+    .eq("plan_kind", "stripe")
     .order("room_shortfall_since", { ascending: true })
     .limit(limit);
 
