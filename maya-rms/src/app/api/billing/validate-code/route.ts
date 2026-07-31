@@ -11,6 +11,7 @@
  */
 
 import { checkCode } from "@/lib/billing/codes";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
@@ -29,6 +30,14 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+
+  // The gate is deliberate scarcity, so this is the endpoint worth guessing at.
+  // The shape check in checkCode already refuses wildcards; this bounds the
+  // brute force that remains. Keyed on the user, which costs an email address
+  // per bucket rather than a request.
+  const throttled = await enforceRateLimit("codeCheck", user.id,
+    "Too many code attempts. Wait a few minutes and try again.");
+  if (throttled) return throttled;
 
   const body = (await request.json().catch(() => null)) as
     | { code?: string; interval?: string }

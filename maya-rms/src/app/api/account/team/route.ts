@@ -1,6 +1,7 @@
 import { loadTeam } from "@/lib/account/team";
 import { inviteUserToHotel } from "@/lib/admin/memberships";
 import { seatLimitMessage } from "@/lib/billing/seats";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { HOTEL_ROLES, type HotelRole } from "@/lib/roles";
 import { hasHotelRank, requireSupabaseHotelRank } from "@/lib/require-supabase-hotel";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
@@ -57,6 +58,13 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
+
+  // Seats bound how many people can END UP on a property, not how many
+  // invitation emails we send on its behalf — and the emails go out under our
+  // sending domain, so the reputation being spent is ours.
+  const throttled = await enforceRateLimit("invite", ctx.hotelId,
+    "Too many invitations just now. Try again shortly.");
+  if (throttled) return throttled;
 
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const role = String(body.role ?? "") as HotelRole;

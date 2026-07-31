@@ -70,21 +70,44 @@ Deno.serve(async (req) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
+  // How much one invocation takes. Small enough to finish inside the Edge
+  // runtime limit with room for the slowest hotel; raise it, or add cron
+  // entries, as the fleet grows. Both are configuration.
+  const batchSize = Math.max(1, Number(getEnv("MAYA_SYNC_BATCH_SIZE") ?? "25") || 25);
+  const leaseSeconds = Math.max(60, Number(getEnv("MAYA_SYNC_LEASE_SECONDS") ?? "600") || 600);
+  // How long until a healthy connection is due again. The cron can tick more
+  // often than this without doing extra work — claim_pms_sync_batch only returns
+  // what is actually due, so over-ticking costs one cheap query.
+  const syncIntervalSeconds = Math.max(60, Number(getEnv("MAYA_SYNC_INTERVAL_SECONDS") ?? "300") || 300);
+  const workerId = crypto.randomUUID();
+
   let hotelIds: string[];
   if (bodyHotelId) {
     hotelIds = [bodyHotelId];
   } else {
-    const { data: connRows, error: listErr } = await supabase
-      .from("pms_connections")
-      .select("hotel_id")
-      .eq("pms_type", "mews");
+    // Claim a bounded batch under a lease rather than listing every connection
+    // and looping it. Selecting them all is fine at seven hotels and impossible
+    // at twenty thousand: one invocation has a wall clock, and the tail of the
+    // list simply never runs.
+    //
+    // FOR UPDATE SKIP LOCKED inside claim_pms_sync_batch is what makes this
+    // scale without coordination — two workers running at the same instant take
+    // disjoint rows instead of blocking, so capacity is "run more invocations"
+    // rather than a redesign. The lease is what makes a crashed worker safe: it
+    // expires and the next tick picks the hotel back up.
+    const { data: claimed, error: listErr } = await supabase.rpc("claim_pms_sync_batch", {
+      p_pms_type: "mews",
+      p_limit: batchSize,
+      p_lease_seconds: leaseSeconds,
+      p_owner: workerId,
+    });
     if (listErr) {
       return new Response(JSON.stringify({ ok: false, error: listErr.message }), {
         status: 500,
         headers: { "Content-Type": "application/json" },
       });
     }
-    hotelIds = [...new Set((connRows ?? []).map((r) => r.hotel_id).filter(Boolean))] as string[];
+    hotelIds = ((claimed ?? []) as { hotel_id: string }[]).map((r) => r.hotel_id).filter(Boolean);
   }
 
   // Lapsed hotels are dropped before any work happens, not after: syncing and
@@ -141,6 +164,26 @@ Deno.serve(async (req) => {
     const roomVerdict = sync.ok ? await recordRoomCount(supabase, hotelId, new Date()) : null;
 
     results.push({ hotelId, sync, evaluate, rooms: roomVerdict });
+
+    // Hand the claim back and say when this hotel next wants looking at. A
+    // failure backs off exponentially inside release_pms_sync, so one hotel with
+    // a revoked token stops costing a full-rate retry every tick forever.
+    // Skipped for a single-hotel dispatch, which never took a lease.
+    if (!bodyHotelId) {
+      const { error: releaseErr } = await supabase.rpc("release_pms_sync", {
+        p_hotel_id: hotelId,
+        p_pms_type: "mews",
+        p_ok: sync.ok,
+        p_interval_seconds: syncIntervalSeconds,
+      });
+      if (releaseErr) {
+        // Not fatal: the lease expires on its own and the next tick reclaims it.
+        // Worth saying though — a run of these means the batch is churning.
+        console.error(
+          JSON.stringify({ fn: "mews-scheduled-sync", step: "release", hotelId, error: releaseErr.message }),
+        );
+      }
+    }
   }
 
   const failed = results.filter(

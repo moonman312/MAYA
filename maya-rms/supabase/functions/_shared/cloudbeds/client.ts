@@ -9,8 +9,8 @@
  */
 
 import type { CloudbedsResolvedCredentials } from "./types.ts";
+import { acquire, record } from "../pms/rate-limit.ts";
 import {
-  CLOUDBEDS_MIN_REQUEST_INTERVAL_MS,
   CLOUDBEDS_PAGE_SIZE,
 } from "./constants.ts";
 
@@ -82,13 +82,19 @@ function parseRetryAfterMs(res: Response): number | null {
 
 const MAX_ATTEMPTS = 6;
 
-/** Simple monotonic pacer so we stay under Cloudbeds' per-second limit. */
-let lastRequestAt = 0;
-async function pace(): Promise<void> {
-  const now = Date.now();
-  const wait = lastRequestAt + CLOUDBEDS_MIN_REQUEST_INTERVAL_MS - now;
-  if (wait > 0) await sleep(wait);
-  lastRequestAt = Date.now();
+/**
+ * Which lane a request paces in.
+ *
+ * The property id, because that is what Cloudbeds meters: their limit is 5
+ * requests a second for a property or group account, and MAYA holds one OAuth
+ * credential per property. The old pacer was a single module-level timestamp
+ * shared by every hotel in the isolate, which made the fleet slower as it grew
+ * — twenty hotels queued behind one 220ms gap — while doing nothing extra to
+ * protect any individual property's budget, which is the one Cloudbeds actually
+ * suspends.
+ */
+function laneKeyFor(creds: CloudbedsResolvedCredentials): string {
+  return creds.propertyId || creds.baseUrl;
 }
 
 /** GET a Cloudbeds classic endpoint with Bearer auth, pacing, and 429 backoff. */
@@ -103,9 +109,10 @@ export async function cloudbedsGet(
     if (v !== undefined && v !== "") url.searchParams.set(k, String(v));
   }
 
+  const lane = laneKeyFor(creds);
   let backoffMs = 1000;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    await pace();
+    await acquire("cloudbeds", lane);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const startedAt = Date.now();
@@ -132,12 +139,14 @@ export async function cloudbedsGet(
         );
       }
 
+      if (res.status === 429) record("cloudbeds", lane, "throttled");
       if (res.status === 429 && attempt < MAX_ATTEMPTS - 1) {
         const retry = parseRetryAfterMs(res) ?? Math.min(backoffMs, 60_000);
         backoffMs = Math.min(backoffMs * 2, 60_000);
         await sleep(retry);
         continue;
       }
+      if (res.ok) record("cloudbeds", lane, "ok");
 
       const rec = (data ?? {}) as JsonRecord;
 
@@ -353,9 +362,10 @@ export async function cloudbedsPost(
   timeoutMs = 45_000,
 ): Promise<JsonRecord> {
   const url = `${creds.baseUrl.replace(/\/$/, "")}/${method.replace(/^\//, "")}`;
+  const lane = laneKeyFor(creds);
   let backoffMs = 1000;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    await pace();
+    await acquire("cloudbeds", lane);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const startedAt = Date.now();

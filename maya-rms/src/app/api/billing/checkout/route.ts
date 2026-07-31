@@ -24,6 +24,7 @@ import { findPendingHotelForUser, provisionPendingHotel } from "@/lib/billing/pe
 import { isStripeConfigured, priceIdFor, stripeClient } from "@/lib/billing/stripe";
 import { checkCode, checkoutEffectFor } from "@/lib/billing/codes";
 import { isEntitled } from "@/lib/billing/sync";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { isBillableRoomCount, MAX_ROOMS, type BillingInterval } from "@/lib/billing/tiers";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -78,6 +79,13 @@ export async function POST(request: Request) {
       { status: 403 },
     );
   }
+
+  // Each attempt can mint a Stripe customer and a Checkout Session. The
+  // idempotency key collapses identical retries, but varying the room count
+  // defeats it, so the count itself needs a ceiling.
+  const throttled = await enforceRateLimit("checkout", user.id,
+    "Too many checkout attempts. Wait a few minutes and try again.");
+  if (throttled) return throttled;
 
   const admin = createAdminClient();
 

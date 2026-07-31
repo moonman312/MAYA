@@ -12,6 +12,7 @@
 
 import { runCloudbedsSyncForHotel } from "@/lib/cloudbeds/sync-hotel";
 import { requireEntitledHotel } from "@/lib/billing/require-entitled";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { requireSupabaseHotelRank } from "@/lib/require-supabase-hotel";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { cookies } from "next/headers";
@@ -26,6 +27,14 @@ export async function POST(req: Request) {
 
     const paid = await requireEntitledHotel(ctx.supabase, ctx.hotelId);
     if (!paid.ok) return paid.response;
+
+    // Every manual sync spends this hotel's own PMS allowance, and
+    // exhausting that is what gets credentials suspended. Keyed on the
+    // hotel rather than the user: three managers each clicking twice is
+    // the same load on Cloudbeds as one manager clicking six times.
+    const throttled = await enforceRateLimit("pmsSync", ctx.hotelId,
+      "You've triggered a lot of syncs. Bookings also sync automatically every few minutes.");
+    if (throttled) return throttled;
 
     if (!isAdminConfigured()) {
       return NextResponse.json(

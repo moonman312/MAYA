@@ -46,6 +46,17 @@ export const CLOUDBEDS_PAGE_SIZE = Number(mwsEnv("CLOUDBEDS_PAGE_SIZE") ?? "100"
 export const CLOUDBEDS_FETCH_RATE_DETAIL =
   (mwsEnv("CLOUDBEDS_FETCH_RATE_DETAIL") ?? "false").toLowerCase() === "true";
 
-/** Minimum ms between Cloudbeds calls (~5 req/s → 200ms). ⚠ VERIFY current limits. */
+/**
+ * Minimum ms between Cloudbeds calls on ONE property's credential.
+ *
+ * Verified July 2026 against developers.cloudbeds.com/docs/faq: 5 requests per
+ * second for a property or group account, 10 for a tech partner. 220ms is 4.5/s,
+ * which keeps a tenth of the budget in reserve for clock skew — the limit is
+ * enforced on their clock, and requests we spaced correctly can still arrive
+ * bunched.
+ *
+ * The pacing itself lives in _shared/pms/rate-limit.ts, which is per credential
+ * rather than per process. This is kept as the tunable.
+ */
 export const CLOUDBEDS_MIN_REQUEST_INTERVAL_MS =
   Number(mwsEnv("CLOUDBEDS_MIN_REQUEST_INTERVAL_MS") ?? "220") || 220;
