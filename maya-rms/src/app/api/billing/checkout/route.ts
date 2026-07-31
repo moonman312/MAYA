@@ -22,7 +22,8 @@ import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { findPendingHotelForUser, provisionPendingHotel } from "@/lib/billing/pending-hotel";
 import { isStripeConfigured, priceIdFor, stripeClient } from "@/lib/billing/stripe";
-import { checkCode, checkoutEffectFor } from "@/lib/billing/codes";
+import { checkCode, checkoutEffectFor, type CheckoutEffect } from "@/lib/billing/codes";
+import { pmsSignupCodeRequired } from "@/lib/billing/pms-gates";
 import { isEntitled } from "@/lib/billing/sync";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { isBillableRoomCount, MAX_ROOMS, type BillingInterval } from "@/lib/billing/tiers";
@@ -57,6 +58,14 @@ export async function POST(request: Request) {
     rooms?: number;
     interval?: string;
     code?: string;
+    /**
+     * Which PMS they intend to use — optional, and never sent by the live
+     * subscribe screen today, so every current caller keeps the exact behavior
+     * below: a code is required. This is the hook for opening a specific
+     * integration to self-serve later (see /admin/pms-access) without it
+     * changing anything until a caller actually declares one.
+     */
+    pmsType?: string;
   } | null;
 
   const rooms = body?.rooms;
@@ -133,17 +142,35 @@ export async function POST(request: Request) {
     );
   }
 
-  // A code is required to reach checkout at all while signup is gated. Checked
-  // against the service-role client because signup_codes is admin-only under
-  // RLS and the person signing up is, by definition, not an admin.
-  // The interval goes in because a code's meaning can depend on it: a fixed
-  // price was agreed per period, and a duration-limited discount is worth
-  // different money on a yearly invoice than a monthly one.
-  const codeCheck = await checkCode(admin, body?.code ?? "", { hotelId, interval });
-  if (!codeCheck.ok) {
-    return NextResponse.json({ error: codeCheck.message, reason: codeCheck.reason }, { status: 403 });
+  // A code is required to reach checkout at all while signup is gated — but
+  // that gate is now per PMS (see /admin/pms-access), so a declared PMS whose
+  // gate is off may proceed with none. Typing one anyway is still validated
+  // and honoured either way: this only ever widens who may check out with NO
+  // code, never who gets to skip validation of a code they actually typed. A
+  // typo'd real code has to fail loudly, not be silently discarded — someone
+  // who thought they had a discount deserves to know it didn't apply, not
+  // find out on their card statement.
+  const typedCode = (body?.code ?? "").trim();
+  const codeRequired =
+    !body?.pmsType || (await pmsSignupCodeRequired(admin, body.pmsType));
+
+  let signupCodeId: string | null = null;
+  let signupCodeLabel: string | null = null;
+  let effect: CheckoutEffect = {};
+  if (typedCode || codeRequired) {
+    // Checked against the service-role client because signup_codes is
+    // admin-only under RLS and the person signing up is, by definition, not an
+    // admin. The interval goes in because a code's meaning can depend on it: a
+    // fixed price was agreed per period, and a duration-limited discount is
+    // worth different money on a yearly invoice than a monthly one.
+    const codeCheck = await checkCode(admin, typedCode, { hotelId, interval });
+    if (!codeCheck.ok) {
+      return NextResponse.json({ error: codeCheck.message, reason: codeCheck.reason }, { status: 403 });
+    }
+    signupCodeId = codeCheck.code.id;
+    signupCodeLabel = codeCheck.code.code;
+    effect = checkoutEffectFor(codeCheck.code, interval);
   }
-  const effect = checkoutEffectFor(codeCheck.code, interval);
 
   // After the code check so a rejected code leaves nothing behind; before Stripe
   // because a subscription without a hotel_id in its metadata is a payment
@@ -188,8 +215,8 @@ export async function POST(request: Request) {
         percent_off: spec.percentOff,
         duration: spec.duration,
         ...(spec.duration === "repeating" ? { duration_in_months: spec.durationMonths } : {}),
-        name: `MAYA code ${codeCheck.code.code}`,
-        metadata: { signup_code_id: codeCheck.code.id, billing_interval: interval },
+        name: `MAYA code ${signupCodeLabel}`,
+        metadata: { signup_code_id: signupCodeId ?? "", billing_interval: interval },
       });
       couponId = coupon.id;
 
@@ -199,7 +226,7 @@ export async function POST(request: Request) {
         const { error: backfillErr } = await admin
           .from("signup_codes")
           .update({ stripe_coupon_id: coupon.id })
-          .eq("id", codeCheck.code.id);
+          .eq("id", signupCodeId ?? "");
         // Not fatal: the coupon exists and this checkout can use it. The next
         // redemption would just create another one, untidy but not wrong.
         if (backfillErr) {
@@ -246,14 +273,18 @@ export async function POST(request: Request) {
       // along because that hotel gets renamed on connect and could be deleted:
       // it is what gets a human back to the person who actually paid.
       subscription_data: {
-        metadata: { hotel_id: hotelId, user_id: user.id, signup_code_id: codeCheck.code.id },
+        metadata: {
+          hotel_id: hotelId,
+          user_id: user.id,
+          ...(signupCodeId ? { signup_code_id: signupCodeId } : {}),
+        },
         ...(effect.trialDays ? { trial_period_days: effect.trialDays } : {}),
       },
       metadata: {
         hotel_id: hotelId,
         user_id: user.id,
         email: user.email ?? "",
-        signup_code_id: codeCheck.code.id,
+        ...(signupCodeId ? { signup_code_id: signupCodeId } : {}),
       },
       // Through the return route rather than straight to the PMS picker: that
       // page decides whether they have paid, and the webhook which would tell it
@@ -271,7 +302,7 @@ export async function POST(request: Request) {
     // Keyed on everything that defines the offer, so genuinely changing the room
     // count or the period still starts a new session rather than silently
     // returning the old price.
-    { idempotencyKey: `maya_checkout_${hotelId}_${interval}_${billedRooms}_${codeCheck.code.id}` });
+    { idempotencyKey: `maya_checkout_${hotelId}_${interval}_${billedRooms}_${signupCodeId ?? "none"}` });
 
     if (!session.url) {
       return NextResponse.json({ error: "Stripe did not return a checkout URL." }, { status: 502 });
