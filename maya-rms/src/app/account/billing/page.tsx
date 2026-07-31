@@ -123,9 +123,14 @@ export default async function BillingPage() {
       {billing.entitled && (
         <section className="rounded border border-slate-800 bg-slate-900 p-4">
           <h2 className="text-sm font-semibold text-slate-200">Room count</h2>
+          {/* Deliberately no "change it whenever you like" invitation here. The
+              count is checked against the PMS on every sync and corrected if it
+              is short, so copy that reads as an open dial encourages exactly the
+              fiddling the truing sweep then has to undo. What the number is, and
+              what we measured, is enough. */}
           <p className="mt-1 max-w-2xl text-xs text-slate-400">
-            MAYA bills for the rooms you sell. Change it whenever the property does — the price moves
-            to whichever bracket the new count lands in.
+            Your plan covers {billing.rooms} room{billing.rooms === 1 ? "" : "s"}. We check this
+            against your property management system.
           </p>
           {billing.notBilledFor.length > 0 && (
             <p className="mt-2 max-w-2xl text-xs text-slate-400">
