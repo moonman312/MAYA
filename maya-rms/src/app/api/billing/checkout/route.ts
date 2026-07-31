@@ -137,7 +137,7 @@ export async function POST(request: Request) {
   // A hotel in that state has paid nothing and has no way forward.
   if (existing?.stripe_subscription_id && isEntitled(existing.status)) {
     return NextResponse.json(
-      { error: "This property already has a subscription. Manage it from billing settings." },
+      { error: "This property already has a subscription. Manage it at /account/billing." },
       { status: 409 },
     );
   }
@@ -211,13 +211,25 @@ export async function POST(request: Request) {
     let couponId = effect.discountCouponId;
     const spec = effect.couponNeeded;
     if (!couponId && spec) {
-      const coupon = await stripe.coupons.create({
-        percent_off: spec.percentOff,
-        duration: spec.duration,
-        ...(spec.duration === "repeating" ? { duration_in_months: spec.durationMonths } : {}),
-        name: `MAYA code ${signupCodeLabel}`,
-        metadata: { signup_code_id: signupCodeId ?? "", billing_interval: interval },
-      });
+      const coupon = await stripe.coupons.create(
+        {
+          percent_off: spec.percentOff,
+          duration: spec.duration,
+          ...(spec.duration === "repeating" ? { duration_in_months: spec.durationMonths } : {}),
+          name: `MAYA code ${signupCodeLabel}`,
+          metadata: { signup_code_id: signupCodeId ?? "", billing_interval: interval },
+        },
+        // Keyed on everything that shapes the coupon, so bouncing off the card
+        // form reuses the one already made — the annual-rescaled form is never
+        // cached on the code row, and without this every attempt minted another
+        // — while an edited code changes the key rather than colliding with the
+        // old parameters.
+        {
+          idempotencyKey:
+            `maya_coupon_${signupCodeId}_${interval}_${spec.percentOff}_` +
+            `${spec.duration}_${spec.durationMonths ?? 0}_${signupCodeLabel}`,
+        },
+      );
       couponId = coupon.id;
 
       // Only the period-independent form gets remembered. Caching the annual
@@ -241,18 +253,34 @@ export async function POST(request: Request) {
     // at, so the owner's stated count doesn't change what was agreed.
     const billedRooms = effect.roomsOverride ?? rooms;
 
-    // Reuse the customer if this hotel has been here before (a cancelled
-    // subscription, or an abandoned checkout) so their history stays in one
-    // place in the dashboard.
-    const customerId =
-      existing?.stripe_customer_id ??
-      (
-        await stripe.customers.create({
-          name: customerName,
-          email: user.email ?? undefined,
-          metadata: { hotel_id: hotelId },
-        })
+    // Reuse the customer if this hotel has been here before, so their history
+    // stays in one place in the dashboard. A cancelled subscription left its
+    // customer id on the row; an abandoned checkout never got that far, so its
+    // customer is found back through the hotel_id stamped on it — otherwise
+    // bouncing off the card form three times leaves three customers on one
+    // email. Search indexing lags a minute or so behind creation, which is what
+    // the idempotency key on the create is for: inside that window Stripe hands
+    // back the customer it already made instead of another.
+    let customerId = existing?.stripe_customer_id ?? null;
+    if (!customerId) {
+      const found = await stripe.customers.search({
+        query: `metadata['hotel_id']:'${hotelId}'`,
+        limit: 1,
+      });
+      customerId = found.data[0]?.id ?? null;
+    }
+    if (!customerId) {
+      customerId = (
+        await stripe.customers.create(
+          {
+            name: customerName,
+            email: user.email ?? undefined,
+            metadata: { hotel_id: hotelId },
+          },
+          { idempotencyKey: `maya_customer_${hotelId}` },
+        )
       ).id;
+    }
 
     const origin = new URL(request.url).origin;
     const session = await stripe.checkout.sessions.create({
@@ -309,8 +337,18 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ url: session.url });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Could not start checkout.";
-    console.error(JSON.stringify({ fn: "billingCheckout", hotelId, error: message }));
-    return NextResponse.json({ error: message }, { status: 502 });
+    // The real message goes to the log only. Stripe failures name lookup keys,
+    // scripts and account state — none of it is for the person holding a card.
+    console.error(
+      JSON.stringify({
+        fn: "billingCheckout",
+        hotelId,
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+    return NextResponse.json(
+      { error: "We couldn't start checkout just now. Please try again in a moment." },
+      { status: 502 },
+    );
   }
 }

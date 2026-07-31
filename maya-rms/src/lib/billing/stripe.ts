@@ -25,17 +25,24 @@ export function stripeClient(): Stripe {
 }
 
 /**
- * Price id for a billing interval, cached per process.
+ * Price id for a billing interval, cached briefly.
  *
  * A missing lookup_key means the bootstrap script has not been run against this
  * Stripe account — throwing names that explicitly, because the alternative
  * (falling back to some other price) would charge the wrong amount.
+ *
+ * The cache expires rather than living for the process: a reprice moves the
+ * lookup_key onto a NEW price and archives the old one, and a warm instance
+ * still holding the archived id would fail every checkout it serves until it
+ * happened to recycle — while cold instances succeed, which reads as a flake
+ * instead of a rotation.
  */
-const priceIdCache = new Map<BillingInterval, string>();
+const PRICE_ID_TTL_MS = 5 * 60 * 1000;
+const priceIdCache = new Map<BillingInterval, { id: string; at: number }>();
 
 export async function priceIdFor(interval: BillingInterval): Promise<string> {
   const hit = priceIdCache.get(interval);
-  if (hit) return hit;
+  if (hit && Date.now() - hit.at < PRICE_ID_TTL_MS) return hit.id;
 
   const lookupKey = interval === "month" ? MONTHLY_LOOKUP_KEY : ANNUAL_LOOKUP_KEY;
   const found = await stripeClient().prices.list({ lookup_keys: [lookupKey], active: true, limit: 1 });
@@ -45,12 +52,6 @@ export async function priceIdFor(interval: BillingInterval): Promise<string> {
       `No active Stripe price with lookup_key "${lookupKey}". Run scripts/stripe-bootstrap.mts --apply against this account.`,
     );
   }
-  priceIdCache.set(interval, price.id);
+  priceIdCache.set(interval, { id: price.id, at: Date.now() });
   return price.id;
-}
-
-/** Test seam: the price cache is process-lifetime, which unit tests must not inherit. */
-export function resetBillingCachesForTest(): void {
-  priceIdCache.clear();
-  cached = null;
 }
