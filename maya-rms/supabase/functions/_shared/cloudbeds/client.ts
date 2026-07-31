@@ -283,12 +283,15 @@ export async function cloudbedsGetReservationsPage(
   checkInTo: string,
   status: string,
   pageNumber: number,
+  modifiedFrom?: string,
 ): Promise<{ reservations: CloudbedsReservation[]; hasMore: boolean }> {
   const res = await cloudbedsGet(creds, "getReservations", {
     propertyID: creds.propertyId,
     status,
     checkInFrom,
     checkInTo,
+    // cloudbedsGet drops undefined and "", so omitting it is a full sweep.
+    modifiedFrom,
     pageNumber,
     pageSize: CLOUDBEDS_PAGE_SIZE,
   });
@@ -303,11 +306,27 @@ export async function cloudbedsGetReservationsPage(
   return { reservations: chunk, hasMore };
 }
 
+/**
+ * `modifiedFrom` is real but undocumented, and the way Cloudbeds handles unknown
+ * parameters makes that easy to get wrong: they are silently ignored and the
+ * full set comes back, so `modifiedSince`, `updatedFrom` and `lastModified` all
+ * LOOK like they work. Verified against the live API — a future `modifiedFrom`
+ * returns zero rows where those return everything.
+ *
+ * Format is `YYYY-MM-DD` or `YYYY-MM-DD HH:MM:SS`. ISO-8601 with T and Z is
+ * rejected outright, so this formats rather than calling toISOString().
+ */
+export function cloudbedsTimestamp(d: Date): string {
+  return d.toISOString().slice(0, 19).replace("T", " ");
+}
+
 export async function cloudbedsGetReservationsRange(
   creds: CloudbedsResolvedCredentials,
   checkInFrom: string,
   checkInTo: string,
   statuses: readonly string[],
+  /** Only reservations touched since this. Omit for a full sweep. */
+  modifiedFrom?: string,
 ): Promise<{ reservations: CloudbedsReservation[]; pages: number }> {
   const all: CloudbedsReservation[] = [];
   let pages = 0;
@@ -324,6 +343,7 @@ export async function cloudbedsGetReservationsRange(
         checkInTo,
         status,
         pageNumber,
+        modifiedFrom,
       );
       pages += 1;
       all.push(...reservations);

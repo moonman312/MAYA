@@ -13,12 +13,15 @@ import {
   cloudbedsGetReservationDetail,
   cloudbedsGetReservationsPage,
   cloudbedsGetReservationsRange,
+  cloudbedsTimestamp,
   cloudbedsGetRoomTypes,
   CloudbedsHttpError,
   type CloudbedsReservation,
 } from "./client.ts";
 import {
   CLOUDBEDS_SYNC_BUDGET_MS,
+  CLOUDBEDS_INCREMENTAL_OVERLAP_MS,
+  CLOUDBEDS_FULL_SYNC_INTERVAL_MS,
   defaultCloudbedsBaseUrl,
   CLOUDBEDS_ACTIVE_STATUSES,
   CLOUDBEDS_CANCELED_STATUSES,
@@ -138,6 +141,8 @@ async function listCanceledReservations(
   creds: CloudbedsResolvedCredentials,
   checkInFrom: string,
   checkInTo: string,
+  /** Same watermark as the active pull: a cancellation IS a modification. */
+  modifiedFrom?: string,
 ): Promise<{ items: CloudbedsReservation[]; pages: number; statusesFailed: number }> {
   const items: CloudbedsReservation[] = [];
   let pages = 0;
@@ -153,6 +158,7 @@ async function listCanceledReservations(
           checkInTo,
           status,
           pageNumber,
+          modifiedFrom,
         );
         pages += 1;
         items.push(...page.reservations);
@@ -188,6 +194,43 @@ async function deleteCanceledReservationRows(
     if (error) return { error };
   }
   return { error: null };
+}
+
+export type SyncMode = {
+  incremental: boolean;
+  /** Passed to Cloudbeds as modifiedFrom. Undefined means sweep everything. */
+  modifiedFrom: string | undefined;
+  reason: "first_run" | "full_sweep_due" | "window_requested" | "incremental";
+};
+
+/**
+ * Whether this run pulls everything or only what changed.
+ *
+ * Pure so the decision can be tested, because getting it wrong is silent in both
+ * directions: too eager and a hotel's bookings stop updating, too cautious and
+ * the sync never finishes for anyone above thirty rooms.
+ */
+export function decideSyncMode(args: {
+  now: Date;
+  watermark: Date | null;
+  lastFullSyncAt: Date | null;
+  windowRequested: boolean;
+  overlapMs: number;
+  fullSweepIntervalMs: number;
+}): SyncMode {
+  const { now, watermark, lastFullSyncAt, windowRequested, overlapMs, fullSweepIntervalMs } = args;
+
+  if (windowRequested) return { incremental: false, modifiedFrom: undefined, reason: "window_requested" };
+  if (!watermark) return { incremental: false, modifiedFrom: undefined, reason: "first_run" };
+  if (!lastFullSyncAt || now.getTime() - lastFullSyncAt.getTime() > fullSweepIntervalMs) {
+    return { incremental: false, modifiedFrom: undefined, reason: "full_sweep_due" };
+  }
+
+  return {
+    incremental: true,
+    modifiedFrom: cloudbedsTimestamp(new Date(watermark.getTime() - overlapMs)),
+    reason: "incremental",
+  };
 }
 
 async function deleteStaleStayNights(
@@ -301,11 +344,46 @@ export async function runCloudbedsSyncForHotel(
     //    check-in window, then pull getReservation DETAIL per booking and
     //    explode assigned[] × dailyRates[] into per-room-night rows.
     const { checkInFrom, checkInTo } = resolveWindow(options);
+
+    // Incremental unless there is a reason not to be. Re-fetching the whole book
+    // every five minutes is what made this impossible above ~30 rooms; a
+    // steady-state tick only needs the bookings somebody actually touched.
+    //
+    // A full sweep happens when there is no watermark (first run after connect),
+    // when the last one is older than CLOUDBEDS_FULL_SYNC_INTERVAL_MS, or when
+    // the caller asked for a specific window — an incremental pull cannot see a
+    // booking nobody changed, so something has to look at everything sometimes.
+    const runStartedAt = new Date();
+    const { data: syncState } = await supabase
+      .from("pms_connections")
+      .select("reservations_modified_through, last_full_sync_at")
+      .eq("hotel_id", hotelId)
+      .eq("pms_type", "cloudbeds")
+      .maybeSingle();
+
+    const watermark = syncState?.reservations_modified_through
+      ? new Date(String(syncState.reservations_modified_through))
+      : null;
+    const lastFull = syncState?.last_full_sync_at
+      ? new Date(String(syncState.last_full_sync_at))
+      : null;
+    const { incremental, modifiedFrom } = decideSyncMode({
+      now: runStartedAt,
+      watermark,
+      lastFullSyncAt: lastFull,
+      // An explicit window is a deliberate re-read of a period, so honour it in
+      // full rather than filtering it down to what changed.
+      windowRequested: options?.daysBack != null || options?.daysForward != null,
+      overlapMs: CLOUDBEDS_INCREMENTAL_OVERLAP_MS,
+      fullSweepIntervalMs: CLOUDBEDS_FULL_SYNC_INTERVAL_MS,
+    });
+
     const { reservations: listItems, pages } = await cloudbedsGetReservationsRange(
       creds,
       checkInFrom,
       checkInTo,
       CLOUDBEDS_ACTIVE_STATUSES,
+      modifiedFrom,
     );
 
     const seenResIds = new Set<string>();
@@ -404,7 +482,11 @@ export async function runCloudbedsSyncForHotel(
     // already parsed above — every hotel losing a whole cron cycle's data (and
     // its rate push) over a cancellation-list hiccup. Failing after the upsert
     // still reports ok:false; it just doesn't discard good data to do it.
-    const canceledList = await listCanceledReservations(creds, checkInFrom, checkInTo);
+    // Cancelling a booking modifies it, so the same watermark applies — and the
+    // rows for anything cancelled before it were already removed on the run that
+    // saw it. Without this the cancelled sweep re-walks every cancellation the
+    // property has ever had, on every tick, forever.
+    const canceledList = await listCanceledReservations(creds, checkInFrom, checkInTo, modifiedFrom);
     let canceledDetailFailed = 0;
     for (const item of canceledList.items) {
       const rid = reservationIdOf(item);
@@ -447,7 +529,24 @@ export async function runCloudbedsSyncForHotel(
       const nowIso = new Date().toISOString();
       const { error: pcErr } = await supabase
         .from("pms_connections")
-        .update({ status: "connected", last_sync_at: nowIso, last_tested_at: nowIso, updated_at: nowIso })
+        .update({
+          status: "connected",
+          last_sync_at: nowIso,
+          last_tested_at: nowIso,
+          updated_at: nowIso,
+          // Advance ONLY on a run that covered its window. A truncated run
+          // stopped partway through the list, so moving the watermark past the
+          // bookings it never reached would skip them permanently — the next
+          // incremental pull would ask for changes since a moment it never
+          // actually finished reading.
+          //
+          // Stamped with when this run STARTED, not now: anything modified while
+          // it was running has to fall inside the next pull's range.
+          ...(truncated
+            ? {}
+            : { reservations_modified_through: runStartedAt.toISOString() }),
+          ...(!truncated && !incremental ? { last_full_sync_at: runStartedAt.toISOString() } : {}),
+        })
         .eq("id", connRow.id);
       if (pcErr) console.error("cloudbeds pms_connections status update failed:", pcErr.message);
     }
