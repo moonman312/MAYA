@@ -347,8 +347,7 @@ export function patchFor(
 
 /**
  * Writes the verdict. Guarded on the row still having none: two overlapping
- * sweeps, or a sweep racing a manual re-check, must not overwrite a settled
- * result with a staler one.
+ * sweeps must not overwrite a settled result with a staler one.
  */
 export async function recordOutcome(
   admin: SupabaseClient,
@@ -447,6 +446,21 @@ export async function sweepCardReverification(opts: {
     const saved = await recordOutcome(opts.admin, row, outcome, now);
     if (!saved.ok && saved.error) result.errors.push(saved.error);
   }
+
+  // Logged even when every card passed. Silence from this sweep otherwise means
+  // two very different things — nothing was due, or the cron never fired — and
+  // only one of them is fine; this line is what tells them apart.
+  console.log(
+    JSON.stringify({
+      fn: "sweepCardReverification",
+      examined: result.examined,
+      verified: result.verified,
+      failed: result.failed,
+      deferred: result.deferred,
+      moot: result.moot,
+      errors: result.errors.length,
+    }),
+  );
 
   return result;
 }

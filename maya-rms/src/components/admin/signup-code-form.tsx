@@ -1,7 +1,7 @@
 "use client";
 
 import type { SignupCodeKind } from "@/lib/billing/codes";
-import { formatUsd, MAX_ROOMS, priceCents, type BillingInterval } from "@/lib/billing/tiers";
+import { formatUsd, isBillableRoomCount, MAX_ROOMS, priceCents, type BillingInterval } from "@/lib/billing/tiers";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -60,7 +60,7 @@ export function SignupCodeForm() {
     setDraft((d) => ({ ...d, [key]: value }));
 
   const rooms = Number(draft.rooms);
-  const roomsOk = Number.isInteger(rooms) && rooms >= 1 && rooms <= MAX_ROOMS;
+  const roomsOk = isBillableRoomCount(rooms);
 
   function submit() {
     setError(null);
@@ -148,14 +148,14 @@ export function SignupCodeForm() {
             value={draft.code}
             onChange={(e) => set("code", e.target.value.toUpperCase())}
             placeholder="DRIFTWOOD"
-            className="w-full rounded bg-slate-950 p-2 font-mono text-sm uppercase tracking-wide text-slate-100"
+            className="w-full rounded border border-slate-700 bg-slate-950 p-2 font-mono text-sm uppercase tracking-wide text-slate-100"
           />
         </Field>
         <Field label="What it grants">
           <select
             value={draft.kind}
             onChange={(e) => set("kind", e.target.value as SignupCodeKind)}
-            className="w-full rounded bg-slate-950 p-2 text-sm text-slate-100"
+            className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
           >
             {KINDS.map((k) => (
               <option key={k.value} value={k.value}>
@@ -173,7 +173,7 @@ export function SignupCodeForm() {
             min="1"
             value={draft.trialDays}
             onChange={(e) => set("trialDays", e.target.value)}
-            className="w-32 rounded bg-slate-950 p-2 text-sm text-slate-100"
+            className="w-32 rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
           />
         </Field>
       )}
@@ -187,7 +187,7 @@ export function SignupCodeForm() {
               max="100"
               value={draft.percentOff}
               onChange={(e) => set("percentOff", e.target.value)}
-              className="w-32 rounded bg-slate-950 p-2 text-sm text-slate-100"
+              className="w-32 rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
             />
           </Field>
           <Field label="For how many months (blank = forever)">
@@ -196,7 +196,7 @@ export function SignupCodeForm() {
               min="1"
               value={draft.durationMonths}
               onChange={(e) => set("durationMonths", e.target.value)}
-              className="w-32 rounded bg-slate-950 p-2 text-sm text-slate-100"
+              className="w-32 rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
             />
           </Field>
         </div>
@@ -209,7 +209,7 @@ export function SignupCodeForm() {
               <select
                 value={draft.interval}
                 onChange={(e) => set("interval", e.target.value as BillingInterval)}
-                className="w-full rounded bg-slate-950 p-2 text-sm text-slate-100"
+                className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
               >
                 <option value="month">Monthly</option>
                 <option value="year">Yearly</option>
@@ -222,7 +222,7 @@ export function SignupCodeForm() {
                 max={MAX_ROOMS}
                 value={draft.rooms}
                 onChange={(e) => set("rooms", e.target.value)}
-                className="w-32 rounded bg-slate-950 p-2 text-sm text-slate-100"
+                className="w-32 rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
               />
             </Field>
           </div>
@@ -250,7 +250,7 @@ export function SignupCodeForm() {
             min="1"
             value={draft.maxRedemptions}
             onChange={(e) => set("maxRedemptions", e.target.value)}
-            className="w-32 rounded bg-slate-950 p-2 text-sm text-slate-100"
+            className="w-32 rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
           />
         </Field>
         <Field label="Expires after (blank = never)">
@@ -258,7 +258,7 @@ export function SignupCodeForm() {
             type="date"
             value={draft.expiresOn}
             onChange={(e) => set("expiresOn", e.target.value)}
-            className="w-44 rounded bg-slate-950 p-2 text-sm text-slate-100"
+            className="w-44 rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
           />
         </Field>
       </div>
@@ -269,7 +269,7 @@ export function SignupCodeForm() {
           onChange={(e) => set("notes", e.target.value)}
           rows={2}
           placeholder="Gave this to the Driftwood GM in Austin"
-          className="w-full rounded bg-slate-950 p-2 text-sm text-slate-100"
+          className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
         />
       </Field>
 

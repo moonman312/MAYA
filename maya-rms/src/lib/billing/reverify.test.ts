@@ -645,6 +645,29 @@ describe("sweepCardReverification", () => {
     expect(calls.retrieves).toHaveLength(2);
   });
 
+  it("logs a heartbeat with the run's counts, even when nothing was due", async () => {
+    // A cron that silently stopped firing and a fleet of healthy cards produce
+    // identical admin screens; this line in the logs is how they're told apart.
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const { stripe } = fakeStripe({
+      createError: { type: "StripeCardError", code: "card_declined", decline_code: "do_not_honor" },
+    });
+
+    await sweepCardReverification({ admin: fakeAdmin([]).admin, stripe, now: NOW });
+    expect(JSON.parse(String(logSpy.mock.calls.at(-1)?.[0]))).toMatchObject({
+      fn: "sweepCardReverification",
+      examined: 0,
+    });
+
+    await sweepCardReverification({ admin: fakeAdmin([seedRow()]).admin, stripe, now: NOW });
+    expect(JSON.parse(String(logSpy.mock.calls.at(-1)?.[0]))).toMatchObject({
+      examined: 1,
+      failed: 1,
+      errors: 0,
+    });
+    logSpy.mockRestore();
+  });
+
   it("gives up quietly when the due query itself fails", async () => {
     const { admin, state } = fakeAdmin([seedRow()]);
     state.selectError = "connection reset";
