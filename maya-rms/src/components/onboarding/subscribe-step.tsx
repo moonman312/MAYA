@@ -13,15 +13,33 @@ import {
 } from "@/lib/billing/tiers";
 
 /**
- * First screen of the flow: room count, billing period, code.
+ * First screen of the flow: room count, billing period, PMS, code.
  *
  * The price updates as they type, because the whole property bills at its
  * bracket's rate and that is genuinely surprising the first time you see it —
  * better to watch the number move than to discover it on a card statement.
+ *
+ * The PMS question is asked here, before payment, because it decides whether a
+ * code is needed at all (each integration's gate lives at /admin/pms-access) —
+ * finding out at the connect step would mean a card already charged and no
+ * trial period softening the mistake.
  */
-export function SubscribeStep({ cancelled = false }: { cancelled?: boolean }) {
+export type SubscribePmsOption = {
+  type: string;
+  displayName: string;
+  requiresSignupCode: boolean;
+};
+
+export function SubscribeStep({
+  cancelled = false,
+  pmsOptions = [],
+}: {
+  cancelled?: boolean;
+  pmsOptions?: SubscribePmsOption[];
+}) {
   const [roomsText, setRoomsText] = useState("");
   const [interval, setInterval] = useState<BillingInterval>("month");
+  const [pmsType, setPmsType] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [codeState, setCodeState] = useState<
     { status: "idle" } | { status: "checking" } | { status: "good"; grants: string } | { status: "bad"; message: string }
@@ -81,7 +99,16 @@ export function SubscribeStep({ cancelled = false }: { cancelled?: boolean }) {
     };
   }, [code, interval]);
 
-  const canSubmit = roomsOk && codeState.status === "good" && !submitting;
+  const selectedPms = pmsOptions.find((p) => p.type === pmsType) ?? null;
+  // No selection reads as gated — the safe direction, and the button is
+  // disabled until they pick anyway.
+  const codeOptional = selectedPms ? !selectedPms.requiresSignupCode : false;
+  // An OPTIONAL code is not an unchecked one: typed text still has to
+  // validate. Only genuinely-empty gets to skip.
+  const codeOk =
+    codeState.status === "good" || (codeOptional && codeState.status === "idle");
+  const canSubmit =
+    roomsOk && (pmsOptions.length === 0 || pmsType !== null) && codeOk && !submitting;
 
   async function subscribe() {
     setSubmitting(true);
@@ -90,7 +117,14 @@ export function SubscribeStep({ cancelled = false }: { cancelled?: boolean }) {
       const res = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rooms, interval, code: code.trim() }),
+        body: JSON.stringify({
+          rooms,
+          interval,
+          code: code.trim(),
+          // "other" stays undeclared: the server treats no PMS as code-required,
+          // which is exactly what an unknown system should be.
+          ...(pmsType && pmsType !== "other" ? { pmsType } : {}),
+        }),
       });
       const body = (await res.json().catch(() => null)) as { url?: string; error?: string } | null;
       if (!res.ok || !body?.url) throw new Error(body?.error ?? "Couldn't start checkout.");
@@ -180,8 +214,37 @@ export function SubscribeStep({ cancelled = false }: { cancelled?: boolean }) {
           </div>
         ) : null}
 
+        {pmsOptions.length > 0 ? (
+          <div>
+            <span className="text-sm font-medium text-slate-200">
+              Which system runs your bookings?
+            </span>
+            <div className="mt-2 flex flex-wrap gap-3">
+              {pmsOptions.map((pms) => {
+                const active = pmsType === pms.type;
+                return (
+                  <button
+                    key={pms.type}
+                    type="button"
+                    onClick={() => setPmsType(pms.type)}
+                    className={`cursor-pointer rounded-lg border px-4 py-2 text-sm transition-colors ${
+                      active
+                        ? "border-sky-400 bg-sky-500/10 text-sky-200"
+                        : "border-slate-700 text-slate-300 hover:border-slate-500"
+                    }`}
+                  >
+                    {pms.displayName}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
         <label className="block">
-          <span className="text-sm font-medium text-slate-200">Your code</span>
+          <span className="text-sm font-medium text-slate-200">
+            {codeOptional ? "Your code (optional)" : "Your code"}
+          </span>
           <input
             type="text"
             value={code}
@@ -196,6 +259,11 @@ export function SubscribeStep({ cancelled = false }: { cancelled?: boolean }) {
             <p className="mt-1.5 text-xs text-emerald-300">{codeState.grants}</p>
           ) : codeState.status === "bad" ? (
             <p className="mt-1.5 text-xs text-rose-300">{codeState.message}</p>
+          ) : codeOptional ? (
+            <p className="mt-1.5 text-xs text-slate-400">
+              Got a discount or trial code? Enter it here — otherwise leave this
+              blank.
+            </p>
           ) : (
             <p className="mt-1.5 text-xs text-slate-400">
               MAYA is invite-only for now — you&apos;ll have been given a code.

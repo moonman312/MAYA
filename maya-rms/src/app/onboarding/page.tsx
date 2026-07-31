@@ -1,6 +1,9 @@
 import { PathChoice } from "@/components/onboarding/path-choice";
-import { SubscribeStep } from "@/components/onboarding/subscribe-step";
+import { SubscribeStep, type SubscribePmsOption } from "@/components/onboarding/subscribe-step";
+import { listPmsSignupGates } from "@/lib/billing/pms-gates";
 import { resolveOnboardingStep } from "@/lib/onboarding/step";
+import { listPmsStatuses } from "@/lib/pms/registry";
+import { createAdminClient } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { cookies } from "next/headers";
@@ -27,5 +30,36 @@ export default async function OnboardingPage({
   if (step === "connect") redirect("/onboarding/connect");
   if (step === "done") redirect("/");
   if (step === "choose") return <PathChoice />;
-  return <SubscribeStep cancelled={cancelled} />;
+  return <SubscribeStep cancelled={cancelled} pmsOptions={await subscribePmsOptions()} />;
+}
+
+/**
+ * Which PMS answer decides whether the code field is optional, so it carries
+ * each gate's state (/admin/pms-access). "Something else" is always gated: an
+ * unknown system can't have had its gate opened.
+ */
+async function subscribePmsOptions(): Promise<SubscribePmsOption[]> {
+  let gates: Awaited<ReturnType<typeof listPmsSignupGates>> = [];
+  try {
+    gates = await listPmsSignupGates(createAdminClient());
+  } catch (e) {
+    // Same failure direction as pmsSignupCodeRequired: an unreadable gate
+    // means the code stays required, never that signup swings open.
+    console.error(
+      JSON.stringify({
+        fn: "subscribePmsOptions",
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+  }
+  const requiredFor = (type: string) =>
+    gates.find((g) => g.pmsType === type)?.requiresSignupCode ?? true;
+  return [
+    ...listPmsStatuses().map((pms) => ({
+      type: pms.type as string,
+      displayName: pms.displayName,
+      requiresSignupCode: requiredFor(pms.type),
+    })),
+    { type: "other", displayName: "Something else", requiresSignupCode: true },
+  ];
 }
