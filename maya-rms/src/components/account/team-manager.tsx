@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { HOTEL_ROLES } from "@/lib/roles";
+import { RoleHelp } from "@/components/account/role-help";
 import type { TeamView } from "@/lib/account/team";
 
 /**
@@ -136,9 +137,12 @@ export function TeamManager() {
               />
             </div>
             <div>
-              <label htmlFor="invite-role" className="block text-xs text-slate-400">
-                What they can do
-              </label>
+              <span className="flex items-center gap-1.5">
+                <label htmlFor="invite-role" className="block text-xs text-slate-400">
+                  What they can do
+                </label>
+                <RoleHelp />
+              </span>
               <select
                 id="invite-role"
                 value={role}
@@ -177,8 +181,9 @@ export function TeamManager() {
       </section>
 
       <section className="rounded border border-slate-800 bg-slate-900">
-        <h2 className="border-b border-slate-800 px-4 py-3 text-sm font-semibold text-slate-200">
+        <h2 className="flex items-center gap-1.5 border-b border-slate-800 px-4 py-3 text-sm font-semibold text-slate-200">
           On this property
+          <RoleHelp />
         </h2>
         <ul className="divide-y divide-slate-800">
           {team.members.map((m) => (
