@@ -18,6 +18,8 @@ export type AdminHotelRow = {
   timezone: string;
   currency: string;
   is_active: boolean;
+  /** Set on checkout's placeholder rows until a PMS connect adopts them. */
+  setup_pending_at: string | null;
   total_rooms_per_type: number;
   external_enterprise_id: string | null;
   created_at: string;

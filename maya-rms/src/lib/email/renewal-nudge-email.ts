@@ -35,9 +35,10 @@ export type RenewalNudgeInput = {
   resumeUrl: string;
   /**
    * Where the room count can actually be changed. Separate from resumeUrl
-   * because they are different screens: the email used to promise the count
-   * could be corrected "on that same page", and the onboarding page has never
-   * had a control for it.
+   * because they are different screens — and only reachable once the PMS is
+   * connected, since billing bounces a never-finished property back to
+   * onboarding. The copy has to sell the steps in that order or it promises a
+   * page this audience cannot open.
    */
   billingUrl: string;
   /** Formatted with currency, e.g. "$132.00". */
@@ -71,7 +72,7 @@ export function renewalNudgeText(input: RenewalNudgeInput): string {
     `Finish setting up: ${input.resumeUrl}`,
     "",
     `What you're paying for: ${input.roomCount} rooms at ${input.perRoom} per room, per ${per}.`,
-    `If ${input.roomCount} isn't right, change it at ${input.billingUrl} before the ${input.chargeDate} charge and we'll bill the corrected number.`,
+    `If ${input.roomCount} isn't right, connect first — that opens your billing page (${input.billingUrl}), where you can change it before the ${input.chargeDate} charge and we'll bill the corrected number.`,
     "",
     "— MAYA",
   ].join("\n");
@@ -120,8 +121,9 @@ export function renewalNudgeHtml(input: RenewalNudgeInput): string {
                 </p>
                 <p style="margin:0;font-size:13px;line-height:1.6;color:${COLORS.body};">
                   If <strong style="color:${COLORS.heading}">${input.roomCount}</strong> isn&rsquo;t right,
-                  you can <a href="${input.billingUrl}" style="color:${COLORS.cta}">change it</a>
-                  before the ${input.chargeDate} charge and
+                  connect first &mdash; that opens your
+                  <a href="${input.billingUrl}" style="color:${COLORS.cta}">billing page</a>,
+                  where you can change it before the ${input.chargeDate} charge and
                   we&rsquo;ll bill the corrected number.
                 </p>
               </td>
