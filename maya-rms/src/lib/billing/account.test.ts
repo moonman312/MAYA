@@ -17,6 +17,7 @@ function billing(o: Partial<AccountBilling> = {}): AccountBilling {
     interval: "month",
     rooms: 40,
     periodCents: priceCents(40, "month"),
+    chargeCents: null,
     renewsAt: "2026-08-30T12:00:00Z",
     trialEndsAt: null,
     cancelAtPeriodEnd: false,

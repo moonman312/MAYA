@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { checkCode, checkoutEffectFor, describeCode, type SignupCode } from "./codes";
+import { checkCode, checkoutEffectFor, describeCode, displayEffectFor, type SignupCode } from "./codes";
 
 function code(o: Partial<SignupCode> = {}): SignupCode {
   return {
@@ -365,5 +365,43 @@ describe("checkCode rejects anything that is not shaped like a code", () => {
 
   it("refuses a code too short to be one", async () => {
     expect((await checkCode(fakeAdmin(code({ code: "AB" })), "AB")).ok).toBe(false);
+  });
+});
+
+describe("displayEffectFor mirrors what checkout will actually build", () => {
+  it("passes a trial through", () => {
+    expect(displayEffectFor(code({ trial_days: 14 }), "month")).toEqual({ trialDays: 14 });
+  });
+
+  it("surfaces a fixed-price cap as the rooms override", () => {
+    const fixed = code({ kind: "fixed_price", trial_days: null, tier_rooms_cap: 40 });
+    expect(displayEffectFor(fixed, "month")).toEqual({ roomsOverride: 40 });
+  });
+
+  it("reports a repeating discount with its month count", () => {
+    const pct = code({ kind: "percent_off", trial_days: null, percent_off: 50, duration_months: 3 });
+    expect(displayEffectFor(pct, "month")).toEqual({ percentOff: 50, percentDuration: 3 });
+  });
+
+  it("reports a forever discount as forever", () => {
+    const pct = code({ kind: "percent_off", trial_days: null, percent_off: 20 });
+    expect(displayEffectFor(pct, "month")).toEqual({ percentOff: 20, percentDuration: "forever" });
+  });
+
+  it("annual rescale shows the once-off percentage the invoice will carry", () => {
+    const pct = code({ kind: "percent_off", trial_days: null, percent_off: 50, duration_months: 3 });
+    expect(displayEffectFor(pct, "year")).toEqual({ percentOff: 12.5, percentDuration: "once" });
+  });
+
+  it("a cached Stripe coupon still yields the shape from the row", () => {
+    // The effect only carries the coupon id here; the panel needs the numbers.
+    const pct = code({
+      kind: "percent_off",
+      trial_days: null,
+      percent_off: 25,
+      duration_months: 6,
+      stripe_coupon_id: "coup_1",
+    });
+    expect(displayEffectFor(pct, "month")).toEqual({ percentOff: 25, percentDuration: 6 });
   });
 });

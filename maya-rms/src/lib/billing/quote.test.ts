@@ -1,0 +1,86 @@
+/**
+ * The subscribe panel's arithmetic. The case that matters most is the
+ * fixed-price code: its tier cap decides the billed count, and a panel that
+ * quotes the typed count instead promises a number Stripe will not charge.
+ */
+import { describe, expect, it } from "vitest";
+import { checkoutQuote } from "./quote";
+
+describe("checkoutQuote with no code", () => {
+  it("prices the typed rooms at their own bracket", () => {
+    const q = checkoutQuote(12, "month");
+    expect(q).toMatchObject({
+      billedRooms: 12,
+      perRoomCents: 550,
+      recurringCents: 6600,
+      firstCents: 6600,
+      overridden: false,
+    });
+  });
+
+  it("annual applies the bracket discount, first bracket exempt", () => {
+    expect(checkoutQuote(12, "year").recurringCents).toBe(12 * 550 * 12);
+    expect(checkoutQuote(24, "year").recurringCents).toBe(Math.round(24 * 500 * 12 * 0.9));
+  });
+});
+
+describe("checkoutQuote with a fixed-price cap", () => {
+  it("bills the cap's bracket, not the typed count", () => {
+    // The screen used to read $66/mo here while Stripe presented $200.
+    const q = checkoutQuote(12, "month", { roomsOverride: 40 });
+    expect(q.billedRooms).toBe(40);
+    expect(q.recurringCents).toBe(40 * 500);
+    expect(q.overridden).toBe(true);
+  });
+
+  it("yearly on the cap matches what Stripe invoices", () => {
+    // ...and $792/yr here while Stripe billed $2,160.
+    const q = checkoutQuote(12, "year", { roomsOverride: 40 });
+    expect(q.recurringCents).toBe(Math.round(40 * 500 * 12 * 0.9));
+    expect(q.recurringCents).toBe(216000);
+  });
+
+  it("a cap equal to the typed count is not flagged as overridden", () => {
+    expect(checkoutQuote(40, "month", { roomsOverride: 40 }).overridden).toBe(false);
+  });
+});
+
+describe("checkoutQuote with percent discounts", () => {
+  it("forever discounts the headline itself", () => {
+    const q = checkoutQuote(10, "month", { percentOff: 20, percentDuration: "forever" });
+    expect(q.recurringCents).toBe(Math.round(5500 * 0.8));
+    expect(q.firstCents).toBe(q.recurringCents);
+    expect(q.discountMonths).toBeUndefined();
+  });
+
+  it("repeating months discount the first invoice and say for how long", () => {
+    const q = checkoutQuote(10, "month", { percentOff: 50, percentDuration: 3 });
+    expect(q.recurringCents).toBe(5500);
+    expect(q.firstCents).toBe(2750);
+    expect(q.discountMonths).toBe(3);
+  });
+
+  it("the annual-rescaled once form discounts the first year only", () => {
+    // 50% for 3 months rescales to 12.5% of the annual invoice.
+    const q = checkoutQuote(10, "year", { percentOff: 12.5, percentDuration: "once" });
+    expect(q.recurringCents).toBe(66000);
+    expect(q.firstCents).toBe(Math.round(66000 * 0.875));
+    expect(q.discountMonths).toBeUndefined();
+  });
+
+  it("repeating months on an annual invoice keep no month tail", () => {
+    // A 12-month coupon covers the whole first annual invoice; the panel says
+    // "first year", not "first 12 months".
+    const q = checkoutQuote(10, "year", { percentOff: 20, percentDuration: 12 });
+    expect(q.firstCents).toBe(Math.round(66000 * 0.8));
+    expect(q.discountMonths).toBeUndefined();
+  });
+});
+
+describe("checkoutQuote with a trial", () => {
+  it("carries the trial through without touching the price", () => {
+    const q = checkoutQuote(10, "month", { trialDays: 30 });
+    expect(q.trialDays).toBe(30);
+    expect(q.firstCents).toBe(5500);
+  });
+});

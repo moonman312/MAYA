@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { checkoutQuote, type CodeDisplayEffect } from "@/lib/billing/quote";
 import {
   MAX_ROOMS,
   annualDiscountPct,
   formatPerRoom,
   formatUsd,
   isBillableRoomCount,
-  priceCents,
-  tierFor,
   type BillingInterval,
 } from "@/lib/billing/tiers";
 
@@ -30,6 +29,13 @@ export type SubscribePmsOption = {
   requiresSignupCode: boolean;
 };
 
+/** Rendered at pick-a-plan time; Stripe stamps the authoritative date minutes
+ *  later at session creation, so drift is bounded by how long they dawdle. */
+function trialEndsOn(days: number): string {
+  const d = new Date(Date.now() + days * 86_400_000);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 export function SubscribeStep({
   cancelled = false,
   pmsOptions = [],
@@ -42,16 +48,36 @@ export function SubscribeStep({
   const [pmsType, setPmsType] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [codeState, setCodeState] = useState<
-    { status: "idle" } | { status: "checking" } | { status: "good"; grants: string } | { status: "bad"; message: string }
+    | { status: "idle" }
+    | { status: "checking" }
+    | { status: "good"; grants: string; effect?: CodeDisplayEffect }
+    | { status: "bad"; message: string }
   >({ status: "idle" });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Landing back here via the browser's back button restores this component
+  // from the bfcache mid-"Taking you to checkout…", with the pay button
+  // disabled and nothing in flight to ever re-enable it.
+  useEffect(() => {
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) setSubmitting(false);
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
   const rooms = Number(roomsText);
   const roomsOk = isBillableRoomCount(rooms);
-  const perRoom = roomsOk ? tierFor(rooms).centsPerRoom : 0;
-  const total = roomsOk ? priceCents(rooms, interval) : 0;
-  const discount = roomsOk ? annualDiscountPct(rooms) : 0;
+  // Priced from the code's effect, not the typed count alone — a fixed-price
+  // code moves the billed rooms, and this panel has to show what Stripe will
+  // actually present on the next screen.
+  const quote = checkoutQuote(
+    roomsOk ? rooms : 0,
+    interval,
+    codeState.status === "good" ? codeState.effect : undefined,
+  );
+  const discount = roomsOk ? annualDiscountPct(quote.billedRooms) : 0;
 
   // Check the code a beat after typing stops, so every keystroke isn't a request.
   //
@@ -81,11 +107,16 @@ export function SubscribeStep({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ code: typed, interval }),
         });
-        const body = (await res.json()) as { valid?: boolean; grants?: string; message?: string };
+        const body = (await res.json()) as {
+          valid?: boolean;
+          grants?: string;
+          message?: string;
+          effect?: CodeDisplayEffect;
+        };
         if (!current) return;
         setCodeState(
           body.valid
-            ? { status: "good", grants: body.grants ?? "" }
+            ? { status: "good", grants: body.grants ?? "", effect: body.effect }
             : { status: "bad", message: body.message ?? "That code didn't work." },
         );
       } catch {
@@ -151,7 +182,15 @@ export function SubscribeStep({
         </p>
       ) : null}
 
-      <div className="mt-8 max-w-lg space-y-6">
+      {/* A real form so Enter in any field submits — this is the screen where
+          someone is most likely to type a number and hit return. */}
+      <form
+        className="mt-8 max-w-lg space-y-6"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (canSubmit) void subscribe();
+        }}
+      >
         <label className="block">
           <span className="text-sm font-medium text-slate-200">How many rooms?</span>
           <input
@@ -202,14 +241,32 @@ export function SubscribeStep({
         {roomsOk ? (
           <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
             <div className="text-3xl font-semibold text-slate-100">
-              {formatUsd(total)}
+              {formatUsd(quote.recurringCents)}
               <span className="ml-2 text-sm font-normal text-slate-400">
                 / {interval === "month" ? "month" : "year"}
               </span>
             </div>
             <p className="mt-1.5 text-xs text-slate-400">
-              {rooms} rooms at {formatPerRoom(perRoom)} per room
+              {quote.overridden
+                ? `Your code prices this as ${quote.billedRooms} rooms`
+                : `${quote.billedRooms} room${quote.billedRooms === 1 ? "" : "s"}`}{" "}
+              at {formatPerRoom(quote.perRoomCents)} per room
+              {interval === "year" ? " a month, billed as one year" : ""}
               {interval === "year" && discount > 0 ? `, less ${discount}%` : ""}.
+            </p>
+            {quote.firstCents !== quote.recurringCents ? (
+              <p className="mt-1 text-xs text-emerald-300">
+                {interval === "month" && quote.discountMonths
+                  ? `First ${
+                      quote.discountMonths === 1 ? "month" : `${quote.discountMonths} months`
+                    }: ${formatUsd(quote.firstCents)} a month.`
+                  : `First year: ${formatUsd(quote.firstCents)}.`}
+              </p>
+            ) : null}
+            <p className="mt-2 text-xs text-slate-500">
+              {quote.trialDays
+                ? `Nothing today — your first charge is ${formatUsd(quote.firstCents)} on ${trialEndsOn(quote.trialDays)}. Cancel anytime.`
+                : "Billed when you finish checkout. Cancel anytime."}
             </p>
           </div>
         ) : null}
@@ -279,8 +336,7 @@ export function SubscribeStep({
 
         <div>
           <button
-            type="button"
-            onClick={subscribe}
+            type="submit"
             disabled={!canSubmit}
             className="cursor-pointer rounded bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -291,7 +347,7 @@ export function SubscribeStep({
             you&apos;ll connect your PMS.
           </p>
         </div>
-      </div>
+      </form>
     </div>
   );
 }

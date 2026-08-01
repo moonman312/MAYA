@@ -10,7 +10,7 @@
  * whatever rate the network allows.
  */
 
-import { checkCode } from "@/lib/billing/codes";
+import { checkCode, displayEffectFor } from "@/lib/billing/codes";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
@@ -56,9 +56,12 @@ export async function POST(request: Request) {
   // not an admin — so the lookup runs service-role and returns only a verdict.
   const check = await checkCode(createAdminClient(), typed, { interval });
 
+  // The effect ships alongside the prose so the panel can price from it — a
+  // fixed-price code moves the billed count, and a screen that quotes the
+  // typed rooms instead is promising a number Stripe will not charge.
   return NextResponse.json(
     check.ok
-      ? { valid: true, grants: check.describe }
+      ? { valid: true, grants: check.describe, effect: displayEffectFor(check.code, interval) }
       : { valid: false, message: check.message },
   );
 }
