@@ -220,7 +220,7 @@ describe("codeStatus agrees with what checkout would say", () => {
 });
 
 describe("rollUpMoney: what the code earned, not how often it was typed", () => {
-  const trial = { kind: "trial" as const, percent_off: null };
+  const trial = { kind: "trial" as const, percent_off: null, amount_off_cents: null };
 
   it("adds monthly subscriptions at their bracket", () => {
     const money = rollUpMoney(trial, [
@@ -249,7 +249,7 @@ describe("rollUpMoney: what the code earned, not how often it was typed", () => 
   });
 
   it("nets a percent-off code down, and keeps the list figure alongside it", () => {
-    const money = rollUpMoney({ kind: "percent_off", percent_off: 25 }, [
+    const money = rollUpMoney({ kind: "percent_off", percent_off: 25, amount_off_cents: null }, [
       { status: "active", billed_rooms: 40, billing_interval: "month" },
     ]);
     expect(money).toMatchObject({ mrr_cents: 15000, list_mrr_cents: 20000 });
@@ -353,5 +353,69 @@ describe("listSignupCodes", () => {
 
   it("skips the redemption and subscription reads when there are no codes", async () => {
     expect(await listSignupCodes(fakeSsr({ signup_codes: [] }), { now: NOW })).toEqual([]);
+  });
+});
+
+describe("parseSignupCodeInput amount_off", () => {
+  const base = { code: "DOLLARS", kind: "amount_off" };
+
+  it("accepts an amount with months", () => {
+    const parsed = parseSignupCodeInput({ ...base, amount_off_cents: 5000, duration_months: 3 });
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.row).toMatchObject({
+        kind: "amount_off",
+        amount_off_cents: 5000,
+        duration_months: 3,
+        percent_off: null,
+        fixed_price_cents: null,
+      });
+    }
+  });
+
+  it("blank months means forever", () => {
+    const parsed = parseSignupCodeInput({ ...base, amount_off_cents: 5000, duration_months: "" });
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.row.duration_months).toBeNull();
+  });
+
+  it("refuses a missing or zero amount", () => {
+    expect(parseSignupCodeInput({ ...base }).ok).toBe(false);
+    expect(parseSignupCodeInput({ ...base, amount_off_cents: 0 }).ok).toBe(false);
+  });
+
+  it("caps months at ten years — past that it's a forever code", () => {
+    const parsed = parseSignupCodeInput({ ...base, amount_off_cents: 5000, duration_months: 121 });
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.error).toContain("blank");
+  });
+
+  it("refuses an amount above the biggest possible bill", () => {
+    const parsed = parseSignupCodeInput({ ...base, amount_off_cents: 130000 });
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.error).toContain("biggest possible monthly bill");
+  });
+});
+
+describe("rollUpMoney amount_off", () => {
+  const twentyOff = { kind: "amount_off" as const, percent_off: null, amount_off_cents: 2000 };
+
+  it("nets the amount off each paying property", () => {
+    const money = rollUpMoney(twentyOff, [
+      { status: "active", billed_rooms: 40, billing_interval: "month" },
+      { status: "active", billed_rooms: 20, billing_interval: "month" },
+    ]);
+    expect(money.list_mrr_cents).toBe(20000 + 11000);
+    expect(money.mrr_cents).toBe(18000 + 9000);
+  });
+
+  it("floors a single property at zero instead of netting other properties down", () => {
+    const bigOff = { ...twentyOff, amount_off_cents: 100000 };
+    const money = rollUpMoney(bigOff, [
+      { status: "active", billed_rooms: 20, billing_interval: "month" },
+      { status: "active", billed_rooms: 40, billing_interval: "month" },
+    ]);
+    // $110 and $200 bills against $1,000 off: each floors at zero on its own.
+    expect(money.mrr_cents).toBe(0);
   });
 });

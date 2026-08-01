@@ -19,9 +19,13 @@ import { formatUsd, MAX_ROOMS, priceCents, type BillingInterval } from "@/lib/bi
  */
 
 const CODE_COLUMNS =
-  "id, code, kind, trial_days, percent_off, duration_months, fixed_price_cents, fixed_price_interval, tier_rooms_cap, max_redemptions, expires_at, is_active, stripe_coupon_id, notes, created_at";
+  "id, code, kind, trial_days, percent_off, duration_months, fixed_price_cents, fixed_price_interval, tier_rooms_cap, amount_off_cents, max_redemptions, expires_at, is_active, stripe_coupon_id, notes, created_at, created_by_email";
 
-type StoredCode = SignupCode & { notes: string | null; created_at: string };
+type StoredCode = SignupCode & {
+  notes: string | null;
+  created_at: string;
+  created_by_email: string | null;
+};
 
 export type SignupCodeStatus = "live" | "off" | "expired" | "exhausted";
 
@@ -76,12 +80,16 @@ export function codeStatus(
  * the record of what was actually collected.
  */
 export function rollUpMoney(
-  code: Pick<SignupCode, "kind" | "percent_off">,
+  code: Pick<SignupCode, "kind" | "percent_off" | "amount_off_cents">,
   subs: { status: string; billed_rooms: number; billing_interval: BillingInterval }[],
 ): CodeMoney {
   let paying = 0;
   let trialing = 0;
   let listCents = 0;
+  // Netted per property, not off the aggregate: a dollar amount can floor an
+  // individual bill at zero, and only the per-sub shape models that.
+  let amountNetCents = 0;
+  const monthlyAmt = code.kind === "amount_off" ? Number(code.amount_off_cents ?? 0) : 0;
 
   for (const sub of subs) {
     if (sub.status === "trialing") {
@@ -91,10 +99,15 @@ export function rollUpMoney(
     if (!isEntitled(sub.status)) continue;
     paying += 1;
     const period = priceCents(sub.billed_rooms, sub.billing_interval);
-    listCents += sub.billing_interval === "year" ? Math.round(period / 12) : period;
+    const monthly = sub.billing_interval === "year" ? Math.round(period / 12) : period;
+    listCents += monthly;
+    amountNetCents += Math.max(0, monthly - monthlyAmt);
   }
 
   const pct = code.kind === "percent_off" ? Number(code.percent_off ?? 0) : 0;
+  if (monthlyAmt > 0) {
+    return { paying, trialing, list_mrr_cents: listCents, mrr_cents: amountNetCents };
+  }
   return {
     paying,
     trialing,
@@ -199,6 +212,7 @@ export type SignupCodeInput = {
   fixed_price_cents: number | null;
   fixed_price_interval: BillingInterval | null;
   tier_rooms_cap: number | null;
+  amount_off_cents: number | null;
   max_redemptions: number | null;
   expires_at: string | null;
   notes: string | null;
@@ -246,8 +260,8 @@ export function parseSignupCodeInput(body: unknown, now = new Date()): ParsedSig
   }
 
   const kind = b.kind;
-  if (kind !== "trial" && kind !== "percent_off" && kind !== "fixed_price") {
-    return { ok: false, error: "Say what the code does: trial, percent_off or fixed_price." };
+  if (kind !== "trial" && kind !== "percent_off" && kind !== "amount_off" && kind !== "fixed_price") {
+    return { ok: false, error: "Say what the code does: trial, percent_off, amount_off or fixed_price." };
   }
 
   let maxRedemptions: number | null = null;
@@ -281,6 +295,7 @@ export function parseSignupCodeInput(body: unknown, now = new Date()): ParsedSig
     fixed_price_cents: null,
     fixed_price_interval: null,
     tier_rooms_cap: null,
+    amount_off_cents: null,
     max_redemptions: maxRedemptions,
     expires_at: expiresAt,
     notes,
@@ -320,6 +335,35 @@ export function parseSignupCodeInput(body: unknown, now = new Date()): ParsedSig
       }
     }
     return { ok: true, row: { ...shell, percent_off: pct, duration_months: months } };
+  }
+
+  if (kind === "amount_off") {
+    const cents = wholeNumber(b.amount_off_cents);
+    if (cents === null) {
+      return { ok: false, error: "How many dollars off each month? Enter a positive amount." };
+    }
+    // Nothing bills above the top bracket's ceiling, so a bigger discount than
+    // that is a typo — or a free product, which is what trials are for.
+    if (cents > priceCents(MAX_ROOMS, "month")) {
+      return {
+        ok: false,
+        error: `That's more than the biggest possible monthly bill (${formatUsd(priceCents(MAX_ROOMS, "month"))}). For a free run, use a trial instead.`,
+      };
+    }
+    let months: number | null = null;
+    if (!isBlank(b.duration_months)) {
+      months = wholeNumber(b.duration_months);
+      if (months === null) {
+        return { ok: false, error: "Leave the number of months blank for a discount that never ends." };
+      }
+      // An annual buyer's coupon is months × amount in one go, so runaway
+      // months would mint a coupon Stripe refuses. Ten years is already
+      // "forever" for anything this code would be used for.
+      if (months > 120) {
+        return { ok: false, error: "Past 120 months, just leave it blank — that's a forever discount." };
+      }
+    }
+    return { ok: true, row: { ...shell, amount_off_cents: cents, duration_months: months } };
   }
 
   const interval = b.fixed_price_interval;
@@ -366,11 +410,13 @@ export function parseSignupCodeInput(body: unknown, now = new Date()): ParsedSig
 export async function createSignupCode(
   ssr: SupabaseClient,
   row: SignupCodeInput,
-  actorUserId: string,
+  actor: { id: string; email: string | null },
 ): Promise<{ id: string; code: string; grants: string }> {
+  // Email denormalized at write time, same as redemptions: the list has to say
+  // who made a code even after that admin's account is gone.
   const { data, error } = await ssr
     .from("signup_codes")
-    .insert({ ...row, created_by: actorUserId })
+    .insert({ ...row, created_by: actor.id, created_by_email: actor.email })
     .select(CODE_COLUMNS)
     .single();
 

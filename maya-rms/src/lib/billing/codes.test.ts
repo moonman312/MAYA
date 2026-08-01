@@ -13,6 +13,7 @@ function code(o: Partial<SignupCode> = {}): SignupCode {
     fixed_price_cents: null,
     fixed_price_interval: null,
     tier_rooms_cap: null,
+    amount_off_cents: null,
     max_redemptions: null,
     expires_at: null,
     is_active: true,
@@ -275,7 +276,7 @@ describe("a duration-limited discount is worth the same on either period", () =>
     const monthlyPrice = 100;
     const monthlyGiven = monthlyPrice * 0.2 * 3;
     const annual = checkoutEffectFor(threeMonthsOff(), "year");
-    const annualGiven = monthlyPrice * 12 * (annual.couponNeeded!.percentOff / 100);
+    const annualGiven = monthlyPrice * 12 * ((annual.couponNeeded!.percentOff ?? 0) / 100);
     expect(annualGiven).toBeCloseTo(monthlyGiven, 6);
   });
 
@@ -380,17 +381,17 @@ describe("displayEffectFor mirrors what checkout will actually build", () => {
 
   it("reports a repeating discount with its month count", () => {
     const pct = code({ kind: "percent_off", trial_days: null, percent_off: 50, duration_months: 3 });
-    expect(displayEffectFor(pct, "month")).toEqual({ percentOff: 50, percentDuration: 3 });
+    expect(displayEffectFor(pct, "month")).toEqual({ percentOff: 50, discountDuration: 3 });
   });
 
   it("reports a forever discount as forever", () => {
     const pct = code({ kind: "percent_off", trial_days: null, percent_off: 20 });
-    expect(displayEffectFor(pct, "month")).toEqual({ percentOff: 20, percentDuration: "forever" });
+    expect(displayEffectFor(pct, "month")).toEqual({ percentOff: 20, discountDuration: "forever" });
   });
 
   it("annual rescale shows the once-off percentage the invoice will carry", () => {
     const pct = code({ kind: "percent_off", trial_days: null, percent_off: 50, duration_months: 3 });
-    expect(displayEffectFor(pct, "year")).toEqual({ percentOff: 12.5, percentDuration: "once" });
+    expect(displayEffectFor(pct, "year")).toEqual({ percentOff: 12.5, discountDuration: "once" });
   });
 
   it("a cached Stripe coupon still yields the shape from the row", () => {
@@ -402,6 +403,63 @@ describe("displayEffectFor mirrors what checkout will actually build", () => {
       duration_months: 6,
       stripe_coupon_id: "coup_1",
     });
-    expect(displayEffectFor(pct, "month")).toEqual({ percentOff: 25, percentDuration: 6 });
+    expect(displayEffectFor(pct, "month")).toEqual({ percentOff: 25, discountDuration: 6 });
+  });
+});
+
+describe("checkoutEffectFor amount_off", () => {
+  const fifty = (o: Partial<SignupCode> = {}) =>
+    code({ kind: "amount_off", trial_days: null, amount_off_cents: 5000, ...o });
+
+  it("monthly: repeats for the stated months", () => {
+    expect(checkoutEffectFor(fifty({ duration_months: 3 }), "month")).toEqual({
+      couponNeeded: { amountOffCents: 5000, duration: "repeating", durationMonths: 3, reusable: true },
+    });
+  });
+
+  it("monthly: forever when no month count", () => {
+    expect(checkoutEffectFor(fifty(), "month")).toEqual({
+      couponNeeded: { amountOffCents: 5000, duration: "forever", reusable: true },
+    });
+  });
+
+  it("annual: a limited discount hands over its full total once", () => {
+    // 18 months at $50 is $900 whichever period they buy.
+    expect(checkoutEffectFor(fifty({ duration_months: 18 }), "year")).toEqual({
+      couponNeeded: { amountOffCents: 90000, duration: "once", reusable: false },
+    });
+  });
+
+  it("annual: forever scales to twelve months per invoice", () => {
+    expect(checkoutEffectFor(fifty(), "year")).toEqual({
+      couponNeeded: { amountOffCents: 60000, duration: "forever", reusable: false },
+    });
+  });
+
+  it("reuses a cached coupon for monthly buyers only", () => {
+    const cached = fifty({ stripe_coupon_id: "coup_amt" });
+    expect(checkoutEffectFor(cached, "month")).toEqual({ discountCouponId: "coup_amt" });
+    // The cached coupon is the monthly shape; an annual invoice needs its own.
+    expect(checkoutEffectFor(cached, "year").discountCouponId).toBeUndefined();
+    expect(checkoutEffectFor(cached, "year").couponNeeded?.reusable).toBe(false);
+  });
+
+  it("displayEffectFor mirrors both intervals", () => {
+    expect(displayEffectFor(fifty({ duration_months: 3 }), "month")).toEqual({
+      amountOffCents: 5000,
+      discountDuration: 3,
+    });
+    expect(displayEffectFor(fifty({ duration_months: 3 }), "year")).toEqual({
+      amountOffCents: 15000,
+      discountDuration: "once",
+    });
+  });
+
+  it("describeCode says what the money does", () => {
+    expect(describeCode(fifty({ duration_months: 3 }), "month")).toBe(
+      "$50.00 off each of your first 3 months.",
+    );
+    expect(describeCode(fifty(), "month")).toBe("$50.00 off every month, for as long as you stay.");
+    expect(describeCode(fifty({ duration_months: 3 }), "year")).toContain("$150.00 off your first invoice");
   });
 });

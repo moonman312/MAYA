@@ -16,9 +16,11 @@ export type CodeDisplayEffect = {
   trialDays?: number;
   /** Bill this many rooms instead of what the owner typed. */
   roomsOverride?: number;
+  /** At most one of these — a code discounts by percent or by dollars, never both. */
   percentOff?: number;
+  amountOffCents?: number;
   /** "once" is the annual-rescaled form; a number is Stripe's repeating months. */
-  percentDuration?: "once" | "forever" | number;
+  discountDuration?: "once" | "forever" | number;
 };
 
 export type CheckoutQuote = {
@@ -40,6 +42,11 @@ function lessPct(cents: number, pct: number): number {
   return Math.round((cents * (100 - pct)) / 100);
 }
 
+/** Amount coupons floor at zero — Stripe never invoices a negative. */
+function lessAmount(cents: number, offCents: number): number {
+  return Math.max(0, cents - offCents);
+}
+
 export function checkoutQuote(
   rooms: number,
   interval: BillingInterval,
@@ -57,18 +64,20 @@ export function checkoutQuote(
   if (effect?.trialDays) quote.trialDays = effect.trialDays;
 
   const pct = effect?.percentOff;
-  if (!pct) return quote;
+  const amt = effect?.amountOffCents;
+  if (!pct && !amt) return quote;
+  const discounted = pct ? lessPct(base, pct) : lessAmount(base, amt ?? 0);
 
-  if (effect.percentDuration === "forever") {
-    quote.recurringCents = lessPct(base, pct);
-    quote.firstCents = quote.recurringCents;
+  if (effect?.discountDuration === "forever") {
+    quote.recurringCents = discounted;
+    quote.firstCents = discounted;
     return quote;
   }
   // "once" and repeating-months both discount the first invoice; only a
   // monthly buyer sees the repeat count, an annual invoice swallows it whole.
-  quote.firstCents = lessPct(base, pct);
-  if (typeof effect.percentDuration === "number" && interval === "month") {
-    quote.discountMonths = effect.percentDuration;
+  quote.firstCents = discounted;
+  if (typeof effect?.discountDuration === "number" && interval === "month") {
+    quote.discountMonths = effect.discountDuration;
   }
   return quote;
 }

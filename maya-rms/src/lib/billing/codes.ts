@@ -25,7 +25,7 @@ import type { BillingInterval } from "./tiers";
  */
 export const CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{2,39}$/;
 
-export type SignupCodeKind = "trial" | "percent_off" | "fixed_price";
+export type SignupCodeKind = "trial" | "percent_off" | "fixed_price" | "amount_off";
 
 export type SignupCode = {
   id: string;
@@ -33,10 +33,13 @@ export type SignupCode = {
   kind: SignupCodeKind;
   trial_days: number | null;
   percent_off: number | null;
+  /** Shared by percent_off and amount_off; null = forever. */
   duration_months: number | null;
   fixed_price_cents: number | null;
   fixed_price_interval: BillingInterval | null;
   tier_rooms_cap: number | null;
+  /** amount_off: dollars off each MONTH of service, stored as cents. */
+  amount_off_cents: number | null;
   max_redemptions: number | null;
   expires_at: string | null;
   is_active: boolean;
@@ -96,10 +99,21 @@ export function describeCode(code: SignupCode, interval: BillingInterval = "mont
     }
     return `${pct}% off for your first ${months} month${months === 1 ? "" : "s"}.`;
   }
-  const dollars = ((code.fixed_price_cents ?? 0) / 100).toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-  });
-  return `A fixed $${dollars} per ${code.fixed_price_interval === "year" ? "year" : "month"}, instead of the standard rate.`;
+  if (code.kind === "amount_off") {
+    const dollars = usd(code.amount_off_cents ?? 0);
+    const months = code.duration_months;
+    if (!months) return `${dollars} off every month, for as long as you stay.`;
+    if (interval === "year") {
+      const total = usd((code.amount_off_cents ?? 0) * months);
+      return `${dollars} off your first ${months} month${months === 1 ? "" : "s"} — taken as ${total} off your first invoice, which is the same saving.`;
+    }
+    return `${dollars} off each of your first ${months} month${months === 1 ? "" : "s"}.`;
+  }
+  return `A fixed ${usd(code.fixed_price_cents ?? 0)} per ${code.fixed_price_interval === "year" ? "year" : "month"}, instead of the standard rate.`;
+}
+
+function usd(cents: number): string {
+  return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
 }
 
 /**
@@ -128,11 +142,14 @@ export async function checkCode(
 
   // Codes get read off a business card, so matching is case-insensitive —
   // uq_signup_codes_code indexes lower(code) to match.
+  //
+  // The whole row, not a column list: this is the one read every redemption
+  // depends on, and a hand-kept list silently zeroes any grant column added
+  // after it — the cast below would still typecheck while checkout built a
+  // $0 coupon from the missing field.
   const { data, error } = await admin
     .from("signup_codes")
-    .select(
-      "id, code, kind, trial_days, percent_off, duration_months, fixed_price_cents, fixed_price_interval, tier_rooms_cap, max_redemptions, expires_at, is_active, stripe_coupon_id",
-    )
+    .select("*")
     .ilike("code", typed)
     .maybeSingle();
 
@@ -188,14 +205,16 @@ export async function checkCode(
  * caller that can also persist the resulting id back onto the code row.
  */
 export type CouponSpec = {
-  percentOff: number;
+  /** Exactly one of these is set — Stripe rejects a coupon carrying both. */
+  percentOff?: number;
+  amountOffCents?: number;
   /** Stated outright rather than inferred from a null month count, which is how
    *  a one-off discount previously became a permanent one. */
   duration: "once" | "repeating" | "forever";
   durationMonths?: number;
   /**
-   * Whether this coupon may be cached on the code row and reused. False for the
-   * annual-rescaled form: it is worth the wrong amount on a monthly
+   * Whether this coupon may be cached on the code row and reused. False for
+   * every annual-rescaled form: it is worth the wrong amount on a monthly
    * subscription, and one cached id is shared by every later redemption.
    */
   reusable: boolean;
@@ -236,14 +255,17 @@ export function displayEffectFor(code: SignupCode, interval: BillingInterval): C
   if (effect.trialDays) out.trialDays = effect.trialDays;
   if (effect.roomsOverride) out.roomsOverride = effect.roomsOverride;
   if (effect.couponNeeded) {
-    out.percentOff = effect.couponNeeded.percentOff;
-    out.percentDuration =
-      effect.couponNeeded.duration === "repeating"
-        ? (effect.couponNeeded.durationMonths ?? "forever")
-        : effect.couponNeeded.duration;
+    const spec = effect.couponNeeded;
+    if (spec.percentOff != null) out.percentOff = spec.percentOff;
+    if (spec.amountOffCents != null) out.amountOffCents = spec.amountOffCents;
+    out.discountDuration =
+      spec.duration === "repeating" ? (spec.durationMonths ?? "forever") : spec.duration;
   } else if (effect.discountCouponId) {
-    out.percentOff = Number(code.percent_off ?? 0);
-    out.percentDuration = code.duration_months ?? "forever";
+    // A cached coupon is always the monthly shape, so the row's own numbers
+    // describe it exactly.
+    if (code.kind === "amount_off") out.amountOffCents = Number(code.amount_off_cents ?? 0);
+    else out.percentOff = Number(code.percent_off ?? 0);
+    out.discountDuration = code.duration_months ?? "forever";
   }
   return out;
 }
@@ -277,6 +299,32 @@ export function checkoutEffectFor(code: SignupCode, interval: BillingInterval): 
       couponNeeded: months
         ? { percentOff, duration: "repeating", durationMonths: months, reusable: true }
         : { percentOff, duration: "forever", reusable: true },
+    };
+  }
+  if (code.kind === "amount_off") {
+    const monthlyCents = Number(code.amount_off_cents ?? 0);
+    const months = code.duration_months;
+
+    // A dollar amount is agreed per MONTH of service, so unlike a percentage it
+    // is never period-independent: an annual invoice needs twelve months' worth
+    // (forever) or the limited months' full total taken once — the whole value
+    // lands on the first invoice rather than losing whatever ran past month
+    // twelve. Neither annual form may ever be cached on the row — a monthly
+    // buyer inheriting a twelve-fold coupon is the failure mode, so only the
+    // monthly shapes are reusable.
+    if (interval === "year") {
+      return {
+        couponNeeded: months
+          ? { amountOffCents: monthlyCents * months, duration: "once", reusable: false }
+          : { amountOffCents: monthlyCents * 12, duration: "forever", reusable: false },
+      };
+    }
+
+    if (code.stripe_coupon_id) return { discountCouponId: code.stripe_coupon_id };
+    return {
+      couponNeeded: months
+        ? { amountOffCents: monthlyCents, duration: "repeating", durationMonths: months, reusable: true }
+        : { amountOffCents: monthlyCents, duration: "forever", reusable: true },
     };
   }
   // fixed_price: pinning the billed room count to the tier the deal was struck

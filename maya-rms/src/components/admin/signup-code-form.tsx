@@ -10,6 +10,7 @@ type Draft = {
   kind: SignupCodeKind;
   trialDays: string;
   percentOff: string;
+  amountOffDollars: string;
   /** Blank means forever, exactly as the column reads it. */
   durationMonths: string;
   interval: BillingInterval;
@@ -24,6 +25,7 @@ const EMPTY: Draft = {
   kind: "trial",
   trialDays: "14",
   percentOff: "20",
+  amountOffDollars: "50",
   durationMonths: "3",
   interval: "month",
   rooms: "40",
@@ -35,6 +37,7 @@ const EMPTY: Draft = {
 const KINDS: { value: SignupCodeKind; label: string }[] = [
   { value: "trial", label: "Free trial" },
   { value: "percent_off", label: "Percent off" },
+  { value: "amount_off", label: "Dollars off" },
   { value: "fixed_price", label: "Fixed price" },
 ];
 
@@ -77,6 +80,11 @@ export function SignupCodeForm() {
     } else if (draft.kind === "percent_off") {
       body.percent_off = Number(draft.percentOff);
       body.duration_months = draft.durationMonths || null;
+    } else if (draft.kind === "amount_off") {
+      // Typed in dollars, stored in cents — rounded here so "49.999" can't
+      // reach the API as a fractional cent.
+      body.amount_off_cents = Math.round(Number(draft.amountOffDollars) * 100);
+      body.duration_months = draft.durationMonths || null;
     } else {
       body.fixed_price_interval = draft.interval;
       body.tier_rooms_cap = draft.rooms;
@@ -111,7 +119,9 @@ export function SignupCodeForm() {
       ? draft.trialDays.trim() !== ""
       : draft.kind === "percent_off"
         ? draft.percentOff.trim() !== ""
-        : roomsOk);
+        : draft.kind === "amount_off"
+          ? Number(draft.amountOffDollars) > 0
+          : roomsOk);
 
   if (!open) {
     return (
@@ -187,6 +197,30 @@ export function SignupCodeForm() {
               max="100"
               value={draft.percentOff}
               onChange={(e) => set("percentOff", e.target.value)}
+              className="w-32 rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+            />
+          </Field>
+          <Field label="For how many months (blank = forever)">
+            <input
+              type="number"
+              min="1"
+              value={draft.durationMonths}
+              onChange={(e) => set("durationMonths", e.target.value)}
+              className="w-32 rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+            />
+          </Field>
+        </div>
+      )}
+
+      {draft.kind === "amount_off" && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Dollars off each month">
+            <input
+              type="number"
+              min="1"
+              step="0.01"
+              value={draft.amountOffDollars}
+              onChange={(e) => set("amountOffDollars", e.target.value)}
               className="w-32 rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
             />
           </Field>
