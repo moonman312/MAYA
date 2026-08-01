@@ -137,7 +137,7 @@ function limitsLine(code: AdminSignupCodeRow): string {
       ? "no redemption cap"
       : `capped at ${code.max_redemptions} redemption${code.max_redemptions === 1 ? "" : "s"}`,
     code.expires_at ? `expires ${formatDate(code.expires_at)}` : "no expiry",
-    `created ${formatDate(code.created_at)}`,
+    `created ${formatDate(code.created_at)}${code.created_by_email ? ` by ${code.created_by_email}` : ""}`,
   ].join(" · ");
 }
 

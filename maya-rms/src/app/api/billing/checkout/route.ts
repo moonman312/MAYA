@@ -213,7 +213,9 @@ export async function POST(request: Request) {
     if (!couponId && spec) {
       const coupon = await stripe.coupons.create(
         {
-          percent_off: spec.percentOff,
+          ...(spec.percentOff != null
+            ? { percent_off: spec.percentOff }
+            : { amount_off: spec.amountOffCents, currency: "usd" }),
           duration: spec.duration,
           ...(spec.duration === "repeating" ? { duration_in_months: spec.durationMonths } : {}),
           name: `MAYA code ${signupCodeLabel}`,
@@ -226,7 +228,8 @@ export async function POST(request: Request) {
         // old parameters.
         {
           idempotencyKey:
-            `maya_coupon_${signupCodeId}_${interval}_${spec.percentOff}_` +
+            `maya_coupon_${signupCodeId}_${interval}_` +
+            `${spec.percentOff != null ? `p${spec.percentOff}` : `a${spec.amountOffCents}`}_` +
             `${spec.duration}_${spec.durationMonths ?? 0}_${signupCodeLabel}`,
         },
       );

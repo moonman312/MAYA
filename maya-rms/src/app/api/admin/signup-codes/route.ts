@@ -23,7 +23,10 @@ export async function POST(req: Request) {
   try {
     // The admin's own session, not service-role: the signup_codes RLS policy is
     // then a second lock on who can mint one.
-    const created = await createSignupCode(ctx.ssr, parsed.row, ctx.user.id);
+    const created = await createSignupCode(ctx.ssr, parsed.row, {
+      id: ctx.user.id,
+      email: ctx.user.email ?? null,
+    });
     return NextResponse.json({ ok: true, ...created });
   } catch (error) {
     return NextResponse.json(
