@@ -91,8 +91,8 @@ export default async function BillingPage() {
           <Row label="Status" value={STATUS_LABELS[billing.status] ?? billing.status} />
           <Row
             label={billing.entitled ? "Price" : "Was"}
-            value={`${formatUsd(billing.periodCents)} per ${billing.interval === "year" ? "year" : "month"}`}
-            hint={`${billing.rooms} room${billing.rooms === 1 ? "" : "s"} at MAYA's ${billing.interval === "year" ? "annual" : "monthly"} rate.`}
+            value={`${formatUsd(billing.chargeCents ?? billing.periodCents)} per ${billing.interval === "year" ? "year" : "month"}`}
+            hint={`${billing.rooms} room${billing.rooms === 1 ? "" : "s"} at MAYA's ${billing.interval === "year" ? "annual" : "monthly"} rate${billing.chargeCents != null && billing.chargeCents !== billing.periodCents ? ", with your code applied" : ""}.`}
           />
           {billing.trialEndsAt && billing.entitled && (
             <Row label="Trial ends" value={longDate(billing.trialEndsAt)} />

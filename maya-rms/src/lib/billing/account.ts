@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isEntitledStatus } from "./entitlement";
 import { compareRooms, graceDaysLeft, measureRooms, type RoomVerdict } from "./room-count";
+import { isStripeConfigured, stripeClient } from "./stripe";
 import { formatUsd, priceCents, type BillingInterval } from "./tiers";
 
 /**
@@ -22,6 +23,12 @@ export type AccountBilling = {
   rooms: number;
   /** Per period, at the brackets — what Stripe bills absent a discount code. */
   periodCents: number;
+  /**
+   * What Stripe says the next invoice actually is — coupons and fixed-price
+   * codes included. Null when Stripe can't be asked; show periodCents then,
+   * which can only overstate, never surprise upward.
+   */
+  chargeCents: number | null;
   renewsAt: string | null;
   trialEndsAt: string | null;
   cancelAtPeriodEnd: boolean;
@@ -38,7 +45,25 @@ export type AccountBilling = {
 };
 
 const COLUMNS =
-  "hotel_id, status, billing_interval, billed_rooms, current_period_end, trial_end, cancel_at_period_end, card_verify_failed_at, card_verify_last_code, signup_code_id, measured_rooms, room_shortfall_since";
+  "hotel_id, status, billing_interval, billed_rooms, current_period_end, trial_end, cancel_at_period_end, card_verify_failed_at, card_verify_last_code, signup_code_id, measured_rooms, room_shortfall_since, stripe_subscription_id";
+
+/**
+ * The next invoice as Stripe would write it today. Best-effort with a short
+ * leash: this decorates the billing page, and a slow Stripe outage must not
+ * take the page down with it.
+ */
+async function previewChargeCents(subscriptionId: string): Promise<number | null> {
+  if (!isStripeConfigured()) return null;
+  try {
+    const invoice = await stripeClient().invoices.createPreview(
+      { subscription: subscriptionId },
+      { timeout: 3000 },
+    );
+    return typeof invoice.amount_due === "number" ? invoice.amount_due : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Null means this property never went through checkout — an admin-created hotel,
@@ -75,12 +100,21 @@ export async function loadAccountBilling(
     signupCode = code ? String(code.code) : null;
   }
 
+  const entitled = isEntitledStatus(String(data.status));
+  // Only a subscription that will invoice again has a next charge to preview —
+  // asking Stripe about a cancelled one is an error, not a number.
+  const chargeCents =
+    entitled && data.stripe_subscription_id
+      ? await previewChargeCents(String(data.stripe_subscription_id))
+      : null;
+
   return {
     hotelId,
     status: String(data.status),
     interval,
     rooms,
     periodCents: priceCents(rooms, interval),
+    chargeCents,
     renewsAt: data.current_period_end ? String(data.current_period_end) : null,
     trialEndsAt: data.trial_end ? String(data.trial_end) : null,
     cancelAtPeriodEnd: data.cancel_at_period_end === true,
@@ -91,7 +125,7 @@ export async function loadAccountBilling(
         }
       : null,
     signupCode,
-    entitled: isEntitledStatus(String(data.status)),
+    entitled,
     notBilledFor: measurement.excluded,
     roomTruth: compareRooms(
       data.measured_rooms == null ? null : Number(data.measured_rooms),
@@ -183,16 +217,19 @@ export function headlineFor(billing: AccountBilling, now = new Date()): BillingH
     return {
       tone: "ok",
       title: days <= 0 ? "Your trial ends today" : `Your trial ends in ${days} day${days === 1 ? "" : "s"}`,
-      detail: `Your first charge of ${formatUsd(billing.periodCents)} lands on ${longDate(billing.trialEndsAt)}.`,
+      detail: `Your first charge of ${formatUsd(billing.chargeCents ?? billing.periodCents)} lands on ${longDate(billing.trialEndsAt)}.`,
     };
   }
 
+  // chargeCents is Stripe's own preview — the number that survives discount
+  // codes and fixed-price deals. The list price steps in only when Stripe
+  // couldn't be asked, and can only ever read high.
   return {
     tone: "ok",
     title: "Your subscription is active",
     detail: billing.renewsAt
-      ? `Next charge of ${formatUsd(billing.periodCents)} on ${longDate(billing.renewsAt)}.`
-      : `${formatUsd(billing.periodCents)} per ${billing.interval === "year" ? "year" : "month"}.`,
+      ? `Next charge of ${formatUsd(billing.chargeCents ?? billing.periodCents)} on ${longDate(billing.renewsAt)}.`
+      : `${formatUsd(billing.chargeCents ?? billing.periodCents)} per ${billing.interval === "year" ? "year" : "month"}.`,
   };
 }
 

@@ -13,6 +13,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { CodeDisplayEffect } from "./quote";
 import type { BillingInterval } from "./tiers";
 
 /**
@@ -221,6 +222,30 @@ export type CheckoutEffect = {
 function annualEquivalent(percentOff: number, durationMonths: number): number {
   // Two decimals is what Stripe accepts on percent_off.
   return Math.round((percentOff * durationMonths * 100) / 12) / 100;
+}
+
+/**
+ * The same effect, reduced to what a screen may show. Derived from
+ * checkoutEffectFor rather than the row so the panel and the session cannot
+ * read the code differently — the cached-coupon case is the trap: the effect
+ * carries only a Stripe id, and the shape behind it lives on the row.
+ */
+export function displayEffectFor(code: SignupCode, interval: BillingInterval): CodeDisplayEffect {
+  const effect = checkoutEffectFor(code, interval);
+  const out: CodeDisplayEffect = {};
+  if (effect.trialDays) out.trialDays = effect.trialDays;
+  if (effect.roomsOverride) out.roomsOverride = effect.roomsOverride;
+  if (effect.couponNeeded) {
+    out.percentOff = effect.couponNeeded.percentOff;
+    out.percentDuration =
+      effect.couponNeeded.duration === "repeating"
+        ? (effect.couponNeeded.durationMonths ?? "forever")
+        : effect.couponNeeded.duration;
+  } else if (effect.discountCouponId) {
+    out.percentOff = Number(code.percent_off ?? 0);
+    out.percentDuration = code.duration_months ?? "forever";
+  }
+  return out;
 }
 
 export function checkoutEffectFor(code: SignupCode, interval: BillingInterval): CheckoutEffect {
