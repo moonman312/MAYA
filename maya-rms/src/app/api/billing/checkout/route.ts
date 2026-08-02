@@ -40,6 +40,23 @@ export const runtime = "nodejs";
  */
 const INTEGRATION_IDENTIFIER = "maya_onboarding_aqxfqvdg";
 
+/**
+ * Sales tax is off unless MAYA_COLLECT_TAX says otherwise.
+ *
+ * Enabling automatic_tax without an active registration in the buyer's
+ * jurisdiction is not an error and not visible on the invoice — Stripe just
+ * collects nothing while the flag reads as "tax is handled". So the flag lives
+ * outside the code: it is a statement that the registrations exist, not an
+ * assumption this file makes.
+ *
+ * Read per request rather than at module load: a long-lived serverless instance
+ * would otherwise hold whichever value was set when it started.
+ */
+const taxEnabled = () => process.env.MAYA_COLLECT_TAX === "true";
+
+/** Terms are only demanded once there is a page to point at. */
+const termsUrl = () => process.env.MAYA_TERMS_URL?.trim() || null;
+
 export async function POST(request: Request) {
   if (!isStripeConfigured()) {
     return NextResponse.json({ error: "Billing is not configured yet." }, { status: 503 });
@@ -161,8 +178,8 @@ export async function POST(request: Request) {
     // Checked against the service-role client because signup_codes is
     // admin-only under RLS and the person signing up is, by definition, not an
     // admin. The interval goes in because a code's meaning can depend on it: a
-    // fixed price was agreed per period, and a duration-limited discount is
-    // worth different money on a yearly invoice than a monthly one.
+    // duration-limited discount is worth different money on a yearly invoice
+    // than a monthly one.
     const codeCheck = await checkCode(admin, typedCode, { hotelId, interval });
     if (!codeCheck.ok) {
       return NextResponse.json({ error: codeCheck.message, reason: codeCheck.reason }, { status: 403 });
@@ -252,9 +269,6 @@ export async function POST(request: Request) {
       }
     }
 
-    // A fixed-price deal is honoured by billing the room count it was struck
-    // at, so the owner's stated count doesn't change what was agreed.
-    const billedRooms = effect.roomsOverride ?? rooms;
 
     // Reuse the customer if this hotel has been here before, so their history
     // stays in one place in the dashboard. A cancelled subscription left its
@@ -290,7 +304,25 @@ export async function POST(request: Request) {
       mode: "subscription",
       customer: customerId,
       integration_identifier: INTEGRATION_IDENTIFIER,
-      line_items: [{ price, quantity: billedRooms }],
+      line_items: [{ price, quantity: rooms }],
+      // Off until there is an active Stripe Tax registration: with none, Stripe
+      // silently calculates nothing and the invoice looks the same, so the flag
+      // is not proof anything is collected. MAYA_COLLECT_TAX is the deliberate
+      // statement that the registrations exist.
+      ...(taxEnabled()
+        ? {
+            automatic_tax: { enabled: true },
+            // A returning customer is taxed on the address Stripe already has
+            // unless Checkout collects a fresh one and is told to save it.
+            billing_address_collection: "required" as const,
+            customer_update: { address: "auto" as const },
+            // Without a valid tax ID a cross-border B2B sale is taxed as B2C.
+            tax_id_collection: { enabled: true },
+          }
+        : {}),
+      // Recorded per subscription, with the version they actually saw — a claim
+      // that someone agreed is worth only as much as the record behind it.
+      ...(termsUrl() ? { consent_collection: { terms_of_service: "required" as const } } : {}),
       // Collected even for trials: it is what makes billing start on its own
       // when the trial ends, and what the 48-hour re-check has to check.
       payment_method_collection: "always",
@@ -333,7 +365,7 @@ export async function POST(request: Request) {
     // Keyed on everything that defines the offer, so genuinely changing the room
     // count or the period still starts a new session rather than silently
     // returning the old price.
-    { idempotencyKey: `maya_checkout_${hotelId}_${interval}_${billedRooms}_${signupCodeId ?? "none"}` });
+    { idempotencyKey: `maya_checkout_${hotelId}_${interval}_${rooms}_${signupCodeId ?? "none"}` });
 
     if (!session.url) {
       return NextResponse.json({ error: "Stripe did not return a checkout URL." }, { status: 502 });

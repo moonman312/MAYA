@@ -110,53 +110,11 @@ describe("parseSignupCodeInput: each kind carries only its own fields", () => {
   });
 });
 
-describe("parseSignupCodeInput: a fixed price has to be one checkout can honour", () => {
-  it("requires the room count the deal was struck at", () => {
-    // Without the cap, checkoutEffectFor returns nothing and the property pays
-    // its real room count at list price while the code promises a fixed number.
-    const res = parse({ code: "DEAL", kind: "fixed_price", fixed_price_interval: "month" });
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toContain("room count");
-  });
-
-  it("derives the price from the bracket that will actually be billed", () => {
+describe("parseSignupCodeInput: the retired fixed_price kind", () => {
+  it("is refused like any unknown kind", () => {
     const res = parse({ code: "DEAL", kind: "fixed_price", fixed_price_interval: "month", tier_rooms_cap: 40 });
-    expect(res.ok).toBe(true);
-    if (res.ok) {
-      expect(res.row).toMatchObject({
-        fixed_price_cents: 20000,
-        fixed_price_interval: "month",
-        tier_rooms_cap: 40,
-      });
-    }
-  });
-
-  it("rejects a price that no bracket can produce, and says what would be billed", () => {
-    const res = parse({
-      code: "DEAL",
-      kind: "fixed_price",
-      fixed_price_interval: "month",
-      tier_rooms_cap: 40,
-      fixed_price_cents: 29900,
-    });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toContain("$200");
-  });
-
-  it("accepts a price that matches the bracket", () => {
-    const res = parse({
-      code: "DEAL",
-      kind: "fixed_price",
-      fixed_price_interval: "year",
-      tier_rooms_cap: 40,
-      fixed_price_cents: 216000,
-    });
-    expect(res.ok).toBe(true);
-  });
-
-  it("won't pin a deal above the largest property MAYA sells to", () => {
-    const res = parse({ code: "DEAL", kind: "fixed_price", fixed_price_interval: "month", tier_rooms_cap: 501 });
-    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain("trial, percent_off or amount_off");
   });
 });
 

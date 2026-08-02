@@ -1,7 +1,6 @@
 "use client";
 
 import type { SignupCodeKind } from "@/lib/billing/codes";
-import { formatUsd, isBillableRoomCount, MAX_ROOMS, priceCents, type BillingInterval } from "@/lib/billing/tiers";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -13,8 +12,6 @@ type Draft = {
   amountOffDollars: string;
   /** Blank means forever, exactly as the column reads it. */
   durationMonths: string;
-  interval: BillingInterval;
-  rooms: string;
   maxRedemptions: string;
   expiresOn: string;
   notes: string;
@@ -27,8 +24,6 @@ const EMPTY: Draft = {
   percentOff: "20",
   amountOffDollars: "50",
   durationMonths: "3",
-  interval: "month",
-  rooms: "40",
   maxRedemptions: "",
   expiresOn: "",
   notes: "",
@@ -38,7 +33,6 @@ const KINDS: { value: SignupCodeKind; label: string }[] = [
   { value: "trial", label: "Free trial" },
   { value: "percent_off", label: "Percent off" },
   { value: "amount_off", label: "Dollars off" },
-  { value: "fixed_price", label: "Fixed price" },
 ];
 
 /**
@@ -62,9 +56,6 @@ export function SignupCodeForm() {
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
 
-  const rooms = Number(draft.rooms);
-  const roomsOk = isBillableRoomCount(rooms);
-
   function submit() {
     setError(null);
     setCreated(null);
@@ -80,14 +71,11 @@ export function SignupCodeForm() {
     } else if (draft.kind === "percent_off") {
       body.percent_off = Number(draft.percentOff);
       body.duration_months = draft.durationMonths || null;
-    } else if (draft.kind === "amount_off") {
+    } else {
       // Typed in dollars, stored in cents — rounded here so "49.999" can't
       // reach the API as a fractional cent.
       body.amount_off_cents = Math.round(Number(draft.amountOffDollars) * 100);
       body.duration_months = draft.durationMonths || null;
-    } else {
-      body.fixed_price_interval = draft.interval;
-      body.tier_rooms_cap = draft.rooms;
     }
 
     startTransition(async () => {
@@ -119,9 +107,7 @@ export function SignupCodeForm() {
       ? draft.trialDays.trim() !== ""
       : draft.kind === "percent_off"
         ? draft.percentOff.trim() !== ""
-        : draft.kind === "amount_off"
-          ? Number(draft.amountOffDollars) > 0
-          : roomsOk);
+        : Number(draft.amountOffDollars) > 0);
 
   if (!open) {
     return (
@@ -233,47 +219,6 @@ export function SignupCodeForm() {
               className="w-32 rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
             />
           </Field>
-        </div>
-      )}
-
-      {draft.kind === "fixed_price" && (
-        <div className="space-y-2">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Billed">
-              <select
-                value={draft.interval}
-                onChange={(e) => set("interval", e.target.value as BillingInterval)}
-                className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
-              >
-                <option value="month">Monthly</option>
-                <option value="year">Yearly</option>
-              </select>
-            </Field>
-            <Field label="Bill them as this many rooms">
-              <input
-                type="number"
-                min="1"
-                max={MAX_ROOMS}
-                value={draft.rooms}
-                onChange={(e) => set("rooms", e.target.value)}
-                className="w-32 rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
-              />
-            </Field>
-          </div>
-          <p className="text-xs text-slate-400">
-            {roomsOk ? (
-              <>
-                Locks them at{" "}
-                <span className="text-slate-200">
-                  {formatUsd(priceCents(rooms, draft.interval))} per {draft.interval}
-                </span>{" "}
-                however many rooms they actually run. A fixed price has to land on a bracket —
-                that bracket is what Stripe bills.
-              </>
-            ) : (
-              <>A whole number of rooms from 1 to {MAX_ROOMS}.</>
-            )}
-          </p>
         </div>
       )}
 

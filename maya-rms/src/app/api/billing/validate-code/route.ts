@@ -48,17 +48,17 @@ export async function POST(request: Request) {
   }
 
   // Checked against the period they are actually buying, so this verdict and the
-  // one checkout reaches cannot differ — a fixed price is agreed per period, and
-  // a limited discount is worth different money on a yearly invoice.
+  // one checkout reaches cannot differ — a limited discount is worth different
+  // money on a yearly invoice than a monthly one.
   const interval = body?.interval === "year" ? "year" : "month";
 
   // signup_codes is platform-admin only under RLS, and whoever is signing up is
   // not an admin — so the lookup runs service-role and returns only a verdict.
   const check = await checkCode(createAdminClient(), typed, { interval });
 
-  // The effect ships alongside the prose so the panel can price from it — a
-  // fixed-price code moves the billed count, and a screen that quotes the
-  // typed rooms instead is promising a number Stripe will not charge.
+  // The effect ships alongside the prose so the panel can price from it —
+  // quoting the list price while a discount is in play is promising a number
+  // Stripe will not charge.
   return NextResponse.json(
     check.ok
       ? { valid: true, grants: check.describe, effect: displayEffectFor(check.code, interval) }

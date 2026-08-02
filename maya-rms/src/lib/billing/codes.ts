@@ -25,7 +25,7 @@ import type { BillingInterval } from "./tiers";
  */
 export const CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{2,39}$/;
 
-export type SignupCodeKind = "trial" | "percent_off" | "fixed_price" | "amount_off";
+export type SignupCodeKind = "trial" | "percent_off" | "amount_off";
 
 export type SignupCode = {
   id: string;
@@ -35,6 +35,8 @@ export type SignupCode = {
   percent_off: number | null;
   /** Shared by percent_off and amount_off; null = forever. */
   duration_months: number | null;
+  /** Retired kind (fixed_price) — columns survive in the table, nothing reads
+   *  them. Every property pays its own bracket; deals are discounts on top. */
   fixed_price_cents: number | null;
   fixed_price_interval: BillingInterval | null;
   tier_rooms_cap: number | null;
@@ -51,8 +53,7 @@ export type CodeRejection =
   | "inactive"
   | "expired"
   | "exhausted"
-  | "already_redeemed"
-  | "wrong_interval";
+  | "already_redeemed";
 
 /** Plain-language reason, shown to whoever typed the code. */
 export function rejectionMessage(reason: CodeRejection): string {
@@ -67,8 +68,6 @@ export function rejectionMessage(reason: CodeRejection): string {
       return "That code has already been used the maximum number of times.";
     case "already_redeemed":
       return "This property already used that code.";
-    case "wrong_interval":
-      return "That code is for a different billing period — switch between monthly and yearly to use it.";
   }
 }
 
@@ -109,7 +108,8 @@ export function describeCode(code: SignupCode, interval: BillingInterval = "mont
     }
     return `${dollars} off each of your first ${months} month${months === 1 ? "" : "s"}.`;
   }
-  return `A fixed ${usd(code.fixed_price_cents ?? 0)} per ${code.fixed_price_interval === "year" ? "year" : "month"}, instead of the standard rate.`;
+  // A retired or hand-inserted kind grants nothing; say so rather than invent.
+  return "Standard pricing.";
 }
 
 function usd(cents: number): string {
@@ -185,15 +185,6 @@ export async function checkCode(
     }
   }
 
-  // A fixed price was agreed against a billing period — "$99 a month" is not an
-  // offer of "$99 a year". Without this the buyer picks whichever period suits
-  // them and the deal means something different from what was struck.
-  if (code.kind === "fixed_price" && code.fixed_price_interval && opts.interval) {
-    if (code.fixed_price_interval !== opts.interval) {
-      return { ok: false, reason: "wrong_interval", message: rejectionMessage("wrong_interval") };
-    }
-  }
-
   return { ok: true, code, describe: describeCode(code, opts.interval ?? "month") };
 }
 
@@ -224,8 +215,6 @@ export type CheckoutEffect = {
   trialDays?: number;
   discountCouponId?: string;
   couponNeeded?: CouponSpec;
-  /** Bill this many rooms instead of what the owner stated. */
-  roomsOverride?: number;
 };
 
 /**
@@ -253,7 +242,6 @@ export function displayEffectFor(code: SignupCode, interval: BillingInterval): C
   const effect = checkoutEffectFor(code, interval);
   const out: CodeDisplayEffect = {};
   if (effect.trialDays) out.trialDays = effect.trialDays;
-  if (effect.roomsOverride) out.roomsOverride = effect.roomsOverride;
   if (effect.couponNeeded) {
     const spec = effect.couponNeeded;
     if (spec.percentOff != null) out.percentOff = spec.percentOff;
@@ -327,8 +315,7 @@ export function checkoutEffectFor(code: SignupCode, interval: BillingInterval): 
         : { amountOffCents: monthlyCents, duration: "forever", reusable: true },
     };
   }
-  // fixed_price: pinning the billed room count to the tier the deal was struck
-  // at is how an agreed number is honoured without inventing a bespoke price
-  // per customer. The cap is a room count, so it lands on an existing bracket.
-  return code.tier_rooms_cap ? { roomsOverride: code.tier_rooms_cap } : {};
+  // A kind this build doesn't know (the retired fixed_price, or a row someone
+  // hand-fed the table) grants nothing rather than something surprising.
+  return {};
 }

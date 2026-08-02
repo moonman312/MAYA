@@ -260,8 +260,8 @@ export function parseSignupCodeInput(body: unknown, now = new Date()): ParsedSig
   }
 
   const kind = b.kind;
-  if (kind !== "trial" && kind !== "percent_off" && kind !== "amount_off" && kind !== "fixed_price") {
-    return { ok: false, error: "Say what the code does: trial, percent_off, amount_off or fixed_price." };
+  if (kind !== "trial" && kind !== "percent_off" && kind !== "amount_off") {
+    return { ok: false, error: "Say what the code does: trial, percent_off or amount_off." };
   }
 
   let maxRedemptions: number | null = null;
@@ -366,45 +366,9 @@ export function parseSignupCodeInput(body: unknown, now = new Date()): ParsedSig
     return { ok: true, row: { ...shell, amount_off_cents: cents, duration_months: months } };
   }
 
-  const interval = b.fixed_price_interval;
-  if (interval !== "month" && interval !== "year") {
-    return { ok: false, error: "Say whether the fixed price is per month or per year." };
-  }
-  // Checkout honours a fixed price by billing the room count the deal was struck
-  // at (checkoutEffectFor -> roomsOverride). Without that cap the property is
-  // billed its real room count at standard rates while the code goes on
-  // promising a fixed number, so the cap is not optional here even though the
-  // column allows null.
-  const rooms = wholeNumber(b.tier_rooms_cap);
-  if (rooms === null) {
-    return {
-      ok: false,
-      error:
-        "A fixed-price deal needs the room count it was agreed at — that is the number checkout bills.",
-    };
-  }
-  if (rooms > MAX_ROOMS) {
-    return { ok: false, error: `Room counts stop at ${MAX_ROOMS}.` };
-  }
-  const bracket = priceCents(rooms, interval);
-  if (!isBlank(b.fixed_price_cents)) {
-    const cents = wholeNumber(b.fixed_price_cents);
-    if (cents !== bracket) {
-      return {
-        ok: false,
-        error: `${rooms} rooms bills ${formatUsd(bracket)} per ${interval}, so that is what this code can promise. Change the price or change the room count.`,
-      };
-    }
-  }
-  return {
-    ok: true,
-    row: {
-      ...shell,
-      fixed_price_cents: bracket,
-      fixed_price_interval: interval,
-      tier_rooms_cap: rooms,
-    },
-  };
+  // amount_off is the last kind the guard admits, so reaching here is a bug in
+  // the guard, not a user error.
+  return { ok: false, error: "Say what the code does: trial, percent_off or amount_off." };
 }
 
 export async function createSignupCode(
