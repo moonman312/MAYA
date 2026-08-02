@@ -562,3 +562,52 @@ describe("when Stripe itself is broken", () => {
     errors.mockRestore();
   });
 });
+
+describe("tax and terms are off until someone says otherwise", () => {
+  it("sends no tax or consent fields by default", async () => {
+    seed();
+    await post();
+    const s = lastSession();
+    expect(s?.automatic_tax).toBeUndefined();
+    expect(s?.tax_id_collection).toBeUndefined();
+    expect(s?.billing_address_collection).toBeUndefined();
+    expect(s?.consent_collection).toBeUndefined();
+  });
+
+  it("collects tax, a fresh address and a tax id once MAYA_COLLECT_TAX is set", async () => {
+    vi.stubEnv("MAYA_COLLECT_TAX", "true");
+    seed();
+    await post();
+    const s = lastSession();
+    expect(s?.automatic_tax).toEqual({ enabled: true });
+    // Without both of these a returning customer is taxed on a stale address.
+    expect(s?.billing_address_collection).toBe("required");
+    expect(s?.customer_update).toEqual({ address: "auto" });
+    expect(s?.tax_id_collection).toEqual({ enabled: true });
+    vi.unstubAllEnvs();
+  });
+
+  it("treats any value other than true as off — a half-set flag must not imply tax is handled", async () => {
+    vi.stubEnv("MAYA_COLLECT_TAX", "1");
+    seed();
+    await post();
+    expect(lastSession()?.automatic_tax).toBeUndefined();
+    vi.unstubAllEnvs();
+  });
+
+  it("asks for terms only once there is a page to point at", async () => {
+    vi.stubEnv("MAYA_TERMS_URL", "https://maya.example.com/terms");
+    seed();
+    await post();
+    expect(lastSession()?.consent_collection).toEqual({ terms_of_service: "required" });
+    vi.unstubAllEnvs();
+  });
+
+  it("ignores a blank terms url", async () => {
+    vi.stubEnv("MAYA_TERMS_URL", "   ");
+    seed();
+    await post();
+    expect(lastSession()?.consent_collection).toBeUndefined();
+    vi.unstubAllEnvs();
+  });
+});

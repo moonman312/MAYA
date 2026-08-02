@@ -10,38 +10,15 @@ describe("checkoutQuote with no code", () => {
   it("prices the typed rooms at their own bracket", () => {
     const q = checkoutQuote(12, "month");
     expect(q).toMatchObject({
-      billedRooms: 12,
       perRoomCents: 550,
       recurringCents: 6600,
       firstCents: 6600,
-      overridden: false,
     });
   });
 
   it("annual applies the bracket discount, first bracket exempt", () => {
     expect(checkoutQuote(12, "year").recurringCents).toBe(12 * 550 * 12);
     expect(checkoutQuote(24, "year").recurringCents).toBe(Math.round(24 * 500 * 12 * 0.9));
-  });
-});
-
-describe("checkoutQuote with a fixed-price cap", () => {
-  it("bills the cap's bracket, not the typed count", () => {
-    // The screen used to read $66/mo here while Stripe presented $200.
-    const q = checkoutQuote(12, "month", { roomsOverride: 40 });
-    expect(q.billedRooms).toBe(40);
-    expect(q.recurringCents).toBe(40 * 500);
-    expect(q.overridden).toBe(true);
-  });
-
-  it("yearly on the cap matches what Stripe invoices", () => {
-    // ...and $792/yr here while Stripe billed $2,160.
-    const q = checkoutQuote(12, "year", { roomsOverride: 40 });
-    expect(q.recurringCents).toBe(Math.round(40 * 500 * 12 * 0.9));
-    expect(q.recurringCents).toBe(216000);
-  });
-
-  it("a cap equal to the typed count is not flagged as overridden", () => {
-    expect(checkoutQuote(40, "month", { roomsOverride: 40 }).overridden).toBe(false);
   });
 });
 

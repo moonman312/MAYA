@@ -96,25 +96,9 @@ describe("POST /api/admin/signup-codes", () => {
     expect(state.inserted).toBeNull();
   });
 
-  it("derives a fixed price from the bracket it will really be billed at", async () => {
-    const res = await post({
-      code: "AUSTINDEAL",
-      kind: "fixed_price",
-      fixed_price_interval: "month",
-      tier_rooms_cap: 40,
-    });
-    expect(res.status).toBe(200);
-    expect(state.inserted).toMatchObject({
-      fixed_price_cents: 20000,
-      fixed_price_interval: "month",
-      tier_rooms_cap: 40,
-      percent_off: null,
-      trial_days: null,
-    });
-  });
-
-  it("refuses a fixed-price code with no room cap, which checkout could not honour", async () => {
-    const res = await post({ code: "AUSTINDEAL", kind: "fixed_price", fixed_price_interval: "month" });
+  it("refuses the retired fixed_price kind outright", async () => {
+    // Every property pays its own bracket now; deals are discounts on top.
+    const res = await post({ code: "AUSTINDEAL", kind: "fixed_price", tier_rooms_cap: 40 });
     expect(res.status).toBe(400);
     expect(state.inserted).toBeNull();
   });

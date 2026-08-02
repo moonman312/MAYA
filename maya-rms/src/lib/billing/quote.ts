@@ -14,8 +14,6 @@ import { priceCents, tierFor, type BillingInterval } from "./tiers";
 /** A code's consequences, as validate-code reports them to the screen. */
 export type CodeDisplayEffect = {
   trialDays?: number;
-  /** Bill this many rooms instead of what the owner typed. */
-  roomsOverride?: number;
   /** At most one of these — a code discounts by percent or by dollars, never both. */
   percentOff?: number;
   amountOffCents?: number;
@@ -24,7 +22,6 @@ export type CodeDisplayEffect = {
 };
 
 export type CheckoutQuote = {
-  billedRooms: number;
   perRoomCents: number;
   /** A normal period after any never-ending discount. The headline. */
   recurringCents: number;
@@ -33,8 +30,6 @@ export type CheckoutQuote = {
   /** Set when the first-invoice price only lasts this many monthly invoices. */
   discountMonths?: number;
   trialDays?: number;
-  /** The billed count came from the code, not the typed rooms. */
-  overridden: boolean;
 };
 
 /** Stripe applies percent coupons to the invoice subtotal and rounds to the cent. */
@@ -52,14 +47,11 @@ export function checkoutQuote(
   interval: BillingInterval,
   effect?: CodeDisplayEffect,
 ): CheckoutQuote {
-  const billedRooms = effect?.roomsOverride ?? rooms;
-  const base = priceCents(billedRooms, interval);
+  const base = priceCents(rooms, interval);
   const quote: CheckoutQuote = {
-    billedRooms,
-    perRoomCents: tierFor(billedRooms).centsPerRoom,
+    perRoomCents: tierFor(rooms).centsPerRoom,
     recurringCents: base,
     firstCents: base,
-    overridden: effect?.roomsOverride != null && effect.roomsOverride !== rooms,
   };
   if (effect?.trialDays) quote.trialDays = effect.trialDays;
 

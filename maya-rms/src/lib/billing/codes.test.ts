@@ -180,19 +180,6 @@ describe("describeCode tells the owner what they're getting", () => {
     expect(forever).toContain("as long as you stay");
   });
 
-  it("states a fixed price with its interval", () => {
-    const text = describeCode(
-      code({
-        kind: "fixed_price",
-        trial_days: null,
-        fixed_price_cents: 9900,
-        fixed_price_interval: "month",
-      }),
-    );
-    expect(text).toContain("$99.00");
-    expect(text).toContain("month");
-  });
-
   it("says day, not days, for a one-day trial", () => {
     expect(describeCode(code({ trial_days: 1 }))).toContain("1 day free");
   });
@@ -227,27 +214,6 @@ describe("checkoutEffectFor", () => {
     });
   });
 
-  it("pins the billed room count for a fixed-price deal", () => {
-    const deal = code({
-      kind: "fixed_price",
-      trial_days: null,
-      fixed_price_cents: 20000,
-      fixed_price_interval: "month",
-      tier_rooms_cap: 40,
-    });
-    expect(checkoutEffectFor(deal, "month")).toEqual({ roomsOverride: 40 });
-  });
-
-  it("leaves the stated count alone when a fixed-price code names no tier", () => {
-    const loose = code({
-      kind: "fixed_price",
-      trial_days: null,
-      fixed_price_cents: 20000,
-      fixed_price_interval: "month",
-      tier_rooms_cap: null,
-    });
-    expect(checkoutEffectFor(loose, "month")).toEqual({});
-  });
 });
 
 describe("a duration-limited discount is worth the same on either period", () => {
@@ -307,34 +273,6 @@ describe("a duration-limited discount is worth the same on either period", () =>
   });
 });
 
-describe("a fixed price is pinned to the period it was agreed for", () => {
-  const monthlyDeal = () =>
-    code({
-      kind: "fixed_price", trial_days: null,
-      fixed_price_cents: 9900, fixed_price_interval: "month", tier_rooms_cap: 40,
-    });
-
-  it("refuses to sell a monthly deal as a yearly one", async () => {
-    // "$99 a month" is not an offer of "$99 a year".
-    const res = await checkCode(fakeAdmin(monthlyDeal()), "DRIFTWOOD", { interval: "year" });
-    expect(res.ok).toBe(false);
-    if (!res.ok) {
-      expect(res.reason).toBe("wrong_interval");
-      // Actionable: says which switch to flip.
-      expect(res.message).toMatch(/monthly and yearly/i);
-    }
-  });
-
-  it("accepts it on the period it was struck at", async () => {
-    expect((await checkCode(fakeAdmin(monthlyDeal()), "DRIFTWOOD", { interval: "month" })).ok).toBe(true);
-  });
-
-  it("does not constrain a code that names no period", async () => {
-    const loose = code({ kind: "fixed_price", trial_days: null, fixed_price_interval: null });
-    expect((await checkCode(fakeAdmin(loose), "DRIFTWOOD", { interval: "year" })).ok).toBe(true);
-  });
-});
-
 describe("checkCode rejects anything that is not shaped like a code", () => {
   // The gate is the product decision — MAYA throttles demand deliberately — so
   // walking past it is a business bypass, not just a validation slip.
@@ -372,11 +310,6 @@ describe("checkCode rejects anything that is not shaped like a code", () => {
 describe("displayEffectFor mirrors what checkout will actually build", () => {
   it("passes a trial through", () => {
     expect(displayEffectFor(code({ trial_days: 14 }), "month")).toEqual({ trialDays: 14 });
-  });
-
-  it("surfaces a fixed-price cap as the rooms override", () => {
-    const fixed = code({ kind: "fixed_price", trial_days: null, tier_rooms_cap: 40 });
-    expect(displayEffectFor(fixed, "month")).toEqual({ roomsOverride: 40 });
   });
 
   it("reports a repeating discount with its month count", () => {

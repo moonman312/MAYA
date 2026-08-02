@@ -69,15 +69,14 @@ export function SubscribeStep({
 
   const rooms = Number(roomsText);
   const roomsOk = isBillableRoomCount(rooms);
-  // Priced from the code's effect, not the typed count alone — a fixed-price
-  // code moves the billed rooms, and this panel has to show what Stripe will
-  // actually present on the next screen.
+  // Priced with the code's effect folded in, so this panel shows what Stripe
+  // will actually present on the next screen.
   const quote = checkoutQuote(
     roomsOk ? rooms : 0,
     interval,
     codeState.status === "good" ? codeState.effect : undefined,
   );
-  const discount = roomsOk ? annualDiscountPct(quote.billedRooms) : 0;
+  const discount = roomsOk ? annualDiscountPct(rooms) : 0;
 
   // Check the code a beat after typing stops, so every keystroke isn't a request.
   //
@@ -247,10 +246,7 @@ export function SubscribeStep({
               </span>
             </div>
             <p className="mt-1.5 text-xs text-slate-400">
-              {quote.overridden
-                ? `Your code prices this as ${quote.billedRooms} rooms`
-                : `${quote.billedRooms} room${quote.billedRooms === 1 ? "" : "s"}`}{" "}
-              at {formatPerRoom(quote.perRoomCents)} per room
+              {rooms} room{rooms === 1 ? "" : "s"} at {formatPerRoom(quote.perRoomCents)} per room
               {interval === "year" ? " a month, billed as one year" : ""}
               {interval === "year" && discount > 0 ? `, less ${discount}%` : ""}.
             </p>
