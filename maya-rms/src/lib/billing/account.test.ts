@@ -32,6 +32,18 @@ function billing(o: Partial<AccountBilling> = {}): AccountBilling {
 }
 
 describe("headlineFor", () => {
+  it("sends a cancellation at the restart path and an unpaid card at the card", () => {
+    // Two different fixes hide under "not entitled" — the wrong pointer wastes
+    // the owner's time, and pointing unpaid at a new checkout double-bills.
+    const cancelled = headlineFor(billing({ entitled: false, status: "canceled" }), NOW);
+    expect(cancelled.detail).toContain("restart below");
+
+    const unpaid = headlineFor(billing({ entitled: false, status: "unpaid" }), NOW);
+    expect(unpaid.detail).toContain("card");
+    expect(unpaid.detail).not.toContain("restart below");
+  });
+
+
   it("leads with work having stopped, above everything else", () => {
     const h = headlineFor(
       billing({

@@ -77,10 +77,17 @@ export default async function BillingPage() {
       <section className={`rounded border p-4 ${TONE_STYLES[headline.tone]}`}>
         <h2 className="font-semibold text-slate-100">{headline.title}</h2>
         <p className="mt-1 max-w-2xl text-sm text-slate-300">{headline.detail}</p>
-        {/* No CTA here on purpose. The obvious one — a link to /onboarding —
-            was a dead end: resolveOnboardingStep sees an active property and
-            sends them straight back to the dashboard. What actually helps is
-            below, and the headline says which of the two applies. */}
+        {/* Only the truly-dead state gets a restart link. "Unpaid" is still
+            alive in Stripe and revives through the card, and pointing its
+            owner at a new checkout would have them paying twice. */}
+        {!billing.entitled && billing.status !== "unpaid" && (
+          <Link
+            href="/account/billing/restart"
+            className="mt-3 inline-block rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-500"
+          >
+            Restart your subscription
+          </Link>
+        )}
       </section>
 
       <section className="rounded border border-slate-800 bg-slate-900">
