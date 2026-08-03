@@ -308,11 +308,12 @@ export function SubscribeStep({
           <span className="text-sm font-medium text-slate-200">
             {codeOptional ? "Your code (optional)" : "Your code"}
           </span>
+          {/* No example code in the placeholder — the first one shipped was a
+              live code, printed inside the very gate it opened. */}
           <input
             type="text"
             value={code}
             onChange={(e) => setCode(e.target.value)}
-            placeholder="MHSFOUNDER"
             autoCapitalize="characters"
             className="mt-2 w-full rounded border border-slate-700 bg-slate-950 p-2 font-mono text-sm uppercase tracking-wide text-slate-100"
           />
