@@ -162,7 +162,7 @@ export function headlineFor(billing: AccountBilling, now = new Date()): BillingH
       title: "MAYA has paused work on this property",
       detail: recoverable
         ? "Prices are no longer being calculated or sent to your PMS. Update your card and the subscription restarts where it left off."
-        : "Prices are no longer being calculated or sent to your PMS. Your subscription was cancelled, so starting again means a new one — get in touch and we'll set it up.",
+        : "Prices are no longer being calculated or sent to your PMS. Your subscription was cancelled, so starting again means a new one — restart below whenever you're ready.",
     };
   }
 

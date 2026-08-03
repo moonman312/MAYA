@@ -39,13 +39,28 @@ function trialEndsOn(days: number): string {
 export function SubscribeStep({
   cancelled = false,
   pmsOptions = [],
+  title = "Let's get you set up",
+  intro = "Pricing is per room, per month. Tell us how big the property is and we'll show you the number before you commit to anything.",
+  footnote = "Card details are handled by Stripe — they never touch MAYA. Next you'll connect your PMS.",
+  initialRooms,
+  initialInterval,
+  lockPms = false,
 }: {
   cancelled?: boolean;
   pmsOptions?: SubscribePmsOption[];
+  title?: string;
+  intro?: string;
+  footnote?: string;
+  initialRooms?: number;
+  initialInterval?: BillingInterval;
+  /** The property's PMS is already known (a restart) — declare it, hide the picker. */
+  lockPms?: boolean;
 }) {
-  const [roomsText, setRoomsText] = useState("");
-  const [interval, setInterval] = useState<BillingInterval>("month");
-  const [pmsType, setPmsType] = useState<string | null>(null);
+  const [roomsText, setRoomsText] = useState(initialRooms ? String(initialRooms) : "");
+  const [interval, setInterval] = useState<BillingInterval>(initialInterval ?? "month");
+  const [pmsType, setPmsType] = useState<string | null>(
+    lockPms ? (pmsOptions[0]?.type ?? null) : null,
+  );
   const [code, setCode] = useState("");
   const [codeState, setCodeState] = useState<
     | { status: "idle" }
@@ -80,11 +95,9 @@ export function SubscribeStep({
 
   // Check the code a beat after typing stops, so every keystroke isn't a request.
   //
-  // Re-runs on the interval too, not just the text: a fixed price is agreed per
-  // period and a limited discount is worth different money on a yearly invoice,
-  // so the same code can be good monthly and refused annually. Without that,
-  // toggling the period left a stale "valid" verdict on screen that checkout
-  // would then reject.
+  // Re-runs on the interval too, not just the text: a limited discount is worth
+  // different money on a yearly invoice than a monthly one, so the panel's
+  // numbers have to be re-derived when the period flips.
   useEffect(() => {
     const typed = code.trim();
     if (!typed) {
@@ -168,11 +181,8 @@ export function SubscribeStep({
 
   return (
     <div className="flex flex-col pt-10">
-      <h1 className="text-3xl font-semibold text-slate-100">Let&apos;s get you set up</h1>
-      <p className="mt-3 max-w-lg text-sm leading-relaxed text-slate-400">
-        Pricing is per room, per month. Tell us how big the property is and
-        we&apos;ll show you the number before you commit to anything.
-      </p>
+      <h1 className="text-3xl font-semibold text-slate-100">{title}</h1>
+      <p className="mt-3 max-w-lg text-sm leading-relaxed text-slate-400">{intro}</p>
 
       {cancelled ? (
         <p className="mt-5 max-w-lg rounded border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm text-slate-300">
@@ -267,7 +277,7 @@ export function SubscribeStep({
           </div>
         ) : null}
 
-        {pmsOptions.length > 0 ? (
+        {pmsOptions.length > 0 && !lockPms ? (
           <div>
             <span className="text-sm font-medium text-slate-200">
               Which property management system do you use?
@@ -338,10 +348,7 @@ export function SubscribeStep({
           >
             {submitting ? "Taking you to checkout…" : "Continue to payment"}
           </button>
-          <p className="mt-2 text-[11px] text-slate-600">
-            Card details are handled by Stripe — they never touch MAYA. Next
-            you&apos;ll connect your PMS.
-          </p>
+          <p className="mt-2 text-[11px] text-slate-600">{footnote}</p>
         </div>
       </form>
     </div>
