@@ -326,6 +326,13 @@ export async function POST(request: Request) {
       // Collected even for trials: it is what makes billing start on its own
       // when the trial ends, and what the 48-hour re-check has to check.
       payment_method_collection: "always",
+      // The verification design assumes a card — the signup check and the 48h
+      // re-check confirm SetupIntents against one, and pointed at a bank
+      // account they would stamp a paying customer failed. ACH also settles in
+      // days, letting a "paid" signup bounce after the PMS is connected. Stated
+      // here rather than left to a dashboard toggle so test and live cannot
+      // disagree; revisit only alongside a bank-aware re-check.
+      excluded_payment_method_types: ["us_bank_account"],
       // Stripe rejects allow_promotion_codes alongside discounts, so it can only
       // be stated when no coupon is attached. Absent means off either way, which
       // is what we want: codes are validated against our own table, so Checkout's
