@@ -611,3 +611,14 @@ describe("tax and terms are off until someone says otherwise", () => {
     vi.unstubAllEnvs();
   });
 });
+
+describe("payment methods", () => {
+  it("never offers bank debits — the card checks would fail a paying ACH customer", async () => {
+    seed();
+    await post();
+    expect(lastSession()?.excluded_payment_method_types).toEqual(["us_bank_account"]);
+    // Everything else stays dashboard-decided; pinning a positive list here
+    // would re-create payment_method_types under another name.
+    expect(lastSession()?.payment_method_types).toBeUndefined();
+  });
+});
