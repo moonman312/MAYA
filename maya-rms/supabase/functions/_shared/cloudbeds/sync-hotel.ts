@@ -35,6 +35,7 @@ import {
 import type { CloudbedsParsedReservationRow, CloudbedsResolvedCredentials } from "./types.ts";
 import { mwsEnv } from "../mews/env.ts";
 import { persistPropertyId, resolveOAuthCredentials } from "../pms/oauth-credentials.ts";
+import { decideSyncWindow } from "../pms/sync-mode.ts";
 import { installCloudbedsRequestLogging } from "./request-log.ts";
 
 const RECONCILE_IN_CHUNK = 200;
@@ -204,11 +205,8 @@ export type SyncMode = {
 };
 
 /**
- * Whether this run pulls everything or only what changed.
- *
- * Pure so the decision can be tested, because getting it wrong is silent in both
- * directions: too eager and a hotel's bookings stop updating, too cautious and
- * the sync never finishes for anyone above thirty rooms.
+ * The shared decision (pms/sync-mode.ts), spelled the way Cloudbeds's wire
+ * wants it — modifiedFrom in their space-separated timestamp format.
  */
 export function decideSyncMode(args: {
   now: Date;
@@ -218,18 +216,11 @@ export function decideSyncMode(args: {
   overlapMs: number;
   fullSweepIntervalMs: number;
 }): SyncMode {
-  const { now, watermark, lastFullSyncAt, windowRequested, overlapMs, fullSweepIntervalMs } = args;
-
-  if (windowRequested) return { incremental: false, modifiedFrom: undefined, reason: "window_requested" };
-  if (!watermark) return { incremental: false, modifiedFrom: undefined, reason: "first_run" };
-  if (!lastFullSyncAt || now.getTime() - lastFullSyncAt.getTime() > fullSweepIntervalMs) {
-    return { incremental: false, modifiedFrom: undefined, reason: "full_sweep_due" };
-  }
-
+  const decision = decideSyncWindow(args);
   return {
-    incremental: true,
-    modifiedFrom: cloudbedsTimestamp(new Date(watermark.getTime() - overlapMs)),
-    reason: "incremental",
+    incremental: decision.incremental,
+    modifiedFrom: decision.modifiedSince ? cloudbedsTimestamp(decision.modifiedSince) : undefined,
+    reason: decision.reason,
   };
 }
 
@@ -646,13 +637,18 @@ export async function runCloudbedsSyncForHotel(
           // The checkpoint itself: a truncated sweep records how far it got and
           // when the whole thing began; a completed one clears both so the next
           // daily sweep starts fresh.
-          ...(checkpointable
-            ? truncated
-              ? {
-                  full_sweep_after_id: sweepReachedId ?? sweepCursor,
-                  full_sweep_started_at: (sweepStartedAt ?? runStartedAt).toISOString(),
-                }
-              : { full_sweep_after_id: null, full_sweep_started_at: null }
+          ...(checkpointable && truncated
+            ? {
+                full_sweep_after_id: sweepReachedId ?? sweepCursor,
+                full_sweep_started_at: (sweepStartedAt ?? runStartedAt).toISOString(),
+              }
+            : {}),
+          // Cleared by ANY completed full run: a finished explicit-window run
+          // advances the watermark past a mid-flight sweep's anchor, and
+          // resuming that stale cursor later would stamp an old watermark and
+          // force a redundant second sweep.
+          ...(!truncated && !incremental
+            ? { full_sweep_after_id: null, full_sweep_started_at: null }
             : {}),
         })
         .eq("id", connRow.id);
