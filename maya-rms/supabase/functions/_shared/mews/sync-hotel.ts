@@ -9,6 +9,7 @@ import { parseMewsApiResponse } from "./etl.ts";
 import { mwsEnv } from "./env.ts";
 import { resolveMewsCredentials } from "./resolve-credentials.ts";
 import type { MewsCredentialsInput } from "./types.ts";
+import { dropUnchangedReservationRows } from "../pms/row-diff.ts";
 import { decideSyncWindow } from "../pms/sync-mode.ts";
 
 const RECONCILE_IN_CHUNK = 200;
@@ -168,6 +169,7 @@ export type MewsSyncHotelSuccess = {
   reservationRowsUpserted: number;
   ingest: {
     duplicateRoomTypeRowsMerged: number;
+    unchangedRowsSkipped: number;
     canceledReservationCount: number;
     skippedMissingReservationId: number;
     skippedNoStayNights: number;
@@ -271,6 +273,7 @@ export async function runMewsSyncForHotel(
 
     let roomTypesUpserted = 0;
     let reservationRowsUpserted = 0;
+    let unchangedRowsSkipped = 0;
     let duplicateRoomTypeRowsMerged = 0;
     const stats = {
       skippedMissingReservationId: 0,
@@ -358,7 +361,7 @@ export async function runMewsSyncForHotel(
         for (const id of parsed.canceledExternalIds) canceledIds.add(id);
 
         if (parsed.reservations.length > 0) {
-          const resRows = parsed.reservations.map((r) => ({
+          const allRes = parsed.reservations.map((r) => ({
             hotel_id: hotelId,
             external_reservation_id: r.external_reservation_id,
             room_type_id: r.external_room_type_id
@@ -370,6 +373,15 @@ export async function runMewsSyncForHotel(
             current_rate: r.current_rate,
             raw_payload: r.raw_payload,
           }));
+          // Most of a full sweep is rows that didn't move; writing them anyway
+          // is WAL, realtime messages, and vacuum work for nothing.
+          const diffed = await dropUnchangedReservationRows(supabase, hotelId, allRes);
+          if (diffed.error) {
+            walkError = diffed.error.message;
+            return false;
+          }
+          const resRows = diffed.rows;
+          unchangedRowsSkipped += diffed.unchanged;
           reservationRowsUpserted += resRows.length;
           const UP_CHUNK = 500;
           for (let i = 0; i < resRows.length; i += UP_CHUNK) {
@@ -467,6 +479,7 @@ export async function runMewsSyncForHotel(
       reservationRowsUpserted,
       ingest: {
         duplicateRoomTypeRowsMerged,
+        unchangedRowsSkipped,
         canceledReservationCount: canceledIds.size,
         ...stats,
       },

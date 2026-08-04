@@ -35,6 +35,7 @@ import {
 import type { CloudbedsParsedReservationRow, CloudbedsResolvedCredentials } from "./types.ts";
 import { mwsEnv } from "../mews/env.ts";
 import { persistPropertyId, resolveOAuthCredentials } from "../pms/oauth-credentials.ts";
+import { dropUnchangedReservationRows } from "../pms/row-diff.ts";
 import { decideSyncWindow } from "../pms/sync-mode.ts";
 import { installCloudbedsRequestLogging } from "./request-log.ts";
 
@@ -69,6 +70,7 @@ export type CloudbedsSyncSuccess = {
     canceledStatusListFailures: number;
     duplicateStayNightKeysMerged: number;
     rowsWithMissingRate: number;
+    unchangedRowsSkipped: number;
     tokenRefreshed: boolean;
   };
 };
@@ -506,8 +508,9 @@ export async function runCloudbedsSyncForHotel(
     const rowsWithMissingRate = rows.filter((r) => r.current_rate === null).length;
 
     let reservationRowsUpserted = 0;
+    let unchangedRowsSkipped = 0;
     if (rows.length > 0) {
-      const resRows = rows.map((r) => ({
+      const allRes = rows.map((r) => ({
         hotel_id: hotelId,
         external_reservation_id: r.external_reservation_id,
         room_type_id: r.external_room_type_id ? idByExternal[r.external_room_type_id] ?? null : null,
@@ -517,6 +520,13 @@ export async function runCloudbedsSyncForHotel(
         current_rate: r.current_rate,
         raw_payload: r.raw_payload,
       }));
+
+      // Most of a full sweep is rows that didn't move; writing them anyway is
+      // WAL, realtime messages, and vacuum work for nothing.
+      const diffed = await dropUnchangedReservationRows(supabase, hotelId, allRes);
+      if (diffed.error) return { ok: false, error: diffed.error.message };
+      const resRows = diffed.rows;
+      unchangedRowsSkipped = diffed.unchanged;
       reservationRowsUpserted = resRows.length;
 
       // Chunked upsert — a busy hotel produces thousands of room-nights.
@@ -675,6 +685,7 @@ export async function runCloudbedsSyncForHotel(
         canceledStatusListFailures: canceledList.statusesFailed,
         duplicateStayNightKeysMerged,
         rowsWithMissingRate,
+        unchangedRowsSkipped,
         tokenRefreshed: resolved.refreshed,
       },
     };

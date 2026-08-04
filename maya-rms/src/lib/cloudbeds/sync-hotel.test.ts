@@ -455,6 +455,30 @@ describe("runCloudbedsSyncForHotel cancellation reconcile", () => {
   });
 });
 
+describe("re-syncing unchanged data writes nothing", () => {
+  it("skips every row whose stored copy already matches", async () => {
+    const supabase = makeSupabaseStub();
+    activeList("R1");
+    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "confirmed"));
+
+    const first = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+    expect(first.ok).toBe(true);
+    if (first.ok) {
+      expect(first.reservationRowsUpserted).toBe(3);
+      expect(first.ingest.unchangedRowsSkipped).toBe(0);
+    }
+
+    // Same book, next tick: the data moved nowhere, so neither should a write.
+    const second = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+    expect(second.ok).toBe(true);
+    if (second.ok) {
+      expect(second.reservationRowsUpserted).toBe(0);
+      expect(second.ingest.unchangedRowsSkipped).toBe(3);
+    }
+    expect(supabase.reservations).toHaveLength(3);
+  });
+});
+
 describe("a full sweep bigger than one budget resumes across ticks", () => {
   const T0 = new Date("2026-08-04T10:00:00Z");
 
