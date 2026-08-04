@@ -6,6 +6,7 @@
 export {
   runCloudbedsSyncForHotel,
   decideSyncMode,
+  sweepIdCompare,
   type SyncMode,
 } from "../../../supabase/functions/_shared/cloudbeds/sync-hotel";
 export type {
