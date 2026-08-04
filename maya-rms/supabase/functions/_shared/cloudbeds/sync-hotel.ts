@@ -234,6 +234,16 @@ export function decideSyncMode(args: {
 }
 
 /**
+ * The order a multi-tick sweep walks reservations in — and therefore what its
+ * cursor means. Cloudbeds ids are numeric strings, so shorter-before-longer
+ * then lexicographic sorts them numerically without ever parsing; anything
+ * non-numeric still gets a total, stable order, which is all resume needs.
+ */
+export function sweepIdCompare(a: string, b: string): number {
+  return a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
+}
+
+/**
  * One DELETE per reservation here was most of a sync's round trips, spent on
  * rows that almost never exist — a booking only sheds nights when its dates
  * shrink. So read the stored nights back, diff against the active set, and
@@ -391,7 +401,9 @@ export async function runCloudbedsSyncForHotel(
     const runStartedAt = new Date();
     const { data: syncState } = await supabase
       .from("pms_connections")
-      .select("reservations_modified_through, last_full_sync_at")
+      .select(
+        "reservations_modified_through, last_full_sync_at, full_sweep_after_id, full_sweep_started_at",
+      )
       .eq("hotel_id", hotelId)
       .eq("pms_type", "cloudbeds")
       .maybeSingle();
@@ -402,16 +414,30 @@ export async function runCloudbedsSyncForHotel(
     const lastFull = syncState?.last_full_sync_at
       ? new Date(String(syncState.last_full_sync_at))
       : null;
+    // An explicit window is a deliberate re-read of a period, so honour it in
+    // full rather than filtering it down to what changed.
+    const windowRequested = options?.daysBack != null || options?.daysForward != null;
     const { incremental, modifiedFrom } = decideSyncMode({
       now: runStartedAt,
       watermark,
       lastFullSyncAt: lastFull,
-      // An explicit window is a deliberate re-read of a period, so honour it in
-      // full rather than filtering it down to what changed.
-      windowRequested: options?.daysBack != null || options?.daysForward != null,
+      windowRequested,
       overlapMs: CLOUDBEDS_INCREMENTAL_OVERLAP_MS,
       fullSweepIntervalMs: CLOUDBEDS_FULL_SYNC_INTERVAL_MS,
     });
+
+    // Only the SCHEDULED full sweep checkpoints. An explicit window is a
+    // one-shot re-read someone asked for, and incremental pulls are small
+    // enough that resuming them buys nothing.
+    const checkpointable = !incremental && !windowRequested;
+    const sweepCursor =
+      checkpointable && syncState?.full_sweep_after_id
+        ? String(syncState.full_sweep_after_id)
+        : null;
+    const sweepStartedAt =
+      checkpointable && syncState?.full_sweep_started_at
+        ? new Date(String(syncState.full_sweep_started_at))
+        : null;
 
     const { reservations: listItems, pages } = await cloudbedsGetReservationsRange(
       creds,
@@ -420,6 +446,14 @@ export async function runCloudbedsSyncForHotel(
       CLOUDBEDS_ACTIVE_STATUSES,
       modifiedFrom,
     );
+
+    // A sweep bigger than one budget finishes across several ticks, so its
+    // order has to be one every tick agrees on — the API's own ordering is
+    // whatever it feels like today. Sorted by id, "resume" is just "skip
+    // everything at or below the cursor".
+    if (checkpointable) {
+      listItems.sort((a, b) => sweepIdCompare(reservationIdOf(a) ?? "", reservationIdOf(b) ?? ""));
+    }
 
     const seenResIds = new Set<string>();
     const allRows: CloudbedsParsedReservationRow[] = [];
@@ -440,6 +474,9 @@ export async function runCloudbedsSyncForHotel(
     // fully covered so the caller can decide whether to come straight back.
     const deadlineAt = Date.now() + CLOUDBEDS_SYNC_BUDGET_MS;
     let truncated = false;
+    // Advances past failures too: a booking whose detail call keeps 500ing must
+    // not wedge the sweep on itself forever — the next daily sweep retries it.
+    let sweepReachedId: string | null = null;
 
     for (const item of listItems) {
       if (Date.now() > deadlineAt) {
@@ -448,8 +485,12 @@ export async function runCloudbedsSyncForHotel(
       }
       const rid = reservationIdOf(item);
       if (!rid || seenResIds.has(rid)) continue;
+      // Resume: everything at or below the cursor was covered by an earlier
+      // tick of this same sweep.
+      if (sweepCursor && sweepIdCompare(rid, sweepCursor) <= 0) continue;
       seenResIds.add(rid);
       const detail = await cloudbedsGetReservationDetail(creds, rid);
+      sweepReachedId = rid;
       if (!detail) {
         detailFailed += 1;
         continue;
@@ -521,7 +562,14 @@ export async function runCloudbedsSyncForHotel(
     // rows for anything cancelled before it were already removed on the run that
     // saw it. Without this the cancelled sweep re-walks every cancellation the
     // property has ever had, on every tick, forever.
-    const canceledList = await listCanceledReservations(creds, checkInFrom, checkInTo, modifiedFrom);
+    // A mid-flight sweep chunk skips the cancellation pass: it is unbudgeted
+    // API work that would repeat on every chunk, and the completing chunk runs
+    // it once for the whole sweep. Cancelled rows sit a few extra ticks; they
+    // were already stale for however long the property waited to sync at all.
+    const runCanceledPass = !(truncated && checkpointable);
+    const canceledList = runCanceledPass
+      ? await listCanceledReservations(creds, checkInFrom, checkInTo, modifiedFrom)
+      : { items: [], pages: 0, statusesFailed: 0 };
     let canceledDetailFailed = 0;
     for (const item of canceledList.items) {
       const rid = reservationIdOf(item);
@@ -575,12 +623,37 @@ export async function runCloudbedsSyncForHotel(
           // incremental pull would ask for changes since a moment it never
           // actually finished reading.
           //
-          // Stamped with when this run STARTED, not now: anything modified while
-          // it was running has to fall inside the next pull's range.
+          // Stamped with when the SWEEP started, not now: a checkpointed sweep
+          // spans several ticks, and anything modified during any of them has
+          // to fall inside the next incremental pull's range. For a single-tick
+          // run that is just this run's own start.
           ...(truncated
             ? {}
-            : { reservations_modified_through: runStartedAt.toISOString() }),
-          ...(!truncated && !incremental ? { last_full_sync_at: runStartedAt.toISOString() } : {}),
+            : {
+                reservations_modified_through: (checkpointable && sweepStartedAt
+                  ? sweepStartedAt
+                  : runStartedAt
+                ).toISOString(),
+              }),
+          ...(!truncated && !incremental
+            ? {
+                last_full_sync_at: (checkpointable && sweepStartedAt
+                  ? sweepStartedAt
+                  : runStartedAt
+                ).toISOString(),
+              }
+            : {}),
+          // The checkpoint itself: a truncated sweep records how far it got and
+          // when the whole thing began; a completed one clears both so the next
+          // daily sweep starts fresh.
+          ...(checkpointable
+            ? truncated
+              ? {
+                  full_sweep_after_id: sweepReachedId ?? sweepCursor,
+                  full_sweep_started_at: (sweepStartedAt ?? runStartedAt).toISOString(),
+                }
+              : { full_sweep_after_id: null, full_sweep_started_at: null }
+            : {}),
         })
         .eq("id", connRow.id);
       if (pcErr) console.error("cloudbeds pms_connections status update failed:", pcErr.message);

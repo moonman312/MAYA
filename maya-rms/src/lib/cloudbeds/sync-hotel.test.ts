@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const client = vi.hoisted(() => {
@@ -47,9 +47,10 @@ type ResRow = Record<string, unknown>;
  * In-memory `reservations` table. The point of these tests is which rows
  * survive a sync, so deletes actually have to filter rather than be recorded.
  */
-function makeSupabaseStub(seed: ResRow[] = []) {
+function makeSupabaseStub(seed: ResRow[] = [], syncState: ResRow = {}) {
   const reservations: ResRow[] = seed.map((r) => ({ hotel_id: "hotel-1", ...r }));
   const roomTypeUpserts: ResRow[] = [];
+  const connUpdates: ResRow[] = [];
 
   function deleteBuilder() {
     const preds: Array<(r: ResRow) => boolean> = [];
@@ -103,11 +104,16 @@ function makeSupabaseStub(seed: ResRow[] = []) {
       select: () => chain,
       eq: () => chain,
       maybeSingle: async () => {
-        if (name === "pms_connections") return { data: { id: "conn-1", base_url: null } };
+        if (name === "pms_connections") return { data: { id: "conn-1", base_url: null, ...syncState } };
         if (name === "hotels") return { data: { total_rooms_per_type: 10 } };
         return { data: null };
       },
-      update: () => ({ eq: async () => ({ error: null }) }),
+      update: (payload: ResRow) => ({
+        eq: async () => {
+          if (name === "pms_connections") connUpdates.push(payload);
+          return { error: null };
+        },
+      }),
       upsert: async (rows: ResRow | ResRow[]) => {
         if (name === "room_types") {
           roomTypeUpserts.push(...(Array.isArray(rows) ? rows : [rows]));
@@ -142,9 +148,10 @@ function makeSupabaseStub(seed: ResRow[] = []) {
     return chain;
   }
 
-  return { from: table, reservations, roomTypeUpserts } as unknown as SupabaseClient & {
+  return { from: table, reservations, roomTypeUpserts, connUpdates } as unknown as SupabaseClient & {
     reservations: ResRow[];
     roomTypeUpserts: ResRow[];
+    connUpdates: ResRow[];
   };
 }
 
@@ -445,5 +452,95 @@ describe("runCloudbedsSyncForHotel cancellation reconcile", () => {
     // owner excluded came back active within five minutes and got priced.
     expect(supabase.roomTypeUpserts).toHaveLength(1);
     expect(supabase.roomTypeUpserts[0]).not.toHaveProperty("is_active");
+  });
+});
+
+describe("a full sweep bigger than one budget resumes across ticks", () => {
+  const T0 = new Date("2026-08-04T10:00:00Z");
+
+  // Each detail call burns a minute of fake clock, so the 210s budget truncates
+  // the sweep after the fourth attempt.
+  function slowDetails() {
+    client.cloudbedsGetReservationDetail.mockImplementation(async (_c: unknown, rid: string) => {
+      vi.advanceTimersByTime(60_000);
+      return detailFor(rid, `${rid}-1`, "confirmed");
+    });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("checkpoints where it stopped instead of forgetting everything", async () => {
+    const supabase = makeSupabaseStub();
+    // Deliberately shuffled: the cursor only means something if every tick
+    // walks the same order regardless of what the API returned first.
+    activeList("r3", "r1", "r6", "r2", "r5", "r4");
+    slowDetails();
+
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.windowFullyCovered).toBe(false);
+
+    // Sorted order r1..r6, budget out after r4.
+    const fetched = client.cloudbedsGetReservationDetail.mock.calls.map((c) => c[1]);
+    expect(fetched).toEqual(["r1", "r2", "r3", "r4"]);
+
+    const stamp = supabase.connUpdates.at(-1)!;
+    expect(stamp.full_sweep_after_id).toBe("r4");
+    expect(stamp.full_sweep_started_at).toBe(T0.toISOString());
+    // The window was not covered: neither watermark may move.
+    expect(stamp).not.toHaveProperty("reservations_modified_through");
+    expect(stamp).not.toHaveProperty("last_full_sync_at");
+
+    // A mid-flight chunk spends nothing on the cancellation pass.
+    expect(client.cloudbedsGetReservationsPage).not.toHaveBeenCalled();
+  });
+
+  it("resumes past the cursor and stamps the watermark from the sweep's start", async () => {
+    const sweepStart = "2026-08-04T09:45:00.000Z";
+    const supabase = makeSupabaseStub([], {
+      full_sweep_after_id: "r4",
+      full_sweep_started_at: sweepStart,
+    });
+    activeList("r3", "r1", "r6", "r2", "r5", "r4");
+    client.cloudbedsGetReservationDetail.mockImplementation(async (_c: unknown, rid: string) =>
+      detailFor(rid, `${rid}-1`, "confirmed"),
+    );
+
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.windowFullyCovered).toBe(true);
+
+    // Only the tail the earlier ticks never reached.
+    const fetched = client.cloudbedsGetReservationDetail.mock.calls.map((c) => c[1]);
+    expect(fetched).toEqual(["r5", "r6"]);
+
+    const stamp = supabase.connUpdates.at(-1)!;
+    // Modified-while-sweeping must fall inside the next incremental pull, so
+    // the watermark is the sweep's beginning — not this final chunk's start.
+    expect(stamp.reservations_modified_through).toBe(sweepStart);
+    expect(stamp.last_full_sync_at).toBe(sweepStart);
+    expect(stamp.full_sweep_after_id).toBeNull();
+    expect(stamp.full_sweep_started_at).toBeNull();
+  });
+
+  it("an explicit window never checkpoints — it is a one-shot re-read", async () => {
+    const supabase = makeSupabaseStub();
+    activeList("r1", "r2", "r3", "r4", "r5", "r6");
+    slowDetails();
+
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1", { daysBack: 5 });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.windowFullyCovered).toBe(false);
+
+    const stamp = supabase.connUpdates.at(-1)!;
+    expect(stamp).not.toHaveProperty("full_sweep_after_id");
+    expect(stamp).not.toHaveProperty("full_sweep_started_at");
   });
 });
