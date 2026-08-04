@@ -1,26 +1,51 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const client = vi.hoisted(() => {
   class MewsHttpError extends Error {}
+  const fixtureRaw = {
+    Reservations: [
+      {
+        Id: "res_1",
+        State: "Confirmed",
+        ScheduledStartUtc: "2026-08-02T00:00:00Z",
+        ScheduledEndUtc: "2026-08-03T18:00:00Z",
+        CreatedUtc: "2026-07-25T02:00:00Z",
+        SpaceCategoryId: "cat_king",
+      },
+    ],
+    SpaceCategories: [{ Id: "cat_king", Name: "King", RoomCount: 8 }],
+  };
   return {
     MewsHttpError,
-    mewsFetchReservationsRange: vi.fn(async () => ({
-      data: {
-        Reservations: [
-          {
-            Id: "res_1",
-            State: "Confirmed",
-            ScheduledStartUtc: "2026-08-02T00:00:00Z",
-            ScheduledEndUtc: "2026-08-03T18:00:00Z",
-            CreatedUtc: "2026-07-25T02:00:00Z",
-            SpaceCategoryId: "cat_king",
-          },
-        ],
-        SpaceCategories: [{ Id: "cat_king", Name: "King", RoomCount: 8 }],
+    fixtureRaw,
+    /** How many windows the fake range spans; each carries the fixture. */
+    windowCount: { value: 1 },
+    // Mirrors the real walk's contract: every window hands the caller its
+    // payload, onWindow's verdict decides whether the walk continues, and
+    // `completed` is whether the RANGE was covered — a refusal on the final
+    // window still covered it.
+    mewsWalkReservationWindows: vi.fn(
+      async (
+        _creds: unknown,
+        startUtc: string,
+        endUtc: string,
+        onWindow: (v: { index: number; raw: Record<string, unknown>; startUtc: string; endUtc: string }) => Promise<boolean>,
+        opts: { fromIndex?: number } = {},
+      ) => {
+        const count = client.windowCount.value;
+        const fromIndex = opts.fromIndex ?? 0;
+        let windowsFetched = 0;
+        let lastIndex = fromIndex - 1;
+        for (let i = fromIndex; i < count; i++) {
+          windowsFetched += 1;
+          lastIndex = i;
+          const keep = await onWindow({ index: i, raw: fixtureRaw, startUtc, endUtc });
+          if (!keep) return { windowsFetched, lastIndex, completed: i === count - 1 };
+        }
+        return { windowsFetched, lastIndex, completed: true };
       },
-      windows: 1,
-    })),
+    ),
   };
 });
 
@@ -46,7 +71,9 @@ function makeSupabaseStub(
   seedRoomTypes: Row[] = [],
   hotelReadError?: string,
   seedReservations: Row[] = [],
+  syncState: Row = {},
 ) {
+  const connUpdates: Row[] = [];
   const roomTypes: Row[] = seedRoomTypes.map((rt, i) => ({
     id: `rt-uuid-${i + 1}`,
     hotel_id: "hotel-1",
@@ -102,11 +129,17 @@ function makeSupabaseStub(
       select: () => chain,
       eq: () => chain,
       maybeSingle: async () => {
+        if (name === "pms_connections") return { data: { ...syncState }, error: null };
         if (name !== "hotels") return { data: null, error: null };
         if (hotelReadError) return { data: null, error: { message: hotelReadError } };
         return { data: { total_rooms_per_type: 10, timezone: "America/Los_Angeles" }, error: null };
       },
-      update: () => ({ eq: async () => ({ error: null }) }),
+      update: (payload: Row) => ({
+        eq: async () => {
+          if (name === "pms_connections") connUpdates.push(payload);
+          return { error: null };
+        },
+      }),
       upsert: async (rows: Row | Row[]) => {
         const list = Array.isArray(rows) ? rows : [rows];
         if (name === "reservations") {
@@ -147,10 +180,11 @@ function makeSupabaseStub(
     return chain;
   }
 
-  return { from: table, roomTypes, roomTypeUpserts, reservations } as unknown as SupabaseClient & {
+  return { from: table, roomTypes, roomTypeUpserts, reservations, connUpdates } as unknown as SupabaseClient & {
     roomTypes: Row[];
     roomTypeUpserts: Row[];
     reservations: Row[];
+    connUpdates: Row[];
   };
 }
 
@@ -215,5 +249,137 @@ describe("runMewsSyncForHotel hotel row read", () => {
 
     expect(result).toMatchObject({ ok: false, error: expect.stringContaining("statement timeout") });
     expect(supabase.roomTypeUpserts).toEqual([]);
+  });
+});
+
+import { resolveMewsCredentials } from "../../../supabase/functions/_shared/mews/resolve-credentials";
+
+describe("runMewsSyncForHotel sync modes and checkpoints", () => {
+  const T0 = new Date("2026-08-05T10:00:00Z");
+
+  function withConnection() {
+    vi.mocked(resolveMewsCredentials).mockResolvedValueOnce({
+      creds: { clientToken: "ct", accessToken: "at", baseUrl: "https://api.mews-demo.com" },
+      connectionId: "conn-1",
+      source: "body",
+    } as never);
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    client.windowCount.value = 1;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("pulls incrementally once a watermark and a recent full sweep exist", async () => {
+    withConnection();
+    const watermark = "2026-08-05T09:50:00.000Z";
+    const supabase = makeSupabaseStub([], undefined, [], {
+      id: "conn-1",
+      reservations_modified_through: watermark,
+      last_full_sync_at: "2026-08-05T02:00:00.000Z",
+    });
+
+    const res = await runMewsSyncForHotel(supabase, "hotel-1");
+    expect(res.ok).toBe(true);
+
+    const [, start, end, , opts] = client.mewsWalkReservationWindows.mock.calls.at(-1)!;
+    expect(opts).toMatchObject({ timeFilter: "Updated" });
+    // Ten minutes behind the watermark, up to now.
+    expect(start).toBe("2026-08-05T09:40:00Z");
+    expect(end).toBe("2026-08-05T10:00:00Z");
+
+    const stamp = supabase.connUpdates.at(-1)!;
+    expect(stamp.reservations_modified_through).toBe(T0.toISOString());
+    expect(stamp).not.toHaveProperty("last_full_sync_at");
+  });
+
+  it("sweeps in full on first run, with no Updated filter", async () => {
+    withConnection();
+    const supabase = makeSupabaseStub([], undefined, [], { id: "conn-1" });
+
+    const res = await runMewsSyncForHotel(supabase, "hotel-1");
+    expect(res.ok).toBe(true);
+
+    const [, , , , opts] = client.mewsWalkReservationWindows.mock.calls.at(-1)!;
+    expect(opts).toMatchObject({ timeFilter: undefined, fromIndex: 0 });
+
+    const stamp = supabase.connUpdates.at(-1)!;
+    expect(stamp.reservations_modified_through).toBe(T0.toISOString());
+    expect(stamp.last_full_sync_at).toBe(T0.toISOString());
+    expect(stamp.full_sweep_after_id).toBeNull();
+  });
+
+  it("checkpoints a sweep the budget cut short, without moving the watermark", async () => {
+    withConnection();
+    const supabase = makeSupabaseStub([], undefined, [], { id: "conn-1" });
+    client.mewsWalkReservationWindows.mockImplementationOnce(
+      async (_c: unknown, s2: string, e2: string, onWindow: (v: never) => Promise<boolean>) => {
+        // The budget burns down while window 0 is being processed…
+        vi.advanceTimersByTime(300_000);
+        const keep = await onWindow({ index: 0, raw: client.fixtureRaw, startUtc: s2, endUtc: e2 } as never);
+        // …so the sync tells the walk to stop, one window into two.
+        expect(keep).toBe(false);
+        return { windowsFetched: 1, lastIndex: 0, completed: false };
+      },
+    );
+
+    const res = await runMewsSyncForHotel(supabase, "hotel-1");
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.windowFullyCovered).toBe(false);
+
+    const stamp = supabase.connUpdates.at(-1)!;
+    expect(stamp.full_sweep_after_id).toBe("0");
+    expect(stamp.full_sweep_started_at).toBe(T0.toISOString());
+    expect(stamp).not.toHaveProperty("reservations_modified_through");
+    expect(stamp).not.toHaveProperty("last_full_sync_at");
+  });
+
+  it("resumes past the checkpoint and stamps the watermark from the sweep's start", async () => {
+    withConnection();
+    const sweepStart = "2026-08-05T09:45:00.000Z";
+    const supabase = makeSupabaseStub([], undefined, [], {
+      id: "conn-1",
+      full_sweep_after_id: "0",
+      full_sweep_started_at: sweepStart,
+    });
+    client.windowCount.value = 2;
+
+    const res = await runMewsSyncForHotel(supabase, "hotel-1");
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.windowFullyCovered).toBe(true);
+
+    const [, , , , opts] = client.mewsWalkReservationWindows.mock.calls.at(-1)!;
+    expect(opts).toMatchObject({ fromIndex: 1 });
+
+    const stamp = supabase.connUpdates.at(-1)!;
+    expect(stamp.reservations_modified_through).toBe(sweepStart);
+    expect(stamp.last_full_sync_at).toBe(sweepStart);
+    expect(stamp.full_sweep_after_id).toBeNull();
+    expect(stamp.full_sweep_started_at).toBeNull();
+  });
+
+  it("an explicit window never records a checkpoint, and clears any stale one", async () => {
+    withConnection();
+    const supabase = makeSupabaseStub([], undefined, [], {
+      id: "conn-1",
+      // A sweep was mid-flight when someone asked for this window; completing
+      // it advances the watermark past that sweep's anchor, so resuming the
+      // stale grid later would only force a redundant second sweep.
+      full_sweep_after_id: "3",
+      full_sweep_started_at: "2026-08-05T01:00:00.000Z",
+    });
+
+    const res = await runMewsSyncForHotel(supabase, "hotel-1", { daysBack: 5 });
+    expect(res.ok).toBe(true);
+
+    const stamp = supabase.connUpdates.at(-1)!;
+    expect(stamp.full_sweep_after_id).toBeNull();
+    expect(stamp.full_sweep_started_at).toBeNull();
+    expect(stamp.reservations_modified_through).toBe(T0.toISOString());
   });
 });

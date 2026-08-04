@@ -92,3 +92,25 @@ export const MEWS_RESERVATION_STATES = [
   "Optional",
   "Requested",
 ] as const;
+
+/**
+ * Wall-clock budget for one sync invocation. Same shape as the Cloudbeds
+ * budget: stopping deliberately with a checkpoint beats being killed
+ * arbitrarily with nothing written.
+ */
+export const MEWS_SYNC_BUDGET_MS = (() => {
+  const n = Number.parseInt(mwsEnv("MEWS_SYNC_BUDGET_MS") ?? "", 10);
+  return Number.isFinite(n) && n > 0 ? n : 210_000;
+})();
+
+/**
+ * Incremental pulls re-read this far behind the watermark. Mews stamps
+ * UpdatedUtc server-side, so the overlap only has to cover replication skew
+ * and a run that stamped its watermark mid-write — not clock drift between us
+ * and them.
+ */
+export const MEWS_INCREMENTAL_OVERLAP_MS = 10 * 60 * 1000;
+
+/** A full Colliding sweep at least this often — an Updated pull cannot see a
+ *  booking nobody touched, so something has to look at everything sometimes. */
+export const MEWS_FULL_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;

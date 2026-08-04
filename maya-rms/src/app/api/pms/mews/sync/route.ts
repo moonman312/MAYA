@@ -124,6 +124,9 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       fetchWindowUtc: result.fetchWindowUtc,
+      // A budget-truncated run must not read as a complete one — the caller
+      // pressing "sync now" deserves to know a follow-up tick finishes the job.
+      windowFullyCovered: result.windowFullyCovered,
       apiWindows: result.apiWindows,
       roomTypesUpserted: result.roomTypesUpserted,
       reservationRowsUpserted: result.reservationRowsUpserted,
