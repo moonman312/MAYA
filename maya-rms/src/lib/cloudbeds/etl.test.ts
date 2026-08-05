@@ -51,6 +51,52 @@ describe("cloudbeds etl booking windows", () => {
     const byNight = Object.fromEntries(rows.map((r) => [r.stay_date, r.booking_window_days]));
     expect(byNight).toEqual({ "2026-09-04": 38, "2026-09-05": 39 });
   });
+
+  it("counts a booking the front desk has not assigned to a room yet", () => {
+    // OTA and API bookings sit in unassigned[] until someone drags them onto
+    // a physical room — sold nights either way. A live payload shaped exactly
+    // like this parsed to zero rows before unassigned[] was read.
+    const { rows } = parseCloudbedsReservationDetail({
+      reservationID: "6364686337417",
+      status: "confirmed",
+      dateCreated: "2026-08-05",
+      startDate: "2026-09-02",
+      endDate: "2026-09-03",
+      assigned: [],
+      unassigned: [
+        {
+          reservationRoomID: "235960627",
+          roomTypeID: "676779",
+          startDate: "2026-09-02",
+          endDate: "2026-09-03",
+          dailyRates: [{ date: "2026-09-02", rate: 159 }],
+          roomTotal: "159.00",
+        },
+      ],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      stay_date: "2026-09-02",
+      external_room_type_id: "676779",
+      current_rate: 159,
+    });
+  });
+
+  it("counts assigned and unassigned rooms of one booking together", () => {
+    const { rows } = parseCloudbedsReservationDetail({
+      reservationID: "r9",
+      status: "confirmed",
+      dateCreated: "2026-08-01",
+      assigned: [
+        { subReservationID: "r9-1", roomTypeID: "rt1", dailyRates: [{ date: "2026-09-02", rate: 200 }] },
+      ],
+      unassigned: [
+        { reservationRoomID: "r9-2", roomTypeID: "rt2", dailyRates: [{ date: "2026-09-02", rate: 180 }] },
+      ],
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.current_rate).sort()).toEqual([180, 200]);
+  });
 });
 
 /** One 3-night booking of `rooms` rooms, as the list endpoint returns it. */
