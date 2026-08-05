@@ -11,9 +11,22 @@ describe("checkoutQuote with no code", () => {
     const q = checkoutQuote(12, "month");
     expect(q).toMatchObject({
       perRoomCents: 550,
+      listCents: 6600,
       recurringCents: 6600,
       firstCents: 6600,
     });
+  });
+
+  it("keeps the list price untouched by every discount shape", () => {
+    // listCents is what gets struck through — a discounted list would strike
+    // the wrong number and undersell the deal.
+    for (const effect of [
+      { percentOff: 75, discountDuration: "forever" as const },
+      { percentOff: 50, discountDuration: 3 },
+      { amountOffCents: 5000, discountDuration: "forever" as const },
+    ]) {
+      expect(checkoutQuote(24, "month", effect).listCents).toBe(12000);
+    }
   });
 
   it("annual applies the bracket discount, first bracket exempt", () => {

@@ -23,6 +23,8 @@ export type CodeDisplayEffect = {
 
 export type CheckoutQuote = {
   perRoomCents: number;
+  /** The undiscounted bracket price — what gets struck through when a code cuts it. */
+  listCents: number;
   /** A normal period after any never-ending discount. The headline. */
   recurringCents: number;
   /** The first invoice, discounts applied. */
@@ -50,6 +52,7 @@ export function checkoutQuote(
   const base = priceCents(rooms, interval);
   const quote: CheckoutQuote = {
     perRoomCents: tierFor(rooms).centsPerRoom,
+    listCents: base,
     recurringCents: base,
     firstCents: base,
   };
