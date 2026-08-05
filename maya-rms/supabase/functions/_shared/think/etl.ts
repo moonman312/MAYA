@@ -155,13 +155,12 @@ function isCanceledThinkStatus(status: unknown): boolean {
 }
 
 /**
- * ⚠ VERIFY against live payloads which billingType marks a room-night charge.
- * The spec makes billingType the discriminator for the LineItem union but
- * publishes no mapping, so the schema-name default ("RoomLineItem") is the
- * only documented value — a live server could as easily send "room" or
- * "room_charge". Anything unrecognized fails toward "not a room charge",
- * which degrades the booking to the even-split fallback below instead of
- * pricing a night off a pet fee.
+ * VERIFIED live 2026-08-05: the wire sends billingType "room", lowercase —
+ * not the spec's schema name "RoomLineItem". Both stay accepted here (the
+ * spec makes billingType the union's discriminator without publishing a
+ * mapping, so hedging costs nothing). Anything unrecognized fails toward
+ * "not a room charge", which degrades the booking to the even-split
+ * fallback below instead of pricing a night off a pet fee.
  */
 export function isThinkRoomCharge(item: Json): boolean {
   const raw = item.billingType;

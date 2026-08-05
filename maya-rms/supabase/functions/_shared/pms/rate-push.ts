@@ -41,7 +41,7 @@ export type CellPushResult = {
 };
 
 export interface PmsRatePushAdapter {
-  pmsType: "cloudbeds" | "mews";
+  pmsType: "cloudbeds" | "mews" | "think";
   /** Resolve external_room_type_id -> external rate id (the base BAR rate to update). */
   resolveRateTargets(): Promise<RateTargetMap>;
   /** Push cells (already carrying their externalRateId); batch internally per vendor limits. */

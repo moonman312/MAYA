@@ -13,7 +13,11 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2.99.3";
 import { runThinkSyncForHotel } from "../_shared/think/sync-hotel.ts";
+import { createThinkRateAdapter } from "../_shared/think/rate-push.ts";
+import { THINK_API_BASE_URL } from "../_shared/think/constants.ts";
 import { evaluateHotel } from "../_shared/engine/index.ts";
+import { pushRatesForHotel } from "../_shared/pms/rate-push.ts";
+import { resolveOAuthCredentials } from "../_shared/pms/oauth-credentials.ts";
 import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
 import { recordRoomCount } from "../_shared/billing/room-count.ts";
 
@@ -50,6 +54,9 @@ Deno.serve(async (req) => {
   const runEvaluate = (getEnv("MAYA_RUN_EVALUATE") ?? "true").toLowerCase() !== "false";
   // Bound the per-tick evaluation so it finishes inside the Edge runtime limit.
   const horizonDays = Math.max(1, Number(getEnv("MAYA_EVAL_HORIZON_DAYS") ?? "45") || 45);
+  // Outbound rate push is OFF unless explicitly enabled, and even then only
+  // fires for hotels in LIVE mode (gated inside pushRatesForHotel).
+  const pushRatesEnabled = (getEnv("MAYA_PUSH_RATES") ?? "false").toLowerCase() === "true";
 
   // Optional single-hotel dispatch: body { hotel_id }.
   let bodyHotelId: string | null = null;
@@ -141,6 +148,44 @@ Deno.serve(async (req) => {
     }
     const tEval = Date.now();
 
+    // Outbound rate push. The sync result carries no credentials (unlike
+    // Cloudbeds'), so the push re-resolves them — one Vault RPC, and the
+    // token the sync just refreshed is the one that comes back. Internally
+    // no-ops unless the hotel is in LIVE mode.
+    // deno-lint-ignore no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let push: any = pushRatesEnabled ? undefined : { skipped: "disabled" };
+    if (pushRatesEnabled) {
+      if (sync.ok) {
+        try {
+          const resolved = await resolveOAuthCredentials(supabase, hotelId, "think");
+          if ("error" in resolved || !resolved.propertyId) {
+            push = { skipped: "no_credentials" };
+          } else {
+            const { data: connRow } = await supabase
+              .from("pms_connections")
+              .select("base_url")
+              .eq("hotel_id", hotelId)
+              .eq("pms_type", "think")
+              .maybeSingle();
+            const baseUrl = (
+              (connRow?.base_url as string | null) || THINK_API_BASE_URL
+            ).replace(/\/$/, "");
+            const adapter = createThinkRateAdapter(
+              { accessToken: resolved.accessToken, baseUrl },
+              resolved.propertyId,
+            );
+            push = await pushRatesForHotel(supabase, hotelId, adapter);
+          }
+        } catch (e) {
+          push = { error: e instanceof Error ? e.message : "push failed" };
+        }
+      } else {
+        push = { skipped: "no_credentials" };
+      }
+    }
+    const tPush = Date.now();
+
     console.log(
       JSON.stringify({
         fn: "think-scheduled-sync",
@@ -152,8 +197,10 @@ Deno.serve(async (req) => {
         windowFullyCovered: sync.ok ? sync.windowFullyCovered : undefined,
         syncError: sync.ok ? undefined : sync.error,
         evaluate,
+        push,
         syncMs: tSync - t0,
         evalMs: tEval - tSync,
+        pushMs: tPush - tEval,
         horizonDays,
       }),
     );
