@@ -162,12 +162,18 @@ export function buildReservationRangeParams(filter: {
  * without one cannot be addressed and is dropped here rather than passed
  * along to fail on every subsequent call.
  */
-export async function thinkGetHotels(
-  creds: ThinkCredentials,
-): Promise<{ id: string; externalId: string; name: string }[]> {
+export type ThinkHotel = {
+  id: string;
+  externalId: string;
+  name: string;
+  timeZone: string | null;
+  currencyCode: string | null;
+};
+
+export async function thinkGetHotels(creds: ThinkCredentials): Promise<ThinkHotel[]> {
   const data = await thinkGet(creds, "/v1/hotels", {});
   if (!Array.isArray(data)) return [];
-  const hotels: { id: string; externalId: string; name: string }[] = [];
+  const hotels: ThinkHotel[] = [];
   for (const entry of data) {
     const rec = (entry && typeof entry === "object" ? entry : {}) as JsonRecord;
     const externalId = typeof rec.externalId === "string" ? rec.externalId : "";
@@ -176,6 +182,9 @@ export async function thinkGetHotels(
       id: typeof rec.id === "string" && rec.id ? rec.id : externalId,
       externalId,
       name: typeof rec.name === "string" ? rec.name : "",
+      timeZone: typeof rec.timeZone === "string" && rec.timeZone ? rec.timeZone : null,
+      currencyCode:
+        typeof rec.currencyCode === "string" && rec.currencyCode ? rec.currencyCode : null,
     });
   }
   return hotels;

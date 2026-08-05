@@ -16,6 +16,7 @@ import { resolveOAuthCredentials } from "./oauth-credentials.ts";
 // Static import: the edge-function bundler only follows static imports, so a
 // dynamic import() here deploys without the module and crashes at runtime.
 import { createCloudbedsOnboardingAdapter } from "../cloudbeds/onboarding-adapter.ts";
+import { createThinkOnboardingAdapter } from "../think/onboarding-adapter.ts";
 
 export type PmsPropertyProfile = {
   externalPropertyId: string;
@@ -94,6 +95,8 @@ export async function createOnboardingAdapter(
   switch (pmsType) {
     case "cloudbeds":
       return createCloudbedsOnboardingAdapter(supabase, hotelId, preResolved);
+    case "think":
+      return createThinkOnboardingAdapter(supabase, hotelId, preResolved);
     default:
       throw new Error(
         `PMS '${pmsType}' does not support onboarding import yet. ` +
