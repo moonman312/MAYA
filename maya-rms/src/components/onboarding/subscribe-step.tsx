@@ -123,9 +123,23 @@ export function SubscribeStep({
           valid?: boolean;
           grants?: string;
           message?: string;
+          error?: string;
           effect?: CodeDisplayEffect;
         };
         if (!current) return;
+        // A 401 (stale session) or 429 carries `error`, not a code verdict —
+        // blaming the code sends someone retyping a string that was never the
+        // problem.
+        if (!res.ok && !body.message) {
+          setCodeState({
+            status: "bad",
+            message:
+              res.status === 401
+                ? "Your session expired — sign in again and retry."
+                : body.error ?? "Couldn't check that code — try again in a moment.",
+          });
+          return;
+        }
         setCodeState(
           body.valid
             ? { status: "good", grants: body.grants ?? "", effect: body.effect }
