@@ -74,12 +74,26 @@ describe("parseSignupCodeInput: each kind carries only its own fields", () => {
     });
   });
 
-  it("drops a stale trial length off a percent-off code", () => {
-    // A form that switched kinds without clearing state would otherwise grant
-    // both a discount and a free month.
+  it("lets a discount code open with a free run", () => {
+    // "7 days free, then 75% off" is one deal and checkout takes one code, so
+    // trial days ride along with a discount rather than excluding it.
     const res = parse({ code: "TWENTY", kind: "percent_off", percent_off: 20, trial_days: 14 });
     expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.row.trial_days).toBe(14);
+      expect(res.row.percent_off).toBe(20);
+    }
+  });
+
+  it("reads a blank free-days as no trial at all", () => {
+    const res = parse({ code: "TWENTY", kind: "percent_off", percent_off: 20, trial_days: "" });
+    expect(res.ok).toBe(true);
     if (res.ok) expect(res.row.trial_days).toBeNull();
+  });
+
+  it("still refuses a trial length that isn't a number", () => {
+    const res = parse({ code: "TWENTY", kind: "percent_off", percent_off: 20, trial_days: "soon" });
+    expect(res.ok).toBe(false);
   });
 
   it("reads a blank duration as forever, not as zero months", () => {

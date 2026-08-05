@@ -71,11 +71,13 @@ export function SignupCodeForm() {
     } else if (draft.kind === "percent_off") {
       body.percent_off = Number(draft.percentOff);
       body.duration_months = draft.durationMonths || null;
+      body.trial_days = draft.trialDays || null;
     } else {
       // Typed in dollars, stored in cents — rounded here so "49.999" can't
       // reach the API as a fractional cent.
       body.amount_off_cents = Math.round(Number(draft.amountOffDollars) * 100);
       body.duration_months = draft.durationMonths || null;
+      body.trial_days = draft.trialDays || null;
     }
 
     startTransition(async () => {
@@ -150,7 +152,17 @@ export function SignupCodeForm() {
         <Field label="What it grants">
           <select
             value={draft.kind}
-            onChange={(e) => set("kind", e.target.value as SignupCodeKind)}
+            onChange={(e) => {
+              const kind = e.target.value as SignupCodeKind;
+              setDraft((d) => ({
+                ...d,
+                kind,
+                // A discount opens with no free run unless someone asks for
+                // one — carrying the trial default over would ship a free week
+                // nobody chose.
+                trialDays: kind === "trial" ? "14" : "",
+              }));
+            }}
             className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
           >
             {KINDS.map((k) => (
@@ -196,6 +208,18 @@ export function SignupCodeForm() {
             />
           </Field>
         </div>
+      )}
+
+      {draft.kind !== "trial" && (
+        <Field label="Free days first (blank = none)">
+          <input
+            type="number"
+            min="1"
+            value={draft.trialDays}
+            onChange={(e) => set("trialDays", e.target.value)}
+            className="w-32 rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
+          />
+        </Field>
       )}
 
       {draft.kind === "amount_off" && (
