@@ -1,6 +1,7 @@
 "use client";
 
 import { PropertySelect } from "@/components/property-select";
+import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { formatUtcLongDate, formatUtcMonthYear } from "@/lib/calendar-month-label";
 import { SAMPLE_RESERVATIONS } from "@/lib/demo-data";
 import {
@@ -712,6 +713,7 @@ export function Dashboard() {
         {tab === "rules" && (
           <section className="space-y-5 rounded-lg border border-slate-800 bg-slate-900 p-5">
             <h2 className="text-lg font-semibold">Pricing Rules</h2>
+            <RuleBehaviorAnimations />
             <form
               onSubmit={onCreateRule}
               className="space-y-4 rounded border border-slate-800 p-4"
