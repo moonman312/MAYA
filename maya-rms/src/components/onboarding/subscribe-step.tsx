@@ -263,8 +263,17 @@ export function SubscribeStep({
 
         {roomsOk ? (
           <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
+            {/* A code that cuts the price shows the cut: list struck through,
+                the deal at the same size beside it — the saving IS the story. */}
             <div className="text-3xl font-semibold text-slate-100">
-              {formatUsd(quote.recurringCents)}
+              {quote.firstCents !== quote.listCents ? (
+                <>
+                  <s className="mr-3 font-normal text-slate-500">{formatUsd(quote.listCents)}</s>
+                  {formatUsd(quote.firstCents)}
+                </>
+              ) : (
+                formatUsd(quote.recurringCents)
+              )}
               <span className="ml-2 text-sm font-normal text-slate-400">
                 / {interval === "month" ? "month" : "year"}
               </span>
@@ -277,10 +286,10 @@ export function SubscribeStep({
             {quote.firstCents !== quote.recurringCents ? (
               <p className="mt-1 text-xs text-emerald-300">
                 {interval === "month" && quote.discountMonths
-                  ? `First ${
+                  ? `For your first ${
                       quote.discountMonths === 1 ? "month" : `${quote.discountMonths} months`
-                    }: ${formatUsd(quote.firstCents)} a month.`
-                  : `First year: ${formatUsd(quote.firstCents)}.`}
+                    }, then ${formatUsd(quote.recurringCents)} a month.`
+                  : `For your first year, then ${formatUsd(quote.recurringCents)} a year.`}
               </p>
             ) : null}
             <p className="mt-2 text-xs text-slate-500">
