@@ -39,7 +39,9 @@ export default async function AnalyticsPage({
   const validDay = (v: string | undefined, fallback: string) =>
     v && DAY_RX.test(v) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v ? v : fallback;
   const to = validDay(params.to, today);
-  const defaultFrom = new Date(Date.now() - 29 * 86_400_000).toISOString().slice(0, 10);
+  const defaultFrom = new Date(new Date(`${today}T00:00:00Z`).getTime() - 29 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
   const from = validDay(params.from, defaultFrom);
   // Sandbox properties, e2e fixtures and walkthrough signups are flagged
   // is_test and excluded — a Stripe test-mode checkout is a real subscription
