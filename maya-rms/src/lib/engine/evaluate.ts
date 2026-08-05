@@ -49,11 +49,17 @@ export type EvaluationResult = {
 
 /**
  * Evaluate a hotel: run the full 11-step pipeline.
+ *
+ * `horizonDays` bounds how many days forward are priced in this run. The engine
+ * makes many sequential Supabase calls per day, so the full 365 takes tens of
+ * minutes on a busy hotel; callers with a wall clock (API routes, smoke
+ * scripts) pass a smaller horizon, same as the Deno copy's scheduled ticks.
  */
 export async function evaluateHotel(
   supabase: SupabaseClient,
   hotelId: string,
   evalTs?: string,
+  horizonDays: number = 365,
 ): Promise<EvaluationResult> {
   const now = evalTs ?? new Date().toISOString();
   const runId = crypto.randomUUID();
@@ -97,9 +103,10 @@ export async function evaluateHotel(
     };
   }
 
+  const horizon = Math.max(1, Math.min(365, Math.floor(horizonDays)));
   const stayDates: string[] = [];
   let cursor = localDate;
-  for (let i = 0; i < 365; i++) {
+  for (let i = 0; i < horizon; i++) {
     stayDates.push(cursor);
     cursor = addCalendarDays(cursor, 1);
   }
