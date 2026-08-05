@@ -124,7 +124,7 @@ const ROOM_TYPE_KEYS = ["roomTypeID", "roomTypeId"];
 function reservationRoomTypeId(res: Json): string | null {
   const top = firstString(res, ROOM_TYPE_KEYS);
   if (top) return top;
-  for (const key of ["assigned", "rooms", "roomStays"]) {
+  for (const key of ["assigned", "unassigned", "rooms", "roomStays"]) {
     const arr = res[key];
     if (Array.isArray(arr) && arr.length > 0 && arr[0] && typeof arr[0] === "object") {
       const rt = firstString(arr[0] as Json, ROOM_TYPE_KEYS);
@@ -148,19 +148,28 @@ const MAX_DECLARED_ROOM_SLOTS = 64;
  * payload only declares a count. Both import paths size bookings with this, so
  * neither can disagree with the other about how many rooms a booking has.
  *
- * `assigned[]` is the detail payload's verified shape: one entry per physical
- * room, each with its own dailyRates. `rooms[]` is a list-payload guess, trusted
- * only as far as the distinct room ids it names. `roomStays[]` is deliberately
- * not counted at all — it is one entry per stay SEGMENT, so a room change
- * mid-stay is two entries for one room, and counting those as rooms doubles
- * occupancy while halving ADR.
+ * `assigned[]` and `unassigned[]` are the detail payload's verified shapes:
+ * one entry per room slot, each with its own dailyRates. A booking sits in
+ * `unassigned[]` until the front desk drags it onto a physical room — OTA
+ * arrivals live there for hours or days — and it is still a sold room-night
+ * the whole time. Skipping it undercounts exactly the demand that should be
+ * raising prices (verified live 2026-08-05: an API-created reservation showed
+ * `assigned: []` with the entire booking in `unassigned[]`). `rooms[]` is a
+ * list-payload guess, trusted only as far as the distinct room ids it names.
+ * `roomStays[]` is deliberately not counted at all — it is one entry per stay
+ * SEGMENT, so a room change mid-stay is two entries for one room, and counting
+ * those as rooms doubles occupancy while halving ADR.
  * ⚠ VERIFY the declared-count keys against your account.
  */
 export function cloudbedsRoomSlots(res: Json): (Json | null)[] {
-  if (Array.isArray(res.assigned)) {
-    const entries = res.assigned.filter((e): e is Json => !!e && typeof e === "object");
-    if (entries.length > 0) return entries;
+  const slotEntries: Json[] = [];
+  for (const key of ["assigned", "unassigned"]) {
+    const arr = res[key];
+    if (Array.isArray(arr)) {
+      slotEntries.push(...arr.filter((e): e is Json => !!e && typeof e === "object"));
+    }
   }
+  if (slotEntries.length > 0) return slotEntries;
   if (Array.isArray(res.rooms)) {
     const byRoomId = new Map<string, Json>();
     for (const e of res.rooms) {
