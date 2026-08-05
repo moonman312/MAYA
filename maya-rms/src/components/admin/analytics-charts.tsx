@@ -27,24 +27,26 @@ function usd(cents: number): string {
   return `$${Math.round(cents / 100).toLocaleString("en-US")}`;
 }
 
-function niceTicks(max: number): number[] {
+function niceTicks(max: number, integral = false): number[] {
   if (max <= 0) return [0, 1];
   const raw = max / 3;
   const mag = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 5, 10].map((m) => m * mag).find((s) => s >= raw) ?? mag * 10;
+  let step = [1, 2, 5, 10].map((m) => m * mag).find((s) => s >= raw) ?? mag * 10;
+  // Counts have no halves — a "0.5 properties" gridline is a lie the axis tells.
+  if (integral) step = Math.max(1, Math.round(step));
   const ticks: number[] = [];
   for (let v = 0; v <= max + step * 0.5; v += step) ticks.push(v);
   return ticks;
 }
 
-type Series = { label: string; color: string; values: number[]; fmt: (v: number) => string };
+type Series = { label: string; color: string; values: number[]; fmt: (v: number) => string; integral?: boolean };
 
 function LineChart({ title, days, series }: { title: string; days: string[]; series: Series[] }) {
   const [hover, setHover] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
   const maxV = Math.max(1, ...series.flatMap((s) => s.values));
-  const ticks = niceTicks(maxV);
+  const ticks = niceTicks(maxV, series.every((s) => s.integral === true));
   const top = ticks[ticks.length - 1];
   const x = (i: number) => PAD.l + (days.length < 2 ? 0 : (i * (W - PAD.l - PAD.r)) / (days.length - 1));
   const y = (v: number) => H - PAD.b - (v / top) * (H - PAD.t - PAD.b);
@@ -110,7 +112,12 @@ function LineChart({ title, days, series }: { title: string; days: string[]; ser
             <text x={W - PAD.r} y={H - 6} textAnchor="end" fontSize="10" fill="#64748b">{days[days.length - 1]}</text>
           </svg>
           {hover != null && (
-            <div className="pointer-events-none absolute top-2 rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs" style={{ left: `${(x(hover) / W) * 100}%` }}>
+            <div
+              className="pointer-events-none absolute top-2 rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs"
+              style={{
+                left: `${Math.min(78, (x(hover) / W) * 100)}%`,
+              }}
+            >
               <div className="mb-0.5 text-slate-400">{days[hover]}</div>
               {series.map((s) => (
                 <div key={s.label} className="flex items-center gap-1.5">
@@ -143,8 +150,8 @@ export function AnalyticsCharts({ series }: { series: DayPoint[] }) {
         title="Properties"
         days={days}
         series={[
-          { label: "paying", color: BLUE, values: series.map((p) => p.entitled), fmt: String },
-          { label: "trialing", color: ORANGE, values: series.map((p) => p.trialing), fmt: String },
+          { label: "paying", color: BLUE, values: series.map((p) => p.paying), fmt: String, integral: true },
+          { label: "trialing", color: ORANGE, values: series.map((p) => p.trialing), fmt: String, integral: true },
         ]}
       />
     </div>

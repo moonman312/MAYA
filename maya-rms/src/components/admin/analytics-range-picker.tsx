@@ -13,7 +13,15 @@ function dayStr(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function AnalyticsRangePicker({ from, to }: { from: string; to: string }) {
+export function AnalyticsRangePicker({
+  from,
+  to,
+  includeTest = false,
+}: {
+  from: string;
+  to: string;
+  includeTest?: boolean;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -22,6 +30,8 @@ export function AnalyticsRangePicker({ from, to }: { from: string; to: string })
     const q = new URLSearchParams(params.toString());
     q.set("from", f);
     q.set("to", t);
+    if (includeTest) q.set("test", "1");
+    else q.delete("test");
     router.push(`${pathname}?${q.toString()}`);
   };
 
