@@ -6,9 +6,10 @@
  * directly: api.thinkreservations.com, Auth0 access tokens that live a day,
  * and 2 req/s being a safe rate (the "think" lane in ../pms/rate-limit.ts
  * spends less than that). Where live behaviour could diverge from the
- * document — object-parameter serialization, the page-size ceiling, the sort
- * grammar — the assumption lives in one exported symbol marked ⚠ VERIFY
- * live, so a probe against a real property changes exactly one place.
+ * document — object-parameter serialization, the page-size ceiling, the
+ * sort grammar — the assumption lives in one exported symbol, each verified
+ * against a live sandbox property on 2026-08-05 and annotated with what the
+ * server actually did.
  */
 
 import type { ThinkCredentials, ThinkPage, ThinkReservation } from "./types.ts";
@@ -127,18 +128,95 @@ export async function thinkGet(
   throw new Error(`Think ${path}: retry loop fell through`);
 }
 
+/** Gzip a JSON payload with the web-standard stream, so Deno and Node agree. */
+async function gzipJson(payload: unknown): Promise<Uint8Array> {
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/**
+ * PUT a Think endpoint with a gzipped JSON body.
+ *
+ * VERIFIED live 2026-08-05: the gzip is mandatory, not an optimization —
+ * plain application/json is refused with a 500 "Http Media Type Not
+ * Supported", exactly as the spec's application/gzip request body says.
+ * The server answers 202 and applies the update asynchronously, so an
+ * accepted call is a promise to process, not proof the write landed.
+ */
+export async function thinkPutGzipJson(
+  creds: ThinkCredentials,
+  path: string,
+  payload: unknown,
+  timeoutMs = 45_000,
+): Promise<{ status: number }> {
+  const url = new URL(`${creds.baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`);
+  const body = await gzipJson(payload);
+  const lane = creds.accessToken;
+  let backoffMs = 2000;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    await acquire("think", lane);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url.toString(), {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${creds.accessToken}`,
+          "Content-Type": "application/gzip",
+        },
+        // Deno's fetch types want a plain BufferSource here.
+        body: body as unknown as BodyInit,
+        signal: controller.signal,
+      });
+      const text = await res.text();
+
+      if (res.status === 429) record("think", lane, "throttled");
+      if (res.status === 429 && attempt < MAX_ATTEMPTS - 1) {
+        const waitMs = Math.min(parseRetryAfterMs(res) ?? backoffMs, 120_000);
+        backoffMs = Math.min(backoffMs * 2, 120_000);
+        await sleep(waitMs);
+        continue;
+      }
+
+      if (res.ok) {
+        record("think", lane, "ok");
+        return { status: res.status };
+      }
+
+      let msg = text.slice(0, 300);
+      try {
+        const rec = JSON.parse(text) as JsonRecord;
+        if (typeof rec.message === "string" && rec.message) msg = rec.message;
+      } catch {
+        // keep raw text
+      }
+      throw new ThinkHttpError(
+        `Think ${path} failed (${res.status}): ${msg}`,
+        res.status,
+        path,
+        res.status === 429 ? parseRetryAfterMs(res) : null,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  throw new Error(`Think ${path}: retry loop fell through`);
+}
+
 /**
  * Flattens a reservation filter to the wire's own property names.
  *
- * ⚠ VERIFY live: the spec declares stayOnDateRange / updatedAtDateTimeRange /
- * createdAtDateTimeRange as REQUIRED object query parameters and never says
- * how an object serializes onto a query string. OpenAPI's default for query
- * objects (style=form, explode=true) and Spring's binder both flatten the
- * object's properties into bare parameters — stay_on_start_date=2026-08-01 —
- * which is what this emits, with absent bounds omitted so a filter can stay
- * open-ended. If a probe shows the server wants deepObject syntax
- * (stayOnDateRange[stay_on_start_date]=...) or rejects a missing range, this
- * function is the only place that changes.
+ * VERIFIED live 2026-08-05: the spec declares the three ranges as REQUIRED
+ * object query parameters without saying how objects serialize; the server
+ * takes the flattened form this emits — stay_on_start_date=2026-08-01 — and
+ * answers 200 for a stay range alone or an updated_at range alone. Sending
+ * NO range at all is a 500 "Illegal Argument", so at least one bound must
+ * always be present; both sync paths guarantee that (sweep sends stay dates,
+ * incremental sends updated_at instants). If the wire format ever changes,
+ * this function is the only place that does.
  */
 export function buildReservationRangeParams(filter: {
   updatedFrom?: Date;
@@ -203,13 +281,49 @@ export async function thinkGetRoomTypes(
   return Array.isArray(data) ? (data as JsonRecord[]) : [];
 }
 
+/** GET /v1/hotels/{hotelId}/rate_types → raw array (id, name, type, roomTypeIds…). */
+export async function thinkGetRateTypes(
+  creds: ThinkCredentials,
+  hotelId: string,
+): Promise<JsonRecord[]> {
+  const data = await thinkGet(
+    creds,
+    `/v1/hotels/${encodeURIComponent(hotelId)}/rate_types`,
+    {},
+  );
+  return Array.isArray(data) ? (data as JsonRecord[]) : [];
+}
+
+/** One daily-rate row, as PUT /rate_types/{id}/daily consumes them. */
+export type ThinkDailyRateRow = {
+  roomTypeId: string;
+  rateTypeId: string;
+  date: string; // YYYY-MM-DD
+  price: number;
+};
+
 /**
- * ⚠ VERIFY live: the spec types `sort` as a bare string with an empty default
- * and never gives the grammar. The server pages Spring-style, where the
- * convention is `property` or `property,direction`; sorting by `id` keeps
- * rows from shuffling between pages while a walk is in flight. If a probe
- * shows the value is ignored the walk still terminates — it just loses its
- * ordering guarantee under concurrent writes.
+ * PUT /v1/hotels/{hotelId}/rate_types/{rateTypeId}/daily — update prices.
+ * 202 means accepted for asynchronous processing, nothing stronger.
+ */
+export async function thinkPutDailyRates(
+  creds: ThinkCredentials,
+  hotelId: string,
+  rateTypeId: string,
+  rows: ThinkDailyRateRow[],
+): Promise<{ status: number }> {
+  return await thinkPutGzipJson(
+    creds,
+    `/v1/hotels/${encodeURIComponent(hotelId)}/rate_types/${encodeURIComponent(rateTypeId)}/daily`,
+    rows,
+  );
+}
+
+/**
+ * VERIFIED live 2026-08-05: `sort=id` returns 200; Spring's
+ * `property,direction` form (`id,desc`) is a 500, so the grammar is a bare
+ * property name only. Sorting by `id` keeps rows from shuffling between
+ * pages while a walk is in flight.
  */
 export const THINK_RESERVATIONS_SORT = "id";
 

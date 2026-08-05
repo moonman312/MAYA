@@ -32,10 +32,9 @@ export const THINK_SYNC_BUDGET_MS = (() => {
  * The spec's declared default is 10, which is uselessly small at this lane's
  * 2 req/s: a 5,000-reservation property would be 500 requests — over four
  * minutes spent on paging alone, past the whole sync budget — where 200 a
- * page is 25 requests in under fifteen seconds. ⚠ VERIFY live what the
- * server actually caps `size` at: Spring-style pagers clamp an oversized
- * request silently rather than erroring, and the page envelope's `size`
- * field echoes what was honoured, so one probe with size=200 settles it.
+ * page is 25 requests in under fifteen seconds. VERIFIED live 2026-08-05:
+ * the envelope echoes size=200 back verbatim (500 too), so nothing clamps
+ * at this value.
  */
 export const THINK_PAGE_SIZE = Number(mwsEnv("THINK_PAGE_SIZE") ?? "200") || 200;
 
