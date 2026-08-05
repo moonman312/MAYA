@@ -396,3 +396,73 @@ describe("checkoutEffectFor amount_off", () => {
     expect(describeCode(fifty({ duration_months: 3 }), "year")).toContain("$150.00 off your first invoice");
   });
 });
+
+describe("a discount code can open with a free run", () => {
+  const sevenThen75 = () =>
+    code({
+      kind: "percent_off",
+      trial_days: 7,
+      percent_off: 75,
+      duration_months: null,
+    });
+
+  it("carries both the trial and the coupon into checkout", () => {
+    expect(checkoutEffectFor(sevenThen75(), "month")).toEqual({
+      trialDays: 7,
+      couponNeeded: { percentOff: 75, duration: "forever", reusable: true },
+    });
+  });
+
+  it("keeps the trial when the coupon is already cached", () => {
+    const cached = code({
+      kind: "percent_off",
+      trial_days: 7,
+      percent_off: 75,
+      stripe_coupon_id: "coup_75",
+    });
+    expect(checkoutEffectFor(cached, "month")).toEqual({
+      trialDays: 7,
+      discountCouponId: "coup_75",
+    });
+  });
+
+  it("keeps the trial through the annual rescale", () => {
+    const limited = code({ kind: "percent_off", trial_days: 7, percent_off: 50, duration_months: 3 });
+    expect(checkoutEffectFor(limited, "year")).toMatchObject({ trialDays: 7 });
+  });
+
+  it("carries both onto a dollars-off code too", () => {
+    const amt = code({
+      kind: "amount_off",
+      trial_days: 14,
+      amount_off_cents: 5000,
+      percent_off: null,
+      duration_months: 6,
+    });
+    expect(checkoutEffectFor(amt, "month")).toEqual({
+      trialDays: 14,
+      couponNeeded: { amountOffCents: 5000, duration: "repeating", durationMonths: 6, reusable: true },
+    });
+  });
+
+  it("a discount with no trial is unchanged", () => {
+    const plain = code({ kind: "percent_off", trial_days: null, percent_off: 75 });
+    expect(checkoutEffectFor(plain, "month")).toEqual({
+      couponNeeded: { percentOff: 75, duration: "forever", reusable: true },
+    });
+  });
+
+  it("describes the free run first, then the discount", () => {
+    expect(describeCode(sevenThen75(), "month")).toBe(
+      "7 days free, then 75% off, for as long as you stay.",
+    );
+  });
+
+  it("surfaces both to the price panel", () => {
+    expect(displayEffectFor(sevenThen75(), "month")).toEqual({
+      trialDays: 7,
+      percentOff: 75,
+      discountDuration: "forever",
+    });
+  });
+});

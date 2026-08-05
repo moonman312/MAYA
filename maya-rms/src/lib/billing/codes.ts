@@ -84,29 +84,33 @@ export type CodeCheck =
  * on screen that their receipt then contradicts.
  */
 export function describeCode(code: SignupCode, interval: BillingInterval = "month"): string {
+  const days = code.trial_days ?? 0;
   if (code.kind === "trial") {
-    const d = code.trial_days ?? 0;
-    return `${d} day${d === 1 ? "" : "s"} free, then your normal rate. We'll ask for a card now but won't charge it until the trial ends.`;
+    return `${days} day${days === 1 ? "" : "s"} free, then your normal rate. We'll ask for a card now but won't charge it until the trial ends.`;
   }
+  // A discount that also opens with a free run says so first — that is the
+  // part the reader cares about, and the discount is what happens after.
+  const opening = days ? `${days} day${days === 1 ? "" : "s"} free, then ` : "";
+  const lower = (text: string) => (opening ? text.charAt(0).toLowerCase() + text.slice(1) : text);
   if (code.kind === "percent_off") {
     const pct = Number(code.percent_off ?? 0);
     const months = code.duration_months;
-    if (!months) return `${pct}% off, for as long as you stay.`;
+    if (!months) return opening + lower(`${pct}% off, for as long as you stay.`);
     if (interval === "year" && months < 12) {
       const spec = checkoutEffectFor(code, "year").couponNeeded;
-      return `${pct}% off your first ${months} month${months === 1 ? "" : "s"} — taken as ${spec?.percentOff}% off your first year, which is the same saving.`;
+      return opening + lower(`${pct}% off your first ${months} month${months === 1 ? "" : "s"} — taken as ${spec?.percentOff}% off your first year, which is the same saving.`);
     }
-    return `${pct}% off for your first ${months} month${months === 1 ? "" : "s"}.`;
+    return opening + lower(`${pct}% off for your first ${months} month${months === 1 ? "" : "s"}.`);
   }
   if (code.kind === "amount_off") {
     const dollars = usd(code.amount_off_cents ?? 0);
     const months = code.duration_months;
-    if (!months) return `${dollars} off every month, for as long as you stay.`;
+    if (!months) return opening + `${dollars} off every month, for as long as you stay.`;
     if (interval === "year") {
       const total = usd((code.amount_off_cents ?? 0) * months);
-      return `${dollars} off your first ${months} month${months === 1 ? "" : "s"} — taken as ${total} off your first invoice, which is the same saving.`;
+      return opening + `${dollars} off your first ${months} month${months === 1 ? "" : "s"} — taken as ${total} off your first invoice, which is the same saving.`;
     }
-    return `${dollars} off each of your first ${months} month${months === 1 ? "" : "s"}.`;
+    return opening + `${dollars} off each of your first ${months} month${months === 1 ? "" : "s"}.`;
   }
   // A retired or hand-inserted kind grants nothing; say so rather than invent.
   return "Standard pricing.";
@@ -259,8 +263,12 @@ export function displayEffectFor(code: SignupCode, interval: BillingInterval): C
 }
 
 export function checkoutEffectFor(code: SignupCode, interval: BillingInterval): CheckoutEffect {
+  // The kind names what the code IS; a free run at the start is an add-on any
+  // of them can carry. Stripe applies both to one subscription — the trial
+  // delays the first invoice, the coupon discounts it when it arrives.
+  const trial = code.trial_days ? { trialDays: code.trial_days } : {};
   if (code.kind === "trial") {
-    return { trialDays: code.trial_days ?? undefined };
+    return trial;
   }
   if (code.kind === "percent_off") {
     const percentOff = Number(code.percent_off ?? 0);
@@ -274,6 +282,7 @@ export function checkoutEffectFor(code: SignupCode, interval: BillingInterval): 
     const rescale = interval === "year" && months != null && months < 12;
     if (rescale) {
       return {
+        ...trial,
         couponNeeded: {
           percentOff: annualEquivalent(percentOff, months),
           duration: "once",
@@ -282,8 +291,9 @@ export function checkoutEffectFor(code: SignupCode, interval: BillingInterval): 
       };
     }
 
-    if (code.stripe_coupon_id) return { discountCouponId: code.stripe_coupon_id };
+    if (code.stripe_coupon_id) return { ...trial, discountCouponId: code.stripe_coupon_id };
     return {
+      ...trial,
       couponNeeded: months
         ? { percentOff, duration: "repeating", durationMonths: months, reusable: true }
         : { percentOff, duration: "forever", reusable: true },
@@ -302,14 +312,16 @@ export function checkoutEffectFor(code: SignupCode, interval: BillingInterval): 
     // monthly shapes are reusable.
     if (interval === "year") {
       return {
+        ...trial,
         couponNeeded: months
           ? { amountOffCents: monthlyCents * months, duration: "once", reusable: false }
           : { amountOffCents: monthlyCents * 12, duration: "forever", reusable: false },
       };
     }
 
-    if (code.stripe_coupon_id) return { discountCouponId: code.stripe_coupon_id };
+    if (code.stripe_coupon_id) return { ...trial, discountCouponId: code.stripe_coupon_id };
     return {
+      ...trial,
       couponNeeded: months
         ? { amountOffCents: monthlyCents, duration: "repeating", durationMonths: months, reusable: true }
         : { amountOffCents: monthlyCents, duration: "forever", reusable: true },

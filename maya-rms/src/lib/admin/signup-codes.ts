@@ -240,6 +240,19 @@ const isBlank = (v: unknown): boolean =>
   v == null || (typeof v === "string" && v.trim() === "");
 
 /**
+ * Trial days on a DISCOUNT code — "7 days free, then 75% off". Blank means the
+ * discount starts immediately, which is why this can't reuse the trial kind's
+ * required-days check.
+ */
+function optionalTrialDays(b: Record<string, unknown>): { days: number | null } | { error: string } {
+  if (isBlank(b.trial_days)) return { days: null };
+  const days = wholeNumber(b.trial_days);
+  if (days === null) return { error: "Free days has to be a whole number above zero, or blank." };
+  if (days > MAX_TRIAL_DAYS) return { error: `Trials cap at ${MAX_TRIAL_DAYS} days.` };
+  return { days };
+}
+
+/**
  * Validates a code the way chk_signup_code_shape does, before Postgres gets a
  * chance to answer in constraint names. Each kind carries its own fields and
  * nothing else's — the fields belonging to the other kinds are nulled rather
@@ -334,7 +347,12 @@ export function parseSignupCodeInput(body: unknown, now = new Date()): ParsedSig
         return { ok: false, error: "Leave the number of months blank for a discount that never ends." };
       }
     }
-    return { ok: true, row: { ...shell, percent_off: pct, duration_months: months } };
+    const trial = optionalTrialDays(b);
+    if ("error" in trial) return { ok: false, error: trial.error };
+    return {
+      ok: true,
+      row: { ...shell, percent_off: pct, duration_months: months, trial_days: trial.days },
+    };
   }
 
   if (kind === "amount_off") {
@@ -363,7 +381,12 @@ export function parseSignupCodeInput(body: unknown, now = new Date()): ParsedSig
         return { ok: false, error: "Past 120 months, just leave it blank — that's a forever discount." };
       }
     }
-    return { ok: true, row: { ...shell, amount_off_cents: cents, duration_months: months } };
+    const trial = optionalTrialDays(b);
+    if ("error" in trial) return { ok: false, error: trial.error };
+    return {
+      ok: true,
+      row: { ...shell, amount_off_cents: cents, duration_months: months, trial_days: trial.days },
+    };
   }
 
   // amount_off is the last kind the guard admits, so reaching here is a bug in
