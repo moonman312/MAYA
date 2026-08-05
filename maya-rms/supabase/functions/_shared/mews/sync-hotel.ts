@@ -14,19 +14,6 @@ import { decideSyncWindow } from "../pms/sync-mode.ts";
 
 const RECONCILE_IN_CHUNK = 200;
 
-function groupStayDatesByReservation(
-  rows: { external_reservation_id: string; stay_date: string }[],
-): Map<string, Set<string>> {
-  const m = new Map<string, Set<string>>();
-  for (const r of rows) {
-    if (!m.has(r.external_reservation_id)) {
-      m.set(r.external_reservation_id, new Set());
-    }
-    m.get(r.external_reservation_id)!.add(r.stay_date);
-  }
-  return m;
-}
-
 async function deleteCanceledReservationRows(
   supabase: SupabaseClient,
   hotelId: string,
