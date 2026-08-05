@@ -20,6 +20,8 @@ export type AdminHotelRow = {
   is_active: boolean;
   /** Set on checkout's placeholder rows until a PMS connect adopts them. */
   setup_pending_at: string | null;
+  /** Sandbox, fixture, or walkthrough — left out of business analytics. */
+  is_test: boolean;
   total_rooms_per_type: number;
   external_enterprise_id: string | null;
   created_at: string;

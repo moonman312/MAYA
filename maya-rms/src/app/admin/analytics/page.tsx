@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic";
 export default async function AnalyticsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; test?: string }>;
 }) {
   const ctx = await requirePlatformAdmin(await cookies());
   if (!ctx.ok) redirect("/login");
@@ -33,9 +33,19 @@ export default async function AnalyticsPage({
   const today = new Date().toISOString().slice(0, 10);
   const params = await searchParams;
   const DAY_RX = /^\d{4}-\d{2}-\d{2}$/;
-  const to = DAY_RX.test(params.to ?? "") ? params.to! : today;
+  // Shape alone accepts 2026-02-30, which Postgres then rejects mid-query and
+  // 500s the page — round-tripping through Date is what makes a hand-edited
+  // URL fall back instead of crash.
+  const validDay = (v: string | undefined, fallback: string) =>
+    v && DAY_RX.test(v) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v ? v : fallback;
+  const to = validDay(params.to, today);
   const defaultFrom = new Date(Date.now() - 29 * 86_400_000).toISOString().slice(0, 10);
-  const from = DAY_RX.test(params.from ?? "") ? params.from! : defaultFrom;
+  const from = validDay(params.from, defaultFrom);
+  // Sandbox properties, e2e fixtures and walkthrough signups are flagged
+  // is_test and excluded — a Stripe test-mode checkout is a real subscription
+  // row and would otherwise read as a customer. The toggle is for verifying
+  // the panel itself on a deployment whose only data is test data.
+  const scope = { includeTest: params.test === "1" };
 
   // Lazily write today's snapshot so history accumulates even without the
   // cron. Idempotent upsert; a failure only costs today's point on the chart.
@@ -46,8 +56,8 @@ export default async function AnalyticsPage({
   }
 
   const [now, range] = await Promise.all([
-    loadAnalyticsNow(ctx.admin),
-    loadAnalyticsRange(ctx.admin, from, to),
+    loadAnalyticsNow(ctx.admin, scope),
+    loadAnalyticsRange(ctx.admin, from, to, scope),
   ]);
 
   const attentionCount =
@@ -59,9 +69,23 @@ export default async function AnalyticsPage({
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold text-slate-100">Analytics</h1>
-        <AnalyticsRangePicker from={from} to={to} />
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-2xl font-semibold text-slate-100">Analytics</h1>
+          <Link
+            href={`/admin/analytics?from=${from}&to=${to}${scope.includeTest ? "" : "&test=1"}`}
+            className="text-xs text-slate-500 hover:text-slate-300"
+          >
+            {scope.includeTest ? "excluding test properties" : "including test properties"}
+          </Link>
+        </div>
+        <AnalyticsRangePicker from={from} to={to} includeTest={scope.includeTest} />
       </div>
+
+      {scope.includeTest && (
+        <p className="rounded border border-amber-500/40 bg-amber-500/5 px-4 py-2 text-xs text-amber-200">
+          Counting test properties and walkthrough signups. These are not customers.
+        </p>
+      )}
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Tile label="Net MRR" value={formatUsd(now.netMrrCents)} hint={`${formatUsd(now.listMrrCents)} list`} />
