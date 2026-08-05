@@ -98,6 +98,7 @@ export const PMS_REGISTRY: Record<Exclude<PmsType, "opera" | "other">, PmsRegist
     ],
     requiredEnvVars: ["THINK_CLIENT_ID", "THINK_CLIENT_SECRET"],
     vendorConsoleUrl: "https://manage.thinkreservations.com/",
+    onboardingSupported: true,
   },
 };
 

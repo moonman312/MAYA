@@ -48,7 +48,9 @@ describe("think client", () => {
     expect(String(url)).toBe("https://api.test/v1/hotels");
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok-1");
     expect(limiter.record).toHaveBeenCalledWith("think", "tok-1", "ok");
-    expect(hotels).toEqual([{ id: "h1", externalId: "ext1", name: "Seaside Resort" }]);
+    expect(hotels).toEqual([
+      { id: "h1", externalId: "ext1", name: "Seaside Resort", timeZone: null, currencyCode: null },
+    ]);
   });
 
   it("flattens range filters to the wire's snake_case property names", () => {

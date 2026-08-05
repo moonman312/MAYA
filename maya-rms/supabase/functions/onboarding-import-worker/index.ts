@@ -14,6 +14,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.99.3";
 import { createOnboardingAdapter } from "../_shared/pms/onboarding-adapter.ts";
 import { runCloudbedsSyncForHotel } from "../_shared/cloudbeds/sync-hotel.ts";
+import { runThinkSyncForHotel } from "../_shared/think/sync-hotel.ts";
 import { analyzeImport } from "../_shared/onboarding/analysis.ts";
 import {
   LEASE_SECONDS,
@@ -31,15 +32,23 @@ const deps: WorkerDeps = {
   createAdapter: (supabase, hotelId, pmsType) =>
     createOnboardingAdapter(supabase, hotelId, pmsType),
   runCurrentSync: async (supabase, hotelId, pmsType) => {
-    if (pmsType !== "cloudbeds") {
-      return { ok: false, error: `No current-window sync for '${pmsType}'` };
+    // Report the window each sync actually covered — depth is
+    // env-configurable (MAYA_SYNC_DAYS_BACK), so the historical phase must
+    // not assume one. A fresh onboarding hotel always takes the full-sweep
+    // path, so Think's fetchWindow carries stay dates here, not instants.
+    if (pmsType === "cloudbeds") {
+      const res = await runCloudbedsSyncForHotel(supabase, hotelId);
+      return res.ok
+        ? { ok: true, coveredFrom: res.fetchWindow.checkInFrom }
+        : { ok: false, error: res.error };
     }
-    const res = await runCloudbedsSyncForHotel(supabase, hotelId);
-    // Report the window it actually covered — its depth is env-configurable
-    // (MAYA_SYNC_DAYS_BACK), so the historical phase must not assume one.
-    return res.ok
-      ? { ok: true, coveredFrom: res.fetchWindow.checkInFrom }
-      : { ok: false, error: res.error };
+    if (pmsType === "think") {
+      const res = await runThinkSyncForHotel(supabase, hotelId);
+      return res.ok
+        ? { ok: true, coveredFrom: res.fetchWindow.start }
+        : { ok: false, error: res.error };
+    }
+    return { ok: false, error: `No current-window sync for '${pmsType}'` };
   },
   analyze: analyzeImport,
   now: () => Date.now(),
