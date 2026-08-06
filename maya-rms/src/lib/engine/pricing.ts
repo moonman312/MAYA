@@ -169,29 +169,57 @@ export async function maybePublish(
   roomTypeId: string,
   finalPrice: number,
   computedAt: string,
+  basePrice?: number,
 ): Promise<boolean> {
   const { data: current } = await supabase
     .from("published_price")
-    .select("price")
+    .select("price, base_price")
     .eq("hotel_id", hotelId)
     .eq("stay_date", stayDate)
     .eq("room_type_id", roomTypeId)
     .maybeSingle();
 
-  if (current && Number(current.price) === finalPrice) {
+  const priceUnchanged = current != null && Number(current.price) === finalPrice;
+  // The remembered base has to be written even on a run that does not move
+  // the price, or a cell whose price is stable never records one — and it is
+  // exactly those quiet cells that later lose their last reservation.
+  const baseUnchanged =
+    basePrice === undefined ||
+    (current != null &&
+      current.base_price != null &&
+      Number(current.base_price) === basePrice);
+
+  if (priceUnchanged && baseUnchanged) {
     return false;
   }
 
-  await supabase.from("published_price").upsert(
+  const { error } = await supabase.from("published_price").upsert(
     {
       hotel_id: hotelId,
       stay_date: stayDate,
       room_type_id: roomTypeId,
       price: finalPrice,
+      ...(basePrice !== undefined ? { base_price: basePrice } : {}),
       computed_at: computedAt,
     },
     { onConflict: "hotel_id,stay_date,room_type_id" },
   );
+  if (error) {
+    // A failed write must not report as a successful publish. Every caller
+    // of maybePublish treats a `true` return as "the new price is now live":
+    // pricesPublished increments and the audit row for this cell is written
+    // as though it happened. Left unchecked, a transient error (or an RLS
+    // rejection when this runs under a non-manager's session) leaves the
+    // OLD price in published_price while the run reports the change as
+    // done — and the PMS rate-push, which reads published_price, never
+    // sends the new rate.
+    console.error(
+      JSON.stringify({ fn: "maybePublish", hotelId, stayDate, roomTypeId, error: error.message }),
+    );
+    return false;
+  }
 
-  return true;
+  // Only a real price move counts as a publish — a base-only correction is
+  // bookkeeping and should not read as a rate change in the change log.
+  return !priceUnchanged;
 }

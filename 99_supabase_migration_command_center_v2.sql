@@ -3,7 +3,7 @@
 -- helpers used by the Next.js /admin routes.
 --
 -- Run AFTER 99_supabase_migration_command_center_v1.sql on existing databases.
--- If you load 01 + 02 from this repo on a fresh project, you can skip this
+-- If you load 02 from this repo on a fresh project, you can skip this
 -- file (02 already includes these objects).
 --
 -- Objects created:

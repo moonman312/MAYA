@@ -2,7 +2,7 @@
 -- Adds 'think' to the pms_type enum so Think Reservations connections can be
 -- created alongside existing 'mews' and 'cloudbeds'.
 --
--- Run AFTER 02_supabase_schema.sql on existing databases. Fresh 01+02 loads
+-- Run AFTER 02_supabase_schema.sql on existing databases. Fresh 02 loads
 -- already include 'think' in the enum definition.
 --
 -- NOTE: `alter type ... add value` cannot run inside a wrapping transaction on

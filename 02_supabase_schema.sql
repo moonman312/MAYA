@@ -349,6 +349,11 @@ create table if not exists rule_condition (
   pickup_threshold      numeric(10,2),
   pickup_window_days    integer check (pickup_window_days in (1,3,7)),
   pickup_metric         text check (pickup_metric in ('room_nights','revenue')),
+  booking_speed_operator      text check (booking_speed_operator is null or booking_speed_operator in ('at_least','at_most','is')),
+  booking_speed_level         text check (booking_speed_level is null or booking_speed_level in
+    ('stalled','much_slower','slower','normal','faster','much_faster','surging')),
+  booking_speed_window_days   integer check (booking_speed_window_days is null or booking_speed_window_days in (1, 7, 30)),
+  booking_speed_cooldown_days integer check (booking_speed_cooldown_days is null or booking_speed_cooldown_days >= 0),
   check (
     (pickup_operator is null and pickup_threshold is null
      and pickup_window_days is null and pickup_metric is null)
@@ -357,9 +362,17 @@ create table if not exists rule_condition (
      and pickup_window_days is not null and pickup_metric is not null)
   ),
   check (
+    (booking_speed_operator is null and booking_speed_level is null
+     and booking_speed_window_days is null and booking_speed_cooldown_days is null)
+    or
+    (booking_speed_operator is not null and booking_speed_level is not null
+     and booking_speed_window_days is not null)
+  ),
+  check (
     occupancy_operator is not null
     or dta_operator is not null
     or pickup_operator is not null
+    or booking_speed_operator is not null
   )
 );
 
@@ -480,6 +493,13 @@ create index if not exists idx_pickup_event_active
 create index if not exists idx_pickup_event_rule_stay
   on pickup_event (rule_id, stay_date, applied_at desc);
 
+-- Guards against two overlapping evaluation runs both inserting an active
+-- event for the same (rule, stay date, room type) — see
+-- 99_supabase_migration_pickup_event_unique_v1.sql for the failure mode.
+create unique index if not exists uq_pickup_event_active_per_rule_stay_room
+  on pickup_event (rule_id, stay_date, affected_room_type_id)
+  where retired_at is null;
+
 -- ============================================================================
 -- PUBLISHED PRICES (Implementation Guide §3.6)
 -- ============================================================================
@@ -489,9 +509,17 @@ create table if not exists published_price (
   stay_date    date not null,
   room_type_id uuid not null,
   price        numeric(10,2) not null,
+  -- The clean pre-adjustment price this row was computed from. The engine
+  -- reads THIS as its base when no reservation carries a base_rate — never
+  -- `price`, which already contains the rules' effects, and re-applying them
+  -- to it compounds the adjustment on every run.
+  base_price   numeric(10,2),
   computed_at  timestamptz not null,
   primary key (hotel_id, stay_date, room_type_id)
 );
+
+alter table published_price
+  add column if not exists base_price numeric(10,2);
 
 -- ============================================================================
 -- EVALUATION AUDIT LOG (Implementation Guide §3.10)
@@ -513,6 +541,37 @@ create table if not exists evaluation_audit (
   final_price            numeric(10,2) not null,
   details                jsonb not null
 );
+
+-- Every read (the changelog route; the per-cell "last audit signature"
+-- lookup) filters on hotel_id and orders by evaluated_at — this table had no
+-- index at all until now.
+create index if not exists idx_evaluation_audit_hotel_evaluated
+  on evaluation_audit(hotel_id, evaluated_at desc);
+
+create index if not exists idx_evaluation_audit_cell
+  on evaluation_audit(hotel_id, stay_date, room_type_id, evaluated_at desc);
+
+-- ── evaluation_run_log: one tiny row per evaluation run ─────────────────────
+-- evaluation_audit now only writes when a cell actually changed (see the
+-- write-on-change migration this follows), so a fully quiet run leaves no
+-- trace there. This table is the cheap heartbeat that keeps it visible: no
+-- JSONB, no per-cell rows, just a timestamp and two counts — enough for the
+-- Change Log's "Show All Cycles" toggle to prove the engine checked. The
+-- narrative text is never stored; it's rendered from these numbers at read
+-- time, same as every other changelog entry.
+
+create table if not exists evaluation_run_log (
+  id                 uuid primary key default gen_random_uuid(),
+  hotel_id           uuid not null references hotels(id) on delete cascade,
+  evaluation_run_id  uuid not null,
+  evaluated_at       timestamptz not null,
+  cells_checked      integer not null default 0,
+  cells_changed      integer not null default 0,
+  unique (hotel_id, evaluation_run_id)
+);
+
+create index if not exists idx_evaluation_run_log_hotel
+  on evaluation_run_log(hotel_id, evaluated_at desc);
 
 create index if not exists idx_eval_audit_hotel_stay
   on evaluation_audit (hotel_id, stay_date, room_type_id, evaluated_at desc);
@@ -790,6 +849,13 @@ as $$
   select r.hotel_id from pricing_rules r where r.id = target_rule_id
 $$;
 
+-- Supabase's default privileges grant EXECUTE to anon directly, so revoking
+-- from public alone leaves these anon-callable via /rest/v1/rpc. Same pattern
+-- on every helper below.
+revoke all on function public.rule_hotel_id(uuid) from public, anon;
+grant execute on function public.rule_hotel_id(uuid)
+  to authenticated, service_role;
+
 create or replace function public.has_hotel_role(target_hotel_id uuid, allowed_roles text[])
 returns boolean
 language sql
@@ -807,9 +873,15 @@ as $$
   )
 $$;
 
+revoke all on function public.has_hotel_role(uuid, text[]) from public, anon;
+grant execute on function public.has_hotel_role(uuid, text[])
+  to authenticated, service_role;
+
 -- Platform-admin gateway: returns true iff the user is in app_roles with
 -- role='platform_admin'. Wrapped in SECURITY DEFINER so callers don't need
--- direct SELECT on the locked-down app_roles table.
+-- direct SELECT on the locked-down app_roles table. Non-service callers only
+-- get to ask about themselves; honoring an arbitrary p_user_id made this an
+-- admin-enumeration oracle for anyone with a uuid.
 create or replace function public.is_platform_admin(p_user_id uuid default auth.uid())
 returns boolean
 language sql
@@ -820,12 +892,15 @@ as $$
   select exists (
     select 1
     from public.app_roles
-    where user_id = p_user_id
+    where user_id = case
+        when (select auth.role()) = 'service_role' then p_user_id
+        else auth.uid()
+      end
       and role = 'platform_admin'
   )
 $$;
 
-revoke all on function public.is_platform_admin(uuid) from public;
+revoke all on function public.is_platform_admin(uuid) from public, anon;
 grant execute on function public.is_platform_admin(uuid)
   to authenticated, service_role;
 
@@ -845,6 +920,10 @@ as $$
          )
 $$;
 
+revoke all on function public.is_hotel_accessible(uuid) from public, anon;
+grant execute on function public.is_hotel_accessible(uuid)
+  to authenticated, service_role;
+
 create or replace function public.can_manage_hotel(target_hotel_id uuid)
 returns boolean
 language sql
@@ -858,6 +937,10 @@ as $$
            array['hotel_admin', 'manager']
          )
 $$;
+
+revoke all on function public.can_manage_hotel(uuid) from public, anon;
+grant execute on function public.can_manage_hotel(uuid)
+  to authenticated, service_role;
 
 -- ============================================================================
 -- PMS SECRETS: triggers + SECURITY DEFINER RPCs (Vault-backed credential store)
@@ -1753,3 +1836,497 @@ $$;
 revoke all on function public.platform_revoke_role(uuid, public.app_role) from public;
 grant execute on function public.platform_revoke_role(uuid, public.app_role)
   to authenticated, service_role;
+
+-- ============================================================================
+-- ONBOARDING FLOW (mirrors 99_supabase_migration_onboarding_v1)
+-- ============================================================================
+
+-- ── Enums ───────────────────────────────────────────────────────────────────
+
+do $$ begin
+  create type onboarding_path as enum ('self_serve', 'guided');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type import_job_status as enum ('queued', 'running', 'completed', 'failed', 'canceled');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type finding_kind as enum (
+    'closed_period', 'suspect_room_type', 'duplicate_room_type',
+    'rate_outlier', 'zero_rate_rows', 'unmapped_room_type',
+    'rule_suggestion', 'guardrail_suggestion', 'other'
+  );
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type finding_status as enum ('proposed', 'confirmed', 'dismissed', 'auto_applied');
+exception when duplicate_object then null; end $$;
+
+-- ── profiles: user-level path choice (works before any hotel exists) ─────────
+
+alter table profiles
+  add column if not exists onboarding_path onboarding_path,
+  add column if not exists onboarding_dismissed_at timestamptz;
+
+-- ── import_jobs: checkpointed background import ─────────────────────────────
+
+create table if not exists import_jobs (
+  id uuid primary key default gen_random_uuid(),
+  hotel_id uuid not null references hotels(id) on delete cascade,
+  pms_type pms_type not null,
+  status import_job_status not null default 'queued',
+  -- discover -> sync_current -> historical -> analyze -> done
+  phase text not null default 'discover',
+  requested_by uuid references auth.users(id) on delete set null,
+  -- adaptive year-by-year depth: window 0 = last 365d (+forward, detail sync),
+  -- window N = the year before window N-1 (slim list-only pull)
+  window_index integer not null default 0,
+  window_from date,
+  window_to date,
+  enum_cursor jsonb not null default '{}'::jsonb,
+  row_cap integer not null default 300000,
+  max_windows integer not null default 10,
+  -- progress counters (drive the onboarding UI)
+  reservations_enumerated integer not null default 0,
+  rows_upserted integer not null default 0,
+  windows_completed integer not null default 0,
+  oldest_stay_date date,
+  newest_stay_date date,
+  -- worker coordination
+  lease_expires_at timestamptz,
+  attempts integer not null default 0,
+  last_error text,
+  stats jsonb not null default '{}'::jsonb,
+  started_at timestamptz,
+  finished_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_import_jobs_runnable
+  on import_jobs(status) where status in ('queued', 'running');
+create index if not exists idx_import_jobs_hotel
+  on import_jobs(hotel_id, created_at desc);
+-- One active job per hotel: a duplicate import would fight the base_rate
+-- first-seen trigger and double-count progress.
+create unique index if not exists uq_import_jobs_one_active_per_hotel
+  on import_jobs(hotel_id) where status in ('queued', 'running');
+
+-- ── onboarding_states: per-hotel onboarding progress ────────────────────────
+
+create table if not exists onboarding_states (
+  hotel_id uuid primary key references hotels(id) on delete cascade,
+  path onboarding_path not null default 'guided',
+  import_job_id uuid references import_jobs(id) on delete set null,
+  connected_at timestamptz,
+  questions jsonb not null default '{}'::jsonb,
+  questions_completed_at timestamptz,
+  review_completed_at timestamptz,
+  -- room count at completion; billing tier verification hook (no billing yet)
+  payment_tier_rooms integer,
+  payment_tier_flagged_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- ── onboarding_findings: data-cleaning findings for the review step ─────────
+
+create table if not exists onboarding_findings (
+  id uuid primary key default gen_random_uuid(),
+  hotel_id uuid not null references hotels(id) on delete cascade,
+  job_id uuid references import_jobs(id) on delete set null,
+  kind finding_kind not null,
+  status finding_status not null default 'proposed',
+  payload jsonb not null default '{}'::jsonb,
+  resolved_by uuid references auth.users(id) on delete set null,
+  resolved_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_onboarding_findings_hotel
+  on onboarding_findings(hotel_id, status);
+
+-- ── hotel_closed_periods: confirmed closures, excluded from analysis ────────
+
+create table if not exists hotel_closed_periods (
+  id uuid primary key default gen_random_uuid(),
+  hotel_id uuid not null references hotels(id) on delete cascade,
+  room_type_id uuid references room_types(id) on delete cascade, -- null = whole property
+  start_date date not null,
+  end_date date not null,
+  source text not null default 'onboarding', -- onboarding | manual
+  created_at timestamptz not null default now(),
+  check (end_date >= start_date)
+);
+
+create index if not exists idx_hotel_closed_periods
+  on hotel_closed_periods(hotel_id, start_date);
+
+-- ── assumption_challenges: owner-flagged non-comparable dates ───────────────
+-- Owners never edit observation outputs; they flag a date as not a fair
+-- comparison and say why. The flagged date is excluded immediately; annual /
+-- season-model generalization needs corroboration from distinct YEARS (see
+-- observations/reinforcement.ts).
+
+create table if not exists assumption_challenges (
+  id uuid primary key default gen_random_uuid(),
+  hotel_id uuid not null references hotels(id) on delete cascade,
+  challenged_date date not null,
+  reason_key text not null,
+  other_text text, -- required when reason_key = 'other' (checked below + in API)
+  scope text not null default 'this_date',
+  raised_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  check (scope in ('this_date', 'annual', 'improve_future')),
+  check (reason_key <> 'other' or other_text is not null),
+  constraint assumption_challenges_other_text_len_check
+    check (other_text is null or char_length(other_text) <= 300)
+);
+
+create index if not exists idx_assumption_challenges
+  on assumption_challenges(hotel_id, challenged_date);
+
+-- Repeat submits of the same flag are conflicts, not duplicate evidence —
+-- corroboration is counted by distinct years, never by row count.
+create unique index if not exists uq_assumption_challenges
+  on assumption_challenges(hotel_id, challenged_date, reason_key, scope);
+
+-- ── hotel_settings: strategy answers ────────────────────────────────────────
+
+alter table hotel_settings
+  add column if not exists strategy_floor numeric(10,2),
+  add column if not exists strategy_ceiling numeric(10,2),
+  add column if not exists pricing_confidence text;
+
+do $$ begin
+  alter table hotel_settings
+    add constraint hotel_settings_pricing_confidence_check
+    check (pricing_confidence is null or pricing_confidence in ('automate_current', 'find_upside'));
+exception when duplicate_object then null; end $$;
+
+-- ── claim_import_job: atomic worker claim (skip-locked) ─────────────────────
+-- The import worker calls this to grab the next runnable job: queued, or
+-- running with an expired lease (crashed worker). Service role only.
+
+create or replace function public.claim_import_job(p_lease_seconds integer default 180)
+returns setof import_jobs
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_id uuid;
+begin
+  if (select auth.role()) is distinct from 'service_role' then
+    raise exception 'Not authorized' using errcode = '42501';
+  end if;
+
+  select id into v_id
+  from import_jobs
+  where status = 'queued'
+     or (status = 'running' and lease_expires_at is not null and lease_expires_at < now())
+  order by created_at
+  limit 1
+  for update skip locked;
+
+  if v_id is null then
+    return;
+  end if;
+
+  return query
+  update import_jobs
+  set status = 'running',
+      lease_expires_at = now() + make_interval(secs => p_lease_seconds),
+      attempts = attempts + 1,
+      started_at = coalesce(started_at, now()),
+      updated_at = now()
+  where id = v_id
+  returning *;
+end;
+$$;
+
+revoke all on function public.claim_import_job(integer) from public;
+grant execute on function public.claim_import_job(integer) to service_role;
+
+-- ── Analysis aggregates (service-role only, used by the import worker) ──────
+
+-- Daily booked room-nights across the whole property.
+create or replace function public.onboarding_daily_room_nights(p_hotel_id uuid)
+returns table(stay_date date, room_nights bigint)
+language sql
+security definer
+set search_path = public, pg_temp
+as $$
+  select r.stay_date, count(*)::bigint
+  from reservations r
+  where r.hotel_id = p_hotel_id
+  group by r.stay_date
+  order by r.stay_date;
+$$;
+
+revoke all on function public.onboarding_daily_room_nights(uuid) from public;
+grant execute on function public.onboarding_daily_room_nights(uuid) to service_role;
+
+-- Per-room-type stats for the cleaning heuristics: volume, rate distribution,
+-- and length-of-stay shape.
+create or replace function public.onboarding_room_type_stats(p_hotel_id uuid)
+returns table(
+  room_type_id uuid,
+  external_room_type_id text,
+  name text,
+  is_active boolean,
+  row_count bigint,
+  median_rate numeric,
+  p99_rate numeric,
+  max_rate numeric,
+  reservation_count bigint,
+  single_night_reservations bigint,
+  median_los numeric
+)
+language sql
+security definer
+set search_path = public, pg_temp
+as $$
+  with res_nights as (
+    select r.room_type_id as rt_id, r.external_reservation_id, count(*) as nights
+    from reservations r
+    where r.hotel_id = p_hotel_id
+    group by 1, 2
+  ),
+  rate_stats as (
+    select r.room_type_id as rt_id,
+      count(*)::bigint as row_count,
+      percentile_cont(0.5) within group (order by r.current_rate) as median_rate,
+      percentile_cont(0.99) within group (order by r.current_rate) as p99_rate,
+      max(r.current_rate) as max_rate
+    from reservations r
+    where r.hotel_id = p_hotel_id and r.current_rate is not null and r.current_rate > 0
+    group by 1
+  ),
+  los_stats as (
+    select rt_id,
+      count(*)::bigint as reservation_count,
+      count(*) filter (where nights = 1)::bigint as single_night_reservations,
+      percentile_cont(0.5) within group (order by nights) as median_los
+    from res_nights
+    group by 1
+  )
+  select rt.id, rt.external_room_type_id, rt.name, rt.is_active,
+    coalesce(rs.row_count, 0), rs.median_rate, rs.p99_rate, rs.max_rate,
+    coalesce(ls.reservation_count, 0), coalesce(ls.single_night_reservations, 0),
+    ls.median_los
+  from room_types rt
+  left join rate_stats rs on rs.rt_id = rt.id
+  left join los_stats ls on ls.rt_id = rt.id
+  where rt.hotel_id = p_hotel_id;
+$$;
+
+revoke all on function public.onboarding_room_type_stats(uuid) from public;
+grant execute on function public.onboarding_room_type_stats(uuid) to service_role;
+
+-- ── RLS ─────────────────────────────────────────────────────────────────────
+
+alter table import_jobs enable row level security;
+alter table onboarding_states enable row level security;
+alter table onboarding_findings enable row level security;
+alter table hotel_closed_periods enable row level security;
+alter table assumption_challenges enable row level security;
+
+-- Members can watch import progress; only the service-role worker writes.
+drop policy if exists import_jobs_read on import_jobs;
+create policy import_jobs_read on import_jobs
+  for select using (is_hotel_accessible(hotel_id));
+revoke insert, update, delete on import_jobs from anon, authenticated;
+
+drop policy if exists onboarding_states_access on onboarding_states;
+create policy onboarding_states_access on onboarding_states
+  for all using (is_hotel_accessible(hotel_id))
+  with check (can_manage_hotel(hotel_id));
+
+drop policy if exists onboarding_findings_access on onboarding_findings;
+create policy onboarding_findings_access on onboarding_findings
+  for all using (is_hotel_accessible(hotel_id))
+  with check (can_manage_hotel(hotel_id));
+
+drop policy if exists hotel_closed_periods_access on hotel_closed_periods;
+create policy hotel_closed_periods_access on hotel_closed_periods
+  for all using (is_hotel_accessible(hotel_id))
+  with check (can_manage_hotel(hotel_id));
+
+-- Reading is for every member; raising and retracting are owner controls
+-- (managers up). Split per command: a FOR ALL policy's WITH CHECK never
+-- runs on DELETE, which would let read-only roles retract corrections.
+-- raised_by is pinned to the caller so attribution can't be forged.
+drop policy if exists assumption_challenges_access on assumption_challenges;
+drop policy if exists assumption_challenges_read on assumption_challenges;
+create policy assumption_challenges_read on assumption_challenges
+  for select using (is_hotel_accessible(hotel_id));
+drop policy if exists assumption_challenges_insert on assumption_challenges;
+create policy assumption_challenges_insert on assumption_challenges
+  for insert with check (
+    can_manage_hotel(hotel_id)
+    and (raised_by is null or raised_by = auth.uid())
+  );
+drop policy if exists assumption_challenges_update on assumption_challenges;
+create policy assumption_challenges_update on assumption_challenges
+  for update using (can_manage_hotel(hotel_id))
+  with check (can_manage_hotel(hotel_id));
+drop policy if exists assumption_challenges_delete on assumption_challenges;
+create policy assumption_challenges_delete on assumption_challenges
+  for delete using (can_manage_hotel(hotel_id));
+
+-- Same split-per-command shape as evaluation_audit: every member reads,
+-- revenue_manager and up writes (matches who may trigger /api/evaluate).
+alter table evaluation_run_log enable row level security;
+drop policy if exists evaluation_run_log_read on evaluation_run_log;
+create policy evaluation_run_log_read on evaluation_run_log
+  for select using (is_hotel_accessible(hotel_id));
+drop policy if exists evaluation_run_log_insert on evaluation_run_log;
+create policy evaluation_run_log_insert on evaluation_run_log
+  for insert with check (can_manage_hotel(hotel_id));
+drop policy if exists evaluation_run_log_update on evaluation_run_log;
+create policy evaluation_run_log_update on evaluation_run_log
+  for update using (can_manage_hotel(hotel_id))
+  with check (can_manage_hotel(hotel_id));
+drop policy if exists evaluation_run_log_delete on evaluation_run_log;
+create policy evaluation_run_log_delete on evaluation_run_log
+  for delete using (can_manage_hotel(hotel_id));
+
+-- ============================================================================
+-- PMS REQUEST LOG (mirrors 99_supabase_migration_pms_request_log_v1)
+-- ============================================================================
+
+-- ── pms_request_log: one row per outbound PMS API request ───────────────────
+-- Written fire-and-forget by the service-role sync / onboarding workers;
+-- powers the dashboard PMS health strip (24h success rate + activity feed).
+
+create table if not exists pms_request_log (
+  id uuid primary key default gen_random_uuid(),
+  hotel_id uuid not null references hotels(id) on delete cascade,
+  pms_type pms_type not null,
+  http_method text not null,
+  endpoint text not null,
+  status_code integer,
+  ok boolean not null,
+  duration_ms integer,
+  message text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_pms_request_log_hotel
+  on pms_request_log(hotel_id, created_at desc);
+
+-- Members can watch their hotel's PMS traffic; only the service-role
+-- workers write (same pattern as import_jobs).
+alter table pms_request_log enable row level security;
+
+drop policy if exists pms_request_log_read on pms_request_log;
+create policy pms_request_log_read on pms_request_log
+  for select using (is_hotel_accessible(hotel_id));
+revoke insert, update, delete on pms_request_log from anon, authenticated;
+
+-- ============================================================================
+-- CALENDAR REVENUE (mirrors 99_supabase_migration_calendar_revenue_v1)
+-- ============================================================================
+
+create or replace function public.calendar_daily_revenue(p_hotel_id uuid)
+returns table(stay_date date, revenue numeric)
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select r.stay_date, sum(coalesce(r.current_rate, 0))::numeric as revenue
+  from reservations r
+  where r.hotel_id = p_hotel_id
+  group by r.stay_date
+  order by r.stay_date;
+$$;
+
+grant execute on function public.calendar_daily_revenue(uuid) to authenticated;
+
+-- ============================================================================
+-- RLS HARDENING (mirrors 99_supabase_migration_rls_hardening_v1)
+-- ============================================================================
+-- Runs last, once every table above exists. Postgres never applies WITH CHECK
+-- to DELETE, so the `for all` policies declared earlier in this file read as
+-- "members read, managers write" but actually let staff and viewer DELETE rows
+-- — pricing rules, reservations, published prices, the audit trail. The loop
+-- below replaces each with per-command policies. Only DELETE changes behavior.
+-- Scope expressions differ per table (rule children reach hotel_id through
+-- rule_hotel_id(rule_id)) and are transcribed from the originals, not assumed.
+-- Keep in sync with the migration of the same name.
+-- ── 1. Per-command policies for hotel-scoped tables ─────────────────────────
+
+do $$
+declare
+  r record;
+begin
+  for r in
+    select * from (values
+      ('pms_connections',         'hotel_id'),
+      ('hotel_settings',          'hotel_id'),
+      ('room_types',              'hotel_id'),
+      ('room_constraints',        'hotel_id'),
+      ('reservations',            'hotel_id'),
+      ('occupancy_metrics',       'hotel_id'),
+      ('pricing_rules',           'hotel_id'),
+      ('rule_applications',       'hotel_id'),
+      ('pricing_runs',            'hotel_id'),
+      ('pricing_decisions',       'hotel_id'),
+      ('rate_updates',            'hotel_id'),
+      ('audit_events',            'hotel_id'),
+      ('market_events',           'hotel_id'),
+      ('competitor_rates',        'hotel_id'),
+      ('stay_date_snapshot',      'hotel_id'),
+      ('published_price',         'hotel_id'),
+      ('ladder_transition_event', 'hotel_id'),
+      ('pickup_event',            'hotel_id'),
+      ('evaluation_audit',        'hotel_id'),
+      ('onboarding_states',       'hotel_id'),
+      ('onboarding_findings',     'hotel_id'),
+      ('hotel_closed_periods',    'hotel_id'),
+      -- Rule children: no hotel_id column, scoped through the parent rule.
+      ('rule_condition',          'rule_hotel_id(rule_id)'),
+      ('rule_signal_room_type',   'rule_hotel_id(rule_id)'),
+      ('rule_affected_room_type', 'rule_hotel_id(rule_id)'),
+      ('pricing_rule_conditions', 'rule_hotel_id(rule_id)'),
+      ('pricing_rule_room_types', 'rule_hotel_id(rule_id)'),
+      ('ladder_rule_state',       'rule_hotel_id(rule_id)')
+    ) as t(tbl, scope)
+  loop
+    -- Skip tables this database does not have (schema variants differ).
+    if to_regclass('public.' || r.tbl) is null then
+      continue;
+    end if;
+
+    execute format('drop policy if exists %I on public.%I', r.tbl || '_access', r.tbl);
+    execute format('drop policy if exists %I on public.%I', r.tbl || '_read',   r.tbl);
+    execute format('drop policy if exists %I on public.%I', r.tbl || '_insert', r.tbl);
+    execute format('drop policy if exists %I on public.%I', r.tbl || '_update', r.tbl);
+    execute format('drop policy if exists %I on public.%I', r.tbl || '_delete', r.tbl);
+
+    execute format(
+      'create policy %I on public.%I for select using (is_hotel_accessible(%s))',
+      r.tbl || '_read', r.tbl, r.scope);
+    execute format(
+      'create policy %I on public.%I for insert with check (can_manage_hotel(%s))',
+      r.tbl || '_insert', r.tbl, r.scope);
+    execute format(
+      'create policy %I on public.%I for update using (can_manage_hotel(%s)) with check (can_manage_hotel(%s))',
+      r.tbl || '_update', r.tbl, r.scope, r.scope);
+    execute format(
+      'create policy %I on public.%I for delete using (can_manage_hotel(%s))',
+      r.tbl || '_delete', r.tbl, r.scope);
+  end loop;
+end $$;
+
+-- assumption_challenges already ships split policies (see its own migration);
+-- hotel_memberships_write already gates USING on can_manage_hotel. Both are
+-- intentionally left alone.
+
+-- ── 2. Vault RPCs are service-role only ─────────────────────────────────────
+
+revoke execute on function public.pms_secret_get(uuid, public.pms_type) from authenticated;
+revoke execute on function public.pms_secret_set(uuid, public.pms_type, jsonb) from authenticated;
+revoke execute on function public.pms_secret_delete(uuid, public.pms_type) from authenticated;

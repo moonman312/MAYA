@@ -40,3 +40,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# internal review notes — local only, never pushed
+docs/adversarial-review-*.md
+docs/code-quality-*.md

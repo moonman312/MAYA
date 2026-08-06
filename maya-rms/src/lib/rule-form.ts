@@ -3,14 +3,19 @@
  * legacy conditions (simulation / in-memory store), and API payloads.
  */
 
+import { bookingSpeedRank, isBookingSpeed } from "@/lib/observations/booking-speed";
 import type {
+  BookingSpeedRuleOperator,
+  BookingSpeedWindowDays,
   PickupMetric,
   RuleAction,
   RuleCondition,
   RuleConditionValue,
 } from "@/types/domain";
 
-export type ConditionMetric = "occupancy" | "booking_window" | "pickup";
+const BOOKING_SPEED_WINDOWS: readonly number[] = [1, 7, 30];
+
+export type ConditionMetric = "occupancy" | "booking_window" | "pickup" | "booking_speed";
 
 export type ConditionFormRow = {
   id: string;
@@ -20,6 +25,11 @@ export type ConditionFormRow = {
   value: string;
   pickup_window_days: 1 | 3 | 7;
   pickup_metric: PickupMetric;
+  /** A BookingSpeed level key ("faster", "much_slower", ...). The compare
+   *  operator is DERIVED from the level's side of Normal — see
+   *  directionalBookingSpeedOperator — so the form never asks for it. */
+  booking_speed_level: string;
+  booking_speed_window_days: BookingSpeedWindowDays;
 };
 
 const SYM: Record<"gt" | "lt", string> = { gt: ">", lt: "<" };
@@ -35,7 +45,21 @@ export function newConditionRow(
     value: partial?.value ?? (metric === "occupancy" ? "80" : metric === "booking_window" ? "7" : "5"),
     pickup_window_days: partial?.pickup_window_days ?? 3,
     pickup_metric: partial?.pickup_metric ?? "room_nights",
+    booking_speed_level: partial?.booking_speed_level ?? "faster",
+    booking_speed_window_days: partial?.booking_speed_window_days ?? 7,
   };
+}
+
+/**
+ * The one sane compare for each speed level: picking a level below Normal
+ * means "that slow or slower", above Normal means "that fast or faster",
+ * Normal means exactly Normal. Owners phrase it this way naturally, so the
+ * form derives the operator instead of asking.
+ */
+export function directionalBookingSpeedOperator(levelKey: string): BookingSpeedRuleOperator {
+  if (!isBookingSpeed(levelKey)) return "is";
+  const rank = bookingSpeedRank(levelKey);
+  return rank < 0 ? "at_most" : rank > 0 ? "at_least" : "is";
 }
 
 /** True when no usable condition family is set. */
@@ -51,25 +75,54 @@ export function isRuleConditionEmpty(c: RuleCondition | undefined | null): boole
     Number.isFinite(c.pickup_threshold) &&
     c.pickup_window_days != null &&
     !!c.pickup_metric;
-  return !hasOcc && !hasDta && !hasPu;
+  const hasBs =
+    !!c.booking_speed_operator &&
+    isBookingSpeed(c.booking_speed_level) &&
+    c.booking_speed_window_days != null &&
+    BOOKING_SPEED_WINDOWS.includes(c.booking_speed_window_days);
+  return !hasOcc && !hasDta && !hasPu && !hasBs;
+}
+
+/**
+ * Parses a threshold input string, distinguishing "the user typed nothing"
+ * (or only whitespace) from "the user typed 0" — Number("") and Number("  ")
+ * are both 0 and finite, so a cleared-then-submitted field would otherwise
+ * silently become a legitimate zero threshold (e.g. "occupancy above 0%",
+ * true for every stay date with any booking at all) instead of being
+ * rejected. Negative values are rejected outright rather than clamped to 0,
+ * since clamping a typo like "-5" produces that exact same always-true
+ * condition. An intentional literal 0 stays legal — the check is on the
+ * string, never on the parsed value being non-zero.
+ */
+function parseThreshold(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
 }
 
 export function conditionRowsToRuleCondition(rows: ConditionFormRow[]): RuleCondition {
   const c: RuleCondition = {};
   for (const row of rows) {
     if (row.metric === "occupancy") {
-      const n = Number(row.value);
-      if (!Number.isFinite(n)) continue;
+      const n = parseThreshold(row.value);
+      if (n === null) continue;
       c.occupancy_operator = row.operator;
-      c.occupancy_threshold = Math.min(100, Math.max(0, n)) / 100;
+      c.occupancy_threshold = Math.min(100, n) / 100;
     } else if (row.metric === "booking_window") {
-      const n = Number(row.value);
-      if (!Number.isFinite(n)) continue;
+      const n = parseThreshold(row.value);
+      if (n === null) continue;
       c.dta_operator = row.operator;
-      c.dta_threshold_days = Math.max(0, Math.round(n));
+      c.dta_threshold_days = Math.round(n);
+    } else if (row.metric === "booking_speed") {
+      if (!isBookingSpeed(row.booking_speed_level)) continue;
+      c.booking_speed_operator = directionalBookingSpeedOperator(row.booking_speed_level);
+      c.booking_speed_level = row.booking_speed_level;
+      c.booking_speed_window_days = row.booking_speed_window_days;
     } else {
-      const n = Number(row.value);
-      if (!Number.isFinite(n)) continue;
+      const n = parseThreshold(row.value);
+      if (n === null) continue;
       c.pickup_operator = row.operator;
       c.pickup_threshold = n;
       c.pickup_window_days = row.pickup_window_days;
@@ -110,6 +163,23 @@ export function ruleConditionForInsert(c: RuleCondition): RuleCondition {
     row.pickup_window_days = c.pickup_window_days;
     row.pickup_metric = c.pickup_metric;
   }
+  if (
+    c.booking_speed_operator &&
+    isBookingSpeed(c.booking_speed_level) &&
+    c.booking_speed_window_days != null &&
+    BOOKING_SPEED_WINDOWS.includes(c.booking_speed_window_days)
+  ) {
+    row.booking_speed_operator = c.booking_speed_operator;
+    row.booking_speed_level = c.booking_speed_level;
+    row.booking_speed_window_days = c.booking_speed_window_days;
+    if (
+      c.booking_speed_cooldown_days != null &&
+      Number.isFinite(c.booking_speed_cooldown_days) &&
+      c.booking_speed_cooldown_days >= 0
+    ) {
+      row.booking_speed_cooldown_days = Math.round(c.booking_speed_cooldown_days);
+    }
+  }
   return row;
 }
 
@@ -129,17 +199,25 @@ export function ruleConditionToLegacyConditions(c: RuleCondition): Record<string
   return out;
 }
 
+/** ">80" -> "above 80", "<7" -> "below 7" — hoteliers read words, not math. */
+function wordify(value: RuleConditionValue, unit = ""): string {
+  const s = String(value).trim();
+  if (s.startsWith(">")) return `above ${s.slice(1).trim()}${unit}`;
+  if (s.startsWith("<")) return `below ${s.slice(1).trim()}${unit}`;
+  return `${s}${unit}`;
+}
+
 export function formatRuleConditionsDisplay(conditions: Record<string, RuleConditionValue>): string {
   const parts: string[] = [];
   const occ = conditions.occupancy_percentage;
-  if (occ != null) parts.push(`Occupancy ${String(occ)}%`);
+  if (occ != null) parts.push(`Occupancy ${wordify(occ, "%")}`);
   const bw = conditions.booking_window;
-  if (bw != null) parts.push(`Booking window ${String(bw)} d`);
+  if (bw != null) parts.push(`Booking window ${wordify(bw, " days")}`);
   const pu = conditions.pickup_rate;
-  if (pu != null) parts.push(`Pickup ${String(pu)}`);
+  if (pu != null) parts.push(`Pickup ${wordify(pu, " bookings")}`);
   for (const [k, v] of Object.entries(conditions)) {
     if (k === "occupancy_percentage" || k === "booking_window" || k === "pickup_rate") continue;
-    parts.push(`${k} ${String(v)}`);
+    parts.push(`${k.replace(/_/g, " ")} ${wordify(v)}`);
   }
   return parts.length ? parts.join(" · ") : "—";
 }
