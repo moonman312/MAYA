@@ -13,6 +13,7 @@
 import {
   CLOUDBEDS_CANCELED_STATUSES,
 } from "./constants.ts";
+import { redactCloudbedsPayload } from "../pms/redact.ts";
 import type {
   CloudbedsParsedReservationRow,
   CloudbedsParsedRoomType,
@@ -53,6 +54,16 @@ function addOneDay(ymd: string): string {
   const dt = new Date(Date.UTC(y, m - 1, d));
   dt.setUTCDate(dt.getUTCDate() + 1);
   return dt.toISOString().slice(0, 10);
+}
+
+/**
+ * Lead time against the stay night itself, not check-in — night 2 of a stay
+ * is one day further out than night 1, and pickup windows compare per-night.
+ */
+function bookingWindowFor(bookingDate: string, stay: string): number {
+  const a = new Date(`${stay}T00:00:00Z`).getTime();
+  const b = new Date(`${bookingDate}T00:00:00Z`).getTime();
+  return Math.max(0, Math.round((a - b) / 86_400_000));
 }
 
 /** [checkIn, checkOut) hotel-night semantics; same-day → single night. */
@@ -101,21 +112,113 @@ function isCanceled(status: string | null): boolean {
   return (CLOUDBEDS_CANCELED_STATUSES as readonly string[]).includes(n);
 }
 
+/** Keys that name a room on a reservation or room entry. */
+const ROOM_ID_KEYS = ["subReservationID", "reservationRoomID", "roomID"];
+/** `id` is not read off a room entry: there it is as likely the room's own id. */
+const ROOM_TYPE_KEYS = ["roomTypeID", "roomTypeId"];
+
 /**
- * Extract the room-type id for a reservation. Classic reservations can carry a
+ * Extract the booking-level room-type id. Classic reservations can carry a
  * top-level roomTypeID or a rooms[]/assigned[] array. ⚠ VERIFY for your data.
  */
 function reservationRoomTypeId(res: Json): string | null {
-  const top = firstString(res, ["roomTypeID", "roomTypeId"]);
+  const top = firstString(res, ROOM_TYPE_KEYS);
   if (top) return top;
-  for (const key of ["rooms", "assigned", "roomStays"]) {
+  for (const key of ["assigned", "unassigned", "rooms", "roomStays"]) {
     const arr = res[key];
     if (Array.isArray(arr) && arr.length > 0 && arr[0] && typeof arr[0] === "object") {
-      const rt = firstString(arr[0] as Json, ["roomTypeID", "roomTypeId", "id"]);
+      const rt = firstString(arr[0] as Json, ROOM_TYPE_KEYS);
       if (rt) return rt;
     }
   }
   return null;
+}
+
+/**
+ * A garbage room count must not be able to fabricate a page of room-nights —
+ * `roomsQuantity: "50000"` over 3 nights is 150k rows from one booking, and the
+ * import worker's row cap is only checked after the page is written. Clipping a
+ * genuine 65-room buyout is the safer direction: an undercount stays an
+ * undercount, while fabricated rows are permanent phantom occupancy.
+ */
+const MAX_DECLARED_ROOM_SLOTS = 64;
+
+/**
+ * The physical rooms one booking covers — one slot per room, `null` where the
+ * payload only declares a count. Both import paths size bookings with this, so
+ * neither can disagree with the other about how many rooms a booking has.
+ *
+ * `assigned[]` and `unassigned[]` are the detail payload's verified shapes:
+ * one entry per room slot, each with its own dailyRates. A booking sits in
+ * `unassigned[]` until the front desk drags it onto a physical room — OTA
+ * arrivals live there for hours or days — and it is still a sold room-night
+ * the whole time. Skipping it undercounts exactly the demand that should be
+ * raising prices (verified live 2026-08-05: an API-created reservation showed
+ * `assigned: []` with the entire booking in `unassigned[]`). `rooms[]` is a
+ * list-payload guess, trusted only as far as the distinct room ids it names.
+ * `roomStays[]` is deliberately not counted at all — it is one entry per stay
+ * SEGMENT, so a room change mid-stay is two entries for one room, and counting
+ * those as rooms doubles occupancy while halving ADR.
+ * ⚠ VERIFY the declared-count keys against your account.
+ */
+export function cloudbedsRoomSlots(res: Json): (Json | null)[] {
+  const slotEntries: Json[] = [];
+  for (const key of ["assigned", "unassigned"]) {
+    const arr = res[key];
+    if (Array.isArray(arr)) {
+      slotEntries.push(...arr.filter((e): e is Json => !!e && typeof e === "object"));
+    }
+  }
+  if (slotEntries.length > 0) return slotEntries;
+  if (Array.isArray(res.rooms)) {
+    const byRoomId = new Map<string, Json>();
+    for (const e of res.rooms) {
+      if (!e || typeof e !== "object") continue;
+      const id = firstString(e as Json, ROOM_ID_KEYS);
+      if (id && !byRoomId.has(id)) byRoomId.set(id, e as Json);
+    }
+    if (byRoomId.size > 0) return [...byRoomId.values()];
+  }
+  const declared = firstNumber(res, ["roomsQuantity", "roomCount", "numRooms", "roomsCount"]);
+  const count =
+    declared != null && declared >= 1
+      ? Math.min(Math.floor(declared), MAX_DECLARED_ROOM_SLOTS)
+      : 1;
+  return new Array(count).fill(null);
+}
+
+/**
+ * Row ids for a booking's room slots, all inside the `<reservationID>-<n>`
+ * namespace. Every path that writes or deletes room-night rows keys them with
+ * this, and they have to agree: the unique key is
+ * (hotel_id, external_reservation_id, stay_date), so a room-night the list path
+ * keyed one way and the detail path another is stored twice instead of upserted,
+ * and a cancellation looking for one key leaves the other behind.
+ *
+ * An explicit id is only honoured when it is prefixed with the parent
+ * reservation id. `roomID` is the id of a PHYSICAL room, reused by every booking
+ * that ever occupies it — keying on it would merge two different stays in room
+ * 101 onto one row and let cancelling either one delete the other's nights.
+ * A `subReservationID` is namespaced to its booking, but nothing in a payload
+ * distinguishes one from a bare `roomID` except that prefix.
+ * ⚠ VERIFY the `<reservationID>-<n>` shape against a live account: the only
+ * evidence for it here is one payload fixture (src/lib/pms/redact.test.ts).
+ */
+export function cloudbedsRoomRowIds(parentId: string, slots: (Json | null)[]): string[] {
+  const explicit = slots.map((entry) => {
+    const id = entry ? firstString(entry, ROOM_ID_KEYS) : null;
+    return id && id.startsWith(`${parentId}-`) ? id : null;
+  });
+  const taken = new Set(explicit.filter((id): id is string => id !== null));
+  let n = 1;
+  return explicit.map((id) => {
+    if (id) return id;
+    // A payload can spell out `-2` and leave `-1` anonymous; skip what's taken.
+    while (taken.has(`${parentId}-${n}`)) n += 1;
+    const derived = `${parentId}-${n}`;
+    taken.add(derived);
+    return derived;
+  });
 }
 
 /**
@@ -168,9 +271,23 @@ export type ParsedCloudbeds = {
 };
 
 /**
- * Parse a list of reservation objects into per-night reservation rows.
- * `nightlyRateByResId` (optional) supplies per-night rates from detail calls;
- * absent → nightly rate = reservation total / nights.
+ * Parse a list of reservation objects into per-room, per-night reservation rows
+ * — the same grain and the same row keys as the detail parse below.
+ *
+ * `nightlyRateByResId` (optional) maps a booking's PARENT id to its nightly
+ * rates, so it is one rate per booking-night applied to each of that booking's
+ * rooms, not a per-room rate. Absent → nightly rate = total / (rooms × nights),
+ * because a Cloudbeds `total` covers the whole booking, every room and night.
+ *
+ * KNOWN UNDERCOUNT, unfixable from a list payload: most accounts' list rows name
+ * neither rooms nor a room count (see the fetch comment in sync-hotel.ts), and
+ * such a booking is recorded as ONE room at the whole-booking nightly rate — for
+ * an N-room group, occupancy 1/N of the truth and ADR N× it. Nothing repairs it
+ * afterwards: the onboarding historical windows are the only pass that ever
+ * reads stays older than the live sync's own check-in window. The fix is a
+ * payload that carries the rooms (Cloudbeds' getReservationsWithRateDetails is
+ * page-level, so it costs one call per page, not per reservation), not a
+ * guess — fabricating slots we cannot identify double-counts instead.
  */
 export function parseCloudbedsReservations(
   reservations: Json[],
@@ -206,35 +323,40 @@ export function parseCloudbedsReservations(
       continue;
     }
 
-    const externalRoomTypeId = reservationRoomTypeId(res);
+    const bookingRoomTypeId = reservationRoomTypeId(res);
     const bookingDate = toYmd(firstString(res, ["dateCreated", "created", "bookingDate"]) ?? "");
-    let bookingWindowDays: number | null = null;
-    if (bookingDate) {
-      const a = new Date(`${checkIn}T00:00:00Z`).getTime();
-      const b = new Date(`${bookingDate}T00:00:00Z`).getTime();
-      bookingWindowDays = Math.max(0, Math.round((a - b) / 86_400_000));
-    }
 
+    const slots = cloudbedsRoomSlots(res);
+    const roomIds = cloudbedsRoomRowIds(rid, slots);
     const detailRates = nightlyRateByResId?.get(rid) ?? null;
     const total =
       firstNumber(res, ["total", "balance", "grandTotal", "totalRate", "roomTotal"]) ?? null;
-    const fallbackNightly = total != null ? Math.round((total / nights.length) * 100) / 100 : null;
+    const fallbackNightly =
+      total != null ? Math.round((total / (nights.length * slots.length)) * 100) / 100 : null;
 
-    for (const night of nights) {
-      const nightly =
-        (detailRates && Number.isFinite(detailRates[night]) ? detailRates[night] : fallbackNightly) ??
-        null;
-      const key = `${rid}:${night}`;
-      if (byStayNight.has(key)) stats.duplicateStayNightKeysMerged += 1;
-      byStayNight.set(key, {
-        external_reservation_id: rid,
-        external_room_type_id: externalRoomTypeId,
-        stay_date: night,
-        booking_date: bookingDate,
-        booking_window_days: bookingWindowDays,
-        current_rate: nightly,
-        raw_payload: res,
-      });
+    for (let slot = 0; slot < slots.length; slot += 1) {
+      const entry = slots[slot];
+      const roomId = roomIds[slot];
+      const externalRoomTypeId =
+        (entry ? firstString(entry, ROOM_TYPE_KEYS) : null) ?? bookingRoomTypeId;
+
+      for (const night of nights) {
+        const nightly =
+          (detailRates && Number.isFinite(detailRates[night])
+            ? detailRates[night]
+            : fallbackNightly) ?? null;
+        const key = `${roomId}:${night}`;
+        if (byStayNight.has(key)) stats.duplicateStayNightKeysMerged += 1;
+        byStayNight.set(key, {
+          external_reservation_id: roomId,
+          external_room_type_id: externalRoomTypeId,
+          stay_date: night,
+          booking_date: bookingDate,
+          booking_window_days: bookingDate ? bookingWindowFor(bookingDate, night) : null,
+          current_rate: nightly,
+          raw_payload: redactCloudbedsPayload(res),
+        });
+      }
     }
   }
 
@@ -255,9 +377,9 @@ export function parseCloudbedsReservations(
  * Cloudbeds' reservation list is minimal (no room type, no nightly rate); the
  * detail payload carries `assigned[]`, one entry per physical room, each with a
  * `roomTypeID` and a `dailyRates: [{date, rate}]` array. We emit one booked
- * room-night per (assigned room, date) so occupancy counts and nightly rates
- * are correct. `external_reservation_id` uses the per-room `subReservationID`
- * so each physical room is tracked independently.
+ * room-night per (assigned room, date) so occupancy counts and nightly rates are
+ * correct, keyed by cloudbedsRoomRowIds so each physical room is tracked
+ * independently and the list path lands on these same rows.
  *
  * Verified against the live sandbox getReservation response.
  */
@@ -271,16 +393,16 @@ export function parseCloudbedsReservationDetail(detail: Json): {
   const bookingDate = toYmd(firstString(detail, ["dateCreated", "created", "bookingDate"]) ?? "");
 
   const rows: CloudbedsParsedReservationRow[] = [];
-  // Prefer `assigned[]` (has dailyRates); fall back to guestList[].rooms if absent.
-  const assigned = Array.isArray(detail.assigned) ? (detail.assigned as Json[]) : [];
+  // Without a parent id there is no namespace to key rooms in, and a row keyed by
+  // a bare roomID belongs to the room rather than to this booking.
+  const slots = reservationId ? cloudbedsRoomSlots(detail) : [];
+  const roomIds = reservationId ? cloudbedsRoomRowIds(reservationId, slots) : [];
 
-  for (const entry of assigned) {
-    if (!entry || typeof entry !== "object") continue;
-    const room = entry as Json;
-    const rtId = firstString(room, ["roomTypeID", "roomTypeId"]);
-    const subId =
-      firstString(room, ["subReservationID", "reservationRoomID", "roomID"]) ?? reservationId;
-    if (!subId) continue;
+  for (let slot = 0; slot < slots.length; slot += 1) {
+    const room = slots[slot];
+    if (!room) continue;
+    const rtId = firstString(room, ROOM_TYPE_KEYS);
+    const subId = roomIds[slot];
 
     const daily = Array.isArray(room.dailyRates) ? (room.dailyRates as Json[]) : [];
     for (const dr of daily) {
@@ -290,21 +412,14 @@ export function parseCloudbedsReservationDetail(detail: Json): {
       if (!stay) continue;
       const rate = firstNumber(d, ["rate", "amount", "roomRate", "price"]);
 
-      let bookingWindowDays: number | null = null;
-      if (bookingDate) {
-        const a = new Date(`${stay}T00:00:00Z`).getTime();
-        const b = new Date(`${bookingDate}T00:00:00Z`).getTime();
-        bookingWindowDays = Math.max(0, Math.round((a - b) / 86_400_000));
-      }
-
       rows.push({
-        external_reservation_id: String(subId),
+        external_reservation_id: subId,
         external_room_type_id: rtId,
         stay_date: stay,
         booking_date: bookingDate,
-        booking_window_days: bookingWindowDays,
+        booking_window_days: bookingDate ? bookingWindowFor(bookingDate, stay) : null,
         current_rate: rate,
-        raw_payload: room,
+        raw_payload: redactCloudbedsPayload(room),
       });
     }
   }

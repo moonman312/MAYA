@@ -1,6 +1,6 @@
 export {
   mewsConfigurationGet,
-  mewsFetchReservationsRange,
+  mewsWalkReservationWindows,
   mewsPost,
   MewsHttpError,
   parseRetryAfterMs,

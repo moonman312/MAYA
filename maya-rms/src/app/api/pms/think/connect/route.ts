@@ -4,9 +4,15 @@ import { NextResponse } from "next/server";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
+
+  // Onboarding: no hotel exists yet — the callback creates it from PMS data.
+  if (url.searchParams.get("intent") === "onboarding") {
+    return buildAuthorizeRedirect(await cookies(), "think", { kind: "onboarding" });
+  }
+
   const hotelId = url.searchParams.get("hotelId");
   if (!hotelId) {
     return NextResponse.json({ error: "hotelId query param required" }, { status: 400 });
   }
-  return buildAuthorizeRedirect(await cookies(), "think", hotelId);
+  return buildAuthorizeRedirect(await cookies(), "think", { kind: "hotel", hotelId });
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import type { HotelRole } from "@/lib/admin/types";
+import { HOTEL_ROLES } from "@/lib/roles";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -199,7 +200,7 @@ export function CreateHotelWizard() {
               type="button"
               disabled={!canNext1}
               onClick={() => setStep(2)}
-              className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 disabled:opacity-60"
+              className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400 disabled:opacity-60"
             >
               Next
             </button>
@@ -347,7 +348,7 @@ export function CreateHotelWizard() {
               type="button"
               disabled={!canNextPms}
               onClick={() => setStep(3)}
-              className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 disabled:opacity-60"
+              className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400 disabled:opacity-60"
             >
               Next
             </button>
@@ -372,10 +373,11 @@ export function CreateHotelWizard() {
               onChange={(e) => setInvite({ ...invite, role: e.target.value as HotelRole })}
               className="w-full rounded bg-slate-950 p-2 text-sm text-slate-100"
             >
-              <option value="hotel_admin">hotel admin</option>
-              <option value="manager">manager</option>
-              <option value="staff">staff</option>
-              <option value="viewer">viewer</option>
+              {HOTEL_ROLES.map((r) => (
+                <option key={r.key} value={r.key}>
+                  {r.label}
+                </option>
+              ))}
             </select>
           </Field>
           <p className="text-xs text-slate-500">
@@ -395,7 +397,7 @@ export function CreateHotelWizard() {
               type="button"
               onClick={submit}
               disabled={pending || !canSubmit}
-              className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 disabled:opacity-60"
+              className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400 disabled:opacity-60"
             >
               {pending ? "Creating…" : "Create hotel"}
             </button>
@@ -419,7 +421,7 @@ function StepIndicator({ step }: { step: Step }) {
             <span
               className={`flex h-6 w-6 items-center justify-center rounded-full border text-xs ${
                 active
-                  ? "border-sky-500 bg-sky-500 text-white"
+                  ? "border-sky-500 bg-sky-500 text-slate-950"
                   : done
                   ? "border-emerald-500/50 bg-emerald-500/20 text-emerald-300"
                   : "border-slate-700 text-slate-500"

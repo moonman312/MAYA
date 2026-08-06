@@ -15,12 +15,16 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 const STATE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
-type StatePayload = {
-  hotelId: string;
-  pmsType: string;
-  nonce: string;
-  exp: number;
-};
+/**
+ * Two intents:
+ * - "hotel": admin connecting a PMS to an existing hotel (the original flow).
+ * - "onboarding": a new user with NO hotel yet — the callback creates the
+ *   hotel from PMS data, so state carries the user id instead.
+ * Legacy states without an `intent` field verify as "hotel".
+ */
+type StatePayload =
+  | { intent?: "hotel"; hotelId: string; pmsType: string; nonce: string; exp: number }
+  | { intent: "onboarding"; userId: string; pmsType: string; nonce: string; exp: number };
 
 function base64url(buf: Buffer): string {
   return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -53,20 +57,36 @@ function getSecret(): Buffer {
   return Buffer.from(raw, "utf-8");
 }
 
-export function signState(hotelId: string, pmsType: string): string {
-  const payload: StatePayload = {
-    hotelId,
-    pmsType,
-    nonce: randomBytes(16).toString("hex"),
-    exp: Date.now() + STATE_TTL_MS,
-  };
+function signPayload(payload: StatePayload): string {
   const payloadBuf = Buffer.from(JSON.stringify(payload), "utf-8");
   const sig = createHmac("sha256", getSecret()).update(payloadBuf).digest();
   return `${base64url(payloadBuf)}.${base64url(sig)}`;
 }
 
+export function signState(hotelId: string, pmsType: string): string {
+  return signPayload({
+    intent: "hotel",
+    hotelId,
+    pmsType,
+    nonce: randomBytes(16).toString("hex"),
+    exp: Date.now() + STATE_TTL_MS,
+  });
+}
+
+/** Onboarding variant: no hotel exists yet, so state carries the user id. */
+export function signOnboardingState(userId: string, pmsType: string): string {
+  return signPayload({
+    intent: "onboarding",
+    userId,
+    pmsType,
+    nonce: randomBytes(16).toString("hex"),
+    exp: Date.now() + STATE_TTL_MS,
+  });
+}
+
 export type StateVerification =
-  | { ok: true; hotelId: string; pmsType: string }
+  | { ok: true; intent: "hotel"; hotelId: string; pmsType: string }
+  | { ok: true; intent: "onboarding"; userId: string; pmsType: string }
   | { ok: false; error: string };
 
 export function verifyState(state: string, expectedPmsType: string): StateVerification {
@@ -101,9 +121,17 @@ export function verifyState(state: string, expectedPmsType: string): StateVerifi
   if (typeof payload.exp !== "number" || payload.exp < Date.now()) {
     return { ok: false, error: "State expired" };
   }
+
+  if (payload.intent === "onboarding") {
+    if (typeof payload.userId !== "string" || !payload.userId) {
+      return { ok: false, error: "State missing userId" };
+    }
+    return { ok: true, intent: "onboarding", userId: payload.userId, pmsType: payload.pmsType };
+  }
+
+  // "hotel" intent, including legacy states with no intent field.
   if (typeof payload.hotelId !== "string" || !payload.hotelId) {
     return { ok: false, error: "State missing hotelId" };
   }
-
-  return { ok: true, hotelId: payload.hotelId, pmsType: payload.pmsType };
+  return { ok: true, intent: "hotel", hotelId: payload.hotelId, pmsType: payload.pmsType };
 }

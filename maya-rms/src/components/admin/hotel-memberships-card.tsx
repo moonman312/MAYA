@@ -6,10 +6,9 @@ import type {
   AdminPendingInviteRow,
   HotelRole,
 } from "@/lib/admin/types";
+import { HOTEL_ROLES } from "@/lib/roles";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-
-const ROLES: HotelRole[] = ["hotel_admin", "manager", "staff", "viewer"];
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString();
@@ -135,9 +134,9 @@ export function HotelMembershipsCard({
           onChange={(e) => setInviteRole(e.target.value as HotelRole)}
           className="rounded bg-slate-950 p-2 text-sm text-slate-100"
         >
-          {ROLES.map((r) => (
-            <option key={r} value={r}>
-              {r.replace("_", " ")}
+          {HOTEL_ROLES.map((r) => (
+            <option key={r.key} value={r.key}>
+              {r.label}
             </option>
           ))}
         </select>
@@ -145,7 +144,7 @@ export function HotelMembershipsCard({
           type="button"
           onClick={invite}
           disabled={pending || !inviteEmail}
-          className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 disabled:opacity-60"
+          className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400 disabled:opacity-60"
         >
           Invite
         </button>
@@ -177,9 +176,9 @@ export function HotelMembershipsCard({
                   disabled={pending}
                   className="rounded bg-slate-950 p-1 text-xs text-slate-100"
                 >
-                  {ROLES.map((r) => (
-                    <option key={r} value={r}>
-                      {r.replace("_", " ")}
+                  {HOTEL_ROLES.map((r) => (
+                    <option key={r.key} value={r.key}>
+                      {r.label}
                     </option>
                   ))}
                 </select>

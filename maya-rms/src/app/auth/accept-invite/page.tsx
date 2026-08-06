@@ -185,7 +185,7 @@ function AcceptInviteContent() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 disabled:opacity-60"
+                className="w-full rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400 disabled:opacity-60"
               >
                 {loading ? "Setting password…" : "Set password & continue"}
               </button>

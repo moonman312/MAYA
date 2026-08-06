@@ -1,7 +1,8 @@
 import { mewsConfigurationGet } from "@/lib/mews/client";
-import { requireSupabaseHotel } from "@/lib/require-supabase-hotel";
+import { requireSupabaseHotelRank } from "@/lib/require-supabase-hotel";
 import { resolveMewsCredentials, summarizeEnterprise } from "@/lib/mews/resolve-credentials";
 import type { MewsCredentialsInput } from "@/lib/mews/types";
+import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -11,8 +12,15 @@ type Body = {
 
 export async function POST(req: Request) {
   try {
-    const ctx = await requireSupabaseHotel(await cookies());
+    const ctx = await requireSupabaseHotelRank(await cookies(), "revenue_manager");
     if (!ctx.ok) return ctx.response;
+
+    if (!isAdminConfigured()) {
+      return NextResponse.json(
+        { error: "Connection test needs SUPABASE_SERVICE_ROLE_KEY set on the server." },
+        { status: 503 },
+      );
+    }
 
     let body: Body = {};
     try {
@@ -22,7 +30,11 @@ export async function POST(req: Request) {
       body = {};
     }
 
-    const resolved = await resolveMewsCredentials(ctx.supabase, ctx.hotelId, body.mews ?? null);
+    // Service-role client: pms_secret_get is service-role-only and the
+    // pms_connections stamp is GM-gated under RLS. The rank gate above is
+    // the authorization.
+    const admin = createAdminClient();
+    const resolved = await resolveMewsCredentials(admin, ctx.hotelId, body.mews ?? null);
     if ("error" in resolved) {
       return NextResponse.json({ error: resolved.error }, { status: 400 });
     }
@@ -31,7 +43,7 @@ export async function POST(req: Request) {
     const enterprise = summarizeEnterprise(config);
 
     if (resolved.connectionId) {
-      await ctx.supabase
+      await admin
         .from("pms_connections")
         .update({
           status: "connected",

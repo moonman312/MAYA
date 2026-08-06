@@ -3,6 +3,7 @@
  * Deno-portable copy of src/lib/engine/conditions.ts (import paths only differ).
  */
 
+import { bookingSpeedRank, isBookingSpeed } from "../observations/booking-speed.ts";
 import type { EngineRule } from "./domain.ts";
 import type { RuleMetrics } from "./types.ts";
 
@@ -27,6 +28,18 @@ export function ruleConditionsMatch(rule: EngineRule, metrics: RuleMetrics): boo
     if (!compare(pickupVal, c.pickup_operator, c.pickup_threshold!)) return false;
   }
 
+  if (c.booking_speed_operator) {
+    // No usable history means "we don't know", never "condition met" — a
+    // rule must not fire off an observation the engine couldn't make.
+    if (metrics.booking_speed_block_reason) return false;
+    const bs = metrics.booking_speed;
+    if (!bs || !isBookingSpeed(c.booking_speed_level)) return false;
+    const target = bookingSpeedRank(c.booking_speed_level);
+    if (c.booking_speed_operator === "at_least" && bs.rank < target) return false;
+    if (c.booking_speed_operator === "at_most" && bs.rank > target) return false;
+    if (c.booking_speed_operator === "is" && bs.rank !== target) return false;
+  }
+
   return true;
 }
 
@@ -42,5 +55,6 @@ export function conditionCount(rule: EngineRule): number {
   if (rule.condition.occupancy_operator) count++;
   if (rule.condition.dta_operator) count++;
   if (rule.condition.pickup_operator) count++;
+  if (rule.condition.booking_speed_operator) count++;
   return count;
 }

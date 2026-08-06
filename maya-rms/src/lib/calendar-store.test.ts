@@ -9,9 +9,24 @@ describe("getCalendar (demo mode — no Supabase)", () => {
     expect(cal.year).toBe(2026);
     expect(cal.month).toBe(3);
     expect(cal.days_in_month).toBe(31);
-    expect(cal.thresholds).toEqual({ low: 60, high: 80 });
+    expect(cal.thresholds).toMatchObject({ low: 60, high: 80, basis: "revpar" });
     expect(cal.month_name).toContain("March");
     expect(cal.month_name).toContain("2026");
+  });
+
+  it("exposes RevPAR tercile thresholds for past and future", async () => {
+    const cal = await getCalendar(2026, 3);
+    for (const side of [cal.thresholds.past, cal.thresholds.future]) {
+      expect(side.p33).toBeGreaterThan(0);
+      expect(side.p67).toBeGreaterThanOrEqual(side.p33);
+    }
+  });
+
+  it("reports a navigable range spanning the demo window", async () => {
+    const cal = await getCalendar(2026, 3);
+    expect(cal.range.min).toMatch(/^\d{4}-\d{2}$/);
+    expect(cal.range.max).toMatch(/^\d{4}-\d{2}$/);
+    expect(cal.range.min < cal.range.max).toBe(true);
   });
 
   it("has an entry for every day of the month", async () => {
@@ -46,6 +61,27 @@ describe("getCalendar (demo mode — no Supabase)", () => {
     expect(day).toHaveProperty("revenue");
     expect(day).toHaveProperty("weekday");
     expect(day).toHaveProperty("room_types");
+    expect(day).toHaveProperty("revpar");
+    expect(day).toHaveProperty("color");
+  });
+
+  it("each day carries a RevPAR consistent with its revenue and a valid color", async () => {
+    const cal = await getCalendar(2026, 6);
+    for (const key of Object.keys(cal.days)) {
+      const day = cal.days[key];
+      expect(day.revpar).toBe(Math.round((day.revenue / day.total) * 100) / 100);
+      expect(["green", "orange", "red"]).toContain(day.color);
+    }
+  });
+
+  it("every room type entry carries a numeric current_rate in demo mode", async () => {
+    const cal = await getCalendar(2026, 6);
+    for (const key of Object.keys(cal.days)) {
+      for (const rt of cal.days[key].room_types) {
+        expect(typeof rt.current_rate).toBe("number");
+        expect(rt.current_rate).toBeGreaterThan(0);
+      }
+    }
   });
 
   it("weekday names are valid", async () => {
@@ -142,5 +178,81 @@ describe("getCalendar (demo mode — no Supabase)", () => {
     expect(b.month).toBe(4);
     expect(a.days_in_month).toBe(31);
     expect(b.days_in_month).toBe(30);
+  });
+});
+
+describe("createTtlCache", () => {
+  it("serves the cached value within the TTL and reloads after expiry", async () => {
+    let clock = 0;
+    let loads = 0;
+    const { createTtlCache } = await import("./calendar-store");
+    const cache = createTtlCache<number>(5000, () => clock);
+    const loader = async () => {
+      loads += 1;
+      return loads;
+    };
+
+    expect(await cache.getOrLoad("hotel-a", loader)).toBe(1);
+    clock = 4999; // still fresh
+    expect(await cache.getOrLoad("hotel-a", loader)).toBe(1);
+    expect(loads).toBe(1);
+
+    clock = 5001; // expired
+    expect(await cache.getOrLoad("hotel-a", loader)).toBe(2);
+    expect(loads).toBe(2);
+  });
+
+  it("caches per key — one hotel's history never leaks to another", async () => {
+    const { createTtlCache } = await import("./calendar-store");
+    const cache = createTtlCache<string>(5000, () => 0);
+    expect(await cache.getOrLoad("hotel-a", async () => "a")).toBe("a");
+    expect(await cache.getOrLoad("hotel-b", async () => "b")).toBe("b");
+    expect(await cache.getOrLoad("hotel-a", async () => "never")).toBe("a");
+  });
+
+  it("clear() forces the next read to reload", async () => {
+    const { createTtlCache } = await import("./calendar-store");
+    const cache = createTtlCache<number>(5000, () => 0);
+    let loads = 0;
+    const loader = async () => ++loads;
+    await cache.getOrLoad("k", loader);
+    cache.clear();
+    await cache.getOrLoad("k", loader);
+    expect(loads).toBe(2);
+  });
+});
+
+describe("createTtlCache stampede protection", () => {
+  it("concurrent misses share one loader call", async () => {
+    const { createTtlCache } = await import("./calendar-store");
+    const cache = createTtlCache<number>(5000, () => 0);
+    let loads = 0;
+    const slowLoader = () =>
+      new Promise<number>((resolve) => setTimeout(() => resolve(++loads), 20));
+
+    const results = await Promise.all([
+      cache.getOrLoad("k", slowLoader),
+      cache.getOrLoad("k", slowLoader),
+      cache.getOrLoad("k", slowLoader),
+      cache.getOrLoad("k", slowLoader),
+      cache.getOrLoad("k", slowLoader),
+      cache.getOrLoad("k", slowLoader),
+    ]);
+
+    expect(loads).toBe(1);
+    expect(results).toEqual([1, 1, 1, 1, 1, 1]);
+  });
+
+  it("a failed load is not cached — the next call retries", async () => {
+    const { createTtlCache } = await import("./calendar-store");
+    const cache = createTtlCache<number>(5000, () => 0);
+    let calls = 0;
+    const flaky = async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("transient");
+      return 42;
+    };
+    await expect(cache.getOrLoad("k", flaky)).rejects.toThrow("transient");
+    expect(await cache.getOrLoad("k", flaky)).toBe(42);
   });
 });
