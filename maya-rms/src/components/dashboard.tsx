@@ -1,10 +1,13 @@
 "use client";
 
 import { AskForHelp } from "@/components/onboarding/ask-for-help";
+import { BillingBanner } from "@/components/billing/billing-banner";
+import { PmsReconnect } from "@/components/pms-reconnect";
 import { OnboardingReviewBanner } from "@/components/onboarding/review-banner";
 import { CorrectionsPanel, ExplainDrilldown } from "@/components/explain-drilldown";
 import { useCalendarLive } from "@/lib/use-calendar-live";
 import { PropertySelect } from "@/components/property-select";
+import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { SAMPLE_RESERVATIONS } from "@/lib/demo-data";
 import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
@@ -162,6 +165,8 @@ type PmsActivity = {
     last_sync_at: string | null;
     last_tested_at: string | null;
   } | null;
+  /** How this PMS authenticates — decides whether reconnecting is one click. */
+  pms: { authKind: string; displayName: string; canManage: boolean } | null;
   health: {
     state: "healthy" | "degraded" | "down" | "unknown";
     successRate: number | null;
@@ -783,6 +788,18 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                   Command Center
                 </a>
               ) : null}
+              <a
+                href="/account/billing"
+                className="w-full cursor-pointer rounded border border-slate-700 px-3 py-2 text-center text-sm text-slate-200 hover:bg-slate-800 sm:w-auto"
+              >
+                Billing
+              </a>
+              <a
+                href="/account/team"
+                className="w-full cursor-pointer rounded border border-slate-700 px-3 py-2 text-center text-sm text-slate-200 hover:bg-slate-800 sm:w-auto"
+              >
+                Team
+              </a>
               <form action="/auth/logout" method="post">
                 <button
                   type="submit"
@@ -802,7 +819,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                 key={item.key}
                 className={`cursor-pointer rounded-md px-4 py-2 text-sm font-medium transition ${
                   tab === item.key
-                    ? "bg-sky-500 text-white"
+                    ? "bg-sky-500 text-slate-950"
                     : "bg-slate-800 hover:bg-slate-700"
                 }`}
                 onClick={() => setTab(item.key)}
@@ -823,6 +840,22 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
             </div>
           ) : null}
         </div>
+
+        <BillingBanner />
+
+        {pmsActivity?.connection && pmsActivity.pms ? (
+          <div className="mb-6">
+            <PmsReconnect
+              hotelId={activeHotelId}
+              pmsType={pmsActivity.connection.pms_type}
+              status={pmsActivity.connection.status ?? "unknown"}
+              authKind={pmsActivity.pms.authKind}
+              displayName={pmsActivity.pms.displayName}
+              canManage={pmsActivity.pms.canManage}
+              placement="banner"
+            />
+          </div>
+        ) : null}
 
         <OnboardingReviewBanner />
 
@@ -1063,6 +1096,8 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                 ))}
               </div>
             </div>
+
+            <RuleBehaviorAnimations />
 
             <div className="overflow-x-auto">
               <table className="w-full min-w-[720px] border-collapse text-sm">
@@ -1580,7 +1615,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
 
               <button
                 type="submit"
-                className="cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400"
+                className="cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400"
               >
                 Add Rule
               </button>
@@ -1594,7 +1629,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
           <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
             <h2 className="text-lg font-semibold">Rate Simulator</h2>
             <button
-              className="cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400"
+              className="cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400"
               onClick={runSimulation}
             >
               Run Simulation
@@ -1782,6 +1817,16 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
               </p>
             ) : (
               <>
+                {pmsActivity.pms ? (
+                  <PmsReconnect
+                    hotelId={activeHotelId}
+                    pmsType={pmsActivity.connection.pms_type}
+                    status={pmsActivity.connection.status ?? "unknown"}
+                    authKind={pmsActivity.pms.authKind}
+                    displayName={pmsActivity.pms.displayName}
+                    canManage={pmsActivity.pms.canManage}
+                  />
+                ) : null}
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="space-y-1.5 rounded border border-slate-800 bg-slate-950 p-4">
                     <div className="text-xs text-slate-500">Connection</div>

@@ -1,0 +1,78 @@
+-- Example: schedule room-count truing.
+--
+-- Like the card check next door, this posts to the Next.js app rather than an
+-- Edge Function: raising a subscription's quantity needs the same Stripe client
+-- the rest of billing uses (src/lib/billing/*).
+--
+-- ONE cron entry drives two things, in this order, every run:
+--   1. Email anyone newly found billing for fewer rooms than they run.
+--   2. Correct anyone whose seven-day grace has expired AND who was emailed
+--      about that exact number.
+--
+-- The ordering is the safety property. A property is never charged more in an
+-- invocation where its warning did not go out — trueUpOne refuses to act until
+-- room_shortfall_notified_rooms matches the current measurement, so a Resend
+-- outage or a customer with no email address delays the correction rather than
+-- delivering a surprise invoice.
+--
+-- Daily is deliberate. The grace period is measured in days, so a faster cron
+-- buys nothing, and this is the one job in the system that increases what a
+-- customer pays — a low frequency keeps the blast radius of a bug small and
+-- gives you a whole day to notice it in the logs.
+--
+-- Prereqs: extensions `pg_cron`, `pg_net`; Vault secrets. Reuses the SAME
+-- billing_cron_secret as the card check.
+--
+-- 0) Ensure extensions exist:
+--    create extension if not exists pg_net;
+--    create extension if not exists pg_cron;
+--
+-- 1) Secrets (both already exist if the card check is scheduled):
+--    select vault.create_secret('https://maya.your-domain.com', 'maya_app_url');
+--    select vault.create_secret('<long-random-string>', 'billing_cron_secret');
+--
+-- 2) App env (Vercel → Environment Variables, Production + Preview):
+--    BILLING_CRON_SECRET, STRIPE_SECRET_KEY, SUPABASE_SERVICE_ROLE_KEY,
+--    NEXT_PUBLIC_SUPABASE_URL, RESEND_API_KEY, MAYA_INVITE_REDIRECT_BASE
+--
+--    RESEND_API_KEY and MAYA_INVITE_REDIRECT_BASE are not optional here. Without
+--    either, the warning cannot be sent — and because nothing is corrected
+--    unwarned, the sweep will measure, log, and change nobody's bill.
+--
+-- 3) Schedule (09:20 UTC daily):
+--    select cron.schedule(
+--      'billing-room-truing',
+--      '20 9 * * *',
+--      $$
+--      select net.http_post(
+--        url := (select decrypted_secret from vault.decrypted_secrets where name = 'maya_app_url')
+--               || '/api/billing/room-truing',
+--        headers := jsonb_build_object(
+--          'Content-Type', 'application/json',
+--          'x-billing-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'billing_cron_secret')
+--        ),
+--        body := jsonb_build_object('scheduled_at', now())
+--      ) as request_id;
+--      $$
+--    );
+--
+-- Inspect:    select jobid, jobname, schedule, active from cron.job;
+-- Runs log:   select * from cron.job_run_details order by start_time desc limit 20;
+-- Unschedule: select cron.unschedule('billing-room-truing');
+--
+-- Who is currently short, and where each one is in the process. notified_rooms
+-- matching measured_rooms is what makes a row eligible for correction:
+--   select hotel_id, billed_rooms, measured_rooms, measured_rooms_at,
+--          room_shortfall_since, room_shortfall_notified_at,
+--          room_shortfall_notified_rooms, room_corrected_at
+--     from hotel_subscriptions
+--    where room_shortfall_since is not null
+--       or room_corrected_at is not null
+--    order by room_shortfall_since nulls last;
+--
+-- Properties paying for MORE rooms than they run. Deliberately never corrected
+-- automatically — a room type off for a refurbishment would cut the bill without
+-- anyone asking — but worth a look before a renewal:
+--   select hotel_id, billed_rooms, measured_rooms
+--     from hotel_subscriptions
+--    where measured_rooms is not null and measured_rooms < billed_rooms;

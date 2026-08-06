@@ -12,6 +12,8 @@
  *     is enabled, so deploying the code changes nothing until you opt in.
  *   • Idempotency — a cell is skipped when the ledger already recorded a 'sent'
  *     push at the same price, so we never spam unchanged rates.
+ *   • Give-up — a cell the PMS has rejected MAX_PUSH_ATTEMPTS times at the
+ *     same price is retired until the engine publishes a different number.
  *   • Target freshness — the cached room-type→rate map is re-resolved whenever a
  *     cell it doesn't cover shows up, and dropped after a push rejection, so a
  *     new room type or a rebuilt rate catalog heals on the next tick.
@@ -62,7 +64,16 @@ export type RatePushSummary =
       failed: number;
       skippedUnchanged: number;
       skippedNoTarget: number;
+      skippedExhausted: number;
     };
+
+/**
+ * Rejected writes stop being retried at this many attempts per price. A rate
+ * plan that has refused the same number this often will not take it on the
+ * next tick either — without a ceiling every cell it rejects is re-sent every
+ * tick, forever. A new engine price starts the count over.
+ */
+const MAX_PUSH_ATTEMPTS = 10;
 
 // deno-lint-ignore no-explicit-any
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -144,7 +155,7 @@ export async function pushRatesForHotel(
   const ledgerRows = await fetchAll(() =>
     supabase
       .from("rate_updates")
-      .select("room_type_id, stay_date, price, status")
+      .select("room_type_id, stay_date, price, status, attempts")
       .eq("hotel_id", hotelId)
       .gte("stay_date", firstDate)
       .lte("stay_date", lastDate)
@@ -152,14 +163,19 @@ export async function pushRatesForHotel(
       .order("room_type_id", { ascending: true }),
   );
   const lastSent = new Map<string, number>();
+  const lastFailed = new Map<string, { price: number; attempts: number }>();
   for (const l of ledgerRows) {
+    const key = `${l.stay_date}|${String(l.room_type_id)}`;
     if (l.status === "sent" && l.price != null) {
-      lastSent.set(`${l.stay_date}|${String(l.room_type_id)}`, Number(l.price));
+      lastSent.set(key, Number(l.price));
+    } else if (l.status === "failed" && l.price != null) {
+      lastFailed.set(key, { price: Number(l.price), attempts: Number(l.attempts) || 1 });
     }
   }
 
   // ── Which cells changed since the last successful push? ───────────────────
   const changed: RateCell[] = [];
+  let skippedExhausted = 0;
   for (const p of ppRows) {
     const roomTypeId = String(p.room_type_id);
     const ext = extByRoomType.get(roomTypeId);
@@ -167,9 +183,14 @@ export async function pushRatesForHotel(
     const price = Number(p.price);
     const key = `${p.stay_date}|${roomTypeId}`;
     if (lastSent.get(key) === price) continue; // unchanged since last send
+    const failed = lastFailed.get(key);
+    if (failed && failed.price === price && failed.attempts >= MAX_PUSH_ATTEMPTS) {
+      skippedExhausted += 1;
+      continue;
+    }
     changed.push({ stayDate: String(p.stay_date), roomTypeId, externalRoomTypeId: ext, price });
   }
-  const skippedUnchanged = ppRows.length - changed.length;
+  const skippedUnchanged = ppRows.length - changed.length - skippedExhausted;
   if (changed.length === 0) {
     return {
       pushed: true,
@@ -178,6 +199,7 @@ export async function pushRatesForHotel(
       failed: 0,
       skippedUnchanged,
       skippedNoTarget: 0,
+      skippedExhausted,
     };
   }
 
@@ -241,6 +263,7 @@ export async function pushRatesForHotel(
   // ── Record ledger (upsert latest state per cell) ──────────────────────────
   const ledgerUpserts: Record<string, unknown>[] = [];
   for (const r of results) {
+    const prior = lastFailed.get(`${r.cell.stayDate}|${r.cell.roomTypeId}`);
     ledgerUpserts.push({
       hotel_id: hotelId,
       pms_type: adapter.pmsType,
@@ -252,6 +275,9 @@ export async function pushRatesForHotel(
       status: r.ok ? "sent" : "failed",
       pms_job_reference: r.jobReference ?? null,
       error: r.ok ? null : (r.error ?? "push failed"),
+      // Counted per price, so MAX_PUSH_ATTEMPTS can retire a cell the PMS
+      // keeps rejecting without ever giving up on a freshly computed number.
+      attempts: r.ok ? 1 : prior && prior.price === r.cell.price ? prior.attempts + 1 : 1,
       pushed_at: nowIso,
     });
   }
@@ -266,6 +292,7 @@ export async function pushRatesForHotel(
       external_rate_id: null,
       status: "skipped",
       error: "no rate target for room type",
+      attempts: 1,
       pushed_at: nowIso,
     });
   }
@@ -296,5 +323,6 @@ export async function pushRatesForHotel(
     failed,
     skippedUnchanged,
     skippedNoTarget: noTarget.length,
+    skippedExhausted,
   };
 }

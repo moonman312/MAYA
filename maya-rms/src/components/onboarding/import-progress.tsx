@@ -69,8 +69,12 @@ export function ImportProgressBar({ status }: { status: OnboardingStatus | null 
 
   const finished = job.status === "completed";
   const failed = job.status === "failed";
+  // "failed" is where the worker gave up, not where it is still trying —
+  // promising more retries there leaves someone waiting on a thing that has
+  // already stopped. Everything before it (queued, running) genuinely does
+  // retry, and says so by simply continuing to show progress.
   const label = failed
-    ? "Import hit a snag — we'll keep retrying"
+    ? "Import stopped — we've been told, and we'll pick it up"
     : finished
       ? "Import complete"
       : PHASE_LABELS[job.phase] ?? "Working…";
@@ -91,7 +95,7 @@ export function ImportProgressBar({ status }: { status: OnboardingStatus | null 
           )}
           <span className="text-xs font-medium text-slate-300">{label}</span>
         </div>
-        <span className="text-[11px] tabular-nums text-slate-500">
+        <span className="text-[11px] tabular-nums text-slate-400">
           {job.rows_upserted.toLocaleString()} room-nights
           {job.oldest_stay_date ? ` · back to ${job.oldest_stay_date.slice(0, 7)}` : ""}
         </span>

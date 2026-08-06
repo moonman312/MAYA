@@ -3,9 +3,12 @@
 import type { PmsRegistryStatus } from "@/lib/pms/registry";
 
 /**
- * PMS picker for the guided path. Options come from the registry — a PMS
+ * PMS picker, straight after payment. Options come from the registry — a PMS
  * shows as connectable only when it has an onboarding adapter AND its env
  * is configured; everything else renders as "coming soon".
+ *
+ * There is no way back from here on purpose: the payment is done, and the only
+ * thing left before MAYA can do anything is knowing where the bookings live.
  */
 export function ConnectPms({ pmsOptions }: { pmsOptions: PmsRegistryStatus[] }) {
   const available = pmsOptions.filter((p) => p.onboardingSupported && p.configured);
@@ -17,8 +20,9 @@ export function ConnectPms({ pmsOptions }: { pmsOptions: PmsRegistryStatus[] }) 
         Connect your property system
       </h1>
       <p className="mt-3 max-w-lg text-center text-sm leading-relaxed text-slate-400">
-        Pick the system you use to manage bookings. You&apos;ll sign in on
-        their site and be brought right back — no copying and pasting keys.
+        Last thing. Pick your property management system, sign in on their
+        site, and you&apos;ll be brought right back — no keys to copy, nothing
+        to configure on their end.
       </p>
 
       {/* What happens when you connect */}
@@ -46,7 +50,7 @@ export function ConnectPms({ pmsOptions }: { pmsOptions: PmsRegistryStatus[] }) 
               <div className="text-sm font-semibold text-slate-100">
                 {pms.displayName}
               </div>
-              <div className="text-[11px] text-slate-500">
+              <div className="text-[11px] text-slate-400">
                 Sign in with your {pms.displayName} account
               </div>
             </div>
@@ -82,13 +86,6 @@ export function ConnectPms({ pmsOptions }: { pmsOptions: PmsRegistryStatus[] }) 
           </div>
         ) : null}
       </div>
-
-      <a
-        href="/onboarding"
-        className="mt-8 text-xs text-slate-500 hover:text-slate-300"
-      >
-        ← Back
-      </a>
     </div>
   );
 }

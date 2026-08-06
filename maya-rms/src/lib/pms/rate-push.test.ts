@@ -241,3 +241,61 @@ describe("pushRatesForHotel rate-target cache lifecycle", () => {
     expect(db.connectionUpdates).toEqual([{ push_rate_targets: CACHED_TWO }]);
   });
 });
+
+describe("pushRatesForHotel retry ceiling", () => {
+  it("retires a cell the PMS has rejected too many times at one price", async () => {
+    // Failed cells never land in lastSent, so without the ceiling this one
+    // re-entered 'changed' and burned a doomed write on every tick, forever.
+    const db = makeSupabaseStub({
+      publishedPrice: PRICES_TWO,
+      roomTypes: ROOM_TYPES,
+      ledger: [
+        { stay_date: "2026-08-01", room_type_id: "rt-king", price: 210, status: "failed", attempts: 10 },
+      ],
+      connection: { id: "conn-1", push_rate_targets: { ...CACHED_TWO } },
+    });
+    const { adapter, attempts } = makeAdapter(CACHED_TWO);
+
+    const summary = await pushRatesForHotel(db.supabase, "hotel-1", adapter);
+
+    expect(summary).toMatchObject({ pushed: true, sent: 1, failed: 0, skippedExhausted: 1 });
+    expect(attempts.map((a) => a.externalRoomTypeId)).toEqual(["CB-QUEEN"]);
+  });
+
+  it("counts a repeat rejection at the same price against the ceiling", async () => {
+    const db = makeSupabaseStub({
+      publishedPrice: PRICES_TWO,
+      roomTypes: ROOM_TYPES,
+      ledger: [
+        { stay_date: "2026-08-01", room_type_id: "rt-king", price: 210, status: "failed", attempts: 3 },
+      ],
+      connection: { id: "conn-1", push_rate_targets: { ...CACHED_TWO } },
+    });
+    const { adapter } = makeAdapter(CACHED_TWO, "CB-KING");
+
+    await pushRatesForHotel(db.supabase, "hotel-1", adapter);
+
+    const kingLedger = db.ledgerUpserts.find((r) => r.room_type_id === "rt-king");
+    expect(kingLedger).toMatchObject({ status: "failed", attempts: 4 });
+  });
+
+  it("gives a freshly computed price its own attempts", async () => {
+    const db = makeSupabaseStub({
+      publishedPrice: PRICES_TWO, // king now at 210
+      roomTypes: ROOM_TYPES,
+      ledger: [
+        // Exhausted at the OLD price — the engine moved on, so the push must too.
+        { stay_date: "2026-08-01", room_type_id: "rt-king", price: 205, status: "failed", attempts: 10 },
+      ],
+      connection: { id: "conn-1", push_rate_targets: { ...CACHED_TWO } },
+    });
+    const { adapter, attempts } = makeAdapter(CACHED_TWO, "CB-KING");
+
+    const summary = await pushRatesForHotel(db.supabase, "hotel-1", adapter);
+
+    expect(summary).toMatchObject({ pushed: true, failed: 1, skippedExhausted: 0 });
+    expect(attempts.map((a) => a.externalRoomTypeId)).toContain("CB-KING");
+    const kingLedger = db.ledgerUpserts.find((r) => r.room_type_id === "rt-king");
+    expect(kingLedger).toMatchObject({ status: "failed", attempts: 1 });
+  });
+});

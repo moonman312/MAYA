@@ -1,4 +1,6 @@
+import { requireEntitledHotel } from "@/lib/billing/require-entitled";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
@@ -38,6 +40,19 @@ export async function POST() {
       { status: 403 },
     );
   }
+
+  const paid = await requireEntitledHotel(supabase, hotelId);
+  if (!paid.ok) return paid.response;
+
+  // A refresh fans out into a full PMS re-import — this hotel's own Cloudbeds
+  // or Mews allowance, spent hundreds of calls at a time. Same key and
+  // reasoning as the manual sync routes.
+  const throttled = await enforceRateLimit(
+    "reanalyse",
+    hotelId,
+    "An analysis was just run. Let that one finish before starting another.",
+  );
+  if (throttled) return throttled;
 
   // The hotel needs a connected PMS to re-pull from.
   const { data: conn } = await supabase

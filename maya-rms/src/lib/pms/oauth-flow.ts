@@ -1,7 +1,11 @@
 import "server-only";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { createClient as createSSRClient } from "@/utils/supabase/server";
+import { findPendingHotelForUser } from "@/lib/billing/pending-hotel";
+import { pmsSignupCodeRequired } from "@/lib/billing/pms-gates";
+import { isStripeConfigured } from "@/lib/billing/stripe";
 import { handleOnboardingConnect } from "@/lib/onboarding/connect";
+import { resolveOnboardingStep } from "@/lib/onboarding/step";
 import { pmsCallbackUrl, requireRegistry, type PmsType } from "@/lib/pms/registry";
 import { signOnboardingState, signState, verifyState } from "@/lib/pms/oauth-state";
 import { cookies } from "next/headers";
@@ -43,6 +47,67 @@ export async function buildAuthorizeRedirect(
     });
     if (!isAdmin && !canManage) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  } else {
+    // The paywall. Connecting a PMS is what turns a signup into a working
+    // property, so this endpoint is the thing payment actually gates — and it
+    // used to gate nothing but having an account, which /login hands out freely.
+    // Anyone who knew this URL got a permanent property for nothing.
+    //
+    // resolveOnboardingStep is asked rather than re-deriving it here: it is
+    // already the one agreed reading of where someone is in the flow, including
+    // the deliberate escape hatch for deployments with no Stripe keys. A fourth
+    // independent opinion about whether they have paid is how this got missed.
+    if ((await resolveOnboardingStep(ssr)) !== "connect") {
+      return NextResponse.json(
+        { error: "Payment is needed before connecting a PMS.", billingUrl: "/onboarding" },
+        { status: 402 },
+      );
+    }
+
+    // The access-code gate, per PMS (/admin/pms-access). Checkout only demands
+    // a code for the PMS the buyer DECLARED, so paying is not the same thing as
+    // being let into this one: declaring an open PMS and then connecting a
+    // gated one would otherwise walk straight past the gate. Enforced here and
+    // not again in the callback — the signed state the callback insists on is
+    // only ever minted below this line.
+    if (isStripeConfigured()) {
+      try {
+        const admin = createAdminClient();
+        if (await pmsSignupCodeRequired(admin, pmsType)) {
+          const pendingHotelId = await findPendingHotelForUser(admin, user.id);
+          const { data: sub } = pendingHotelId
+            ? await admin
+                .from("hotel_subscriptions")
+                .select("signup_code_id")
+                .eq("hotel_id", pendingHotelId)
+                .maybeSingle()
+            : { data: null };
+          if (!sub?.signup_code_id) {
+            const name = requireRegistry(pmsType).displayName;
+            return NextResponse.json(
+              {
+                error:
+                  `${name} needs an access code to connect. Use the system you ` +
+                  `signed up with, or get in touch and we'll sort you out.`,
+              },
+              { status: 403 },
+            );
+          }
+        }
+      } catch (e) {
+        console.error(
+          JSON.stringify({
+            fn: "buildAuthorizeRedirect",
+            step: "pms_gate",
+            error: e instanceof Error ? e.message : String(e),
+          }),
+        );
+        return NextResponse.json(
+          { error: "We couldn't verify your signup just now. Please try again in a moment." },
+          { status: 503 },
+        );
+      }
     }
   }
 

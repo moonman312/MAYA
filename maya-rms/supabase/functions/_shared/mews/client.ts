@@ -4,6 +4,7 @@ import {
   MEWS_RESERVATION_STATES,
 } from "./constants.ts";
 import type { ResolvedMewsCredentials } from "./types.ts";
+import { acquire, record } from "../pms/rate-limit.ts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -56,6 +57,16 @@ function mergeListChunks(
   }
 }
 
+/**
+ * The AccessToken is what Mews meters, so it is what the limiter paces. Falls
+ * back to the base URL when a caller has none — a shared lane is slower than
+ * ideal but never over budget, which is the right way round.
+ */
+function laneKeyFor(payload: JsonRecord, baseUrl: string): string {
+  const token = payload["AccessToken"];
+  return typeof token === "string" && token ? token : baseUrl;
+}
+
 export async function mewsPost(
   baseUrl: string,
   path: string,
@@ -63,10 +74,16 @@ export async function mewsPost(
   timeoutMs = 60_000,
 ): Promise<JsonRecord> {
   const url = `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
+  const lane = laneKeyFor(payload, baseUrl);
   let last429RetryAfterMs: number | null = null;
   let backoffMs = 2000;
 
   for (let attempt = 0; attempt < MEWS_POST_MAX_ATTEMPTS; attempt++) {
+    // Proactive, not just reactive. Backing off after a 429 still means the 429
+    // happened, and Mews count refusals against an integration — their own
+    // guidance is that clients bring rate limiting rather than relying on being
+    // told off. 200 requests per token per rolling 30s is the budget.
+    await acquire("mews", lane);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -85,13 +102,18 @@ export async function mewsPost(
       }
 
       if (res.ok) {
+        record("mews", lane, "ok");
         return data as JsonRecord;
       }
+
+      if (res.status === 429) record("mews", lane, "throttled");
 
       if (res.status === 429 && attempt < MEWS_POST_MAX_ATTEMPTS - 1) {
         const fromHeader = parseRetryAfterMs(res);
         last429RetryAfterMs = fromHeader;
-        const waitMs = fromHeader ?? Math.min(backoffMs, 120_000);
+        // Retry-After is honoured but capped: a broken or hostile header must
+        // not park the whole invocation for as long as it likes.
+        const waitMs = Math.min(fromHeader ?? backoffMs, 120_000);
         backoffMs = Math.min(backoffMs * 2, 120_000);
         await sleep(waitMs);
         continue;

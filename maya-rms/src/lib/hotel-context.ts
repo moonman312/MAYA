@@ -1,6 +1,7 @@
 /**
  * Active hotel for the signed-in user: validated cookie, then first accessible
- * property, then MAYA_DEFAULT_HOTEL_ID when there are no memberships (dev).
+ * property, then MAYA_DEFAULT_HOTEL_ID when there are no memberships
+ * (non-production only).
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -9,6 +10,16 @@ import { cookies } from "next/headers";
 export const MAYA_ACTIVE_HOTEL_COOKIE = "maya_active_hotel";
 
 export type AccessibleHotel = { id: string; name: string };
+
+// The env fallback exists so a fresh clone with seed data works before any
+// membership rows do. In production it would hand this hotel to every
+// signed-in user who has none: a brand-new customer's first checkout runs
+// against a property they have never seen, and a membership-less platform
+// admin could attach a live subscription to it. No membership, no hotel.
+function envDefaultHotelId(): string | null {
+  if (process.env.NODE_ENV === "production") return null;
+  return process.env.MAYA_DEFAULT_HOTEL_ID?.trim() || null;
+}
 
 export async function listAccessibleHotels(
   supabase: SupabaseClient,
@@ -55,7 +66,7 @@ export async function listAccessibleHotels(
 export async function resolveAccessibleHotelId(
   supabase: SupabaseClient,
 ): Promise<string | null> {
-  const envHotelId = process.env.MAYA_DEFAULT_HOTEL_ID?.trim() || null;
+  const envHotelId = envDefaultHotelId();
 
   // Cookie read only — see the note in listAccessibleHotels for why this
   // deliberately skips the auth-service round-trip.

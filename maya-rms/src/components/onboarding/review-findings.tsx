@@ -21,20 +21,27 @@ type Finding = {
 export function ReviewFindings() {
   const router = useRouter();
   const [findings, setFindings] = useState<Finding[] | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [step, setStep] = useState<"assumptions" | "recommendations">("assumptions");
 
   async function load() {
+    // A failure has to be visible. Leaving `findings` null renders the loading
+    // skeleton, and it renders it forever — so an owner sat watching a pulsing
+    // grey box had no way to tell that nothing was coming, and no way to retry.
     try {
       const res = await fetch("/api/onboarding/findings");
-      if (res.ok) {
-        const body = (await res.json()) as { findings: Finding[] };
-        setFindings(body.findings);
+      if (!res.ok) {
+        setLoadFailed(true);
+        return;
       }
+      const body = (await res.json()) as { findings: Finding[] };
+      setFindings(body.findings);
+      setLoadFailed(false);
     } catch {
-      // retry on next action
+      setLoadFailed(true);
     }
   }
 
@@ -151,7 +158,7 @@ export function ReviewFindings() {
             <button
               type="button"
               onClick={() => setStep("recommendations")}
-              className="cursor-pointer rounded bg-sky-500 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-sky-400"
+              className="cursor-pointer rounded bg-sky-500 px-6 py-2.5 text-sm font-semibold text-slate-950 transition-colors hover:bg-sky-400"
             >
               Continue to recommendations
             </button>
@@ -173,7 +180,23 @@ export function ReviewFindings() {
             </p>
           </div>
 
-          {findings === null ? (
+          {loadFailed ? (
+            <div role="alert" className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4">
+              <p className="text-sm text-amber-100">
+                We couldn&apos;t load what we found in your booking history.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoadFailed(false);
+                  void load();
+                }}
+                className="mt-3 rounded bg-amber-500 px-3 py-1.5 text-sm font-medium text-slate-950 transition hover:bg-amber-400"
+              >
+                Try again
+              </button>
+            </div>
+          ) : findings === null ? (
             <div className="h-24 animate-pulse rounded-lg bg-slate-900" />
           ) : recommendations.length === 0 && open.length === 0 ? (
             <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-5 py-4 text-sm text-emerald-200">
@@ -217,7 +240,7 @@ export function ReviewFindings() {
               type="button"
               disabled={finishing}
               onClick={finish}
-              className="cursor-pointer rounded bg-sky-500 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-sky-400 disabled:opacity-60"
+              className="cursor-pointer rounded bg-sky-500 px-6 py-2.5 text-sm font-semibold text-slate-950 transition-colors hover:bg-sky-400 disabled:opacity-60"
             >
               {finishing ? "Finishing up…" : "Finish — take me to my dashboard"}
             </button>
@@ -296,7 +319,7 @@ function StarterRules() {
             >
               {going ? "Switching…" : "Turn them on for real"}
             </button>
-            <span className="text-[11px] text-slate-500">
+            <span className="text-[11px] text-slate-400">
               Or leave them in simulation and watch for a while — also a great choice.
             </span>
           </>
@@ -344,7 +367,7 @@ function FindingCard({
           <div className="text-sm font-semibold text-slate-100">{c.title}</div>
           <p className="mt-1 text-[13px] leading-relaxed text-slate-400">{c.body}</p>
           {finding.status === "auto_applied" ? (
-            <p className="mt-1.5 text-[11px] text-slate-500">
+            <p className="mt-1.5 text-[11px] text-slate-400">
               We already did this for you — dismiss to undo it.
             </p>
           ) : null}

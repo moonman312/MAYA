@@ -78,6 +78,26 @@ function makeSupabaseStub(seed: ResRow[] = []) {
     return builder;
   }
 
+  /** The stale-night read-back: filtered rows, sliced the way .range() slices. */
+  function resSelectBuilder() {
+    const preds: Array<(r: ResRow) => boolean> = [];
+    const builder = {
+      eq(col: string, val: unknown) {
+        preds.push((r) => r[col] === val);
+        return builder;
+      },
+      in(col: string, vals: unknown[]) {
+        preds.push((r) => vals.includes(r[col]));
+        return builder;
+      },
+      range: async (from: number, to: number) => ({
+        data: reservations.filter((r) => preds.every((p) => p(r))).slice(from, to + 1),
+        error: null,
+      }),
+    };
+    return builder;
+  }
+
   function table(name: string) {
     const chain = {
       select: () => chain,
@@ -115,6 +135,9 @@ function makeSupabaseStub(seed: ResRow[] = []) {
           eq: async () => ({ data: [{ id: "rt-uuid-1", external_room_type_id: "RT1" }] }),
         }),
       };
+    }
+    if (name === "reservations") {
+      return { ...chain, select: resSelectBuilder };
     }
     return chain;
   }
@@ -387,6 +410,29 @@ describe("runCloudbedsSyncForHotel cancellation reconcile", () => {
     // list cost every hotel a whole cron cycle of data and its rate push.
     expect(res.ok).toBe(false);
     expect(supabase.reservations).toHaveLength(3);
+  });
+
+  it("prunes nights a still-active booking no longer holds, and only those", async () => {
+    // The stay moved from the 14th to 15th–17th; another booking shares one of
+    // the old dates and must not be caught by the grouped delete.
+    const supabase = makeSupabaseStub([
+      { external_reservation_id: "R1-1", stay_date: "2026-08-14", current_rate: 200 },
+      { external_reservation_id: "OTHER-1", stay_date: "2026-08-14", current_rate: 150 },
+    ]);
+
+    activeList("R1");
+    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "confirmed"));
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    const r1Dates = supabase.reservations
+      .filter((r) => r.external_reservation_id === "R1-1")
+      .map((r) => r.stay_date)
+      .sort();
+    expect(r1Dates).toEqual(["2026-08-15", "2026-08-16", "2026-08-17"]);
+    expect(
+      supabase.reservations.filter((r) => r.external_reservation_id === "OTHER-1"),
+    ).toHaveLength(1);
   });
 
   it("does not reactivate a room type on the room_types upsert", async () => {

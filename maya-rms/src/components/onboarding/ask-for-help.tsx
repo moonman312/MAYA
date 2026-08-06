@@ -87,14 +87,14 @@ export function AskForHelp() {
             <button
               type="button"
               onClick={start}
-              className="cursor-pointer rounded bg-sky-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-400"
+              className="cursor-pointer rounded bg-sky-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-sky-400"
             >
               Sounds good — analyze
             </button>
             <button
               type="button"
               onClick={() => setConfirmOpen(false)}
-              className="cursor-pointer px-2 py-1.5 text-xs text-slate-500 hover:text-slate-300"
+              className="cursor-pointer px-2 py-1.5 text-xs text-slate-400 hover:text-slate-300"
             >
               Never mind
             </button>

@@ -1,5 +1,6 @@
 import { listHotels } from "@/lib/admin/hotels";
 import { listPendingInvites } from "@/lib/admin/memberships";
+import { countSignupCodes } from "@/lib/admin/signup-codes";
 import { listPlatformUsers } from "@/lib/admin/users";
 import { createClient } from "@/utils/supabase/server";
 import { cookies } from "next/headers";
@@ -9,23 +10,28 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminOverviewPage() {
   const ssr = createClient(await cookies());
-  const [hotels, users, pending] = await Promise.all([
+  const [hotels, users, pending, signupCodes] = await Promise.all([
     listHotels(ssr),
     listPlatformUsers(ssr),
     listPendingInvites(ssr),
+    countSignupCodes(ssr),
   ]);
 
   const nowMs = new Date().getTime();
   const outstandingInvites = pending.filter((p) => p.status === "pending");
-  const connectedPms = hotels.filter((h) => h.pms_status === "connected").length;
-  const staleSync = hotels.filter((h) => {
+  // Checkout leaves a placeholder row behind until the PMS connect adopts it.
+  // Counting those pads the hotel number and drags down the connected rate, so
+  // the tiles only count properties that finished starting.
+  const properties = hotels.filter((h) => !h.setup_pending_at);
+  const connectedPms = properties.filter((h) => h.pms_status === "connected").length;
+  const staleSync = properties.filter((h) => {
     if (!h.pms_last_sync_at) return h.pms_status === "connected";
     return nowMs - new Date(h.pms_last_sync_at).getTime() > 30 * 60 * 1000;
   }).length;
 
   const stats = [
-    { label: "Hotels", value: hotels.length, href: "/admin/hotels" },
-    { label: "PMS connected", value: `${connectedPms} / ${hotels.length}`, href: "/admin/hotels" },
+    { label: "Hotels", value: properties.length, href: "/admin/hotels" },
+    { label: "PMS connected", value: `${connectedPms} / ${properties.length}`, href: "/admin/hotels" },
     { label: "Users", value: users.length, href: "/admin/users" },
     {
       label: "Pending invites",
@@ -33,6 +39,7 @@ export default async function AdminOverviewPage() {
       href: "/admin/pending-invites",
     },
     { label: "Stale syncs", value: staleSync, href: "/admin/hotels" },
+    { label: "Signup codes", value: signupCodes, href: "/admin/signup-codes" },
   ];
 
   return (
@@ -46,13 +53,13 @@ export default async function AdminOverviewPage() {
         </div>
         <Link
           href="/admin/hotels/new"
-          className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400"
+          className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400"
         >
           + New hotel
         </Link>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
         {stats.map((s) => (
           <Link
             key={s.label}
