@@ -24,3 +24,61 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
+
+/* Native form chrome reads as another decade against the dark surface.
+   color-scheme flips the browser-drawn parts (select popups, date pickers,
+   autofill) to their dark variants, accent-color claims the widgets we keep
+   native (checkboxes, radios), and the rest strips the chrome nobody asked
+   for. Per-element classes still win — this is the floor, not the ceiling. */
+:root {
+  color-scheme: dark;
+  accent-color: #38bdf8;
+}
+
+@layer base {
+  /* Border and focus floor: unbordered inputs read as flat holes in the page,
+     and the browser's default focus outline is the loudest "old html" tell.
+     Utility classes on an element still override both. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    border: 1px solid #334155;
+  }
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid rgb(56 189 248 / 0.45);
+    outline-offset: 1px;
+  }
+
+  select:not([multiple]) {
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2364748b' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.625rem center;
+    /* !important because p-2 style shorthands on the element would swallow
+       the chevron's lane — a select never wants text under its arrow. */
+    padding-right: 1.75rem !important;
+  }
+
+  input[type="number"] {
+    appearance: textfield;
+  }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    appearance: none;
+    margin: 0;
+  }
+
+  input[type="checkbox"],
+  input[type="radio"] {
+    width: 1rem;
+    height: 1rem;
+    cursor: pointer;
+  }
+
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    opacity: 0.6;
+    cursor: pointer;
+  }
+}
