@@ -51,6 +51,8 @@ export type ThinkSyncSuccess = {
   ok: true;
   /** Which cadence this run was: the daily sweep is the far-horizon beat. */
   mode: "incremental" | "sweep";
+  /** Stay dates this run wrote, canceled, or pruned — sorted, deduped. */
+  changedStayDates: string[];
   /** False when the budget expired before the range was covered. */
   windowFullyCovered: boolean;
   /** Stay dates for a sweep, updated-at instants for an incremental pull. */
@@ -122,17 +124,22 @@ async function deleteCanceledReservationRows(
   supabase: SupabaseClient,
   hotelId: string,
   canceledIds: string[],
-): Promise<{ error: { message: string } | null }> {
+): Promise<{ error: { message: string } | null; deletedStayDates: Set<string> }> {
+  // The deleted rows' stay dates feed the change-triggered pricing pass — a
+  // cancellation is a demand signal exactly like a booking.
+  const deletedStayDates = new Set<string>();
   for (let i = 0; i < canceledIds.length; i += RECONCILE_IN_CHUNK) {
     const chunk = canceledIds.slice(i, i + RECONCILE_IN_CHUNK);
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("reservations")
       .delete()
       .eq("hotel_id", hotelId)
-      .in("external_reservation_id", chunk);
-    if (error) return { error };
+      .in("external_reservation_id", chunk)
+      .select("stay_date");
+    if (error) return { error, deletedStayDates };
+    for (const row of data ?? []) deletedStayDates.add(String(row.stay_date));
   }
-  return { error: null };
+  return { error: null, deletedStayDates };
 }
 
 /**
@@ -146,7 +153,7 @@ async function deleteStaleStayNightsForActiveReservations(
   supabase: SupabaseClient,
   hotelId: string,
   activeByExternalId: Map<string, Set<string>>,
-): Promise<{ error: { message: string } | null }> {
+): Promise<{ error: { message: string } | null; deletedStayDates: Set<string> }> {
   const extIds = [...activeByExternalId.keys()].filter(
     (id) => activeByExternalId.get(id)!.size > 0,
   );
@@ -162,7 +169,7 @@ async function deleteStaleStayNightsForActiveReservations(
         .eq("hotel_id", hotelId)
         .in("external_reservation_id", chunk)
         .range(from, from + READ_PAGE - 1);
-      if (error) return { error };
+      if (error) return { error, deletedStayDates: new Set<string>() };
       for (const row of data ?? []) {
         const extId = String(row.external_reservation_id);
         const stayDate = String(row.stay_date);
@@ -183,10 +190,10 @@ async function deleteStaleStayNightsForActiveReservations(
         .eq("hotel_id", hotelId)
         .eq("stay_date", stayDate)
         .in("external_reservation_id", ids.slice(i, i + RECONCILE_IN_CHUNK));
-      if (error) return { error };
+      if (error) return { error, deletedStayDates: new Set(staleByDate.keys()) };
     }
   }
-  return { error: null };
+  return { error: null, deletedStayDates: new Set(staleByDate.keys()) };
 }
 
 export async function runThinkSyncForHotel(
@@ -378,6 +385,11 @@ export async function runThinkSyncForHotel(
     // each page is parsed, written, and dropped before the next arrives, so a
     // multi-thousand-reservation sweep never holds more than one page of raw
     // API response at a time.
+    // Stay dates this run actually touched — written, canceled, or pruned.
+    // The scheduled tick feeds these to a targeted pricing pass so a booking
+    // burst on a far date (a concert announcement eleven months out) is
+    // repriced on the next 5-minute beat instead of the next daily sweep.
+    const changedStayDates = new Set<string>();
     const activeNights = new Map<string, Set<string>>();
     const canceledKeys = new Set<string>();
     const deadlineAt = Date.now() + THINK_SYNC_BUDGET_MS;
@@ -420,6 +432,7 @@ export async function runThinkSyncForHotel(
         if (diffed.error) return { ok: false, error: diffed.error.message };
         unchangedRowsSkipped += diffed.unchanged;
         reservationRowsUpserted += diffed.rows.length;
+        for (const row of diffed.rows) changedStayDates.add(String(row.stay_date));
         const UP_CHUNK = 500;
         for (let i = 0; i < diffed.rows.length; i += UP_CHUNK) {
           const { error: resErr } = await supabase
@@ -458,12 +471,14 @@ export async function runThinkSyncForHotel(
     // sync re-decides with a consistent read.
     const canceledIds = [...canceledKeys].filter((id) => !activeNights.has(id));
     const canceledDel = await deleteCanceledReservationRows(supabase, hotelId, canceledIds);
+    for (const d of canceledDel.deletedStayDates) changedStayDates.add(d);
     if (canceledDel.error) return { ok: false, error: canceledDel.error.message };
     const staleDel = await deleteStaleStayNightsForActiveReservations(
       supabase,
       hotelId,
       activeNights,
     );
+    for (const d of staleDel.deletedStayDates) changedStayDates.add(d);
     if (staleDel.error) return { ok: false, error: staleDel.error.message };
 
     // 7. Stamp connection status.
@@ -525,6 +540,7 @@ export async function runThinkSyncForHotel(
       // the next tick picks up where this stopped, but only if someone can
       // tell.
       mode: incremental ? ("incremental" as const) : ("sweep" as const),
+      changedStayDates: [...changedStayDates].sort(),
       windowFullyCovered: !truncated,
       fetchWindow,
       apiPages: pagesFetched,

@@ -34,6 +34,19 @@ import { fetchAllRows, purgeOldSnapshots, snapshotCurrentState } from "./snapsho
 import { addCalendarDays, evalIsoToHotelDateString } from "./timezone.ts";
 import type { PickupCandidate, RoomTypeRow } from "./types.ts";
 
+export type EvaluateOptions = {
+  /**
+   * Far stay dates to price IN ADDITION to the rolling horizon — the
+   * change-triggered pass. The scheduled tick passes the dates its sync just
+   * wrote or deleted beyond the near horizon, so a booking burst on a date
+   * months out is repriced on the next 5-minute beat instead of waiting for
+   * the daily deep sweep. Deduped, past dates dropped, capped as a guard
+   * against unbounded callers (the tick escalates big sets to a deep run
+   * instead).
+   */
+  extraStayDates?: string[];
+};
+
 export type EvaluationResult = {
   run_id: string;
   hotel_id: string;
@@ -60,6 +73,7 @@ export async function evaluateHotel(
   hotelId: string,
   evalTs?: string,
   horizonDays: number = 396,
+  opts?: EvaluateOptions,
 ): Promise<EvaluationResult> {
   const now = evalTs ?? new Date().toISOString();
   const runId = crypto.randomUUID();
@@ -107,6 +121,15 @@ export async function evaluateHotel(
   for (let i = 0; i < horizon; i++) {
     stayDates.push(cursor);
     cursor = addCalendarDays(cursor, 1);
+  }
+
+  if (opts?.extraStayDates?.length) {
+    const inHorizon = new Set(stayDates);
+    const extras = [...new Set(opts.extraStayDates)]
+      .filter((d) => d >= localDate && !inHorizon.has(d))
+      .sort()
+      .slice(0, 100);
+    stayDates.push(...extras);
   }
 
   await snapshotCurrentState(supabase, hotelId, now, stayDates, roomTypes);
