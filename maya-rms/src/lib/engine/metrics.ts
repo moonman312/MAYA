@@ -174,16 +174,49 @@ export async function computeRuleMetrics(
       baselineTs,
     );
 
+    // Cells the writer never covered get a synthesized zero-booked baseline
+    // instead of a block. Earlier engine generations only wrote snapshot rows
+    // for cells with bookings, so a date receiving its FIRST bookings has no
+    // baseline row — exactly the moment a pickup rule exists to catch. The
+    // hotel-level probe keeps the synthesis honest: zero is only assumed when
+    // the hotel was demonstrably snapshotting at the baseline instant, so a
+    // hotel that wasn't connected yet still blocks rather than fabricating a
+    // flat past.
+    const missingOrStale: string[] = [];
     for (const rtId of rule.signal_room_type_ids) {
-      if (!baselineSnapsFull.has(rtId)) {
-        pickup_block_reason = "insufficient_snapshot_history";
-        break;
+      const row = baselineSnapsFull.get(rtId);
+      if (!row) {
+        missingOrStale.push(rtId);
+        continue;
       }
-      const row = baselineSnapsFull.get(rtId)!;
       const age = new Date(baselineTs).getTime() - new Date(row.snapshot_ts).getTime();
-      if (age > BASELINE_SNAPSHOT_MAX_AGE_MS) {
-        pickup_block_reason = "stale_baseline_snapshot";
-        break;
+      if (age > BASELINE_SNAPSHOT_MAX_AGE_MS) missingOrStale.push(rtId);
+    }
+    if (missingOrStale.length > 0) {
+      const { data: hotelCoverage } = await supabase
+        .from("stay_date_snapshot")
+        .select("snapshot_ts")
+        .eq("hotel_id", hotelId)
+        .lte("snapshot_ts", baselineTs)
+        .order("snapshot_ts", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const coverageTs = hotelCoverage?.snapshot_ts ? String(hotelCoverage.snapshot_ts) : null;
+      const coverageAge = coverageTs
+        ? new Date(baselineTs).getTime() - new Date(coverageTs).getTime()
+        : Number.POSITIVE_INFINITY;
+      if (coverageTs && coverageAge <= BASELINE_SNAPSHOT_MAX_AGE_MS) {
+        for (const rtId of missingOrStale) {
+          baselineSnapsFull.set(rtId, {
+            booked_units: 0,
+            booked_revenue: 0,
+            snapshot_ts: coverageTs,
+          });
+        }
+      } else {
+        pickup_block_reason = coverageTs
+          ? "stale_baseline_snapshot"
+          : "insufficient_snapshot_history";
       }
     }
 

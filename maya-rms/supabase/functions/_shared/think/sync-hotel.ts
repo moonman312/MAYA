@@ -49,6 +49,8 @@ export type ThinkSyncOptions = {
 
 export type ThinkSyncSuccess = {
   ok: true;
+  /** Which cadence this run was: the daily sweep is the far-horizon beat. */
+  mode: "incremental" | "sweep";
   /** False when the budget expired before the range was covered. */
   windowFullyCovered: boolean;
   /** Stay dates for a sweep, updated-at instants for an incremental pull. */
@@ -522,6 +524,7 @@ export async function runThinkSyncForHotel(
       // A partial sync that looks complete is worse than one that says so:
       // the next tick picks up where this stopped, but only if someone can
       // tell.
+      mode: incremental ? ("incremental" as const) : ("sweep" as const),
       windowFullyCovered: !truncated,
       fetchWindow,
       apiPages: pagesFetched,
