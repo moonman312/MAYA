@@ -94,6 +94,13 @@ function makeSupabaseStub(
         preds.push((r) => vals.includes(r[col]));
         return builder;
       },
+      select(_cols?: string) {
+        const deleted = reservations.filter((r) => preds.every((p) => p(r)));
+        const survivors = reservations.filter((r) => !preds.every((p) => p(r)));
+        reservations.length = 0;
+        reservations.push(...survivors);
+        return Promise.resolve({ data: deleted, error: null });
+      },
       then<T>(resolve: (v: { error: null }) => T) {
         const survivors = reservations.filter((r) => !preds.every((p) => p(r)));
         reservations.length = 0;
