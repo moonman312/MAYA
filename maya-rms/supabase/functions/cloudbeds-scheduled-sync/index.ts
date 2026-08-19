@@ -86,6 +86,14 @@ Deno.serve(async (req) => {
   // limit. 45 days covers the near-term calendar; raise once you've confirmed
   // run durations in the logs. Env override: MAYA_EVAL_HORIZON_DAYS.
   const horizonDays = Math.max(1, Number(getEnv("MAYA_EVAL_HORIZON_DAYS") ?? "45") || 45);
+  // The daily full-sweep sync tick doubles as the far-horizon pricing beat:
+  // it evaluates (and pushes) the whole booking window, while the 5-minute
+  // incremental ticks keep the near term fresh. This is what lets a rule on
+  // a date eleven months out actually reach the PMS.
+  const deepHorizonDays = Math.max(
+    horizonDays,
+    Number(getEnv("MAYA_DEEP_EVAL_HORIZON_DAYS") ?? "396") || 396,
+  );
   // Outbound rate push is OFF unless explicitly enabled, and even then only
   // fires for hotels in LIVE mode (gated inside pushRatesForHotel).
   const pushRatesEnabled = (getEnv("MAYA_PUSH_RATES") ?? "false").toLowerCase() === "true";
@@ -173,7 +181,8 @@ Deno.serve(async (req) => {
     let evaluate: (typeof results)[number]["evaluate"];
     if (runEvaluate) {
       try {
-        evaluate = await evaluateHotel(supabase, hotelId, undefined, horizonDays);
+        const evalHorizon = sync.ok && sync.mode === "sweep" ? deepHorizonDays : horizonDays;
+        evaluate = await evaluateHotel(supabase, hotelId, undefined, evalHorizon);
       } catch (e) {
         evaluate = { error: e instanceof Error ? e.message : "evaluate failed" };
       }
@@ -191,7 +200,9 @@ Deno.serve(async (req) => {
       if (sync.ok) {
         try {
           const adapter = createCloudbedsRateAdapter(sync.creds);
-          push = await pushRatesForHotel(supabase, hotelId, adapter);
+          push = await pushRatesForHotel(supabase, hotelId, adapter, {
+            pushHorizonDays: sync.mode === "sweep" ? deepHorizonDays : undefined,
+          });
         } catch (e) {
           push = { error: e instanceof Error ? e.message : "push failed" };
         }

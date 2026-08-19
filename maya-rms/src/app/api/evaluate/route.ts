@@ -81,7 +81,10 @@ export async function POST() {
     }
     inFlight.add(hotelId);
     try {
-      const result = await evaluateHotel(supabase, hotelId);
+      // Near-term horizon only: a request-scoped evaluate answers "what would
+      // my rules do right now", and the daily sweep tick already prices the
+      // full 396-day window on the slow beat.
+      const result = await evaluateHotel(supabase, hotelId, undefined, 45);
       return NextResponse.json(result);
     } finally {
       inFlight.delete(hotelId);

@@ -171,9 +171,17 @@ export async function loadLastAuditSignatures(
   lastDate: string,
 ): Promise<Map<string, string>> {
   const PAGE = 1000;
+  // Signatures exist to skip redundant audit writes; they must never cost a
+  // run. A hotel whose audit table was bloated by per-tick writers (old
+  // engine generations wrote every cell every 5 minutes) can push this query
+  // past the statement timeout — degrade to an empty map, which merely means
+  // one extra audit row per cell this run. The page cap bounds the walk for
+  // the same reason: past it, the newest-first scan is digging through spam,
+  // not signal.
+  const MAX_PAGES = 30;
   const signatures = new Map<string, string>();
   const seenKeys = new Set<string>();
-  for (let from = 0; ; from += PAGE) {
+  for (let from = 0; from < MAX_PAGES * PAGE; from += PAGE) {
     const { data, error } = await supabase
       .from("evaluation_audit")
       .select("stay_date, room_type_id, final_price, details")
@@ -182,7 +190,12 @@ export async function loadLastAuditSignatures(
       .lte("stay_date", lastDate)
       .order("evaluated_at", { ascending: false })
       .range(from, from + PAGE - 1);
-    if (error) throw new Error(`Failed to load prior audit signatures: ${error.message}`);
+    if (error) {
+      console.error(
+        JSON.stringify({ fn: "loadLastAuditSignatures", hotelId, error: error.message, degradedToEmpty: true }),
+      );
+      return signatures;
+    }
     const rows = data ?? [];
     for (const r of rows) {
       const key = `${r.stay_date}|${r.room_type_id}`;
