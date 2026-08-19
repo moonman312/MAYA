@@ -217,50 +217,14 @@ export async function evaluateHotel(
     };
   });
 
-  // A disabled rule must take its effects with it. The pricing pass reads
-  // every is_active ladder state regardless of whether its rule is still
-  // enabled, so a rule toggled off mid-season would keep its adjustment
-  // applied — and pushed to the PMS — indefinitely, which is precisely what
-  // the toggle was supposed to end. Deleted rules are covered by the FK
-  // cascade; this sweep covers the toggle, and heals any states already
-  // orphaned before it existed. Transition events are written so the change
-  // log explains the price move like any other deactivation.
-  const { data: disabledRules } = await supabase
-    .from("pricing_rules")
-    .select("id")
-    .eq("hotel_id", hotelId)
-    .eq("is_active", false);
-  const disabledIds = (disabledRules ?? []).map((r) => String(r.id));
-  if (disabledIds.length > 0) {
-    const { data: orphanStates } = await supabase
-      .from("ladder_rule_state")
-      .select("rule_id, rule_version, stay_date, room_type_id, action_kind, action_direction, action_value")
-      .in("rule_id", disabledIds)
-      .eq("is_active", true);
-    if ((orphanStates ?? []).length > 0) {
-      await supabase.from("ladder_transition_event").insert(
-        (orphanStates ?? []).map((s) => ({
-          hotel_id: hotelId,
-          rule_id: s.rule_id,
-          rule_version: s.rule_version,
-          stay_date: s.stay_date,
-          room_type_id: s.room_type_id,
-          transition: "deactivate",
-          transitioned_at: now,
-          metrics_snapshot: { reason: "rule_disabled" },
-          action_kind: s.action_kind,
-          action_direction: s.action_direction,
-          action_value: s.action_value,
-        })),
-      );
-      await supabase
-        .from("ladder_rule_state")
-        .update({ is_active: false, deactivated_at: now, last_evaluated_at: now })
-        .in("rule_id", disabledIds)
-        .eq("is_active", true);
-    }
-  }
-
+  // Only ACTIVE rules are loaded, and that is a product decision, not a gap:
+  // toggling a rule off FREEZES it. Its active ladder states keep applying
+  // (the pricing pass reads them regardless of the toggle), it just stops
+  // transitioning — no new activations, no deactivations when conditions
+  // break. Pausing mid-season holds today's prices instead of yanking the
+  // adjustment out from under them; deleting the rule is what removes its
+  // effects (the FK cascade clears its states). Do not "fix" this by
+  // sweeping disabled rules' states — that turns pause into undo.
   let maxPickupWindowDays = 7;
   for (const r of rules) {
     const w = r.condition.pickup_window_days;
