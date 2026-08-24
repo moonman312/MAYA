@@ -191,6 +191,7 @@ export async function loadLastAuditSignatures(
   hotelId: string,
   firstDate: string,
   lastDate: string,
+  expectedCells?: number,
 ): Promise<Map<string, string>> {
   const PAGE = 1000;
   // Signatures exist to skip redundant audit writes; they must never cost a
@@ -199,11 +200,13 @@ export async function loadLastAuditSignatures(
   // past the statement timeout — degrade to an empty map, which merely means
   // one extra audit row per cell this run. The page cap bounds the walk for
   // the same reason: past it, the newest-first scan is digging through spam,
-  // not signal.
+  // not signal. And once every cell the caller will price has a signature
+  // (expectedCells), the rest of the table is history nobody asks about.
   const MAX_PAGES = 30;
   const signatures = new Map<string, string>();
   const seenKeys = new Set<string>();
   for (let from = 0; from < MAX_PAGES * PAGE; from += PAGE) {
+    if (expectedCells != null && signatures.size >= expectedCells) break;
     const { data, error } = await supabase
       .from("evaluation_audit")
       .select("stay_date, room_type_id, final_price, details")
