@@ -27,7 +27,7 @@ export type AuditInput = {
   /**
    * The signature (see auditSignature) of the last audit row written for
    * this exact (stay_date, room_type) cell, if any. When the new row's
-   * signature is identical, writeAudit skips the insert entirely — a cell
+   * signature is identical, buildAuditRow skips the row entirely — a cell
    * whose price and applied rules haven't moved has nothing new to record.
    *
    * Without this, the engine wrote a row for every priced cell on every

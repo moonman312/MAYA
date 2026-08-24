@@ -28,7 +28,7 @@ export {
   assemblePrice,
   clampPrice,
   flushPublishedPrices,
-  ladderEffectsForCell,
+  indexActiveLadderEffects,
   loadActivePickupEffectsForRange,
   publishDecision,
 } from "./pricing";

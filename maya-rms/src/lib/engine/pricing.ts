@@ -78,30 +78,32 @@ export function clampPrice(
 }
 
 /**
- * Active ladder effects for a (stay_date, room_type_id) from the in-memory
- * state map, ordered by rule_id ascending (§10.2). Postgres orders uuid
- * columns by byte value, which for the canonical lowercase text form is the
- * same order plain string comparison gives — so this matches what the old
- * per-cell query returned.
+ * One pass over the post-ladder state map, grouping ACTIVE rows per
+ * (stay_date, room_type_id) cell sorted by rule_id ascending (§10.2).
+ * Postgres orders uuid columns by byte value, which for the canonical
+ * lowercase text form is the same order plain string comparison gives — so
+ * each cell's list matches what the old per-cell query returned. Built once
+ * per run: filtering the whole map per cell made pricing O(cells x states),
+ * the same rules-x-dates scaling shape the batching removed from queries.
  */
-export function ladderEffectsForCell(
+export function indexActiveLadderEffects(
   states: Map<string, LadderStateRow>,
-  stayDate: string,
-  roomTypeId: string,
-): AdjustmentSpec[] {
-  const rows: LadderStateRow[] = [];
-  for (const row of states.values()) {
-    if (row.stay_date === stayDate && row.room_type_id === roomTypeId && row.is_active) {
-      rows.push(row);
-    }
-  }
+): Map<string, AdjustmentSpec[]> {
+  const rows = [...states.values()].filter((r) => r.is_active);
   rows.sort((a, b) => (a.rule_id < b.rule_id ? -1 : a.rule_id > b.rule_id ? 1 : 0));
-  return rows.map((r) => ({
-    rule_id: r.rule_id,
-    action_kind: r.action_kind,
-    action_direction: r.action_direction,
-    action_value: r.action_value,
-  }));
+  const byCell = new Map<string, AdjustmentSpec[]>();
+  for (const r of rows) {
+    const key = `${r.stay_date}|${r.room_type_id}`;
+    const list = byCell.get(key) ?? [];
+    list.push({
+      rule_id: r.rule_id,
+      action_kind: r.action_kind,
+      action_direction: r.action_direction,
+      action_value: r.action_value,
+    });
+    byCell.set(key, list);
+  }
+  return byCell;
 }
 
 /**

@@ -410,6 +410,12 @@ export function makeGoldenFixture(): EngineSupabaseStub {
       snapRow(D.d2, "rtA", 3, 300), snapRow(D.d2, "rtB", 2, 160),  // unread: d2's baseline blocks as stale
       snapRow(D.d3, "rtA", 7, 700), snapRow(D.d3, "rtB", 4, 320),  // = current → no pickup
       snapRow(D.d4, "rtA", 0, 0), snapRow(D.d4, "rtB", 0, 0),
+      // A fresh SIBLING-date row 2h before d2's baseline instant. The
+      // correct engine never reads it (d2's coverage probe is scoped to d2);
+      // an engine that regresses to hotel-wide coverage sees it as proof of
+      // freshness, synthesizes a zero baseline for d2's stale cells, and
+      // fires R4 there on old bookings — the exact live misfire this pins.
+      { ...snapRow(D.d1, "rtA", 4, 400), snapshot_ts: "2026-08-18T10:00:00.000Z" },
     ],
     ladder_rule_state: [
       // R1 active on d2 where occupancy has since fallen → deactivate.
@@ -431,6 +437,23 @@ export function makeGoldenFixture(): EngineSupabaseStub {
         signal_booked_revenue_start: 500, signal_booked_revenue_end: 800,
         applied_at: "2026-08-17T12:00:00.000Z", retired_at: null,
         action_kind: "percent", action_direction: "increase", action_value: 7,
+      },
+      {
+        // R5's event on the SAME cell and instant as id "2" below, with the
+        // HIGHER id seeded physically first: only the id tiebreak puts these
+        // in 2→3 order, so an engine that stops ordering by id flips
+        // d2/rtA's composition ((110×1.07)+5 vs (110+5)×1.07) and reds the
+        // goldens. A different rule on purpose — the active-event unique
+        // index forbids same-rule pairs. Side effect this fixture leans on:
+        // the fire puts (r5, d2) inside its 7-day cooldown, so r5 skips d2
+        // before any booking-speed observation is consulted there.
+        id: "3", hotel_id: HOTEL_ID, rule_id: "r5", rule_version: 1,
+        stay_date: D.d2, affected_room_type_id: "rtA",
+        baseline_start_ts: "2026-08-15T12:00:00.000Z", baseline_end_ts: SEED_TS,
+        signal_booked_units_start: 3, signal_booked_units_end: 5,
+        signal_booked_revenue_start: 300, signal_booked_revenue_end: 460,
+        applied_at: SEED_TS, retired_at: null,
+        action_kind: "fixed", action_direction: "increase", action_value: 5,
       },
       {
         // Live d2 event: its +7% must apply in pricing, its applied_at

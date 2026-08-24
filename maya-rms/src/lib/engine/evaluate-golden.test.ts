@@ -16,14 +16,18 @@ import {
  * refactor brought this down from ~450 (the per-cell engine's bill on this
  * 5-day fixture) to 55; nothing left scales with rules × dates, so growth
  * from here means a regression. Update consciously, never to quiet a red
- * test. Per run: hotels/room_types/pricing_rules 1 each; reservations 3
- * (snapshot aggregate, base prices, booking-speed history); pickup_event 4
- * (cooldown fires, last-applied map, post-insert effects reload, retire
- * sweep); ladder_rule_state 1 preload + 1 bulk upsert; published_price 1
- * preload (+ 1 bulk upsert on change); stay_date_snapshot selects are one
- * ranged read per DISTINCT baseline instant plus a coverage probe only when
- * a cell is missing — run 2 has one more instant than run 1 because run 1's
- * own pickup events become new baselines (§8).
+ * test. Per run: hotels/room_types 1 each; pricing_rules 2 (active rules
+ * with embeds + the unfiltered id list that scopes the state preload);
+ * reservations 3 (snapshot aggregate, base prices, booking-speed history);
+ * pickup_event 4 (cooldown fires, last-applied map, post-insert effects
+ * reload, retire sweep); ladder_rule_state 1 preload + per-rule flush
+ * statements (activation upserts, deactivate/touch scoped updates);
+ * published_price 1 preload (+ 1 bulk upsert on change); stay_date_snapshot
+ * selects are up to two tiered window reads per DISTINCT baseline instant
+ * (the fixture's seeds sit hours back, so the 15-minute fast tier always
+ * falls through here) plus a coverage probe only when a cell is missing —
+ * run 2 has one more instant than run 1 because run 1's own pickup events
+ * become new baselines (§8).
  */
 export const GOLDEN_QUERY_COUNT_BASELINE: Record<string, number> = {
   "assumption_challenges.select": 2,
@@ -35,19 +39,20 @@ export const GOLDEN_QUERY_COUNT_BASELINE: Record<string, number> = {
   "hotel_closed_periods.select": 2,
   "hotels.select": 2,
   "ladder_rule_state.select": 2,
-  "ladder_rule_state.upsert": 2,
-  "ladder_transition_event.insert": 1,
+  "ladder_rule_state.update": 9,
+  "ladder_rule_state.upsert": 3,
+  "ladder_transition_event.insert": 3,
   "pickup_event.insert": 2,
   "pickup_event.select": 8,
   "pickup_event.update": 2,
-  "pricing_rules.select": 2,
+  "pricing_rules.select": 4,
   "published_price.select": 2,
   "published_price.upsert": 1,
   "reservations.select": 6,
   "room_types.select": 2,
   "stay_date_snapshot.delete": 4,
   "stay_date_snapshot.insert": 2,
-  "stay_date_snapshot.select": 7,
+  "stay_date_snapshot.select": 11,
 };
 
 describe("evaluateHotel golden equivalence", () => {
@@ -97,7 +102,7 @@ describe("evaluateHotel golden equivalence", () => {
       [`${D.d0}|rtB`]: { price: 76, base_price: 80 },
       [`${D.d1}|rtA`]: { price: 126, base_price: 100 }, // ceiling clamp
       [`${D.d1}|rtB`]: { price: 89.45, base_price: 80 },
-      [`${D.d2}|rtA`]: { price: 117.7, base_price: 100 },
+      [`${D.d2}|rtA`]: { price: 122.7, base_price: 100 }, // (110 × 1.07) + 5 — id order, not seed order
       [`${D.d2}|rtB`]: { price: 96, base_price: 80 }, // frozen r6 still applies
       [`${D.d3}|rtA`]: { price: 125, base_price: 100 },
       [`${D.d3}|rtB`]: { price: 88, base_price: 80 },
@@ -189,7 +194,7 @@ describe("evaluateHotel golden equivalence", () => {
     ]);
   });
 
-  it("leaves the golden pickup ledger (past retired, d2 kept, d1 fired)", () => {
+  it("leaves the golden pickup ledger (past retired, d2 pair kept, d1 fired)", () => {
     const events = fx.tables.pickup_event.map((r) => ({
       id: r.id,
       rule_id: r.rule_id,
@@ -203,9 +208,10 @@ describe("evaluateHotel golden equivalence", () => {
     }));
     expect(events).toEqual([
       { id: "1", rule_id: "r4", stay_date: "2026-08-18", room_type_id: "rtA", retired: true, units_start: 5, units_end: 8, revenue_start: 500, revenue_end: 800 },
+      { id: "3", rule_id: "r5", stay_date: D.d2, room_type_id: "rtA", retired: false, units_start: 3, units_end: 5, revenue_start: 300, revenue_end: 460 },
       { id: "2", rule_id: "r4", stay_date: D.d2, room_type_id: "rtA", retired: false, units_start: 3, units_end: 5, revenue_start: 300, revenue_end: 460 },
-      { id: "3", rule_id: "r4", stay_date: D.d1, room_type_id: "rtA", retired: false, units_start: 7, units_end: 10, revenue_start: 640, revenue_end: 920 },
-      { id: "4", rule_id: "r4", stay_date: D.d1, room_type_id: "rtB", retired: false, units_start: 7, units_end: 10, revenue_start: 640, revenue_end: 920 },
+      { id: "4", rule_id: "r4", stay_date: D.d1, room_type_id: "rtA", retired: false, units_start: 7, units_end: 10, revenue_start: 640, revenue_end: 920 },
+      { id: "5", rule_id: "r4", stay_date: D.d1, room_type_id: "rtB", retired: false, units_start: 7, units_end: 10, revenue_start: 640, revenue_end: 920 },
     ]);
   });
 
@@ -214,7 +220,11 @@ describe("evaluateHotel golden equivalence", () => {
     // duplicate-affected r3 row was VISITED twice — the second visit's noop
     // entry is its only non-query-count trace. `bs` locks the booking-speed
     // block: with zero usable history the recorded observation must say
-    // insufficient_data, never a synthesized classification.
+    // insufficient_data, never a synthesized classification — and d2 has NO
+    // observation at all, because r5's seeded fire put it in cooldown before
+    // one was consulted. `pre_clamp` is what separates ladder-then-pickup
+    // from pickup-then-ladder on the clamped d1/rtA cell, where the final
+    // price alone cannot.
     const rows = fx.tables.evaluation_audit
       .filter((r) => r.evaluation_run_id === run1.run_id)
       .map((r) => {
@@ -229,6 +239,7 @@ describe("evaluateHotel golden equivalence", () => {
           stay_date: r.stay_date,
           room_type_id: r.room_type_id,
           final_price: r.final_price,
+          pre_clamp: r.pre_clamp_price,
           application_order: details.application_order,
           clamped_by: details.clamped_by,
           ladder: details.matched_ladder_rules.map((m) => `${m.rule_id}:${m.transition}`),
@@ -237,13 +248,13 @@ describe("evaluateHotel golden equivalence", () => {
         };
       });
     expect(rows).toEqual([
-      { stay_date: D.d0, room_type_id: "rtA", final_price: 95, application_order: ["ladder:r2"], clamped_by: "none", ladder: ["r1:noop", "r2:activate", "r3:noop", "r3:noop"], pickup: [], bs: ["insufficient_data"] },
-      { stay_date: D.d0, room_type_id: "rtB", final_price: 76, application_order: ["ladder:r2"], clamped_by: "none", ladder: ["r1:noop", "r2:activate"], pickup: [], bs: ["insufficient_data"] },
-      { stay_date: D.d1, room_type_id: "rtA", final_price: 126, application_order: ["ladder:r1", "ladder:r2", "ladder:r3", "pickup:3"], clamped_by: "ceiling", ladder: ["r1:activate", "r2:activate", "r3:activate", "r3:noop"], pickup: ["r4:won"], bs: ["insufficient_data"] },
-      { stay_date: D.d1, room_type_id: "rtB", final_price: 89.45, application_order: ["ladder:r1", "ladder:r2", "pickup:4"], clamped_by: "none", ladder: ["r1:activate", "r2:activate"], pickup: ["r4:won"], bs: ["insufficient_data"] },
-      { stay_date: D.d2, room_type_id: "rtA", final_price: 117.7, application_order: ["ladder:r2", "ladder:r3", "pickup:2"], clamped_by: "none", ladder: ["r1:deactivate", "r2:activate", "r3:activate", "r3:noop"], pickup: [], bs: ["insufficient_data"] },
-      { stay_date: D.d2, room_type_id: "rtB", final_price: 96, application_order: ["ladder:r2", "ladder:r6"], clamped_by: "none", ladder: ["r1:deactivate", "r2:activate"], pickup: [], bs: ["insufficient_data"] },
-      { stay_date: D.d3, room_type_id: "rtB", final_price: 88, application_order: ["ladder:r1"], clamped_by: "none", ladder: ["r1:noop", "r2:noop"], pickup: [], bs: ["insufficient_data"] },
+      { stay_date: D.d0, room_type_id: "rtA", final_price: 95, pre_clamp: 95, application_order: ["ladder:r2"], clamped_by: "none", ladder: ["r1:noop", "r2:activate", "r3:noop", "r3:noop"], pickup: [], bs: ["insufficient_data"] },
+      { stay_date: D.d0, room_type_id: "rtB", final_price: 76, pre_clamp: 76, application_order: ["ladder:r2"], clamped_by: "none", ladder: ["r1:noop", "r2:activate"], pickup: [], bs: ["insufficient_data"] },
+      { stay_date: D.d1, room_type_id: "rtA", final_price: 126, pre_clamp: 127.87, application_order: ["ladder:r1", "ladder:r2", "ladder:r3", "pickup:4"], clamped_by: "ceiling", ladder: ["r1:activate", "r2:activate", "r3:activate", "r3:noop"], pickup: ["r4:won"], bs: ["insufficient_data"] },
+      { stay_date: D.d1, room_type_id: "rtB", final_price: 89.45, pre_clamp: 89.45, application_order: ["ladder:r1", "ladder:r2", "pickup:5"], clamped_by: "none", ladder: ["r1:activate", "r2:activate"], pickup: ["r4:won"], bs: ["insufficient_data"] },
+      { stay_date: D.d2, room_type_id: "rtA", final_price: 122.7, pre_clamp: 122.7, application_order: ["ladder:r2", "ladder:r3", "pickup:2", "pickup:3"], clamped_by: "none", ladder: ["r1:deactivate", "r2:activate", "r3:activate", "r3:noop"], pickup: [], bs: [] },
+      { stay_date: D.d2, room_type_id: "rtB", final_price: 96, pre_clamp: 96, application_order: ["ladder:r2", "ladder:r6"], clamped_by: "none", ladder: ["r1:deactivate", "r2:activate"], pickup: [], bs: [] },
+      { stay_date: D.d3, room_type_id: "rtB", final_price: 88, pre_clamp: 88, application_order: ["ladder:r1"], clamped_by: "none", ladder: ["r1:noop", "r2:noop"], pickup: [], bs: ["insufficient_data"] },
     ]);
   });
 
@@ -261,7 +272,7 @@ describe("evaluateHotel golden equivalence", () => {
     expect(run2Writes.filter((w) => w.table === "evaluation_audit" && w.op === "insert")).toEqual([]);
     // R3's duplicate affected room type must land as touch, not re-activate.
     expect(run2Writes.filter((w) => w.table === "ladder_transition_event")).toEqual([]);
-    expect(fx.tables.pickup_event).toHaveLength(4);
+    expect(fx.tables.pickup_event).toHaveLength(5);
     // The heartbeat is the one write-on-change exception: a quiet run still
     // records that it checked.
     expect(

@@ -54,7 +54,7 @@ for (const r of snapRows ?? []) {
   });
 }
 
-const store = await buildBaselineSnapshotStore(admin, HOTEL, [baselineTs!], STAY, STAY, [Q, K]);
+const store = await buildBaselineSnapshotStore(admin, HOTEL, [{ baselineTs: baselineTs!, stayDate: STAY }], [Q, K]);
 const metrics = await computeRuleMetrics(rule, STAY, "2026-08-11", currentSnaps, store, baselineTs!);
 console.log("metrics =", JSON.stringify(metrics, null, 1));
 console.log("conditions match =", ruleConditionsMatch(rule, metrics));

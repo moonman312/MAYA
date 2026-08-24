@@ -51,32 +51,51 @@ export const ladderStateKey = (ruleId: string, stayDate: string, roomTypeId: str
 export type LadderWriteBuffer = {
   /** Transition events in the order they happened — insert order is preserved. */
   transitions: Record<string, unknown>[];
-  /** State rows touched this run; flushed once per key from the map's final state. */
-  dirtyKeys: Set<string>;
+  /** Keys that ACTIVATED this run — the only rows flushed as full upserts, since activation owns every column. */
+  activatedKeys: Set<string>;
+  /** Deactivated stay_dates per "rule|room_type" — flushed as scoped UPDATEs of the deactivation columns only. */
+  deactivated: Map<string, Set<string>>;
+  /** Touched stay_dates per "rule|room_type" — flushed as scoped UPDATEs of last_evaluated_at ONLY. A touch must never be able to write is_active: a concurrent run's just-landed transition would be silently reverted by a stale full-row write. */
+  touched: Map<string, Set<string>>;
 };
 
 export const newLadderWriteBuffer = (): LadderWriteBuffer => ({
   transitions: [],
-  dirtyKeys: new Set(),
+  activatedKeys: new Set(),
+  deactivated: new Map(),
+  touched: new Map(),
 });
 
+const addToSetMap = (m: Map<string, Set<string>>, key: string, value: string) => {
+  const set = m.get(key) ?? new Set<string>();
+  set.add(value);
+  m.set(key, set);
+};
+
 /**
- * Preload every ladder_rule_state row the run can read or write: all rules'
- * states (disabled rules' frozen states included — pricing applies them) for
- * the horizon's dates and the union of active + affected room types.
+ * Preload every ladder_rule_state row the run can read or write: ALL of the
+ * hotel's rules' states — disabled rules' frozen states included, since
+ * pricing applies them — for the horizon's dates and the union of active +
+ * affected room types. ruleIds must therefore be the hotel's FULL rule-id
+ * list, never just the active ones. It also keys the read to the table's
+ * primary index (the PK leads with rule_id); the table has no hotel column,
+ * so without it this is a seq scan across every tenant.
  */
 export async function loadLadderStates(
   supabase: SupabaseClient,
+  ruleIds: string[],
   firstDate: string,
   lastDate: string,
   roomTypeIds: string[],
 ): Promise<Map<string, LadderStateRow>> {
+  if (ruleIds.length === 0) return new Map();
   const rows = await fetchAllRows(() =>
     supabase
       .from("ladder_rule_state")
       .select(
         "rule_id, rule_version, stay_date, room_type_id, is_active, activated_at, deactivated_at, last_evaluated_at, action_kind, action_direction, action_value",
       )
+      .in("rule_id", ruleIds)
       .gte("stay_date", firstDate)
       .lte("stay_date", lastDate)
       .in("room_type_id", roomTypeIds)
@@ -156,10 +175,14 @@ export function evaluateLadderTriple(
       action_direction: rule.action_direction,
       action_value: rule.action_value,
     });
-    buf.dirtyKeys.add(key);
+    buf.activatedKeys.add(key);
   } else if (matches && wasActive) {
     prior!.last_evaluated_at = evalTs;
-    buf.dirtyKeys.add(key);
+    // A key that activated this run already carries this instant in its
+    // upsert row — only pre-existing rows need the touch write.
+    if (!buf.activatedKeys.has(key)) {
+      addToSetMap(buf.touched, `${rule.id}|${affectedRoomTypeId}`, stayDate);
+    }
   } else if (!matches && wasActive) {
     transition = "deactivate";
     buf.transitions.push({
@@ -178,10 +201,10 @@ export function evaluateLadderTriple(
     prior!.is_active = false;
     prior!.deactivated_at = evalTs;
     prior!.last_evaluated_at = evalTs;
-    buf.dirtyKeys.add(key);
+    addToSetMap(buf.deactivated, `${rule.id}|${affectedRoomTypeId}`, stayDate);
   } else if (!matches && !wasActive && rowExists) {
     prior!.last_evaluated_at = evalTs;
-    buf.dirtyKeys.add(key);
+    addToSetMap(buf.touched, `${rule.id}|${affectedRoomTypeId}`, stayDate);
   }
 
   return {
@@ -198,15 +221,25 @@ export function evaluateLadderTriple(
 }
 
 /**
- * Land the buffered ladder writes: transition events in order, then one
- * upsert per dirty state key carrying the map's FINAL row. One row per key
- * — a key visited twice in one run (duplicate-affected) must not appear
- * twice in a single upsert statement, and the final in-memory row is by
- * construction what the old sequential writes left behind.
+ * Land the buffered ladder writes, grouped PER RULE so one rule's failure
+ * (say, the rule was deleted mid-run — its state upsert hits the FK) can
+ * never take other rules' writes down with it; the old per-triple writes
+ * had exactly that one-rule blast radius.
  *
- * Write failures are logged, never thrown — the same posture the old
- * per-triple writes had (their errors went unchecked). The next run reloads
- * from the DB and re-derives any transition that failed to land.
+ * Per rule, semantics match the old writes column for column: activations
+ * upsert full rows (activation owns every column — a key visited twice this
+ * run appears once, carrying the map's final state); deactivations UPDATE
+ * only the deactivation columns; touches UPDATE only last_evaluated_at.
+ * Scoped UPDATEs no-op on concurrently deleted rows and can never flip
+ * is_active from a stale preload.
+ *
+ * State rows land BEFORE the rule's transition events, and the events are
+ * skipped when a state write failed: with the state unlanded, the next run
+ * re-derives the same transition and inserts its event then — no duplicate
+ * ledger rows, no orphaned ones. (The reverse residue — states landed,
+ * event insert then fails — loses that ledger entry; without a transaction
+ * that leg is unclosable, and it matches the old unchecked-insert posture.)
+ * Failures are logged, never thrown.
  */
 export async function flushLadderWrites(
   supabase: SupabaseClient,
@@ -214,31 +247,89 @@ export async function flushLadderWrites(
   buf: LadderWriteBuffer,
 ): Promise<void> {
   const CHUNK = 500;
+  const logError = (table: string, ruleId: string, message: string) =>
+    console.error(JSON.stringify({ fn: "flushLadderWrites", table, ruleId, error: message }));
 
-  for (let i = 0; i < buf.transitions.length; i += CHUNK) {
-    const { error } = await supabase
-      .from("ladder_transition_event")
-      .insert(buf.transitions.slice(i, i + CHUNK));
-    if (error) {
-      console.error(
-        JSON.stringify({ fn: "flushLadderWrites", table: "ladder_transition_event", error: error.message }),
-      );
+  // Rules in first-appearance order, from every buffer section.
+  const ruleIds: string[] = [];
+  const seen = new Set<string>();
+  const noteRule = (id: string) => {
+    if (!seen.has(id)) {
+      seen.add(id);
+      ruleIds.push(id);
     }
-  }
+  };
+  for (const t of buf.transitions) noteRule(String(t.rule_id));
+  for (const key of buf.activatedKeys) noteRule(key.split("|")[0]);
+  for (const key of buf.deactivated.keys()) noteRule(key.split("|")[0]);
+  for (const key of buf.touched.keys()) noteRule(key.split("|")[0]);
 
-  const stateRows: LadderStateRow[] = [];
-  for (const key of buf.dirtyKeys) {
-    const row = states.get(key);
-    if (row) stateRows.push(row);
-  }
-  for (let i = 0; i < stateRows.length; i += CHUNK) {
-    const { error } = await supabase
-      .from("ladder_rule_state")
-      .upsert(stateRows.slice(i, i + CHUNK), { onConflict: "rule_id,stay_date,room_type_id" });
-    if (error) {
-      console.error(
-        JSON.stringify({ fn: "flushLadderWrites", table: "ladder_rule_state", error: error.message }),
-      );
+  for (const ruleId of ruleIds) {
+    let stateWritesOk = true;
+
+    const activateRows: LadderStateRow[] = [];
+    for (const key of buf.activatedKeys) {
+      if (key.startsWith(`${ruleId}|`)) {
+        const row = states.get(key);
+        if (row) activateRows.push(row);
+      }
+    }
+    for (let i = 0; i < activateRows.length; i += CHUNK) {
+      const { error } = await supabase
+        .from("ladder_rule_state")
+        .upsert(activateRows.slice(i, i + CHUNK), { onConflict: "rule_id,stay_date,room_type_id" });
+      if (error) {
+        stateWritesOk = false;
+        logError("ladder_rule_state", ruleId, error.message);
+      }
+    }
+
+    for (const [groupKey, dates] of buf.deactivated) {
+      const [rid, roomTypeId] = groupKey.split("|");
+      if (rid !== ruleId) continue;
+      const sample = states.get(ladderStateKey(rid, [...dates][0], roomTypeId));
+      const { error } = await supabase
+        .from("ladder_rule_state")
+        .update({
+          is_active: false,
+          deactivated_at: sample?.deactivated_at ?? null,
+          last_evaluated_at: sample?.last_evaluated_at,
+        })
+        .eq("rule_id", rid)
+        .eq("room_type_id", roomTypeId)
+        .in("stay_date", [...dates]);
+      if (error) {
+        stateWritesOk = false;
+        logError("ladder_rule_state", ruleId, error.message);
+      }
+    }
+
+    for (const [groupKey, dates] of buf.touched) {
+      const [rid, roomTypeId] = groupKey.split("|");
+      if (rid !== ruleId) continue;
+      const sample = states.get(ladderStateKey(rid, [...dates][0], roomTypeId));
+      const { error } = await supabase
+        .from("ladder_rule_state")
+        .update({ last_evaluated_at: sample?.last_evaluated_at })
+        .eq("rule_id", rid)
+        .eq("room_type_id", roomTypeId)
+        .in("stay_date", [...dates]);
+      if (error) {
+        stateWritesOk = false;
+        logError("ladder_rule_state", ruleId, error.message);
+      }
+    }
+
+    const events = buf.transitions.filter((t) => String(t.rule_id) === ruleId);
+    if (!stateWritesOk && events.length > 0) {
+      logError("ladder_transition_event", ruleId, "skipped: state writes failed; next run re-derives");
+      continue;
+    }
+    for (let i = 0; i < events.length; i += CHUNK) {
+      const { error } = await supabase
+        .from("ladder_transition_event")
+        .insert(events.slice(i, i + CHUNK));
+      if (error) logError("ladder_transition_event", ruleId, error.message);
     }
   }
 }
