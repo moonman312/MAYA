@@ -152,8 +152,23 @@ export const BASELINE_SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 export type BaselineSnapshotStore = {
   /** Fresh row for (baselineTs, stay_date, room_type), or undefined when the cell is missing/stale. */
   rowAt(baselineTs: string, stayDate: string, roomTypeId: string): SnapshotRowAt | undefined;
-  /** Newest hotel-wide snapshot_ts at or before baselineTs — the coverage probe behind zero-baseline synthesis. Memoized. */
-  coverageAt(baselineTs: string): Promise<string | null>;
+  /**
+   * Newest snapshot_ts at or before baselineTs FOR THIS STAY DATE — the
+   * coverage probe behind zero-baseline synthesis. Memoized per (instant,
+   * date).
+   *
+   * Date-scoped on purpose. Hotel-wide coverage proved only that the writer
+   * was alive, and the 5-minute tick keeps near dates fresh around the
+   * clock — so a far date whose own snapshots ran out (beyond the tick
+   * horizon, or between daily sweeps) still "passed" the probe, its stale
+   * cells synthesized to zero, and its long-standing bookings read as a
+   * fresh demand spike. Caught live: a date 52 days out fired a pickup rule
+   * on 4 bookings that were 13 days old. Sibling room types at the SAME
+   * date are the honest witness — they prove this date was being covered at
+   * the instant, which is exactly the first-bookings-on-a-date case the
+   * synthesis exists for.
+   */
+  coverageAt(baselineTs: string, stayDate: string): Promise<string | null>;
 };
 
 export async function buildBaselineSnapshotStore(
@@ -204,18 +219,20 @@ export async function buildBaselineSnapshotStore(
     rowAt(baselineTs, stayDate, roomTypeId) {
       return byBaseline.get(baselineTs)?.get(`${stayDate}|${roomTypeId}`);
     },
-    async coverageAt(baselineTs) {
-      if (coverage.has(baselineTs)) return coverage.get(baselineTs) ?? null;
+    async coverageAt(baselineTs, stayDate) {
+      const key = `${baselineTs}|${stayDate}`;
+      if (coverage.has(key)) return coverage.get(key) ?? null;
       const { data } = await supabase
         .from("stay_date_snapshot")
         .select("snapshot_ts")
         .eq("hotel_id", hotelId)
+        .eq("stay_date", stayDate)
         .lte("snapshot_ts", baselineTs)
         .order("snapshot_ts", { ascending: false })
         .limit(1)
         .maybeSingle();
       const ts = data?.snapshot_ts ? String(data.snapshot_ts) : null;
-      coverage.set(baselineTs, ts);
+      coverage.set(key, ts);
       return ts;
     },
   };
