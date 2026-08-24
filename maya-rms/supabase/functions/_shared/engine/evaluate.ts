@@ -65,7 +65,10 @@ export type EvaluateOptions = {
    * months out is repriced on the next 5-minute beat instead of waiting for
    * the daily deep sweep. Deduped, past dates dropped, capped as a guard
    * against unbounded callers (the tick escalates big sets to a deep run
-   * instead).
+   * instead). One honest limit: ladder effects reprice the date that beat,
+   * but a FIRST pickup fire needs a baseline snapshot within 12h of its
+   * window start, and far dates snapshot on the daily sweep — so between
+   * sweeps a first fire can block as stale until the next sweep catches it.
    */
   extraStayDates?: string[];
 };
