@@ -12,34 +12,42 @@ import {
 } from "./golden-fixture";
 
 /**
- * Total executed queries by "table.op" across BOTH golden runs. This is the
- * efficiency baseline the query-batching refactor exists to beat — update it
- * consciously alongside the refactor, never to quiet a red test.
+ * Total executed queries by "table.op" across BOTH golden runs. The batching
+ * refactor brought this down from ~450 (the per-cell engine's bill on this
+ * 5-day fixture) to 55; nothing left scales with rules × dates, so growth
+ * from here means a regression. Update consciously, never to quiet a red
+ * test. Per run: hotels/room_types/pricing_rules 1 each; reservations 3
+ * (snapshot aggregate, base prices, booking-speed history); pickup_event 4
+ * (cooldown fires, last-applied map, post-insert effects reload, retire
+ * sweep); ladder_rule_state 1 preload + 1 bulk upsert; published_price 1
+ * preload (+ 1 bulk upsert on change); stay_date_snapshot selects are one
+ * ranged read per DISTINCT baseline instant plus a coverage probe only when
+ * a cell is missing — run 2 has one more instant than run 1 because run 1's
+ * own pickup events become new baselines (§8).
  */
 export const GOLDEN_QUERY_COUNT_BASELINE: Record<string, number> = {
   "assumption_challenges.select": 2,
   "evaluation_audit.delete": 2,
-  "evaluation_audit.insert": 7,
+  "evaluation_audit.insert": 1,
   "evaluation_audit.select": 2,
   "evaluation_run_log.delete": 2,
   "evaluation_run_log.upsert": 2,
   "hotel_closed_periods.select": 2,
   "hotels.select": 2,
-  "ladder_rule_state.select": 76,
-  "ladder_rule_state.update": 25,
-  "ladder_rule_state.upsert": 11,
-  "ladder_transition_event.insert": 13,
+  "ladder_rule_state.select": 2,
+  "ladder_rule_state.upsert": 2,
+  "ladder_transition_event.insert": 1,
   "pickup_event.insert": 2,
-  "pickup_event.select": 40,
+  "pickup_event.select": 8,
   "pickup_event.update": 2,
   "pricing_rules.select": 2,
-  "published_price.select": 18,
-  "published_price.upsert": 7,
+  "published_price.select": 2,
+  "published_price.upsert": 1,
   "reservations.select": 6,
   "room_types.select": 2,
   "stay_date_snapshot.delete": 4,
   "stay_date_snapshot.insert": 2,
-  "stay_date_snapshot.select": 244,
+  "stay_date_snapshot.select": 7,
 };
 
 describe("evaluateHotel golden equivalence", () => {

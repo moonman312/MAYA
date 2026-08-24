@@ -8,23 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { AssembledPrice } from "./pricing";
-import { auditSignature, writeAudit, type AuditInput } from "./audit";
-
-function fakeSupabase() {
-  const inserted: Record<string, unknown>[] = [];
-  const client = {
-    from() {
-      return {
-        insert(row: Record<string, unknown>) {
-          inserted.push(row);
-          return Promise.resolve({ error: null });
-        },
-      };
-    },
-  };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return { client: client as any, inserted };
-}
+import { auditSignature, buildAuditRow, type AuditInput } from "./audit";
 
 function assembled(overrides: Partial<AssembledPrice> = {}): AssembledPrice {
   return {
@@ -69,26 +53,19 @@ describe("auditSignature", () => {
   });
 });
 
-describe("writeAudit write-on-change", () => {
-  it("always writes when there is no previous signature", async () => {
-    const { client, inserted } = fakeSupabase();
-    const wrote = await writeAudit(client, baseInput({ previousSignature: null }));
-    expect(wrote).toBe(true);
-    expect(inserted).toHaveLength(1);
+describe("buildAuditRow write-on-change", () => {
+  it("always builds a row when there is no previous signature", () => {
+    expect(buildAuditRow(baseInput({ previousSignature: null }))).not.toBeNull();
   });
 
-  it("skips the insert when the signature matches the previous run", async () => {
-    const { client, inserted } = fakeSupabase();
+  it("skips the row when the signature matches the previous run", () => {
     const sig = auditSignature(110, [], "none");
-    const wrote = await writeAudit(client, baseInput({ previousSignature: sig }));
-    expect(wrote).toBe(false);
-    expect(inserted).toHaveLength(0);
+    expect(buildAuditRow(baseInput({ previousSignature: sig }))).toBeNull();
   });
 
-  it("still writes when a persistently active rule keeps the price identical run over run — same signature, but the FIRST time it activated it must have written", async () => {
+  it("still writes when a persistently active rule keeps the price identical run over run — same signature, but the FIRST time it activated it must have written", () => {
     // Simulates a rule that activated last run (no previous signature then,
     // so it wrote) and stays active with an unchanged effect this run.
-    const { client, inserted } = fakeSupabase();
     const active = assembled({
       ladder_effects: [{ rule_id: "r1", action_kind: "percent", action_direction: "increase", action_value: 10 }],
       pre_clamp_price: 110,
@@ -97,34 +74,28 @@ describe("writeAudit write-on-change", () => {
     const detailsLikeSignature = auditSignature(110, ["ladder:r1"], "none");
 
     // Run N-1: activation, nothing to compare against yet.
-    const first = await writeAudit(client, baseInput({ assembled: active, previousSignature: null }));
+    const first = buildAuditRow(baseInput({ assembled: active, previousSignature: null }));
     // Run N: same effect, same price — this is the case that used to flood
     // the table with an identical row every five minutes forever.
-    const second = await writeAudit(
-      client,
+    const second = buildAuditRow(
       baseInput({ assembled: active, previousSignature: detailsLikeSignature }),
     );
-    expect(first).toBe(true);
-    expect(second).toBe(false);
-    expect(inserted).toHaveLength(1);
+    expect(first).not.toBeNull();
+    expect(second).toBeNull();
   });
 
-  it("writes again once the price actually moves", async () => {
-    const { client, inserted } = fakeSupabase();
+  it("writes again once the price actually moves", () => {
     const sig = auditSignature(110, [], "none");
-    const wrote = await writeAudit(
-      client,
+    const row = buildAuditRow(
       baseInput({ assembled: assembled({ final_price: 121 }), previousSignature: sig }),
     );
-    expect(wrote).toBe(true);
-    expect(inserted).toHaveLength(1);
+    expect(row).not.toBeNull();
+    expect(row?.final_price).toBe(121);
   });
 
-  it("writes again when the applied-effects set changes even if the final price coincidentally matches", async () => {
-    const { client, inserted } = fakeSupabase();
+  it("writes again when the applied-effects set changes even if the final price coincidentally matches", () => {
     const sig = auditSignature(110, ["ladder:r1"], "none");
-    const wrote = await writeAudit(
-      client,
+    const row = buildAuditRow(
       baseInput({
         assembled: assembled({
           ladder_effects: [{ rule_id: "r2", action_kind: "percent", action_direction: "increase", action_value: 10 }],
@@ -132,7 +103,6 @@ describe("writeAudit write-on-change", () => {
         previousSignature: sig,
       }),
     );
-    expect(wrote).toBe(true);
-    expect(inserted).toHaveLength(1);
+    expect(row).not.toBeNull();
   });
 });

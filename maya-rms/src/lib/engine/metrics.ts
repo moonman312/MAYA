@@ -5,12 +5,12 @@
  */
 
 import type { EngineRule } from "@/types/domain";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { findSnapshotAt } from "./snapshots";
+import {
+  BASELINE_SNAPSHOT_MAX_AGE_MS,
+  type BaselineSnapshotStore,
+  type CellSnapshot,
+} from "./snapshots";
 import type { RuleMetrics } from "./types";
-
-/** §16.3 — baseline snapshot must not be “too old” vs target baseline_ts. */
-const BASELINE_SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 /**
  * §5.1: days_until_arrival = (stay_date - evaluation_local_date).days
@@ -89,16 +89,18 @@ function sumSignalBooked(
 /**
  * Precompute all metrics for a single (rule, stay_date) pair.
  *
+ * Current state comes from the snapshot map this run just wrote; baselines
+ * come from the pre-built store. The only query left is the store's lazy
+ * hotel-coverage probe, and only when a baseline cell is missing or stale.
+ *
  * If baselineTs is null (ladder rules), pickup is not computed.
  */
 export async function computeRuleMetrics(
-  supabase: SupabaseClient,
   rule: EngineRule,
-  hotelId: string,
   stayDate: string,
-  evalTs: string,
   evalLocalDate: string,
-  currentSnapshotTs: string,
+  currentSnaps: Map<string, CellSnapshot>,
+  baselineStore: BaselineSnapshotStore | null,
   baselineTs: string | null,
 ): Promise<RuleMetrics> {
   const dta = computeDta(stayDate, evalLocalDate);
@@ -124,28 +126,12 @@ export async function computeRuleMetrics(
     };
   }
 
-  const currentSnapMap = await findSnapshotAt(
-    supabase,
-    hotelId,
-    stayDate,
-    rule.signal_room_type_ids,
-    currentSnapshotTs,
-  );
-
   const occMap = new Map<string, { booked_units: number; sellable_units: number }>();
   for (const rtId of rule.signal_room_type_ids) {
-    const snap = currentSnapMap.get(rtId);
-    const { data: snapFull } = await supabase
-      .from("stay_date_snapshot")
-      .select("sellable_units")
-      .eq("hotel_id", hotelId)
-      .eq("stay_date", stayDate)
-      .eq("room_type_id", rtId)
-      .eq("snapshot_ts", currentSnapshotTs)
-      .maybeSingle();
+    const snap = currentSnaps.get(`${stayDate}|${rtId}`);
     occMap.set(rtId, {
       booked_units: snap?.booked_units ?? 0,
-      sellable_units: snapFull?.sellable_units ?? 0,
+      sellable_units: snap?.sellable_units ?? 0,
     });
   }
 
@@ -153,7 +139,7 @@ export async function computeRuleMetrics(
 
   const currentForPickup = new Map<string, { booked_units: number; booked_revenue: number }>();
   for (const rtId of rule.signal_room_type_ids) {
-    const s = currentSnapMap.get(rtId);
+    const s = currentSnaps.get(`${stayDate}|${rtId}`);
     if (s) currentForPickup.set(rtId, { booked_units: s.booked_units, booked_revenue: s.booked_revenue });
   }
 
@@ -165,14 +151,11 @@ export async function computeRuleMetrics(
   let signal_booked_units_baseline = 0;
   let signal_booked_revenue_baseline = 0;
 
-  if (baselineTs) {
-    const baselineSnapsFull = await findSnapshotAt(
-      supabase,
-      hotelId,
-      stayDate,
-      rule.signal_room_type_ids,
-      baselineTs,
-    );
+  if (baselineTs && baselineStore) {
+    const baselineSnapsFull = new Map<
+      string,
+      { booked_units: number; booked_revenue: number; snapshot_ts: string }
+    >();
 
     // Cells the writer never covered get a synthesized zero-booked baseline
     // instead of a block. Earlier engine generations only wrote snapshot rows
@@ -181,27 +164,17 @@ export async function computeRuleMetrics(
     // hotel-level probe keeps the synthesis honest: zero is only assumed when
     // the hotel was demonstrably snapshotting at the baseline instant, so a
     // hotel that wasn't connected yet still blocks rather than fabricating a
-    // flat past.
+    // flat past. (The store already folds "present but older than 12h" into
+    // "missing" — §16.3 treated both identically and never read the stale
+    // row's contents.)
     const missingOrStale: string[] = [];
     for (const rtId of rule.signal_room_type_ids) {
-      const row = baselineSnapsFull.get(rtId);
-      if (!row) {
-        missingOrStale.push(rtId);
-        continue;
-      }
-      const age = new Date(baselineTs).getTime() - new Date(row.snapshot_ts).getTime();
-      if (age > BASELINE_SNAPSHOT_MAX_AGE_MS) missingOrStale.push(rtId);
+      const row = baselineStore.rowAt(baselineTs, stayDate, rtId);
+      if (row) baselineSnapsFull.set(rtId, row);
+      else missingOrStale.push(rtId);
     }
     if (missingOrStale.length > 0) {
-      const { data: hotelCoverage } = await supabase
-        .from("stay_date_snapshot")
-        .select("snapshot_ts")
-        .eq("hotel_id", hotelId)
-        .lte("snapshot_ts", baselineTs)
-        .order("snapshot_ts", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const coverageTs = hotelCoverage?.snapshot_ts ? String(hotelCoverage.snapshot_ts) : null;
+      const coverageTs = await baselineStore.coverageAt(baselineTs);
       const coverageAge = coverageTs
         ? new Date(baselineTs).getTime() - new Date(coverageTs).getTime()
         : Number.POSITIVE_INFINITY;

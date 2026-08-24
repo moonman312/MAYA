@@ -8,43 +8,67 @@
 import type { EngineRule } from "@/types/domain";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { conditionCount } from "./conditions";
+import { fetchAllRows } from "./snapshots";
 import type { PickupCandidate } from "./types";
 
 /* ── Baseline computation (§8) ────────────────────────────────── */
+
+/**
+ * Most recent live event applied_at per (rule_id, stay_date) across the
+ * horizon — one ranged read replacing the old per-(rule, stay date) lookup.
+ * The values are the DB's verbatim strings: baseline_ts derived from them is
+ * written back into pickup_event.baseline_start_ts and must round-trip
+ * unchanged.
+ */
+export async function loadLastAppliedByRuleDate(
+  supabase: SupabaseClient,
+  hotelId: string,
+  firstDate: string,
+  lastDate: string,
+): Promise<Map<string, string>> {
+  const rows = await fetchAllRows(() =>
+    supabase
+      .from("pickup_event")
+      .select("rule_id, stay_date, applied_at")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", firstDate)
+      .lte("stay_date", lastDate)
+      .is("retired_at", null)
+      .order("applied_at", { ascending: true })
+      .order("id", { ascending: true }),
+  );
+  const map = new Map<string, string>();
+  for (const r of rows) {
+    const key = `${r.rule_id}|${r.stay_date}`;
+    const appliedAt = String(r.applied_at);
+    const prev = map.get(key);
+    if (!prev || Date.parse(appliedAt) > Date.parse(prev)) map.set(key, appliedAt);
+  }
+  return map;
+}
 
 /**
  * §5.4 / §8: compute the baseline timestamp for a pickup rule.
  *
  * baseline_ts = max(last_event_applied_at, now - pickup_window_days)
  */
-export async function computeBaselineTs(
-  supabase: SupabaseClient,
+export function resolveBaselineTs(
+  lastAppliedAt: string | undefined,
   rule: EngineRule,
-  stayDate: string,
   evalTs: string,
-): Promise<string | null> {
+): string | null {
   const windowDays = rule.condition.pickup_window_days ?? 3;
   const windowStart = new Date(evalTs);
   windowStart.setDate(windowStart.getDate() - windowDays);
   const windowStartTs = windowStart.toISOString();
 
-  const { data: lastEvent } = await supabase
-    .from("pickup_event")
-    .select("applied_at")
-    .eq("rule_id", rule.id)
-    .eq("stay_date", stayDate)
-    .is("retired_at", null)
-    .order("applied_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (!lastEvent) {
+  if (!lastAppliedAt) {
     return windowStartTs;
   }
 
-  const lastTs = new Date(lastEvent.applied_at);
+  const lastTs = new Date(lastAppliedAt);
   const windowTs = new Date(windowStartTs);
-  return lastTs > windowTs ? lastEvent.applied_at : windowStartTs;
+  return lastTs > windowTs ? lastAppliedAt : windowStartTs;
 }
 
 /* ── Per-room competition (§7.3) ──────────────────────────────── */
@@ -309,24 +333,40 @@ export async function retireUndonePickupEvents(
   rules: EngineRule[],
   snapshotTs: string,
   now: string,
+  bookedUnitsByCell?: Map<string, number>,
 ): Promise<number> {
-  const { data: events } = await supabase
-    .from("pickup_event")
-    .select("id, rule_id, stay_date, signal_booked_units_start")
-    .eq("hotel_id", hotelId)
-    .is("retired_at", null);
-  if (!events || events.length === 0) return 0;
+  // Paged: a hotel with a long horizon and stacked booking-speed events can
+  // hold more than 1000 live events, and an unpaged read silently stops
+  // there — the truncated tail then never gets checked for retirement.
+  const events = await fetchAllRows(() =>
+    supabase
+      .from("pickup_event")
+      .select("id, rule_id, stay_date, signal_booked_units_start")
+      .eq("hotel_id", hotelId)
+      .is("retired_at", null)
+      .order("id", { ascending: true }),
+  );
+  if (events.length === 0) return 0;
 
   // Current booked units come from the snapshot this run just wrote, so the
-  // comparison uses exactly the numbers the rest of the run reasoned about.
-  const { data: snapRows } = await supabase
-    .from("stay_date_snapshot")
-    .select("stay_date, room_type_id, booked_units")
-    .eq("hotel_id", hotelId)
-    .eq("snapshot_ts", snapshotTs);
-  const bookedByCell = new Map<string, number>();
-  for (const s of snapRows ?? []) {
-    bookedByCell.set(`${s.stay_date}|${s.room_type_id}`, Number(s.booked_units ?? 0));
+  // comparison uses exactly the numbers the rest of the run reasoned about —
+  // the caller passes them straight from snapshotCurrentState; the query is
+  // the fallback for callers that don't hold them.
+  let bookedByCell = bookedUnitsByCell;
+  if (!bookedByCell) {
+    const snapRows = await fetchAllRows(() =>
+      supabase
+        .from("stay_date_snapshot")
+        .select("stay_date, room_type_id, booked_units")
+        .eq("hotel_id", hotelId)
+        .eq("snapshot_ts", snapshotTs)
+        .order("stay_date", { ascending: true })
+        .order("room_type_id", { ascending: true }),
+    );
+    bookedByCell = new Map<string, number>();
+    for (const s of snapRows) {
+      bookedByCell.set(`${s.stay_date}|${s.room_type_id}`, Number(s.booked_units ?? 0));
+    }
   }
 
   const signalRoomTypesByRule = new Map(rules.map((r) => [r.id, r.signal_room_type_ids]));

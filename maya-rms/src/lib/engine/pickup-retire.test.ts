@@ -24,7 +24,14 @@ function fakeSupabase(events: Event[], snaps: Snap[]) {
             return api;
           },
           is() {
-            return Promise.resolve({ data: events.filter((e) => e.retired_at === null) });
+            return api;
+          },
+          order() {
+            return api;
+          },
+          range(from: number, to: number) {
+            const live = events.filter((e) => e.retired_at === null);
+            return Promise.resolve({ data: live.slice(from, to + 1), error: null });
           },
           update(patch: { retired_at: string }) {
             return {
@@ -41,14 +48,19 @@ function fakeSupabase(events: Event[], snaps: Snap[]) {
         };
         return api;
       }
-      // stay_date_snapshot
+      // stay_date_snapshot — the no-preloaded-map fallback path
       const q = {
         select() {
           return q;
         },
-        eq(col: string) {
-          // second .eq resolves the query
-          return col === "snapshot_ts" ? Promise.resolve({ data: snaps }) : q;
+        eq() {
+          return q;
+        },
+        order() {
+          return q;
+        },
+        range(from: number, to: number) {
+          return Promise.resolve({ data: snaps.slice(from, to + 1), error: null });
         },
       };
       return q;
@@ -115,5 +127,19 @@ describe("retireUndonePickupEvents", () => {
       [{ stay_date: "2026-09-01", room_type_id: "rt1", booked_units: 0 }],
     );
     expect(await retireUndonePickupEvents(client, "h1", [rule("r1", ["rt1"])], NOW, NOW)).toBe(0);
+  });
+
+  it("uses the caller's booked map instead of re-reading the snapshot", async () => {
+    // The snapshot table says the surge held; the run's own numbers say it
+    // collapsed. The run's numbers must win — they are what every other pass
+    // reasoned about.
+    const { client, retired } = fakeSupabase(
+      [{ id: "e1", rule_id: "r1", stay_date: "2026-09-01", signal_booked_units_start: 1, retired_at: null }],
+      [{ stay_date: "2026-09-01", room_type_id: "rt1", booked_units: 5 }],
+    );
+    const booked = new Map([["2026-09-01|rt1", 1]]);
+    const n = await retireUndonePickupEvents(client, "h1", [rule("r1", ["rt1"])], NOW, NOW, booked);
+    expect(n).toBe(1);
+    expect(retired).toEqual(["e1"]);
   });
 });
