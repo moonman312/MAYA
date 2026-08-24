@@ -57,11 +57,12 @@ export function auditSignature(
 }
 
 /**
- * Write a single evaluation_audit row for one (stay_date, room_type), unless
- * its signature matches input.previousSignature. Returns whether a row was
- * written.
+ * Build the evaluation_audit row for one (stay_date, room_type), unless its
+ * signature matches input.previousSignature — then null: a cell whose price
+ * and applied rules haven't moved has nothing new to record. The caller
+ * flushes the survivors in bulk via flushAuditRows.
  */
-export async function writeAudit(supabase: SupabaseClient, input: AuditInput): Promise<boolean> {
+export function buildAuditRow(input: AuditInput): Record<string, unknown> | null {
   const { assembled, basePrices } = input;
 
   const ladderDelta =
@@ -136,10 +137,10 @@ export async function writeAudit(supabase: SupabaseClient, input: AuditInput): P
     details.clamped_by,
   );
   if (input.previousSignature != null && input.previousSignature === signature) {
-    return false;
+    return null;
   }
 
-  await supabase.from("evaluation_audit").insert({
+  return {
     evaluation_run_id: input.runId,
     hotel_id: input.hotelId,
     stay_date: assembled.stay_date,
@@ -153,8 +154,27 @@ export async function writeAudit(supabase: SupabaseClient, input: AuditInput): P
     pre_clamp_price: assembled.pre_clamp_price,
     final_price: assembled.final_price,
     details,
-  });
-  return true;
+  };
+}
+
+/**
+ * Bulk-insert the run's audit rows. Errors are logged, never thrown — the
+ * old per-cell insert never checked its error either, and audit rows are
+ * evidence, not pricing state.
+ */
+export async function flushAuditRows(
+  supabase: SupabaseClient,
+  rows: Record<string, unknown>[],
+): Promise<void> {
+  const CHUNK = 500;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const { error } = await supabase.from("evaluation_audit").insert(rows.slice(i, i + CHUNK));
+    if (error) {
+      console.error(
+        JSON.stringify({ fn: "flushAuditRows", error: error.message }),
+      );
+    }
+  }
 }
 
 /**
