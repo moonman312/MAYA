@@ -161,10 +161,11 @@ export async function computeRuleMetrics(
     // instead of a block. Earlier engine generations only wrote snapshot rows
     // for cells with bookings, so a date receiving its FIRST bookings has no
     // baseline row — exactly the moment a pickup rule exists to catch. The
-    // hotel-level probe keeps the synthesis honest: zero is only assumed when
-    // the hotel was demonstrably snapshotting at the baseline instant, so a
-    // hotel that wasn't connected yet still blocks rather than fabricating a
-    // flat past. (The store already folds "present but older than 12h" into
+    // date-scoped probe keeps the synthesis honest: zero is only assumed
+    // when THIS stay date was demonstrably being snapshotted at the baseline
+    // instant (see coverageAt's doc for why hotel-wide coverage was the
+    // wrong witness), so a date outside snapshot coverage blocks rather
+    // than fabricating a flat past. (The store already folds "present but older than 12h" into
     // "missing" — §16.3 treated both identically and never read the stale
     // row's contents.)
     const missingOrStale: string[] = [];
@@ -174,7 +175,7 @@ export async function computeRuleMetrics(
       else missingOrStale.push(rtId);
     }
     if (missingOrStale.length > 0) {
-      const coverageTs = await baselineStore.coverageAt(baselineTs);
+      const coverageTs = await baselineStore.coverageAt(baselineTs, stayDate);
       const coverageAge = coverageTs
         ? new Date(baselineTs).getTime() - new Date(coverageTs).getTime()
         : Number.POSITIVE_INFINITY;

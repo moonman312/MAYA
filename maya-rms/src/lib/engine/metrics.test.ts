@@ -200,9 +200,10 @@ describe("computeRuleMetrics: synthesized zero baseline (first bookings on a dat
     };
   }
 
-  it("treats a missing baseline cell as zero when the hotel was snapshotting", async () => {
-    // Hotel-level coverage minutes before the baseline instant proves the
-    // writer was running; the cell simply had nothing booked back then.
+  it("treats a missing baseline cell as zero when the stay date was being snapshotted", async () => {
+    // Date-level coverage minutes before the baseline instant (a sibling
+    // room type's row) proves this date was being written; the cell simply
+    // had nothing booked back then.
     const metrics = await computeRuleMetrics(
       makeRule({ condition: { pickup_operator: "gt", pickup_threshold: 3 } }),
       "2026-10-26",
@@ -216,7 +217,7 @@ describe("computeRuleMetrics: synthesized zero baseline (first bookings on a dat
     expect(metrics.net_pickup_units).toBe(5);
   });
 
-  it("still blocks when the hotel has no snapshot history at the baseline", async () => {
+  it("still blocks when the date has no snapshot history at the baseline", async () => {
     const metrics = await computeRuleMetrics(
       makeRule({ condition: { pickup_operator: "gt", pickup_threshold: 3 } }),
       "2026-10-26",
@@ -229,7 +230,7 @@ describe("computeRuleMetrics: synthesized zero baseline (first bookings on a dat
     expect(metrics.net_pickup_units).toBeNull();
   });
 
-  it("blocks as stale when hotel coverage predates the baseline by more than the freshness window", async () => {
+  it("blocks as stale when the date's coverage predates the baseline by more than the freshness window", async () => {
     const metrics = await computeRuleMetrics(
       makeRule({ condition: { pickup_operator: "gt", pickup_threshold: 3 } }),
       "2026-10-26",
