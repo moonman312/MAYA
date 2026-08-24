@@ -29,7 +29,7 @@ export type AuditInput = {
   /**
    * The signature (see auditSignature) of the last audit row written for
    * this exact (stay_date, room_type) cell, if any. When the new row's
-   * signature is identical, writeAudit skips the insert entirely — a cell
+   * signature is identical, buildAuditRow skips the row entirely — a cell
    * whose price and applied rules haven't moved has nothing new to record.
    *
    * Without this, the engine wrote a row for every priced cell on every
@@ -59,11 +59,12 @@ export function auditSignature(
 }
 
 /**
- * Write a single evaluation_audit row for one (stay_date, room_type), unless
- * its signature matches input.previousSignature. Returns whether a row was
- * written.
+ * Build the evaluation_audit row for one (stay_date, room_type), unless its
+ * signature matches input.previousSignature — then null: a cell whose price
+ * and applied rules haven't moved has nothing new to record. The caller
+ * flushes the survivors in bulk via flushAuditRows.
  */
-export async function writeAudit(supabase: SupabaseClient, input: AuditInput): Promise<boolean> {
+export function buildAuditRow(input: AuditInput): Record<string, unknown> | null {
   const { assembled, basePrices } = input;
 
   const ladderDelta =
@@ -138,10 +139,10 @@ export async function writeAudit(supabase: SupabaseClient, input: AuditInput): P
     details.clamped_by,
   );
   if (input.previousSignature != null && input.previousSignature === signature) {
-    return false;
+    return null;
   }
 
-  await supabase.from("evaluation_audit").insert({
+  return {
     evaluation_run_id: input.runId,
     hotel_id: input.hotelId,
     stay_date: assembled.stay_date,
@@ -155,8 +156,27 @@ export async function writeAudit(supabase: SupabaseClient, input: AuditInput): P
     pre_clamp_price: assembled.pre_clamp_price,
     final_price: assembled.final_price,
     details,
-  });
-  return true;
+  };
+}
+
+/**
+ * Bulk-insert the run's audit rows. Errors are logged, never thrown — the
+ * old per-cell insert never checked its error either, and audit rows are
+ * evidence, not pricing state.
+ */
+export async function flushAuditRows(
+  supabase: SupabaseClient,
+  rows: Record<string, unknown>[],
+): Promise<void> {
+  const CHUNK = 500;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const { error } = await supabase.from("evaluation_audit").insert(rows.slice(i, i + CHUNK));
+    if (error) {
+      console.error(
+        JSON.stringify({ fn: "flushAuditRows", error: error.message }),
+      );
+    }
+  }
 }
 
 /**
@@ -171,6 +191,7 @@ export async function loadLastAuditSignatures(
   hotelId: string,
   firstDate: string,
   lastDate: string,
+  expectedCells?: number,
 ): Promise<Map<string, string>> {
   const PAGE = 1000;
   // Signatures exist to skip redundant audit writes; they must never cost a
@@ -179,11 +200,13 @@ export async function loadLastAuditSignatures(
   // past the statement timeout — degrade to an empty map, which merely means
   // one extra audit row per cell this run. The page cap bounds the walk for
   // the same reason: past it, the newest-first scan is digging through spam,
-  // not signal.
+  // not signal. And once every cell the caller will price has a signature
+  // (expectedCells), the rest of the table is history nobody asks about.
   const MAX_PAGES = 30;
   const signatures = new Map<string, string>();
   const seenKeys = new Set<string>();
   for (let from = 0; from < MAX_PAGES * PAGE; from += PAGE) {
+    if (expectedCells != null && signatures.size >= expectedCells) break;
     const { data, error } = await supabase
       .from("evaluation_audit")
       .select("stay_date, room_type_id, final_price, details")

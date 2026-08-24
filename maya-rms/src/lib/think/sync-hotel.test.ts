@@ -96,6 +96,13 @@ function makeSupabaseStub(
         preds.push((r) => vals.includes(r[col]));
         return builder;
       },
+      select(_cols?: string) {
+        const deleted = reservations.filter((r) => preds.every((p) => p(r)));
+        const survivors = reservations.filter((r) => !preds.every((p) => p(r)));
+        reservations.length = 0;
+        reservations.push(...survivors);
+        return Promise.resolve({ data: deleted, error: null });
+      },
       then<T>(resolve: (v: { error: null }) => T) {
         const survivors = reservations.filter((r) => !preds.every((p) => p(r)));
         reservations.length = 0;
@@ -451,6 +458,9 @@ describe("runThinkSyncForHotel sync modes and checkpoints", () => {
       supabase.reservations.filter((r) => r.external_reservation_id === "res_1:b1"),
     ).toHaveLength(1);
     if (res.ok) expect(res.ingest.skippedCanceled).toBe(1);
+    // Both the night that was written and the night that was canceled are
+    // demand changes — the change-triggered pricing pass needs them all.
+    if (res.ok) expect(res.changedStayDates).toEqual(["2026-08-02", "2026-08-10"]);
   });
 });
 

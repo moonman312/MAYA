@@ -10,23 +10,33 @@ export { ruleScopeMatches } from "./scope.ts";
 export { computeDta, computeOccupancy, computeNetPickup, computeRuleMetrics } from "./metrics.ts";
 export { ruleConditionsMatch, conditionCount } from "./conditions.ts";
 
-export { evaluateLadderTriple } from "./ladder.ts";
-export type { LadderPassResult } from "./ladder.ts";
+export { evaluateLadderTriple, flushLadderWrites, loadLadderStates, newLadderWriteBuffer } from "./ladder.ts";
+export type { LadderPassResult, LadderStateRow } from "./ladder.ts";
 
 export {
   basePriceKey,
-  computeBaselineTs,
+  loadLastAppliedByRuleDate,
   pickupTieBreakTrace,
+  resolveBaselineTs,
   runPickupPass,
   selectPickupWinner,
 } from "./pickup.ts";
 
-export { applyAdjustments, clampPrice, assemblePrice, maybePublish } from "./pricing.ts";
-export type { AssembledPrice } from "./pricing.ts";
+export {
+  applyAdjustments,
+  assemblePrice,
+  clampPrice,
+  flushPublishedPrices,
+  indexActiveLadderEffects,
+  loadActivePickupEffectsForRange,
+  publishDecision,
+} from "./pricing.ts";
+export type { AssembledPrice, PublishRow } from "./pricing.ts";
 
-export { writeAudit } from "./audit.ts";
+export { buildAuditRow, flushAuditRows } from "./audit.ts";
 
-export { snapshotCurrentState, findSnapshotAt, purgeOldSnapshots } from "./snapshots.ts";
+export { buildBaselineSnapshotStore, snapshotCurrentState, purgeOldSnapshots } from "./snapshots.ts";
+export type { BaselineSnapshotStore, CellSnapshot } from "./snapshots.ts";
 
 export type {
   RuleMetrics,

@@ -7,7 +7,8 @@
  * the ceiling and was pushed to the PMS at every step.
  */
 import { describe, expect, it } from "vitest";
-import { maybePublish } from "./pricing";
+import { flushPublishedPrices, publishDecision, type PublishRow } from "./pricing";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 type Row = {
   hotel_id: string;
@@ -24,41 +25,19 @@ function fakeSupabase(seed: Row[] = []) {
   const client = {
     from() {
       return {
-        select(cols: string) {
-          const filters: Record<string, string> = {};
-          const q = {
-            eq(col: string, val: string) {
-              filters[col] = val;
-              return q;
-            },
-            maybeSingle() {
-              const found = rows.find(
-                (r) =>
-                  r.hotel_id === filters.hotel_id &&
-                  r.stay_date === filters.stay_date &&
-                  r.room_type_id === filters.room_type_id,
-              );
-              if (!found) return Promise.resolve({ data: null });
-              const projected: Record<string, unknown> = {};
-              for (const c of cols.split(",").map((x) => x.trim())) {
-                projected[c] = (found as unknown as Record<string, unknown>)[c];
-              }
-              return Promise.resolve({ data: projected });
-            },
-          };
-          return q;
-        },
-        upsert(payload: Partial<Row>) {
-          const idx = rows.findIndex(
-            (r) =>
-              r.hotel_id === payload.hotel_id &&
-              r.stay_date === payload.stay_date &&
-              r.room_type_id === payload.room_type_id,
-          );
-          if (idx === -1) {
-            rows.push({ base_price: null, ...payload } as Row);
-          } else {
-            rows[idx] = { ...rows[idx], ...payload };
+        upsert(payloads: Partial<Row>[]) {
+          for (const payload of payloads) {
+            const idx = rows.findIndex(
+              (r) =>
+                r.hotel_id === payload.hotel_id &&
+                r.stay_date === payload.stay_date &&
+                r.room_type_id === payload.room_type_id,
+            );
+            if (idx === -1) {
+              rows.push({ base_price: null, ...payload } as Row);
+            } else {
+              rows[idx] = { ...rows[idx], ...payload };
+            }
           }
           return Promise.resolve({ error: null });
         },
@@ -66,18 +45,47 @@ function fakeSupabase(seed: Row[] = []) {
     },
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return { client: client as any, rows };
+  return { client: client as any as SupabaseClient, rows };
 }
 
 const HOTEL = "h1";
 const DATE = "2026-08-14";
 const RT = "rt1";
 
-describe("maybePublish remembers the base price", () => {
+function decideAndFlush(
+  client: SupabaseClient,
+  rows: Row[],
+  finalPrice: number,
+  computedAt: string,
+  basePrice: number,
+) {
+  const current = rows.find(
+    (r) => r.hotel_id === HOTEL && r.stay_date === DATE && r.room_type_id === RT,
+  );
+  const decision = publishDecision(current, finalPrice, basePrice);
+  const toWrite: PublishRow[] = decision.write
+    ? [
+        {
+          payload: {
+            hotel_id: HOTEL,
+            stay_date: DATE,
+            room_type_id: RT,
+            price: finalPrice,
+            base_price: basePrice,
+            computed_at: computedAt,
+          },
+          priceMoved: decision.priceMoved,
+        },
+      ]
+    : [];
+  return flushPublishedPrices(client, toWrite);
+}
+
+describe("the publish flow remembers the base price", () => {
   it("stores the base alongside the published price", async () => {
     const { client, rows } = fakeSupabase();
-    const published = await maybePublish(client, HOTEL, DATE, RT, 110, "t0", 100);
-    expect(published).toBe(true);
+    const published = await decideAndFlush(client, rows, 110, "t0", 100);
+    expect(published).toBe(1);
     expect(rows[0].price).toBe(110);
     expect(rows[0].base_price).toBe(100);
   });
@@ -88,18 +96,18 @@ describe("maybePublish remembers the base price", () => {
     const { client, rows } = fakeSupabase([
       { hotel_id: HOTEL, stay_date: DATE, room_type_id: RT, price: 110, base_price: null, computed_at: "t0" },
     ]);
-    const published = await maybePublish(client, HOTEL, DATE, RT, 110, "t1", 100);
+    const published = await decideAndFlush(client, rows, 110, "t1", 100);
     expect(rows[0].base_price).toBe(100);
     // ...but a base-only correction is not a rate change.
-    expect(published).toBe(false);
+    expect(published).toBe(0);
   });
 
   it("does no work when both the price and the base are already correct", async () => {
     const { client, rows } = fakeSupabase([
       { hotel_id: HOTEL, stay_date: DATE, room_type_id: RT, price: 110, base_price: 100, computed_at: "t0" },
     ]);
-    const published = await maybePublish(client, HOTEL, DATE, RT, 110, "t1", 100);
-    expect(published).toBe(false);
+    const published = await decideAndFlush(client, rows, 110, "t1", 100);
+    expect(published).toBe(0);
     expect(rows[0].computed_at).toBe("t0");
   });
 
@@ -107,7 +115,7 @@ describe("maybePublish remembers the base price", () => {
     const { client, rows } = fakeSupabase();
     // Same base, same active +10% effect, ten consecutive runs.
     for (let i = 0; i < 10; i++) {
-      await maybePublish(client, HOTEL, DATE, RT, 110, `t${i}`, 100);
+      await decideAndFlush(client, rows, 110, `t${i}`, 100);
     }
     expect(rows[0].base_price).toBe(100);
     expect(rows[0].price).toBe(110);

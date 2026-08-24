@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { applyAdjustments, clampPrice, maybePublish } from "./pricing";
+import { applyAdjustments, clampPrice, flushPublishedPrices, publishDecision, type PublishRow } from "./pricing";
 import type { AdjustmentSpec } from "./types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -128,51 +128,54 @@ describe("scenario: pickup re-fire stacking (§13.3)", () => {
   });
 });
 
-describe("maybePublish: a failed write must not report as a successful publish (regression)", () => {
+describe("publish flow: a failed write must not report as a successful publish (regression)", () => {
   // A transient error (or an RLS rejection when the engine runs under a
   // non-manager's session) previously left the OLD price in published_price
-  // while maybePublish still returned true — pricesPublished incremented
+  // while the run still counted the publish — pricesPublished incremented
   // and the audit row recorded the new price as though it had gone out,
   // even though the PMS rate-push (which reads published_price) would never
   // see it.
-  function fakeSupabase(currentPrice: number | null, upsertError: { code: string; message: string } | null) {
+  function fakeSupabase(upsertError: { code: string; message: string } | null) {
     return {
       from: () => ({
-        select: () => ({
-          eq: () => ({
-            eq: () => ({
-              eq: () => ({
-                maybeSingle: () =>
-                  Promise.resolve({
-                    data: currentPrice != null ? { price: currentPrice, base_price: 100 } : null,
-                  }),
-              }),
-            }),
-          }),
-        }),
         upsert: () => Promise.resolve({ error: upsertError }),
       }),
     } as unknown as SupabaseClient;
   }
 
-  it("returns false and does not claim success when the upsert fails", async () => {
+  const row = (priceMoved: boolean): PublishRow => ({
+    payload: {
+      hotel_id: "hotel-1",
+      stay_date: "2026-08-01",
+      room_type_id: "rt1",
+      price: 175,
+      base_price: 100,
+      computed_at: "2026-07-28T00:00:00Z",
+    },
+    priceMoved,
+  });
+
+  it("counts nothing and logs when the upsert fails", async () => {
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const supabase = fakeSupabase(100, { code: "57014", message: "statement timeout" });
-    const published = await maybePublish(supabase, "hotel-1", "2026-08-01", "rt1", 175, "2026-07-28T00:00:00Z", 100);
-    expect(published).toBe(false);
+    const published = await flushPublishedPrices(fakeSupabase({ code: "57014", message: "statement timeout" }), [
+      row(true),
+    ]);
+    expect(published).toBe(0);
     expect(consoleErrorSpy).toHaveBeenCalled();
     consoleErrorSpy.mockRestore();
   });
 
-  it("returns true on a clean write that actually changes the price", async () => {
-    const supabase = fakeSupabase(100, null);
-    const published = await maybePublish(supabase, "hotel-1", "2026-08-01", "rt1", 175, "2026-07-28T00:00:00Z", 100);
-    expect(published).toBe(true);
+  it("counts a clean write that actually changes the price", async () => {
+    expect(await flushPublishedPrices(fakeSupabase(null), [row(true)])).toBe(1);
   });
 
-  it("returns false without even attempting a write when nothing changed", async () => {
-    const supabase = fakeSupabase(175, null);
-    const published = await maybePublish(supabase, "hotel-1", "2026-08-01", "rt1", 175, "2026-07-28T00:00:00Z", 100);
-    expect(published).toBe(false);
+  it("a landed base-only correction still never counts as a publish", async () => {
+    expect(await flushPublishedPrices(fakeSupabase(null), [row(false)])).toBe(0);
+  });
+
+  it("decides not to write at all when nothing changed", () => {
+    const decision = publishDecision({ price: 175, base_price: 100 }, 175, 100);
+    expect(decision.write).toBe(false);
+    expect(decision.priceMoved).toBe(false);
   });
 });

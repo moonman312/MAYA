@@ -143,8 +143,29 @@ Deno.serve(async (req) => {
     let evaluate: (typeof results)[number]["evaluate"];
     if (runEvaluate) {
       try {
-        const evalHorizon = sync.ok && sync.mode === "sweep" ? deepHorizonDays : horizonDays;
-        evaluate = await evaluateHotel(supabase, hotelId, undefined, evalHorizon);
+        // Three pricing cadences from one call: incremental ticks price the
+        // near horizon plus whichever FAR dates this sync just touched (a
+        // concert announcement eleven months out is repriced on this very
+        // tick); a large far set escalates to a deep run; and the daily
+        // sweep prices everything regardless.
+        const FAR_TARGET_MAX = 50;
+        let evalHorizon = horizonDays;
+        let extraStayDates: string[] | undefined;
+        if (sync.ok) {
+          if (sync.mode === "sweep") {
+            evalHorizon = deepHorizonDays;
+          } else {
+            const horizonEnd = new Date(Date.now() + horizonDays * 86_400_000)
+              .toISOString()
+              .slice(0, 10);
+            const farChanged = sync.changedStayDates.filter((d) => d > horizonEnd);
+            if (farChanged.length > FAR_TARGET_MAX) evalHorizon = deepHorizonDays;
+            else if (farChanged.length > 0) extraStayDates = farChanged;
+          }
+        }
+        evaluate = await evaluateHotel(supabase, hotelId, undefined, evalHorizon, {
+          extraStayDates,
+        });
       } catch (e) {
         evaluate = { error: e instanceof Error ? e.message : "evaluate failed" };
       }
