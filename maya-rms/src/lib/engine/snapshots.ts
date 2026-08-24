@@ -28,9 +28,23 @@ export async function fetchAllRows(makeQuery: () => any, pageSize = 1000): Promi
   return all;
 }
 
+/** One snapshot cell as this run wrote it, keyed "stay_date|room_type_id". */
+export type CellSnapshot = {
+  booked_units: number;
+  booked_revenue: number;
+  sellable_units: number;
+  snapshot_ts: string;
+};
+
 /**
  * Insert one snapshot row per (stay_date, room_type) across the full horizon
  * for a single hotel. Uses a consistent snapshot_ts for the whole run.
+ *
+ * Returns the cells it wrote. Everything downstream that needs "current
+ * booked state" (metrics, the undone-pickup sweep) reads this map instead of
+ * querying back the rows that were inserted moments ago — the numbers are
+ * identical by construction, and re-reading them was a large share of the
+ * engine's per-run query bill.
  */
 export async function snapshotCurrentState(
   supabase: SupabaseClient,
@@ -38,8 +52,8 @@ export async function snapshotCurrentState(
   snapshotTs: string,
   stayDates: string[],
   roomTypes: RoomTypeRow[],
-): Promise<void> {
-  if (stayDates.length === 0 || roomTypes.length === 0) return;
+): Promise<Map<string, CellSnapshot>> {
+  if (stayDates.length === 0 || roomTypes.length === 0) return new Map();
 
   // §15.8: same snapshot_ts must not duplicate rows on re-run.
   const { error: delErr } = await supabase
@@ -101,6 +115,17 @@ export async function snapshotCurrentState(
     const { error } = await supabase.from("stay_date_snapshot").insert(chunk);
     if (error) throw new Error(`Snapshot insert failed: ${error.message}`);
   }
+
+  const cells = new Map<string, CellSnapshot>();
+  for (const r of rows) {
+    cells.set(`${r.stay_date}|${r.room_type_id}`, {
+      booked_units: r.booked_units,
+      booked_revenue: r.booked_revenue,
+      sellable_units: r.sellable_units,
+      snapshot_ts: snapshotTs,
+    });
+  }
+  return cells;
 }
 
 export type SnapshotRowAt = {
@@ -109,41 +134,91 @@ export type SnapshotRowAt = {
   snapshot_ts: string;
 };
 
+/** §16.3 — baseline snapshot must not be “too old” vs target baseline_ts. */
+export const BASELINE_SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+
 /**
- * Find the nearest snapshot at or before the given timestamp for a set of
- * (hotel, stay_date, room_type) tuples.
+ * Batched replacement for the old per-cell nearest-snapshot query. All the
+ * baseline instants a run will ask about are known up front (one per pickup
+ * window start, one per live event), so each distinct instant is fetched as a
+ * single ranged read covering the whole horizon.
+ *
+ * Only rows inside the 12h freshness window are fetched at all. A cell whose
+ * newest row at-or-before the instant is older than that was already treated
+ * as missing-or-stale (§16.3) — the stale row's contents were never read —
+ * so "absent from this store" and "present but stale" are the same case, and
+ * the store need not distinguish them.
  */
-export async function findSnapshotAt(
+export type BaselineSnapshotStore = {
+  /** Fresh row for (baselineTs, stay_date, room_type), or undefined when the cell is missing/stale. */
+  rowAt(baselineTs: string, stayDate: string, roomTypeId: string): SnapshotRowAt | undefined;
+  /** Newest hotel-wide snapshot_ts at or before baselineTs — the coverage probe behind zero-baseline synthesis. Memoized. */
+  coverageAt(baselineTs: string): Promise<string | null>;
+};
+
+export async function buildBaselineSnapshotStore(
   supabase: SupabaseClient,
   hotelId: string,
-  stayDate: string,
+  baselineTsList: string[],
+  firstDate: string,
+  lastDate: string,
   roomTypeIds: string[],
-  atOrBefore: string,
-): Promise<Map<string, SnapshotRowAt>> {
-  const result = new Map<string, SnapshotRowAt>();
+): Promise<BaselineSnapshotStore> {
+  const byBaseline = new Map<string, Map<string, SnapshotRowAt>>();
 
-  for (const rtId of roomTypeIds) {
-    const { data } = await supabase
-      .from("stay_date_snapshot")
-      .select("booked_units, booked_revenue, snapshot_ts")
-      .eq("hotel_id", hotelId)
-      .eq("stay_date", stayDate)
-      .eq("room_type_id", rtId)
-      .lte("snapshot_ts", atOrBefore)
-      .order("snapshot_ts", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (data) {
-      result.set(rtId, {
-        booked_units: Number(data.booked_units),
-        booked_revenue: Number(data.booked_revenue),
-        snapshot_ts: String(data.snapshot_ts),
-      });
+  for (const ts of [...new Set(baselineTsList)]) {
+    const windowStart = new Date(new Date(ts).getTime() - BASELINE_SNAPSHOT_MAX_AGE_MS).toISOString();
+    const rows = await fetchAllRows(() =>
+      supabase
+        .from("stay_date_snapshot")
+        .select("stay_date, room_type_id, booked_units, booked_revenue, snapshot_ts")
+        .eq("hotel_id", hotelId)
+        .gte("stay_date", firstDate)
+        .lte("stay_date", lastDate)
+        .in("room_type_id", roomTypeIds)
+        .gte("snapshot_ts", windowStart)
+        .lte("snapshot_ts", ts)
+        .order("snapshot_ts", { ascending: true })
+        .order("stay_date", { ascending: true })
+        .order("room_type_id", { ascending: true }),
+    );
+    const cells = new Map<string, SnapshotRowAt>();
+    for (const r of rows) {
+      const key = `${r.stay_date}|${r.room_type_id}`;
+      const prev = cells.get(key);
+      const rowTs = String(r.snapshot_ts);
+      if (!prev || Date.parse(rowTs) > Date.parse(prev.snapshot_ts)) {
+        cells.set(key, {
+          booked_units: Number(r.booked_units),
+          booked_revenue: Number(r.booked_revenue),
+          snapshot_ts: rowTs,
+        });
+      }
     }
+    byBaseline.set(ts, cells);
   }
 
-  return result;
+  const coverage = new Map<string, string | null>();
+
+  return {
+    rowAt(baselineTs, stayDate, roomTypeId) {
+      return byBaseline.get(baselineTs)?.get(`${stayDate}|${roomTypeId}`);
+    },
+    async coverageAt(baselineTs) {
+      if (coverage.has(baselineTs)) return coverage.get(baselineTs) ?? null;
+      const { data } = await supabase
+        .from("stay_date_snapshot")
+        .select("snapshot_ts")
+        .eq("hotel_id", hotelId)
+        .lte("snapshot_ts", baselineTs)
+        .order("snapshot_ts", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const ts = data?.snapshot_ts ? String(data.snapshot_ts) : null;
+      coverage.set(baselineTs, ts);
+      return ts;
+    },
+  };
 }
 
 /**

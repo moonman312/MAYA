@@ -11,23 +11,33 @@ export { ruleScopeMatches } from "./scope";
 export { computeDta, computeOccupancy, computeNetPickup, computeRuleMetrics } from "./metrics";
 export { ruleConditionsMatch, conditionCount } from "./conditions";
 
-export { evaluateLadderTriple } from "./ladder";
-export type { LadderPassResult } from "./ladder";
+export { evaluateLadderTriple, flushLadderWrites, loadLadderStates, newLadderWriteBuffer } from "./ladder";
+export type { LadderPassResult, LadderStateRow } from "./ladder";
 
 export {
   basePriceKey,
-  computeBaselineTs,
+  loadLastAppliedByRuleDate,
   pickupTieBreakTrace,
+  resolveBaselineTs,
   runPickupPass,
   selectPickupWinner,
 } from "./pickup";
 
-export { applyAdjustments, clampPrice, assemblePrice, maybePublish } from "./pricing";
-export type { AssembledPrice } from "./pricing";
+export {
+  applyAdjustments,
+  assemblePrice,
+  clampPrice,
+  flushPublishedPrices,
+  ladderEffectsForCell,
+  loadActivePickupEffectsForRange,
+  publishDecision,
+} from "./pricing";
+export type { AssembledPrice, PublishRow } from "./pricing";
 
-export { writeAudit } from "./audit";
+export { buildAuditRow, flushAuditRows } from "./audit";
 
-export { snapshotCurrentState, findSnapshotAt, purgeOldSnapshots } from "./snapshots";
+export { buildBaselineSnapshotStore, snapshotCurrentState, purgeOldSnapshots } from "./snapshots";
+export type { BaselineSnapshotStore, CellSnapshot } from "./snapshots";
 
 export type {
   RuleMetrics,
