@@ -23,11 +23,10 @@ import {
  * reload, retire sweep); ladder_rule_state 1 preload + per-rule flush
  * statements (activation upserts, deactivate/touch scoped updates);
  * published_price 1 preload (+ 1 bulk upsert on change); stay_date_snapshot
- * selects are up to two tiered window reads per DISTINCT baseline instant
- * (the fixture's seeds sit hours back, so the 15-minute fast tier always
- * falls through here) plus a coverage probe only when a cell is missing —
- * run 2 has one more instant than run 1 because run 1's own pickup events
- * become new baselines (§8).
+ * selects are one newest-first early-exit read per DISTINCT baseline
+ * instant plus a coverage probe only when a cell is missing — run 2 has one
+ * more instant than run 1 because run 1's own pickup events become new
+ * baselines (§8).
  */
 export const GOLDEN_QUERY_COUNT_BASELINE: Record<string, number> = {
   "assumption_challenges.select": 2,
@@ -52,7 +51,7 @@ export const GOLDEN_QUERY_COUNT_BASELINE: Record<string, number> = {
   "room_types.select": 2,
   "stay_date_snapshot.delete": 4,
   "stay_date_snapshot.insert": 2,
-  "stay_date_snapshot.select": 11,
+  "stay_date_snapshot.select": 7,
 };
 
 describe("evaluateHotel golden equivalence", () => {

@@ -617,6 +617,7 @@ export async function evaluateHotel(
     hotelId,
     stayDates[0],
     stayDates[stayDates.length - 1],
+    stayDates.length * roomTypes.length,
   );
 
   let cellsChecked = 0;

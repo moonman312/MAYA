@@ -142,9 +142,10 @@ export const BASELINE_SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000;
  * (baseline instant, stay date) pairs a run will ask about are known up
  * front — one instant per pickup window start plus one per fired (rule,
  * date)'s live event, so the instant count grows with live events, not
- * rules. Each instant therefore fetches ONLY its own dates, in two tiers: a
- * 15-minute window that almost always holds the newest row, then the rest
- * of the 12h window for dates still missing a cell.
+ * rules. Each instant fetches ONLY its own dates, walking the freshness
+ * window NEWEST-FIRST and stopping the moment every cell has an answer —
+ * the newest snapshot batch usually answers them all, so the typical cost
+ * is one page instead of the window's full ~144-runs-worth of rows.
  *
  * Only rows inside the 12h freshness window are fetched at all. A cell whose
  * newest row at-or-before the instant is older than that was already treated
@@ -174,9 +175,6 @@ export type BaselineSnapshotStore = {
   coverageAt(baselineTs: string, stayDate: string): Promise<string | null>;
 };
 
-/** How much of the freshness window the first, cheap fetch covers. The newest row at-or-before an instant is nearly always a tick or sweep minutes old; the full 12h window on a 5-minute tick holds ~144 runs' rows per cell, and fetching all of them per instant cost more than the per-cell reads this store replaced. */
-const BASELINE_FAST_TIER_MS = 15 * 60 * 1000;
-
 export async function buildBaselineSnapshotStore(
   supabase: SupabaseClient,
   hotelId: string,
@@ -185,7 +183,7 @@ export async function buildBaselineSnapshotStore(
 ): Promise<BaselineSnapshotStore> {
   // Each instant only ever gets asked about the stay dates that resolved to
   // it — an event-derived instant maps to a single date, so fetching the
-  // whole horizon for it was almost entirely waste.
+  // whole horizon for it would be almost entirely waste.
   const datesByTs = new Map<string, Set<string>>();
   for (const p of pairs) {
     const set = datesByTs.get(p.baselineTs) ?? new Set<string>();
@@ -197,63 +195,83 @@ export async function buildBaselineSnapshotStore(
 
   for (const [ts, dateSet] of datesByTs) {
     const dates = [...dateSet];
-    const tsMs = new Date(ts).getTime();
-    const fullWindowStart = new Date(tsMs - BASELINE_SNAPSHOT_MAX_AGE_MS).toISOString();
-    const fastWindowStart = new Date(tsMs - BASELINE_FAST_TIER_MS).toISOString();
+    const windowStart = new Date(new Date(ts).getTime() - BASELINE_SNAPSHOT_MAX_AGE_MS).toISOString();
+    const cellCount = dates.length * roomTypeIds.length;
     const cells = new Map<string, SnapshotRowAt>();
 
-    // protectedKeys are cells the fast tier already answered — its rows are
-    // strictly newer than anything the deep tier returns, so they are final.
-    // Within a tier, newest still wins.
-    const collect = (rows: Record<string, unknown>[], protectedKeys: Set<string> | null) => {
+    // Newest-first with first-seen-wins IS "nearest at or before the
+    // instant" per cell; the early exit is what keeps this from reading the
+    // window's entire history when the newest run already answered
+    // everything. A cell with no row in the window simply never appears —
+    // missing and stale are the same case upstream.
+    const PAGE = 1000;
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from("stay_date_snapshot")
+        .select("stay_date, room_type_id, booked_units, booked_revenue, snapshot_ts")
+        .eq("hotel_id", hotelId)
+        .in("stay_date", dates)
+        .in("room_type_id", roomTypeIds)
+        .gte("snapshot_ts", windowStart)
+        .lte("snapshot_ts", ts)
+        .order("snapshot_ts", { ascending: false })
+        .order("stay_date", { ascending: true })
+        .order("room_type_id", { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) throw new Error(error.message);
+      const rows = data ?? [];
       for (const r of rows) {
         const key = `${r.stay_date}|${r.room_type_id}`;
-        if (protectedKeys?.has(key)) continue;
-        const prev = cells.get(key);
-        const rowTs = String(r.snapshot_ts);
-        if (!prev || Date.parse(rowTs) > Date.parse(prev.snapshot_ts)) {
+        if (!cells.has(key)) {
           cells.set(key, {
             booked_units: Number(r.booked_units),
             booked_revenue: Number(r.booked_revenue),
-            snapshot_ts: rowTs,
+            snapshot_ts: String(r.snapshot_ts),
           });
         }
       }
-    };
-
-    const fetchWindow = (forDates: string[], fromTs: string, toTs: string | null) =>
-      fetchAllRows(() => {
-        const q = supabase
-          .from("stay_date_snapshot")
-          .select("stay_date, room_type_id, booked_units, booked_revenue, snapshot_ts")
-          .eq("hotel_id", hotelId)
-          .in("stay_date", forDates)
-          .in("room_type_id", roomTypeIds)
-          .gte("snapshot_ts", fromTs);
-        // null toTs = deep tier: strictly below the fast tier's start, so the
-        // two tiers partition the 12h window with no seam.
-        return (toTs != null ? q.lte("snapshot_ts", toTs) : q.lt("snapshot_ts", fastWindowStart))
-          .order("snapshot_ts", { ascending: true })
-          .order("stay_date", { ascending: true })
-          .order("room_type_id", { ascending: true });
-      });
-
-    collect(await fetchWindow(dates, fastWindowStart, ts), null);
-
-    // Anything the fast tier answered is final — it IS the newest in the
-    // full window. Only dates with a still-missing cell need the deep tier.
-    const missingDates = dates.filter((d) =>
-      roomTypeIds.some((rt) => !cells.has(`${d}|${rt}`)),
-    );
-    if (missingDates.length > 0) {
-      const answered = new Set(cells.keys());
-      collect(await fetchWindow(missingDates, fullWindowStart, null), answered);
+      if (rows.length < PAGE || cells.size >= cellCount) break;
     }
 
     byBaseline.set(ts, cells);
   }
 
   const coverage = new Map<string, string | null>();
+
+  // Every date with a missing cell WILL get its coverage probed by metrics —
+  // prefetch each instant's answers in one newest-first walk instead of one
+  // round trip per date. A deep sweep can have hundreds of far dates whose
+  // baselines fall between daily sweeps; probing them one by one was most of
+  // the run. Dates with no row at all get an explicit null memo.
+  for (const [ts, dateSet] of datesByTs) {
+    const cells = byBaseline.get(ts)!;
+    const missingDates = [...dateSet].filter((d) =>
+      roomTypeIds.some((rt) => !cells.has(`${d}|${rt}`)),
+    );
+    if (missingDates.length === 0) continue;
+    const pending = new Set(missingDates);
+    const PAGE = 1000;
+    for (let from = 0; pending.size > 0; from += PAGE) {
+      const { data, error } = await supabase
+        .from("stay_date_snapshot")
+        .select("stay_date, snapshot_ts")
+        .eq("hotel_id", hotelId)
+        .in("stay_date", missingDates)
+        .lte("snapshot_ts", ts)
+        .order("snapshot_ts", { ascending: false })
+        .order("stay_date", { ascending: true })
+        .order("room_type_id", { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) throw new Error(error.message);
+      const rows = data ?? [];
+      for (const r of rows) {
+        const d = String(r.stay_date);
+        if (pending.delete(d)) coverage.set(`${ts}|${d}`, String(r.snapshot_ts));
+      }
+      if (rows.length < PAGE) break;
+    }
+    for (const d of pending) coverage.set(`${ts}|${d}`, null);
+  }
 
   return {
     rowAt(baselineTs, stayDate, roomTypeId) {
@@ -262,6 +280,7 @@ export async function buildBaselineSnapshotStore(
     async coverageAt(baselineTs, stayDate) {
       const key = `${baselineTs}|${stayDate}`;
       if (coverage.has(key)) return coverage.get(key) ?? null;
+      // Fallback for combos outside the prefetch (direct store users).
       const { data } = await supabase
         .from("stay_date_snapshot")
         .select("snapshot_ts")
