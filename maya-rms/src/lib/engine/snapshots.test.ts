@@ -26,9 +26,14 @@ function snap(stay_date: string, room_type_id: string, snapshot_ts: string, book
   };
 }
 
-function storeFor(rows: ReturnType<typeof snap>[]) {
+function storeFor(rows: ReturnType<typeof snap>[], dates: string[] = ["2026-10-15"]) {
   const fx = makeEngineSupabaseStub({ stay_date_snapshot: rows });
-  return buildBaselineSnapshotStore(fx.supabase, HOTEL, [T], "2026-08-01", "2026-12-31", ["rtA", "rtB"]);
+  return buildBaselineSnapshotStore(
+    fx.supabase,
+    HOTEL,
+    dates.map((stayDate) => ({ baselineTs: T, stayDate })),
+    ["rtA", "rtB"],
+  );
 }
 
 describe("buildBaselineSnapshotStore coverage probe", () => {

@@ -45,7 +45,7 @@ import {
 import {
   assemblePrice,
   flushPublishedPrices,
-  ladderEffectsForCell,
+  indexActiveLadderEffects,
   loadActivePickupEffectsForRange,
   publishDecision,
   type PublishRow,
@@ -368,18 +368,24 @@ export async function evaluateHotel(
     bsCtx = await loadBookingSpeedContext(supabase, hotelId, localDate, totalCapacity);
 
     // Most recent fire per (rule, stay date), for cooldown throttling of
-    // event-style booking-speed rules. One query, built into a map. See
+    // event-style booking-speed rules. Paged — a busy hotel's event ledger
+    // can exceed the API's 1000-row cap inside the lookback, and a silently
+    // truncated read here means a rule re-fires before its cooldown. See
     // cooldownLookbackDays for why this can't be a fixed 31 days.
     const cooldownHorizon = new Date(
       Date.parse(now) - cooldownLookbackDays(rules) * 86_400_000,
     ).toISOString();
-    const { data: fires } = await supabase
-      .from("pickup_event")
-      .select("rule_id, stay_date, applied_at")
-      .eq("hotel_id", hotelId)
-      .gte("applied_at", cooldownHorizon);
+    const fires = await fetchAllRows(() =>
+      supabase
+        .from("pickup_event")
+        .select("rule_id, stay_date, applied_at")
+        .eq("hotel_id", hotelId)
+        .gte("applied_at", cooldownHorizon)
+        .order("applied_at", { ascending: true })
+        .order("id", { ascending: true }),
+    );
     lastBsFire = new Map();
-    for (const f of fires ?? []) {
+    for (const f of fires) {
       const key = `${f.rule_id}|${f.stay_date}`;
       const prev = lastBsFire.get(key);
       if (!prev || String(f.applied_at) > prev) lastBsFire.set(key, String(f.applied_at));
@@ -412,10 +418,16 @@ export async function evaluateHotel(
   // Every state row the run can read or write, in one ranged read: the
   // ladder pass's prior states AND the pricing pass's active effects —
   // including disabled rules' frozen states, which price but never
-  // transition. The map carries this run's own writes forward, so a
-  // duplicate-affected second visit and the pricing pass both see them.
+  // transition. The id list must come from an UNFILTERED rules read: the
+  // main rules query is active-only, and scoping this preload to it would
+  // quietly turn pause into undo.
+  const { data: allRuleRows } = await supabase
+    .from("pricing_rules")
+    .select("id")
+    .eq("hotel_id", hotelId);
   const ladderStates = await loadLadderStates(
     supabase,
+    (allRuleRows ?? []).map((r) => String(r.id)),
     firstDate,
     lastDate,
     [...new Set([...roomTypes.map((rt) => rt.id), ...ladderRules.flatMap((r) => r.affected_room_type_ids)])],
@@ -500,9 +512,7 @@ export async function evaluateHotel(
     const baselineStore = await buildBaselineSnapshotStore(
       supabase,
       hotelId,
-      pickupPairs.map((p) => p.baselineTs),
-      firstDate,
-      lastDate,
+      pickupPairs.map((p) => ({ baselineTs: p.baselineTs, stayDate: p.stayDate })),
       [...new Set(pickupRules.flatMap((r) => r.signal_room_type_ids))],
     );
 
@@ -607,6 +617,7 @@ export async function evaluateHotel(
   );
 
   let cellsChecked = 0;
+  const ladderEffectsByCell = indexActiveLadderEffects(ladderStates);
   const publishRows: PublishRow[] = [];
   const auditRows: Record<string, unknown>[] = [];
 
@@ -621,7 +632,7 @@ export async function evaluateHotel(
         stayDate,
         rt,
         basePrice,
-        ladderEffectsForCell(ladderStates, stayDate, rt.id),
+        ladderEffectsByCell.get(key) ?? [],
         pickupEffectsByCell.get(key) ?? [],
       );
       const decision = publishDecision(publishedByCell.get(key), assembled.final_price, basePrice);
