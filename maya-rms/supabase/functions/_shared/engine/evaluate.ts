@@ -7,11 +7,12 @@ import type { EngineRule } from "./domain.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AuditInput } from "./audit.ts";
 import {
+  buildAuditRow,
+  flushAuditRows,
   loadLastAuditSignatures,
   purgeOldAuditRows,
   purgeOldRunLogRows,
   recordRunHeartbeat,
-  writeAudit,
 } from "./audit.ts";
 import {
   DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS,
@@ -25,12 +26,34 @@ import {
 } from "./booking-speed-provider.ts";
 import { ruleConditionsMatch } from "./conditions.ts";
 import type { LadderPassResult } from "./ladder.ts";
-import { evaluateLadderTriple } from "./ladder.ts";
+import {
+  evaluateLadderTriple,
+  flushLadderWrites,
+  loadLadderStates,
+  newLadderWriteBuffer,
+} from "./ladder.ts";
 import { computeRuleMetrics } from "./metrics.ts";
-import { computeBaselineTs, retireUndonePickupEvents, runPickupPass } from "./pickup.ts";
-import { assemblePrice, maybePublish } from "./pricing.ts";
+import {
+  loadLastAppliedByRuleDate,
+  resolveBaselineTs,
+  retireUndonePickupEvents,
+  runPickupPass,
+} from "./pickup.ts";
+import {
+  assemblePrice,
+  flushPublishedPrices,
+  ladderEffectsForCell,
+  loadActivePickupEffectsForRange,
+  publishDecision,
+  type PublishRow,
+} from "./pricing.ts";
 import { ruleScopeMatches } from "./scope.ts";
-import { fetchAllRows, purgeOldSnapshots, snapshotCurrentState } from "./snapshots.ts";
+import {
+  buildBaselineSnapshotStore,
+  fetchAllRows,
+  purgeOldSnapshots,
+  snapshotCurrentState,
+} from "./snapshots.ts";
 import { addCalendarDays, evalIsoToHotelDateString } from "./timezone.ts";
 import type { PickupCandidate, RoomTypeRow } from "./types.ts";
 
@@ -63,10 +86,9 @@ export type EvaluationResult = {
  * `horizonDays` bounds how many days forward are priced in this run. The engine
  * makes many sequential Supabase calls per day, so pricing cadence is tiered:
  * the 5-minute scheduled tick passes a small horizon (45) to keep the
- * near-term calendar fresh inside the Edge Function's wall clock, and the
- * daily full-sweep tick passes the full 396 so a rule can move any date the
- * sync can see. Far dates change on the daily beat, near dates on the
- * 5-minute one.
+ * near-term calendar fresh, and the daily full-sweep tick passes the full 396
+ * so a rule can move any date the sync can see. Far dates change on the daily
+ * beat, near dates on the 5-minute one.
  */
 export async function evaluateHotel(
   supabase: SupabaseClient,
@@ -88,7 +110,9 @@ export async function evaluateHotel(
 
   const { data: rtData } = await supabase
     .from("room_types")
-    .select("id, hotel_id, name, is_active, total_rooms, floor_price, ceiling_price")
+    .select(
+      "id, hotel_id, name, is_active, total_rooms, floor_price, ceiling_price",
+    )
     .eq("hotel_id", hotelId)
     .eq("is_active", true);
 
@@ -132,7 +156,7 @@ export async function evaluateHotel(
     stayDates.push(...extras);
   }
 
-  await snapshotCurrentState(supabase, hotelId, now, stayDates, roomTypes);
+  const currentSnaps = await snapshotCurrentState(supabase, hotelId, now, stayDates, roomTypes);
 
   const { data: rulesData, error: rulesErr } = await supabase
     .from("pricing_rules")
@@ -167,9 +191,10 @@ export async function evaluateHotel(
   }
 
   const rules: EngineRule[] = (rulesData ?? []).map((r) => {
-    // deno-lint-ignore no-explicit-any
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rc: any = Array.isArray(r.rule_condition) ? r.rule_condition[0] : r.rule_condition;
+    const rc: any = Array.isArray(r.rule_condition)
+      ? r.rule_condition[0]
+      : r.rule_condition;
     return {
       id: String(r.id),
       hotel_id: String(r.hotel_id),
@@ -187,12 +212,20 @@ export async function evaluateHotel(
       is_pickup_rule: Boolean(r.is_pickup_rule),
       condition: {
         occupancy_operator: rc?.occupancy_operator ?? null,
-        occupancy_threshold: rc?.occupancy_threshold != null ? Number(rc.occupancy_threshold) : null,
+        occupancy_threshold:
+          rc?.occupancy_threshold != null
+            ? Number(rc.occupancy_threshold)
+            : null,
         dta_operator: rc?.dta_operator ?? null,
-        dta_threshold_days: rc?.dta_threshold_days != null ? Number(rc.dta_threshold_days) : null,
+        dta_threshold_days:
+          rc?.dta_threshold_days != null ? Number(rc.dta_threshold_days) : null,
         pickup_operator: rc?.pickup_operator ?? null,
-        pickup_threshold: rc?.pickup_threshold != null ? Number(rc.pickup_threshold) : null,
-        pickup_window_days: rc?.pickup_window_days != null ? (Number(rc.pickup_window_days) as 1 | 3 | 7) : null,
+        pickup_threshold:
+          rc?.pickup_threshold != null ? Number(rc.pickup_threshold) : null,
+        pickup_window_days:
+          rc?.pickup_window_days != null
+            ? (Number(rc.pickup_window_days) as 1 | 3 | 7)
+            : null,
         pickup_metric: rc?.pickup_metric ?? null,
         booking_speed_operator: rc?.booking_speed_operator ?? null,
         booking_speed_level: rc?.booking_speed_level ?? null,
@@ -215,13 +248,13 @@ export async function evaluateHotel(
       // drops only the dead entry, matching what deactivating a room type
       // ought to mean for a rule that also signals on other room types.
       signal_room_type_ids: (r.rule_signal_room_type ?? [])
-        // deno-lint-ignore no-explicit-any
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .map((x: any) => String(x.room_type_id))
         .filter((id: string) => activeRoomTypeIds.has(id)),
-      // deno-lint-ignore no-explicit-any
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      affected_room_type_ids: (r.rule_affected_room_type ?? []).map((x: any) => String(x.room_type_id)),
+      affected_room_type_ids: (r.rule_affected_room_type ?? []).map((x: any) =>
+        String(x.room_type_id),
+      ),
       created_at: r.created_at,
       updated_at: r.updated_at,
     };
@@ -276,10 +309,13 @@ export async function evaluateHotel(
     }
   }
 
+  // price rides along for the publish-on-change comparison later — nothing
+  // else writes published_price mid-run, so the row as of run start is
+  // exactly what a per-cell read at publish time would see.
   const ppRows = await fetchAllRows(() =>
     supabase
       .from("published_price")
-      .select("stay_date, room_type_id, base_price")
+      .select("stay_date, room_type_id, price, base_price")
       .eq("hotel_id", hotelId)
       .gte("stay_date", firstDate)
       .lte("stay_date", lastDate)
@@ -288,8 +324,14 @@ export async function evaluateHotel(
   );
 
   const rememberedBaseByCell = new Map<string, number>();
+  const publishedByCell = new Map<string, { price: number; base_price: number | null }>();
   for (const p of ppRows) {
-    if (!p.room_type_id || p.base_price == null) continue;
+    if (!p.room_type_id) continue;
+    publishedByCell.set(`${p.stay_date}|${p.room_type_id}`, {
+      price: Number(p.price),
+      base_price: p.base_price != null ? Number(p.base_price) : null,
+    });
+    if (p.base_price == null) continue;
     rememberedBaseByCell.set(`${p.stay_date}|${p.room_type_id}`, Number(p.base_price));
   }
 
@@ -363,7 +405,19 @@ export async function evaluateHotel(
   let ladderActivations = 0;
   let ladderDeactivations = 0;
   let pickupEventsCreated = 0;
-  let pricesPublished = 0;
+
+  // Every state row the run can read or write, in one ranged read: the
+  // ladder pass's prior states AND the pricing pass's active effects —
+  // including disabled rules' frozen states, which price but never
+  // transition. The map carries this run's own writes forward, so a
+  // duplicate-affected second visit and the pricing pass both see them.
+  const ladderStates = await loadLadderStates(
+    supabase,
+    firstDate,
+    lastDate,
+    [...new Set([...roomTypes.map((rt) => rt.id), ...ladderRules.flatMap((r) => r.affected_room_type_ids)])],
+  );
+  const ladderBuf = newLadderWriteBuffer();
 
   const allLadderResults: Map<string, LadderPassResult[]> = new Map();
 
@@ -371,21 +425,13 @@ export async function evaluateHotel(
     for (const stayDate of stayDates) {
       if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone)) continue;
 
-      const metrics = await computeRuleMetrics(
-        supabase,
-        rule,
-        hotelId,
-        stayDate,
-        now,
-        localDate,
-        now,
-        null,
-      );
+      const metrics = await computeRuleMetrics(rule, stayDate, localDate, currentSnaps, null, null);
       attachBookingSpeed(rule, stayDate, metrics);
 
       for (const rtId of rule.affected_room_type_ids) {
-        const result = await evaluateLadderTriple(
-          supabase,
+        const result = evaluateLadderTriple(
+          ladderStates,
+          ladderBuf,
           rule,
           hotelId,
           stayDate,
@@ -405,38 +451,65 @@ export async function evaluateHotel(
     }
   }
 
+  // Land ladder state before the pickup and pricing passes run — this run
+  // prices from the in-memory map either way, but concurrent readers (and a
+  // crash mid-run) should see states and transitions as one consistent step.
+  await flushLadderWrites(supabase, ladderStates, ladderBuf);
+
   const allPickupCandidates: PickupCandidate[] = [];
   const allPickupWinners: Map<string, PickupCandidate[]> = new Map();
   const allPickupLosers: Map<string, PickupCandidate[]> = new Map();
   const allPickupIdempotent: Map<string, PickupCandidate[]> = new Map();
   const allPickupWriteFailures: Map<string, PickupCandidate[]> = new Map();
 
-  for (const rule of pickupRules) {
-    for (const stayDate of stayDates) {
-      if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone)) continue;
+  // Two phases with the same rule-outer/date-inner walk the old single loop
+  // had. Phase one resolves every baseline instant from one preloaded
+  // last-event map — the set of DISTINCT instants is tiny (one per pickup
+  // window start, one per live event), and knowing them up front is what
+  // lets the baseline snapshots load as a handful of ranged reads instead of
+  // one query per (rule, stay date, room type).
+  const pickupPairs: { rule: EngineRule; stayDate: string; baselineTs: string }[] = [];
+  if (pickupRules.length > 0) {
+    const lastApplied = await loadLastAppliedByRuleDate(supabase, hotelId, firstDate, lastDate);
+    for (const rule of pickupRules) {
+      for (const stayDate of stayDates) {
+        if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone)) continue;
 
-      // Event-style booking-speed rules are throttled per stay date: after
-      // firing, the rule waits out its cooldown before it may re-fire, so a
-      // persistent slow/fast state stacks corrections weekly, not every run.
-      if (rule.condition.booking_speed_operator) {
-        const cooldownDays =
-          rule.condition.booking_speed_cooldown_days ?? DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS;
-        if (isWithinCooldown(lastBsFire?.get(`${rule.id}|${stayDate}`), now, cooldownDays)) {
-          continue;
+        // Event-style booking-speed rules are throttled per stay date: after
+        // firing, the rule waits out its cooldown before it may re-fire, so a
+        // persistent slow/fast state stacks corrections weekly, not every run.
+        if (rule.condition.booking_speed_operator) {
+          const cooldownDays =
+            rule.condition.booking_speed_cooldown_days ?? DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS;
+          if (isWithinCooldown(lastBsFire?.get(`${rule.id}|${stayDate}`), now, cooldownDays)) {
+            continue;
+          }
         }
+
+        const baselineTs = resolveBaselineTs(lastApplied.get(`${rule.id}|${stayDate}`), rule, now);
+        if (!baselineTs) continue;
+        pickupPairs.push({ rule, stayDate, baselineTs });
       }
+    }
+  }
 
-      const baselineTs = await computeBaselineTs(supabase, rule, stayDate, now);
-      if (!baselineTs) continue;
+  if (pickupPairs.length > 0) {
+    const baselineStore = await buildBaselineSnapshotStore(
+      supabase,
+      hotelId,
+      pickupPairs.map((p) => p.baselineTs),
+      firstDate,
+      lastDate,
+      [...new Set(pickupRules.flatMap((r) => r.signal_room_type_ids))],
+    );
 
+    for (const { rule, stayDate, baselineTs } of pickupPairs) {
       const metrics = await computeRuleMetrics(
-        supabase,
         rule,
-        hotelId,
         stayDate,
-        now,
         localDate,
-        now,
+        currentSnaps,
+        baselineStore,
         baselineTs,
       );
       attachBookingSpeed(rule, stayDate, metrics);
@@ -453,7 +526,8 @@ export async function evaluateHotel(
           eval_ts: now,
           signal_booked_units_start: metrics.signal_booked_units_baseline ?? 0,
           signal_booked_units_end: metrics.signal_booked_units_now ?? 0,
-          signal_booked_revenue_start: metrics.signal_booked_revenue_baseline ?? 0,
+          signal_booked_revenue_start:
+            metrics.signal_booked_revenue_baseline ?? 0,
           signal_booked_revenue_end: metrics.signal_booked_revenue_now ?? 0,
         });
       }
@@ -509,7 +583,17 @@ export async function evaluateHotel(
     }
   }
 
-  // The signature of the last audit row per cell, so writeAudit can skip
+  // One read of every live pickup effect across the horizon, AFTER this
+  // run's winners landed — same-instant events tie-break on random uuid ids,
+  // so only the DB can say what order they price in.
+  const pickupEffectsByCell = await loadActivePickupEffectsForRange(
+    supabase,
+    hotelId,
+    firstDate,
+    lastDate,
+  );
+
+  // The signature of the last audit row per cell, so the audit pass can skip
   // cells whose price and applied rules haven't moved since last time —
   // see auditSignature's doc comment for why this matters.
   const lastAuditSignatures = await loadLastAuditSignatures(
@@ -520,7 +604,8 @@ export async function evaluateHotel(
   );
 
   let cellsChecked = 0;
-  let cellsChanged = 0;
+  const publishRows: PublishRow[] = [];
+  const auditRows: Record<string, unknown>[] = [];
 
   for (const stayDate of stayDates) {
     for (const rt of roomTypes) {
@@ -529,17 +614,27 @@ export async function evaluateHotel(
       if (basePrice === undefined) continue;
       cellsChecked++;
 
-      const assembled = await assemblePrice(supabase, hotelId, stayDate, rt, basePrice);
-      const published = await maybePublish(
-        supabase,
-        hotelId,
+      const assembled = assemblePrice(
         stayDate,
-        rt.id,
-        assembled.final_price,
-        now,
+        rt,
         basePrice,
+        ladderEffectsForCell(ladderStates, stayDate, rt.id),
+        pickupEffectsByCell.get(key) ?? [],
       );
-      if (published) pricesPublished++;
+      const decision = publishDecision(publishedByCell.get(key), assembled.final_price, basePrice);
+      if (decision.write) {
+        publishRows.push({
+          payload: {
+            hotel_id: hotelId,
+            stay_date: stayDate,
+            room_type_id: rt.id,
+            price: assembled.final_price,
+            base_price: basePrice,
+            computed_at: now,
+          },
+          priceMoved: decision.priceMoved,
+        });
+      }
 
       const auditInput: AuditInput = {
         runId,
@@ -557,9 +652,14 @@ export async function evaluateHotel(
           : [],
         previousSignature: lastAuditSignatures.get(key) ?? null,
       };
-      if (await writeAudit(supabase, auditInput)) cellsChanged++;
+      const auditRow = buildAuditRow(auditInput);
+      if (auditRow) auditRows.push(auditRow);
     }
   }
+
+  const pricesPublished = await flushPublishedPrices(supabase, publishRows);
+  await flushAuditRows(supabase, auditRows);
+  const cellsChanged = auditRows.length;
 
   await supabase
     .from("pickup_event")
@@ -571,7 +671,9 @@ export async function evaluateHotel(
   // An event whose bookings have all cancelled is holding a price on
   // evidence that no longer exists. Retire it; if the date still has real
   // momentum the observation engine sees it and the rule fires again.
-  await retireUndonePickupEvents(supabase, hotelId, rules, now, now);
+  const bookedUnitsByCell = new Map<string, number>();
+  for (const [key, cell] of currentSnaps) bookedUnitsByCell.set(key, cell.booked_units);
+  await retireUndonePickupEvents(supabase, hotelId, rules, now, now, bookedUnitsByCell);
 
   // Bookkeeping only, past this point — the correct prices are already
   // computed and published above. None of it may be allowed to fail the

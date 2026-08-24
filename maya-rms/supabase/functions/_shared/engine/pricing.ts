@@ -4,6 +4,8 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { LadderStateRow } from "./ladder.ts";
+import { fetchAllRows } from "./snapshots.ts";
 import type { AdjustmentSpec, RoomTypeRow } from "./types.ts";
 
 export type AssembledPrice = {
@@ -19,27 +21,50 @@ export type AssembledPrice = {
   clamped_by: "ceiling" | "floor" | "none";
 };
 
-/** §10.2: Apply adjustments in order. */
+/**
+ * §10.2: Apply adjustments in order.
+ *
+ * Ladder effects in ascending rule_id order, then pickup effects in ascending
+ * applied_at order. Percent adjustments compose multiplicatively; fixed
+ * adjustments are additive.
+ */
 export function applyAdjustments(
   basePrice: number,
   ladderEffects: AdjustmentSpec[],
   pickupEffects: AdjustmentSpec[],
 ): number {
   let p = basePrice;
-  for (const adj of ladderEffects) p = applyOne(p, adj);
-  for (const adj of pickupEffects) p = applyOne(p, adj);
+
+  for (const adj of ladderEffects) {
+    p = applyOne(p, adj);
+  }
+
+  for (const adj of pickupEffects) {
+    p = applyOne(p, adj);
+  }
+
   return Math.round(p * 100) / 100;
 }
 
 function applyOne(p: number, adj: AdjustmentSpec): number {
-  if (adj.action_kind === "fixed" && adj.action_direction === "increase") return p + adj.action_value;
-  if (adj.action_kind === "fixed" && adj.action_direction === "decrease") return p - adj.action_value;
-  if (adj.action_kind === "percent" && adj.action_direction === "increase") return p * (1 + adj.action_value / 100);
-  if (adj.action_kind === "percent" && adj.action_direction === "decrease") return p * (1 - adj.action_value / 100);
+  if (adj.action_kind === "fixed" && adj.action_direction === "increase") {
+    return p + adj.action_value;
+  }
+  if (adj.action_kind === "fixed" && adj.action_direction === "decrease") {
+    return p - adj.action_value;
+  }
+  if (adj.action_kind === "percent" && adj.action_direction === "increase") {
+    return p * (1 + adj.action_value / 100);
+  }
+  if (adj.action_kind === "percent" && adj.action_direction === "decrease") {
+    return p * (1 - adj.action_value / 100);
+  }
   return p;
 }
 
-/** Clamp price to floor/ceiling. §10.3: never emit negative or zero prices. */
+/**
+ * Clamp price to floor/ceiling. §10.3: never emit negative or zero prices.
+ */
 export function clampPrice(
   price: number,
   floorPrice: number,
@@ -50,65 +75,85 @@ export function clampPrice(
   return { final: Math.round(price * 100) / 100, clamped_by: "none" };
 }
 
-/** Load all active ladder effects for a (stay_date, room_type_id), rule_id asc (§10.2). */
-export async function loadActiveLadderEffects(
-  supabase: SupabaseClient,
+/**
+ * Active ladder effects for a (stay_date, room_type_id) from the in-memory
+ * state map, ordered by rule_id ascending (§10.2). Postgres orders uuid
+ * columns by byte value, which for the canonical lowercase text form is the
+ * same order plain string comparison gives — so this matches what the old
+ * per-cell query returned.
+ */
+export function ladderEffectsForCell(
+  states: Map<string, LadderStateRow>,
   stayDate: string,
   roomTypeId: string,
-): Promise<AdjustmentSpec[]> {
-  const { data } = await supabase
-    .from("ladder_rule_state")
-    .select("rule_id, action_kind, action_direction, action_value")
-    .eq("stay_date", stayDate)
-    .eq("room_type_id", roomTypeId)
-    .eq("is_active", true)
-    .order("rule_id", { ascending: true });
-
-  return (data ?? []).map((r) => ({
-    rule_id: String(r.rule_id),
+): AdjustmentSpec[] {
+  const rows: LadderStateRow[] = [];
+  for (const row of states.values()) {
+    if (row.stay_date === stayDate && row.room_type_id === roomTypeId && row.is_active) {
+      rows.push(row);
+    }
+  }
+  rows.sort((a, b) => (a.rule_id < b.rule_id ? -1 : a.rule_id > b.rule_id ? 1 : 0));
+  return rows.map((r) => ({
+    rule_id: r.rule_id,
     action_kind: r.action_kind,
     action_direction: r.action_direction,
-    action_value: Number(r.action_value),
+    action_value: r.action_value,
   }));
 }
 
-/** Load all non-retired pickup events for a (stay_date, room_type_id), applied_at asc then id asc. */
-export async function loadActivePickupEffects(
+/**
+ * All non-retired pickup effects for the horizon in one ranged read, grouped
+ * per (stay_date, room_type_id) cell. Ordering is the DB's — applied_at
+ * ascending then id ascending (§10.2) — and partitioning a globally ordered
+ * list preserves each cell's order. Run AFTER this run's winners are
+ * inserted: same-instant events tie-break on id, and ids are random uuids,
+ * so only the DB can say what order they landed in.
+ */
+export async function loadActivePickupEffectsForRange(
   supabase: SupabaseClient,
   hotelId: string,
-  stayDate: string,
-  roomTypeId: string,
-): Promise<(AdjustmentSpec & { event_id: string })[]> {
-  const { data } = await supabase
-    .from("pickup_event")
-    .select("id, rule_id, action_kind, action_direction, action_value")
-    .eq("hotel_id", hotelId)
-    .eq("stay_date", stayDate)
-    .eq("affected_room_type_id", roomTypeId)
-    .is("retired_at", null)
-    .order("applied_at", { ascending: true })
-    .order("id", { ascending: true });
-
-  return (data ?? []).map((r) => ({
-    event_id: String(r.id),
-    rule_id: String(r.rule_id),
-    action_kind: r.action_kind,
-    action_direction: r.action_direction,
-    action_value: Number(r.action_value),
-  }));
+  firstDate: string,
+  lastDate: string,
+): Promise<Map<string, (AdjustmentSpec & { event_id: string })[]>> {
+  const rows = await fetchAllRows(() =>
+    supabase
+      .from("pickup_event")
+      .select("id, rule_id, stay_date, affected_room_type_id, action_kind, action_direction, action_value")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", firstDate)
+      .lte("stay_date", lastDate)
+      .is("retired_at", null)
+      .order("applied_at", { ascending: true })
+      .order("id", { ascending: true }),
+  );
+  const byCell = new Map<string, (AdjustmentSpec & { event_id: string })[]>();
+  for (const r of rows) {
+    const key = `${r.stay_date}|${r.affected_room_type_id}`;
+    const list = byCell.get(key) ?? [];
+    list.push({
+      event_id: String(r.id),
+      rule_id: String(r.rule_id),
+      action_kind: r.action_kind,
+      action_direction: r.action_direction,
+      action_value: Number(r.action_value),
+    });
+    byCell.set(key, list);
+  }
+  return byCell;
 }
 
-/** Assemble the final price for a single (stay_date, room_type). */
-export async function assemblePrice(
-  supabase: SupabaseClient,
-  hotelId: string,
+/**
+ * Assemble the final price for a single (stay_date, room_type) from
+ * already-loaded effects.
+ */
+export function assemblePrice(
   stayDate: string,
   roomType: RoomTypeRow,
   basePrice: number,
-): Promise<AssembledPrice> {
-  const ladderEffects = await loadActiveLadderEffects(supabase, stayDate, roomType.id);
-  const pickupEffects = await loadActivePickupEffects(supabase, hotelId, stayDate, roomType.id);
-
+  ladderEffects: AdjustmentSpec[],
+  pickupEffects: (AdjustmentSpec & { event_id: string })[],
+): AssembledPrice {
   const preClamp = applyAdjustments(basePrice, ladderEffects, pickupEffects);
   const { final, clamped_by } = clampPrice(preClamp, roomType.floor_price, roomType.ceiling_price);
 
@@ -126,24 +171,24 @@ export async function assemblePrice(
   };
 }
 
-/** §11 step 10: Publish diffs — update published_price only if changed. */
-export async function maybePublish(
-  supabase: SupabaseClient,
-  hotelId: string,
-  stayDate: string,
-  roomTypeId: string,
-  finalPrice: number,
-  computedAt: string,
-  basePrice?: number,
-): Promise<boolean> {
-  const { data: current } = await supabase
-    .from("published_price")
-    .select("price, base_price")
-    .eq("hotel_id", hotelId)
-    .eq("stay_date", stayDate)
-    .eq("room_type_id", roomTypeId)
-    .maybeSingle();
+export type PublishDecision = {
+  /** Whether the row needs writing at all (price moved OR the remembered base is missing/wrong). */
+  write: boolean;
+  /** Whether the price itself moved — the only thing that counts as a publish in the change log. */
+  priceMoved: boolean;
+};
 
+/**
+ * §11 step 10: publish-on-change decision for one cell, against the
+ * published_price row as it stood at run start. Nothing else writes the
+ * table mid-run, so the preloaded row is exactly what a fresh per-cell read
+ * would return.
+ */
+export function publishDecision(
+  current: { price: number | string; base_price: number | string | null } | null | undefined,
+  finalPrice: number,
+  basePrice?: number,
+): PublishDecision {
   const priceUnchanged = current != null && Number(current.price) === finalPrice;
   // The remembered base has to be written even on a run that does not move
   // the price, or a cell whose price is stable never records one — and it is
@@ -154,37 +199,52 @@ export async function maybePublish(
       current.base_price != null &&
       Number(current.base_price) === basePrice);
 
-  if (priceUnchanged && baseUnchanged) {
-    return false;
-  }
+  return { write: !(priceUnchanged && baseUnchanged), priceMoved: !priceUnchanged };
+}
 
-  const { error } = await supabase.from("published_price").upsert(
-    {
-      hotel_id: hotelId,
-      stay_date: stayDate,
-      room_type_id: roomTypeId,
-      price: finalPrice,
-      ...(basePrice !== undefined ? { base_price: basePrice } : {}),
-      computed_at: computedAt,
-    },
-    { onConflict: "hotel_id,stay_date,room_type_id" },
-  );
-  if (error) {
-    // A failed write must not report as a successful publish. Every caller
-    // of maybePublish treats a `true` return as "the new price is now live":
-    // pricesPublished increments and the audit row for this cell is written
-    // as though it happened. Left unchecked, a transient error (or an RLS
-    // rejection when this runs under a non-manager's session) leaves the
-    // OLD price in published_price while the run reports the change as
-    // done — and the PMS rate-push, which reads published_price, never
-    // sends the new rate.
-    console.error(
-      JSON.stringify({ fn: "maybePublish", hotelId, stayDate, roomTypeId, error: error.message }),
+export type PublishRow = {
+  payload: {
+    hotel_id: string;
+    stay_date: string;
+    room_type_id: string;
+    price: number;
+    base_price?: number;
+    computed_at: string;
+  };
+  priceMoved: boolean;
+};
+
+/**
+ * Land the run's published_price changes in bulk. Returns how many PRICE
+ * MOVES actually landed — a failed chunk must not report as published:
+ * pricesPublished feeds the change log, and the PMS rate-push reads
+ * published_price, so counting a write that didn't happen would report a
+ * rate change the PMS never sees. Base-only corrections are bookkeeping and
+ * never count either way.
+ */
+export async function flushPublishedPrices(
+  supabase: SupabaseClient,
+  rows: PublishRow[],
+): Promise<number> {
+  const CHUNK = 500;
+  let published = 0;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const { error } = await supabase.from("published_price").upsert(
+      chunk.map((r) => r.payload),
+      { onConflict: "hotel_id,stay_date,room_type_id" },
     );
-    return false;
+    if (error) {
+      console.error(
+        JSON.stringify({
+          fn: "flushPublishedPrices",
+          cells: chunk.map((r) => `${r.payload.stay_date}|${r.payload.room_type_id}`),
+          error: error.message,
+        }),
+      );
+      continue;
+    }
+    published += chunk.filter((r) => r.priceMoved).length;
   }
-
-  // Only a real price move counts as a publish — a base-only correction is
-  // bookkeeping and should not read as a rate change in the change log.
-  return !priceUnchanged;
+  return published;
 }
