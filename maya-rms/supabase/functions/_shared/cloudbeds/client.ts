@@ -469,11 +469,18 @@ export async function cloudbedsGetRatePlans(
   creds: CloudbedsResolvedCredentials,
   startDate: string,
   endDate: string,
+  opts: { detailedRates?: boolean } = {},
 ): Promise<JsonRecord[]> {
+  // detailedRates adds roomRateDetailed[]: one entry per night with rate,
+  // roomsAvailable, minLos/maxLos and the CTA/CTD flags. Cloudbeds requires
+  // this parameter for RMS certification, and it is also the only way to read
+  // a per-night rate — without it a multi-day window collapses to one
+  // aggregated roomRate per plan.
   const res = await cloudbedsGet(creds, "getRatePlans", {
     propertyID: creds.propertyId,
     startDate,
     endDate,
+    ...(opts.detailedRates ? { detailedRates: "true" } : {}),
   });
   const data = res.data;
   return Array.isArray(data) ? (data as JsonRecord[]) : [];

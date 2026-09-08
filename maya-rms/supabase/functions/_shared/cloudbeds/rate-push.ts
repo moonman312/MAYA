@@ -111,32 +111,35 @@ export function createCloudbedsRateAdapter(
       endDate: string,
       targets: RateTargetMap,
     ): Promise<RateCalendarEntry[]> {
-      // One call PER DATE. getRatePlans takes a window but collapses it to a
-      // single aggregated roomRate per plan with no per-night breakdown
-      // (verified 2026-09-08: a 3-day window returned one row per rate plan,
-      // roomRate 338, no startDate/endDate on the rows), so a range read cannot
-      // be split back into nights. Walking days is the only correct shape; at
-      // ~200ms a call a 45-day horizon costs about nine seconds, paid once when
-      // a property connects.
+      // ONE call for the whole window. detailedRates returns roomRateDetailed[]
+      // — a per-night breakdown — which is both what Cloudbeds requires of an
+      // RMS integration and the only way to get per-night numbers: without it a
+      // range collapses to a single aggregated roomRate per plan (verified
+      // 2026-09-08: a 3-day window returned roomRate 338 and no dates).
+      // endDate is exclusive, so ask for one extra day to include it.
       const roomTypesWanted = new Set(Object.keys(targets));
+      const plans = await cloudbedsGetRatePlans(creds, startDate, addOneDay(endDate), {
+        detailedRates: true,
+      });
+
       const out: RateCalendarEntry[] = [];
-      for (let d = startDate; d <= endDate; d = addOneDay(d)) {
-        // endDate must be strictly after startDate ("Parameter endDate should
-        // be greater than startDate"), so a single night is [d, d+1).
-        const plans = await cloudbedsGetRatePlans(creds, d, addOneDay(d));
-        // Derived plans reprice off their parent, so the parent is the
+      for (const plan of plans) {
+        // Derived plans reprice off their parent, so the parent carries the
         // property's own rate — the same choice resolveRateTargets makes.
-        for (const plan of plans) {
-          if (plan.isDerived === true || plan.isDerived === "true") continue;
-          const roomTypeId = String(plan.roomTypeID ?? "");
-          if (!roomTypesWanted.has(roomTypeId)) continue;
+        if (plan.isDerived === true || plan.isDerived === "true") continue;
+        const roomTypeId = String(plan.roomTypeID ?? "");
+        if (!roomTypesWanted.has(roomTypeId)) continue;
+        const nights = Array.isArray(plan.roomRateDetailed) ? plan.roomRateDetailed : [];
+        for (const night of nights as Record<string, unknown>[]) {
+          const date = String(night.date ?? "");
+          if (!date || date < startDate || date > endDate) continue;
           // null/undefined is a MISSING rate, and Number(null) is 0 — writing
           // that would hand the engine a $0 base and price the night at the
           // floor. An explicit 0 is a real comp rate and is kept.
-          if (plan.roomRate == null) continue;
-          const price = Number(plan.roomRate);
+          if (night.rate == null) continue;
+          const price = Number(night.rate);
           if (!Number.isFinite(price)) continue;
-          out.push({ stayDate: d, externalRoomTypeId: roomTypeId, price });
+          out.push({ stayDate: date, externalRoomTypeId: roomTypeId, price });
         }
       }
       return out;
