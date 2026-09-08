@@ -8,7 +8,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { redeemMarketplaceClaim } from "./marketplace-claim";
 
-const state = vi.hoisted(() => ({ claim: null as Record<string, unknown> | null, writes: [] as { table: string; payload: unknown }[] }));
+const state = vi.hoisted(() => ({
+  claim: null as Record<string, unknown> | null,
+  siblings: [] as Record<string, unknown>[],
+  writes: [] as { table: string; payload: unknown }[],
+}));
 
 vi.mock("@/utils/supabase/admin", () => ({
   createAdminClient: () => ({
@@ -19,6 +23,8 @@ vi.mock("@/utils/supabase/admin", () => ({
         is: () => q,
         maybeSingle: async () => ({ data: table === "pms_marketplace_claims" ? state.claim : null }),
         single: async () => ({ data: { id: "job-1" }, error: null }),
+        neq: () => q,
+        in: () => q,
         upsert: (payload: unknown) => {
           state.writes.push({ table, payload });
           return q;
@@ -32,7 +38,8 @@ vi.mock("@/utils/supabase/admin", () => ({
           return q;
         },
       };
-      (q as { then: unknown }).then = (res: (v: { error: null }) => unknown) => res({ error: null });
+      (q as { then: unknown }).then = (res: (v: { error: null; data?: unknown }) => unknown) =>
+        res({ error: null, data: table === "pms_marketplace_claims" ? state.siblings : [] });
       return q;
     },
     rpc: async () => ({ data: null, error: null }),
@@ -42,8 +49,9 @@ vi.mock("@/utils/supabase/admin", () => ({
 const future = () => new Date(Date.now() + 3600_000).toISOString();
 const past = () => new Date(Date.now() - 1000).toISOString();
 
-function setClaim(over: Record<string, unknown> = {}) {
+function setClaim(over: Record<string, unknown> = {}, siblings: Record<string, unknown>[] = []) {
   state.writes = [];
+  state.siblings = siblings;
   state.claim = {
     token: "tok",
     hotel_id: "hotel-1",
@@ -60,7 +68,7 @@ describe("redeemMarketplaceClaim", () => {
   it("gives the property an owner, settings, and an import job", async () => {
     setClaim();
     const res = await redeemMarketplaceClaim("tok", "user-1");
-    expect(res).toMatchObject({ ok: true, hotelId: "hotel-1", alreadyClaimed: false });
+    expect(res).toMatchObject({ ok: true, hotelId: "hotel-1", alreadyClaimed: false, hotelIds: ["hotel-1"] });
 
     const tables = state.writes.map((w) => w.table);
     expect(tables).toContain("hotel_memberships");
@@ -68,14 +76,14 @@ describe("redeemMarketplaceClaim", () => {
     expect(tables).toContain("hotels:update");
     expect(tables).toContain("import_jobs:insert");
 
-    const membership = state.writes.find((w) => w.table === "hotel_memberships")!.payload as Record<string, unknown>;
-    expect(membership).toMatchObject({ user_id: "user-1", role: "hotel_admin", status: "active" });
+    const membership = (state.writes.find((w) => w.table === "hotel_memberships")!.payload as Record<string, unknown>[])[0];
+    expect(membership).toMatchObject({ hotel_id: "hotel-1", user_id: "user-1", role: "hotel_admin", status: "active" });
   });
 
   it("starts the property in simulation mode — nothing reaches live rates unasked", async () => {
     setClaim();
     await redeemMarketplaceClaim("tok", "user-1");
-    const settings = state.writes.find((w) => w.table === "hotel_settings")!.payload as Record<string, unknown>;
+    const settings = (state.writes.find((w) => w.table === "hotel_settings")!.payload as Record<string, unknown>[])[0];
     expect(settings.simulation_mode).toBe(true);
   });
 
@@ -100,5 +108,35 @@ describe("redeemMarketplaceClaim", () => {
     state.writes = [];
     state.claim = null;
     expect(await redeemMarketplaceClaim("nope", "user-1")).toMatchObject({ ok: false, reason: "not_found" });
+  });
+
+  it("claims EVERY property of a group grant, not just the one in the link", async () => {
+    // The owner clicked one link. Handing back the first hotel and leaving the
+    // siblings parked is the same silent drop this whole path exists to fix.
+    setClaim({ group_key: "cloudbeds:group:1,2,3" }, [
+      { token: "tok-b", hotel_id: "hotel-2", expires_at: future() },
+      { token: "tok-c", hotel_id: "hotel-3", expires_at: future() },
+    ]);
+    const res = await redeemMarketplaceClaim("tok", "user-1");
+
+    expect(res).toMatchObject({ ok: true, hotelIds: ["hotel-1", "hotel-2", "hotel-3"] });
+    const memberships = state.writes.find((w) => w.table === "hotel_memberships")!.payload as Record<string, unknown>[];
+    expect(memberships.map((m) => m.hotel_id)).toEqual(["hotel-1", "hotel-2", "hotel-3"]);
+    const jobs = state.writes.find((w) => w.table === "import_jobs:insert")!.payload as Record<string, unknown>[];
+    expect(jobs).toHaveLength(3);
+  });
+
+  it("skips a sibling whose own window has lapsed", async () => {
+    setClaim({ group_key: "cloudbeds:group:1,2" }, [
+      { token: "tok-b", hotel_id: "hotel-2", expires_at: past() },
+    ]);
+    const res = await redeemMarketplaceClaim("tok", "user-1");
+    expect(res).toMatchObject({ ok: true, hotelIds: ["hotel-1"] });
+  });
+
+  it("a single-property claim touches exactly one hotel", async () => {
+    setClaim({ group_key: null }, [{ token: "other", hotel_id: "unrelated", expires_at: future() }]);
+    const res = await redeemMarketplaceClaim("tok", "user-1");
+    expect(res).toMatchObject({ ok: true, hotelIds: ["hotel-1"] });
   });
 });

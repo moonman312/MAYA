@@ -182,8 +182,14 @@ create table if not exists pms_marketplace_claims (
   expires_at            timestamptz not null,
   claimed_by            uuid references auth.users(id) on delete set null,
   claimed_at            timestamptz,
+  -- Ties the several properties of one group grant into a single claimable
+  -- bundle, so the owner clicks one link and gets all of their hotels.
+  group_key             text,
   unique (hotel_id, pms_type)
 );
+
+create index if not exists idx_marketplace_claims_group
+  on pms_marketplace_claims (group_key) where claimed_at is null;
 
 create index if not exists idx_marketplace_claims_property
   on pms_marketplace_claims (external_property_id);
