@@ -27,6 +27,7 @@ import type {
 const MAX_INTERVALS_PER_CALL = 30; // Cloudbeds patchRate limit
 
 // deno-lint-ignore no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function str(obj: any, keys: string[]): string | null {
   for (const k of keys) {
     const v = obj?.[k];
@@ -53,6 +54,7 @@ export function createCloudbedsRateAdapter(
       const chosen = new Map<string, { rateId: string; isBase: boolean }>();
       for (const plan of plans) {
         // deno-lint-ignore no-explicit-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const p = plan as any;
         if (p.isDerived === true || p.isDerived === "true") continue; // not updatable
         const roomTypeId = str(p, ["roomTypeID", "roomTypeId"]);

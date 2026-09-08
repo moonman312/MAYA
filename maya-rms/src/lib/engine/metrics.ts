@@ -103,6 +103,27 @@ export async function computeRuleMetrics(
 ): Promise<RuleMetrics> {
   const dta = computeDta(stayDate, evalLocalDate);
 
+  // A rule's signal set is already filtered to active room types (see
+  // evaluate.ts); if every signal room type it was configured against has
+  // since been deactivated, there's nothing left to measure. Without this
+  // check an empty signal set would compute occupancy null (harmless) but
+  // net_pickup_units 0 with no block reason — a "lt" pickup condition would
+  // then read "zero pickup" as a real signal and could fire on no evidence
+  // at all. Block explicitly instead.
+  if (rule.signal_room_type_ids.length === 0) {
+    return {
+      occupancy: null,
+      dta,
+      net_pickup_units: null,
+      net_pickup_revenue: null,
+      pickup_block_reason: "no_active_signal_room_types",
+      signal_booked_units_baseline: 0,
+      signal_booked_revenue_baseline: 0,
+      signal_booked_units_now: 0,
+      signal_booked_revenue_now: 0,
+    };
+  }
+
   const currentSnapMap = await findSnapshotAt(
     supabase,
     hotelId,

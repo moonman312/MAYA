@@ -1,0 +1,34 @@
+-- Example: schedule the nightly business-metrics snapshot.
+--
+-- Posts to the Next.js app like the billing crons (the money math lives in
+-- TypeScript beside the rest of billing). Reuses the SAME billing_cron_secret
+-- and maya_app_url Vault secrets as billing-card-reverify.
+--
+-- Late in the UTC day on purpose: the row is "how the day ended", and the
+-- analytics page lazily refreshes today's rows anyway — this cron exists for
+-- the quiet days nobody opened the page.
+--
+-- 1) Schedule (23:50 UTC daily):
+--    select cron.schedule(
+--      'business-metrics-snapshot',
+--      '50 23 * * *',
+--      $$
+--      select net.http_post(
+--        url := (select decrypted_secret from vault.decrypted_secrets where name = 'maya_app_url')
+--               || '/api/admin/metrics-snapshot',
+--        headers := jsonb_build_object(
+--          'Content-Type', 'application/json',
+--          'x-billing-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'billing_cron_secret')
+--        ),
+--        body := jsonb_build_object('scheduled_at', now())
+--      ) as request_id;
+--      $$
+--    );
+--
+-- Inspect:    select jobid, jobname, schedule, active from cron.job;
+-- Unschedule: select cron.unschedule('business-metrics-snapshot');
+--
+-- What's accumulated so far:
+--   select day, count(*) filter (where entitled) as paying,
+--          sum(net_mrr_cents) filter (where entitled) / 100.0 as net_mrr
+--     from hotel_metrics_daily group by day order by day desc limit 14;

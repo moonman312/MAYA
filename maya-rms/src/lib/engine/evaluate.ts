@@ -9,15 +9,31 @@
 import type { EngineRule } from "@/types/domain";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AuditInput } from "./audit";
-import { writeAudit } from "./audit";
+import {
+  loadLastAuditSignatures,
+  purgeOldAuditRows,
+  purgeOldRunLogRows,
+  recordRunHeartbeat,
+  writeAudit,
+} from "./audit";
+import {
+  DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS,
+  bookingSpeedAuditSnapshots,
+  bookingSpeedMetrics,
+  cooldownLookbackDays,
+  isWithinCooldown,
+  loadBookingSpeedContext,
+  observeForStayDate,
+  type BookingSpeedContext,
+} from "./booking-speed-provider";
 import { ruleConditionsMatch } from "./conditions";
 import type { LadderPassResult } from "./ladder";
 import { evaluateLadderTriple } from "./ladder";
 import { computeRuleMetrics } from "./metrics";
-import { computeBaselineTs, runPickupPass } from "./pickup";
+import { computeBaselineTs, retireUndonePickupEvents, runPickupPass } from "./pickup";
 import { assemblePrice, maybePublish } from "./pricing";
 import { ruleScopeMatches } from "./scope";
-import { purgeOldSnapshots, snapshotCurrentState } from "./snapshots";
+import { fetchAllRows, purgeOldSnapshots, snapshotCurrentState } from "./snapshots";
 import { addCalendarDays, evalIsoToHotelDateString } from "./timezone";
 import type { PickupCandidate, RoomTypeRow } from "./types";
 
@@ -33,11 +49,17 @@ export type EvaluationResult = {
 
 /**
  * Evaluate a hotel: run the full 11-step pipeline.
+ *
+ * `horizonDays` bounds how many days forward are priced in this run. The engine
+ * makes many sequential Supabase calls per day, so the full 365 takes tens of
+ * minutes on a busy hotel; callers with a wall clock (API routes, smoke
+ * scripts) pass a smaller horizon, same as the Deno copy's scheduled ticks.
  */
 export async function evaluateHotel(
   supabase: SupabaseClient,
   hotelId: string,
   evalTs?: string,
+  horizonDays: number = 365,
 ): Promise<EvaluationResult> {
   const now = evalTs ?? new Date().toISOString();
   const runId = crypto.randomUUID();
@@ -67,6 +89,7 @@ export async function evaluateHotel(
     floor_price: Number(r.floor_price),
     ceiling_price: Number(r.ceiling_price),
   }));
+  const activeRoomTypeIds = new Set(roomTypes.map((rt) => rt.id));
 
   if (roomTypes.length === 0) {
     return {
@@ -80,16 +103,17 @@ export async function evaluateHotel(
     };
   }
 
+  const horizon = Math.max(1, Math.min(365, Math.floor(horizonDays)));
   const stayDates: string[] = [];
   let cursor = localDate;
-  for (let i = 0; i < 365; i++) {
+  for (let i = 0; i < horizon; i++) {
     stayDates.push(cursor);
     cursor = addCalendarDays(cursor, 1);
   }
 
   await snapshotCurrentState(supabase, hotelId, now, stayDates, roomTypes);
 
-  const { data: rulesData } = await supabase
+  const { data: rulesData, error: rulesErr } = await supabase
     .from("pricing_rules")
     .select(
       `
@@ -100,7 +124,9 @@ export async function evaluateHotel(
       rule_condition (
         occupancy_operator, occupancy_threshold,
         dta_operator, dta_threshold_days,
-        pickup_operator, pickup_threshold, pickup_window_days, pickup_metric
+        pickup_operator, pickup_threshold, pickup_window_days, pickup_metric,
+        booking_speed_operator, booking_speed_level,
+        booking_speed_window_days, booking_speed_cooldown_days
       ),
       rule_signal_room_type ( room_type_id ),
       rule_affected_room_type ( room_type_id )
@@ -108,6 +134,16 @@ export async function evaluateHotel(
     )
     .eq("hotel_id", hotelId)
     .eq("is_active", true);
+
+  // Never proceed on a failed rule load. Discarding this error made the run
+  // continue with zero rules, which quietly publishes the base price for
+  // every room-night — the hotel's entire pricing strategy silently switched
+  // off, and pushed to the PMS, with nothing surfaced anywhere. A missing
+  // rule_condition column (the documented fresh-install path) does exactly
+  // this.
+  if (rulesErr) {
+    throw new Error(`Failed to load pricing rules: ${rulesErr.message}`);
+  }
 
   const rules: EngineRule[] = (rulesData ?? []).map((r) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -146,11 +182,30 @@ export async function evaluateHotel(
             ? (Number(rc.pickup_window_days) as 1 | 3 | 7)
             : null,
         pickup_metric: rc?.pickup_metric ?? null,
+        booking_speed_operator: rc?.booking_speed_operator ?? null,
+        booking_speed_level: rc?.booking_speed_level ?? null,
+        booking_speed_window_days:
+          rc?.booking_speed_window_days != null
+            ? (Number(rc.booking_speed_window_days) as 1 | 7 | 30)
+            : null,
+        booking_speed_cooldown_days:
+          rc?.booking_speed_cooldown_days != null
+            ? Number(rc.booking_speed_cooldown_days)
+            : null,
       },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      signal_room_type_ids: (r.rule_signal_room_type ?? []).map((x: any) =>
-        String(x.room_type_id),
-      ),
+      // A deactivated room type is never cleaned out of rule_signal_room_type
+      // (deactivation is routine — onboarding auto-deactivates duplicates and
+      // suspect room types on confirm, long after rules exist). Left
+      // unfiltered, a stale signal room type stops accruing snapshots and its
+      // permanently-missing baseline reads as pickup_block_reason
+      // 'insufficient_snapshot_history' / 'stale_baseline_snapshot' — blocking
+      // the WHOLE rule even though its other signals are fine. Filtering here
+      // drops only the dead entry, matching what deactivating a room type
+      // ought to mean for a rule that also signals on other room types.
+      signal_room_type_ids: (r.rule_signal_room_type ?? [])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((x: any) => String(x.room_type_id))
+        .filter((id: string) => activeRoomTypeIds.has(id)),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       affected_room_type_ids: (r.rule_affected_room_type ?? []).map((x: any) =>
         String(x.room_type_id),
@@ -166,39 +221,124 @@ export async function evaluateHotel(
     if (w != null) maxPickupWindowDays = Math.max(maxPickupWindowDays, w);
   }
 
+  // Base prices — batched: one reservations read + one published_price read for
+  // the whole horizon, resolved in memory. (Previously this was ~2 queries per
+  // (stay_date, room_type) cell — thousands of sequential round-trips.)
+  //
+  // Order: the most recent reservation's base_rate, else the base price we
+  // remembered the last time this cell was priced. NEVER published_price.price
+  // — that is this engine's own output, already carrying every active effect,
+  // and feeding it back in compounds those effects once per run.
+  const firstDate = stayDates[0];
+  const lastDate = stayDates[stayDates.length - 1];
+
+  const resRows = await fetchAllRows(() =>
+    supabase
+      .from("reservations")
+      .select("stay_date, room_type_id, base_rate, created_at")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", firstDate)
+      .lte("stay_date", lastDate)
+      .order("id", { ascending: true }),
+  );
+
+  const latestResByCell = new Map<string, { base_rate: number | null; created_at: string }>();
+  for (const r of resRows ?? []) {
+    if (!r.room_type_id) continue;
+    const key = `${r.stay_date}|${r.room_type_id}`;
+    const createdAt = String(r.created_at ?? "");
+    const prev = latestResByCell.get(key);
+    if (!prev || createdAt > prev.created_at) {
+      latestResByCell.set(key, {
+        base_rate: r.base_rate != null ? Number(r.base_rate) : null,
+        created_at: createdAt,
+      });
+    }
+  }
+
+  const ppRows = await fetchAllRows(() =>
+    supabase
+      .from("published_price")
+      .select("stay_date, room_type_id, base_price")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", firstDate)
+      .lte("stay_date", lastDate)
+      .order("stay_date", { ascending: true })
+      .order("room_type_id", { ascending: true }),
+  );
+
+  const rememberedBaseByCell = new Map<string, number>();
+  for (const p of ppRows) {
+    if (!p.room_type_id || p.base_price == null) continue;
+    rememberedBaseByCell.set(`${p.stay_date}|${p.room_type_id}`, Number(p.base_price));
+  }
+
   const basePrices = new Map<string, number>();
   for (const sd of stayDates) {
     for (const rt of roomTypes) {
       const key = `${sd}|${rt.id}`;
-      const { data: res } = await supabase
-        .from("reservations")
-        .select("base_rate")
-        .eq("hotel_id", hotelId)
-        .eq("stay_date", sd)
-        .eq("room_type_id", rt.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (res?.base_rate) {
-        basePrices.set(key, Number(res.base_rate));
+      const latest = latestResByCell.get(key);
+      // `!= null` rather than truthiness: a genuine 0 base_rate (comp or
+      // house-use night) is a real rate, and treating it as missing sent the
+      // cell down the fallback path for no reason.
+      if (latest && latest.base_rate != null) {
+        basePrices.set(key, latest.base_rate);
       } else {
-        const { data: pp } = await supabase
-          .from("published_price")
-          .select("price")
-          .eq("hotel_id", hotelId)
-          .eq("stay_date", sd)
-          .eq("room_type_id", rt.id)
-          .maybeSingle();
-        if (pp?.price) {
-          basePrices.set(key, Number(pp.price));
-        }
+        const remembered = rememberedBaseByCell.get(key);
+        if (remembered != null) basePrices.set(key, remembered);
       }
     }
   }
 
   const ladderRules = rules.filter((r) => !r.is_pickup_rule);
   const pickupRules = rules.filter((r) => r.is_pickup_rule);
+
+  // Booking Speed context: loaded once, and only when some active rule
+  // actually uses the observation — everyone else pays nothing.
+  const usesBookingSpeed = rules.some((r) => r.condition.booking_speed_operator);
+  let bsCtx: BookingSpeedContext | null = null;
+  let lastBsFire: Map<string, string> | null = null;
+  if (usesBookingSpeed) {
+    const totalCapacity = roomTypes.reduce((sum, rt) => sum + rt.total_rooms, 0);
+    bsCtx = await loadBookingSpeedContext(supabase, hotelId, localDate, totalCapacity);
+
+    // Most recent fire per (rule, stay date), for cooldown throttling of
+    // event-style booking-speed rules. One query, built into a map. See
+    // cooldownLookbackDays for why this can't be a fixed 31 days.
+    const cooldownHorizon = new Date(
+      Date.parse(now) - cooldownLookbackDays(rules) * 86_400_000,
+    ).toISOString();
+    const { data: fires } = await supabase
+      .from("pickup_event")
+      .select("rule_id, stay_date, applied_at")
+      .eq("hotel_id", hotelId)
+      .gte("applied_at", cooldownHorizon);
+    lastBsFire = new Map();
+    for (const f of fires ?? []) {
+      const key = `${f.rule_id}|${f.stay_date}`;
+      const prev = lastBsFire.get(key);
+      if (!prev || String(f.applied_at) > prev) lastBsFire.set(key, String(f.applied_at));
+    }
+  }
+
+  const attachBookingSpeed = (
+    rule: EngineRule,
+    stayDate: string,
+    metrics: Awaited<ReturnType<typeof computeRuleMetrics>>,
+  ) => {
+    if (!rule.condition.booking_speed_operator) return;
+    if (!bsCtx) {
+      metrics.booking_speed_block_reason = "insufficient_data";
+      return;
+    }
+    const windowDays = rule.condition.booking_speed_window_days ?? 7;
+    const observation = observeForStayDate(bsCtx, stayDate, windowDays);
+    if (observation.method === "insufficient_data") {
+      metrics.booking_speed_block_reason = "insufficient_data";
+      return;
+    }
+    metrics.booking_speed = bookingSpeedMetrics(observation);
+  };
 
   let ladderActivations = 0;
   let ladderDeactivations = 0;
@@ -221,6 +361,7 @@ export async function evaluateHotel(
         now,
         null,
       );
+      attachBookingSpeed(rule, stayDate, metrics);
 
       for (const rtId of rule.affected_room_type_ids) {
         const result = await evaluateLadderTriple(
@@ -248,10 +389,22 @@ export async function evaluateHotel(
   const allPickupWinners: Map<string, PickupCandidate[]> = new Map();
   const allPickupLosers: Map<string, PickupCandidate[]> = new Map();
   const allPickupIdempotent: Map<string, PickupCandidate[]> = new Map();
+  const allPickupWriteFailures: Map<string, PickupCandidate[]> = new Map();
 
   for (const rule of pickupRules) {
     for (const stayDate of stayDates) {
       if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone)) continue;
+
+      // Event-style booking-speed rules are throttled per stay date: after
+      // firing, the rule waits out its cooldown before it may re-fire, so a
+      // persistent slow/fast state stacks corrections weekly, not every run.
+      if (rule.condition.booking_speed_operator) {
+        const cooldownDays =
+          rule.condition.booking_speed_cooldown_days ?? DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS;
+        if (isWithinCooldown(lastBsFire?.get(`${rule.id}|${stayDate}`), now, cooldownDays)) {
+          continue;
+        }
+      }
 
       const baselineTs = await computeBaselineTs(supabase, rule, stayDate, now);
       if (!baselineTs) continue;
@@ -266,6 +419,7 @@ export async function evaluateHotel(
         now,
         baselineTs,
       );
+      attachBookingSpeed(rule, stayDate, metrics);
 
       if (!ruleConditionsMatch(rule, metrics)) continue;
 
@@ -289,7 +443,7 @@ export async function evaluateHotel(
 
   const pickupInsertedKeys = new Set<string>();
   if (allPickupCandidates.length > 0) {
-    const { winners, losers, idempotent_skips } = await runPickupPass(
+    const { winners, losers, idempotent_skips, write_failures } = await runPickupPass(
       supabase,
       allPickupCandidates,
       hotelId,
@@ -316,13 +470,45 @@ export async function evaluateHotel(
       list.push(s);
       allPickupIdempotent.set(key, list);
     }
+    for (const f of write_failures) {
+      const key = `${f.stay_date}|${f.affected_room_type_id}`;
+      const list = allPickupWriteFailures.get(key) ?? [];
+      list.push(f);
+      allPickupWriteFailures.set(key, list);
+    }
+    if (write_failures.length > 0) {
+      console.error(
+        JSON.stringify({
+          fn: "evaluateHotel",
+          step: "pickup_event_insert",
+          hotelId,
+          runId,
+          failed_count: write_failures.length,
+          rule_ids: write_failures.map((f) => f.rule.id),
+        }),
+      );
+    }
   }
+
+  // The signature of the last audit row per cell, so writeAudit can skip
+  // cells whose price and applied rules haven't moved since last time —
+  // see auditSignature's doc comment for why this matters.
+  const lastAuditSignatures = await loadLastAuditSignatures(
+    supabase,
+    hotelId,
+    stayDates[0],
+    stayDates[stayDates.length - 1],
+  );
+
+  let cellsChecked = 0;
+  let cellsChanged = 0;
 
   for (const stayDate of stayDates) {
     for (const rt of roomTypes) {
       const key = `${stayDate}|${rt.id}`;
       const basePrice = basePrices.get(key);
       if (basePrice === undefined) continue;
+      cellsChecked++;
 
       const assembled = await assemblePrice(
         supabase,
@@ -338,6 +524,7 @@ export async function evaluateHotel(
         rt.id,
         assembled.final_price,
         now,
+        basePrice,
       );
       if (published) pricesPublished++;
 
@@ -350,9 +537,14 @@ export async function evaluateHotel(
         pickupWinners: allPickupWinners.get(key) ?? [],
         pickupLosers: allPickupLosers.get(key) ?? [],
         pickupIdempotentSkips: allPickupIdempotent.get(key) ?? [],
+        pickupWriteFailures: allPickupWriteFailures.get(key) ?? [],
         basePrices,
+        bookingSpeedObservations: bsCtx
+          ? bookingSpeedAuditSnapshots(bsCtx, stayDate)
+          : [],
+        previousSignature: lastAuditSignatures.get(key) ?? null,
       };
-      await writeAudit(supabase, auditInput);
+      if (await writeAudit(supabase, auditInput)) cellsChanged++;
     }
   }
 
@@ -363,7 +555,38 @@ export async function evaluateHotel(
     .lt("stay_date", localDate)
     .is("retired_at", null);
 
-  await purgeOldSnapshots(supabase, hotelId, maxPickupWindowDays + 7);
+  // An event whose bookings have all cancelled is holding a price on
+  // evidence that no longer exists. Retire it; if the date still has real
+  // momentum the observation engine sees it and the rule fires again.
+  await retireUndonePickupEvents(supabase, hotelId, rules, now, now);
+
+  // Bookkeeping only, past this point — the correct prices are already
+  // computed and published above. None of it may be allowed to fail the
+  // whole run: a missing table, a transient error, or (concretely) the
+  // heartbeat migration not having been run yet must degrade to "this run's
+  // housekeeping was skipped," never to "this run never returned a result."
+  // Discovered the hard way — before this guard, an unmigrated
+  // evaluation_run_log took down every evaluation, scheduled and manual,
+  // with prices already correctly published and then thrown away.
+  try {
+    // One tiny row regardless of cellsChanged — this is what keeps a fully
+    // quiet run visible in the Change Log even though write-on-change means
+    // no evaluation_audit rows exist for it.
+    await recordRunHeartbeat(supabase, hotelId, runId, now, cellsChecked, cellsChanged);
+    await purgeOldSnapshots(supabase, hotelId, maxPickupWindowDays + 7);
+    await purgeOldAuditRows(supabase, hotelId);
+    await purgeOldRunLogRows(supabase, hotelId);
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "evaluateHotel",
+        step: "post_run_bookkeeping",
+        hotelId,
+        runId,
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+  }
 
   return {
     run_id: runId,

@@ -12,6 +12,7 @@
  */
 
 import { INITIAL_RULES } from "@/lib/demo-data";
+import { bookingSpeedLabel, isBookingSpeed } from "@/lib/observations/booking-speed";
 import {
   isRuleConditionEmpty,
   ruleConditionForInsert,
@@ -20,7 +21,6 @@ import {
 import type {
   ActionDirection,
   ActionKind,
-  ConditionOperator,
   EngineRule,
   PickupMetric,
   RuleAction,
@@ -80,6 +80,32 @@ function parseConditionString(raw: string): { op: RuleOperator; num: number } | 
   return null;
 }
 
+/**
+ * Same as parseConditionString, but only accepts gt/lt — the only operators
+ * rule_condition's CHECK constraints allow for occupancy/dta/pickup
+ * (02_supabase_schema.sql). A legacy value like ">=80" parses fine under
+ * parseConditionString but would fail the insert AFTER pricing_rules
+ * already has a live row, leaving an orphaned active rule with no
+ * conditions. Rejecting it here, before anything is written, is the only
+ * point where that's still cheap to do.
+ */
+function parseLegacyConditionForDb(raw: string): { op: "gt" | "lt"; num: number } | null {
+  const parsed = parseConditionString(raw);
+  if (!parsed || (parsed.op !== "gt" && parsed.op !== "lt")) return null;
+  return { op: parsed.op, num: parsed.num };
+}
+
+const LEGACY_NUMERIC_KEYS = new Set(["occupancy_percentage", "booking_window", "pickup_rate"]);
+
+/** True when the legacy conditions map has at least one key the engine can actually act on. */
+function legacyConditionsHaveUsableFamily(conditions: Record<string, RuleConditionValue>): boolean {
+  for (const [key, val] of Object.entries(conditions)) {
+    if (!LEGACY_NUMERIC_KEYS.has(key)) continue;
+    if (parseLegacyConditionForDb(String(val))) return true;
+  }
+  return false;
+}
+
 function uiMetricToDb(key: string): RuleMetric | null {
   if (key === "booking_window") return "booking_window_days";
   if (key === "occupancy_percentage") return "occupancy_percentage";
@@ -129,6 +155,16 @@ function uiActionToDb(action: RuleAction): {
 
 /* ── DB row converters ─────────────────────────────────────────── */
 
+/** "at least Much Faster Than Normal (past week)" — the rules-table summary text. */
+function formatBookingSpeedCondition(operator: string, levelKey: string, windowDays: number): string {
+  const label = isBookingSpeed(levelKey) ? bookingSpeedLabel(levelKey) : levelKey;
+  const opWords =
+    operator === "at_least" ? "at least " : operator === "at_most" ? "at most " : "";
+  const windowWords =
+    windowDays === 1 ? "past day" : windowDays === 30 ? "past month" : "past week";
+  return `${opWords}${label} (${windowWords})`;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function embedRoomTypeName(rt: any): string | undefined {
   const r = rt?.room_types;
@@ -146,7 +182,10 @@ function dbRowToRuleConfig(row: any): RuleConfig {
   if (rc) {
     if (rc.occupancy_operator && rc.occupancy_threshold != null) {
       const sym = OP_TO_SYM[rc.occupancy_operator as RuleOperator] ?? ">";
-      const pct = Number(rc.occupancy_threshold) * 100;
+      // Rounded to match ruleConditionToLegacyConditions (rule-form.ts) —
+      // an unrounded *100 on a numeric(8,4) fraction shows float noise like
+      // "56.99999999999999%" for a perfectly ordinary "above 57%" rule.
+      const pct = Math.round(Number(rc.occupancy_threshold) * 10_000) / 100;
       conditions.occupancy_percentage = `${sym}${pct}`;
     }
     if (rc.dta_operator && rc.dta_threshold_days != null) {
@@ -156,6 +195,13 @@ function dbRowToRuleConfig(row: any): RuleConfig {
     if (rc.pickup_operator && rc.pickup_threshold != null) {
       const sym = OP_TO_SYM[rc.pickup_operator as RuleOperator] ?? ">";
       conditions.pickup_rate = `${sym}${rc.pickup_threshold}`;
+    }
+    if (rc.booking_speed_operator && rc.booking_speed_level) {
+      conditions.booking_speed = formatBookingSpeedCondition(
+        String(rc.booking_speed_operator),
+        String(rc.booking_speed_level),
+        rc.booking_speed_window_days != null ? Number(rc.booking_speed_window_days) : 7,
+      );
     }
   } else {
     for (const c of row.pricing_rule_conditions ?? []) {
@@ -207,6 +253,12 @@ function dbRowToEngineRule(row: any): EngineRule {
     condition.pickup_threshold = rc.pickup_threshold != null ? Number(rc.pickup_threshold) : null;
     condition.pickup_window_days = rc.pickup_window_days != null ? (Number(rc.pickup_window_days) as 1 | 3 | 7) : null;
     condition.pickup_metric = (rc.pickup_metric as PickupMetric) ?? null;
+    condition.booking_speed_operator = rc.booking_speed_operator ?? null;
+    condition.booking_speed_level = rc.booking_speed_level ?? null;
+    condition.booking_speed_window_days =
+      rc.booking_speed_window_days != null ? (Number(rc.booking_speed_window_days) as 1 | 7 | 30) : null;
+    condition.booking_speed_cooldown_days =
+      rc.booking_speed_cooldown_days != null ? Number(rc.booking_speed_cooldown_days) : null;
   }
 
   const signal_ids: string[] = (row.rule_signal_room_type ?? []).map(
@@ -251,7 +303,9 @@ const RULE_SELECT = `
   rule_condition (
     occupancy_operator, occupancy_threshold,
     dta_operator, dta_threshold_days,
-    pickup_operator, pickup_threshold, pickup_window_days, pickup_metric
+    pickup_operator, pickup_threshold, pickup_window_days, pickup_metric,
+    booking_speed_operator, booking_speed_level,
+    booking_speed_window_days, booking_speed_cooldown_days
   ),
   rule_signal_room_type ( room_type_id, room_types ( name ) ),
   rule_affected_room_type ( room_type_id, room_types ( name ) ),
@@ -350,12 +404,28 @@ export async function createRule(
   if (structuredCondition && isRuleConditionEmpty(structuredCondition)) {
     throw new Error("Rule must include at least one valid condition.");
   }
+  // When no structured condition is given, the legacy map is the only
+  // source of truth. Validate it BEFORE inserting pricing_rules — a map
+  // whose values don't parse (missing operator prefix, a bare number, an
+  // unrecognized key, or an operator like ">=" that rule_condition's CHECK
+  // constraint doesn't allow) used to create a live, active rule with zero
+  // condition rows, which the engine then treats as "always matches" for
+  // every stay date in scope.
+  if (!structuredCondition && !legacyConditionsHaveUsableFamily(input.conditions)) {
+    throw new Error("Rule must include at least one valid condition.");
+  }
 
-  let hasPickup = !!structuredCondition?.pickup_operator;
+  // Booking-speed rules run event-style (fire once, effect persists, then a
+  // per-stay-date cooldown before re-firing) — same machinery as pickup
+  // rules. A continuously-held effect would whipsaw: the price change
+  // itself shifts the classification back toward Normal, deactivating the
+  // very adjustment that caused it.
+  let hasPickup =
+    !!structuredCondition?.pickup_operator || !!structuredCondition?.booking_speed_operator;
   if (!structuredCondition) {
     for (const [key, val] of Object.entries(input.conditions)) {
       if (key !== "pickup_rate") continue;
-      if (!parseConditionString(String(val))) continue;
+      if (!parseLegacyConditionForDb(String(val))) continue;
       hasPickup = true;
       break;
     }
@@ -395,11 +465,14 @@ export async function createRule(
     });
     if (condErr) throw new Error(condErr.message);
   } else {
-    // Build from legacy conditions map.
+    // Build from legacy conditions map. Uses the gt/lt-only parser — see
+    // parseLegacyConditionForDb — so an operator the CHECK constraint
+    // would reject (>=, <=, =, !=) is dropped here rather than reaching
+    // the insert and throwing after pricing_rules already has a live row.
     const cond: Record<string, unknown> = { rule_id: ruleId };
     let hasAnyCond = false;
     for (const [key, val] of Object.entries(input.conditions)) {
-      const parsed = parseConditionString(String(val));
+      const parsed = parseLegacyConditionForDb(String(val));
       if (!parsed) continue;
       if (key === "occupancy_percentage") {
         cond.occupancy_operator = parsed.op;
@@ -521,6 +594,18 @@ export async function updateRule(
   input: UpdateRuleInput,
   supabase: SupabaseClient,
 ): Promise<boolean> {
+  // Validate the new condition BEFORE any mutation. This used to run after
+  // the pricing_rules row was already updated, the version bumped, and any
+  // active pickup events retired — a rejected edit still left all of that
+  // applied to the rule while reporting "failed" to the caller, which is
+  // worse than doing nothing: it silently changes the rule's action/scope
+  // and destroys its pickup history for an edit that never actually landed.
+  let cleanCondition: RuleCondition | null = null;
+  if (input.condition) {
+    cleanCondition = ruleConditionForInsert(input.condition);
+    if (isRuleConditionEmpty(cleanCondition)) return false;
+  }
+
   const isBehavioralEdit = !!(
     input.action ||
     input.condition ||
@@ -550,7 +635,11 @@ export async function updateRule(
   }
 
   if (input.condition) {
-    updates.is_pickup_rule = !!input.condition.pickup_operator;
+    // Event-class covers BOTH trigger families — dropping booking_speed
+    // here silently demoted an edited booking-speed rule to the ladder
+    // path, which ignores its cooldown entirely.
+    updates.is_pickup_rule =
+      !!input.condition.pickup_operator || !!input.condition.booking_speed_operator;
   }
 
   if (isBehavioralEdit) {
@@ -576,12 +665,27 @@ export async function updateRule(
 
   if (error) return false;
 
-  // Update condition row.
-  if (input.condition) {
-    const clean = ruleConditionForInsert(input.condition);
-    if (isRuleConditionEmpty(clean)) return false;
-    await supabase.from("rule_condition").delete().eq("rule_id", id);
-    await supabase.from("rule_condition").insert({ rule_id: id, ...clean });
+  // Update condition row. The old row is fetched first so a failed insert
+  // can be repaired rather than leaving the rule with zero conditions —
+  // which the engine reads as "always matches every stay date," not as
+  // "this edit didn't happen."
+  if (cleanCondition) {
+    const { data: previous } = await supabase
+      .from("rule_condition")
+      .select("*")
+      .eq("rule_id", id)
+      .maybeSingle();
+
+    const { error: delErr } = await supabase.from("rule_condition").delete().eq("rule_id", id);
+    if (delErr) return false;
+
+    const { error: insErr } = await supabase
+      .from("rule_condition")
+      .insert({ rule_id: id, ...cleanCondition });
+    if (insErr) {
+      if (previous) await supabase.from("rule_condition").insert(previous);
+      return false;
+    }
   }
 
   // Update room-type mappings.
@@ -642,6 +746,26 @@ export async function deleteRule(id: string, supabase?: SupabaseClient): Promise
     return true;
   }
 
+  // Deleting a rule reverts its effects — the price goes back to what it
+  // would be without this rule ever having fired. Switching a rule OFF is
+  // the opposite and deliberately leaves its effects in place; the two are
+  // offered side by side in the UI so the choice is explicit.
+  //
+  // Both effect ledgers must be cleared, and pickup_event must go first
+  // regardless: it references the rule with no cascade, so leaving its rows
+  // behind hits a foreign-key wall and silently breaks deletion for any rule
+  // that had ever fired.
+  const { error: eventErr } = await supabase.from("pickup_event").delete().eq("rule_id", id);
+  if (eventErr) return false;
+  // ladder_rule_state has no cascade to pricing_rules either, and its rows
+  // keep being applied by loadActiveLadderEffects for as long as they are
+  // active — a deleted rule would otherwise go on adjusting prices with
+  // nothing left to explain it in the change log.
+  const { error: ladderErr } = await supabase
+    .from("ladder_rule_state")
+    .delete()
+    .eq("rule_id", id);
+  if (ladderErr) return false;
   const { error } = await supabase.from("pricing_rules").delete().eq("id", id);
   return !error;
 }

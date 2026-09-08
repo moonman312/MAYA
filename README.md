@@ -18,24 +18,24 @@ Database scripts for Supabase live in this folder (`MAYA/`) with numeric run-ord
   - Original Python ETL/rules/metrics/scheduler/dashboard
 - `00_supabase_reset_dev.sql` (optional)
   - Truncate or drop MAYA `public` tables for a dev reset; see file header
-- `01_supabase_base_schema.sql`
-  - Core schema objects (tables/enums/indexes)
+- `01_supabase_base_schema.sql` (outdated — do not run)
+  - Old base schema, fully commented out; kept for reference only
 - `02_supabase_schema.sql`
-  - Full schema + RLS policies, triggers, helper functions
+  - Full schema + RLS policies, triggers, helper functions (source of truth for DDL)
 - `03_supabase_seed.sql`
   - Hotel + `hotel_memberships` bootstrap data (no organizations)
 - `04_supabase_demo_data.sql`
   - Synthetic reservations + occupancy metrics
 - `99_supabase_migration_rules_engine_v1.sql` (legacy upgrades only)
-  - Incremental migration for DBs created before rules-engine v1; skip on fresh 01+02 loads
+  - Incremental migration for DBs created before rules-engine v1; skip on fresh 02 loads
 - `99_supabase_migration_pms_secrets_v1.sql` (legacy upgrades only)
-  - Moves PMS credentials from `pms_connections.credentials_encrypted` into Supabase Vault, accessed through SECURITY DEFINER RPCs (`pms_secret_get` / `pms_secret_set` / `pms_secret_delete`); skip on fresh 01+02 loads
+  - Moves PMS credentials from `pms_connections.credentials_encrypted` into Supabase Vault, accessed through SECURITY DEFINER RPCs (`pms_secret_get` / `pms_secret_set` / `pms_secret_delete`); skip on fresh 02 loads
 - `99_supabase_migration_command_center_v1.sql` (legacy upgrades only)
-  - Adds the Command Center DB foundation: `app_roles` + `is_platform_admin()` helper (platform admins bypass hotel-scoped RLS), `pending_memberships` + auto-accept trigger on `auth.users`, and `platform_audit_events`; skip on fresh 01+02 loads
+  - Adds the Command Center DB foundation: `app_roles` + `is_platform_admin()` helper (platform admins bypass hotel-scoped RLS), `pending_memberships` + auto-accept trigger on `auth.users`, and `platform_audit_events`; skip on fresh 02 loads
 - `99_supabase_migration_command_center_v2.sql` (legacy upgrades only)
-  - Adds the `platform_*` RPCs and `platform_users_view` used by the `/admin` UI; skip on fresh 01+02 loads
+  - Adds the `platform_*` RPCs and `platform_users_view` used by the `/admin` UI; skip on fresh 02 loads
 - `99_supabase_migration_pms_types_v1.sql` (legacy upgrades only)
-  - Adds `'think'` to the `pms_type` enum so Think Reservations connections can be created alongside Mews and Cloudbeds; skip on fresh 01+02 loads. See `docs/pms-integrations-status.md`.
+  - Adds `'think'` to the `pms_type` enum so Think Reservations connections can be created alongside Mews and Cloudbeds; skip on fresh 02 loads. See `docs/pms-integrations-status.md`.
 - `supabase_dev_full_dump.sql`
   - Placeholder for a full `public` schema dump; generate with `scripts/export-dev-full-dump.sh`
 
@@ -69,16 +69,15 @@ Run these in Supabase SQL Editor in this order:
 | Step | File | When |
 |------|------|------|
 | (optional) | `00_supabase_reset_dev.sql` | Truncate data (A) or drop + enums (B) before rebuilding |
-| 1 | `01_supabase_base_schema.sql` | Always first for DDL |
-| 2 | `02_supabase_schema.sql` | Always second (policies, triggers, engine tables) |
-| (optional) | `99_supabase_migration_rules_engine_v1.sql` | Only for **existing** old DBs; skip if 01+02 are a fresh load from this repo |
-| (optional) | `99_supabase_migration_pms_secrets_v1.sql` | Only for **existing** DBs created before PMS Secrets v1; skip on fresh 01+02 loads |
-| (optional) | `99_supabase_migration_command_center_v1.sql` | Only for **existing** DBs created before Command Center v1; skip on fresh 01+02 loads. After applying, grant yourself platform admin: `insert into app_roles (user_id, role) values ('<auth.users-uuid>', 'platform_admin');` |
+| 1 | `02_supabase_schema.sql` | All DDL (tables, policies, triggers, engine tables). Do **not** run `01_supabase_base_schema.sql` — it is outdated and fully commented out |
+| (optional) | `99_supabase_migration_rules_engine_v1.sql` | Only for **existing** old DBs; skip if 02 is a fresh load from this repo |
+| (optional) | `99_supabase_migration_pms_secrets_v1.sql` | Only for **existing** DBs created before PMS Secrets v1; skip on fresh 02 loads |
+| (optional) | `99_supabase_migration_command_center_v1.sql` | Only for **existing** DBs created before Command Center v1; skip on fresh 02 loads. After applying, grant yourself platform admin: `insert into app_roles (user_id, role) values ('<auth.users-uuid>', 'platform_admin');` |
 | (optional) | `99_supabase_migration_command_center_v2.sql` | Only for **existing** DBs; adds the `platform_*` RPCs and `platform_users_view` consumed by the `/admin` Command Center UI. See `docs/command-center-deployment.md` for env vars and Supabase Auth setup. |
 | (optional) | `99_supabase_migration_pms_types_v1.sql` | Only for **existing** DBs; adds `'think'` to the `pms_type` enum. Run this file as a single statement in the SQL Editor — `alter type ... add value` cannot run inside a wrapping transaction. See `docs/pms-integrations-status.md`. |
 | (optional) | `99_supabase_migration_command_center_v3.sql` | **BUGFIX** for existing DBs that applied v2. Adds `auth.role() = 'service_role'` bypass to every `platform_*` RPC so the /admin routes can invoke them via the service-role client without a false "Not authorized" error. |
-| 3 | `03_supabase_seed.sql` | After auth user exists; edit emails in the script |
-| 4 | `04_supabase_demo_data.sql` | Optional synthetic calendar/metrics load |
+| 2 | `03_supabase_seed.sql` | After auth user exists; edit emails in the script |
+| 3 | `04_supabase_demo_data.sql` | Optional synthetic calendar/metrics load |
 
 Optional: replace `supabase_dev_full_dump.sql` with `./scripts/export-dev-full-dump.sh` (requires `DATABASE_URL` and `pg_dump`) to snapshot all `public` data for dev.
 

@@ -14,3 +14,11 @@ verify_jwt = false
 [functions.cloudbeds-scheduled-sync]
 # pg_cron + Vault typically cannot send a user JWT; validate x-cloudbeds-cron-secret instead.
 verify_jwt = false
+
+[functions.think-scheduled-sync]
+# pg_cron + Vault typically cannot send a user JWT; validate x-think-cron-secret instead.
+verify_jwt = false
+
+[functions.onboarding-import-worker]
+# pg_cron + Vault typically cannot send a user JWT; validate x-onboarding-cron-secret instead.
+verify_jwt = false

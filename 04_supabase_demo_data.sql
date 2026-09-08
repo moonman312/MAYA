@@ -2,9 +2,8 @@
 -- Safe to rerun (uses deterministic IDs + upserts).
 --
 -- Prereqs:
--- 1) 01_supabase_base_schema.sql
--- 2) 02_supabase_schema.sql
--- 3) 03_supabase_seed.sql (creates hotels, memberships, room types)
+-- 1) 02_supabase_schema.sql (01_supabase_base_schema.sql is outdated -- do not run it)
+-- 2) 03_supabase_seed.sql (creates hotels, memberships, room types)
 
 -- ----------------------------------------------------------------------------
 -- Synthetic reservations

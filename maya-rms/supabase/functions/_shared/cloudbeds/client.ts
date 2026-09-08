@@ -9,8 +9,8 @@
  */
 
 import type { CloudbedsResolvedCredentials } from "./types.ts";
+import { acquire, record } from "../pms/rate-limit.ts";
 import {
-  CLOUDBEDS_MIN_REQUEST_INTERVAL_MS,
   CLOUDBEDS_PAGE_SIZE,
 } from "./constants.ts";
 
@@ -26,6 +26,44 @@ export class CloudbedsHttpError extends Error {
     super(message);
     this.name = "CloudbedsHttpError";
   }
+}
+
+/* ── Request logging (pluggable, fire-and-forget) ─────────────────────────── */
+
+export type CloudbedsRequestLogEntry = {
+  method: "GET" | "POST";
+  endpoint: string;
+  statusCode: number | null;
+  ok: boolean;
+  durationMs: number;
+  message?: string;
+};
+
+let requestLogger: ((e: CloudbedsRequestLogEntry) => void) | null = null;
+
+/**
+ * Install a logger invoked once per cloudbedsGet/cloudbedsPost call with its
+ * final outcome (429 retries are internal; only the attempt that resolves or
+ * fails the call is reported). Never awaited and never allowed to throw, so
+ * the callback must handle its own async errors (e.g. a void'ed insert).
+ */
+export function setCloudbedsRequestLogger(
+  fn: ((e: CloudbedsRequestLogEntry) => void) | null,
+): void {
+  requestLogger = fn;
+}
+
+function emitRequestLog(entry: CloudbedsRequestLogEntry): void {
+  if (!requestLogger) return;
+  try {
+    requestLogger(entry);
+  } catch {
+    // Logging must never break the request path.
+  }
+}
+
+function errorText(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).slice(0, 200);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -44,13 +82,19 @@ function parseRetryAfterMs(res: Response): number | null {
 
 const MAX_ATTEMPTS = 6;
 
-/** Simple monotonic pacer so we stay under Cloudbeds' per-second limit. */
-let lastRequestAt = 0;
-async function pace(): Promise<void> {
-  const now = Date.now();
-  const wait = lastRequestAt + CLOUDBEDS_MIN_REQUEST_INTERVAL_MS - now;
-  if (wait > 0) await sleep(wait);
-  lastRequestAt = Date.now();
+/**
+ * Which lane a request paces in.
+ *
+ * The property id, because that is what Cloudbeds meters: their limit is 5
+ * requests a second for a property or group account, and MAYA holds one OAuth
+ * credential per property. The old pacer was a single module-level timestamp
+ * shared by every hotel in the isolate, which made the fleet slower as it grew
+ * — twenty hotels queued behind one 220ms gap — while doing nothing extra to
+ * protect any individual property's budget, which is the one Cloudbeds actually
+ * suspends.
+ */
+function laneKeyFor(creds: CloudbedsResolvedCredentials): string {
+  return creds.propertyId || creds.baseUrl;
 }
 
 /** GET a Cloudbeds classic endpoint with Bearer auth, pacing, and 429 backoff. */
@@ -65,11 +109,14 @@ export async function cloudbedsGet(
     if (v !== undefined && v !== "") url.searchParams.set(k, String(v));
   }
 
+  const lane = laneKeyFor(creds);
   let backoffMs = 1000;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    await pace();
+    await acquire("cloudbeds", lane);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const startedAt = Date.now();
+    let statusCode: number | null = null;
     try {
       const res = await fetch(url.toString(), {
         method: "GET",
@@ -79,6 +126,7 @@ export async function cloudbedsGet(
         },
         signal: controller.signal,
       });
+      statusCode = res.status;
       const text = await res.text();
       let data: unknown;
       try {
@@ -91,12 +139,16 @@ export async function cloudbedsGet(
         );
       }
 
+      if (res.status === 429) record("cloudbeds", lane, "throttled");
       if (res.status === 429 && attempt < MAX_ATTEMPTS - 1) {
-        const retry = parseRetryAfterMs(res) ?? Math.min(backoffMs, 60_000);
+        // Retry-After is honoured but capped: a broken or hostile header must
+        // not park the whole invocation for as long as it likes.
+        const retry = Math.min(parseRetryAfterMs(res) ?? backoffMs, 60_000);
         backoffMs = Math.min(backoffMs * 2, 60_000);
         await sleep(retry);
         continue;
       }
+      if (res.ok) record("cloudbeds", lane, "ok");
 
       const rec = (data ?? {}) as JsonRecord;
 
@@ -111,7 +163,24 @@ export async function cloudbedsGet(
         );
       }
 
+      emitRequestLog({
+        method: "GET",
+        endpoint: method,
+        statusCode,
+        ok: true,
+        durationMs: Date.now() - startedAt,
+      });
       return rec;
+    } catch (error) {
+      emitRequestLog({
+        method: "GET",
+        endpoint: method,
+        statusCode,
+        ok: false,
+        durationMs: Date.now() - startedAt,
+        message: errorText(error),
+      });
+      throw error;
     } finally {
       clearTimeout(timer);
     }
@@ -150,6 +219,43 @@ export async function cloudbedsDiscoverPropertyId(
   return null;
 }
 
+export type CloudbedsPropertyDetails = {
+  externalPropertyId: string;
+  name: string | null;
+  timezone: string | null;
+  currency: string | null;
+};
+
+/**
+ * getHotelDetails → property name / timezone / currency, used by onboarding to
+ * create the hotel record so the user doesn't have to type anything.
+ * ⚠ VERIFY field names against the live response: propertyName,
+ * propertyTimezone, propertyCurrency (currency may nest as {currencyCode}).
+ */
+export async function cloudbedsGetHotelDetails(
+  creds: CloudbedsResolvedCredentials,
+): Promise<CloudbedsPropertyDetails> {
+  const res = await cloudbedsGet(creds, "getHotelDetails", {
+    propertyID: creds.propertyId,
+  });
+  const data = (res.data && typeof res.data === "object" ? res.data : res) as JsonRecord;
+
+  const name = data.propertyName ?? data.hotelName ?? data.name;
+  const timezone = data.propertyTimezone ?? data.timezone ?? data.timeZone;
+  const currencyRaw = data.propertyCurrency ?? data.currency ?? data.currencyCode;
+  const currency =
+    currencyRaw && typeof currencyRaw === "object"
+      ? (currencyRaw as JsonRecord).currencyCode ?? (currencyRaw as JsonRecord).code
+      : currencyRaw;
+
+  return {
+    externalPropertyId: creds.propertyId,
+    name: typeof name === "string" && name ? name : null,
+    timezone: typeof timezone === "string" && timezone ? timezone : null,
+    currency: typeof currency === "string" && currency ? currency.toUpperCase() : null,
+  };
+}
+
 export type CloudbedsRoomType = JsonRecord;
 
 /** getRoomTypes → data[] of room types for the property. */
@@ -168,11 +274,61 @@ export type CloudbedsReservation = JsonRecord;
  * ⚠ VERIFY param names: propertyID, status, checkInFrom, checkInTo,
  * pageNumber, pageSize; and the total/count fields used to stop paging.
  */
+/**
+ * Fetch ONE page of getReservations for one status. The building block for
+ * both the full-range loop below and the onboarding worker's checkpointed
+ * historical pull (which persists its cursor between pages).
+ */
+export async function cloudbedsGetReservationsPage(
+  creds: CloudbedsResolvedCredentials,
+  checkInFrom: string,
+  checkInTo: string,
+  status: string,
+  pageNumber: number,
+  modifiedFrom?: string,
+): Promise<{ reservations: CloudbedsReservation[]; hasMore: boolean }> {
+  const res = await cloudbedsGet(creds, "getReservations", {
+    propertyID: creds.propertyId,
+    status,
+    checkInFrom,
+    checkInTo,
+    // cloudbedsGet drops undefined and "", so omitting it is a full sweep.
+    modifiedFrom,
+    pageNumber,
+    pageSize: CLOUDBEDS_PAGE_SIZE,
+  });
+  const data = res.data;
+  const chunk = Array.isArray(data) ? (data as CloudbedsReservation[]) : [];
+
+  // Short page = done. If the API returns `total`, prefer that.
+  const total = typeof res.total === "number" ? res.total : null;
+  let hasMore = chunk.length >= CLOUDBEDS_PAGE_SIZE;
+  if (total != null && pageNumber * CLOUDBEDS_PAGE_SIZE >= total) hasMore = false;
+
+  return { reservations: chunk, hasMore };
+}
+
+/**
+ * `modifiedFrom` is real but undocumented, and the way Cloudbeds handles unknown
+ * parameters makes that easy to get wrong: they are silently ignored and the
+ * full set comes back, so `modifiedSince`, `updatedFrom` and `lastModified` all
+ * LOOK like they work. Verified against the live API — a future `modifiedFrom`
+ * returns zero rows where those return everything.
+ *
+ * Format is `YYYY-MM-DD` or `YYYY-MM-DD HH:MM:SS`. ISO-8601 with T and Z is
+ * rejected outright, so this formats rather than calling toISOString().
+ */
+export function cloudbedsTimestamp(d: Date): string {
+  return d.toISOString().slice(0, 19).replace("T", " ");
+}
+
 export async function cloudbedsGetReservationsRange(
   creds: CloudbedsResolvedCredentials,
   checkInFrom: string,
   checkInTo: string,
   statuses: readonly string[],
+  /** Only reservations touched since this. Omit for a full sweep. */
+  modifiedFrom?: string,
 ): Promise<{ reservations: CloudbedsReservation[]; pages: number }> {
   const all: CloudbedsReservation[] = [];
   let pages = 0;
@@ -183,23 +339,17 @@ export async function cloudbedsGetReservationsRange(
     let guard = 0;
     while (guard < 1000) {
       guard += 1;
-      const res = await cloudbedsGet(creds, "getReservations", {
-        propertyID: creds.propertyId,
-        status,
+      const { reservations, hasMore } = await cloudbedsGetReservationsPage(
+        creds,
         checkInFrom,
         checkInTo,
+        status,
         pageNumber,
-        pageSize: CLOUDBEDS_PAGE_SIZE,
-      });
+        modifiedFrom,
+      );
       pages += 1;
-      const data = res.data;
-      const chunk = Array.isArray(data) ? (data as CloudbedsReservation[]) : [];
-      all.push(...chunk);
-
-      // Stop when the page is short. If the API returns `total`, prefer that.
-      const total = typeof res.total === "number" ? res.total : null;
-      if (chunk.length < CLOUDBEDS_PAGE_SIZE) break;
-      if (total != null && pageNumber * CLOUDBEDS_PAGE_SIZE >= total) break;
+      all.push(...reservations);
+      if (!hasMore) break;
       pageNumber += 1;
     }
   }
@@ -234,11 +384,14 @@ export async function cloudbedsPost(
   timeoutMs = 45_000,
 ): Promise<JsonRecord> {
   const url = `${creds.baseUrl.replace(/\/$/, "")}/${method.replace(/^\//, "")}`;
+  const lane = laneKeyFor(creds);
   let backoffMs = 1000;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    await pace();
+    await acquire("cloudbeds", lane);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const startedAt = Date.now();
+    let statusCode: number | null = null;
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -250,6 +403,7 @@ export async function cloudbedsPost(
         body: JSON.stringify(body),
         signal: controller.signal,
       });
+      statusCode = res.status;
       const text = await res.text();
       let data: unknown;
       try {
@@ -261,12 +415,16 @@ export async function cloudbedsPost(
           method,
         );
       }
+      if (res.status === 429) record("cloudbeds", lane, "throttled");
       if (res.status === 429 && attempt < MAX_ATTEMPTS - 1) {
-        const retry = parseRetryAfterMs(res) ?? Math.min(backoffMs, 60_000);
+        // Retry-After is honoured but capped: a broken or hostile header must
+        // not park the whole invocation for as long as it likes.
+        const retry = Math.min(parseRetryAfterMs(res) ?? backoffMs, 60_000);
         backoffMs = Math.min(backoffMs * 2, 60_000);
         await sleep(retry);
         continue;
       }
+      if (res.ok) record("cloudbeds", lane, "ok");
       const rec = (data ?? {}) as JsonRecord;
       if (!res.ok || rec.success === false) {
         const msg = typeof rec.message === "string" ? rec.message : text.slice(0, 300);
@@ -277,7 +435,24 @@ export async function cloudbedsPost(
           res.status === 429 ? parseRetryAfterMs(res) : null,
         );
       }
+      emitRequestLog({
+        method: "POST",
+        endpoint: method,
+        statusCode,
+        ok: true,
+        durationMs: Date.now() - startedAt,
+      });
       return rec;
+    } catch (error) {
+      emitRequestLog({
+        method: "POST",
+        endpoint: method,
+        statusCode,
+        ok: false,
+        durationMs: Date.now() - startedAt,
+        message: errorText(error),
+      });
+      throw error;
     } finally {
       clearTimeout(timer);
     }

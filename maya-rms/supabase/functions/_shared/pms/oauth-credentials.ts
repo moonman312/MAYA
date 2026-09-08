@@ -22,6 +22,12 @@
  * return `refresh_token` on refresh (we keep the old one), and Cloudbeds'
  * token host has changed once already (see registry note). Endpoints are env-
  * overridable so you never need a code change to fix a moved URL.
+ *
+ * Refreshing is a side effect on the vendor's side — answering our POST burns
+ * the refresh token we sent. Everything below exists because of that:
+ * refreshes for one connection are serialized, the write-back is retried and
+ * kept in memory if it never lands, and a token rotated by someone else is
+ * adopted rather than treated as our failure.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -29,6 +35,13 @@ import { mwsEnv } from "../mews/env.ts";
 
 /** Refresh if the token expires within this many ms (default 2 min). */
 const REFRESH_SKEW_MS = 2 * 60 * 1000;
+
+/** Write-back attempts for the rotated secret, and the pause between them. */
+const PERSIST_ATTEMPTS = 3;
+const PERSIST_RETRY_MS = 150;
+
+/** Ceiling on the token POST — it holds the connection lock while in flight. */
+const REFRESH_TIMEOUT_MS = 20_000;
 
 export type OAuthPmsType = "cloudbeds" | "think";
 
@@ -105,24 +118,202 @@ function pick<T>(...vals: (T | null | undefined)[]): T | null {
   return null;
 }
 
+// ── Per-connection serialization ────────────────────────────────────────────
+
+function connKey(hotelId: string, pmsType: OAuthPmsType): string {
+  return `${hotelId}|${pmsType}`;
+}
+
+const locks = new Map<string, Promise<unknown>>();
+
 /**
- * Resolve a usable access token for an OAuth PMS, refreshing if near expiry and
- * persisting the rotated secret back to Vault.
+ * Run `fn` after any other refresh or secret write for the same connection has
+ * finished. Overlapping callers are routine — the 5-min fleet cron and the
+ * onboarding worker (which resolves credentials per page) hit the same hotel —
+ * and two refreshes in flight at once both POST the same refresh token, so the
+ * loser gets invalid_grant and a rotating provider may kill the token family.
+ * Queueing means the second caller re-reads and finds the fresh token instead.
+ *
+ * Only covers this isolate; cross-process overlap is handled by adopting a
+ * token someone else rotated (see adoptTokenRotatedElsewhere).
  */
-export async function resolveOAuthCredentials(
+function withConnectionLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = locks.get(key) ?? Promise.resolve();
+  const run = prev.then(fn);
+  const link: Promise<void> = run.then(
+    () => {},
+    () => {},
+  ).then(() => {
+    if (locks.get(key) === link) locks.delete(key);
+  });
+  locks.set(key, link);
+  return run;
+}
+
+// ── Unpersisted rotations ───────────────────────────────────────────────────
+
+type PendingRotation = {
+  secret: Record<string, unknown>;
+  /** The refresh token the vendor consumed to issue `secret`. */
+  consumedRefreshToken: string;
+  /** The access token stored alongside it, i.e. the one `secret` supersedes. */
+  previousAccessToken: string;
+};
+
+/**
+ * Rotations the vendor performed but that we could not write back. Vault is
+ * left holding a refresh token the vendor has already burned, so throwing these
+ * away is what used to wedge a connection until a human redid OAuth. Kept here
+ * so the next call for the same connection can flush them.
+ */
+const pendingRotations = new Map<string, PendingRotation>();
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((r) => setTimeout(r, ms));
+}
+
+async function readSecret(
   supabase: SupabaseClient,
   hotelId: string,
   pmsType: OAuthPmsType,
-): Promise<ResolvedOAuthCredentials | { error: string }> {
+): Promise<{ secret: StoredSecret } | { error: string }> {
   const { data: secretRaw, error: getErr } = await supabase.rpc("pms_secret_get", {
     p_hotel_id: hotelId,
     p_pms_type: pmsType,
   });
   if (getErr) return { error: `pms_secret_get: ${getErr.message}` };
-
   const secret = normalize(secretRaw);
   if (!secret) {
     return { error: `No ${pmsType} credentials in Vault for hotel ${hotelId}. Connect via OAuth first.` };
+  }
+  return { secret };
+}
+
+/** Write the secret, retrying — a statement timeout here costs us a live token. */
+async function persistSecret(
+  supabase: SupabaseClient,
+  hotelId: string,
+  pmsType: OAuthPmsType,
+  secret: Record<string, unknown>,
+): Promise<string | null> {
+  let lastErr = "unknown error";
+  for (let attempt = 0; attempt < PERSIST_ATTEMPTS; attempt++) {
+    if (attempt > 0) await sleep(PERSIST_RETRY_MS * attempt);
+    const { error } = await supabase.rpc("pms_secret_set", {
+      p_hotel_id: hotelId,
+      p_pms_type: pmsType,
+      p_secret: secret,
+    });
+    if (!error) return null;
+    lastErr = error.message;
+  }
+  return lastErr;
+}
+
+/**
+ * Pick the secret we should actually be using. A pending rotation only wins
+ * while Vault still holds the exact pair we refreshed from — anything else there
+ * means a manual reconnect or another process has written since, and clobbering
+ * that would be worse than the wedge we're recovering. Both tokens have to
+ * match: a provider that doesn't rotate refresh tokens leaves that one identical
+ * across someone else's refresh, so it alone can't spot a foreign write.
+ */
+function effectiveSecret(key: string, stored: StoredSecret): { secret: StoredSecret; pending: boolean } {
+  const rotation = pendingRotations.get(key);
+  if (!rotation) return { secret: stored, pending: false };
+  const storedRefresh = pick(stored.refreshToken, stored.refresh_token);
+  const storedAccess = pick(stored.accessToken, stored.access_token);
+  if (
+    storedRefresh === rotation.consumedRefreshToken &&
+    storedAccess === rotation.previousAccessToken
+  ) {
+    return { secret: rotation.secret as StoredSecret, pending: true };
+  }
+  pendingRotations.delete(key);
+  return { secret: stored, pending: false };
+}
+
+/**
+ * Surface a dead or at-risk credential on the connection row. Self-clearing: a
+ * successful sync stamps 'connected' again (cloudbeds/sync-hotel.ts).
+ *
+ * Only 'error' is durable enough for an operator to see in /api/pms/activity —
+ * we return an error with it, so the caller bails before that stamp. 'degraded'
+ * rides along with a *successful* resolve, so the same sync normally overwrites
+ * it seconds later; the console.error at its call site is the real record.
+ */
+async function flagConnection(
+  supabase: SupabaseClient,
+  hotelId: string,
+  pmsType: OAuthPmsType,
+  status: "degraded" | "error",
+): Promise<void> {
+  try {
+    await supabase
+      .from("pms_connections")
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq("hotel_id", hotelId)
+      .eq("pms_type", pmsType);
+  } catch {
+    // Advisory only — never fail a working sync over it.
+  }
+}
+
+/**
+ * Our POST failed, possibly because a refresh in another process consumed the
+ * same token first. If Vault now holds a different, still-valid access token,
+ * that one is the winner's and there is nothing to recover from.
+ */
+async function adoptTokenRotatedElsewhere(
+  supabase: SupabaseClient,
+  hotelId: string,
+  pmsType: OAuthPmsType,
+  previousAccessToken: string,
+): Promise<ResolvedOAuthCredentials | null> {
+  const read = await readSecret(supabase, hotelId, pmsType);
+  if ("error" in read) return null;
+  const s = read.secret;
+  const accessToken = pick(s.accessToken, s.access_token);
+  if (!accessToken || accessToken === previousAccessToken) return null;
+  const expiresAt = pick(s.expiresAt, s.expires_at);
+  if (expiresAt != null && new Date(expiresAt).getTime() < Date.now() + REFRESH_SKEW_MS) return null;
+  return {
+    accessToken,
+    tokenType: pick(s.tokenType, s.token_type) ?? "Bearer",
+    scope: pick(s.scope),
+    expiresAt,
+    propertyId: pick(s.propertyId, s.property_id),
+    refreshed: false,
+  };
+}
+
+/**
+ * Resolve a usable access token for an OAuth PMS, refreshing if near expiry and
+ * persisting the rotated secret back to Vault.
+ */
+export function resolveOAuthCredentials(
+  supabase: SupabaseClient,
+  hotelId: string,
+  pmsType: OAuthPmsType,
+): Promise<ResolvedOAuthCredentials | { error: string }> {
+  return withConnectionLock(connKey(hotelId, pmsType), () =>
+    resolveLocked(supabase, hotelId, pmsType),
+  );
+}
+
+async function resolveLocked(
+  supabase: SupabaseClient,
+  hotelId: string,
+  pmsType: OAuthPmsType,
+): Promise<ResolvedOAuthCredentials | { error: string }> {
+  const key = connKey(hotelId, pmsType);
+  const read = await readSecret(supabase, hotelId, pmsType);
+  if ("error" in read) return { error: read.error };
+
+  const { secret, pending } = effectiveSecret(key, read.secret);
+  if (pending) {
+    const flushErr = await persistSecret(supabase, hotelId, pmsType, secret as Record<string, unknown>);
+    if (!flushErr) pendingRotations.delete(key);
   }
 
   let accessToken = pick(secret.accessToken, secret.access_token);
@@ -167,6 +358,7 @@ export async function resolveOAuthCredentials(
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: body.toString(),
+        signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
       });
     } catch (e) {
       return { error: `${pmsType} token refresh unreachable: ${e instanceof Error ? e.message : String(e)}` };
@@ -180,7 +372,16 @@ export async function resolveOAuthCredentials(
       return { error: `${pmsType} token refresh returned non-JSON (${res.status}): ${text.slice(0, 200)}` };
     }
     if (!res.ok) {
-      return { error: `${pmsType} token refresh failed (${res.status}): ${JSON.stringify(json).slice(0, 300)}` };
+      const detail = JSON.stringify(json).slice(0, 300);
+      const adopted = await adoptTokenRotatedElsewhere(supabase, hotelId, pmsType, accessToken);
+      if (adopted) return adopted;
+      if (/invalid_grant/i.test(detail)) {
+        await flagConnection(supabase, hotelId, pmsType, "error");
+        return {
+          error: `${pmsType} refresh token was rejected (invalid_grant) — reconnect via OAuth. (${res.status}) ${detail}`,
+        };
+      }
+      return { error: `${pmsType} token refresh failed (${res.status}): ${detail}` };
     }
 
     const newAccess = typeof json.access_token === "string" ? json.access_token : null;
@@ -201,12 +402,24 @@ export async function resolveOAuthCredentials(
       ...(propertyId ? { propertyId } : {}),
     };
 
-    const { error: setErr } = await supabase.rpc("pms_secret_set", {
-      p_hotel_id: hotelId,
-      p_pms_type: pmsType,
-      p_secret: updatedSecret,
-    });
-    if (setErr) return { error: `pms_secret_set (after refresh): ${setErr.message}` };
+    const setErr = await persistSecret(supabase, hotelId, pmsType, updatedSecret);
+    if (setErr) {
+      // Old refresh token is already spent, so returning an error here would
+      // both fail this tick and leave Vault holding a dead token forever. Serve
+      // the live access token, keep the pair for the next call to flush, and
+      // make the connection say it is running on something unsaved.
+      pendingRotations.set(key, {
+        secret: updatedSecret,
+        consumedRefreshToken: refreshToken,
+        previousAccessToken: accessToken,
+      });
+      console.error(
+        `${pmsType} refresh for hotel ${hotelId} could not be persisted (${setErr}); holding rotated tokens in memory`,
+      );
+      await flagConnection(supabase, hotelId, pmsType, "degraded");
+    } else {
+      pendingRotations.delete(key);
+    }
 
     accessToken = newAccess;
     expiresAt = newExpiresAt;
@@ -227,22 +440,28 @@ export async function resolveOAuthCredentials(
 /**
  * Persist a discovered Cloudbeds propertyId into the Vault secret so subsequent
  * syncs skip the discovery call. Best-effort; failures are non-fatal.
+ *
+ * Writes the whole secret blob, so it takes the same lock as a refresh — left
+ * unserialized it would happily write the tokens it read back over ones a
+ * refresh rotated in between, wedging the connection with no error anywhere.
  */
-export async function persistPropertyId(
+export function persistPropertyId(
   supabase: SupabaseClient,
   hotelId: string,
   pmsType: OAuthPmsType,
   propertyId: string,
 ): Promise<void> {
-  const { data: secretRaw } = await supabase.rpc("pms_secret_get", {
-    p_hotel_id: hotelId,
-    p_pms_type: pmsType,
-  });
-  const secret = normalize(secretRaw);
-  if (!secret) return;
-  await supabase.rpc("pms_secret_set", {
-    p_hotel_id: hotelId,
-    p_pms_type: pmsType,
-    p_secret: { ...secret, propertyId },
+  const key = connKey(hotelId, pmsType);
+  return withConnectionLock(key, async () => {
+    const read = await readSecret(supabase, hotelId, pmsType);
+    if ("error" in read) return;
+    const { secret, pending } = effectiveSecret(key, read.secret);
+    if (pick(secret.propertyId, secret.property_id) === propertyId) return;
+    const { error } = await supabase.rpc("pms_secret_set", {
+      p_hotel_id: hotelId,
+      p_pms_type: pmsType,
+      p_secret: { ...secret, propertyId },
+    });
+    if (!error && pending) pendingRotations.delete(key);
   });
 }

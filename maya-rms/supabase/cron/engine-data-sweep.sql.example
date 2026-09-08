@@ -1,0 +1,29 @@
+-- Example: schedule the engine data sweep.
+--
+-- Pure SQL, no secrets — the function lives in the database
+-- (99_supabase_migration_engine_data_sweep_v1.sql) and cron calls it directly.
+--
+-- This is the backstop for hotels the engine no longer visits: evaluateHotel
+-- prunes snapshots/audit/run-log for entitled hotels every tick, but a churned
+-- property is skipped by the sync and its rows would otherwise sit forever.
+-- Nightly, off-peak, after the pms_request_log sweep.
+--
+-- 0) Ensure the extension exists:
+--    create extension if not exists pg_cron;
+--
+-- 1) Schedule (08:50 UTC daily):
+--    select cron.schedule(
+--      'engine-data-sweep',
+--      '50 8 * * *',
+--      $$ select public.engine_data_sweep(); $$
+--    );
+--
+-- Inspect:    select jobid, jobname, schedule, active from cron.job;
+-- Runs log:   select * from cron.job_run_details order by start_time desc limit 20;
+-- Unschedule: select cron.unschedule('engine-data-sweep');
+--
+-- How much is waiting to be swept:
+--   select
+--     (select count(*) from stay_date_snapshot where snapshot_ts < now() - interval '60 days') as snapshots,
+--     (select count(*) from evaluation_audit  where evaluated_at < now() - interval '90 days') as audit_rows,
+--     (select count(*) from evaluation_run_log where evaluated_at < now() - interval '90 days') as run_log_rows;

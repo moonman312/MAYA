@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { basePriceKey, selectPickupWinner } from "./pickup";
+import { basePriceKey, insertPickupEvent, pickupTieBreakTrace, runPickupPass, selectPickupWinner } from "./pickup";
 import type { EngineRule } from "@/types/domain";
 import type { PickupCandidate, RuleMetrics } from "./types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 function makeRule(overrides: Partial<EngineRule> = {}): EngineRule {
   return {
@@ -195,5 +196,180 @@ describe("pickup competition (§7.3, §15.5)", () => {
 
   it("empty candidates returns null", () => {
     expect(selectPickupWinner([], new Map())).toBeNull();
+  });
+
+  describe("cross-operator threshold comparisons never decide the winner (regression)", () => {
+    // P(gt, 10) vs Q(lt, 2): naive branching on the first candidate's
+    // operator gave compare(P,Q) = 2-10 = -8 AND compare(Q,P) = 2-10 = -8 —
+    // both claimed to go first, so the winner (and the sign of the price
+    // move) depended on unspecified DB row order alone.
+    function slowFastPair() {
+      const fast = makeRule({
+        id: "fast-gt",
+        action_direction: "increase",
+        action_value: 8,
+        condition: { ...makeRule().condition, pickup_operator: "gt", pickup_threshold: 10 },
+      });
+      const slow = makeRule({
+        id: "slow-lt",
+        action_direction: "decrease",
+        action_value: 5,
+        condition: { ...makeRule().condition, pickup_operator: "lt", pickup_threshold: 2 },
+      });
+      return { fast, slow };
+    }
+
+    it("picks the same winner regardless of candidate array order", () => {
+      const { fast, slow } = slowFastPair();
+      const sd = "2026-07-15";
+      const basePrices = new Map([[basePriceKey(sd, "rt1"), 100]]);
+      const winnerForward = selectPickupWinner(
+        [makeCandidate(fast, "rt1", sd), makeCandidate(slow, "rt1", sd)],
+        basePrices,
+      );
+      const winnerReversed = selectPickupWinner(
+        [makeCandidate(slow, "rt1", sd), makeCandidate(fast, "rt1", sd)],
+        basePrices,
+      );
+      expect(winnerForward!.rule.id).toBe(winnerReversed!.rule.id);
+    });
+
+    it("falls through to the next tie-break level (adjustment size) rather than a coin flip", () => {
+      // 8% beats 5%, unambiguously, once thresholds stop being compared
+      // across incompatible operators.
+      const { fast, slow } = slowFastPair();
+      const sd = "2026-07-15";
+      const basePrices = new Map([[basePriceKey(sd, "rt1"), 100]]);
+      const winner = selectPickupWinner(
+        [makeCandidate(fast, "rt1", sd), makeCandidate(slow, "rt1", sd)],
+        basePrices,
+      );
+      expect(winner!.rule.id).toBe("fast-gt");
+    });
+
+    it("treats a null pickup_operator (booking-speed rules) the same way — falls through, never compares", () => {
+      const bookingSpeedRule = makeRule({
+        id: "bs-rule",
+        action_direction: "decrease",
+        action_value: 7,
+        condition: {
+          booking_speed_operator: "at_most",
+          booking_speed_level: "slower",
+          booking_speed_window_days: 7,
+        },
+      });
+      const pickupRule = makeRule({
+        id: "pu-rule",
+        action_direction: "increase",
+        action_value: 7,
+        condition: { ...makeRule().condition, pickup_operator: "gt", pickup_threshold: 5 },
+      });
+      const sd = "2026-07-15";
+      const basePrices = new Map([[basePriceKey(sd, "rt1"), 100]]);
+      const forward = selectPickupWinner(
+        [makeCandidate(bookingSpeedRule, "rt1", sd), makeCandidate(pickupRule, "rt1", sd)],
+        basePrices,
+      );
+      const reversed = selectPickupWinner(
+        [makeCandidate(pickupRule, "rt1", sd), makeCandidate(bookingSpeedRule, "rt1", sd)],
+        basePrices,
+      );
+      expect(forward!.rule.id).toBe(reversed!.rule.id);
+    });
+
+    it("the audit trace never claims a threshold win across different operators", () => {
+      const { fast, slow } = slowFastPair();
+      const sd = "2026-07-15";
+      const basePrices = new Map([[basePriceKey(sd, "rt1"), 100]]);
+      const winner = makeCandidate(fast, "rt1", sd);
+      const loser = makeCandidate(slow, "rt1", sd);
+      const trace = pickupTieBreakTrace(winner, loser, basePrices);
+      const joined = trace.join(" | ");
+      expect(joined).not.toMatch(/pickup_threshold\((gt|lt)\):/);
+      expect(joined).toContain("not comparable");
+    });
+  });
+});
+
+describe("insertPickupEvent: concurrent runs racing the same cell (regression)", () => {
+  // Two overlapping evaluation runs can both read the same stale baseline
+  // and both decide to insert an active event for the same (rule, stay
+  // date, room type) — uq_pickup_event_active_per_rule_stay_room is the DB
+  // guard against that. This pins the tri-state insertPickupEvent must
+  // return: losing that race is "already_active" (the desired state exists
+  // via the other run, not a failure), while any OTHER error is
+  // "write_failed" and must never be confused with either success case —
+  // that confusion is what previously let a genuine write failure get
+  // recorded as a mere idempotency skip.
+  function fakeSupabaseRejectingWith(code: string | null) {
+    return {
+      from: () => ({
+        insert: () =>
+          Promise.resolve(
+            code ? { error: { code, message: "duplicate key value violates unique constraint" } } : { error: null },
+          ),
+      }),
+    } as unknown as SupabaseClient;
+  }
+
+  it("treats a unique-violation (23505) as already_active — a concurrent run already won", async () => {
+    const rule = makeRule();
+    const candidate = makeCandidate(rule);
+    const result = await insertPickupEvent(fakeSupabaseRejectingWith("23505"), candidate, "hotel-1");
+    expect(result).toBe("already_active");
+  });
+
+  it("reports write_failed for any other error", async () => {
+    const rule = makeRule();
+    const candidate = makeCandidate(rule);
+    const result = await insertPickupEvent(fakeSupabaseRejectingWith("42501"), candidate, "hotel-1");
+    expect(result).toBe("write_failed");
+  });
+
+  it("reports inserted on a clean insert with no error", async () => {
+    const rule = makeRule();
+    const candidate = makeCandidate(rule);
+    const result = await insertPickupEvent(fakeSupabaseRejectingWith(null), candidate, "hotel-1");
+    expect(result).toBe("inserted");
+  });
+});
+
+describe("runPickupPass: a genuine write failure is never mislabeled as an idempotency skip (regression)", () => {
+  function fakeSupabaseAlwaysFailingWith(code: string) {
+    return {
+      from: () => ({
+        insert: () => Promise.resolve({ error: { code, message: "insert failed" } }),
+      }),
+    } as unknown as SupabaseClient;
+  }
+
+  it("puts a real insert failure in write_failures, not idempotent_skips", async () => {
+    const rule = makeRule();
+    const candidate = makeCandidate(rule);
+    const outcome = await runPickupPass(
+      fakeSupabaseAlwaysFailingWith("57014"), // statement timeout — a real failure
+      [candidate],
+      "hotel-1",
+      new Set(),
+      new Map([[basePriceKey(candidate.stay_date, candidate.affected_room_type_id), 200]]),
+    );
+    expect(outcome.write_failures).toHaveLength(1);
+    expect(outcome.write_failures[0].rule.id).toBe(rule.id);
+    expect(outcome.idempotent_skips).toHaveLength(0);
+    expect(outcome.winners).toHaveLength(0);
+  });
+
+  it("still counts a concurrent-run conflict as a winner, not a write failure", async () => {
+    const rule = makeRule();
+    const candidate = makeCandidate(rule);
+    const outcome = await runPickupPass(
+      fakeSupabaseAlwaysFailingWith("23505"), // a concurrent run already inserted this exact cell
+      [candidate],
+      "hotel-1",
+      new Set(),
+      new Map([[basePriceKey(candidate.stay_date, candidate.affected_room_type_id), 200]]),
+    );
+    expect(outcome.winners).toHaveLength(1);
+    expect(outcome.write_failures).toHaveLength(0);
   });
 });

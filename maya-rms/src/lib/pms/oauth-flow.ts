@@ -1,12 +1,27 @@
 import "server-only";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { createClient as createSSRClient } from "@/utils/supabase/server";
+import { findPendingHotelForUser } from "@/lib/billing/pending-hotel";
+import { pmsSignupCodeRequired } from "@/lib/billing/pms-gates";
+import { isStripeConfigured } from "@/lib/billing/stripe";
+import { handleOnboardingConnect } from "@/lib/onboarding/connect";
+import { resolveOnboardingStep } from "@/lib/onboarding/step";
 import { pmsCallbackUrl, requireRegistry, type PmsType } from "@/lib/pms/registry";
-import { signState, verifyState } from "@/lib/pms/oauth-state";
+import { signOnboardingState, signState, verifyState } from "@/lib/pms/oauth-state";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 type CookieStore = Awaited<ReturnType<typeof cookies>>;
+
+/**
+ * Who the OAuth dance is for:
+ * - hotel: admin connecting an existing hotel (requires manage rights).
+ * - onboarding: a new user with no hotel — any authenticated session;
+ *   the callback creates the hotel from PMS data.
+ */
+export type OAuthTarget =
+  | { kind: "hotel"; hotelId: string }
+  | { kind: "onboarding" };
 
 /**
  * Build the vendor's authorize URL for `pmsType`, signing state so the callback
@@ -16,7 +31,7 @@ type CookieStore = Awaited<ReturnType<typeof cookies>>;
 export async function buildAuthorizeRedirect(
   cookieStore: CookieStore,
   pmsType: PmsType,
-  hotelId: string,
+  target: OAuthTarget,
 ): Promise<Response> {
   const ssr = createSSRClient(cookieStore);
   const {
@@ -25,10 +40,75 @@ export async function buildAuthorizeRedirect(
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const { data: isAdmin } = await ssr.rpc("is_platform_admin", { p_user_id: user.id });
-  const { data: canManage } = await ssr.rpc("can_manage_hotel", { target_hotel_id: hotelId });
-  if (!isAdmin && !canManage) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (target.kind === "hotel") {
+    const { data: isAdmin } = await ssr.rpc("is_platform_admin", { p_user_id: user.id });
+    const { data: canManage } = await ssr.rpc("can_manage_hotel", {
+      target_hotel_id: target.hotelId,
+    });
+    if (!isAdmin && !canManage) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  } else {
+    // The paywall. Connecting a PMS is what turns a signup into a working
+    // property, so this endpoint is the thing payment actually gates — and it
+    // used to gate nothing but having an account, which /login hands out freely.
+    // Anyone who knew this URL got a permanent property for nothing.
+    //
+    // resolveOnboardingStep is asked rather than re-deriving it here: it is
+    // already the one agreed reading of where someone is in the flow, including
+    // the deliberate escape hatch for deployments with no Stripe keys. A fourth
+    // independent opinion about whether they have paid is how this got missed.
+    if ((await resolveOnboardingStep(ssr)) !== "connect") {
+      return NextResponse.json(
+        { error: "Payment is needed before connecting a PMS.", billingUrl: "/onboarding" },
+        { status: 402 },
+      );
+    }
+
+    // The access-code gate, per PMS (/admin/pms-access). Checkout only demands
+    // a code for the PMS the buyer DECLARED, so paying is not the same thing as
+    // being let into this one: declaring an open PMS and then connecting a
+    // gated one would otherwise walk straight past the gate. Enforced here and
+    // not again in the callback — the signed state the callback insists on is
+    // only ever minted below this line.
+    if (isStripeConfigured()) {
+      try {
+        const admin = createAdminClient();
+        if (await pmsSignupCodeRequired(admin, pmsType)) {
+          const pendingHotelId = await findPendingHotelForUser(admin, user.id);
+          const { data: sub } = pendingHotelId
+            ? await admin
+                .from("hotel_subscriptions")
+                .select("signup_code_id")
+                .eq("hotel_id", pendingHotelId)
+                .maybeSingle()
+            : { data: null };
+          if (!sub?.signup_code_id) {
+            const name = requireRegistry(pmsType).displayName;
+            return NextResponse.json(
+              {
+                error:
+                  `${name} needs an access code to connect. Use the system you ` +
+                  `signed up with, or get in touch and we'll sort you out.`,
+              },
+              { status: 403 },
+            );
+          }
+        }
+      } catch (e) {
+        console.error(
+          JSON.stringify({
+            fn: "buildAuthorizeRedirect",
+            step: "pms_gate",
+            error: e instanceof Error ? e.message : String(e),
+          }),
+        );
+        return NextResponse.json(
+          { error: "We couldn't verify your signup just now. Please try again in a moment." },
+          { status: 503 },
+        );
+      }
+    }
   }
 
   const registry = requireRegistry(pmsType);
@@ -52,7 +132,10 @@ export async function buildAuthorizeRedirect(
     );
   }
 
-  const state = signState(hotelId, pmsType);
+  const state =
+    target.kind === "onboarding"
+      ? signOnboardingState(user.id, pmsType)
+      : signState(target.hotelId, pmsType);
   const redirectUri = pmsCallbackUrl(pmsType);
 
   const url = new URL(registry.authorizeUrl!);
@@ -98,7 +181,6 @@ export async function handleOAuthCallback(
   if (!verified.ok) {
     return renderCallbackError(pmsType, `State verification failed: ${verified.error}`);
   }
-  const { hotelId } = verified;
 
   const registry = requireRegistry(pmsType);
   const clientIdEnv = registry.requiredEnvVars.find((v) => v.endsWith("_CLIENT_ID"));
@@ -165,11 +247,17 @@ export async function handleOAuthCallback(
   const secretPayload = {
     accessToken,
     refreshToken: typeof refreshToken === "string" ? refreshToken : null,
-    tokenType,
+    tokenType: typeof tokenType === "string" ? tokenType : "Bearer",
     scope,
     expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
   };
 
+  // Onboarding: no hotel exists yet — hand off to the hotel-creating flow.
+  if (verified.intent === "onboarding") {
+    return handleOnboardingConnect(cookieStore, pmsType, verified.userId, secretPayload);
+  }
+
+  const { hotelId } = verified;
   const admin = createAdminClient();
 
   const { error: secretErr } = await admin.rpc("pms_secret_set", {

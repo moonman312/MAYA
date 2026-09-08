@@ -1,4 +1,6 @@
-export type HotelRole = "hotel_admin" | "manager" | "staff" | "viewer";
+import type { HotelRole } from "@/lib/roles";
+
+export type { HotelRole };
 export type AppRole = "platform_admin" | "platform_support";
 export type MembershipStatus = "invited" | "active" | "suspended" | "revoked";
 export type PendingInviteStatus = "pending" | "accepted" | "expired" | "revoked";
@@ -16,6 +18,10 @@ export type AdminHotelRow = {
   timezone: string;
   currency: string;
   is_active: boolean;
+  /** Set on checkout's placeholder rows until a PMS connect adopts them. */
+  setup_pending_at: string | null;
+  /** Sandbox, fixture, or walkthrough — left out of business analytics. */
+  is_test: boolean;
   total_rooms_per_type: number;
   external_enterprise_id: string | null;
   created_at: string;

@@ -1,0 +1,26 @@
+-- Example: schedule the pms_request_log sweep.
+--
+-- Pure SQL — no pg_net, no HTTP, no secrets. The sweep function lives in the
+-- database (99_supabase_migration_pms_request_log_retention_v1.sql) and cron
+-- calls it directly.
+--
+-- Daily is enough: the readers look back 24 hours at most, retention is 7
+-- days, so the sweep only ever trims the trailing day. Off-peak on purpose —
+-- the delete competes with the sync workers' inserts for the same table.
+--
+-- 0) Ensure the extension exists:
+--    create extension if not exists pg_cron;
+--
+-- 1) Schedule (08:40 UTC daily):
+--    select cron.schedule(
+--      'pms-request-log-sweep',
+--      '40 8 * * *',
+--      $$ select public.pms_request_log_sweep(); $$
+--    );
+--
+-- Inspect:    select jobid, jobname, schedule, active from cron.job;
+-- Runs log:   select * from cron.job_run_details order by start_time desc limit 20;
+-- Unschedule: select cron.unschedule('pms-request-log-sweep');
+--
+-- How big is the table right now, and how old is its tail:
+--   select count(*), min(created_at) from pms_request_log;

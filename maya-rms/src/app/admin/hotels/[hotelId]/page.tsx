@@ -1,5 +1,6 @@
 import { HotelMembershipsCard } from "@/components/admin/hotel-memberships-card";
 import { HotelPmsCard } from "@/components/admin/hotel-pms-card";
+import { HotelTestToggle } from "@/components/admin/hotel-test-toggle";
 import { SimulationModeToggle } from "@/components/admin/simulation-mode-toggle";
 import { PmsStatusPill } from "@/components/admin/status-pill";
 import { getHotel, getHotelSimulationMode } from "@/lib/admin/hotels";
@@ -107,8 +108,9 @@ export default async function AdminHotelDetailPage({
             Pricing mode
           </h2>
         </header>
-        <div className="p-4">
+        <div className="space-y-4 p-4">
           <SimulationModeToggle hotelId={hotel.id} simulationMode={simulationMode} />
+          <HotelTestToggle hotelId={hotel.id} isTest={hotel.is_test === true} />
         </div>
       </section>
 

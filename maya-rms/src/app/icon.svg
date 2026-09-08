@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Bold white M, drawn as pure geometry so no font is needed.
+       Soft shadow keeps it visible on light tab bars and gives it float. -->
+  <defs>
+    <filter id="float" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.4" flood-color="#0f172a" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+  <path
+    filter="url(#float)"
+    fill="#ffffff"
+    d="M4 27 L4 5 L10.2 5 L16 15.6 L21.8 5 L28 5 L28 27 L22.6 27 L22.6 14.4 L17.9 22.8 L14.1 22.8 L9.4 14.4 L9.4 27 Z"
+  />
+</svg>

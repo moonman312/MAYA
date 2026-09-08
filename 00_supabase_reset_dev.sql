@@ -92,16 +92,22 @@ end $$;
 /*
 drop table if exists
   app_roles,
+  assumption_challenges,
   audit_events,
   competitor_rates,
   evaluation_audit,
+  evaluation_run_log,
+  hotel_closed_periods,
   hotel_memberships,
   hotel_settings,
   hotels,
+  import_jobs,
   ladder_rule_state,
   ladder_transition_event,
   market_events,
   occupancy_metrics,
+  onboarding_findings,
+  onboarding_states,
   organization_memberships,
   organizations,
   pending_memberships,
@@ -115,6 +121,7 @@ drop table if exists
   published_price,
   pms_connection_secrets,
   pms_connections,
+  pms_request_log,
   rate_updates,
   reservations,
   room_constraints,
@@ -126,6 +133,10 @@ drop table if exists
   stay_date_snapshot
 cascade;
 
+drop type if exists finding_status cascade;
+drop type if exists finding_kind cascade;
+drop type if exists import_job_status cascade;
+drop type if exists onboarding_path cascade;
 drop type if exists rate_update_status cascade;
 drop type if exists run_status cascade;
 drop type if exists run_type cascade;

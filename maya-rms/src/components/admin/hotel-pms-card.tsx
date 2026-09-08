@@ -211,7 +211,7 @@ function OAuthConnectPanel({
       {pms.configured ? (
         <a
           href={`/api/pms/${pms.type}/connect?hotelId=${hotelId}`}
-          className="inline-block rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400"
+          className="inline-block rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400"
         >
           Connect {pms.displayName}
         </a>
@@ -314,7 +314,7 @@ function MewsCredentialsForm({
           type="button"
           onClick={onSave}
           disabled={pending || !clientToken || !accessToken}
-          className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-white hover:bg-sky-400 disabled:opacity-60"
+          className="rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400 disabled:opacity-60"
         >
           Save credentials
         </button>

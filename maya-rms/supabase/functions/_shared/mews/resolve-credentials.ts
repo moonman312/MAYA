@@ -1,4 +1,4 @@
-import { defaultMewsBaseUrl } from "./constants.ts";
+import { defaultMewsBaseUrl, isAllowedMewsBaseUrl } from "./constants.ts";
 import { mwsEnv } from "./env.ts";
 import type { MewsCredentialsInput, ResolvedMewsCredentials } from "./types.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -74,12 +74,18 @@ export async function resolveMewsCredentials(
   bodyOverride?: MewsCredentialsInput | null,
 ): Promise<ResolveMewsCredentialsResult | { error: string }> {
   if (bodyOverride?.clientToken && bodyOverride?.accessToken) {
+    const baseUrl = (bodyOverride.baseUrl ?? defaultMewsBaseUrl()).replace(/\/$/, "");
+    // A caller-supplied base URL decides which host the server calls, so it
+    // has to be one of Mews' own. See isAllowedMewsBaseUrl.
+    if (!isAllowedMewsBaseUrl(baseUrl)) {
+      return { error: "That is not a recognized Mews address." };
+    }
     return {
       creds: {
         clientToken: bodyOverride.clientToken,
         accessToken: bodyOverride.accessToken,
         enterpriseId: bodyOverride.enterpriseId,
-        baseUrl: (bodyOverride.baseUrl ?? defaultMewsBaseUrl()).replace(/\/$/, ""),
+        baseUrl,
       },
       connectionId: null,
       source: "body",
@@ -109,6 +115,17 @@ export async function resolveMewsCredentials(
     const parsed = normalizeSecretPayload(secret);
     if (parsed) {
       const baseUrl = (row.base_url || parsed.baseUrl || defaultMewsBaseUrl()).replace(/\/$/, "");
+      // Same check as the body path. A stored value takes a manager to set,
+      // so this is defence in depth rather than the main gate — but an
+      // unrecognized address is a misconfiguration worth surfacing loudly
+      // instead of quietly sending credentials somewhere unexpected.
+      if (!isAllowedMewsBaseUrl(baseUrl)) {
+        return {
+          error:
+            `The saved Mews address (${baseUrl}) is not a recognized Mews endpoint. ` +
+            `Update the connection, or set MEWS_BASE_URL if this property uses a different region.`,
+        };
+      }
       return {
         creds: { ...parsed, baseUrl },
         connectionId: row.id as string,
