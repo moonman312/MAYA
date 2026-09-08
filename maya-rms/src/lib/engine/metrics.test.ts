@@ -178,3 +178,123 @@ describe("computeRuleMetrics: every signal room type deactivated (regression)", 
     expect(metrics.pickup_block_reason).toBeTruthy();
   });
 });
+
+describe("computeRuleMetrics: synthesized zero baseline (first bookings on a date)", () => {
+  // Earlier engine generations only wrote snapshot rows for cells with
+  // bookings, so a date receiving its FIRST bookings has no baseline row —
+  // exactly when a pickup rule matters. The baseline is synthesized as zero
+  // only when the hotel was demonstrably snapshotting at the baseline
+  // instant; otherwise the run still blocks.
+  type SnapRow = {
+    hotel_id: string;
+    stay_date: string;
+    room_type_id: string;
+    snapshot_ts: string;
+    booked_units: number;
+    booked_revenue: number;
+    sellable_units: number;
+  };
+
+  function snapshotStub(rows: SnapRow[]): SupabaseClient {
+    function builder() {
+      const filters: Array<(r: SnapRow) => boolean> = [];
+      let desc = true;
+      const b = {
+        select: () => b,
+        eq: (col: keyof SnapRow, val: unknown) => {
+          filters.push((r) => String(r[col]) === String(val));
+          return b;
+        },
+        lte: (col: keyof SnapRow, val: unknown) => {
+          filters.push((r) => String(r[col]) <= String(val));
+          return b;
+        },
+        order: (_col: string, opts?: { ascending?: boolean }) => {
+          desc = !(opts?.ascending ?? false);
+          return b;
+        },
+        limit: () => b,
+        maybeSingle: async () => {
+          const matched = rows
+            .filter((r) => filters.every((f) => f(r)))
+            .sort((a, z) =>
+              desc
+                ? z.snapshot_ts.localeCompare(a.snapshot_ts)
+                : a.snapshot_ts.localeCompare(z.snapshot_ts),
+            );
+          return { data: matched[0] ?? null, error: null };
+        },
+      };
+      return b;
+    }
+    return { from: () => builder() } as unknown as SupabaseClient;
+  }
+
+  const NOW = "2026-08-01T12:00:00Z";
+  const BASELINE = "2026-07-29T12:00:00Z";
+  const currentCell: SnapRow = {
+    hotel_id: "hotel-1",
+    stay_date: "2026-10-26",
+    room_type_id: "rt1",
+    snapshot_ts: NOW,
+    booked_units: 5,
+    booked_revenue: 1000,
+    sellable_units: 10,
+  };
+
+  it("treats a missing baseline cell as zero when the hotel was snapshotting", async () => {
+    const supabase = snapshotStub([
+      currentCell,
+      // A DIFFERENT stay date's row proves hotel-level coverage at the
+      // baseline instant; the cell under test has no row back then.
+      { ...currentCell, stay_date: "2026-09-01", snapshot_ts: "2026-07-29T11:55:00Z" },
+    ]);
+    const metrics = await computeRuleMetrics(
+      supabase,
+      makeRule({ condition: { pickup_operator: "gt", pickup_threshold: 3 } }),
+      "hotel-1",
+      "2026-10-26",
+      NOW,
+      "2026-08-01",
+      NOW,
+      BASELINE,
+    );
+    expect(metrics.pickup_block_reason).toBeNull();
+    expect(metrics.signal_booked_units_baseline).toBe(0);
+    expect(metrics.net_pickup_units).toBe(5);
+  });
+
+  it("still blocks when the hotel has no snapshot history at the baseline", async () => {
+    const supabase = snapshotStub([currentCell]);
+    const metrics = await computeRuleMetrics(
+      supabase,
+      makeRule({ condition: { pickup_operator: "gt", pickup_threshold: 3 } }),
+      "hotel-1",
+      "2026-10-26",
+      NOW,
+      "2026-08-01",
+      NOW,
+      BASELINE,
+    );
+    expect(metrics.pickup_block_reason).toBe("insufficient_snapshot_history");
+    expect(metrics.net_pickup_units).toBeNull();
+  });
+
+  it("blocks as stale when hotel coverage predates the baseline by more than the freshness window", async () => {
+    const supabase = snapshotStub([
+      currentCell,
+      { ...currentCell, stay_date: "2026-09-01", snapshot_ts: "2026-07-27T00:00:00Z" },
+    ]);
+    const metrics = await computeRuleMetrics(
+      supabase,
+      makeRule({ condition: { pickup_operator: "gt", pickup_threshold: 3 } }),
+      "hotel-1",
+      "2026-10-26",
+      NOW,
+      "2026-08-01",
+      NOW,
+      BASELINE,
+    );
+    expect(metrics.pickup_block_reason).toBe("stale_baseline_snapshot");
+  });
+});

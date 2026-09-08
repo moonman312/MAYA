@@ -51,15 +51,17 @@ export type EvaluationResult = {
  * Evaluate a hotel: run the full 11-step pipeline.
  *
  * `horizonDays` bounds how many days forward are priced in this run. The engine
- * makes many sequential Supabase calls per day, so the full 365 takes tens of
- * minutes on a busy hotel; callers with a wall clock (API routes, smoke
- * scripts) pass a smaller horizon, same as the Deno copy's scheduled ticks.
+ * makes many sequential Supabase calls per day, so pricing cadence is tiered:
+ * the 5-minute scheduled tick passes a small horizon (45) to keep the
+ * near-term calendar fresh, and the daily full-sweep tick passes the full 396
+ * so a rule can move any date the sync can see. Far dates change on the daily
+ * beat, near dates on the 5-minute one.
  */
 export async function evaluateHotel(
   supabase: SupabaseClient,
   hotelId: string,
   evalTs?: string,
-  horizonDays: number = 365,
+  horizonDays: number = 396,
 ): Promise<EvaluationResult> {
   const now = evalTs ?? new Date().toISOString();
   const runId = crypto.randomUUID();
@@ -103,7 +105,7 @@ export async function evaluateHotel(
     };
   }
 
-  const horizon = Math.max(1, Math.min(365, Math.floor(horizonDays)));
+  const horizon = Math.max(1, Math.min(396, Math.floor(horizonDays)));
   const stayDates: string[] = [];
   let cursor = localDate;
   for (let i = 0; i < horizon; i++) {
@@ -215,6 +217,14 @@ export async function evaluateHotel(
     };
   });
 
+  // Only ACTIVE rules are loaded, and that is a product decision, not a gap:
+  // toggling a rule off FREEZES it. Its active ladder states keep applying
+  // (the pricing pass reads them regardless of the toggle), it just stops
+  // transitioning — no new activations, no deactivations when conditions
+  // break. Pausing mid-season holds today's prices instead of yanking the
+  // adjustment out from under them; deleting the rule is what removes its
+  // effects (the FK cascade clears its states). Do not "fix" this by
+  // sweeping disabled rules' states — that turns pause into undo.
   let maxPickupWindowDays = 7;
   for (const r of rules) {
     const w = r.condition.pickup_window_days;

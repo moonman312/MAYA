@@ -148,6 +148,8 @@ function resolveFetchWindow(
 
 export type MewsSyncHotelSuccess = {
   ok: true;
+  /** Which cadence this run was: the daily sweep is the far-horizon beat. */
+  mode: "incremental" | "sweep";
   fetchWindowUtc: { start: string; end: string };
   /** False when the budget expired before the range was covered. */
   windowFullyCovered: boolean;
@@ -460,6 +462,7 @@ export async function runMewsSyncForHotel(
     return {
       ok: true,
       fetchWindowUtc: { start, end },
+      mode: incremental ? ("incremental" as const) : ("sweep" as const),
       windowFullyCovered: !truncated,
       apiWindows: walk.windowsFetched,
       roomTypesUpserted,

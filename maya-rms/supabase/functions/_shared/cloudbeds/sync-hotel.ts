@@ -53,6 +53,8 @@ export type CloudbedsSyncOptions = {
 
 export type CloudbedsSyncSuccess = {
   ok: true;
+  /** Which cadence this run was: the daily sweep is the far-horizon beat. */
+  mode: "incremental" | "sweep";
   /** False when the detail budget expired before the window was covered. */
   windowFullyCovered: boolean;
   /** Resolved, ready-to-use credentials (reused by the rate-push step). */
@@ -671,6 +673,7 @@ export async function runCloudbedsSyncForHotel(
       // False when the detail budget ran out before the window was covered. A
       // partial sync that looks complete is worse than one that says so: the
       // next tick picks up where this stopped, but only if someone can tell.
+      mode: incremental ? ("incremental" as const) : ("sweep" as const),
       windowFullyCovered: !truncated,
       fetchWindow: { checkInFrom, checkInTo },
       apiPages: pages + canceledList.pages,
