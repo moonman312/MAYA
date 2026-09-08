@@ -126,6 +126,10 @@ export function createThinkRateAdapter(
           const roomTypeId = String(r.roomTypeId ?? "");
           // A rate type covers room types we may not price; keep only ours.
           if (!roomTypeIds.has(roomTypeId)) continue;
+          // null/undefined is a MISSING rate, and Number(null) is 0 — writing
+          // that would hand the engine a $0 base. An explicit 0 is a real comp
+          // rate and is kept.
+          if (r.price == null) continue;
           const price = Number(r.price);
           if (!Number.isFinite(price)) continue;
           out.push({ stayDate: String(r.date), externalRoomTypeId: roomTypeId, price });

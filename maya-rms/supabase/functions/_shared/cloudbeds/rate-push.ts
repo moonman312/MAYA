@@ -121,13 +121,19 @@ export function createCloudbedsRateAdapter(
       const roomTypesWanted = new Set(Object.keys(targets));
       const out: RateCalendarEntry[] = [];
       for (let d = startDate; d <= endDate; d = addOneDay(d)) {
-        const plans = await cloudbedsGetRatePlans(creds, d, d);
+        // endDate must be strictly after startDate ("Parameter endDate should
+        // be greater than startDate"), so a single night is [d, d+1).
+        const plans = await cloudbedsGetRatePlans(creds, d, addOneDay(d));
         // Derived plans reprice off their parent, so the parent is the
         // property's own rate — the same choice resolveRateTargets makes.
         for (const plan of plans) {
           if (plan.isDerived === true || plan.isDerived === "true") continue;
           const roomTypeId = String(plan.roomTypeID ?? "");
           if (!roomTypesWanted.has(roomTypeId)) continue;
+          // null/undefined is a MISSING rate, and Number(null) is 0 — writing
+          // that would hand the engine a $0 base and price the night at the
+          // floor. An explicit 0 is a real comp rate and is kept.
+          if (plan.roomRate == null) continue;
           const price = Number(plan.roomRate);
           if (!Number.isFinite(price)) continue;
           out.push({ stayDate: d, externalRoomTypeId: roomTypeId, price });
