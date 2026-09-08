@@ -20,6 +20,10 @@ import {
   type CloudbedsReservation,
 } from "./client.ts";
 import {
+  isAuthRevocation,
+  markConnectionDisconnected,
+} from "../pms/connection-health.ts";
+import {
   CLOUDBEDS_SYNC_BUDGET_MS,
   CLOUDBEDS_INCREMENTAL_OVERLAP_MS,
   CLOUDBEDS_FULL_SYNC_INTERVAL_MS,
@@ -711,6 +715,13 @@ export async function runCloudbedsSyncForHotel(
     };
   } catch (error) {
     if (error instanceof CloudbedsHttpError) {
+      // A 401/403 on a data call is what a Marketplace disconnect looks like
+      // from out here: the grant is gone but the access token has not expired,
+      // so the token-refresh path never runs and never notices. Without this
+      // the connection kept reporting "connected" while every call 401'd.
+      if (isAuthRevocation(error.status)) {
+        await markConnectionDisconnected(supabase, hotelId, "cloudbeds", error.message);
+      }
       return {
         ok: false,
         error: error.message,

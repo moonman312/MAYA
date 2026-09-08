@@ -25,11 +25,36 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const configured = useMemo(() => isSupabaseConfigured(), []);
 
+  const [claim, setClaim] = useState<string | null>(null);
+  const [reconnected, setReconnected] = useState(false);
+
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("mode") === "signup") {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("mode") === "signup") setMode("signup");
+    // Flow A: Cloudbeds sent them here after they connected in the Marketplace.
+    // A claim ticket means the property is parked and waiting for an owner; a
+    // reconnect means it already has one and just needs signing in.
+    const c = q.get("claim");
+    if (c) {
+      setClaim(c);
       setMode("signup");
     }
+    setReconnected(q.get("reconnected") === "1");
   }, []);
+
+  /** Attach the Marketplace property to the account that just authenticated. */
+  async function finishClaim(): Promise<boolean> {
+    if (!claim) return true;
+    const res = await fetch("/api/pms/marketplace/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: claim }),
+    });
+    if (res.ok) return true;
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    setError(body.error ?? "Could not finish connecting your property.");
+    return false;
+  }
 
   function switchMode(next: Mode) {
     setMode(next);
@@ -52,6 +77,7 @@ export default function LoginPage() {
         setError(signInError.message);
         return;
       }
+      if (!(await finishClaim())) return;
       router.replace("/");
       router.refresh();
     } finally {
@@ -86,6 +112,7 @@ export default function LoginPage() {
         return;
       }
       if (data.session) {
+        if (!(await finishClaim())) return;
         router.replace("/");
         router.refresh();
         return;
@@ -129,9 +156,13 @@ export default function LoginPage() {
                 {mode === "signin" ? "Sign in to MAYA" : "Create your MAYA account"}
               </h1>
               <p className="mt-2 text-sm text-slate-300">
-                {mode === "signin"
-                  ? "Welcome back."
-                  : "Set a password and you're on your way — your property comes next."}
+                {claim
+                  ? "Your Cloudbeds property is connected. Create your account to finish setting it up."
+                  : reconnected
+                    ? "Your Cloudbeds connection is active again. Sign in to pick up where you left off."
+                    : mode === "signin"
+                      ? "Welcome back."
+                      : "Set a password and you're on your way — your property comes next."}
               </p>
 
               {!configured && (
