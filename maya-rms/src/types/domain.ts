@@ -22,6 +22,10 @@ export type ActionKind = "percent" | "fixed";
 export type ActionDirection = "increase" | "decrease";
 export type ConditionOperator = "gt" | "lt";
 export type PickupMetric = "room_nights" | "revenue";
+/** Ordinal compare against the Booking Speed scale (see lib/observations/booking-speed). */
+export type BookingSpeedRuleOperator = "at_least" | "at_most" | "is";
+/** Trailing day / week / month windows for Booking Speed conditions. */
+export type BookingSpeedWindowDays = 1 | 7 | 30;
 
 export type RuleCondition = {
   occupancy_operator?: ConditionOperator | null;
@@ -32,6 +36,12 @@ export type RuleCondition = {
   pickup_threshold?: number | null;
   pickup_window_days?: 1 | 3 | 7 | null;
   pickup_metric?: PickupMetric | null;
+  booking_speed_operator?: BookingSpeedRuleOperator | null;
+  /** A BookingSpeed level key, e.g. "much_slower" — the Observation Engine's ordered vocabulary. */
+  booking_speed_level?: string | null;
+  booking_speed_window_days?: BookingSpeedWindowDays | null;
+  /** Days a fired event-style rule waits before it may re-fire on the same stay date. */
+  booking_speed_cooldown_days?: number | null;
 };
 
 export type EngineRule = {
@@ -133,7 +143,7 @@ export type EvaluationAuditDetails = {
   }[];
   pickup_candidates: {
     rule_id: string;
-    outcome: "won" | "lost_competition" | "idempotency_skip";
+    outcome: "won" | "lost_competition" | "idempotency_skip" | "write_failed";
     metrics: Record<string, unknown>;
     tie_break_trace: string[];
   }[];
@@ -142,6 +152,15 @@ export type EvaluationAuditDetails = {
   application_order: string[];
   pre_clamp_price: string;
   clamped_by: "ceiling" | "floor" | "none";
+  /**
+   * Booking Speed observations consulted for this (stay_date, room_type)
+   * during the run — the full Layer 1 audit snapshot (recent/expected
+   * counts, comparable dates with per-date pickup, selection assumptions,
+   * classification) persisted AT EVALUATION TIME so explanations replay
+   * what was actually known, not what is known later. One entry per
+   * distinct window length consulted.
+   */
+  booking_speed_observations?: Record<string, unknown>[];
 };
 
 export type EvaluationAudit = {
@@ -180,6 +199,12 @@ export type CalendarRoomType = {
    * Distinct from `rate`, which is the backward-looking ADR of bookings.
    */
   current_price?: number | null;
+  /**
+   * Current asking price for this night: the `published_price` row for this
+   * (stay_date, room_type) when one exists, else null. Demo mode fills it
+   * from the generated demo rate so the day detail always has a price.
+   */
+  current_rate: number | null;
 };
 
 export type CalendarDay = {
@@ -189,6 +214,13 @@ export type CalendarDay = {
   revenue: number;
   weekday: string;
   room_types: CalendarRoomType[];
+  /** Booked revenue / total property rooms for the day, 2dp; 0 when no rooms. */
+  revpar: number;
+  /**
+   * Property-relative RevPAR bucket. Past days are judged against the
+   * hotel's historical terciles, future days against the on-the-books ones.
+   */
+  color: "green" | "orange" | "red";
 };
 
 export type CalendarResponse = {
@@ -197,7 +229,23 @@ export type CalendarResponse = {
   month_name: string;
   days_in_month: number;
   first_weekday: number;
-  thresholds: { low: number; high: number };
+  /**
+   * `low`/`high` are the legacy occupancy-percent cutoffs (kept for older
+   * consumers). `basis`/`past`/`future` are the property-relative RevPAR
+   * tercile cutoffs that back each day's `color`.
+   */
+  thresholds: {
+    low: number;
+    high: number;
+    basis: "revpar";
+    past: { p33: number; p67: number };
+    future: { p33: number; p67: number };
+  };
+  /**
+   * First and last month (YYYY-MM) with any reservation or published price
+   * for the hotel; the demo window when no Supabase data backs the calendar.
+   */
+  range: { min: string; max: string };
   days: Record<string, CalendarDay>;
 };
 
@@ -228,6 +276,15 @@ export type ChangelogEntry = {
   change_pct: number;
   occupancy_pct: number;
   description: string;
+  /** Stay night the change applies to (ISO date). Absent in legacy/demo shapes. */
+  stay_date?: string;
+  /** Sentence-per-step story of the change, from narrateChange. */
+  narrative?: string[];
+  /** Keys for fetching the drill-down (/api/explain). Absent in demo shapes. */
+  evaluation_run_id?: string;
+  room_type_id?: string;
+  /** True when the audit row carries booking-speed observation snapshots — the "How did we know?" expander only shows then. */
+  has_booking_speed_details?: boolean;
 };
 
 export type ChangelogCycle = {

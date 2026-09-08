@@ -3,10 +3,11 @@
  * Mirrors the Python legacy dashboard's in-memory state.
  */
 
+import { narrateChange } from "@/lib/changelog-narrative";
 import type {
-  CalendarRoomType,
   ChangelogCycle,
   ChangelogEntry,
+  RuleCondition,
   RuleConfig,
   SimulationReservation,
 } from "@/types/domain";
@@ -80,15 +81,51 @@ export function buildChangelog(): ChangelogCycle[] {
       const origRate = roomType.base_rate;
       const pctChange = i % 2 === 0 ? 10 : -5;
       const newRate = Math.round(origRate * (1 + pctChange / 100) * 100) / 100;
+      const ruleName = INITIAL_RULES[i % INITIAL_RULES.length].rule_name;
+      const occupancyPct = 60 + i * 4;
+      const occupancy = occupancyPct / 100;
+
+      // Plausible trigger: increases fire above a threshold the occupancy
+      // clears, decreases below one it stays under.
+      const condition: RuleCondition =
+        pctChange >= 0
+          ? {
+              occupancy_operator: "gt",
+              occupancy_threshold: Math.round((occupancy - 0.1) * 20) / 20,
+            }
+          : {
+              occupancy_operator: "lt",
+              occupancy_threshold: Math.min(1, Math.round((occupancy + 0.1) * 20) / 20),
+            };
+
+      const narrative = narrateChange({
+        room_type: roomType.name,
+        base_price: origRate,
+        final_price: newRate,
+        applications: [
+          {
+            rule_name: ruleName,
+            condition,
+            action: {
+              kind: "percent",
+              direction: pctChange >= 0 ? "increase" : "decrease",
+              value: Math.abs(pctChange),
+            },
+            metrics: { occupancy },
+            is_pickup: false,
+          },
+        ],
+      });
 
       changes.push({
         room_type: roomType.name,
-        rule_name: INITIAL_RULES[i % INITIAL_RULES.length].rule_name,
+        rule_name: ruleName,
         original_rate: origRate,
         new_rate: newRate,
         change_pct: pctChange,
-        occupancy_pct: 60 + i * 4,
-        description: `${roomType.name} rate adjusted from $${origRate} to $${newRate} (${pctChange >= 0 ? "+" : ""}${pctChange}%)`,
+        occupancy_pct: occupancyPct,
+        narrative,
+        description: narrative.join(" "),
       });
     }
 
