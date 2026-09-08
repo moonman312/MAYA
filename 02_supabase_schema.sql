@@ -165,6 +165,35 @@ create table if not exists pms_connections (
 -- Locked down below (RLS on, no policy, grants revoked from authenticated/anon).
 -- Read/write only via SECURITY DEFINER RPCs: pms_secret_get / pms_secret_set /
 -- pms_secret_delete (defined further down in this file).
+-- ============================================================================
+-- FLOW A — connections that start in the Cloudbeds Marketplace
+-- ============================================================================
+-- A Marketplace-initiated connection arrives with no state we signed and
+-- possibly no MAYA account yet. The hotel row is created so the tokens have a
+-- home in the Vault; this table is the single-use ticket that attaches a
+-- membership once someone authenticates and claims it.
+create table if not exists pms_marketplace_claims (
+  token                 text primary key,
+  hotel_id              uuid not null references hotels(id) on delete cascade,
+  pms_type              pms_type not null,
+  external_property_id  text not null,
+  property_name         text,
+  created_at            timestamptz not null default now(),
+  expires_at            timestamptz not null,
+  claimed_by            uuid references auth.users(id) on delete set null,
+  claimed_at            timestamptz,
+  unique (hotel_id, pms_type)
+);
+
+create index if not exists idx_marketplace_claims_property
+  on pms_marketplace_claims (external_property_id);
+
+create index if not exists idx_marketplace_claims_expiry
+  on pms_marketplace_claims (expires_at) where claimed_at is null;
+
+create index if not exists idx_hotels_external_enterprise_id
+  on hotels (external_enterprise_id) where external_enterprise_id is not null;
+
 create table if not exists pms_connection_secrets (
   id uuid primary key default gen_random_uuid(),
   hotel_id uuid not null references hotels(id) on delete cascade,
@@ -790,6 +819,8 @@ alter table app_roles enable row level security;
 alter table pending_memberships enable row level security;
 alter table platform_audit_events enable row level security;
 alter table pms_connections enable row level security;
+alter table pms_marketplace_claims enable row level security;
+revoke all on pms_marketplace_claims from anon, authenticated;
 alter table pms_connection_secrets enable row level security;
 
 -- ---------------------------------------------------------------------------
