@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- diagnostic script: vendor JSON is untyped by nature. */
 // Full Think roundtrip, timed: bookings -> engine -> rates pushed -> verified
 // live in the PMS. Phase 1 is backdated ~25h so it lays the baseline snapshot
 // the pickup rule measures against; phase 2 runs at "now".

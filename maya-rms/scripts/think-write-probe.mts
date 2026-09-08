@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- diagnostic script: vendor JSON is untyped by nature. */
 // Think PUT /daily probe — re-test after ThinkRes deployed request-body
 // validation (Alfred, Sep 2026). Unlike the production client this captures
 // the FULL response body, which is where the new error messaging lands.
@@ -119,7 +120,7 @@ attempts.push({ label: "B: exact GET round-trip, price changed", ...await put(
 
 attempts.push({ label: "C: round-trip without rateTypeId (it's in the path)", ...await put(
   "C: round-trip without rateTypeId (it's in the path)",
-  [(() => { const { rateTypeId, ...rest } = sample as any; return { ...rest, price: newPrice }; })()],
+  [(() => { const rest = { ...(sample as any) }; delete rest.rateTypeId; return { ...rest, price: newPrice }; })()],
 ) });
 
 attempts.push({ label: "D: single object, not an array", ...await put(

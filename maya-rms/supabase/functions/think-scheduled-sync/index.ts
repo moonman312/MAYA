@@ -17,6 +17,7 @@ import { createThinkRateAdapter } from "../_shared/think/rate-push.ts";
 import { THINK_API_BASE_URL } from "../_shared/think/constants.ts";
 import { evaluateHotel } from "../_shared/engine/index.ts";
 import { pushRatesForHotel } from "../_shared/pms/rate-push.ts";
+import { ensureBaseRateCalendar } from "../_shared/pms/base-rate-calendar.ts";
 import { resolveOAuthCredentials } from "../_shared/pms/oauth-credentials.ts";
 import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
 import { recordRoomCount } from "../_shared/billing/room-count.ts";
@@ -175,6 +176,15 @@ Deno.serve(async (req) => {
               { accessToken: resolved.accessToken, baseUrl },
               resolved.propertyId,
             );
+            // Capture the property's own rate BEFORE this tick's push moves
+            // it. Cells we have pushed to before are excluded inside, so this
+            // only ever fills gaps — the engine picks it up next tick, which
+            // is what stops a booking taken at our own price becoming the base.
+            try {
+              await ensureBaseRateCalendar(supabase, hotelId, adapter, { horizonDays });
+            } catch {
+              // Never fail a tick over the calendar.
+            }
             push = await pushRatesForHotel(supabase, hotelId, adapter);
           }
         } catch (e) {

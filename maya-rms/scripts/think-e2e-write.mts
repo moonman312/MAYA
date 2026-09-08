@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- diagnostic script: vendor JSON is untyped by nature. */
 // End-to-end proof that MAYA can move a price in ThinkReservations:
 // sync -> engine -> rate-push -> read it back out of Think.
 import { readFileSync } from "node:fs";

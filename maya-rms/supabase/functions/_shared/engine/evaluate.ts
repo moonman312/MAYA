@@ -23,6 +23,7 @@ import {
   observeForStayDate,
   type BookingSpeedContext,
 } from "./booking-speed-provider.ts";
+import { resolveBasePrice } from "./base-price.ts";
 import { ruleConditionsMatch } from "./conditions.ts";
 import type { LadderPassResult } from "./ladder.ts";
 import { evaluateLadderTriple } from "./ladder.ts";
@@ -261,20 +262,35 @@ export async function evaluateHotel(
     rememberedBaseByCell.set(`${p.stay_date}|${p.room_type_id}`, Number(p.base_price));
   }
 
+  // The property's own rate, read from the PMS and never written by us.
+  const calRows = await fetchAllRows(() =>
+    supabase
+      .from("base_rate_calendar")
+      .select("stay_date, room_type_id, price")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", firstDate)
+      .lte("stay_date", lastDate)
+      .order("stay_date", { ascending: true })
+      .order("room_type_id", { ascending: true }),
+  );
+  const calendarBaseByCell = new Map<string, number>();
+  for (const c of calRows) {
+    if (!c.room_type_id || c.price == null) continue;
+    calendarBaseByCell.set(`${c.stay_date}|${c.room_type_id}`, Number(c.price));
+  }
+
   const basePrices = new Map<string, number>();
   for (const sd of stayDates) {
     for (const rt of roomTypes) {
       const key = `${sd}|${rt.id}`;
-      const latest = latestResByCell.get(key);
-      // `!= null` rather than truthiness: a genuine 0 base_rate (comp or
-      // house-use night) is a real rate, and treating it as missing sent the
-      // cell down the fallback path for no reason.
-      if (latest && latest.base_rate != null) {
-        basePrices.set(key, latest.base_rate);
-      } else {
-        const remembered = rememberedBaseByCell.get(key);
-        if (remembered != null) basePrices.set(key, remembered);
-      }
+      // See resolveBasePrice: the property's own rate outranks anything
+      // derived from a booking, because a booking can be one of our own prices.
+      const base = resolveBasePrice({
+        calendar: calendarBaseByCell.get(key),
+        reservation: latestResByCell.get(key)?.base_rate,
+        remembered: rememberedBaseByCell.get(key),
+      });
+      if (base !== undefined) basePrices.set(key, base);
     }
   }
 
