@@ -514,6 +514,41 @@ export async function cloudbedsGetTaxesAndFees(
   }
 }
 
+/** One entry from getRateJobs: the outcome of a patchRate we already sent. */
+export type CloudbedsRateJob = {
+  jobReferenceID: string;
+  status: string;
+  dateCreated: string | null;
+  updates: { rateID?: string; startDate?: string; endDate?: string; rate?: number; message?: string }[];
+};
+
+/**
+ * getRateJobs → what actually happened to the rate updates we posted.
+ *
+ * patchRate is asynchronous: a 200 means the job was QUEUED, not that the rate
+ * landed. Cloudbeds names validating those jobs a mandatory part of an RMS
+ * integration, and without it an accepted-but-failed job looks live forever —
+ * worse, our own idempotency ledger then suppresses the retry, because it
+ * already recorded a successful push at that price.
+ *
+ * Verified live 2026-09-08: a job posted through cloudbedsPatchRate came back
+ * within four seconds as { jobReferenceID, dateCreated, status: "completed",
+ * updates: [{ rateID, action, startDate, endDate, rate, message }] }.
+ */
+export async function cloudbedsGetRateJobs(
+  creds: CloudbedsResolvedCredentials,
+): Promise<CloudbedsRateJob[]> {
+  const res = await cloudbedsGet(creds, "getRateJobs", { propertyID: creds.propertyId });
+  const data = res.data;
+  if (!Array.isArray(data)) return [];
+  return (data as JsonRecord[]).map((j) => ({
+    jobReferenceID: String(j.jobReferenceID ?? ""),
+    status: String(j.status ?? "unknown"),
+    dateCreated: j.dateCreated != null ? String(j.dateCreated) : null,
+    updates: Array.isArray(j.updates) ? (j.updates as CloudbedsRateJob["updates"]) : [],
+  }));
+}
+
 export type CloudbedsRateInterval = { startDate: string; endDate: string; rate: number };
 
 /**

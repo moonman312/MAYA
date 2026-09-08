@@ -12,6 +12,7 @@
  */
 
 import {
+  cloudbedsGetRateJobs,
   cloudbedsGetRatePlans,
   cloudbedsPatchRate,
   type CloudbedsRateInterval,
@@ -104,6 +105,36 @@ export function createCloudbedsRateAdapter(
         }
       }
       return results;
+    },
+
+    async fetchJobOutcomes(
+      jobReferences: string[],
+    ): Promise<Record<string, { done: boolean; ok: boolean; message?: string }>> {
+      // One call returns the recent job list; we match ours out of it rather
+      // than asking per job, because Cloudbeds has no per-reference lookup.
+      const wanted = new Set(jobReferences.map(String));
+      const out: Record<string, { done: boolean; ok: boolean; message?: string }> = {};
+      const jobs = await cloudbedsGetRateJobs(creds);
+      for (const job of jobs) {
+        if (!wanted.has(job.jobReferenceID)) continue;
+        const status = job.status.toLowerCase();
+        // Anything still moving is left undecided so the next tick asks again.
+        if (status !== "completed" && status !== "failed" && status !== "error") {
+          out[job.jobReferenceID] = { done: false, ok: false };
+          continue;
+        }
+        // A job can complete with per-update failures, and those carry the
+        // reason in `message` — a completed envelope is not on its own proof
+        // that every rate in it applied.
+        const failure = job.updates.find((u) => typeof u.message === "string" && u.message.trim());
+        const ok = status === "completed" && !failure;
+        out[job.jobReferenceID] = {
+          done: true,
+          ok,
+          ...(ok ? {} : { message: failure?.message?.trim() || `job ${status}` }),
+        };
+      }
+      return out;
     },
 
     async fetchRateCalendar(
