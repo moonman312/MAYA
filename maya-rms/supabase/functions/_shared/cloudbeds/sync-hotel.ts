@@ -15,6 +15,7 @@ import {
   cloudbedsGetReservationsRange,
   cloudbedsTimestamp,
   cloudbedsGetRoomTypes,
+  cloudbedsGetTaxesAndFees,
   CloudbedsHttpError,
   type CloudbedsReservation,
 } from "./client.ts";
@@ -346,6 +347,25 @@ export async function runCloudbedsSyncForHotel(
 
     const rtRaw = await cloudbedsGetRoomTypes(creds);
     const parsedRoomTypes = parseCloudbedsRoomTypes(rtRaw, defaultRooms);
+
+    // Cloudbeds names getTaxesAndFees a mandatory call for RMS integrations:
+    // it establishes whether the rates we read and write are tax-inclusive or
+    // tax-exclusive. MAYA reads and writes the same `rate` field so it already
+    // round-trips consistently; this records WHICH basis the property is on,
+    // rather than leaving it an accident. Never fatal — the call needs a tax
+    // scope the property may not have granted, and a sync that dies over a
+    // reporting detail would be a much worse bug than not knowing the basis.
+    const taxes = await cloudbedsGetTaxesAndFees(creds);
+    console.log(
+      JSON.stringify({
+        fn: "runCloudbedsSyncForHotel",
+        step: "taxes_and_fees",
+        hotelId,
+        ...(taxes.ok
+          ? { taxCount: taxes.taxes.length }
+          : { unavailable: taxes.reason }),
+      }),
+    );
 
     let roomTypesUpserted = 0;
     if (parsedRoomTypes.length > 0) {

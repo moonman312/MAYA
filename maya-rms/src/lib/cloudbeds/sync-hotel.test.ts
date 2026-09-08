@@ -16,6 +16,7 @@ const client = vi.hoisted(() => {
     CloudbedsHttpError,
     setCloudbedsRequestLogger: vi.fn(),
     cloudbedsDiscoverPropertyId: vi.fn(async () => "prop-1"),
+    cloudbedsGetTaxesAndFees: vi.fn(async () => ({ ok: false, reason: "not_granted" })),
     cloudbedsGetRoomTypes: vi.fn(async () => [
       { roomTypeID: "RT1", roomTypeName: "King", roomTypeUnits: 10 },
     ]),
