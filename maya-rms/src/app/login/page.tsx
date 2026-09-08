@@ -8,6 +8,9 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Mode = "signin" | "signup";
 
+/** Where a Flow A claim ticket waits out an email-confirmation round trip. */
+const CLAIM_KEY = "maya.marketplace.claim";
+
 /**
  * One card, two doors. Sign-in is the default; the signup mode is its own
  * form that asks a new owner to SET a password rather than assuming one
@@ -34,10 +37,18 @@ export default function LoginPage() {
     // Flow A: Cloudbeds sent them here after they connected in the Marketplace.
     // A claim ticket means the property is parked and waiting for an owner; a
     // reconnect means it already has one and just needs signing in.
-    const c = q.get("claim");
+    // Survives the round trip through an email confirmation link, which comes
+    // back to /login with no query string — without this the property would be
+    // parked forever and the owner would have no way to reach it.
+    const c = q.get("claim") ?? sessionStorage.getItem(CLAIM_KEY);
     if (c) {
       setClaim(c);
-      setMode("signup");
+      setMode(q.get("claim") ? "signup" : "signin");
+      try {
+        sessionStorage.setItem(CLAIM_KEY, c);
+      } catch {
+        // Private browsing: the URL parameter still covers the direct path.
+      }
     }
     setReconnected(q.get("reconnected") === "1");
   }, []);
@@ -50,7 +61,14 @@ export default function LoginPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: claim }),
     });
-    if (res.ok) return true;
+    if (res.ok) {
+      try {
+        sessionStorage.removeItem(CLAIM_KEY);
+      } catch {
+        // Nothing to clean up if storage was unavailable to begin with.
+      }
+      return true;
+    }
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     setError(body.error ?? "Could not finish connecting your property.");
     return false;
@@ -138,6 +156,7 @@ export default function LoginPage() {
                 A confirmation link is on its way to{" "}
                 <span className="font-medium text-slate-100">{sentTo}</span>. Open it, then come
                 back and sign in.
+                {claim ? " Your Cloudbeds property is saved and will be waiting." : ""}
               </p>
               <button
                 type="button"
