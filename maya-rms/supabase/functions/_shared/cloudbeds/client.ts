@@ -219,6 +219,37 @@ export async function cloudbedsDiscoverPropertyId(
   return null;
 }
 
+/** Every property this grant can see. One entry = a property account; more = a group. */
+export type CloudbedsPropertySummary = { propertyId: string; name: string | null };
+
+/**
+ * List the properties a grant covers.
+ *
+ * A group-account grant returns the whole group — Cloudbeds' own words: "when
+ * the group user authorizes the connection, the access token or API keys will
+ * provide data for the entire group". cloudbedsDiscoverPropertyId takes the
+ * FIRST of these, which is right for a property account and silently wrong for
+ * a group, so callers that care use this and decide deliberately.
+ */
+export async function cloudbedsListProperties(
+  creds: Omit<CloudbedsResolvedCredentials, "propertyId">,
+): Promise<CloudbedsPropertySummary[]> {
+  const withCreds: CloudbedsResolvedCredentials = { ...creds, propertyId: "" };
+  try {
+    const res = await cloudbedsGet(withCreds, "getHotels", {});
+    const arr = res.data;
+    if (!Array.isArray(arr)) return [];
+    return (arr as JsonRecord[])
+      .map((h) => ({
+        propertyId: String(h.propertyID ?? h.property_id ?? h.id ?? ""),
+        name: h.propertyName != null ? String(h.propertyName) : null,
+      }))
+      .filter((p) => p.propertyId !== "");
+  } catch {
+    return [];
+  }
+}
+
 export type CloudbedsPropertyDetails = {
   externalPropertyId: string;
   name: string | null;

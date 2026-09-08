@@ -15,6 +15,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { raiseAlert } from "./alerting.ts";
 
 export type PmsTypeName = "cloudbeds" | "mews" | "think";
 
@@ -52,6 +53,16 @@ export async function markConnectionDisconnected(
         event: "connection_revoked",
       }),
     );
+
+    // The one condition worth waking someone for: pricing has silently stopped
+    // for this property and only a human reconnecting will start it again.
+    await raiseAlert(supabase, {
+      severity: "critical",
+      key: `pms_disconnected:${pmsType}:${hotelId}`,
+      title: `${pmsType} connection revoked`,
+      detail: reason,
+      hotelId,
+    });
 
     await supabase.rpc("platform_log_event", {
       p_event_type: "pms.disconnected",

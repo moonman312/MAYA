@@ -359,17 +359,6 @@ export async function runCloudbedsSyncForHotel(
     // rather than leaving it an accident. Never fatal — the call needs a tax
     // scope the property may not have granted, and a sync that dies over a
     // reporting detail would be a much worse bug than not knowing the basis.
-    const taxes = await cloudbedsGetTaxesAndFees(creds);
-    console.log(
-      JSON.stringify({
-        fn: "runCloudbedsSyncForHotel",
-        step: "taxes_and_fees",
-        hotelId,
-        ...(taxes.ok
-          ? { taxCount: taxes.taxes.length }
-          : { unavailable: taxes.reason }),
-      }),
-    );
 
     let roomTypesUpserted = 0;
     if (parsedRoomTypes.length > 0) {
@@ -442,6 +431,23 @@ export async function runCloudbedsSyncForHotel(
       overlapMs: CLOUDBEDS_INCREMENTAL_OVERLAP_MS,
       fullSweepIntervalMs: CLOUDBEDS_FULL_SYNC_INTERVAL_MS,
     });
+
+    // Only on a full sweep. A property's tax configuration does not change
+    // every five minutes, and calling it on every tick made a scope the
+    // property has not granted look like a 5% failure rate across the whole
+    // integration — the health classifier reads the request log, so a call we
+    // expect to fail would permanently show every hotel as degraded.
+    if (!incremental) {
+      const taxes = await cloudbedsGetTaxesAndFees(creds);
+      console.log(
+        JSON.stringify({
+          fn: "runCloudbedsSyncForHotel",
+          step: "taxes_and_fees",
+          hotelId,
+          ...(taxes.ok ? { taxCount: taxes.taxes.length } : { unavailable: taxes.reason }),
+        }),
+      );
+    }
 
     // Only the SCHEDULED full sweep checkpoints. An explicit window is a
     // one-shot re-read someone asked for, and incremental pulls are small
