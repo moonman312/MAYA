@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- diagnostic script: vendor JSON is untyped by nature. */
 // Follow-up: isolate whether MAYA's minimal-row shape works ALONE, and prove
 // whether omitting restriction fields preserves or clears them.
 import { readFileSync } from "node:fs";
