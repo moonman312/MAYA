@@ -3,6 +3,7 @@ import { createAdminClient } from "@/utils/supabase/admin";
 import {
   cloudbedsDiscoverPropertyId,
   cloudbedsGetHotelDetails,
+  cloudbedsListProperties,
 } from "../../../supabase/functions/_shared/cloudbeds/client";
 import { defaultCloudbedsBaseUrl } from "../../../supabase/functions/_shared/cloudbeds/constants";
 import type { PmsType } from "@/lib/pms/registry";
@@ -39,8 +40,8 @@ export type MarketplaceTokens = {
 };
 
 export type MarketplaceOutcome =
-  | { kind: "reconnected"; hotelId: string; propertyName: string | null }
-  | { kind: "claim"; token: string; propertyName: string | null }
+  | { kind: "reconnected"; hotelId: string; propertyName: string | null; groupProperties?: number }
+  | { kind: "claim"; token: string; propertyName: string | null; groupProperties?: number }
   | { kind: "error"; message: string };
 
 /** Namespaced so two PMSes can never collide on the same bare property number. */
@@ -65,10 +66,29 @@ export async function handleMarketplaceConnect(
     baseUrl,
   };
 
+  // A grant from a GROUP user covers every property in the group, not one. We
+  // connect the first and say so, rather than taking it silently — which is
+  // what happens if you only ever ask for a single property id. Full group
+  // support means a hotel per property; recording the count is what makes the
+  // difference visible until then.
+  const properties = await cloudbedsListProperties(bare);
+  const isGroupGrant = properties.length > 1;
+  if (isGroupGrant) {
+    console.warn(
+      JSON.stringify({
+        fn: "handleMarketplaceConnect",
+        event: "group_grant_detected",
+        propertyCount: properties.length,
+        connecting: properties[0]?.propertyId,
+        ignored: properties.slice(1).map((p) => p.propertyId),
+      }),
+    );
+  }
+
   // Identity comes from the grant, not the URL: ask Cloudbeds who this is for.
   let propertyId: string | null;
   try {
-    propertyId = await cloudbedsDiscoverPropertyId(bare);
+    propertyId = properties[0]?.propertyId ?? (await cloudbedsDiscoverPropertyId(bare));
   } catch (e) {
     return {
       kind: "error",
@@ -130,7 +150,12 @@ export async function handleMarketplaceConnect(
     // A property that reconnects after being revoked has a membership already,
     // so there is nothing to claim — send them to sign in, exactly as Flow A
     // describes ("Connect App" becomes "Login").
-    return { kind: "reconnected", hotelId: existing.id, propertyName: propertyName ?? existing.name };
+    return {
+      kind: "reconnected",
+      hotelId: existing.id,
+      propertyName: propertyName ?? existing.name,
+      ...(isGroupGrant ? { groupProperties: properties.length } : {}),
+    };
   }
 
   // ── Unclaimed property: park the grant on an inert hotel and mint a ticket.
@@ -188,8 +213,18 @@ export async function handleMarketplaceConnect(
     p_entity_type: "pms_connection",
     p_entity_id: hotelId,
     p_hotel_id: hotelId,
-    p_detail: { pms_type: pmsType, via: "marketplace_flow_a", property_id: propertyId },
+    p_detail: {
+      pms_type: pmsType,
+      via: "marketplace_flow_a",
+      property_id: propertyId,
+      ...(isGroupGrant ? { group_properties: properties.length } : {}),
+    },
   });
 
-  return { kind: "claim", token, propertyName };
+  return {
+    kind: "claim",
+    token,
+    propertyName,
+    ...(isGroupGrant ? { groupProperties: properties.length } : {}),
+  };
 }
