@@ -275,20 +275,37 @@ export async function evaluateHotel(
   }
 
   // The property's own rate, read from the PMS and never written by us.
-  const calRows = await fetchAllRows(() =>
-    supabase
-      .from("base_rate_calendar")
-      .select("stay_date, room_type_id, price")
-      .eq("hotel_id", hotelId)
-      .gte("stay_date", firstDate)
-      .lte("stay_date", lastDate)
-      .order("stay_date", { ascending: true })
-      .order("room_type_id", { ascending: true }),
-  );
+  //
+  // Degrades to empty instead of throwing: this table arrives in a migration,
+  // and an engine that dies on every hotel because the deploy landed before
+  // the SQL is a far worse failure than pricing the way we did last week. A
+  // missing calendar simply falls through to the older base sources.
   const calendarBaseByCell = new Map<string, number>();
-  for (const c of calRows) {
-    if (!c.room_type_id || c.price == null) continue;
-    calendarBaseByCell.set(`${c.stay_date}|${c.room_type_id}`, Number(c.price));
+  try {
+    const calRows = await fetchAllRows(() =>
+      supabase
+        .from("base_rate_calendar")
+        .select("stay_date, room_type_id, price")
+        .eq("hotel_id", hotelId)
+        .gte("stay_date", firstDate)
+        .lte("stay_date", lastDate)
+        .order("stay_date", { ascending: true })
+        .order("room_type_id", { ascending: true }),
+    );
+    for (const c of calRows) {
+      if (!c.room_type_id || c.price == null) continue;
+      calendarBaseByCell.set(`${c.stay_date}|${c.room_type_id}`, Number(c.price));
+    }
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "evaluateHotel",
+        step: "base_rate_calendar",
+        hotelId,
+        error: e instanceof Error ? e.message : String(e),
+        degradedToEmpty: true,
+      }),
+    );
   }
 
   const basePrices = new Map<string, number>();
