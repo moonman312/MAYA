@@ -246,6 +246,26 @@ describe("persistPropertyId", () => {
     });
   });
 
+  it("re-requests the granted scopes on refresh, so the new token is not scopeless", async () => {
+    // Auth0 (Think's IdP) hands back a token with NO scopes unless they are
+    // asked for again, and a scopeless token 403s every API call — the
+    // connection would die silently on its first token expiry.
+    const bodies: string[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init?: { body?: string }) => {
+      bodies.push(String(init?.body ?? ""));
+      return new Response(
+        JSON.stringify({ access_token: "AT2", refresh_token: "RT2", expires_in: 3600, token_type: "Bearer" }),
+        { status: 200 },
+      );
+    });
+    const db = makeSupabaseStub({ secret: nearExpiry("AT1", "RT1") });
+
+    await resolveOAuthCredentials(db.supabase, "hotel-scope", "cloudbeds");
+
+    expect(bodies).toHaveLength(1);
+    expect(new URLSearchParams(bodies[0]).get("scope")).toBe("read");
+  });
+
   it("skips the write when the propertyId is already stored", async () => {
     const db = makeSupabaseStub({ secret: { ...fresh("AT1", "RT1"), propertyId: "prop-7" } });
 
