@@ -486,6 +486,34 @@ export async function cloudbedsGetRatePlans(
   return Array.isArray(data) ? (data as JsonRecord[]) : [];
 }
 
+/**
+ * getTaxesAndFees → the property's configured taxes and fees.
+ *
+ * Cloudbeds names this a mandatory call for RMS integrations: it is how a
+ * partner establishes whether the rates it reads and writes are tax-inclusive
+ * or tax-exclusive. MAYA reads and writes the same `rate` field, so it already
+ * round-trips consistently — this records WHICH basis the property is on so
+ * that is a stated fact rather than an accident.
+ *
+ * Requires a tax scope the property must grant. Verified 2026-09-08 against the
+ * sandbox: without it Cloudbeds answers HTTP 200 with success:false and
+ * "Scope required for this call was not granted by property." Callers treat
+ * that as "unknown", never as an error worth failing a sync over.
+ */
+export async function cloudbedsGetTaxesAndFees(
+  creds: CloudbedsResolvedCredentials,
+): Promise<{ ok: true; taxes: JsonRecord[] } | { ok: false; reason: string }> {
+  try {
+    const res = await cloudbedsGet(creds, "getTaxesAndFees", { propertyID: creds.propertyId });
+    const data = res.data;
+    if (Array.isArray(data)) return { ok: true, taxes: data as JsonRecord[] };
+    if (data && typeof data === "object") return { ok: true, taxes: [data as JsonRecord] };
+    return { ok: false, reason: "unexpected_shape" };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : "request_failed" };
+  }
+}
+
 export type CloudbedsRateInterval = { startDate: string; endDate: string; rate: number };
 
 /**

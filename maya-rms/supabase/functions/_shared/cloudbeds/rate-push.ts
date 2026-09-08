@@ -49,7 +49,7 @@ export function createCloudbedsRateAdapter(
       // is enough — the roomTypeID → rateID mapping is date-independent.
       const start = new Date().toISOString().slice(0, 10);
       const end = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
-      const plans = await cloudbedsGetRatePlans(creds, start, end);
+      const plans = await cloudbedsGetRatePlans(creds, start, end, { detailedRates: true });
       // Per room type, pick a non-derived rate, preferring the base BAR
       // (base rates lack `ratePlanID`).
       const chosen = new Map<string, { rateId: string; isBase: boolean }>();
