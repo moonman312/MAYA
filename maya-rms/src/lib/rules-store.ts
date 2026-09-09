@@ -335,16 +335,22 @@ export async function listRules(
 
 /**
  * Load rules in the full EngineRule shape for engine evaluation.
+ *
+ * Active-only by default, because that is what the engine wants. The simulator
+ * asks for everything: previewing what a rule WOULD do is most useful for the
+ * ones that are switched off, and ruleScopeMatches rejects `is_active: false`
+ * on its own, so a caller that forgets to filter still gets engine-correct
+ * behaviour rather than a rule that quietly fires.
  */
 export async function listEngineRules(
   supabase: SupabaseClient,
   hotelId: string,
+  opts?: { includeInactive?: boolean },
 ): Promise<EngineRule[]> {
-  const { data, error } = await supabase
-    .from("pricing_rules")
-    .select(RULE_SELECT)
-    .eq("hotel_id", hotelId)
-    .eq("is_active", true)
+  let query = supabase.from("pricing_rules").select(RULE_SELECT).eq("hotel_id", hotelId);
+  if (!opts?.includeInactive) query = query.eq("is_active", true);
+
+  const { data, error } = await query
     .order("priority", { ascending: true })
     .order("created_at", { ascending: true });
 
@@ -367,6 +373,13 @@ export type CreateRuleInput = {
   signal_room_type_ids?: string[];
   affected_room_type_ids?: string[];
   condition?: RuleCondition;
+  /**
+   * Defaults to true. The simulator's "Save This Rule" passes false so the rule
+   * lands switched off — it has to be atomic with the insert, not a toggle
+   * afterwards, or a scheduled evaluation between the two calls would start
+   * moving real prices with a rule nobody has approved yet.
+   */
+  is_active?: boolean;
 };
 
 export async function createRule(
@@ -387,7 +400,7 @@ export async function createRule(
       conditions: conditionsFromMap,
       action: input.action,
       room_types: input.room_types,
-      enabled: true,
+      enabled: input.is_active ?? true,
     };
     memoryRules.push(rule);
     return rule;
@@ -437,7 +450,7 @@ export async function createRule(
       hotel_id: hotelId,
       name: input.rule_name,
       priority: input.priority ?? 100,
-      is_active: true,
+      is_active: input.is_active ?? true,
       version: 1,
       start_date: input.start_date ?? null,
       end_date: input.end_date ?? null,

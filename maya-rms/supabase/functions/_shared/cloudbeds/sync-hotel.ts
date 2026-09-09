@@ -328,7 +328,7 @@ export async function runCloudbedsSyncForHotel(
       if (propertyId) await persistPropertyId(supabase, hotelId, "cloudbeds", propertyId);
     }
     if (!propertyId) {
-      return { ok: false, error: "Could not resolve Cloudbeds propertyID (getUserInfo/getHotels returned none)." };
+      return { ok: false, error: "Could not resolve Cloudbeds propertyID (getHotels returned none)." };
     }
 
     const creds: CloudbedsResolvedCredentials = {

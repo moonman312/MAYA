@@ -608,7 +608,14 @@ function PlayPauseControls({
 /* ── Public wrapper: collapsible disclosure ───────────────────────────── */
 
 export function RuleBehaviorAnimations() {
-  const [open, setOpen] = useState(true);
+  // Starts closed on every mount, and that is the whole mechanism: the Rules
+  // tab body is rendered as `{tab === "rules" && ...}` in dashboard.tsx, so
+  // leaving the tab unmounts this and coming back remounts it collapsed.
+  // Switching BROWSER tabs unmounts nothing, so it stays as the reader left it.
+  // Persisting this (storage, a URL param, or lifting it into Dashboard, which
+  // stays mounted) would break the first half. If the tabs ever move to a
+  // hidden-but-mounted pattern to keep scroll position, this stops collapsing.
+  const [open, setOpen] = useState(false);
 
   return (
     <section className="rounded-lg border border-stone-300 bg-stone-200">
