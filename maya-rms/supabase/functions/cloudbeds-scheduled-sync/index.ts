@@ -16,6 +16,7 @@ import { runCloudbedsSyncForHotel } from "../_shared/cloudbeds/sync-hotel.ts";
 import { evaluateHotel } from "../_shared/engine/index.ts";
 import { createCloudbedsRateAdapter } from "../_shared/cloudbeds/rate-push.ts";
 import { pushRatesForHotel } from "../_shared/pms/rate-push.ts";
+import { ensureBaseRateCalendar } from "../_shared/pms/base-rate-calendar.ts";
 import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
 import { recordRoomCount } from "../_shared/billing/room-count.ts";
 
@@ -169,6 +170,20 @@ Deno.serve(async (req) => {
     const t0 = Date.now();
     const sync = await runCloudbedsSyncForHotel(supabase, hotelId);
     const tSync = Date.now();
+
+    // The property's own rate, captured BEFORE the engine runs so a brand new
+    // hotel has a base on day one instead of skipping every unbooked cell, and
+    // so a booking taken at one of our own prices can never become the base.
+    // Cells we have already pushed to are excluded inside; this only fills gaps.
+    if (sync.ok) {
+      try {
+        await ensureBaseRateCalendar(supabase, hotelId, createCloudbedsRateAdapter(sync.creds), {
+          horizonDays,
+        });
+      } catch {
+        // Never fail a tick over the calendar; pricing falls back as before.
+      }
+    }
 
     let evaluate: (typeof results)[number]["evaluate"];
     if (runEvaluate) {

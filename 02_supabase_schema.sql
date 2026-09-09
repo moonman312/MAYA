@@ -522,6 +522,32 @@ alter table published_price
   add column if not exists base_price numeric(10,2);
 
 -- ============================================================================
+-- BASE RATE CALENDAR — the property's own rate, kept clear of our output
+-- ============================================================================
+--
+-- The engine's base for a cell used to come from the newest reservation's
+-- base_rate, which the reservations_sync_base_rate trigger fills from
+-- current_rate — i.e. whatever the guest paid. Once MAYA pushed an adjusted
+-- rate and someone booked at it, that booking became the cell's base and the
+-- night was permanently repriced: deactivating the rule reverted to the raised
+-- number, not to the hotel's own rate. This table holds the rate the PROPERTY
+-- set, read from the PMS, and the engine prefers it over anything derived from
+-- a booking. MAYA never writes its own prices here.
+
+create table if not exists base_rate_calendar (
+  hotel_id     uuid not null references hotels(id) on delete cascade,
+  stay_date    date not null,
+  room_type_id uuid not null references room_types(id) on delete cascade,
+  price        numeric(10,2) not null check (price >= 0),
+  source       text not null default 'pms',
+  captured_at  timestamptz not null default now(),
+  primary key (hotel_id, stay_date, room_type_id)
+);
+
+create index if not exists idx_base_rate_calendar_hotel_stay
+  on base_rate_calendar (hotel_id, stay_date);
+
+-- ============================================================================
 -- EVALUATION AUDIT LOG (Implementation Guide §3.10)
 -- ============================================================================
 
@@ -834,6 +860,7 @@ alter table market_events enable row level security;
 alter table competitor_rates enable row level security;
 alter table stay_date_snapshot enable row level security;
 alter table published_price enable row level security;
+alter table base_rate_calendar enable row level security;
 alter table ladder_rule_state enable row level security;
 alter table ladder_transition_event enable row level security;
 alter table pickup_event enable row level security;
@@ -1314,6 +1341,12 @@ create policy competitor_rates_access
 drop policy if exists stay_date_snapshot_access on stay_date_snapshot;
 create policy stay_date_snapshot_access
   on stay_date_snapshot for all
+  using (is_hotel_accessible(hotel_id))
+  with check (can_manage_hotel(hotel_id));
+
+drop policy if exists base_rate_calendar_access on base_rate_calendar;
+create policy base_rate_calendar_access
+  on base_rate_calendar for all
   using (is_hotel_accessible(hotel_id))
   with check (can_manage_hotel(hotel_id));
 

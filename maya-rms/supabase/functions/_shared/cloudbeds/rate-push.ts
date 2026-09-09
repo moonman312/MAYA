@@ -20,6 +20,7 @@ import type { CloudbedsResolvedCredentials } from "./types.ts";
 import type {
   CellPushResult,
   PmsRatePushAdapter,
+  RateCalendarEntry,
   RateCell,
   RateTargetMap,
 } from "../pms/rate-push.ts";
@@ -104,5 +105,47 @@ export function createCloudbedsRateAdapter(
       }
       return results;
     },
+
+    async fetchRateCalendar(
+      startDate: string,
+      endDate: string,
+      targets: RateTargetMap,
+    ): Promise<RateCalendarEntry[]> {
+      // One call PER DATE. getRatePlans takes a window but collapses it to a
+      // single aggregated roomRate per plan with no per-night breakdown
+      // (verified 2026-09-08: a 3-day window returned one row per rate plan,
+      // roomRate 338, no startDate/endDate on the rows), so a range read cannot
+      // be split back into nights. Walking days is the only correct shape; at
+      // ~200ms a call a 45-day horizon costs about nine seconds, paid once when
+      // a property connects.
+      const roomTypesWanted = new Set(Object.keys(targets));
+      const out: RateCalendarEntry[] = [];
+      for (let d = startDate; d <= endDate; d = addOneDay(d)) {
+        // endDate must be strictly after startDate ("Parameter endDate should
+        // be greater than startDate"), so a single night is [d, d+1).
+        const plans = await cloudbedsGetRatePlans(creds, d, addOneDay(d));
+        // Derived plans reprice off their parent, so the parent is the
+        // property's own rate — the same choice resolveRateTargets makes.
+        for (const plan of plans) {
+          if (plan.isDerived === true || plan.isDerived === "true") continue;
+          const roomTypeId = String(plan.roomTypeID ?? "");
+          if (!roomTypesWanted.has(roomTypeId)) continue;
+          // null/undefined is a MISSING rate, and Number(null) is 0 — writing
+          // that would hand the engine a $0 base and price the night at the
+          // floor. An explicit 0 is a real comp rate and is kept.
+          if (plan.roomRate == null) continue;
+          const price = Number(plan.roomRate);
+          if (!Number.isFinite(price)) continue;
+          out.push({ stayDate: d, externalRoomTypeId: roomTypeId, price });
+        }
+      }
+      return out;
+    },
   };
+}
+
+/** YYYY-MM-DD + 1 day, via UTC so no local-timezone drift. */
+function addOneDay(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
 }
