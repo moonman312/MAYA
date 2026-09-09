@@ -79,7 +79,7 @@ export async function GET(req: Request) {
 
       const hotelId = await resolveAccessibleHotelId(supabase);
       if (!hotelId) {
-        return NextResponse.json([]);
+        return NextResponse.json(withRate ? { timezone: "UTC", roomTypes: [] } : []);
       }
 
       // total_rooms and the guardrails come along for the Rate Simulator, which
@@ -100,26 +100,35 @@ export async function GET(req: Request) {
       const rows = data ?? [];
       if (!withRate) return NextResponse.json(rows);
 
-      const seed = await nearestPublishedRates(supabase, hotelId);
-      return NextResponse.json(
-        rows.map((rt) => ({
+      // The seeded shape is an object, not an array: the simulator needs the
+      // hotel's timezone too, because days-to-arrival is measured from the
+      // hotel's calendar date and not the viewer's. Only ?withRate=1 returns
+      // this, so the rules form's plain call keeps the array it expects.
+      const [seed, hotelRow] = await Promise.all([
+        nearestPublishedRates(supabase, hotelId),
+        supabase.from("hotels").select("timezone").eq("id", hotelId).maybeSingle(),
+      ]);
+      return NextResponse.json({
+        timezone: hotelRow.data?.timezone ?? "UTC",
+        roomTypes: rows.map((rt) => ({
           ...rt,
           seed_rate:
             seed.get(String(rt.id)) ??
             fallbackSeed(Number(rt.floor_price), Number(rt.ceiling_price)),
         })),
-      );
+      });
     }
 
+    const demoRows = ROOM_TYPES.map((rt) => ({
+      id: rt.name,
+      name: rt.name,
+      total_rooms: rt.total_rooms,
+      floor_price: Math.round(rt.base_rate * 0.6),
+      ceiling_price: Math.round(rt.base_rate * 2),
+      ...(withRate ? { seed_rate: rt.base_rate } : {}),
+    }));
     return NextResponse.json(
-      ROOM_TYPES.map((rt) => ({
-        id: rt.name,
-        name: rt.name,
-        total_rooms: rt.total_rooms,
-        floor_price: Math.round(rt.base_rate * 0.6),
-        ceiling_price: Math.round(rt.base_rate * 2),
-        ...(withRate ? { seed_rate: rt.base_rate } : {}),
-      })),
+      withRate ? { timezone: "UTC", roomTypes: demoRows } : demoRows,
     );
   } catch (error) {
     return NextResponse.json(

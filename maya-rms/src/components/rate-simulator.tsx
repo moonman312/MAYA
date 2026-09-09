@@ -11,6 +11,8 @@ import {
   type ConditionMetric,
 } from "@/lib/rule-form";
 import {
+  hotelToday,
+  isIsoDate,
   isoDatePlus,
   simulate,
   SIM_SKIP_LABEL,
@@ -67,6 +69,7 @@ export function RateSimulator({
   onRuleSaved?: () => void;
 }) {
   const [roomTypes, setRoomTypes] = useState<SeededRoomType[]>([]);
+  const [hotelTimeZone, setHotelTimeZone] = useState("UTC");
   const [rules, setRules] = useState<EngineRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -94,12 +97,14 @@ export function RateSimulator({
       setLoading(true);
       setLoadError(null);
       try {
-        const [rts, engineRules] = await Promise.all([
-          api<SeededRoomType[]>("/api/room-types?withRate=1"),
+        const [seeded, engineRules] = await Promise.all([
+          api<{ timezone: string; roomTypes: SeededRoomType[] }>("/api/room-types?withRate=1"),
           api<EngineRule[]>("/api/rules/engine"),
         ]);
         if (cancelled) return;
+        const rts = seeded.roomTypes ?? [];
         setRoomTypes(rts);
+        setHotelTimeZone(seeded.timezone || "UTC");
         setRules(engineRules);
         // Open on the property's own nearest published rate. It is a real
         // number the owner recognizes, and it is the one thing that makes the
@@ -169,18 +174,24 @@ export function RateSimulator({
     activeHotelId,
   ]);
 
+  const dateValid = isIsoDate(stayDate);
+
   const results = useMemo(() => {
     const chosen = rules.filter((r) => selectedRuleIds.has(r.id));
     const all = draftRule ? [...chosen, draftRule] : chosen;
     return simulate(all, roomTypes, {
       stayDate,
-      evalDate: isoDatePlus(0),
-      hotelTimeZone: "UTC",
+      // The hotel's calendar date, not the viewer's. Days-to-arrival is measured
+      // from it, and for a US property the two differ every evening — a "book
+      // within 7 days" rule would preview as firing on a night the real run
+      // scores at 8 days out.
+      evalDate: hotelToday(hotelTimeZone),
+      hotelTimeZone,
       rooms: inputs,
       bookingSpeedLevel: bookingSpeedLevel === "" ? null : bookingSpeedLevel,
       bookingSpeedWindowDays: 7,
     });
-  }, [rules, selectedRuleIds, draftRule, roomTypes, stayDate, inputs, bookingSpeedLevel]);
+  }, [rules, selectedRuleIds, draftRule, roomTypes, stayDate, inputs, bookingSpeedLevel, hotelTimeZone]);
 
   const firedIds = useMemo(() => {
     const s = new Set<string>();
@@ -224,7 +235,10 @@ export function RateSimulator({
         draftKind === "percent" ? { adjust_rate_percent: signed } : { adjust_rate_dollars: signed };
       const names = roomTypes.filter((rt) => draftRoomTypeIds.includes(rt.id)).map((rt) => rt.name);
 
-      await api("/api/rules", {
+      // The POST answers with the rule it created, id and all. Diffing a
+      // re-fetch against a stale list instead would pick up whatever anyone
+      // else added in the meantime and check THAT into "Rules in play".
+      const created = await api<{ id: string }>("/api/rules", {
         method: "POST",
         body: JSON.stringify({
           rule_name: draftRule.name,
@@ -241,19 +255,39 @@ export function RateSimulator({
 
       setSavedNotice("Rule Added to Rules Tab and Initialized as Disabled");
       setDraftOpen(false);
+      // Clear the form. The button goes back to reading "+ Build a test rule",
+      // which promises a blank one — leaving it filled invites pressing Save
+      // again and creating a second copy of a rule that is already saved.
+      resetDraft();
       onRuleSaved?.();
 
-      // Pull it back in so it shows up here as a real, switched-off rule.
-      const refreshed = await api<EngineRule[]>("/api/rules/engine");
-      setRules(refreshed);
-      const known = new Set(rules.map((r) => r.id));
-      const added = refreshed.find((r) => !known.has(r.id));
-      if (added) setSelectedRuleIds((prev) => new Set(prev).add(added.id));
+      // Pull it back in so it shows up here as a real, switched-off rule. The
+      // rule IS saved by this point, so a failure here is a refresh problem,
+      // not a save problem, and must not read as one.
+      try {
+        const refreshed = await api<EngineRule[]>("/api/rules/engine");
+        setRules(refreshed);
+        if (created?.id) setSelectedRuleIds((prev) => new Set(prev).add(String(created.id)));
+      } catch {
+        setSavedNotice(
+          "Rule Added to Rules Tab and Initialized as Disabled — reload to see it listed here.",
+        );
+      }
     } catch (e) {
       setDraftError(e instanceof Error ? e.message : "Could not save the rule.");
     } finally {
       setSaving(false);
     }
+  }
+
+  function resetDraft() {
+    setDraftName("");
+    setDraftRows([newConditionRow("occupancy")]);
+    setDraftKind("percent");
+    setDraftDirection("increase");
+    setDraftAmount("10");
+    setDraftRoomTypeIds(roomTypes.map((rt) => rt.id));
+    setDraftError(null);
   }
 
   if (loading) {
@@ -318,8 +352,10 @@ export function RateSimulator({
               onChange={(e) => setStayDate(e.target.value)}
               className={inputClass}
             />
-            <p className="mt-1 text-[11px] text-slate-500">
-              Sets days to arrival, and decides which date windows and weekdays apply.
+            <p className={`mt-1 text-[11px] ${dateValid ? "text-slate-500" : "text-amber-300"}`}>
+              {dateValid
+                ? "Sets days to arrival, and decides which date windows and weekdays apply."
+                : "Pick a stay date to see what your rules would do."}
             </p>
           </div>
           <div>
@@ -510,8 +546,11 @@ export function RateSimulator({
                   <div key={row.id} className="rounded border border-slate-800 bg-slate-950/80 p-3">
                     <div className="grid gap-2 sm:grid-cols-[minmax(0,16rem)_minmax(0,10rem)_minmax(0,10rem)_auto] sm:items-end">
                       <div className="min-w-0">
-                        <label className={microLabel}>Metric</label>
+                        <label className={microLabel} htmlFor={`sim-metric-${row.id}`}>
+                          Metric
+                        </label>
                         <select
+                          id={`sim-metric-${row.id}`}
                           value={row.metric}
                           className={inputClass}
                           onChange={(e) => {
@@ -539,8 +578,11 @@ export function RateSimulator({
 
                       {row.metric === "booking_speed" ? (
                         <div className="sm:col-span-2">
-                          <label className={microLabel}>Speed</label>
+                          <label className={microLabel} htmlFor={`sim-speed-${row.id}`}>
+                            Speed
+                          </label>
                           <select
+                            id={`sim-speed-${row.id}`}
                             value={row.booking_speed_level}
                             className={inputClass}
                             onChange={(e) =>
@@ -557,8 +599,11 @@ export function RateSimulator({
                       ) : (
                         <>
                           <div>
-                            <label className={microLabel}>Is</label>
+                            <label className={microLabel} htmlFor={`sim-op-${row.id}`}>
+                              Is
+                            </label>
                             <select
+                              id={`sim-op-${row.id}`}
                               value={row.operator}
                               className={inputClass}
                               onChange={(e) =>
@@ -570,8 +615,11 @@ export function RateSimulator({
                             </select>
                           </div>
                           <div>
-                            <label className={microLabel}>Value</label>
+                            <label className={microLabel} htmlFor={`sim-val-${row.id}`}>
+                              Value
+                            </label>
                             <input
+                              id={`sim-val-${row.id}`}
                               type="number"
                               value={row.value}
                               onChange={(e) => updateDraftRow(row.id, { value: e.target.value })}
@@ -615,8 +663,11 @@ export function RateSimulator({
 
             <div className="grid gap-2 sm:grid-cols-3">
               <div>
-                <label className={microLabel}>Then</label>
+                <label className={microLabel} htmlFor="sim-direction">
+                  Then
+                </label>
                 <select
+                  id="sim-direction"
                   value={draftDirection}
                   onChange={(e) => setDraftDirection(e.target.value as "increase" | "decrease")}
                   className={inputClass}
@@ -626,8 +677,11 @@ export function RateSimulator({
                 </select>
               </div>
               <div>
-                <label className={microLabel}>By</label>
+                <label className={microLabel} htmlFor="sim-amount">
+                  By
+                </label>
                 <input
+                  id="sim-amount"
                   type="number"
                   min={0}
                   value={draftAmount}
@@ -636,8 +690,11 @@ export function RateSimulator({
                 />
               </div>
               <div>
-                <label className={microLabel}>Unit</label>
+                <label className={microLabel} htmlFor="sim-unit">
+                  Unit
+                </label>
                 <select
+                  id="sim-unit"
                   value={draftKind}
                   onChange={(e) => setDraftKind(e.target.value as ActionKindUi)}
                   className={inputClass}
@@ -649,8 +706,10 @@ export function RateSimulator({
             </div>
 
             <div>
-              <label className={microLabel}>Room types</label>
-              <div className="flex flex-wrap gap-2">
+              <span className={microLabel} id="sim-room-types-label">
+                Room types
+              </span>
+              <div className="flex flex-wrap gap-2" role="group" aria-labelledby="sim-room-types-label">
                 {roomTypes.map((rt) => {
                   const on = draftRoomTypeIds.includes(rt.id);
                   return (

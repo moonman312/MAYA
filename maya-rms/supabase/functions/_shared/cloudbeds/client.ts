@@ -206,11 +206,29 @@ export async function cloudbedsDiscoverPropertyId(
   try {
     const hotels = await cloudbedsGet(withCreds, "getHotels", {});
     const arr = hotels.data;
-    if (Array.isArray(arr) && arr.length > 0) {
-      const first = arr[0] as JsonRecord;
-      const pid = first.propertyID ?? first.property_id ?? first.id;
-      if (pid != null) return String(pid);
+    if (!Array.isArray(arr) || arr.length === 0) return null;
+
+    // Exactly one, or nothing. This used to take arr[0], which is right for a
+    // property account and silently wrong for a group: Cloudbeds' own words are
+    // that a group user's grant "will provide data for the entire group", and
+    // the order it lists them in means nothing. Guessing bound a MAYA hotel to
+    // an arbitrary sibling and then PUSHED RATES to it — a wrong-property write
+    // is far worse than a connection that says it needs help. Callers that can
+    // handle a group use cloudbedsListProperties and decide deliberately.
+    if (arr.length > 1) {
+      console.error(
+        JSON.stringify({
+          fn: "cloudbedsDiscoverPropertyId",
+          error: "ambiguous_group_grant",
+          count: arr.length,
+        }),
+      );
+      return null;
     }
+
+    const only = arr[0] as JsonRecord;
+    const pid = only.propertyID ?? only.property_id ?? only.id;
+    if (pid != null) return String(pid);
   } catch {
     // no-op
   }

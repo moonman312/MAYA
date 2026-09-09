@@ -138,15 +138,21 @@ function metricsForRule(
     const input = scenario.rooms[rtId];
     if (!rt || !input) continue;
     sawAnySignal = true;
+    // Every one of these can arrive as NaN: an emptied number input reports "",
+    // and Number("") is NaN. One NaN would make occupancy NaN, and every
+    // comparison against NaN is false, so rules would silently stop firing with
+    // nothing on screen explaining why.
+    const occPct = safeNumber(input.occupancyPct);
+    const picked = safeNumber(input.pickupUnits);
     snapshots.set(rtId, {
       sellable_units: rt.total_rooms,
-      booked_units: Math.round((input.occupancyPct / 100) * rt.total_rooms),
+      booked_units: Math.round((occPct / 100) * rt.total_rooms),
     });
-    pickupUnits += input.pickupUnits;
+    pickupUnits += picked;
     // The scenario only asks for room nights. A revenue-metric rule needs
     // dollars, so value those nights at the base price the owner set for that
     // room type — the closest honest reading of "these rooms picked up".
-    pickupRevenue += input.pickupUnits * input.basePrice;
+    pickupRevenue += picked * safeNumber(input.basePrice);
   }
 
   const occupancy = computeOccupancy(snapshots, rule.signal_room_type_ids);
@@ -196,58 +202,88 @@ export function simulate(
   roomTypes: SimRoomType[],
   scenario: SimScenario,
 ): SimRoomResult[] {
-  // ruleScopeMatches rejects an inactive rule before it checks anything else,
-  // which is right for the engine and wrong here. Flip the flag for the scope
-  // test only; the real value is reported back on the outcome.
+  // A half-typed date reaches here as "" — an <input type="date"> reports that
+  // for any incomplete value. Passing it on would reach Intl.DateTimeFormat
+  // with an Invalid Date and throw, and since this runs inside a useMemo during
+  // render, the throw would unmount the whole dashboard mid-edit. Price the
+  // rooms with no rules instead and let the caller say "pick a date".
+  const datesUsable = isIsoDate(scenario.stayDate) && isIsoDate(scenario.evalDate);
   const evalTs = `${scenario.evalDate}T12:00:00.000Z`;
+
+  // Everything a rule's verdict depends on is a function of (rule, scenario) —
+  // never of the room type being priced. Computing it inside the room-type loop
+  // repeated the whole thing once per room, which on a 130-room-type property
+  // with 15 rules meant ~2000 Intl.DateTimeFormat constructions per keystroke.
+  const perRule = datesUsable
+    ? rules.map((rule) => {
+        const metrics = metricsForRule(rule, roomTypes, scenario);
+        const hasRoomTypes =
+          rule.signal_room_type_ids.length > 0 && rule.affected_room_type_ids.length > 0;
+        const inScope =
+          hasRoomTypes &&
+          ruleScopeMatches({ ...rule, is_active: true }, scenario.stayDate, evalTs, scenario.hotelTimeZone);
+        // Scope folds the date window and the DOW mask together. Re-test the
+        // window alone so the reason shown is the one that actually bit.
+        const windowOnly =
+          hasRoomTypes && !inScope
+            ? ruleScopeMatches(
+                { ...rule, is_active: true, dow_mask: 127 },
+                scenario.stayDate,
+                evalTs,
+                scenario.hotelTimeZone,
+              )
+            : false;
+        const affected = new Set(rule.affected_room_type_ids);
+        return {
+          rule,
+          metrics,
+          hasRoomTypes,
+          inScope,
+          windowOnly,
+          affected,
+          conditionsMet: ruleConditionsMatch(rule, metrics),
+          kind: (rule.is_pickup_rule ? "pickup" : "ladder") as "ladder" | "pickup",
+        };
+      })
+    : [];
 
   return roomTypes.map((rt) => {
     const input = scenario.rooms[rt.id];
-    const basePrice = input?.basePrice ?? 0;
+    const basePrice = safeNumber(input?.basePrice);
 
     const outcomes: SimRuleOutcome[] = [];
     const ladderRules: EngineRule[] = [];
     const pickupRules: EngineRule[] = [];
 
-    for (const rule of rules) {
-      const kind: "ladder" | "pickup" = rule.is_pickup_rule ? "pickup" : "ladder";
-      const metrics = metricsForRule(rule, roomTypes, scenario);
-      const base = {
-        ruleId: rule.id,
-        ruleName: rule.name,
-        isActive: rule.is_active,
-        kind,
-        occupancySeen: metrics.occupancy,
-        dta: metrics.dta,
-      };
-
+    for (const p of perRule) {
       let skip: SimSkipReason | null = null;
 
-      if (rule.signal_room_type_ids.length === 0 || rule.affected_room_type_ids.length === 0) {
+      if (!p.hasRoomTypes) {
         skip = "no_room_types";
-      } else if (!rule.affected_room_type_ids.includes(rt.id)) {
+      } else if (!p.affected.has(rt.id)) {
         skip = "not_affected";
-      } else if (!ruleScopeMatches({ ...rule, is_active: true }, scenario.stayDate, evalTs, scenario.hotelTimeZone)) {
-        // Scope folds the date window and the DOW mask together. Re-test the
-        // window alone so the reason shown is the one that actually bit.
-        const windowOnly = ruleScopeMatches(
-          { ...rule, is_active: true, dow_mask: 127 },
-          scenario.stayDate,
-          evalTs,
-          scenario.hotelTimeZone,
-        );
-        skip = windowOnly ? "day_of_week" : "date_window";
-      } else if (rule.condition.occupancy_operator && metrics.occupancy === null) {
+      } else if (!p.inScope) {
+        skip = p.windowOnly ? "day_of_week" : "date_window";
+      } else if (p.rule.condition.occupancy_operator && p.metrics.occupancy === null) {
         skip = "no_occupancy_data";
-      } else if (!ruleConditionsMatch(rule, metrics)) {
+      } else if (!p.conditionsMet) {
         skip = "condition_not_met";
       }
 
-      outcomes.push({ ...base, fired: skip === null, skipReason: skip });
+      outcomes.push({
+        ruleId: p.rule.id,
+        ruleName: p.rule.name,
+        isActive: p.rule.is_active,
+        kind: p.kind,
+        occupancySeen: p.metrics.occupancy,
+        dta: p.metrics.dta,
+        fired: skip === null,
+        skipReason: skip,
+      });
       if (skip !== null) continue;
 
-      if (kind === "ladder") ladderRules.push(rule);
-      else pickupRules.push(rule);
+      if (p.kind === "ladder") ladderRules.push(p.rule);
+      else pickupRules.push(p.rule);
     }
 
     // The engine composes ladder effects in ascending rule_id order and pickup
@@ -273,9 +309,46 @@ export function simulate(
   });
 }
 
+/** A real YYYY-MM-DD, not "" and not "2026-13-40". */
+export function isIsoDate(s: string | null | undefined): boolean {
+  if (typeof s !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const [y, m, d] = s.split("-").map(Number);
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+  const probe = new Date(Date.UTC(y, m - 1, d));
+  return probe.getUTCMonth() === m - 1 && probe.getUTCDate() === d;
+}
+
+/** An empty number input reports NaN; a price of NaN poisons the whole row. */
+function safeNumber(n: number | undefined): number {
+  return typeof n === "number" && Number.isFinite(n) ? n : 0;
+}
+
 /** "YYYY-MM-DD" for a date `days` from today, in UTC calendar terms. */
 export function isoDatePlus(days: number, from: Date = new Date()): string {
   const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Today's date on the HOTEL's calendar, which is what days-to-arrival is
+ * measured from.
+ *
+ * The engine reads hotels.timezone and derives its local date the same way
+ * (evaluate.ts). Using the viewer's UTC date instead puts the preview a day off
+ * for every evening at a US property — a "book within 7 days" rule would show
+ * as firing on a night the real run scores at 8 days out.
+ */
+export function hotelToday(hotelTimeZone: string, now: Date = new Date()): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: hotelTimeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(now);
+  } catch {
+    // An unknown IANA name must not take down the tab.
+    return isoDatePlus(0, now);
+  }
 }
