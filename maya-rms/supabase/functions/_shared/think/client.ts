@@ -303,6 +303,28 @@ export type ThinkDailyRateRow = {
 };
 
 /**
+ * GET /v1/hotels/{hotelId}/rate_types/{rateTypeId}/daily — the property's own
+ * prices, one row per (room type, date) across the window. Verified live
+ * 2026-09-08: a startDate/endDate range returns every room-night in the range,
+ * so one call covers a whole horizon per rate type.
+ */
+export async function thinkGetDailyRates(
+  creds: ThinkCredentials,
+  hotelId: string,
+  rateTypeId: string,
+  startDate: string,
+  endDate: string,
+): Promise<ThinkDailyRateRow[]> {
+  const data = await thinkGet(
+    creds,
+    `/v1/hotels/${encodeURIComponent(hotelId)}/rate_types/${encodeURIComponent(rateTypeId)}/daily`,
+    { startDate, endDate },
+  );
+  const rows = Array.isArray(data) ? data : [];
+  return rows as ThinkDailyRateRow[];
+}
+
+/**
  * PUT /v1/hotels/{hotelId}/rate_types/{rateTypeId}/daily — update prices.
  * 202 means accepted for asynchronous processing, nothing stronger.
  */
