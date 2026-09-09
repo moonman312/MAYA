@@ -16,6 +16,7 @@
  */
 
 import {
+  thinkGetDailyRates,
   thinkGetRateTypes,
   thinkPutDailyRates,
   type ThinkDailyRateRow,
@@ -24,6 +25,7 @@ import type { ThinkCredentials } from "./types.ts";
 import type {
   CellPushResult,
   PmsRatePushAdapter,
+  RateCalendarEntry,
   RateCell,
   RateTargetMap,
 } from "../pms/rate-push.ts";
@@ -102,6 +104,38 @@ export function createThinkRateAdapter(
         }
       }
       return results;
+    },
+
+    async fetchRateCalendar(
+      startDate: string,
+      endDate: string,
+      targets: RateTargetMap,
+    ): Promise<RateCalendarEntry[]> {
+      // One call per distinct rate type covers every room-night in the window,
+      // so a horizon costs as many requests as the property has base rates.
+      const wanted = new Map<string, Set<string>>();
+      for (const [roomTypeId, rateTypeId] of Object.entries(targets)) {
+        const set = wanted.get(rateTypeId) ?? new Set<string>();
+        set.add(roomTypeId);
+        wanted.set(rateTypeId, set);
+      }
+      const out: RateCalendarEntry[] = [];
+      for (const [rateTypeId, roomTypeIds] of wanted) {
+        const rows = await thinkGetDailyRates(creds, thinkHotelId, rateTypeId, startDate, endDate);
+        for (const r of rows) {
+          const roomTypeId = String(r.roomTypeId ?? "");
+          // A rate type covers room types we may not price; keep only ours.
+          if (!roomTypeIds.has(roomTypeId)) continue;
+          // null/undefined is a MISSING rate, and Number(null) is 0 — writing
+          // that would hand the engine a $0 base. An explicit 0 is a real comp
+          // rate and is kept.
+          if (r.price == null) continue;
+          const price = Number(r.price);
+          if (!Number.isFinite(price)) continue;
+          out.push({ stayDate: String(r.date), externalRoomTypeId: roomTypeId, price });
+        }
+      }
+      return out;
     },
   };
 }

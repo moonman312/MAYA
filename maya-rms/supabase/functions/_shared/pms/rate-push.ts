@@ -40,12 +40,33 @@ export type CellPushResult = {
   error?: string;
 };
 
+/** One room-night of the property's own rate, as the PMS reports it. */
+export type RateCalendarEntry = {
+  stayDate: string;
+  externalRoomTypeId: string;
+  price: number;
+};
+
 export interface PmsRatePushAdapter {
   pmsType: "cloudbeds" | "mews" | "think";
   /** Resolve external_room_type_id -> external rate id (the base BAR rate to update). */
   resolveRateTargets(): Promise<RateTargetMap>;
   /** Push cells (already carrying their externalRateId); batch internally per vendor limits. */
   pushCells(cells: Array<RateCell & { externalRateId: string }>): Promise<CellPushResult[]>;
+  /**
+   * Read the property's OWN rate for each room-night in the window — what the
+   * hotel charges before MAYA touches anything. Feeds base_rate_calendar, which
+   * is why it must never be called for a cell we have already pushed to: the
+   * number would be our own output coming back as an input.
+   *
+   * Optional so an adapter can land before its rate read does; callers treat a
+   * missing implementation as "no calendar available" rather than an error.
+   */
+  fetchRateCalendar?(
+    startDate: string,
+    endDate: string,
+    targets: RateTargetMap,
+  ): Promise<RateCalendarEntry[]>;
 }
 
 export type RatePushOptions = {
