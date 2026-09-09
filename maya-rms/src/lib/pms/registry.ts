@@ -73,6 +73,13 @@ export const PMS_REGISTRY: Record<Exclude<PmsType, "opera" | "other">, PmsRegist
       "read:rate",
       "write:rate",
       "read:hotel",
+      // getTaxesAndFees is mandatory for the RMS category and this is the scope
+      // it wants — Cloudbeds spells it in full camelCase, not the singularized
+      // "read:tax" the neighbours above would suggest. Asking for it here only
+      // covers connections that start from OUR authorize URL: a Marketplace
+      // connection never passes through it, so what a property is asked to
+      // grant comes entirely from the app's Cloudbeds-side configuration.
+      "read:taxesAndFees",
     ],
     requiredEnvVars: ["CLOUDBEDS_CLIENT_ID", "CLOUDBEDS_CLIENT_SECRET"],
     vendorConsoleUrl: "https://hotels.cloudbeds.com/",

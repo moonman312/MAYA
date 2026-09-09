@@ -190,21 +190,19 @@ export async function cloudbedsGet(
 
 /**
  * Discover the property id for the connected user (used when it wasn't stored
- * at connect time). ⚠ VERIFY: classic API exposes this via getUserInfo (returns
- * property_id) or getHotels (list). Adjust the field extraction to match.
+ * at connect time).
+ *
+ * getHotels is the only way in. This used to try getUserInfo first, but that
+ * method is gone: it answers 404 with Cloudbeds' website HTML on every host and
+ * every version (api. and hotels., v1.1/v1.2/v1.3 — checked live 2026-09-09).
+ * The 404 was swallowed, so nothing broke; it just meant every new connection
+ * spent a guaranteed-failing round trip that landed in pms_request_log and
+ * dragged the property's success rate below the healthy threshold.
  */
 export async function cloudbedsDiscoverPropertyId(
   creds: Omit<CloudbedsResolvedCredentials, "propertyId">,
 ): Promise<string | null> {
   const withCreds: CloudbedsResolvedCredentials = { ...creds, propertyId: "" };
-  try {
-    const info = await cloudbedsGet(withCreds, "getUserInfo", {});
-    const data = (info.data ?? info) as JsonRecord;
-    const pid = data.property_id ?? data.propertyID ?? data.propertyId;
-    if (pid != null) return String(pid);
-  } catch {
-    // fall through to getHotels
-  }
   try {
     const hotels = await cloudbedsGet(withCreds, "getHotels", {});
     const arr = hotels.data;
