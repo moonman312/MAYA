@@ -62,6 +62,17 @@ export interface PmsRatePushAdapter {
    * Optional so an adapter can land before its rate read does; callers treat a
    * missing implementation as "no calendar available" rather than an error.
    */
+  /**
+   * Ask the vendor what became of jobs we already submitted. patchRate-style
+   * endpoints are asynchronous, so "accepted" is not "applied" — without this
+   * a failed job stays recorded as sent and the idempotency check suppresses
+   * the retry forever. Optional: a vendor with synchronous writes has nothing
+   * to reconcile.
+   */
+  fetchJobOutcomes?(
+    jobReferences: string[],
+  ): Promise<Record<string, { done: boolean; ok: boolean; message?: string }>>;
+
   fetchRateCalendar?(
     startDate: string,
     endDate: string,
@@ -86,6 +97,10 @@ export type RatePushSummary =
       skippedUnchanged: number;
       skippedNoTarget: number;
       skippedExhausted: number;
+      /** Cells whose rate job the vendor confirmed as applied. */
+      jobsConfirmed?: number;
+      /** Cells the vendor ACCEPTED then rejected — put back in play, not left looking live. */
+      jobsRejected?: number;
     };
 
 /**
@@ -329,6 +344,14 @@ export async function pushRatesForHotel(
   const sent = results.filter((r) => r.ok).length;
   const failed = results.filter((r) => !r.ok).length;
 
+  // "Accepted" is not "applied". patchRate queues a job, so a cell we just
+  // marked sent may still be rejected downstream — and because the ledger
+  // treats a sent row as the last known good price, a silent failure would
+  // both misreport the rate as live AND suppress every future retry of it.
+  // Reconcile the jobs we have references for; anything still running is left
+  // alone for the next tick to ask about again.
+  const jobConfirmed = await reconcileJobOutcomes(supabase, hotelId, adapter, results, nowIso);
+
   // Rejections against cached rate ids usually mean the catalog was rebuilt and
   // those ids are gone. Failed cells stay "changed" (only sends land in the
   // ledger's lastSent), so dropping the cache is enough for the next tick to
@@ -345,5 +368,107 @@ export async function pushRatesForHotel(
     skippedUnchanged,
     skippedNoTarget: noTarget.length,
     skippedExhausted,
+    ...(jobConfirmed != null ? { jobsConfirmed: jobConfirmed.ok, jobsRejected: jobConfirmed.rejected } : {}),
   };
+}
+
+/**
+ * Ask the vendor what became of the jobs this run submitted, and correct the
+ * ledger where "accepted" turned out not to mean "applied".
+ *
+ * A rejected job is written back as failed WITH its reason, which matters for
+ * more than reporting: the idempotency check treats a sent row as the last
+ * price the PMS accepted, so leaving a failure recorded as sent would make the
+ * next tick skip that cell as unchanged and the wrong rate would stand
+ * indefinitely. Marking it failed puts the cell back in play.
+ *
+ * Never throws. This is reconciliation after the fact — the prices are already
+ * pushed, and a vendor hiccup here must not turn a good push into an error.
+ */
+async function reconcileJobOutcomes(
+  supabase: SupabaseClient,
+  hotelId: string,
+  adapter: PmsRatePushAdapter,
+  results: CellPushResult[],
+  nowIso: string,
+): Promise<{ ok: number; rejected: number } | null> {
+  if (!adapter.fetchJobOutcomes) return null;
+
+  const byJob = new Map<string, CellPushResult[]>();
+  for (const r of results) {
+    if (!r.ok || !r.jobReference) continue;
+    const list = byJob.get(r.jobReference) ?? [];
+    list.push(r);
+    byJob.set(r.jobReference, list);
+  }
+  if (byJob.size === 0) return null;
+
+  try {
+    // Jobs settle in a few seconds (measured: ~4s on Cloudbeds), so wait
+    // briefly rather than leaving every confirmation to the next tick. Only a
+    // run that actually sent something pays this, and write-on-change means
+    // most ticks send nothing at all. Anything still running after the last
+    // look is left undecided and asked about again next time.
+    const refs = [...byJob.keys()];
+    let outcomes = await adapter.fetchJobOutcomes(refs);
+    for (const attempt of [0, 1]) {
+      const undecided = refs.filter((r) => !outcomes[r]?.done);
+      if (undecided.length === 0) break;
+      await new Promise((r) => setTimeout(r, attempt === 0 ? 2500 : 3500));
+      outcomes = { ...outcomes, ...(await adapter.fetchJobOutcomes(undecided)) };
+    }
+    let ok = 0;
+    let rejected = 0;
+    const corrections: Record<string, unknown>[] = [];
+
+    for (const [jobRef, cells] of byJob) {
+      const outcome = outcomes[jobRef];
+      if (!outcome || !outcome.done) continue; // still running — ask again next tick
+      if (outcome.ok) {
+        ok += cells.length;
+        continue;
+      }
+      rejected += cells.length;
+      for (const c of cells) {
+        corrections.push({
+          hotel_id: hotelId,
+          pms_type: adapter.pmsType,
+          room_type_id: c.cell.roomTypeId,
+          external_room_type_id: c.cell.externalRoomTypeId,
+          stay_date: c.cell.stayDate,
+          price: c.cell.price,
+          status: "failed",
+          pms_job_reference: jobRef,
+          error: outcome.message ?? "rate job rejected",
+          attempts: 1,
+          pushed_at: nowIso,
+        });
+      }
+    }
+
+    if (corrections.length > 0) {
+      await supabase
+        .from("rate_updates")
+        .upsert(corrections, { onConflict: "hotel_id,room_type_id,stay_date" });
+      console.error(
+        JSON.stringify({
+          fn: "reconcileJobOutcomes",
+          hotelId,
+          pmsType: adapter.pmsType,
+          rejected: corrections.length,
+          event: "rate_job_rejected",
+        }),
+      );
+    }
+    return { ok, rejected };
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "reconcileJobOutcomes",
+        hotelId,
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+    return null;
+  }
 }

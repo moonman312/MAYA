@@ -15,9 +15,14 @@ import {
   cloudbedsGetReservationsRange,
   cloudbedsTimestamp,
   cloudbedsGetRoomTypes,
+  cloudbedsGetTaxesAndFees,
   CloudbedsHttpError,
   type CloudbedsReservation,
 } from "./client.ts";
+import {
+  isAuthRevocation,
+  markConnectionDisconnected,
+} from "../pms/connection-health.ts";
 import {
   CLOUDBEDS_SYNC_BUDGET_MS,
   CLOUDBEDS_INCREMENTAL_OVERLAP_MS,
@@ -347,6 +352,14 @@ export async function runCloudbedsSyncForHotel(
     const rtRaw = await cloudbedsGetRoomTypes(creds);
     const parsedRoomTypes = parseCloudbedsRoomTypes(rtRaw, defaultRooms);
 
+    // Cloudbeds names getTaxesAndFees a mandatory call for RMS integrations:
+    // it establishes whether the rates we read and write are tax-inclusive or
+    // tax-exclusive. MAYA reads and writes the same `rate` field so it already
+    // round-trips consistently; this records WHICH basis the property is on,
+    // rather than leaving it an accident. Never fatal — the call needs a tax
+    // scope the property may not have granted, and a sync that dies over a
+    // reporting detail would be a much worse bug than not knowing the basis.
+
     let roomTypesUpserted = 0;
     if (parsedRoomTypes.length > 0) {
       const rtRows = dedupeByKey(
@@ -418,6 +431,23 @@ export async function runCloudbedsSyncForHotel(
       overlapMs: CLOUDBEDS_INCREMENTAL_OVERLAP_MS,
       fullSweepIntervalMs: CLOUDBEDS_FULL_SYNC_INTERVAL_MS,
     });
+
+    // Only on a full sweep. A property's tax configuration does not change
+    // every five minutes, and calling it on every tick made a scope the
+    // property has not granted look like a 5% failure rate across the whole
+    // integration — the health classifier reads the request log, so a call we
+    // expect to fail would permanently show every hotel as degraded.
+    if (!incremental) {
+      const taxes = await cloudbedsGetTaxesAndFees(creds);
+      console.log(
+        JSON.stringify({
+          fn: "runCloudbedsSyncForHotel",
+          step: "taxes_and_fees",
+          hotelId,
+          ...(taxes.ok ? { taxCount: taxes.taxes.length } : { unavailable: taxes.reason }),
+        }),
+      );
+    }
 
     // Only the SCHEDULED full sweep checkpoints. An explicit window is a
     // one-shot re-read someone asked for, and incremental pulls are small
@@ -691,6 +721,13 @@ export async function runCloudbedsSyncForHotel(
     };
   } catch (error) {
     if (error instanceof CloudbedsHttpError) {
+      // A 401/403 on a data call is what a Marketplace disconnect looks like
+      // from out here: the grant is gone but the access token has not expired,
+      // so the token-refresh path never runs and never notices. Without this
+      // the connection kept reporting "connected" while every call 401'd.
+      if (isAuthRevocation(error.status)) {
+        await markConnectionDisconnected(supabase, hotelId, "cloudbeds", error.message);
+      }
       return {
         ok: false,
         error: error.message,
