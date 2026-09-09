@@ -12,6 +12,7 @@
  */
 
 import {
+  cloudbedsGetRateJobs,
   cloudbedsGetRatePlans,
   cloudbedsPatchRate,
   type CloudbedsRateInterval,
@@ -49,7 +50,7 @@ export function createCloudbedsRateAdapter(
       // is enough — the roomTypeID → rateID mapping is date-independent.
       const start = new Date().toISOString().slice(0, 10);
       const end = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
-      const plans = await cloudbedsGetRatePlans(creds, start, end);
+      const plans = await cloudbedsGetRatePlans(creds, start, end, { detailedRates: true });
       // Per room type, pick a non-derived rate, preferring the base BAR
       // (base rates lack `ratePlanID`).
       const chosen = new Map<string, { rateId: string; isBase: boolean }>();
@@ -106,37 +107,70 @@ export function createCloudbedsRateAdapter(
       return results;
     },
 
+    async fetchJobOutcomes(
+      jobReferences: string[],
+    ): Promise<Record<string, { done: boolean; ok: boolean; message?: string }>> {
+      // One call returns the recent job list; we match ours out of it rather
+      // than asking per job, because Cloudbeds has no per-reference lookup.
+      const wanted = new Set(jobReferences.map(String));
+      const out: Record<string, { done: boolean; ok: boolean; message?: string }> = {};
+      const jobs = await cloudbedsGetRateJobs(creds);
+      for (const job of jobs) {
+        if (!wanted.has(job.jobReferenceID)) continue;
+        const status = job.status.toLowerCase();
+        // Anything still moving is left undecided so the next tick asks again.
+        if (status !== "completed" && status !== "failed" && status !== "error") {
+          out[job.jobReferenceID] = { done: false, ok: false };
+          continue;
+        }
+        // A job can complete with per-update failures, and those carry the
+        // reason in `message` — a completed envelope is not on its own proof
+        // that every rate in it applied.
+        const failure = job.updates.find((u) => typeof u.message === "string" && u.message.trim());
+        const ok = status === "completed" && !failure;
+        out[job.jobReferenceID] = {
+          done: true,
+          ok,
+          ...(ok ? {} : { message: failure?.message?.trim() || `job ${status}` }),
+        };
+      }
+      return out;
+    },
+
     async fetchRateCalendar(
       startDate: string,
       endDate: string,
       targets: RateTargetMap,
     ): Promise<RateCalendarEntry[]> {
-      // One call PER DATE. getRatePlans takes a window but collapses it to a
-      // single aggregated roomRate per plan with no per-night breakdown
-      // (verified 2026-09-08: a 3-day window returned one row per rate plan,
-      // roomRate 338, no startDate/endDate on the rows), so a range read cannot
-      // be split back into nights. Walking days is the only correct shape; at
-      // ~200ms a call a 45-day horizon costs about nine seconds, paid once when
-      // a property connects.
+      // ONE call for the whole window. detailedRates returns roomRateDetailed[]
+      // — a per-night breakdown — which is both what Cloudbeds requires of an
+      // RMS integration and the only way to get per-night numbers: without it a
+      // range collapses to a single aggregated roomRate per plan (verified
+      // 2026-09-08: a 3-day window returned roomRate 338 and no dates).
+      // endDate is exclusive, so ask for one extra day to include it.
       const roomTypesWanted = new Set(Object.keys(targets));
+      const plans = await cloudbedsGetRatePlans(creds, startDate, addOneDay(endDate), {
+        detailedRates: true,
+      });
+
       const out: RateCalendarEntry[] = [];
-      for (let d = startDate; d <= endDate; d = addOneDay(d)) {
-        // endDate must be strictly after startDate ("Parameter endDate should
-        // be greater than startDate"), so a single night is [d, d+1).
-        const plans = await cloudbedsGetRatePlans(creds, d, addOneDay(d));
-        // Derived plans reprice off their parent, so the parent is the
+      for (const plan of plans) {
+        // Derived plans reprice off their parent, so the parent carries the
         // property's own rate — the same choice resolveRateTargets makes.
-        for (const plan of plans) {
-          if (plan.isDerived === true || plan.isDerived === "true") continue;
-          const roomTypeId = String(plan.roomTypeID ?? "");
-          if (!roomTypesWanted.has(roomTypeId)) continue;
+        if (plan.isDerived === true || plan.isDerived === "true") continue;
+        const roomTypeId = String(plan.roomTypeID ?? "");
+        if (!roomTypesWanted.has(roomTypeId)) continue;
+        const nights = Array.isArray(plan.roomRateDetailed) ? plan.roomRateDetailed : [];
+        for (const night of nights as Record<string, unknown>[]) {
+          const date = String(night.date ?? "");
+          if (!date || date < startDate || date > endDate) continue;
           // null/undefined is a MISSING rate, and Number(null) is 0 — writing
           // that would hand the engine a $0 base and price the night at the
           // floor. An explicit 0 is a real comp rate and is kept.
-          if (plan.roomRate == null) continue;
-          const price = Number(plan.roomRate);
+          if (night.rate == null) continue;
+          const price = Number(night.rate);
           if (!Number.isFinite(price)) continue;
-          out.push({ stayDate: d, externalRoomTypeId: roomTypeId, price });
+          out.push({ stayDate: date, externalRoomTypeId: roomTypeId, price });
         }
       }
       return out;

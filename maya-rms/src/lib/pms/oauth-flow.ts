@@ -5,6 +5,7 @@ import { findPendingHotelForUser } from "@/lib/billing/pending-hotel";
 import { pmsSignupCodeRequired } from "@/lib/billing/pms-gates";
 import { isStripeConfigured } from "@/lib/billing/stripe";
 import { handleOnboardingConnect } from "@/lib/onboarding/connect";
+import { handleMarketplaceConnect } from "@/lib/pms/marketplace-connect";
 import { resolveOnboardingStep } from "@/lib/onboarding/step";
 import { pmsCallbackUrl, requireRegistry, type PmsType } from "@/lib/pms/registry";
 import { signOnboardingState, signState, verifyState } from "@/lib/pms/oauth-state";
@@ -173,13 +174,32 @@ export async function handleOAuthCallback(
       `${errorParam}: ${searchParams.get("error_description") ?? "vendor returned an error"}`,
     );
   }
-  if (!code || !state) {
-    return renderCallbackError(pmsType, "Missing `code` or `state` from vendor.");
+  if (!code) {
+    return renderCallbackError(pmsType, "Missing `code` from vendor.");
   }
 
-  const verified = verifyState(state, pmsType);
-  if (!verified.ok) {
-    return renderCallbackError(pmsType, `State verification failed: ${verified.error}`);
+  // FLOW A: Cloudbeds started this, not us, so there is no state we signed.
+  // Required for all new apps since 2020-11-01 — the user clicks "Connect App"
+  // in the Marketplace and arrives here with nothing but a grant. Refusing it
+  // (which is what a missing/unverifiable state used to do) is exactly the
+  // failure a certification reviewer sees.
+  //
+  // A state we cannot verify is treated the same way rather than as an attack:
+  // the grant still has to be spent against the vendor to learn anything, and
+  // identity comes from what Cloudbeds says the token is for, never from the
+  // URL. A forged state therefore buys nothing a bare Flow A callback does not
+  // already allow.
+  const verified = state ? verifyState(state, pmsType) : null;
+  const isMarketplace = !state || (verified != null && !verified.ok);
+  if (verified != null && !verified.ok) {
+    console.warn(
+      JSON.stringify({
+        fn: "handleOAuthCallback",
+        pmsType,
+        event: "unverifiable_state_treated_as_marketplace",
+        reason: verified.error,
+      }),
+    );
   }
 
   const registry = requireRegistry(pmsType);
@@ -252,6 +272,23 @@ export async function handleOAuthCallback(
     expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
   };
 
+  const base = process.env.MAYA_INVITE_REDIRECT_BASE?.replace(/\/$/, "") ?? "";
+
+  // FLOW A: no state, so the property is identified from the grant itself.
+  if (isMarketplace) {
+    const outcome = await handleMarketplaceConnect(pmsType, secretPayload);
+    if (outcome.kind === "error") return renderCallbackError(pmsType, outcome.message);
+    if (outcome.kind === "reconnected") {
+      // Flow A's own wording: after connecting, "Connect App" becomes "Login".
+      return NextResponse.redirect(`${base}/login?reconnected=1`, { status: 302 });
+    }
+    return NextResponse.redirect(`${base}/login?claim=${outcome.token}`, { status: 302 });
+  }
+
+  if (!verified || !verified.ok) {
+    return renderCallbackError(pmsType, "State verification failed.");
+  }
+
   // Onboarding: no hotel exists yet — hand off to the hotel-creating flow.
   if (verified.intent === "onboarding") {
     return handleOnboardingConnect(cookieStore, pmsType, verified.userId, secretPayload);
@@ -290,7 +327,6 @@ export async function handleOAuthCallback(
     p_detail: { pms_type: pmsType, via: "oauth" },
   });
 
-  const base = process.env.MAYA_INVITE_REDIRECT_BASE?.replace(/\/$/, "") ?? "";
   return NextResponse.redirect(`${base}/admin/hotels/${hotelId}?pmsConnected=1`, {
     status: 302,
   });

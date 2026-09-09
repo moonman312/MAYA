@@ -8,6 +8,9 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Mode = "signin" | "signup";
 
+/** Where a Flow A claim ticket waits out an email-confirmation round trip. */
+const CLAIM_KEY = "maya.marketplace.claim";
+
 /**
  * One card, two doors. Sign-in is the default; the signup mode is its own
  * form that asks a new owner to SET a password rather than assuming one
@@ -25,11 +28,51 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const configured = useMemo(() => isSupabaseConfigured(), []);
 
+  const [claim, setClaim] = useState<string | null>(null);
+  const [reconnected, setReconnected] = useState(false);
+
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("mode") === "signup") {
-      setMode("signup");
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("mode") === "signup") setMode("signup");
+    // Flow A: Cloudbeds sent them here after they connected in the Marketplace.
+    // A claim ticket means the property is parked and waiting for an owner; a
+    // reconnect means it already has one and just needs signing in.
+    // Survives the round trip through an email confirmation link, which comes
+    // back to /login with no query string — without this the property would be
+    // parked forever and the owner would have no way to reach it.
+    const c = q.get("claim") ?? sessionStorage.getItem(CLAIM_KEY);
+    if (c) {
+      setClaim(c);
+      setMode(q.get("claim") ? "signup" : "signin");
+      try {
+        sessionStorage.setItem(CLAIM_KEY, c);
+      } catch {
+        // Private browsing: the URL parameter still covers the direct path.
+      }
     }
+    setReconnected(q.get("reconnected") === "1");
   }, []);
+
+  /** Attach the Marketplace property to the account that just authenticated. */
+  async function finishClaim(): Promise<boolean> {
+    if (!claim) return true;
+    const res = await fetch("/api/pms/marketplace/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: claim }),
+    });
+    if (res.ok) {
+      try {
+        sessionStorage.removeItem(CLAIM_KEY);
+      } catch {
+        // Nothing to clean up if storage was unavailable to begin with.
+      }
+      return true;
+    }
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    setError(body.error ?? "Could not finish connecting your property.");
+    return false;
+  }
 
   function switchMode(next: Mode) {
     setMode(next);
@@ -52,6 +95,7 @@ export default function LoginPage() {
         setError(signInError.message);
         return;
       }
+      if (!(await finishClaim())) return;
       router.replace("/");
       router.refresh();
     } finally {
@@ -86,6 +130,7 @@ export default function LoginPage() {
         return;
       }
       if (data.session) {
+        if (!(await finishClaim())) return;
         router.replace("/");
         router.refresh();
         return;
@@ -111,6 +156,7 @@ export default function LoginPage() {
                 A confirmation link is on its way to{" "}
                 <span className="font-medium text-slate-100">{sentTo}</span>. Open it, then come
                 back and sign in.
+                {claim ? " Your Cloudbeds property is saved and will be waiting." : ""}
               </p>
               <button
                 type="button"
@@ -129,9 +175,13 @@ export default function LoginPage() {
                 {mode === "signin" ? "Sign in to MAYA" : "Create your MAYA account"}
               </h1>
               <p className="mt-2 text-sm text-slate-300">
-                {mode === "signin"
-                  ? "Welcome back."
-                  : "Set a password and you're on your way — your property comes next."}
+                {claim
+                  ? "Your Cloudbeds property is connected. Create your account to finish setting it up."
+                  : reconnected
+                    ? "Your Cloudbeds connection is active again. Sign in to pick up where you left off."
+                    : mode === "signin"
+                      ? "Welcome back."
+                      : "Set a password and you're on your way — your property comes next."}
               </p>
 
               {!configured && (
