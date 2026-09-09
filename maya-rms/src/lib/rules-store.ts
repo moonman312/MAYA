@@ -358,6 +358,61 @@ export async function listEngineRules(
   return (data ?? []).map(dbRowToEngineRule);
 }
 
+/**
+ * The in-memory demo rules, in the EngineRule shape.
+ *
+ * Without this the Rate Simulator shows "no rules" in demo/offline mode while
+ * the Rules tab beside it lists four — the old simulator ran on the same
+ * memory store, so losing that would be a regression rather than a gap.
+ *
+ * `room_types: []` means "every room type" in the legacy shape, which is why
+ * the caller has to hand over the full id list to expand it against.
+ */
+export function listEngineRulesFromMemory(allRoomTypeIds: string[]): EngineRule[] {
+  return memoryRules.map((r) => {
+    const condition: RuleCondition = {};
+    for (const [key, raw] of Object.entries(r.conditions)) {
+      const parsed = parseLegacyConditionForDb(String(raw));
+      if (!parsed) continue;
+      if (key === "occupancy_percentage") {
+        condition.occupancy_operator = parsed.op;
+        condition.occupancy_threshold = parsed.num / 100;
+      } else if (key === "booking_window") {
+        condition.dta_operator = parsed.op;
+        condition.dta_threshold_days = Math.round(parsed.num);
+      } else if (key === "pickup_rate") {
+        condition.pickup_operator = parsed.op;
+        condition.pickup_threshold = parsed.num;
+        condition.pickup_window_days = 3;
+        condition.pickup_metric = "room_nights";
+      }
+    }
+    const roomTypeIds = r.room_types.length > 0 ? r.room_types : allRoomTypeIds;
+    const dbAction = uiActionToDb(r.action);
+    return {
+      id: r.id,
+      hotel_id: "demo",
+      name: r.rule_name,
+      is_active: r.enabled,
+      version: 1,
+      start_date: null,
+      end_date: null,
+      is_annual: false,
+      dow_mask: 127,
+      action_type: dbAction.action_type,
+      action_direction: dbAction.action_direction,
+      action_value: dbAction.action_value,
+      priority: 100,
+      is_pickup_rule: !!condition.pickup_operator,
+      condition,
+      signal_room_type_ids: roomTypeIds,
+      affected_room_type_ids: roomTypeIds,
+      created_at: new Date(0).toISOString(),
+      updated_at: new Date(0).toISOString(),
+    };
+  });
+}
+
 /* ── Create ───────────────────────────────────────────────────── */
 
 export type CreateRuleInput = {

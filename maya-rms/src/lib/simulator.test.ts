@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isoDatePlus, simulate, type SimRoomType, type SimScenario } from "./simulator";
+import { hotelToday, isIsoDate, isoDatePlus, simulate, type SimRoomType, type SimScenario } from "./simulator";
 import type { EngineRule } from "@/types/domain";
 
 const STANDARD: SimRoomType = {
@@ -306,6 +306,114 @@ describe("simulate: the room-type list is the whole catalog", () => {
 
     const whole = simulate([rule], [STANDARD, SUITE], scenario())[0];
     expect(whole.outcomes[0].skipReason).toBe(null);
+  });
+});
+
+describe("simulate: a half-typed scenario must not take the page down", () => {
+  // An <input type="date"> reports "" for any incomplete value, and an emptied
+  // number input yields NaN. Both reach simulate() during render, so a throw
+  // here unmounts the dashboard and loses everything the user typed.
+  it("returns untouched base prices instead of throwing on an empty stay date", () => {
+    const rows = simulate([makeRule()], [STANDARD], scenario({ stayDate: "" }));
+    expect(rows[0].finalPrice).toBe(200);
+    expect(rows[0].outcomes).toEqual([]);
+  });
+
+  it("survives a partially typed date", () => {
+    expect(() => simulate([makeRule()], [STANDARD], scenario({ stayDate: "2026-1" }))).not.toThrow();
+  });
+
+  it("survives an impossible date", () => {
+    expect(() =>
+      simulate([makeRule()], [STANDARD], scenario({ stayDate: "2026-02-31" })),
+    ).not.toThrow();
+  });
+
+  it("survives an empty evaluation date", () => {
+    expect(() => simulate([makeRule()], [STANDARD], scenario({ evalDate: "" }))).not.toThrow();
+  });
+
+  it("treats a NaN base price as zero rather than poisoning the row", () => {
+    const s = scenario({
+      rooms: {
+        [STANDARD.id]: { basePrice: NaN, occupancyPct: 80, pickupUnits: 0 },
+        [SUITE.id]: { basePrice: 400, occupancyPct: 80, pickupUnits: 0 },
+      },
+    });
+    const [standard] = simulate([makeRule()], [STANDARD], s);
+    expect(Number.isNaN(standard.finalPrice)).toBe(false);
+    expect(standard.finalPrice).toBe(100); // clamped up to the floor
+  });
+
+  it("treats a NaN occupancy as zero rather than silently killing every rule", () => {
+    const s = scenario({
+      rooms: {
+        [STANDARD.id]: { basePrice: 200, occupancyPct: NaN, pickupUnits: NaN },
+        [SUITE.id]: { basePrice: 400, occupancyPct: 80, pickupUnits: 0 },
+      },
+    });
+    const [standard] = simulate([makeRule()], [STANDARD], s);
+    expect(standard.outcomes[0].occupancySeen).toBe(0);
+    expect(standard.outcomes[0].skipReason).toBe("condition_not_met");
+  });
+});
+
+describe("isIsoDate", () => {
+  it("accepts a real date", () => {
+    expect(isIsoDate("2026-10-15")).toBe(true);
+  });
+
+  it("rejects the empty string an incomplete date input reports", () => {
+    expect(isIsoDate("")).toBe(false);
+  });
+
+  it("rejects a date that does not exist", () => {
+    expect(isIsoDate("2026-02-30")).toBe(false);
+    expect(isIsoDate("2026-13-01")).toBe(false);
+  });
+
+  it("accepts a real leap day and rejects a fake one", () => {
+    expect(isIsoDate("2028-02-29")).toBe(true);
+    expect(isIsoDate("2027-02-29")).toBe(false);
+  });
+
+  it("rejects null and undefined", () => {
+    expect(isIsoDate(null)).toBe(false);
+    expect(isIsoDate(undefined)).toBe(false);
+  });
+});
+
+describe("hotelToday: days-to-arrival is measured on the hotel's calendar", () => {
+  it("gives the hotel's date, not the viewer's UTC date, in the evening", () => {
+    // 02:00 UTC on the 10th is still 21:00 on the 9th in Chicago.
+    const at = new Date("2026-09-10T02:00:00Z");
+    expect(hotelToday("America/Chicago", at)).toBe("2026-09-09");
+    expect(isoDatePlus(0, at)).toBe("2026-09-10");
+  });
+
+  it("gives tomorrow for a hotel far enough east", () => {
+    const at = new Date("2026-09-09T22:00:00Z");
+    expect(hotelToday("Asia/Tokyo", at)).toBe("2026-09-10");
+  });
+
+  it("falls back to the UTC date rather than throwing on a bad zone name", () => {
+    const at = new Date("2026-09-09T12:00:00Z");
+    expect(hotelToday("Not/AZone", at)).toBe("2026-09-09");
+  });
+
+  it("changes which rules fire — the whole reason this matters", () => {
+    const at = new Date("2026-09-10T02:00:00Z"); // 9 Sep in Chicago
+    const rule = makeRule({ condition: { dta_operator: "lt", dta_threshold_days: 7 } });
+    const chicago = simulate([rule], [STANDARD], scenario({
+      stayDate: "2026-09-16",
+      evalDate: hotelToday("America/Chicago", at),
+    }));
+    const utc = simulate([rule], [STANDARD], scenario({
+      stayDate: "2026-09-16",
+      evalDate: isoDatePlus(0, at),
+    }));
+    expect(chicago[0].outcomes[0].fired).toBe(false); // 7 days out, 7 < 7 is false
+    expect(utc[0].outcomes[0].fired).toBe(true); // 6 days out — the wrong answer
   });
 });
 

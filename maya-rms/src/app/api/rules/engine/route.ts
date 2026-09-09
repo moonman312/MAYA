@@ -1,5 +1,6 @@
+import { ROOM_TYPES } from "@/lib/demo-data";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
-import { listEngineRules } from "@/lib/rules-store";
+import { listEngineRules, listEngineRulesFromMemory } from "@/lib/rules-store";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { cookies } from "next/headers";
@@ -20,7 +21,9 @@ import { NextResponse } from "next/server";
 export async function GET() {
   try {
     if (!isSupabaseConfigured()) {
-      return NextResponse.json([]);
+      // Offline mode still has rules — the same seeded ones the Rules tab
+      // lists. In the demo room-type list the id IS the name.
+      return NextResponse.json(listEngineRulesFromMemory(ROOM_TYPES.map((rt) => rt.name)));
     }
 
     const supabase = createClient(await cookies());
