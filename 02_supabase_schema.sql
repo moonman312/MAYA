@@ -165,6 +165,41 @@ create table if not exists pms_connections (
 -- Locked down below (RLS on, no policy, grants revoked from authenticated/anon).
 -- Read/write only via SECURITY DEFINER RPCs: pms_secret_get / pms_secret_set /
 -- pms_secret_delete (defined further down in this file).
+-- ============================================================================
+-- FLOW A — connections that start in the Cloudbeds Marketplace
+-- ============================================================================
+-- A Marketplace-initiated connection arrives with no state we signed and
+-- possibly no MAYA account yet. The hotel row is created so the tokens have a
+-- home in the Vault; this table is the single-use ticket that attaches a
+-- membership once someone authenticates and claims it.
+create table if not exists pms_marketplace_claims (
+  token                 text primary key,
+  hotel_id              uuid not null references hotels(id) on delete cascade,
+  pms_type              pms_type not null,
+  external_property_id  text not null,
+  property_name         text,
+  created_at            timestamptz not null default now(),
+  expires_at            timestamptz not null,
+  claimed_by            uuid references auth.users(id) on delete set null,
+  claimed_at            timestamptz,
+  -- Ties the several properties of one group grant into a single claimable
+  -- bundle, so the owner clicks one link and gets all of their hotels.
+  group_key             text,
+  unique (hotel_id, pms_type)
+);
+
+create index if not exists idx_marketplace_claims_group
+  on pms_marketplace_claims (group_key) where claimed_at is null;
+
+create index if not exists idx_marketplace_claims_property
+  on pms_marketplace_claims (external_property_id);
+
+create index if not exists idx_marketplace_claims_expiry
+  on pms_marketplace_claims (expires_at) where claimed_at is null;
+
+create index if not exists idx_hotels_external_enterprise_id
+  on hotels (external_enterprise_id) where external_enterprise_id is not null;
+
 create table if not exists pms_connection_secrets (
   id uuid primary key default gen_random_uuid(),
   hotel_id uuid not null references hotels(id) on delete cascade,
@@ -522,6 +557,32 @@ alter table published_price
   add column if not exists base_price numeric(10,2);
 
 -- ============================================================================
+-- BASE RATE CALENDAR — the property's own rate, kept clear of our output
+-- ============================================================================
+--
+-- The engine's base for a cell used to come from the newest reservation's
+-- base_rate, which the reservations_sync_base_rate trigger fills from
+-- current_rate — i.e. whatever the guest paid. Once MAYA pushed an adjusted
+-- rate and someone booked at it, that booking became the cell's base and the
+-- night was permanently repriced: deactivating the rule reverted to the raised
+-- number, not to the hotel's own rate. This table holds the rate the PROPERTY
+-- set, read from the PMS, and the engine prefers it over anything derived from
+-- a booking. MAYA never writes its own prices here.
+
+create table if not exists base_rate_calendar (
+  hotel_id     uuid not null references hotels(id) on delete cascade,
+  stay_date    date not null,
+  room_type_id uuid not null references room_types(id) on delete cascade,
+  price        numeric(10,2) not null check (price >= 0),
+  source       text not null default 'pms',
+  captured_at  timestamptz not null default now(),
+  primary key (hotel_id, stay_date, room_type_id)
+);
+
+create index if not exists idx_base_rate_calendar_hotel_stay
+  on base_rate_calendar (hotel_id, stay_date);
+
+-- ============================================================================
 -- EVALUATION AUDIT LOG (Implementation Guide §3.10)
 -- ============================================================================
 
@@ -764,6 +825,8 @@ alter table app_roles enable row level security;
 alter table pending_memberships enable row level security;
 alter table platform_audit_events enable row level security;
 alter table pms_connections enable row level security;
+alter table pms_marketplace_claims enable row level security;
+revoke all on pms_marketplace_claims from anon, authenticated;
 alter table pms_connection_secrets enable row level security;
 
 -- ---------------------------------------------------------------------------
@@ -834,6 +897,7 @@ alter table market_events enable row level security;
 alter table competitor_rates enable row level security;
 alter table stay_date_snapshot enable row level security;
 alter table published_price enable row level security;
+alter table base_rate_calendar enable row level security;
 alter table ladder_rule_state enable row level security;
 alter table ladder_transition_event enable row level security;
 alter table pickup_event enable row level security;
@@ -1314,6 +1378,12 @@ create policy competitor_rates_access
 drop policy if exists stay_date_snapshot_access on stay_date_snapshot;
 create policy stay_date_snapshot_access
   on stay_date_snapshot for all
+  using (is_hotel_accessible(hotel_id))
+  with check (can_manage_hotel(hotel_id));
+
+drop policy if exists base_rate_calendar_access on base_rate_calendar;
+create policy base_rate_calendar_access
+  on base_rate_calendar for all
   using (is_hotel_accessible(hotel_id))
   with check (can_manage_hotel(hotel_id));
 

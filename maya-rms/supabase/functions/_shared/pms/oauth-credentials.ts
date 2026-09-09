@@ -351,6 +351,13 @@ async function resolveLocked(
       refresh_token: refreshToken,
     });
     if (cfg.audience) body.set("audience", cfg.audience);
+    // Re-request the scopes this connection was granted. Auth0 (Think's
+    // identity provider) issues a refreshed token with NO scopes unless they
+    // are asked for again, and a scopeless token 403s every API call — so the
+    // first refresh after a token expiry would silently kill the connection.
+    // RFC 6749 §6 allows this as long as it is a subset of the original grant,
+    // which is exactly what we stored at connect time.
+    if (scope) body.set("scope", scope);
 
     let res: Response;
     try {
