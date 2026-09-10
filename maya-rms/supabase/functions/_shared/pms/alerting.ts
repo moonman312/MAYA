@@ -29,13 +29,30 @@ export type Alert = {
 /** Don't re-alert the same condition more often than this. */
 const DEDUPE_WINDOW_MS = 6 * 60 * 60 * 1000;
 
+function readEnv(name: string): string | undefined {
+  return (
+    (typeof process !== "undefined" ? process.env?.[name] : undefined) ??
+    (globalThis as { Deno?: { env?: { get(k: string): string | undefined } } }).Deno?.env?.get(name)
+  );
+}
+
 function webhookUrl(): string | null {
-  const raw =
-    (typeof process !== "undefined" ? process.env?.MAYA_ALERT_WEBHOOK : undefined) ??
-    (globalThis as { Deno?: { env?: { get(k: string): string | undefined } } }).Deno?.env?.get(
-      "MAYA_ALERT_WEBHOOK",
-    );
+  const raw = readEnv("MAYA_ALERT_WEBHOOK");
   return raw && raw.startsWith("https://") ? raw : null;
+}
+
+/**
+ * Only critical alerts leave the building by default.
+ *
+ * An alert channel is worth exactly as much as the reader's willingness to look
+ * at it, and warnings are what train people to stop looking. Critical means a
+ * property is not being priced right now and a human has to act — a revoked
+ * connection, not a slow sync. Set MAYA_ALERT_MIN_SEVERITY=warn to widen it.
+ */
+function severityAllowed(severity: AlertSeverity): boolean {
+  return readEnv("MAYA_ALERT_MIN_SEVERITY")?.toLowerCase() === "warn"
+    ? true
+    : severity === "critical";
 }
 
 /**
@@ -52,6 +69,7 @@ export async function raiseAlert(
 ): Promise<{ sent: boolean; reason?: string }> {
   const url = webhookUrl();
   if (!url) return { sent: false, reason: "no_webhook_configured" };
+  if (!severityAllowed(alert.severity)) return { sent: false, reason: "below_min_severity" };
 
   try {
     const since = new Date(Date.now() - DEDUPE_WINDOW_MS).toISOString();
