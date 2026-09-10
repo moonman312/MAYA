@@ -58,7 +58,13 @@ export function createCloudbedsRateAdapter(
         // deno-lint-ignore no-explicit-any
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const p = plan as any;
-        if (p.isDerived === true || p.isDerived === "true") continue; // not updatable
+        // Cloudbeds' rule is "only update rates with isDerived set to FALSE", and
+        // that phrasing is deliberate. Skipping only an affirmative true left
+        // this fail-OPEN: a plan with the field absent, null, 1 or "1" became a
+        // push target, Cloudbeds accepted the job and then rejected the cell,
+        // and the property's real rate never moved. Require the affirmative.
+        // (Live shape on the sandbox is a real boolean, checked 2026-09-10.)
+        if (p.isDerived !== false && p.isDerived !== "false") continue;
         const roomTypeId = str(p, ["roomTypeID", "roomTypeId"]);
         const rateId = str(p, ["rateID", "rateId"]);
         if (!roomTypeId || !rateId) continue;
@@ -157,7 +163,7 @@ export function createCloudbedsRateAdapter(
       for (const plan of plans) {
         // Derived plans reprice off their parent, so the parent carries the
         // property's own rate — the same choice resolveRateTargets makes.
-        if (plan.isDerived === true || plan.isDerived === "true") continue;
+        if (plan.isDerived !== false && plan.isDerived !== "false") continue;
         const roomTypeId = String(plan.roomTypeID ?? "");
         if (!roomTypesWanted.has(roomTypeId)) continue;
         const nights = Array.isArray(plan.roomRateDetailed) ? plan.roomRateDetailed : [];
