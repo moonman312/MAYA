@@ -5,7 +5,7 @@
  * working connect down with it.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { appStateWebhookUrl, ensureAppStateWebhook } from "./cloudbeds-webhooks";
+import { appStateWebhookUrl, ensureAppStateWebhook, verifyWebhookToken } from "./cloudbeds-webhooks";
 import type { CloudbedsResolvedCredentials } from "../../../supabase/functions/_shared/cloudbeds/types";
 
 const CREDS: CloudbedsResolvedCredentials = {
@@ -15,6 +15,10 @@ const CREDS: CloudbedsResolvedCredentials = {
   propertyId: "320691",
 };
 const HOTEL = "5846fcc4-4590-400c-8b08-50bd61ccdbf4";
+
+// The URL now carries an HMAC over the hotel id, so a signing secret is needed.
+process.env.PMS_OAUTH_STATE_SECRET =
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 afterEach(() => {
   delete process.env.MAYA_INVITE_REDIRECT_BASE;
@@ -38,9 +42,28 @@ function cloudbeds(handlers: { get?: unknown[]; postOk?: boolean }) {
 }
 
 describe("appStateWebhookUrl", () => {
-  it("builds a per-hotel URL, so the subscription itself carries the identity", () => {
+  it("builds a per-hotel URL carrying a signature, not just the hotel id", () => {
     process.env.MAYA_INVITE_REDIRECT_BASE = "https://maya-rms.com/";
-    expect(appStateWebhookUrl(HOTEL)).toBe(`https://maya-rms.com/api/pms/cloudbeds/webhook/${HOTEL}`);
+    const url = appStateWebhookUrl(HOTEL)!;
+    expect(url).toMatch(
+      new RegExp(`^https://maya-rms\\.com/api/pms/cloudbeds/webhook/${HOTEL}/[0-9a-f]{32}$`),
+    );
+  });
+
+  it("gives different hotels different signatures", () => {
+    process.env.MAYA_INVITE_REDIRECT_BASE = "https://maya-rms.com";
+    const a = appStateWebhookUrl(HOTEL)!.split("/").pop();
+    const b = appStateWebhookUrl("0709dcce-86ea-4b09-aa17-25c70ece91e1")!.split("/").pop();
+    expect(a).not.toBe(b);
+  });
+
+  it("round-trips: the token it publishes is the one the receiver accepts", () => {
+    process.env.MAYA_INVITE_REDIRECT_BASE = "https://maya-rms.com";
+    const token = appStateWebhookUrl(HOTEL)!.split("/").pop()!;
+    expect(verifyWebhookToken(HOTEL, token)).toBe(true);
+    expect(verifyWebhookToken(HOTEL, token.replace(/.$/, "0"))).toBe(false);
+    expect(verifyWebhookToken("0709dcce-86ea-4b09-aa17-25c70ece91e1", token)).toBe(false);
+    expect(verifyWebhookToken(HOTEL, undefined)).toBe(false);
   });
 
   it("refuses localhost rather than registering an unreachable endpoint", () => {
@@ -68,7 +91,7 @@ describe("ensureAppStateWebhook", () => {
     const body = new URLSearchParams(post.body!);
     expect(body.get("object")).toBe("integration");
     expect(body.get("action")).toBe("appstate_changed");
-    expect(body.get("endpointUrl")).toBe(`https://maya-rms.com/api/pms/cloudbeds/webhook/${HOTEL}`);
+    expect(body.get("endpointUrl")).toBe(appStateWebhookUrl(HOTEL));
     expect(body.get("propertyID")).toBe("320691");
   });
 
@@ -79,7 +102,7 @@ describe("ensureAppStateWebhook", () => {
         {
           id: "sub_existing",
           event: { entity: "integration", action: "appstate_changed" },
-          subscriptionData: { url: `https://maya-rms.com/api/pms/cloudbeds/webhook/${HOTEL}` },
+          subscriptionData: { url: appStateWebhookUrl(HOTEL)! },
         },
       ],
     });

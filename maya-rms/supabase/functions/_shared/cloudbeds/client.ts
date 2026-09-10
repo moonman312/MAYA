@@ -757,13 +757,28 @@ export async function cloudbedsPostWebhook(
   }
 }
 
-/** Remove a subscription by the id getWebhooks reports. */
+/**
+ * Remove a subscription.
+ *
+ * Cloudbeds' docs say to pass `subscriptionID`. The live API disagrees: it
+ * answers "Parameter endpointUrl is required" to that, then "Parameter object is
+ * required" once the URL is supplied. What it actually wants is the same triple
+ * used to create the subscription — object, action and endpointUrl. Verified
+ * against the sandbox 2026-09-10.
+ *
+ * ⚠ It also answers { success: true } WITHOUT deleting: the subscription is
+ * still listed by getWebhooks minutes later. Treat a success here as "asked",
+ * not "gone", and never rely on it to retire an endpoint — retire the endpoint
+ * itself so stale deliveries 404 instead.
+ */
 export async function cloudbedsDeleteWebhook(
   creds: CloudbedsResolvedCredentials,
-  subscriptionID: string,
+  object: string,
+  action: string,
+  endpointUrl: string,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
-    await cloudbedsPostForm(creds, "deleteWebhook", { subscriptionID });
+    await cloudbedsPostForm(creds, "deleteWebhook", { object, action, endpointUrl });
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof CloudbedsHttpError ? e.message : String(e) };

@@ -1,3 +1,6 @@
+import "server-only";
+import { createHmac, timingSafeEqual } from "node:crypto";
+
 /**
  * Subscribing to the one Cloudbeds webhook MAYA is required to have.
  *
@@ -7,14 +10,18 @@
  * disconnect the apps in Cloudbeds' myfrontdesk". MAYA has no Cloudbeds
  * disconnect button, so the second branch is ours.
  *
- * Each property gets its OWN endpoint URL, with its MAYA hotel id in the path.
- * Cloudbeds send no signature and their payload carries their property id
- * rather than ours, so the alternative would be decrypting every stored secret
- * on every delivery to find out who the event was about. Putting the identity
- * in the subscription makes the lookup free and satisfies their instruction to
- * "only process disconnection on your end for specific webhooks to your own
- * client ID" — the subscription was created with our credentials, so anything
- * arriving there is ours by construction.
+ * WHY THE URL IS SIGNED. Cloudbeds send no signature of their own, so the
+ * receiving URL is the only thing that can prove a delivery is genuine. MAYA
+ * chooses that URL and Cloudbeds echo it back verbatim on every delivery, so an
+ * HMAC over the hotel id — keyed with the same secret that signs OAuth state —
+ * turns the path itself into the credential. No storage, no extra config.
+ *
+ * This is not belt-and-braces; without it the endpoint is a kill switch.
+ * Disconnecting a property REMOVES IT FROM THE SCHEDULER: claim_pms_sync_batch
+ * selects `where status <> 'disconnected'`, so nothing picks the hotel up again
+ * and there is no later sync to undo it. An unauthenticated POST would stop a
+ * live property's pricing indefinitely, and the hotel id alone is not a secret
+ * — every member of a hotel has it, and it sits in a plaintext cookie.
  *
  * @see https://developers.cloudbeds.com/docs/connecting-disconnecting-apps
  */
@@ -24,9 +31,39 @@ import {
   cloudbedsPostWebhook,
 } from "../../../supabase/functions/_shared/cloudbeds/client";
 import type { CloudbedsResolvedCredentials } from "../../../supabase/functions/_shared/cloudbeds/types";
+import { getStateSecret } from "./oauth-state";
 
 const OBJECT = "integration";
 const ACTION = "appstate_changed";
+
+/** Domain-separated so this signature can never be replayed as an OAuth state. */
+function signature(hotelId: string): string {
+  return createHmac("sha256", getStateSecret())
+    .update(`cloudbeds-webhook:${hotelId}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+/**
+ * True when `token` is the signature MAYA would have issued for this hotel.
+ *
+ * Compared in constant time. A wrong-length token is rejected before the
+ * comparison, because timingSafeEqual throws on mismatched lengths.
+ */
+export function verifyWebhookToken(hotelId: string, token: string | undefined): boolean {
+  if (!token) return false;
+  let expected: string;
+  try {
+    expected = signature(hotelId);
+  } catch {
+    // No signing secret configured — refuse rather than wave everything through.
+    return false;
+  }
+  const a = Buffer.from(token);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
 
 /** Where Cloudbeds should POST app-state changes for one hotel. */
 export function appStateWebhookUrl(hotelId: string): string | null {
@@ -35,7 +72,13 @@ export function appStateWebhookUrl(hotelId: string): string | null {
   // nothing here: Cloudbeds would accept the subscription and then spend five
   // retries a minute apart failing to reach a laptop.
   if (!base || !base.startsWith("https://")) return null;
-  return `${base}/api/pms/cloudbeds/webhook/${hotelId}`;
+  try {
+    return `${base}/api/pms/cloudbeds/webhook/${hotelId}/${signature(hotelId)}`;
+  } catch {
+    // Missing PMS_OAUTH_STATE_SECRET. Better to register no webhook at all than
+    // one nobody can authenticate.
+    return null;
+  }
 }
 
 export type WebhookEnsureResult =
