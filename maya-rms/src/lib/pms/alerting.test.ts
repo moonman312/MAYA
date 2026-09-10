@@ -34,6 +34,7 @@ const ALERT = {
 
 afterEach(() => {
   delete process.env.MAYA_ALERT_WEBHOOK;
+  delete process.env.MAYA_ALERT_MIN_SEVERITY;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -58,6 +59,40 @@ describe("raiseAlert", () => {
     expect(payload.text).toContain("cloudbeds connection revoked");
     expect(payload.severity).toBe("critical");
     expect(rpcs.find((r) => r.name === "platform_log_event")?.args.p_event_type).toBe("alert.raised");
+  });
+
+  it("stays silent on a warning, because warnings are what stop people looking", async () => {
+    process.env.MAYA_ALERT_WEBHOOK = "https://hooks.example.com/abc";
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      calls.push(url);
+      return new Response("ok", { status: 200 });
+    });
+    const { supabase } = stub();
+
+    expect(await raiseAlert(supabase, { ...ALERT, severity: "warn" })).toEqual({
+      sent: false,
+      reason: "below_min_severity",
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("sends warnings too once MAYA_ALERT_MIN_SEVERITY says warn", async () => {
+    process.env.MAYA_ALERT_WEBHOOK = "https://hooks.example.com/abc";
+    process.env.MAYA_ALERT_MIN_SEVERITY = "warn";
+    vi.stubGlobal("fetch", async () => new Response("ok", { status: 200 }));
+    const { supabase } = stub();
+
+    expect(await raiseAlert(supabase, { ...ALERT, severity: "warn" })).toEqual({ sent: true });
+  });
+
+  it("still sends criticals when the floor is widened", async () => {
+    process.env.MAYA_ALERT_WEBHOOK = "https://hooks.example.com/abc";
+    process.env.MAYA_ALERT_MIN_SEVERITY = "warn";
+    vi.stubGlobal("fetch", async () => new Response("ok", { status: 200 }));
+    const { supabase } = stub();
+
+    expect(await raiseAlert(supabase, ALERT)).toEqual({ sent: true });
   });
 
   it("does not re-send a condition already alerted in the window", async () => {

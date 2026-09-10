@@ -1,16 +1,24 @@
 /**
  * Cloudbeds classic PMS API constants.
  *
- * ⚠ VERIFY AGAINST LIVE DOCS (your plan doc flags this explicitly):
- * Cloudbeds runs two API generations concurrently right now —
+ * Cloudbeds runs two API generations concurrently —
  *   • Classic PMS API:  https://hotels.cloudbeds.com/api/v1.2/<method>
- *                       (also historically reachable at https://api.cloudbeds.com/api/v1.2)
- *                       endpoints: getReservations, getReservation, getRoomTypes, getRatePlans, getUserInfo
+ *                       endpoints: getReservations, getReservation, getRoomTypes,
+ *                       getRatePlans, getRate, getRateJobs, getTaxesAndFees, getHotels
  *   • New resource API: https://api.cloudbeds.com/<resource>/v1/...
+ *                       (this is where the rate WRITE lives: rate_types/.../daily)
  * This adapter targets the CLASSIC PMS API because it exposes getReservations /
- * getRoomTypes directly and matches the e2e fixture's base_url. Confirm the host
- * + version your sandbox app is provisioned for, then set CLOUDBEDS_API_BASE_URL
- * (or pms_connections.base_url) accordingly — no code change needed to move it.
+ * getRoomTypes directly and matches the e2e fixture's base_url.
+ *
+ * The host is settled, not a guess: scripts/cb-host-compare.mts runs every
+ * mandatory RMS method against api.cloudbeds.com AND hotels.cloudbeds.com with a
+ * live token, and on 2026-09-09 they answered identically — same statuses, same
+ * row counts, same scope error on getTaxesAndFees. Either host works; the
+ * default below is the one Cloudbeds documents for the classic API. Override
+ * with CLOUDBEDS_API_BASE_URL or pms_connections.base_url if that ever changes.
+ *
+ * getUserInfo used to be listed here as a discovery endpoint. It is gone —
+ * 404 on both hosts across v1.1/v1.2/v1.3. Property discovery uses getHotels.
  *
  * Auth: Authorization: Bearer <access_token>   (OAuth tokens look like cbat_***)
  */
