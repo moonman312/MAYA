@@ -91,6 +91,10 @@ export async function POST(req: Request) {
         signal_room_type_ids: body.signal_room_type_ids,
         affected_room_type_ids: body.affected_room_type_ids,
         condition: hasStructured ? condClean! : undefined,
+        // Only an explicit `false` turns a rule off at birth — anything else,
+        // including a missing or malformed field, still creates it enabled, so
+        // the existing Rules-tab form is untouched by this.
+        is_active: body.is_active === false ? false : undefined,
       },
       supabase,
       hotelId,

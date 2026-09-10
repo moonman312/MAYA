@@ -96,7 +96,7 @@ export default function LoginPage() {
         return;
       }
       if (!(await finishClaim())) return;
-      router.replace("/");
+      router.replace(claim ? "/onboarding/progress" : "/");
       router.refresh();
     } finally {
       setLoading(false);
@@ -131,7 +131,11 @@ export default function LoginPage() {
       }
       if (data.session) {
         if (!(await finishClaim())) return;
-        router.replace("/");
+        // A property that just arrived from the Marketplace has an import
+        // running and no history yet. Sending it to the dashboard shows an
+        // empty calendar; the progress screen shows the import happening and
+        // leads on to the rules MAYA builds from it.
+        router.replace(claim ? "/onboarding/progress" : "/");
         router.refresh();
         return;
       }

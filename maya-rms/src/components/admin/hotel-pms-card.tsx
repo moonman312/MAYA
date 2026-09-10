@@ -105,15 +105,24 @@ export function HotelPmsCard({
                   Re-authorize
                 </a>
               )}
-              <button
-                type="button"
-                onClick={() => callMewsApi("delete")}
-                disabled={pending || pmsType !== "mews"}
-                title={pmsType !== "mews" ? "Disconnect only supported for Mews right now" : ""}
-                className="rounded border border-rose-500/40 px-2 py-1 text-xs text-rose-300 hover:border-rose-400 disabled:opacity-60"
-              >
-                Disconnect
-              </button>
+              {/* Only Mews is disconnected from here. For Cloudbeds the property
+                  owns that decision in the Marketplace, which is also what
+                  Cloudbeds require — so show nothing rather than a dead button
+                  reading "not supported", which says the opposite. */}
+              {pmsType === "mews" ? (
+                <button
+                  type="button"
+                  onClick={() => callMewsApi("delete")}
+                  disabled={pending}
+                  className="rounded border border-rose-500/40 px-2 py-1 text-xs text-rose-300 hover:border-rose-400 disabled:opacity-60"
+                >
+                  Disconnect
+                </button>
+              ) : (
+                <span className="text-xs text-slate-500">
+                  Disconnect from the {pmsType} marketplace
+                </span>
+              )}
             </>
           ) : (
             <span className="text-slate-500">not connected</span>

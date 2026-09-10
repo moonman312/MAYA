@@ -190,29 +190,45 @@ export async function cloudbedsGet(
 
 /**
  * Discover the property id for the connected user (used when it wasn't stored
- * at connect time). ⚠ VERIFY: classic API exposes this via getUserInfo (returns
- * property_id) or getHotels (list). Adjust the field extraction to match.
+ * at connect time).
+ *
+ * getHotels is the only way in. This used to try getUserInfo first, but that
+ * method is gone: it answers 404 with Cloudbeds' website HTML on every host and
+ * every version (api. and hotels., v1.1/v1.2/v1.3 — checked live 2026-09-09).
+ * The 404 was swallowed, so nothing broke; it just meant every new connection
+ * spent a guaranteed-failing round trip that landed in pms_request_log and
+ * dragged the property's success rate below the healthy threshold.
  */
 export async function cloudbedsDiscoverPropertyId(
   creds: Omit<CloudbedsResolvedCredentials, "propertyId">,
 ): Promise<string | null> {
   const withCreds: CloudbedsResolvedCredentials = { ...creds, propertyId: "" };
   try {
-    const info = await cloudbedsGet(withCreds, "getUserInfo", {});
-    const data = (info.data ?? info) as JsonRecord;
-    const pid = data.property_id ?? data.propertyID ?? data.propertyId;
-    if (pid != null) return String(pid);
-  } catch {
-    // fall through to getHotels
-  }
-  try {
     const hotels = await cloudbedsGet(withCreds, "getHotels", {});
     const arr = hotels.data;
-    if (Array.isArray(arr) && arr.length > 0) {
-      const first = arr[0] as JsonRecord;
-      const pid = first.propertyID ?? first.property_id ?? first.id;
-      if (pid != null) return String(pid);
+    if (!Array.isArray(arr) || arr.length === 0) return null;
+
+    // Exactly one, or nothing. This used to take arr[0], which is right for a
+    // property account and silently wrong for a group: Cloudbeds' own words are
+    // that a group user's grant "will provide data for the entire group", and
+    // the order it lists them in means nothing. Guessing bound a MAYA hotel to
+    // an arbitrary sibling and then PUSHED RATES to it — a wrong-property write
+    // is far worse than a connection that says it needs help. Callers that can
+    // handle a group use cloudbedsListProperties and decide deliberately.
+    if (arr.length > 1) {
+      console.error(
+        JSON.stringify({
+          fn: "cloudbedsDiscoverPropertyId",
+          error: "ambiguous_group_grant",
+          count: arr.length,
+        }),
+      );
+      return null;
     }
+
+    const only = arr[0] as JsonRecord;
+    const pid = only.propertyID ?? only.property_id ?? only.id;
+    if (pid != null) return String(pid);
   } catch {
     // no-op
   }
@@ -605,6 +621,165 @@ export async function cloudbedsPatchRate(
         String((res.data as JsonRecord).jobReferenceID)) ||
       null;
     return { ok: true, jobReferenceID: job };
+  } catch (e) {
+    return { ok: false, error: e instanceof CloudbedsHttpError ? e.message : String(e) };
+  }
+}
+
+/**
+ * POST a Cloudbeds method with a form-encoded body.
+ *
+ * Their API is not consistent about this: patchRate accepts JSON, while
+ * postWebhook and deleteWebhook answer "Parameter endpointUrl is required" to a
+ * JSON body and only read application/x-www-form-urlencoded (verified against
+ * the live sandbox 2026-09-10). Their own cURL examples for webhooks use form
+ * encoding, so this follows the docs rather than the sibling endpoint.
+ */
+async function cloudbedsPostForm(
+  creds: CloudbedsResolvedCredentials,
+  method: string,
+  fields: Record<string, string>,
+  timeoutMs = 30_000,
+): Promise<JsonRecord> {
+  const url = `${creds.baseUrl.replace(/\/$/, "")}/${method.replace(/^\//, "")}`;
+  const lane = laneKeyFor(creds);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const startedAt = Date.now();
+  let statusCode: number | null = null;
+  await acquire("cloudbeds", lane);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `${creds.tokenType || "Bearer"} ${creds.accessToken}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+      },
+      body: new URLSearchParams(fields).toString(),
+      signal: controller.signal,
+    });
+    statusCode = res.status;
+    const text = await res.text();
+    let data: unknown;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      throw new CloudbedsHttpError(
+        `Cloudbeds ${method} non-JSON (${res.status}): ${text.slice(0, 200)}`,
+        res.status,
+        method,
+      );
+    }
+    const rec = (data ?? {}) as JsonRecord;
+    if (!res.ok || rec.success === false) {
+      const msg = typeof rec.message === "string" ? rec.message : text.slice(0, 300);
+      throw new CloudbedsHttpError(
+        `Cloudbeds ${method} failed (${res.status}): ${msg}`,
+        res.ok ? 400 : res.status,
+        method,
+      );
+    }
+    emitRequestLog({ method: "POST", endpoint: method, statusCode, ok: true, durationMs: Date.now() - startedAt });
+    return rec;
+  } catch (error) {
+    emitRequestLog({
+      method: "POST", endpoint: method, statusCode, ok: false,
+      durationMs: Date.now() - startedAt, message: errorText(error),
+    });
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* ── Webhook subscriptions ─────────────────────────────────────────────────
+ *
+ * Cloudbeds require an app that cannot be disconnected from its own UI to
+ * subscribe to `integration/appstate_changed`, so it learns immediately when a
+ * property uninstalls it rather than on the next 401. Verified against the live
+ * sandbox 2026-09-10: getWebhooks answers on both hosts and on v1.2 and v1.3
+ * alike, so these ride the same baseUrl as everything else.
+ * @see https://developers.cloudbeds.com/docs/connecting-disconnecting-apps
+ */
+
+export type CloudbedsWebhook = {
+  id: string;
+  entity: string | null;
+  action: string | null;
+  url: string | null;
+};
+
+/** Every webhook subscription this grant can see. */
+export async function cloudbedsGetWebhooks(
+  creds: CloudbedsResolvedCredentials,
+): Promise<CloudbedsWebhook[]> {
+  const res = await cloudbedsGet(creds, "getWebhooks", {});
+  const rows = Array.isArray(res.data) ? res.data : [];
+  return rows.map((r) => {
+    const row = r as JsonRecord;
+    const event = (row.event ?? {}) as JsonRecord;
+    const sub = (row.subscriptionData ?? {}) as JsonRecord;
+    return {
+      id: String(row.id ?? ""),
+      entity: typeof event.entity === "string" ? event.entity : null,
+      action: typeof event.action === "string" ? event.action : null,
+      url: typeof sub.url === "string" ? sub.url : null,
+    };
+  });
+}
+
+/** Subscribe to one object/action pair. Cloudbeds reject "all actions". */
+export async function cloudbedsPostWebhook(
+  creds: CloudbedsResolvedCredentials,
+  object: string,
+  action: string,
+  endpointUrl: string,
+): Promise<{ ok: true; id: string | null } | { ok: false; error: string }> {
+  try {
+    const res = await cloudbedsPostForm(creds, "postWebhook", {
+      // Optional per Cloudbeds, and only needed to disambiguate a group grant.
+      // Flow B has no property id yet at connect time — it is discovered on the
+      // first sync — so send it when known and let them infer it when not.
+      ...(creds.propertyId ? { propertyID: creds.propertyId } : {}),
+      object,
+      action,
+      endpointUrl,
+    });
+    const data = (res.data ?? {}) as JsonRecord;
+    const id =
+      (typeof data.subscriptionID === "string" && data.subscriptionID) ||
+      (typeof data.id === "string" && data.id) ||
+      null;
+    return { ok: true, id };
+  } catch (e) {
+    return { ok: false, error: e instanceof CloudbedsHttpError ? e.message : String(e) };
+  }
+}
+
+/**
+ * Remove a subscription.
+ *
+ * Cloudbeds' docs say to pass `subscriptionID`. The live API disagrees: it
+ * answers "Parameter endpointUrl is required" to that, then "Parameter object is
+ * required" once the URL is supplied. What it actually wants is the same triple
+ * used to create the subscription — object, action and endpointUrl. Verified
+ * against the sandbox 2026-09-10.
+ *
+ * ⚠ It also answers { success: true } WITHOUT deleting: the subscription is
+ * still listed by getWebhooks minutes later. Treat a success here as "asked",
+ * not "gone", and never rely on it to retire an endpoint — retire the endpoint
+ * itself so stale deliveries 404 instead.
+ */
+export async function cloudbedsDeleteWebhook(
+  creds: CloudbedsResolvedCredentials,
+  object: string,
+  action: string,
+  endpointUrl: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await cloudbedsPostForm(creds, "deleteWebhook", { object, action, endpointUrl });
+    return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof CloudbedsHttpError ? e.message : String(e) };
   }

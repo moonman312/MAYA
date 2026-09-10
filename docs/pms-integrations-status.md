@@ -103,6 +103,66 @@ https://maya-rms.com/api/pms/think/callback
 
 Same shape for both. Only the `pms/{name}/` segment differs.
 
+Both are derived at runtime, not hardcoded: `pmsCallbackUrl()` in
+`src/lib/pms/registry.ts` builds `${MAYA_INVITE_REDIRECT_BASE}/api/pms/{type}/callback`
+and throws if that env var is unset. Production has it set to `https://maya-rms.com/`.
+Cloudbeds Flow A (Marketplace) and Flow B (Connect App) share the same URI and
+the same route — the callback tells them apart by whether `state` is present —
+so only the one entry needs registering.
+
+**Cloudbeds App Details → login page URL:** `https://maya-rms.com/login`
+(that page already handles the `?claim=` and `?reconnected=1` Flow A lands on).
+
+---
+
+## Cloudbeds OAuth scopes
+
+The list MAYA requests, verbatim from `src/lib/pms/registry.ts`:
+
+```
+read:reservation  write:reservation  read:room  read:rate  write:rate  read:hotel  read:taxesAndFees
+```
+
+`read:taxesAndFees` was added 2026-09-09. Cloudbeds spells it in full camelCase —
+NOT the singularized `read:tax` the neighbouring scopes would suggest.
+
+Two things about scopes that are easy to get wrong:
+
+1. **A Marketplace (Flow A) connection never passes through MAYA's authorize
+   URL**, so this array is not sent for it at all. What a property is asked to
+   grant comes entirely from the app's configuration on the Cloudbeds side. The
+   sandbox hotel connected via Flow A (`platform_audit_events.detail.via =
+   'marketplace_flow_a'`), which is why editing this array alone does nothing
+   for it.
+2. **A refresh can never widen a grant.** `oauth-credentials.ts` replays the
+   stored scope, which RFC 6749 §6 only allows as a subset of the original.
+   Adding a scope here reaches existing connections only after a re-authorization.
+
+Also worth knowing: **Cloudbeds does not return a `scope` field on its token
+response** (verified against the sandbox secret 2026-09-09), so the stored
+`scope` key is absent for Cloudbeds and the refresh path sends none. The example
+secret shape above shows a `scope` value because Think does return one.
+
+---
+
+## Cloudbeds API hosts — settled
+
+Three different surfaces, which is where the confusion comes from:
+
+| Surface | Host |
+|---|---|
+| OAuth authorize + token | `hotels.cloudbeds.com/api/v1.3/oauth` and `/api/v1.3/access_token` (no `/oauth` on the token path) |
+| Classic PMS data API | `/api/v1.2/<method>` — works identically on **both** `api.` and `hotels.` |
+| New resource API (rate writes) | `api.cloudbeds.com/<resource>/v1/...` |
+
+`scripts/cb-host-compare.mts` runs every mandatory RMS method against both hosts
+with a live token. On 2026-09-09 they answered identically: same statuses, same
+row counts, same scope error on `getTaxesAndFees`. There is no ambiguity to
+resolve with Cloudbeds — re-run the script if that ever needs re-proving.
+
+`getUserInfo` is **gone**: 404 on both hosts across v1.1/v1.2/v1.3. Property
+discovery uses `getHotels`.
+
 ---
 
 ## Smoke test order once creds arrive
@@ -129,7 +189,7 @@ If any of these fail, the callback page renders a self-contained HTML error page
 
 ---
 
-## Refresh flow (not implemented yet — one small follow-up)
+## Refresh flow (IMPLEMENTED — see supabase/functions/_shared/pms/oauth-credentials.ts)
 
 Cloudbeds and Think access tokens live ~1h. `resolve-credentials.ts` currently just returns the stored secret. Once real creds are in and a first successful sync happens, we'll add:
 
