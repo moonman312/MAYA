@@ -256,6 +256,29 @@ export function parseNightlyRatesFromDetail(detail: Json | null): Record<string,
   return Object.keys(map).length > 0 ? map : null;
 }
 
+/**
+ * A nightly rate we are willing to store, or null for "we don't know".
+ *
+ * A NEGATIVE rate is not a price. Real properties carry refunds, credits and
+ * adjustments as reservations with a negative total — Sebastián's Cloudbeds demo
+ * account has eleven in its first hundred checked-out bookings, down to -643.53.
+ * Dividing one of those across its nights produces a negative nightly rate,
+ * which the reservations_sync_base_rate trigger copies into base_rate, which
+ * fails `check (base_rate is null or base_rate >= 0)` — and because the import
+ * upserts in batches, ONE refund aborts the whole batch. That is what stalled a
+ * live history import at zero rows.
+ *
+ * Null rather than zero, deliberately: MAYA already treats an explicit 0 as a
+ * real comp or house-use night and will price from it. A refund is not a $0
+ * night, it is an absence of information about what the room sold for, and the
+ * base-price precedence chain is built to fall through an unknown to the
+ * property's own calendar rate.
+ */
+function sellableRate(n: number | null | undefined): number | null {
+  if (n == null || !Number.isFinite(n)) return null;
+  return n < 0 ? null : n;
+}
+
 const emptyStats = (): CloudbedsParseStats => ({
   skippedMissingReservationId: 0,
   skippedNoStayNights: 0,
@@ -353,7 +376,7 @@ export function parseCloudbedsReservations(
           stay_date: night,
           booking_date: bookingDate,
           booking_window_days: bookingDate ? bookingWindowFor(bookingDate, night) : null,
-          current_rate: nightly,
+          current_rate: sellableRate(nightly),
           raw_payload: redactCloudbedsPayload(res),
         });
       }
@@ -418,7 +441,7 @@ export function parseCloudbedsReservationDetail(detail: Json): {
         stay_date: stay,
         booking_date: bookingDate,
         booking_window_days: bookingDate ? bookingWindowFor(bookingDate, stay) : null,
-        current_rate: rate,
+        current_rate: sellableRate(rate),
         raw_payload: redactCloudbedsPayload(room),
       });
     }
