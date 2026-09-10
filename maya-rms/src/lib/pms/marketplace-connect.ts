@@ -1,4 +1,5 @@
 import "server-only";
+import { ensureAppStateWebhook } from "@/lib/pms/cloudbeds-webhooks";
 import { createAdminClient } from "@/utils/supabase/admin";
 import {
   cloudbedsDiscoverPropertyId,
@@ -129,6 +130,21 @@ export async function handleMarketplaceConnect(
         p_secret: { ...tokens, propertyId: property.propertyId },
       });
 
+    // Ask Cloudbeds to tell us if this property ever uninstalls the app. Never
+    // blocks the connect: a property that is connected but unsubscribed still
+    // works, and MAYA falls back to noticing revocation from the next 401.
+    const subscribe = async (hotelId: string) => {
+      const res = await ensureAppStateWebhook(
+        { accessToken: tokens.accessToken, tokenType: tokens.tokenType, baseUrl, propertyId: property.propertyId },
+        hotelId,
+      );
+      if (!res.ok) {
+        console.error(
+          JSON.stringify({ fn: "handleMarketplaceConnect", step: "webhook", hotelId, reason: res.reason }),
+        );
+      }
+    };
+
     const { data: existing } = await admin
       .from("hotels")
       .select("id, name")
@@ -147,6 +163,7 @@ export async function handleMarketplaceConnect(
         { hotel_id: existing.id, pms_type: pmsType, status: "connected", last_tested_at: now, updated_at: now },
         { onConflict: "hotel_id,pms_type" },
       );
+      await subscribe(existing.id);
       await admin.rpc("platform_log_event", {
         p_event_type: "pms.connected",
         p_entity_type: "pms_connection",
@@ -203,6 +220,8 @@ export async function handleMarketplaceConnect(
       { hotel_id: hotelId, pms_type: pmsType, status: "pending", last_tested_at: now, updated_at: now },
       { onConflict: "hotel_id,pms_type" },
     );
+
+    await subscribe(hotelId);
 
     const token = `${crypto.randomUUID()}${crypto.randomUUID()}`.replace(/-/g, "");
     const claimRow = {

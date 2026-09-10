@@ -5,6 +5,8 @@ import { findPendingHotelForUser } from "@/lib/billing/pending-hotel";
 import { pmsSignupCodeRequired } from "@/lib/billing/pms-gates";
 import { isStripeConfigured } from "@/lib/billing/stripe";
 import { handleOnboardingConnect } from "@/lib/onboarding/connect";
+import { ensureAppStateWebhook } from "@/lib/pms/cloudbeds-webhooks";
+import { defaultCloudbedsBaseUrl } from "../../../supabase/functions/_shared/cloudbeds/constants";
 import { handleMarketplaceConnect } from "@/lib/pms/marketplace-connect";
 import { resolveOnboardingStep } from "@/lib/onboarding/step";
 import { pmsCallbackUrl, requireRegistry, type PmsType } from "@/lib/pms/registry";
@@ -318,6 +320,28 @@ export async function handleOAuthCallback(
       { onConflict: "hotel_id,pms_type" },
     );
   if (pcErr) return renderCallbackError(pmsType, `pms_connections upsert: ${pcErr.message}`);
+
+  // Cloudbeds only: ask to be told when this property uninstalls the app, so a
+  // revoked grant is not first noticed as a 401 five minutes later. Deliberately
+  // not fatal — an unsubscribed connection still works.
+  if (pmsType === "cloudbeds" && typeof secretPayload.accessToken === "string") {
+    const hook = await ensureAppStateWebhook(
+      {
+        accessToken: secretPayload.accessToken,
+        tokenType: typeof secretPayload.tokenType === "string" ? secretPayload.tokenType : "Bearer",
+        baseUrl: defaultCloudbedsBaseUrl(),
+        // Flow B resolves the property id on its first sync, not here. Cloudbeds
+        // infer it from the grant when it is omitted.
+        propertyId: "",
+      },
+      hotelId,
+    );
+    if (!hook.ok) {
+      console.error(
+        JSON.stringify({ fn: "handleOAuthCallback", step: "webhook", hotelId, reason: hook.reason }),
+      );
+    }
+  }
 
   await admin.rpc("platform_log_event", {
     p_event_type: "pms.connected",
