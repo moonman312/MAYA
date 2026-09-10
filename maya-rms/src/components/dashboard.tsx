@@ -7,9 +7,9 @@ import { OnboardingReviewBanner } from "@/components/onboarding/review-banner";
 import { CorrectionsPanel, ExplainDrilldown } from "@/components/explain-drilldown";
 import { useCalendarLive } from "@/lib/use-calendar-live";
 import { PropertySelect } from "@/components/property-select";
+import { RateSimulator } from "@/components/rate-simulator";
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
-import { SAMPLE_RESERVATIONS } from "@/lib/demo-data";
 import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
 import {
   conditionRowsToRuleCondition,
@@ -27,7 +27,6 @@ import type {
   ChangelogCycle,
   RuleAction,
   RuleConfig,
-  SimulationResult,
 } from "@/types/domain";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -279,7 +278,6 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
   >([]);
   const [calendar, setCalendar] = useState<CalendarResponse | null>(null);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
-  const [simResults, setSimResults] = useState<SimulationResult[]>([]);
   const [changelog, setChangelog] = useState<ChangelogCycle[]>([]);
   const [changelogError, setChangelogError] = useState<string | null>(null);
   const [changesOnly, setChangesOnly] = useState(true);
@@ -541,15 +539,6 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
     } finally {
       setHotelSwitching(false);
     }
-  }
-
-  async function runSimulation() {
-    const payload = { reservations: SAMPLE_RESERVATIONS };
-    const data = await api<SimulationResult[]>("/api/simulate", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-    setSimResults(data);
   }
 
   async function onToggleRule(ruleId: string) {
@@ -1626,67 +1615,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
         )}
 
         {tab === "simulator" && (
-          <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
-            <h2 className="text-lg font-semibold">Rate Simulator</h2>
-            <button
-              className="cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400"
-              onClick={runSimulation}
-            >
-              Run Simulation
-            </button>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded border border-slate-800 p-3">
-                <h3 className="mb-2 text-sm font-semibold">
-                  Sample Reservations
-                </h3>
-                <ul className="space-y-2 text-sm text-slate-300">
-                  {SAMPLE_RESERVATIONS.map((r, idx) => (
-                    <li key={`${r.room_type}-${idx}`}>
-                      {r.room_type}: ${r.current_rate} (occ{" "}
-                      {r.occupancy_percentage}% / window {r.booking_window}d /
-                      pickup {r.pickup_rate})
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="rounded border border-slate-800 p-3">
-                <h3 className="mb-2 text-sm font-semibold">
-                  Simulation Results
-                </h3>
-                {!simResults.length && (
-                  <p className="text-sm text-slate-300">
-                    Run simulation to view results.
-                  </p>
-                )}
-                <ul className="space-y-2 text-sm text-slate-300">
-                  {simResults.map((row, idx) => {
-                    const delta = row.new_rate - row.original_rate;
-                    const cls =
-                      delta > 0
-                        ? "text-rose-300"
-                        : delta < 0
-                          ? "text-emerald-300"
-                          : "text-slate-300";
-                    return (
-                      <li key={`${row.room_type}-${idx}`}>
-                        {row.room_type}: ${row.original_rate.toFixed(2)} - {">"}{" "}
-                        <span className="font-semibold">
-                          ${row.new_rate.toFixed(2)}
-                        </span>{" "}
-                        <span className={cls}>
-                          ({delta >= 0 ? "+" : ""}
-                          {delta.toFixed(2)})
-                        </span>{" "}
-                        [{row.applied_rules || "none"}]
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            </div>
-          </section>
+          <RateSimulator activeHotelId={activeHotelId} onRuleSaved={reloadRules} />
         )}
 
         {tab === "changelog" && (

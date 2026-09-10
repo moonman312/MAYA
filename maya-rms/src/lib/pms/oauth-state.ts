@@ -36,7 +36,7 @@ function fromBase64url(str: string): Buffer {
   return Buffer.from(padded, "base64");
 }
 
-function getSecret(): Buffer {
+export function getStateSecret(): Buffer {
   const raw = process.env.PMS_OAUTH_STATE_SECRET;
   if (!raw || raw.length < 32) {
     throw new Error(
@@ -59,7 +59,7 @@ function getSecret(): Buffer {
 
 function signPayload(payload: StatePayload): string {
   const payloadBuf = Buffer.from(JSON.stringify(payload), "utf-8");
-  const sig = createHmac("sha256", getSecret()).update(payloadBuf).digest();
+  const sig = createHmac("sha256", getStateSecret()).update(payloadBuf).digest();
   return `${base64url(payloadBuf)}.${base64url(sig)}`;
 }
 
@@ -103,7 +103,7 @@ export function verifyState(state: string, expectedPmsType: string): StateVerifi
     return { ok: false, error: "Malformed state encoding" };
   }
 
-  const expectedSig = createHmac("sha256", getSecret()).update(payloadBuf).digest();
+  const expectedSig = createHmac("sha256", getStateSecret()).update(payloadBuf).digest();
   if (expectedSig.length !== sigBuf.length || !timingSafeEqual(expectedSig, sigBuf)) {
     return { ok: false, error: "Signature mismatch" };
   }
