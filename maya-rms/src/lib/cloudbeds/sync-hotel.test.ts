@@ -293,11 +293,16 @@ describe("runCloudbedsSyncForHotel cancellation reconcile", () => {
     expect(supabase.reservations).toEqual([]);
   });
 
-  it("survives a canceled status spelling the account rejects", async () => {
+  it("survives a canceled status the account rejects", async () => {
+    // The trigger used to be the British "cancelled", which lived in the status
+    // list as a defensive second spelling until the live API was checked and it
+    // turned out to be rejected every time. The resilience it exercised still
+    // matters — an account that refuses one status must not take the whole sync
+    // down — so the test now rejects a status that IS in the list.
     const supabase = makeSupabaseStub();
     client.cloudbedsGetReservationsPage.mockImplementation(
       async (_creds: unknown, _from: string, _to: string, status: string) => {
-        if (status === "cancelled") {
+        if (status === "no_show") {
           throw new client.CloudbedsHttpError(
             "Cloudbeds getReservations failed (400): invalid status",
             400,

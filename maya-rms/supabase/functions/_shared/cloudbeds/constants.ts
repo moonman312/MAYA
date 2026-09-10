@@ -34,13 +34,22 @@ export function defaultCloudbedsBaseUrl(): string {
 }
 
 /**
- * Reservation statuses to pull. Cloudbeds statuses:
- * confirmed, not_confirmed, canceled, checked_in, checked_out, no_show.
- * We pull the "active demand" set and treat canceled/no_show as removals.
- * ⚠ VERIFY status string spellings against your account's API responses.
+ * Reservation statuses to pull.
+ *
+ * Verified against the live API 2026-09-10 — every value below is accepted, and
+ * these are all of them: confirmed, not_confirmed, canceled, checked_in,
+ * checked_out, no_show. We pull the "active demand" set and treat
+ * canceled/no_show as removals.
+ *
+ * "cancelled" used to be in the canceled list as a defensive second spelling.
+ * Cloudbeds only accept the American one and answer the British one with
+ * "Parameter status is not valid" — so every full sweep spent one guaranteed
+ * failing request, which cost nothing functionally (the same reservations come
+ * back under "canceled") but showed as a red row in the property's own API log
+ * and dragged its health below the healthy threshold.
  */
 export const CLOUDBEDS_ACTIVE_STATUSES = ["confirmed", "checked_in", "checked_out"] as const;
-export const CLOUDBEDS_CANCELED_STATUSES = ["canceled", "cancelled", "no_show"] as const;
+export const CLOUDBEDS_CANCELED_STATUSES = ["canceled", "no_show"] as const;
 
 /** getReservations page size (Cloudbeds classic pages via pageNumber/pageSize). */
 export const CLOUDBEDS_PAGE_SIZE = Number(mwsEnv("CLOUDBEDS_PAGE_SIZE") ?? "100") || 100;
