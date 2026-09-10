@@ -148,6 +148,12 @@ export async function redeemMarketplaceClaim(
   }
   const jobByHotel = new Map((jobs ?? []).map((j) => [String(j.hotel_id), String(j.id)]));
 
+  // Nudge the worker rather than waiting up to a minute for cron. The in-app
+  // connect path has always done this (lib/onboarding/connect.ts); a Marketplace
+  // arrival used to just queue the row, so the first thing a brand-new property
+  // saw was an empty dashboard while its own history sat in a queue.
+  kickImportWorker();
+
   await admin.from("onboarding_states").upsert(
     allHotelIds.map((id) => ({
       hotel_id: id,
@@ -185,3 +191,19 @@ export async function redeemMarketplaceClaim(
 }
 
 export { MAYA_ACTIVE_HOTEL_COOKIE };
+
+/**
+ * Ask the import worker to run now. Fire-and-forget: cron picks the job up
+ * within a minute regardless, so a failure here costs latency, not the import.
+ */
+function kickImportWorker(): void {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
+  const secret = process.env.ONBOARDING_CRON_SECRET;
+  if (!supabaseUrl || !secret) return;
+  fetch(`${supabaseUrl}/functions/v1/onboarding-import-worker`, {
+    method: "POST",
+    headers: { "x-onboarding-cron-secret": secret },
+  }).catch(() => {
+    // Cron picks the job up within a minute.
+  });
+}

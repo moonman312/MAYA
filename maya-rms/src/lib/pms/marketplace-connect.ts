@@ -153,7 +153,28 @@ export async function handleMarketplaceConnect(
 
     const now = new Date().toISOString();
 
+    // A hotel row is NOT proof someone owns it. Clicking "Connect App" twice —
+    // which reviewers do, because they go back to check the first click worked —
+    // used to land here on the second click, take the reconnect branch, mint no
+    // ticket, and send an accountless visitor to a sign-in form. The property was
+    // then unclaimable forever: every later click hit the same branch, and the
+    // unique(hotel_id, pms_type) constraint on the claims table meant it could
+    // never be re-ticketed either.
+    //
+    // Ownership is a membership, so ask for one. With no member this is still an
+    // unclaimed parked property and belongs on the new-property path below,
+    // reusing its existing hotel row.
+    let claimed = false;
     if (existing?.id) {
+      const { data: members } = await admin
+        .from("hotel_memberships")
+        .select("user_id")
+        .eq("hotel_id", existing.id)
+        .limit(1);
+      claimed = (members?.length ?? 0) > 0;
+    }
+
+    if (existing?.id && claimed) {
       const { error } = await storeSecret(existing.id);
       if (error) {
         failures.push(`${property.propertyId}: ${error.message}`);
@@ -175,11 +196,12 @@ export async function handleMarketplaceConnect(
       continue;
     }
 
-    // hotels.name is globally unique, so a collision must never block a
-    // connection — fall through to progressively more specific names.
+    // An unclaimed row from an earlier click is reused rather than re-created:
+    // external_enterprise_id is unique, so inserting again would fail, and the
+    // row is inert anyway. What matters is that this pass mints a fresh ticket.
     const placeholder = propertyName?.trim() || `Cloudbeds property ${property.propertyId}`;
-    let hotelId: string | null = null;
-    for (const candidate of [
+    let hotelId: string | null = existing?.id ?? null;
+    for (const candidate of hotelId ? [] : [
       placeholder,
       `${placeholder} (${property.propertyId})`,
       `${placeholder} ${crypto.randomUUID().slice(0, 6)}`,
@@ -222,6 +244,17 @@ export async function handleMarketplaceConnect(
     );
 
     await subscribe(hotelId);
+
+    // unique(hotel_id, pms_type) means the stale ticket from a previous click
+    // would collide with the new one. It is unredeemed by definition — we only
+    // reach here when nobody owns the property — so dropping it loses nothing
+    // and un-sticks a visitor who went back and clicked again.
+    await admin
+      .from("pms_marketplace_claims")
+      .delete()
+      .eq("hotel_id", hotelId)
+      .eq("pms_type", pmsType)
+      .is("claimed_at", null);
 
     const token = `${crypto.randomUUID()}${crypto.randomUUID()}`.replace(/-/g, "");
     const claimRow = {
