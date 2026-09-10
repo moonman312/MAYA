@@ -18,6 +18,8 @@ const env = Object.fromEntries(
 );
 // The subscription must point somewhere Cloudbeds can actually reach.
 process.env.MAYA_INVITE_REDIRECT_BASE = "https://maya-rms.com";
+// The subscription URL is HMAC-signed with the same secret that signs OAuth state.
+process.env.PMS_OAUTH_STATE_SECRET ??= env.PMS_OAUTH_STATE_SECRET!;
 
 const admin = createClient(env.NEXT_PUBLIC_SUPABASE_URL!, env.SUPABASE_SERVICE_ROLE_KEY!, {
   auth: { persistSession: false },
@@ -44,7 +46,7 @@ if (process.argv.includes("--cleanup")) {
   const subs = await cloudbedsGetWebhooks(creds);
   for (const w of subs) {
     if (w.url?.includes("/api/pms/cloudbeds/webhook/")) {
-      const r = await cloudbedsDeleteWebhook(creds, w.id);
+      const r = await cloudbedsDeleteWebhook(creds, w.entity ?? "integration", w.action ?? "appstate_changed", w.url);
       console.log(`  deleted ${w.id} (${w.entity}/${w.action}) -> ok=${r.ok}${r.error ? " " + r.error : ""}`);
     }
   }

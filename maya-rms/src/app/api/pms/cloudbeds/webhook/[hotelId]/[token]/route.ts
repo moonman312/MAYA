@@ -9,27 +9,28 @@
  * revoked grant is a 401 on the next scheduled sync, up to five minutes of
  * calling an endpoint that has already told us to go away.
  *
- * WHY THE HOTEL ID IS IN THE PATH. Cloudbeds send no signature and their
+ * WHY THE IDENTITY IS IN THE PATH. Cloudbeds send no signature and their
  * payload carries their own propertyID, not ours — and MAYA stores the
  * Cloudbeds property id inside an encrypted Vault secret, so mapping their id
  * back to a hotel would mean decrypting every connection's secret on every
- * delivery. Instead each property is subscribed with its own endpoint URL, so
- * the subscription itself carries the identity. It also settles their "only
- * process disconnection for webhooks to your own client ID" rule by
- * construction: the subscription was created with our credentials, so anything
- * arriving at this URL is ours.
+ * delivery. Each property is subscribed with its own endpoint URL instead, so
+ * the subscription itself carries the identity.
  *
- * WHY IT ACTS WITHOUT VERIFYING. Marking a connection disconnected is
- * self-healing — the next successful sync sets it back to connected on its own.
- * So the worst a forged request can do, to someone who already knows a hotel's
- * UUID, is show one property as disconnected until the next tick. Calling
- * Cloudbeds back to confirm would cost most of the two-second budget they allow
- * before treating the delivery as failed, to defend against something the next
- * sync corrects anyway.
+ * WHY THE PATH IS SIGNED. Disconnecting is NOT reversible on its own: the
+ * scheduler claims work with `where status <> 'disconnected'`, so a hotel marked
+ * disconnected is dropped from every future batch and there is no later sync to
+ * put it back. An unauthenticated version of this route would therefore be a
+ * permanent kill switch for any property whose id you know — and a hotel id is
+ * not a secret, since every member of that hotel holds one and it sits in a
+ * plaintext cookie. The token is an HMAC over the hotel id, keyed with the same
+ * secret that signs OAuth state; MAYA chooses the URL and Cloudbeds echo it back
+ * verbatim, so the path is the credential. That also settles their "only process
+ * disconnection for webhooks to your own client ID" rule by construction.
  */
 
 import { createAdminClient } from "@/utils/supabase/admin";
 import { markConnectionDisconnected } from "@/lib/pms/connection-health";
+import { verifyWebhookToken } from "@/lib/pms/cloudbeds-webhooks";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -59,12 +60,20 @@ function readState(body: AppStatePayload): string | null {
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ hotelId: string }> },
+  { params }: { params: Promise<{ hotelId: string; token: string }> },
 ) {
   // Every path below answers 2xx. Cloudbeds retry five times, a minute apart,
-  // on anything else — and a retry cannot fix a payload we do not understand or
-  // a hotel that no longer exists. Reserve non-2xx for nothing at all.
-  const { hotelId } = await params;
+  // on anything else — and a retry cannot fix a payload we do not understand, a
+  // hotel that no longer exists, or a bad token. Reserve non-2xx for nothing.
+  const { hotelId, token } = await params;
+
+  // Before anything else, and before any database work: an unsigned request
+  // gets the same empty 200 as a signed one, so this is not an oracle for
+  // which hotel ids exist.
+  if (!verifyWebhookToken(hotelId, token)) {
+    console.error(JSON.stringify({ fn: "cloudbedsWebhook", hotelId, error: "bad_token" }));
+    return NextResponse.json({ received: true }, { status: 200 });
+  }
 
   let body: AppStatePayload;
   try {
