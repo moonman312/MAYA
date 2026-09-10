@@ -731,7 +731,7 @@ export async function runCloudbedsSyncForHotel(
       // from out here: the grant is gone but the access token has not expired,
       // so the token-refresh path never runs and never notices. Without this
       // the connection kept reporting "connected" while every call 401'd.
-      if (isAuthRevocation(error.status)) {
+      if (isAuthRevocation(error.status, error.message)) {
         await markConnectionDisconnected(supabase, hotelId, "cloudbeds", error.message);
       }
       return {
