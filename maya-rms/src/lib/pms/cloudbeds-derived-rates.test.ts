@@ -48,14 +48,14 @@ describe("derived rates are never push targets", () => {
   it("picks a plan that says isDerived: false", async () => {
     stubRatePlans([plan({ rateID: "base-1" })]);
     const adapter = createCloudbedsRateAdapter(CREDS);
-    const targets = await adapter.resolveRateTargets(["676779"]);
+    const targets = await adapter.resolveRateTargets();
     expect(targets["676779"]).toBe("base-1");
   });
 
   it("skips a plan that says isDerived: true", async () => {
     stubRatePlans([plan({ rateID: "derived-1", isDerived: true, ratePlanID: "475855" })]);
     const adapter = createCloudbedsRateAdapter(CREDS);
-    const targets = await adapter.resolveRateTargets(["676779"]);
+    const targets = await adapter.resolveRateTargets();
     expect(targets["676779"]).toBeUndefined();
   });
 
@@ -71,14 +71,14 @@ describe("derived rates are never push targets", () => {
     // the property's rate never moved while MAYA recorded a send.
     stubRatePlans([plan({ rateID: "ambiguous", ...over })]);
     const adapter = createCloudbedsRateAdapter(CREDS);
-    const targets = await adapter.resolveRateTargets(["676779"]);
+    const targets = await adapter.resolveRateTargets();
     expect(targets["676779"]).toBeUndefined();
   });
 
   it("accepts the string \"false\", since v1.2 stringified other fields", async () => {
     stubRatePlans([plan({ rateID: "base-str", isDerived: "false" })]);
     const adapter = createCloudbedsRateAdapter(CREDS);
-    const targets = await adapter.resolveRateTargets(["676779"]);
+    const targets = await adapter.resolveRateTargets();
     expect(targets["676779"]).toBe("base-str");
   });
 
@@ -88,7 +88,7 @@ describe("derived rates are never push targets", () => {
       plan({ rateID: "base-1", isDerived: false }),
     ]);
     const adapter = createCloudbedsRateAdapter(CREDS);
-    const targets = await adapter.resolveRateTargets(["676779"]);
+    const targets = await adapter.resolveRateTargets();
     expect(targets["676779"]).toBe("base-1");
   });
 });
