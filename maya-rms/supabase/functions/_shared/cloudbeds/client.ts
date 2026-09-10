@@ -625,3 +625,147 @@ export async function cloudbedsPatchRate(
     return { ok: false, error: e instanceof CloudbedsHttpError ? e.message : String(e) };
   }
 }
+
+/**
+ * POST a Cloudbeds method with a form-encoded body.
+ *
+ * Their API is not consistent about this: patchRate accepts JSON, while
+ * postWebhook and deleteWebhook answer "Parameter endpointUrl is required" to a
+ * JSON body and only read application/x-www-form-urlencoded (verified against
+ * the live sandbox 2026-09-10). Their own cURL examples for webhooks use form
+ * encoding, so this follows the docs rather than the sibling endpoint.
+ */
+async function cloudbedsPostForm(
+  creds: CloudbedsResolvedCredentials,
+  method: string,
+  fields: Record<string, string>,
+  timeoutMs = 30_000,
+): Promise<JsonRecord> {
+  const url = `${creds.baseUrl.replace(/\/$/, "")}/${method.replace(/^\//, "")}`;
+  const lane = laneKeyFor(creds);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const startedAt = Date.now();
+  let statusCode: number | null = null;
+  await acquire("cloudbeds", lane);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `${creds.tokenType || "Bearer"} ${creds.accessToken}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+      },
+      body: new URLSearchParams(fields).toString(),
+      signal: controller.signal,
+    });
+    statusCode = res.status;
+    const text = await res.text();
+    let data: unknown;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      throw new CloudbedsHttpError(
+        `Cloudbeds ${method} non-JSON (${res.status}): ${text.slice(0, 200)}`,
+        res.status,
+        method,
+      );
+    }
+    const rec = (data ?? {}) as JsonRecord;
+    if (!res.ok || rec.success === false) {
+      const msg = typeof rec.message === "string" ? rec.message : text.slice(0, 300);
+      throw new CloudbedsHttpError(
+        `Cloudbeds ${method} failed (${res.status}): ${msg}`,
+        res.ok ? 400 : res.status,
+        method,
+      );
+    }
+    emitRequestLog({ method: "POST", endpoint: method, statusCode, ok: true, durationMs: Date.now() - startedAt });
+    return rec;
+  } catch (error) {
+    emitRequestLog({
+      method: "POST", endpoint: method, statusCode, ok: false,
+      durationMs: Date.now() - startedAt, message: errorText(error),
+    });
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* ── Webhook subscriptions ─────────────────────────────────────────────────
+ *
+ * Cloudbeds require an app that cannot be disconnected from its own UI to
+ * subscribe to `integration/appstate_changed`, so it learns immediately when a
+ * property uninstalls it rather than on the next 401. Verified against the live
+ * sandbox 2026-09-10: getWebhooks answers on both hosts and on v1.2 and v1.3
+ * alike, so these ride the same baseUrl as everything else.
+ * @see https://developers.cloudbeds.com/docs/connecting-disconnecting-apps
+ */
+
+export type CloudbedsWebhook = {
+  id: string;
+  entity: string | null;
+  action: string | null;
+  url: string | null;
+};
+
+/** Every webhook subscription this grant can see. */
+export async function cloudbedsGetWebhooks(
+  creds: CloudbedsResolvedCredentials,
+): Promise<CloudbedsWebhook[]> {
+  const res = await cloudbedsGet(creds, "getWebhooks", {});
+  const rows = Array.isArray(res.data) ? res.data : [];
+  return rows.map((r) => {
+    const row = r as JsonRecord;
+    const event = (row.event ?? {}) as JsonRecord;
+    const sub = (row.subscriptionData ?? {}) as JsonRecord;
+    return {
+      id: String(row.id ?? ""),
+      entity: typeof event.entity === "string" ? event.entity : null,
+      action: typeof event.action === "string" ? event.action : null,
+      url: typeof sub.url === "string" ? sub.url : null,
+    };
+  });
+}
+
+/** Subscribe to one object/action pair. Cloudbeds reject "all actions". */
+export async function cloudbedsPostWebhook(
+  creds: CloudbedsResolvedCredentials,
+  object: string,
+  action: string,
+  endpointUrl: string,
+): Promise<{ ok: true; id: string | null } | { ok: false; error: string }> {
+  try {
+    const res = await cloudbedsPostForm(creds, "postWebhook", {
+      // Optional per Cloudbeds, and only needed to disambiguate a group grant.
+      // Flow B has no property id yet at connect time — it is discovered on the
+      // first sync — so send it when known and let them infer it when not.
+      ...(creds.propertyId ? { propertyID: creds.propertyId } : {}),
+      object,
+      action,
+      endpointUrl,
+    });
+    const data = (res.data ?? {}) as JsonRecord;
+    const id =
+      (typeof data.subscriptionID === "string" && data.subscriptionID) ||
+      (typeof data.id === "string" && data.id) ||
+      null;
+    return { ok: true, id };
+  } catch (e) {
+    return { ok: false, error: e instanceof CloudbedsHttpError ? e.message : String(e) };
+  }
+}
+
+/** Remove a subscription by the id getWebhooks reports. */
+export async function cloudbedsDeleteWebhook(
+  creds: CloudbedsResolvedCredentials,
+  subscriptionID: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await cloudbedsPostForm(creds, "deleteWebhook", { subscriptionID });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof CloudbedsHttpError ? e.message : String(e) };
+  }
+}
