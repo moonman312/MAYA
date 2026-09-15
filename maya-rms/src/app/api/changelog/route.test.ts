@@ -36,6 +36,10 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
         filters.push([col, val]);
         return api;
       },
+      in(col: string, vals: unknown[]) {
+        filters.push([col, vals]);
+        return api;
+      },
       order() {
         return api;
       },
@@ -55,7 +59,7 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
       const failure = failSelectFor.get(table);
       if (failure) return { data: null, error: failure };
       const rows = tableOf(table).filter((r) =>
-        filters.every(([col, val]) => r[col] === val),
+        filters.every(([col, val]) => (Array.isArray(val) ? val.includes(r[col]) : r[col] === val)),
       );
       return { data: single ? (rows[0] ?? null) : rows, error: null };
     }
@@ -76,6 +80,8 @@ const state = vi.hoisted(() => ({
   client: null as unknown,
   hotelId: "hotel-1" as string | null,
   configured: true,
+  // The service-role client, when SUPABASE_SERVICE_ROLE_KEY is set.
+  admin: null as unknown,
 }));
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
@@ -83,6 +89,10 @@ vi.mock("@/utils/supabase/shared", () => ({
   isSupabaseConfigured: () => state.configured,
 }));
 vi.mock("@/utils/supabase/server", () => ({ createClient: () => state.client }));
+vi.mock("@/utils/supabase/admin", () => ({
+  isAdminConfigured: () => state.admin != null,
+  createAdminClient: () => state.admin,
+}));
 vi.mock("@/lib/hotel-context", () => ({
   resolveAccessibleHotelId: async () => state.hotelId,
 }));
@@ -197,6 +207,59 @@ describe("changelog route: failures are errors, never demo data", () => {
       change_pct: 10,
       evaluation_run_id: "run-1",
     });
+  });
+
+  // profiles is self-select only under RLS, so the caller's client would name
+  // nobody but the caller. The names come off the service role instead.
+  it("names a teammate who typed a manual price, via the service role", async () => {
+    const manualRow = {
+      hotel_id: HOTEL,
+      evaluation_run_id: "run-2",
+      stay_date: "2026-08-02",
+      room_type_id: "rt-1",
+      evaluated_at: "2026-07-30T08:00:00Z",
+      base_price: 180,
+      final_price: 180,
+      pre_clamp_price: 180,
+      floor_price: 100,
+      ceiling_price: 400,
+      details: {
+        application_order: [],
+        base_source: "manual",
+        manual_override: { set_by: "user-2", set_at: "2026-07-30T07:59:00Z" },
+      },
+    };
+    const withManual = fakeSupabase({
+      evaluation_audit: [manualRow],
+      hotels: [{ id: HOTEL, currency: "USD" }],
+      room_types: [{ id: "rt-1", hotel_id: HOTEL, name: "Garden King" }],
+      pricing_rules: [],
+      evaluation_run_log: [
+        { hotel_id: HOTEL, evaluation_run_id: "run-2", evaluated_at: "2026-07-30T08:00:00Z" },
+      ],
+      // What the caller's own client can see of profiles: themselves only.
+      profiles: [{ id: "user-1", full_name: "Corey" }],
+    });
+    state.client = withManual.client;
+    state.hotelId = HOTEL;
+    state.configured = true;
+    state.admin = fakeSupabase({
+      profiles: [
+        { id: "user-1", full_name: "Corey" },
+        { id: "user-2", full_name: "Jake" },
+      ],
+    }).client;
+
+    const res = await GET();
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body[0].changes[0].description).toBe("Jake set the base rate to $180.00.");
+
+    // Without a service role the lookup stays on the caller's client, and a
+    // teammate's price falls back to the anonymous line rather than failing.
+    state.admin = null;
+    const fallback = await (await GET()).json();
+    expect(fallback[0].changes[0].description).toBe("A manager set the base rate to $180.00.");
   });
 
   it("still serves the demo changelog when Supabase is not configured", async () => {

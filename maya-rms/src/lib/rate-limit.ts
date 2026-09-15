@@ -46,6 +46,8 @@ export const RATE_LIMITS = {
   reanalyse: { limit: 5, windowSeconds: 900 },
   /** Hand-run pricing evaluation. One run is minutes of database work. */
   evaluate: { limit: 6, windowSeconds: 3600 },
+  /** Setting or clearing a manual price. Each save also re-prices the horizon. */
+  manualPrice: { limit: 30, windowSeconds: 600 },
   /**
    * The post-checkout screen asking whether the webhook landed. The client
    * backs off on its own; this is the ceiling for the ones that don't.

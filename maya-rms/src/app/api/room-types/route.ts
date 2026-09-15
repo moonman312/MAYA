@@ -9,10 +9,12 @@ import { NextResponse } from "next/server";
 /**
  * A rate per room type worth showing someone as a starting point.
  *
- * The nearest upcoming night MAYA has published, preferring the base it
- * remembered over the price it produced — the base is the property's own rate,
- * while the price already has rules baked into it, and seeding a rule preview
- * with a rules-adjusted number compounds the adjustment.
+ * A manual price someone typed for tonight wins outright — that is the
+ * number the property has decided on. Otherwise the nearest upcoming night
+ * MAYA has published, preferring the base it remembered over the price it
+ * produced — the base is the property's own rate, while the price already has
+ * rules baked into it, and seeding a rule preview with a rules-adjusted number
+ * compounds the adjustment.
  *
  * Never throws: a property with nothing published yet just gets no seed, and
  * the caller falls back.
@@ -24,13 +26,26 @@ async function nearestPublishedRates(
   const today = new Date().toISOString().slice(0, 10);
   const seed = new Map<string, number>();
   try {
-    const { data } = await supabase
-      .from("published_price")
-      .select("room_type_id, stay_date, price, base_price")
-      .eq("hotel_id", hotelId)
-      .gte("stay_date", today)
-      .order("stay_date", { ascending: true })
-      .limit(1000);
+    const [{ data: manualRows }, { data }] = await Promise.all([
+      supabase
+        .from("manual_price")
+        .select("room_type_id, price")
+        .eq("hotel_id", hotelId)
+        .eq("stay_date", today)
+        .is("cleared_at", null),
+      supabase
+        .from("published_price")
+        .select("room_type_id, stay_date, price, base_price")
+        .eq("hotel_id", hotelId)
+        .gte("stay_date", today)
+        .order("stay_date", { ascending: true })
+        .limit(1000),
+    ]);
+
+    for (const row of manualRows ?? []) {
+      const price = row.price != null ? Number(row.price) : null;
+      if (price != null && price > 0) seed.set(String(row.room_type_id), price);
+    }
 
     for (const row of data ?? []) {
       const id = String(row.room_type_id);

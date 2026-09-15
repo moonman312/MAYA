@@ -31,6 +31,7 @@ function assembled(overrides: Partial<AssembledPrice> = {}): AssembledPrice {
     stay_date: "2026-09-01",
     room_type_id: "rt1",
     base_price: 100,
+    base_source: "calendar",
     floor_price: 50,
     ceiling_price: 500,
     ladder_effects: [],

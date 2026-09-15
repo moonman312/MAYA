@@ -161,6 +161,10 @@ export type EvaluationAuditDetails = {
    * distinct window length consulted.
    */
   booking_speed_observations?: Record<string, unknown>[];
+  /** Which precedence slot supplied the base. Rows written before manual prices existed lack it. */
+  base_source?: "manual" | "calendar" | "reservation" | "remembered";
+  /** Present only when base_source is "manual": who typed the price and when. */
+  manual_override?: { set_by: string | null; set_at: string };
 };
 
 export type EvaluationAudit = {
@@ -205,6 +209,16 @@ export type CalendarRoomType = {
    * from the generated demo rate so the day detail always has a price.
    */
   current_rate: number | null;
+  /**
+   * The base the engine priced this night from (`published_price.base_price`),
+   * before rules and clamps. Null when nothing has been published or in demo.
+   */
+  base_price: number | null;
+  /**
+   * An open manual price for this (stay_date, room_type) — a person typed it
+   * and it outranks every other base. Null when MAYA is pricing the night.
+   */
+  manual_price: { price: number; set_at: string } | null;
 };
 
 export type CalendarDay = {

@@ -23,17 +23,23 @@ import {
   observeForStayDate,
   type BookingSpeedContext,
 } from "./booking-speed-provider.ts";
-import { resolveBasePrice } from "./base-price.ts";
+import type { BaseSource } from "./base-price.ts";
+import { resolveBase } from "./base-price.ts";
 import { ruleConditionsMatch } from "./conditions.ts";
-import type { LadderPassResult } from "./ladder.ts";
+import type { LadderPassResult, OverrideProbe } from "./ladder.ts";
 import { evaluateLadderTriple } from "./ladder.ts";
 import { computeRuleMetrics } from "./metrics.ts";
-import { computeBaselineTs, retireUndonePickupEvents, runPickupPass } from "./pickup.ts";
+import {
+  computeBaselineTs,
+  floorBaselineToOverride,
+  retireUndonePickupEvents,
+  runPickupPass,
+} from "./pickup.ts";
 import { assemblePrice, maybePublish } from "./pricing.ts";
 import { ruleScopeMatches } from "./scope.ts";
 import { fetchAllRows, purgeOldSnapshots, snapshotCurrentState } from "./snapshots.ts";
 import { addCalendarDays, evalIsoToHotelDateString } from "./timezone.ts";
-import type { PickupCandidate, RoomTypeRow } from "./types.ts";
+import type { PickupCandidate, RoomTypeRow, RuleMetrics } from "./types.ts";
 
 export type EvaluationResult = {
   run_id: string;
@@ -214,10 +220,12 @@ export async function evaluateHotel(
   // the whole horizon, resolved in memory. (Previously this was ~2 queries per
   // (stay_date, room_type) cell — thousands of sequential round-trips.)
   //
-  // Order: the most recent reservation's base_rate, else the base price we
-  // remembered the last time this cell was priced. NEVER published_price.price
-  // — that is this engine's own output, already carrying every active effect,
-  // and feeding it back in compounds those effects once per run.
+  // Order (see resolveBase): a manual price someone typed for the cell, else
+  // the property's own base_rate_calendar rate, else the most recent
+  // reservation's base_rate, else the base price we remembered the last time
+  // this cell was priced. NEVER published_price.price — that is this engine's
+  // own output, already carrying every active effect, and feeding it back in
+  // compounds those effects once per run.
   const firstDate = stayDates[0];
   const lastDate = stayDates[stayDates.length - 1];
 
@@ -296,18 +304,61 @@ export async function evaluateHotel(
     );
   }
 
+  // A number a human typed for the cell. Open rows only — clearing an
+  // override stamps cleared_at and the cell falls back to the tiers above.
+  // Same degrade-to-empty stance as the calendar: this table also arrives in
+  // a migration, and pricing without overrides beats not pricing at all.
+  const manualByCell = new Map<string, { price: number; set_by: string | null; set_at: string }>();
+  try {
+    const manualRows = await fetchAllRows(() =>
+      supabase
+        .from("manual_price")
+        .select("stay_date, room_type_id, price, set_by, set_at")
+        .eq("hotel_id", hotelId)
+        .gte("stay_date", firstDate)
+        .lte("stay_date", lastDate)
+        .is("cleared_at", null)
+        .order("stay_date", { ascending: true })
+        .order("room_type_id", { ascending: true }),
+    );
+    for (const m of manualRows) {
+      if (!m.room_type_id || m.price == null) continue;
+      manualByCell.set(`${m.stay_date}|${m.room_type_id}`, {
+        price: Number(m.price),
+        set_by: m.set_by != null ? String(m.set_by) : null,
+        set_at: String(m.set_at),
+      });
+    }
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "evaluateHotel",
+        step: "manual_price",
+        hotelId,
+        error: e instanceof Error ? e.message : String(e),
+        degradedToEmpty: true,
+      }),
+    );
+  }
+
   const basePrices = new Map<string, number>();
+  const baseSourceByCell = new Map<string, BaseSource>();
   for (const sd of stayDates) {
     for (const rt of roomTypes) {
       const key = `${sd}|${rt.id}`;
-      // See resolveBasePrice: the property's own rate outranks anything
-      // derived from a booking, because a booking can be one of our own prices.
-      const base = resolveBasePrice({
+      // See resolveBase: a typed price wins outright; below it the property's
+      // own rate outranks anything derived from a booking, because a booking
+      // can be one of our own prices.
+      const base = resolveBase({
+        manual: manualByCell.get(key)?.price,
         calendar: calendarBaseByCell.get(key),
         reservation: latestResByCell.get(key)?.base_rate,
         remembered: rememberedBaseByCell.get(key),
       });
-      if (base !== undefined) basePrices.set(key, base);
+      if (base !== undefined) {
+        basePrices.set(key, base.price);
+        baseSourceByCell.set(key, base.source);
+      }
     }
   }
 
@@ -384,7 +435,44 @@ export async function evaluateHotel(
       );
       attachBookingSpeed(rule, stayDate, metrics);
 
+      // Whether this rule already held when a manual price was typed on one
+      // of its cells, for a cell that has no state row yet (see OverrideProbe
+      // in ladder.ts). Read against the snapshot the override's own republish
+      // wrote at set_at; one read per (rule, stay date, override time), and
+      // only when a first activation asks. Booking speed is today's reading:
+      // exact in the republish run itself, the nearest available after.
+      const heldAt = new Map<string, Promise<boolean>>();
+      const heldAtOverride = (setAt: string): Promise<boolean> => {
+        let probe = heldAt.get(setAt);
+        if (!probe) {
+          probe = (async () => {
+            const then = await computeRuleMetrics(
+              supabase,
+              rule,
+              hotelId,
+              stayDate,
+              setAt,
+              evalIsoToHotelDateString(setAt, hotelTimeZone),
+              setAt,
+              null,
+            );
+            attachBookingSpeed(rule, stayDate, then);
+            return ruleConditionsMatch(rule, then);
+          })();
+          heldAt.set(setAt, probe);
+        }
+        return probe;
+      };
+
       for (const rtId of rule.affected_room_type_ids) {
+        // A rule created after the price was typed cannot have been part of
+        // what the typed number reset; its first fire is a fresh trigger.
+        const override = manualByCell.get(`${stayDate}|${rtId}`);
+        const probe: OverrideProbe | undefined =
+          override && Date.parse(rule.created_at) <= Date.parse(override.set_at)
+            ? { set_at: override.set_at, heldAtOverride: () => heldAtOverride(override.set_at) }
+            : undefined;
+
         const result = await evaluateLadderTriple(
           supabase,
           rule,
@@ -393,6 +481,7 @@ export async function evaluateHotel(
           rtId,
           metrics,
           now,
+          probe,
         );
 
         const key = `${stayDate}|${rtId}`;
@@ -445,17 +534,46 @@ export async function evaluateHotel(
       if (!ruleConditionsMatch(rule, metrics)) continue;
 
       for (const rtId of rule.affected_room_type_ids) {
+        // Manual price override floor. The baseline above is per (rule,
+        // stay_date); an override is per cell. Bookings that predate the
+        // override on THIS cell are already priced into the typed number, so
+        // this cell's baseline moves up to the override's set_at and the net
+        // pickup is re-read against it. The rule must still have matched on
+        // its own full window (the gate above) — the floor can only withhold
+        // a fire, never manufacture one from a window that is minutes long.
+        // Cells without an open override never enter this branch.
+        let cellBaselineTs: string = baselineTs;
+        let cellMetrics: RuleMetrics = metrics;
+        const override = manualByCell.get(`${stayDate}|${rtId}`);
+        if (override) {
+          cellBaselineTs = floorBaselineToOverride(baselineTs, override.set_at);
+          if (cellBaselineTs !== baselineTs) {
+            cellMetrics = await computeRuleMetrics(
+              supabase,
+              rule,
+              hotelId,
+              stayDate,
+              now,
+              localDate,
+              now,
+              cellBaselineTs,
+            );
+            attachBookingSpeed(rule, stayDate, cellMetrics);
+            if (!ruleConditionsMatch(rule, cellMetrics)) continue;
+          }
+        }
+
         allPickupCandidates.push({
           rule,
-          metrics,
+          metrics: cellMetrics,
           stay_date: stayDate,
-          baseline_ts: baselineTs,
+          baseline_ts: cellBaselineTs,
           affected_room_type_id: rtId,
           eval_ts: now,
-          signal_booked_units_start: metrics.signal_booked_units_baseline ?? 0,
-          signal_booked_units_end: metrics.signal_booked_units_now ?? 0,
-          signal_booked_revenue_start: metrics.signal_booked_revenue_baseline ?? 0,
-          signal_booked_revenue_end: metrics.signal_booked_revenue_now ?? 0,
+          signal_booked_units_start: cellMetrics.signal_booked_units_baseline ?? 0,
+          signal_booked_units_end: cellMetrics.signal_booked_units_now ?? 0,
+          signal_booked_revenue_start: cellMetrics.signal_booked_revenue_baseline ?? 0,
+          signal_booked_revenue_end: cellMetrics.signal_booked_revenue_now ?? 0,
         });
       }
     }
@@ -530,7 +648,15 @@ export async function evaluateHotel(
       if (basePrice === undefined) continue;
       cellsChecked++;
 
-      const assembled = await assemblePrice(supabase, hotelId, stayDate, rt, basePrice);
+      const assembled = await assemblePrice(
+        supabase,
+        hotelId,
+        stayDate,
+        rt,
+        basePrice,
+        // Every priced cell has a source: the two maps are filled together.
+        baseSourceByCell.get(key) ?? "remembered",
+      );
       const published = await maybePublish(
         supabase,
         hotelId,
@@ -557,6 +683,7 @@ export async function evaluateHotel(
           ? bookingSpeedAuditSnapshots(bsCtx, stayDate)
           : [],
         previousSignature: lastAuditSignatures.get(key) ?? null,
+        manualOverride: manualByCell.get(key) ?? null,
       };
       if (await writeAudit(supabase, auditInput)) cellsChanged++;
     }

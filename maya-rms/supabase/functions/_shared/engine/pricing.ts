@@ -4,12 +4,15 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { BaseSource } from "./base-price.ts";
 import type { AdjustmentSpec, RoomTypeRow } from "./types.ts";
 
 export type AssembledPrice = {
   stay_date: string;
   room_type_id: string;
   base_price: number;
+  /** Which tier supplied base_price — see resolveBase. */
+  base_source: BaseSource;
   floor_price: number;
   ceiling_price: number;
   ladder_effects: AdjustmentSpec[];
@@ -56,13 +59,21 @@ export async function loadActiveLadderEffects(
   stayDate: string,
   roomTypeId: string,
 ): Promise<AdjustmentSpec[]> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("ladder_rule_state")
     .select("rule_id, action_kind, action_direction, action_value")
     .eq("stay_date", stayDate)
     .eq("room_type_id", roomTypeId)
     .eq("is_active", true)
+    // A row suppressed by a manual price override is still active (its
+    // condition holds and it must not re-fire on the same trigger) but no
+    // longer moves the price. Suppression lifts on the next transition.
+    .is("suppressed_at", null)
     .order("rule_id", { ascending: true });
+  // Loud, not empty: a failed read here (say, the suppressed_at column not
+  // migrated yet) would otherwise price the whole horizon with no rules and
+  // push that to the PMS as a successful run.
+  if (error) throw new Error(`Failed to load ladder effects: ${error.message}`);
 
   return (data ?? []).map((r) => ({
     rule_id: String(r.rule_id),
@@ -79,7 +90,7 @@ export async function loadActivePickupEffects(
   stayDate: string,
   roomTypeId: string,
 ): Promise<(AdjustmentSpec & { event_id: string })[]> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("pickup_event")
     .select("id, rule_id, action_kind, action_direction, action_value")
     .eq("hotel_id", hotelId)
@@ -88,6 +99,7 @@ export async function loadActivePickupEffects(
     .is("retired_at", null)
     .order("applied_at", { ascending: true })
     .order("id", { ascending: true });
+  if (error) throw new Error(`Failed to load pickup effects: ${error.message}`);
 
   return (data ?? []).map((r) => ({
     event_id: String(r.id),
@@ -105,6 +117,7 @@ export async function assemblePrice(
   stayDate: string,
   roomType: RoomTypeRow,
   basePrice: number,
+  baseSource: BaseSource,
 ): Promise<AssembledPrice> {
   const ladderEffects = await loadActiveLadderEffects(supabase, stayDate, roomType.id);
   const pickupEffects = await loadActivePickupEffects(supabase, hotelId, stayDate, roomType.id);
@@ -116,6 +129,7 @@ export async function assemblePrice(
     stay_date: stayDate,
     room_type_id: roomType.id,
     base_price: basePrice,
+    base_source: baseSource,
     floor_price: roomType.floor_price,
     ceiling_price: roomType.ceiling_price,
     ladder_effects: ladderEffects,

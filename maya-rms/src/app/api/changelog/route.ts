@@ -17,10 +17,12 @@ import {
   type RunHeartbeat,
   buildCyclesFromAudit,
   currencySymbolFor,
+  manualOverrideFor,
 } from "@/lib/changelog-route-helpers";
 import { buildChangelog } from "@/lib/demo-data";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import type { RuleCondition } from "@/types/domain";
+import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -145,6 +147,7 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
     rules: ruleLookup,
     conditions: conditionLookup,
     currencySymbol: currencySymbolFor(hotel?.currency ? String(hotel.currency) : null),
+    setterNames: await setterNamesFor(supabase, auditRows ?? []),
   };
 
   const rows: AuditChangeRow[] = (auditRows ?? []).map((r) => ({
@@ -166,4 +169,36 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
   }));
 
   return buildCyclesFromAudit(rows, lookups, heartbeats);
+}
+
+/**
+ * Display names for whoever typed a manual price in these rows, so the
+ * narration can say who instead of "a manager". Names are cosmetic: a
+ * failed or empty lookup falls back rather than failing the change log.
+ *
+ * Looked up on the service role: profiles is self-select only under RLS, so
+ * through the caller's own client every teammate's price reads "A manager"
+ * and only the setter ever sees their own name. The ids here come off audit
+ * rows the caller can already read for this hotel, so the service role only
+ * turns an id they already hold into a name.
+ */
+async function setterNamesFor(
+  supabase: SupabaseClient,
+  auditRows: { details: unknown }[],
+): Promise<Map<string, string>> {
+  const ids = new Set<string>();
+  for (const r of auditRows) {
+    const setBy = manualOverrideFor(r.details as AuditChangeRow["details"])?.set_by;
+    if (setBy) ids.add(setBy);
+  }
+  const names = new Map<string, string>();
+  if (ids.size === 0) return names;
+
+  const reader = isAdminConfigured() ? createAdminClient() : supabase;
+  const { data } = await reader.from("profiles").select("id, full_name").in("id", [...ids]);
+  for (const p of data ?? []) {
+    const name = typeof p.full_name === "string" ? p.full_name.trim() : "";
+    if (name) names.set(String(p.id), name);
+  }
+  return names;
 }

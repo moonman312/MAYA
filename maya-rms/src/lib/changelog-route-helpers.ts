@@ -43,7 +43,23 @@ export type ChangelogLookups = {
   rules: Map<string, RuleLookupEntry>;
   conditions: Map<string, RuleCondition>;
   currencySymbol: string;
+  /** user id -> display name, for attributing a manual price to whoever typed it. */
+  setterNames?: Map<string, string>;
 };
+
+/**
+ * The manual_override the engine stamps into details when a typed price was
+ * the base for this row. Read loosely: the audit table holds every shape the
+ * engine has ever written, and a row without it is simply MAYA's own pricing.
+ */
+export function manualOverrideFor(
+  details: EvaluationAuditDetails,
+): { set_by: string | null } | null {
+  const mo = (details as { manual_override?: unknown } | null)?.manual_override;
+  if (!mo || typeof mo !== "object") return null;
+  const setBy = (mo as { set_by?: unknown }).set_by;
+  return { set_by: typeof setBy === "string" && setBy ? setBy : null };
+}
 
 const MAX_RUNS = 10;
 const MAX_ENTRIES_PER_CYCLE = 40;
@@ -124,11 +140,17 @@ function mergeHeartbeats(auditRuns: AuditRun[], heartbeats: RunHeartbeat[]): Aud
   );
 }
 
-/** A row counts as a change when the price moved at least a cent or any rule applied. */
+/**
+ * A row counts as a change when the price moved at least a cent, any rule
+ * applied, or a person set the base by hand. The last one matters: a manual
+ * price with nothing stacked on it has base == final, and without this the
+ * one change the manager made themselves would be the one they can't find.
+ */
 export function isChangeRow(row: AuditChangeRow): boolean {
   // Compare in whole cents to dodge float noise on one-cent moves.
   if (Math.round(Math.abs(row.final_price - row.base_price) * 100) >= 1) return true;
-  return (row.details?.application_order ?? []).length > 0;
+  if ((row.details?.application_order ?? []).length > 0) return true;
+  return manualOverrideFor(row.details) !== null;
 }
 
 function toNarrativeMetrics(
@@ -236,21 +258,33 @@ export function buildEntry(
     lookups.roomTypeNames.get(row.room_type_id) ?? "Unknown room type";
   const applications = buildApplications(row.details, lookups);
   const firstOccupancy = applications[0]?.metrics?.occupancy;
+  const clampedBy = clampedByFor(row.details);
+  const override = manualOverrideFor(row.details);
 
-  const narrative = narrateChange({
+  let narrative = narrateChange({
     room_type: roomType,
     base_price: basePrice,
     final_price: finalPrice,
     applications,
     floor_price: Number(row.floor_price),
     ceiling_price: Number(row.ceiling_price),
-    clamped_by: clampedByFor(row.details),
+    clamped_by: clampedBy,
     currencySymbol: lookups.currencySymbol,
   });
 
+  if (override) {
+    const setter =
+      (override.set_by ? lookups.setterNames?.get(override.set_by) : null) ?? "A manager";
+    const lead = `${setter} set the base rate to ${lookups.currencySymbol}${basePrice.toFixed(2)}.`;
+    // With nothing stacked on the typed number, narrateChange's only sentence
+    // is the "moved from X to X" fallback, which the lead already says better.
+    narrative =
+      applications.length === 0 && !clampedBy ? [lead] : [lead, ...narrative];
+  }
+
   return {
     room_type: roomType,
-    rule_name: applications[0]?.rule_name ?? "Price update",
+    rule_name: applications[0]?.rule_name ?? (override ? "Manual price" : "Price update"),
     original_rate: basePrice,
     new_rate: finalPrice,
     change_pct:

@@ -23,6 +23,20 @@ export type LadderPassResult = {
 };
 
 /**
+ * How a cell's open manual price bears on a FIRST activation. The API route
+ * stamps suppressed_at on the rows that exist when the price is typed, but a
+ * cell that has never been evaluated (past the scheduled tick's horizon) has
+ * no row to stamp. Its first activation asks whether the condition already
+ * held when the price was typed; if so the effect was part of what the typed
+ * number reset, and the row is born suppressed. A condition that only starts
+ * holding later is a fresh trigger and applies on top.
+ */
+export type OverrideProbe = {
+  set_at: string;
+  heldAtOverride: () => Promise<boolean>;
+};
+
+/**
  * Run the ladder pass for a single (rule, stay_date, affected_room_type).
  *
  * Returns the transition action taken.
@@ -35,6 +49,7 @@ export async function evaluateLadderTriple(
   affectedRoomTypeId: string,
   metrics: RuleMetrics,
   evalTs: string,
+  override?: OverrideProbe,
 ): Promise<LadderPassResult> {
   const matches = ruleConditionsMatch(rule, metrics);
 
@@ -52,7 +67,21 @@ export async function evaluateLadderTriple(
 
   if (matches && !wasActive) {
     transition = "activate";
-    await activateLadder(supabase, rule, hotelId, stayDate, affectedRoomTypeId, metrics, evalTs);
+    // Only a row that never existed can have missed the route's stamp. An
+    // existing inactive row has a history: whatever held at the override was
+    // already handled, so its re-activation is a fresh trigger.
+    const suppressedAt =
+      !rowExists && override && (await override.heldAtOverride()) ? override.set_at : null;
+    await activateLadder(
+      supabase,
+      rule,
+      hotelId,
+      stayDate,
+      affectedRoomTypeId,
+      metrics,
+      evalTs,
+      suppressedAt,
+    );
   } else if (matches && wasActive) {
     await touchLadderState(supabase, rule.id, stayDate, affectedRoomTypeId, evalTs);
   } else if (!matches && wasActive) {
@@ -83,6 +112,7 @@ async function activateLadder(
   roomTypeId: string,
   metrics: RuleMetrics,
   evalTs: string,
+  suppressedAt: string | null,
 ): Promise<void> {
   await supabase.from("ladder_transition_event").insert({
     hotel_id: hotelId,
@@ -107,6 +137,12 @@ async function activateLadder(
       is_active: true,
       activated_at: evalTs,
       deactivated_at: null,
+      // A fresh activation is a fresh trigger: if a manual price override
+      // had suppressed this row, the rule is now firing on top of the
+      // manual base, which is exactly what the override promises. The one
+      // exception is a first-ever row whose condition already held when the
+      // price was typed (see OverrideProbe).
+      suppressed_at: suppressedAt,
       last_evaluated_at: evalTs,
       action_kind: rule.action_type,
       action_direction: rule.action_direction,
@@ -144,6 +180,10 @@ async function deactivateLadder(
     .update({
       is_active: false,
       deactivated_at: evalTs,
+      // Suppression belongs to the trigger that was already holding when
+      // the override landed. Once that trigger ends, the next one is new
+      // and applies on top of the manual base.
+      suppressed_at: null,
       last_evaluated_at: evalTs,
     })
     .eq("rule_id", rule.id)
@@ -151,6 +191,11 @@ async function deactivateLadder(
     .eq("room_type_id", roomTypeId);
 }
 
+/**
+ * The condition merely keeps holding. Deliberately does NOT touch
+ * suppressed_at: an effect that was already applying when a manual price
+ * override landed stays suppressed for as long as that same trigger lasts.
+ */
 async function touchLadderState(
   supabase: SupabaseClient,
   ruleId: string,

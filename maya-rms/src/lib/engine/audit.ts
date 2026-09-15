@@ -7,6 +7,7 @@
 
 import type { EvaluationAuditDetails } from "@/types/domain";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { BaseSource } from "./base-price";
 import type { LadderPassResult } from "./ladder";
 import { basePriceKey, pickupTieBreakTrace } from "./pickup";
 import type { AssembledPrice } from "./pricing";
@@ -40,6 +41,18 @@ export type AuditInput = {
    * day, forever, since nothing ever purged this table.
    */
   previousSignature?: string | null;
+  /** The open manual_price row for this cell, when one exists. */
+  manualOverride?: { set_by: string | null; set_at: string } | null;
+};
+
+/**
+ * Where the base came from, and who set it when it was typed by hand. Lives
+ * beside the guide's details shape so the change log can attribute a manual
+ * price to a person instead of narrating it as an anonymous rate move.
+ */
+export type AuditBaseDetails = {
+  base_source: BaseSource;
+  manual_override?: { set_by: string | null; set_at: string };
 };
 
 /**
@@ -54,8 +67,25 @@ export function auditSignature(
   finalPrice: number,
   applicationOrder: string[],
   clampedBy: string,
+  baseKey: string = "",
 ): string {
-  return `${finalPrice.toFixed(2)}|${applicationOrder.join(",")}|${clampedBy}`;
+  return `${finalPrice.toFixed(2)}|${applicationOrder.join(",")}|${clampedBy}|${baseKey}`;
+}
+
+/**
+ * The part of the signature that says a human typed the base. A manual price
+ * equal to what MAYA was already publishing changes nothing about the number
+ * yet is exactly the change the manager will look for in the change log, so
+ * setting and clearing one each earn a row. Only the manual case is keyed:
+ * MAYA's own tiers swapping at the same price stay silent, as before.
+ */
+export function auditBaseKey(details: {
+  base_source?: string;
+  manual_override?: { set_at: string } | null;
+}): string {
+  return details.base_source === "manual" && details.manual_override
+    ? `manual:${details.manual_override.set_at}`
+    : "";
 }
 
 /**
@@ -73,7 +103,7 @@ export async function writeAudit(supabase: SupabaseClient, input: AuditInput): P
 
   const winnerForRoom = input.pickupWinners[0];
 
-  const details: EvaluationAuditDetails = {
+  const details: EvaluationAuditDetails & AuditBaseDetails = {
     matched_ladder_rules: input.ladderResults.map((lr) => ({
       rule_id: lr.rule_id,
       rule_version: lr.rule_version,
@@ -127,6 +157,15 @@ export async function writeAudit(supabase: SupabaseClient, input: AuditInput): P
     ],
     pre_clamp_price: assembled.pre_clamp_price.toFixed(2),
     clamped_by: assembled.clamped_by,
+    base_source: assembled.base_source,
+    ...(assembled.base_source === "manual" && input.manualOverride
+      ? {
+          manual_override: {
+            set_by: input.manualOverride.set_by,
+            set_at: input.manualOverride.set_at,
+          },
+        }
+      : {}),
     ...(input.bookingSpeedObservations && input.bookingSpeedObservations.length > 0
       ? { booking_speed_observations: input.bookingSpeedObservations }
       : {}),
@@ -136,6 +175,7 @@ export async function writeAudit(supabase: SupabaseClient, input: AuditInput): P
     assembled.final_price,
     details.application_order,
     details.clamped_by,
+    auditBaseKey(details),
   );
   if (input.previousSignature != null && input.previousSignature === signature) {
     return false;
@@ -190,10 +230,15 @@ export async function loadLastAuditSignatures(
       const key = `${r.stay_date}|${r.room_type_id}`;
       if (seenKeys.has(key)) continue;
       seenKeys.add(key);
-      const d = (r.details ?? {}) as EvaluationAuditDetails;
+      const d = (r.details ?? {}) as EvaluationAuditDetails & Partial<AuditBaseDetails>;
       signatures.set(
         key,
-        auditSignature(Number(r.final_price), d.application_order ?? [], d.clamped_by ?? "none"),
+        auditSignature(
+          Number(r.final_price),
+          d.application_order ?? [],
+          d.clamped_by ?? "none",
+          auditBaseKey(d),
+        ),
       );
     }
     if (rows.length < PAGE) break;

@@ -14,9 +14,18 @@
  *
  * So the property's own rate, captured from the PMS before we ever wrote to
  * that cell, outranks anything derived from a booking.
+ *
+ * Above all of that sits the number a human typed for the cell (manual_price).
+ * It has to be the top slot: the scheduled tick re-resolves every base from
+ * scratch, so a manual number anywhere lower is outranked by the calendar and
+ * never reaches the PMS. A guest booking taken at the manual price echoes
+ * back as a reservation base_rate equal to it, which cannot displace it —
+ * the ratchet stays dead.
  */
 
 export type BasePriceSources = {
+  /** A rate someone typed for the cell (open manual_price row). Wins outright. */
+  manual?: number;
   /** The property's own rate from base_rate_calendar. Authoritative. */
   calendar?: number;
   /** Newest reservation's base_rate for the cell — may be a price WE set. */
@@ -25,13 +34,26 @@ export type BasePriceSources = {
   remembered?: number;
 };
 
+export type BaseSource = "manual" | "calendar" | "reservation" | "remembered";
+
+/**
+ * The base for a cell and which tier supplied it, or undefined when nothing
+ * is known and the cell must be skipped.
+ */
+export function resolveBase(
+  src: BasePriceSources,
+): { price: number; source: BaseSource } | undefined {
+  // `!= null` rather than truthiness throughout: a genuine 0 (comp or
+  // house-use night, or a manual 0) is a real rate, and treating it as
+  // missing sent the cell down the fallback path for no reason.
+  if (src.manual != null) return { price: src.manual, source: "manual" };
+  if (src.calendar != null) return { price: src.calendar, source: "calendar" };
+  if (src.reservation != null) return { price: src.reservation, source: "reservation" };
+  if (src.remembered != null) return { price: src.remembered, source: "remembered" };
+  return undefined;
+}
+
 /** The base for a cell, or undefined when nothing is known and it must be skipped. */
 export function resolveBasePrice(src: BasePriceSources): number | undefined {
-  if (src.calendar != null) return src.calendar;
-  // `!= null` rather than truthiness: a genuine 0 base_rate (comp or house-use
-  // night) is a real rate, and treating it as missing sent the cell down the
-  // fallback path for no reason.
-  if (src.reservation != null) return src.reservation;
-  if (src.remembered != null) return src.remembered;
-  return undefined;
+  return resolveBase(src)?.price;
 }

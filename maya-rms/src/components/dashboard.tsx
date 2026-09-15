@@ -5,6 +5,7 @@ import { BillingBanner } from "@/components/billing/billing-banner";
 import { PmsReconnect } from "@/components/pms-reconnect";
 import { OnboardingReviewBanner } from "@/components/onboarding/review-banner";
 import { CorrectionsPanel, ExplainDrilldown } from "@/components/explain-drilldown";
+import { ManualPriceEditor } from "@/components/manual-price-editor";
 import { useCalendarLive } from "@/lib/use-calendar-live";
 import { PropertySelect } from "@/components/property-select";
 import { RateSimulator } from "@/components/rate-simulator";
@@ -227,6 +228,10 @@ function PmsHealthBadge({ health }: { health: PmsActivity["health"] }) {
 }
 
 /** True when the calendar day is today or later (UTC date semantics). */
+function isoDate(year: number, month: number, day: number): string {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
 function isFutureDay(year: number, month: number, day: number): boolean {
   const target = Date.UTC(year, month - 1, day);
   const now = new Date();
@@ -1033,7 +1038,17 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                               key={rt.id}
                               className="rounded border border-slate-800 p-3"
                             >
-                              <p className="font-medium">{rt.name}</p>
+                              <p className="flex flex-wrap items-center gap-2 font-medium">
+                                {rt.name}
+                                {rt.manual_price ? (
+                                  <span
+                                    className="rounded-full border border-amber-500/60 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300"
+                                    title={`Set ${formatFriendlyDateTime(rt.manual_price.set_at)}`}
+                                  >
+                                    Manual · ${rt.manual_price.price.toFixed(2)}
+                                  </span>
+                                ) : null}
+                              </p>
                               <p className="mt-1 text-sm text-slate-300">
                                 Booked {rt.booked}/{rt.total_rooms}
                               </p>
@@ -1049,6 +1064,29 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                               <p className="text-sm text-slate-300">
                                 Revenue ${rt.revenue.toFixed(2)}
                               </p>
+                              {activeHotelId ? (
+                                <ManualPriceEditor
+                                  key={`${activeHotelId}|${year}-${month}-${selectedDay}|${rt.id}`}
+                                  hotelId={activeHotelId}
+                                  roomTypeId={rt.id}
+                                  roomTypeName={rt.name}
+                                  stayDate={isoDate(year, month, selectedDay)}
+                                  currentPrice={rt.current_rate ?? rt.current_price ?? null}
+                                  manualPrice={rt.manual_price ?? null}
+                                  pmsName={
+                                    pmsActivity?.connection
+                                      ? formatPmsName(pmsActivity.connection.pms_type)
+                                      : "your PMS"
+                                  }
+                                  onSaved={() => {
+                                    // The realtime subscription will catch
+                                    // this too, but the person who just hit
+                                    // Save shouldn't wait out the debounce.
+                                    calendarCacheRef.current.clear();
+                                    void reloadCalendarQuiet();
+                                  }}
+                                />
+                              ) : null}
                             </div>
                           ),
                         )}

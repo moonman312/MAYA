@@ -219,6 +219,8 @@ function demoDayNumbers(
       revenue,
       current_price: null, // demo mode has no pricing engine output
       current_rate: Math.round(rate * 100) / 100, // demo stand-in for a published price
+      base_price: null,
+      manual_price: null,
     };
   });
 
@@ -321,6 +323,7 @@ async function getCalendarFromDb(
     { data: roomTypeRows },
     { data: reservations },
     { data: publishedPrices },
+    { data: manualPrices },
     history,
   ] = await Promise.all([
     supabase
@@ -345,8 +348,17 @@ async function getCalendarFromDb(
     // null as "not priced yet".
     supabase
       .from("published_price")
-      .select("stay_date, room_type_id, price")
+      .select("stay_date, room_type_id, price, base_price")
       .eq("hotel_id", hotelId)
+      .gte("stay_date", startDate)
+      .lte("stay_date", endDate),
+    // Prices a person typed. Cleared rows stay in the table for audit, so
+    // only the open ones count.
+    supabase
+      .from("manual_price")
+      .select("stay_date, room_type_id, price, set_at")
+      .eq("hotel_id", hotelId)
+      .is("cleared_at", null)
       .gte("stay_date", startDate)
       .lte("stay_date", endDate),
     // Hotel-wide history (RevPAR series, closures, navigable range) —
@@ -373,11 +385,26 @@ async function getCalendarFromDb(
           base_rate: rt.base_rate,
         }));
 
-  const publishedByKey = new Map<string, number>();
+  const publishedByKey = new Map<string, { price: number; base: number | null }>();
   for (const p of publishedPrices ?? []) {
     const price = p.price != null ? Number(p.price) : NaN;
     if (Number.isFinite(price)) {
-      publishedByKey.set(`${p.stay_date}|${String(p.room_type_id)}`, price);
+      const base = p.base_price != null ? Number(p.base_price) : NaN;
+      publishedByKey.set(`${p.stay_date}|${String(p.room_type_id)}`, {
+        price,
+        base: Number.isFinite(base) ? base : null,
+      });
+    }
+  }
+
+  const manualByKey = new Map<string, { price: number; set_at: string }>();
+  for (const m of manualPrices ?? []) {
+    const price = m.price != null ? Number(m.price) : NaN;
+    if (Number.isFinite(price)) {
+      manualByKey.set(`${m.stay_date}|${String(m.room_type_id)}`, {
+        price,
+        set_at: String(m.set_at),
+      });
     }
   }
 
@@ -454,7 +481,8 @@ async function getCalendarFromDb(
       );
       const adr = booked > 0 ? roomRevenue / booked : rt.base_rate;
       const occPct = rt.total_rooms > 0 ? Math.round((booked / rt.total_rooms) * 100) : 0;
-      const published = publishedByKey.get(`${dateStr}|${String(rt.id)}`) ?? null;
+      const cellKey = `${dateStr}|${String(rt.id)}`;
+      const published = publishedByKey.get(cellKey) ?? null;
 
       return {
         id: String(rt.id),
@@ -464,8 +492,10 @@ async function getCalendarFromDb(
         booked,
         rate: Math.round(adr * 100) / 100,
         revenue: Math.round(roomRevenue * 100) / 100,
-        current_price: published,
-        current_rate: published,
+        current_price: published?.price ?? null,
+        current_rate: published?.price ?? null,
+        base_price: published?.base ?? null,
+        manual_price: manualByKey.get(cellKey) ?? null,
       };
     });
 

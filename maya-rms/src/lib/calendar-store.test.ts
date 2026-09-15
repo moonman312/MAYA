@@ -74,6 +74,14 @@ describe("getCalendar (demo mode — no Supabase)", () => {
     }
   });
 
+  it("demo cells carry no base or manual price", async () => {
+    const cal = await getCalendar(2026, 3);
+    for (const rt of cal.days["10"].room_types) {
+      expect(rt.base_price).toBeNull();
+      expect(rt.manual_price).toBeNull();
+    }
+  });
+
   it("every room type entry carries a numeric current_rate in demo mode", async () => {
     const cal = await getCalendar(2026, 6);
     for (const key of Object.keys(cal.days)) {

@@ -84,4 +84,8 @@ export type EvaluationAuditDetails = {
    * entry per distinct window length consulted.
    */
   booking_speed_observations?: Record<string, unknown>[];
+  /** Which precedence slot supplied the base. Rows written before manual prices existed lack it. */
+  base_source?: "manual" | "calendar" | "reservation" | "remembered";
+  /** Present only when base_source is "manual": who typed the price and when. */
+  manual_override?: { set_by: string | null; set_at: string };
 };

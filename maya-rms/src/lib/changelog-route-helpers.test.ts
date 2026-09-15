@@ -140,6 +140,94 @@ describe("isChangeRow", () => {
   });
 });
 
+describe("manual price rows", () => {
+  // The engine stamps this beside the guide's details shape; it is not on
+  // EvaluationAuditDetails itself, so the tests attach it the way the audit
+  // table would carry it.
+  const withOverride = (o: Partial<EvaluationAuditDetails> = {}, setBy: string | null = "user-1") =>
+    ({ ...details(o), manual_override: { set_by: setBy, set_at: "2026-07-28T09:00:00Z" } }) as EvaluationAuditDetails;
+
+  it("isChangeRow keeps an untouched manual price, which would otherwise be invisible", () => {
+    expect(isChangeRow(row({ base_price: 250, final_price: 250, details: withOverride() }))).toBe(true);
+    expect(isChangeRow(row({ base_price: 250, final_price: 250, details: details() }))).toBe(false);
+  });
+
+  it("names the setter and stops there when no rule stacked on the typed number", () => {
+    const entry = buildEntry(
+      row({ base_price: 250, final_price: 250, details: withOverride() }),
+      lookups({ setterNames: new Map([["user-1", "Jake Mooney"]]) }),
+    );
+    expect(entry.narrative).toEqual(["Jake Mooney set the base rate to $250.00."]);
+    expect(entry.description).toBe("Jake Mooney set the base rate to $250.00.");
+    expect(entry.rule_name).toBe("Manual price");
+    expect(entry.change_pct).toBe(0);
+  });
+
+  it("leads with the setter, then the usual rule sentences", () => {
+    const entry = buildEntry(
+      row({
+        base_price: 250,
+        final_price: 275,
+        details: withOverride({
+          matched_ladder_rules: row().details.matched_ladder_rules,
+          active_ladder_effects: row().details.active_ladder_effects,
+          application_order: ["ladder:rule-1"],
+        }),
+      }),
+      lookups({ setterNames: new Map([["user-1", "Jake Mooney"]]) }),
+    );
+    expect(entry.narrative).toHaveLength(2);
+    expect(entry.narrative?.[0]).toBe("Jake Mooney set the base rate to $250.00.");
+    expect(entry.narrative?.[1]).toMatch(/^"Busy-day bump" kicked in because occupancy \(82%\) was above 70%, which raised the rate 10%, from \$250\.00 to \$275\.00\.$/);
+    expect(entry.rule_name).toBe("Busy-day bump");
+  });
+
+  it("falls back to 'A manager' when the setter is unknown or gone", () => {
+    const unknown = buildEntry(row({ base_price: 250, final_price: 250, details: withOverride() }), lookups());
+    expect(unknown.narrative).toEqual(["A manager set the base rate to $250.00."]);
+
+    const gone = buildEntry(
+      row({ base_price: 250, final_price: 250, details: withOverride({}, null) }),
+      lookups({ setterNames: new Map([["user-1", "Jake Mooney"]]) }),
+    );
+    expect(gone.narrative).toEqual(["A manager set the base rate to $250.00."]);
+  });
+
+  it("uses the hotel's currency symbol", () => {
+    const entry = buildEntry(
+      row({ base_price: 250, final_price: 250, details: withOverride() }),
+      lookups({ currencySymbol: "€" }),
+    );
+    expect(entry.narrative).toEqual(["A manager set the base rate to €250.00."]);
+  });
+
+  it("keeps a clamp sentence after the lead", () => {
+    const entry = buildEntry(
+      row({
+        base_price: 50,
+        final_price: 100,
+        pre_clamp_price: 50,
+        floor_price: 100,
+        details: withOverride({ clamped_by: "floor" }),
+      }),
+      lookups(),
+    );
+    expect(entry.narrative).toEqual([
+      "A manager set the base rate to $50.00.",
+      "That landed below the $100.00 floor for Deluxe King, so the final rate was held at $100.00.",
+    ]);
+  });
+
+  it("surfaces a manual-only run as a cycle with changes", () => {
+    const cycles = buildCyclesFromAudit(
+      [row({ base_price: 250, final_price: 250, details: withOverride() })],
+      lookups(),
+    );
+    expect(cycles[0].has_changes).toBe(true);
+    expect(cycles[0].changes[0].narrative).toEqual(["A manager set the base rate to $250.00."]);
+  });
+});
+
 describe("buildApplications", () => {
   it("prefers matched_ladder_rules for action and observed metrics", () => {
     const apps = buildApplications(row().details, lookups());

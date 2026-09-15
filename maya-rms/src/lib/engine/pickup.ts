@@ -47,6 +47,24 @@ export async function computeBaselineTs(
   return lastTs > windowTs ? lastEvent.applied_at : windowStartTs;
 }
 
+/**
+ * Manual price override floor on the baseline.
+ *
+ * The baseline is per (rule, stay_date); a manual price is per cell. Bookings
+ * taken before someone typed a price for a cell are not evidence for moving
+ * that cell again — the typed number already accounts for them. So for an
+ * affected cell with an open override newer than the rule's baseline, that
+ * cell's baseline becomes the moment the override was set. Cells without an
+ * override, or whose override predates the baseline, are untouched.
+ */
+export function floorBaselineToOverride(
+  baselineTs: string,
+  overrideSetAt: string | null | undefined,
+): string {
+  if (!overrideSetAt) return baselineTs;
+  return Date.parse(overrideSetAt) > Date.parse(baselineTs) ? overrideSetAt : baselineTs;
+}
+
 /* ── Per-room competition (§7.3) ──────────────────────────────── */
 
 export function basePriceKey(stayDate: string, roomTypeId: string): string {
