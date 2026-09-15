@@ -22,6 +22,8 @@ const state = vi.hoisted(() => ({
   subscription: null as unknown,
   throws: null as Error | null,
   upserts: [] as Record<string, unknown>[],
+  activation: { activated: false, reason: "not_marketplace" } as Record<string, unknown>,
+  activations: [] as unknown[][],
 }));
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
@@ -63,6 +65,12 @@ vi.mock("@/lib/billing/stripe", () => ({
     subscriptions: { retrieve: async () => state.subscription },
   }),
 }));
+vi.mock("@/lib/pms/marketplace-activate", () => ({
+  activateMarketplaceHotelIfPending: async (...args: unknown[]) => {
+    state.activations.push(args);
+    return state.activation;
+  },
+}));
 
 const { GET } = await import("./route");
 
@@ -100,6 +108,8 @@ beforeEach(() => {
   state.subscription = subscription();
   state.throws = null;
   state.upserts = [];
+  state.activation = { activated: false, reason: "not_marketplace" };
+  state.activations = [];
 });
 
 describe("beating the webhook", () => {
@@ -178,5 +188,28 @@ describe("nobody who paid is shown the payment form again", () => {
     state.throws = null;
     state.subscription = subscription({ status: "trialing" });
     expect(location(await get())).toContain("/onboarding/connect");
+  });
+});
+
+describe("a property that arrived from the Cloudbeds Marketplace", () => {
+  it("makes it live if the browser beat the webhook, and sends it to the router — it already has a PMS", async () => {
+    state.activation = { activated: true, hotelId: "hotel-pending", importJobId: "job-1" };
+    const res = await get();
+    expect(location(res)).toContain("/onboarding");
+    expect(location(res)).not.toContain("/connect");
+    expect(state.activations).toHaveLength(1);
+    expect(state.activations[0][1]).toBe("hotel-pending");
+    expect(state.activations[0][2]).toMatchObject({ requestedBy: USER });
+  });
+
+  it("still goes to the router when the webhook got there first", async () => {
+    state.activation = { activated: false, reason: "already_active" };
+    expect(location(await get())).not.toContain("/connect");
+  });
+
+  it("does not try to activate anything on a subscription that is not live", async () => {
+    state.subscription = subscription({ status: "incomplete", trial_end: null });
+    await get();
+    expect(state.activations).toHaveLength(0);
   });
 });

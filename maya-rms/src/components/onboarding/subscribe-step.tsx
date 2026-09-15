@@ -45,6 +45,8 @@ export function SubscribeStep({
   initialRooms,
   initialInterval,
   lockPms = false,
+  baseTrialDays = 0,
+  submitLabel = "Continue to payment",
 }: {
   cancelled?: boolean;
   pmsOptions?: SubscribePmsOption[];
@@ -55,6 +57,9 @@ export function SubscribeStep({
   initialInterval?: BillingInterval;
   /** The property's PMS is already known (a restart) — declare it, hide the picker. */
   lockPms?: boolean;
+  /** A trial the flow itself grants (a Marketplace arrival). A code's own trial replaces it. */
+  baseTrialDays?: number;
+  submitLabel?: string;
 }) {
   const [roomsText, setRoomsText] = useState(initialRooms ? String(initialRooms) : "");
   const [interval, setInterval] = useState<BillingInterval>(initialInterval ?? "month");
@@ -86,11 +91,13 @@ export function SubscribeStep({
   const roomsOk = isBillableRoomCount(rooms);
   // Priced with the code's effect folded in, so this panel shows what Stripe
   // will actually present on the next screen.
-  const quote = checkoutQuote(
-    roomsOk ? rooms : 0,
-    interval,
-    codeState.status === "good" ? codeState.effect : undefined,
-  );
+  const codeEffect = codeState.status === "good" ? codeState.effect : undefined;
+  // The flow's own trial applies only when no code grants one — the two never stack.
+  const effect =
+    baseTrialDays > 0 && !codeEffect?.trialDays
+      ? { ...(codeEffect ?? {}), trialDays: baseTrialDays }
+      : codeEffect;
+  const quote = checkoutQuote(roomsOk ? rooms : 0, interval, effect);
   const discount = roomsOk ? annualDiscountPct(rooms) : 0;
 
   // Check the code a beat after typing stops, so every keystroke isn't a request.
@@ -370,7 +377,7 @@ export function SubscribeStep({
             disabled={!canSubmit}
             className="cursor-pointer rounded bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {submitting ? "Taking you to checkout…" : "Continue to payment"}
+            {submitting ? "Taking you to checkout…" : submitLabel}
           </button>
           <p className="mt-2 text-[11px] text-slate-600">{footnote}</p>
         </div>

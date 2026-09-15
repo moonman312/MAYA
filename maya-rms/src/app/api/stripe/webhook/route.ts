@@ -13,10 +13,13 @@
 
 import { createAdminClient } from "@/utils/supabase/admin";
 import { isStripeConfigured, stripeClient } from "@/lib/billing/stripe";
-import { persistSubscription, projectSubscription } from "@/lib/billing/sync";
+import { isEntitledStatus } from "@/lib/billing/entitlement";
+import { persistSubscription, projectSubscription, type SubscriptionProjection } from "@/lib/billing/sync";
+import { activateMarketplaceHotelIfPending } from "@/lib/pms/marketplace-activate";
 import { decideNudge, sendRenewalNudge, type UpcomingInvoice } from "@/lib/billing/renewal-nudge";
 import { clearCardAlarmAfterPayment } from "@/lib/billing/reverify";
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 
 // The signature is computed over the exact bytes Stripe sent, so this handler
@@ -81,6 +84,7 @@ export async function POST(request: Request) {
       }
       const saved = await persistSubscription(admin, row);
       if (!saved.ok) return NextResponse.json({ error: saved.error }, { status: 500 });
+      await activateIfPaidMarketplace(admin, row, fresh);
       return NextResponse.json({ received: true, hotel_id: row.hotel_id, status: row.status });
     }
 
@@ -125,6 +129,7 @@ export async function POST(request: Request) {
         if (row) {
           const saved = await persistSubscription(admin, row);
           if (!saved.ok) return NextResponse.json({ error: saved.error }, { status: 500 });
+          await activateIfPaidMarketplace(admin, row, fresh);
         }
       }
       return NextResponse.json({ received: true });
@@ -234,5 +239,35 @@ export async function POST(request: Request) {
     const message = e instanceof Error ? e.message : "Webhook handling failed";
     console.error(JSON.stringify({ fn: "stripeWebhook", type: event.type, error: message }));
     return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+/**
+ * A Marketplace property is connected before it is paid for; the subscription
+ * landing is what makes it live and starts its history import. Done here, on
+ * the webhook, so the import is already running before the owner is back from
+ * the card form. Never fails the webhook: the subscription was recorded
+ * correctly and Stripe retrying would not help, and the next page load
+ * re-attempts activation on its own.
+ */
+async function activateIfPaidMarketplace(
+  admin: SupabaseClient,
+  row: SubscriptionProjection,
+  sub: Stripe.Subscription,
+): Promise<void> {
+  if (!isEntitledStatus(row.status)) return;
+  try {
+    await activateMarketplaceHotelIfPending(admin, row.hotel_id, {
+      requestedBy: sub.metadata?.user_id || null,
+    });
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "stripeWebhook",
+        step: "activate_marketplace",
+        hotel: row.hotel_id,
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
   }
 }

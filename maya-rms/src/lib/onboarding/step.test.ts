@@ -26,14 +26,45 @@ vi.mock("@/lib/hotel-context", () => ({
   MAYA_ACTIVE_HOTEL_COOKIE: "maya_active_hotel",
 }));
 vi.mock("@/lib/billing/stripe", () => ({ isStripeConfigured: () => state.stripe }));
+// The self-heal for a paid Marketplace property runs under the admin client;
+// same in-memory tables, so the test can see what it wrote.
+vi.mock("@/utils/supabase/admin", () => ({ createAdminClient: () => client() }));
 
-/** Only the read shapes step.ts and findPendingHotelForUser actually use. */
+/** The read shapes step.ts and findPendingHotelForUser use, plus the writes
+ *  marketplace activation makes when the router has to finish it itself. */
 function client() {
-  const rowsOf = (t: string) => state.tables[t] ?? [];
+  const rowsOf = (t: string) => (state.tables[t] ??= []);
   const builder = (table: string) => {
     const eqs: [string, unknown][] = [];
     let notNullCol: string | null = null;
     let ins: [string, unknown[]] | null = null;
+    let mode: "select" | "update" | "insert" | "upsert" = "select";
+    let patch: Row | null = null;
+    let rows: Row[] = [];
+    const match = () =>
+      rowsOf(table).filter(
+        (r) =>
+          eqs.every(([c, v]) => r[c] === v) &&
+          (!ins || ins[1].includes(r[ins[0]])) &&
+          (!notNullCol || r[notNullCol] != null),
+      );
+    const exec = (): Row[] => {
+      if (mode === "update") {
+        const m = match();
+        for (const r of m) Object.assign(r, patch);
+        return m;
+      }
+      if (mode === "insert") {
+        const out = rows.map((r) => ({ id: `${table}-${rowsOf(table).length + 1}`, ...r }));
+        rowsOf(table).push(...out);
+        return out;
+      }
+      if (mode === "upsert") {
+        rowsOf(table).push(...rows);
+        return rows;
+      }
+      return match();
+    };
     const api = {
       select: () => api,
       eq: (col: string, val: unknown) => {
@@ -49,20 +80,30 @@ function client() {
         return api;
       },
       limit: () => api,
-      maybeSingle: async () => ({ data: match()[0] ?? null, error: null }),
-      then: (resolve: (v: unknown) => void) => Promise.resolve({ data: match(), error: null }).then(resolve),
+      update: (p: Row) => {
+        mode = "update";
+        patch = p;
+        return api;
+      },
+      insert: (r: Row | Row[]) => {
+        mode = "insert";
+        rows = Array.isArray(r) ? r : [r];
+        return api;
+      },
+      upsert: (r: Row | Row[]) => {
+        mode = "upsert";
+        rows = Array.isArray(r) ? r : [r];
+        return api;
+      },
+      maybeSingle: async () => ({ data: exec()[0] ?? null, error: null }),
+      single: async () => ({ data: exec()[0] ?? null, error: null }),
+      then: (resolve: (v: unknown) => void) => Promise.resolve({ data: exec(), error: null }).then(resolve),
     };
-    const match = () =>
-      rowsOf(table).filter(
-        (r) =>
-          eqs.every(([c, v]) => r[c] === v) &&
-          (!ins || ins[1].includes(r[ins[0]])) &&
-          (!notNullCol || r[notNullCol] != null),
-      );
     return api;
   };
   return {
     from: builder,
+    rpc: async () => ({ data: null, error: null }),
     auth: {
       getSession: async () => ({
         data: { session: state.userId ? { user: { id: state.userId } } : null },
@@ -129,6 +170,32 @@ describe("before there is a property", () => {
     // onboard straight into the PMS connect.
     state.stripe = false;
     await expect(step()).resolves.toBe("connect");
+  });
+
+  it("makes a paid Marketplace property live and offers the path choice — it already has a PMS", async () => {
+    // The webhook normally activates it before any page asks. When a page
+    // gets there first, sending a connected property to the PMS picker would
+    // connect it a second time, so the router finishes the job itself.
+    state.tables = {
+      ...pendingHotel(),
+      hotels: [{ id: "hotel-pending", is_active: false, setup_pending_at: "2026-09-10T14:08:00Z" }],
+      hotel_subscriptions: [{ hotel_id: "hotel-pending", status: "trialing" }],
+      pms_connections: [{ hotel_id: "hotel-pending", pms_type: "cloudbeds", status: "pending" }],
+      pms_marketplace_claims: [
+        {
+          token: "tok",
+          hotel_id: "hotel-pending",
+          pms_type: "cloudbeds",
+          property_name: "Sea View Inn",
+          claimed_by: USER,
+          claimed_at: "2026-09-10T14:09:00Z",
+        },
+      ],
+    };
+    await expect(step()).resolves.toBe("choose");
+    expect(state.tables.hotels[0]).toMatchObject({ is_active: true, setup_pending_at: null });
+    expect(state.tables.pms_connections[0]).toMatchObject({ status: "connected" });
+    expect(state.tables.import_jobs).toHaveLength(1);
   });
 });
 

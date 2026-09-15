@@ -24,6 +24,7 @@ import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { isStripeConfigured, stripeClient } from "@/lib/billing/stripe";
 import { isEntitled, persistSubscription, projectSubscription } from "@/lib/billing/sync";
+import { activateMarketplaceHotelIfPending } from "@/lib/pms/marketplace-activate";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -61,12 +62,35 @@ export async function GET(request: Request) {
       const sub = await stripe.subscriptions.retrieve(subId);
       const row = projectSubscription(sub);
       if (row) {
-        await persistSubscription(createAdminClient(), row);
+        const admin = createAdminClient();
+        await persistSubscription(admin, row);
         // Straight on only when the payment is genuinely recorded AND live. A
         // subscription still `incomplete` writes fine and entitles nobody, so
         // treating a successful write as success would land them right back on
         // the payment form.
-        if (isEntitled(row.status)) return to("/onboarding/connect");
+        if (isEntitled(row.status)) {
+          // A Marketplace property is already connected; the payment is what
+          // makes it live. The webhook normally gets there first — if the
+          // browser won the race, do it here, and send them to the router
+          // rather than to a PMS picker for a PMS they already have.
+          const activation = await activateMarketplaceHotelIfPending(admin, row.hotel_id, {
+            requestedBy: user.id,
+          }).catch((e: unknown) => {
+            console.error(
+              JSON.stringify({
+                fn: "checkoutReturn",
+                step: "activate_marketplace",
+                error: e instanceof Error ? e.message : String(e),
+              }),
+            );
+            return null;
+          });
+          const marketplace =
+            activation != null &&
+            (activation.activated ||
+              (activation.reason !== "not_marketplace" && activation.reason !== "not_found"));
+          return to(marketplace ? "/onboarding" : "/onboarding/connect");
+        }
       }
     }
   } catch (e) {

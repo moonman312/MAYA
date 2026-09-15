@@ -4,6 +4,8 @@ import { findPendingHotelForUser } from "@/lib/billing/pending-hotel";
 import { isStripeConfigured } from "@/lib/billing/stripe";
 import { isEntitled } from "@/lib/billing/sync";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
+import { activateMarketplaceHotelIfPending } from "@/lib/pms/marketplace-activate";
+import { createAdminClient } from "@/utils/supabase/admin";
 
 /**
  * Where the signed-in user is in onboarding.
@@ -30,9 +32,34 @@ export async function resolveOnboardingStep(
   if (!isStripeConfigured()) return "connect";
 
   const pendingHotelId = await pendingHotelFor(supabase);
-  if (pendingHotelId && (await isPaidFor(supabase, pendingHotelId))) return "connect";
+  if (pendingHotelId && (await isPaidFor(supabase, pendingHotelId))) {
+    // A paid Marketplace property is already connected and only needs
+    // activating, which the webhook normally did before anyone asked. If a
+    // page got here first, do it now: the PMS picker would connect it twice.
+    if (await activateIfMarketplace(pendingHotelId)) return "choose";
+    return "connect";
+  }
 
   return "subscribe";
+}
+
+/** True for a Marketplace property (activated now, or already), false for Flow B's placeholder. */
+async function activateIfMarketplace(hotelId: string): Promise<boolean> {
+  try {
+    const r = await activateMarketplaceHotelIfPending(createAdminClient(), hotelId);
+    if (r.activated) return true;
+    if (r.reason === "not_marketplace" || r.reason === "not_found") return false;
+    if (r.reason === "failed") {
+      console.error(
+        JSON.stringify({ fn: "resolveOnboardingStep", step: "activate_marketplace", hotelId, error: r.message }),
+      );
+    }
+    return true;
+  } catch {
+    // No admin client here (a test, an install without the service key): the
+    // webhook still owns activation, and this reads as Flow B.
+    return false;
+  }
 }
 
 async function pendingHotelFor(supabase: SupabaseClient): Promise<string | null> {

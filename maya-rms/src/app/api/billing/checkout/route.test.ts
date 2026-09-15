@@ -12,7 +12,7 @@
  * A minimal in-memory fake stands in for Supabase and Stripe's outbound calls
  * are captured, so the route runs outside a request context.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type Row = Record<string, unknown>;
 type Filter =
@@ -620,5 +620,78 @@ describe("payment methods", () => {
     // Everything else stays dashboard-decided; pinning a positive list here
     // would re-create payment_method_types under another name.
     expect(lastSession()?.payment_method_types).toBeUndefined();
+  });
+});
+
+describe("a property that arrived from the Cloudbeds Marketplace", () => {
+  // Owned and connected, not paid for: exactly the shape checkout already
+  // knows how to attach a subscription to. The claim row is what marks it.
+  const arrival = {
+    hotels: [
+      { id: "hotel-mkt", name: "Sea View Inn", is_active: false, setup_pending_at: "2026-09-10T14:08:00Z" },
+    ],
+    hotel_memberships: [{ hotel_id: "hotel-mkt", user_id: USER, role: "hotel_admin", status: "active" }],
+    pms_marketplace_claims: [
+      {
+        token: "tok",
+        hotel_id: "hotel-mkt",
+        pms_type: "cloudbeds",
+        property_name: "Sea View Inn",
+        claimed_by: USER,
+        claimed_at: "2026-09-10T14:09:00Z",
+      },
+    ],
+  };
+  const original = process.env.MAYA_MARKETPLACE_TRIAL_DAYS;
+  beforeEach(() => {
+    process.env.MAYA_MARKETPLACE_TRIAL_DAYS = "7";
+  });
+  afterEach(() => {
+    if (original === undefined) delete process.env.MAYA_MARKETPLACE_TRIAL_DAYS;
+    else process.env.MAYA_MARKETPLACE_TRIAL_DAYS = original;
+  });
+
+  it("needs no code even with the PMS gate shut — the Marketplace listing is the gate", async () => {
+    // No pms_signup_gates row, so cloudbeds reads as code-required for anyone
+    // else (see the gate tests above). This caller still gets through.
+    const { tables } = seed(arrival);
+    const res = await post({ rooms: 24, interval: "month", code: "", pmsType: "cloudbeds" });
+    expect(res.status).toBe(200);
+    expect(lastSession()?.metadata).toMatchObject({ hotel_id: "hotel-mkt" });
+    // The Marketplace property IS the property; nothing else gets provisioned.
+    expect(tables.get("hotels")).toHaveLength(1);
+  });
+
+  it("gets the Marketplace trial, is labelled as such, and is named on the customer", async () => {
+    seed(arrival);
+    const res = await post({ rooms: 24, interval: "month", code: "", pmsType: "cloudbeds" });
+    expect(res.status).toBe(200);
+    expect(lastSession()?.subscription_data).toMatchObject({
+      trial_period_days: 7,
+      metadata: { hotel_id: "hotel-mkt", via: "marketplace_flow_a" },
+    });
+    expect(state.customers[0]).toMatchObject({ name: "Sea View Inn" });
+  });
+
+  it("lets a code's own trial replace the Marketplace one — they never stack", async () => {
+    seed(arrival);
+    const res = await post({ rooms: 24, interval: "month", code: "MHSFOUNDER", pmsType: "cloudbeds" });
+    expect(res.status).toBe(200);
+    expect(lastSession()?.subscription_data).toMatchObject({ trial_period_days: 30 });
+  });
+
+  it("grants no trial at all when the setting is off", async () => {
+    process.env.MAYA_MARKETPLACE_TRIAL_DAYS = "0";
+    seed(arrival);
+    const res = await post({ rooms: 24, interval: "month", code: "", pmsType: "cloudbeds" });
+    expect(res.status).toBe(200);
+    expect(lastSession()?.subscription_data).not.toHaveProperty("trial_period_days");
+  });
+
+  it("still rejects a typo'd code — the gate bypass never skips validating text they typed", async () => {
+    seed(arrival);
+    const res = await post({ rooms: 24, interval: "month", code: "NOTAREALCODE", pmsType: "cloudbeds" });
+    expect(res.status).toBe(403);
+    expect(state.sessions).toHaveLength(0);
   });
 });

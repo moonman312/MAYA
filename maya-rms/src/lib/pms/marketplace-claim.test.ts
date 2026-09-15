@@ -12,7 +12,10 @@ const state = vi.hoisted(() => ({
   claim: null as Record<string, unknown> | null,
   siblings: [] as Record<string, unknown>[],
   writes: [] as { table: string; payload: unknown }[],
+  stripe: true,
 }));
+
+vi.mock("@/lib/billing/stripe", () => ({ isStripeConfigured: () => state.stripe }));
 
 vi.mock("@/utils/supabase/admin", () => ({
   createAdminClient: () => ({
@@ -25,6 +28,8 @@ vi.mock("@/utils/supabase/admin", () => ({
         single: async () => ({ data: { id: "job-1" }, error: null }),
         neq: () => q,
         in: () => q,
+        not: () => q,
+        limit: () => q,
         upsert: (payload: unknown) => {
           state.writes.push({ table, payload });
           return q;
@@ -38,8 +43,13 @@ vi.mock("@/utils/supabase/admin", () => ({
           return q;
         },
       };
+      // Siblings for the claims table; a row back from the hotels compare-and-set
+      // so activation (when it runs) believes it won the flip.
       (q as { then: unknown }).then = (res: (v: { error: null; data?: unknown }) => unknown) =>
-        res({ error: null, data: table === "pms_marketplace_claims" ? state.siblings : [] });
+        res({
+          error: null,
+          data: table === "pms_marketplace_claims" ? state.siblings : table === "hotels" ? [{ id: "hotel-1" }] : [],
+        });
       return q;
     },
     rpc: async () => ({ data: null, error: null }),
@@ -51,6 +61,7 @@ const past = () => new Date(Date.now() - 1000).toISOString();
 
 function setClaim(over: Record<string, unknown> = {}, siblings: Record<string, unknown>[] = []) {
   state.writes = [];
+  state.stripe = true;
   state.siblings = siblings;
   state.claim = {
     token: "tok",
@@ -65,7 +76,7 @@ function setClaim(over: Record<string, unknown> = {}, siblings: Record<string, u
 }
 
 describe("redeemMarketplaceClaim", () => {
-  it("gives the property an owner, settings, and an import job", async () => {
+  it("gives the property an owner and settings, and leaves it parked until it is paid for", async () => {
     setClaim();
     const res = await redeemMarketplaceClaim("tok", "user-1");
     expect(res).toMatchObject({ ok: true, hotelId: "hotel-1", alreadyClaimed: false, hotelIds: ["hotel-1"] });
@@ -73,11 +84,27 @@ describe("redeemMarketplaceClaim", () => {
     const tables = state.writes.map((w) => w.table);
     expect(tables).toContain("hotel_memberships");
     expect(tables).toContain("hotel_settings");
-    expect(tables).toContain("hotels:update");
-    expect(tables).toContain("import_jobs:insert");
+    // Not live and not importing: that waits for the subscription to land
+    // (marketplace-activate.ts). Nothing about the property is pulled before.
+    expect(tables).not.toContain("hotels:update");
+    expect(tables).not.toContain("import_jobs:insert");
 
     const membership = (state.writes.find((w) => w.table === "hotel_memberships")!.payload as Record<string, unknown>[])[0];
     expect(membership).toMatchObject({ hotel_id: "hotel-1", user_id: "user-1", role: "hotel_admin", status: "active" });
+  });
+
+  it("goes live at once on an install with no Stripe keys — there is no payment to wait for", async () => {
+    setClaim();
+    state.stripe = false;
+    const res = await redeemMarketplaceClaim("tok", "user-1");
+    expect(res).toMatchObject({ ok: true });
+
+    const tables = state.writes.map((w) => w.table);
+    expect(tables).toContain("hotels:update");
+    expect(tables).toContain("import_jobs:insert");
+    expect(tables).toContain("onboarding_states");
+    const job = state.writes.find((w) => w.table === "import_jobs:insert")!.payload as Record<string, unknown>;
+    expect(job).toMatchObject({ hotel_id: "hotel-1", pms_type: "cloudbeds", status: "queued", requested_by: "user-1" });
   });
 
   it("starts the property in simulation mode — nothing reaches live rates unasked", async () => {
@@ -122,8 +149,8 @@ describe("redeemMarketplaceClaim", () => {
     expect(res).toMatchObject({ ok: true, hotelIds: ["hotel-1", "hotel-2", "hotel-3"] });
     const memberships = state.writes.find((w) => w.table === "hotel_memberships")!.payload as Record<string, unknown>[];
     expect(memberships.map((m) => m.hotel_id)).toEqual(["hotel-1", "hotel-2", "hotel-3"]);
-    const jobs = state.writes.find((w) => w.table === "import_jobs:insert")!.payload as Record<string, unknown>[];
-    expect(jobs).toHaveLength(3);
+    // All three stay parked: each needs its own subscription before it imports.
+    expect(state.writes.map((w) => w.table)).not.toContain("import_jobs:insert");
   });
 
   it("skips a sibling whose own window has lapsed", async () => {

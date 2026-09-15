@@ -96,7 +96,7 @@ export default function LoginPage() {
         return;
       }
       if (!(await finishClaim())) return;
-      router.replace(claim ? "/onboarding/progress" : "/");
+      router.replace(claim ? "/onboarding" : "/");
       router.refresh();
     } finally {
       setLoading(false);
@@ -131,11 +131,10 @@ export default function LoginPage() {
       }
       if (data.session) {
         if (!(await finishClaim())) return;
-        // A property that just arrived from the Marketplace has an import
-        // running and no history yet. Sending it to the dashboard shows an
-        // empty calendar; the progress screen shows the import happening and
-        // leads on to the rules MAYA builds from it.
-        router.replace(claim ? "/onboarding/progress" : "/");
+        // A property that just arrived from the Marketplace is owned now but
+        // not paid for. /onboarding is the router: it lands them on payment,
+        // and once the subscription is in, on the import already running.
+        router.replace(claim ? "/onboarding" : "/");
         router.refresh();
         return;
       }

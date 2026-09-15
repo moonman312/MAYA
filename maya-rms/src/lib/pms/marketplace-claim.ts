@@ -1,15 +1,23 @@
 import "server-only";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { MAYA_ACTIVE_HOTEL_COOKIE } from "@/lib/hotel-context";
+import { isStripeConfigured } from "@/lib/billing/stripe";
+import {
+  activateMarketplaceHotelIfPending,
+  hasEntitledSubscription,
+} from "@/lib/pms/marketplace-activate";
 
 /**
  * Redeem a Flow A claim ticket.
  *
  * The Marketplace callback has already done the irreversible half: the grant is
  * spent, the tokens are in the Vault, and an inert hotel row exists to hold
- * them. What is missing is an OWNER. This attaches one, and is the only thing
- * that makes the property real — before it runs the hotel is is_active false
- * with no membership, so it prices nothing and appears to nobody.
+ * them. What is missing is an OWNER. This attaches one. It does NOT make the
+ * property live — that waits for a subscription (marketplace-activate.ts), so
+ * an owned-but-unpaid Marketplace hotel looks exactly like the placeholder
+ * Flow B's checkout creates: is_active false, setup_pending_at set, one member.
+ * The subscribe screen finds it by that shape, and nothing about the property
+ * is imported until someone has paid for it.
  *
  * Deliberately idempotent-ish: a ticket is single-use, but re-claiming by the
  * SAME user is treated as success rather than an error, because a refresh or a
@@ -112,57 +120,32 @@ export async function redeemMarketplaceClaim(
     return { ok: false, reason: "failed", message: `Could not set up pricing: ${settingsErr.message}` };
   }
 
-  const { error: activateErr } = await admin
-    .from("hotels")
-    .update({ is_active: true, setup_pending_at: null })
-    .in("id", allHotelIds);
-  if (activateErr) {
-    return { ok: false, reason: "failed", message: `Could not activate the property: ${activateErr.message}` };
+  // The property stays parked until it is paid for. Two cases do not wait: an
+  // install with no Stripe keys cannot take a payment and would strand everyone
+  // at a form that cannot be paid, and a hotel that already holds a live
+  // subscription — the same owner reconnecting after a card change, say — has
+  // paid already. The claim row is handed over because its claimed_at is not
+  // on disk yet; the burn below is what writes it.
+  const claimFor = (id: string, token: string) => ({
+    token,
+    hotel_id: id,
+    pms_type: String(claim.pms_type),
+    property_name: id === hotelId ? (claim.property_name as string | null) : null,
+    claimed_by: userId,
+    claimed_at: now,
+  });
+  for (const id of allHotelIds) {
+    if (!isStripeConfigured() || (await hasEntitledSubscription(admin, id))) {
+      const token_ = id === hotelId ? token : siblings.find((s) => s.hotel_id === id)!.token;
+      const activation = await activateMarketplaceHotelIfPending(admin, id, {
+        requestedBy: userId,
+        claim: claimFor(id, token_),
+      });
+      if (!activation.activated && activation.reason === "failed") {
+        return { ok: false, reason: "failed", message: `Could not activate the property: ${activation.message}` };
+      }
+    }
   }
-
-  await admin
-    .from("pms_connections")
-    .update({ status: "connected", last_tested_at: now, updated_at: now })
-    .in("hotel_id", allHotelIds)
-    .eq("pms_type", claim.pms_type);
-
-  // Queue the history import the same way the in-app connect flow does. Not
-  // fatal: they are connected either way, and a missing job is recoverable —
-  // but it must be loud, or the property sits on a progress screen forever.
-  const { data: jobs, error: jobErr } = await admin
-    .from("import_jobs")
-    .insert(
-      allHotelIds.map((id) => ({
-        hotel_id: id,
-        pms_type: claim.pms_type,
-        status: "queued",
-        phase: "discover",
-        requested_by: userId,
-      })),
-    )
-    .select("id, hotel_id");
-  if (jobErr) {
-    console.error(
-      JSON.stringify({ fn: "redeemMarketplaceClaim", step: "queue_import", hotelIds: allHotelIds, error: jobErr.message }),
-    );
-  }
-  const jobByHotel = new Map((jobs ?? []).map((j) => [String(j.hotel_id), String(j.id)]));
-
-  // Nudge the worker rather than waiting up to a minute for cron. The in-app
-  // connect path has always done this (lib/onboarding/connect.ts); a Marketplace
-  // arrival used to just queue the row, so the first thing a brand-new property
-  // saw was an empty dashboard while its own history sat in a queue.
-  kickImportWorker();
-
-  await admin.from("onboarding_states").upsert(
-    allHotelIds.map((id) => ({
-      hotel_id: id,
-      path: "guided",
-      import_job_id: jobByHotel.get(id) ?? null,
-      connected_at: now,
-    })),
-    { onConflict: "hotel_id" },
-  );
 
   const { error: burnErr } = await admin
     .from("pms_marketplace_claims")
@@ -191,19 +174,3 @@ export async function redeemMarketplaceClaim(
 }
 
 export { MAYA_ACTIVE_HOTEL_COOKIE };
-
-/**
- * Ask the import worker to run now. Fire-and-forget: cron picks the job up
- * within a minute regardless, so a failure here costs latency, not the import.
- */
-function kickImportWorker(): void {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
-  const secret = process.env.ONBOARDING_CRON_SECRET;
-  if (!supabaseUrl || !secret) return;
-  fetch(`${supabaseUrl}/functions/v1/onboarding-import-worker`, {
-    method: "POST",
-    headers: { "x-onboarding-cron-secret": secret },
-  }).catch(() => {
-    // Cron picks the job up within a minute.
-  });
-}

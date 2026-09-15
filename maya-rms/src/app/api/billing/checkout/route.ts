@@ -24,6 +24,7 @@ import { findPendingHotelForUser, provisionPendingHotel } from "@/lib/billing/pe
 import { isStripeConfigured, priceIdFor, stripeClient } from "@/lib/billing/stripe";
 import { checkCode, checkoutEffectFor, type CheckoutEffect } from "@/lib/billing/codes";
 import { pmsSignupCodeRequired } from "@/lib/billing/pms-gates";
+import { findMarketplaceClaimForHotel, marketplaceTrialDays } from "@/lib/pms/marketplace-activate";
 import { isEntitled } from "@/lib/billing/sync";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { isBillableRoomCount, MAX_ROOMS, type BillingInterval } from "@/lib/billing/tiers";
@@ -168,8 +169,12 @@ export async function POST(request: Request) {
   // who thought they had a discount deserves to know it didn't apply, not
   // find out on their card statement.
   const typedCode = (body?.code ?? "").trim();
+  // A property that arrived through the Cloudbeds Marketplace has no code and
+  // needs none — the listing is the gate, and it is already connected. It gets
+  // the Marketplace trial instead, unless a code it typed grants its own.
+  const marketplace = hotelId ? await findMarketplaceClaimForHotel(admin, hotelId) : null;
   const codeRequired =
-    !body?.pmsType || (await pmsSignupCodeRequired(admin, body.pmsType));
+    !marketplace && (!body?.pmsType || (await pmsSignupCodeRequired(admin, body.pmsType)));
 
   let signupCodeId: string | null = null;
   let signupCodeLabel: string | null = null;
@@ -209,12 +214,10 @@ export async function POST(request: Request) {
   // Only a real property has a name worth putting on the Stripe customer — a
   // placeholder reads worse in the dashboard than the email on its own.
   let customerName: string | undefined;
-  if (existingHotelId) {
-    const { data: hotel } = await supabase
-      .from("hotels")
-      .select("name")
-      .eq("id", existingHotelId)
-      .maybeSingle();
+  if (existingHotelId || marketplace) {
+    // Through the admin client: a Marketplace property is still inactive here,
+    // and the caller's own session cannot see inactive rows.
+    const { data: hotel } = await admin.from("hotels").select("name").eq("id", hotelId).maybeSingle();
     customerName = hotel?.name ?? undefined;
   }
 
@@ -299,6 +302,9 @@ export async function POST(request: Request) {
       ).id;
     }
 
+    // A code's own trial wins; the Marketplace trial fills in when there is none.
+    const trialDays = effect.trialDays || (marketplace ? marketplaceTrialDays() : 0);
+
     const origin = new URL(request.url).origin;
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -347,8 +353,9 @@ export async function POST(request: Request) {
           hotel_id: hotelId,
           user_id: user.id,
           ...(signupCodeId ? { signup_code_id: signupCodeId } : {}),
+          ...(marketplace ? { via: "marketplace_flow_a" } : {}),
         },
-        ...(effect.trialDays ? { trial_period_days: effect.trialDays } : {}),
+        ...(trialDays ? { trial_period_days: trialDays } : {}),
       },
       metadata: {
         hotel_id: hotelId,
