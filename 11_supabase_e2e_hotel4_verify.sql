@@ -90,10 +90,13 @@ limit 6;
 
 
 -- ── H. Sync status note ─────────────────────────────────────────────────────
--- For THIS fixture (no Vault secret) the sync step returns ok:false and changes
--- nothing: status stays 'connected' and last_sync_at stays NULL. This is
--- EXPECTED and does not stop evaluation. last_sync_at only advances once you
--- OAuth-connect real Cloudbeds credentials and a real sync succeeds.
+-- This fixture has no Vault secret, so it is seeded DISCONNECTED on purpose:
+-- claim_pms_sync_batch skips that status, and a 'connected' row here used to
+-- cost the scheduler a failed credential lookup every tick, forever. The cron
+-- therefore does not evaluate this hotel by itself — run POST /api/evaluate
+-- when you want fresh published_price / evaluation_audit rows. A manual "Sync
+-- now" (claim_pms_sync_one has no status filter) still exercises the sync path;
+-- last_sync_at only advances once real Cloudbeds credentials are connected.
 select hotel_id, pms_type, status, last_sync_at, last_tested_at
 from public.pms_connections
 where hotel_id = (select id from public.hotels where name = 'MAYA E2E Test Hotel 4')

@@ -99,13 +99,20 @@ begin
   from public.room_types
   where hotel_id = v_hotel_id and external_room_type_id like 'cb4-%';
 
-  -- ── 3. PMS connection — makes the cloudbeds cron pick up this hotel ──────
+  -- ── 3. PMS connection — DISCONNECTED on purpose ──────────────────────────
+  --     There is no credential in the Vault for this fixture, so a 'connected'
+  --     row is a lie the scheduler pays for: it claims the hotel every tick,
+  --     fails to resolve a token, and backs off — forever. 'disconnected' is
+  --     the one status claim_pms_sync_batch skips. What it costs: the cron no
+  --     longer evaluates this hotel by itself; use POST /api/evaluate when you
+  --     want fresh rows. claim_pms_sync_one (the manual "Sync now" path) has no
+  --     status filter, so a test that wants the sync path can still take it.
   --     base_url/last_sync_at left untouched on conflict so a real OAuth
   --     connection (if you make one later) keeps its own values.
   insert into public.pms_connections (hotel_id, pms_type, status, base_url, last_tested_at, last_sync_at)
-  values (v_hotel_id, 'cloudbeds', 'connected', null, now(), null)
+  values (v_hotel_id, 'cloudbeds', 'disconnected', null, now(), null)
   on conflict (hotel_id, pms_type) do update
-    set status = 'connected', last_tested_at = now(), updated_at = now();
+    set status = 'disconnected', sync_failures = 0, last_tested_at = now(), updated_at = now();
 
   -- ── 4. Membership (only if the invitee already accepted a prior invite) ──
   select id into v_user_id from auth.users where lower(email) = lower(v_admin_email);
@@ -237,9 +244,10 @@ begin
   raise notice '==========================================================';
   raise notice 'MAYA E2E Test Hotel 4 seeded (hotel_id = %).', v_hotel_id;
   raise notice '  reservations = % rows, snapshots = % baseline rows', v_res_count, v_snap_count;
-  raise notice '  rules = 4 active (1 pickup), pms_connections = cloudbeds/connected';
-  raise notice 'The cloudbeds cron will EVALUATE this hotel within ~5 min — no manual call.';
-  raise notice 'Watch published_price / evaluation_audit via 11_..._hotel4_verify.sql.';
+  raise notice '  rules = 4 active (1 pickup), pms_connections = cloudbeds/DISCONNECTED (no credential)';
+  raise notice 'The cron skips disconnected hotels, so nothing evaluates this one on its own.';
+  raise notice 'Evaluate on demand with POST /api/evaluate; a manual Sync now still exercises the sync path.';
+  raise notice 'Then watch published_price / evaluation_audit via 11_..._hotel4_verify.sql.';
   raise notice 'Headline assertion: Penthouse event days clamp at 500.00.';
   raise notice '==========================================================';
 end $$;
@@ -255,9 +263,9 @@ select * from (
     (select count(*) from public.room_types
      where hotel_id = (select id from h) and external_room_type_id like 'cb4-%' and is_active) = 4
   union all
-  select 3, 'pms_connections row: cloudbeds / connected',
+  select 3, 'pms_connections row: cloudbeds / disconnected (kept out of the cron on purpose)',
     exists(select 1 from public.pms_connections
-           where hotel_id = (select id from h) and pms_type = 'cloudbeds' and status = 'connected')
+           where hotel_id = (select id from h) and pms_type = 'cloudbeds' and status = 'disconnected')
   union all
   select 4, 'reservations cover 151 stay dates',
     (select count(distinct stay_date) from public.reservations
