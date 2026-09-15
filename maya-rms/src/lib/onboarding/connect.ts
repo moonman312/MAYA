@@ -6,6 +6,7 @@ import { isStripeConfigured } from "@/lib/billing/stripe";
 import { resolveOnboardingStep } from "@/lib/onboarding/step";
 import { MAYA_ACTIVE_HOTEL_COOKIE } from "@/lib/hotel-context";
 import { createOnboardingAdapter } from "@/lib/pms/onboarding-adapter";
+import { isAmbiguousGroupGrant } from "../../../supabase/functions/_shared/pms/errors";
 import type { PmsType } from "@/lib/pms/registry";
 import type { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -76,6 +77,16 @@ export async function handleOnboardingConnect(
     const probe = await createOnboardingAdapter(admin, randomUUID(), pmsType, preResolved);
     profile = await probe.discoverProperty();
   } catch (e) {
+    // A group login is not a broken one. Retrying fails the same way and the
+    // Marketplace would park separate hotels beside the one they just paid for,
+    // so neither is offered: the way forward is a person.
+    if (isAmbiguousGroupGrant(e)) {
+      return onboardingError(
+        `This ${e.pms} login covers ${e.count} properties. MAYA signs one property up ` +
+          `at a time right now — reply to your receipt or email us and we'll set up the rest.`,
+        { retry: false },
+      );
+    }
     return onboardingError(
       `We connected to your account but couldn't read your property details: ` +
         `${e instanceof Error ? e.message : String(e)}`,
@@ -317,13 +328,14 @@ function kickImportWorker(): void {
  * server log and pass a plain sentence — PostgREST and Vault name their
  * functions and tables in error messages.
  */
-function onboardingError(message: string): Response {
+function onboardingError(message: string, opts: { retry?: boolean } = {}): Response {
+  const retry = opts.retry ?? true;
   const html = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Connection problem</title></head>
 <body style="font-family: system-ui, sans-serif; background: #020617; color: #e2e8f0; padding: 3rem;">
   <h1 style="font-size:1.25rem">We hit a snag connecting your property</h1>
   <p style="color:#94a3b8;max-width:36rem;line-height:1.6">${message.replace(/</g, "&lt;")}</p>
-  <p><a href="/onboarding/connect" style="color:#38bdf8">Try again</a></p>
+  ${retry ? `<p><a href="/onboarding/connect" style="color:#38bdf8">Try again</a></p>` : ""}
 </body></html>`;
   return new Response(html, {
     status: 400,

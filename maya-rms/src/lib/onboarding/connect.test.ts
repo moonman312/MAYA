@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 const state = vi.hoisted(() => ({
   failures: {} as Record<string, string>,
   hotelUpdates: 0,
+  discoverThrows: null as Error | null,
 }));
 
 vi.mock("@/utils/supabase/server", () => ({
@@ -25,12 +26,15 @@ vi.mock("@/lib/billing/stripe", () => ({ isStripeConfigured: () => true }));
 vi.mock("@/lib/hotel-context", () => ({ MAYA_ACTIVE_HOTEL_COOKIE: "maya_active_hotel" }));
 vi.mock("@/lib/pms/onboarding-adapter", () => ({
   createOnboardingAdapter: async () => ({
-    discoverProperty: async () => ({
-      name: "Driftwood",
-      timezone: "UTC",
-      currency: "USD",
-      externalPropertyId: "prop-1",
-    }),
+    discoverProperty: async () => {
+      if (state.discoverThrows) throw state.discoverThrows;
+      return {
+        name: "Driftwood",
+        timezone: "UTC",
+        currency: "USD",
+        externalPropertyId: "prop-1",
+      };
+    },
   }),
 }));
 
@@ -68,6 +72,9 @@ function fakeAdmin() {
 }
 
 const { handleOnboardingConnect } = await import("./connect");
+const { AmbiguousGroupGrantError } = await import(
+  "../../../supabase/functions/_shared/pms/errors"
+);
 
 const connect = () =>
   handleOnboardingConnect({} as never, "mews", "user-1", {
@@ -85,6 +92,7 @@ let errors: MockInstance;
 beforeEach(() => {
   state.failures = {};
   state.hotelUpdates = 0;
+  state.discoverThrows = null;
   errors = vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -112,6 +120,37 @@ describe("a database failure mid-connect", () => {
     expect(body).not.toContain(DRIVER_TEXT);
     expect(body).not.toContain("does not exist");
     expect(errors.mock.calls.flat().join("\n")).toContain(DRIVER_TEXT);
+  });
+});
+
+describe("a login that covers a whole group", () => {
+  it("says how many properties it saw and who to talk to, without a retry that would fail the same way", async () => {
+    // Discovery cannot pick one of several properties without guessing, and a
+    // wrong guess pushes rates to the wrong hotel. The owner has paid and done
+    // nothing wrong, so the page names the situation instead of the driver.
+    state.discoverThrows = new AmbiguousGroupGrantError(3, "Cloudbeds");
+    const res = await connect();
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    expect(body).toContain("This Cloudbeds login covers 3 properties.");
+    expect(body).toContain("reply to your receipt or email us");
+    expect(body).not.toContain("Try again");
+    expect(body).not.toContain("couldn't read your property details");
+    // Never the Marketplace: it would park separate hotels beside the one they paid for.
+    expect(body).not.toContain("Marketplace");
+  });
+
+  it("names the PMS it came from", async () => {
+    state.discoverThrows = new AmbiguousGroupGrantError(2, "Think Reservations");
+    const body = await (await connect()).text();
+    expect(body).toContain("This Think Reservations login covers 2 properties.");
+  });
+
+  it("leaves every other discovery failure on the generic page, retry included", async () => {
+    state.discoverThrows = new Error("Cloudbeds: could not discover propertyID for this account.");
+    const body = await (await connect()).text();
+    expect(body).toContain("couldn't read your property details");
+    expect(body).toContain("Try again");
   });
 });
 

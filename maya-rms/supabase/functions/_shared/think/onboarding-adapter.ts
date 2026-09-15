@@ -19,6 +19,7 @@ import type {
   PreResolvedOAuthCredentials,
 } from "../pms/onboarding-adapter.ts";
 import { resolveOAuthCredentials, persistPropertyId } from "../pms/oauth-credentials.ts";
+import { AmbiguousGroupGrantError } from "../pms/errors.ts";
 import {
   buildReservationRangeParams,
   thinkGetHotels,
@@ -79,11 +80,11 @@ export async function createThinkOnboardingAdapter(
         ? hotels[0]
         : undefined;
     if (!match) {
-      throw new Error(
-        hotels.length === 0
-          ? "Think: this token can read no hotels."
-          : "Think: token reads multiple hotels and none matches the stored externalId.",
-      );
+      if (hotels.length === 0) throw new Error("Think: this token can read no hotels.");
+      // Nothing stored to match against and several to choose from: a group
+      // login. Picking one would be a guess, and the flow has words for this.
+      if (!knownPropertyId) throw new AmbiguousGroupGrantError(hotels.length, "Think Reservations");
+      throw new Error("Think: token reads multiple hotels and none matches the stored externalId.");
     }
     if (!knownPropertyId) {
       knownPropertyId = match.externalId;

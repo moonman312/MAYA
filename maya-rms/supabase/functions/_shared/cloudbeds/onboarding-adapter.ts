@@ -17,9 +17,11 @@ import type {
   PreResolvedOAuthCredentials,
 } from "../pms/onboarding-adapter.ts";
 import { resolveOAuthCredentials, persistPropertyId } from "../pms/oauth-credentials.ts";
+import { AmbiguousGroupGrantError } from "../pms/errors.ts";
 import {
   cloudbedsDiscoverPropertyId,
   cloudbedsGetHotelDetails,
+  cloudbedsListProperties,
   cloudbedsGetReservationsPage,
   cloudbedsGetRoomTypes,
 } from "./client.ts";
@@ -86,6 +88,14 @@ export async function createCloudbedsOnboardingAdapter(
     if (c.propertyId) return c;
     const discovered = await cloudbedsDiscoverPropertyId(c);
     if (!discovered) {
+      // Discovery answers null for a group grant as well as for a broken one,
+      // and the two need different words on screen: a group owner has paid and
+      // done nothing wrong. The null contract stays as it is — the scheduled
+      // sync relies on it — so the second look happens here.
+      const properties = await cloudbedsListProperties(c);
+      if (properties.length > 1) {
+        throw new AmbiguousGroupGrantError(properties.length, "Cloudbeds");
+      }
       throw new Error("Cloudbeds: could not discover propertyID for this account.");
     }
     await persistPropertyId(supabase, hotelId, "cloudbeds", discovered).catch(() => {
