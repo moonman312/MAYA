@@ -140,11 +140,21 @@ Going back to test mode is the same three variables, the other way.
 
 ## Known limits
 
-- **Group grants.** A Cloudbeds group account parks one hotel per property and
-  hands back one ticket. Subscriptions are per hotel, and the subscribe screen
-  pays for one at a time; after the first is live, the owner is routed into the
-  product and the rest stay parked. Same limitation as Flow B, which cannot do
-  groups at all. Needs a multi-property checkout before a group customer signs.
+- **Group grants pay one property at a time.** A Cloudbeds group account parks
+  one hotel per property and hands back one ticket; the claim attaches the
+  owner to all of them. Subscriptions are per hotel, so `/onboarding` walks the
+  group in order (`listUnpaidMarketplaceHotels`, oldest first): the subscribe
+  screen says "Property 2 of 3", checkout is told which hotel it is paying for,
+  and the return route sends the owner straight back for the next one until
+  none are parked. Each property is priced at its own bracket, on its own
+  subscription. The Stripe customer is keyed on the owner rather than the hotel
+  for Marketplace properties, so the card taken for the first is on the same
+  customer for the rest. What is still true: it is one Checkout per property,
+  not one for the group — a five-property owner goes through Stripe five times,
+  and whether Checkout offers the saved card on the later visits is Stripe's
+  call (verify in the sandbox; `saved_payment_method_options` may be needed).
+  Flow B still cannot do groups at all: a group login there is refused with a
+  plain message asking them to reply to their receipt.
 - **The pre-payment name lookup** is the only Cloudbeds call made for an unpaid
   property. If that is ever too much, the callback could skip
   `getHotelDetails` and name the hotel on activation instead.

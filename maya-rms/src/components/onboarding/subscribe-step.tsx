@@ -47,6 +47,8 @@ export function SubscribeStep({
   lockPms = false,
   baseTrialDays = 0,
   submitLabel = "Continue to payment",
+  hotelId,
+  progress,
 }: {
   cancelled?: boolean;
   pmsOptions?: SubscribePmsOption[];
@@ -60,6 +62,10 @@ export function SubscribeStep({
   /** A trial the flow itself grants (a Marketplace arrival). A code's own trial replaces it. */
   baseTrialDays?: number;
   submitLabel?: string;
+  /** Which property this payment is for, when the owner has several waiting. */
+  hotelId?: string;
+  /** Where this property sits in its group — "Property 2 of 3". */
+  progress?: { index: number; total: number };
 }) {
   const [roomsText, setRoomsText] = useState(initialRooms ? String(initialRooms) : "");
   const [interval, setInterval] = useState<BillingInterval>(initialInterval ?? "month");
@@ -188,6 +194,7 @@ export function SubscribeStep({
           // "other" stays undeclared: the server treats no PMS as code-required,
           // which is exactly what an unknown system should be.
           ...(pmsType && pmsType !== "other" ? { pmsType } : {}),
+          ...(hotelId ? { hotelId } : {}),
         }),
       });
       const body = (await res.json().catch(() => null)) as { url?: string; error?: string } | null;
@@ -202,6 +209,11 @@ export function SubscribeStep({
 
   return (
     <div className="flex flex-col pt-10">
+      {progress ? (
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+          Property {progress.index} of {progress.total}
+        </p>
+      ) : null}
       <h1 className="text-3xl font-semibold text-slate-100">{title}</h1>
       <p className="mt-3 max-w-lg text-sm leading-relaxed text-slate-400">{intro}</p>
 

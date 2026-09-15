@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
   upserts: [] as Record<string, unknown>[],
   activation: { activated: false, reason: "not_marketplace" } as Record<string, unknown>,
   activations: [] as unknown[][],
+  remaining: [] as { hotelId: string }[],
 }));
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
@@ -64,6 +65,9 @@ vi.mock("@/lib/billing/stripe", () => ({
     },
     subscriptions: { retrieve: async () => state.subscription },
   }),
+}));
+vi.mock("@/lib/billing/pending-hotel", () => ({
+  listUnpaidMarketplaceHotels: async () => state.remaining,
 }));
 vi.mock("@/lib/pms/marketplace-activate", () => ({
   activateMarketplaceHotelIfPending: async (...args: unknown[]) => {
@@ -110,6 +114,7 @@ beforeEach(() => {
   state.upserts = [];
   state.activation = { activated: false, reason: "not_marketplace" };
   state.activations = [];
+  state.remaining = [];
 });
 
 describe("beating the webhook", () => {
@@ -135,6 +140,8 @@ describe("beating the webhook", () => {
     // to pay again. The confirming screen waits for the webhook and moves them
     // on by itself.
     expect(location(res)).toContain("/onboarding/confirming");
+    // Stripe never said which hotel, so the screen waits on the account's step.
+    expect(location(res)).not.toContain("hotel=");
     expect(state.upserts).toHaveLength(0);
   });
 
@@ -183,6 +190,20 @@ describe("nobody who paid is shown the payment form again", () => {
     expect(state.upserts).toHaveLength(1);
   });
 
+  it("tells the waiting screen which hotel to watch when the session names one", async () => {
+    // An owner paying for a group one property at a time already has a live
+    // property, so the account-level step stays "subscribe" throughout; the
+    // screen has to wait on this hotel's subscription specifically.
+    state.session = {
+      id: "cs_test",
+      subscription: "sub_1",
+      metadata: { user_id: USER, hotel_id: "hotel-b" },
+    };
+    state.subscription = subscription({ status: "incomplete", trial_end: null });
+    const res = await get();
+    expect(location(res)).toContain("/onboarding/confirming?hotel=hotel-b");
+  });
+
   it("goes straight through once the subscription is live", async () => {
     // No waiting screen when there is nothing to wait for.
     state.throws = null;
@@ -211,5 +232,56 @@ describe("a property that arrived from the Cloudbeds Marketplace", () => {
     state.subscription = subscription({ status: "incomplete", trial_end: null });
     await get();
     expect(state.activations).toHaveLength(0);
+  });
+});
+
+describe("a group grant, paid for one property at a time", () => {
+  it("goes back to the subscribe screen for the next property while any sibling is unpaid", async () => {
+    state.activation = { activated: true, hotelId: "hotel-pending", importJobId: "job-1" };
+    state.remaining = [{ hotelId: "hotel-sibling" }];
+    const res = await get();
+    expect(location(res)).toMatch(/\/onboarding$/);
+  });
+
+  it("does the same even for a Flow B payment if a parked Marketplace sibling exists", async () => {
+    // The router will sort out which screen; what matters is that nobody is
+    // sent to the PMS picker while a paid-for path still has a property waiting.
+    state.remaining = [{ hotelId: "hotel-sibling" }];
+    const res = await get();
+    expect(location(res)).not.toContain("/connect");
+  });
+
+  it("moves on as before once the last sibling is paid", async () => {
+    state.activation = { activated: true, hotelId: "hotel-pending", importJobId: "job-1" };
+    state.remaining = [];
+    expect(location(await get())).not.toContain("/connect");
+    state.activation = { activated: false, reason: "not_marketplace" };
+    expect(location(await get())).toContain("/onboarding/connect");
+  });
+});
+
+describe("the hotel hint on the success URL", () => {
+  it("tells the waiting screen which property when Stripe cannot be reached", async () => {
+    // A group owner with a live property already: without this, the screen
+    // would poll an account-level step that reads "subscribe" forever.
+    state.throws = new Error("stripe unreachable");
+    const res = await get("?session_id=cs_test&hotel=hotel-pending");
+    expect(location(res)).toContain("/onboarding/confirming?hotel=hotel-pending");
+    expect(state.upserts).toHaveLength(0);
+  });
+
+  it("is only a hint — what Stripe says wins", async () => {
+    state.session = { id: "cs_test", subscription: "sub_1", metadata: { user_id: USER, hotel_id: "hotel-b" } };
+    state.subscription = subscription({ status: "incomplete", trial_end: null });
+    const res = await get("?session_id=cs_test&hotel=hotel-x");
+    expect(location(res)).toContain("hotel=hotel-b");
+    expect(location(res)).not.toContain("hotel-x");
+  });
+
+  it("drops a hint that is not shaped like an id", async () => {
+    state.throws = new Error("stripe unreachable");
+    const res = await get("?session_id=cs_test&hotel=..%2Faccount");
+    expect(location(res)).toContain("/onboarding/confirming");
+    expect(location(res)).not.toContain("hotel=");
   });
 });

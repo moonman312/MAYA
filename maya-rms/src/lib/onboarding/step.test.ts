@@ -36,6 +36,7 @@ function client() {
   const rowsOf = (t: string) => (state.tables[t] ??= []);
   const builder = (table: string) => {
     const eqs: [string, unknown][] = [];
+    const sortBy: string[] = [];
     let notNullCol: string | null = null;
     let ins: [string, unknown[]] | null = null;
     let mode: "select" | "update" | "insert" | "upsert" = "select";
@@ -63,7 +64,16 @@ function client() {
         rowsOf(table).push(...rows);
         return rows;
       }
-      return match();
+      const m = match();
+      return sortBy.length
+        ? [...m].sort((a, b) => {
+            for (const col of sortBy) {
+              const c = String(a[col] ?? "").localeCompare(String(b[col] ?? ""));
+              if (c !== 0) return c;
+            }
+            return 0;
+          })
+        : m;
     };
     const api = {
       select: () => api,
@@ -80,6 +90,10 @@ function client() {
         return api;
       },
       limit: () => api,
+      order: (col: string) => {
+        sortBy.push(col);
+        return api;
+      },
       update: (p: Row) => {
         mode = "update";
         patch = p;
@@ -215,6 +229,66 @@ describe("once the PMS connect has adopted the property", () => {
     state.hotelId = "hotel-real";
     state.tables = {
       profiles: [{ id: USER, onboarding_path: null, onboarding_dismissed_at: "2026-07-01T00:00:00Z" }],
+    };
+    await expect(step()).resolves.toBe("done");
+  });
+
+  it("asks for payment on a Marketplace sibling that is still parked, even with a live property", async () => {
+    // A group grant parks several properties; the first one paid went live.
+    // Without this the live property wins the routing and the second is never
+    // offered a checkout — the loop only closes if the router notices it.
+    state.hotelId = "hotel-real";
+    state.tables = {
+      profiles: [{ id: USER, onboarding_path: "guided" }],
+      hotels: [{ id: "hotel-sibling", is_active: false, setup_pending_at: "2026-09-10T14:08:00Z", created_at: "2026-09-10T14:08:00Z" }],
+      hotel_memberships: [
+        { hotel_id: "hotel-real", user_id: USER, status: "active" },
+        { hotel_id: "hotel-sibling", user_id: USER, status: "active" },
+      ],
+      pms_marketplace_claims: [
+        {
+          token: "tok-2",
+          hotel_id: "hotel-sibling",
+          pms_type: "cloudbeds",
+          property_name: "Bay Lodge",
+          claimed_by: USER,
+          claimed_at: "2026-09-10T14:09:00Z",
+          group_key: "grp-1",
+        },
+      ],
+    };
+    await expect(step()).resolves.toBe("subscribe");
+  });
+
+  it("does not mistake a Flow B placeholder beside a live property for an unpaid sibling", async () => {
+    // Same shape as the sibling above, but no claim row: that is the row a
+    // Flow B checkout leaves for the PMS connect to adopt, and it is not owed a
+    // second payment.
+    state.hotelId = "hotel-real";
+    state.tables = {
+      profiles: [{ id: USER, onboarding_path: "guided" }],
+      hotels: [{ id: "hotel-placeholder", is_active: false, setup_pending_at: "2026-09-10T14:08:00Z" }],
+      hotel_memberships: [
+        { hotel_id: "hotel-real", user_id: USER, status: "active" },
+        { hotel_id: "hotel-placeholder", user_id: USER, status: "active" },
+      ],
+    };
+    await expect(step()).resolves.toBe("done");
+  });
+
+  it("stops asking once every sibling is paid for", async () => {
+    state.hotelId = "hotel-real";
+    state.tables = {
+      profiles: [{ id: USER, onboarding_path: "guided" }],
+      hotels: [{ id: "hotel-sibling", is_active: false, setup_pending_at: "2026-09-10T14:08:00Z" }],
+      hotel_memberships: [
+        { hotel_id: "hotel-real", user_id: USER, status: "active" },
+        { hotel_id: "hotel-sibling", user_id: USER, status: "active" },
+      ],
+      pms_marketplace_claims: [
+        { token: "tok-2", hotel_id: "hotel-sibling", pms_type: "cloudbeds", claimed_by: USER, claimed_at: "2026-09-10T14:09:00Z" },
+      ],
+      hotel_subscriptions: [{ hotel_id: "hotel-sibling", status: "trialing" }],
     };
     await expect(step()).resolves.toBe("done");
   });

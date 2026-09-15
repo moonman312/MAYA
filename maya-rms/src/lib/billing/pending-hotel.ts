@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
+import { isEntitledStatus } from "@/lib/billing/entitlement";
 
 /**
  * The hotel row a payment attaches to before a property exists.
@@ -48,6 +49,9 @@ export async function findPendingHotelForUser(
   if (membershipErr) throw new Error(`Could not read memberships: ${membershipErr.message}`);
   if (!memberships?.length) return null;
 
+  // Ordered so two callers looking at the same pair of rows name the same one:
+  // a group grant parks several at once, and ids[0] off an unordered read could
+  // send checkout and the connect callback to different hotels.
   const { data: pending, error: pendingErr } = await client
     .from("hotels")
     .select("id")
@@ -55,7 +59,8 @@ export async function findPendingHotelForUser(
       "id",
       memberships.map((m) => String(m.hotel_id)),
     )
-    .not("setup_pending_at", "is", null);
+    .not("setup_pending_at", "is", null)
+    .order("created_at", { ascending: true });
   if (pendingErr) throw new Error(`Could not read pending properties: ${pendingErr.message}`);
   if (!pending?.length) return null;
   if (pending.length === 1) return String(pending[0].id);
@@ -73,6 +78,115 @@ export async function findPendingHotelForUser(
     .maybeSingle();
 
   return paid ? String(paid.hotel_id) : ids[0];
+}
+
+export type UnpaidMarketplaceHotel = {
+  hotelId: string;
+  /** The hotels.name the callback gave it — already the PMS name. */
+  name: string;
+  /** What the claim ticket called it, when the ticket carried a name. */
+  propertyName: string | null;
+  pmsType: string;
+  /** Ties the properties of one group grant together; null for a lone property. */
+  groupKey: string | null;
+};
+
+/**
+ * The caller's Marketplace properties that are owned but not yet paid for,
+ * oldest first (then by name).
+ *
+ * A group grant parks one hotel per property and the claim hands the owner all
+ * of them at once, but a subscription is per hotel, so they are paid for one
+ * at a time. This is the queue: what a redeemed claim points at, still parked,
+ * with no live subscription. The claim row is what separates these from Flow
+ * B's placeholder, which has the same shape and must be left to the PMS connect.
+ *
+ * Service-role client: pms_marketplace_claims is not readable by members.
+ */
+export async function listUnpaidMarketplaceHotels(
+  admin: SupabaseClient,
+  userId: string,
+): Promise<UnpaidMarketplaceHotel[]> {
+  const { data: memberships, error: membershipErr } = await admin
+    .from("hotel_memberships")
+    .select("hotel_id")
+    .eq("user_id", userId)
+    .eq("status", "active");
+  if (membershipErr) throw new Error(`Could not read memberships: ${membershipErr.message}`);
+  if (!memberships?.length) return [];
+
+  const { data: hotels, error: hotelsErr } = await admin
+    .from("hotels")
+    .select("id, name, created_at")
+    .in(
+      "id",
+      memberships.map((m) => String(m.hotel_id)),
+    )
+    .not("setup_pending_at", "is", null)
+    .eq("is_active", false)
+    .order("created_at", { ascending: true })
+    .order("name", { ascending: true });
+  if (hotelsErr) throw new Error(`Could not read pending properties: ${hotelsErr.message}`);
+  if (!hotels?.length) return [];
+  const hotelIds = hotels.map((h) => String(h.id));
+
+  // group_key arrives in its own migration and selecting a column that does not
+  // exist is a hard PostgREST error, so the read falls back and loses only the
+  // grouping (same as marketplace-claim.ts).
+  type ClaimRow = { hotel_id: string; property_name: string | null; pms_type: string; group_key?: string | null };
+  let claims: ClaimRow[] | null = null;
+  const withGroup = await admin
+    .from("pms_marketplace_claims")
+    .select("hotel_id, property_name, pms_type, group_key")
+    .in("hotel_id", hotelIds)
+    .not("claimed_at", "is", null);
+  if (!withGroup.error) {
+    claims = (withGroup.data ?? []) as ClaimRow[];
+  } else {
+    const plain = await admin
+      .from("pms_marketplace_claims")
+      .select("hotel_id, property_name, pms_type")
+      .in("hotel_id", hotelIds)
+      .not("claimed_at", "is", null);
+    if (plain.error) throw new Error(`Could not read Marketplace claims: ${plain.error.message}`);
+    claims = (plain.data ?? []) as ClaimRow[];
+  }
+  const claimByHotel = new Map(claims.map((c) => [String(c.hotel_id), c]));
+  if (claimByHotel.size === 0) return [];
+
+  const { data: subs, error: subsErr } = await admin
+    .from("hotel_subscriptions")
+    .select("hotel_id, status")
+    .in("hotel_id", [...claimByHotel.keys()]);
+  if (subsErr) throw new Error(`Could not read subscriptions: ${subsErr.message}`);
+  const paid = new Set(
+    (subs ?? [])
+      .filter((s) => isEntitledStatus(s.status == null ? null : String(s.status)))
+      .map((s) => String(s.hotel_id)),
+  );
+
+  // Sorted here as well as in the query so the contract holds whatever the
+  // client underneath does with order().
+  const byAge = (a: { created_at?: unknown; name?: unknown }, b: { created_at?: unknown; name?: unknown }) =>
+    String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")) ||
+    String(a.name ?? "").localeCompare(String(b.name ?? ""));
+
+  return [...hotels]
+    .sort(byAge)
+    .flatMap((h) => {
+      const id = String(h.id);
+      const claim = claimByHotel.get(id);
+      if (!claim || paid.has(id)) return [];
+      return [
+        {
+          hotelId: id,
+          name: String(h.name ?? ""),
+          propertyName: claim.property_name == null ? null : String(claim.property_name),
+          pmsType: String(claim.pms_type),
+          groupKey: claim.group_key == null ? null : String(claim.group_key),
+        },
+      ];
+    });
 }
 
 export type PendingHotel = { ok: true; hotelId: string } | { ok: false; error: string };

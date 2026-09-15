@@ -24,6 +24,7 @@ import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { isStripeConfigured, stripeClient } from "@/lib/billing/stripe";
 import { isEntitled, persistSubscription, projectSubscription } from "@/lib/billing/sync";
+import { listUnpaidMarketplaceHotels } from "@/lib/billing/pending-hotel";
 import { activateMarketplaceHotelIfPending } from "@/lib/pms/marketplace-activate";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -45,12 +46,23 @@ export async function GET(request: Request) {
 
   const sessionId = url.searchParams.get("session_id");
   if (!sessionId) return to("/onboarding");
+  // Checkout puts the hotel on the success URL. Browser-editable, so it is
+  // never believed for anything but which property the waiting screen should
+  // watch — and the status route that screen polls checks membership itself.
+  const hintedHotelId = hotelIdHint(url.searchParams.get("hotel"));
+
+  // Which hotel this payment was for, once Stripe has said so. The waiting
+  // screen needs it: an owner paying for a group one property at a time has a
+  // live property already, so "are they past payment" is no longer a question
+  // about the account — it is about this hotel.
+  let paidHotelId: string | null = null;
 
   try {
     const stripe = stripeClient();
     const session = await stripe.checkout.sessions.retrieve(sessionId);
     // Someone else's session id, or one from a different account entirely.
     if (session.metadata?.user_id !== user.id) return to("/onboarding");
+    paidHotelId = session.metadata?.hotel_id || null;
 
     const subId =
       typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
@@ -89,6 +101,20 @@ export async function GET(request: Request) {
             activation != null &&
             (activation.activated ||
               (activation.reason !== "not_marketplace" && activation.reason !== "not_found"));
+          // A group grant is paid for one property at a time. Anything still
+          // parked goes back to the subscribe screen, which offers the next
+          // one; the card just taken is on the same customer, so it is short.
+          const remaining = await listUnpaidMarketplaceHotels(admin, user.id).catch((e: unknown) => {
+            console.error(
+              JSON.stringify({
+                fn: "checkoutReturn",
+                step: "remaining_siblings",
+                error: e instanceof Error ? e.message : String(e),
+              }),
+            );
+            return [];
+          });
+          if (remaining.length > 0) return to("/onboarding");
           return to(marketplace ? "/onboarding" : "/onboarding/connect");
         }
       }
@@ -108,5 +134,17 @@ export async function GET(request: Request) {
   // meant its own guard bounced them to /onboarding, which renders the payment
   // form: someone who had just paid was invited to pay again, with nothing on
   // screen to suggest that would be a mistake.
-  return to("/onboarding/confirming");
+  //
+  // Named hotel when there is one, so the screen waits on THIS property's
+  // subscription rather than the account's step — which stays "subscribe" for
+  // as long as a group has another property to pay for.
+  const waitOn = paidHotelId ?? hintedHotelId;
+  return to(
+    waitOn ? `/onboarding/confirming?hotel=${encodeURIComponent(waitOn)}` : "/onboarding/confirming",
+  );
+}
+
+/** A plausible id and nothing else, so no path or query characters reach a redirect. */
+function hotelIdHint(raw: string | null): string | null {
+  return raw && /^[A-Za-z0-9_-]{1,64}$/.test(raw) ? raw : null;
 }

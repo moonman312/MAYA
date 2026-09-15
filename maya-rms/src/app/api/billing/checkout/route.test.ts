@@ -75,6 +75,9 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
         cap = n;
         return api;
       },
+      order() {
+        return api;
+      },
       insert(payload: Row | Row[]) {
         pending = Array.isArray(payload) ? payload : [payload];
         mode = "insert";
@@ -150,6 +153,7 @@ const state = vi.hoisted(() => ({
   sessions: [] as Record<string, unknown>[],
   customers: [] as Record<string, unknown>[],
   customerOpts: [] as Record<string, unknown>[],
+  customerSearches: [] as string[],
   couponOpts: [] as Record<string, unknown>[],
   priceFails: false,
 }));
@@ -185,17 +189,19 @@ vi.mock("@/lib/billing/stripe", () => ({
         state.customerOpts.push(opts ?? {});
         return { id: `cus_test_${state.customers.length}` };
       },
-      // Matches on the hotel_id the route stamps into metadata, same as the
+      // Matches on whichever metadata key the route asks about, same as the
       // real search endpoint would once the customer is indexed.
       search: async ({ query }: { query: string }) => {
-        const hotelId = /:'([^']+)'/.exec(query)?.[1];
+        state.customerSearches.push(query);
+        const m = /metadata\['(\w+)'\]:'([^']+)'/.exec(query);
+        const [key, value] = [m?.[1] ?? "", m?.[2] ?? ""];
         return {
           data: state.customers
             .map((c, i) => ({
               id: `cus_test_${i + 1}`,
               metadata: c.metadata as Record<string, string> | undefined,
             }))
-            .filter((c) => c.metadata?.hotel_id === hotelId),
+            .filter((c) => c.metadata?.[key] === value),
         };
       },
     },
@@ -243,6 +249,7 @@ beforeEach(() => {
   state.sessions = [];
   state.customers = [];
   state.customerOpts = [];
+  state.customerSearches = [];
   state.couponOpts = [];
   state.priceFails = false;
 });
@@ -308,6 +315,9 @@ describe("a first-time signup, with no property yet", () => {
     seed();
     await post();
     expect(String(lastSession()?.success_url)).toContain("/api/billing/checkout/return");
+    // The hotel travels on the URL so the waiting screen knows what to watch
+    // even when Stripe cannot be reached on the way back.
+    expect(String(lastSession()?.success_url)).toMatch(/[?&]hotel=/);
   });
 
   it("leaves nothing behind when the code is rejected", async () => {
@@ -499,6 +509,11 @@ describe("the Stripe customer, across repeated attempts", () => {
     seed(pending);
     await post();
     expect(state.customerOpts[0]).toMatchObject({ idempotencyKey: "maya_customer_hotel-pending" });
+    // Flow B: one property, one customer. It neither looks for nor stamps an
+    // owner-keyed customer — that is the Marketplace group's arrangement.
+    expect(state.customerSearches[0]).toContain("metadata['hotel_id']");
+    expect(state.customers[0]).toMatchObject({ metadata: { hotel_id: "hotel-pending" } });
+    expect((state.customers[0].metadata as Record<string, unknown>).user_id).toBeUndefined();
   });
 
   it("prefers the customer recorded against a dead subscription", async () => {
@@ -662,7 +677,7 @@ describe("a property that arrived from the Cloudbeds Marketplace", () => {
     expect(tables.get("hotels")).toHaveLength(1);
   });
 
-  it("gets the Marketplace trial, is labelled as such, and is named on the customer", async () => {
+  it("gets the Marketplace trial, is labelled as such, and the customer belongs to the owner", async () => {
     seed(arrival);
     const res = await post({ rooms: 24, interval: "month", code: "", pmsType: "cloudbeds" });
     expect(res.status).toBe(200);
@@ -670,7 +685,40 @@ describe("a property that arrived from the Cloudbeds Marketplace", () => {
       trial_period_days: 7,
       metadata: { hotel_id: "hotel-mkt", via: "marketplace_flow_a" },
     });
-    expect(state.customers[0]).toMatchObject({ name: "Sea View Inn" });
+    // The customer stands for the owner across every property they pay for:
+    // keyed on the user, no property name, no hotel on it.
+    expect(state.customers[0]).toMatchObject({ metadata: { user_id: USER } });
+    expect(state.customers[0].name).toBeUndefined();
+    expect((state.customers[0].metadata as Record<string, unknown>).hotel_id).toBeUndefined();
+    expect(state.customerOpts[0]).toMatchObject({ idempotencyKey: `maya_customer_user_${USER}` });
+  });
+
+  it("creates the owner's customer identically for every sibling, so the shared idempotency key cannot collide", async () => {
+    const sibling = { id: "hotel-mkt-2", name: "Harbour House", is_active: false, setup_pending_at: "2026-09-10T14:08:00Z" };
+    seed({
+      ...arrival,
+      hotels: [...arrival.hotels, sibling],
+      hotel_memberships: [
+        ...arrival.hotel_memberships,
+        { hotel_id: "hotel-mkt-2", user_id: USER, role: "hotel_admin", status: "active" },
+      ],
+      pms_marketplace_claims: [
+        ...arrival.pms_marketplace_claims,
+        { ...arrival.pms_marketplace_claims[0], token: "tok2", hotel_id: "hotel-mkt-2", property_name: "Harbour House" },
+      ],
+    });
+    const first = await post({ rooms: 24, interval: "month", code: "", pmsType: "cloudbeds", hotelId: "hotel-mkt" });
+    expect(first.status).toBe(200);
+    const created = JSON.parse(JSON.stringify(state.customers[0]));
+    // Stripe's search index lags creation by up to a minute. Pretend it has not
+    // caught up, so the second sibling reaches the create with the same key —
+    // which Stripe only honours if the parameters are the same too.
+    state.customers[0].metadata = {};
+    const second = await post({ rooms: 24, interval: "month", code: "", pmsType: "cloudbeds", hotelId: "hotel-mkt-2" });
+    expect(second.status).toBe(200);
+    expect(state.customers).toHaveLength(2);
+    expect(JSON.parse(JSON.stringify(state.customers[1]))).toEqual(created);
+    expect(state.customerOpts[1]).toEqual(state.customerOpts[0]);
   });
 
   it("lets a code's own trial replace the Marketplace one — they never stack", async () => {
@@ -693,5 +741,113 @@ describe("a property that arrived from the Cloudbeds Marketplace", () => {
     const res = await post({ rooms: 24, interval: "month", code: "NOTAREALCODE", pmsType: "cloudbeds" });
     expect(res.status).toBe(403);
     expect(state.sessions).toHaveLength(0);
+  });
+});
+
+describe("a Marketplace group, paid for one property at a time", () => {
+  // Two properties parked by one grant and handed to one owner by one claim.
+  // Subscriptions are per hotel, so each needs its own checkout; the owner
+  // names which one, and the card taken for the first is kept for the second.
+  const groupClaim = (hotelId: string, name: string) => ({
+    token: `tok-${hotelId}`,
+    hotel_id: hotelId,
+    pms_type: "cloudbeds",
+    property_name: name,
+    claimed_by: USER,
+    claimed_at: "2026-09-10T14:09:00Z",
+    group_key: "grp-1",
+  });
+  const group = {
+    hotels: [
+      { id: "hotel-a", name: "Sea View Inn", is_active: false, setup_pending_at: "2026-09-10T14:08:00Z", created_at: "2026-09-10T14:08:00Z" },
+      { id: "hotel-b", name: "Bay Lodge", is_active: false, setup_pending_at: "2026-09-10T14:08:01Z", created_at: "2026-09-10T14:08:01Z" },
+    ],
+    hotel_memberships: [
+      { hotel_id: "hotel-a", user_id: USER, role: "hotel_admin", status: "active" },
+      { hotel_id: "hotel-b", user_id: USER, role: "hotel_admin", status: "active" },
+    ],
+    pms_marketplace_claims: [groupClaim("hotel-a", "Sea View Inn"), groupClaim("hotel-b", "Bay Lodge")],
+  };
+  const pay = (hotelId: string) =>
+    post({ rooms: 12, interval: "month", code: "", pmsType: "cloudbeds", hotelId });
+
+  it("pays for the property the owner names, not the oldest parked one", async () => {
+    seed(group);
+    const res = await pay("hotel-b");
+    expect(res.status).toBe(200);
+    expect(lastSession()?.metadata).toMatchObject({ hotel_id: "hotel-b" });
+    expect(lastSession()?.subscription_data).toMatchObject({
+      metadata: { hotel_id: "hotel-b", via: "marketplace_flow_a" },
+    });
+    // The session names the property; the customer names only the owner.
+    expect(state.customers[0]).toMatchObject({ metadata: { user_id: USER } });
+  });
+
+  it("refuses a property the caller does not own", async () => {
+    seed({
+      ...group,
+      hotel_memberships: [{ hotel_id: "hotel-a", user_id: USER, role: "hotel_admin", status: "active" }],
+    });
+    const res = await pay("hotel-b");
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("That property isn't yours to pay for.");
+    expect(state.sessions).toHaveLength(0);
+  });
+
+  it("refuses a named property that is not a parked Marketplace one", async () => {
+    // Owned, pending, but no claim: a Flow B placeholder. Naming it by id is
+    // not how that one gets paid for.
+    seed({ ...group, pms_marketplace_claims: [groupClaim("hotel-a", "Sea View Inn")] });
+    expect((await pay("hotel-b")).status).toBe(403);
+    // Owned and claimed, but already live.
+    seed({
+      ...group,
+      hotels: [group.hotels[0], { ...group.hotels[1], is_active: true, setup_pending_at: null }],
+    });
+    expect((await pay("hotel-b")).status).toBe(403);
+    expect(state.sessions).toHaveLength(0);
+  });
+
+  it("answers 409 for a named property that is already paid for", async () => {
+    seed({
+      ...group,
+      hotel_subscriptions: [{ hotel_id: "hotel-b", stripe_subscription_id: "sub_b", status: "trialing" }],
+    });
+    const res = await pay("hotel-b");
+    expect(res.status).toBe(409);
+    expect(state.sessions).toHaveLength(0);
+  });
+
+  it("puts both properties on one Stripe customer, keyed on the owner", async () => {
+    // What makes the second checkout find the card the first one took.
+    seed(group);
+    expect((await pay("hotel-a")).status).toBe(200);
+    expect((await pay("hotel-b")).status).toBe(200);
+    expect(state.customers).toHaveLength(1);
+    // Owner-keyed and nothing property-specific on it — see the identical-
+    // parameters test above for why the hotel must stay off this customer.
+    expect(state.customers[0]).toMatchObject({ metadata: { user_id: USER } });
+    expect((state.customers[0].metadata as Row).hotel_id).toBeUndefined();
+    expect(state.customerOpts[0]).toMatchObject({ idempotencyKey: `maya_customer_user_${USER}` });
+    expect(state.sessions[1].customer).toBe(state.sessions[0].customer);
+    // Each session is still its own property's.
+    expect((state.sessions[0].metadata as Row).hotel_id).toBe("hotel-a");
+    expect((state.sessions[1].metadata as Row).hotel_id).toBe("hotel-b");
+  });
+
+  it("still finds a customer minted before owners were stamped on them", async () => {
+    // Search on user_id misses, the older hotel_id search still hits.
+    seed(group);
+    state.customers.push({ email: "gm@driftwood.example", metadata: { hotel_id: "hotel-a" } });
+    expect((await pay("hotel-a")).status).toBe(200);
+    expect(state.customers).toHaveLength(1);
+    expect(lastSession()?.customer).toBe("cus_test_1");
+  });
+
+  it("without a named property, pays for the oldest parked one", async () => {
+    seed(group);
+    const res = await post({ rooms: 12, interval: "month", code: "", pmsType: "cloudbeds" });
+    expect(res.status).toBe(200);
+    expect(lastSession()?.metadata).toMatchObject({ hotel_id: "hotel-a" });
   });
 });

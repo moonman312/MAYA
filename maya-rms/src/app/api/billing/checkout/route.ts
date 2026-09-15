@@ -16,11 +16,12 @@
 
 import { hasHotelRank } from "@/lib/require-supabase-hotel";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
-import { roleLabel } from "@/lib/roles";
+import { roleLabel, roleRank } from "@/lib/roles";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { findPendingHotelForUser, provisionPendingHotel } from "@/lib/billing/pending-hotel";
+import { hasEntitledSubscription } from "@/lib/pms/marketplace-activate";
 import { isStripeConfigured, priceIdFor, stripeClient } from "@/lib/billing/stripe";
 import { checkCode, checkoutEffectFor, type CheckoutEffect } from "@/lib/billing/codes";
 import { pmsSignupCodeRequired } from "@/lib/billing/pms-gates";
@@ -84,6 +85,13 @@ export async function POST(request: Request) {
      * OAuth kickoff (lib/pms/oauth-flow.ts), so lying here buys nothing.
      */
     pmsType?: string;
+    /**
+     * Which property to pay for, when the owner has more than one waiting: a
+     * Marketplace group grant parks several and they are paid for in turn.
+     * Only ever honoured for a parked Marketplace property the caller owns —
+     * checked below — so naming someone else's buys nothing.
+     */
+    hotelId?: string;
   } | null;
 
   const rooms = body?.rooms;
@@ -98,9 +106,16 @@ export async function POST(request: Request) {
   // Committing a property that already exists to a recurring charge is a finance
   // action, so it stays above the Revenue Manager line with the other money
   // decisions. A first-time signup has no property, and so nobody to outrank:
-  // the row is created below and whoever paid for it is its admin.
+  // the row is created below and whoever paid for it is its admin. A named
+  // property is ranked on its own membership instead (below), not on whichever
+  // live property the session happens to point at.
+  const requestedHotelId = typeof body?.hotelId === "string" ? body.hotelId.trim() : "";
   const existingHotelId = await resolveAccessibleHotelId(supabase);
-  if (existingHotelId && !(await hasHotelRank(supabase, existingHotelId, "general_manager"))) {
+  if (
+    !requestedHotelId &&
+    existingHotelId &&
+    !(await hasHotelRank(supabase, existingHotelId, "general_manager"))
+  ) {
     return NextResponse.json(
       { error: `This needs ${roleLabel("general_manager")} access or higher on this property.` },
       { status: 403 },
@@ -116,6 +131,14 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient();
 
+  // A named property wins over the one the session happens to point at: an
+  // owner paying for the second property of a group already has a live first
+  // one, and that is exactly the property they are NOT here to pay for.
+  if (requestedHotelId) {
+    const refusal = await refuseUnlessPayableMarketplaceHotel(admin, user.id, requestedHotelId);
+    if (refusal) return refusal;
+  }
+
   // Reuse whatever an abandoned checkout left behind, so bouncing off the card
   // form three times doesn't leave three properties. A failed lookup throws
   // rather than answering "none": carrying on would provision a second property
@@ -123,7 +146,8 @@ export async function POST(request: Request) {
   // knowing is to stop before Stripe is involved at all.
   let hotelId: string | null;
   try {
-    hotelId = existingHotelId ?? (await findPendingHotelForUser(admin, user.id));
+    hotelId =
+      requestedHotelId || existingHotelId || (await findPendingHotelForUser(admin, user.id));
   } catch (e) {
     console.error(
       JSON.stringify({
@@ -214,9 +238,7 @@ export async function POST(request: Request) {
   // Only a real property has a name worth putting on the Stripe customer — a
   // placeholder reads worse in the dashboard than the email on its own.
   let customerName: string | undefined;
-  if (existingHotelId || marketplace) {
-    // Through the admin client: a Marketplace property is still inactive here,
-    // and the caller's own session cannot see inactive rows.
+  if (existingHotelId) {
     const { data: hotel } = await admin.from("hotels").select("name").eq("id", hotelId).maybeSingle();
     customerName = hotel?.name ?? undefined;
   }
@@ -281,7 +303,20 @@ export async function POST(request: Request) {
     // email. Search indexing lags a minute or so behind creation, which is what
     // the idempotency key on the create is for: inside that window Stripe hands
     // back the customer it already made instead of another.
+    //
+    // A Marketplace property is keyed on its OWNER instead. A group grant means
+    // several properties paid for in turn, and one customer across them is
+    // what lets the card taken for the first be offered for the rest. The
+    // hotel_id search stays as a fallback for customers minted before this.
+    // Flow B is unchanged: one property, one customer.
     let customerId = existing?.stripe_customer_id ?? null;
+    if (!customerId && marketplace) {
+      const found = await stripe.customers.search({
+        query: `metadata['user_id']:'${user.id}'`,
+        limit: 1,
+      });
+      customerId = found.data[0]?.id ?? null;
+    }
     if (!customerId) {
       const found = await stripe.customers.search({
         query: `metadata['hotel_id']:'${hotelId}'`,
@@ -292,12 +327,16 @@ export async function POST(request: Request) {
     if (!customerId) {
       customerId = (
         await stripe.customers.create(
-          {
-            name: customerName,
-            email: user.email ?? undefined,
-            metadata: { hotel_id: hotelId },
-          },
-          { idempotencyKey: `maya_customer_${hotelId}` },
+          // A Marketplace customer is a function of the OWNER alone. Its key is
+          // per owner, and Stripe refuses a replay whose parameters differ — so
+          // a second sibling paid inside the search-index lag, arriving here
+          // with the same key and a different hotel's name on it, would fail
+          // with idempotency_error instead of being handed the customer the
+          // first sibling already made.
+          marketplace
+            ? { email: user.email ?? undefined, metadata: { user_id: user.id } }
+            : { name: customerName, email: user.email ?? undefined, metadata: { hotel_id: hotelId } },
+          { idempotencyKey: marketplace ? `maya_customer_user_${user.id}` : `maya_customer_${hotelId}` },
         )
       ).id;
     }
@@ -366,7 +405,11 @@ export async function POST(request: Request) {
       // Through the return route rather than straight to the PMS picker: that
       // page decides whether they have paid, and the webhook which would tell it
       // so arrives whenever it arrives. See ./return/route.ts.
-      success_url: `${origin}/api/billing/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
+      // The hotel rides along so the return route can still tell the waiting
+      // screen which property this was for when Stripe itself cannot be
+      // reached to say so. A hint, not a fact: that route believes only the
+      // session for anything that matters.
+      success_url: `${origin}/api/billing/checkout/return?session_id={CHECKOUT_SESSION_ID}&hotel=${encodeURIComponent(hotelId)}`,
       cancel_url: `${origin}/onboarding?checkout=cancelled`,
     },
     // One session per hotel per offer. The 409 above only knows about a
@@ -400,4 +443,56 @@ export async function POST(request: Request) {
       { status: 502 },
     );
   }
+}
+
+/**
+ * The only property a caller may name outright is a parked Marketplace one
+ * they own with no live subscription: an active membership, still pending, a
+ * redeemed claim behind it, nothing entitled on it. Anything else answers as
+ * "not yours" — including a real property they do own, which is subscribed
+ * through the session's active hotel and the rank check above, not by id.
+ */
+async function refuseUnlessPayableMarketplaceHotel(
+  admin: ReturnType<typeof createAdminClient>,
+  userId: string,
+  hotelId: string,
+): Promise<NextResponse | null> {
+  const notYours = () =>
+    NextResponse.json({ error: "That property isn't yours to pay for." }, { status: 403 });
+
+  const { data: membership } = await admin
+    .from("hotel_memberships")
+    .select("hotel_id, role")
+    .eq("hotel_id", hotelId)
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .limit(1)
+    .maybeSingle();
+  if (!membership) return notYours();
+  // Same line as the session-hotel check above: money decisions sit at General
+  // Manager and up. A claim always attaches hotel_admin, so this only bites a
+  // membership someone later demoted.
+  if (roleRank(String(membership.role ?? "")) < roleRank("general_manager")) {
+    return NextResponse.json(
+      { error: `This needs ${roleLabel("general_manager")} access or higher on this property.` },
+      { status: 403 },
+    );
+  }
+
+  const { data: hotel } = await admin
+    .from("hotels")
+    .select("id, is_active, setup_pending_at")
+    .eq("id", hotelId)
+    .maybeSingle();
+  if (!hotel || hotel.is_active !== false || hotel.setup_pending_at == null) return notYours();
+
+  if (!(await findMarketplaceClaimForHotel(admin, hotelId))) return notYours();
+
+  if (await hasEntitledSubscription(admin, hotelId)) {
+    return NextResponse.json(
+      { error: "This property already has a subscription. Manage it at /account/billing." },
+      { status: 409 },
+    );
+  }
+  return null;
 }

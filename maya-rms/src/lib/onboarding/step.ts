@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { findPendingHotelForUser } from "@/lib/billing/pending-hotel";
+import { findPendingHotelForUser, listUnpaidMarketplaceHotels } from "@/lib/billing/pending-hotel";
 import { isStripeConfigured } from "@/lib/billing/stripe";
 import { isEntitled } from "@/lib/billing/sync";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
@@ -20,6 +20,25 @@ export type OnboardingStep = "subscribe" | "connect" | "choose" | "done";
 export async function resolveOnboardingStep(
   supabase: SupabaseClient,
 ): Promise<OnboardingStep> {
+  // A group grant from the Marketplace parks several properties under one
+  // owner and they are paid for one at a time, so an owner with a live property
+  // can still owe a checkout. Checked first, before the live property wins:
+  // otherwise the second property is never offered payment and stays parked
+  // forever. Scoped to redeemed Marketplace claims, so Flow B — one placeholder,
+  // adopted by the PMS connect — reads exactly as it did.
+  if (isStripeConfigured()) {
+    const userId = await currentUserId(supabase);
+    if (userId) {
+      try {
+        const unpaid = await listUnpaidMarketplaceHotels(createAdminClient(), userId);
+        if (unpaid.length > 0) return "subscribe";
+      } catch {
+        // No admin client (a test, an install without the service key): the
+        // ordinary reading below stands.
+      }
+    }
+  }
+
   // An active property means the connect callback ran and adopted the row
   // checkout created, so billing stops gating onboarding from here. Being behind
   // on payment and being half-onboarded are different problems; the dunning

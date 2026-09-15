@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   INITIAL_POLL_MS,
   nextPollDelay,
@@ -21,10 +21,27 @@ import {
  * says they can move on and then moves them on itself. The only interaction is
  * for the case where waiting genuinely didn't work. Pacing lives in
  * confirm-poll.ts; a hidden tab schedules nothing and asks once on return.
+ *
+ * With `?hotel=` in the URL it waits on that property's subscription rather
+ * than the account's step: an owner paying for a group one property at a time
+ * has a live property already, and the step reads "subscribe" for as long as
+ * any sibling is unpaid. Once this one is entitled, the router decides what is
+ * next — the next property's payment, or onward.
  */
 
 export function ConfirmingPayment() {
+  // useSearchParams wants a Suspense boundary above it on a prerendered route.
+  // The page is dynamic, but the boundary costs nothing and keeps it honest.
+  return (
+    <Suspense fallback={null}>
+      <ConfirmingPaymentInner />
+    </Suspense>
+  );
+}
+
+function ConfirmingPaymentInner() {
   const router = useRouter();
+  const hotelId = useSearchParams().get("hotel");
   const [phase, setPhase] = useState<ConfirmPhase>("waiting");
 
   useEffect(() => {
@@ -39,16 +56,30 @@ export function ConfirmingPayment() {
     async function check() {
       if (!alive || done) return;
       try {
-        const res = await fetch("/api/onboarding/step", { cache: "no-store" });
-        if (res.ok) {
-          const { step } = (await res.json()) as { step?: string };
-          // Anything past "subscribe" means the payment is recorded. Pushing
-          // rather than replacing would leave this screen in their history,
-          // where Back lands them on a spinner for a thing already finished.
-          if (step && step !== "subscribe") {
-            done = true;
-            router.replace(step === "connect" ? "/onboarding/connect" : "/onboarding");
-            return;
+        if (hotelId) {
+          const res = await fetch(`/api/billing/status?hotelId=${encodeURIComponent(hotelId)}`, {
+            cache: "no-store",
+          });
+          if (res.ok) {
+            const { entitled } = (await res.json()) as { entitled?: boolean };
+            if (entitled) {
+              done = true;
+              router.replace("/onboarding");
+              return;
+            }
+          }
+        } else {
+          const res = await fetch("/api/onboarding/step", { cache: "no-store" });
+          if (res.ok) {
+            const { step } = (await res.json()) as { step?: string };
+            // Anything past "subscribe" means the payment is recorded. Pushing
+            // rather than replacing would leave this screen in their history,
+            // where Back lands them on a spinner for a thing already finished.
+            if (step && step !== "subscribe") {
+              done = true;
+              router.replace(step === "connect" ? "/onboarding/connect" : "/onboarding");
+              return;
+            }
           }
         }
       } catch {
@@ -84,7 +115,7 @@ export function ConfirmingPayment() {
       window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [router]);
+  }, [router, hotelId]);
 
   return (
     <div className="mx-auto max-w-md px-6 py-16 text-center">

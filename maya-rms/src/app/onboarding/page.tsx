@@ -1,9 +1,9 @@
 import { PathChoice } from "@/components/onboarding/path-choice";
 import { SubscribeStep, type SubscribePmsOption } from "@/components/onboarding/subscribe-step";
-import { findPendingHotelForUser } from "@/lib/billing/pending-hotel";
+import { listUnpaidMarketplaceHotels } from "@/lib/billing/pending-hotel";
 import { listPmsSignupGates } from "@/lib/billing/pms-gates";
 import { resolveOnboardingStep } from "@/lib/onboarding/step";
-import { findMarketplaceClaimForHotel, marketplaceTrialDays } from "@/lib/pms/marketplace-activate";
+import { marketplaceTrialDays } from "@/lib/pms/marketplace-activate";
 import { listPmsStatuses } from "@/lib/pms/registry";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/utils/supabase/admin";
@@ -38,14 +38,18 @@ export default async function OnboardingPage({
   const marketplace = await marketplaceArrival(supabase);
   if (marketplace) {
     const days = marketplace.trialDays;
+    const name = marketplace.propertyName ?? "Your property";
+    const progress = marketplace.progress;
     return (
       <SubscribeStep
         cancelled={cancelled}
         lockPms
+        hotelId={marketplace.hotelId}
+        progress={progress}
         pmsOptions={[
           { type: marketplace.pmsType, displayName: marketplace.displayName, requiresSignupCode: false },
         ]}
-        title={`${marketplace.propertyName ?? "Your property"} is connected`}
+        title={`${name} is connected`}
         intro={
           days > 0
             ? `Try MAYA free for ${days} days. Set up a payment method and your booking history starts importing right away — nothing is charged until the trial ends, and you can cancel any time.`
@@ -65,12 +69,18 @@ export default async function OnboardingPage({
  * but not paid for. It gets the same subscribe screen with the PMS settled, no
  * code asked for, and the Marketplace trial shown. It is also where a bounced
  * checkout lands back, so setting up payment is always one click away.
+ *
+ * A group grant parks several; the oldest unpaid one is next, and the screen
+ * says where in the group it sits so paying three times in a row does not feel
+ * like the same screen refusing to go away.
  */
 async function marketplaceArrival(supabase: SupabaseClient): Promise<{
+  hotelId: string;
   pmsType: string;
   displayName: string;
   propertyName: string | null;
   trialDays: number;
+  progress?: { index: number; total: number };
 } | null> {
   try {
     const {
@@ -78,16 +88,35 @@ async function marketplaceArrival(supabase: SupabaseClient): Promise<{
     } = await supabase.auth.getSession();
     const userId = session?.user?.id;
     if (!userId) return null;
-    const hotelId = await findPendingHotelForUser(supabase, userId);
-    if (!hotelId) return null;
-    const claim = await findMarketplaceClaimForHotel(createAdminClient(), hotelId);
-    if (!claim) return null;
-    const pms = listPmsStatuses().find((p) => p.type === claim.pms_type);
+    const admin = createAdminClient();
+    const unpaid = await listUnpaidMarketplaceHotels(admin, userId);
+    const next = unpaid[0];
+    if (!next) return null;
+
+    let progress: { index: number; total: number } | undefined;
+    if (next.groupKey) {
+      // Everyone in the group the owner has claimed, paid or not; the unpaid
+      // ones from the same group are what is left, so "index" is what is done
+      // plus this one.
+      const { count } = await admin
+        .from("pms_marketplace_claims")
+        .select("hotel_id", { count: "exact", head: true })
+        .eq("group_key", next.groupKey)
+        .eq("claimed_by", userId)
+        .not("claimed_at", "is", null);
+      const total = count ?? 0;
+      const left = unpaid.filter((u) => u.groupKey === next.groupKey).length;
+      if (total > 1) progress = { index: total - left + 1, total };
+    }
+
+    const pms = listPmsStatuses().find((p) => p.type === next.pmsType);
     return {
-      pmsType: claim.pms_type,
-      displayName: pms?.displayName ?? claim.pms_type,
-      propertyName: claim.property_name,
+      hotelId: next.hotelId,
+      pmsType: next.pmsType,
+      displayName: pms?.displayName ?? next.pmsType,
+      propertyName: next.propertyName ?? next.name ?? null,
       trialDays: marketplaceTrialDays(),
+      progress,
     };
   } catch (e) {
     // Falls back to the ordinary screen: they can still pay, they just get
