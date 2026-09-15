@@ -21,6 +21,7 @@ import { createClient } from "@supabase/supabase-js";
 import { handleMarketplaceConnect } from "../src/lib/pms/marketplace-connect";
 import { redeemMarketplaceClaim } from "../src/lib/pms/marketplace-claim";
 import { activateMarketplaceHotelIfPending } from "../src/lib/pms/marketplace-activate";
+import { resolveOAuthCredentials } from "../supabase/functions/_shared/pms/oauth-credentials";
 
 const env = Object.fromEntries(readFileSync(new URL("../.env.local", import.meta.url), "utf8").split("\n").filter((l)=>l.includes("=")&&!l.startsWith("#")).map((l)=>[l.slice(0,l.indexOf("=")),l.slice(l.indexOf("=")+1).trim()]));
 for (const [k,v] of Object.entries(env)) process.env[k] ??= v as string;
@@ -50,7 +51,11 @@ if (cleanupArg !== -1) {
   process.exit(0);
 }
 
-// Real tokens from the sandbox connection — same shape the token exchange yields.
+// Real tokens from the sandbox connection — same shape the token exchange
+// yields. Refreshed first: a Marketplace grant is always fresh, and the
+// sandbox's own token is only as fresh as the scheduler's last visit.
+const resolved = await resolveOAuthCredentials(admin as any, SANDBOX, "cloudbeds");
+if ("error" in resolved) { console.log("could not refresh the sandbox token:", resolved.error); process.exit(1); }
 const { data: raw } = await admin.rpc("pms_secret_get", { p_hotel_id: SANDBOX, p_pms_type:"cloudbeds" });
 const s = typeof raw==="string"?JSON.parse(raw):raw;
 const grant = () => ({
