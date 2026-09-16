@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isEntitledStatus } from "./entitlement";
 import { compareRooms, graceDaysLeft, measureRooms, type RoomVerdict } from "./room-count";
+import { noticeCoversShortfall } from "./room-truing";
 import { isStripeConfigured, stripeClient } from "./stripe";
 import { formatUsd, priceCents, type BillingInterval } from "./tiers";
 
@@ -38,8 +39,12 @@ export type AccountBilling = {
   entitled: boolean;
   /** How the billed count compares to what their PMS says they run. */
   roomTruth: RoomVerdict;
-  /** Days left to fix a shortfall themselves before MAYA does it. */
-  roomGraceDaysLeft: number;
+  /**
+   * Days left to fix a shortfall themselves before MAYA does it, counted from
+   * the email about this shortfall at this count. Null when that email has not
+   * gone out: nothing is corrected until it has, so there is no clock to show.
+   */
+  roomGraceDaysLeft: number | null;
   /**
    * Bookable spaces excluded from billing because nobody sleeps in them, with
    * who decided — MAYA's guess reads differently from the owner's own answer.
@@ -51,6 +56,9 @@ export type AccountBilling = {
 
 const COLUMNS =
   "hotel_id, status, billing_interval, billed_rooms, current_period_end, trial_end, cancel_at_period_end, card_verify_failed_at, card_verify_last_code, signup_code_id, measured_rooms, room_shortfall_since, stripe_subscription_id";
+
+/** The notice columns come from a later migration; the page must not break before it runs. */
+const NOTICE_COLUMNS = "room_shortfall_notified_at, room_shortfall_notified_rooms";
 
 /**
  * The next invoice as Stripe would write it today. Best-effort with a short
@@ -80,11 +88,12 @@ export async function loadAccountBilling(
   supabase: SupabaseClient,
   hotelId: string,
 ): Promise<AccountBilling | null> {
-  const { data, error } = await supabase
-    .from("hotel_subscriptions")
-    .select(COLUMNS)
-    .eq("hotel_id", hotelId)
-    .maybeSingle();
+  const read = (columns: string) =>
+    supabase.from("hotel_subscriptions").select(columns).eq("hotel_id", hotelId).maybeSingle();
+  let { data, error } = await read(`${COLUMNS}, ${NOTICE_COLUMNS}`);
+  if (error && (error as { code?: string }).code === "42703") {
+    ({ data, error } = await read(COLUMNS));
+  }
   if (error || !data) return null;
 
   const interval = String(data.billing_interval) === "year" ? "year" : "month";
@@ -137,11 +146,30 @@ export async function loadAccountBilling(
       data.measured_rooms == null ? null : Number(data.measured_rooms),
       rooms,
     ),
-    roomGraceDaysLeft: graceDaysLeft(
-      data.room_shortfall_since ? String(data.room_shortfall_since) : null,
-      new Date(),
-    ),
+    roomGraceDaysLeft: roomGraceDaysLeft(data, new Date()),
   };
+}
+
+/**
+ * The correction waits for the full grace period after the notice about this
+ * shortfall at this count (see trueUpOne), so the page counts from that notice
+ * too. Without one there is no date to promise.
+ */
+export function roomGraceDaysLeft(data: Record<string, unknown>, now: Date): number | null {
+  const covered = noticeCoversShortfall({
+    hotel_id: String(data.hotel_id),
+    stripe_customer_id: null,
+    stripe_subscription_id: null,
+    billing_interval: null,
+    billed_rooms: data.billed_rooms == null ? null : Number(data.billed_rooms),
+    measured_rooms: data.measured_rooms == null ? null : Number(data.measured_rooms),
+    room_shortfall_since: data.room_shortfall_since ? String(data.room_shortfall_since) : null,
+    room_shortfall_notified_at: data.room_shortfall_notified_at ? String(data.room_shortfall_notified_at) : null,
+    room_shortfall_notified_rooms:
+      data.room_shortfall_notified_rooms == null ? null : Number(data.room_shortfall_notified_rooms),
+  });
+  if (!covered) return null;
+  return graceDaysLeft(String(data.room_shortfall_notified_at), now);
 }
 
 /** How loudly the page should say it. */
@@ -202,9 +230,11 @@ export function headlineFor(billing: AccountBilling, now = new Date()): BillingH
       title: `You're billed for ${billed} rooms but running ${measured}`,
       detail:
         `MAYA charges per room, so ${shortBy} ${shortBy === 1 ? "room is" : "rooms are"} not being paid for. ` +
-        (days > 0
-          ? `Set the count right below within ${days} day${days === 1 ? "" : "s"} and nothing else happens — after that we'll update it to ${measured} for you and adjust your next invoice.`
-          : `We'll update it to ${measured} shortly and adjust your next invoice. Change it below if that isn't right.`),
+        (days === null
+          ? "Set the count right below. We'll email you before anything changes."
+          : days > 0
+            ? `Set the count right below within ${days} day${days === 1 ? "" : "s"} and nothing else happens. After that we'll update it to ${measured} for you and adjust your next invoice.`
+            : `We'll update it to ${measured} shortly and adjust your next invoice. Change it below if that isn't right.`),
     };
   }
 

@@ -94,6 +94,31 @@ describe("headlineFor", () => {
     expect(h.detail).toMatch(/next charge will/i);
   });
 
+  describe("a room shortfall", () => {
+    const short = { kind: "short", measured: 60, billed: 40, shortBy: 20 } as const;
+
+    it("counts down from the notice while there is time left", () => {
+      const h = headlineFor(billing({ roomTruth: short, roomGraceDaysLeft: 5 }), NOW);
+      expect(h.tone).toBe("warn");
+      expect(h.detail).toContain("within 5 days");
+      expect(h.detail).toContain("update it to 60");
+      expect(h.detail).not.toContain("\u2014");
+    });
+
+    it("says 'shortly' only once the notice period has run out", () => {
+      const h = headlineFor(billing({ roomTruth: short, roomGraceDaysLeft: 0 }), NOW);
+      expect(h.detail).toContain("update it to 60 shortly");
+    });
+
+    it("promises no date and no correction when no notice has gone out", () => {
+      // trueUpOne refuses to correct without a notice about this count, so a
+      // countdown or "shortly" here would say the reverse of what happens.
+      const h = headlineFor(billing({ roomTruth: short, roomGraceDaysLeft: null }), NOW);
+      expect(h.detail).toContain("We'll email you before anything changes.");
+      expect(h.detail).not.toMatch(/shortly|within \d/);
+    });
+  });
+
   it("says a pending cancellation still has time left on it", () => {
     const h = headlineFor(billing({ cancelAtPeriodEnd: true }), NOW);
     expect(h.tone).toBe("warn");
