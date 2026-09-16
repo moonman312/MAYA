@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { computeDta, computeNetPickup, computeOccupancy, computeRuleMetrics } from "./metrics";
+import type { BaselineSnapshotStore, CellSnapshot } from "./snapshots";
 import type { EngineRule } from "@/types/domain";
-import type { SupabaseClient } from "@supabase/supabase-js";
 
 function makeRule(overrides: Partial<EngineRule> = {}): EngineRule {
   return {
@@ -134,24 +134,25 @@ describe("computeRuleMetrics: every signal room type deactivated (regression)", 
   // evaluate.ts filters signal_room_type_ids down to currently-active room
   // types before metrics ever run. If a rule's WHOLE signal set was
   // deactivated, that leaves an empty array here — this must block
-  // explicitly (and never touch Supabase), not silently read "zero pickup"
-  // as evidence a "lt" condition could fire on.
-  const throwingSupabase = {
-    from() {
-      throw new Error("must not query Supabase when signal_room_type_ids is empty");
+  // explicitly (and never consult the stores), not silently read "zero
+  // pickup" as evidence a "lt" condition could fire on.
+  const throwingStore: BaselineSnapshotStore = {
+    rowAt() {
+      throw new Error("must not read baselines when signal_room_type_ids is empty");
     },
-  } as unknown as SupabaseClient;
+    coverageAt() {
+      throw new Error("must not probe coverage when signal_room_type_ids is empty");
+    },
+  };
 
   it("blocks with a dedicated reason instead of computing pickup = 0", async () => {
     const rule = makeRule({ signal_room_type_ids: [] });
     const metrics = await computeRuleMetrics(
-      throwingSupabase,
       rule,
-      "hotel-1",
       "2026-08-01",
-      "2026-07-28T00:00:00Z",
       "2026-07-28",
-      "2026-07-28T00:00:00Z",
+      new Map(),
+      throwingStore,
       "2026-07-21T00:00:00Z",
     );
     expect(metrics.occupancy).toBeNull();
@@ -163,13 +164,11 @@ describe("computeRuleMetrics: every signal room type deactivated (regression)", 
   it("keeps that rule from matching a lt pickup condition on no evidence", async () => {
     const rule = makeRule({ signal_room_type_ids: [] });
     const metrics = await computeRuleMetrics(
-      throwingSupabase,
       rule,
-      "hotel-1",
       "2026-08-01",
-      "2026-07-28T00:00:00Z",
       "2026-07-28",
-      "2026-07-28T00:00:00Z",
+      new Map(),
+      throwingStore,
       "2026-07-21T00:00:00Z",
     );
     // Without the block reason, net_pickup_units would read 0, and 0 < 3
@@ -185,78 +184,32 @@ describe("computeRuleMetrics: synthesized zero baseline (first bookings on a dat
   // exactly when a pickup rule matters. The baseline is synthesized as zero
   // only when the hotel was demonstrably snapshotting at the baseline
   // instant; otherwise the run still blocks.
-  type SnapRow = {
-    hotel_id: string;
-    stay_date: string;
-    room_type_id: string;
-    snapshot_ts: string;
-    booked_units: number;
-    booked_revenue: number;
-    sellable_units: number;
-  };
-
-  function snapshotStub(rows: SnapRow[]): SupabaseClient {
-    function builder() {
-      const filters: Array<(r: SnapRow) => boolean> = [];
-      let desc = true;
-      const b = {
-        select: () => b,
-        eq: (col: keyof SnapRow, val: unknown) => {
-          filters.push((r) => String(r[col]) === String(val));
-          return b;
-        },
-        lte: (col: keyof SnapRow, val: unknown) => {
-          filters.push((r) => String(r[col]) <= String(val));
-          return b;
-        },
-        order: (_col: string, opts?: { ascending?: boolean }) => {
-          desc = !(opts?.ascending ?? false);
-          return b;
-        },
-        limit: () => b,
-        maybeSingle: async () => {
-          const matched = rows
-            .filter((r) => filters.every((f) => f(r)))
-            .sort((a, z) =>
-              desc
-                ? z.snapshot_ts.localeCompare(a.snapshot_ts)
-                : a.snapshot_ts.localeCompare(z.snapshot_ts),
-            );
-          return { data: matched[0] ?? null, error: null };
-        },
-      };
-      return b;
-    }
-    return { from: () => builder() } as unknown as SupabaseClient;
-  }
-
   const NOW = "2026-08-01T12:00:00Z";
   const BASELINE = "2026-07-29T12:00:00Z";
-  const currentCell: SnapRow = {
-    hotel_id: "hotel-1",
-    stay_date: "2026-10-26",
-    room_type_id: "rt1",
-    snapshot_ts: NOW,
-    booked_units: 5,
-    booked_revenue: 1000,
-    sellable_units: 10,
-  };
+  const currentSnaps = new Map<string, CellSnapshot>([
+    ["2026-10-26|rt1", { booked_units: 5, booked_revenue: 1000, sellable_units: 10, snapshot_ts: NOW }],
+  ]);
 
-  it("treats a missing baseline cell as zero when the hotel was snapshotting", async () => {
-    const supabase = snapshotStub([
-      currentCell,
-      // A DIFFERENT stay date's row proves hotel-level coverage at the
-      // baseline instant; the cell under test has no row back then.
-      { ...currentCell, stay_date: "2026-09-01", snapshot_ts: "2026-07-29T11:55:00Z" },
-    ]);
+  // The store already resolves "nearest fresh row per cell" — these tests
+  // exercise what metrics DOES with a missing cell, so the store is the
+  // scenario: no baseline row for the cell, coverage as each case needs.
+  function store(coverageTs: string | null): BaselineSnapshotStore {
+    return {
+      rowAt: () => undefined,
+      coverageAt: async () => coverageTs,
+    };
+  }
+
+  it("treats a missing baseline cell as zero when the stay date was being snapshotted", async () => {
+    // Date-level coverage minutes before the baseline instant (a sibling
+    // room type's row) proves this date was being written; the cell simply
+    // had nothing booked back then.
     const metrics = await computeRuleMetrics(
-      supabase,
       makeRule({ condition: { pickup_operator: "gt", pickup_threshold: 3 } }),
-      "hotel-1",
       "2026-10-26",
-      NOW,
       "2026-08-01",
-      NOW,
+      currentSnaps,
+      store("2026-07-29T11:55:00Z"),
       BASELINE,
     );
     expect(metrics.pickup_block_reason).toBeNull();
@@ -264,35 +217,26 @@ describe("computeRuleMetrics: synthesized zero baseline (first bookings on a dat
     expect(metrics.net_pickup_units).toBe(5);
   });
 
-  it("still blocks when the hotel has no snapshot history at the baseline", async () => {
-    const supabase = snapshotStub([currentCell]);
+  it("still blocks when the date has no snapshot history at the baseline", async () => {
     const metrics = await computeRuleMetrics(
-      supabase,
       makeRule({ condition: { pickup_operator: "gt", pickup_threshold: 3 } }),
-      "hotel-1",
       "2026-10-26",
-      NOW,
       "2026-08-01",
-      NOW,
+      currentSnaps,
+      store(null),
       BASELINE,
     );
     expect(metrics.pickup_block_reason).toBe("insufficient_snapshot_history");
     expect(metrics.net_pickup_units).toBeNull();
   });
 
-  it("blocks as stale when hotel coverage predates the baseline by more than the freshness window", async () => {
-    const supabase = snapshotStub([
-      currentCell,
-      { ...currentCell, stay_date: "2026-09-01", snapshot_ts: "2026-07-27T00:00:00Z" },
-    ]);
+  it("blocks as stale when the date's coverage predates the baseline by more than the freshness window", async () => {
     const metrics = await computeRuleMetrics(
-      supabase,
       makeRule({ condition: { pickup_operator: "gt", pickup_threshold: 3 } }),
-      "hotel-1",
       "2026-10-26",
-      NOW,
       "2026-08-01",
-      NOW,
+      currentSnaps,
+      store("2026-07-27T00:00:00Z"),
       BASELINE,
     );
     expect(metrics.pickup_block_reason).toBe("stale_baseline_snapshot");

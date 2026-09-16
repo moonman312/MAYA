@@ -55,6 +55,8 @@ export type CloudbedsSyncSuccess = {
   ok: true;
   /** Which cadence this run was: the daily sweep is the far-horizon beat. */
   mode: "incremental" | "sweep";
+  /** Stay dates this run wrote, canceled, or pruned — sorted, deduped. */
+  changedStayDates: string[];
   /** False when the detail budget expired before the window was covered. */
   windowFullyCovered: boolean;
   /** Resolved, ready-to-use credentials (reused by the rate-push step). */
@@ -188,17 +190,22 @@ async function deleteCanceledReservationRows(
   supabase: SupabaseClient,
   hotelId: string,
   canceledIds: string[],
-): Promise<{ error: { message: string } | null }> {
+): Promise<{ error: { message: string } | null; deletedStayDates: Set<string> }> {
+  // The deleted rows' stay dates feed the change-triggered pricing pass — a
+  // cancellation is a demand signal exactly like a booking.
+  const deletedStayDates = new Set<string>();
   for (let i = 0; i < canceledIds.length; i += RECONCILE_IN_CHUNK) {
     const chunk = canceledIds.slice(i, i + RECONCILE_IN_CHUNK);
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("reservations")
       .delete()
       .eq("hotel_id", hotelId)
-      .in("external_reservation_id", chunk);
-    if (error) return { error };
+      .in("external_reservation_id", chunk)
+      .select("stay_date");
+    if (error) return { error, deletedStayDates };
+    for (const row of data ?? []) deletedStayDates.add(String(row.stay_date));
   }
-  return { error: null };
+  return { error: null, deletedStayDates };
 }
 
 export type SyncMode = {
@@ -249,7 +256,7 @@ async function deleteStaleStayNights(
   supabase: SupabaseClient,
   hotelId: string,
   activeByExternalId: Map<string, Set<string>>,
-): Promise<{ error: { message: string } | null }> {
+): Promise<{ error: { message: string } | null; deletedStayDates: Set<string> }> {
   const extIds = [...activeByExternalId.keys()].filter(
     (id) => activeByExternalId.get(id)!.size > 0,
   );
@@ -265,7 +272,7 @@ async function deleteStaleStayNights(
         .eq("hotel_id", hotelId)
         .in("external_reservation_id", chunk)
         .range(from, from + READ_PAGE - 1);
-      if (error) return { error };
+      if (error) return { error, deletedStayDates: new Set<string>() };
       for (const row of data ?? []) {
         const extId = String(row.external_reservation_id);
         const stayDate = String(row.stay_date);
@@ -286,10 +293,10 @@ async function deleteStaleStayNights(
         .eq("hotel_id", hotelId)
         .eq("stay_date", stayDate)
         .in("external_reservation_id", ids.slice(i, i + RECONCILE_IN_CHUNK));
-      if (error) return { error };
+      if (error) return { error, deletedStayDates: new Set(staleByDate.keys()) };
     }
   }
-  return { error: null };
+  return { error: null, deletedStayDates: new Set(staleByDate.keys()) };
 }
 
 export async function runCloudbedsSyncForHotel(
@@ -511,6 +518,12 @@ export async function runCloudbedsSyncForHotel(
 
     let reservationRowsUpserted = 0;
     let unchangedRowsSkipped = 0;
+    // Stay dates this run actually touched — written, canceled, or pruned.
+    // The scheduled tick feeds these to a targeted pricing pass so a booking
+    // burst on a far date (a concert announcement eleven months out) is
+    // repriced on the next 5-minute beat instead of the next daily sweep.
+    const changedStayDates = new Set<string>();
+
     if (rows.length > 0) {
       const allRes = rows.map((r) => ({
         hotel_id: hotelId,
@@ -530,6 +543,7 @@ export async function runCloudbedsSyncForHotel(
       const resRows = diffed.rows;
       unchangedRowsSkipped = diffed.unchanged;
       reservationRowsUpserted = resRows.length;
+      for (const row of resRows) changedStayDates.add(String(row.stay_date));
 
       // Chunked upsert — a busy hotel produces thousands of room-nights.
       const UP_CHUNK = 500;
@@ -604,10 +618,12 @@ export async function runCloudbedsSyncForHotel(
     // re-decides with a consistent read.
     const canceledIds = [...canceledRowIds].filter((id) => !activeNights.has(id));
     const canceledDel = await deleteCanceledReservationRows(supabase, hotelId, canceledIds);
+    for (const d of canceledDel.deletedStayDates) changedStayDates.add(d);
     if (canceledDel.error) return { ok: false, error: canceledDel.error.message };
 
     // Prune stale nights for still-active bookings (date/rate changes).
     const staleDel = await deleteStaleStayNights(supabase, hotelId, activeNights);
+    for (const d of staleDel.deletedStayDates) changedStayDates.add(d);
     if (staleDel.error) return { ok: false, error: staleDel.error.message };
 
     // 7. Stamp connection status.
@@ -674,6 +690,7 @@ export async function runCloudbedsSyncForHotel(
       // partial sync that looks complete is worse than one that says so: the
       // next tick picks up where this stopped, but only if someone can tell.
       mode: incremental ? ("incremental" as const) : ("sweep" as const),
+      changedStayDates: [...changedStayDates].sort(),
       windowFullyCovered: !truncated,
       fetchWindow: { checkInFrom, checkInTo },
       apiPages: pages + canceledList.pages,
