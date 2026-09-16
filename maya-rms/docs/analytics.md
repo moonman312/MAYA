@@ -91,6 +91,7 @@ service role may insert (that is `/api/events`). The functions check
 | event | meaning | emitted by | properties |
 |---|---|---|---|
 | `account.created` | a MAYA login exists | trigger on `profiles` insert | — |
+| `account.terms_accepted` | someone agreed to a Terms and Privacy Policy version; one per acceptance row | trigger on `terms_acceptances` insert (`99_supabase_migration_terms_acceptance_events_v1.sql`) | `terms_version`, `privacy_version`, `context` (`signup`, `claim`, `invite`, `reaccept`), `acceptance_source` |
 | `marketplace.connected` | Connect App on Cloudbeds landed and parked a property with a claim ticket; one per click | trigger on `pms_marketplace_claims` insert | `expires_at`, `group_key`, `group_size`, `repeat` (an earlier click for the same property exists) |
 | `marketplace.claim_redeemed` | someone signed in and attached the parked property to their account | trigger on `pms_marketplace_claims.claimed_at` | `hours_since_connect`, `group_key`, `group_size` |
 | `marketplace.claim_expired` | the ticket expired unredeemed; written by the sweep before it deletes anything | `marketplace_claim_sweep()` | `connected_at`, `expires_at`, `group_key`, `group_size`, `removed` |
@@ -338,9 +339,6 @@ elsewhere right now:
   bounced.
 - **Invite accepted** (`src/app/auth/accept-invite/page.tsx`): the membership
   trigger records the join; the screen could record the invite being opened.
-- **Terms acceptance.** When `terms_acceptances`
-  (`99_supabase_migration_terms_acceptance_v1.sql`) lands, a trigger on it
-  emitting `account.terms_accepted` belongs in the next events migration.
 - **Connect-time failures in Flow A** (`lib/pms/marketplace-connect.ts`): a
   connect that fails before a claim is inserted leaves no event. Logging
   `marketplace.connect_failed` there would count Connect App clicks that never
