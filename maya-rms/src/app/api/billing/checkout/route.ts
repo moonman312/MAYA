@@ -2,8 +2,8 @@
  * Starts a Stripe Checkout session for a hotel's subscription.
  *
  * Card details never touch MAYA — Checkout is hosted by Stripe, which is what
- * keeps this out of PCI scope. The room count comes from the owner (the PMS
- * import hasn't run yet at this point in the flow); what the import later
+ * keeps this out of PCI scope. The room count comes from the owner (Flow B has
+ * no import yet, and a Marketplace one may still be running); what the import
  * measures is reconciled separately and surfaced for a human, never silently
  * re-charged.
  *
