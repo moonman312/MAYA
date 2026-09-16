@@ -9,6 +9,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { splitByParked } from "../../../supabase/functions/_shared/pms/parked";
+import { callTouchesColumn, fakeSupabase, missingColumn, type FakeFault, type FakeRow } from "../engine/fake-supabase.test";
 
 type Row = { hotel_id: string; status: string; pms_type: string };
 
@@ -83,5 +84,76 @@ describe("splitByParked", () => {
     const r = await splitByParked(client, "cloudbeds", []);
     expect(r).toEqual({ allowed: [], parked: [] });
     expect(seen.ids).toBeUndefined();
+  });
+});
+
+/**
+ * A never-paid property the retention sweep emptied is held until its fresh
+ * import has completed. claim_pms_sync_batch holds it on the batch path, but a
+ * manual price save asks for one hotel's sync by id and skips the claim, so
+ * the same hold has to live here.
+ */
+describe("splitByParked for a purged property", () => {
+  const PURGED_AT = "2027-03-01T00:00:00.000Z";
+
+  function world(opts: { jobs?: FakeRow[]; purgedAt?: string | null; fault?: FakeFault } = {}) {
+    return fakeSupabase(
+      {
+        pms_connections: [
+          { hotel_id: "purged", pms_type: "cloudbeds", status: "connected" },
+          { hotel_id: "normal", pms_type: "cloudbeds", status: "connected" },
+        ],
+        hotels: [
+          { id: "purged", data_purged_at: opts.purgedAt === undefined ? PURGED_AT : opts.purgedAt },
+          { id: "normal", data_purged_at: null },
+        ],
+        import_jobs: opts.jobs ?? [],
+      },
+      { fault: opts.fault },
+    );
+  }
+
+  const job = (status: string, created_at: string): FakeRow => ({ id: `j-${created_at}`, hotel_id: "purged", status, created_at });
+
+  it("holds it while no import created after the purge has completed", async () => {
+    const db = world({
+      jobs: [job("completed", "2026-09-01T00:00:00.000Z"), job("running", "2027-03-02T00:00:00.000Z")],
+    });
+    const r = await splitByParked(db.client, "cloudbeds", ["purged", "normal"]);
+    expect(r.allowed).toEqual(["normal"]);
+    expect(r.parked).toEqual([{ hotelId: "purged", status: "purged_importing" }]);
+  });
+
+  it("holds the single-hotel sync a manual price asks for too", async () => {
+    const db = world();
+    const r = await splitByParked(db.client, "cloudbeds", ["purged"]);
+    expect(r.allowed).toEqual([]);
+    expect(r.parked).toEqual([{ hotelId: "purged", status: "purged_importing" }]);
+  });
+
+  it("lets it through once the fresh import has completed", async () => {
+    const db = world({ jobs: [job("completed", "2027-03-02T00:00:00.000Z")] });
+    const r = await splitByParked(db.client, "cloudbeds", ["purged", "normal"]);
+    expect(r.allowed).toEqual(["purged", "normal"]);
+  });
+
+  it("treats a missing column as nothing purged", async () => {
+    const fault: FakeFault = (call) =>
+      call.table === "hotels" && callTouchesColumn(call, "data_purged_at") ? missingColumn("hotels", "data_purged_at") : null;
+    const db = world({ fault });
+    const r = await splitByParked(db.client, "cloudbeds", ["purged", "normal"]);
+    expect(r.allowed).toEqual(["purged", "normal"]);
+  });
+
+  it.each([
+    ["hotels", { message: "timeout" }],
+    ["import_jobs", { message: "timeout" }],
+  ])("fails the whole batch closed when %s cannot be read", async (table, error) => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = world({ fault: (call) => (call.table === table ? error : null) });
+    const r = await splitByParked(db.client, "cloudbeds", ["purged", "normal"]);
+    expect(r.allowed).toEqual([]);
+    expect(r.parked.map((p) => p.status)).toEqual(["unknown", "unknown"]);
+    spy.mockRestore();
   });
 });

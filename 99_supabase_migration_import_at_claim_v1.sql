@@ -10,7 +10,7 @@
 --   1. FIFO is no longer fair. claim_import_job took the oldest runnable job in
 --      the fleet. With unpaid imports in the same queue, a customer who just
 --      paid would wait behind every stranger who claimed a property earlier
---      and walked away. Jobs for live hotels now go first.
+--      and walked away. Jobs for paid hotels now go first.
 --
 --   2. One owner could run several at once. A group owner is shown one
 --      property at a time and each is queued when it is shown, but a quick
@@ -30,10 +30,10 @@
 -- WHAT STOPS A JOB (import_job_stop_reason, mirrored in worker-core.ts):
 --   connection_missing  no pms_connections row for the hotel and PMS
 --   disconnected        the connection is 'disconnected'
---   deferred            the hotel is not live and the owner said "Not now"
---   claim_missing       the hotel is not live and no redeemed Marketplace claim
---                       points at it
--- A live hotel is only stopped by the first two. A stopped job is 'canceled',
+--   deferred            the hotel is not paid for and the owner said "Not now"
+--   claim_missing       the hotel is not paid for and no redeemed Marketplace
+--                       claim points at it
+-- A paid hotel is only stopped by the first two. A stopped job is 'canceled',
 -- keeps its checkpoint, and is re-queued where the reason goes away: showing
 -- the property on the subscribe screen again, paying for it, or reconnecting
 -- a paid property.
@@ -42,12 +42,20 @@
 -- stay payment-gated exactly as before (claim_pms_sync_batch, splitByParked,
 -- splitByEntitlement). This file only touches the one-shot import queue.
 --
+-- WHAT "PAID" MEANS HERE (import_job_hotel_paid, mirrored in
+-- supabase/functions/_shared/billing/entitlement.ts isPaidLiveHotel): the
+-- hotel is live, and its subscription is trialing, active or past_due, or it
+-- has no subscription row at all (a hand-made or keyless install). is_active
+-- alone is not enough: nothing sets it back to false when a trial ends unpaid,
+-- and such a property must queue like any other unpaid one.
+--
 -- Claims are serialised with a transaction-scoped advisory lock. The per-owner
 -- limit reads other rows, and two claims running side by side could each see
 -- the other's job as still queued; the lock costs nothing at the rate this is
 -- called (pg_cron once a minute plus the worker's own chain).
 --
 -- Run AFTER 99_supabase_migration_onboarding_v1.sql,
+-- 99_supabase_migration_billing_v1.sql,
 -- 99_supabase_migration_marketplace_flow_a_v1.sql and
 -- 99_supabase_migration_setup_deferred_v1.sql. Idempotent.
 --
@@ -66,6 +74,29 @@
 
 begin;
 
+-- Whether the import queue treats a hotel as paid for. Service role only.
+create or replace function public.import_job_hotel_paid(p_hotel_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select coalesce((
+    select h.is_active and (
+             not exists (select 1 from public.hotel_subscriptions s where s.hotel_id = h.id)
+             or exists (select 1 from public.hotel_subscriptions s
+                         where s.hotel_id = h.id
+                           and s.status::text in ('trialing', 'active', 'past_due'))
+           )
+      from public.hotels h
+     where h.id = p_hotel_id
+  ), false)
+$$;
+
+revoke all on function public.import_job_hotel_paid(uuid) from public, anon, authenticated;
+grant execute on function public.import_job_hotel_paid(uuid) to service_role;
+
 -- Why a job must not run, or null when it may. Service role only.
 create or replace function public.import_job_stop_reason(p_hotel_id uuid, p_pms_type public.pms_type)
 returns text
@@ -77,7 +108,7 @@ as $$
   select case
     when c.status is null then 'connection_missing'
     when c.status::text = 'disconnected' then 'disconnected'
-    when h.is_active then null
+    when public.import_job_hotel_paid(h.id) then null
     when h.setup_deferred_at is not null then 'deferred'
     when not exists (
       select 1 from public.pms_marketplace_claims mc
@@ -130,7 +161,7 @@ begin
    where j.id = r.id
      and r.reason is not null;
 
-  -- Live hotels first, then oldest. An unpaid job waits while the same owner
+  -- Paid hotels first, then oldest. An unpaid job waits while the same owner
   -- has another unpaid one in flight: one holding a live lease, or an older
   -- one between runs. The older-first half is what keeps two stalled jobs of
   -- one owner from each waiting on the other forever.
@@ -139,17 +170,16 @@ begin
     join hotels h on h.id = j.hotel_id
    where (j.status = 'queued'
           or (j.status = 'running' and j.lease_expires_at is not null and j.lease_expires_at < now()))
-     and (h.is_active or not exists (
+     and (public.import_job_hotel_paid(h.id) or not exists (
            select 1
              from import_jobs o
-             join hotels oh on oh.id = o.hotel_id
             where o.id <> j.id
               and o.status = 'running'
-              and not oh.is_active
+              and not public.import_job_hotel_paid(o.hotel_id)
               and o.requested_by is not distinct from j.requested_by
               and (o.lease_expires_at > now() or (o.created_at, o.id) < (j.created_at, j.id))
          ))
-   order by h.is_active desc, j.created_at, j.id
+   order by public.import_job_hotel_paid(h.id) desc, j.created_at, j.id
    limit 1
    for update of j skip locked;
 
@@ -169,7 +199,7 @@ begin
 end;
 $$;
 
-revoke all on function public.claim_import_job(integer) from public;
+revoke all on function public.claim_import_job(integer) from public, anon, authenticated;
 grant execute on function public.claim_import_job(integer) to service_role;
 
 commit;
@@ -183,7 +213,8 @@ commit;
 --
 -- What the queue looks like, paid first:
 --
---   select j.id, h.name, h.is_active as paid, j.status, j.phase, j.requested_by, j.created_at
+--   select j.id, h.name, public.import_job_hotel_paid(h.id) as paid, j.status, j.phase,
+--          j.requested_by, j.created_at
 --     from import_jobs j join hotels h on h.id = j.hotel_id
 --    where j.status in ('queued', 'running')
---    order by h.is_active desc, j.created_at;
+--    order by 3 desc, j.created_at;

@@ -45,6 +45,7 @@ import type {
   OnboardingPmsAdapter,
 } from "../pms/onboarding-adapter.ts";
 import { proposeCountsAsRoom } from "./analysis.ts";
+import { isPaidLiveHotel } from "../billing/entitlement.ts";
 
 export type ImportJobRow = {
   id: string;
@@ -139,7 +140,7 @@ function isMissingColumn(error: { code?: string; message?: string } | null, colu
 }
 
 /**
- * A live hotel's import runs while its connection exists. An unpaid one is
+ * A paid hotel's import runs while its connection exists. An unpaid one is
  * imported only as a claimed Marketplace property its owner has not put off,
  * which is the only way one gets queued; anything else is not ours to read.
  */
@@ -167,7 +168,9 @@ export async function importStopReason(
   }
   if (hotelRes.error) throw new Error(`hotels read failed: ${hotelRes.error.message}`);
   const hotel = hotelRes.data as { is_active?: boolean; setup_deferred_at?: string | null } | null;
-  if (!hotel || hotel.is_active === true) return null;
+  if (!hotel) return null;
+  // A trial that ended unpaid keeps is_active, so live is not the same as paid.
+  if (await isPaidLiveHotel(supabase, job.hotel_id, hotel.is_active)) return null;
   if (hotel.setup_deferred_at) return "deferred";
 
   const { data: claim, error: claimErr } = await supabase

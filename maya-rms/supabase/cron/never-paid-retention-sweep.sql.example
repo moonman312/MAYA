@@ -16,14 +16,15 @@
 -- 0) Ensure the extension exists:
 --    create extension if not exists pg_cron;
 --
--- 1) Look before the first real run (deletes and records nothing):
---    select public.never_paid_retention_sweep(p_dry_run => true);
+-- 1) Look before the first real run (deletes and records nothing). A dry run
+--    stops at p_max_properties like a real one, so ask for all of them:
+--    select public.never_paid_retention_sweep(p_dry_run => true, p_max_properties => 1000);
 --
 -- 2) Schedule (09:20 UTC daily):
 --    select cron.schedule(
 --      'never-paid-retention-sweep',
 --      '20 9 * * *',
---      $$ select public.never_paid_retention_sweep(); $$
+--      $$ select public.never_paid_retention_sweep(p_max_properties => 5); $$
 --    );
 --
 -- Inspect:    select jobid, jobname, schedule, active from cron.job;
@@ -31,7 +32,10 @@
 --               order by start_time desc limit 20;
 -- Unschedule: select cron.unschedule('never-paid-retention-sweep');
 --
--- A run does at most 25 properties and 40 batches of 50,000 reservations each;
+-- The whole run is one statement, so one transaction: nothing it locks is
+-- released until it commits, and a property it has locked cannot be activated
+-- or reconnected until then. That is why the scheduled run takes 5 properties
+-- (the default is 25), each with at most 40 deletes of 50,000 reservations;
 -- whatever is left is finished the next day. What was swept:
 --   select occurred_at, property_name, properties
 --     from product_events where event = 'property.data_purged'

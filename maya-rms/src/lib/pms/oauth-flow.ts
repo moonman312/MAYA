@@ -6,6 +6,10 @@ import { pmsSignupCodeRequired } from "@/lib/billing/pms-gates";
 import { isStripeConfigured } from "@/lib/billing/stripe";
 import { handleOnboardingConnect } from "@/lib/onboarding/connect";
 import { ensureAppStateWebhook } from "@/lib/pms/cloudbeds-webhooks";
+import {
+  cloudbedsDiscoverPropertyId,
+  cloudbedsListProperties,
+} from "../../../supabase/functions/_shared/cloudbeds/client";
 import { defaultCloudbedsBaseUrl } from "../../../supabase/functions/_shared/cloudbeds/constants";
 import { handleMarketplaceConnect } from "@/lib/pms/marketplace-connect";
 import { findMarketplaceClaimForHotel, hasEntitledSubscription } from "@/lib/pms/marketplace-activate";
@@ -302,10 +306,19 @@ export async function handleOAuthCallback(
   const { hotelId } = verified;
   const admin = createAdminClient();
 
+  // A Marketplace property is bound to one Cloudbeds property, and its stored
+  // credential is the only place that ID is kept. The retention sweep deletes
+  // that credential, so a reconnect through this door has to supply it again,
+  // and has to be for the same property: a group grant cannot say which
+  // sibling on its own, and a login to some other property must not have its
+  // history imported and priced here.
+  const bound = await marketplacePropertyForGrant(admin, hotelId, pmsType, secretPayload);
+  if (!bound.ok) return renderCallbackError(pmsType, bound.message);
+
   const { error: secretErr } = await admin.rpc("pms_secret_set", {
     p_hotel_id: hotelId,
     p_pms_type: pmsType,
-    p_secret: secretPayload,
+    p_secret: bound.propertyId ? { ...secretPayload, propertyId: bound.propertyId } : secretPayload,
   });
   if (secretErr) return renderCallbackError(pmsType, `pms_secret_set: ${secretErr.message}`);
 
@@ -354,8 +367,9 @@ export async function handleOAuthCallback(
         tokenType: typeof secretPayload.tokenType === "string" ? secretPayload.tokenType : "Bearer",
         baseUrl: defaultCloudbedsBaseUrl(),
         // Flow B resolves the property id on its first sync, not here. Cloudbeds
-        // infer it from the grant when it is omitted.
-        propertyId: "",
+        // infer it from the grant when it is omitted. A Marketplace property
+        // already knows its own.
+        propertyId: bound.propertyId ?? "",
       },
       hotelId,
     );
@@ -377,6 +391,50 @@ export async function handleOAuthCallback(
   return NextResponse.redirect(`${base}/admin/hotels/${hotelId}?pmsConnected=1`, {
     status: 302,
   });
+}
+
+/**
+ * The Cloudbeds property a claimed Marketplace hotel is bound to, checked
+ * against what the new grant can reach. Any other hotel is not bound and
+ * passes with no property ID, as it always has.
+ */
+async function marketplacePropertyForGrant(
+  admin: SupabaseClient,
+  hotelId: string,
+  pmsType: PmsType,
+  tokens: { accessToken: string; tokenType: string },
+): Promise<{ ok: true; propertyId: string | null } | { ok: false; message: string }> {
+  if (pmsType !== "cloudbeds") return { ok: true, propertyId: null };
+  let claim: Awaited<ReturnType<typeof findMarketplaceClaimForHotel>>;
+  let enterpriseId: string | null = null;
+  try {
+    claim = await findMarketplaceClaimForHotel(admin, hotelId);
+    if (!claim) return { ok: true, propertyId: null };
+    const { data, error } = await admin
+      .from("hotels")
+      .select("external_enterprise_id")
+      .eq("id", hotelId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    enterpriseId = data?.external_enterprise_id ? String(data.external_enterprise_id) : null;
+  } catch (e) {
+    return { ok: false, message: `Could not read the property: ${e instanceof Error ? e.message : String(e)}` };
+  }
+
+  const prefix = `${pmsType}:`;
+  const propertyId = enterpriseId?.startsWith(prefix) ? enterpriseId.slice(prefix.length) : "";
+  if (!propertyId) return { ok: false, message: "Reconnect this property from the Cloudbeds Marketplace." };
+
+  const bare = { accessToken: tokens.accessToken, tokenType: tokens.tokenType, baseUrl: defaultCloudbedsBaseUrl() };
+  let reachable = (await cloudbedsListProperties(bare)).map((p) => p.propertyId);
+  if (reachable.length === 0) {
+    const only = await cloudbedsDiscoverPropertyId(bare).catch(() => null);
+    if (only) reachable = [only];
+  }
+  if (!reachable.includes(propertyId)) {
+    return { ok: false, message: "This login is for a different property." };
+  }
+  return { ok: true, propertyId };
 }
 
 /**

@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isEntitledStatus } from "@/lib/billing/entitlement";
 import { kickImportWorker, promoteImportJob } from "@/lib/pms/eager-import";
+import { queueImportAfterPurge } from "@/lib/pms/purged";
 
 /**
  * The second half of a Marketplace arrival: make the property live.
@@ -128,6 +129,14 @@ export async function activateMarketplaceHotelIfPending(
         .eq("hotel_id", hotelId)
         .eq("pms_type", claim.pms_type)
         .eq("status", "pending");
+      // A trial that ended unpaid, was emptied by the retention sweep and has
+      // reconnected waits here for its fresh import, since it was never on the
+      // subscribe screen. Paying again is what queues it.
+      try {
+        await queueImportAfterPurge(admin, hotelId, claim.pms_type, requestedBy);
+      } catch (e) {
+        return { activated: false, reason: "failed", message: e instanceof Error ? e.message : String(e) };
+      }
       // An arrival whose import could not be adopted went live pointing at no
       // job, and every later arrival lands here. Finish that step now.
       const adopted = await adoptImportIfMissing(admin, hotelId, claim.pms_type, requestedBy, now);

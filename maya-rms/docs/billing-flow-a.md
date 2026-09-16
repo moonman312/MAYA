@@ -78,12 +78,18 @@ findings stay, so an owner who comes back does not set anything up again. With
 no connection left, the subscribe screen, the import progress screen and the
 dashboard show the ordinary reconnect prompt, which says the booking history
 comes back once they reconnect (`lib/pms/purged.ts`). Reconnecting, from that
-prompt or from the Marketplace, sees `hotels.data_purged_at` and queues a fresh
-full import: through the pre-payment queue while the property is parked, or
-adopted the way payment adopts one if they paid first. A parked property stays
-`pending`; a paid one is left alone by `claim_pms_sync_batch` until an import
-created after the purge has completed, so nothing prices it off the recent
-window alone. Anything that is
+prompt or from the Marketplace, sees `hotels.data_purged_at` (stamped before
+the sweep deletes anything) and queues a fresh full import: through the
+pre-payment queue while the property is parked and is the one the subscribe
+screen shows next (a group's other siblings are queued as each comes up), or
+adopted the way payment adopts one if they paid first. A trial that ended
+unpaid waits for payment. The reconnect prompt's own OAuth callback only
+accepts a login that can reach the Cloudbeds property the hotel is bound to,
+and stores that property ID with the credential. A parked property stays
+`pending`; a paid one is left alone by `claim_pms_sync_batch` and
+`splitByParked` (which also covers a manual price's one-hotel sync) until an
+import created after the purge has completed, so nothing prices it off the
+recent window alone. Anything that is
 paying, trialing, past due or has ever paid (`hotel_subscriptions.first_paid_at`,
 stamped by the webhook from the first paid, non-zero invoice) is never touched.
 Disconnecting deletes nothing, and no owner-facing control deletes anything.

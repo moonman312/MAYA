@@ -134,6 +134,7 @@ type PropertyWorld = {
   hotel?: Record<string, unknown>;
   connection?: Record<string, unknown> | null;
   claim?: Record<string, unknown> | null;
+  subscription?: Record<string, unknown> | null;
 };
 
 /** A lease touch carries nothing but the lease itself. */
@@ -220,6 +221,7 @@ function makeSupabaseStub(
         if (name === "import_jobs") return { data: { ...jobRow }, error: null };
         if (name === "pms_connections") return { data: connectionRow, error: null };
         if (name === "pms_marketplace_claims") return { data: claimRow, error: null };
+        if (name === "hotel_subscriptions") return { data: world.subscription ?? null, error: null };
         return { data: null };
       },
       upsert: async (rows: unknown) => {
@@ -951,6 +953,18 @@ describe("processJob for a property nobody has paid for yet", () => {
     const deps = makeDeps(makeAdapter(new Map()));
     expect(await processJob(supabase, makeJob(), deps, 60_000)).toBe("stopped");
     expect(supabase.jobRow.status).toBe("canceled");
+  });
+
+  it("treats a trial that ended unpaid as unpaid, though it is still is_active", async () => {
+    const supabase = makeSupabaseStub(
+      { id: "job-1", status: "running", lease_expires_at: leaseIn(180_000) },
+      undefined,
+      { hotel: { is_active: true, setup_deferred_at: "2026-09-16T10:00:00Z" }, subscription: { status: "canceled" } },
+    );
+    const deps = makeDeps(makeAdapter(new Map()));
+    const job = makeJob({ lease_expires_at: String(supabase.jobRow.lease_expires_at) });
+    expect(await processJob(supabase, job, deps, 60_000)).toBe("stopped");
+    expect(String(supabase.jobRow.last_error)).toContain("Not now");
   });
 
   it("does not stop a paid property for lacking a Marketplace claim", async () => {

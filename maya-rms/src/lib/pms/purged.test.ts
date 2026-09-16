@@ -154,11 +154,51 @@ describe("queueImportAfterPurge", () => {
 
   it("respects Not now on a parked property", async () => {
     const db = purgedProperty({ connection: "pending", deferred: true });
+    // Out of the subscribe screen's queue, so never next in line.
     expect(await queueImportAfterPurge(db.client, "hotel-1", "cloudbeds", OWNER)).toMatchObject({
       queued: false,
-      reason: "deferred",
+      reason: "not_next",
     });
     expect(db.tables.import_jobs).toEqual([]);
+  });
+
+  it("queues only the sibling the subscribe screen shows next, not the whole group", async () => {
+    const db = purgedProperty({ connection: "pending" });
+    db.tables.hotels.push({
+      ...db.tables.hotels[0],
+      id: "hotel-2",
+      name: "Sea View Annex",
+      created_at: "2026-09-01T00:00:01.000Z",
+    });
+    db.tables.pms_marketplace_claims.push({ ...db.tables.pms_marketplace_claims[0], token: "tok2", hotel_id: "hotel-2" });
+    db.tables.hotel_memberships.push({ hotel_id: "hotel-2", user_id: OWNER, status: "active" });
+    db.tables.pms_connections.push({ hotel_id: "hotel-2", pms_type: "cloudbeds", status: "pending" });
+
+    expect(await queueImportAfterPurge(db.client, "hotel-2", "cloudbeds", null)).toEqual({
+      queued: false,
+      reason: "not_next",
+    });
+    expect(await queueImportAfterPurge(db.client, "hotel-1", "cloudbeds", null)).toMatchObject({ queued: true });
+    expect(db.tables.import_jobs.map((j) => j.hotel_id)).toEqual(["hotel-1"]);
+  });
+
+  it("does not queue before the reconnect has written a connection", async () => {
+    const db = purgedProperty({ isActive: true, subscription: "active" });
+    expect(await queueImportAfterPurge(db.client, "hotel-1", "cloudbeds", OWNER)).toEqual({
+      queued: false,
+      reason: "no_connection",
+    });
+    expect(db.tables.import_jobs).toEqual([]);
+  });
+
+  it("leaves a trial that ended unpaid for payment, even though it is still is_active", async () => {
+    const db = purgedProperty({ isActive: true, subscription: "canceled", connection: "pending" });
+    expect(await queueImportAfterPurge(db.client, "hotel-1", "cloudbeds", OWNER)).toEqual({
+      queued: false,
+      reason: "not_next",
+    });
+    expect(db.tables.import_jobs).toEqual([]);
+    expect(db.tables.onboarding_states).toEqual([]);
   });
 
   it("imports a live property again and points onboarding at the new job", async () => {

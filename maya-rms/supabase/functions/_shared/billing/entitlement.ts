@@ -92,3 +92,29 @@ export async function isHotelEntitled(
   const { allowed } = await splitByEntitlement(supabase, [hotelId]);
   return allowed.length === 1;
 }
+
+/**
+ * Whether the import queue should treat a hotel as paid for: live, and either
+ * billed on a subscription that is still owed service or not billed at all (a
+ * hand-made or keyless install). is_active alone is not enough, because
+ * nothing sets it back to false when a trial ends unpaid.
+ *
+ * Mirrors import_job_hotel_paid in 99_supabase_migration_import_at_claim_v1.sql
+ * (an internal plan is an 'active' row, so it passes here too). Unlike
+ * splitByEntitlement this throws on a read error: the caller decides which
+ * way a blip should fall.
+ */
+export async function isPaidLiveHotel(
+  supabase: SupabaseClient,
+  hotelId: string,
+  isActive: boolean | null | undefined,
+): Promise<boolean> {
+  if (isActive !== true) return false;
+  const { data, error } = await supabase
+    .from("hotel_subscriptions")
+    .select("status")
+    .eq("hotel_id", hotelId)
+    .maybeSingle();
+  if (error) throw new Error(`hotel_subscriptions read failed: ${error.message}`);
+  return data == null || isEntitledStatus(String((data as { status?: unknown }).status));
+}

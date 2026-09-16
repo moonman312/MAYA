@@ -3,7 +3,9 @@
  * (/api/pms/cloudbeds/connect?hotelId=...), so the callback's hotel branch is
  * the other door a returning Marketplace owner comes back through. It has to
  * agree with the Marketplace reconnect: an unpaid property comes back parked,
- * and one whose never-paid data was removed gets a fresh full import.
+ * one whose never-paid data was removed gets a fresh full import, and the
+ * login has to reach the Cloudbeds property the hotel is bound to, whose ID is
+ * stored with the credential again (the sweep deleted the old one).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeSupabase } from "../engine/fake-supabase.test";
@@ -11,12 +13,19 @@ import { fakeSupabase } from "../engine/fake-supabase.test";
 const state = vi.hoisted(() => ({
   stripe: true,
   db: null as unknown as ReturnType<typeof import("../engine/fake-supabase.test").fakeSupabase>,
+  rpcs: [] as { fn: string; args: Record<string, unknown> }[],
+  properties: [{ propertyId: "320691", name: "Sea View Inn" }] as { propertyId: string; name: string | null }[],
+  discovered: "320691" as string | null,
 }));
 
 vi.mock("@/lib/billing/stripe", () => ({ isStripeConfigured: () => state.stripe }));
 vi.mock("@/utils/supabase/admin", () => ({ createAdminClient: () => state.db.client }));
 vi.mock("@/utils/supabase/server", () => ({ createClient: () => null }));
 vi.mock("@/lib/pms/cloudbeds-webhooks", () => ({ ensureAppStateWebhook: async () => ({ ok: true }) }));
+vi.mock("../../../supabase/functions/_shared/cloudbeds/client", () => ({
+  cloudbedsListProperties: async () => state.properties,
+  cloudbedsDiscoverPropertyId: async () => state.discovered,
+}));
 vi.mock("@/lib/onboarding/connect", () => ({ handleOnboardingConnect: async () => new Response() }));
 vi.mock("@/lib/pms/oauth-state", () => ({
   signOnboardingState: () => "s",
@@ -34,6 +43,8 @@ function property(opts: { claimed: boolean; purged: boolean; isActive?: boolean;
       {
         id: "hotel-1",
         name: "Sea View Inn",
+        external_enterprise_id: "cloudbeds:320691",
+        created_at: "2026-09-01T00:00:00.000Z",
         is_active: opts.isActive ?? false,
         setup_pending_at: opts.isActive ? null : "2026-09-01T00:00:00.000Z",
         setup_deferred_at: null,
@@ -43,10 +54,16 @@ function property(opts: { claimed: boolean; purged: boolean; isActive?: boolean;
     pms_marketplace_claims: opts.claimed
       ? [{ token: "tok", hotel_id: "hotel-1", pms_type: "cloudbeds", claimed_by: "user-1", claimed_at: "2026-09-01T00:00:00.000Z" }]
       : [],
+    hotel_memberships: [{ hotel_id: "hotel-1", user_id: "user-1", status: "active" }],
     hotel_subscriptions: opts.subscription ? [{ hotel_id: "hotel-1", status: opts.subscription }] : [],
     pms_connections: [],
     import_jobs: [],
     onboarding_states: [],
+  }, {
+    rpc: (fn, args) => {
+      state.rpcs.push({ fn, args: args as Record<string, unknown> });
+      return null;
+    },
   });
   return state.db;
 }
@@ -55,8 +72,15 @@ async function callback() {
   return handleOAuthCallback({} as Cookies, "cloudbeds", new URLSearchParams({ code: "abc", state: "signed" }));
 }
 
+const storedSecret = () => state.rpcs.find((r) => r.fn === "pms_secret_set")?.args.p_secret as
+  | Record<string, unknown>
+  | undefined;
+
 beforeEach(() => {
   state.stripe = true;
+  state.rpcs = [];
+  state.properties = [{ propertyId: "320691", name: "Sea View Inn" }];
+  state.discovered = "320691";
   process.env.CLOUDBEDS_CLIENT_ID = "id";
   process.env.CLOUDBEDS_CLIENT_SECRET = "secret";
   process.env.MAYA_INVITE_REDIRECT_BASE = "https://app.example";
@@ -103,6 +127,47 @@ describe("the reconnect prompt's OAuth callback", () => {
     const db = property({ claimed: false, purged: false, isActive: true });
     await callback();
     expect(db.tables.pms_connections[0].status).toBe("connected");
+    expect(db.tables.import_jobs).toEqual([]);
+    expect(storedSecret()).not.toHaveProperty("propertyId");
+  });
+
+  it("stores the bound property ID, so a single-property login syncs the right property", async () => {
+    property({ claimed: true, purged: true });
+    await callback();
+    expect(storedSecret()).toMatchObject({ accessToken: "cbat", propertyId: "320691" });
+  });
+
+  it("takes a group login, stores this property's ID, and imports it", async () => {
+    state.properties = [
+      { propertyId: "320690", name: "Sea View Annex" },
+      { propertyId: "320691", name: "Sea View Inn" },
+    ];
+    state.discovered = null;
+    const db = property({ claimed: true, purged: true });
+    const res = await callback();
+    expect(res.status).toBe(302);
+    expect(storedSecret()).toMatchObject({ propertyId: "320691" });
+    expect(db.tables.import_jobs).toHaveLength(1);
+    expect(db.tables.pms_connections[0]).toMatchObject({ status: "pending" });
+  });
+
+  it("falls back to single-property discovery when the property list is unreadable", async () => {
+    state.properties = [];
+    const db = property({ claimed: true, purged: true });
+    await callback();
+    expect(storedSecret()).toMatchObject({ propertyId: "320691" });
+    expect(db.tables.import_jobs).toHaveLength(1);
+  });
+
+  it("refuses a login for a different property: no credential, no connection, no import", async () => {
+    state.properties = [{ propertyId: "999999", name: "Somewhere Else" }];
+    state.discovered = "999999";
+    const db = property({ claimed: true, purged: true, isActive: true, subscription: "active" });
+    const res = await callback();
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain("This login is for a different property.");
+    expect(storedSecret()).toBeUndefined();
+    expect(db.tables.pms_connections).toEqual([]);
     expect(db.tables.import_jobs).toEqual([]);
   });
 });

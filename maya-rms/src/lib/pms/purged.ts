@@ -1,5 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isPaidLiveHotel } from "@/lib/billing/entitlement";
+import { listUnpaidMarketplaceHotels } from "@/lib/billing/pending-hotel";
 import { kickImportWorker, promoteImportJob, queuePrePaymentImport } from "@/lib/pms/eager-import";
 
 /**
@@ -8,7 +10,8 @@ import { kickImportWorker, promoteImportJob, queuePrePaymentImport } from "@/lib
  *
  * The sweep keeps the property, its members, rules and settings, and deletes
  * the booking history, the import jobs, the stored credential and the
- * connection row. It stamps hotels.data_purged_at last. So a returning owner
+ * connection row. It stamps hotels.data_purged_at before it deletes anything,
+ * so a purge still part-way through reads as purged too. So a returning owner
  * finds a property with no connection at all: the dashboard and onboarding
  * show the ordinary reconnect prompt for that (marketplaceReconnectNeeded),
  * and the reconnect queues a fresh full import (queueImportAfterPurge). A
@@ -28,7 +31,7 @@ function isMissingColumn(error: { code?: string; message?: string } | null, colu
   return Boolean(error && (error.code === "42703" || (error.message ?? "").includes(column)));
 }
 
-/** When the sweep finished deleting this property's imported data, or null. */
+/** When the sweep started deleting this property's imported data, or null. */
 export async function readDataPurgedAt(admin: SupabaseClient, hotelId: string): Promise<string | null> {
   const { data, error } = await admin
     .from("hotels")
@@ -88,14 +91,19 @@ export type AfterPurgeResult =
 
 /**
  * Called once a reconnect has stored the new credential and written the
- * connection row. Does nothing for a property that was never purged: a
- * reconnect is not a re-import.
+ * connection row, and again when payment lands on a property that is already
+ * live. Does nothing for a property that was never purged: a reconnect is not
+ * a re-import.
  *
- * A parked (unpaid) property goes through the same pre-payment queue as a new
- * claim, so "Not now" and the one-unpaid-import-per-owner limit still hold. A
- * live one adopts the import the way payment does, and onboarding is pointed
- * at it so the progress screen follows the new job. The purge deleted every
- * earlier job, so whatever job exists now was queued after it.
+ * An unpaid property goes through the same pre-payment queue as a new claim,
+ * and only when it is the one its owner is shown next on the subscribe screen:
+ * a group reconnect covers every sibling, and the rest are queued as each comes
+ * up (onboarding/page.tsx), never all at once. "Not now" and the one unpaid
+ * import per owner still hold. A trial that ended unpaid is still is_active but
+ * is not on that screen, so it waits for payment instead. A paid one adopts the
+ * import the way payment does, and onboarding is pointed at it so the progress
+ * screen follows the new job. The purge deleted every earlier job, so whatever
+ * job exists now was queued after it.
  */
 export async function queueImportAfterPurge(
   admin: SupabaseClient,
@@ -113,6 +121,17 @@ export async function queueImportAfterPurge(
   if (hotelErr) throw new Error(`Could not read the property: ${hotelErr.message}`);
   if (!hotel) return { queued: false, reason: "not_found" };
 
+  // Payment can land before the reconnect. With no connection there is nothing
+  // to read yet, and the reconnect calls this again.
+  const { data: conn, error: connErr } = await admin
+    .from("pms_connections")
+    .select("status")
+    .eq("hotel_id", hotelId)
+    .eq("pms_type", pmsType)
+    .maybeSingle();
+  if (connErr) throw new Error(`Could not read the PMS connection: ${connErr.message}`);
+  if (!conn || String(conn.status) === "disconnected") return { queued: false, reason: "no_connection" };
+
   // The queue runs one unpaid import per owner, keyed on requested_by, so a
   // reconnect that does not know who clicked files it under the owner who
   // claimed the property rather than under nobody.
@@ -128,7 +147,10 @@ export async function queueImportAfterPurge(
     owner = claim?.claimed_by ? String(claim.claimed_by) : null;
   }
 
-  if (hotel.is_active !== true) {
+  if (!(await isPaidLiveHotel(admin, hotelId, hotel.is_active as boolean | null))) {
+    if (!owner) return { queued: false, reason: "not_next" };
+    const [next] = await listUnpaidMarketplaceHotels(admin, owner);
+    if (next?.hotelId !== hotelId) return { queued: false, reason: "not_next" };
     const r = await queuePrePaymentImport(admin, hotelId, owner);
     return r.queued ? { queued: true, jobId: r.jobId } : { queued: false, reason: r.reason, jobId: r.jobId };
   }

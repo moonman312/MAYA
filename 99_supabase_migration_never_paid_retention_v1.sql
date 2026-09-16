@@ -29,18 +29,23 @@
 --       - product_events caused by a person (product_event_by_person below:
 --         anything from the browser, and the trigger events only a person can
 --         cause, such as a claim, "Not now", a rule edit, a typed price, a
---         room answer, an invite, a checkout),
+--         room answer, an invite, a checkout, accepting the Terms),
+--       - when the PMS connection row was created: only a person connecting
+--         or reconnecting creates one, and the purge deletes it, so a
+--         reconnect from the in-app prompt counts even though its OAuth
+--         state names nobody,
 --       - platform_audit_events with an actor (actor_user_id, or the
 --         detail.actor_user_id that service-role writes carry for the person
---         who asked), and the Marketplace lines (detail.via
---         'marketplace_flow_a'), each of which is someone clicking Connect
---         App, claiming or paying, so an owner who reconnects before signing
---         in again is not swept the same night.
+--         who asked), and the Marketplace and OAuth connect lines (detail.via
+--         'marketplace_flow_a' or 'oauth'), each of which is someone clicking
+--         Connect App, connecting, claiming or paying, so an owner who
+--         reconnects before signing in again is not swept the same night.
 --     Nothing a background job writes counts: syncs, imports, the analysis,
 --     Stripe's own status changes, room truing and this sweep all leave the
 --     clock alone, or it would never run out;
---   * it has not already been swept since that activity (hotels.data_purged_at),
---     or it has but reservations have been written back since;
+--   * it has not already been swept since that activity (hotels.data_purged_at)
+--     with nothing left, or it has but reservations are still there (a purge
+--     cut short by the batch cap) or have been written back since;
 --   * no import job is holding a live lease on it. Such a property is left for
 --     tomorrow's run.
 -- A property that is paying, trialing, past due, or has ever paid is never
@@ -74,20 +79,28 @@
 -- evaluation_run_log, pms_request_log) are left to the sweeps that already
 -- own them.
 --
--- IN WHAT ORDER, per property, in one transaction:
+-- IN WHAT ORDER, per property:
 --   1. product_events 'property.data_purged' (source 'sweep') with what is
 --      about to go, BEFORE any delete. Keyed on the activity it measured from,
 --      so a run that resumes a half-finished property does not record it
 --      twice. If the event cannot be written, that property is skipped.
---   2. the credential, then the connection, then the import jobs (a worker
+--   2. hotels.data_purged_at, BEFORE any delete, so a property whose purge is
+--      still part-way through already reads as purged: an owner who comes
+--      back in between is told the history went, their reconnect queues the
+--      full import, and the scheduler holds the property until it has run.
+--      Their coming back also stops further deletion (recent activity).
+--   3. the credential, then the connection, then the import jobs (a worker
 --      that still holds one loses its lease and stops writing).
---   3. open findings, unaccepted invites, derived engine rows.
---   4. reservations, in batches of p_batch with at most 40 batches a property,
---      so one enormous history cannot hold its locks for minutes; anything
---      left finishes tomorrow.
---   5. hotels.data_purged_at, LAST, and only once no reservation is left. A
---      property without it is not finished and is picked up again.
--- At most p_max_properties properties a run.
+--   4. open findings, unaccepted invites, derived engine rows.
+--   5. reservations, in deletes of p_batch rows with at most 40 a property.
+--      Anything left finishes the next day: the property still has
+--      reservations, so it is not 'already_purged' and is picked up again.
+-- At most p_max_properties properties a run. The whole run is one cron
+-- statement and so one transaction: no lock is released between batches or
+-- between properties, and each locked hotel row makes an activation or a
+-- Marketplace reconnect for that property wait until the run commits. Keep
+-- the scheduled run small (the cron example uses 5 properties); the rest
+-- carries over to the next day.
 --
 -- CONCURRENCY. The hotel row is locked FOR UPDATE SKIP LOCKED first, which is
 -- the row activation's compare-and-set writes: a payment that is activating
@@ -130,10 +143,12 @@
 -- stamps it again. A fresh import that fails keeps the hold until someone
 -- re-queues it.
 --
--- Service role only. Dry run lists what would go and writes nothing:
---   select public.never_paid_retention_sweep(p_dry_run => true);
+-- Service role only. Dry run lists what would go and writes nothing. It stops
+-- at p_max_properties like a real run, so ask for all of them:
+--   select public.never_paid_retention_sweep(p_dry_run => true, p_max_properties => 1000);
 --
 -- Run AFTER 99_supabase_migration_product_events_v1.sql,
+-- 99_supabase_migration_terms_acceptance_events_v1.sql,
 -- 99_supabase_migration_first_paid_at_v1.sql,
 -- 99_supabase_migration_internal_plan_v1.sql and
 -- 99_supabase_migration_sync_claim_skip_pending_v1.sql (claim_pms_sync_batch
@@ -156,8 +171,8 @@ alter table public.hotels
   add column if not exists data_purged_at timestamptz;
 
 comment on column public.hotels.data_purged_at is
-  'When never_paid_retention_sweep last finished deleting this never-paid property''s imported data. '
-  'Written last, so null on a property whose sweep is still part-way through.';
+  'When never_paid_retention_sweep last started deleting this never-paid property''s imported data. '
+  'Written before anything is deleted, so a property whose sweep is still part-way through reads as purged.';
 
 -- Whether a product_events row was caused by a person rather than by a job.
 -- The log's user_id cannot answer that: for system events it holds the
@@ -181,7 +196,7 @@ as $$
       'manual_price.set', 'manual_price.cleared',
       'room_type.classified', 'room_type.out_of_service_added', 'room_type.out_of_service_cleared',
       'team.invited', 'team.invite_revoked', 'team.member_joined', 'team.member_removed',
-      'signup_code.redeemed', 'subscription.created',
+      'signup_code.redeemed', 'subscription.created', 'account.terms_accepted',
       'subscription.cancel_scheduled', 'subscription.cancel_withdrawn'
     ) then true
     -- Starter rules are written by the import worker; the rest by a person.
@@ -206,14 +221,17 @@ as $$
        from public.product_events e
       where e.hotel_id = h.id
         and public.product_event_by_person(e.event, e.source, e.properties)),
-    -- The Marketplace lines are written with no actor, but each is a person
-    -- clicking Connect App, claiming, or paying.
+    -- Only a person connecting or reconnecting creates a connection row; the
+    -- scheduler only ever updates one, and the purge deletes it.
+    (select max(c.created_at) from public.pms_connections c where c.hotel_id = h.id),
+    -- The Marketplace and OAuth connect lines are written with no actor, but
+    -- each is a person clicking Connect App, connecting, claiming, or paying.
     (select max(a.created_at)
        from public.platform_audit_events a
       where a.hotel_id = h.id
         and (a.actor_user_id is not null
              or nullif(a.detail->>'actor_user_id', '') is not null
-             or a.detail->>'via' = 'marketplace_flow_a'))
+             or a.detail->>'via' in ('marketplace_flow_a', 'oauth')))
   )
     from public.hotels h
    where h.id = p_hotel_id
@@ -258,8 +276,9 @@ begin
   if v_last >= now() - p_idle then
     return 'recent_activity';
   end if;
-  -- Swept, and nothing written back since. Rows that reappear without a person
-  -- behind them can only be a stray sync, and they go again.
+  -- Swept, and nothing left or written back since. Rows still there are a
+  -- purge the batch cap cut short; rows that reappear without a person behind
+  -- them can only be a stray sync. Either way they go.
   if h.data_purged_at is not null and h.data_purged_at >= v_last
      and not exists (select 1 from public.reservations r where r.hotel_id = h.id) then
     return 'already_purged';
@@ -344,6 +363,9 @@ begin
     return jsonb_build_object('skipped', 'event_not_recorded');
   end if;
 
+  -- Before anything is deleted: a purge cut short still reads as purged.
+  update public.hotels set data_purged_at = now() where id = p_hotel_id;
+
   -- pms_secret_delete answers only to the service role, and cron runs with no
   -- JWT at all, so the role is set for the call and put back straight after.
   perform set_config('request.jwt.claim.role', 'service_role', true);
@@ -379,7 +401,6 @@ begin
     return jsonb_build_object('deleted', v_counts, 'finished', false, 'reservations_left', v_left);
   end if;
 
-  update public.hotels set data_purged_at = now() where id = p_hotel_id;
   return jsonb_build_object('deleted', v_counts, 'finished', true);
 end;
 $$;
@@ -520,21 +541,25 @@ $$;
 revoke all on function public.claim_pms_sync_batch(text, integer, integer, text) from public, anon, authenticated;
 grant execute on function public.claim_pms_sync_batch(text, integer, integer, text) to service_role;
 
-revoke all on function public.product_event_by_person(text, text, jsonb) from public, anon, authenticated;
-revoke all on function public.never_paid_last_activity(uuid) from public, anon, authenticated;
-revoke all on function public.never_paid_retention_hold(uuid, interval) from public, anon, authenticated;
-revoke all on function public.never_paid_retention_counts(uuid) from public, anon, authenticated;
-revoke all on function public.never_paid_retention_purge(uuid, timestamptz, integer) from public, anon, authenticated;
+-- The helpers are called only by the sweep, as their owner. Supabase's default
+-- privileges grant new functions to service_role too, and the purge on its own
+-- skips every hold check, so nobody else may call them.
+revoke all on function public.product_event_by_person(text, text, jsonb) from public, anon, authenticated, service_role;
+revoke all on function public.never_paid_last_activity(uuid) from public, anon, authenticated, service_role;
+revoke all on function public.never_paid_retention_hold(uuid, interval) from public, anon, authenticated, service_role;
+revoke all on function public.never_paid_retention_counts(uuid) from public, anon, authenticated, service_role;
+revoke all on function public.never_paid_retention_purge(uuid, timestamptz, integer) from public, anon, authenticated, service_role;
 revoke all on function public.never_paid_retention_sweep(interval, boolean, integer, integer) from public, anon, authenticated;
 grant execute on function public.never_paid_retention_sweep(interval, boolean, integer, integer) to service_role;
 
 commit;
 
--- Preview, deleting and recording nothing:
+-- Preview, deleting and recording nothing (every due property, not just a run's worth):
 --
---   select public.never_paid_retention_sweep(p_dry_run => true);
+--   select public.never_paid_retention_sweep(p_dry_run => true, p_max_properties => 1000);
 --
--- Why one property is or is not due (null = due):
+-- Why one property is or is not due (null = due). The helpers are revoked from
+-- service_role, so run this in the SQL editor as postgres:
 --
 --   select public.never_paid_retention_hold('<hotel id>', interval '180 days'),
 --          public.never_paid_last_activity('<hotel id>');

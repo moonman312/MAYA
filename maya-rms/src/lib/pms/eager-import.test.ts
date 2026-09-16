@@ -221,6 +221,17 @@ describe("before payment, the queue spends nothing twice", () => {
     });
   };
 
+  it("leaves a paid property's import to activation, but not a trial that ended unpaid", async () => {
+    claimedWith(null);
+    hotelRow("h1").is_active = true;
+    state.db.tables.hotel_subscriptions = [{ hotel_id: "h1", status: "active" }];
+    expect(await queuePrePaymentImport(state.db.client, "h1", OWNER)).toEqual({ queued: false, reason: "live" });
+
+    state.db.tables.hotel_subscriptions[0].status = "canceled";
+    expect(await queuePrePaymentImport(state.db.client, "h1", OWNER)).toMatchObject({ queued: true });
+    expect(jobsFor("h1")).toHaveLength(1);
+  });
+
   it("leaves a finished import finished", async () => {
     claimedWith({ status: "completed", phase: "done" });
     expect(await queuePrePaymentImport(state.db.client, "h1", OWNER)).toEqual({ queued: false, reason: "imported", jobId: "job-1" });

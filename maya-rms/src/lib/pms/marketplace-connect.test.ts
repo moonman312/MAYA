@@ -12,13 +12,14 @@ const state = vi.hoisted(() => ({
   stripe: true,
   db: null as unknown as ReturnType<typeof import("../engine/fake-supabase.test").fakeSupabase>,
   events: [] as { fn: string; args: Record<string, unknown> }[],
+  properties: [{ propertyId: "320691", name: "Sea View Inn" }] as { propertyId: string; name: string | null }[],
 }));
 
 vi.mock("@/lib/billing/stripe", () => ({ isStripeConfigured: () => state.stripe }));
 vi.mock("@/utils/supabase/admin", () => ({ createAdminClient: () => state.db.client }));
 vi.mock("@/lib/pms/cloudbeds-webhooks", () => ({ ensureAppStateWebhook: async () => ({ ok: true }) }));
 vi.mock("../../../supabase/functions/_shared/cloudbeds/client", () => ({
-  cloudbedsListProperties: async () => [{ propertyId: "320691", name: "Sea View Inn" }],
+  cloudbedsListProperties: async () => state.properties,
   cloudbedsDiscoverPropertyId: async () => "320691",
   cloudbedsGetHotelDetails: async () => ({
     externalPropertyId: "320691",
@@ -55,7 +56,7 @@ function claimedProperty(opts: {
         is_active: opts.isActive ?? false,
       },
     ],
-    hotel_memberships: [{ hotel_id: "hotel-1", user_id: "user-1" }],
+    hotel_memberships: [{ hotel_id: "hotel-1", user_id: "user-1", status: "active" }],
     pms_connections: [{ id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", status: opts.connection }],
     hotel_subscriptions: opts.subscription ? [{ hotel_id: "hotel-1", status: opts.subscription }] : [],
   };
@@ -76,6 +77,7 @@ const loggedEvent = () =>
 beforeEach(() => {
   state.stripe = true;
   state.events = [];
+  state.properties = [{ propertyId: "320691", name: "Sea View Inn" }];
 });
 
 describe("handleMarketplaceConnect reconnecting a claimed property", () => {
@@ -219,6 +221,8 @@ describe("a property whose never-paid data the retention sweep removed", () => {
     db.tables.import_jobs = [];
     db.tables.hotels[0].data_purged_at = "2027-03-01T00:00:00.000Z";
     db.tables.hotels[0].setup_pending_at = opts.isActive ? null : "2026-09-01T00:00:00.000Z";
+    db.tables.hotels[0].setup_deferred_at = null;
+    db.tables.hotels[0].created_at = "2026-09-01T00:00:00.000Z";
     db.tables.pms_marketplace_claims = [
       { token: "tok", hotel_id: "hotel-1", pms_type: "cloudbeds", claimed_by: "user-1", claimed_at: "2026-09-01T00:00:00.000Z" },
     ];
@@ -299,5 +303,45 @@ describe("a property whose never-paid data the retention sweep removed", () => {
     await handleMarketplaceConnect("cloudbeds", TOKENS);
     expect(db.tables.import_jobs).toHaveLength(1);
     expect(db.tables.import_jobs[0].status).toBe("completed");
+  });
+
+  it("imports only the group sibling the subscribe screen shows next", async () => {
+    const db = purged();
+    state.properties = [
+      { propertyId: "320691", name: "Sea View Inn" },
+      { propertyId: "320692", name: "Sea View Annex" },
+    ];
+    db.tables.hotels.push({
+      ...db.tables.hotels[0],
+      id: "hotel-2",
+      name: "Sea View Annex",
+      external_enterprise_id: "cloudbeds:320692",
+      created_at: "2026-09-01T00:00:01.000Z",
+    });
+    db.tables.hotel_memberships.push({ hotel_id: "hotel-2", user_id: "user-1", status: "active" });
+    db.tables.pms_marketplace_claims.push({ ...db.tables.pms_marketplace_claims[0], token: "tok2", hotel_id: "hotel-2" });
+
+    const outcome = await handleMarketplaceConnect("cloudbeds", TOKENS);
+
+    expect(outcome).toMatchObject({ kind: "reconnected" });
+    expect(db.tables.pms_connections.map((c) => c.status)).toEqual(["pending", "pending"]);
+    expect(db.tables.import_jobs).toHaveLength(1);
+    expect(db.tables.import_jobs[0]).toMatchObject({ hotel_id: "hotel-1", status: "queued" });
+  });
+
+  it("a trial that ended unpaid waits for payment, and paying again queues the import", async () => {
+    const db = purged({ isActive: true, subscription: "canceled" });
+    await handleMarketplaceConnect("cloudbeds", TOKENS);
+    expect(connectionStatus()).toBe("pending");
+    expect(db.tables.import_jobs).toEqual([]);
+
+    db.tables.hotel_subscriptions[0].status = "active";
+    const result = await activateMarketplaceHotelIfPending(db.client, "hotel-1");
+
+    expect(result).toMatchObject({ activated: false, reason: "already_active" });
+    expect(connectionStatus()).toBe("connected");
+    expect(db.tables.import_jobs).toHaveLength(1);
+    expect(db.tables.import_jobs[0]).toMatchObject({ status: "queued", phase: "discover", requested_by: "user-1" });
+    expect(db.tables.onboarding_states[0]).toMatchObject({ import_job_id: db.tables.import_jobs[0].id });
   });
 });

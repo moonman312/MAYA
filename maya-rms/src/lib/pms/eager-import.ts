@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isPaidLiveHotel } from "@/lib/billing/entitlement";
 
 /**
  * A Marketplace property's history import, from the claim to the payment.
@@ -121,8 +122,9 @@ export async function queuePrePaymentImport(
   if (hotelRes.error) throw new Error(`Could not read the property: ${hotelRes.error.message}`);
   const hotel = hotelRes.data as { is_active?: boolean; setup_deferred_at?: string | null } | null;
   if (!hotel) return { queued: false, reason: "not_found" };
-  // Activation owns a live property's import.
-  if (hotel.is_active === true) return { queued: false, reason: "live" };
+  // Activation owns a paid property's import. A trial that ended unpaid is
+  // still is_active, and is imported like any other unpaid property.
+  if (await isPaidLiveHotel(admin, hotelId, hotel.is_active)) return { queued: false, reason: "live" };
   if (hotel.setup_deferred_at) return { queued: false, reason: "deferred" };
 
   const { data: claim, error: claimErr } = await admin

@@ -33,7 +33,13 @@ export type ParkedSplit = {
 
 /**
  * Splits a claimed batch into the hotels worth syncing and the ones still
- * waiting to be paid for.
+ * waiting to be paid for, or waiting for their history to come back.
+ *
+ * A never-paid property the retention sweep emptied (hotels.data_purged_at)
+ * is held until an import queued after the purge has completed, so nothing
+ * prices it off the recent window alone. claim_pms_sync_batch holds it too,
+ * but a manual price save asks for one hotel's sync directly and never goes
+ * through the claim, so the hold lives here as well.
  *
  * Fails CLOSED on a read error, unlike the entitlement check: that one protects
  * a paying customer's pricing from a database blip, while this one keeps a
@@ -47,17 +53,23 @@ export async function splitByParked(
 ): Promise<ParkedSplit> {
   if (hotelIds.length === 0) return { allowed: [], parked: [] };
 
+  const failClosed = (message: string): ParkedSplit => {
+    console.error(JSON.stringify({ fn: "splitByParked", error: message, failedClosed: hotelIds.length }));
+    return { allowed: [], parked: hotelIds.map((hotelId) => ({ hotelId, status: "unknown" })) };
+  };
+
   const { data, error } = await supabase
     .from("pms_connections")
     .select("hotel_id, status")
     .eq("pms_type", pmsType)
     .in("hotel_id", hotelIds);
+  if (error) return failClosed(error.message);
 
-  if (error) {
-    console.error(
-      JSON.stringify({ fn: "splitByParked", error: error.message, failedClosed: hotelIds.length }),
-    );
-    return { allowed: [], parked: hotelIds.map((hotelId) => ({ hotelId, status: "unknown" })) };
+  let importing: Set<string>;
+  try {
+    importing = await purgedAwaitingImport(supabase, hotelIds);
+  } catch (e) {
+    return failClosed(e instanceof Error ? e.message : String(e));
   }
 
   const statusByHotel = new Map((data ?? []).map((r) => [String(r.hotel_id), String(r.status)]));
@@ -70,7 +82,48 @@ export async function splitByParked(
     // row was deleted between the claim and here, and there is nothing to sync.
     if (status === undefined) parked.push({ hotelId, status: "missing" });
     else if (PARKED.has(status)) parked.push({ hotelId, status });
+    else if (importing.has(hotelId)) parked.push({ hotelId, status: "purged_importing" });
     else allowed.push(hotelId);
   }
   return { allowed, parked };
+}
+
+/** PostgREST's "column does not exist": the retention migration has not run. */
+function isMissingColumn(error: { code?: string; message?: string }): boolean {
+  return error.code === "42703" || (error.message ?? "").includes("data_purged_at");
+}
+
+/**
+ * The hotels whose data was purged and that have no completed import created
+ * since. Throws on a read error. Before the column exists nothing was purged.
+ */
+async function purgedAwaitingImport(supabase: SupabaseClient, hotelIds: string[]): Promise<Set<string>> {
+  const { data: hotels, error } = await supabase
+    .from("hotels")
+    .select("id, data_purged_at")
+    .in("id", hotelIds);
+  if (error) {
+    if (isMissingColumn(error)) return new Set();
+    throw new Error(`hotels read failed: ${error.message}`);
+  }
+  const purgedAt = new Map<string, string>();
+  for (const h of (hotels ?? []) as { id: unknown; data_purged_at?: unknown }[]) {
+    if (h.data_purged_at) purgedAt.set(String(h.id), String(h.data_purged_at));
+  }
+  if (purgedAt.size === 0) return new Set();
+
+  const { data: jobs, error: jobsErr } = await supabase
+    .from("import_jobs")
+    .select("hotel_id, created_at")
+    .eq("status", "completed")
+    .in("hotel_id", [...purgedAt.keys()]);
+  if (jobsErr) throw new Error(`import_jobs read failed: ${jobsErr.message}`);
+
+  const held = new Set(purgedAt.keys());
+  for (const j of (jobs ?? []) as { hotel_id: unknown; created_at: unknown }[]) {
+    const hotelId = String(j.hotel_id);
+    const since = purgedAt.get(hotelId);
+    if (since && Date.parse(String(j.created_at)) > Date.parse(since)) held.delete(hotelId);
+  }
+  return held;
 }
