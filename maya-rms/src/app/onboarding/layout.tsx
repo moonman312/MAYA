@@ -1,3 +1,4 @@
+import { MayaLockup } from "@/components/brand/logo";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { cookies } from "next/headers";
@@ -20,7 +21,7 @@ export default async function OnboardingLayout({
     <div className="flex min-h-screen flex-col bg-slate-950">
       <header className="px-6 py-5">
         <div className="mx-auto flex max-w-3xl items-center justify-between">
-          <span className="text-lg font-semibold text-slate-100">MAYA</span>
+          <MayaLockup height={32} />
           <form action="/auth/logout" method="post">
             <button
               type="submit"

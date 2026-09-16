@@ -1,3 +1,5 @@
+import { emailBrandHeader } from "./brand";
+
 /**
  * The email that has to arrive before MAYA raises someone's bill.
  *
@@ -113,6 +115,7 @@ export function roomShortfallHtml(input: RoomShortfallInput): string {
 <body style="margin:0;padding:24px;background:${COLORS.page};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto">
     <tr><td style="background:${COLORS.card};border:1px solid ${COLORS.border};border-radius:12px;padding:28px">
+      ${emailBrandHeader(input.billingUrl)}
       <h1 style="margin:0 0 16px;color:${COLORS.heading};font-size:20px;line-height:28px">
         Your room count has changed
       </h1>

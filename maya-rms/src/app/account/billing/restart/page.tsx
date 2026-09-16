@@ -1,3 +1,4 @@
+import { MayaLockup } from "@/components/brand/logo";
 import { SubscribeStep } from "@/components/onboarding/subscribe-step";
 import { loadAccountBilling } from "@/lib/billing/account";
 import { pmsSignupCodeRequired } from "@/lib/billing/pms-gates";
@@ -56,7 +57,8 @@ export default async function RestartPage() {
       : await pmsSignupCodeRequired(createAdminClient(), pmsType);
 
   return (
-    <main className="mx-auto max-w-2xl px-6 pb-16">
+    <main className="mx-auto max-w-2xl px-6 pt-10 pb-16">
+      <MayaLockup height={32} className="mb-6" />
       <SubscribeStep
         title="Restart your subscription"
         intro="Same pricing as always — per room, per month. Confirm the size and period and you're back; pricing picks up as soon as checkout completes."

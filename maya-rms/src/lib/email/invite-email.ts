@@ -1,6 +1,7 @@
 import "server-only";
 import type { HotelRole } from "@/lib/admin/types";
 import { roleLabel as roleLabelFor } from "@/lib/roles";
+import { emailBrandHeader } from "./brand";
 
 /**
  * MAYA invite email, rendered server-side and sent through Resend.
@@ -77,7 +78,7 @@ export function inviteEmailHtml(input: InviteEmailInput): string {
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:448px;background-color:${COLORS.card};border:1px solid ${COLORS.border};border-radius:8px;">
             <tr>
               <td style="padding:24px;">
-                <p style="margin:0 0 16px;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;color:${COLORS.muted};">MAYA</p>
+                ${emailBrandHeader(input.acceptUrl)}
                 <h1 style="margin:0 0 12px;font-size:24px;font-weight:600;color:${COLORS.heading};">You're invited</h1>
                 <p style="margin:0 0 8px;font-size:14px;line-height:1.6;color:${COLORS.body};">
                   ${inviterLine} to join

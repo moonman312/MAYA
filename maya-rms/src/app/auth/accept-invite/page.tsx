@@ -1,5 +1,6 @@
 "use client";
 
+import { MayaLockup } from "@/components/brand/logo";
 import { createClient } from "@/utils/supabase/client";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import type { EmailOtpType } from "@supabase/supabase-js";
@@ -13,6 +14,7 @@ function AcceptInviteFallback() {
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto flex min-h-screen max-w-md items-center p-6">
         <div className="w-full space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-6">
+          <MayaLockup height={32} className="mb-6" />
           <h1 className="text-2xl font-semibold">Set your password</h1>
           <p className="text-sm text-slate-400">Verifying your invite…</p>
         </div>
@@ -126,6 +128,7 @@ function AcceptInviteContent() {
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto flex min-h-screen max-w-md items-center p-6">
         <div className="w-full space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-6">
+          <MayaLockup height={32} className="mb-6" />
           <h1 className="text-2xl font-semibold">Set your password</h1>
           <p className="text-sm text-slate-300">
             Welcome to MAYA. Set a password to finish accepting your invite.

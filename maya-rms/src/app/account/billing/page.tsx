@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ManageBillingButton, RoomCountForm } from "@/components/billing/billing-actions";
 import { DeferredProperties, type DeferredPropertyItem } from "@/components/billing/deferred-properties";
+import { MayaLockup } from "@/components/brand/logo";
 import {
   headlineFor,
   loadAccountBilling,
@@ -234,6 +235,7 @@ function NotSetUpYet({ items }: { items: DeferredPropertyItem[] }) {
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <main className="mx-auto max-w-3xl space-y-4 px-6 py-10 text-slate-200">
+      <MayaLockup height={32} />
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Billing</h1>
         <div className="flex items-center gap-4">

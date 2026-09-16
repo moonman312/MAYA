@@ -1,5 +1,6 @@
 "use client";
 
+import { MayaMark } from "@/components/brand/logo";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -22,9 +23,10 @@ export function AdminTopNav({ userEmail }: { userEmail: string }) {
         <div className="flex items-center gap-3">
           <Link
             href="/admin"
-            className="rounded bg-sky-500/10 px-2 py-1 text-xs font-semibold uppercase tracking-wider text-sky-300"
+            className="inline-flex items-center gap-2 rounded bg-sky-500/10 px-2 py-1 text-xs font-semibold uppercase tracking-wider text-sky-300"
           >
-            MAYA · Command Center
+            <MayaMark size={24} />
+            Command Center
           </Link>
           <nav className="flex flex-wrap items-center gap-1 text-sm">
             {links.map((link) => {

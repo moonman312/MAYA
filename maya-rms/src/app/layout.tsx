@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -15,6 +15,12 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "MAYA",
   description: "Machine Assisted Yield Automation — revenue management for hotels",
+  applicationName: "MAYA",
+  appleWebApp: { title: "MAYA" },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#020618",
 };
 
 export default function RootLayout({

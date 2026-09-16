@@ -1,5 +1,6 @@
 "use client";
 
+import { MayaLockup } from "@/components/brand/logo";
 import { createClient } from "@/utils/supabase/client";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import Link from "next/link";
@@ -152,6 +153,7 @@ export default function LoginPage() {
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto flex min-h-screen max-w-md items-center p-6">
         <div className="w-full rounded-lg border border-slate-800 bg-slate-900 p-6">
+          <MayaLockup height={32} className="mb-6" />
           {sentTo ? (
             <>
               <h1 className="text-2xl font-semibold">Check your email</h1>

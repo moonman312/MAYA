@@ -1,4 +1,5 @@
 import "server-only";
+import { emailBrandHeader } from "./brand";
 
 /**
  * The email that goes out a few days before a charge, to a property that has
@@ -90,6 +91,7 @@ export function renewalNudgeHtml(input: RenewalNudgeInput): string {
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;">
       <tr>
         <td style="background:${COLORS.card};border:1px solid ${COLORS.border};border-radius:12px;padding:28px;">
+          ${emailBrandHeader(input.resumeUrl)}
           <p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:${COLORS.body};">${lead}</p>
 
           <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:${COLORS.body};">

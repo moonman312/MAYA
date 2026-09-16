@@ -2,6 +2,7 @@
 
 import { AskForHelp } from "@/components/onboarding/ask-for-help";
 import { BillingBanner } from "@/components/billing/billing-banner";
+import { MayaLockup } from "@/components/brand/logo";
 import { PmsReconnect } from "@/components/pms-reconnect";
 import { OnboardingReviewBanner } from "@/components/onboarding/review-banner";
 import { CorrectionsPanel, ExplainDrilldown } from "@/components/explain-drilldown";
@@ -768,8 +769,10 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
         <header className="mb-8">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">MAYA</h1>
-              <p className="mt-2 text-sm text-slate-300">
+              <h1>
+                <MayaLockup height={36} />
+              </h1>
+              <p className="mt-3 text-sm text-slate-300">
                 Machine Assisted Yield Automation
               </p>
               <p className="text-sm text-slate-500">

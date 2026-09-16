@@ -2,6 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { TeamManager } from "@/components/account/team-manager";
+import { MayaLockup } from "@/components/brand/logo";
 import { hasHotelRank } from "@/lib/require-supabase-hotel";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { createClient } from "@/utils/supabase/server";
@@ -31,6 +32,7 @@ export default async function TeamPage() {
 
   return (
     <main className="mx-auto max-w-3xl space-y-4 px-6 py-10 text-slate-200">
+      <MayaLockup height={32} />
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Your team</h1>
         <div className="flex items-center gap-4">
