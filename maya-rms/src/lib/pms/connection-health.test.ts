@@ -13,7 +13,7 @@ import {
 } from "../../../supabase/functions/_shared/pms/connection-health";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-function stub(updateError?: string) {
+function stub(updateError?: string, count?: number) {
   const updates: Record<string, unknown>[] = [];
   const events: Record<string, unknown>[] = [];
   const supabase = {
@@ -25,8 +25,8 @@ function stub(updateError?: string) {
         },
       };
       q.eq = () => q;
-      (q as { then: unknown }).then = (res: (v: { error: { message: string } | null }) => unknown) =>
-        res({ error: updateError ? { message: updateError } : null });
+      (q as { then: unknown }).then = (res: (v: { error: { message: string } | null; count?: number }) => unknown) =>
+        res({ error: updateError ? { message: updateError } : null, count });
       return q;
     },
     rpc(name: string, args: Record<string, unknown>) {
@@ -61,6 +61,18 @@ describe("markConnectionDisconnected", () => {
       p_event_type: "pms.disconnected",
       p_hotel_id: "h1",
     });
+  });
+
+  it("does nothing for a property that no longer exists", async () => {
+    // The Marketplace claim sweep deletes parked hotels but cannot remove the
+    // Cloudbeds webhook subscription pointing at them, so an uninstall can
+    // arrive for a hotel id with no connection row. That is not an outage.
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const { supabase, updates, events } = stub(undefined, 0);
+    await markConnectionDisconnected(supabase, "gone", "cloudbeds", "appstate_changed disabled");
+    expect(updates).toHaveLength(1);
+    expect(events).toEqual([]);
+    log.mockRestore();
   });
 
   it("swallows its own write failure rather than masking the original error", async () => {
