@@ -198,7 +198,9 @@ export async function redeemMarketplaceClaim(
  * Only for someone whose acceptance of the current versions is on file (or
  * still sitting in their signup metadata). Signing in to claim shows no
  * checkbox, so for anyone else this would be a record of an acceptance that
- * never happened; the accept screen and checkout ask them instead.
+ * never happened; the accept screen and checkout ask them instead, and the
+ * accept route ties that acceptance to these properties then
+ * (recordClaimedHotelAcceptances).
  *
  * Never a condition of the claim. The property is already theirs by this
  * point, and a missing table or a failed write is logged (acceptance.ts logs

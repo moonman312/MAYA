@@ -165,3 +165,40 @@ export function requestUserAgent(headers: Headers): string | null {
   const ua = headers.get("user-agent")?.trim() ?? "";
   return ua ? ua.slice(0, 512) : null;
 }
+
+/**
+ * Ties an acceptance to the Marketplace properties this user has claimed: a
+ * row per hotel, context 'claim'. The claim itself only writes these when an
+ * acceptance was already on file at claim time (marketplace-claim.ts). Someone
+ * who signed in with an existing account accepts later, on the accept screen
+ * or when checkout asks, and their claimed properties are still parked, so the
+ * accept route has no active property to name. This fills that in.
+ *
+ * Call it only after an acceptance of the current versions has been recorded.
+ * recordAcceptance skips rows already on file, so repeating it is harmless.
+ * Never throws and never fails the acceptance: the property is context for the
+ * record, and a failure is logged.
+ */
+export async function recordClaimedHotelAcceptances(
+  admin: SupabaseClient,
+  input: Omit<AcceptanceInput, "context" | "hotelId">,
+): Promise<void> {
+  try {
+    const { data, error } = await admin
+      .from("pms_marketplace_claims")
+      .select("hotel_id")
+      .eq("claimed_by", input.userId)
+      .not("claimed_at", "is", null);
+    if (error) {
+      logUnavailable("claimed_hotels", error);
+      return;
+    }
+    const hotelIds = [...new Set((data ?? []).map((c) => c.hotel_id).filter(Boolean).map(String))];
+    for (const hotelId of hotelIds) {
+      const result = await recordAcceptance(admin, { ...input, context: "claim", hotelId });
+      if (result === "unavailable") return;
+    }
+  } catch (e) {
+    logUnavailable("claimed_hotels", e);
+  }
+}

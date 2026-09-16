@@ -52,6 +52,11 @@ function fakeSupabase() {
         filters.push((r) => (r[col] ?? null) === val);
         return api;
       },
+      // not(col, "is", null)
+      not(col: string) {
+        filters.push((r) => r[col] != null);
+        return api;
+      },
       limit: () => api,
       insert(payload: Row) {
         pending = payload;
@@ -276,6 +281,29 @@ describe("POST: recording an acceptance", () => {
     const res = await POST(postBody(valid));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, recorded: false });
+  });
+
+  it("ties an acceptance that comes after a Marketplace claim to the claimed properties", async () => {
+    // Signed in with an existing account to claim, so nothing was on file at
+    // claim time. The parked property is not an accessible hotel, so the
+    // reaccept row itself carries none.
+    state.tables.pms_marketplace_claims = [
+      { hotel_id: "hotel-parked", claimed_by: USER, claimed_at: "2026-09-16T10:00:00Z" },
+      { hotel_id: "hotel-open", claimed_by: USER, claimed_at: null },
+      { hotel_id: "hotel-theirs", claimed_by: "someone-else", claimed_at: "2026-09-16T10:00:00Z" },
+    ];
+    const res = await POST(postBody(valid, { "x-real-ip": "203.0.113.7", "user-agent": "Mozilla/5.0 (Macintosh)" }));
+    expect(res.status).toBe(200);
+    const rows = state.tables.terms_acceptances;
+    expect(rows.map((r) => [r.context, r.hotel_id])).toEqual([
+      ["reaccept", null],
+      ["claim", "hotel-parked"],
+    ]);
+    expect(rows[1]).toMatchObject({ ip: "203.0.113.7", user_agent: "Mozilla/5.0 (Macintosh)", user_id: USER });
+
+    // Accepting again writes nothing new.
+    await POST(postBody(valid));
+    expect(state.tables.terms_acceptances).toHaveLength(2);
   });
 
   it("asks them to try again when the write genuinely fails", async () => {

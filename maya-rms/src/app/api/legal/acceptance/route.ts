@@ -18,6 +18,7 @@ import {
   adoptSignupAcceptance,
   currentAcceptance,
   recordAcceptance,
+  recordClaimedHotelAcceptances,
   requestIp,
   requestUserAgent,
 } from "@/lib/legal/acceptance";
@@ -128,14 +129,14 @@ export async function POST(request: Request) {
     // The property is context for the record, not a condition of it.
   }
 
-  const result = await recordAcceptance(createAdminClient(), {
+  const admin = createAdminClient();
+  const evidence = {
     userId: user.id,
     email: user.email ?? null,
-    context,
-    hotelId,
     ip: requestIp(request.headers),
     userAgent: requestUserAgent(request.headers),
-  });
+  };
+  const result = await recordAcceptance(admin, { ...evidence, context, hotelId });
 
   if (result === "failed") {
     return NextResponse.json(
@@ -143,6 +144,12 @@ export async function POST(request: Request) {
       { status: 503 },
     );
   }
+  // A Marketplace owner who claimed before accepting: tie this acceptance to
+  // the properties they claimed, which are still parked and so not hotelId.
+  if (result === "recorded" || result === "duplicate") {
+    await recordClaimedHotelAcceptances(admin, evidence);
+  }
+
   // "unavailable" is the migration not having run: say so to the log (already
   // done) and let them through rather than trap them behind a screen that can
   // never succeed.
