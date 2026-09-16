@@ -1,0 +1,38 @@
+-- Example: schedule the never-paid retention sweep.
+--
+-- Pure SQL, no secrets: the function lives in the database
+-- (99_supabase_migration_never_paid_retention_v1.sql) and cron calls it
+-- directly. For a claimed Marketplace property that has never paid and has not
+-- seen a person for 180 days, it records property.data_purged in
+-- product_events, then deletes the imported booking history, the import jobs,
+-- open onboarding findings, unaccepted invites, the stored PMS credential and
+-- the connection row. The property, its members, rules, room types, closed
+-- periods and answered findings stay. Anything paying, trialing, past due or
+-- that has ever paid is never touched. The migration header lists every table.
+--
+-- Daily is plenty: nothing is due until a property has been quiet for six
+-- months. Off-peak, after the claim sweep at 09:10.
+--
+-- 0) Ensure the extension exists:
+--    create extension if not exists pg_cron;
+--
+-- 1) Look before the first real run (deletes and records nothing):
+--    select public.never_paid_retention_sweep(p_dry_run => true);
+--
+-- 2) Schedule (09:20 UTC daily):
+--    select cron.schedule(
+--      'never-paid-retention-sweep',
+--      '20 9 * * *',
+--      $$ select public.never_paid_retention_sweep(); $$
+--    );
+--
+-- Inspect:    select jobid, jobname, schedule, active from cron.job;
+-- Runs log:   select * from cron.job_run_details where command like '%never_paid_retention_sweep%'
+--               order by start_time desc limit 20;
+-- Unschedule: select cron.unschedule('never-paid-retention-sweep');
+--
+-- A run does at most 25 properties and 40 batches of 50,000 reservations each;
+-- whatever is left is finished the next day. What was swept:
+--   select occurred_at, property_name, properties
+--     from product_events where event = 'property.data_purged'
+--    order by occurred_at desc limit 20;

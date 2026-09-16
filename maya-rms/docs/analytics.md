@@ -148,7 +148,12 @@ every billing metric.
 | `pms.degraded`, `pms.error` | credential trouble; self-clearing, so at most once per property per 24h | same | same |
 | `pms.recovered` | back to connected from degraded or error; at most once per 24h | same | same |
 | `import.started` | the worker first claimed a job | trigger on `import_jobs.started_at` | `job_id`, `kind` (`initial` or `refresh`), `phase`, `attempts`, `queued_seconds` |
-| `import.completed`, `import.failed`, `import.canceled` | job finished | trigger on `import_jobs.status` | the above plus `duration_seconds`, `rows_upserted`, `reservations_enumerated`, `windows_completed`, `error_kind` |
+| `import.completed`, `import.failed`, `import.canceled` | job finished; `canceled` is a job stopped because its connection went away, its owner said "Not now" or its claim was swept | trigger on `import_jobs.status` | the above plus `duration_seconds`, `rows_upserted`, `reservations_enumerated`, `windows_completed`, `error_kind` |
+| `property.data_purged` | a claimed Marketplace property that never paid was quiet for 180 days; written just before its imported history, import jobs, open findings, unaccepted invites, credential and connection were deleted | `never_paid_retention_sweep()` (source `sweep`) | `last_activity_at`, `idle_days`, `was_active`, `subscription_status`, `deleted` (row counts by table) |
+
+A Marketplace property's import starts when its owner claims it, before
+payment, so `import.started` and often `import.completed` land before
+`subscription.created`.
 
 ### Engagement
 
@@ -232,6 +237,11 @@ percentile hours for: connect → claim, claim → subscribe, subscribe → PMS
 connected (direct only), subscribe → history imported, imported → live,
 connect → live, subscribe → live.
 
+Pairs where the later event came first are left out. Since a Marketplace
+import starts at the claim, most Marketplace properties finish importing
+before they subscribe, so subscribe → history imported mostly measures direct
+signups and the Marketplace imports that were still running at payment.
+
 ### Trial conversion (`analytics_trial_conversion`)
 
 Trials whose `trial_end` fell in the window (and has passed). **Converted** =
@@ -312,6 +322,26 @@ connection rows and the claim. Parked Marketplace hotels whose claim insert
 failed at connect are removed on the same test. `select
 marketplace_claim_sweep(interval '3 days', true)` previews without writing.
 The migration explains the grace period and what is left behind at Cloudbeds.
+
+## The never-paid retention sweep
+
+`never_paid_retention_sweep()` runs daily (see
+`supabase/cron/never-paid-retention-sweep.sql.example`). A claimed Marketplace
+property that has never paid (`hotel_subscriptions.first_paid_at` null, nothing
+trialing, active or past due, not an internal plan) and has not seen a person
+for 180 days gets `property.data_purged`, then loses its imported history and
+the rows derived from it, its import jobs, open findings, unaccepted invites,
+its PMS credential and its connection row. The property, members, rules, room
+types and their classifications, closed periods and answered findings stay.
+
+"Seen a person" is the latest of the hotel's creation, the claim, any
+`product_events` row `product_event_by_person()` accepts (browser events, and
+the trigger events only a person causes: a claim, "Not now", a rule edit, a
+typed price, a room answer, an invite, a checkout), and any
+`platform_audit_events` row with an actor. Imports, syncs, PMS health, Stripe's
+own status changes and room truing never reset it. `select
+never_paid_retention_sweep(p_dry_run => true)` lists what would go and writes
+nothing; the migration header lists every table kept and deleted.
 
 ## Backfill
 
