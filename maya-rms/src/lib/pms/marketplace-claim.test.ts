@@ -6,13 +6,17 @@
  * twice".
  */
 import { describe, expect, it, vi } from "vitest";
-import { redeemMarketplaceClaim } from "./marketplace-claim";
+import { PRIVACY_VERSION, signupAcceptanceMetadata, TERMS_VERSION } from "@/lib/legal/versions";
+import { redeemMarketplaceClaim, type ClaimEvidence } from "./marketplace-claim";
 
 const state = vi.hoisted(() => ({
   claim: null as Record<string, unknown> | null,
   siblings: [] as Record<string, unknown>[],
   writes: [] as { table: string; payload: unknown }[],
   stripe: true,
+  acceptances: [] as Record<string, unknown>[],
+  acceptanceTable: true,
+  rpcCalls: [] as string[],
 }));
 
 vi.mock("@/lib/billing/stripe", () => ({ isStripeConfigured: () => state.stripe }));
@@ -20,10 +24,19 @@ vi.mock("@/lib/billing/stripe", () => ({ isStripeConfigured: () => state.stripe 
 vi.mock("@/utils/supabase/admin", () => ({
   createAdminClient: () => ({
     from(table: string) {
+      // Only terms_acceptances is filtered: recordAcceptance looks for an
+      // identical row before it writes one.
+      const filters: [string, unknown][] = [];
       const q: Record<string, unknown> = {
         select: () => q,
-        eq: () => q,
-        is: () => q,
+        eq: (col: string, val: unknown) => {
+          filters.push([col, val]);
+          return q;
+        },
+        is: (col: string, val: unknown) => {
+          filters.push([col, val]);
+          return q;
+        },
         maybeSingle: async () => ({ data: table === "pms_marketplace_claims" ? state.claim : null }),
         single: async () => ({ data: { id: "job-1" }, error: null }),
         neq: () => q,
@@ -40,9 +53,22 @@ vi.mock("@/utils/supabase/admin", () => ({
         },
         insert: (payload: unknown) => {
           state.writes.push({ table: `${table}:insert`, payload });
+          if (table === "terms_acceptances") state.acceptances.push(payload as Record<string, unknown>);
           return q;
         },
       };
+      if (table === "terms_acceptances") {
+        (q as { then: unknown }).then = (res: (v: unknown) => unknown) =>
+          res(
+            state.acceptanceTable
+              ? {
+                  error: null,
+                  data: state.acceptances.filter((r) => filters.every(([c, v]) => (r[c] ?? null) === v)),
+                }
+              : { data: null, error: { code: "42P01", message: 'relation "terms_acceptances" does not exist' } },
+          );
+        return q;
+      }
       // Siblings for the claims table; a row back from the hotels compare-and-set
       // so activation (when it runs) believes it won the flip.
       (q as { then: unknown }).then = (res: (v: { error: null; data?: unknown }) => unknown) =>
@@ -52,7 +78,10 @@ vi.mock("@/utils/supabase/admin", () => ({
         });
       return q;
     },
-    rpc: async () => ({ data: null, error: null }),
+    rpc: async (name: string) => {
+      state.rpcCalls.push(name);
+      return { data: null, error: null };
+    },
   }),
 }));
 
@@ -63,6 +92,11 @@ function setClaim(over: Record<string, unknown> = {}, siblings: Record<string, u
   state.writes = [];
   state.stripe = true;
   state.siblings = siblings;
+  state.acceptances = [
+    { user_id: "user-1", terms_version: TERMS_VERSION, privacy_version: PRIVACY_VERSION, context: "signup", hotel_id: null },
+  ];
+  state.acceptanceTable = true;
+  state.rpcCalls = [];
   state.claim = {
     token: "tok",
     hotel_id: "hotel-1",
@@ -165,5 +199,83 @@ describe("redeemMarketplaceClaim", () => {
     setClaim({ group_key: null }, [{ token: "other", hotel_id: "unrelated", expires_at: future() }]);
     const res = await redeemMarketplaceClaim("tok", "user-1");
     expect(res).toMatchObject({ ok: true, hotelIds: ["hotel-1"] });
+  });
+});
+
+describe("the acceptance record a claim leaves", () => {
+  const evidence: ClaimEvidence = {
+    email: "owner@seaview.example",
+    ip: "203.0.113.7",
+    userAgent: "Mozilla/5.0",
+    metadata: {},
+  };
+  const claimRows = () => state.writes.filter((w) => w.table === "terms_acceptances:insert").map((w) => w.payload);
+
+  it("ties the owner's acceptance to the claimed property, with where it came from", async () => {
+    setClaim();
+    const res = await redeemMarketplaceClaim("tok", "user-1", evidence);
+    expect(res).toMatchObject({ ok: true });
+    expect(claimRows()).toEqual([
+      {
+        user_id: "user-1",
+        email: "owner@seaview.example",
+        terms_version: TERMS_VERSION,
+        privacy_version: PRIVACY_VERSION,
+        context: "claim",
+        hotel_id: "hotel-1",
+        ip: "203.0.113.7",
+        user_agent: "Mozilla/5.0",
+        source: "app",
+      },
+    ]);
+  });
+
+  it("writes one per property of a group grant", async () => {
+    setClaim({ group_key: "cloudbeds:group:1,2" }, [{ token: "tok-b", hotel_id: "hotel-2", expires_at: future() }]);
+    await redeemMarketplaceClaim("tok", "user-1", evidence);
+    expect(claimRows().map((r) => (r as Record<string, unknown>).hotel_id)).toEqual(["hotel-1", "hotel-2"]);
+  });
+
+  it("does not invent an acceptance for someone who never ticked the box", async () => {
+    setClaim();
+    state.acceptances = [];
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await redeemMarketplaceClaim("tok", "user-1", evidence);
+    expect(res).toMatchObject({ ok: true });
+    expect(claimRows()).toEqual([]);
+    errors.mockRestore();
+  });
+
+  it("adopts a signup's tick the trigger missed, then records the claim", async () => {
+    setClaim();
+    state.acceptances = [];
+    await redeemMarketplaceClaim("tok", "user-1", { ...evidence, metadata: signupAcceptanceMetadata("claim") });
+    expect(state.rpcCalls).toContain("record_terms_acceptance_from_signup");
+  });
+
+  it("still claims, and logs, when the table is missing", async () => {
+    setClaim();
+    state.acceptanceTable = false;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await redeemMarketplaceClaim("tok", "user-1", evidence);
+    expect(res).toMatchObject({ ok: true, hotelId: "hotel-1", alreadyClaimed: false });
+    expect(claimRows()).toEqual([]);
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining("terms_acceptances is missing"));
+    errors.mockRestore();
+  });
+
+  it("still claims when the acceptance lookup throws", async () => {
+    setClaim();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    state.acceptances = new Proxy(state.acceptances, {
+      get(target, prop) {
+        if (prop === "filter") throw new Error("socket hang up");
+        return Reflect.get(target, prop);
+      },
+    });
+    const res = await redeemMarketplaceClaim("tok", "user-1", evidence);
+    expect(res).toMatchObject({ ok: true, hotelId: "hotel-1" });
+    expect(claimRows()).toEqual([]);
+    errors.mockRestore();
   });
 });
