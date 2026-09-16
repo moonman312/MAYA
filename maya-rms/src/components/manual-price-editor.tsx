@@ -20,10 +20,22 @@ type SaveResponse = {
   suppressedRules: number;
   retiredPickups: number;
   pushed: Pushed;
+  /** Nights inside the 60-day push window today vs. past it. Older servers omit it. */
+  pushWindow?: { now: number; later: number };
   preview: { stay_date: string; base: number; final: number; clamped_by: string | null }[];
 };
 
-function pushedCopy(pushed: Pushed, pmsName: string): string {
+function pushedCopy(pushed: Pushed, pmsName: string, pushWindow?: { now: number; later: number }): string {
+  // A range across the edge of the window gets the honest per-night version:
+  // what leaves now, and what waits. Only when both sides have something in
+  // them — otherwise the single-state sentence below already tells the truth.
+  if (pushWindow && pushWindow.now > 0 && pushWindow.later > 0 && (pushed === "nudged" || pushed === "next_cycle")) {
+    const { now, later } = pushWindow;
+    const when = pushed === "nudged" ? "now" : "on the next cycle (about 5 min)";
+    return `Saved. ${now} night${now === 1 ? "" : "s"} sending to ${pmsName} ${when}; ${later} more will be sent as ${
+      later === 1 ? "it enters" : "they enter"
+    } the 60-day window.`;
+  }
   switch (pushed) {
     case "nudged":
       return `Saved. Sending to ${pmsName} now.`;
@@ -44,11 +56,11 @@ function nightsWord(cells: number | undefined): string {
 
 /** The one-line confirmation after a save, in house voice. Exported for tests. */
 export function describeSave(
-  res: Pick<SaveResponse, "pushed" | "suppressedRules" | "retiredPickups"> & { cells?: number },
+  res: Pick<SaveResponse, "pushed" | "suppressedRules" | "retiredPickups" | "pushWindow"> & { cells?: number },
   pmsName: string,
 ): string {
   const paused = (res.suppressedRules ?? 0) + (res.retiredPickups ?? 0);
-  const base = pushedCopy(res.pushed, pmsName);
+  const base = pushedCopy(res.pushed, pmsName, res.pushWindow);
   if (paused <= 0) return base;
   return `${base} Paused ${paused} rule${paused === 1 ? "" : "s"} on ${nightsWord(res.cells)} for this room; new rules will apply on top.`;
 }

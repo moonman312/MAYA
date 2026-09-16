@@ -23,6 +23,63 @@ describe("describeSave", () => {
     ).toContain("Paused 3 rules");
   });
 
+  it("splits a range that straddles the 60-day window per night, singular and plural", () => {
+    expect(
+      describeSave(
+        { pushed: "nudged", suppressedRules: 0, retiredPickups: 0, cells: 4, pushWindow: { now: 2, later: 2 } },
+        "Cloudbeds",
+      ),
+    ).toBe("Saved. 2 nights sending to Cloudbeds now; 2 more will be sent as they enter the 60-day window.");
+    expect(
+      describeSave(
+        { pushed: "nudged", suppressedRules: 0, retiredPickups: 0, cells: 2, pushWindow: { now: 1, later: 1 } },
+        "Mews",
+      ),
+    ).toBe("Saved. 1 night sending to Mews now; 1 more will be sent as it enters the 60-day window.");
+    // Straddling on a hotel with no nudge configured: the near nights go on the cycle.
+    expect(
+      describeSave(
+        { pushed: "next_cycle", suppressedRules: 0, retiredPickups: 0, cells: 3, pushWindow: { now: 2, later: 1 } },
+        "Cloudbeds",
+      ),
+    ).toBe(
+      "Saved. 2 nights sending to Cloudbeds on the next cycle (about 5 min); 1 more will be sent as it enters the 60-day window.",
+    );
+  });
+
+  it("keeps the single-state sentences when the range sits on one side of the window", () => {
+    expect(
+      describeSave(
+        { pushed: "nudged", suppressedRules: 0, retiredPickups: 0, cells: 3, pushWindow: { now: 3, later: 0 } },
+        "Cloudbeds",
+      ),
+    ).toBe("Saved. Sending to Cloudbeds now.");
+    expect(
+      describeSave(
+        { pushed: "beyond_window", suppressedRules: 0, retiredPickups: 0, cells: 3, pushWindow: { now: 0, later: 3 } },
+        "Cloudbeds",
+      ),
+    ).toBe("Saved. It will be sent when the date enters the 60-day push window.");
+    // Simulation never claims to send anything, straddling or not.
+    expect(
+      describeSave(
+        { pushed: "simulation", suppressedRules: 0, retiredPickups: 0, cells: 4, pushWindow: { now: 2, later: 2 } },
+        "Cloudbeds",
+      ),
+    ).toBe("Saved (simulation: not sent to Cloudbeds).");
+  });
+
+  it("still appends the paused-rules clause after the split sentence", () => {
+    expect(
+      describeSave(
+        { pushed: "nudged", suppressedRules: 2, retiredPickups: 0, cells: 4, pushWindow: { now: 2, later: 2 } },
+        "Cloudbeds",
+      ),
+    ).toBe(
+      "Saved. 2 nights sending to Cloudbeds now; 2 more will be sent as they enter the 60-day window. Paused 2 rules on these 4 nights for this room; new rules will apply on top.",
+    );
+  });
+
   it("counts the nights when the save covered a range", () => {
     expect(
       describeSave({ pushed: "nudged", suppressedRules: 6, retiredPickups: 0, cells: 3 }, "Cloudbeds"),

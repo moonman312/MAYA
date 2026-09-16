@@ -21,6 +21,7 @@ import { dbErrorResponse, isRealIsoDate, isUuid } from "@/lib/api-guards";
 import { currencySymbolFor } from "@/lib/changelog-route-helpers";
 import { evaluateHotel } from "@/lib/engine";
 import { clampPrice } from "@/lib/engine/pricing";
+import { isMissingRelationError } from "@/lib/engine/snapshots";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { roleLabel } from "@/lib/roles";
 import { hotelToday } from "@/lib/simulator";
@@ -59,6 +60,14 @@ const SYNC_NUDGE: Record<string, { fn: string; header: string; env: string }> = 
 
 type Pushed = "nudged" | "next_cycle" | "simulation" | "beyond_window";
 
+/**
+ * How many of the saved nights the scheduled push covers today (`now`) and how
+ * many sit past its horizon and go out as the window reaches them (`later`).
+ * A range straddling the edge is the common case for a season set in one go,
+ * and "sending now" for all of it would be a lie about the far end.
+ */
+type PushWindow = { now: number; later: number };
+
 type PostBody = {
   hotelId?: unknown;
   roomTypeId?: unknown;
@@ -76,6 +85,27 @@ type Gate =
 
 function bad(message: string): NextResponse {
   return NextResponse.json({ error: message }, { status: 400 });
+}
+
+/**
+ * The route's failure shape. One case is not a fault: manual_price arrives in
+ * its own migration, and this code can be deployed ahead of it. Then the save
+ * is refused as "needs an update", loudly logged, and nothing about the page
+ * that called breaks — a 500 here reads as MAYA being broken, which it isn't.
+ */
+function failed(error: unknown, step: string): NextResponse {
+  if (isMissingRelationError(error)) {
+    console.error(
+      JSON.stringify({
+        fn: "manual-price",
+        step,
+        warning: "manual_price table is missing — run 99_supabase_migration_manual_price_v1.sql",
+      }),
+    );
+    return NextResponse.json({ error: "This needs a database update first." }, { status: 503 });
+  }
+  const { status, message } = dbErrorResponse(error);
+  return NextResponse.json({ error: message }, { status });
 }
 
 async function readBody(req: Request): Promise<PostBody> {
@@ -105,6 +135,18 @@ function datesInRange(fromIso: string, toIso: string): string[] {
     out.push(isoDatePlus(fromIso, i));
   }
   return out;
+}
+
+/** Nights of the range on each side of the push horizon [today, today + 59]. */
+function splitByPushWindow(range: Range, today: string): PushWindow {
+  const nights = daysBetween(range.dateFrom, range.dateTo) + 1;
+  const lastPushed = isoDatePlus(today, PUSH_WINDOW_DAYS);
+  // dateFrom is never before today on a save; a clear can name earlier
+  // nights, which the push doesn't carry either way, so they count as "now"
+  // only insofar as they are inside the window.
+  const inside = daysBetween(range.dateFrom, lastPushed) + 1;
+  const now = Math.max(0, Math.min(nights, inside));
+  return { now, later: nights - now };
 }
 
 /**
@@ -206,6 +248,18 @@ async function republish(
   range: Range,
   today: string,
   now: string,
+): Promise<{ pushed: Pushed; pushWindow: PushWindow }> {
+  const pushWindow = splitByPushWindow(range, today);
+  const pushed = await pushFor(admin, range, today, now, pushWindow);
+  return { pushed, pushWindow };
+}
+
+async function pushFor(
+  admin: SupabaseClient,
+  range: Range,
+  today: string,
+  now: string,
+  pushWindow: PushWindow,
 ): Promise<Pushed> {
   // Only as far as the change reaches. A full-horizon run is minutes of
   // reads, and everything past dateTo is untouched by this save.
@@ -230,7 +284,10 @@ async function republish(
     .maybeSingle();
   // Same reading as the push gate itself: no settings row is not Live.
   if (settings?.simulation_mode !== false) return "simulation";
-  if (range.dateFrom > isoDatePlus(today, PUSH_WINDOW_DAYS)) return "beyond_window";
+  // Only when NOTHING in the range is pushable. A range that straddles the
+  // horizon is nudged for the near nights; the far ones go as they come into
+  // window, and the response says how many that is.
+  if (pushWindow.now === 0) return "beyond_window";
 
   const nudge = SYNC_NUDGE[await hotelPmsType(admin, range.hotelId)];
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
@@ -381,7 +438,7 @@ export async function POST(req: Request) {
     if (retireErr) throw retireErr;
     const retiredPickups = (retired ?? []).length;
 
-    const pushed = await republish(admin, range, today, now);
+    const { pushed, pushWindow } = await republish(admin, range, today, now);
 
     // Nothing is left applying on the cell, so base and final only part ways
     // at a clamp — and validation already ruled that out. Computed with the
@@ -400,11 +457,11 @@ export async function POST(req: Request) {
       suppressedRules,
       retiredPickups,
       pushed,
+      pushWindow,
       preview,
     });
   } catch (error) {
-    const { status, message } = dbErrorResponse(error);
-    return NextResponse.json({ error: message }, { status });
+    return failed(error, "save");
   }
 }
 
@@ -456,8 +513,7 @@ export async function DELETE(req: Request) {
 
     return NextResponse.json({ ok: true, cells: (cleared ?? []).length });
   } catch (error) {
-    const { status, message } = dbErrorResponse(error);
-    return NextResponse.json({ error: message }, { status });
+    return failed(error, "clear");
   }
 }
 
@@ -506,7 +562,6 @@ export async function GET(req: Request) {
       })),
     });
   } catch (error) {
-    const { status, message } = dbErrorResponse(error);
-    return NextResponse.json({ error: message }, { status });
+    return failed(error, "list");
   }
 }

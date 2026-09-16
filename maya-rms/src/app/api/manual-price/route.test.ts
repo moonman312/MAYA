@@ -20,7 +20,11 @@ type Filter =
   | ["is", string, null]
   | ["notNull", string];
 
-function fakeSupabase(seed: Record<string, Row[]> = {}) {
+function fakeSupabase(
+  seed: Record<string, Row[]> = {},
+  // A table that answers every call with this error — the not-yet-migrated case.
+  broken: Record<string, { code: string; message: string }> = {},
+) {
   const tables = new Map<string, Row[]>(
     Object.entries(seed).map(([k, v]) => [k, v.map((r) => ({ ...r }))]),
   );
@@ -101,6 +105,7 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
     };
 
     async function run() {
+      if (broken[table]) return { data: null, error: broken[table] };
       if (mode === "upsert" && pending) {
         const rows = tableOf(table);
         for (const incoming of pending) {
@@ -177,8 +182,12 @@ vi.mock("@/lib/engine", () => ({ evaluateHotel }));
 
 const { POST, DELETE, GET } = await import("./route");
 
-function seed(overrides: Record<string, Row[]> = {}) {
-  return fakeSupabase({
+function seed(
+  overrides: Record<string, Row[]> = {},
+  broken: Record<string, { code: string; message: string }> = {},
+) {
+  return fakeSupabase(
+    {
     hotels: [{ id: HOTEL, timezone: "America/New_York", currency: "USD" }],
     hotel_settings: [{ hotel_id: HOTEL, simulation_mode: false }],
     pms_connections: [{ hotel_id: HOTEL, pms_type: "cloudbeds", status: "connected" }],
@@ -194,7 +203,9 @@ function seed(overrides: Record<string, Row[]> = {}) {
     pickup_event: [],
     manual_price: [],
     ...overrides,
-  });
+    },
+    broken,
+  );
 }
 
 function request(method: string, body: unknown) {
@@ -487,13 +498,39 @@ describe("POST /api/manual-price — pushed", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("beyond_window when the first night is past the push horizon", async () => {
+  it("beyond_window only when every night is past the push horizon", async () => {
     // today + 59 = 2026-11-13 is the last night the push covers.
-    expect((await (await post({ ...GOOD, dateFrom: "2026-11-13" })).json()).pushed).toBe("nudged");
-    expect((await (await post({ ...GOOD, dateFrom: "2026-11-14" })).json()).pushed).toBe(
-      "beyond_window",
-    );
+    const inside = await (await post({ ...GOOD, dateFrom: "2026-11-13" })).json();
+    expect(inside).toMatchObject({ pushed: "nudged", pushWindow: { now: 1, later: 0 } });
+    const beyond = await (await post({ ...GOOD, dateFrom: "2026-11-14" })).json();
+    expect(beyond).toMatchObject({ pushed: "beyond_window", pushWindow: { now: 0, later: 1 } });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts a range wholly inside the window as all now", async () => {
+    const body = await (await post({ ...GOOD, dateFrom: "2026-09-20", dateTo: "2026-09-24" })).json();
+    expect(body).toMatchObject({ pushed: "nudged", cells: 5, pushWindow: { now: 5, later: 0 } });
+  });
+
+  it("counts a range wholly beyond the window as all later, with no nudge", async () => {
+    const body = await (await post({ ...GOOD, dateFrom: "2026-12-01", dateTo: "2026-12-05" })).json();
+    expect(body).toMatchObject({ pushed: "beyond_window", cells: 5, pushWindow: { now: 0, later: 5 } });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("splits a straddling range per night and still nudges for the near ones", async () => {
+    // 11-12 and 11-13 are inside; 11-14 and 11-15 are past the horizon.
+    const body = await (await post({ ...GOOD, dateFrom: "2026-11-12", dateTo: "2026-11-15" })).json();
+    expect(body).toMatchObject({ pushed: "nudged", cells: 4, pushWindow: { now: 2, later: 2 } });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // Every night is still stored: the split is about the push, not the save.
+    expect(tables().get("manual_price")).toHaveLength(4);
+  });
+
+  it("keeps the simulation verdict for a straddling range, and still reports the split", async () => {
+    state.fake = seed({ hotel_settings: [{ hotel_id: HOTEL, simulation_mode: true }] });
+    const body = await (await post({ ...GOOD, dateFrom: "2026-11-12", dateTo: "2026-11-15" })).json();
+    expect(body).toMatchObject({ pushed: "simulation", pushWindow: { now: 2, later: 2 } });
   });
 
   it("a rejected nudge is swallowed", async () => {
@@ -501,6 +538,34 @@ describe("POST /api/manual-price — pushed", () => {
     const res = await post();
     expect(res.status).toBe(200);
     expect((await res.json()).pushed).toBe("nudged");
+  });
+});
+
+describe("POST /api/manual-price — before the table exists", () => {
+  // PostgREST reports an unknown table from its schema cache (PGRST205) — the
+  // shape the client actually sees; Postgres's own 42P01 is the other one.
+  it.each([
+    { code: "PGRST205", message: "Could not find the table 'public.manual_price' in the schema cache" },
+    { code: "42P01", message: 'relation "manual_price" does not exist' },
+  ])("503 with a plain sentence, not 500, and says so in the log ($code)", async (fault) => {
+    state.fake = seed({}, { manual_price: fault });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await post();
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "This needs a database update first." });
+    expect(String(errorSpy.mock.calls[0]?.[0])).toContain("manual_price_v1");
+    // Nothing downstream ran: no rules paused, no re-price, no nudge.
+    expect(tables().get("ladder_rule_state")).toEqual([]);
+    expect(evaluateHotel).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it("other database faults still read as a generic 500", async () => {
+    state.fake = seed({}, { manual_price: { code: "XX000", message: "disk on fire" } });
+    const res = await post();
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).not.toContain("disk");
   });
 });
 
