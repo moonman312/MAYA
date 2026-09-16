@@ -174,8 +174,12 @@ export function requestUserAgent(headers: Headers): string | null {
  * or when checkout asks, and their claimed properties are still parked, so the
  * accept route has no active property to name. This fills that in.
  *
+ * Only for properties the person still belongs to, and only once per property:
+ * a claim row already on file for any version means the claim was recorded,
+ * so re-accepting a later version never stamps a fresh 'claim' onto a property
+ * claimed months ago or one they have since left.
+ *
  * Call it only after an acceptance of the current versions has been recorded.
- * recordAcceptance skips rows already on file, so repeating it is harmless.
  * Never throws and never fails the acceptance: the property is context for the
  * record, and a failure is logged.
  */
@@ -193,7 +197,32 @@ export async function recordClaimedHotelAcceptances(
       logUnavailable("claimed_hotels", error);
       return;
     }
-    const hotelIds = [...new Set((data ?? []).map((c) => c.hotel_id).filter(Boolean).map(String))];
+    const claimed = [...new Set((data ?? []).map((c) => c.hotel_id).filter(Boolean).map(String))];
+    if (claimed.length === 0) return;
+
+    const { data: memberships, error: memberErr } = await admin
+      .from("hotel_memberships")
+      .select("hotel_id")
+      .eq("user_id", input.userId)
+      .eq("status", "active");
+    if (memberErr) {
+      logUnavailable("claimed_hotels", memberErr);
+      return;
+    }
+    const stillMember = new Set((memberships ?? []).map((m) => String(m.hotel_id)));
+
+    const { data: prior, error: priorErr } = await admin
+      .from("terms_acceptances")
+      .select("hotel_id")
+      .eq("user_id", input.userId)
+      .eq("context", "claim");
+    if (priorErr) {
+      logUnavailable("claimed_hotels", priorErr);
+      return;
+    }
+    const alreadyTied = new Set((prior ?? []).map((r) => String(r.hotel_id)));
+
+    const hotelIds = claimed.filter((id) => stillMember.has(id) && !alreadyTied.has(id));
     for (const hotelId of hotelIds) {
       const result = await recordAcceptance(admin, { ...input, context: "claim", hotelId });
       if (result === "unavailable") return;

@@ -291,6 +291,12 @@ describe("POST: recording an acceptance", () => {
       { hotel_id: "hotel-parked", claimed_by: USER, claimed_at: "2026-09-16T10:00:00Z" },
       { hotel_id: "hotel-open", claimed_by: USER, claimed_at: null },
       { hotel_id: "hotel-theirs", claimed_by: "someone-else", claimed_at: "2026-09-16T10:00:00Z" },
+      { hotel_id: "hotel-left", claimed_by: USER, claimed_at: "2026-09-01T10:00:00Z" },
+    ];
+    state.tables.hotel_memberships = [
+      { hotel_id: "hotel-parked", user_id: USER, status: "active" },
+      { hotel_id: "hotel-open", user_id: USER, status: "active" },
+      { hotel_id: "hotel-left", user_id: USER, status: "removed" },
     ];
     const res = await POST(postBody(valid, { "x-real-ip": "203.0.113.7", "user-agent": "Mozilla/5.0 (Macintosh)" }));
     expect(res.status).toBe(200);
@@ -304,6 +310,20 @@ describe("POST: recording an acceptance", () => {
     // Accepting again writes nothing new.
     await POST(postBody(valid));
     expect(state.tables.terms_acceptances).toHaveLength(2);
+  });
+
+  it("does not stamp a new claim row on re-accepting a later version", async () => {
+    state.tables.pms_marketplace_claims = [
+      { hotel_id: "hotel-parked", claimed_by: USER, claimed_at: "2026-03-01T10:00:00Z" },
+    ];
+    state.tables.hotel_memberships = [{ hotel_id: "hotel-parked", user_id: USER, status: "active" }];
+    // The claim was recorded under an older version.
+    state.tables.terms_acceptances = [accepted({ terms_version: "0", context: "claim", hotel_id: "hotel-parked" })];
+    expect((await POST(postBody(valid))).status).toBe(200);
+    expect(state.tables.terms_acceptances.map((r) => [r.context, r.terms_version])).toEqual([
+      ["claim", "0"],
+      ["reaccept", TERMS_VERSION],
+    ]);
   });
 
   it("asks them to try again when the write genuinely fails", async () => {
