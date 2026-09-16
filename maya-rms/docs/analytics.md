@@ -337,9 +337,10 @@ types and their classifications, closed periods and answered findings stay.
 "Seen a person" is the latest of the hotel's creation, the claim, any
 `product_events` row `product_event_by_person()` accepts (browser events, and
 the trigger events only a person causes: a claim, "Not now", a rule edit, a
-typed price, a room answer, an invite, a checkout), and any
-`platform_audit_events` row with an actor. Imports, syncs, PMS health, Stripe's
-own status changes and room truing never reset it. `select
+typed price, a room answer, an invite, a checkout), any
+`platform_audit_events` row with an actor, and the Marketplace audit lines
+(Connect App clicked again, claimed, paid). Imports, syncs, PMS health,
+Stripe's own status changes and room truing never reset it. `select
 never_paid_retention_sweep(p_dry_run => true)` lists what would go and writes
 nothing; the migration header lists every table kept and deleted.
 

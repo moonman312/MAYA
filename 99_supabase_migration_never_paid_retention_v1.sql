@@ -32,13 +32,16 @@
 --         room answer, an invite, a checkout),
 --       - platform_audit_events with an actor (actor_user_id, or the
 --         detail.actor_user_id that service-role writes carry for the person
---         who asked).
+--         who asked), and the Marketplace lines (detail.via
+--         'marketplace_flow_a'), each of which is someone clicking Connect
+--         App, claiming or paying, so an owner who reconnects before signing
+--         in again is not swept the same night.
 --     Nothing a background job writes counts: syncs, imports, the analysis,
 --     Stripe's own status changes, room truing and this sweep all leave the
 --     clock alone, or it would never run out;
---   * it has not already been swept since that activity (hotels.data_purged_at);
---   * nothing is working on it right now: no import job holding a live lease
---     and no sync holding the connection's lease. Such a property is left for
+--   * it has not already been swept since that activity (hotels.data_purged_at),
+--     or it has but reservations have been written back since;
+--   * no import job is holding a live lease on it. Such a property is left for
 --     tomorrow's run.
 -- A property that is paying, trialing, past due, or has ever paid is never
 -- touched, however long it has been quiet.
@@ -95,6 +98,14 @@
 -- live, and its owner reconnects from the Marketplace to import again. Only
 -- one sweep runs at a time (advisory lock).
 --
+-- Scheduled syncs never run for these properties (a pending connection is not
+-- claimed, and a lapsed subscription is dropped by the entitlement check, as
+-- are manual syncs), so the sync lease is not consulted: the scheduler leases
+-- a lapsed trial's connection every tick before dropping it, and treating that
+-- as a running sync would hold the property forever. If a sync slipped through
+-- anyway (the entitlement check fails open on a read error) and wrote rows
+-- after the purge, the next run finds them and deletes them again.
+--
 -- LEFT BEHIND AT CLOUDBEDS: the app-state webhook subscription, for the same
 -- reason the claim sweep leaves it (see its header): removing it needs the
 -- credential this deletes, and Cloudbeds answers a delete without deleting. A
@@ -102,8 +113,9 @@
 --
 -- A RETURNING OWNER signs in to the same property with the same rules. Their
 -- next Marketplace connect takes the reconnect branch (they are still a
--- member), stores a new credential, and the import is queued again when the
--- property is shown on the subscribe screen, or when it is paid for.
+-- member) and stores a new credential. The import then runs again: queued
+-- when the property is next on the subscribe screen, or, for an owner who paid
+-- first, picked up by the reconnect.
 --
 -- Service role only. Dry run lists what would go and writes nothing:
 --   select public.never_paid_retention_sweep(p_dry_run => true);
@@ -177,10 +189,14 @@ as $$
        from public.product_events e
       where e.hotel_id = h.id
         and public.product_event_by_person(e.event, e.source, e.properties)),
+    -- The Marketplace lines are written with no actor, but each is a person
+    -- clicking Connect App, claiming, or paying.
     (select max(a.created_at)
        from public.platform_audit_events a
       where a.hotel_id = h.id
-        and (a.actor_user_id is not null or nullif(a.detail->>'actor_user_id', '') is not null))
+        and (a.actor_user_id is not null
+             or nullif(a.detail->>'actor_user_id', '') is not null
+             or a.detail->>'via' = 'marketplace_flow_a'))
   )
     from public.hotels h
    where h.id = p_hotel_id
@@ -225,7 +241,10 @@ begin
   if v_last >= now() - p_idle then
     return 'recent_activity';
   end if;
-  if h.data_purged_at is not null and h.data_purged_at >= v_last then
+  -- Swept, and nothing written back since. Rows that reappear without a person
+  -- behind them can only be a stray sync, and they go again.
+  if h.data_purged_at is not null and h.data_purged_at >= v_last
+     and not exists (select 1 from public.reservations r where r.hotel_id = h.id) then
     return 'already_purged';
   end if;
   if exists (
@@ -234,12 +253,10 @@ begin
   ) then
     return 'import_running';
   end if;
-  if exists (
-    select 1 from public.pms_connections c
-     where c.hotel_id = h.id and c.sync_lease_until > now()
-  ) then
-    return 'sync_running';
-  end if;
+  -- No sync lease check: claim_pms_sync_batch leases a lapsed trial's
+  -- connection every tick before the entitlement check drops it, so a live
+  -- lease here almost never means a sync is running, and it would hold that
+  -- property forever.
   return null;
 end;
 $$;
