@@ -158,10 +158,11 @@ Deno.serve(async (req) => {
   }
   hotelIds = entitledHotelIds;
 
-  // A property that has connected but not paid yet is left completely alone:
-  // nothing is read from its PMS until a subscription lands. The claim RPC is
-  // meant to filter these out, but it only learned to after a migration, so the
-  // promise is enforced here too rather than resting on deploy order.
+  // A property that has connected but not paid yet is not synced, priced or
+  // pushed to until a subscription lands; the onboarding import is the one
+  // read it gets before that, through its own queue. The claim RPC is meant to
+  // filter these out, but it only learned to after a migration, so it is
+  // enforced here too rather than resting on deploy order.
   const { allowed: liveHotelIds, parked } = await splitByParked(supabase, "cloudbeds", hotelIds);
   if (parked.length > 0) {
     console.log(JSON.stringify({ fn: "cloudbeds-scheduled-sync", skippedParked: parked }));
