@@ -129,6 +129,13 @@ type UpdateFate = {
   loseResponse?: boolean;
 };
 
+/** The rows the stop check reads, for a property that is not simply paid and connected. */
+type PropertyWorld = {
+  hotel?: Record<string, unknown>;
+  connection?: Record<string, unknown> | null;
+  claim?: Record<string, unknown> | null;
+};
+
 /** A lease touch carries nothing but the lease itself. */
 function isTouch(patch: Record<string, unknown>): boolean {
   return Object.keys(patch).every((k) => k === "lease_expires_at" || k === "updated_at");
@@ -142,7 +149,12 @@ function isTouch(patch: Record<string, unknown>): boolean {
 function makeSupabaseStub(
   jobRow: Record<string, unknown> = { id: "job-1", status: "running" },
   fateOf: (patch: Record<string, unknown>) => UpdateFate | undefined = () => undefined,
+  world: PropertyWorld = {},
 ) {
+  // A paid hotel with a working connection unless a test says otherwise.
+  const hotelRow = { name: "X", timezone: "UTC", currency: "USD", is_active: true, ...world.hotel };
+  const connectionRow = world.connection === undefined ? { status: "connected" } : world.connection;
+  const claimRow = world.claim ?? null;
   const upserts: Array<{ table: string; rows: unknown[] }> = [];
   const updates: Array<{ table: string; patch: Record<string, unknown> }> = [];
   const sleep = (ms?: number) =>
@@ -198,9 +210,16 @@ function makeSupabaseStub(
         filters.push(["in", col, vals]);
         return chain;
       },
+      not: (col: string, op: string, val: unknown) => {
+        filters.push(["not", col, [op, val]]);
+        return chain;
+      },
+      limit: () => chain,
       maybeSingle: async () => {
-        if (name === "hotels") return { data: { name: "X", timezone: "UTC", currency: "USD" } };
+        if (name === "hotels") return { data: { ...hotelRow }, error: null };
         if (name === "import_jobs") return { data: { ...jobRow }, error: null };
+        if (name === "pms_connections") return { data: connectionRow, error: null };
+        if (name === "pms_marketplace_claims") return { data: claimRow, error: null };
         return { data: null };
       },
       upsert: async (rows: unknown) => {
@@ -867,5 +886,76 @@ describe("processJob phase order", () => {
     expect(await processJob(supabase, job, deps, 60_000)).toBe("completed");
     expect(vi.mocked(deps.analyze).mock.calls.map((c) => c[2])).toEqual(["early", "early", "final"]);
     expect(adapter.windows.length).toBe(fetchedBefore + 1);
+  });
+});
+
+/* ── Unpaid properties: imported at the claim, never made live by it ─────── */
+
+describe("processJob for a property nobody has paid for yet", () => {
+  const unpaid = (over: PropertyWorld = {}): PropertyWorld => ({
+    hotel: { is_active: false, setup_deferred_at: null },
+    connection: { status: "pending" },
+    claim: { token: "tok" },
+    ...over,
+  });
+
+  it("imports a claimed, unpaid property without touching its connection status or activating it", async () => {
+    const supabase = makeSupabaseStub(undefined, undefined, unpaid());
+    const adapter = makeAdapter(new Map([[0, [pageOfRows(20, "2026-01-10")]], [1, [[]]]]));
+    const deps = makeDeps(adapter);
+    const job = makeJob();
+
+    expect(await processJob(supabase, job, deps, 60_000)).toBe("completed");
+
+    expect(deps.runCurrentSync).toHaveBeenCalledOnce();
+    expect(job.rows_upserted).toBe(20);
+    // The only connection write is the finished-import stamp, and it names no status.
+    const connectionWrites = supabase.updates.filter((u) => u.table === "pms_connections");
+    expect(connectionWrites.length).toBeGreaterThan(0);
+    for (const w of connectionWrites) expect(w.patch).not.toHaveProperty("status");
+    // Nothing flips the hotel live: discover only backfills blank profile fields.
+    for (const w of supabase.updates.filter((u) => u.table === "hotels")) {
+      expect(w.patch).not.toHaveProperty("is_active");
+      expect(w.patch).not.toHaveProperty("setup_pending_at");
+    }
+  });
+
+  it.each([
+    ["the connection was disconnected", { connection: { status: "disconnected" } }, "disconnected"],
+    ["the connection row is gone", { connection: null }, "no PMS connection"],
+    ["the owner said not now", { hotel: { is_active: false, setup_deferred_at: "2026-09-16T10:00:00Z" } }, "Not now"],
+    ["the claim was swept", { claim: null }, "nobody has claimed"],
+  ])("stops, and never calls the PMS, when %s", async (_label, over, message) => {
+    const supabase = makeSupabaseStub(
+      { id: "job-1", status: "running", lease_expires_at: leaseIn(180_000) },
+      undefined,
+      unpaid(over as PropertyWorld),
+    );
+    const createAdapter = vi.fn(async () => makeAdapter(new Map()));
+    const deps = { ...makeDeps(makeAdapter(new Map())), createAdapter };
+    const job = makeJob({ lease_expires_at: String(supabase.jobRow.lease_expires_at) });
+
+    expect(await processJob(supabase, job, deps, 60_000)).toBe("stopped");
+
+    expect(createAdapter).not.toHaveBeenCalled();
+    expect(deps.runCurrentSync).not.toHaveBeenCalled();
+    expect(supabase.jobRow.status).toBe("canceled");
+    expect(supabase.jobRow.lease_expires_at).toBeNull();
+    expect(String(supabase.jobRow.last_error)).toContain(message);
+    // Stopped for good, not handed back for the next tick to claim again.
+    expect(supabase.jobRow.finished_at).toBeTruthy();
+  });
+
+  it("stops a paid property's job once its connection is disconnected", async () => {
+    const supabase = makeSupabaseStub(undefined, undefined, { connection: { status: "disconnected" } });
+    const deps = makeDeps(makeAdapter(new Map()));
+    expect(await processJob(supabase, makeJob(), deps, 60_000)).toBe("stopped");
+    expect(supabase.jobRow.status).toBe("canceled");
+  });
+
+  it("does not stop a paid property for lacking a Marketplace claim", async () => {
+    const supabase = makeSupabaseStub(undefined, undefined, { claim: null });
+    const deps = makeDeps(makeAdapter(new Map([[0, [[]]]])));
+    expect(await processJob(supabase, makeJob(), deps, 60_000)).toBe("completed");
   });
 });

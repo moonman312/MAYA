@@ -117,7 +117,69 @@ export type WorkerDeps = {
   todayYmd: () => string;
 };
 
-export type StepOutcome = "completed" | "budget_exhausted" | "failed";
+export type StepOutcome = "completed" | "budget_exhausted" | "failed" | "stopped";
+
+/**
+ * Why a job must not run. Mirrors import_job_stop_reason in
+ * 99_supabase_migration_import_at_claim_v1.sql, which cancels these before it
+ * claims; this copy catches a job claimed before the reason appeared, and a
+ * deploy that lands ahead of that file.
+ */
+export type ImportStopReason = "connection_missing" | "disconnected" | "deferred" | "claim_missing";
+
+const STOP_MESSAGES: Record<ImportStopReason, string> = {
+  connection_missing: "Stopped: the property has no PMS connection.",
+  disconnected: "Stopped: the PMS connection was disconnected.",
+  deferred: 'Stopped: the owner chose "Not now" for this property.',
+  claim_missing: "Stopped: nobody has claimed this property.",
+};
+
+function isMissingColumn(error: { code?: string; message?: string } | null, column: string): boolean {
+  return Boolean(error && (error.code === "42703" || (error.message ?? "").includes(column)));
+}
+
+/**
+ * A live hotel's import runs while its connection exists. An unpaid one is
+ * imported only as a claimed Marketplace property its owner has not put off,
+ * which is the only way one gets queued; anything else is not ours to read.
+ */
+export async function importStopReason(
+  supabase: SupabaseClient,
+  job: Pick<ImportJobRow, "hotel_id" | "pms_type">,
+): Promise<ImportStopReason | null> {
+  const { data: conn, error: connErr } = await supabase
+    .from("pms_connections")
+    .select("status")
+    .eq("hotel_id", job.hotel_id)
+    .eq("pms_type", job.pms_type)
+    .maybeSingle();
+  if (connErr) throw new Error(`pms_connections read failed: ${connErr.message}`);
+  if (!conn) return "connection_missing";
+  if (String(conn.status) === "disconnected") return "disconnected";
+
+  let hotelRes = await supabase
+    .from("hotels")
+    .select("is_active, setup_deferred_at")
+    .eq("id", job.hotel_id)
+    .maybeSingle();
+  if (hotelRes.error && isMissingColumn(hotelRes.error, "setup_deferred_at")) {
+    hotelRes = await supabase.from("hotels").select("is_active").eq("id", job.hotel_id).maybeSingle();
+  }
+  if (hotelRes.error) throw new Error(`hotels read failed: ${hotelRes.error.message}`);
+  const hotel = hotelRes.data as { is_active?: boolean; setup_deferred_at?: string | null } | null;
+  if (!hotel || hotel.is_active === true) return null;
+  if (hotel.setup_deferred_at) return "deferred";
+
+  const { data: claim, error: claimErr } = await supabase
+    .from("pms_marketplace_claims")
+    .select("token")
+    .eq("hotel_id", job.hotel_id)
+    .not("claimed_at", "is", null)
+    .limit(1)
+    .maybeSingle();
+  if (claimErr) throw new Error(`pms_marketplace_claims read failed: ${claimErr.message}`);
+  return claim ? null : "claim_missing";
+}
 
 const UPSERT_CHUNK = 500;
 export const LEASE_SECONDS = 180;
@@ -454,6 +516,29 @@ export async function processJob(
   let progressed = false;
 
   try {
+    const stop = await importStopReason(supabase, job);
+    if (stop) {
+      // Canceled rather than failed: nothing went wrong, and the checkpoint is
+      // kept so whatever lifts the reason (a reconnect, showing the property
+      // again, a payment) re-queues it and it carries on from here.
+      let q = supabase
+        .from("import_jobs")
+        .update({
+          status: "canceled",
+          finished_at: new Date().toISOString(),
+          lease_expires_at: null,
+          last_error: STOP_MESSAGES[stop],
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", job.id);
+      if (lease.token) q = q.eq("status", "running").lte("lease_expires_at", lease.token);
+      const { error } = await q;
+      if (error) throw new Error(`import_jobs update failed: ${error.message}`);
+      job.status = "canceled";
+      console.log(JSON.stringify({ fn: "processJob", jobId: job.id, hotelId: job.hotel_id, stopped: stop }));
+      return "stopped";
+    }
+
     const adapter = await deps.createAdapter(supabase, job.hotel_id, job.pms_type);
 
     while (withinBudget()) {
