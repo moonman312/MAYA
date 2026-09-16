@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Flow A end to end against the live Cloudbeds sandbox: a stateless grant ->
-// parked property -> claim ticket -> owner attached -> STILL parked, until a
-// subscription lands -> live, importing. Cleans up after itself.
+// parked property -> claim ticket -> owner attached and its import queued ->
+// STILL parked, until a subscription lands -> live, the same import adopted.
+// Cleans up after itself.
 //
 // The modules under test are server-only, which tsx cannot resolve on its own
 // (vitest aliases it to src/test/server-only-stub.ts). Run it as:
@@ -15,16 +16,20 @@
 // the /login?claim=... link, and leaves everything in place. Tear it down
 // afterwards with --cleanup <hotelId>.
 //
-// Last run 2026-09-15 against sandbox property 320691.
+// Last run 2026-09-16 against sandbox property 320691.
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { handleMarketplaceConnect } from "../src/lib/pms/marketplace-connect";
 import { redeemMarketplaceClaim } from "../src/lib/pms/marketplace-claim";
 import { activateMarketplaceHotelIfPending } from "../src/lib/pms/marketplace-activate";
+import { listUnpaidMarketplaceHotels } from "../src/lib/billing/pending-hotel";
 import { resolveOAuthCredentials } from "../supabase/functions/_shared/pms/oauth-credentials";
 
 const env = Object.fromEntries(readFileSync(new URL("../.env.local", import.meta.url), "utf8").split("\n").filter((l)=>l.includes("=")&&!l.startsWith("#")).map((l)=>[l.slice(0,l.indexOf("=")),l.slice(l.indexOf("=")+1).trim()]));
 for (const [k,v] of Object.entries(env)) process.env[k] ??= v as string;
+// The claim and the activation kick the deployed import worker. Its run would
+// race these checks and spend sandbox calls on a hotel deleted seconds later.
+delete process.env.ONBOARDING_CRON_SECRET;
 const admin = createClient(env.NEXT_PUBLIC_SUPABASE_URL!, env.SUPABASE_SERVICE_ROLE_KEY!, { auth:{persistSession:false} });
 
 const mintOnly = process.argv.includes("--mint-only");
@@ -94,10 +99,22 @@ console.log("STEP 2 — the parked hotel must be INERT until claimed");
   check(conn?.status === "pending", `connection is 'pending' (got ${conn?.status}) — the scheduler leaves those alone`);
 }
 
-console.log("STEP 3 — owner signs in and redeems the ticket: owned, still NOT live, nothing imported");
+console.log("STEP 3 — owner signs in and redeems the ticket: owned, still NOT live, its import queued");
 const { data: users } = await admin.auth.admin.listUsers({ perPage: 200 });
 const owner = users?.users.find((u) => u.email === "maya-test-owner@modern-hospitality-solutions.com");
 if (!owner) { console.log("FAILED — test owner account not found"); await cleanup(hotelId); process.exit(1); }
+{
+  // The claim imports whichever unpaid property the owner is shown first. A
+  // parked hotel left over from an earlier --mint-only would be that one, and
+  // this run would queue an import for it instead.
+  const leftovers = await listUnpaidMarketplaceHotels(admin as any, owner.id);
+  if (leftovers.length > 0) {
+    console.log(`FAILED — the test owner already has unpaid Marketplace properties: ${leftovers.map((h) => h.hotelId).join(", ")}. Clean them up with --cleanup first.`);
+    await cleanup(hotelId);
+    process.exit(1);
+  }
+}
+let claimJobId: string | null = null;
 {
   const res = await redeemMarketplaceClaim(token, owner.id);
   console.log("  ->", JSON.stringify(res));
@@ -105,13 +122,23 @@ if (!owner) { console.log("FAILED — test owner account not found"); await clea
   const { data: m } = await admin.from("hotel_memberships").select("role,status").eq("hotel_id", hotelId);
   const { data: st } = await admin.from("hotel_settings").select("simulation_mode").eq("hotel_id", hotelId).maybeSingle();
   const { data: conn } = await admin.from("pms_connections").select("status").eq("hotel_id", hotelId).maybeSingle();
-  const { data: jobs } = await admin.from("import_jobs").select("id").eq("hotel_id", hotelId);
+  const { data: jobs } = await admin.from("import_jobs").select("id,status,phase,requested_by").eq("hotel_id", hotelId);
+  const { data: ob } = await admin.from("onboarding_states").select("hotel_id").eq("hotel_id", hotelId).maybeSingle();
   check(res.ok, "claim redeemed");
   check(m?.[0]?.role === "hotel_admin" && m?.[0]?.status === "active", "owner attached as hotel_admin");
   check(st?.simulation_mode === true, "simulation mode on");
   check(h!.is_active === false && !!h!.setup_pending_at, "hotel still parked — it has not been paid for");
-  check(conn?.status === "pending", "connection still 'pending'");
-  check((jobs?.length ?? 0) === 0, "no import queued before payment");
+  check(conn?.status === "pending", "connection still 'pending' — the scheduler still leaves it alone");
+  check(
+    (jobs?.length ?? 0) === 1 && ["queued", "running"].includes(String(jobs?.[0]?.status)) && jobs?.[0]?.requested_by === owner.id,
+    `exactly one import queued at the claim (${jobs?.map((j) => `${j.status}/${j.phase}`).join(", ") || "none"})`,
+  );
+  check(!ob, "nothing shown to the owner yet — onboarding waits for payment");
+  claimJobId = jobs?.[0]?.id ?? null;
+
+  const again = await redeemMarketplaceClaim(token, owner.id);
+  const { data: jobs2 } = await admin.from("import_jobs").select("id").eq("hotel_id", hotelId);
+  check(again.ok && (jobs2?.length ?? 0) === 1, "claiming again (a refresh) queues nothing more");
 }
 
 console.log("STEP 4 — the subscription lands (what the Stripe webhook does) -> live, importing");
@@ -132,7 +159,8 @@ console.log("STEP 4 — the subscription lands (what the Stripe webhook does) ->
   check(h!.is_active === true && h!.setup_pending_at === null, "hotel live");
   check(conn?.status === "connected", "connection 'connected' — the scheduler will sync it now");
   check((jobs?.length ?? 0) === 1, `exactly one import job (${jobs?.[0]?.status}/${jobs?.[0]?.phase})`);
-  check(ob?.path === "guided" && !!ob?.import_job_id, "onboarding state points at the import");
+  check(r.activated === true && r.importJobId === claimJobId, "payment adopted the import the claim queued");
+  check(ob?.path === "guided" && ob?.import_job_id === claimJobId, "onboarding state points at that same job");
 
   const again = await activateMarketplaceHotelIfPending(admin as any, hotelId, { requestedBy: owner.id });
   const { data: jobs2 } = await admin.from("import_jobs").select("id").eq("hotel_id", hotelId);
