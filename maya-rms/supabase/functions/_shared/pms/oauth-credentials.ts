@@ -249,11 +249,16 @@ async function flagConnection(
   status: "degraded" | "error",
 ): Promise<void> {
   try {
+    // Only a connection already in service can be flagged. Marking a pending
+    // one degraded would hand it to the scheduler, whose next healthy sync
+    // clears degraded to connected: a property nobody has paid for, synced.
+    // A disconnected one would be resurrected the same way.
     await supabase
       .from("pms_connections")
       .update({ status, updated_at: new Date().toISOString() })
       .eq("hotel_id", hotelId)
-      .eq("pms_type", pmsType);
+      .eq("pms_type", pmsType)
+      .in("status", ["connected", "degraded", "error"]);
   } catch {
     // Advisory only — never fail a working sync over it.
   }

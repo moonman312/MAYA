@@ -32,6 +32,7 @@ function makeSupabaseStub(opts: { secret: Secret; setError?: () => string | null
   const vault: { secret: Secret | null } = { secret: opts.secret };
   const writes: Secret[] = [];
   const connectionUpdates: Secret[] = [];
+  const connectionUpdateGuards: unknown[][] = [];
 
   const supabase = {
     rpc: async (fn: string, args: Record<string, unknown>) => {
@@ -53,12 +54,16 @@ function makeSupabaseStub(opts: { secret: Secret; setError?: () => string | null
           return chain;
         },
         eq: () => chain,
+        in: (column: string, values: unknown[]) => {
+          if (name === "pms_connections" && column === "status") connectionUpdateGuards.push(values);
+          return chain;
+        },
       };
       return chain;
     },
   } as unknown as SupabaseClient;
 
-  return { supabase, vault, writes, connectionUpdates };
+  return { supabase, vault, writes, connectionUpdates, connectionUpdateGuards };
 }
 
 /** Token endpoint that rotates the refresh token and rejects a spent one. */
@@ -136,6 +141,9 @@ describe("resolveOAuthCredentials refresh safety", () => {
     expect(db.connectionUpdates).toEqual([
       expect.objectContaining({ status: "degraded" }),
     ]);
+    // A pending (unpaid) or disconnected connection must never be flagged into
+    // a state the scheduler would pick up.
+    expect(db.connectionUpdateGuards).toEqual([["connected", "degraded", "error"]]);
 
     writesFail = false;
     const second = await resolveOAuthCredentials(db.supabase, "hotel-wedge", "cloudbeds");

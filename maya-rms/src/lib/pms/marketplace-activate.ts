@@ -112,7 +112,21 @@ export async function activateMarketplaceHotelIfPending(
   if (activateErr) return { activated: false, reason: "failed", message: activateErr.message };
   if (!flipped || flipped.length === 0) {
     const { data: hotel } = await admin.from("hotels").select("id").eq("id", hotelId).maybeSingle();
-    return { activated: false, reason: hotel ? "already_active" : "not_found" };
+    if (!hotel) return { activated: false, reason: "not_found" };
+    // The hotel never stopped being active, but its connection may be parked:
+    // a lapsed customer who reconnected before paying again is held at pending
+    // so the scheduler leaves them alone. Payment lands here, not on the flip
+    // above, so release it or they stay unsynced until they reconnect by hand.
+    // Only pending moves; disconnected means they uninstalled, and that stands.
+    if (await hasEntitledSubscription(admin, hotelId)) {
+      await admin
+        .from("pms_connections")
+        .update({ status: "connected", updated_at: now })
+        .eq("hotel_id", hotelId)
+        .eq("pms_type", claim.pms_type)
+        .eq("status", "pending");
+    }
+    return { activated: false, reason: "already_active" };
   }
 
   await admin

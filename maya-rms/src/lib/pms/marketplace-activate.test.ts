@@ -181,6 +181,41 @@ describe("activateMarketplaceHotelIfPending", () => {
     expect(r).toMatchObject({ activated: true });
   });
 
+  it("releases a lapsed customer's parked connection when they pay again", async () => {
+    const f = fake({
+      ...claimed(),
+      hotels: [{ id: HOTEL, is_active: true, setup_pending_at: null }],
+      pms_connections: [{ hotel_id: HOTEL, pms_type: "cloudbeds", status: "pending" }],
+      hotel_subscriptions: [{ hotel_id: HOTEL, status: "active" }],
+    });
+    const r = await activateMarketplaceHotelIfPending(f.client, HOTEL);
+    expect(r).toEqual({ activated: false, reason: "already_active" });
+    expect(f.tables.get("pms_connections")![0]).toMatchObject({ status: "connected" });
+    expect(f.tables.get("import_jobs") ?? []).toHaveLength(0);
+  });
+
+  it("keeps a parked connection parked while nothing has been paid", async () => {
+    const f = fake({
+      ...claimed(),
+      hotels: [{ id: HOTEL, is_active: true, setup_pending_at: null }],
+      pms_connections: [{ hotel_id: HOTEL, pms_type: "cloudbeds", status: "pending" }],
+      hotel_subscriptions: [{ hotel_id: HOTEL, status: "canceled" }],
+    });
+    await activateMarketplaceHotelIfPending(f.client, HOTEL);
+    expect(f.tables.get("pms_connections")![0]).toMatchObject({ status: "pending" });
+  });
+
+  it("never reconnects a property that uninstalled, even once it has paid", async () => {
+    const f = fake({
+      ...claimed(),
+      hotels: [{ id: HOTEL, is_active: true, setup_pending_at: null }],
+      pms_connections: [{ hotel_id: HOTEL, pms_type: "cloudbeds", status: "disconnected" }],
+      hotel_subscriptions: [{ hotel_id: HOTEL, status: "active" }],
+    });
+    await activateMarketplaceHotelIfPending(f.client, HOTEL);
+    expect(f.tables.get("pms_connections")![0]).toMatchObject({ status: "disconnected" });
+  });
+
   it("reports a property that does not exist rather than inventing one", async () => {
     const f = fake({ pms_marketplace_claims: claimed().pms_marketplace_claims });
     const r = await activateMarketplaceHotelIfPending(f.client, HOTEL);
