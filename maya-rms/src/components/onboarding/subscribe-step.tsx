@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { askForTerms, TERMS_ACCEPTED_EVENT } from "@/components/legal/terms-gate";
+import { ManagePendingBillingLink } from "@/components/billing/billing-actions";
 import { track, useTrackOnce } from "@/lib/analytics/track";
 import { checkoutQuote, type CodeDisplayEffect } from "@/lib/billing/quote";
 import {
@@ -53,6 +54,7 @@ export function SubscribeStep({
   hotelId,
   progress,
   deferrable = false,
+  manageBilling = false,
 }: {
   cancelled?: boolean;
   pmsOptions?: SubscribePmsOption[];
@@ -75,6 +77,11 @@ export function SubscribeStep({
    * from Billing. Never for Flow B, whose placeholder has nowhere to go back to.
    */
   deferrable?: boolean;
+  /**
+   * Offer "Manage billing or cancel": a subscription already sits on a property
+   * that is not connected yet, which the billing page cannot reach.
+   */
+  manageBilling?: boolean;
 }) {
   const router = useRouter();
   const [roomsText, setRoomsText] = useState(initialRooms ? String(initialRooms) : "");
@@ -467,6 +474,11 @@ export function SubscribeStep({
                 {deferring ? "Setting it aside…" : "Not now — set this property up later"}
               </button>
               <NotNowHelp />
+            </p>
+          ) : null}
+          {manageBilling ? (
+            <p className="mt-4">
+              <ManagePendingBillingLink />
             </p>
           ) : null}
         </div>

@@ -59,6 +59,57 @@ export function ManageBillingButton() {
 }
 
 /**
+ * The same door for a property that has paid but not connected its PMS yet,
+ * which the billing page cannot show. The portal opens straight onto
+ * cancelling that property's subscription (api/billing/portal, pending).
+ */
+export function ManagePendingBillingLink() {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function open() {
+    setError(null);
+    setPending(true);
+    try {
+      const res = await fetch("/api/billing/portal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pending: true }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!res.ok || !body.url) {
+        setError(body.error ?? "Could not open the billing portal.");
+        setPending(false);
+        return;
+      }
+      track("billing.portal_opened");
+      window.location.href = body.url;
+    } catch {
+      setError("Could not reach the billing portal.");
+      setPending(false);
+    }
+  }
+
+  return (
+    <span className="text-xs text-slate-500">
+      <button
+        type="button"
+        onClick={open}
+        disabled={pending}
+        className="cursor-pointer underline decoration-slate-700 underline-offset-2 transition-colors hover:text-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {pending ? "Opening..." : "Manage billing or cancel"}
+      </button>
+      {error ? (
+        <span role="alert" className="ml-2 text-rose-300">
+          {error}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
  * Changing the billed room count.
  *
  * Shows what the new bill will be BEFORE the change is committed — quoting

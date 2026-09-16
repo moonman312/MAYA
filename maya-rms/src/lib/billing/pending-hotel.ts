@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import { isEntitledStatus } from "@/lib/billing/entitlement";
+import { roleRank } from "@/lib/roles";
 
 /**
  * The hotel row a payment attaches to before a property exists.
@@ -90,6 +91,75 @@ export async function findPendingHotelForUser(
     .maybeSingle();
 
   return paid ? String(paid.hotel_id) : ids[0];
+}
+
+export type PendingHotelSubscription = {
+  hotelId: string;
+  customerId: string;
+  subscriptionId: string;
+  status: string;
+};
+
+/** Stripe statuses with nothing left to cancel. */
+const ENDED_STATUSES = new Set(["canceled", "incomplete_expired"]);
+
+/**
+ * The subscription on the caller's own pending property, when there is one
+ * left to cancel.
+ *
+ * A Flow B owner pays (or starts a trial) before connecting a PMS, and the
+ * property stays inactive until the connect adopts it. The billing page only
+ * sees active properties, so without this an owner who stops at the connect
+ * step has no way to cancel online. Scoped the same way as
+ * findPendingHotelForUser, which only ever looks at the caller's own active
+ * memberships, plus the finance bar (General Manager and up) the portal holds
+ * everyone else to. Nothing here takes a hotel id from the browser.
+ *
+ * Service-role client. A failed read throws, like findPendingHotelForUser.
+ */
+export async function findPendingHotelSubscription(
+  admin: SupabaseClient,
+  userId: string,
+): Promise<PendingHotelSubscription | null> {
+  const hotelId = await findPendingHotelForUser(admin, userId);
+  if (!hotelId) return null;
+
+  const { data: membership, error: membershipErr } = await admin
+    .from("hotel_memberships")
+    .select("role")
+    .eq("hotel_id", hotelId)
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .limit(1)
+    .maybeSingle();
+  if (membershipErr) throw new Error(`Could not read membership: ${membershipErr.message}`);
+  if (!membership || roleRank(String(membership.role ?? "")) < roleRank("general_manager")) return null;
+
+  const { data: hotel, error: hotelErr } = await admin
+    .from("hotels")
+    .select("id, is_active, setup_pending_at")
+    .eq("id", hotelId)
+    .maybeSingle();
+  if (hotelErr) throw new Error(`Could not read property: ${hotelErr.message}`);
+  // A property the connect already adopted is managed from the billing page.
+  if (!hotel || hotel.is_active !== false || hotel.setup_pending_at == null) return null;
+
+  const { data: sub, error: subErr } = await admin
+    .from("hotel_subscriptions")
+    .select("stripe_customer_id, stripe_subscription_id, status")
+    .eq("hotel_id", hotelId)
+    .maybeSingle();
+  if (subErr) throw new Error(`Could not read subscription: ${subErr.message}`);
+  if (!sub?.stripe_customer_id || !sub.stripe_subscription_id) return null;
+  const status = String(sub.status ?? "");
+  if (ENDED_STATUSES.has(status)) return null;
+
+  return {
+    hotelId,
+    customerId: String(sub.stripe_customer_id),
+    subscriptionId: String(sub.stripe_subscription_id),
+    status,
+  };
 }
 
 export type UnpaidMarketplaceHotel = {

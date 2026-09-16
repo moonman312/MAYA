@@ -3,6 +3,9 @@
  * Checkout refuses a caller with no Terms on file (428, terms_required). The
  * subscribe screen has to bring the accept screen back rather than show that
  * as a dead-end error, and carry on to Stripe once they accept.
+ *
+ * And an owner whose property has a subscription but no PMS yet can reach
+ * cancellation from where they land (the connect step, or this screen).
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +18,7 @@ const { TERMS_ACCEPTED_EVENT, TERMS_REQUIRED_EVENT } = await import("@/component
 
 let checkoutAnswers: Array<() => Response> = [];
 let checkoutCalls = 0;
+let portalBodies: unknown[] = [];
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -22,7 +26,12 @@ const json = (body: unknown, status = 200) =>
 beforeEach(() => {
   checkoutCalls = 0;
   checkoutAnswers = [];
-  vi.stubGlobal("fetch", async (url: string) => {
+  portalBodies = [];
+  vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+    if (url === "/api/billing/portal") {
+      portalBodies.push(JSON.parse(String(init?.body)));
+      return json({ error: "not in a test" }, 502);
+    }
     if (url === "/api/billing/checkout") {
       const answer = checkoutAnswers[checkoutCalls] ?? (() => json({ error: "boom" }, 500));
       checkoutCalls += 1;
@@ -79,5 +88,25 @@ describe("SubscribeStep when the Terms are not on file", () => {
     await waitFor(() => expect(screen.getByText(/already has a subscription/)).not.toBeNull());
     expect(asked).not.toHaveBeenCalled();
     window.removeEventListener(TERMS_REQUIRED_EVENT, asked);
+  });
+});
+
+describe("SubscribeStep and a subscription already on the property", () => {
+  it("offers Manage billing or cancel only when asked to", async () => {
+    const { rerender } = render(<SubscribeStep />);
+    expect(screen.queryByRole("button", { name: "Manage billing or cancel" })).toBeNull();
+    rerender(<SubscribeStep manageBilling />);
+    expect(screen.getByRole("button", { name: "Manage billing or cancel" })).not.toBeNull();
+  });
+});
+
+describe("ConnectPms", () => {
+  it("offers Manage billing or cancel when the pending property has a subscription", async () => {
+    const { ConnectPms } = await import("./connect-pms");
+    const { rerender } = render(<ConnectPms pmsOptions={[]} />);
+    expect(screen.queryByRole("button", { name: "Manage billing or cancel" })).toBeNull();
+    rerender(<ConnectPms pmsOptions={[]} manageBilling />);
+    fireEvent.click(screen.getByRole("button", { name: "Manage billing or cancel" }));
+    await waitFor(() => expect(portalBodies).toEqual([{ pending: true }]));
   });
 });

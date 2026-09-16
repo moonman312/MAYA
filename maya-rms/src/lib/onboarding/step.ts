@@ -1,11 +1,15 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { findPendingHotelForUser, listUnpaidMarketplaceHotels } from "@/lib/billing/pending-hotel";
+import {
+  findPendingHotelForUser,
+  findPendingHotelSubscription,
+  listUnpaidMarketplaceHotels,
+} from "@/lib/billing/pending-hotel";
 import { isStripeConfigured } from "@/lib/billing/stripe";
 import { isEntitled } from "@/lib/billing/sync";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { activateMarketplaceHotelIfPending } from "@/lib/pms/marketplace-activate";
-import { createAdminClient } from "@/utils/supabase/admin";
+import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 
 /**
  * Where the signed-in user is in onboarding.
@@ -60,6 +64,30 @@ export async function resolveOnboardingStep(
   }
 
   return "subscribe";
+}
+
+/**
+ * Whether to offer "Manage billing or cancel" on an onboarding screen: the
+ * caller's still-pending property has a subscription left to cancel, which
+ * the billing page cannot reach until the PMS is connected. Any doubt hides
+ * the link rather than breaking the page it sits on; the portal route checks
+ * again on its own.
+ */
+export async function hasPendingSubscriptionToManage(supabase: SupabaseClient): Promise<boolean> {
+  if (!isStripeConfigured() || !isAdminConfigured()) return false;
+  const userId = await currentUserId(supabase);
+  if (!userId) return false;
+  try {
+    return (await findPendingHotelSubscription(createAdminClient(), userId)) != null;
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "hasPendingSubscriptionToManage",
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+    return false;
+  }
 }
 
 /** True for a Marketplace property (activated now, or already), false for Flow B's placeholder. */
