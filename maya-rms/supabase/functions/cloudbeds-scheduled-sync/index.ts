@@ -18,6 +18,7 @@ import { createCloudbedsRateAdapter } from "../_shared/cloudbeds/rate-push.ts";
 import { pushRatesForHotel } from "../_shared/pms/rate-push.ts";
 import { ensureBaseRateCalendar } from "../_shared/pms/base-rate-calendar.ts";
 import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
+import { splitByParked } from "../_shared/pms/parked.ts";
 import { recordRoomCount } from "../_shared/billing/room-count.ts";
 
 /**
@@ -155,6 +156,16 @@ Deno.serve(async (req) => {
     console.log(JSON.stringify({ fn: "cloudbeds-scheduled-sync", skippedUnpaid: blocked }));
   }
   hotelIds = entitledHotelIds;
+
+  // A property that has connected but not paid yet is left completely alone:
+  // nothing is read from its PMS until a subscription lands. The claim RPC is
+  // meant to filter these out, but it only learned to after a migration, so the
+  // promise is enforced here too rather than resting on deploy order.
+  const { allowed: liveHotelIds, parked } = await splitByParked(supabase, "cloudbeds", hotelIds);
+  if (parked.length > 0) {
+    console.log(JSON.stringify({ fn: "cloudbeds-scheduled-sync", skippedParked: parked }));
+  }
+  hotelIds = liveHotelIds;
 
   const results: Array<{
     hotelId: string;
