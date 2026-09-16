@@ -1,6 +1,8 @@
 "use client";
 
 import { MayaLockup } from "@/components/brand/logo";
+import { TermsConsent } from "@/components/legal/terms-consent";
+import { signupAcceptanceMetadata } from "@/lib/legal/versions";
 import { createClient } from "@/utils/supabase/client";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import Link from "next/link";
@@ -24,6 +26,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [agreed, setAgreed] = useState(false);
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -80,6 +83,7 @@ export default function LoginPage() {
     setError(null);
     setPassword("");
     setConfirm("");
+    setAgreed(false);
   }
 
   async function onSignIn(e: FormEvent) {
@@ -106,6 +110,7 @@ export default function LoginPage() {
 
   async function onSignUp(e: FormEvent) {
     e.preventDefault();
+    if (!agreed) return;
     if (password !== confirm) {
       setError("Passwords don't match.");
       return;
@@ -114,9 +119,15 @@ export default function LoginPage() {
     setError(null);
     try {
       const supabase = createClient();
+      // The tick rides in the user metadata because a confirmation email may
+      // stand between this form and any session: the database records it as
+      // the user is created, so nothing depends on them ever coming back.
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          data: signupAcceptanceMetadata(claim ? "claim" : "signup", navigator.userAgent),
+        },
       });
       if (signUpError) {
         setError(signUpError.message);
@@ -127,7 +138,7 @@ export default function LoginPage() {
       // identities list is how that case is recognized.
       if (data.user && (data.user.identities?.length ?? 0) === 0) {
         switchMode("signin");
-        setError("That email already has an account — sign in instead.");
+        setError("That email already has an account. Sign in instead.");
         return;
       }
       if (data.session) {
@@ -186,7 +197,7 @@ export default function LoginPage() {
                     ? "Your Cloudbeds connection is active again. Sign in to pick up where you left off."
                     : mode === "signin"
                       ? "Welcome back."
-                      : "Set a password and you're on your way — your property comes next."}
+                      : "Set a password and you're on your way. Your property comes next."}
               </p>
 
               {!configured && (
@@ -249,7 +260,12 @@ export default function LoginPage() {
                     autoComplete="new-password"
                     className={inputClass}
                   />
-                  <button type="submit" disabled={loading || !configured} className={primaryClass}>
+                  <TermsConsent checked={agreed} onChange={setAgreed} disabled={loading} />
+                  <button
+                    type="submit"
+                    disabled={loading || !configured || !agreed}
+                    className={primaryClass}
+                  >
                     {loading ? "Working..." : "Create Account"}
                   </button>
                 </form>

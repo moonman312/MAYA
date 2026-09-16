@@ -850,18 +850,20 @@ describe("a Marketplace group, paid for one property at a time", () => {
     expect((state.sessions[1].metadata as Row).hotel_id).toBe("hotel-b");
   });
 
-  it("asks Checkout to list the card the first sibling saved, and offers to keep the next one", async () => {
+  it("asks Checkout to list the card the first sibling saved, without a second consent box", async () => {
     // Sharing the customer is not enough. Subscription-mode Checkout stamps the
     // card it collects allow_redisplay=limited, and Checkout only lists `always`
     // by default — so without this the second sibling's Checkout showed an
     // empty card form and no sign of the card just entered
     // (docs.stripe.com/payments/checkout/save-during-payment?payment-ui=stripe-hosted).
+    // The consent to offer it again is in the Terms of Service accepted at
+    // signup, so Checkout's own "save for later" box must not come back: toEqual
+    // fails on a payment_method_save key as well as on a missing filter.
     seed(group);
     expect((await pay("hotel-a")).status).toBe(200);
     expect((await pay("hotel-b")).status).toBe(200);
     for (const s of state.sessions) {
       expect(s.saved_payment_method_options).toEqual({
-        payment_method_save: "enabled",
         allow_redisplay_filters: ["always", "limited"],
       });
     }

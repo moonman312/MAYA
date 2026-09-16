@@ -4,8 +4,8 @@
  * Card details never touch MAYA — Checkout is hosted by Stripe, which is what
  * keeps this out of PCI scope. The room count comes from the owner (the PMS
  * import hasn't run yet at this point in the flow); what the import later
- * measures is reconciled separately and surfaced for a human, never silently
- * re-charged.
+ * measures is reconciled separately (lib/billing/room-truing.ts), which tells
+ * the owner before it ever raises the billed quantity.
  *
  * This is the FIRST step of onboarding now, so it usually runs before any
  * property exists. hotel_id in the subscription's metadata is the only thing
@@ -367,6 +367,9 @@ export async function POST(request: Request) {
         : {}),
       // Recorded per subscription, with the version they actually saw — a claim
       // that someone agreed is worth only as much as the record behind it.
+      // Acceptance now happens once, on the account form (terms_acceptances),
+      // so MAYA_TERMS_URL is meant to stay unset: set, it puts a second terms
+      // checkbox in front of the card form.
       ...(termsUrl() ? { consent_collection: { terms_of_service: "required" as const } } : {}),
       // Collected even for trials: it is what makes billing start on its own
       // when the trial ends, and what the 48-hour re-check has to check.
@@ -386,22 +389,23 @@ export async function POST(request: Request) {
       // cards stamped `always` unless told otherwise
       // (docs.stripe.com/payments/checkout/save-during-payment?payment-ui=stripe-hosted,
       // "Save payment methods to prefill in Checkout"; docs.stripe.com/payments/existing-customers,
-      // "Display additional saved payment methods"). So, for these sessions only:
-      //  - payment_method_save shows a "save for later" box; ticked, the card is
-      //    stamped `always` and shows everywhere by default. That box is the
-      //    owner's consent, which the network rules want before a card is shown
-      //    again.
-      //  - allow_redisplay_filters widens the list to `limited` as well, so the
-      //    card from a sibling paid before the box existed, or with it unticked,
-      //    is still offered. The filter replaces the default, so `always` has to
-      //    be restated. It only changes what is listed to the same owner paying
-      //    for their own group; nothing is charged without them choosing it.
+      // "Display additional saved payment methods"). So, for these sessions only,
+      // allow_redisplay_filters widens the list to `limited` as well. The filter
+      // replaces the default, so `always` has to be restated.
+      //
+      // Stripe leaves consent to show a saved card again to us, for that
+      // specific future use. That consent is in the Terms of Service the owner
+      // accepted to create the account, which authorize storing the card and
+      // offering it for any property on the account. So Checkout's own "save
+      // for later" box (payment_method_save) is deliberately not sent: it would
+      // be a second checkbox asking the same thing, in front of the card form.
+      // This only changes what is listed to the same owner paying for their
+      // own group; nothing is charged without them choosing it.
       // Flow B is one property, one customer, one card: nothing to redisplay,
       // so it sends none of this and its session is unchanged.
       ...(marketplace
         ? {
             saved_payment_method_options: {
-              payment_method_save: "enabled" as const,
               allow_redisplay_filters: ["always" as const, "limited" as const],
             },
           }
