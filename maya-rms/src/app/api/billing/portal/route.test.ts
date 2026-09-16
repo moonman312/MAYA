@@ -354,6 +354,42 @@ describe("a property that has paid but not connected its PMS yet", () => {
     expect(state.portalCalls).toHaveLength(0);
   });
 
+  it("offers nothing to cancel on a subscription already set to cancel", async () => {
+    const t = own();
+    (t.hotel_subscriptions[0] as Row).cancel_at_period_end = true;
+    state.tables = t;
+    expect((await POST(portalRequest({ pending: true }))).status).toBe(404);
+    expect(state.portalCalls).toHaveLength(0);
+  });
+
+  it("finds the live subscription beside a canceled one, and prefers the property on screen", async () => {
+    const OLD = "hotel-old";
+    const NEW = "hotel-new";
+    const t = {
+      hotels: [
+        { ...pendingHotel(OLD), created_at: "2026-09-01T00:00:00Z" },
+        { ...pendingHotel(PENDING), created_at: "2026-09-02T00:00:00Z" },
+        { ...pendingHotel(NEW), created_at: "2026-09-03T00:00:00Z" },
+      ],
+      hotel_memberships: [OLD, PENDING, NEW].map((id) => ({ hotel_id: id, user_id: USER, role: "hotel_admin", status: "active" })),
+      hotel_subscriptions: [
+        subscribed(OLD, { stripe_customer_id: "cus_pending", status: "canceled" }),
+        subscribed(PENDING, { stripe_customer_id: "cus_pending", status: "trialing" }),
+        subscribed(NEW, { stripe_customer_id: "cus_pending", status: "active" }),
+      ],
+    };
+    state.tables = t;
+    expect((await POST(portalRequest({ pending: true }))).status).toBe(200);
+    expect(lastCall().flow_data).toMatchObject({ subscription_cancel: { subscription: `sub_${PENDING}` } });
+
+    expect((await POST(portalRequest({ pending: true, hotelId: NEW }))).status).toBe(200);
+    expect(lastCall().flow_data).toMatchObject({ subscription_cancel: { subscription: `sub_${NEW}` } });
+
+    // Pointing at a property that is not theirs picks nothing of anyone else's.
+    expect((await POST(portalRequest({ pending: true, hotelId: "hotel-a-stranger" }))).status).toBe(200);
+    expect(lastCall().flow_data).toMatchObject({ subscription_cancel: { subscription: `sub_${PENDING}` } });
+  });
+
   it("never falls back to the full portal when Stripe refuses the cancel flow", async () => {
     state.tables = own();
     state.portalPlan = [

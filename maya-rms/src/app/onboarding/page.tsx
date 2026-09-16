@@ -3,7 +3,7 @@ import { SubscribeStep, type SubscribePmsOption } from "@/components/onboarding/
 import { listUnpaidMarketplaceHotels } from "@/lib/billing/pending-hotel";
 import { listPmsSignupGates } from "@/lib/billing/pms-gates";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
-import { hasPendingSubscriptionToManage, resolveOnboardingStep } from "@/lib/onboarding/step";
+import { pendingBillingOffer, resolveOnboardingStep } from "@/lib/onboarding/step";
 import { marketplaceTrialDays } from "@/lib/pms/marketplace-activate";
 import { listPmsStatuses } from "@/lib/pms/registry";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -37,10 +37,10 @@ export default async function OnboardingPage({
   if (step === "choose") return <PathChoice />;
 
   // A subscription can already exist here: one whose payment is failing, or a
-  // Marketplace property still waiting on activation.
-  const manageBilling = await hasPendingSubscriptionToManage(supabase);
-
+  // Marketplace property still waiting on activation. On a Marketplace arrival
+  // the property on screen is the one the link should manage, when it has one.
   const marketplace = await marketplaceArrival(supabase);
+  const manageBilling = await pendingBillingOffer(supabase, marketplace?.hotelId);
   if (marketplace) {
     const days = marketplace.trialDays;
     const name = marketplace.propertyName ?? "Your property";

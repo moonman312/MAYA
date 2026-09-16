@@ -66,27 +66,40 @@ export async function resolveOnboardingStep(
   return "subscribe";
 }
 
+/** What an onboarding screen says about a subscription on a not-yet-connected property. */
+export type PendingBillingOffer = {
+  hotelId: string;
+  /** Null for Flow B's placeholder, which has no real name yet. */
+  name: string | null;
+  /** Already set to cancel: say so instead of offering the link again. */
+  cancelAtPeriodEnd: boolean;
+};
+
 /**
- * Whether to offer "Manage billing or cancel" on an onboarding screen: the
- * caller's still-pending property has a subscription left to cancel, which
- * the billing page cannot reach until the PMS is connected. Any doubt hides
- * the link rather than breaking the page it sits on; the portal route checks
- * again on its own.
+ * Whether to offer "Manage billing or cancel" on an onboarding screen: one of
+ * the caller's still-pending properties has a subscription, which the billing
+ * page cannot reach until the PMS is connected. preferHotelId is the property
+ * on screen, when the screen shows one. Any doubt hides the link rather than
+ * breaking the page it sits on; the portal route checks again on its own.
  */
-export async function hasPendingSubscriptionToManage(supabase: SupabaseClient): Promise<boolean> {
-  if (!isStripeConfigured() || !isAdminConfigured()) return false;
+export async function pendingBillingOffer(
+  supabase: SupabaseClient,
+  preferHotelId?: string | null,
+): Promise<PendingBillingOffer | null> {
+  if (!isStripeConfigured() || !isAdminConfigured()) return null;
   const userId = await currentUserId(supabase);
-  if (!userId) return false;
+  if (!userId) return null;
   try {
-    return (await findPendingHotelSubscription(createAdminClient(), userId)) != null;
+    const found = await findPendingHotelSubscription(createAdminClient(), userId, preferHotelId);
+    return found ? { hotelId: found.hotelId, name: found.name, cancelAtPeriodEnd: found.cancelAtPeriodEnd } : null;
   } catch (e) {
     console.error(
       JSON.stringify({
-        fn: "hasPendingSubscriptionToManage",
+        fn: "pendingBillingOffer",
         error: e instanceof Error ? e.message : String(e),
       }),
     );
-    return false;
+    return null;
   }
 }
 

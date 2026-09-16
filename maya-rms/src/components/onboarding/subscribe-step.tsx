@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { askForTerms, TERMS_ACCEPTED_EVENT } from "@/components/legal/terms-gate";
 import { ManagePendingBillingLink } from "@/components/billing/billing-actions";
+import type { PendingBillingOffer } from "@/lib/onboarding/step";
 import { track, useTrackOnce } from "@/lib/analytics/track";
 import { checkoutQuote, type CodeDisplayEffect } from "@/lib/billing/quote";
 import {
@@ -54,7 +55,7 @@ export function SubscribeStep({
   hotelId,
   progress,
   deferrable = false,
-  manageBilling = false,
+  manageBilling = null,
 }: {
   cancelled?: boolean;
   pmsOptions?: SubscribePmsOption[];
@@ -81,7 +82,7 @@ export function SubscribeStep({
    * Offer "Manage billing or cancel": a subscription already sits on a property
    * that is not connected yet, which the billing page cannot reach.
    */
-  manageBilling?: boolean;
+  manageBilling?: PendingBillingOffer | null;
 }) {
   const router = useRouter();
   const [roomsText, setRoomsText] = useState(initialRooms ? String(initialRooms) : "");
@@ -478,7 +479,7 @@ export function SubscribeStep({
           ) : null}
           {manageBilling ? (
             <p className="mt-4">
-              <ManagePendingBillingLink />
+              <ManagePendingBillingLink {...manageBilling} />
             </p>
           ) : null}
         </div>

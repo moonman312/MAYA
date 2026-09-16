@@ -1,13 +1,13 @@
 import { listPmsStatuses } from "@/lib/pms/registry";
 import { ConnectPms } from "@/components/onboarding/connect-pms";
-import { hasPendingSubscriptionToManage, resolveOnboardingStep } from "@/lib/onboarding/step";
+import { pendingBillingOffer, resolveOnboardingStep, type PendingBillingOffer } from "@/lib/onboarding/step";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 export default async function ConnectPage() {
-  let manageBilling = false;
+  let manageBilling: PendingBillingOffer | null = null;
   if (isSupabaseConfigured()) {
     const supabase = createClient(await cookies());
     const step = await resolveOnboardingStep(supabase);
@@ -17,7 +17,7 @@ export default async function ConnectPage() {
     // user rather than a hotel and connecting a second time would build a second
     // property beside the one they paid for.
     if (step !== "connect") redirect("/onboarding");
-    manageBilling = await hasPendingSubscriptionToManage(supabase);
+    manageBilling = await pendingBillingOffer(supabase);
   }
 
   return <ConnectPms pmsOptions={listPmsStatuses()} manageBilling={manageBilling} />;

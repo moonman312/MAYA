@@ -37,8 +37,10 @@ import type Stripe from "stripe";
  * See pendingHotelPortal below.
  */
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => null)) as { pending?: unknown } | null;
-  if (body?.pending === true) return pendingHotelPortal();
+  const body = (await request.json().catch(() => null)) as { pending?: unknown; hotelId?: unknown } | null;
+  if (body?.pending === true) {
+    return pendingHotelPortal(typeof body.hotelId === "string" ? body.hotelId : null);
+  }
 
   // General Manager and up: the same bar as taking pricing live and holding the
   // PMS connection (see canManageFinances in lib/roles.ts).
@@ -138,12 +140,12 @@ export async function POST(request: Request) {
  * cannot reach it.
  *
  * The property is always the caller's own (findPendingHotelSubscription reads
- * only their memberships; no id comes from the browser), and the session is
- * always narrowed to cancelling that one subscription. A Marketplace property
+ * only their memberships; the browser's hotelId only picks among those), and
+ * the session is always narrowed to cancelling that one subscription. A Marketplace property
  * waiting on activation shares its owner's customer with siblings, and the
  * full portal is never the fallback for the same reason as above.
  */
-async function pendingHotelPortal(): Promise<NextResponse> {
+async function pendingHotelPortal(preferHotelId: string | null): Promise<NextResponse> {
   if (!isSupabaseConfigured()) {
     return NextResponse.json({ error: "Supabase is not configured." }, { status: 503 });
   }
@@ -160,7 +162,7 @@ async function pendingHotelPortal(): Promise<NextResponse> {
 
   let pending: Awaited<ReturnType<typeof findPendingHotelSubscription>>;
   try {
-    pending = await findPendingHotelSubscription(createAdminClient(), user.id);
+    pending = await findPendingHotelSubscription(createAdminClient(), user.id, preferHotelId);
   } catch (e) {
     console.error(
       JSON.stringify({ fn: "billingPortal", step: "pending_lookup", error: e instanceof Error ? e.message : String(e) }),
@@ -169,6 +171,14 @@ async function pendingHotelPortal(): Promise<NextResponse> {
   }
   if (!pending) {
     return NextResponse.json({ error: "There is no subscription waiting on setup to manage." }, { status: 404 });
+  }
+  // Stripe will not open a cancel flow on a subscription already set to
+  // cancel, and the owner would see the same error on every click.
+  if (pending.cancelAtPeriodEnd) {
+    return NextResponse.json(
+      { error: "This subscription is already set to cancel at the end of the period." },
+      { status: 404 },
+    );
   }
 
   // Back to onboarding, which resolves wherever they now are.

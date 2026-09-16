@@ -91,12 +91,26 @@ describe("SubscribeStep when the Terms are not on file", () => {
   });
 });
 
+const offer = { hotelId: "hotel-pending", name: null, cancelAtPeriodEnd: false };
+
 describe("SubscribeStep and a subscription already on the property", () => {
   it("offers Manage billing or cancel only when asked to", async () => {
     const { rerender } = render(<SubscribeStep />);
     expect(screen.queryByRole("button", { name: "Manage billing or cancel" })).toBeNull();
-    rerender(<SubscribeStep manageBilling />);
+    rerender(<SubscribeStep manageBilling={offer} />);
     expect(screen.getByRole("button", { name: "Manage billing or cancel" })).not.toBeNull();
+  });
+
+  it("names the property, and sends which one it is", async () => {
+    render(<SubscribeStep manageBilling={{ ...offer, hotelId: "hotel-b", name: "Driftwood Inn" }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Manage billing or cancel for Driftwood Inn" }));
+    await waitFor(() => expect(portalBodies).toEqual([{ pending: true, hotelId: "hotel-b" }]));
+  });
+
+  it("says it is already cancelling instead of offering the link again", () => {
+    render(<SubscribeStep manageBilling={{ ...offer, cancelAtPeriodEnd: true }} />);
+    expect(screen.queryByRole("button", { name: /Manage billing or cancel/ })).toBeNull();
+    expect(screen.getByText("Cancels at the end of the period")).not.toBeNull();
   });
 });
 
@@ -105,8 +119,8 @@ describe("ConnectPms", () => {
     const { ConnectPms } = await import("./connect-pms");
     const { rerender } = render(<ConnectPms pmsOptions={[]} />);
     expect(screen.queryByRole("button", { name: "Manage billing or cancel" })).toBeNull();
-    rerender(<ConnectPms pmsOptions={[]} manageBilling />);
+    rerender(<ConnectPms pmsOptions={[]} manageBilling={offer} />);
     fireEvent.click(screen.getByRole("button", { name: "Manage billing or cancel" }));
-    await waitFor(() => expect(portalBodies).toEqual([{ pending: true }]));
+    await waitFor(() => expect(portalBodies).toEqual([{ pending: true, hotelId: "hotel-pending" }]));
   });
 });

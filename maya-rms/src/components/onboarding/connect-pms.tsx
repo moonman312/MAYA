@@ -1,6 +1,7 @@
 "use client";
 
 import { ManagePendingBillingLink } from "@/components/billing/billing-actions";
+import type { PendingBillingOffer } from "@/lib/onboarding/step";
 import type { PmsRegistryStatus } from "@/lib/pms/registry";
 
 /**
@@ -15,10 +16,10 @@ import type { PmsRegistryStatus } from "@/lib/pms/registry";
  */
 export function ConnectPms({
   pmsOptions,
-  manageBilling = false,
+  manageBilling = null,
 }: {
   pmsOptions: PmsRegistryStatus[];
-  manageBilling?: boolean;
+  manageBilling?: PendingBillingOffer | null;
 }) {
   const available = pmsOptions.filter((p) => p.onboardingSupported && p.configured);
   const comingSoon = pmsOptions.filter((p) => !p.onboardingSupported || !p.configured);
@@ -98,7 +99,7 @@ export function ConnectPms({
 
       {manageBilling ? (
         <p className="mt-8">
-          <ManagePendingBillingLink />
+          <ManagePendingBillingLink {...manageBilling} />
         </p>
       ) : null}
     </div>
