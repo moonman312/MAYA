@@ -59,7 +59,7 @@ export async function POST(request: Request) {
 
   if (!sub?.stripe_customer_id) {
     return NextResponse.json(
-      { error: "This property has no billing account — it was not set up through checkout." },
+      { error: "This property has no billing account. It was not set up through checkout." },
       { status: 404 },
     );
   }
@@ -171,6 +171,13 @@ async function pendingHotelPortal(preferHotelId: string | null): Promise<NextRes
   }
   if (!pending) {
     return NextResponse.json({ error: "There is no subscription waiting on setup to manage." }, { status: 404 });
+  }
+  // The button names one property. If that property is no longer the one this
+  // lookup lands on (it was connected, or its subscription ended, in another
+  // tab), opening a cancel flow for whichever parked property is left would let
+  // an owner cancel the wrong one from a screen that shows the plan, not the hotel.
+  if (preferHotelId && pending.hotelId !== preferHotelId) {
+    return NextResponse.json({ error: "This property's billing has changed. Reload the page." }, { status: 409 });
   }
   // Stripe will not open a cancel flow on a subscription already set to
   // cancel, and the owner would see the same error on every click.

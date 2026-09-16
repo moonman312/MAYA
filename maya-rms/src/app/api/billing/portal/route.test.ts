@@ -385,9 +385,12 @@ describe("a property that has paid but not connected its PMS yet", () => {
     expect((await POST(portalRequest({ pending: true, hotelId: NEW }))).status).toBe(200);
     expect(lastCall().flow_data).toMatchObject({ subscription_cancel: { subscription: `sub_${NEW}` } });
 
-    // Pointing at a property that is not theirs picks nothing of anyone else's.
-    expect((await POST(portalRequest({ pending: true, hotelId: "hotel-a-stranger" }))).status).toBe(200);
-    expect(lastCall().flow_data).toMatchObject({ subscription_cancel: { subscription: `sub_${PENDING}` } });
+    // A property that is not one of theirs (or no longer pending) opens nothing:
+    // falling back to another parked property would cancel the wrong one.
+    const before = state.portalCalls.length;
+    expect((await POST(portalRequest({ pending: true, hotelId: "hotel-a-stranger" }))).status).toBe(409);
+    expect((await POST(portalRequest({ pending: true, hotelId: OLD }))).status).toBe(409);
+    expect(state.portalCalls).toHaveLength(before);
   });
 
   it("never falls back to the full portal when Stripe refuses the cancel flow", async () => {

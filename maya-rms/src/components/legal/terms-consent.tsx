@@ -32,7 +32,7 @@ export function TermsConsent({
         <a href={TERMS_URL} target="_blank" rel="noopener noreferrer" className={link}>
           Terms of Service
         </a>{" "}
-        and{" "}
+        and acknowledge the{" "}
         <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer" className={link}>
           Privacy Policy
         </a>
