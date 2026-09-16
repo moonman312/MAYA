@@ -4,8 +4,8 @@
  * Card details never touch MAYA — Checkout is hosted by Stripe, which is what
  * keeps this out of PCI scope. The room count comes from the owner (Flow B has
  * no import yet, and a Marketplace one may still be running); what the import
- * measures is reconciled separately and surfaced for a human, never silently
- * re-charged.
+ * measures is reconciled separately (lib/billing/room-truing.ts), which tells
+ * the owner before it ever raises the billed quantity.
  *
  * This is the FIRST step of onboarding now, so it usually runs before any
  * property exists. hotel_id in the subscription's metadata is the only thing
@@ -17,7 +17,10 @@
 import { hasHotelRank } from "@/lib/require-supabase-hotel";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { roleLabel, roleRank } from "@/lib/roles";
-import { createAdminClient } from "@/utils/supabase/admin";
+import { adoptSignupAcceptance, currentAcceptance } from "@/lib/legal/acceptance";
+import { metadataAcceptsCurrent } from "@/lib/legal/versions";
+import { checkoutDisclosure } from "@/lib/billing/checkout-disclosure";
+import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { findPendingHotelForUser, provisionPendingHotel } from "@/lib/billing/pending-hotel";
@@ -29,6 +32,7 @@ import { findMarketplaceClaimForHotel, marketplaceTrialDays } from "@/lib/pms/ma
 import { isEntitled } from "@/lib/billing/sync";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { isBillableRoomCount, MAX_ROOMS, type BillingInterval } from "@/lib/billing/tiers";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -72,6 +76,18 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+
+  // The card form's disclosure points at the Terms, so they must be on file
+  // first. Only a positive "not accepted" stops anyone: an unreadable table or
+  // a database blip lets checkout through, loudly, because a hotel unable to
+  // pay is the worse failure. The accept screen fails open for the same reason
+  // (see /api/legal/acceptance), and this is what catches whoever got past it.
+  if ((await termsOnFile(supabase, user)) === "missing") {
+    return NextResponse.json(
+      { error: "Accept the Terms of Service to continue.", reason: "terms_required" },
+      { status: 428 },
+    );
+  }
 
   const body = (await request.json().catch(() => null)) as {
     rooms?: number;
@@ -367,6 +383,9 @@ export async function POST(request: Request) {
         : {}),
       // Recorded per subscription, with the version they actually saw — a claim
       // that someone agreed is worth only as much as the record behind it.
+      // Acceptance now happens once, on the account form (terms_acceptances),
+      // so MAYA_TERMS_URL is meant to stay unset: set, it puts a second terms
+      // checkbox in front of the card form.
       ...(termsUrl() ? { consent_collection: { terms_of_service: "required" as const } } : {}),
       // Collected even for trials: it is what makes billing start on its own
       // when the trial ends, and what the 48-hour re-check has to check.
@@ -386,22 +405,23 @@ export async function POST(request: Request) {
       // cards stamped `always` unless told otherwise
       // (docs.stripe.com/payments/checkout/save-during-payment?payment-ui=stripe-hosted,
       // "Save payment methods to prefill in Checkout"; docs.stripe.com/payments/existing-customers,
-      // "Display additional saved payment methods"). So, for these sessions only:
-      //  - payment_method_save shows a "save for later" box; ticked, the card is
-      //    stamped `always` and shows everywhere by default. That box is the
-      //    owner's consent, which the network rules want before a card is shown
-      //    again.
-      //  - allow_redisplay_filters widens the list to `limited` as well, so the
-      //    card from a sibling paid before the box existed, or with it unticked,
-      //    is still offered. The filter replaces the default, so `always` has to
-      //    be restated. It only changes what is listed to the same owner paying
-      //    for their own group; nothing is charged without them choosing it.
+      // "Display additional saved payment methods"). So, for these sessions only,
+      // allow_redisplay_filters widens the list to `limited` as well. The filter
+      // replaces the default, so `always` has to be restated.
+      //
+      // Stripe leaves consent to show a saved card again to us, for that
+      // specific future use. That consent is in the Terms of Service the owner
+      // accepted to create the account, which authorize storing the card and
+      // offering it for any property on the account. So Checkout's own "save
+      // for later" box (payment_method_save) is deliberately not sent: it would
+      // be a second checkbox asking the same thing, in front of the card form.
+      // This only changes what is listed to the same owner paying for their
+      // own group; nothing is charged without them choosing it.
       // Flow B is one property, one customer, one card: nothing to redisplay,
       // so it sends none of this and its session is unchanged.
       ...(marketplace
         ? {
             saved_payment_method_options: {
-              payment_method_save: "enabled" as const,
               allow_redisplay_filters: ["always" as const, "limited" as const],
             },
           }
@@ -437,6 +457,9 @@ export async function POST(request: Request) {
       // screen which property this was for when Stripe itself cannot be
       // reached to say so. A hint, not a fact: that route believes only the
       // session for anything that matters.
+      custom_text: {
+        submit: { message: checkoutDisclosure({ interval, trialDays, marketplace: Boolean(marketplace) }) },
+      },
       success_url: `${origin}/api/billing/checkout/return?session_id={CHECKOUT_SESSION_ID}&hotel=${encodeURIComponent(hotelId)}`,
       cancel_url: `${origin}/onboarding?checkout=cancelled`,
     },
@@ -471,6 +494,49 @@ export async function POST(request: Request) {
       { status: 502 },
     );
   }
+}
+
+/**
+ * Whether this user has accepted the Terms in force, as checkout needs to know
+ * it. Same steps as the accept screen's GET: a signup whose trigger did not
+ * write the row is adopted from its metadata, and MHS staff are not customers.
+ * "unavailable" is logged here as well as in the lookup, so a checkout that
+ * went ahead unchecked can be found.
+ */
+async function termsOnFile(
+  supabase: SupabaseClient,
+  user: User,
+): Promise<"accepted" | "missing" | "unavailable"> {
+  const state = await currentAcceptance(supabase, user.id);
+  if (state === "unavailable") {
+    console.error(
+      JSON.stringify({ fn: "billingCheckout", step: "terms", warning: "acceptance unreadable, checkout proceeding" }),
+    );
+  }
+  if (state !== "missing") return state;
+
+  if (metadataAcceptsCurrent(user.user_metadata) && isAdminConfigured()) {
+    if (await adoptSignupAcceptance(createAdminClient(), user.id)) return "accepted";
+  }
+
+  try {
+    const { data: isPlatformAdmin, error } = await supabase.rpc("is_platform_admin", {
+      p_user_id: user.id,
+    });
+    if (error) throw new Error(error.message);
+    if (isPlatformAdmin === true) return "accepted";
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "billingCheckout",
+        step: "terms_staff_check",
+        warning: "could not tell whether this is MHS staff, checkout proceeding",
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+    return "unavailable";
+  }
+  return "missing";
 }
 
 /**

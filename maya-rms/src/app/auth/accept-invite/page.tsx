@@ -1,6 +1,8 @@
 "use client";
 
 import { MayaLockup } from "@/components/brand/logo";
+import { TermsConsent } from "@/components/legal/terms-consent";
+import { PRIVACY_VERSION, TERMS_VERSION } from "@/lib/legal/versions";
 import { createClient } from "@/utils/supabase/client";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import type { EmailOtpType } from "@supabase/supabase-js";
@@ -31,6 +33,7 @@ function AcceptInviteContent() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [fullName, setFullName] = useState("");
+  const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -91,6 +94,7 @@ function AcceptInviteContent() {
     e.preventDefault();
     setError(null);
     setMessage(null);
+    if (!agreed) return;
     if (password.length < 8) {
       setError("Password must be at least 8 characters.");
       return;
@@ -112,6 +116,23 @@ function AcceptInviteContent() {
       if (updErr) {
         setError(updErr.message);
         return;
+      }
+      // The session exists by now, so the server records the tick with what
+      // it observed. A failure here is not worth stranding them on this form:
+      // the accept screen asks once more when the app loads.
+      try {
+        await fetch("/api/legal/acceptance", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            accepted: true,
+            context: "invite",
+            termsVersion: TERMS_VERSION,
+            privacyVersion: PRIVACY_VERSION,
+          }),
+        });
+      } catch {
+        // See above.
       }
       setStage("complete");
       setMessage("Password set. Redirecting to the app…");
@@ -185,10 +206,11 @@ function AcceptInviteContent() {
                   className="mt-1 w-full rounded bg-slate-950 p-2 text-sm text-slate-100"
                 />
               </label>
+              <TermsConsent checked={agreed} onChange={setAgreed} disabled={loading} />
               <button
                 type="submit"
-                disabled={loading}
-                className="w-full rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400 disabled:opacity-60"
+                disabled={loading || !agreed}
+                className="w-full rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading ? "Setting password…" : "Set password & continue"}
               </button>

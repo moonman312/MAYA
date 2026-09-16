@@ -100,3 +100,19 @@ describe("the room-count strip", () => {
     expect(isCountingRoom({ counts_as_room: false })).toBe(false);
   });
 });
+
+describe("GoLiveConfirmation", () => {
+  it("says what going live does, and links the Terms in a new tab", async () => {
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { GoLiveConfirmation } = await import("@/components/onboarding/review-findings");
+    const html = renderToStaticMarkup(createElement(GoLiveConfirmation));
+    const text = html.replace(/<[^>]+>/g, "").replace(/&#x27;/g, "'");
+    expect(text).toBe(
+      "Going live sends these rates to your PMS automatically. You're confirming you've reviewed your rules and limits (Terms 3.3).",
+    );
+    expect(html).toContain('href="https://www.get-maya.com/terms"');
+    expect(html).toContain('target="_blank"');
+    expect(html).toMatch(/>Terms<\/a>/);
+  });
+});

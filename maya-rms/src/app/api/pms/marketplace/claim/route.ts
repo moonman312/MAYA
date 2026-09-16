@@ -7,6 +7,7 @@
  * credential, so the worst a leaked one can do is let its holder attach a
  * property to their OWN account, and it expires and burns on use.
  */
+import { requestIp, requestUserAgent } from "@/lib/legal/acceptance";
 import { redeemMarketplaceClaim } from "@/lib/pms/marketplace-claim";
 import { MAYA_ACTIVE_HOTEL_COOKIE } from "@/lib/hotel-context";
 import { createClient } from "@/utils/supabase/server";
@@ -41,7 +42,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing connection token." }, { status: 400 });
   }
 
-  const result = await redeemMarketplaceClaim(token, user.id);
+  const result = await redeemMarketplaceClaim(token, user.id, {
+    email: user.email ?? null,
+    ip: requestIp(request.headers),
+    userAgent: requestUserAgent(request.headers),
+    metadata: user.user_metadata,
+  });
   if (!result.ok) {
     const status = result.reason === "taken" ? 409 : result.reason === "failed" ? 500 : 400;
     return NextResponse.json({ error: result.message }, { status });

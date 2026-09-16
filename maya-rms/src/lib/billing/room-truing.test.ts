@@ -8,7 +8,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { dueForTruing, shortfallsNeedingNotice, trueUpOne, type ShortfallRow } from "./room-truing";
+import {
+  dueForTruing,
+  shortfallsNeedingNotice,
+  sweepRoomTruing,
+  trueUpOne,
+  type ShortfallRow,
+} from "./room-truing";
 import { ROOM_SHORTFALL_GRACE_DAYS } from "./room-count";
 import { MAX_ROOMS } from "./tiers";
 
@@ -61,7 +67,22 @@ function fakeAdmin() {
   return { admin: admin as unknown as SupabaseClient, patches };
 }
 
+const sent = vi.hoisted(() => ({ emails: [] as Record<string, unknown>[] }));
+vi.mock("@/lib/email/resend", () => ({
+  isResendConfigured: () => true,
+  sendEmail: async (msg: Record<string, unknown>) => {
+    sent.emails.push(msg);
+  },
+}));
+// The notice re-measures to name what is not billed; that reads room types this
+// fake has no tables for, and is not what these tests are about.
+vi.mock("./room-count", async (importActual) => ({
+  ...(await importActual<typeof import("./room-count")>()),
+  measureRooms: async () => ({ excluded: [] }),
+}));
+
 beforeEach(() => {
+  sent.emails = [];
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "log").mockImplementation(() => {});
 });
@@ -101,6 +122,80 @@ describe("nobody is charged more without having been told", () => {
   });
 });
 
+describe("a shortfall that comes back is warned about again", () => {
+  it("emails again and waits the full period when an old notice quoted the same count", async () => {
+    // Told about 60 rooms months ago and corrected to 60. The owner later lowers
+    // the billed count to 25 and the shortfall starts again at 60. The old
+    // notice is about a shortfall that already ended.
+    vi.stubEnv("MAYA_INVITE_REDIRECT_BASE", "https://maya.example.com");
+    const day = (n: number) => new Date(Date.parse("2026-08-01T12:00:00Z") + n * 86_400_000);
+    const sub = row({
+      billed_rooms: 25,
+      measured_rooms: 60,
+      room_shortfall_since: day(-8).toISOString(),
+      room_shortfall_notified_at: day(-90).toISOString(),
+      room_shortfall_notified_rooms: 60,
+    });
+    const { admin } = tableAdmin(sub);
+    const { stripe, updates } = fakeStripe(25);
+    const withCustomer = Object.assign(stripe, {
+      customers: { retrieve: async () => ({ id: "cus_1", email: "owner@driftwood.example" }) },
+    });
+
+    const today = await sweepRoomTruing({ admin, stripe: withCustomer, now: day(0) });
+    expect(sent.emails).toHaveLength(1);
+    expect(today.corrected).toBe(0);
+    expect(updates).toHaveLength(0);
+
+    for (const n of [1, 4, 6]) {
+      await sweepRoomTruing({ admin, stripe: withCustomer, now: day(n) });
+    }
+    expect(sent.emails).toHaveLength(1);
+    expect(updates).toHaveLength(0);
+
+    const onDay7 = await sweepRoomTruing({ admin, stripe: withCustomer, now: day(7) });
+    expect(onDay7.corrected).toBe(1);
+    expect(updates[0].params).toMatchObject({ items: [{ id: "si_1", quantity: 60 }] });
+    vi.unstubAllEnvs();
+  });
+
+  it("does not warn again when the sync re-opens a shortfall Stripe already bills", async () => {
+    // Corrected to 60, but the webhook has not updated billed_rooms yet, so the
+    // next room sync started a new shortfall at the same count.
+    vi.stubEnv("MAYA_INVITE_REDIRECT_BASE", "https://maya.example.com");
+    const sub = row({
+      billed_rooms: 25,
+      measured_rooms: 60,
+      room_shortfall_since: NOW.toISOString(),
+      room_shortfall_notified_at: LONG_AGO,
+      room_shortfall_notified_rooms: 60,
+    });
+    const { admin } = tableAdmin(sub);
+    const { stripe, updates } = fakeStripe(60);
+    const withCustomer = Object.assign(stripe, {
+      customers: { retrieve: async () => ({ id: "cus_1", email: "owner@driftwood.example" }) },
+    });
+    await sweepRoomTruing({ admin, stripe: withCustomer, now: NOW });
+    expect(sent.emails).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    vi.unstubAllEnvs();
+  });
+
+  it("refuses to correct on a notice sent before the current shortfall began", async () => {
+    const { stripe, updates } = fakeStripe();
+    const { admin } = fakeAdmin();
+    const since = new Date(NOW.getTime() - 8 * 86_400_000).toISOString();
+    const outcome = await trueUpOne(
+      admin,
+      stripe,
+      row({ room_shortfall_since: since, room_shortfall_notified_at: LONG_AGO }),
+      NOW,
+    );
+    expect(outcome).toEqual({ kind: "skipped", reason: "not_yet_notified" });
+    expect(updates).toHaveLength(0);
+  });
+});
+
 describe("the grace period is real", () => {
   it("does nothing while the clock is still running", async () => {
     const { stripe, updates } = fakeStripe();
@@ -109,6 +204,65 @@ describe("the grace period is real", () => {
     const outcome = await trueUpOne(admin, stripe, row({ room_shortfall_since: started }), NOW);
     expect(outcome).toEqual({ kind: "skipped", reason: "in_grace" });
     expect(updates).toHaveLength(0);
+  });
+});
+
+describe("the grace period runs from the notice", () => {
+  it("waits the full period after a notice that went out late", async () => {
+    // Short since long ago, but the email only went out a day ago (a Resend
+    // outage, no address until now). The owner still gets the whole week.
+    const { stripe, updates } = fakeStripe();
+    const { admin } = fakeAdmin();
+    const noticed = new Date(NOW.getTime() - 86_400_000).toISOString();
+    const outcome = await trueUpOne(admin, stripe, row({ room_shortfall_notified_at: noticed }), NOW);
+    expect(outcome).toEqual({ kind: "skipped", reason: "in_notice_period" });
+    expect(updates).toHaveLength(0);
+  });
+
+  it("leaves unnotified and recently notified rows out of the correction batch", async () => {
+    const { admin, filters } = fakeQueryAdmin();
+    await dueForTruing(admin, NOW);
+    const cutoff = new Date(NOW.getTime() - ROOM_SHORTFALL_GRACE_DAYS * 86_400_000).toISOString();
+    expect(filters).toContainEqual(["not.is", "room_shortfall_notified_at", null]);
+    expect(filters).toContainEqual(["lte", "room_shortfall_notified_at", cutoff]);
+  });
+
+  it("does not raise a count that rose on day 8 until day 15", async () => {
+    vi.stubEnv("MAYA_INVITE_REDIRECT_BASE", "https://maya.example.com");
+    const day = (n: number) => new Date(Date.parse("2026-08-01T12:00:00Z") + n * 86_400_000);
+    const sub = row({
+      measured_rooms: 25,
+      room_shortfall_since: day(0).toISOString(),
+      room_shortfall_notified_at: null,
+      room_shortfall_notified_rooms: null,
+    });
+    const { admin } = tableAdmin(sub);
+    const { stripe, updates } = fakeStripe();
+    const withCustomer = Object.assign(stripe, {
+      customers: { retrieve: async () => ({ id: "cus_1", email: "owner@driftwood.example" }) },
+    });
+
+    await sweepRoomTruing({ admin, stripe: withCustomer, now: day(0) });
+    expect(sent.emails).toHaveLength(1);
+
+    // The import measures more rooms. The shortfall clock is not restarted.
+    sub.measured_rooms = 60;
+    const onDay8 = await sweepRoomTruing({ admin, stripe: withCustomer, now: day(8) });
+    expect(sent.emails).toHaveLength(2);
+    expect(String(sent.emails[1].text)).toContain("7 days");
+    expect(String(sent.emails[1].text)).toContain("August 16, 2026");
+    expect(onDay8.corrected).toBe(0);
+
+    for (const n of [9, 12, 14]) {
+      await sweepRoomTruing({ admin, stripe: withCustomer, now: day(n) });
+    }
+    expect(updates).toHaveLength(0);
+
+    const onDay15 = await sweepRoomTruing({ admin, stripe: withCustomer, now: day(15) });
+    expect(onDay15.corrected).toBe(1);
+    expect(updates).toHaveLength(1);
+    expect(updates[0].params).toMatchObject({ items: [{ id: "si_1", quantity: 60 }] });
+    vi.unstubAllEnvs();
   });
 });
 
@@ -226,3 +380,44 @@ describe("the batch windows exclude what only a human can price", () => {
     expect(filters).toContainEqual(["lte", "measured_rooms", MAX_ROOMS]);
   });
 });
+
+/**
+ * One hotel_subscriptions row that queries read and updates write, so a sweep
+ * over several days sees what the previous one left behind.
+ */
+function tableAdmin(sub: ShortfallRow) {
+  const admin = {
+    from: () => {
+      const tests: Array<(r: Record<string, unknown>) => boolean> = [];
+      const chain = {
+        select: () => chain,
+        not: (col: string) => {
+          tests.push((r) => r[col] != null);
+          return chain;
+        },
+        lte: (col: string, val: unknown) => {
+          tests.push((r) => {
+            const v = r[col];
+            if (v == null) return false;
+            return typeof val === "number" ? Number(v) <= val : String(v) <= String(val);
+          });
+          return chain;
+        },
+        eq: () => chain,
+        order: () => chain,
+        limit: async () => ({
+          data: tests.every((t) => t(sub as unknown as Record<string, unknown>)) ? [{ ...sub }] : [],
+          error: null,
+        }),
+        update: (patch: Record<string, unknown>) => ({
+          eq: async () => {
+            Object.assign(sub, patch);
+            return { error: null };
+          },
+        }),
+      };
+      return chain;
+    },
+  };
+  return { admin: admin as unknown as SupabaseClient };
+}

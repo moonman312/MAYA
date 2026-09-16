@@ -1,6 +1,8 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/utils/supabase/admin";
+import { adoptSignupAcceptance, currentAcceptance, recordAcceptance } from "@/lib/legal/acceptance";
+import { metadataAcceptsCurrent } from "@/lib/legal/versions";
 import { MAYA_ACTIVE_HOTEL_COOKIE } from "@/lib/hotel-context";
 import { isStripeConfigured } from "@/lib/billing/stripe";
 import { listUnpaidMarketplaceHotels } from "@/lib/billing/pending-hotel";
@@ -34,9 +36,19 @@ export type ClaimResult =
   | { ok: true; hotelId: string; alreadyClaimed: boolean; hotelIds: string[] }
   | { ok: false; reason: "not_found" | "expired" | "taken" | "failed"; message: string };
 
+/** Who redeemed the ticket and from where, for the acceptance record. */
+export type ClaimEvidence = {
+  email: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  /** The user's metadata, which carries a signup's tick if the trigger missed it. */
+  metadata: unknown;
+};
+
 export async function redeemMarketplaceClaim(
   token: string,
   userId: string,
+  evidence?: ClaimEvidence,
 ): Promise<ClaimResult> {
   const admin = createAdminClient();
 
@@ -177,6 +189,8 @@ export async function redeemMarketplaceClaim(
     },
   });
 
+  if (evidence) await recordClaimAcceptance(admin, userId, allHotelIds, evidence);
+
   // After the burn: the import worker only reads a property whose claim is
   // redeemed, and the kick can reach it within the second.
   await queueImportForNextProperty(admin, userId);
@@ -200,6 +214,63 @@ async function queueImportForNextProperty(admin: SupabaseClient, userId: string)
       JSON.stringify({
         fn: "redeemMarketplaceClaim",
         step: "queue_import",
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+  }
+}
+
+/**
+ * Ties the owner's acceptance of the Terms to the properties they just
+ * claimed: a terms_acceptances row per hotel, context 'claim', with the
+ * address and browser the claim came from. The signup's own row carries no
+ * property, and "which business was this person acting for" is the question
+ * an authority dispute turns on.
+ *
+ * Only for someone whose acceptance of the current versions is on file (or
+ * still sitting in their signup metadata). Signing in to claim shows no
+ * checkbox, so for anyone else this would be a record of an acceptance that
+ * never happened; the accept screen and checkout ask them instead, and the
+ * accept route ties that acceptance to these properties then
+ * (recordClaimedHotelAcceptances).
+ *
+ * Never a condition of the claim. The property is already theirs by this
+ * point, and a missing table or a failed write is logged (acceptance.ts logs
+ * its own reads and writes) and left at that.
+ */
+async function recordClaimAcceptance(
+  admin: SupabaseClient,
+  userId: string,
+  hotelIds: string[],
+  evidence: ClaimEvidence,
+): Promise<void> {
+  try {
+    let state = await currentAcceptance(admin, userId);
+    if (state === "missing" && metadataAcceptsCurrent(evidence.metadata)) {
+      if (await adoptSignupAcceptance(admin, userId)) state = "accepted";
+    }
+    if (state !== "accepted") {
+      console.error(
+        JSON.stringify({ fn: "redeemMarketplaceClaim", step: "terms_acceptance", skipped: state, hotelIds }),
+      );
+      return;
+    }
+    for (const hotelId of hotelIds) {
+      const result = await recordAcceptance(admin, {
+        userId,
+        email: evidence.email,
+        context: "claim",
+        hotelId,
+        ip: evidence.ip,
+        userAgent: evidence.userAgent,
+      });
+      if (result === "unavailable") return;
+    }
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "redeemMarketplaceClaim",
+        step: "terms_acceptance",
         error: e instanceof Error ? e.message : String(e),
       }),
     );

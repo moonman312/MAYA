@@ -46,6 +46,17 @@ function fakeSupabase() {
         filters.push((r) => vals.includes(r[col]));
         return api;
       },
+      // findPendingHotelForUser's shapes: not(col, "is", null) and is(col, null).
+      not(col: string) {
+        filters.push((r) => r[col] != null);
+        return api;
+      },
+      is(col: string) {
+        filters.push((r) => r[col] == null);
+        return api;
+      },
+      order: () => api,
+      limit: () => api,
       async maybeSingle() {
         return { data: rows(table).find((r) => filters.every((f) => f(r))) ?? null, error: null };
       },
@@ -59,11 +70,16 @@ function fakeSupabase() {
   }
   return {
     from: (t: string) => builder(t),
-    auth: { getSession: async () => ({ data: { session: { user: { id: USER } } } }) },
+    auth: {
+      getSession: async () => ({ data: { session: { user: { id: USER } } } }),
+      getUser: async () => ({ data: { user: { id: USER } } }),
+    },
   };
 }
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
+vi.mock("@/utils/supabase/shared", () => ({ isSupabaseConfigured: () => true }));
+vi.mock("@/utils/supabase/server", () => ({ createClient: () => fakeSupabase() }));
 vi.mock("@/lib/require-supabase-hotel", () => ({
   requireSupabaseHotelRank: async () => ({ ok: true, supabase: fakeSupabase(), hotelId: HOTEL }),
 }));
@@ -88,6 +104,14 @@ vi.mock("@/lib/billing/stripe", () => ({
 }));
 
 const { POST } = await import("./route");
+
+/** The billing page's button sends no body; the onboarding link sends { pending: true }. */
+function portalRequest(body?: unknown) {
+  return new Request("http://localhost/api/billing/portal", {
+    method: "POST",
+    ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  });
+}
 
 /** The shape the Stripe SDK throws: rawType is what the API sent, type is the class name. */
 function stripeError(fields: { message: string; rawType?: string; param?: string; type?: string }) {
@@ -122,7 +146,7 @@ const lastCall = () => state.portalCalls.at(-1) as Record<string, unknown>;
 describe("a property billed on its own customer", () => {
   it("opens the full portal with no flow", async () => {
     state.tables = { hotel_subscriptions: [subscribed(HOTEL)] };
-    const res = await POST();
+    const res = await POST(portalRequest());
     expect(res.status).toBe(200);
     expect(state.portalCalls).toHaveLength(1);
     expect(lastCall().flow_data).toBeUndefined();
@@ -130,7 +154,7 @@ describe("a property billed on its own customer", () => {
   });
 
   it("answers 404 when nothing was ever set up through checkout", async () => {
-    const res = await POST();
+    const res = await POST(portalRequest());
     expect(res.status).toBe(404);
     expect(state.portalCalls).toHaveLength(0);
   });
@@ -148,7 +172,7 @@ describe("a Marketplace group on the owner's one customer", () => {
 
   it("narrows the portal to this hotel's subscription and comes back here afterwards", async () => {
     state.tables = group();
-    const res = await POST();
+    const res = await POST(portalRequest());
     expect(res.status).toBe(200);
     expect(lastCall().flow_data).toEqual({
       type: "subscription_update",
@@ -161,7 +185,7 @@ describe("a Marketplace group on the owner's one customer", () => {
     const g = group();
     g.hotel_subscriptions[0] = subscribed(HOTEL, { stripe_subscription_id: null });
     state.tables = g;
-    await POST();
+    await POST(portalRequest());
     expect(lastCall().flow_data).toMatchObject({ type: "payment_method_update" });
   });
 
@@ -169,14 +193,14 @@ describe("a Marketplace group on the owner's one customer", () => {
     const g = group();
     g.hotel_memberships[1].role = "hotel_admin";
     state.tables = g;
-    await POST();
+    await POST(portalRequest());
     expect(lastCall().flow_data).toBeUndefined();
   });
 
   it("narrows when it cannot tell — no service role to read the siblings with", async () => {
     state.tables = group();
     state.adminConfigured = false;
-    await POST();
+    await POST(portalRequest());
     expect(lastCall().flow_data).toBeDefined();
   });
 });
@@ -204,7 +228,7 @@ describe("when Stripe refuses the flow because the portal feature is off", () =>
       ),
     ];
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    const res = await POST();
+    const res = await POST(portalRequest());
 
     expect(res.status).toBe(502);
     expect(state.portalCalls).toHaveLength(1);
@@ -225,7 +249,7 @@ describe("when Stripe refuses the flow because the portal feature is off", () =>
       throwing(stripeError({ message: "The subscription_update feature is disabled for this configuration." })),
     ];
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const res = await POST();
+    const res = await POST(portalRequest());
     expect(res.status).toBe(502);
     expect(state.portalCalls).toHaveLength(1);
     vi.restoreAllMocks();
@@ -246,7 +270,7 @@ describe("when Stripe fails for any other reason", () => {
       ),
     ];
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    const res = await POST();
+    const res = await POST(portalRequest());
     expect(res.status).toBe(502);
     expect(state.portalCalls).toHaveLength(1);
     const body = (await res.json()) as { error: string };
@@ -266,9 +290,119 @@ describe("when Stripe fails for any other reason", () => {
     };
     state.portalPlan = [throwing(stripeError({ message: "No such customer: 'cus_owner'", param: "customer" }))];
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const res = await POST();
+    const res = await POST(portalRequest());
     expect(res.status).toBe(502);
     expect(state.portalCalls).toHaveLength(1);
     vi.restoreAllMocks();
+  });
+});
+
+describe("a property that has paid but not connected its PMS yet", () => {
+  const PENDING = "hotel-pending";
+  const pendingHotel = (id: string) => ({ id, is_active: false, setup_pending_at: "2026-09-10T14:08:00Z", setup_deferred_at: null });
+  const own = () => ({
+    hotels: [pendingHotel(PENDING)],
+    hotel_memberships: [{ hotel_id: PENDING, user_id: USER, role: "hotel_admin", status: "active" }],
+    hotel_subscriptions: [subscribed(PENDING, { stripe_customer_id: "cus_pending", status: "trialing" })],
+  });
+
+  it("opens the portal straight onto cancelling that subscription, and comes back to onboarding", async () => {
+    state.tables = own();
+    const res = await POST(portalRequest({ pending: true }));
+    expect(res.status).toBe(200);
+    expect(state.portalCalls).toHaveLength(1);
+    expect(lastCall()).toEqual({
+      customer: "cus_pending",
+      return_url: "https://maya.example.com/onboarding",
+      flow_data: {
+        type: "subscription_cancel",
+        subscription_cancel: { subscription: `sub_${PENDING}` },
+        after_completion: { type: "redirect", redirect: { return_url: "https://maya.example.com/onboarding" } },
+      },
+    });
+  });
+
+  it("refuses another user's pending property", async () => {
+    // Same shape, but the membership belongs to someone else. Nothing in the
+    // request names a hotel, so there is nothing to point at theirs with.
+    const t = own();
+    t.hotel_memberships = [{ hotel_id: PENDING, user_id: "someone-else", role: "hotel_admin", status: "active" }];
+    state.tables = t;
+    const res = await POST(portalRequest({ pending: true }));
+    expect(res.status).toBe(404);
+    expect(state.portalCalls).toHaveLength(0);
+  });
+
+  it("refuses a member below General Manager", async () => {
+    const t = own();
+    t.hotel_memberships[0].role = "revenue_manager";
+    state.tables = t;
+    expect((await POST(portalRequest({ pending: true }))).status).toBe(404);
+    expect(state.portalCalls).toHaveLength(0);
+  });
+
+  it("has nothing to offer once the property is connected, or the subscription has ended", async () => {
+    const connected = own();
+    connected.hotels = [{ ...pendingHotel(PENDING), is_active: true, setup_pending_at: null as unknown as string }];
+    state.tables = connected;
+    expect((await POST(portalRequest({ pending: true }))).status).toBe(404);
+
+    const ended = own();
+    ended.hotel_subscriptions[0].status = "canceled";
+    state.tables = ended;
+    expect((await POST(portalRequest({ pending: true }))).status).toBe(404);
+    expect(state.portalCalls).toHaveLength(0);
+  });
+
+  it("offers nothing to cancel on a subscription already set to cancel", async () => {
+    const t = own();
+    (t.hotel_subscriptions[0] as Row).cancel_at_period_end = true;
+    state.tables = t;
+    expect((await POST(portalRequest({ pending: true }))).status).toBe(404);
+    expect(state.portalCalls).toHaveLength(0);
+  });
+
+  it("finds the live subscription beside a canceled one, and prefers the property on screen", async () => {
+    const OLD = "hotel-old";
+    const NEW = "hotel-new";
+    const t = {
+      hotels: [
+        { ...pendingHotel(OLD), created_at: "2026-09-01T00:00:00Z" },
+        { ...pendingHotel(PENDING), created_at: "2026-09-02T00:00:00Z" },
+        { ...pendingHotel(NEW), created_at: "2026-09-03T00:00:00Z" },
+      ],
+      hotel_memberships: [OLD, PENDING, NEW].map((id) => ({ hotel_id: id, user_id: USER, role: "hotel_admin", status: "active" })),
+      hotel_subscriptions: [
+        subscribed(OLD, { stripe_customer_id: "cus_pending", status: "canceled" }),
+        subscribed(PENDING, { stripe_customer_id: "cus_pending", status: "trialing" }),
+        subscribed(NEW, { stripe_customer_id: "cus_pending", status: "active" }),
+      ],
+    };
+    state.tables = t;
+    expect((await POST(portalRequest({ pending: true }))).status).toBe(200);
+    expect(lastCall().flow_data).toMatchObject({ subscription_cancel: { subscription: `sub_${PENDING}` } });
+
+    expect((await POST(portalRequest({ pending: true, hotelId: NEW }))).status).toBe(200);
+    expect(lastCall().flow_data).toMatchObject({ subscription_cancel: { subscription: `sub_${NEW}` } });
+
+    // A property that is not one of theirs (or no longer pending) opens nothing:
+    // falling back to another parked property would cancel the wrong one.
+    const before = state.portalCalls.length;
+    expect((await POST(portalRequest({ pending: true, hotelId: "hotel-a-stranger" }))).status).toBe(409);
+    expect((await POST(portalRequest({ pending: true, hotelId: OLD }))).status).toBe(409);
+    expect(state.portalCalls).toHaveLength(before);
+  });
+
+  it("never falls back to the full portal when Stripe refuses the cancel flow", async () => {
+    state.tables = own();
+    state.portalPlan = [
+      throwing(stripeError({ message: "The subscription_cancel feature is disabled.", param: "flow_data[type]" })),
+    ];
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await POST(portalRequest({ pending: true }));
+    expect(res.status).toBe(502);
+    expect(state.portalCalls).toHaveLength(1);
+    expect(String(errors.mock.calls[0]?.[0])).toContain("features.subscription_cancel");
+    errors.mockRestore();
   });
 });

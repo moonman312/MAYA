@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import { isEntitledStatus } from "@/lib/billing/entitlement";
+import { roleRank } from "@/lib/roles";
 
 /**
  * The hotel row a payment attaches to before a property exists.
@@ -23,8 +24,10 @@ import { isEntitledStatus } from "@/lib/billing/entitlement";
  * Placeholder name. hotels.name is globally unique and the real one only arrives
  * from the PMS on adoption, so this just has to not collide.
  */
+const PENDING_NAME_PREFIX = "Pending setup ";
+
 function pendingName(): string {
-  return `Pending setup ${randomUUID().slice(0, 8)}`;
+  return `${PENDING_NAME_PREFIX}${randomUUID().slice(0, 8)}`;
 }
 
 /**
@@ -90,6 +93,112 @@ export async function findPendingHotelForUser(
     .maybeSingle();
 
   return paid ? String(paid.hotel_id) : ids[0];
+}
+
+export type PendingHotelSubscription = {
+  hotelId: string;
+  /** The property's name once the PMS gave it one; null for Flow B's placeholder. */
+  name: string | null;
+  customerId: string;
+  subscriptionId: string;
+  status: string;
+  /** Already set to cancel at the end of the period: nothing left to cancel in the portal. */
+  cancelAtPeriodEnd: boolean;
+};
+
+/** Stripe statuses with nothing left to cancel. */
+const ENDED_STATUSES = new Set(["canceled", "incomplete_expired"]);
+
+/**
+ * The subscription on one of the caller's own pending properties, when there
+ * is one left to cancel.
+ *
+ * A Flow B owner pays (or starts a trial) before connecting a PMS, and the
+ * property stays inactive until the connect adopts it. The billing page only
+ * sees active properties, so without this an owner who stops at the connect
+ * step has no way to cancel online. Only the caller's own active memberships
+ * are read, held to the finance bar (General Manager and up) the portal holds
+ * everyone else to.
+ *
+ * Every parked property is considered, not just the one
+ * findPendingHotelForUser would adopt: an owner with a Marketplace group, or a
+ * leftover placeholder beside a paid one, can have a live subscription on a
+ * property that is not first in line. preferHotelId picks the property on
+ * screen when it is one of those; it can only choose among the caller's own,
+ * so it is safe to take from the browser. Otherwise the oldest wins, with one
+ * that still has something to cancel ahead of one already set to cancel.
+ *
+ * Service-role client. A failed read throws, like findPendingHotelForUser.
+ */
+export async function findPendingHotelSubscription(
+  admin: SupabaseClient,
+  userId: string,
+  preferHotelId?: string | null,
+): Promise<PendingHotelSubscription | null> {
+  const { data: memberships, error: membershipErr } = await admin
+    .from("hotel_memberships")
+    .select("hotel_id, role")
+    .eq("user_id", userId)
+    .eq("status", "active");
+  if (membershipErr) throw new Error(`Could not read memberships: ${membershipErr.message}`);
+  const managed = (memberships ?? [])
+    .filter((m) => roleRank(String(m.role ?? "")) >= roleRank("general_manager"))
+    .map((m) => String(m.hotel_id));
+  if (!managed.length) return null;
+
+  // A property the connect already adopted is managed from the billing page.
+  const { data: hotels, error: hotelErr } = await admin
+    .from("hotels")
+    .select("id, name, created_at, is_active, setup_pending_at")
+    .in("id", managed)
+    .eq("is_active", false)
+    .not("setup_pending_at", "is", null);
+  if (hotelErr) throw new Error(`Could not read pending properties: ${hotelErr.message}`);
+  const parked = (hotels ?? []).filter((h) => h.is_active === false && h.setup_pending_at != null);
+  if (!parked.length) return null;
+
+  const { data: subs, error: subErr } = await admin
+    .from("hotel_subscriptions")
+    .select("hotel_id, stripe_customer_id, stripe_subscription_id, status, cancel_at_period_end")
+    .in("hotel_id", parked.map((h) => String(h.id)));
+  if (subErr) throw new Error(`Could not read subscriptions: ${subErr.message}`);
+  const subByHotel = new Map(
+    (subs ?? [])
+      .filter((s) => s.stripe_customer_id && s.stripe_subscription_id && !ENDED_STATUSES.has(String(s.status ?? "")))
+      .map((s) => [String(s.hotel_id), s]),
+  );
+
+  const candidates = parked
+    .filter((h) => subByHotel.has(String(h.id)))
+    .map((h) => {
+      const sub = subByHotel.get(String(h.id))!;
+      const name = String(h.name ?? "");
+      return {
+        hotelId: String(h.id),
+        name: name && !name.startsWith(PENDING_NAME_PREFIX) ? name : null,
+        customerId: String(sub.stripe_customer_id),
+        subscriptionId: String(sub.stripe_subscription_id),
+        status: String(sub.status ?? ""),
+        cancelAtPeriodEnd: sub.cancel_at_period_end === true,
+        createdAt: String(h.created_at ?? ""),
+      };
+    })
+    .sort(
+      (a, b) =>
+        Number(a.cancelAtPeriodEnd) - Number(b.cancelAtPeriodEnd) ||
+        a.createdAt.localeCompare(b.createdAt) ||
+        a.hotelId.localeCompare(b.hotelId),
+    );
+  const chosen = candidates.find((c) => c.hotelId === preferHotelId) ?? candidates[0];
+  if (!chosen) return null;
+  return {
+    hotelId: chosen.hotelId,
+    name: chosen.name,
+    customerId: chosen.customerId,
+    subscriptionId: chosen.subscriptionId,
+    status: chosen.status,
+    cancelAtPeriodEnd: chosen.cancelAtPeriodEnd,
+  };
 }
 
 export type UnpaidMarketplaceHotel = {

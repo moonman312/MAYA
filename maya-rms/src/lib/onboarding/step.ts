@@ -1,11 +1,15 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { findPendingHotelForUser, listUnpaidMarketplaceHotels } from "@/lib/billing/pending-hotel";
+import {
+  findPendingHotelForUser,
+  findPendingHotelSubscription,
+  listUnpaidMarketplaceHotels,
+} from "@/lib/billing/pending-hotel";
 import { isStripeConfigured } from "@/lib/billing/stripe";
 import { isEntitled } from "@/lib/billing/sync";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { activateMarketplaceHotelIfPending } from "@/lib/pms/marketplace-activate";
-import { createAdminClient } from "@/utils/supabase/admin";
+import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 
 /**
  * Where the signed-in user is in onboarding.
@@ -60,6 +64,43 @@ export async function resolveOnboardingStep(
   }
 
   return "subscribe";
+}
+
+/** What an onboarding screen says about a subscription on a not-yet-connected property. */
+export type PendingBillingOffer = {
+  hotelId: string;
+  /** Null for Flow B's placeholder, which has no real name yet. */
+  name: string | null;
+  /** Already set to cancel: say so instead of offering the link again. */
+  cancelAtPeriodEnd: boolean;
+};
+
+/**
+ * Whether to offer "Manage billing or cancel" on an onboarding screen: one of
+ * the caller's still-pending properties has a subscription, which the billing
+ * page cannot reach until the PMS is connected. preferHotelId is the property
+ * on screen, when the screen shows one. Any doubt hides the link rather than
+ * breaking the page it sits on; the portal route checks again on its own.
+ */
+export async function pendingBillingOffer(
+  supabase: SupabaseClient,
+  preferHotelId?: string | null,
+): Promise<PendingBillingOffer | null> {
+  if (!isStripeConfigured() || !isAdminConfigured()) return null;
+  const userId = await currentUserId(supabase);
+  if (!userId) return null;
+  try {
+    const found = await findPendingHotelSubscription(createAdminClient(), userId, preferHotelId);
+    return found ? { hotelId: found.hotelId, name: found.name, cancelAtPeriodEnd: found.cancelAtPeriodEnd } : null;
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "pendingBillingOffer",
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+    return null;
+  }
 }
 
 /** True for a Marketplace property (activated now, or already), false for Flow B's placeholder. */

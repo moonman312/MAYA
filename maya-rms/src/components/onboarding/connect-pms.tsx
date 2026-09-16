@@ -1,5 +1,7 @@
 "use client";
 
+import { ManagePendingBillingLink } from "@/components/billing/billing-actions";
+import type { PendingBillingOffer } from "@/lib/onboarding/step";
 import type { PmsRegistryStatus } from "@/lib/pms/registry";
 
 /**
@@ -9,8 +11,16 @@ import type { PmsRegistryStatus } from "@/lib/pms/registry";
  *
  * There is no way back from here on purpose: the payment is done, and the only
  * thing left before MAYA can do anything is knowing where the bookings live.
+ * Cancelling is still one link away (manageBilling), since the billing page
+ * cannot see this property until it is connected.
  */
-export function ConnectPms({ pmsOptions }: { pmsOptions: PmsRegistryStatus[] }) {
+export function ConnectPms({
+  pmsOptions,
+  manageBilling = null,
+}: {
+  pmsOptions: PmsRegistryStatus[];
+  manageBilling?: PendingBillingOffer | null;
+}) {
   const available = pmsOptions.filter((p) => p.onboardingSupported && p.configured);
   const comingSoon = pmsOptions.filter((p) => !p.onboardingSupported || !p.configured);
 
@@ -86,6 +96,12 @@ export function ConnectPms({ pmsOptions }: { pmsOptions: PmsRegistryStatus[] }) 
           </div>
         ) : null}
       </div>
+
+      {manageBilling ? (
+        <p className="mt-8">
+          <ManagePendingBillingLink {...manageBilling} />
+        </p>
+      ) : null}
     </div>
   );
 }

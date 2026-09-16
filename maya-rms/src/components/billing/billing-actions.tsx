@@ -59,6 +59,74 @@ export function ManageBillingButton() {
 }
 
 /**
+ * The same door for a property that has paid but not connected its PMS yet,
+ * which the billing page cannot show. The portal opens straight onto
+ * cancelling that property's subscription (api/billing/portal, pending).
+ */
+export function ManagePendingBillingLink({
+  hotelId,
+  name = null,
+  cancelAtPeriodEnd = false,
+}: {
+  hotelId: string;
+  /** The property's name, so a group owner can tell which one this is. Null for Flow B's placeholder. */
+  name?: string | null;
+  cancelAtPeriodEnd?: boolean;
+}) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function open() {
+    setError(null);
+    setPending(true);
+    try {
+      const res = await fetch("/api/billing/portal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pending: true, hotelId }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!res.ok || !body.url) {
+        setError(body.error ?? "Could not open the billing portal.");
+        setPending(false);
+        return;
+      }
+      track("billing.portal_opened");
+      window.location.href = body.url;
+    } catch {
+      setError("Could not reach the billing portal.");
+      setPending(false);
+    }
+  }
+
+  if (cancelAtPeriodEnd) {
+    return (
+      <span className="text-xs text-slate-500">
+        {name ? `${name} cancels at the end of the period` : "Cancels at the end of the period"}
+      </span>
+    );
+  }
+
+  return (
+    <span className="text-xs text-slate-500">
+      <button
+        type="button"
+        onClick={open}
+        disabled={pending}
+        className="cursor-pointer underline decoration-slate-700 underline-offset-2 transition-colors hover:text-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {pending ? "Opening..." : name ? `Manage billing or cancel for ${name}` : "Manage billing or cancel"}
+      </button>
+      {error ? (
+        <span role="alert" className="ml-2 text-rose-300">
+          {error}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
  * Changing the billed room count.
  *
  * Shows what the new bill will be BEFORE the change is committed — quoting

@@ -13,6 +13,7 @@
  * are captured, so the route runs outside a request context.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PRIVACY_VERSION, signupAcceptanceMetadata, TERMS_VERSION } from "@/lib/legal/versions";
 
 type Row = Record<string, unknown>;
 type Filter =
@@ -144,7 +145,12 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
 
   const client = {
     from: (t: string) => builder(t),
-    auth: { getUser: async () => ({ data: { user: { id: USER, email: "gm@driftwood.example" } } }) },
+    auth: {
+      getUser: async () => ({
+        data: { user: { id: USER, email: "gm@driftwood.example", user_metadata: state.userMetadata } },
+      }),
+    },
+    rpc: async (name: string, args: Record<string, unknown>) => state.rpc(name, args, tables),
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return { client: client as any, tables, failInsertFor };
@@ -163,6 +169,13 @@ const state = vi.hoisted(() => ({
   customerSearches: [] as string[],
   couponOpts: [] as Record<string, unknown>[],
   priceFails: false,
+  adminConfigured: false,
+  userMetadata: {} as Record<string, unknown>,
+  rpc: (async () => ({ data: null, error: null })) as (
+    name: string,
+    args: Record<string, unknown>,
+    tables: Map<string, Row[]>,
+  ) => Promise<{ data: unknown; error: { message: string } | null }>,
 }));
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
@@ -170,10 +183,11 @@ vi.mock("@/utils/supabase/shared", () => ({ isSupabaseConfigured: () => true }))
 vi.mock("@/utils/supabase/server", () => ({ createClient: () => state.client }));
 vi.mock("@/utils/supabase/admin", () => ({
   createAdminClient: () => state.client,
-  // The rate limiter reads this and no-ops when it is false. These tests are
-  // about what checkout does, not about throttling it.
-  isAdminConfigured: () => false,
+  // Off unless a test is about adopting a signup's acceptance.
+  isAdminConfigured: () => state.adminConfigured,
 }));
+// These tests are about what checkout does, not about throttling it.
+vi.mock("@/lib/rate-limit", () => ({ enforceRateLimit: async () => null }));
 vi.mock("@/lib/hotel-context", () => ({
   resolveAccessibleHotelId: async () => state.hotelId,
   MAYA_ACTIVE_HOTEL_COOKIE: "maya_active_hotel",
@@ -241,9 +255,16 @@ function post(body: unknown = { rooms: 24, interval: "month", code: "MHSFOUNDER"
   );
 }
 
+/** The caller accepted the Terms in force, as nearly every caller has. */
+const ACCEPTED = {
+  terms_acceptances: [
+    { user_id: USER, terms_version: TERMS_VERSION, privacy_version: PRIVACY_VERSION, context: "signup" },
+  ],
+};
+
 /** Seeds a valid code, and optionally the row a previous attempt left behind. */
 function seed(extra: Record<string, Row[]> = {}) {
-  const fake = fakeSupabase({ signup_codes: [{ ...CODE, is_active: true }], ...extra });
+  const fake = fakeSupabase({ signup_codes: [{ ...CODE, is_active: true }], ...ACCEPTED, ...extra });
   state.client = fake.client;
   return fake;
 }
@@ -259,6 +280,9 @@ beforeEach(() => {
   state.customerSearches = [];
   state.couponOpts = [];
   state.priceFails = false;
+  state.adminConfigured = false;
+  state.userMetadata = {};
+  state.rpc = async () => ({ data: null, error: null });
 });
 
 describe("a first-time signup, with no property yet", () => {
@@ -634,6 +658,125 @@ describe("tax and terms are off until someone says otherwise", () => {
   });
 });
 
+describe("the disclosure above the pay button", () => {
+  const message = () =>
+    String(((lastSession()?.custom_text as Row | undefined)?.submit as Row | undefined)?.message ?? "");
+
+  it("links the Terms, says it renews, and names the card's stored uses on every session", async () => {
+    seed();
+    await post({ rooms: 24, interval: "year", code: "MHSFOUNDER" });
+    const text = message();
+    expect(text).toContain("[MAYA Terms of Service](https://www.get-maya.com/terms)");
+    expect(text).toContain("renews automatically every year until you cancel");
+    expect(text).toContain("stored and may be charged for room-count changes");
+    expect(text).toContain("(Terms 7.6)");
+    // A Flow B customer is this property's alone; nothing is offered elsewhere.
+    expect(text).not.toContain("other properties");
+    expect(text.length).toBeLessThan(600);
+    expect(text).not.toMatch(/\u2014/);
+  });
+
+  it("says a trial becomes paid only when there is a trial", async () => {
+    seed();
+    await post();
+    expect(message()).toContain("30-day free trial becomes a paid subscription unless you cancel before it ends");
+
+    seed({ signup_codes: [{ id: "code-2", code: "PLAIN", kind: "discount", percent_off: 10, is_active: true }] });
+    await post({ rooms: 24, interval: "month", code: "PLAIN" });
+    expect(lastSession()?.subscription_data).not.toHaveProperty("trial_period_days");
+    expect(message()).not.toContain("trial");
+    expect(message()).toContain("every month");
+  });
+
+  it("never adds a consent checkbox", async () => {
+    seed();
+    await post();
+    expect(lastSession()?.consent_collection).toBeUndefined();
+    expect(lastSession()?.custom_text).not.toHaveProperty("terms_of_service_acceptance");
+  });
+});
+
+describe("the Terms have to be on file before a card is taken", () => {
+  it("answers 428 terms_required, and starts nothing, when they were never accepted", async () => {
+    const fake = seed({ terms_acceptances: [] });
+    const res = await post();
+    expect(res.status).toBe(428);
+    expect(await res.json()).toMatchObject({ reason: "terms_required" });
+    expect(state.sessions).toHaveLength(0);
+    expect(fake.tables.get("hotels") ?? []).toHaveLength(0);
+  });
+
+  it("does not count an acceptance of older versions", async () => {
+    seed({
+      terms_acceptances: [{ user_id: USER, terms_version: "0", privacy_version: PRIVACY_VERSION }],
+    });
+    expect((await post()).status).toBe(428);
+  });
+
+  it("adopts a signup's ticked box when the trigger did not write the row", async () => {
+    const fake = seed({ terms_acceptances: [] });
+    state.adminConfigured = true;
+    state.userMetadata = signupAcceptanceMetadata("signup");
+    const calls: string[] = [];
+    state.rpc = async (name, _args, tables) => {
+      calls.push(name);
+      if (name !== "record_terms_acceptance_from_signup") return { data: null, error: null };
+      tables.get("terms_acceptances")!.push({ user_id: USER, terms_version: TERMS_VERSION, privacy_version: PRIVACY_VERSION });
+      return { data: true, error: null };
+    };
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(calls).toContain("record_terms_acceptance_from_signup");
+    expect(fake.tables.get("terms_acceptances")).toHaveLength(1);
+  });
+
+  it("still asks when the metadata carries no current acceptance", async () => {
+    seed({ terms_acceptances: [] });
+    state.adminConfigured = true;
+    state.userMetadata = { full_name: "Ana" };
+    const calls: string[] = [];
+    state.rpc = async (name) => {
+      calls.push(name);
+      return { data: false, error: null };
+    };
+    expect((await post()).status).toBe(428);
+    expect(calls).not.toContain("record_terms_acceptance_from_signup");
+  });
+
+  it("lets MHS staff through, as the accept screen does", async () => {
+    seed({ terms_acceptances: [] });
+    state.rpc = async (name) => ({ data: name === "is_platform_admin", error: null });
+    expect((await post()).status).toBe(200);
+  });
+
+  it("proceeds, and logs, when acceptance cannot be read", async () => {
+    const fake = seed();
+    const realFrom = fake.client.from;
+    fake.client.from = (t: string) =>
+      t === "terms_acceptances"
+        ? {
+            select: () => {
+              throw new Error("connection reset");
+            },
+          }
+        : realFrom(t);
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(state.sessions).toHaveLength(1);
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining("checkout proceeding"));
+    errors.mockRestore();
+  });
+
+  it("proceeds when the staff check itself fails", async () => {
+    seed({ terms_acceptances: [] });
+    state.rpc = async () => ({ data: null, error: { message: "timeout" } });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect((await post()).status).toBe(200);
+    errors.mockRestore();
+  });
+});
+
 describe("payment methods", () => {
   it("never offers bank debits — the card checks would fail a paying ACH customer", async () => {
     seed();
@@ -706,6 +849,10 @@ describe("a property that arrived from the Cloudbeds Marketplace", () => {
     expect(state.customers[0].name).toBeUndefined();
     expect((state.customers[0].metadata as Record<string, unknown>).hotel_id).toBeUndefined();
     expect(state.customerOpts[0]).toMatchObject({ idempotencyKey: `maya_customer_user_${USER}` });
+    // That shared customer is why only this flow says the card is offered again.
+    const text = String(((lastSession()?.custom_text as Row).submit as Row).message);
+    expect(text).toContain("7-day free trial");
+    expect(text).toContain("and offered for your other properties (Terms 7.6)");
   });
 
   it("creates the owner's customer identically for every sibling, so the shared idempotency key cannot collide", async () => {
@@ -850,18 +997,20 @@ describe("a Marketplace group, paid for one property at a time", () => {
     expect((state.sessions[1].metadata as Row).hotel_id).toBe("hotel-b");
   });
 
-  it("asks Checkout to list the card the first sibling saved, and offers to keep the next one", async () => {
+  it("asks Checkout to list the card the first sibling saved, without a second consent box", async () => {
     // Sharing the customer is not enough. Subscription-mode Checkout stamps the
     // card it collects allow_redisplay=limited, and Checkout only lists `always`
     // by default — so without this the second sibling's Checkout showed an
     // empty card form and no sign of the card just entered
     // (docs.stripe.com/payments/checkout/save-during-payment?payment-ui=stripe-hosted).
+    // The consent to offer it again is in the Terms of Service accepted at
+    // signup, so Checkout's own "save for later" box must not come back: toEqual
+    // fails on a payment_method_save key as well as on a missing filter.
     seed(group);
     expect((await pay("hotel-a")).status).toBe(200);
     expect((await pay("hotel-b")).status).toBe(200);
     for (const s of state.sessions) {
       expect(s.saved_payment_method_options).toEqual({
-        payment_method_save: "enabled",
         allow_redisplay_filters: ["always", "limited"],
       });
     }

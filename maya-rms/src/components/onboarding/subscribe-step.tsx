@@ -1,7 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { askForTerms, TERMS_ACCEPTED_EVENT } from "@/components/legal/terms-gate";
+import { ManagePendingBillingLink } from "@/components/billing/billing-actions";
+import type { PendingBillingOffer } from "@/lib/onboarding/step";
 import { track, useTrackOnce } from "@/lib/analytics/track";
 import { checkoutQuote, type CodeDisplayEffect } from "@/lib/billing/quote";
 import {
@@ -52,6 +55,7 @@ export function SubscribeStep({
   hotelId,
   progress,
   deferrable = false,
+  manageBilling = null,
 }: {
   cancelled?: boolean;
   pmsOptions?: SubscribePmsOption[];
@@ -74,6 +78,11 @@ export function SubscribeStep({
    * from Billing. Never for Flow B, whose placeholder has nowhere to go back to.
    */
   deferrable?: boolean;
+  /**
+   * Offer "Manage billing or cancel": a subscription already sits on a property
+   * that is not connected yet, which the billing page cannot reach.
+   */
+  manageBilling?: PendingBillingOffer | null;
 }) {
   const router = useRouter();
   const [roomsText, setRoomsText] = useState(initialRooms ? String(initialRooms) : "");
@@ -91,6 +100,9 @@ export function SubscribeStep({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deferring, setDeferring] = useState(false);
+  // Set when checkout sent them to the accept screen, so accepting carries on
+  // to Stripe instead of asking for the same click twice.
+  const resumeAfterTerms = useRef<(() => void) | null>(null);
   const flow = { marketplace: Boolean(hotelId), restart: initialRooms !== undefined };
   useTrackOnce(
     "billing.subscribe_viewed",
@@ -108,6 +120,16 @@ export function SubscribeStep({
     };
     window.addEventListener("pageshow", onPageShow);
     return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
+  useEffect(() => {
+    const onAccepted = () => {
+      const resume = resumeAfterTerms.current;
+      resumeAfterTerms.current = null;
+      resume?.();
+    };
+    window.addEventListener(TERMS_ACCEPTED_EVENT, onAccepted);
+    return () => window.removeEventListener(TERMS_ACCEPTED_EVENT, onAccepted);
   }, []);
 
   const rooms = Number(roomsText);
@@ -214,7 +236,15 @@ export function SubscribeStep({
           ...(hotelId ? { hotelId } : {}),
         }),
       });
-      const body = (await res.json().catch(() => null)) as { url?: string; error?: string } | null;
+      const body = (await res.json().catch(() => null)) as
+        | { url?: string; error?: string; reason?: string }
+        | null;
+      if (res.status === 428 && body?.reason === "terms_required") {
+        resumeAfterTerms.current = () => void subscribe();
+        askForTerms();
+        setSubmitting(false);
+        return;
+      }
       if (!res.ok || !body?.url) throw new Error(body?.error ?? "Couldn't start checkout.");
       track("billing.checkout_started", { ...flow, interval, rooms, has_code: code.trim() !== "" }, hotelId);
       // Stripe's hosted page — card details never touch MAYA.
@@ -445,6 +475,11 @@ export function SubscribeStep({
                 {deferring ? "Setting it aside…" : "Not now — set this property up later"}
               </button>
               <NotNowHelp />
+            </p>
+          ) : null}
+          {manageBilling ? (
+            <p className="mt-4">
+              <ManagePendingBillingLink {...manageBilling} />
             </p>
           ) : null}
         </div>
