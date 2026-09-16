@@ -17,7 +17,10 @@
 import { hasHotelRank } from "@/lib/require-supabase-hotel";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { roleLabel, roleRank } from "@/lib/roles";
-import { createAdminClient } from "@/utils/supabase/admin";
+import { adoptSignupAcceptance, currentAcceptance } from "@/lib/legal/acceptance";
+import { metadataAcceptsCurrent } from "@/lib/legal/versions";
+import { checkoutDisclosure } from "@/lib/billing/checkout-disclosure";
+import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { findPendingHotelForUser, provisionPendingHotel } from "@/lib/billing/pending-hotel";
@@ -29,6 +32,7 @@ import { findMarketplaceClaimForHotel, marketplaceTrialDays } from "@/lib/pms/ma
 import { isEntitled } from "@/lib/billing/sync";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { isBillableRoomCount, MAX_ROOMS, type BillingInterval } from "@/lib/billing/tiers";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -72,6 +76,18 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+
+  // The card form's disclosure points at the Terms, so they must be on file
+  // first. Only a positive "not accepted" stops anyone: an unreadable table or
+  // a database blip lets checkout through, loudly, because a hotel unable to
+  // pay is the worse failure. The accept screen fails open for the same reason
+  // (see /api/legal/acceptance), and this is what catches whoever got past it.
+  if ((await termsOnFile(supabase, user)) === "missing") {
+    return NextResponse.json(
+      { error: "Accept the Terms of Service to continue.", reason: "terms_required" },
+      { status: 428 },
+    );
+  }
 
   const body = (await request.json().catch(() => null)) as {
     rooms?: number;
@@ -441,6 +457,9 @@ export async function POST(request: Request) {
       // screen which property this was for when Stripe itself cannot be
       // reached to say so. A hint, not a fact: that route believes only the
       // session for anything that matters.
+      custom_text: {
+        submit: { message: checkoutDisclosure({ interval, trialDays, marketplace: Boolean(marketplace) }) },
+      },
       success_url: `${origin}/api/billing/checkout/return?session_id={CHECKOUT_SESSION_ID}&hotel=${encodeURIComponent(hotelId)}`,
       cancel_url: `${origin}/onboarding?checkout=cancelled`,
     },
@@ -475,6 +494,49 @@ export async function POST(request: Request) {
       { status: 502 },
     );
   }
+}
+
+/**
+ * Whether this user has accepted the Terms in force, as checkout needs to know
+ * it. Same steps as the accept screen's GET: a signup whose trigger did not
+ * write the row is adopted from its metadata, and MHS staff are not customers.
+ * "unavailable" is logged here as well as in the lookup, so a checkout that
+ * went ahead unchecked can be found.
+ */
+async function termsOnFile(
+  supabase: SupabaseClient,
+  user: User,
+): Promise<"accepted" | "missing" | "unavailable"> {
+  const state = await currentAcceptance(supabase, user.id);
+  if (state === "unavailable") {
+    console.error(
+      JSON.stringify({ fn: "billingCheckout", step: "terms", warning: "acceptance unreadable, checkout proceeding" }),
+    );
+  }
+  if (state !== "missing") return state;
+
+  if (metadataAcceptsCurrent(user.user_metadata) && isAdminConfigured()) {
+    if (await adoptSignupAcceptance(createAdminClient(), user.id)) return "accepted";
+  }
+
+  try {
+    const { data: isPlatformAdmin, error } = await supabase.rpc("is_platform_admin", {
+      p_user_id: user.id,
+    });
+    if (error) throw new Error(error.message);
+    if (isPlatformAdmin === true) return "accepted";
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "billingCheckout",
+        step: "terms_staff_check",
+        warning: "could not tell whether this is MHS staff, checkout proceeding",
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+    return "unavailable";
+  }
+  return "missing";
 }
 
 /**
