@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useTrackOnce } from "@/lib/analytics/track";
 import {
   useOnboardingStatus,
   type OnboardingStatus,
@@ -40,6 +41,7 @@ export function ReviewFindings() {
   // One poll shared by the room-count strip (which needs the hotel id) and the
   // starter rules (which need the job stats and simulation flag).
   const status = useOnboardingStatus(15000);
+  useTrackOnce("onboarding.review_viewed");
 
   async function load() {
     // A failure has to be visible. Leaving `findings` null renders the loading

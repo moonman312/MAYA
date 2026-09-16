@@ -103,6 +103,18 @@ describe("projectSubscription", () => {
     expect(row.trial_end).toBe("2026-08-05T12:00:00.000Z");
     expect(row.signup_code_id).toBe("code-9");
   });
+
+  it("carries why it was cancelled, and never the owner's own words", () => {
+    const leaving = sub({
+      cancel_at_period_end: true,
+      cancellation_details: { reason: "cancellation_requested", feedback: "too_expensive", comment: "call me on 555" },
+    });
+    const row = projectSubscription(leaving)!;
+    expect(row.cancellation_reason).toBe("cancellation_requested");
+    expect(row.cancellation_feedback).toBe("too_expensive");
+    expect(JSON.stringify(row)).not.toContain("555");
+    expect(projectSubscription(sub())!.cancellation_reason).toBeNull();
+  });
 });
 
 describe("persistSubscription", () => {
@@ -169,6 +181,30 @@ describe("persistSubscription", () => {
     expect(res.ok).toBe(false);
     expect(res.error).toBe("deadlock");
     spy.mockRestore();
+  });
+
+  it("still records the subscription when the cancellation columns are not migrated yet", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const upserts: Record<string, unknown>[] = [];
+    const admin = {
+      from: () => ({
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+        upsert: (r: Record<string, unknown>) => {
+          upserts.push(r);
+          return Promise.resolve({
+            error: "cancellation_reason" in r
+              ? { message: "Could not find the 'cancellation_reason' column of 'hotel_subscriptions' in the schema cache" }
+              : null,
+          });
+        },
+      }),
+    } as unknown as SupabaseClient;
+    const res = await persistSubscription(admin, row({ cancellation_reason: "payment_failed", cancellation_feedback: null }));
+    expect(res.ok).toBe(true);
+    expect(upserts).toHaveLength(2);
+    expect(upserts[1]).not.toHaveProperty("cancellation_reason");
+    expect(upserts[1]).toMatchObject({ hotel_id: "hotel-1", status: "active" });
+    warn.mockRestore();
   });
 
   describe("one hotel, one subscription", () => {

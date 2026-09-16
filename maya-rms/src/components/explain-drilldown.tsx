@@ -12,6 +12,7 @@
  * multiple distinct years (see observations/reinforcement.ts).
  */
 
+import { track } from "@/lib/analytics/track";
 import { useCallback, useState } from "react";
 import {
   CHALLENGE_REASONS,
@@ -324,6 +325,7 @@ export function ExplainDrilldown({
         className="mt-1 cursor-pointer text-xs text-sky-400 hover:text-sky-300"
         onClick={() => {
           setOpen(true);
+          track("explain.opened");
           if (views === null) void load();
         }}
       >

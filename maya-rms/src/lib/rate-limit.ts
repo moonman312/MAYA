@@ -53,6 +53,11 @@ export const RATE_LIMITS = {
    * backs off on its own; this is the ceiling for the ones that don't.
    */
   stepPoll: { limit: 120, windowSeconds: 600 },
+  /**
+   * Product analytics from the browser. A person clicking around sends a few a
+   * minute; this is only the ceiling on a loop filling the log.
+   */
+  productEvent: { limit: 60, windowSeconds: 600 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

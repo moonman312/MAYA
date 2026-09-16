@@ -1,5 +1,6 @@
 "use client";
 
+import { track } from "@/lib/analytics/track";
 import { describeRoomChange, formatUsd, MAX_ROOMS, type BillingInterval } from "@/lib/billing/tiers";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -25,6 +26,7 @@ export function ManageBillingButton() {
         setPending(false);
         return;
       }
+      track("billing.portal_opened");
       // Deliberately not resetting pending: the page is on its way out, and a
       // button that springs back to life invites a second session.
       window.location.href = body.url;

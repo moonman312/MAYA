@@ -8,6 +8,7 @@ import { OnboardingReviewBanner } from "@/components/onboarding/review-banner";
 import { CorrectionsPanel, ExplainDrilldown } from "@/components/explain-drilldown";
 import { ManualPriceEditor } from "@/components/manual-price-editor";
 import { useCalendarLive } from "@/lib/use-calendar-live";
+import { track } from "@/lib/analytics/track";
 import { PropertySelect } from "@/components/property-select";
 import { RateSimulator } from "@/components/rate-simulator";
 import { RoomTypeSettings, isCountingRoom } from "@/components/room-type-settings";
@@ -822,7 +823,10 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                     ? "bg-sky-500 text-slate-950"
                     : "bg-slate-800 hover:bg-slate-700"
                 }`}
-                onClick={() => setTab(item.key)}
+                onClick={() => {
+                  setTab(item.key);
+                  track("dashboard.tab_opened", { tab: item.key });
+                }}
               >
                 {item.label}
               </button>
