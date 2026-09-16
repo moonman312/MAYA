@@ -122,6 +122,58 @@ describe("nobody is charged more without having been told", () => {
   });
 });
 
+describe("a shortfall that comes back is warned about again", () => {
+  it("emails again and waits the full period when an old notice quoted the same count", async () => {
+    // Told about 60 rooms months ago and corrected to 60. The owner later lowers
+    // the billed count to 25 and the shortfall starts again at 60. The old
+    // notice is about a shortfall that already ended.
+    vi.stubEnv("MAYA_INVITE_REDIRECT_BASE", "https://maya.example.com");
+    const day = (n: number) => new Date(Date.parse("2026-08-01T12:00:00Z") + n * 86_400_000);
+    const sub = row({
+      billed_rooms: 25,
+      measured_rooms: 60,
+      room_shortfall_since: day(-8).toISOString(),
+      room_shortfall_notified_at: day(-90).toISOString(),
+      room_shortfall_notified_rooms: 60,
+    });
+    const { admin } = tableAdmin(sub);
+    const { stripe, updates } = fakeStripe(25);
+    const withCustomer = Object.assign(stripe, {
+      customers: { retrieve: async () => ({ id: "cus_1", email: "owner@driftwood.example" }) },
+    });
+
+    const today = await sweepRoomTruing({ admin, stripe: withCustomer, now: day(0) });
+    expect(sent.emails).toHaveLength(1);
+    expect(today.corrected).toBe(0);
+    expect(updates).toHaveLength(0);
+
+    for (const n of [1, 4, 6]) {
+      await sweepRoomTruing({ admin, stripe: withCustomer, now: day(n) });
+    }
+    expect(sent.emails).toHaveLength(1);
+    expect(updates).toHaveLength(0);
+
+    const onDay7 = await sweepRoomTruing({ admin, stripe: withCustomer, now: day(7) });
+    expect(onDay7.corrected).toBe(1);
+    expect(updates[0].params).toMatchObject({ items: [{ id: "si_1", quantity: 60 }] });
+    vi.unstubAllEnvs();
+  });
+
+  it("refuses to correct on a notice sent before the current shortfall began", async () => {
+    const { stripe, updates } = fakeStripe();
+    const { admin } = fakeAdmin();
+    const since = new Date(NOW.getTime() - 8 * 86_400_000).toISOString();
+    const outcome = await trueUpOne(
+      admin,
+      stripe,
+      row({ room_shortfall_since: since, room_shortfall_notified_at: LONG_AGO }),
+      NOW,
+    );
+    expect(outcome).toEqual({ kind: "skipped", reason: "not_yet_notified" });
+    expect(updates).toHaveLength(0);
+  });
+});
+
 describe("the grace period is real", () => {
   it("does nothing while the clock is still running", async () => {
     const { stripe, updates } = fakeStripe();
