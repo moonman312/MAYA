@@ -27,6 +27,19 @@ const state = vi.hoisted(() => ({
   pmsStatuses: [] as string[],
   sentEmails: [] as { to: string; subject: string; idempotencyKey?: string }[],
   sendError: null as Error | null,
+  firstPaid: { stamped: true, hotelId: "hotel-1" } as Record<string, unknown>,
+  firstPaidInvoices: [] as { id?: string; amount_paid?: number }[],
+}));
+
+vi.mock("@/lib/billing/reverify", () => ({
+  clearCardAlarmAfterPayment: async () => ({ cleared: false }),
+}));
+
+vi.mock("@/lib/billing/first-paid", () => ({
+  recordFirstPayment: async (_admin: unknown, _stripe: unknown, inv: { id?: string; amount_paid?: number }) => {
+    state.firstPaidInvoices.push(inv);
+    return state.firstPaid;
+  },
 }));
 
 vi.mock("@/lib/email/resend", () => ({
@@ -362,6 +375,45 @@ describe("invoice.upcoming nudges only the unconnected", () => {
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ nudge: "failed" });
+  });
+});
+
+describe("invoice.payment_succeeded records the first payment", () => {
+  const paidInvoice = () => ({
+    id: "in_9",
+    status: "paid",
+    amount_paid: 4200,
+    parent: { subscription_details: { subscription: "sub_1" } },
+  });
+
+  it("hands the invoice to recordFirstPayment and acknowledges", async () => {
+    state.firstPaid = { stamped: true, hotelId: "hotel-1" };
+    state.firstPaidInvoices = [];
+    const res = await POST(signedRequest({ id: "evt_pay", type: "invoice.payment_succeeded", data: { object: paidInvoice() } }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ received: true, firstPaid: true });
+    expect(state.firstPaidInvoices.map((i) => i.id)).toEqual(["in_9"]);
+  });
+
+  it("acknowledges an invoice that charged nothing", async () => {
+    state.firstPaid = { stamped: false, reason: "not_charged" };
+    const res = await POST(signedRequest({ id: "evt_zero", type: "invoice.payment_succeeded", data: { object: { ...paidInvoice(), amount_paid: 0 } } }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ firstPaid: false });
+  });
+
+  it("asks Stripe to retry when the stamp could not be written", async () => {
+    state.firstPaid = { stamped: false, reason: "error", message: "connection reset" };
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await POST(signedRequest({ id: "evt_fail", type: "invoice.payment_succeeded", data: { object: paidInvoice() } }));
+    expect(res.status).toBe(500);
+    errorSpy.mockRestore();
+  });
+
+  it("does not fail the webhook ahead of the column's migration", async () => {
+    state.firstPaid = { stamped: false, reason: "column_missing" };
+    const res = await POST(signedRequest({ id: "evt_nocol", type: "invoice.payment_succeeded", data: { object: paidInvoice() } }));
+    expect(res.status).toBe(200);
   });
 });
 

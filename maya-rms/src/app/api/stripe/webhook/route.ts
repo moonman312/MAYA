@@ -18,6 +18,7 @@ import { persistSubscription, projectSubscription, type SubscriptionProjection }
 import { activateMarketplaceHotelIfPending } from "@/lib/pms/marketplace-activate";
 import { decideNudge, sendRenewalNudge, type UpcomingInvoice } from "@/lib/billing/renewal-nudge";
 import { clearCardAlarmAfterPayment } from "@/lib/billing/reverify";
+import { recordFirstPayment } from "@/lib/billing/first-paid";
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
@@ -145,7 +146,14 @@ export async function POST(request: Request) {
       if (!subId) return NextResponse.json({ received: true, ignored: "no_subscription" });
 
       const { cleared } = await clearCardAlarmAfterPayment(admin, subId);
-      return NextResponse.json({ received: true, cardAlarmCleared: cleared });
+      const firstPaid = await recordFirstPayment(admin, stripe, inv);
+      if (firstPaid.stamped === false && firstPaid.reason === "error") {
+        // A retry could fix a failed write, and without the stamp the retention
+        // sweep would treat a paying customer as one who never paid.
+        console.error(JSON.stringify({ fn: "stripeWebhook", step: "first_paid_at", sub: subId, error: firstPaid.message }));
+        return NextResponse.json({ error: "Could not record the payment" }, { status: 500 });
+      }
+      return NextResponse.json({ received: true, cardAlarmCleared: cleared, firstPaid: firstPaid.stamped });
     }
 
     if (event.type === "invoice.upcoming") {
@@ -243,12 +251,12 @@ export async function POST(request: Request) {
 }
 
 /**
- * A Marketplace property is connected before it is paid for; the subscription
- * landing is what makes it live and starts its history import. Done here, on
- * the webhook, so the import is already running before the owner is back from
- * the card form. Never fails the webhook: the subscription was recorded
- * correctly and Stripe retrying would not help, and the next page load
- * re-attempts activation on its own.
+ * A Marketplace property is connected and importing before it is paid for;
+ * the subscription landing is what makes it live and adopts the import its
+ * claim started. Done here, on the webhook, so it is live before the owner is
+ * back from the card form. Never fails the webhook: the subscription was
+ * recorded correctly and Stripe retrying would not help, and the next page
+ * load re-attempts activation on its own.
  */
 async function activateIfPaidMarketplace(
   admin: SupabaseClient,
