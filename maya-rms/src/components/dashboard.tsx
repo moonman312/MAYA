@@ -170,6 +170,8 @@ type PmsActivity = {
   } | null;
   /** How this PMS authenticates — decides whether reconnecting is one click. */
   pms: { authKind: string; displayName: string; canManage: boolean } | null;
+  /** The connection is gone because never-paid data was removed; reconnecting reads the history again. */
+  historyRemoved?: boolean;
   health: {
     state: "healthy" | "degraded" | "down" | "unknown";
     successRate: number | null;
@@ -856,6 +858,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
               authKind={pmsActivity.pms.authKind}
               displayName={pmsActivity.pms.displayName}
               canManage={pmsActivity.pms.canManage}
+              historyRemoved={pmsActivity.historyRemoved === true}
               placement="banner"
             />
           </div>
@@ -1808,6 +1811,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                     authKind={pmsActivity.pms.authKind}
                     displayName={pmsActivity.pms.displayName}
                     canManage={pmsActivity.pms.canManage}
+                    historyRemoved={pmsActivity.historyRemoved === true}
                   />
                 ) : null}
                 <div className="grid gap-3 sm:grid-cols-3">

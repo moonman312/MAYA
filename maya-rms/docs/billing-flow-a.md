@@ -74,8 +74,16 @@ the rows derived from it, its import jobs, open findings, unaccepted invites,
 its stored PMS credential and its connection row
 (`99_supabase_migration_never_paid_retention_v1.sql`). The property, members,
 rules, room types and their classifications, closed periods and answered
-findings stay, so an owner who comes back does not set anything up again: they
-reconnect from the Marketplace and the import runs again. Anything that is
+findings stay, so an owner who comes back does not set anything up again. With
+no connection left, the subscribe screen, the import progress screen and the
+dashboard show the ordinary reconnect prompt, which says the booking history
+comes back once they reconnect (`lib/pms/purged.ts`). Reconnecting, from that
+prompt or from the Marketplace, sees `hotels.data_purged_at` and queues a fresh
+full import: through the pre-payment queue while the property is parked, or
+adopted the way payment adopts one if they paid first. A parked property stays
+`pending`; a paid one is left alone by `claim_pms_sync_batch` until an import
+created after the purge has completed, so nothing prices it off the recent
+window alone. Anything that is
 paying, trialing, past due or has ever paid (`hotel_subscriptions.first_paid_at`,
 stamped by the webhook from the first paid, non-zero invoice) is never touched.
 Disconnecting deletes nothing, and no owner-facing control deletes anything.

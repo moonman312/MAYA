@@ -8,6 +8,9 @@ import { handleOnboardingConnect } from "@/lib/onboarding/connect";
 import { ensureAppStateWebhook } from "@/lib/pms/cloudbeds-webhooks";
 import { defaultCloudbedsBaseUrl } from "../../../supabase/functions/_shared/cloudbeds/constants";
 import { handleMarketplaceConnect } from "@/lib/pms/marketplace-connect";
+import { findMarketplaceClaimForHotel, hasEntitledSubscription } from "@/lib/pms/marketplace-activate";
+import { queueImportAfterPurge } from "@/lib/pms/purged";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveOnboardingStep } from "@/lib/onboarding/step";
 import { pmsCallbackUrl, requireRegistry, type PmsType } from "@/lib/pms/registry";
 import { signOnboardingState, signState, verifyState } from "@/lib/pms/oauth-state";
@@ -306,6 +309,13 @@ export async function handleOAuthCallback(
   });
   if (secretErr) return renderCallbackError(pmsType, `pms_secret_set: ${secretErr.message}`);
 
+  // The reconnect prompt sends a Marketplace property here too, including one
+  // whose owner never paid and whose data the retention sweep removed. Owning
+  // it is not paying for it, so it comes back parked exactly as the Marketplace
+  // reconnect leaves it (marketplace-connect.ts), and activation lifts it when
+  // a subscription lands. Any other hotel connects as it always has.
+  const parked = await parkedMarketplaceHotel(admin, hotelId);
+
   const now = new Date().toISOString();
   const { error: pcErr } = await admin
     .from("pms_connections")
@@ -313,13 +323,26 @@ export async function handleOAuthCallback(
       {
         hotel_id: hotelId,
         pms_type: pmsType,
-        status: "connected",
+        status: parked ? "pending" : "connected",
         last_tested_at: now,
         updated_at: now,
       },
       { onConflict: "hotel_id,pms_type" },
     );
   if (pcErr) return renderCallbackError(pmsType, `pms_connections upsert: ${pcErr.message}`);
+
+  // A property the sweep emptied gets its full history read again; a plain
+  // reconnect would only ever sync the recent window. Never fails the connect.
+  await queueImportAfterPurge(admin, hotelId, pmsType, null).catch((e: unknown) => {
+    console.error(
+      JSON.stringify({
+        fn: "handleOAuthCallback",
+        step: "import_after_purge",
+        hotelId,
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+  });
 
   // Cloudbeds only: ask to be told when this property uninstalls the app, so a
   // revoked grant is not first noticed as a 401 five minutes later. Deliberately
@@ -354,6 +377,29 @@ export async function handleOAuthCallback(
   return NextResponse.redirect(`${base}/admin/hotels/${hotelId}?pmsConnected=1`, {
     status: 302,
   });
+}
+
+/**
+ * A claimed Marketplace hotel with no live subscription, on an install that
+ * takes payments. Same test the claim and the Marketplace reconnect use,
+ * with the same reading of a failed lookup.
+ */
+async function parkedMarketplaceHotel(admin: SupabaseClient, hotelId: string): Promise<boolean> {
+  if (!isStripeConfigured()) return false;
+  try {
+    if (!(await findMarketplaceClaimForHotel(admin, hotelId))) return false;
+    return !(await hasEntitledSubscription(admin, hotelId));
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "handleOAuthCallback",
+        step: "parked_check",
+        hotelId,
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+    return false;
+  }
 }
 
 function renderCallbackError(pmsType: PmsType, message: string): Response {

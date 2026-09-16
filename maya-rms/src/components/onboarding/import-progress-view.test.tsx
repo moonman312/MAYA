@@ -95,6 +95,33 @@ describe("ImportProgressView", () => {
   });
 });
 
+describe("a paid property with no connection left", () => {
+  it("shows the reconnect prompt instead of a progress bar that would never move", async () => {
+    responses = [
+      {
+        ...statusWith({ status: "canceled", phase: "discover" }),
+        hotelId: "hotel-1",
+        reconnect: {
+          pmsType: "cloudbeds",
+          authKind: "oauth2_authorization_code",
+          displayName: "Cloudbeds",
+          canManage: true,
+          historyRemoved: true,
+        },
+      },
+    ];
+    const view = render(<ImportProgressView />);
+    const link = await view.findByRole("link", { name: "Reconnect Cloudbeds" });
+    expect(link.getAttribute("href")).toBe("/api/pms/cloudbeds/connect?hotelId=hotel-1");
+    expect(view.getByRole("heading", { level: 1 }).textContent).toBe("Reconnect Cloudbeds to continue");
+    expect(view.container.textContent).toContain("your booking history comes back once you reconnect");
+    expect(view.container.textContent).not.toContain("studying your booking history");
+    expect(view.container.textContent).not.toContain("Room-nights");
+    expect(router.replace).not.toHaveBeenCalled();
+    expect(router.push).not.toHaveBeenCalled();
+  });
+});
+
 describe("earlyResultsReady", () => {
   it("counts a job waiting in the queue with its early analysis done", () => {
     const stats = { earlyAnalysisAt: "2026-09-16T10:00:00Z" };

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { PmsReconnect } from "@/components/pms-reconnect";
 
 export type OnboardingStatus = {
   connected: boolean;
@@ -31,6 +32,14 @@ export type OnboardingStatus = {
   } | null;
   proposedFindings?: number;
   simulationMode?: boolean;
+  /** The PMS connection is gone and the import cannot run until it is reconnected. */
+  reconnect?: {
+    pmsType: string;
+    authKind: string;
+    displayName: string;
+    canManage: boolean;
+    historyRemoved: boolean;
+  } | null;
 };
 
 export function useOnboardingStatus(pollMs = 4000): OnboardingStatus | null {
@@ -95,6 +104,22 @@ function phaseLabel(job: NonNullable<OnboardingStatus["job"]>): string {
 /** Slim progress strip shown under the questions and on the progress page. */
 export function ImportProgressBar({ status }: { status: OnboardingStatus | null }) {
   const job = status?.job;
+  // Nothing can be read without a connection, so the prompt to reconnect
+  // stands in for a progress bar that would never move.
+  if (status?.reconnect && status.hotelId) {
+    return (
+      <PmsReconnect
+        hotelId={status.hotelId}
+        pmsType={status.reconnect.pmsType}
+        status="disconnected"
+        authKind={status.reconnect.authKind}
+        displayName={status.reconnect.displayName}
+        canManage={status.reconnect.canManage}
+        placement="banner"
+        historyRemoved={status.reconnect.historyRemoved}
+      />
+    );
+  }
   if (!job) return null;
 
   const finished = job.status === "completed";

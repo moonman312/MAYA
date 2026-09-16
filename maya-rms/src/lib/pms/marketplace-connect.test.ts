@@ -210,3 +210,94 @@ describe("an import a disconnect stopped", () => {
     expect(db.tables.import_jobs[0].status).toBe("completed");
   });
 });
+
+describe("a property whose never-paid data the retention sweep removed", () => {
+  /** What the sweep leaves: owner, claim and property, no connection, no jobs, data_purged_at set. */
+  function purged(opts: { isActive?: boolean; subscription?: string } = {}) {
+    const db = claimedProperty({ connection: "gone", subscription: opts.subscription, isActive: opts.isActive });
+    db.tables.pms_connections = [];
+    db.tables.import_jobs = [];
+    db.tables.hotels[0].data_purged_at = "2027-03-01T00:00:00.000Z";
+    db.tables.hotels[0].setup_pending_at = opts.isActive ? null : "2026-09-01T00:00:00.000Z";
+    db.tables.pms_marketplace_claims = [
+      { token: "tok", hotel_id: "hotel-1", pms_type: "cloudbeds", claimed_by: "user-1", claimed_at: "2026-09-01T00:00:00.000Z" },
+    ];
+    return db;
+  }
+
+  it("queues a fresh full import on reconnect, and the unpaid property stays parked", async () => {
+    const db = purged();
+    const outcome = await handleMarketplaceConnect("cloudbeds", TOKENS);
+
+    expect(outcome).toMatchObject({ kind: "reconnected", hotelId: "hotel-1" });
+    expect(connectionStatus()).toBe("pending");
+    expect(db.tables.import_jobs).toHaveLength(1);
+    expect(db.tables.import_jobs[0]).toMatchObject({
+      status: "queued",
+      phase: "discover",
+      requested_by: "user-1",
+    });
+    expect(db.tables.hotels[0].is_active).toBe(false);
+  });
+
+  it("queues it for a property paid for before the reconnect, and onboarding follows the new job", async () => {
+    const db = purged({ isActive: true, subscription: "active" });
+    await handleMarketplaceConnect("cloudbeds", TOKENS);
+
+    expect(connectionStatus()).toBe("connected");
+    expect(db.tables.import_jobs).toHaveLength(1);
+    expect(db.tables.import_jobs[0]).toMatchObject({ status: "queued", phase: "discover" });
+    expect(db.tables.onboarding_states[0]).toMatchObject({
+      hotel_id: "hotel-1",
+      import_job_id: db.tables.import_jobs[0].id,
+    });
+  });
+
+  it("payment after the reconnect adopts that import instead of starting another", async () => {
+    const db = purged();
+    await handleMarketplaceConnect("cloudbeds", TOKENS);
+    const jobId = db.tables.import_jobs[0].id;
+
+    db.tables.hotel_subscriptions.push({ hotel_id: "hotel-1", status: "trialing" });
+    const result = await activateMarketplaceHotelIfPending(db.client, "hotel-1");
+
+    expect(result).toMatchObject({ activated: true, importJobId: jobId });
+    expect(db.tables.import_jobs).toHaveLength(1);
+    expect(connectionStatus()).toBe("connected");
+  });
+
+  it("reconnects as before when the column is not there yet", async () => {
+    const db = purged();
+    db.tables.hotels[0].data_purged_at = undefined;
+    const fault: FakeFault = (call) =>
+      call.table === "hotels" && call.columns.includes("data_purged_at")
+        ? { code: "42703", message: "column hotels.data_purged_at does not exist" }
+        : null;
+    state.db = fakeSupabase(db.tables, {
+      fault,
+      rpc: (fn, args) => {
+        state.events.push({ fn, args: args as Record<string, unknown> });
+        return null;
+      },
+    });
+
+    const outcome = await handleMarketplaceConnect("cloudbeds", TOKENS);
+
+    expect(outcome).toMatchObject({ kind: "reconnected" });
+    expect(connectionStatus()).toBe("pending");
+    expect(state.db.tables.import_jobs).toEqual([]);
+  });
+
+  it("does not import again a property that was never purged", async () => {
+    const db = claimedProperty({ connection: "disconnected", subscription: "active", isActive: true });
+    db.tables.pms_marketplace_claims = [
+      { token: "tok", hotel_id: "hotel-1", pms_type: "cloudbeds", claimed_by: "user-1", claimed_at: "2026-09-01T00:00:00.000Z" },
+    ];
+    db.tables.import_jobs = [
+      { id: "job-1", hotel_id: "hotel-1", pms_type: "cloudbeds", status: "completed", phase: "done", created_at: "2026-09-02T00:00:00.000Z" },
+    ];
+    await handleMarketplaceConnect("cloudbeds", TOKENS);
+    expect(db.tables.import_jobs).toHaveLength(1);
+    expect(db.tables.import_jobs[0].status).toBe("completed");
+  });
+});

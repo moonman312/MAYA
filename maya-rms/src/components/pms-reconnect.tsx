@@ -24,6 +24,7 @@ export function PmsReconnect({
   displayName,
   canManage,
   placement = "panel",
+  historyRemoved = false,
 }: {
   hotelId: string | null;
   pmsType: string;
@@ -39,6 +40,12 @@ export function PmsReconnect({
    * tab, where the quiet version belongs too.
    */
   placement?: "banner" | "panel";
+  /**
+   * The booking history is gone (a never-paid property's data was removed after
+   * 180 quiet days), so "history untouched" would be untrue. Reconnecting
+   * imports it again.
+   */
+  historyRemoved?: boolean;
 }) {
   if (!hotelId) return null;
 
@@ -99,8 +106,19 @@ export function PmsReconnect({
         MAYA has lost its connection to {displayName}
       </h3>
       <p className="mt-1 max-w-2xl text-sm text-amber-100/80">
-        Your prices aren&apos;t updating while this is down. Reconnecting takes one click and sends
-        you to {displayName} to confirm — your rules, history and settings are all untouched.
+        {historyRemoved ? (
+          <>
+            Your prices aren&apos;t updating while this is down. Reconnecting takes one click and
+            sends you to {displayName} to confirm. Your rules and settings are still here, and your
+            booking history comes back once you reconnect.
+          </>
+        ) : (
+          <>
+            Your prices aren&apos;t updating while this is down. Reconnecting takes one click and
+            sends you to {displayName} to confirm — your rules, history and settings are all
+            untouched.
+          </>
+        )}
       </p>
       <a
         href={href}

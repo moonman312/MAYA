@@ -19,6 +19,7 @@ export function ImportProgressView() {
   const router = useRouter();
   const status = useOnboardingStatus();
   const job = status?.job;
+  const reconnect = status?.reconnect ?? null;
   const somethingToReview =
     (status?.proposedFindings ?? 0) > 0 || (job?.stats?.starterRules?.length ?? 0) > 0;
   const moveOn = job?.status === "completed" || (earlyResultsReady(job) && somethingToReview);
@@ -46,23 +47,27 @@ export function ImportProgressView() {
     <div className="flex flex-col items-center gap-8 pt-10 text-center">
       <div>
         <h1 className="text-2xl font-semibold text-slate-100">
-          {job?.status === "completed"
-            ? "All done!"
-            : moveOn
-              ? "Your first results are ready"
-              : "We're studying your booking history"}
+          {reconnect
+            ? `Reconnect ${reconnect.displayName} to continue`
+            : job?.status === "completed"
+              ? "All done!"
+              : moveOn
+                ? "Your first results are ready"
+                : "We're studying your booking history"}
         </h1>
-        <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-400">
-          {moveOn
-            ? "Taking you to what we found…"
-            : "This runs on our side — you can close this page, grab a coffee, or head to your dashboard. We'll flag anything worth reviewing as soon as it's ready."}
-        </p>
+        {reconnect ? null : (
+          <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-400">
+            {moveOn
+              ? "Taking you to what we found…"
+              : "This runs on our side — you can close this page, grab a coffee, or head to your dashboard. We'll flag anything worth reviewing as soon as it's ready."}
+          </p>
+        )}
       </div>
 
       <div className="w-full max-w-lg space-y-4 text-left">
         <ImportProgressBar status={status} />
 
-        {job ? (
+        {job && !reconnect ? (
           <div className="grid grid-cols-3 gap-3">
             <Stat
               label="Room-nights"

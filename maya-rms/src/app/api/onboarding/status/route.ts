@@ -1,4 +1,8 @@
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
+import { marketplaceReconnectNeeded } from "@/lib/pms/purged";
+import { getRegistry, type PmsType } from "@/lib/pms/registry";
+import { hasHotelRank } from "@/lib/require-supabase-hotel";
+import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { cookies } from "next/headers";
@@ -74,8 +78,39 @@ export async function GET() {
       .maybeSingle(),
   ]);
 
+  // Paid for, but its connection is gone: the retention sweep removed this
+  // never-paid property's data before the payment. The import has nothing to
+  // read until the owner reconnects, so the progress screens show the
+  // reconnect prompt instead of waiting on it.
+  let reconnect = null;
+  if (isAdminConfigured()) {
+    try {
+      const needed = await marketplaceReconnectNeeded(createAdminClient(), hotelId);
+      const registry = needed ? getRegistry(needed.pmsType as PmsType) : null;
+      if (needed && registry) {
+        reconnect = {
+          pmsType: needed.pmsType,
+          authKind: registry.authKind,
+          displayName: registry.displayName,
+          canManage: await hasHotelRank(supabase, hotelId, "general_manager"),
+          historyRemoved: needed.historyRemoved,
+        };
+      }
+    } catch (e) {
+      console.error(
+        JSON.stringify({
+          fn: "onboardingStatus",
+          step: "reconnect_needed",
+          hotelId,
+          error: e instanceof Error ? e.message : String(e),
+        }),
+      );
+    }
+  }
+
   return NextResponse.json({
     connected: true,
+    reconnect,
     hotelId,
     hotelName: hotel?.name ?? null,
     currency: hotel?.currency ?? null,

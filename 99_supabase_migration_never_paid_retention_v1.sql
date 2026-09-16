@@ -111,24 +111,41 @@
 -- credential this deletes, and Cloudbeds answers a delete without deleting. A
 -- later uninstall POST finds no connection row and does nothing.
 --
--- A RETURNING OWNER signs in to the same property with the same rules. Their
--- next Marketplace connect takes the reconnect branch (they are still a
--- member) and stores a new credential. The import then runs again: queued
--- when the property is next on the subscribe screen, or, for an owner who paid
--- first, picked up by the reconnect.
+-- A RETURNING OWNER signs in to the same property with the same rules. With
+-- no connection row left, the dashboard and onboarding show the ordinary
+-- reconnect prompt (lib/pms/purged.ts). Reconnecting, from that prompt or from
+-- the Marketplace, stores a new credential, and because data_purged_at is set
+-- it queues a fresh full import: through the pre-payment queue for a parked
+-- property, adopted the way payment adopts one for a live property. A plain
+-- reconnect only syncs the recent window, which would leave the property with
+-- no history for good.
+--
+-- NOTHING PRICES IT BEFORE THAT IMPORT HAS RUN. claim_pms_sync_batch, redefined
+-- below, leaves a property alone while data_purged_at is set and no import job
+-- created after it has completed, so the scheduled sync, the engine and rate
+-- pushes wait for the history. An unpaid property is parked ('pending') anyway;
+-- this is what holds one that is paid for by the time it reconnects. The import
+-- worker has its own queue and is not held. Nothing clears data_purged_at: a
+-- completed import newer than it is what lifts the hold, and a later purge
+-- stamps it again. A fresh import that fails keeps the hold until someone
+-- re-queues it.
 --
 -- Service role only. Dry run lists what would go and writes nothing:
 --   select public.never_paid_retention_sweep(p_dry_run => true);
 --
 -- Run AFTER 99_supabase_migration_product_events_v1.sql,
--- 99_supabase_migration_first_paid_at_v1.sql and
--- 99_supabase_migration_internal_plan_v1.sql. Idempotent.
+-- 99_supabase_migration_first_paid_at_v1.sql,
+-- 99_supabase_migration_internal_plan_v1.sql and
+-- 99_supabase_migration_sync_claim_skip_pending_v1.sql (claim_pms_sync_batch
+-- is redefined here with that file's filter kept). Idempotent.
 -- Schedule with maya-rms/supabase/cron/never-paid-retention-sweep.sql.example.
 --
--- Deploy order: independent of the app. Nothing in the app reads
--- data_purged_at; the sweep only acts on properties quiet for 180 days, so the
--- first real deletions are six months after eager import ships. Run the dry
--- run before scheduling it.
+-- Deploy order: either. The app reads data_purged_at to decide whether a
+-- reconnect imports again, and treats a missing column as "never purged",
+-- which is true until this file has run, since the sweep arrives with it. The
+-- sweep only acts on properties quiet for 180 days, so the first real
+-- deletions are six months after eager import ships. Run the dry run before
+-- scheduling it.
 --
 -- NOT mirrored into 02_supabase_schema.sql yet — fold it in on the next
 -- schema consolidation pass.
@@ -451,6 +468,58 @@ begin
 end;
 $$;
 
+-- The scheduler's claim, as 99_supabase_migration_sync_claim_skip_pending_v1.sql
+-- left it, plus the hold on a purged property until its fresh import has
+-- completed (see A RETURNING OWNER above).
+create or replace function public.claim_pms_sync_batch(
+  p_pms_type text,
+  p_limit integer default 25,
+  p_lease_seconds integer default 300,
+  p_owner text default null
+)
+returns table (hotel_id uuid, sync_failures integer)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  return query
+  with due as (
+    select c.hotel_id
+      from pms_connections c
+     where c.pms_type = p_pms_type::pms_type
+       and c.status not in ('disconnected', 'pending')
+       and c.sync_due_at <= now()
+       and (c.sync_lease_until is null or c.sync_lease_until < now())
+       and not exists (
+             select 1
+               from hotels h
+              where h.id = c.hotel_id
+                and h.data_purged_at is not null
+                and not exists (
+                      select 1 from import_jobs j
+                       where j.hotel_id = h.id
+                         and j.status = 'completed'
+                         and j.created_at > h.data_purged_at
+                    )
+           )
+     order by c.sync_due_at
+     limit p_limit
+     for update of c skip locked
+  )
+  update pms_connections c
+     set sync_lease_until = now() + make_interval(secs => p_lease_seconds),
+         sync_lease_owner = p_owner
+    from due
+   where c.hotel_id = due.hotel_id
+     and c.pms_type = p_pms_type::pms_type
+  returning c.hotel_id, c.sync_failures;
+end;
+$$;
+
+revoke all on function public.claim_pms_sync_batch(text, integer, integer, text) from public, anon, authenticated;
+grant execute on function public.claim_pms_sync_batch(text, integer, integer, text) to service_role;
+
 revoke all on function public.product_event_by_person(text, text, jsonb) from public, anon, authenticated;
 revoke all on function public.never_paid_last_activity(uuid) from public, anon, authenticated;
 revoke all on function public.never_paid_retention_hold(uuid, interval) from public, anon, authenticated;
@@ -469,6 +538,14 @@ commit;
 --
 --   select public.never_paid_retention_hold('<hotel id>', interval '180 days'),
 --          public.never_paid_last_activity('<hotel id>');
+--
+-- Properties the scheduler is holding until their fresh import completes:
+--
+--   select h.id, h.name, h.data_purged_at, c.status
+--     from hotels h join pms_connections c on c.hotel_id = h.id
+--    where h.data_purged_at is not null
+--      and not exists (select 1 from import_jobs j where j.hotel_id = h.id
+--                        and j.status = 'completed' and j.created_at > h.data_purged_at);
 --
 -- What was swept:
 --

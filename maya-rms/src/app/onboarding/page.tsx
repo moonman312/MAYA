@@ -1,4 +1,5 @@
 import { PathChoice } from "@/components/onboarding/path-choice";
+import { PmsReconnect } from "@/components/pms-reconnect";
 import { SubscribeStep, type SubscribePmsOption } from "@/components/onboarding/subscribe-step";
 import { listUnpaidMarketplaceHotels } from "@/lib/billing/pending-hotel";
 import { listPmsSignupGates } from "@/lib/billing/pms-gates";
@@ -6,7 +7,8 @@ import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { pendingBillingOffer, resolveOnboardingStep } from "@/lib/onboarding/step";
 import { queuePrePaymentImport } from "@/lib/pms/eager-import";
 import { marketplaceTrialDays } from "@/lib/pms/marketplace-activate";
-import { listPmsStatuses } from "@/lib/pms/registry";
+import { marketplaceReconnectNeeded } from "@/lib/pms/purged";
+import { getRegistry, listPmsStatuses, type PmsType } from "@/lib/pms/registry";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
@@ -46,7 +48,8 @@ export default async function OnboardingPage({
     const days = marketplace.trialDays;
     const name = marketplace.propertyName ?? "Your property";
     const progress = marketplace.progress;
-    return (
+    const reconnect = marketplace.reconnect;
+    const subscribe = (
       <SubscribeStep
         cancelled={cancelled}
         lockPms
@@ -57,7 +60,7 @@ export default async function OnboardingPage({
         pmsOptions={[
           { type: marketplace.pmsType, displayName: marketplace.displayName, requiresSignupCode: false },
         ]}
-        title={`${name} is connected`}
+        title={reconnect ? name : `${name} is connected`}
         intro={
           days > 0
             ? `Try MAYA free for ${days} days. Nothing is charged until the trial ends, and you can cancel any time.`
@@ -67,6 +70,27 @@ export default async function OnboardingPage({
         submitLabel={days > 0 ? "Set up payment" : "Continue to payment"}
         footnote="Card details are handled by Stripe — they never touch MAYA."
       />
+    );
+    if (!reconnect) return subscribe;
+    // The connection is gone (the retention sweep removed a never-paid
+    // property's data), so the owner gets the ordinary reconnect prompt above
+    // the same screen. Reconnecting reads the history again.
+    return (
+      <>
+        <div className="pt-10">
+          <PmsReconnect
+            hotelId={marketplace.hotelId}
+            pmsType={marketplace.pmsType}
+            status="disconnected"
+            authKind={reconnect.authKind}
+            displayName={marketplace.displayName}
+            canManage
+            placement="banner"
+            historyRemoved={reconnect.historyRemoved}
+          />
+        </div>
+        {subscribe}
+      </>
     );
   }
   return (
@@ -100,6 +124,8 @@ async function marketplaceArrival(supabase: SupabaseClient): Promise<{
   progress?: { index: number; total: number };
   /** Whether "Not now" is offered: there has to be somewhere else to go. */
   deferrable: boolean;
+  /** Set when the property has no PMS connection left and has to be reconnected first. */
+  reconnect: { authKind: string; historyRemoved: boolean } | null;
 } | null> {
   try {
     const {
@@ -111,6 +137,19 @@ async function marketplaceArrival(supabase: SupabaseClient): Promise<{
     const unpaid = await listUnpaidMarketplaceHotels(admin, userId);
     const next = unpaid[0];
     if (!next) return null;
+
+    // Read before queueing: with no connection there is nothing to import yet.
+    const needed = await marketplaceReconnectNeeded(admin, next.hotelId).catch((e: unknown) => {
+      console.error(
+        JSON.stringify({
+          fn: "marketplaceArrival",
+          step: "reconnect_needed",
+          hotelId: next.hotelId,
+          error: e instanceof Error ? e.message : String(e),
+        }),
+      );
+      return null;
+    });
 
     // The property on this screen is the one whose history gets read, now:
     // a group sibling as it comes up, never one put off with "Not now".
@@ -148,6 +187,7 @@ async function marketplaceArrival(supabase: SupabaseClient): Promise<{
     const deferrable = unpaid.length > 1 || (await resolveAccessibleHotelId(supabase)) != null;
 
     const pms = listPmsStatuses().find((p) => p.type === next.pmsType);
+    const registry = needed ? getRegistry(next.pmsType as PmsType) : null;
     return {
       hotelId: next.hotelId,
       pmsType: next.pmsType,
@@ -156,6 +196,8 @@ async function marketplaceArrival(supabase: SupabaseClient): Promise<{
       trialDays: marketplaceTrialDays(),
       progress,
       deferrable,
+      reconnect:
+        needed && registry ? { authKind: registry.authKind, historyRemoved: needed.historyRemoved } : null,
     };
   } catch (e) {
     // Falls back to the ordinary screen: they can still pay, they just get

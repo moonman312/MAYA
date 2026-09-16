@@ -10,7 +10,9 @@
 
 import { classifyPmsHealth } from "@/lib/pms/health";
 import { getRegistry, type PmsType } from "@/lib/pms/registry";
+import { marketplaceReconnectNeeded } from "@/lib/pms/purged";
 import { hasHotelRank, requireSupabaseHotel } from "@/lib/require-supabase-hotel";
+import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -56,8 +58,35 @@ export async function GET() {
   }
 
   const connections = connRes.data ?? [];
-  const connection =
-    connections.find((c) => c.status === "connected") ?? connections[0] ?? null;
+  let connection: {
+    pms_type: string;
+    status: string | null;
+    last_sync_at: string | null;
+    last_tested_at: string | null;
+  } | null = connections.find((c) => c.status === "connected") ?? connections[0] ?? null;
+
+  // A Marketplace property with no connection row at all is one the
+  // never-paid retention sweep emptied. Its owner gets the same reconnect
+  // prompt as any lost connection, so it reads as disconnected here.
+  let historyRemoved = false;
+  if (!connection && isAdminConfigured()) {
+    try {
+      const needed = await marketplaceReconnectNeeded(createAdminClient(), hotelId);
+      if (needed) {
+        connection = { pms_type: needed.pmsType, status: "disconnected", last_sync_at: null, last_tested_at: null };
+        historyRemoved = needed.historyRemoved;
+      }
+    } catch (e) {
+      console.error(
+        JSON.stringify({
+          fn: "pmsActivity",
+          step: "reconnect_needed",
+          hotelId,
+          error: e instanceof Error ? e.message : String(e),
+        }),
+      );
+    }
+  }
 
   // How this PMS authenticates, so the dashboard knows whether reconnecting is
   // one click out to the vendor or a credential the owner has to fetch. The
@@ -76,6 +105,7 @@ export async function GET() {
     pms: registry
       ? { authKind: registry.authKind, displayName: registry.displayName, canManage }
       : null,
+    historyRemoved,
     health: classifyPmsHealth(totalRes.count ?? 0, failureRes.count ?? 0),
     log: logRes.data ?? [],
   });

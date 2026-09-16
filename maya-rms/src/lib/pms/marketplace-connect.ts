@@ -3,6 +3,7 @@ import { isStripeConfigured } from "@/lib/billing/stripe";
 import { ensureAppStateWebhook } from "@/lib/pms/cloudbeds-webhooks";
 import { resumeStoppedImport } from "@/lib/pms/eager-import";
 import { hasEntitledSubscription } from "@/lib/pms/marketplace-activate";
+import { queueImportAfterPurge } from "@/lib/pms/purged";
 import { createAdminClient } from "@/utils/supabase/admin";
 import {
   cloudbedsDiscoverPropertyId,
@@ -216,21 +217,28 @@ export async function handleMarketplaceConnect(
           .eq("pms_type", pmsType)
           .eq("status", "pending");
       }
-      // The disconnect stopped any import in flight; with the grant back, a
-      // paying property's carries on from where it stopped. An unpaid one
-      // waits until it is on the subscribe screen again.
-      if (live) {
-        await resumeStoppedImport(admin, existing.id).catch((e: unknown) => {
-          console.error(
-            JSON.stringify({
-              fn: "handleMarketplaceConnect",
-              step: "resume_import",
-              hotelId: existing.id,
-              error: e instanceof Error ? e.message : String(e),
-            }),
-          );
-        });
-      }
+      // A property the retention sweep emptied has no history left, so the
+      // grant coming back is what starts a fresh full import, paid or not
+      // (purged.ts). Otherwise the disconnect stopped any import in flight;
+      // with the grant back, a paying property's carries on from where it
+      // stopped, and an unpaid one waits until it is on the subscribe screen
+      // again.
+      const importStep = async () => {
+        const afterPurge = await queueImportAfterPurge(admin, existing.id, pmsType, null);
+        if (!afterPurge.queued && afterPurge.reason === "not_purged" && live) {
+          await resumeStoppedImport(admin, existing.id);
+        }
+      };
+      await importStep().catch((e: unknown) => {
+        console.error(
+          JSON.stringify({
+            fn: "handleMarketplaceConnect",
+            step: "import",
+            hotelId: existing.id,
+            error: e instanceof Error ? e.message : String(e),
+          }),
+        );
+      });
       await subscribe(existing.id);
       await admin.rpc("platform_log_event", {
         p_event_type: paid ? "pms.connected" : "pms.marketplace_pending",
