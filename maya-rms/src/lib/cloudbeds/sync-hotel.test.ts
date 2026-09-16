@@ -20,6 +20,7 @@ const client = vi.hoisted(() => {
     cloudbedsGetRoomTypes: vi.fn(async () => [
       { roomTypeID: "RT1", roomTypeName: "King", roomTypeUnits: 10 },
     ]),
+    cloudbedsGetReservationsWithRateDetailsPage: vi.fn(),
     cloudbedsGetReservationsRange: vi.fn(),
     cloudbedsGetReservationsPage: vi.fn(),
     cloudbedsGetReservationDetail: vi.fn(),
@@ -50,13 +51,27 @@ import type { RoomTypeRow } from "../../../supabase/functions/_shared/engine/typ
 import { fakeSupabase } from "../engine/fake-supabase.test";
 
 type ResRow = Record<string, unknown>;
+type Json = Record<string, unknown>;
+
+/**
+ * "Now" for every test. The sync window is 30 days back and 396 forward from
+ * it, so check-ins from 2026-07-05 to 2027-09-04 are inside.
+ */
+const NOW = new Date("2026-08-04T10:00:00Z");
+const WINDOW_START = "2026-07-05";
 
 /**
  * In-memory `reservations` table. The point of these tests is which rows
  * survive a sync, so deletes actually have to filter rather than be recorded.
+ * Writes run the reservations_sync_base_rate trigger's rule: base_rate is
+ * filled from current_rate on insert and never changes afterwards.
  */
 function makeSupabaseStub(seed: ResRow[] = [], syncState: ResRow = {}) {
-  const reservations: ResRow[] = seed.map((r) => ({ hotel_id: "hotel-1", ...r }));
+  const reservations: ResRow[] = seed.map((r) => ({
+    hotel_id: "hotel-1",
+    base_rate: r.base_rate ?? r.current_rate ?? null,
+    ...r,
+  }));
   const roomTypeUpserts: ResRow[] = [];
   const connUpdates: ResRow[] = [];
   // The one connection row. Its status matters because the stamp is
@@ -78,6 +93,7 @@ function makeSupabaseStub(seed: ResRow[] = [], syncState: ResRow = {}) {
         preds.push((r) => vals.includes(r[col]));
         return builder;
       },
+      is: () => builder,
       select: async () => ({ data: apply() ? [{ id: connection.id }] : [], error: null }),
       then<T>(resolve: (v: { error: null }) => T) {
         apply();
@@ -96,12 +112,6 @@ function makeSupabaseStub(seed: ResRow[] = [], syncState: ResRow = {}) {
       },
       in(col: string, vals: unknown[]) {
         preds.push((r) => vals.includes(r[col]));
-        return builder;
-      },
-      not(col: string, op: string, list: string) {
-        if (op !== "in") throw new Error(`unsupported not(${op})`);
-        const keep = new Set(list.replace(/^\(|\)$/g, "").split(","));
-        preds.push((r) => !keep.has(String(r[col])));
         return builder;
       },
       then<T>(resolve: (v: { error: null }) => T) {
@@ -139,7 +149,7 @@ function makeSupabaseStub(seed: ResRow[] = [], syncState: ResRow = {}) {
       select: () => chain,
       eq: () => chain,
       maybeSingle: async () => {
-        if (name === "pms_connections") return { data: { id: "conn-1", base_url: null, ...syncState } };
+        if (name === "pms_connections") return { data: { ...connection, base_url: null } };
         if (name === "hotels") return { data: { total_rooms_per_type: 10 } };
         return { data: null };
       },
@@ -157,8 +167,12 @@ function makeSupabaseStub(seed: ResRow[] = [], syncState: ResRow = {}) {
               r.external_reservation_id === row.external_reservation_id &&
               r.stay_date === row.stay_date,
           );
-          if (idx >= 0) reservations[idx] = row;
-          else reservations.push(row);
+          if (idx >= 0) {
+            const old = reservations[idx];
+            reservations[idx] = { ...old, ...row, base_rate: old.base_rate ?? row.base_rate ?? row.current_rate ?? null };
+          } else {
+            reservations.push({ ...row, base_rate: row.base_rate ?? row.current_rate ?? null });
+          }
         }
         return { error: null };
       },
@@ -168,7 +182,12 @@ function makeSupabaseStub(seed: ResRow[] = [], syncState: ResRow = {}) {
       return {
         ...chain,
         select: () => ({
-          eq: async () => ({ data: [{ id: "rt-uuid-1", external_room_type_id: "RT1" }] }),
+          eq: async () => ({
+            data: [
+              { id: "rt-uuid-1", external_room_type_id: "RT1" },
+              { id: "rt-uuid-2", external_room_type_id: "RT2" },
+            ],
+          }),
         }),
       };
     }
@@ -186,273 +205,413 @@ function makeSupabaseStub(seed: ResRow[] = [], syncState: ResRow = {}) {
   };
 }
 
-/** A getReservation detail payload with one assigned room and three nights. */
-function detailFor(rid: string, subId: string, status: string) {
+/* ── Rate-details fixtures, shaped like the sandbox payload ─────────────── */
+
+type RoomFixture = {
+  sub: string;
+  roomTypeID?: string;
+  /** {date: amount}, one entry per night this room holds. */
+  rates: Record<string, number | null>;
+  roomID?: string | null;
+};
+
+const PLACEHOLDER_GUEST = "Guest Placeholder";
+
+function nightsBetween(checkIn: string, checkOut: string): string[] {
+  const out: string[] = [];
+  for (let d = new Date(`${checkIn}T00:00:00Z`); d.toISOString().slice(0, 10) < checkOut; d.setUTCDate(d.getUTCDate() + 1)) {
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+/**
+ * One getReservationsWithRateDetails booking. Keys and value types match what
+ * the sandbox returned on 2026-09-16; every value is invented, and the guest
+ * fields carry a placeholder so redaction has something to drop.
+ */
+function booking(opts: {
+  id: string;
+  status: string;
+  checkIn: string;
+  checkOut: string;
+  rooms?: RoomFixture[];
+  /** Same nightly rate on every night of one room, when `rooms` is omitted. */
+  nightly?: number;
+  created?: string;
+  modified?: string;
+}): Json {
+  const rooms: RoomFixture[] =
+    opts.rooms ??
+    [{
+      sub: opts.id,
+      rates: Object.fromEntries(nightsBetween(opts.checkIn, opts.checkOut).map((n) => [n, opts.nightly ?? 200])),
+    }];
+  const detailedRates: Record<string, number> = {};
+  for (const room of rooms) {
+    for (const [date, amount] of Object.entries(room.rates)) {
+      detailedRates[date] = (detailedRates[date] ?? 0) + (amount ?? 0);
+    }
+  }
+  const total = Object.values(detailedRates).reduce((s, n) => s + n, 0);
+  const created = `${opts.created ?? "2026-07-01"} 09:30:00`;
+  const modified = opts.modified ?? created;
+  const canceled = opts.status === "canceled" || opts.status === "no_show";
   return {
-    reservationID: rid,
-    status,
-    dateCreated: "2026-07-01",
-    assigned: [
-      {
-        subReservationID: subId,
-        roomTypeID: "RT1",
-        dailyRates: [
-          { date: "2026-08-15", rate: 200 },
-          { date: "2026-08-16", rate: 200 },
-          { date: "2026-08-17", rate: 200 },
-        ],
-      },
-    ],
+    reservationID: opts.id,
+    isDeleted: false,
+    dateCreated: created,
+    dateCreatedUTC: created,
+    dateModified: modified,
+    dateModifiedUTC: modified,
+    status: opts.status,
+    reservationCheckIn: opts.checkIn,
+    reservationCheckOut: opts.checkOut,
+    guestID: "900000001",
+    profileID: "900000002",
+    guestName: PLACEHOLDER_GUEST,
+    guestCountry: "XX",
+    propertyID: "prop-1",
+    thirdPartyIdentifier: "",
+    estimatedArrivalTime: null,
+    total,
+    balance: total,
+    dateImported: null,
+    sourceName: "Website/Booking Engine",
+    source: { name: "Website/Booking Engine", paymentCollect: "hotel", sourceID: "s-1" },
+    propertyCurrency: "USD",
+    balanceDetailed: { suggestedDeposit: 0, subTotal: total, taxesFees: 0, additionalItems: 0, grandTotal: total, paid: 0 },
+    allotmentBlockCode: null,
+    origin: "",
+    detailedRates,
+    rooms: rooms.map((room) => ({
+      roomTypeID: room.roomTypeID ?? "RT1",
+      roomTypeIsVirtual: false,
+      roomTypeName: room.roomTypeID === "RT2" ? "Queen" : "King",
+      subReservationID: room.sub,
+      isRoomLocked: false,
+      guestID: "900000001",
+      guestName: PLACEHOLDER_GUEST,
+      rateID: "700001",
+      rateName: "Standard",
+      adults: "2",
+      children: "0",
+      roomID: room.roomID ?? null,
+      roomCheckIn: opts.checkIn,
+      roomCheckOut: opts.checkOut,
+      roomStatus: "not_checked_in",
+      detailedRoomRates: room.rates,
+      detailedRoomRateNames: [],
+      ratePlanNamePrivate: null,
+      ratePlanNamePublic: null,
+      marketName: "Direct",
+      marketCode: "direct",
+      roomName: room.roomID ? `Room ${room.roomID}` : null,
+    })),
+    guestList: {},
+    mealPlans: "",
+    ...(canceled ? { dateCancelled: modified, dateCancelledUTC: modified } : {}),
   };
 }
 
-function activeList(...ids: string[]) {
-  client.cloudbedsGetReservationsRange.mockResolvedValue({
-    reservations: ids.map((id) => ({ reservationID: id })),
-    pages: 1,
-  });
+/** Three nights at 200 in one King, checking in 2026-08-15. */
+function stay(id: string, status = "confirmed", extra: Partial<Parameters<typeof booking>[0]> = {}) {
+  return booking({ id, status, checkIn: "2026-08-15", checkOut: "2026-08-18", ...extra });
 }
 
-/** Serve `ids` under the canceled status filters, nothing under anything else. */
-function canceledList(...ids: string[]) {
-  client.cloudbedsGetReservationsPage.mockImplementation(
-    async (_creds: unknown, _from: string, _to: string, status: string) => ({
-      reservations:
-        status === "canceled" ? ids.map((id) => ({ reservationID: id })) : [],
-      hasMore: false,
-    }),
+type RateDetailsQuery = { checkOutFrom: string; checkOutTo?: string; modifiedFrom?: string };
+
+/**
+ * The server as the sandbox showed it behaves: filters by check-out and
+ * modifiedFrom, ignores status, pages at 100 with a total.
+ */
+function serve(book: Json[], opts: { orderSeed?: number; onCall?: (q: RateDetailsQuery, page: number) => void } = {}) {
+  client.cloudbedsGetReservationsWithRateDetailsPage.mockImplementation(
+    async (_creds: unknown, query: RateDetailsQuery, pageNumber: number) => {
+      opts.onCall?.(query, pageNumber);
+      let matched = book.filter(
+        (b) =>
+          String(b.reservationCheckOut) >= query.checkOutFrom &&
+          (query.checkOutTo === undefined || String(b.reservationCheckOut) <= query.checkOutTo) &&
+          (query.modifiedFrom === undefined || String(b.dateModified) >= query.modifiedFrom),
+      );
+      if (opts.orderSeed != null) {
+        const seed = opts.orderSeed;
+        matched = [...matched].sort((a, b) =>
+          ((Number(String(a.reservationID).replace(/\D/g, "")) * (seed + 7)) % 997) -
+          ((Number(String(b.reservationID).replace(/\D/g, "")) * (seed + 7)) % 997),
+        );
+      }
+      const start = (pageNumber - 1) * 100;
+      return {
+        reservations: matched.slice(start, start + 100),
+        hasMore: start + 100 < matched.length,
+        total: matched.length,
+      };
+    },
   );
 }
 
+const rateDetailsQueries = () =>
+  client.cloudbedsGetReservationsWithRateDetailsPage.mock.calls.map((c) => c[1] as RateDetailsQuery);
+
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+  client.cloudbedsGetReservationsWithRateDetailsPage.mockReset();
   client.cloudbedsGetReservationsRange.mockReset();
   client.cloudbedsGetReservationsPage.mockReset();
   client.cloudbedsGetReservationDetail.mockReset();
-  activeList();
-  canceledList();
+  client.cloudbedsGetTaxesAndFees.mockClear();
+  serve([]);
 });
 
-describe("runCloudbedsSyncForHotel cancellation reconcile", () => {
-  it("upserts a booking's nights, then removes them once it cancels", async () => {
-    const supabase = makeSupabaseStub();
+afterEach(() => {
+  vi.useRealTimers();
+});
 
-    // Run 1: confirmed, three nights on the books.
-    activeList("R1");
-    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "confirmed"));
-    const first = await runCloudbedsSyncForHotel(supabase, "hotel-1");
-    expect(first.ok).toBe(true);
+describe("reading the window from rate details", () => {
+  it("stores a single-room booking night by night at its own rates, with guest fields dropped", async () => {
+    const supabase = makeSupabaseStub();
+    serve([
+      booking({
+        id: "5001",
+        status: "confirmed",
+        checkIn: "2026-08-15",
+        checkOut: "2026-08-18",
+        rooms: [{ sub: "5001", rates: { "2026-08-15": 180, "2026-08-16": 210, "2026-08-17": 240 }, roomID: "101" }],
+      }),
+    ]);
+
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    const rows = [...supabase.reservations].sort((a, b) => String(a.stay_date).localeCompare(String(b.stay_date)));
+    expect(rows.map((r) => [r.external_reservation_id, r.stay_date, r.current_rate, r.room_type_id])).toEqual([
+      ["5001-1", "2026-08-15", 180, "rt-uuid-1"],
+      ["5001-1", "2026-08-16", 210, "rt-uuid-1"],
+      ["5001-1", "2026-08-17", 240, "rt-uuid-1"],
+    ]);
+    const payload = rows[0].raw_payload as Json;
+    expect(JSON.stringify(payload)).not.toContain(PLACEHOLDER_GUEST);
+    expect(payload).not.toHaveProperty("guestID");
+    expect(payload).toMatchObject({ startDate: "2026-08-15", endDate: "2026-08-18", roomTypeID: "RT1", _redacted: true });
+    // One page, and none of the per-booking calls it replaced.
+    expect(client.cloudbedsGetReservationsWithRateDetailsPage).toHaveBeenCalledTimes(1);
+    expect(client.cloudbedsGetReservationDetail).not.toHaveBeenCalled();
+    expect(client.cloudbedsGetReservationsRange).not.toHaveBeenCalled();
+    expect(client.cloudbedsGetReservationsPage).not.toHaveBeenCalled();
+    if (res.ok) {
+      expect(res.ingest.source).toBe("rate_details");
+      expect(res.windowFullyCovered).toBe(true);
+      expect(res.windowRows).toBe(3);
+      expect(res.stayDates).toEqual({ oldest: "2026-08-15", newest: "2026-08-17" });
+    }
+  });
+
+  it("gives every room of a multi-room booking its own nights at its own rate, never the booking sum", async () => {
+    const supabase = makeSupabaseStub();
+    serve([
+      booking({
+        id: "6001",
+        status: "confirmed",
+        checkIn: "2026-09-01",
+        checkOut: "2026-09-03",
+        rooms: [
+          // Cloudbeds gives the first room the booking's own id and the rest <id>-<n>.
+          { sub: "6001", roomTypeID: "RT1", rates: { "2026-09-01": 300, "2026-09-02": 320 } },
+          { sub: "6001-2", roomTypeID: "RT2", rates: { "2026-09-01": 150, "2026-09-02": 150 } },
+          { sub: "6001-3", roomTypeID: "RT2", rates: { "2026-09-01": 155, "2026-09-02": 165 } },
+        ],
+      }),
+    ]);
+
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    const got = Object.fromEntries(
+      supabase.reservations.map((r) => [`${r.external_reservation_id}:${r.stay_date}`, [r.current_rate, r.room_type_id]]),
+    );
+    expect(got).toEqual({
+      "6001-1:2026-09-01": [300, "rt-uuid-1"],
+      "6001-1:2026-09-02": [320, "rt-uuid-1"],
+      "6001-2:2026-09-01": [150, "rt-uuid-2"],
+      "6001-2:2026-09-02": [150, "rt-uuid-2"],
+      "6001-3:2026-09-01": [155, "rt-uuid-2"],
+      "6001-3:2026-09-02": [165, "rt-uuid-2"],
+    });
+    // The booking-level detailedRates for the 1st is 605: no room may carry it.
+    expect(supabase.reservations.some((r) => r.current_rate === 605)).toBe(false);
+  });
+
+  it("writes true per-night rates on the first insert, so base_rate never freezes an approximation", async () => {
+    const supabase = makeSupabaseStub();
+    // Two rooms, two nights, $1,000 in total. The list-only estimate would be
+    // 1000 / (2 nights x 2 rooms) = 250 on every row.
+    serve([
+      booking({
+        id: "7001",
+        status: "confirmed",
+        checkIn: "2026-10-10",
+        checkOut: "2026-10-12",
+        rooms: [
+          { sub: "7001", rates: { "2026-10-10": 400, "2026-10-11": 300 } },
+          { sub: "7001-2", rates: { "2026-10-10": 160, "2026-10-11": 140 } },
+        ],
+      }),
+    ]);
+    expect((await runCloudbedsSyncForHotel(supabase, "hotel-1")).ok).toBe(true);
+
+    const baseByKey = () =>
+      Object.fromEntries(supabase.reservations.map((r) => [`${r.external_reservation_id}:${r.stay_date}`, r.base_rate]));
+    expect(baseByKey()).toEqual({
+      "7001-1:2026-10-10": 400,
+      "7001-1:2026-10-11": 300,
+      "7001-2:2026-10-10": 160,
+      "7001-2:2026-10-11": 140,
+    });
+
+    // A later re-price moves current_rate; base_rate keeps the first true rate.
+    serve([
+      booking({
+        id: "7001",
+        status: "confirmed",
+        checkIn: "2026-10-10",
+        checkOut: "2026-10-12",
+        rooms: [
+          { sub: "7001", rates: { "2026-10-10": 450, "2026-10-11": 300 } },
+          { sub: "7001-2", rates: { "2026-10-10": 160, "2026-10-11": 140 } },
+        ],
+      }),
+    ]);
+    expect((await runCloudbedsSyncForHotel(supabase, "hotel-1", { daysBack: 30 })).ok).toBe(true);
+    const repriced = supabase.reservations.find((r) => r.external_reservation_id === "7001-1" && r.stay_date === "2026-10-10")!;
+    expect(repriced.current_rate).toBe(450);
+    expect(repriced.base_rate).toBe(400);
+  });
+
+  it("keeps a night whose amount is missing as an unknown rate, not a $0 comp", async () => {
+    const supabase = makeSupabaseStub();
+    serve([
+      booking({
+        id: "7101",
+        status: "confirmed",
+        checkIn: "2026-08-20",
+        checkOut: "2026-08-22",
+        rooms: [{ sub: "7101", rates: { "2026-08-20": 190, "2026-08-21": null } }],
+      }),
+    ]);
+
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    const byNight = Object.fromEntries(supabase.reservations.map((r) => [r.stay_date, r.current_rate]));
+    expect(byNight).toEqual({ "2026-08-20": 190, "2026-08-21": null });
+  });
+
+  it("filters by check-out on the server and by check-in here, asking for no status at all", async () => {
+    const supabase = makeSupabaseStub();
+    serve([
+      stay("8001"),
+      // Arrived before the window and still in the house when it starts.
+      booking({ id: "8002", status: "checked_in", checkIn: "2026-06-20", checkOut: "2026-07-08" }),
+      // Arrives after the window's last check-in day.
+      booking({ id: "8003", status: "confirmed", checkIn: "2027-09-10", checkOut: "2027-09-12" }),
+      // Checked out before the window: the server never returns it.
+      booking({ id: "8004", status: "checked_out", checkIn: "2026-06-01", checkOut: "2026-06-03" }),
+    ]);
+
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    expect(new Set(supabase.reservations.map((r) => r.external_reservation_id))).toEqual(new Set(["8001-1"]));
+    if (res.ok) expect(res.ingest.bookingsOutsideWindow).toBe(2);
+    const [query] = rateDetailsQueries();
+    expect(query).toEqual({ checkOutFrom: WINDOW_START, checkOutTo: undefined, modifiedFrom: undefined });
+    expect(query).not.toHaveProperty("status");
+  });
+
+  it("removes a booking's nights once it cancels, from the same pages and with no extra calls", async () => {
+    const supabase = makeSupabaseStub();
+    serve([stay("9001")]);
+    expect((await runCloudbedsSyncForHotel(supabase, "hotel-1")).ok).toBe(true);
     expect(supabase.reservations).toHaveLength(3);
 
-    // Run 2: guest cancels. The booking is gone from the active list and only
-    // shows up under the canceled status filter.
-    activeList();
-    canceledList("R1");
-    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "canceled"));
-    const second = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+    client.cloudbedsGetReservationsWithRateDetailsPage.mockClear();
+    serve([stay("9001", "canceled", { modified: "2026-08-03 12:00:00" })]);
+    const second = await runCloudbedsSyncForHotel(supabase, "hotel-1", { daysBack: 30 });
 
     expect(second.ok).toBe(true);
     expect(supabase.reservations).toEqual([]);
     if (second.ok) {
       expect(second.ingest.canceledReservationsSeen).toBe(1);
-      expect(second.ingest.canceledRowIdsDeleted).toBe(2);
+      expect(second.apiPages).toBe(1);
     }
+    expect(client.cloudbedsGetReservationsWithRateDetailsPage).toHaveBeenCalledTimes(1);
+    expect(client.cloudbedsGetReservationDetail).not.toHaveBeenCalled();
+    expect(client.cloudbedsGetReservationsPage).not.toHaveBeenCalled();
   });
 
-  it("drops a booking the active list still lists but the detail reports canceled", async () => {
-    const supabase = makeSupabaseStub([
-      { external_reservation_id: "R2-1", stay_date: "2026-08-15", current_rate: 200 },
-      { external_reservation_id: "R2-1", stay_date: "2026-08-16", current_rate: 200 },
-    ]);
-
-    activeList("R2");
-    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R2", "R2-1", "no_show"));
-    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
-
-    expect(res.ok).toBe(true);
-    expect(supabase.reservations).toEqual([]);
-    if (res.ok) expect(res.reservationRowsUpserted).toBe(0);
-  });
-
-  it("clears a canceled booking whose detail call fails, by its own id", async () => {
-    const supabase = makeSupabaseStub([
-      { external_reservation_id: "R4", stay_date: "2026-08-15", current_rate: 200 },
-    ]);
-
-    canceledList("R4");
-    client.cloudbedsGetReservationDetail.mockResolvedValue(null);
-    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
-
-    expect(res.ok).toBe(true);
-    expect(supabase.reservations).toEqual([]);
-    if (res.ok) expect(res.ingest.canceledDetailFailed).toBe(1);
-  });
-
-  it("clears rooms keyed by slot when the payload names no room ids", async () => {
-    // Both parsers key an anonymous room slot `<reservationID>-<slot>`.
-    const supabase = makeSupabaseStub([
-      { external_reservation_id: "R9-1", stay_date: "2026-08-15", current_rate: 200 },
-      { external_reservation_id: "R9-2", stay_date: "2026-08-15", current_rate: 200 },
-    ]);
-
-    canceledList("R9");
-    client.cloudbedsGetReservationDetail.mockResolvedValue({
-      reservationID: "R9",
-      status: "canceled",
-      assigned: [{ roomTypeID: "RT1" }, { roomTypeID: "RT1" }],
-    });
-    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
-
-    expect(res.ok).toBe(true);
-    expect(supabase.reservations).toEqual([]);
-  });
-
-  it("clears a declared-count booking with no room array at all", async () => {
-    const supabase = makeSupabaseStub([
-      { external_reservation_id: "R10-2", stay_date: "2026-08-15", current_rate: 200 },
-    ]);
-
-    canceledList("R10");
-    client.cloudbedsGetReservationDetail.mockResolvedValue({
-      reservationID: "R10",
-      status: "canceled",
-      roomsQuantity: 2,
-    });
-    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
-
-    expect(res.ok).toBe(true);
-    expect(supabase.reservations).toEqual([]);
-  });
-
-  it("survives a canceled status the account rejects", async () => {
-    // The trigger used to be the British "cancelled", which lived in the status
-    // list as a defensive second spelling until the live API was checked and it
-    // turned out to be rejected every time. The resilience it exercised still
-    // matters — an account that refuses one status must not take the whole sync
-    // down — so the test now rejects a status that IS in the list.
-    const supabase = makeSupabaseStub();
-    client.cloudbedsGetReservationsPage.mockImplementation(
-      async (_creds: unknown, _from: string, _to: string, status: string) => {
-        if (status === "no_show") {
-          throw new client.CloudbedsHttpError(
-            "Cloudbeds getReservations failed (400): invalid status",
-            400,
-            "getReservations",
-          );
-        }
-        return {
-          reservations: status === "canceled" ? [{ reservationID: "R5" }] : [],
-          hasMore: false,
-        };
-      },
+  it("clears every room of a canceled group, including rooms past 64", async () => {
+    const rooms: RoomFixture[] = Array.from({ length: 70 }, (_, i) => ({
+      sub: i === 0 ? "GRP" : `GRP-${i + 1}`,
+      rates: { "2026-08-15": 200 },
+    }));
+    const supabase = makeSupabaseStub(
+      ["GRP-1", ...rooms.slice(1).map((r) => r.sub)].map((id) => ({
+        external_reservation_id: id,
+        stay_date: "2026-08-15",
+        current_rate: 200,
+      })),
     );
-    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R5", "R5-1", "canceled"));
+    serve([booking({ id: "GRP", status: "no_show", checkIn: "2026-08-15", checkOut: "2026-08-16", rooms })]);
 
     const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
 
     expect(res.ok).toBe(true);
-    if (res.ok) {
-      expect(res.ingest.canceledStatusListFailures).toBe(1);
-      expect(res.ingest.canceledReservationsSeen).toBe(1);
-    }
+    expect(supabase.reservations).toEqual([]);
   });
 
-  it("leaves rows for reservations outside the fetched window alone", async () => {
-    // Checked in long before checkInFrom, so neither list mentions it.
-    const supabase = makeSupabaseStub([
-      { external_reservation_id: "OLD-1", stay_date: "2024-03-02", current_rate: 120 },
-    ]);
-
-    activeList("R6");
-    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R6", "R6-1", "confirmed"));
-    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
-
-    expect(res.ok).toBe(true);
-    expect(supabase.reservations.filter((r) => r.external_reservation_id === "OLD-1")).toHaveLength(
-      1,
-    );
-  });
-
-  it("leaves another booking's rows alone when a cancellation reuses its room", async () => {
-    // roomID names a PHYSICAL room, which Cloudbeds hands to every booking that
-    // ever occupies it. Keyed on that, cancelling one booking deleted the rows of
-    // whoever else stayed in room 101 — and an out-of-window victim like this one
-    // is in neither list, so no upsert in this run puts it back.
+  it("leaves another booking's rows alone when a cancellation names the same physical room", async () => {
+    // roomID names a PHYSICAL room, reused by every booking that ever occupies
+    // it. Keyed on that, cancelling one booking deleted whoever else stayed in
+    // room 101.
     const supabase = makeSupabaseStub([
       { external_reservation_id: "101", stay_date: "2026-06-01", current_rate: 180 },
     ]);
+    serve([stay("RES-NEW", "canceled", { rooms: [{ sub: "RES-NEW", rates: {}, roomID: "101" }] })]);
 
-    canceledList("RES-NEW");
-    client.cloudbedsGetReservationDetail.mockResolvedValue({
-      reservationID: "RES-NEW",
-      status: "canceled",
-      assigned: [{ roomID: "101", roomTypeID: "RT1" }],
-    });
     const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
 
     expect(res.ok).toBe(true);
     expect(supabase.reservations.map((r) => r.external_reservation_id)).toEqual(["101"]);
   });
 
-  it("clears every room of a large group, not just the first 64", async () => {
-    const subIds = Array.from({ length: 70 }, (_, i) => `GRP-${i + 1}`);
-    const supabase = makeSupabaseStub(
-      subIds.map((id) => ({
-        external_reservation_id: id,
-        stay_date: "2026-08-15",
-        current_rate: 200,
-      })),
-    );
+  it("leaves rows for reservations outside the fetched window alone", async () => {
+    const supabase = makeSupabaseStub([
+      { external_reservation_id: "OLD-1", stay_date: "2024-03-02", current_rate: 120 },
+    ]);
+    serve([stay("R6")]);
 
-    canceledList("GRP");
-    client.cloudbedsGetReservationDetail.mockResolvedValue({
-      reservationID: "GRP",
-      status: "canceled",
-      assigned: subIds.map((id) => ({ subReservationID: id, roomTypeID: "RT1" })),
-    });
     const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
 
     expect(res.ok).toBe(true);
-    // The slot cap exists to bound a fabricated room count; applied to real ids it
-    // stranded rooms 65+ permanently, since nothing revisits a canceled booking.
-    expect(supabase.reservations).toEqual([]);
+    expect(supabase.reservations.filter((r) => r.external_reservation_id === "OLD-1")).toHaveLength(1);
   });
 
-  it("fails the sync when the canceled list is refused for anything but a bad status", async () => {
+  it("leaves a booking in a status it does not recognise exactly as stored", async () => {
     const supabase = makeSupabaseStub([
-      { external_reservation_id: "R11-1", stay_date: "2026-08-15", current_rate: 200 },
+      { external_reservation_id: "R12-1", stay_date: "2026-08-15", current_rate: 200 },
     ]);
-    client.cloudbedsGetReservationsPage.mockRejectedValue(
-      new client.CloudbedsHttpError(
-        "Cloudbeds getReservations failed (401): token revoked",
-        401,
-        "getReservations",
-      ),
-    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    serve([stay("R12", "some_new_status")]);
 
     const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
 
-    // Swallowed, this reported a connected hotel and a healthy sync that had in
-    // fact reconciled no cancellations at all.
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.cloudbedsStatus).toBe(401);
+    expect(res.ok).toBe(true);
     expect(supabase.reservations).toHaveLength(1);
-  });
-
-  it("still writes the run's active room-nights when the canceled list is refused", async () => {
-    const supabase = makeSupabaseStub();
-    activeList("R1");
-    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "confirmed"));
-    client.cloudbedsGetReservationsPage.mockRejectedValue(
-      new client.CloudbedsHttpError("Cloudbeds getReservations failed (503)", 503, "getReservations"),
-    );
-
-    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
-
-    // Reporting the failure is right. Discarding the reservations we already
-    // parsed is not: fetched before the upsert, one 503 on the cancellation
-    // list cost every hotel a whole cron cycle of data and its rate push.
-    expect(res.ok).toBe(false);
-    expect(supabase.reservations).toHaveLength(3);
+    if (res.ok) expect(res.ingest.bookingsWithUnknownStatus).toBe(1);
+    warn.mockRestore();
   });
 
   it("prunes nights a still-active booking no longer holds, and only those", async () => {
@@ -462,9 +621,8 @@ describe("runCloudbedsSyncForHotel cancellation reconcile", () => {
       { external_reservation_id: "R1-1", stay_date: "2026-08-14", current_rate: 200 },
       { external_reservation_id: "OTHER-1", stay_date: "2026-08-14", current_rate: 150 },
     ]);
+    serve([stay("R1")]);
 
-    activeList("R1");
-    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "confirmed"));
     const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
 
     expect(res.ok).toBe(true);
@@ -473,9 +631,7 @@ describe("runCloudbedsSyncForHotel cancellation reconcile", () => {
       .map((r) => r.stay_date)
       .sort();
     expect(r1Dates).toEqual(["2026-08-15", "2026-08-16", "2026-08-17"]);
-    expect(
-      supabase.reservations.filter((r) => r.external_reservation_id === "OTHER-1"),
-    ).toHaveLength(1);
+    expect(supabase.reservations.filter((r) => r.external_reservation_id === "OTHER-1")).toHaveLength(1);
   });
 
   it("does not reactivate a room type on the room_types upsert", async () => {
@@ -491,11 +647,42 @@ describe("runCloudbedsSyncForHotel cancellation reconcile", () => {
   });
 });
 
+describe("incremental pulls", () => {
+  it("asks only for what changed since the watermark and applies it, cancellations included", async () => {
+    const watermark = new Date(NOW.getTime() - 10 * 60_000);
+    const supabase = makeSupabaseStub(
+      [
+        { external_reservation_id: "C1-1", stay_date: "2026-08-20", current_rate: 210 },
+        { external_reservation_id: "C1-1", stay_date: "2026-08-21", current_rate: 210 },
+      ],
+      {
+        reservations_modified_through: watermark.toISOString(),
+        last_full_sync_at: new Date(NOW.getTime() - 60 * 60_000).toISOString(),
+      },
+    );
+    serve([
+      // Untouched for weeks: an incremental pull never sees it.
+      booking({ id: "U1", status: "confirmed", checkIn: "2026-08-25", checkOut: "2026-08-26", modified: "2026-07-01 08:00:00" }),
+      booking({ id: "N1", status: "confirmed", checkIn: "2026-08-15", checkOut: "2026-08-17", modified: "2026-08-04 09:58:00" }),
+      booking({ id: "C1", status: "canceled", checkIn: "2026-08-20", checkOut: "2026-08-22", modified: "2026-08-04 09:59:00" }),
+    ]);
+
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    const [query] = rateDetailsQueries();
+    // Watermark minus the two-hour overlap, in Cloudbeds' own timestamp format.
+    expect(query.modifiedFrom).toBe("2026-08-04 07:50:00");
+    expect(new Set(supabase.reservations.map((r) => r.external_reservation_id))).toEqual(new Set(["N1-1"]));
+    // No tax call on an incremental tick.
+    expect(client.cloudbedsGetTaxesAndFees).not.toHaveBeenCalled();
+  });
+});
+
 describe("re-syncing unchanged data writes nothing", () => {
   it("skips every row whose stored copy already matches", async () => {
     const supabase = makeSupabaseStub();
-    activeList("R1");
-    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "confirmed"));
+    serve([stay("R1")]);
 
     const first = await runCloudbedsSyncForHotel(supabase, "hotel-1");
     expect(first.ok).toBe(true);
@@ -504,8 +691,8 @@ describe("re-syncing unchanged data writes nothing", () => {
       expect(first.ingest.unchangedRowsSkipped).toBe(0);
     }
 
-    // Same book, next tick: the data moved nowhere, so neither should a write.
-    const second = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+    // Same book, next full read: the data moved nowhere, so neither should a write.
+    const second = await runCloudbedsSyncForHotel(supabase, "hotel-1", { daysBack: 30 });
     expect(second.ok).toBe(true);
     if (second.ok) {
       expect(second.reservationRowsUpserted).toBe(0);
@@ -515,105 +702,91 @@ describe("re-syncing unchanged data writes nothing", () => {
   });
 });
 
-describe("a full sweep bigger than one budget resumes across ticks", () => {
-  const T0 = new Date("2026-08-04T10:00:00Z");
-
-  // Each detail call burns a minute of fake clock, so the 210s budget truncates
-  // the sweep after the fourth attempt.
-  function slowDetails() {
-    client.cloudbedsGetReservationDetail.mockImplementation(async (_c: unknown, rid: string) => {
-      vi.advanceTimersByTime(60_000);
-      return detailFor(rid, `${rid}-1`, "confirmed");
+describe("a book bigger than one budget", () => {
+  /** 2,400 one-night bookings, eight checking out each day from the window start. */
+  function bigBook(): Json[] {
+    return Array.from({ length: 2400 }, (_, i) => {
+      const checkIn = new Date(Date.UTC(2026, 6, 5 + Math.floor(i / 8)));
+      const checkOut = new Date(checkIn.getTime() + 86_400_000);
+      const ymd = (d: Date) => d.toISOString().slice(0, 10);
+      return booking({ id: String(100000 + i), status: "confirmed", checkIn: ymd(checkIn), checkOut: ymd(checkOut), nightly: 100 + (i % 50) });
     });
   }
 
-  beforeEach(() => {
+  it("slices by check-out, checkpoints the date it reached, and resumes there until covered", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(T0);
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("checkpoints where it stopped instead of forgetting everything", async () => {
+    vi.setSystemTime(NOW);
+    const book = bigBook();
     const supabase = makeSupabaseStub();
-    // Deliberately shuffled: the cursor only means something if every tick
-    // walks the same order regardless of what the API returned first.
-    activeList("r3", "r1", "r6", "r2", "r5", "r4");
-    slowDetails();
+    const runs: Array<{ covered: boolean; cursor: string | null }> = [];
 
-    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
-    expect(res.ok).toBe(true);
-    if (res.ok) expect(res.windowFullyCovered).toBe(false);
+    for (let run = 0; run < 12; run += 1) {
+      // Each page takes 30s of the 210s budget, and the API orders bookings
+      // differently on every run: resuming must not depend on page order.
+      serve(book, { orderSeed: run, onCall: () => vi.advanceTimersByTime(30_000) });
+      const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+      expect(res.ok).toBe(true);
+      if (!res.ok) break;
+      runs.push({ covered: res.windowFullyCovered, cursor: res.sweepCursor });
+      if (res.windowFullyCovered) break;
+      vi.advanceTimersByTime(60_000);
+    }
 
-    // Sorted order r1..r6, budget out after r4.
-    const fetched = client.cloudbedsGetReservationDetail.mock.calls.map((c) => c[1]);
-    expect(fetched).toEqual(["r1", "r2", "r3", "r4"]);
+    expect(runs.length).toBeGreaterThan(1);
+    expect(runs.at(-1)).toEqual({ covered: true, cursor: null });
+    const cursors = runs.slice(0, -1).map((r) => r.cursor);
+    expect(cursors.every((c) => c?.startsWith("checkout:"))).toBe(true);
+    // Every uncovered run moved the checkpoint forward.
+    expect([...cursors].sort()).toEqual(cursors);
+    expect(new Set(cursors).size).toBe(cursors.length);
 
-    const stamp = supabase.connUpdates.at(-1)!;
-    expect(stamp.full_sweep_after_id).toBe("r4");
-    expect(stamp.full_sweep_started_at).toBe(T0.toISOString());
-    // The window was not covered: neither watermark may move.
-    expect(stamp).not.toHaveProperty("reservations_modified_through");
-    expect(stamp).not.toHaveProperty("last_full_sync_at");
+    // Every booking landed exactly once, at its own rate.
+    expect(supabase.reservations).toHaveLength(2400);
+    expect(new Set(supabase.reservations.map((r) => r.external_reservation_id)).size).toBe(2400);
+    const sample = supabase.reservations.find((r) => r.external_reservation_id === "101234-1")!;
+    expect(sample.current_rate).toBe(100 + (1234 % 50));
 
-    // A mid-flight chunk spends nothing on the cancellation pass.
-    expect(client.cloudbedsGetReservationsPage).not.toHaveBeenCalled();
-  });
+    // No slice ever asked for more than a page budget's worth of bookings.
+    for (const q of rateDetailsQueries()) expect(q).not.toHaveProperty("status");
 
-  it("resumes past the cursor and stamps the watermark from the sweep's start", async () => {
-    const sweepStart = "2026-08-04T09:45:00.000Z";
-    const supabase = makeSupabaseStub([], {
-      full_sweep_after_id: "r4",
-      full_sweep_started_at: sweepStart,
-    });
-    activeList("r3", "r1", "r6", "r2", "r5", "r4");
-    client.cloudbedsGetReservationDetail.mockImplementation(async (_c: unknown, rid: string) =>
-      detailFor(rid, `${rid}-1`, "confirmed"),
-    );
-
-    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
-    expect(res.ok).toBe(true);
-    if (res.ok) expect(res.windowFullyCovered).toBe(true);
-
-    // Only the tail the earlier ticks never reached.
-    const fetched = client.cloudbedsGetReservationDetail.mock.calls.map((c) => c[1]);
-    expect(fetched).toEqual(["r5", "r6"]);
-
-    const stamp = supabase.connUpdates.at(-1)!;
-    // Modified-while-sweeping must fall inside the next incremental pull, so
-    // the watermark is the sweep's beginning — not this final chunk's start.
-    expect(stamp.reservations_modified_through).toBe(sweepStart);
-    expect(stamp.last_full_sync_at).toBe(sweepStart);
-    expect(stamp.full_sweep_after_id).toBeNull();
-    expect(stamp.full_sweep_started_at).toBeNull();
+    // The watermark only moved on the run that finished, stamped from the sweep's start.
+    const stamps = supabase.connUpdates.filter((u) => "reservations_modified_through" in u);
+    expect(stamps).toHaveLength(1);
+    expect(stamps[0].reservations_modified_through).toBe(NOW.toISOString());
+    expect(stamps[0].full_sweep_after_id).toBeNull();
   });
 
   it("an explicit window never checkpoints — it is a one-shot re-read", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
     const supabase = makeSupabaseStub();
-    activeList("r1", "r2", "r3", "r4", "r5", "r6");
-    slowDetails();
+    serve(bigBook(), { onCall: () => vi.advanceTimersByTime(30_000) });
 
-    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1", { daysBack: 5 });
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1", { daysBack: 30 });
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.windowFullyCovered).toBe(false);
-
+    if (res.ok) {
+      expect(res.windowFullyCovered).toBe(false);
+      expect(res.sweepCursor).toBeNull();
+    }
     const stamp = supabase.connUpdates.at(-1)!;
     expect(stamp).not.toHaveProperty("full_sweep_after_id");
     expect(stamp).not.toHaveProperty("full_sweep_started_at");
   });
-});
 
-/** Serve each status's reservations only when the sync actually asks for that status. */
-function activeByStatus(byStatus: Record<string, string[]>) {
-  client.cloudbedsGetReservationsRange.mockImplementation(
-    async (_creds: unknown, _from: string, _to: string, statuses: readonly string[]) => ({
-      reservations: statuses.flatMap((s) => (byStatus[s] ?? []).map((id) => ({ reservationID: id }))),
-      pages: statuses.length,
-    }),
-  );
-}
+  it("ignores a checkpoint the per-booking path left behind", async () => {
+    const supabase = makeSupabaseStub([], {
+      full_sweep_after_id: "100500",
+      full_sweep_started_at: "2026-08-04T09:00:00.000Z",
+    });
+    serve([stay("R1")]);
+
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    expect(rateDetailsQueries()[0].checkOutFrom).toBe(WINDOW_START);
+    expect(supabase.reservations).toHaveLength(3);
+  });
+});
 
 describe("a booking awaiting confirmation", () => {
   const NIGHTS = ["2026-08-15", "2026-08-16", "2026-08-17"];
@@ -652,8 +825,7 @@ describe("a booking awaiting confirmation", () => {
     const db = hotelDb();
 
     // Cloudbeds counts Confirmation Pending as sold in its own occupancy.
-    activeByStatus({ not_confirmed: ["R1"] });
-    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "not_confirmed"));
+    serve([stay("R1", "not_confirmed")]);
     const first = await runCloudbedsSyncForHotel(db.client, "hotel-1");
 
     expect(first.ok).toBe(true);
@@ -661,12 +833,8 @@ describe("a booking awaiting confirmation", () => {
     // 1 of the King type's 10 rooms, every night of the stay.
     expect(await occupancyOn(db, "2026-08-01T00:00:00.000Z")).toEqual([0.1, 0.1, 0.1]);
 
-    // The guest never confirms and the booking is canceled: gone from every
-    // active list, present only under the canceled filter.
-    activeByStatus({});
-    canceledList("R1");
-    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "canceled"));
-    const second = await runCloudbedsSyncForHotel(db.client, "hotel-1");
+    serve([stay("R1", "canceled")]);
+    const second = await runCloudbedsSyncForHotel(db.client, "hotel-1", { daysBack: 30 });
 
     expect(second.ok).toBe(true);
     expect(db.tables.reservations).toEqual([]);
@@ -676,46 +844,24 @@ describe("a booking awaiting confirmation", () => {
   it("keeps one set of nights when it confirms, updated in place", async () => {
     const db = hotelDb();
 
-    activeByStatus({ not_confirmed: ["R1"] });
-    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "not_confirmed"));
+    serve([stay("R1", "not_confirmed")]);
     expect((await runCloudbedsSyncForHotel(db.client, "hotel-1")).ok).toBe(true);
     expect(db.tables.reservations.map((r) => r.current_rate)).toEqual([200, 200, 200]);
 
     // Confirmed at a different rate: same booking, same room keys, so the
     // nights must be overwritten rather than stored a second time.
-    const confirmed = detailFor("R1", "R1-1", "confirmed");
-    for (const night of confirmed.assigned[0].dailyRates) night.rate = 240;
-    activeByStatus({ confirmed: ["R1"] });
-    client.cloudbedsGetReservationDetail.mockResolvedValue(confirmed);
-    expect((await runCloudbedsSyncForHotel(db.client, "hotel-1")).ok).toBe(true);
+    serve([stay("R1", "confirmed", { nightly: 240 })]);
+    expect((await runCloudbedsSyncForHotel(db.client, "hotel-1", { daysBack: 30 })).ok).toBe(true);
 
     expect(db.tables.reservations).toHaveLength(3);
     expect(db.tables.reservations.map((r) => r.current_rate)).toEqual([240, 240, 240]);
-  });
-
-  it("is asked for on incremental pulls too, under the same watermark", async () => {
-    const supabase = makeSupabaseStub([], {
-      reservations_modified_through: new Date(Date.now() - 10 * 60_000).toISOString(),
-      last_full_sync_at: new Date(Date.now() - 60 * 60_000).toISOString(),
-    });
-    activeByStatus({ not_confirmed: ["R7"] });
-    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R7", "R7-1", "not_confirmed"));
-
-    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
-
-    expect(res.ok).toBe(true);
-    const [, , , statuses, modifiedFrom] = client.cloudbedsGetReservationsRange.mock.calls.at(-1)!;
-    expect(statuses).toContain("not_confirmed");
-    expect(modifiedFrom).toEqual(expect.any(String));
-    expect(supabase.reservations).toHaveLength(3);
   });
 });
 
 describe("the connection status a sync leaves behind", () => {
   function syncOnce(status: string) {
     const supabase = makeSupabaseStub([], { status });
-    activeList("R1");
-    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "confirmed"));
+    serve([stay("R1")]);
     return { supabase, run: runCloudbedsSyncForHotel(supabase, "hotel-1") };
   }
 
@@ -758,10 +904,10 @@ describe("the connection status a sync leaves behind", () => {
         { id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", status: "degraded", base_url: null },
       ],
     });
-    activeList("R1");
-    client.cloudbedsGetReservationDetail.mockImplementation(async () => {
-      db.tables.pms_connections[0].status = "disconnected";
-      return detailFor("R1", "R1-1", "confirmed");
+    serve([stay("R1")], {
+      onCall: () => {
+        db.tables.pms_connections[0].status = "disconnected";
+      },
     });
 
     expect((await runCloudbedsSyncForHotel(db.client, "hotel-1")).ok).toBe(true);
@@ -775,6 +921,295 @@ describe("the connection status a sync leaves behind", () => {
       col: "status",
       kind: "in",
       value: ["connected", "degraded", "error"],
+    });
+  });
+});
+
+/* ── When the account refuses rate details ──────────────────────────────── */
+
+/** A getReservation detail payload with one assigned room and three nights. */
+function detailFor(rid: string, subId: string, status: string) {
+  return {
+    reservationID: rid,
+    status,
+    dateCreated: "2026-07-01",
+    assigned: [
+      {
+        subReservationID: subId,
+        roomTypeID: "RT1",
+        dailyRates: [
+          { date: "2026-08-15", rate: 200 },
+          { date: "2026-08-16", rate: 200 },
+          { date: "2026-08-17", rate: 200 },
+        ],
+      },
+    ],
+  };
+}
+
+function activeList(...ids: string[]) {
+  client.cloudbedsGetReservationsRange.mockResolvedValue({
+    reservations: ids.map((id) => ({ reservationID: id })),
+    pages: 1,
+  });
+}
+
+/** Serve `ids` under the canceled status filters, nothing under anything else. */
+function canceledList(...ids: string[]) {
+  client.cloudbedsGetReservationsPage.mockImplementation(
+    async (_creds: unknown, _from: string, _to: string, status: string) => ({
+      reservations: status === "canceled" ? ids.map((id) => ({ reservationID: id })) : [],
+      hasMore: false,
+    }),
+  );
+}
+
+function refuseRateDetails(status = 400, message = "Cloudbeds getReservationsWithRateDetails failed (400): Method not available") {
+  client.cloudbedsGetReservationsWithRateDetailsPage.mockRejectedValue(
+    new client.CloudbedsHttpError(message, status, "getReservationsWithRateDetails"),
+  );
+}
+
+describe("when an account refuses rate details", () => {
+  let errorLog: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    refuseRateDetails();
+    activeList();
+    canceledList();
+  });
+
+  afterEach(() => {
+    errorLog.mockRestore();
+  });
+
+  it("falls back to one getReservation per booking, and says so loudly", async () => {
+    const supabase = makeSupabaseStub();
+    activeList("R1");
+    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "confirmed"));
+
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    expect(supabase.reservations).toHaveLength(3);
+    if (res.ok) {
+      expect(res.ingest.source).toBe("per_booking");
+      expect(res.ingest.rateDetailsRefused).toContain("Method not available");
+    }
+    expect(client.cloudbedsGetReservationDetail).toHaveBeenCalledWith(expect.anything(), "R1");
+    expect(String(errorLog.mock.calls[0]?.[0])).toContain("getReservationsWithRateDetails refused");
+  });
+
+  it.each([
+    [503, "Cloudbeds getReservationsWithRateDetails failed (503): upstream"],
+    [429, "Cloudbeds getReservationsWithRateDetails failed (429): slow down"],
+    [401, "Cloudbeds getReservationsWithRateDetails failed (401): token revoked"],
+  ])("does not fall back on a %i — that is an outage or a revoked grant, not a refusal", async (status, message) => {
+    const supabase = makeSupabaseStub([
+      { external_reservation_id: "R1-1", stay_date: "2026-08-15", current_rate: 200 },
+    ]);
+    refuseRateDetails(status, message);
+
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.cloudbedsStatus).toBe(status);
+    expect(client.cloudbedsGetReservationsRange).not.toHaveBeenCalled();
+    expect(supabase.reservations).toHaveLength(1);
+  });
+
+  it("upserts a booking's nights, then removes them once it cancels", async () => {
+    const supabase = makeSupabaseStub();
+
+    activeList("R1");
+    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "confirmed"));
+    const first = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+    expect(first.ok).toBe(true);
+    expect(supabase.reservations).toHaveLength(3);
+
+    activeList();
+    canceledList("R1");
+    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "canceled"));
+    const second = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(second.ok).toBe(true);
+    expect(supabase.reservations).toEqual([]);
+    if (second.ok) {
+      expect(second.ingest.canceledReservationsSeen).toBe(1);
+      expect(second.ingest.canceledRowIdsDeleted).toBe(2);
+    }
+  });
+
+  it("drops a booking the active list still lists but the detail reports canceled", async () => {
+    const supabase = makeSupabaseStub([
+      { external_reservation_id: "R2-1", stay_date: "2026-08-15", current_rate: 200 },
+      { external_reservation_id: "R2-1", stay_date: "2026-08-16", current_rate: 200 },
+    ]);
+
+    activeList("R2");
+    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R2", "R2-1", "no_show"));
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    expect(supabase.reservations).toEqual([]);
+    if (res.ok) expect(res.reservationRowsUpserted).toBe(0);
+  });
+
+  it("clears a canceled booking whose detail call fails, by its own id", async () => {
+    const supabase = makeSupabaseStub([
+      { external_reservation_id: "R4", stay_date: "2026-08-15", current_rate: 200 },
+    ]);
+
+    canceledList("R4");
+    client.cloudbedsGetReservationDetail.mockResolvedValue(null);
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    expect(supabase.reservations).toEqual([]);
+    if (res.ok) expect(res.ingest.canceledDetailFailed).toBe(1);
+  });
+
+  it("clears a declared-count booking with no room array at all", async () => {
+    const supabase = makeSupabaseStub([
+      { external_reservation_id: "R10-2", stay_date: "2026-08-15", current_rate: 200 },
+    ]);
+
+    canceledList("R10");
+    client.cloudbedsGetReservationDetail.mockResolvedValue({
+      reservationID: "R10",
+      status: "canceled",
+      roomsQuantity: 2,
+    });
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    expect(supabase.reservations).toEqual([]);
+  });
+
+  it("survives a canceled status the account rejects", async () => {
+    const supabase = makeSupabaseStub();
+    client.cloudbedsGetReservationsPage.mockImplementation(
+      async (_creds: unknown, _from: string, _to: string, status: string) => {
+        if (status === "no_show") {
+          throw new client.CloudbedsHttpError(
+            "Cloudbeds getReservations failed (400): invalid status",
+            400,
+            "getReservations",
+          );
+        }
+        return {
+          reservations: status === "canceled" ? [{ reservationID: "R5" }] : [],
+          hasMore: false,
+        };
+      },
+    );
+    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R5", "R5-1", "canceled"));
+
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.ingest.canceledStatusListFailures).toBe(1);
+      expect(res.ingest.canceledReservationsSeen).toBe(1);
+    }
+  });
+
+  it("still writes the run's active room-nights when the canceled list is refused", async () => {
+    const supabase = makeSupabaseStub();
+    activeList("R1");
+    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "confirmed"));
+    client.cloudbedsGetReservationsPage.mockRejectedValue(
+      new client.CloudbedsHttpError("Cloudbeds getReservations failed (503)", 503, "getReservations"),
+    );
+
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(false);
+    expect(supabase.reservations).toHaveLength(3);
+  });
+
+  describe("a sweep bigger than one budget", () => {
+    const T0 = new Date("2026-08-04T10:00:00Z");
+
+    // Each detail call burns a minute of fake clock, so the 210s budget truncates
+    // the sweep after the fourth attempt.
+    function slowDetails() {
+      client.cloudbedsGetReservationDetail.mockImplementation(async (_c: unknown, rid: string) => {
+        vi.advanceTimersByTime(60_000);
+        return detailFor(rid, `${rid}-1`, "confirmed");
+      });
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(T0);
+    });
+
+    it("checkpoints where it stopped instead of forgetting everything", async () => {
+      const supabase = makeSupabaseStub();
+      activeList("r3", "r1", "r6", "r2", "r5", "r4");
+      slowDetails();
+
+      const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+      expect(res.ok).toBe(true);
+      if (res.ok) {
+        expect(res.windowFullyCovered).toBe(false);
+        expect(res.sweepCursor).toBe("r4");
+      }
+
+      const fetched = client.cloudbedsGetReservationDetail.mock.calls.map((c) => c[1]);
+      expect(fetched).toEqual(["r1", "r2", "r3", "r4"]);
+
+      const stamp = supabase.connUpdates.at(-1)!;
+      expect(stamp.full_sweep_after_id).toBe("r4");
+      expect(stamp.full_sweep_started_at).toBe(T0.toISOString());
+      expect(stamp).not.toHaveProperty("reservations_modified_through");
+      expect(stamp).not.toHaveProperty("last_full_sync_at");
+
+      // A mid-flight chunk spends nothing on the cancellation pass.
+      expect(client.cloudbedsGetReservationsPage).not.toHaveBeenCalled();
+    });
+
+    it("resumes past the cursor and stamps the watermark from the sweep's start", async () => {
+      const sweepStart = "2026-08-04T09:45:00.000Z";
+      const supabase = makeSupabaseStub([], {
+        full_sweep_after_id: "r4",
+        full_sweep_started_at: sweepStart,
+      });
+      activeList("r3", "r1", "r6", "r2", "r5", "r4");
+      client.cloudbedsGetReservationDetail.mockImplementation(async (_c: unknown, rid: string) =>
+        detailFor(rid, `${rid}-1`, "confirmed"),
+      );
+
+      const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+      expect(res.ok).toBe(true);
+      if (res.ok) expect(res.windowFullyCovered).toBe(true);
+
+      const fetched = client.cloudbedsGetReservationDetail.mock.calls.map((c) => c[1]);
+      expect(fetched).toEqual(["r5", "r6"]);
+
+      const stamp = supabase.connUpdates.at(-1)!;
+      expect(stamp.reservations_modified_through).toBe(sweepStart);
+      expect(stamp.last_full_sync_at).toBe(sweepStart);
+      expect(stamp.full_sweep_after_id).toBeNull();
+      expect(stamp.full_sweep_started_at).toBeNull();
+    });
+
+    it("ignores a check-out checkpoint the rate-details path left behind", async () => {
+      const supabase = makeSupabaseStub([], {
+        full_sweep_after_id: "checkout:2026-09-01",
+        full_sweep_started_at: "2026-08-04T09:45:00.000Z",
+      });
+      activeList("r2", "r1");
+      client.cloudbedsGetReservationDetail.mockImplementation(async (_c: unknown, rid: string) =>
+        detailFor(rid, `${rid}-1`, "confirmed"),
+      );
+
+      const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+      expect(res.ok).toBe(true);
+      expect(client.cloudbedsGetReservationDetail.mock.calls.map((c) => c[1])).toEqual(["r1", "r2"]);
     });
   });
 });

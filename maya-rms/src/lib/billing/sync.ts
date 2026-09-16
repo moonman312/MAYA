@@ -35,6 +35,9 @@ export type SubscriptionProjection = {
   card_verify_due_at: string | null;
   card_verify_anchor_at: string | null;
   signup_code_id: string | null;
+  /** Stripe's cancellation_details.reason and .feedback, never the free-text comment. */
+  cancellation_reason?: string | null;
+  cancellation_feedback?: string | null;
 };
 
 const iso = (unixSeconds: number | null | undefined): string | null =>
@@ -93,6 +96,10 @@ export function projectSubscription(sub: Stripe.Subscription): SubscriptionProje
     // recheck permanently in the past.
     card_verify_anchor_at: iso(sub.created),
     signup_code_id: sub.metadata?.signup_code_id || null,
+    // Only the two enums, which product analytics reads to answer why people
+    // leave. The comment is whatever the owner typed and stays in Stripe.
+    cancellation_reason: sub.cancellation_details?.reason ?? null,
+    cancellation_feedback: sub.cancellation_details?.feedback ?? null,
   };
 }
 
@@ -161,9 +168,24 @@ export async function persistSubscription(
     );
   }
 
-  const { error } = await admin
+  let { error } = await admin
     .from("hotel_subscriptions")
     .upsert(row, { onConflict: "hotel_id" });
+  if (error && /cancellation_(reason|feedback)/.test(error.message)) {
+    // The columns arrive with 99_supabase_migration_product_events_v1.sql. A
+    // webhook that failed over analytics would make Stripe retry a payment
+    // record for days, so the subscription is written without them.
+    console.warn(
+      JSON.stringify({
+        fn: "persistSubscription",
+        warning: "hotel_subscriptions.cancellation_reason is missing; run the product events migration",
+      }),
+    );
+    const withoutReasons: Partial<SubscriptionProjection> = { ...row };
+    delete withoutReasons.cancellation_reason;
+    delete withoutReasons.cancellation_feedback;
+    ({ error } = await admin.from("hotel_subscriptions").upsert(withoutReasons, { onConflict: "hotel_id" }));
+  }
   if (error) {
     console.error(
       JSON.stringify({ fn: "persistSubscription", sub: row.stripe_subscription_id, error: error.message }),

@@ -4,14 +4,21 @@
  *
  * The decision logic is pure functions over aggregate rows (unit-tested with
  * fixtures); the SQL heavy lifting lives in the onboarding_* RPCs. Re-running
- * is safe: proposed findings for the hotel are replaced, auto-fixes are
- * idempotent, and findings recording a fix we already applied are left alone.
+ * is safe: open findings are refined in place, answered ones are not asked
+ * again, auto-fixes are idempotent, and findings recording a fix we already
+ * applied are left alone.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ImportJobRow } from "./worker-core.ts";
 import { projectStrategyOntoRoomTypes } from "./project-strategy.ts";
-import { computeOccupancyReference, computeStarterRules, generateStarterRules } from "./generate-rules.ts";
+import {
+  computeOccupancyReference,
+  computeStarterRules,
+  generateStarterRules,
+  MIN_HISTORY_DAYS_FOR_STARTERS,
+  type StarterRuleSpec,
+} from "./generate-rules.ts";
 import {
   computeGuardrailSuggestions,
   computeInitialGuardrails,
@@ -639,11 +646,376 @@ export function findRateOutliers(stats: RoomTypeStats[]): RateOutlierFinding[] {
   return findings;
 }
 
+/* ── Findings bookkeeping ────────────────────────────────────────────────── */
+
+/** A finding this pass wants on the review screen. */
+export type FindingDraft = {
+  kind: string;
+  status: "proposed" | "auto_applied";
+  payload: Record<string, unknown>;
+};
+
+/** A finding already on record, in any status. */
+export type StoredFinding = {
+  id: string;
+  kind: string;
+  status: string;
+  job_id: string | null;
+  payload: Record<string, unknown>;
+};
+
+type Period = { start_date: string; end_date: string };
+
+function closurePeriods(payload: Record<string, unknown>): Period[] {
+  const raw = Array.isArray(payload.periods)
+    ? (payload.periods as Array<Record<string, unknown>>)
+    : [payload];
+  return raw
+    .filter((p) => p && typeof p.start_date === "string" && typeof p.end_date === "string")
+    .map((p) => ({ start_date: String(p.start_date), end_date: String(p.end_date) }))
+    .sort((a, b) => a.start_date.localeCompare(b.start_date));
+}
+
+function periodsOverlap(a: Period, b: Period): boolean {
+  return a.start_date <= b.end_date && b.start_date <= a.end_date;
+}
+
+function anyPeriodOverlaps(a: Period[], b: Period[]): boolean {
+  return a.some((p) => b.some((q) => periodsOverlap(p, q)));
+}
+
+/** JSON with sorted keys, so a payload that did not change compares equal. */
+function canonical(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  const obj = value as Record<string, unknown>;
+  return `{${Object.keys(obj).sort().map((k) => `${JSON.stringify(k)}:${canonical(obj[k])}`).join(",")}}`;
+}
+
+/**
+ * The question a finding asks, independent of the numbers attached to it:
+ * two passes that flag the same room type or the same closure produce the
+ * same key even when more history has changed the detail. Stored alongside
+ * the finding so the database refuses a second open copy of one question.
+ *
+ * Closures key on their earliest instance, which moves as older years
+ * arrive; matching them between passes goes by overlapping dates instead
+ * (see planFindingWrites), and the key only has to be right at insert time.
+ */
+export function findingKey(kind: string, payload: Record<string, unknown>): string | null {
+  switch (kind) {
+    case "closed_period": {
+      const periods = closurePeriods(payload);
+      if (periods.length === 0) return null;
+      return payload.recurring === true
+        ? `seasonal:${periods[0].start_date}`
+        : `closure:${periods[0].start_date}:${periods[0].end_date}`;
+    }
+    case "suspect_room_type":
+    case "rate_outlier":
+      return payload.room_type_id ? `room_type:${String(payload.room_type_id)}` : null;
+    case "duplicate_room_type":
+      return payload.deactivate_room_type_id
+        ? `room_type:${String(payload.deactivate_room_type_id)}`
+        : null;
+    case "zero_rate_rows":
+    case "unmapped_room_type":
+      return "property";
+    case "rule_suggestion": {
+      const spec = (payload.spec ?? null) as Record<string, unknown> | null;
+      const target = payload.rule_id ?? spec?.name;
+      return target ? `${String(payload.suggestion_type)}:${String(target)}` : null;
+    }
+    case "guardrail_suggestion":
+      return payload.room_type_id && payload.field
+        ? `${String(payload.room_type_id)}:${String(payload.field)}`
+        : null;
+    default:
+      return null;
+  }
+}
+
+function isResolved(f: StoredFinding): boolean {
+  return f.status === "confirmed" || f.status === "dismissed";
+}
+
+export type ClosurePlan = {
+  drafts: FindingDraft[];
+  /**
+   * Confirmed seasonal closures that more history found further instances
+   * of. The owner has already said "we close every winter"; the older winters
+   * are the same fact, so they are recorded rather than asked about again.
+   */
+  extensions: Array<{ findingId: string; payload: Record<string, unknown>; newPeriods: Period[] }>;
+};
+
+/**
+ * Closures to propose, given what the owner has already said about closures.
+ *
+ * A period that overlaps a closure on record (confirmed, or entered by hand)
+ * or one the owner dismissed is never asked about again. A season the owner
+ * dismissed as a whole is not re-raised with its older years. A season the
+ * owner confirmed is extended in place, except on a refresh, where analysis
+ * writes nothing and proposes the new instances instead.
+ */
+export function planClosureFindings(input: {
+  seasonal: SeasonalClosureFinding[];
+  oneOff: ClosedPeriodFinding[];
+  existing: StoredFinding[];
+  recorded: Period[];
+  refreshMode: boolean;
+}): ClosurePlan {
+  const resolved = input.existing.filter((f) => f.kind === "closed_period" && isResolved(f));
+  const dismissed = resolved.filter((f) => f.status === "dismissed");
+  const dismissedPeriods = dismissed.flatMap((f) => closurePeriods(f.payload));
+  const dismissedSeasons = dismissed.filter((f) => f.payload.recurring === true);
+  const confirmedSeasons = resolved.filter(
+    (f) => f.status === "confirmed" && f.payload.recurring === true,
+  );
+  const known = (p: Period) =>
+    input.recorded.some((r) => periodsOverlap(r, p)) ||
+    dismissedPeriods.some((d) => periodsOverlap(d, p));
+
+  const drafts: FindingDraft[] = [];
+  const extensions: ClosurePlan["extensions"] = [];
+
+  for (const season of input.seasonal) {
+    if (dismissedSeasons.some((d) => anyPeriodOverlaps(closurePeriods(d.payload), season.periods))) {
+      continue;
+    }
+    const fresh = season.periods.filter((p) => !known(p));
+    if (fresh.length === 0) continue;
+    const confirmed = confirmedSeasons.find((c) =>
+      anyPeriodOverlaps(closurePeriods(c.payload), season.periods),
+    );
+    if (confirmed && !input.refreshMode) {
+      const merged = [...closurePeriods(confirmed.payload), ...fresh].sort((a, b) =>
+        a.start_date.localeCompare(b.start_date),
+      );
+      extensions.push({
+        findingId: confirmed.id,
+        newPeriods: fresh,
+        payload: {
+          ...confirmed.payload,
+          years_observed: Math.max(Number(confirmed.payload.years_observed ?? 0), season.years_observed),
+          periods: merged.map((p) => {
+            const full = season.periods.find((s) => s.start_date === p.start_date && s.end_date === p.end_date);
+            return full ?? p;
+          }),
+        },
+      });
+      continue;
+    }
+    drafts.push({
+      kind: "closed_period",
+      status: "proposed",
+      payload: { ...season, periods: fresh } as unknown as Record<string, unknown>,
+    });
+  }
+
+  for (const closure of input.oneOff) {
+    if (known(closure)) continue;
+    drafts.push({
+      kind: "closed_period",
+      status: "proposed",
+      payload: closure as unknown as Record<string, unknown>,
+    });
+  }
+
+  return { drafts, extensions };
+}
+
+/**
+ * How this pass's findings land on what is already there.
+ *
+ * An open finding that asks the same question is updated in place rather
+ * than replaced, so its id survives: an owner with the review screen open
+ * while the older years import can still act on the card in front of them.
+ * Open findings no draft asks about any more are removed. Resolved findings
+ * are never touched here — suppressing questions the owner has answered
+ * happens before this, where each kind knows what "answered" means for it.
+ */
+export function planFindingWrites(
+  drafts: FindingDraft[],
+  existing: StoredFinding[],
+): {
+  updates: Array<{ id: string; payload: Record<string, unknown> }>;
+  inserts: FindingDraft[];
+  deletes: string[];
+} {
+  const open = existing.filter((f) => f.status === "proposed");
+  const used = new Set<string>();
+  const updates: Array<{ id: string; payload: Record<string, unknown> }> = [];
+  const inserts: FindingDraft[] = [];
+
+  const sameQuestion = (f: StoredFinding, d: FindingDraft) => {
+    if (f.kind !== d.kind) return false;
+    if (d.kind === "closed_period") {
+      return anyPeriodOverlaps(closurePeriods(f.payload), closurePeriods(d.payload));
+    }
+    const key = findingKey(d.kind, d.payload);
+    return key !== null && key === findingKey(f.kind, f.payload);
+  };
+
+  for (const draft of drafts) {
+    if (draft.status !== "proposed") {
+      inserts.push(draft);
+      continue;
+    }
+    const match = open.find((f) => !used.has(f.id) && sameQuestion(f, draft));
+    if (!match) {
+      inserts.push(draft);
+      continue;
+    }
+    used.add(match.id);
+    if (canonical(match.payload) !== canonical(draft.payload)) {
+      updates.push({ id: match.id, payload: draft.payload });
+    }
+  }
+
+  return { updates, inserts, deletes: open.filter((f) => !used.has(f.id)).map((f) => f.id) };
+}
+
+async function loadFindings(supabase: SupabaseClient, hotelId: string): Promise<StoredFinding[]> {
+  const { data, error } = await supabase
+    .from("onboarding_findings")
+    .select("id, kind, status, job_id, payload")
+    .eq("hotel_id", hotelId);
+  if (error) throw new Error(`onboarding_findings read failed: ${error.message}`);
+  return (data ?? []).map((f: Record<string, unknown>) => ({
+    id: String(f.id),
+    kind: String(f.kind),
+    status: String(f.status),
+    job_id: f.job_id == null ? null : String(f.job_id),
+    payload: (f.payload ?? {}) as Record<string, unknown>,
+  }));
+}
+
+async function loadRecordedClosures(supabase: SupabaseClient, hotelId: string): Promise<Period[]> {
+  const { data, error } = await supabase
+    .from("hotel_closed_periods")
+    .select("start_date, end_date, room_type_id")
+    .eq("hotel_id", hotelId);
+  if (error) throw new Error(`hotel_closed_periods read failed: ${error.message}`);
+  return (data ?? [])
+    .filter((p: Record<string, unknown>) => p.room_type_id == null)
+    .map((p: Record<string, unknown>) => ({ start_date: String(p.start_date), end_date: String(p.end_date) }));
+}
+
+async function writeFindings(
+  supabase: SupabaseClient,
+  hotelId: string,
+  jobId: string,
+  plan: ReturnType<typeof planFindingWrites>,
+): Promise<void> {
+  // Every write is conditioned on the finding still being open: an owner who
+  // answers a card while this runs keeps the answer they gave.
+  if (plan.deletes.length > 0) {
+    const { error } = await supabase
+      .from("onboarding_findings")
+      .delete()
+      .eq("hotel_id", hotelId)
+      .eq("status", "proposed")
+      .in("id", plan.deletes);
+    if (error) throw new Error(`onboarding_findings delete failed: ${error.message}`);
+  }
+  for (const u of plan.updates) {
+    const { error } = await supabase
+      .from("onboarding_findings")
+      .update({ payload: u.payload, job_id: jobId })
+      .eq("hotel_id", hotelId)
+      .eq("id", u.id)
+      .eq("status", "proposed");
+    if (error) throw new Error(`onboarding_findings update failed: ${error.message}`);
+  }
+  if (plan.inserts.length === 0) return;
+
+  const keyed = plan.inserts.map((d) => ({
+    hotel_id: hotelId,
+    job_id: jobId,
+    kind: d.kind,
+    status: d.status,
+    payload: d.payload,
+    finding_key: findingKey(d.kind, d.payload),
+  }));
+  let rows: Array<Record<string, unknown>> = keyed;
+  let { error } = await supabase.from("onboarding_findings").insert(rows);
+  if (error && isMissingColumnError(error, "finding_key")) {
+    console.warn(JSON.stringify({
+      fn: "analyzeImport",
+      hotel: hotelId,
+      warning: "onboarding_findings.finding_key is not in this database yet — run " +
+        "99_supabase_migration_import_early_analysis_v1.sql. Findings are still written once; " +
+        "the database just cannot refuse a duplicate from a concurrent pass.",
+    }));
+    rows = keyed.map((row) => {
+      const withoutKey: Record<string, unknown> = { ...row };
+      delete withoutKey.finding_key;
+      return withoutKey;
+    });
+    ({ error } = await supabase.from("onboarding_findings").insert(rows));
+  }
+  if (error && error.code === "23505") {
+    // Another pass got one of these in first. Keep theirs, write the rest.
+    for (const row of rows) {
+      const single = await supabase.from("onboarding_findings").insert(row);
+      if (single.error && single.error.code !== "23505") {
+        throw new Error(`onboarding_findings insert failed: ${single.error.message}`);
+      }
+    }
+    return;
+  }
+  if (error) throw new Error(`onboarding_findings insert failed: ${error.message}`);
+}
+
+/**
+ * Record further instances of a season the owner confirmed. The finding's
+ * payload goes first: if the closed periods then fail to land, the next pass
+ * still matches this finding and inserts them, whereas the other order would
+ * leave periods on record that the finding never mentions.
+ */
+async function extendConfirmedClosures(
+  supabase: SupabaseClient,
+  hotelId: string,
+  extensions: ClosurePlan["extensions"],
+): Promise<void> {
+  for (const ext of extensions) {
+    const { error: updErr } = await supabase
+      .from("onboarding_findings")
+      .update({ payload: ext.payload })
+      .eq("hotel_id", hotelId)
+      .eq("id", ext.findingId)
+      .eq("status", "confirmed");
+    if (updErr) throw new Error(`onboarding_findings update failed: ${updErr.message}`);
+    const { error } = await supabase.from("hotel_closed_periods").insert(
+      ext.newPeriods.map((p) => ({
+        hotel_id: hotelId,
+        room_type_id: null,
+        start_date: p.start_date,
+        end_date: p.end_date,
+        source: "onboarding",
+      })),
+    );
+    if (error) throw new Error(`hotel_closed_periods insert failed: ${error.message}`);
+  }
+}
+
 /* ── Orchestration ───────────────────────────────────────────────────────── */
 
+/**
+ * Examine what has been imported so far and bring the review screen up to date.
+ *
+ * Runs twice on a first import: early, over the current window and three
+ * years of history, and again once every year is in. Either pass may also
+ * run twice over if a worker dies between finishing it and checkpointing it.
+ * So nothing here adds blindly. Open findings are refined in place, questions
+ * the owner has answered are not asked again, fixes they undid are not
+ * reapplied, and starter rules are created at most once per import.
+ */
 export async function analyzeImport(
   supabase: SupabaseClient,
   job: ImportJobRow,
+  pass: "early" | "final" = "final",
 ): Promise<void> {
   const hotelId = job.hotel_id;
   const today = new Date().toISOString().slice(0, 10);
@@ -697,101 +1069,82 @@ export async function analyzeImport(
         .is("room_type_id", null),
     ]);
 
+  const [existing, recordedClosures] = await Promise.all([
+    loadFindings(supabase, hotelId),
+    loadRecordedClosures(supabase, hotelId),
+  ]);
+  const resolvedByKey = new Map<string, StoredFinding[]>();
+  for (const f of existing.filter(isResolved)) {
+    const key = `${f.kind}|${findingKey(f.kind, f.payload)}`;
+    resolvedByKey.set(key, [...(resolvedByKey.get(key) ?? []), f]);
+  }
+  const resolvedFor = (kind: string, payload: Record<string, unknown>) =>
+    resolvedByKey.get(`${kind}|${findingKey(kind, payload)}`) ?? [];
+  // Informational findings and suggestions are answered per import: a refresh
+  // months later is a new look at the data and may ask again. Closures, room
+  // types and duplicates are answered for good, because answering them wrote
+  // something (a closed period, a classification, a reactivation).
+  const answeredInThisJob = (kind: string, payload: Record<string, unknown>) =>
+    resolvedFor(kind, payload).filter((f) => f.job_id === job.id);
+
   const { seasonal, oneOff } = mergeSeasonalClosures(findClosedPeriods(daily, today));
   // A question the owner has answered is not asked again (see
   // loadAnsweredRoomTypeIds); confirming a re-raised card would overwrite
-  // their answer.
+  // their answer. A resolved card counts too, for a database without the
+  // classification columns.
   const answered = await loadAnsweredRoomTypeIds(supabase, hotelId);
-  const suspects = findSuspectRoomTypes(stats).filter((s) => !answered.has(s.room_type_id));
-  const duplicates = findDuplicateRoomTypes(stats);
-  const outliers = findRateOutliers(stats);
-
-  // Replace this hotel's proposed findings (idempotent re-run). auto_applied
-  // ones stay: no re-run can rebuild them — the duplicate detector only sees
-  // active room types — so deleting one left a room type deactivated with
-  // nothing on the review page to show it or undo it.
-  await supabase
-    .from("onboarding_findings")
-    .delete()
-    .eq("hotel_id", hotelId)
-    .eq("status", "proposed");
-
-  const { data: appliedDuplicates } = await supabase
-    .from("onboarding_findings")
-    .select("payload")
-    .eq("hotel_id", hotelId)
-    .eq("kind", "duplicate_room_type")
-    .eq("status", "auto_applied");
-  const onRecordAsDeactivated = new Set(
-    (appliedDuplicates ?? []).map((f: { payload: Record<string, unknown> | null }) =>
-      String(f.payload?.deactivate_room_type_id ?? ""),
-    ),
+  const allSuspects = findSuspectRoomTypes(stats);
+  const suspects = allSuspects.filter(
+    (s) =>
+      !answered.has(s.room_type_id) &&
+      resolvedFor("suspect_room_type", s as unknown as Record<string, unknown>).length === 0,
+  );
+  // An owner who dismissed an auto-deactivation has said the type is real.
+  const duplicates = findDuplicateRoomTypes(stats).filter(
+    (d) =>
+      !resolvedFor("duplicate_room_type", d as unknown as Record<string, unknown>).some(
+        (f) => f.status === "dismissed",
+      ),
+  );
+  const outliers = findRateOutliers(stats).filter(
+    (o) =>
+      !answeredInThisJob("rate_outlier", o as unknown as Record<string, unknown>).some(
+        (f) => Number(f.payload.max_rate ?? 0) >= o.max_rate,
+      ),
   );
 
-  type FindingInsert = {
-    hotel_id: string;
-    job_id: string;
-    kind: string;
-    status: string;
-    payload: Record<string, unknown>;
-  };
-  const inserts: FindingInsert[] = [];
+  const onRecordAsDeactivated = new Set(
+    existing
+      .filter((f) => f.kind === "duplicate_room_type" && f.status === "auto_applied")
+      .map((f) => String(f.payload.deactivate_room_type_id ?? "")),
+  );
 
-  for (const s of seasonal) {
-    inserts.push({
-      hotel_id: hotelId,
-      job_id: job.id,
-      kind: "closed_period",
-      status: "proposed",
-      payload: s as unknown as Record<string, unknown>,
-    });
-  }
-  for (const c of oneOff) {
-    inserts.push({
-      hotel_id: hotelId,
-      job_id: job.id,
-      kind: "closed_period",
-      status: "proposed",
-      payload: c as unknown as Record<string, unknown>,
-    });
-  }
+  const closures = planClosureFindings({
+    seasonal,
+    oneOff,
+    existing,
+    recorded: recordedClosures,
+    refreshMode,
+  });
+  const drafts: FindingDraft[] = [...closures.drafts];
+
   for (const s of suspects) {
-    inserts.push({
-      hotel_id: hotelId,
-      job_id: job.id,
-      kind: "suspect_room_type",
-      status: "proposed",
-      payload: s as unknown as Record<string, unknown>,
-    });
+    drafts.push({ kind: "suspect_room_type", status: "proposed", payload: s as unknown as Record<string, unknown> });
   }
   for (const o of outliers) {
-    inserts.push({
-      hotel_id: hotelId,
-      job_id: job.id,
-      kind: "rate_outlier",
-      status: "proposed",
-      payload: o as unknown as Record<string, unknown>,
-    });
+    drafts.push({ kind: "rate_outlier", status: "proposed", payload: o as unknown as Record<string, unknown> });
   }
 
   // Duplicates: auto-fix on first import (reversible); on a refresh of an
   // established hotel, only propose — their setup is theirs.
   for (const d of duplicates) {
-    if (!refreshMode) {
-      await supabase
-        .from("room_types")
-        .update({ is_active: false })
-        .eq("id", d.deactivate_room_type_id);
-      // Re-asserted the deactivation just now and it is already on record (the
-      // PMS handed the room type back active, say) — no second copy of the
-      // same paperwork. Refresh mode writes nothing, so it still has to file:
-      // detection means the room type is active again, and the standing
-      // auto_applied record only offers Dismiss, which would re-activate it.
-      if (onRecordAsDeactivated.has(d.deactivate_room_type_id)) continue;
-    }
-    inserts.push({
-      hotel_id: hotelId,
-      job_id: job.id,
+    // Re-asserting a deactivation that is already on record (the PMS handed
+    // the room type back active, say) files no second copy of the same
+    // paperwork. Refresh mode writes nothing, so it still has to file:
+    // detection means the room type is active again, and the standing
+    // auto_applied record only offers Dismiss, which would re-activate it.
+    if (!refreshMode && onRecordAsDeactivated.has(d.deactivate_room_type_id)) continue;
+    drafts.push({
       kind: "duplicate_room_type",
       status: refreshMode ? "proposed" : "auto_applied",
       payload: d as unknown as Record<string, unknown>,
@@ -800,73 +1153,109 @@ export async function analyzeImport(
 
   const total = totalRows ?? 0;
   if (total > 0 && (zeroRateRows ?? 0) / total > 0.02) {
-    inserts.push({
-      hotel_id: hotelId,
-      job_id: job.id,
-      kind: "zero_rate_rows",
-      status: "proposed",
-      payload: { count: zeroRateRows, share: (zeroRateRows ?? 0) / total },
-    });
+    const payload = { count: zeroRateRows, share: (zeroRateRows ?? 0) / total };
+    if (answeredInThisJob("zero_rate_rows", payload).length === 0) {
+      drafts.push({ kind: "zero_rate_rows", status: "proposed", payload });
+    }
   }
   if ((unmappedRows ?? 0) > 0) {
-    inserts.push({
-      hotel_id: hotelId,
-      job_id: job.id,
-      kind: "unmapped_room_type",
-      status: "proposed",
-      payload: { count: unmappedRows },
-    });
+    const payload = { count: unmappedRows };
+    if (answeredInThisJob("unmapped_room_type", payload).length === 0) {
+      drafts.push({ kind: "unmapped_room_type", status: "proposed", payload });
+    }
   }
 
   if (refreshMode) {
-    inserts.push(...(await buildSuggestionInserts(supabase, hotelId, job.id, daily, today)));
+    for (const s of await buildSuggestionDrafts(supabase, hotelId, daily, today)) {
+      if (answeredInThisJob(s.kind, s.payload).length === 0) drafts.push(s);
+    }
   }
 
-  if (inserts.length > 0) {
-    const { error } = await supabase.from("onboarding_findings").insert(inserts);
-    if (error) throw new Error(`onboarding_findings insert failed: ${error.message}`);
+  await extendConfirmedClosures(supabase, hotelId, closures.extensions);
+  await writeFindings(supabase, hotelId, job.id, planFindingWrites(drafts, existing));
+
+  // Deactivated only once the record of it is written. The other way round, a
+  // pass that died in between left a room type switched off with nothing on
+  // the review screen to show it or undo it — and no later pass could file
+  // one, because the detector only sees active room types.
+  if (!refreshMode) {
+    for (const d of duplicates) {
+      await supabase
+        .from("room_types")
+        .update({ is_active: false })
+        .eq("id", d.deactivate_room_type_id);
+    }
   }
 
   if (refreshMode) return; // suggestions only — no direct writes past this point
 
   // Strategy answers may have arrived while the import ran — re-project so
-  // room types created by the import get their guardrails too.
-  await projectStrategyOntoRoomTypes(supabase, hotelId);
+  // room types created by the import get their guardrails too. Once is
+  // enough per import: saving an answer re-projects on its own, and running it
+  // again at the end would overwrite a guardrail the owner changed in between.
+  if (pass === "early" || typeof job.stats.earlyAnalysisAt !== "string") {
+    await projectStrategyOntoRoomTypes(supabase, hotelId);
+  }
 
   // Then data fills whatever the answers left at schema defaults: ceilings
   // from p99 x 1.5, floors from a fraction of the median — the guardrail
   // half of the starter package, applied while still in simulation mode.
-  await applyInitialGuardrails(supabase, hotelId, stats, new Set(suspects.map((s) => s.room_type_id)));
+  // Only defaults are ever touched, so a second pass fills a type the first
+  // one skipped and leaves everything else alone.
+  await applyInitialGuardrails(supabase, hotelId, stats, new Set(allSuspects.map((s) => s.room_type_id)));
 
   // The payoff: starter rules built from their own history, live-in-simulation.
-  const starterRules = await generateStarterRules(supabase, hotelId);
-  if (starterRules.length > 0) {
-    await supabase
-      .from("import_jobs")
-      .update({
-        stats: {
-          ...job.stats,
-          starterRules: starterRules.map((r) => ({
-            name: r.name,
-            explanation: r.explanation,
-          })),
-        },
-      })
-      .eq("id", job.id);
-    job.stats = { ...job.stats, starterRules: starterRules.map((r) => r.name) };
+  await recordStarterRules(supabase, job);
+}
+
+/**
+ * Create the starter rules once per import and note them on the job for the
+ * review screen.
+ *
+ * Once a pass has created them, later passes leave rules alone even if there
+ * are none by then: an owner who deleted the starter set after the early pass
+ * made a decision, and recreating it would undo that. A pass that created
+ * them and died before its checkpoint finds them on record instead.
+ */
+async function recordStarterRules(supabase: SupabaseClient, job: ImportJobRow): Promise<void> {
+  if (typeof job.stats.starterRulesAt === "string") return;
+  let rules = await generateStarterRules(supabase, job.hotel_id);
+  if (rules.length === 0 && !Array.isArray(job.stats.starterRules)) {
+    rules = await starterRulesOnRecord(supabase, job);
   }
+  if (rules.length === 0) return;
+  job.stats = {
+    ...job.stats,
+    starterRules: rules.map((r) => ({ name: r.name, explanation: r.explanation })),
+    starterRulesAt: new Date().toISOString(),
+  };
+}
+
+async function starterRulesOnRecord(
+  supabase: SupabaseClient,
+  job: ImportJobRow,
+): Promise<StarterRuleSpec[]> {
+  const specs = computeStarterRules({ daysOfHistory: MIN_HISTORY_DAYS_FOR_STARTERS });
+  let q = supabase
+    .from("pricing_rules")
+    .select("name")
+    .eq("hotel_id", job.hotel_id)
+    .in("name", specs.map((s) => s.name));
+  // Only this import's: a hotel keeping the set from an earlier import did not
+  // just have it built for them.
+  if (job.created_at) q = q.gte("created_at", job.created_at);
+  const { data } = await q;
+  const names = new Set((data ?? []).map((r: { name: unknown }) => String(r.name)));
+  return specs.filter((s) => names.has(s.name));
 }
 
 /** Refresh-mode: compare data-derived config against what exists; emit suggestions. */
-async function buildSuggestionInserts(
+async function buildSuggestionDrafts(
   supabase: SupabaseClient,
   hotelId: string,
-  jobId: string,
   daily: DailyRoomNights[],
   today: string,
-): Promise<
-  Array<{ hotel_id: string; job_id: string; kind: string; status: string; payload: Record<string, unknown> }>
-> {
+): Promise<FindingDraft[]> {
   const [{ data: ruleRows }, { data: roomTypes }, { data: settings }, { data: rtStats }] =
     await Promise.all([
       supabase
@@ -969,16 +1358,12 @@ async function buildSuggestionInserts(
 
   const allRoomTypeIds = (roomTypes ?? []).map((rt) => String(rt.id));
   return [
-    ...ruleSuggestions.map((s) => ({
-      hotel_id: hotelId,
-      job_id: jobId,
+    ...ruleSuggestions.map((s): FindingDraft => ({
       kind: "rule_suggestion",
       status: "proposed",
       payload: { ...s, room_type_ids: allRoomTypeIds } as unknown as Record<string, unknown>,
     })),
-    ...guardrailSuggestions.map((s) => ({
-      hotel_id: hotelId,
-      job_id: jobId,
+    ...guardrailSuggestions.map((s): FindingDraft => ({
       kind: "guardrail_suggestion",
       status: "proposed",
       payload: s as unknown as Record<string, unknown>,

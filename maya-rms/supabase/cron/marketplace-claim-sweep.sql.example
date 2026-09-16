@@ -1,0 +1,37 @@
+-- Example: schedule the Marketplace claim sweep.
+--
+-- Pure SQL, no secrets: the function lives in the database
+-- (99_supabase_migration_marketplace_claim_sweep_v1.sql) and cron calls it
+-- directly. It records every expired, unredeemed Cloudbeds Marketplace
+-- connection in product_events as marketplace.claim_expired, then deletes the
+-- parked hotel, its stored credential, its connection row and the claim, but
+-- only for properties nobody touched. The default grace is 3 days past the
+-- ticket's own 24 hours; the migration explains why.
+--
+-- Daily is plenty: a ticket lives a day and the grace is three. Off-peak, and
+-- clear of the engine and request-log sweeps at 08:40 and 08:50.
+--
+-- 0) Ensure the extension exists:
+--    create extension if not exists pg_cron;
+--
+-- 1) Look before the first real run (records and deletes nothing):
+--    select public.marketplace_claim_sweep(interval '3 days', true);
+--
+-- 2) Schedule (09:10 UTC daily):
+--    select cron.schedule(
+--      'marketplace-claim-sweep',
+--      '10 9 * * *',
+--      $$ select public.marketplace_claim_sweep(); $$
+--    );
+--
+-- Inspect:    select jobid, jobname, schedule, active from cron.job;
+-- Runs log:   select * from cron.job_run_details where command like '%marketplace_claim_sweep%'
+--               order by start_time desc limit 20;
+-- Unschedule: select cron.unschedule('marketplace-claim-sweep');
+--
+-- What is waiting to be swept, and what was swept:
+--   select count(*) from pms_marketplace_claims
+--    where claimed_at is null and expires_at < now() - interval '3 days';
+--   select occurred_at, property_name, properties
+--     from product_events where event = 'marketplace.claim_expired'
+--    order by occurred_at desc limit 20;

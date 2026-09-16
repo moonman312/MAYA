@@ -56,11 +56,23 @@ export async function GET() {
     .eq("hotel_id", hotelId)
     .maybeSingle();
 
-  const { count: proposedFindings } = await supabase
-    .from("onboarding_findings")
-    .select("id", { count: "exact", head: true })
-    .eq("hotel_id", hotelId)
-    .eq("status", "proposed");
+  const [{ count: proposedFindings }, { data: latestProposed }] = await Promise.all([
+    supabase
+      .from("onboarding_findings")
+      .select("id", { count: "exact", head: true })
+      .eq("hotel_id", hotelId)
+      .eq("status", "proposed"),
+    // The import analyses twice, so a question can arrive after the owner has
+    // finished reviewing the first set; this is how the dashboard tells.
+    supabase
+      .from("onboarding_findings")
+      .select("created_at")
+      .eq("hotel_id", hotelId)
+      .eq("status", "proposed")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
 
   return NextResponse.json({
     connected: true,
@@ -70,6 +82,7 @@ export async function GET() {
     state: state ?? null,
     job,
     proposedFindings: proposedFindings ?? 0,
+    latestProposedAt: latestProposed?.created_at ?? null,
     simulationMode: settings?.simulation_mode !== false,
   });
 }

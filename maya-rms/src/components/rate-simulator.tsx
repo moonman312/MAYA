@@ -20,6 +20,7 @@ import {
   type SimRoomType,
 } from "@/lib/simulator";
 import type { EngineRule, RuleAction } from "@/types/domain";
+import { trackOnce } from "@/lib/analytics/track";
 import { useEffect, useMemo, useState } from "react";
 
 /**
@@ -321,7 +322,10 @@ export function RateSimulator({
   }
 
   return (
-    <section className="space-y-5 rounded-lg border border-slate-800 bg-slate-900 p-5">
+    <section
+      className="space-y-5 rounded-lg border border-slate-800 bg-slate-900 p-5"
+      onChangeCapture={() => trackOnce("simulator.used")}
+    >
       <div>
         <h2 className="text-lg font-semibold">Rate Simulator</h2>
         <p className="mt-1 max-w-3xl text-xs text-slate-400">

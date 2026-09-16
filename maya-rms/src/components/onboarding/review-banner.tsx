@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 
 /**
  * Dashboard banner for users who left onboarding before the import finished:
- * once the analysis is done and has findings awaiting review, nudge them back.
+ * once an analysis has findings awaiting review, nudge them back. That can be
+ * the early analysis while older years are still importing, or a finding the
+ * final analysis raised after they had already finished reviewing.
  * Renders nothing in every other situation.
  */
 export function OnboardingReviewBanner() {
@@ -19,15 +21,18 @@ export function OnboardingReviewBanner() {
         const b = body as {
           connected?: boolean;
           state?: { review_completed_at: string | null } | null;
-          job?: { status: string } | null;
+          job?: { status: string; stats?: { earlyAnalysisAt?: string } } | null;
           proposedFindings?: number;
+          latestProposedAt?: string | null;
         };
-        if (
-          b.connected &&
-          b.job?.status === "completed" &&
-          !b.state?.review_completed_at &&
-          (b.proposedFindings ?? 0) > 0
-        ) {
+        const analysed =
+          b.job?.status === "completed" ||
+          (b.job?.status === "running" && typeof b.job.stats?.earlyAnalysisAt === "string");
+        const reviewedAt = b.state?.review_completed_at;
+        const unseen =
+          !reviewedAt ||
+          (!!b.latestProposedAt && Date.parse(b.latestProposedAt) > Date.parse(reviewedAt));
+        if (b.connected && analysed && unseen && (b.proposedFindings ?? 0) > 0) {
           setShow({ count: b.proposedFindings ?? 0 });
         }
       })

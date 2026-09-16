@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { track, useTrackOnce } from "@/lib/analytics/track";
 import { checkoutQuote, type CodeDisplayEffect } from "@/lib/billing/quote";
 import {
   MAX_ROOMS,
@@ -90,6 +91,13 @@ export function SubscribeStep({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deferring, setDeferring] = useState(false);
+  const flow = { marketplace: Boolean(hotelId), restart: initialRooms !== undefined };
+  useTrackOnce(
+    "billing.subscribe_viewed",
+    { ...flow, trial_days: baseTrialDays, group_position: progress?.index, group_total: progress?.total },
+    hotelId,
+  );
+  useTrackOnce(cancelled && "billing.checkout_cancelled", flow, hotelId);
 
   // Landing back here via the browser's back button restores this component
   // from the bfcache mid-"Taking you to checkout…", with the pay button
@@ -208,6 +216,7 @@ export function SubscribeStep({
       });
       const body = (await res.json().catch(() => null)) as { url?: string; error?: string } | null;
       if (!res.ok || !body?.url) throw new Error(body?.error ?? "Couldn't start checkout.");
+      track("billing.checkout_started", { ...flow, interval, rooms, has_code: code.trim() !== "" }, hotelId);
       // Stripe's hosted page — card details never touch MAYA.
       window.location.href = body.url;
     } catch (e) {

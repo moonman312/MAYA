@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useTrackOnce } from "@/lib/analytics/track";
 import {
   useOnboardingStatus,
   type OnboardingStatus,
@@ -40,6 +41,7 @@ export function ReviewFindings() {
   // One poll shared by the room-count strip (which needs the hotel id) and the
   // starter rules (which need the job stats and simulation flag).
   const status = useOnboardingStatus(15000);
+  useTrackOnce("onboarding.review_viewed");
 
   async function load() {
     // A failure has to be visible. Leaving `findings` null renders the loading
@@ -62,6 +64,18 @@ export function ReviewFindings() {
   useEffect(() => {
     load();
   }, []);
+
+  // Reached early, the import is still running: the final analysis refines
+  // these cards and can add or retire some, so re-read them when it lands.
+  const jobStatus = status?.job?.status;
+  const seenRunning = useRef(false);
+  useEffect(() => {
+    if (jobStatus === "running") seenRunning.current = true;
+    if (jobStatus === "completed" && seenRunning.current) {
+      seenRunning.current = false;
+      load();
+    }
+  }, [jobStatus]);
 
   async function act(id: string, action: "confirm" | "dismiss", value?: number, keepRule?: boolean) {
     setBusy(id);

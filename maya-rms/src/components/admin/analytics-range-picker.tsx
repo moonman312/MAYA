@@ -13,6 +13,12 @@ function dayStr(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Monday to Sunday in UTC, the same week the walked-away card counts. */
+function isoWeekOf(d: Date): { from: string; to: string } {
+  const monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - ((d.getUTCDay() + 6) % 7)));
+  return { from: dayStr(monday), to: dayStr(new Date(monday.getTime() + 6 * 86_400_000)) };
+}
+
 export function AnalyticsRangePicker({
   from,
   to,
@@ -40,6 +46,13 @@ export function AnalyticsRangePicker({
     go(dayStr(new Date(now.getTime() - (days - 1) * 86_400_000)), dayStr(now));
   };
 
+  const thisWeek = isoWeekOf(new Date());
+  const lastWeek = isoWeekOf(new Date(Date.parse(`${thisWeek.from}T00:00:00Z`) - 86_400_000));
+  const weeks = [
+    { label: "This week", ...thisWeek },
+    { label: "Last week", ...lastWeek },
+  ];
+
   const activeDays = (() => {
     const span = Math.round((new Date(to).getTime() - new Date(from).getTime()) / 86_400_000) + 1;
     return to === dayStr(new Date()) ? span : null;
@@ -47,6 +60,20 @@ export function AnalyticsRangePicker({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {weeks.map((w) => (
+        <button
+          key={w.label}
+          type="button"
+          onClick={() => go(w.from, w.to)}
+          className={`cursor-pointer rounded border px-3 py-1.5 text-xs transition ${
+            from === w.from && to === w.to
+              ? "border-sky-400 bg-sky-500/10 text-sky-200"
+              : "border-slate-700 text-slate-300 hover:border-slate-500"
+          }`}
+        >
+          {w.label}
+        </button>
+      ))}
       {PRESETS.map((p) => (
         <button
           key={p.label}

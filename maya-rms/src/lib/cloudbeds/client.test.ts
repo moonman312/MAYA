@@ -8,6 +8,7 @@ vi.mock("../../../supabase/functions/_shared/pms/rate-limit.ts", () => limiter);
 
 import {
   cloudbedsGet,
+  cloudbedsGetReservationsWithRateDetailsPage,
   cloudbedsPost,
 } from "../../../supabase/functions/_shared/cloudbeds/client";
 
@@ -67,5 +68,58 @@ describe("cloudbeds 429 handling", () => {
 
     expect(limiter.record).toHaveBeenCalledWith("cloudbeds", "prop-1", "throttled");
     expect(limiter.record).toHaveBeenCalledWith("cloudbeds", "prop-1", "ok");
+  });
+});
+
+describe("getReservationsWithRateDetails paging", () => {
+  function captureUrls(pages: Array<{ data: unknown[]; total: number }>) {
+    const urls: URL[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        urls.push(new URL(url));
+        const page = pages.shift()!;
+        return json(200, { success: true, ...page });
+      }),
+    );
+    return urls;
+  }
+
+  it("filters by check-out and modifiedFrom only, pages at 100, and never asks for guest details", async () => {
+    const urls = captureUrls([{ data: Array.from({ length: 100 }, (_, i) => ({ reservationID: String(i) })), total: 130 }]);
+
+    const page = await cloudbedsGetReservationsWithRateDetailsPage(
+      CREDS,
+      { checkOutFrom: "2026-08-17", modifiedFrom: "2026-09-16 10:00:00" },
+      1,
+    );
+
+    expect(page).toMatchObject({ hasMore: true, total: 130 });
+    const params = Object.fromEntries(urls[0].searchParams);
+    expect(urls[0].pathname).toBe("/getReservationsWithRateDetails");
+    expect(params).toEqual({
+      propertyID: "prop-1",
+      reservationCheckOutFrom: "2026-08-17",
+      modifiedFrom: "2026-09-16 10:00:00",
+      pageNumber: "1",
+      pageSize: "100",
+    });
+    // Both are silently ignored by this endpoint; sending them only looks like filtering.
+    expect(params).not.toHaveProperty("status");
+    expect(params).not.toHaveProperty("checkInFrom");
+    // Adds emails, phones and identity documents. Never.
+    expect(params).not.toHaveProperty("includeGuestsDetails");
+  });
+
+  it("stops on the page that reaches the total, even when it is full", async () => {
+    captureUrls([{ data: Array.from({ length: 100 }, (_, i) => ({ reservationID: String(i) })), total: 200 }]);
+
+    const page = await cloudbedsGetReservationsWithRateDetailsPage(
+      CREDS,
+      { checkOutFrom: "2026-08-17", checkOutTo: "2026-11-01" },
+      2,
+    );
+
+    expect(page.hasMore).toBe(false);
   });
 });

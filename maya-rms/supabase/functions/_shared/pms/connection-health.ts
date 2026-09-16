@@ -67,12 +67,21 @@ export async function markConnectionDisconnected(
 ): Promise<void> {
   try {
     const now = new Date().toISOString();
-    const { error } = await supabase
+    const { error, count } = await supabase
       .from("pms_connections")
-      .update({ status: "disconnected", updated_at: now })
+      .update({ status: "disconnected", updated_at: now }, { count: "exact" })
       .eq("hotel_id", hotelId)
       .eq("pms_type", pmsType);
     if (error) throw new Error(error.message);
+
+    // No row means no property: the Marketplace claim sweep deletes parked
+    // hotels whose Cloudbeds app-state webhook still points here, and an
+    // uninstall arriving for one of those must not page anyone about a
+    // connection that does not exist.
+    if (count === 0) {
+      console.log(JSON.stringify({ fn: "markConnectionDisconnected", hotelId, pmsType, event: "no_connection" }));
+      return;
+    }
 
     console.log(
       JSON.stringify({

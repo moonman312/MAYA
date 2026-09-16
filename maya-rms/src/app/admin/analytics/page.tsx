@@ -4,12 +4,26 @@ import { redirect } from "next/navigation";
 import { AnalyticsCharts, FunnelBars } from "@/components/admin/analytics-charts";
 import { AnalyticsRangePicker } from "@/components/admin/analytics-range-picker";
 import {
+  AcquisitionPanel,
+  BookTiles,
+  CancellationsPanel,
+  EngagementPanel,
+  GroupsPanel,
+  HealthPanel,
+  ProductFunnels,
+  RetentionPanel,
+  TimeToValuePanel,
+  TrialsPanel,
+  WalkedAwayCard,
+} from "@/components/admin/product-analytics-panels";
+import {
   loadAnalyticsNow,
   loadAnalyticsRange,
   snapshotHotelMetrics,
   type HotelRef,
   type SubscriptionEvent,
 } from "@/lib/admin/analytics";
+import { loadProductAnalytics, type ProductAnalytics } from "@/lib/admin/product-analytics";
 import { requirePlatformAdmin } from "@/lib/admin/require-platform-admin";
 import { formatUsd } from "@/lib/billing/tiers";
 
@@ -57,9 +71,18 @@ export default async function AnalyticsPage({
     console.error(JSON.stringify({ fn: "analyticsLazySnapshot", error: e instanceof Error ? e.message : String(e) }));
   }
 
-  const [now, range] = await Promise.all([
+  // The product panels read product_events. A failure there is reported in
+  // place and never takes the revenue half of the page down with it.
+  const productPromise: Promise<ProductAnalytics> = loadProductAnalytics(ctx.ssr, from, to, scope.includeTest).catch(
+    (e: unknown) => {
+      console.error(JSON.stringify({ fn: "analyticsProductPanels", error: e instanceof Error ? e.message : String(e) }));
+      return { available: false, reason: "Could not load the product numbers. The server log has the error." };
+    },
+  );
+  const [now, range, product] = await Promise.all([
     loadAnalyticsNow(ctx.admin, scope),
     loadAnalyticsRange(ctx.admin, from, to, scope),
+    productPromise,
   ]);
 
   const attentionCount =
@@ -109,6 +132,26 @@ export default async function AnalyticsPage({
       </section>
 
       <AnalyticsCharts series={range.series} />
+
+      {product.available ? (
+        <>
+          <WalkedAwayCard summary={product.walkedAwaySummary} rows={product.walkedAway} from={from} to={to} />
+          <BookTiles book={product.book} />
+          <ProductFunnels funnel={product.funnel} />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <TimeToValuePanel rows={product.timeToValue} />
+            <RetentionPanel row={product.retention} />
+            <TrialsPanel rows={product.trials} />
+            <CancellationsPanel rows={product.cancellations} />
+            <AcquisitionPanel rows={product.acquisition} />
+            <HealthPanel rows={product.health} />
+            <EngagementPanel events={product.events} />
+            <GroupsPanel rows={product.groups} />
+          </div>
+        </>
+      ) : (
+        <p className="rounded border border-slate-800 bg-slate-900 px-4 py-3 text-xs text-slate-400">{product.reason}</p>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <FunnelBars funnel={range.funnel} />

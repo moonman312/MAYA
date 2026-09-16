@@ -13,6 +13,7 @@ import {
   cloudbedsGetReservationDetail,
   cloudbedsGetReservationsPage,
   cloudbedsGetReservationsRange,
+  cloudbedsGetReservationsWithRateDetailsPage,
   cloudbedsTimestamp,
   cloudbedsGetRoomTypes,
   cloudbedsGetTaxesAndFees,
@@ -23,6 +24,7 @@ import {
   isAuthRevocation,
   markConnectionDisconnected,
 } from "../pms/connection-health.ts";
+import { raiseAlert } from "../pms/alerting.ts";
 import {
   CLOUDBEDS_SYNC_BUDGET_MS,
   CLOUDBEDS_INCREMENTAL_OVERLAP_MS,
@@ -30,10 +32,13 @@ import {
   defaultCloudbedsBaseUrl,
   CLOUDBEDS_ACTIVE_STATUSES,
   CLOUDBEDS_CANCELED_STATUSES,
+  CLOUDBEDS_RATE_DETAILS_PAGE_SIZE,
 } from "./constants.ts";
 import {
+  cloudbedsRateDetailsToDetail,
   cloudbedsRoomRowIds,
   cloudbedsRoomSlots,
+  cloudbedsStayDates,
   parseCloudbedsReservationDetail,
   parseCloudbedsRoomTypes,
 } from "./etl.ts";
@@ -52,6 +57,21 @@ const DEFAULT_FORWARD = 396;
 const MAX_BACK = 365;
 const MAX_FORWARD = 730;
 
+/**
+ * Bookings one check-out slice may hold before the sweep narrows it. Ten
+ * pages: at the latency measured for full rate-details pages that is well
+ * inside one budget, so a slice always finishes and the cursor always moves.
+ */
+const SLICE_TARGET_BOOKINGS = 1000;
+/** Upper bound on slices in one run, however narrow they get. */
+const SLICE_GUARD = 800;
+/** How far past the last check-in date an open-ended slice is assumed to reach, for sizing only. */
+const OPEN_SLICE_REACH_DAYS = 31;
+/** Marks a checkpoint as a check-out date, so neither path misreads the other's cursor. */
+const CHECKOUT_CURSOR_PREFIX = "checkout:";
+
+type Json = Record<string, unknown>;
+
 export type CloudbedsSyncOptions = {
   daysBack?: number;
   daysForward?: number;
@@ -59,21 +79,39 @@ export type CloudbedsSyncOptions = {
 
 export type CloudbedsSyncSuccess = {
   ok: true;
-  /** False when the detail budget expired before the window was covered. */
+  /** False when the budget expired before the window was covered. */
   windowFullyCovered: boolean;
+  /**
+   * The checkpoint a truncated sweep left for the next run to resume from, or
+   * null once the window is covered. Callers that loop until covered compare
+   * it between runs to tell a slow sweep from a stuck one.
+   */
+  sweepCursor: string | null;
   /** Resolved, ready-to-use credentials (reused by the rate-push step). */
   creds: CloudbedsResolvedCredentials;
   fetchWindow: { checkInFrom: string; checkInTo: string };
   apiPages: number;
   roomTypesUpserted: number;
   reservationRowsUpserted: number;
+  /** Room-nights this run read inside the window, written or already current. */
+  windowRows: number;
+  /** Earliest and latest stay night among them. */
+  stayDates: { oldest: string | null; newest: string | null };
   ingest: {
+    /** Which reservation source this run used. */
+    source: "rate_details" | "per_booking";
+    /** Why rate details was refused and the per-booking path ran instead. */
+    rateDetailsRefused: string | null;
     reservationsDetailFetched: number;
     reservationsDetailFailed: number;
     canceledReservationsSeen: number;
     canceledRowIdsDeleted: number;
     canceledDetailFailed: number;
     canceledStatusListFailures: number;
+    /** Active bookings the check-out filter returned whose check-in falls outside the window. */
+    bookingsOutsideWindow: number;
+    /** Bookings in a status that neither holds a room nor releases one. */
+    bookingsWithUnknownStatus: number;
     duplicateStayNightKeysMerged: number;
     rowsWithMissingRate: number;
     unchangedRowsSkipped: number;
@@ -99,6 +137,16 @@ function ymd(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+function addDaysYmd(day: string, days: number): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return ymd(d);
+}
+
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
 function resolveWindow(options?: CloudbedsSyncOptions): { checkInFrom: string; checkInTo: string } {
   const back = Math.min(MAX_BACK, Math.max(1, options?.daysBack ?? readPositiveIntEnv("MAYA_SYNC_DAYS_BACK", DEFAULT_BACK)));
   const forward = Math.min(MAX_FORWARD, Math.max(1, options?.daysForward ?? readPositiveIntEnv("MAYA_SYNC_DAYS_FORWARD", DEFAULT_FORWARD)));
@@ -122,6 +170,11 @@ function reservationIdOf(item: CloudbedsReservation): string {
 function isCanceledStatus(status: string | null): boolean {
   if (!status) return false;
   return (CLOUDBEDS_CANCELED_STATUSES as readonly string[]).includes(status.trim().toLowerCase());
+}
+
+function isActiveStatus(status: string | null): boolean {
+  if (!status) return false;
+  return (CLOUDBEDS_ACTIVE_STATUSES as readonly string[]).includes(status.trim().toLowerCase());
 }
 
 /**
@@ -273,10 +326,11 @@ export function decideSyncMode(args: {
 }
 
 /**
- * The order a multi-tick sweep walks reservations in — and therefore what its
- * cursor means. Cloudbeds ids are numeric strings, so shorter-before-longer
- * then lexicographic sorts them numerically without ever parsing; anything
- * non-numeric still gets a total, stable order, which is all resume needs.
+ * The order a multi-tick per-booking sweep walks reservations in — and
+ * therefore what its cursor means. Cloudbeds ids are numeric strings, so
+ * shorter-before-longer then lexicographic sorts them numerically without ever
+ * parsing; anything non-numeric still gets a total, stable order, which is all
+ * resume needs.
  */
 export function sweepIdCompare(a: string, b: string): number {
   return a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
@@ -334,6 +388,325 @@ async function deleteStaleStayNights(
     }
   }
   return { error: null };
+}
+
+/* ── Reading the window ──────────────────────────────────────────────────── */
+
+type WindowArgs = {
+  creds: CloudbedsResolvedCredentials;
+  checkInFrom: string;
+  checkInTo: string;
+  modifiedFrom: string | undefined;
+  deadlineAt: number;
+  /** Checkpoint from an earlier run of the same sweep, as stored. Null starts fresh. */
+  storedCursor: string | null;
+  checkpointable: boolean;
+};
+
+/** What one run read from the window, whichever source it came from. */
+type WindowPull = {
+  source: "rate_details" | "per_booking";
+  /** Active bookings inside the check-in window, in getReservation shape. */
+  details: Json[];
+  /** Row ids of canceled and no-show bookings seen so far. */
+  canceledRowIds: Set<string>;
+  canceledSeen: number;
+  detailFetched: number;
+  detailFailed: number;
+  bookingsOutsideWindow: number;
+  bookingsWithUnknownStatus: number;
+  pages: number;
+  truncated: boolean;
+  /** Checkpoint to store when truncated. */
+  nextCursor: string | null;
+  /**
+   * The per-booking path lists cancellations separately, after the active rows
+   * are written. Rate details has already seen them on the same pages.
+   */
+  listCancellations: (() => Promise<CancellationPass>) | null;
+};
+
+type CancellationPass = {
+  pages: number;
+  statusesFailed: number;
+  detailFailed: number;
+};
+
+function parseCheckoutCursor(stored: string | null): string | null {
+  if (!stored || !stored.startsWith(CHECKOUT_CURSOR_PREFIX)) return null;
+  const day = stored.slice(CHECKOUT_CURSOR_PREFIX.length);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
+}
+
+/**
+ * The whole window from getReservationsWithRateDetails, a page of 100 bookings
+ * per call.
+ *
+ * The server can only filter by check-out, so the sweep walks check-out dates:
+ * everything checking out on or after the window's first check-in day comes
+ * back (guests arriving in the window and guests already in the house), and
+ * the check-in bound is applied here. Canceled and no-show bookings arrive on
+ * the same pages, rooms and all, so no second pass is needed to find them.
+ *
+ * A very large book is split into consecutive check-out slices, each sized so
+ * it finishes inside one budget, and the checkpoint is the check-out date the
+ * last completed slice reached. Page numbers are never checkpointed: nothing
+ * established that the endpoint returns pages in the same order on a later
+ * call. Consecutive slices share their boundary day, so whether the upper
+ * bound is inclusive or not no booking can fall between two of them.
+ */
+async function pullWithRateDetails(args: WindowArgs): Promise<WindowPull> {
+  const { creds, checkInFrom, checkInTo, modifiedFrom, deadlineAt } = args;
+  const resumeFrom = args.checkpointable ? parseCheckoutCursor(args.storedCursor) : null;
+  const sizingHorizon = addDaysYmd(checkInTo, OPEN_SLICE_REACH_DAYS);
+
+  const byId = new Map<string, Json>();
+  let pages = 0;
+  let pageMsTotal = 0;
+  let truncated = false;
+  let from = resumeFrom && resumeFrom > checkInFrom ? resumeFrom : checkInFrom;
+  // Where this run started counts as the checkpoint until a slice completes,
+  // so a run that finished none reports the same position twice and a caller
+  // can see it is not moving.
+  let reached = from;
+  /** Null asks for everything from `from` on. */
+  let width: number | null = null;
+
+  sweep: for (let slice = 0; slice < SLICE_GUARD; slice += 1) {
+    const to = width == null ? undefined : addDaysYmd(from, width);
+    const openEnded = to === undefined || to >= sizingHorizon;
+    const query = { checkOutFrom: from, checkOutTo: openEnded ? undefined : to, modifiedFrom };
+    let sliceTotal: number | null = null;
+
+    for (let pageNumber = 1; pageNumber <= PAGE_GUARD; pageNumber += 1) {
+      if (Date.now() > deadlineAt) {
+        truncated = true;
+        break sweep;
+      }
+      const startedAt = Date.now();
+      const page = await cloudbedsGetReservationsWithRateDetailsPage(creds, query, pageNumber);
+      pages += 1;
+      pageMsTotal += Date.now() - startedAt;
+      for (const row of page.reservations) {
+        const rid = reservationIdOf(row);
+        if (rid) byId.set(rid, row);
+      }
+      if (pageNumber === 1 && page.total != null) {
+        sliceTotal = page.total;
+        const span = daysBetween(from, query.checkOutTo ?? sizingHorizon);
+        const pagesStillToRead = Math.ceil(page.total / CLOUDBEDS_RATE_DETAILS_PAGE_SIZE) - 1;
+        // Pages this run can still afford at the pace pages have actually
+        // taken. A slice that cannot finish moves nothing, however much of it
+        // was read, so a slow API has to mean smaller slices, not a stuck sweep.
+        const affordable = Math.floor((deadlineAt - Date.now()) / Math.max(1, pageMsTotal / pages));
+        const fits = page.total <= SLICE_TARGET_BOOKINGS && pagesStillToRead <= affordable;
+        if (!fits && span > 1) {
+          // What this page returned is kept; the slice is asked for again, narrower.
+          const bookingsThatFit = Math.max(
+            CLOUDBEDS_RATE_DETAILS_PAGE_SIZE,
+            Math.min(SLICE_TARGET_BOOKINGS, Math.floor(affordable * 0.8) * CLOUDBEDS_RATE_DETAILS_PAGE_SIZE),
+          );
+          width = Math.max(1, Math.min(span - 1, Math.floor((span * bookingsThatFit) / page.total)));
+          continue sweep;
+        }
+      }
+      if (!page.hasMore) break;
+    }
+
+    if (query.checkOutTo === undefined) break;
+    reached = query.checkOutTo;
+    from = query.checkOutTo;
+    // Size the next slice from how full this one was, growing at most fourfold
+    // so one sparse month cannot swallow a busy season whole.
+    if (width != null && sliceTotal != null) {
+      width = Math.max(1, Math.min(width * 4, Math.floor((width * SLICE_TARGET_BOOKINGS) / Math.max(sliceTotal, 1))));
+    }
+  }
+
+  const details: Json[] = [];
+  const canceledRowIds = new Set<string>();
+  let canceledSeen = 0;
+  let bookingsOutsideWindow = 0;
+  let bookingsWithUnknownStatus = 0;
+  for (const [rid, row] of byId) {
+    const detail = cloudbedsRateDetailsToDetail(row);
+    const status = typeof detail.status === "string" ? detail.status : null;
+    if (isCanceledStatus(status)) {
+      // Wherever its dates now fall: a canceled booking should hold no nights.
+      canceledSeen += 1;
+      for (const id of rowIdsForReservation(rid, detail)) canceledRowIds.add(id);
+      continue;
+    }
+    if (!isActiveStatus(status)) {
+      bookingsWithUnknownStatus += 1;
+      continue;
+    }
+    const { checkIn } = cloudbedsStayDates(row);
+    if (!checkIn || checkIn < checkInFrom || checkIn > checkInTo) {
+      bookingsOutsideWindow += 1;
+      continue;
+    }
+    details.push(detail);
+  }
+
+  return {
+    source: "rate_details",
+    details,
+    canceledRowIds,
+    canceledSeen,
+    detailFetched: details.length,
+    detailFailed: 0,
+    bookingsOutsideWindow,
+    bookingsWithUnknownStatus,
+    pages,
+    truncated,
+    nextCursor: truncated ? `${CHECKOUT_CURSOR_PREFIX}${reached}` : null,
+    listCancellations: null,
+  };
+}
+
+/**
+ * The original path: list the window per status, then one getReservation per
+ * booking. Kept only for a property whose account refuses rate details — at
+ * 220ms a call it needs several runs for anything past a small hotel, which is
+ * what the budget and the id checkpoint below are for.
+ */
+async function pullPerBooking(args: WindowArgs): Promise<WindowPull> {
+  const { creds, checkInFrom, checkInTo, modifiedFrom, deadlineAt, checkpointable } = args;
+  const stored = args.storedCursor;
+  const sweepCursor =
+    checkpointable && stored && !stored.startsWith(CHECKOUT_CURSOR_PREFIX) ? stored : null;
+
+  const { reservations: listItems, pages } = await cloudbedsGetReservationsRange(
+    creds,
+    checkInFrom,
+    checkInTo,
+    CLOUDBEDS_ACTIVE_STATUSES,
+    modifiedFrom,
+  );
+
+  // A sweep bigger than one budget finishes across several ticks, so its
+  // order has to be one every tick agrees on — the API's own ordering is
+  // whatever it feels like today. Sorted by id, "resume" is just "skip
+  // everything at or below the cursor".
+  if (checkpointable) {
+    listItems.sort((a, b) => sweepIdCompare(reservationIdOf(a) ?? "", reservationIdOf(b) ?? ""));
+  }
+
+  const seenResIds = new Set<string>();
+  const details: Json[] = [];
+  const canceledRowIds = new Set<string>();
+  let detailFetched = 0;
+  let detailFailed = 0;
+  let canceledSeen = 0;
+  let truncated = false;
+  // Advances past failures too: a booking whose detail call keeps 500ing must
+  // not wedge the sweep on itself forever — the next daily sweep retries it.
+  let sweepReachedId: string | null = null;
+
+  for (const item of listItems) {
+    if (Date.now() > deadlineAt) {
+      truncated = true;
+      break;
+    }
+    const rid = reservationIdOf(item);
+    if (!rid || seenResIds.has(rid)) continue;
+    // Resume: everything at or below the cursor was covered by an earlier
+    // tick of this same sweep.
+    if (sweepCursor && sweepIdCompare(rid, sweepCursor) <= 0) continue;
+    seenResIds.add(rid);
+    const detail = await cloudbedsGetReservationDetail(creds, rid);
+    sweepReachedId = rid;
+    if (!detail) {
+      detailFailed += 1;
+      continue;
+    }
+    detailFetched += 1;
+    const status = parseCloudbedsReservationDetail(detail).status;
+    // The list was filtered to active statuses server-side, but a booking can
+    // cancel between that page and this detail call — the detail is newer.
+    if (isCanceledStatus(status)) {
+      canceledSeen += 1;
+      for (const id of rowIdsForReservation(rid, detail)) canceledRowIds.add(id);
+      continue;
+    }
+    details.push(detail);
+  }
+
+  const pull: WindowPull = {
+    source: "per_booking",
+    details,
+    canceledRowIds,
+    canceledSeen,
+    detailFetched,
+    detailFailed,
+    bookingsOutsideWindow: 0,
+    bookingsWithUnknownStatus: 0,
+    pages,
+    truncated,
+    nextCursor: truncated ? sweepReachedId ?? sweepCursor : null,
+    listCancellations: null,
+  };
+
+  // A mid-flight sweep chunk skips the cancellation pass: it is unbudgeted
+  // API work that would repeat on every chunk, and the completing chunk runs
+  // it once for the whole sweep. Cancelled rows sit a few extra ticks; they
+  // were already stale for however long the property waited to sync at all.
+  if (!(truncated && checkpointable)) {
+    pull.listCancellations = async () => {
+      // Cancelling a booking modifies it, so the same watermark applies — and
+      // the rows for anything cancelled before it were already removed on the
+      // run that saw it.
+      const canceledList = await listCanceledReservations(creds, checkInFrom, checkInTo, modifiedFrom);
+      let canceledDetailFailed = 0;
+      for (const item of canceledList.items) {
+        const rid = reservationIdOf(item);
+        if (!rid || seenResIds.has(rid)) continue;
+        seenResIds.add(rid);
+        const detail = await cloudbedsGetReservationDetail(creds, rid);
+        if (!detail) {
+          // The list said canceled, so clear what the list item itself names —
+          // the parent id plus whatever rooms[] it carries. A list item that names
+          // no rooms leaves rooms 2..n of a multi-room cancellation behind until a
+          // run whose detail call succeeds. (cloudbedsGetReservationDetail returns
+          // null for a 5xx or timeout too, not only a genuinely missing booking.)
+          canceledDetailFailed += 1;
+          pull.canceledSeen += 1;
+          for (const id of rowIdsForReservation(rid, item)) pull.canceledRowIds.add(id);
+          continue;
+        }
+        const status = parseCloudbedsReservationDetail(detail).status;
+        // Reinstated between the list page and here — leave its rows alone and let
+        // the next sync pick it up as active. A detail payload with no status at all
+        // does not overrule the list, which said canceled.
+        if (status && !isCanceledStatus(status)) continue;
+        pull.canceledSeen += 1;
+        for (const id of rowIdsForReservation(rid, detail)) pull.canceledRowIds.add(id);
+      }
+      return {
+        pages: canceledList.pages,
+        statusesFailed: canceledList.statusesFailed,
+        detailFailed: canceledDetailFailed,
+      };
+    };
+  }
+
+  return pull;
+}
+
+/**
+ * Whether rate details said no in words, rather than being unreachable.
+ *
+ * An account can lack the endpoint or a scope it needs, and Cloudbeds answer
+ * that with a success:false body or a 4xx. That is a fact about the property,
+ * so the sync carries on the slow way instead of stopping. A revoked grant,
+ * throttling, a 5xx or a timeout is not: those fail the run as before, and the
+ * next run tries rate details again.
+ */
+function rateDetailsRefused(error: unknown): error is CloudbedsHttpError {
+  if (!(error instanceof CloudbedsHttpError)) return false;
+  if (error.status === 429 || error.status >= 500 || error.status < 400) return false;
+  return !isAuthRevocation(error.status, error.message);
 }
 
 export async function runCloudbedsSyncForHotel(
@@ -399,14 +772,6 @@ export async function runCloudbedsSyncForHotel(
     const rtRaw = await cloudbedsGetRoomTypes(creds);
     const parsedRoomTypes = parseCloudbedsRoomTypes(rtRaw, defaultRooms);
 
-    // Cloudbeds names getTaxesAndFees a mandatory call for RMS integrations:
-    // it establishes whether the rates we read and write are tax-inclusive or
-    // tax-exclusive. MAYA reads and writes the same `rate` field so it already
-    // round-trips consistently; this records WHICH basis the property is on,
-    // rather than leaving it an accident. Never fatal — the call needs a tax
-    // scope the property may not have granted, and a sync that dies over a
-    // reporting detail would be a much worse bug than not knowing the basis.
-
     let roomTypesUpserted = 0;
     if (parsedRoomTypes.length > 0) {
       const rtRows = dedupeByKey(
@@ -442,10 +807,8 @@ export async function runCloudbedsSyncForHotel(
       if (row.external_room_type_id && row.id) idByExternal[String(row.external_room_type_id)] = String(row.id);
     }
 
-    // 6. Reservations. The Cloudbeds list endpoint is minimal (no room type, no
-    //    nightly rate), so we use it only to enumerate reservation ids in the
-    //    check-in window, then pull getReservation DETAIL per booking and
-    //    explode assigned[] × dailyRates[] into per-room-night rows.
+    // 6. Reservations for the check-in window, one row per room per night at
+    //    that room's own nightly rate. See pullWithRateDetails.
     const { checkInFrom, checkInTo } = resolveWindow(options);
 
     // Incremental unless there is a reason not to be. Re-fetching the whole book
@@ -505,7 +868,7 @@ export async function runCloudbedsSyncForHotel(
     // one-shot re-read someone asked for, and incremental pulls are small
     // enough that resuming them buys nothing.
     const checkpointable = !incremental && !windowRequested;
-    const sweepCursor =
+    const storedCursor =
       checkpointable && syncState?.full_sweep_after_id
         ? String(syncState.full_sweep_after_id)
         : null;
@@ -514,72 +877,60 @@ export async function runCloudbedsSyncForHotel(
         ? new Date(String(syncState.full_sweep_started_at))
         : null;
 
-    const { reservations: listItems, pages } = await cloudbedsGetReservationsRange(
+    // A budget, so a property too big for one run stops deliberately with what
+    // it has and says so, rather than being killed with nothing written. Being
+    // killed mid-loop used to mean the upsert below never ran and NOTHING was
+    // written: such a hotel had no reservation data at all, re-attempted and
+    // re-failed every five minutes, forever.
+    const windowArgs: WindowArgs = {
       creds,
       checkInFrom,
       checkInTo,
-      CLOUDBEDS_ACTIVE_STATUSES,
       modifiedFrom,
-    );
+      deadlineAt: Date.now() + CLOUDBEDS_SYNC_BUDGET_MS,
+      storedCursor,
+      checkpointable,
+    };
 
-    // A sweep bigger than one budget finishes across several ticks, so its
-    // order has to be one every tick agrees on — the API's own ordering is
-    // whatever it feels like today. Sorted by id, "resume" is just "skip
-    // everything at or below the cursor".
-    if (checkpointable) {
-      listItems.sort((a, b) => sweepIdCompare(reservationIdOf(a) ?? "", reservationIdOf(b) ?? ""));
+    let rateDetailsRefusal: string | null = null;
+    let pull: WindowPull;
+    try {
+      pull = await pullWithRateDetails(windowArgs);
+    } catch (error) {
+      if (!rateDetailsRefused(error)) throw error;
+      rateDetailsRefusal = error.message.slice(0, 300);
+      console.error(
+        JSON.stringify({
+          fn: "runCloudbedsSyncForHotel",
+          hotelId,
+          warning: "getReservationsWithRateDetails refused for this property; syncing with one " +
+            "getReservation per booking instead, which is far slower and may need several runs",
+          status: error.status,
+          refusal: rateDetailsRefusal,
+        }),
+      );
+      await raiseAlert(supabase, {
+        severity: "warn",
+        key: `cloudbeds_rate_details_refused:${hotelId}`,
+        title: "Cloudbeds refused rate details; syncing per booking",
+        detail: rateDetailsRefusal,
+        hotelId,
+      });
+      pull = await pullPerBooking(windowArgs);
     }
 
-    const seenResIds = new Set<string>();
     const allRows: CloudbedsParsedReservationRow[] = [];
-    const canceledRowIds = new Set<string>();
-    let detailFetched = 0;
-    let detailFailed = 0;
-    let canceledSeen = 0;
+    for (const detail of pull.details) allRows.push(...parseCloudbedsReservationDetail(detail).rows);
 
-    // A budget, because this loop is one Cloudbeds call per reservation and the
-    // pacer spaces them 220ms apart. At 300s of wall clock that is ~1,360 calls,
-    // which a 30-room property already exceeds — and being killed mid-loop used
-    // to mean the upsert below never ran and NOTHING was written. A hotel above
-    // that size therefore had no reservation data at all, re-attempted and
-    // re-failed every five minutes, forever.
-    //
-    // Stopping deliberately, with what we have, is strictly better than being
-    // stopped arbitrarily with nothing. `truncated` says the window was not
-    // fully covered so the caller can decide whether to come straight back.
-    const deadlineAt = Date.now() + CLOUDBEDS_SYNC_BUDGET_MS;
-    let truncated = false;
-    // Advances past failures too: a booking whose detail call keeps 500ing must
-    // not wedge the sweep on itself forever — the next daily sweep retries it.
-    let sweepReachedId: string | null = null;
-
-    for (const item of listItems) {
-      if (Date.now() > deadlineAt) {
-        truncated = true;
-        break;
-      }
-      const rid = reservationIdOf(item);
-      if (!rid || seenResIds.has(rid)) continue;
-      // Resume: everything at or below the cursor was covered by an earlier
-      // tick of this same sweep.
-      if (sweepCursor && sweepIdCompare(rid, sweepCursor) <= 0) continue;
-      seenResIds.add(rid);
-      const detail = await cloudbedsGetReservationDetail(creds, rid);
-      sweepReachedId = rid;
-      if (!detail) {
-        detailFailed += 1;
-        continue;
-      }
-      detailFetched += 1;
-      const parsed = parseCloudbedsReservationDetail(detail);
-      // The list was filtered to active statuses server-side, but a booking can
-      // cancel between that page and this detail call — the detail is newer.
-      if (isCanceledStatus(parsed.status)) {
-        canceledSeen += 1;
-        for (const id of rowIdsForReservation(rid, detail)) canceledRowIds.add(id);
-        continue;
-      }
-      allRows.push(...parsed.rows);
+    if (pull.bookingsWithUnknownStatus > 0) {
+      console.warn(
+        JSON.stringify({
+          fn: "runCloudbedsSyncForHotel",
+          hotelId,
+          warning: "bookings in a status that neither holds nor releases a room were left as stored",
+          count: pull.bookingsWithUnknownStatus,
+        }),
+      );
     }
 
     // Dedupe to the reservations unique key (external_reservation_id, stay_date).
@@ -588,10 +939,19 @@ export async function runCloudbedsSyncForHotel(
     const rows = [...byKey.values()];
     const duplicateStayNightKeysMerged = allRows.length - rows.length;
     const rowsWithMissingRate = rows.filter((r) => r.current_rate === null).length;
+    let oldestStay: string | null = null;
+    let newestStay: string | null = null;
+    for (const r of rows) {
+      if (!oldestStay || r.stay_date < oldestStay) oldestStay = r.stay_date;
+      if (!newestStay || r.stay_date > newestStay) newestStay = r.stay_date;
+    }
 
     let reservationRowsUpserted = 0;
     let unchangedRowsSkipped = 0;
     if (rows.length > 0) {
+      // current_rate is the room's own nightly rate from its first write, and
+      // that matters beyond this row: the reservations_sync_base_rate trigger
+      // copies it into base_rate on INSERT and never lets it change afterwards.
       const allRes = rows.map((r) => ({
         hotel_id: hotelId,
         external_reservation_id: r.external_reservation_id,
@@ -631,64 +991,33 @@ export async function runCloudbedsSyncForHotel(
       activeNights.get(r.external_reservation_id)!.add(r.stay_date);
     }
 
-    // Cancellations drop out of the active list entirely, so nothing above ever
-    // sees them again — without this pass their room-nights stay in
-    // `reservations` forever and keep counting as booked occupancy.
+    // Cancellations drop out of every active listing, so without this their
+    // room-nights stay in `reservations` forever and keep counting as booked.
     //
-    // Deliberately after the upsert: this pass hits the API again, and anything
-    // that isn't a rejected status spelling rethrows. Fetching it first meant a
-    // 503 or an expired token on THIS list threw away the active room-nights
-    // already parsed above — every hotel losing a whole cron cycle's data (and
-    // its rate push) over a cancellation-list hiccup. Failing after the upsert
-    // still reports ok:false; it just doesn't discard good data to do it.
-    // Cancelling a booking modifies it, so the same watermark applies — and the
-    // rows for anything cancelled before it were already removed on the run that
-    // saw it. Without this the cancelled sweep re-walks every cancellation the
-    // property has ever had, on every tick, forever.
-    // A mid-flight sweep chunk skips the cancellation pass: it is unbudgeted
-    // API work that would repeat on every chunk, and the completing chunk runs
-    // it once for the whole sweep. Cancelled rows sit a few extra ticks; they
-    // were already stale for however long the property waited to sync at all.
-    const runCanceledPass = !(truncated && checkpointable);
-    const canceledList = runCanceledPass
-      ? await listCanceledReservations(creds, checkInFrom, checkInTo, modifiedFrom)
-      : { items: [], pages: 0, statusesFailed: 0 };
-    let canceledDetailFailed = 0;
-    for (const item of canceledList.items) {
-      const rid = reservationIdOf(item);
-      if (!rid || seenResIds.has(rid)) continue;
-      seenResIds.add(rid);
-      const detail = await cloudbedsGetReservationDetail(creds, rid);
-      if (!detail) {
-        // The list said canceled, so clear what the list item itself names —
-        // the parent id plus whatever rooms[] it carries. A list item that names
-        // no rooms leaves rooms 2..n of a multi-room cancellation behind until a
-        // run whose detail call succeeds. (cloudbedsGetReservationDetail returns
-        // null for a 5xx or timeout too, not only a genuinely missing booking.)
-        canceledDetailFailed += 1;
-        canceledSeen += 1;
-        for (const id of rowIdsForReservation(rid, item)) canceledRowIds.add(id);
-        continue;
-      }
-      const status = parseCloudbedsReservationDetail(detail).status;
-      // Reinstated between the list page and here — leave its rows alone and let
-      // the next sync pick it up as active. A detail payload with no status at all
-      // does not overrule the list, which said canceled.
-      if (status && !isCanceledStatus(status)) continue;
-      canceledSeen += 1;
-      for (const id of rowIdsForReservation(rid, detail)) canceledRowIds.add(id);
-    }
+    // The per-booking path lists them only now, after the upsert, on purpose:
+    // that pass hits the API again, and anything that isn't a rejected status
+    // spelling rethrows. Fetching it first meant a 503 or an expired token on
+    // THIS list threw away the active room-nights already parsed above. Failing
+    // after the upsert still reports ok:false; it just doesn't discard good data.
+    const cancellations = pull.listCancellations
+      ? await pull.listCancellations()
+      : { pages: 0, statusesFailed: 0, detailFailed: 0 };
 
     // Never delete an id this run just upserted. If a status flipped between the
     // two passes, the nights we just confirmed as booked win; the next sync
     // re-decides with a consistent read.
-    const canceledIds = [...canceledRowIds].filter((id) => !activeNights.has(id));
+    const canceledIds = [...pull.canceledRowIds].filter((id) => !activeNights.has(id));
     const canceledDel = await deleteCanceledReservationRows(supabase, hotelId, canceledIds);
     if (canceledDel.error) return { ok: false, error: canceledDel.error.message };
 
     // Prune stale nights for still-active bookings (date/rate changes).
     const staleDel = await deleteStaleStayNights(supabase, hotelId, activeNights);
     if (staleDel.error) return { ok: false, error: staleDel.error.message };
+
+    const truncated = pull.truncated;
+    // What a truncated sweep leaves for the next run. A chunk that completed no
+    // slice keeps the checkpoint it resumed from rather than forgetting it.
+    const savedCursor = checkpointable && truncated ? pull.nextCursor ?? storedCursor : null;
 
     // 7. Stamp connection status.
     if (connRow?.id) {
@@ -698,10 +1027,10 @@ export async function runCloudbedsSyncForHotel(
         last_tested_at: nowIso,
         updated_at: nowIso,
         // Advance ONLY on a run that covered its window. A truncated run
-        // stopped partway through the list, so moving the watermark past the
-        // bookings it never reached would skip them permanently — the next
-        // incremental pull would ask for changes since a moment it never
-        // actually finished reading.
+        // stopped partway through, so moving the watermark past the bookings
+        // it never reached would skip them permanently — the next incremental
+        // pull would ask for changes since a moment it never actually finished
+        // reading.
         //
         // Stamped with when the SWEEP started, not now: a checkpointed sweep
         // spans several ticks, and anything modified during any of them has
@@ -728,7 +1057,7 @@ export async function runCloudbedsSyncForHotel(
         // daily sweep starts fresh.
         ...(checkpointable && truncated
           ? {
-              full_sweep_after_id: sweepReachedId ?? sweepCursor,
+              full_sweep_after_id: savedCursor,
               full_sweep_started_at: (sweepStartedAt ?? runStartedAt).toISOString(),
             }
           : {}),
@@ -746,21 +1075,28 @@ export async function runCloudbedsSyncForHotel(
     return {
       ok: true,
       creds,
-      // False when the detail budget ran out before the window was covered. A
-      // partial sync that looks complete is worse than one that says so: the
-      // next tick picks up where this stopped, but only if someone can tell.
+      // False when the budget ran out before the window was covered. A partial
+      // sync that looks complete is worse than one that says so: the next tick
+      // picks up where this stopped, but only if someone can tell.
       windowFullyCovered: !truncated,
+      sweepCursor: savedCursor,
       fetchWindow: { checkInFrom, checkInTo },
-      apiPages: pages + canceledList.pages,
+      apiPages: pull.pages + cancellations.pages,
       roomTypesUpserted,
       reservationRowsUpserted,
+      windowRows: rows.length,
+      stayDates: { oldest: oldestStay, newest: newestStay },
       ingest: {
-        reservationsDetailFetched: detailFetched,
-        reservationsDetailFailed: detailFailed,
-        canceledReservationsSeen: canceledSeen,
+        source: pull.source,
+        rateDetailsRefused: rateDetailsRefusal,
+        reservationsDetailFetched: pull.detailFetched,
+        reservationsDetailFailed: pull.detailFailed,
+        canceledReservationsSeen: pull.canceledSeen,
         canceledRowIdsDeleted: canceledIds.length,
-        canceledDetailFailed,
-        canceledStatusListFailures: canceledList.statusesFailed,
+        canceledDetailFailed: cancellations.detailFailed,
+        canceledStatusListFailures: cancellations.statusesFailed,
+        bookingsOutsideWindow: pull.bookingsOutsideWindow,
+        bookingsWithUnknownStatus: pull.bookingsWithUnknownStatus,
         duplicateStayNightKeysMerged,
         rowsWithMissingRate,
         unchangedRowsSkipped,

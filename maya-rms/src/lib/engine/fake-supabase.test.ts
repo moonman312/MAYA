@@ -71,6 +71,8 @@ export function fakeSupabase(
             return v != null && compare(v, value) <= 0;
           case "lt":
             return v != null && compare(v, value) < 0;
+          case "not.is":
+            return value === null ? v != null : v !== value;
           default:
             return true;
         }
@@ -162,6 +164,9 @@ export function fakeSupabase(
       gt: filter("gt"),
       lte: filter("lte"),
       lt: filter("lt"),
+      not: (col: string, op: string, value: unknown) => (
+        call.filters.push({ col, kind: `not.${op}`, value }), b
+      ),
       order: (col: string, o?: { ascending?: boolean }) => (
         orders.push({ col, asc: o?.ascending ?? true }), b
       ),

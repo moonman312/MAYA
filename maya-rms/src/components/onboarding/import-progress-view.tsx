@@ -4,27 +4,32 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import {
+  earlyResultsReady,
   ImportProgressBar,
   useOnboardingStatus,
 } from "@/components/onboarding/import-progress";
 
 /**
  * Full-page import progress. Safe to close — the worker runs server-side.
- * Auto-advances to the review step when the import completes with findings,
- * or to the dashboard when it completes clean.
+ * Moves on to the review step as soon as the early analysis has something to
+ * show, while older years keep importing; otherwise to the review step or the
+ * dashboard when the import completes.
  */
 export function ImportProgressView() {
   const router = useRouter();
   const status = useOnboardingStatus();
   const job = status?.job;
+  const somethingToReview =
+    (status?.proposedFindings ?? 0) > 0 || (job?.stats?.starterRules?.length ?? 0) > 0;
+  const moveOn = job?.status === "completed" || (earlyResultsReady(job) && somethingToReview);
 
   useEffect(() => {
-    if (!job || job.status !== "completed") return;
+    if (!moveOn) return;
     const t = setTimeout(() => {
-      router.push((status?.proposedFindings ?? 0) > 0 ? "/onboarding/review" : "/");
+      router.push(somethingToReview ? "/onboarding/review" : "/");
     }, 1500);
     return () => clearTimeout(t);
-  }, [job, status?.proposedFindings, router]);
+  }, [moveOn, somethingToReview, router]);
 
   return (
     <div className="flex flex-col items-center gap-8 pt-10 text-center">
@@ -32,12 +37,14 @@ export function ImportProgressView() {
         <h1 className="text-2xl font-semibold text-slate-100">
           {job?.status === "completed"
             ? "All done!"
-            : "We're studying your booking history"}
+            : moveOn
+              ? "Your first results are ready"
+              : "We're studying your booking history"}
         </h1>
         <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-400">
-          {job?.status === "completed"
+          {moveOn
             ? "Taking you to what we found…"
-            : "This runs on our side — you can close this page, grab a coffee, or head to your dashboard. We'll flag anything worth reviewing when it's done."}
+            : "This runs on our side — you can close this page, grab a coffee, or head to your dashboard. We'll flag anything worth reviewing as soon as it's ready."}
         </p>
       </div>
 
