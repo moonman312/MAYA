@@ -172,6 +172,18 @@ export async function notifyOne(
 
   if (!row.stripe_customer_id) return { kind: "skipped", reason: "no_customer" };
 
+  // A correction clears the shortfall before its webhook updates billed_rooms,
+  // so a sync in between can re-open it at the count Stripe already bills.
+  // Stripe's live quantity is the truth: a count already raised needs no warning.
+  if (row.stripe_subscription_id) {
+    try {
+      const live = await stripe.subscriptions.retrieve(row.stripe_subscription_id);
+      if ((live.items.data[0]?.quantity ?? 0) >= measured) return { kind: "skipped", reason: "no_longer_short" };
+    } catch (e) {
+      return { kind: "error", message: e instanceof Error ? e.message : "subscription lookup failed" };
+    }
+  }
+
   let to: string | null = null;
   try {
     const customer = await stripe.customers.retrieve(row.stripe_customer_id);

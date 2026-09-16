@@ -159,6 +159,28 @@ describe("a shortfall that comes back is warned about again", () => {
     vi.unstubAllEnvs();
   });
 
+  it("does not warn again when the sync re-opens a shortfall Stripe already bills", async () => {
+    // Corrected to 60, but the webhook has not updated billed_rooms yet, so the
+    // next room sync started a new shortfall at the same count.
+    vi.stubEnv("MAYA_INVITE_REDIRECT_BASE", "https://maya.example.com");
+    const sub = row({
+      billed_rooms: 25,
+      measured_rooms: 60,
+      room_shortfall_since: NOW.toISOString(),
+      room_shortfall_notified_at: LONG_AGO,
+      room_shortfall_notified_rooms: 60,
+    });
+    const { admin } = tableAdmin(sub);
+    const { stripe, updates } = fakeStripe(60);
+    const withCustomer = Object.assign(stripe, {
+      customers: { retrieve: async () => ({ id: "cus_1", email: "owner@driftwood.example" }) },
+    });
+    await sweepRoomTruing({ admin, stripe: withCustomer, now: NOW });
+    expect(sent.emails).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    vi.unstubAllEnvs();
+  });
+
   it("refuses to correct on a notice sent before the current shortfall began", async () => {
     const { stripe, updates } = fakeStripe();
     const { admin } = fakeAdmin();
