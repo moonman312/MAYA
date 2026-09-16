@@ -1,6 +1,7 @@
 import "server-only";
 import { isStripeConfigured } from "@/lib/billing/stripe";
 import { ensureAppStateWebhook } from "@/lib/pms/cloudbeds-webhooks";
+import { resumeStoppedImport } from "@/lib/pms/eager-import";
 import { hasEntitledSubscription } from "@/lib/pms/marketplace-activate";
 import { createAdminClient } from "@/utils/supabase/admin";
 import {
@@ -205,13 +206,30 @@ export async function handleMarketplaceConnect(
       // and never looks again. If that happened between our read and the write
       // above, the write just parked a paid property for good — so look again,
       // and only lift a row that is still 'pending'.
+      let live = paid;
       if (!paid && (await paidFor())) {
+        live = true;
         await admin
           .from("pms_connections")
           .update({ status: "connected", updated_at: new Date().toISOString() })
           .eq("hotel_id", existing.id)
           .eq("pms_type", pmsType)
           .eq("status", "pending");
+      }
+      // The disconnect stopped any import in flight; with the grant back, a
+      // paying property's carries on from where it stopped. An unpaid one
+      // waits until it is on the subscribe screen again.
+      if (live) {
+        await resumeStoppedImport(admin, existing.id).catch((e: unknown) => {
+          console.error(
+            JSON.stringify({
+              fn: "handleMarketplaceConnect",
+              step: "resume_import",
+              hotelId: existing.id,
+              error: e instanceof Error ? e.message : String(e),
+            }),
+          );
+        });
       }
       await subscribe(existing.id);
       await admin.rpc("platform_log_event", {

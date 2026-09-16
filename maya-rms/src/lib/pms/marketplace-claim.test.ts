@@ -30,6 +30,7 @@ vi.mock("@/utils/supabase/admin", () => ({
         in: () => q,
         not: () => q,
         limit: () => q,
+        order: () => q,
         upsert: (payload: unknown) => {
           state.writes.push({ table, payload });
           return q;
@@ -84,10 +85,10 @@ describe("redeemMarketplaceClaim", () => {
     const tables = state.writes.map((w) => w.table);
     expect(tables).toContain("hotel_memberships");
     expect(tables).toContain("hotel_settings");
-    // Not live and not importing: that waits for the subscription to land
-    // (marketplace-activate.ts). Nothing about the property is pulled before.
+    // Not live: that waits for the subscription to land (marketplace-activate.ts).
+    // Which property's import the claim queues is eager-import.test.ts.
     expect(tables).not.toContain("hotels:update");
-    expect(tables).not.toContain("import_jobs:insert");
+    expect(tables).not.toContain("pms_connections:update");
 
     const membership = (state.writes.find((w) => w.table === "hotel_memberships")!.payload as Record<string, unknown>[])[0];
     expect(membership).toMatchObject({ hotel_id: "hotel-1", user_id: "user-1", role: "hotel_admin", status: "active" });
@@ -149,8 +150,8 @@ describe("redeemMarketplaceClaim", () => {
     expect(res).toMatchObject({ ok: true, hotelIds: ["hotel-1", "hotel-2", "hotel-3"] });
     const memberships = state.writes.find((w) => w.table === "hotel_memberships")!.payload as Record<string, unknown>[];
     expect(memberships.map((m) => m.hotel_id)).toEqual(["hotel-1", "hotel-2", "hotel-3"]);
-    // All three stay parked: each needs its own subscription before it imports.
-    expect(state.writes.map((w) => w.table)).not.toContain("import_jobs:insert");
+    // All three stay parked: each needs its own subscription to go live.
+    expect(state.writes.map((w) => w.table)).not.toContain("hotels:update");
   });
 
   it("skips a sibling whose own window has lapsed", async () => {

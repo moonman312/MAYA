@@ -174,3 +174,39 @@ describe("paying after an unpaid reconnect", () => {
     expect(db.tables.hotels[0].is_active).toBe(true);
   });
 });
+
+describe("an import a disconnect stopped", () => {
+  const stopped = () => ({
+    id: "job-1",
+    hotel_id: "hotel-1",
+    pms_type: "cloudbeds",
+    status: "canceled",
+    phase: "historical",
+    last_error: "Stopped: the PMS connection was disconnected.",
+    created_at: "2026-09-15T00:00:00.000Z",
+    stats: {},
+  });
+
+  it("carries on when a paying property reconnects", async () => {
+    const db = claimedProperty({ connection: "disconnected", subscription: "active", isActive: true });
+    db.tables.import_jobs = [stopped()];
+    await handleMarketplaceConnect("cloudbeds", TOKENS);
+    expect(db.tables.import_jobs).toHaveLength(1);
+    expect(db.tables.import_jobs[0]).toMatchObject({ status: "queued", phase: "historical", last_error: null });
+  });
+
+  it("waits for the subscribe screen when the property has not paid", async () => {
+    const db = claimedProperty({ connection: "disconnected" });
+    db.tables.import_jobs = [stopped()];
+    await handleMarketplaceConnect("cloudbeds", TOKENS);
+    expect(db.tables.import_jobs[0].status).toBe("canceled");
+  });
+
+  it("does not import a paying property again when its import had finished", async () => {
+    const db = claimedProperty({ connection: "disconnected", subscription: "active", isActive: true });
+    db.tables.import_jobs = [{ ...stopped(), status: "completed", phase: "done" }];
+    await handleMarketplaceConnect("cloudbeds", TOKENS);
+    expect(db.tables.import_jobs).toHaveLength(1);
+    expect(db.tables.import_jobs[0].status).toBe("completed");
+  });
+});

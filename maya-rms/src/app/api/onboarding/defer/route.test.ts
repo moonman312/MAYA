@@ -192,6 +192,24 @@ describe("POST /api/onboarding/defer", () => {
     ]);
   });
 
+  it("stops the import that was queued when the property was on screen, and no other", async () => {
+    fake().tables.set("import_jobs", [
+      { id: "job-h", hotel_id: HOTEL, status: "running", phase: "historical", lease_expires_at: "2026-09-16T09:02:00Z" },
+      { id: "job-old", hotel_id: HOTEL, status: "completed", phase: "done" },
+      { id: "job-l", hotel_id: LIVE, status: "running", phase: "historical" },
+    ]);
+    expect((await post({ hotelId: HOTEL })).status).toBe(200);
+    const jobs = fake().tables.get("import_jobs")!;
+    expect(jobs.find((j) => j.id === "job-h")).toMatchObject({
+      status: "canceled",
+      phase: "historical",
+      lease_expires_at: null,
+      last_error: expect.stringContaining("Not now"),
+    });
+    expect(jobs.find((j) => j.id === "job-old")!.status).toBe("completed");
+    expect(jobs.find((j) => j.id === "job-l")!.status).toBe("running");
+  });
+
   it("401 signed out, 400 for a malformed id — nothing touched", async () => {
     state.userId = null;
     expect((await post({ hotelId: HOTEL })).status).toBe(401);
@@ -283,6 +301,13 @@ describe("DELETE /api/onboarding/defer", () => {
     expect(await res.json()).toEqual({ ok: true, hotelId: HOTEL, deferred: false });
     expect(hotel(HOTEL)).toMatchObject({ setup_deferred_at: null, setup_deferred_by: null });
     expect(fake().rpcs[0].args.p_event_type).toBe("pms.marketplace_resumed");
+  });
+
+  it("leaves a stopped import stopped: showing the property again is what resumes it", async () => {
+    Object.assign(hotel(HOTEL), { setup_deferred_at: "2026-09-12T00:00:00Z", setup_deferred_by: USER });
+    fake().tables.set("import_jobs", [{ id: "job-h", hotel_id: HOTEL, status: "canceled", phase: "historical" }]);
+    expect((await del({ hotelId: HOTEL })).status).toBe(200);
+    expect(fake().tables.get("import_jobs")![0].status).toBe("canceled");
   });
 
   it("keeps the same doors as POST", async () => {

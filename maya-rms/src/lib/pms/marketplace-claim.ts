@@ -1,7 +1,10 @@
 import "server-only";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { MAYA_ACTIVE_HOTEL_COOKIE } from "@/lib/hotel-context";
 import { isStripeConfigured } from "@/lib/billing/stripe";
+import { listUnpaidMarketplaceHotels } from "@/lib/billing/pending-hotel";
+import { queuePrePaymentImport } from "@/lib/pms/eager-import";
 import {
   activateMarketplaceHotelIfPending,
   hasEntitledSubscription,
@@ -16,8 +19,11 @@ import {
  * property live — that waits for a subscription (marketplace-activate.ts), so
  * an owned-but-unpaid Marketplace hotel looks exactly like the placeholder
  * Flow B's checkout creates: is_active false, setup_pending_at set, one member.
- * The subscribe screen finds it by that shape, and nothing about the property
- * is imported until someone has paid for it.
+ * The subscribe screen finds it by that shape.
+ *
+ * It does start the history import for the property the owner is about to be
+ * shown (eager-import.ts), so the work is done by the time they have paid.
+ * Only that one: a group's other properties are imported as each comes up.
  *
  * Deliberately idempotent-ish: a ticket is single-use, but re-claiming by the
  * SAME user is treated as success rather than an error, because a refresh or a
@@ -58,6 +64,7 @@ export async function redeemMarketplaceClaim(
   if (claim.claimed_at) {
     // The same person coming back is fine; a different one is not.
     if (claim.claimed_by === userId) {
+      await queueImportForNextProperty(admin, userId);
       return { ok: true, hotelId: String(claim.hotel_id), alreadyClaimed: true, hotelIds: [String(claim.hotel_id)] };
     }
     return { ok: false, reason: "taken", message: "That connection has already been claimed." };
@@ -170,7 +177,33 @@ export async function redeemMarketplaceClaim(
     },
   });
 
+  // After the burn: the import worker only reads a property whose claim is
+  // redeemed, and the kick can reach it within the second.
+  await queueImportForNextProperty(admin, userId);
+
   return { ok: true, hotelId, alreadyClaimed: false, hotelIds: allHotelIds };
+}
+
+/**
+ * The property the owner lands on next is the head of the same queue the
+ * subscribe screen reads, which for a group is not necessarily the one in the
+ * link. Never fails the claim: the owner is attached either way, and showing
+ * the property queues the import again.
+ */
+async function queueImportForNextProperty(admin: SupabaseClient, userId: string): Promise<void> {
+  if (!isStripeConfigured()) return;
+  try {
+    const [next] = await listUnpaidMarketplaceHotels(admin, userId);
+    if (next) await queuePrePaymentImport(admin, next.hotelId, userId);
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "redeemMarketplaceClaim",
+        step: "queue_import",
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+  }
 }
 
 export { MAYA_ACTIVE_HOTEL_COOKIE };

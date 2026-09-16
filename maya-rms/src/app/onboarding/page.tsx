@@ -4,6 +4,7 @@ import { listUnpaidMarketplaceHotels } from "@/lib/billing/pending-hotel";
 import { listPmsSignupGates } from "@/lib/billing/pms-gates";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { resolveOnboardingStep } from "@/lib/onboarding/step";
+import { queuePrePaymentImport } from "@/lib/pms/eager-import";
 import { marketplaceTrialDays } from "@/lib/pms/marketplace-activate";
 import { listPmsStatuses } from "@/lib/pms/registry";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -54,12 +55,12 @@ export default async function OnboardingPage({
         title={`${name} is connected`}
         intro={
           days > 0
-            ? `Try MAYA free for ${days} days. Set up a payment method and your booking history starts importing right away — nothing is charged until the trial ends, and you can cancel any time.`
-            : "Set up a payment method and your booking history starts importing right away."
+            ? `Try MAYA free for ${days} days. Nothing is charged until the trial ends, and you can cancel any time.`
+            : "Set up a payment method to start using MAYA."
         }
         baseTrialDays={days}
         submitLabel={days > 0 ? "Set up payment" : "Continue to payment"}
-        footnote="Card details are handled by Stripe — they never touch MAYA. Your history starts importing the moment payment is set up."
+        footnote="Card details are handled by Stripe — they never touch MAYA."
       />
     );
   }
@@ -99,6 +100,19 @@ async function marketplaceArrival(supabase: SupabaseClient): Promise<{
     const unpaid = await listUnpaidMarketplaceHotels(admin, userId);
     const next = unpaid[0];
     if (!next) return null;
+
+    // The property on this screen is the one whose history gets read, now:
+    // a group sibling as it comes up, never one put off with "Not now".
+    await queuePrePaymentImport(admin, next.hotelId, userId).catch((e: unknown) => {
+      console.error(
+        JSON.stringify({
+          fn: "marketplaceArrival",
+          step: "queue_import",
+          hotelId: next.hotelId,
+          error: e instanceof Error ? e.message : String(e),
+        }),
+      );
+    });
 
     let progress: { index: number; total: number } | undefined;
     if (next.groupKey) {

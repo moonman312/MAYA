@@ -1,27 +1,28 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isEntitledStatus } from "@/lib/billing/entitlement";
+import { kickImportWorker, promoteImportJob } from "@/lib/pms/eager-import";
 
 /**
- * The second half of a Marketplace arrival: make the property real.
+ * The second half of a Marketplace arrival: make the property live.
  *
- * A Flow A hotel used to go live the moment its owner claimed it — before
- * anyone had paid — and the history import started right there. Now the claim
- * only attaches an owner. The hotel stays parked (is_active false,
- * setup_pending_at set), which is exactly the shape Flow B's checkout leaves
- * behind, so the same subscribe screen and the same Stripe session attach a
- * subscription to it with no special casing anywhere in billing.
+ * The claim attaches an owner and starts the history import
+ * (eager-import.ts), but the hotel stays parked (is_active false,
+ * setup_pending_at set, connection 'pending'), which is exactly the shape
+ * Flow B's checkout leaves behind, so the same subscribe screen and the same
+ * Stripe session attach a subscription to it with no special casing anywhere
+ * in billing. Parked is what keeps the scheduled syncs, rate pushes and the
+ * engine off it.
  *
  * This runs when that subscription becomes entitled: from the Stripe webhook
- * first, so the import is already underway before the owner is back from the
- * card form, and from the checkout return route in case the browser beats the
+ * first, and from the checkout return route in case the browser beats the
  * webhook. It is safe to call from both — the flip to is_active is a
  * compare-and-set, so the second arrival finds the work done and leaves.
  *
- * Nothing about the property is pulled before this point beyond what the
- * callback needed to name it. Compute and storage for a property that never
- * pays is waste, and a seven-year import for a card that bounces is a lot of
- * waste.
+ * Payment adopts the import the claim started rather than queueing another:
+ * uq_import_jobs_one_active_per_hotel would refuse a second one while the
+ * first is running, and one that already finished would otherwise be pulled
+ * again from scratch.
  */
 
 export type ActivationResult =
@@ -110,6 +111,8 @@ export async function activateMarketplaceHotelIfPending(
     .eq("is_active", false)
     .select("id");
   if (activateErr) return { activated: false, reason: "failed", message: activateErr.message };
+  const requestedBy = opts.requestedBy ?? claim.claimed_by ?? null;
+
   if (!flipped || flipped.length === 0) {
     const { data: hotel } = await admin.from("hotels").select("id").eq("id", hotelId).maybeSingle();
     if (!hotel) return { activated: false, reason: "not_found" };
@@ -125,6 +128,10 @@ export async function activateMarketplaceHotelIfPending(
         .eq("hotel_id", hotelId)
         .eq("pms_type", claim.pms_type)
         .eq("status", "pending");
+      // An arrival whose import could not be adopted went live pointing at no
+      // job, and every later arrival lands here. Finish that step now.
+      const adopted = await adoptImportIfMissing(admin, hotelId, claim.pms_type, requestedBy, now);
+      if (!adopted.ok) return { activated: false, reason: "failed", message: adopted.message };
     }
     return { activated: false, reason: "already_active" };
   }
@@ -135,32 +142,22 @@ export async function activateMarketplaceHotelIfPending(
     .eq("hotel_id", hotelId)
     .eq("pms_type", claim.pms_type);
 
-  const requestedBy = opts.requestedBy ?? claim.claimed_by ?? null;
-
-  // Not fatal: they are connected either way and a missing job is recoverable,
-  // but it has to be loud or the property sits on a progress screen forever.
-  const { data: job, error: jobErr } = await admin
-    .from("import_jobs")
-    .insert({
-      hotel_id: hotelId,
-      pms_type: claim.pms_type,
-      status: "queued",
-      phase: "discover",
-      requested_by: requestedBy,
-    })
-    .select("id")
-    .single();
-  if (jobErr) {
+  const promoted = await promoteImportJob(admin, hotelId, claim.pms_type, requestedBy);
+  if (!promoted.ok) {
+    // Never written as a null job: the progress screen would wait forever and
+    // the stalled-signups view joins on this id. The next arrival retries it.
     console.error(
-      JSON.stringify({ fn: "activateMarketplaceHotel", step: "queue_import", hotelId, error: jobErr.message }),
+      JSON.stringify({ fn: "activateMarketplaceHotel", step: "adopt_import", hotelId, error: promoted.message }),
     );
+    return { activated: false, reason: "failed", message: promoted.message };
   }
-  const importJobId = job?.id != null ? String(job.id) : null;
+  const importJobId = promoted.jobId;
 
-  await admin.from("onboarding_states").upsert(
+  const { error: stateErr } = await admin.from("onboarding_states").upsert(
     { hotel_id: hotelId, path: "guided", import_job_id: importJobId, connected_at: now },
     { onConflict: "hotel_id" },
   );
+  if (stateErr) return { activated: false, reason: "failed", message: stateErr.message };
 
   kickImportWorker();
 
@@ -175,18 +172,33 @@ export async function activateMarketplaceHotelIfPending(
   return { activated: true, hotelId, importJobId };
 }
 
-/**
- * Ask the import worker to run now. Fire-and-forget: cron picks the job up
- * within a minute regardless, so a failure here costs latency, not the import.
- */
-export function kickImportWorker(): void {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
-  const secret = process.env.ONBOARDING_CRON_SECRET;
-  if (!supabaseUrl || !secret) return;
-  fetch(`${supabaseUrl}/functions/v1/onboarding-import-worker`, {
-    method: "POST",
-    headers: { "x-onboarding-cron-secret": secret },
-  }).catch(() => {
-    // Cron picks the job up within a minute.
-  });
+/** The adoption step for a property that is already live but points at no import. */
+async function adoptImportIfMissing(
+  admin: SupabaseClient,
+  hotelId: string,
+  pmsType: string,
+  requestedBy: string | null,
+  now: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { data: state, error } = await admin
+    .from("onboarding_states")
+    .select("import_job_id")
+    .eq("hotel_id", hotelId)
+    .maybeSingle();
+  if (error) return { ok: false, message: error.message };
+  if (state?.import_job_id) return { ok: true };
+
+  const promoted = await promoteImportJob(admin, hotelId, pmsType, requestedBy);
+  if (!promoted.ok) return promoted;
+  const { error: stateErr } = await admin.from("onboarding_states").upsert(
+    state
+      ? { hotel_id: hotelId, import_job_id: promoted.jobId }
+      : { hotel_id: hotelId, path: "guided", import_job_id: promoted.jobId, connected_at: now },
+    { onConflict: "hotel_id" },
+  );
+  if (stateErr) return { ok: false, message: stateErr.message };
+  kickImportWorker();
+  return { ok: true };
 }
+
+export { kickImportWorker };

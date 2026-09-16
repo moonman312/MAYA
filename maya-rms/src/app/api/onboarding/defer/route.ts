@@ -27,6 +27,7 @@
 import { isUuid } from "@/lib/api-guards";
 import { isEntitledStatus } from "@/lib/billing/entitlement";
 import { listUnpaidMarketplaceHotels } from "@/lib/billing/pending-hotel";
+import { stopPrePaymentImport } from "@/lib/pms/eager-import";
 import { roleLabel, roleRank } from "@/lib/roles";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
@@ -166,6 +167,23 @@ async function setDeferred(req: Request, deferred: boolean): Promise<NextRespons
         return fail(503, "This needs a database update first.");
       }
       throw new Error(`Could not update the property: ${error.message}`);
+    }
+
+    // "Not now" covers the import too: the one queued when this property was
+    // on screen stops here rather than at the worker's next run. Setting it up
+    // again puts it back on the subscribe screen, which carries on from where
+    // it stopped. The flag is set, so the queue refuses the job regardless.
+    if (deferred) {
+      await stopPrePaymentImport(admin, hotelId).catch((e: unknown) => {
+        console.error(
+          JSON.stringify({
+            fn: "onboarding/defer",
+            step: "stop_import",
+            hotelId,
+            error: e instanceof Error ? e.message : String(e),
+          }),
+        );
+      });
     }
 
     // actor_user_id, the key every service-role audit line uses for the real
