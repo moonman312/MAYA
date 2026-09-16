@@ -7,6 +7,19 @@ import { usePathname } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 /**
+ * Fired by a screen whose server call answered reason "terms_required" (the
+ * checkout route does), so the accept screen shows even though its own check
+ * on page load let the person through. TERMS_ACCEPTED_EVENT follows once they
+ * accept, so that screen can pick up where it stopped.
+ */
+export const TERMS_REQUIRED_EVENT = "maya:terms-required";
+export const TERMS_ACCEPTED_EVENT = "maya:terms-accepted";
+
+export function askForTerms() {
+  window.dispatchEvent(new Event(TERMS_REQUIRED_EVENT));
+}
+
+/**
  * Asks a signed-in person who has not accepted the current Terms of Service
  * and Privacy Policy to accept them, once, over whatever page they opened.
  * When they do, it gets out of the way and they are exactly where they were
@@ -56,6 +69,17 @@ export function TermsGate() {
     };
   }, [exempt, pathname]);
 
+  // The server has positively said so, so no second fetch: that fetch fails
+  // open, and is how this person got past the screen in the first place.
+  useEffect(() => {
+    const onRequired = () => {
+      settled.current = false;
+      setRequired(true);
+    };
+    window.addEventListener(TERMS_REQUIRED_EVENT, onRequired);
+    return () => window.removeEventListener(TERMS_REQUIRED_EVENT, onRequired);
+  }, []);
+
   async function onAccept(e: FormEvent) {
     e.preventDefault();
     if (!agreed) return;
@@ -79,6 +103,7 @@ export function TermsGate() {
       }
       settled.current = true;
       setRequired(false);
+      window.dispatchEvent(new Event(TERMS_ACCEPTED_EVENT));
     } catch {
       setError("We couldn't save that just now. Please try again.");
     } finally {

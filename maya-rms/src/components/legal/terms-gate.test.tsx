@@ -11,7 +11,7 @@ import { PRIVACY_VERSION, TERMS_VERSION } from "@/lib/legal/versions";
 const nav = vi.hoisted(() => ({ pathname: "/" }));
 vi.mock("next/navigation", () => ({ usePathname: () => nav.pathname }));
 
-const { TermsGate } = await import("./terms-gate");
+const { askForTerms, TERMS_ACCEPTED_EVENT, TermsGate } = await import("./terms-gate");
 
 type Call = { url: string; init?: RequestInit };
 let calls: Call[] = [];
@@ -122,5 +122,25 @@ describe("TermsGate", () => {
     rerender(<TermsGate />);
     await waitFor(() => expect(dialog()).not.toBeNull());
     expect(gets()).toHaveLength(2);
+  });
+
+  it("covers the page when a screen reports terms_required, even after the load check let them through", async () => {
+    answer = () => json({ required: false });
+    render(<TermsGate />);
+    await waitFor(() => expect(gets()).toHaveLength(1));
+    expect(dialog()).toBeNull();
+
+    const accepted = vi.fn();
+    window.addEventListener(TERMS_ACCEPTED_EVENT, accepted);
+    act(() => askForTerms());
+    expect(dialog()).not.toBeNull();
+    // Believed as said: no second fetch that could fail open again.
+    expect(gets()).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(dialog()).toBeNull());
+    expect(accepted).toHaveBeenCalledTimes(1);
+    window.removeEventListener(TERMS_ACCEPTED_EVENT, accepted);
   });
 });
