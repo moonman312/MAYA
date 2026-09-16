@@ -19,7 +19,8 @@ type Filter =
   | ["eq", string, unknown]
   | ["in", string, unknown[]]
   | ["ilike", string, string]
-  | ["notNull", string];
+  | ["notNull", string]
+  | ["isNull", string];
 
 function fakeSupabase(seed: Record<string, Row[]> = {}) {
   const tables = new Map<string, Row[]>(
@@ -37,6 +38,7 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
       if (f[0] === "eq") return row[f[1]] === f[2];
       if (f[0] === "in") return f[2].includes(row[f[1]]);
       if (f[0] === "ilike") return String(row[f[1]]).toLowerCase() === f[2].toLowerCase();
+      if (f[0] === "isNull") return row[f[1]] == null;
       return row[f[1]] != null;
     });
   }
@@ -69,6 +71,11 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
       },
       not(col: string) {
         filters.push(["notNull", col]);
+        return api;
+      },
+      // findPendingHotelForUser skips deferred Marketplace properties with it.
+      is(col: string) {
+        filters.push(["isNull", col]);
         return api;
       },
       limit(n: number) {
@@ -636,6 +643,14 @@ describe("payment methods", () => {
     // would re-create payment_method_types under another name.
     expect(lastSession()?.payment_method_types).toBeUndefined();
   });
+
+  it("sends no saved-card options for a Flow B property — one property, one card, nothing to redisplay", async () => {
+    // The redisplay widening is the Marketplace group's arrangement only.
+    // A Flow B session must stay exactly what it was.
+    seed();
+    await post();
+    expect(lastSession()?.saved_payment_method_options).toBeUndefined();
+  });
 });
 
 describe("a property that arrived from the Cloudbeds Marketplace", () => {
@@ -833,6 +848,26 @@ describe("a Marketplace group, paid for one property at a time", () => {
     // Each session is still its own property's.
     expect((state.sessions[0].metadata as Row).hotel_id).toBe("hotel-a");
     expect((state.sessions[1].metadata as Row).hotel_id).toBe("hotel-b");
+  });
+
+  it("asks Checkout to list the card the first sibling saved, and offers to keep the next one", async () => {
+    // Sharing the customer is not enough. Subscription-mode Checkout stamps the
+    // card it collects allow_redisplay=limited, and Checkout only lists `always`
+    // by default — so without this the second sibling's Checkout showed an
+    // empty card form and no sign of the card just entered
+    // (docs.stripe.com/payments/checkout/save-during-payment?payment-ui=stripe-hosted).
+    seed(group);
+    expect((await pay("hotel-a")).status).toBe(200);
+    expect((await pay("hotel-b")).status).toBe(200);
+    for (const s of state.sessions) {
+      expect(s.saved_payment_method_options).toEqual({
+        payment_method_save: "enabled",
+        allow_redisplay_filters: ["always", "limited"],
+      });
+    }
+    // The card still has to be collected: it is what starts billing after the
+    // trial and what the 48-hour re-check confirms.
+    expect(state.sessions[1].payment_method_collection).toBe("always");
   });
 
   it("still finds a customer minted before owners were stamped on them", async () => {

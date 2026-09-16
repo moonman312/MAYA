@@ -378,6 +378,34 @@ export async function POST(request: Request) {
       // here rather than left to a dashboard toggle so test and live cannot
       // disagree; revisit only alongside a bank-aware re-check.
       excluded_payment_method_types: ["us_bank_account"],
+      // A Marketplace group is paid for one property at a time, each its own
+      // Checkout, all on the owner's one customer — and sharing the customer
+      // is NOT enough on its own for the second Checkout to offer the card the
+      // first one took. Subscription-mode Checkout saves the card for renewals
+      // but stamps it allow_redisplay=limited, and Checkout only lists saved
+      // cards stamped `always` unless told otherwise
+      // (docs.stripe.com/payments/checkout/save-during-payment?payment-ui=stripe-hosted,
+      // "Save payment methods to prefill in Checkout"; docs.stripe.com/payments/existing-customers,
+      // "Display additional saved payment methods"). So, for these sessions only:
+      //  - payment_method_save shows a "save for later" box; ticked, the card is
+      //    stamped `always` and shows everywhere by default. That box is the
+      //    owner's consent, which the network rules want before a card is shown
+      //    again.
+      //  - allow_redisplay_filters widens the list to `limited` as well, so the
+      //    card from a sibling paid before the box existed, or with it unticked,
+      //    is still offered. The filter replaces the default, so `always` has to
+      //    be restated. It only changes what is listed to the same owner paying
+      //    for their own group; nothing is charged without them choosing it.
+      // Flow B is one property, one customer, one card: nothing to redisplay,
+      // so it sends none of this and its session is unchanged.
+      ...(marketplace
+        ? {
+            saved_payment_method_options: {
+              payment_method_save: "enabled" as const,
+              allow_redisplay_filters: ["always" as const, "limited" as const],
+            },
+          }
+        : {}),
       // Stripe rejects allow_promotion_codes alongside discounts, so it can only
       // be stated when no coupon is attached. Absent means off either way, which
       // is what we want: codes are validated against our own table, so Checkout's
