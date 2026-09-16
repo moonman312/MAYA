@@ -67,6 +67,16 @@ export function bookingSpeedLabel(speed: BookingSpeed): string {
   return BY_KEY.get(speed)!.label;
 }
 
+/**
+ * The same level as lowercase prose, for dropping inside a sentence
+ * ("bookings came in much faster than normal"). The Title Case label stays the
+ * label — it is what an owner picks in the rule builder and reads on a badge,
+ * and leaving it capitalised mid-sentence turns the sentence into a readout.
+ */
+export function bookingSpeedPhrase(speed: BookingSpeed): string {
+  return BY_KEY.get(speed)!.label.toLowerCase();
+}
+
 /** True when `speed` is at least as fast as `floor` (ordinal compare). */
 export function isSpeedAtLeast(speed: BookingSpeed, floor: BookingSpeed): boolean {
   return bookingSpeedRank(speed) >= bookingSpeedRank(floor);

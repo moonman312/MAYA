@@ -8,6 +8,7 @@ import {
   Z_EXTREME,
   Z_LEAVE_NORMAL,
   bookingSpeedLabel,
+  bookingSpeedPhrase,
   bookingSpeedRank,
   classifyBookingSpeed,
   describeBookingSpeed,
@@ -52,6 +53,16 @@ describe("booking speed vocabulary", () => {
     expect(isSpeedAtMost("surging", "normal")).toBe(false);
     expect(bookingSpeedRank("surging")).toBe(3);
     expect(bookingSpeedLabel("stalled")).toBe("Stalled");
+  });
+
+  it("keeps a Title Case label for badges and a lowercase phrase for sentences", () => {
+    expect(bookingSpeedLabel("much_faster")).toBe("Much Faster Than Normal");
+    expect(bookingSpeedPhrase("much_faster")).toBe("much faster than normal");
+    expect(bookingSpeedPhrase("stalled")).toBe("stalled");
+    expect(bookingSpeedPhrase("normal")).toBe("normal");
+    for (const l of BOOKING_SPEED_LEVELS) {
+      expect(bookingSpeedPhrase(l.key)).toBe(l.label.toLowerCase());
+    }
   });
 });
 

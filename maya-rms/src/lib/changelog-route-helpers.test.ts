@@ -176,9 +176,11 @@ describe("manual price rows", () => {
       }),
       lookups({ setterNames: new Map([["user-1", "Jake Mooney"]]) }),
     );
-    expect(entry.narrative).toHaveLength(2);
-    expect(entry.narrative?.[0]).toBe("Jake Mooney set the base rate to $250.00.");
-    expect(entry.narrative?.[1]).toMatch(/^"Busy-day bump" kicked in because sellable occupancy \(82%\) was above 70%, which raised the rate 10%, from \$250\.00 to \$275\.00\.$/);
+    expect(entry.narrative).toEqual([
+      "Jake Mooney set the base rate to $250.00.",
+      '"Busy-day bump" raised this night 10%, from $250.00 to $275.00.',
+      "It was 82% full, past the 70% mark you set.",
+    ]);
     expect(entry.rule_name).toBe("Busy-day bump");
   });
 
@@ -214,7 +216,7 @@ describe("manual price rows", () => {
     );
     expect(entry.narrative).toEqual([
       "A manager set the base rate to $50.00.",
-      "That landed below the $100.00 floor for Deluxe King, so the final rate was held at $100.00.",
+      "That would have dropped under your $100.00 floor for Deluxe King, so it stopped there.",
     ]);
   });
 
@@ -311,7 +313,8 @@ describe("buildEntry", () => {
     expect(entry.occupancy_pct).toBe(82);
     expect(entry.stay_date).toBe("2026-08-01");
     expect(entry.narrative).toEqual([
-      '"Busy-day bump" kicked in because sellable occupancy (82%) was above 70%, which raised the rate 10%, from $200.00 to $220.00.',
+      '"Busy-day bump" raised this night 10%, from $200.00 to $220.00.',
+      "It was 82% full, past the 70% mark you set.",
     ]);
     expect(entry.description).toBe(entry.narrative!.join(" "));
   });
@@ -356,8 +359,8 @@ describe("buildEntry", () => {
       }),
       lookups(),
     );
-    expect(entry.narrative![1]).toBe(
-      "That landed above the $400.00 ceiling for Deluxe King, so the final rate was capped at $400.00.",
+    expect(entry.narrative![entry.narrative!.length - 1]).toBe(
+      "That would have gone past your $400.00 ceiling for Deluxe King, so it stopped there.",
     );
   });
 });

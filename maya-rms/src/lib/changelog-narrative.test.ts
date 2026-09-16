@@ -21,37 +21,74 @@ function app(o: Partial<NarrativeApplication>): NarrativeApplication {
 }
 
 describe("describeConditions", () => {
-  it("reads occupancy in words with the observed value", () => {
-    const s = describeConditions(
-      { occupancy_operator: "gt", occupancy_threshold: 0.7 },
-      { occupancy: 0.82 },
-    );
-    expect(s).toBe("sellable occupancy (82%) was above 70%");
+  it("reads occupancy as fullness against the owner's own mark", () => {
+    expect(
+      describeConditions(
+        { occupancy_operator: "gt", occupancy_threshold: 0.7 },
+        { occupancy: 0.82 },
+      ),
+    ).toEqual(["It was 82% full, past the 70% mark you set."]);
   });
 
-  it("handles below / fewer-than directions", () => {
+  it("handles under / beyond directions", () => {
     expect(
       describeConditions(
         { occupancy_operator: "lt", occupancy_threshold: 0.3 },
         { occupancy: 0.22 },
       ),
-    ).toBe("sellable occupancy (22%) was below 30%");
+    ).toEqual(["It was 22% full, under the 30% mark you set."]);
+    expect(
+      describeConditions({ dta_operator: "lt", dta_threshold_days: 7 }, { dta: 3 }),
+    ).toEqual(["It had 3 days to go, past the 7-day mark you set."]);
+    expect(
+      describeConditions({ dta_operator: "gt", dta_threshold_days: 45 }, { dta: 60 }),
+    ).toEqual(["It had 60 days to go, beyond the 45-day mark you set."]);
+  });
+
+  it("fuses occupancy and the booking window into one sentence", () => {
+    expect(
+      describeConditions(
+        {
+          occupancy_operator: "gt",
+          occupancy_threshold: 0.9,
+          dta_operator: "lt",
+          dta_threshold_days: 21,
+        },
+        { occupancy: 0.95, dta: 17 },
+      ),
+    ).toEqual(["It was 95% full with 17 days to go, past the 90% and 21-day marks you set."]);
+  });
+
+  it("spells out both sides when the two marks are crossed opposite ways", () => {
+    expect(
+      describeConditions(
+        {
+          occupancy_operator: "lt",
+          occupancy_threshold: 0.3,
+          dta_operator: "gt",
+          dta_threshold_days: 45,
+        },
+        { occupancy: 0.22, dta: 60 },
+      ),
+    ).toEqual([
+      "It was 22% full with 60 days to go, under the 30% mark and beyond the 45-day mark you set.",
+    ]);
+  });
+
+  it("puts the occupancy exclusion after the main clause, never inside it", () => {
     expect(
       describeConditions(
         { occupancy_operator: "gt", occupancy_threshold: 0.7 },
         { occupancy: 0.82, excluded_from_occupancy: ["Court", "Parking"] },
       ),
-    ).toBe("sellable occupancy (82%, not counting Court, Parking) was above 70%");
-    expect(
-      describeConditions(
-        { dta_operator: "lt", dta_threshold_days: 7 },
-        { dta: 3 },
-      ),
-    ).toBe("the stay was fewer than 7 days away (3 days out)");
+    ).toEqual([
+      "It was 82% full, past the 70% mark you set.",
+      "That 82% leaves out Court and Parking.",
+    ]);
   });
 
-  it("joins a three-condition rule like a person would", () => {
-    const s = describeConditions(
+  it("gives each condition family its own short sentence", () => {
+    const out = describeConditions(
       {
         occupancy_operator: "gt",
         occupancy_threshold: 0.7,
@@ -63,27 +100,43 @@ describe("describeConditions", () => {
       },
       { occupancy: 0.82, dta: 3, pickup_units: 9 },
     );
-    expect(s).toBe(
-      "sellable occupancy (82%) was above 70%, the stay was fewer than 7 days away (3 days out), and 9 bookings arrived in the last 3 days, more than the 4 bookings trigger",
-    );
-    expect(s).not.toMatch(NO_MATH_SYMBOLS);
+    expect(out).toEqual([
+      "It was 82% full with 3 days to go, past the 70% and 7-day marks you set.",
+      "9 bookings arrived in the last 3 days, past the 4-booking mark you set.",
+    ]);
+    for (const s of out) expect(s).not.toMatch(NO_MATH_SYMBOLS);
   });
 
   it("stays grammatical when observed metrics are missing", () => {
-    const s = describeConditions(
-      { occupancy_operator: "gt", occupancy_threshold: 0.7 },
-      null,
-    );
-    expect(s).toBe("sellable occupancy was above 70%");
+    expect(
+      describeConditions({ occupancy_operator: "gt", occupancy_threshold: 0.7 }, null),
+    ).toEqual(["This night was past the 70% mark you set."]);
+    expect(
+      describeConditions(
+        { pickup_operator: "lt", pickup_threshold: 2, pickup_window_days: 7 },
+        null,
+      ),
+    ).toEqual(["Bookings in the last 7 days came in under the 2-booking mark you set."]);
+  });
+
+  it("says nothing at all when there is no condition to report", () => {
+    expect(describeConditions(null)).toEqual([]);
+    expect(describeConditions({}, { occupancy: 0.82 })).toEqual([]);
   });
 
   it("singularizes 1 day / 1 booking", () => {
-    const s = describeConditions(
-      { dta_operator: "lt", dta_threshold_days: 1, pickup_operator: "gt", pickup_threshold: 1, pickup_window_days: 1 },
+    const out = describeConditions(
+      {
+        dta_operator: "lt",
+        dta_threshold_days: 1,
+        pickup_operator: "gt",
+        pickup_threshold: 1,
+        pickup_window_days: 1,
+      },
       { dta: 1, pickup_units: 1 },
     );
-    expect(s).toContain("fewer than 1 day away");
-    expect(s).toContain("1 booking arrived in the last 1 day");
+    expect(out[0]).toBe("It had 1 day to go, past the 1-day mark you set.");
+    expect(out[1]).toBe("1 booking arrived in the last 1 day, past the 1-booking mark you set.");
   });
 });
 
@@ -121,21 +174,19 @@ describe("narrateChange: complex chained rules", () => {
       ],
     });
 
-    expect(sentences).toHaveLength(3);
-    expect(sentences[0]).toBe(
-      '"Busy-day bump" kicked in because sellable occupancy (82%) was above 70%, which raised the rate 10%, from $200.00 to $220.00.',
-    );
-    expect(sentences[1]).toBe(
-      'Then "Last-minute premium" kicked in because the stay was fewer than 7 days away (3 days out), which raised the rate $15.00, from $220.00 to $235.00.',
-    );
-    expect(sentences[2]).toContain('"Demand-spike catcher"');
-    expect(sentences[2]).toContain("9 bookings arrived in the last 3 days");
-    expect(sentences[2]).toContain("from $235.00 to $263.20");
+    expect(sentences).toEqual([
+      '"Busy-day bump" raised this night 10%, from $200.00 to $220.00.',
+      "It was 82% full, past the 70% mark you set.",
+      'Then "Last-minute premium" raised it $15.00, from $220.00 to $235.00.',
+      "It had 3 days to go, past the 7-day mark you set.",
+      'Then "Demand-spike catcher" raised it 12%, from $235.00 to $263.20.',
+      "9 bookings arrived in the last 3 days, past the 4-booking mark you set.",
+    ]);
 
     for (const s of sentences) expect(s).not.toMatch(NO_MATH_SYMBOLS);
   });
 
-  it("narrates a multi-condition rule as one sentence", () => {
+  it("leads with the outcome, then the reason", () => {
     const sentences = narrateChange({
       room_type: "Suite",
       base_price: 300,
@@ -154,8 +205,10 @@ describe("narrateChange: complex chained rules", () => {
         }),
       ],
     });
-    expect(sentences).toHaveLength(1);
-    expect(sentences[0]).toContain("sellable occupancy (91%) was above 85% and the stay was fewer than 3 days away (2 days out)");
+    expect(sentences).toEqual([
+      '"Compression surge" raised this night 15%, from $300.00 to $345.00.',
+      "It was 91% full with 2 days to go, past the 85% and 3-day marks you set.",
+    ]);
   });
 
   it("narrates decreases without spin", () => {
@@ -172,12 +225,13 @@ describe("narrateChange: complex chained rules", () => {
         }),
       ],
     });
-    expect(sentences[0]).toBe(
-      '"Slow-night saver" kicked in because sellable occupancy (20%) was below 30%, which lowered the rate 10%, from $180.00 to $162.00.',
-    );
+    expect(sentences).toEqual([
+      '"Slow-night saver" lowered this night 10%, from $180.00 to $162.00.',
+      "It was 20% full, under the 30% mark you set.",
+    ]);
   });
 
-  it("explains a ceiling clamp in its own sentence", () => {
+  it("makes the ceiling the owner's, in its own sentence", () => {
     const sentences = narrateChange({
       room_type: "Deluxe King",
       base_price: 280,
@@ -186,13 +240,12 @@ describe("narrateChange: complex chained rules", () => {
       clamped_by: "ceiling",
       applications: [app({ action: { kind: "percent", direction: "increase", value: 15 } })],
     });
-    expect(sentences).toHaveLength(2);
-    expect(sentences[1]).toBe(
-      "That landed above the $300.00 ceiling for Deluxe King, so the final rate was capped at $300.00.",
+    expect(sentences[sentences.length - 1]).toBe(
+      "That would have gone past your $300.00 ceiling for Deluxe King, so it stopped there.",
     );
   });
 
-  it("explains a floor clamp", () => {
+  it("makes the floor the owner's too", () => {
     const sentences = narrateChange({
       room_type: "Standard Queen",
       base_price: 90,
@@ -208,8 +261,22 @@ describe("narrateChange: complex chained rules", () => {
         }),
       ],
     });
-    expect(sentences[1]).toBe(
-      "That landed below the $79.00 floor for Standard Queen, so the final rate was held at $79.00.",
+    expect(sentences[sentences.length - 1]).toBe(
+      "That would have dropped under your $79.00 floor for Standard Queen, so it stopped there.",
+    );
+  });
+
+  it("names the price that shipped if it ever misses the limit itself", () => {
+    const sentences = narrateChange({
+      room_type: "Deluxe King",
+      base_price: 280,
+      final_price: 295,
+      ceiling_price: 300,
+      clamped_by: "ceiling",
+      applications: [app({ action: { kind: "percent", direction: "increase", value: 15 } })],
+    });
+    expect(sentences[sentences.length - 1]).toBe(
+      "That would have gone past your $300.00 ceiling for Deluxe King, so it stopped at $295.00.",
     );
   });
 
@@ -238,6 +305,17 @@ describe("narrateChange: complex chained rules", () => {
       });
       for (const s of out) expect(s).not.toMatch(NO_MATH_SYMBOLS);
     }
+  });
+
+  it("still narrates the move when a rule has no condition to explain", () => {
+    expect(
+      narrateChange({
+        room_type: "Suite",
+        base_price: 200,
+        final_price: 220,
+        applications: [app({ rule_name: "Flat bump", condition: null, metrics: null })],
+      }),
+    ).toEqual(['"Flat bump" raised this night 10%, from $200.00 to $220.00.']);
   });
 
   it("falls back to a plain movement sentence when no rule detail exists", () => {
@@ -284,39 +362,70 @@ describe("booking speed narration", () => {
         },
       ],
     });
-    const text = sentences.join(" ");
-    expect(text).toContain("booking speed over the past month");
-    expect(text).toContain("(3 bookings, expected about 9)");
-    expect(text).toContain("lowered the rate 15%, from $200.00 to $170.00");
+    expect(sentences).toEqual([
+      '"Slow month catch-up" lowered this night 15%, from $200.00 to $170.00.',
+      "Bookings came in much slower than normal this past month: 3, against the 9 a night like this usually has by now.",
+    ]);
     for (const s of sentences) expect(s).not.toMatch(NO_MATH_SYMBOLS);
   });
 
-  it("phrases each operator distinctly and handles the almost-none expectation", () => {
-    const is = describeConditions(
-      { booking_speed_operator: "is", booking_speed_level: "surging", booking_speed_window_days: 1 },
-      { booking_speed: { label: "Surging", recent: 6, expected: 0.4 } },
-    );
-    expect(is).toContain("booking speed over the past day was Surging");
-    expect(is).toContain("(6 bookings, expected almost none)");
-
-    const atMost = describeConditions({
-      booking_speed_operator: "at_most",
-      booking_speed_level: "slower",
-      booking_speed_window_days: 7,
-    });
-    expect(atMost).toBe("booking speed over the past week stayed at or below Slower Than Normal");
-
-    const atLeast = describeConditions({
-      booking_speed_operator: "at_least",
-      booking_speed_level: "much_faster",
-      booking_speed_window_days: 7,
-    });
-    expect(atLeast).toContain("reached Much Faster Than Normal");
-    for (const s of [is, atMost, atLeast]) expect(s).not.toMatch(NO_MATH_SYMBOLS);
+  it("keeps the level lowercase in prose, whatever the operator was", () => {
+    expect(
+      describeConditions(
+        { booking_speed_operator: "is", booking_speed_level: "normal", booking_speed_window_days: 1 },
+        { booking_speed: { label: "Normal", recent: 6, expected: 5 } },
+      ),
+    ).toEqual([
+      "Bookings came in at the normal pace this past day: 6, against the 5 a night like this usually has by now.",
+    ]);
+    expect(
+      describeConditions({
+        booking_speed_operator: "at_most",
+        booking_speed_level: "slower",
+        booking_speed_window_days: 7,
+      }),
+    ).toEqual(["Bookings came in slower than normal this past week."]);
+    expect(
+      describeConditions({
+        booking_speed_operator: "at_least",
+        booking_speed_level: "much_faster",
+        booking_speed_window_days: 7,
+      }),
+    ).toEqual(["Bookings came in much faster than normal this past week."]);
   });
 
-  it("joins booking speed with other condition families", () => {
-    const s = describeConditions(
+  it("gives stalled and surging their own verb rather than a label in a sentence", () => {
+    expect(
+      describeConditions(
+        { booking_speed_operator: "at_least", booking_speed_level: "surging", booking_speed_window_days: 1 },
+        { booking_speed: { label: "Surging", recent: 6, expected: 0.4 } },
+      ),
+    ).toEqual([
+      "Bookings surged this past day: 6, where a night like this usually has almost none by now.",
+    ]);
+    expect(
+      describeConditions(
+        { booking_speed_operator: "at_most", booking_speed_level: "stalled", booking_speed_window_days: 7 },
+        { booking_speed: { label: "Stalled", recent: 0, expected: 5 } },
+      ),
+    ).toEqual([
+      "Bookings all but stopped this past week: none, against the 5 a night like this usually has by now.",
+    ]);
+  });
+
+  it("says plainly when a night lost more bookings than it took", () => {
+    expect(
+      describeConditions(
+        { booking_speed_operator: "at_most", booking_speed_level: "much_slower", booking_speed_window_days: 30 },
+        { booking_speed: { label: "Much Slower Than Normal", recent: -2, expected: 9 } },
+      ),
+    ).toEqual([
+      "Bookings came in much slower than normal this past month: more cancelled than booked, against the 9 a night like this usually has by now.",
+    ]);
+  });
+
+  it("keeps booking speed as its own sentence beside another condition family", () => {
+    const out = describeConditions(
       {
         occupancy_operator: "gt",
         occupancy_threshold: 0.6,
@@ -326,8 +435,215 @@ describe("booking speed narration", () => {
       },
       { occupancy: 0.72, booking_speed: { label: "Faster Than Normal", recent: 11, expected: 6 } },
     );
-    expect(s).toContain("sellable occupancy (72%) was above 60%");
-    expect(s).toContain("and booking speed over the past week reached Faster Than Normal");
-    expect(s).not.toMatch(NO_MATH_SYMBOLS);
+    expect(out).toEqual([
+      "It was 72% full, past the 60% mark you set.",
+      "Bookings came in faster than normal this past week: 11, against the 6 a night like this usually has by now.",
+    ]);
+    for (const s of out) expect(s).not.toMatch(NO_MATH_SYMBOLS);
+  });
+});
+
+/*
+ * Harbor Light Inn, the canonical example property. These exact strings are
+ * what the marketing screens show, so they are pinned here character for
+ * character rather than spot-checked.
+ */
+describe("Harbor Light Inn change log", () => {
+  const speed = (
+    level: string,
+    windowDays: 1 | 7 | 30,
+    recent: number,
+    expected: number,
+    operator: "at_least" | "at_most" | "is" = "at_least",
+  ): Pick<NarrativeApplication, "condition" | "metrics"> => ({
+    condition: {
+      booking_speed_operator: operator,
+      booking_speed_level: level,
+      booking_speed_window_days: windowDays,
+    },
+    metrics: { booking_speed: { label: level, recent, expected } },
+  });
+
+  const festival: Pick<NarrativeApplication, "condition" | "metrics"> = {
+    condition: {
+      occupancy_operator: "gt",
+      occupancy_threshold: 0.9,
+      dta_operator: "lt",
+      dta_threshold_days: 21,
+    },
+    metrics: { occupancy: 0.95, excluded_from_occupancy: ["Pickleball Court"], dta: 17 },
+  };
+
+  it("Hot-week surge on Harbor View King, 24 Oct", () => {
+    expect(
+      narrateChange({
+        room_type: "Harbor View King",
+        base_price: 349,
+        final_price: 436.25,
+        floor_price: 249,
+        ceiling_price: 749,
+        applications: [
+          {
+            rule_name: "Hot-week surge",
+            action: { kind: "percent", direction: "increase", value: 25 },
+            is_pickup: true,
+            ...speed("much_faster", 7, 14, 5),
+          },
+        ],
+      }),
+    ).toEqual([
+      '"Hot-week surge" raised this night 25%, from $349.00 to $436.25.',
+      "Bookings came in much faster than normal this past week: 14, against the 5 a night like this usually has by now.",
+    ]);
+  });
+
+  it("Festival weekend hold on Courtyard Suite, 3 Oct", () => {
+    expect(
+      narrateChange({
+        room_type: "Courtyard Suite",
+        base_price: 529,
+        final_price: 592.48,
+        floor_price: 379,
+        ceiling_price: 1099,
+        applications: [
+          {
+            rule_name: "Festival weekend hold",
+            action: { kind: "percent", direction: "increase", value: 12 },
+            is_pickup: false,
+            ...festival,
+          },
+        ],
+      }),
+    ).toEqual([
+      '"Festival weekend hold" raised this night 12%, from $529.00 to $592.48.',
+      "It was 95% full with 17 days to go, past the 90% and 21-day marks you set.",
+      "That 95% leaves out Pickleball Court.",
+    ]);
+  });
+
+  it("Slow-date rescue on Garden Queen, 6 Oct", () => {
+    expect(
+      narrateChange({
+        room_type: "Garden Queen",
+        base_price: 289,
+        final_price: 245.65,
+        floor_price: 199,
+        ceiling_price: 599,
+        applications: [
+          {
+            rule_name: "Slow-date rescue",
+            action: { kind: "percent", direction: "decrease", value: 15 },
+            is_pickup: true,
+            ...speed("much_slower", 30, 2, 9, "at_most"),
+          },
+        ],
+      }),
+    ).toEqual([
+      '"Slow-date rescue" lowered this night 15%, from $289.00 to $245.65.',
+      "Bookings came in much slower than normal this past month: 2, against the 9 a night like this usually has by now.",
+    ]);
+  });
+
+  it("Slow-date trim on Loft Studio, 13 Oct", () => {
+    expect(
+      narrateChange({
+        room_type: "Loft Studio",
+        base_price: 399,
+        final_price: 371.07,
+        floor_price: 279,
+        ceiling_price: 849,
+        applications: [
+          {
+            rule_name: "Slow-date trim",
+            action: { kind: "percent", direction: "decrease", value: 7 },
+            is_pickup: true,
+            ...speed("slower", 30, 3, 5, "is"),
+          },
+        ],
+      }),
+    ).toEqual([
+      '"Slow-date trim" lowered this night 7%, from $399.00 to $371.07.',
+      "Bookings came in slower than normal this past month: 3, against the 5 a night like this usually has by now.",
+    ]);
+  });
+
+  it("Warm-date bump on Harbor View King, 31 Oct", () => {
+    expect(
+      narrateChange({
+        room_type: "Harbor View King",
+        base_price: 349,
+        final_price: 383.9,
+        floor_price: 249,
+        ceiling_price: 749,
+        applications: [
+          {
+            rule_name: "Warm-date bump",
+            action: { kind: "percent", direction: "increase", value: 10 },
+            is_pickup: true,
+            ...speed("faster", 30, 9, 6),
+          },
+        ],
+      }),
+    ).toEqual([
+      '"Warm-date bump" raised this night 10%, from $349.00 to $383.90.',
+      "Bookings came in faster than normal this past month: 9, against the 6 a night like this usually has by now.",
+    ]);
+  });
+
+  it("two rules on one night: the second acts on the price the first left", () => {
+    expect(
+      narrateChange({
+        room_type: "Courtyard Suite",
+        base_price: 529,
+        final_price: 740.6,
+        floor_price: 379,
+        ceiling_price: 1099,
+        applications: [
+          {
+            rule_name: "Hot-week surge",
+            action: { kind: "percent", direction: "increase", value: 25 },
+            is_pickup: true,
+            ...speed("much_faster", 7, 14, 5),
+          },
+          {
+            rule_name: "Festival weekend hold",
+            action: { kind: "percent", direction: "increase", value: 12 },
+            is_pickup: false,
+            ...festival,
+          },
+        ],
+      }),
+    ).toEqual([
+      '"Hot-week surge" raised this night 25%, from $529.00 to $661.25.',
+      "Bookings came in much faster than normal this past week: 14, against the 5 a night like this usually has by now.",
+      'Then "Festival weekend hold" raised it 12%, from $661.25 to $740.60.',
+      "It was 95% full with 17 days to go, past the 90% and 21-day marks you set.",
+      "That 95% leaves out Pickleball Court.",
+    ]);
+  });
+
+  it("a typed base rate that runs into the ceiling", () => {
+    expect(
+      narrateChange({
+        room_type: "Harbor View King",
+        base_price: 699,
+        final_price: 749,
+        floor_price: 249,
+        ceiling_price: 749,
+        clamped_by: "ceiling",
+        applications: [
+          {
+            rule_name: "Hot-week surge",
+            action: { kind: "percent", direction: "increase", value: 25 },
+            is_pickup: true,
+            ...speed("much_faster", 7, 14, 5),
+          },
+        ],
+      }),
+    ).toEqual([
+      '"Hot-week surge" raised this night 25%, from $699.00 to $873.75.',
+      "Bookings came in much faster than normal this past week: 14, against the 5 a night like this usually has by now.",
+      "That would have gone past your $749.00 ceiling for Harbor View King, so it stopped there.",
+    ]);
   });
 });
