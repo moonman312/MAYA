@@ -142,9 +142,9 @@ function rowIdsForReservation(rid: string, payload: Record<string, unknown>): st
 /**
  * Enumerate canceled / no-show reservations over the same check-in window.
  * Paged per status by hand instead of via cloudbedsGetReservationsRange so one
- * rejected status value can't fail the sync: the canceled set carries both
- * "canceled" and "cancelled" and an account that only accepts one spelling
- * would otherwise 400 the whole run.
+ * rejected status value can't fail the sync — the set once carried a spelling
+ * the live API refuses, and an account that refuses one status should cost a
+ * red row in its log, not every cancellation it has.
  */
 async function listCanceledReservations(
   creds: CloudbedsResolvedCredentials,
@@ -203,6 +203,46 @@ async function deleteCanceledReservationRows(
     if (error) return { error };
   }
   return { error: null };
+}
+
+/**
+ * The statuses a healthy run is allowed to turn back into 'connected'.
+ *
+ * 'pending' is a Marketplace property nobody has paid for yet; only activation
+ * makes it live. 'disconnected' means the grant was withdrawn. A sync that
+ * happens to succeed proves neither of those has changed — and the import
+ * worker runs this same sync, so an unconditional stamp put an unpaid property
+ * into the five-minute scheduler on its very first pass.
+ */
+const SYNC_MAY_MARK_CONNECTED = ["connected", "degraded", "error"];
+
+/**
+ * Stamp a finished run on the connection row.
+ *
+ * The status condition lives in the UPDATE, not in a read beforehand: an
+ * activation or a disconnect that lands while the run is in flight must win,
+ * and a status read at the start of a three-minute sweep is long stale by the
+ * end of it. A row the condition skips still gets the watermark and checkpoint
+ * — without them the next run would redo this one's work.
+ */
+async function stampConnection(
+  supabase: SupabaseClient,
+  connectionId: string,
+  stamp: Record<string, unknown>,
+): Promise<{ message: string } | null> {
+  const { data, error } = await supabase
+    .from("pms_connections")
+    .update({ ...stamp, status: "connected" })
+    .eq("id", connectionId)
+    .in("status", SYNC_MAY_MARK_CONNECTED)
+    .select("id");
+  if (error) return error;
+  if ((data ?? []).length > 0) return null;
+  const { error: stampErr } = await supabase
+    .from("pms_connections")
+    .update(stamp)
+    .eq("id", connectionId);
+  return stampErr;
 }
 
 export type SyncMode = {
@@ -653,57 +693,53 @@ export async function runCloudbedsSyncForHotel(
     // 7. Stamp connection status.
     if (connRow?.id) {
       const nowIso = new Date().toISOString();
-      const { error: pcErr } = await supabase
-        .from("pms_connections")
-        .update({
-          status: "connected",
-          last_sync_at: nowIso,
-          last_tested_at: nowIso,
-          updated_at: nowIso,
-          // Advance ONLY on a run that covered its window. A truncated run
-          // stopped partway through the list, so moving the watermark past the
-          // bookings it never reached would skip them permanently — the next
-          // incremental pull would ask for changes since a moment it never
-          // actually finished reading.
-          //
-          // Stamped with when the SWEEP started, not now: a checkpointed sweep
-          // spans several ticks, and anything modified during any of them has
-          // to fall inside the next incremental pull's range. For a single-tick
-          // run that is just this run's own start.
-          ...(truncated
-            ? {}
-            : {
-                reservations_modified_through: (checkpointable && sweepStartedAt
-                  ? sweepStartedAt
-                  : runStartedAt
-                ).toISOString(),
-              }),
-          ...(!truncated && !incremental
-            ? {
-                last_full_sync_at: (checkpointable && sweepStartedAt
-                  ? sweepStartedAt
-                  : runStartedAt
-                ).toISOString(),
-              }
-            : {}),
-          // The checkpoint itself: a truncated sweep records how far it got and
-          // when the whole thing began; a completed one clears both so the next
-          // daily sweep starts fresh.
-          ...(checkpointable && truncated
-            ? {
-                full_sweep_after_id: sweepReachedId ?? sweepCursor,
-                full_sweep_started_at: (sweepStartedAt ?? runStartedAt).toISOString(),
-              }
-            : {}),
-          // Cleared by ANY completed full run: a finished explicit-window run
-          // advances the watermark past a mid-flight sweep's anchor, and
-          // resuming that stale cursor later would stamp an old watermark and
-          // force a redundant second sweep.
-          ...(!truncated && !incremental
-            ? { full_sweep_after_id: null, full_sweep_started_at: null }
-            : {}),
-        })
-        .eq("id", connRow.id);
+      const pcErr = await stampConnection(supabase, String(connRow.id), {
+        last_sync_at: nowIso,
+        last_tested_at: nowIso,
+        updated_at: nowIso,
+        // Advance ONLY on a run that covered its window. A truncated run
+        // stopped partway through the list, so moving the watermark past the
+        // bookings it never reached would skip them permanently — the next
+        // incremental pull would ask for changes since a moment it never
+        // actually finished reading.
+        //
+        // Stamped with when the SWEEP started, not now: a checkpointed sweep
+        // spans several ticks, and anything modified during any of them has
+        // to fall inside the next incremental pull's range. For a single-tick
+        // run that is just this run's own start.
+        ...(truncated
+          ? {}
+          : {
+              reservations_modified_through: (checkpointable && sweepStartedAt
+                ? sweepStartedAt
+                : runStartedAt
+              ).toISOString(),
+            }),
+        ...(!truncated && !incremental
+          ? {
+              last_full_sync_at: (checkpointable && sweepStartedAt
+                ? sweepStartedAt
+                : runStartedAt
+              ).toISOString(),
+            }
+          : {}),
+        // The checkpoint itself: a truncated sweep records how far it got and
+        // when the whole thing began; a completed one clears both so the next
+        // daily sweep starts fresh.
+        ...(checkpointable && truncated
+          ? {
+              full_sweep_after_id: sweepReachedId ?? sweepCursor,
+              full_sweep_started_at: (sweepStartedAt ?? runStartedAt).toISOString(),
+            }
+          : {}),
+        // Cleared by ANY completed full run: a finished explicit-window run
+        // advances the watermark past a mid-flight sweep's anchor, and
+        // resuming that stale cursor later would stamp an old watermark and
+        // force a redundant second sweep.
+        ...(!truncated && !incremental
+          ? { full_sweep_after_id: null, full_sweep_started_at: null }
+          : {}),
+      });
       if (pcErr) console.error("cloudbeds pms_connections status update failed:", pcErr.message);
     }
 

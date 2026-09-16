@@ -23,6 +23,9 @@ const client = vi.hoisted(() => {
     cloudbedsGetReservationsRange: vi.fn(),
     cloudbedsGetReservationsPage: vi.fn(),
     cloudbedsGetReservationDetail: vi.fn(),
+    // The wire format, unmocked in spirit: a sync that persists its own
+    // watermark goes incremental on the next run and formats it with this.
+    cloudbedsTimestamp: (d: Date) => d.toISOString().slice(0, 19).replace("T", " "),
   };
 });
 
@@ -41,6 +44,10 @@ vi.mock("../../../supabase/functions/_shared/pms/oauth-credentials.ts", () => ({
 }));
 
 import { runCloudbedsSyncForHotel } from "../../../supabase/functions/_shared/cloudbeds/sync-hotel";
+import { computeOccupancy } from "../../../supabase/functions/_shared/engine/metrics";
+import { snapshotCurrentState } from "../../../supabase/functions/_shared/engine/snapshots";
+import type { RoomTypeRow } from "../../../supabase/functions/_shared/engine/types";
+import { fakeSupabase } from "../engine/fake-supabase.test";
 
 type ResRow = Record<string, unknown>;
 
@@ -52,6 +59,33 @@ function makeSupabaseStub(seed: ResRow[] = [], syncState: ResRow = {}) {
   const reservations: ResRow[] = seed.map((r) => ({ hotel_id: "hotel-1", ...r }));
   const roomTypeUpserts: ResRow[] = [];
   const connUpdates: ResRow[] = [];
+  // The one connection row. Its status matters because the stamp is
+  // conditional on it; the id filter always matches, so it is not modelled.
+  const connection: ResRow = { id: "conn-1", status: "connected", ...syncState };
+
+  /** An UPDATE that only lands when its .in() conditions hold for the row. */
+  function updateBuilder(name: string, payload: ResRow) {
+    const preds: Array<(r: ResRow) => boolean> = [];
+    const apply = () => {
+      if (name !== "pms_connections" || !preds.every((p) => p(connection))) return false;
+      Object.assign(connection, payload);
+      connUpdates.push(payload);
+      return true;
+    };
+    const builder = {
+      eq: () => builder,
+      in(col: string, vals: unknown[]) {
+        preds.push((r) => vals.includes(r[col]));
+        return builder;
+      },
+      select: async () => ({ data: apply() ? [{ id: connection.id }] : [], error: null }),
+      then<T>(resolve: (v: { error: null }) => T) {
+        apply();
+        return Promise.resolve({ error: null }).then(resolve);
+      },
+    };
+    return builder;
+  }
 
   function deleteBuilder() {
     const preds: Array<(r: ResRow) => boolean> = [];
@@ -109,12 +143,7 @@ function makeSupabaseStub(seed: ResRow[] = [], syncState: ResRow = {}) {
         if (name === "hotels") return { data: { total_rooms_per_type: 10 } };
         return { data: null };
       },
-      update: (payload: ResRow) => ({
-        eq: async () => {
-          if (name === "pms_connections") connUpdates.push(payload);
-          return { error: null };
-        },
-      }),
+      update: (payload: ResRow) => updateBuilder(name, payload),
       upsert: async (rows: ResRow | ResRow[]) => {
         if (name === "room_types") {
           roomTypeUpserts.push(...(Array.isArray(rows) ? rows : [rows]));
@@ -149,10 +178,11 @@ function makeSupabaseStub(seed: ResRow[] = [], syncState: ResRow = {}) {
     return chain;
   }
 
-  return { from: table, reservations, roomTypeUpserts, connUpdates } as unknown as SupabaseClient & {
+  return { from: table, reservations, roomTypeUpserts, connUpdates, connection } as unknown as SupabaseClient & {
     reservations: ResRow[];
     roomTypeUpserts: ResRow[];
     connUpdates: ResRow[];
+    connection: ResRow;
   };
 }
 
@@ -572,5 +602,179 @@ describe("a full sweep bigger than one budget resumes across ticks", () => {
     const stamp = supabase.connUpdates.at(-1)!;
     expect(stamp).not.toHaveProperty("full_sweep_after_id");
     expect(stamp).not.toHaveProperty("full_sweep_started_at");
+  });
+});
+
+/** Serve each status's reservations only when the sync actually asks for that status. */
+function activeByStatus(byStatus: Record<string, string[]>) {
+  client.cloudbedsGetReservationsRange.mockImplementation(
+    async (_creds: unknown, _from: string, _to: string, statuses: readonly string[]) => ({
+      reservations: statuses.flatMap((s) => (byStatus[s] ?? []).map((id) => ({ reservationID: id }))),
+      pages: statuses.length,
+    }),
+  );
+}
+
+describe("a booking awaiting confirmation", () => {
+  const NIGHTS = ["2026-08-15", "2026-08-16", "2026-08-17"];
+
+  /** The engine's own numerator: snapshot the stored nights, then read occupancy. */
+  async function occupancyOn(
+    db: ReturnType<typeof fakeSupabase>,
+    snapshotTs: string,
+  ): Promise<(number | null)[]> {
+    const roomTypes = db.tables.room_types as unknown as RoomTypeRow[];
+    await snapshotCurrentState(db.client, "hotel-1", snapshotTs, NIGHTS, roomTypes);
+    return NIGHTS.map((night) => {
+      const snaps = db.tables.stay_date_snapshot.filter(
+        (s) => s.snapshot_ts === snapshotTs && s.stay_date === night,
+      );
+      const byType = new Map(
+        snaps.map((s) => [
+          String(s.room_type_id),
+          { booked_units: Number(s.booked_units), sellable_units: Number(s.sellable_units) },
+        ]),
+      );
+      return computeOccupancy(byType, roomTypes.map((rt) => rt.id));
+    });
+  }
+
+  function hotelDb() {
+    return fakeSupabase({
+      hotels: [{ id: "hotel-1", total_rooms_per_type: 10 }],
+      pms_connections: [
+        { id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", status: "connected", base_url: null },
+      ],
+    });
+  }
+
+  it("is stored and counts as sold, then leaves occupancy when it cancels", async () => {
+    const db = hotelDb();
+
+    // Cloudbeds counts Confirmation Pending as sold in its own occupancy.
+    activeByStatus({ not_confirmed: ["R1"] });
+    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "not_confirmed"));
+    const first = await runCloudbedsSyncForHotel(db.client, "hotel-1");
+
+    expect(first.ok).toBe(true);
+    expect(db.tables.reservations.map((r) => r.stay_date).sort()).toEqual(NIGHTS);
+    // 1 of the King type's 10 rooms, every night of the stay.
+    expect(await occupancyOn(db, "2026-08-01T00:00:00.000Z")).toEqual([0.1, 0.1, 0.1]);
+
+    // The guest never confirms and the booking is canceled: gone from every
+    // active list, present only under the canceled filter.
+    activeByStatus({});
+    canceledList("R1");
+    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "canceled"));
+    const second = await runCloudbedsSyncForHotel(db.client, "hotel-1");
+
+    expect(second.ok).toBe(true);
+    expect(db.tables.reservations).toEqual([]);
+    expect(await occupancyOn(db, "2026-08-01T00:05:00.000Z")).toEqual([0, 0, 0]);
+  });
+
+  it("keeps one set of nights when it confirms, updated in place", async () => {
+    const db = hotelDb();
+
+    activeByStatus({ not_confirmed: ["R1"] });
+    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "not_confirmed"));
+    expect((await runCloudbedsSyncForHotel(db.client, "hotel-1")).ok).toBe(true);
+    expect(db.tables.reservations.map((r) => r.current_rate)).toEqual([200, 200, 200]);
+
+    // Confirmed at a different rate: same booking, same room keys, so the
+    // nights must be overwritten rather than stored a second time.
+    const confirmed = detailFor("R1", "R1-1", "confirmed");
+    for (const night of confirmed.assigned[0].dailyRates) night.rate = 240;
+    activeByStatus({ confirmed: ["R1"] });
+    client.cloudbedsGetReservationDetail.mockResolvedValue(confirmed);
+    expect((await runCloudbedsSyncForHotel(db.client, "hotel-1")).ok).toBe(true);
+
+    expect(db.tables.reservations).toHaveLength(3);
+    expect(db.tables.reservations.map((r) => r.current_rate)).toEqual([240, 240, 240]);
+  });
+
+  it("is asked for on incremental pulls too, under the same watermark", async () => {
+    const supabase = makeSupabaseStub([], {
+      reservations_modified_through: new Date(Date.now() - 10 * 60_000).toISOString(),
+      last_full_sync_at: new Date(Date.now() - 60 * 60_000).toISOString(),
+    });
+    activeByStatus({ not_confirmed: ["R7"] });
+    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R7", "R7-1", "not_confirmed"));
+
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    const [, , , statuses, modifiedFrom] = client.cloudbedsGetReservationsRange.mock.calls.at(-1)!;
+    expect(statuses).toContain("not_confirmed");
+    expect(modifiedFrom).toEqual(expect.any(String));
+    expect(supabase.reservations).toHaveLength(3);
+  });
+});
+
+describe("the connection status a sync leaves behind", () => {
+  function syncOnce(status: string) {
+    const supabase = makeSupabaseStub([], { status });
+    activeList("R1");
+    client.cloudbedsGetReservationDetail.mockResolvedValue(detailFor("R1", "R1-1", "confirmed"));
+    return { supabase, run: runCloudbedsSyncForHotel(supabase, "hotel-1") };
+  }
+
+  it("leaves a pending connection pending, and still advances its watermark", async () => {
+    const { supabase, run } = syncOnce("pending");
+    expect((await run).ok).toBe(true);
+
+    // Pending is a property nobody has paid for. The import worker runs this
+    // same sync, so promoting it here put unpaid properties in the scheduler.
+    expect(supabase.connection.status).toBe("pending");
+    expect(supabase.connection.last_sync_at).toEqual(expect.any(String));
+    expect(supabase.connection.reservations_modified_through).toEqual(expect.any(String));
+  });
+
+  it("clears degraded after a healthy run", async () => {
+    const { supabase, run } = syncOnce("degraded");
+    expect((await run).ok).toBe(true);
+    expect(supabase.connection.status).toBe("connected");
+  });
+
+  it("clears error after a healthy run", async () => {
+    const { supabase, run } = syncOnce("error");
+    expect((await run).ok).toBe(true);
+    expect(supabase.connection.status).toBe("connected");
+  });
+
+  it("never resurrects a disconnected connection", async () => {
+    const { supabase, run } = syncOnce("disconnected");
+    expect((await run).ok).toBe(true);
+    expect(supabase.connection.status).toBe("disconnected");
+    expect(supabase.connection.last_sync_at).toEqual(expect.any(String));
+  });
+
+  it("puts the condition in the write itself, so a status that changed mid-run wins", async () => {
+    // Degraded when the run began, disconnected by the time the stamp goes
+    // out. Deciding from a read at the start would write 'connected' over it.
+    const db = fakeSupabase({
+      hotels: [{ id: "hotel-1", total_rooms_per_type: 10 }],
+      pms_connections: [
+        { id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", status: "degraded", base_url: null },
+      ],
+    });
+    activeList("R1");
+    client.cloudbedsGetReservationDetail.mockImplementation(async () => {
+      db.tables.pms_connections[0].status = "disconnected";
+      return detailFor("R1", "R1-1", "confirmed");
+    });
+
+    expect((await runCloudbedsSyncForHotel(db.client, "hotel-1")).ok).toBe(true);
+
+    expect(db.tables.pms_connections[0].status).toBe("disconnected");
+    const statusWrites = db.calls.filter(
+      (c) => c.table === "pms_connections" && c.op === "update" && c.filters.some((f) => f.col === "status"),
+    );
+    expect(statusWrites).toHaveLength(1);
+    expect(statusWrites[0].filters).toContainEqual({
+      col: "status",
+      kind: "in",
+      value: ["connected", "degraded", "error"],
+    });
   });
 });

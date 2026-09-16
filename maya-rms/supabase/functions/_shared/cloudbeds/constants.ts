@@ -36,10 +36,21 @@ export function defaultCloudbedsBaseUrl(): string {
 /**
  * Reservation statuses to pull.
  *
- * Verified against the live API 2026-09-10 — every value below is accepted, and
- * these are all of them: confirmed, not_confirmed, canceled, checked_in,
- * checked_out, no_show. We pull the "active demand" set and treat
- * canceled/no_show as removals.
+ * Cloudbeds has six: confirmed, not_confirmed, canceled, checked_in,
+ * checked_out, no_show. Every one that holds a room is pulled, and
+ * canceled/no_show are treated as removals.
+ *
+ * not_confirmed is Cloudbeds' "Confirmation Pending", and it holds a room:
+ * their own occupancy counts it as sold. Leaving it out made MAYA's occupancy
+ * run below the number on the owner's Cloudbeds dashboard. It goes LAST on
+ * purpose. The onboarding import checkpoints by index into this list, so
+ * putting it anywhere else would resume an import already in flight on the
+ * wrong status and skip pages of another one.
+ *
+ * Verified against the live API 2026-09-10: confirmed, checked_in, checked_out,
+ * canceled and no_show are all accepted. ⚠ not_confirmed was added after that
+ * check. Unlike the canceled list, a rejected value here fails the whole sync,
+ * so confirm it against a live property before relying on it.
  *
  * "cancelled" used to be in the canceled list as a defensive second spelling.
  * Cloudbeds only accept the American one and answer the British one with
@@ -48,7 +59,12 @@ export function defaultCloudbedsBaseUrl(): string {
  * back under "canceled") but showed as a red row in the property's own API log
  * and dragged its health below the healthy threshold.
  */
-export const CLOUDBEDS_ACTIVE_STATUSES = ["confirmed", "checked_in", "checked_out"] as const;
+export const CLOUDBEDS_ACTIVE_STATUSES = [
+  "confirmed",
+  "checked_in",
+  "checked_out",
+  "not_confirmed",
+] as const;
 export const CLOUDBEDS_CANCELED_STATUSES = ["canceled", "no_show"] as const;
 
 /** getReservations page size (Cloudbeds classic pages via pageNumber/pageSize). */

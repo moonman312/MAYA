@@ -1,5 +1,7 @@
 import "server-only";
+import { isStripeConfigured } from "@/lib/billing/stripe";
 import { ensureAppStateWebhook } from "@/lib/pms/cloudbeds-webhooks";
+import { hasEntitledSubscription } from "@/lib/pms/marketplace-activate";
 import { createAdminClient } from "@/utils/supabase/admin";
 import {
   cloudbedsDiscoverPropertyId,
@@ -180,13 +182,40 @@ export async function handleMarketplaceConnect(
         failures.push(`${property.propertyId}: ${error.message}`);
         continue;
       }
+
+      // Owning a property is not paying for it. An owner who claimed and then
+      // bounced off the card form still has a membership, so a second "Connect
+      // App" click used to mark the connection 'connected' and put an unpaid
+      // property straight into the scheduler. Same test the claim uses to
+      // decide whether to activate, so both doors agree.
+      const paidFor = async () =>
+        !isStripeConfigured() || (await hasEntitledSubscription(admin, existing.id));
+      const paid = await paidFor();
       await admin.from("pms_connections").upsert(
-        { hotel_id: existing.id, pms_type: pmsType, status: "connected", last_tested_at: now, updated_at: now },
+        {
+          hotel_id: existing.id,
+          pms_type: pmsType,
+          status: paid ? "connected" : "pending",
+          last_tested_at: now,
+          updated_at: now,
+        },
         { onConflict: "hotel_id,pms_type" },
       );
+      // Activation flips 'pending' once, right after the subscription lands,
+      // and never looks again. If that happened between our read and the write
+      // above, the write just parked a paid property for good — so look again,
+      // and only lift a row that is still 'pending'.
+      if (!paid && (await paidFor())) {
+        await admin
+          .from("pms_connections")
+          .update({ status: "connected", updated_at: new Date().toISOString() })
+          .eq("hotel_id", existing.id)
+          .eq("pms_type", pmsType)
+          .eq("status", "pending");
+      }
       await subscribe(existing.id);
       await admin.rpc("platform_log_event", {
-        p_event_type: "pms.connected",
+        p_event_type: paid ? "pms.connected" : "pms.marketplace_pending",
         p_entity_type: "pms_connection",
         p_entity_id: existing.id,
         p_hotel_id: existing.id,

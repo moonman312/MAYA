@@ -322,3 +322,40 @@ describe("cloudbeds etl room-night grain", () => {
     expect(rows.map((r) => r.external_reservation_id)).toEqual(["12345-1", "12345-2"]);
   });
 });
+
+describe("cloudbeds etl confirmation pending", () => {
+  // Cloudbeds counts not_confirmed as sold, so both parse paths must keep it
+  // as booked nights rather than lump it in with the removals.
+  it("keeps a not_confirmed list item as booked nights on the history path", () => {
+    const parsed = parseCloudbedsReservations([
+      {
+        reservationID: "p1",
+        status: "not_confirmed",
+        startDate: "2026-09-04",
+        endDate: "2026-09-06",
+        roomTypeID: "540123",
+        total: 300,
+      },
+    ]);
+
+    expect(parsed.reservations.map((r) => [r.external_reservation_id, r.stay_date])).toEqual([
+      ["p1-1", "2026-09-04"],
+      ["p1-1", "2026-09-05"],
+    ]);
+    expect(parsed.canceledExternalIds).toEqual([]);
+    expect(parsed.stats.skippedCanceled).toBe(0);
+  });
+
+  it("keeps a not_confirmed detail payload as booked nights on the live path", () => {
+    const { status, rows } = parseCloudbedsReservationDetail({
+      reservationID: "p2",
+      status: "not_confirmed",
+      assigned: [{ roomTypeID: "540123", dailyRates: [{ date: "2026-09-04", rate: 150 }] }],
+    });
+
+    expect(status).toBe("not_confirmed");
+    expect(rows.map((r) => [r.external_reservation_id, r.stay_date, r.current_rate])).toEqual([
+      ["p2-1", "2026-09-04", 150],
+    ]);
+  });
+});

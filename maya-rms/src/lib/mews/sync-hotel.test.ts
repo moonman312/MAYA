@@ -74,6 +74,33 @@ function makeSupabaseStub(
   syncState: Row = {},
 ) {
   const connUpdates: Row[] = [];
+  // The one connection row. Its status matters because the stamp is
+  // conditional on it; the id filter always matches, so it is not modelled.
+  const connection: Row = { id: "conn-1", status: "connected", ...syncState };
+
+  /** An UPDATE that only lands when its .in() conditions hold for the row. */
+  function updateBuilder(name: string, payload: Row) {
+    const preds: Array<(r: Row) => boolean> = [];
+    const apply = () => {
+      if (name !== "pms_connections" || !preds.every((p) => p(connection))) return false;
+      Object.assign(connection, payload);
+      connUpdates.push(payload);
+      return true;
+    };
+    const builder = {
+      eq: () => builder,
+      in(col: string, vals: unknown[]) {
+        preds.push((r) => vals.includes(r[col]));
+        return builder;
+      },
+      select: async () => ({ data: apply() ? [{ id: connection.id }] : [], error: null }),
+      then<T>(resolve: (v: { error: null }) => T) {
+        apply();
+        return Promise.resolve({ error: null }).then(resolve);
+      },
+    };
+    return builder;
+  }
   const roomTypes: Row[] = seedRoomTypes.map((rt, i) => ({
     id: `rt-uuid-${i + 1}`,
     hotel_id: "hotel-1",
@@ -134,12 +161,7 @@ function makeSupabaseStub(
         if (hotelReadError) return { data: null, error: { message: hotelReadError } };
         return { data: { total_rooms_per_type: 10, timezone: "America/Los_Angeles" }, error: null };
       },
-      update: (payload: Row) => ({
-        eq: async () => {
-          if (name === "pms_connections") connUpdates.push(payload);
-          return { error: null };
-        },
-      }),
+      update: (payload: Row) => updateBuilder(name, payload),
       upsert: async (rows: Row | Row[]) => {
         const list = Array.isArray(rows) ? rows : [rows];
         if (name === "reservations") {
@@ -180,11 +202,12 @@ function makeSupabaseStub(
     return chain;
   }
 
-  return { from: table, roomTypes, roomTypeUpserts, reservations, connUpdates } as unknown as SupabaseClient & {
+  return { from: table, roomTypes, roomTypeUpserts, reservations, connUpdates, connection } as unknown as SupabaseClient & {
     roomTypes: Row[];
     roomTypeUpserts: Row[];
     reservations: Row[];
     connUpdates: Row[];
+    connection: Row;
   };
 }
 
@@ -381,5 +404,40 @@ describe("runMewsSyncForHotel sync modes and checkpoints", () => {
     expect(stamp.full_sweep_after_id).toBeNull();
     expect(stamp.full_sweep_started_at).toBeNull();
     expect(stamp.reservations_modified_through).toBe(T0.toISOString());
+  });
+});
+
+describe("runMewsSyncForHotel connection status", () => {
+  async function syncOnce(status: string) {
+    vi.mocked(resolveMewsCredentials).mockResolvedValueOnce({
+      creds: { clientToken: "ct", accessToken: "at", baseUrl: "https://api.mews-demo.com" },
+      connectionId: "conn-1",
+      source: "body",
+    } as never);
+    client.windowCount.value = 1;
+    const supabase = makeSupabaseStub([], undefined, [], { id: "conn-1", status });
+    const res = await runMewsSyncForHotel(supabase, "hotel-1");
+    expect(res.ok).toBe(true);
+    return supabase.connection;
+  }
+
+  it("leaves a pending connection pending, and still advances its watermark", async () => {
+    // Pending waits on payment; a healthy sync is not a reason to go live.
+    const connection = await syncOnce("pending");
+    expect(connection.status).toBe("pending");
+    expect(connection.last_sync_at).toEqual(expect.any(String));
+    expect(connection.reservations_modified_through).toEqual(expect.any(String));
+  });
+
+  it("clears degraded after a healthy run", async () => {
+    expect((await syncOnce("degraded")).status).toBe("connected");
+  });
+
+  it("clears error after a healthy run", async () => {
+    expect((await syncOnce("error")).status).toBe("connected");
+  });
+
+  it("never resurrects a disconnected connection", async () => {
+    expect((await syncOnce("disconnected")).status).toBe("disconnected");
   });
 });
