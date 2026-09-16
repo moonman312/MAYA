@@ -88,12 +88,12 @@ export async function loadAccountBilling(
   supabase: SupabaseClient,
   hotelId: string,
 ): Promise<AccountBilling | null> {
-  const read = (columns: string) =>
-    supabase.from("hotel_subscriptions").select(columns).eq("hotel_id", hotelId).maybeSingle();
+  const read = async (columns: string) => {
+    const res = await supabase.from("hotel_subscriptions").select(columns).eq("hotel_id", hotelId).maybeSingle();
+    return { data: res.data as Record<string, unknown> | null, error: res.error };
+  };
   let { data, error } = await read(`${COLUMNS}, ${NOTICE_COLUMNS}`);
-  if (error && (error as { code?: string }).code === "42703") {
-    ({ data, error } = await read(COLUMNS));
-  }
+  if (error?.code === "42703") ({ data, error } = await read(COLUMNS));
   if (error || !data) return null;
 
   const interval = String(data.billing_interval) === "year" ? "year" : "month";
