@@ -351,12 +351,14 @@ function makeAnalysisClient(opts: {
 
   function table(name: string) {
     const eqs: Row = {};
+    const ins: Record<string, unknown[]> = {};
     let op = "select";
     let body: unknown = null;
     let columns = "";
 
     const matches = (row: Row) =>
-      Object.entries(eqs).every(([col, val]) => String(row[col]) === String(val));
+      Object.entries(eqs).every(([col, val]) => String(row[col]) === String(val)) &&
+      Object.entries(ins).every(([col, vals]) => vals.map(String).includes(String(row[col])));
 
     const settle = () => {
       if (name === "onboarding_findings") {
@@ -368,7 +370,11 @@ function makeAnalysisClient(opts: {
           return { data: null, error: null };
         }
         if (op === "insert") {
-          for (const row of body as Row[]) findings.push({ ...row });
+          for (const row of body as Row[]) findings.push({ id: `f-${findings.length + 1}-${Math.random()}`, ...row });
+          return { data: null, error: null };
+        }
+        if (op === "update") {
+          for (const f of findings.filter(matches)) Object.assign(f, body as Row);
           return { data: null, error: null };
         }
         return { data: findings.filter(matches), error: null };
@@ -401,9 +407,13 @@ function makeAnalysisClient(opts: {
         eqs[col] = val;
         return chain;
       },
-      in: () => chain,
+      in: (col: string, vals: unknown[]) => {
+        ins[col] = vals;
+        return chain;
+      },
       is: () => chain,
       lte: () => chain,
+      gte: () => chain,
       not: () => chain,
       order: () => chain,
       limit: () => chain,
@@ -590,8 +600,8 @@ describe("analyzeImport re-runs", () => {
 
     expect(sb.findings).toHaveLength(1);
     expect(sb.findings[0].status).toBe("auto_applied");
-    // Only proposed findings are up for replacement.
-    expect(sb.deletes).toEqual([{ hotel_id: "hotel-1", status: "proposed" }]);
+    // Only open (proposed) findings are ever up for removal.
+    expect(sb.deletes).toEqual([]);
   });
 
   it("replaces stale proposed findings", async () => {

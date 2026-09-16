@@ -3,6 +3,7 @@ import {
   historicalWindow,
   nextAfterWindow,
   processJob,
+  type CurrentSyncResult,
   type ImportJobRow,
   type WorkerDeps,
 } from "../../../supabase/functions/_shared/onboarding/worker-core";
@@ -64,8 +65,19 @@ describe("nextAfterWindow stop conditions", () => {
   });
 
   it("counts the 0-based windows so max_windows means what it says", () => {
-    expect(nextAfterWindow({ ...base, window_index: 8 }).reason).toBe("more_history");
+    expect(nextAfterWindow({ ...base, window_index: 8, earlyAnalysisDone: true }).reason).toBe("more_history");
     expect(nextAfterWindow({ ...base, window_index: 9 }).reason).toBe("max_windows");
+  });
+
+  it("pauses for the early analysis once three windows are in and more are coming", () => {
+    expect(nextAfterWindow({ ...base, window_index: 1 }).phase).toBe("historical");
+    expect(nextAfterWindow({ ...base, window_index: 2 })).toEqual({ phase: "analyze_early", reason: "early_analysis" });
+    expect(nextAfterWindow({ ...base, window_index: 2, earlyAnalysisDone: true }).phase).toBe("historical");
+  });
+
+  it("goes straight to the final analysis when history stops at or before window three", () => {
+    expect(nextAfterWindow({ ...base, window_index: 2, max_windows: 3 }).phase).toBe("analyze");
+    expect(nextAfterWindow({ ...base, window_index: 2, windowRowCount: 0 }).phase).toBe("analyze");
   });
 });
 
@@ -272,10 +284,24 @@ function makeAdapter(
   };
 }
 
+/** A current-window run that covered everything from COVERED_FROM on. */
+function covered(overrides: Partial<Extract<CurrentSyncResult, { ok: true }>> = {}): CurrentSyncResult {
+  return {
+    ok: true,
+    coveredFrom: COVERED_FROM,
+    covered: true,
+    resumeFrom: null,
+    rows: 0,
+    oldestStay: null,
+    newestStay: null,
+    ...overrides,
+  };
+}
+
 function makeDeps(adapter: OnboardingPmsAdapter): WorkerDeps {
   return {
     createAdapter: async () => adapter,
-    runCurrentSync: vi.fn(async () => ({ ok: true, coveredFrom: COVERED_FROM })),
+    runCurrentSync: vi.fn(async () => covered()),
     analyze: vi.fn(async () => {}),
     now: () => Date.now(),
     todayYmd: () => TODAY,
@@ -449,7 +475,7 @@ describe("processJob history coverage", () => {
     const supabase = makeSupabaseStub();
     const adapter = makeAdapter(new Map([[0, [[]]]]), { anchor: TODAY });
     const deps = makeDeps(adapter);
-    deps.runCurrentSync = vi.fn(async () => ({ ok: true as const, coveredFrom: null }));
+    deps.runCurrentSync = vi.fn(async () => covered({ coveredFrom: null }));
     const job = makeJob();
 
     await processJob(supabase, job, deps, 60_000);
@@ -491,7 +517,7 @@ function slowSyncSetup(fateOf: (patch: Record<string, unknown>) => UpdateFate | 
   const deps = makeDeps(makeAdapter(new Map([[0, [[]]]])));
   deps.runCurrentSync = () =>
     new Promise((resolve) =>
-      setTimeout(() => resolve({ ok: true, coveredFrom: COVERED_FROM }), 61_000),
+      setTimeout(() => resolve(covered()), 61_000),
     );
   const job = makeJob({
     phase: "sync_current",
@@ -542,7 +568,7 @@ describe("processJob lease protocol", () => {
       // this phase well past the 180s lease, and it has nothing to checkpoint.
       deps.runCurrentSync = () =>
         new Promise((resolve) =>
-          setTimeout(() => resolve({ ok: true, coveredFrom: COVERED_FROM }), 300_000),
+          setTimeout(() => resolve(covered()), 300_000),
         );
       const job = makeJob({
         phase: "sync_current",
@@ -676,5 +702,170 @@ describe("processJob lease protocol", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("processJob reads the current window until it is covered", () => {
+  it("stays on the current window across runs and only starts history once covered", async () => {
+    const supabase = makeSupabaseStub();
+    const adapter = makeAdapter(new Map([[0, [[]]]]));
+    const deps = makeDeps(adapter);
+    const passes: CurrentSyncResult[] = [
+      covered({ covered: false, resumeFrom: "checkout:2026-08-01", rows: 50, oldestStay: "2026-06-26", newestStay: "2026-08-02" }),
+      covered({ covered: false, resumeFrom: "checkout:2026-11-01", rows: 60, oldestStay: "2026-08-01", newestStay: "2026-11-02" }),
+      covered({ rows: 40, oldestStay: "2026-11-01", newestStay: "2027-07-20" }),
+    ];
+    let call = 0;
+    deps.runCurrentSync = vi.fn(async () => passes[call++]);
+    // Each pass is a whole sync budget, far past one worker invocation's.
+    let exhausted = false;
+    deps.now = () => (exhausted ? 10_000_000 : 0);
+    const syncThenStop = deps.runCurrentSync;
+    deps.runCurrentSync = vi.fn(async (...args: Parameters<WorkerDeps["runCurrentSync"]>) => {
+      const res = await syncThenStop(...args);
+      exhausted = true;
+      return res;
+    });
+    const job = makeJob();
+
+    expect(await processJob(supabase, job, deps, 1000)).toBe("budget_exhausted");
+    expect(supabase.jobRow.phase).toBe("sync_current");
+    expect(supabase.jobRow.stats).toMatchObject({
+      currentSync: { covered: false, passes: 1, resumeFrom: "checkout:2026-08-01", rows: 50 },
+    });
+    // What the progress screen reads moved with it.
+    expect(supabase.jobRow.rows_upserted).toBe(50);
+    expect(adapter.windows).toHaveLength(0);
+
+    exhausted = false;
+    expect(await processJob(supabase, job, deps, 1000)).toBe("budget_exhausted");
+    expect(supabase.jobRow.phase).toBe("sync_current");
+    expect(adapter.windows).toHaveLength(0);
+
+    exhausted = false;
+    deps.now = () => 0;
+    expect(await processJob(supabase, job, deps, 1000)).toBe("completed");
+    expect(deps.runCurrentSync).toHaveBeenCalledTimes(3);
+    expect(job.stats.currentSync).toMatchObject({ covered: true, passes: 3, rows: 150 });
+    expect(job.stats.historyAnchor).toBe(COVERED_FROM);
+    expect(job.rows_upserted).toBe(150);
+    expect(job.oldest_stay_date).toBe("2026-06-26");
+    expect(job.newest_stay_date).toBe("2027-07-20");
+    expect(adapter.windows[0].to).toBe("2026-06-25");
+  });
+
+  it("errors and backs off when runs keep ending short without moving", async () => {
+    const supabase = makeSupabaseStub();
+    const adapter = makeAdapter(new Map([[0, [[]]]]));
+    const deps = makeDeps(adapter);
+    deps.runCurrentSync = vi.fn(async () =>
+      covered({ covered: false, resumeFrom: "checkout:2026-08-01", rows: 10 }),
+    );
+    const job = makeJob({
+      phase: "sync_current",
+      stats: { currentSync: { covered: false, passes: 4, stalls: 0, resumeFrom: "checkout:2026-08-01", rows: 40 } },
+    });
+
+    const outcome = await processJob(supabase, job, deps, 60_000);
+
+    expect(outcome).toBe("budget_exhausted");
+    expect(deps.runCurrentSync).toHaveBeenCalledTimes(3);
+    expect(String(supabase.jobRow.last_error)).toContain("without moving past checkout:2026-08-01");
+    expect(supabase.jobRow.phase).toBeUndefined();
+    expect(job.phase).toBe("sync_current");
+    expect(adapter.windows).toHaveLength(0);
+  });
+});
+
+describe("processJob phase order", () => {
+  it("imports three windows, analyses early, imports the rest, then analyses again", async () => {
+    const supabase = makeSupabaseStub();
+    const events: string[] = [];
+    const adapter = makeAdapter(
+      new Map([
+        [0, [pageOfRows(10, "2026-01-10")]],
+        [1, [pageOfRows(10, "2025-01-10")]],
+        [2, [pageOfRows(10, "2024-01-10")]],
+        [3, [pageOfRows(10, "2023-01-10")]],
+        [4, [[]]],
+      ]),
+      { onFetch: () => events.push(`window ${adapter.windows.length - 1}`) },
+    );
+    const deps = makeDeps(adapter);
+    deps.runCurrentSync = vi.fn(async () => {
+      events.push("current");
+      return covered({ rows: 25 });
+    });
+    deps.analyze = vi.fn(async (_s: SupabaseClient, j: ImportJobRow, pass: "early" | "final") => {
+      events.push(`analyze ${pass}`);
+      if (pass === "early") j.stats = { ...j.stats, starterRules: [{ name: "Slow-date rescue", explanation: "x" }] };
+    });
+    const job = makeJob();
+
+    expect(await processJob(supabase, job, deps, 60_000)).toBe("completed");
+
+    expect(events).toEqual([
+      "current",
+      "window 0",
+      "window 1",
+      "window 2",
+      "analyze early",
+      "window 3",
+      "window 4",
+      "analyze final",
+    ]);
+    expect(job.stats.earlyAnalysisAt).toEqual(expect.any(String));
+    expect(job.stats.historyStopReason).toBe("empty_window");
+    // Starter rules written by the early pass reach the row the review screen reads.
+    const earlyCheckpoint = jobPatches(supabase).find(
+      (u) => u.patch.phase === "historical" && "earlyAnalysisAt" in ((u.patch.stats ?? {}) as Record<string, unknown>),
+    );
+    expect((earlyCheckpoint?.patch.stats as Record<string, unknown>).starterRules).toEqual([
+      { name: "Slow-date rescue", explanation: "x" },
+    ]);
+    expect(supabase.jobRow.status).toBe("completed");
+  });
+
+  it("goes straight to the final analysis when history runs out first", async () => {
+    const supabase = makeSupabaseStub();
+    const adapter = makeAdapter(new Map([[0, [pageOfRows(10, "2026-01-10")]], [1, [[]]]]));
+    const deps = makeDeps(adapter);
+    const job = makeJob();
+
+    expect(await processJob(supabase, job, deps, 60_000)).toBe("completed");
+
+    expect(vi.mocked(deps.analyze).mock.calls.map((c) => c[2])).toEqual(["final"]);
+    expect(job.stats.earlyAnalysisAt).toBeUndefined();
+  });
+
+  it("repeats the early analysis, not the window after it, when it dies before checkpointing", async () => {
+    const supabase = makeSupabaseStub();
+    const adapter = makeAdapter(
+      new Map([
+        [0, [pageOfRows(5, "2026-01-10")]],
+        [1, [pageOfRows(5, "2025-01-10")]],
+        [2, [pageOfRows(5, "2024-01-10")]],
+        [3, [[]]],
+      ]),
+    );
+    const deps = makeDeps(adapter);
+    let failOnce = true;
+    deps.analyze = vi.fn(async (_s: SupabaseClient, _j: ImportJobRow, pass: "early" | "final") => {
+      if (pass === "early" && failOnce) {
+        failOnce = false;
+        throw new Error("statement timeout");
+      }
+    });
+    const job = makeJob();
+
+    expect(await processJob(supabase, job, deps, 60_000)).toBe("budget_exhausted");
+    expect(supabase.jobRow.phase).toBe("analyze_early");
+    // The next window is already queued, so nothing imported is fetched twice.
+    expect(supabase.jobRow.window_index).toBe(3);
+    const fetchedBefore = adapter.windows.length;
+
+    expect(await processJob(supabase, job, deps, 60_000)).toBe("completed");
+    expect(vi.mocked(deps.analyze).mock.calls.map((c) => c[2])).toEqual(["early", "early", "final"]);
+    expect(adapter.windows.length).toBe(fetchedBefore + 1);
   });
 });

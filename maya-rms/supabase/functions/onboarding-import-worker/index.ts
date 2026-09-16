@@ -36,16 +36,34 @@ const deps: WorkerDeps = {
     // env-configurable (MAYA_SYNC_DAYS_BACK), so the historical phase must
     // not assume one. A fresh onboarding hotel always takes the full-sweep
     // path, so Think's fetchWindow carries stay dates here, not instants.
+    // Coverage is passed through as the sync reported it: the worker repeats
+    // the phase until it is true.
     if (pmsType === "cloudbeds") {
       const res = await runCloudbedsSyncForHotel(supabase, hotelId);
       return res.ok
-        ? { ok: true, coveredFrom: res.fetchWindow.checkInFrom }
+        ? {
+            ok: true,
+            coveredFrom: res.fetchWindow.checkInFrom,
+            covered: res.windowFullyCovered,
+            resumeFrom: res.sweepCursor,
+            rows: res.windowRows,
+            oldestStay: res.stayDates.oldest,
+            newestStay: res.stayDates.newest,
+          }
         : { ok: false, error: res.error };
     }
     if (pmsType === "think") {
       const res = await runThinkSyncForHotel(supabase, hotelId);
       return res.ok
-        ? { ok: true, coveredFrom: res.fetchWindow.start }
+        ? {
+            ok: true,
+            coveredFrom: res.fetchWindow.start,
+            covered: res.windowFullyCovered,
+            resumeFrom: null,
+            rows: 0,
+            oldestStay: null,
+            newestStay: null,
+          }
         : { ok: false, error: res.error };
     }
     return { ok: false, error: `No current-window sync for '${pmsType}'` };

@@ -23,6 +23,9 @@ export type OnboardingStatus = {
     finished_at: string | null;
     stats?: {
       starterRules?: Array<{ name: string; explanation: string }>;
+      /** Stamped once findings and starter rules exist for the first three years. */
+      earlyAnalysisAt?: string;
+      currentSync?: { covered?: boolean; passes?: number };
       [key: string]: unknown;
     };
   } | null;
@@ -56,11 +59,34 @@ export function useOnboardingStatus(pollMs = 4000): OnboardingStatus | null {
 
 const PHASE_LABELS: Record<string, string> = {
   discover: "Reading your property setup",
-  sync_current: "Importing the last year in detail",
-  historical: "Importing older history",
-  analyze: "Analyzing your data",
+  sync_current: "Reading your current bookings",
+  historical: "Importing past years",
+  analyze_early: "Building your starter rules",
+  analyze: "Checking your full history",
   done: "Import complete",
 };
+
+/**
+ * Whether there is something to review before the import has finished: the
+ * early analysis has written findings and starter rules for the first three
+ * years while older ones keep loading.
+ */
+export function earlyResultsReady(job: OnboardingStatus["job"]): boolean {
+  return job?.status === "running" && typeof job.stats?.earlyAnalysisAt === "string";
+}
+
+function phaseLabel(job: NonNullable<OnboardingStatus["job"]>): string {
+  // A book too big for one pass takes several, and the label should not sit
+  // still looking stuck while it does.
+  const passes = Number(job.stats?.currentSync?.passes ?? 0);
+  if (job.phase === "sync_current" && passes > 0 && job.stats?.currentSync?.covered !== true) {
+    return `Reading your current bookings (part ${passes + 1})`;
+  }
+  if (job.phase === "historical" && earlyResultsReady(job)) {
+    return "First results ready. Importing older years";
+  }
+  return PHASE_LABELS[job.phase] ?? "Working…";
+}
 
 /** Slim progress strip shown under the questions and on the progress page. */
 export function ImportProgressBar({ status }: { status: OnboardingStatus | null }) {
@@ -77,7 +103,7 @@ export function ImportProgressBar({ status }: { status: OnboardingStatus | null 
     ? "Import stopped — we've been told, and we'll pick it up"
     : finished
       ? "Import complete"
-      : PHASE_LABELS[job.phase] ?? "Working…";
+      : phaseLabel(job);
 
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-3">

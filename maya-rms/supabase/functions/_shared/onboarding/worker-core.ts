@@ -1,16 +1,23 @@
 /**
  * Onboarding import worker — the checkpointed state machine.
  *
- * A job walks: discover -> sync_current -> historical -> analyze -> done.
+ * A job walks:
+ *   discover -> sync_current -> historical (3 windows) -> analyze_early
+ *            -> historical (the rest) -> analyze -> done
  *
- *   discover      property profile + room types; backfill blank hotel fields
- *   sync_current  the existing detail-based sync (true nightly rates; powers
- *                 live pricing immediately). It reports the first check-in
- *                 date it covered and history tiles back from there — its
- *                 window is a runtime setting, not something to assume.
- *   historical    slim list-only pull, one year-window at a time going back:
- *                 dates + price only, raw_payload null, checkpointed per page
- *   analyze       cleaning heuristics -> findings; completes the job
+ *   discover       property profile + room types; backfill blank hotel fields
+ *   sync_current   the live sync over the current window (true nightly rates;
+ *                  powers live pricing immediately). Repeated until it reports
+ *                  the window covered, resuming from its own checkpoint. It
+ *                  reports the first check-in date it covered and history
+ *                  tiles back from there — its window is a runtime setting,
+ *                  not something to assume.
+ *   historical     slim list-only pull, one year-window at a time going back:
+ *                  dates + price only, raw_payload null, checkpointed per page
+ *   analyze_early  findings and starter rules from the first three years, so
+ *                  the owner can review and run rules while older years load
+ *   analyze        the same analysis over everything; refines what the early
+ *                  pass proposed and completes the job
  *
  * Every page/step persists its cursor + counters, so a killed invocation
  * resumes exactly where it stopped. The caller (edge function) claims the
@@ -60,7 +67,37 @@ export type ImportJobRow = {
   stats: Record<string, unknown>;
   /** Whatever lease is on the row — null only on a job nobody has claimed. */
   lease_expires_at?: string | null;
+  created_at?: string;
 };
+
+export type CurrentSyncResult =
+  | {
+      ok: true;
+      /**
+       * The oldest check-in date it actually pulled — the historical phase
+       * butts up against it instead of guessing at it, which is what left
+       * eleven months unimported when the guess was a hardcoded year. Required
+       * rather than optional (null = this sync genuinely can't say) so a new
+       * wiring has to think about it; null falls back to today, which
+       * over-covers rather than leaving another hole.
+       */
+      coveredFrom: string | null;
+      /** False when the run stopped before the whole window was read. */
+      covered: boolean;
+      /**
+       * Where an uncovered run will resume from. Compared between runs to tell
+       * a sweep that is getting there from one that is stuck. Null when the
+       * sync cannot say.
+       */
+      resumeFrom: string | null;
+      /** Room-nights the run read, and the stay nights they span. */
+      rows: number;
+      oldestStay: string | null;
+      newestStay: string | null;
+    }
+  | { ok: false; error?: string };
+
+export type AnalysisPass = "early" | "final";
 
 export type WorkerDeps = {
   createAdapter: (
@@ -68,24 +105,14 @@ export type WorkerDeps = {
     hotelId: string,
     pmsType: string,
   ) => Promise<OnboardingPmsAdapter>;
-  /**
-   * Detail-accurate sync for the current window (existing pipeline).
-   * `coveredFrom` is the oldest check-in date it actually pulled — the
-   * historical phase butts up against it instead of guessing at it, which is
-   * what left eleven months unimported when the guess was a hardcoded year.
-   * Required rather than optional (null = this sync genuinely can't say) so a
-   * new wiring has to think about it; omitting it falls back to today, which
-   * over-covers rather than leaving another hole.
-   */
+  /** The live sync for the current window (existing pipeline). */
   runCurrentSync: (
     supabase: SupabaseClient,
     hotelId: string,
     pmsType: string,
-  ) => Promise<
-    { ok: true; coveredFrom: string | null } | { ok: false; error?: string }
-  >;
-  /** Cleaning heuristics + findings. Wired in from analysis.ts. */
-  analyze: (supabase: SupabaseClient, job: ImportJobRow) => Promise<void>;
+  ) => Promise<CurrentSyncResult>;
+  /** Cleaning heuristics + findings + starter rules. Wired in from analysis.ts. */
+  analyze: (supabase: SupabaseClient, job: ImportJobRow, pass: AnalysisPass) => Promise<void>;
   now: () => number;
   todayYmd: () => string;
 };
@@ -98,6 +125,41 @@ export const LEASE_SECONDS = 180;
 const HEARTBEAT_MS = 60_000;
 /** Consecutive invocations that moved nothing before we call the job dead. */
 const NO_PROGRESS_LIMIT = 50;
+
+/**
+ * History windows imported before the early analysis. Three, not two: the
+ * engine's comparable dates, Booking Speed's load window and reinforcement's
+ * corroboration all stop at three years, so this is the smallest history on
+ * which every starter rule and finding works as it will with the full import.
+ */
+export const EARLY_ANALYSIS_AFTER_WINDOWS = 3;
+/**
+ * Current-window runs in a row that ended short without moving their
+ * checkpoint. One is a slow API; this many means nothing will change by
+ * trying again at once, so the job errors and backs off.
+ */
+const CURRENT_SYNC_STALL_LIMIT = 3;
+/** Runs one current window may take when the sync cannot report a checkpoint at all. */
+const CURRENT_SYNC_MAX_PASSES = 48;
+
+type CurrentSyncProgress = {
+  covered: boolean;
+  passes: number;
+  stalls: number;
+  resumeFrom: string | null;
+  rows: number;
+};
+
+function currentSyncProgress(stats: Record<string, unknown>): CurrentSyncProgress {
+  const raw = (stats.currentSync ?? {}) as Partial<CurrentSyncProgress>;
+  return {
+    covered: raw.covered === true,
+    passes: Number(raw.passes ?? 0) || 0,
+    stalls: Number(raw.stalls ?? 0) || 0,
+    resumeFrom: typeof raw.resumeFrom === "string" ? raw.resumeFrom : null,
+    rows: Number(raw.rows ?? 0) || 0,
+  };
+}
 
 function addDays(ymd: string, days: number): string {
   const [y, m, d] = ymd.split("-").map(Number);
@@ -131,14 +193,21 @@ function historyAnchor(job: ImportJobRow, deps: WorkerDeps): string {
   return typeof anchor === "string" ? anchor : deps.todayYmd();
 }
 
-/** Decide what follows a finished historical window. */
+/**
+ * Decide what follows a finished historical window.
+ *
+ * When history is about to stop anyway the final analysis runs straight
+ * away; an early pass only earns its place when there are older years still
+ * to come.
+ */
 export function nextAfterWindow(job: {
   window_index: number;
   max_windows: number;
   rows_upserted: number;
   row_cap: number;
   windowRowCount: number;
-}): { phase: "historical" | "analyze"; reason: string } {
+  earlyAnalysisDone?: boolean;
+}): { phase: "historical" | "analyze_early" | "analyze"; reason: string } {
   if (job.windowRowCount === 0) {
     return { phase: "analyze", reason: "empty_window" };
   }
@@ -148,6 +217,9 @@ export function nextAfterWindow(job: {
   // Windows are 0-based, so index max_windows-1 is the last one allowed.
   if (job.window_index + 1 >= job.max_windows) {
     return { phase: "analyze", reason: "max_windows" };
+  }
+  if (!job.earlyAnalysisDone && job.window_index + 1 >= EARLY_ANALYSIS_AFTER_WINDOWS) {
+    return { phase: "analyze_early", reason: "early_analysis" };
   }
   return { phase: "historical", reason: "more_history" };
 }
@@ -395,6 +467,44 @@ export async function processJob(
           deps.runCurrentSync(supabase, job.hotel_id, job.pms_type),
         );
         if (!res.ok) throw new Error(res.error ?? "current-window sync failed");
+        const before = currentSyncProgress(job.stats);
+        const passes = before.passes + 1;
+        job.rows_upserted += res.rows;
+        job.oldest_stay_date = minYmd(job.oldest_stay_date, res.oldestStay);
+        job.newest_stay_date = maxYmd(job.newest_stay_date, res.newestStay);
+
+        if (!res.covered) {
+          // Walking on to history here left a partly imported present, with
+          // the remainder waiting on a scheduler that only runs for paying
+          // hotels. The sync checkpointed where it stopped, so the next run
+          // carries on from there; this phase ends only once it says covered.
+          const moved = res.resumeFrom === null || res.resumeFrom !== before.resumeFrom;
+          const progress: CurrentSyncProgress = {
+            covered: false,
+            passes,
+            stalls: moved ? 0 : before.stalls + 1,
+            resumeFrom: res.resumeFrom,
+            rows: before.rows + res.rows,
+          };
+          job.stats = { ...job.stats, currentSync: progress };
+          await patchJob(supabase, job.id, {
+            rows_upserted: job.rows_upserted,
+            oldest_stay_date: job.oldest_stay_date,
+            newest_stay_date: job.newest_stay_date,
+            stats: job.stats,
+          }, lease);
+          if (progress.stalls >= CURRENT_SYNC_STALL_LIMIT) {
+            throw new Error(
+              `current-window sync stopped short ${progress.stalls} runs in a row without moving past ${res.resumeFrom}`,
+            );
+          }
+          if (passes >= CURRENT_SYNC_MAX_PASSES) {
+            throw new Error(`current-window sync still not covered after ${passes} runs`);
+          }
+          if (moved) progressed = true;
+          continue;
+        }
+
         // Tile history back from where the sync's coverage actually starts.
         // Assuming it always reached a year back left everything between its
         // real window and day -366 unimported, by any phase, forever.
@@ -405,13 +515,21 @@ export async function processJob(
         job.window_from = w.from;
         job.window_to = w.to;
         job.enum_cursor = {};
-        job.stats = { ...job.stats, currentWindowRows: 0, historyAnchor: anchor };
+        job.stats = {
+          ...job.stats,
+          currentWindowRows: 0,
+          historyAnchor: anchor,
+          currentSync: { covered: true, passes, stalls: 0, resumeFrom: null, rows: before.rows + res.rows },
+        };
         await patchJob(supabase, job.id, {
           phase: job.phase,
           window_index: job.window_index,
           window_from: job.window_from,
           window_to: job.window_to,
           enum_cursor: job.enum_cursor,
+          rows_upserted: job.rows_upserted,
+          oldest_stay_date: job.oldest_stay_date,
+          newest_stay_date: job.newest_stay_date,
           stats: job.stats,
         }, lease);
         progressed = true;
@@ -422,11 +540,23 @@ export async function processJob(
         progressed = true;
         continue; // page or phase done — the loop picks up whatever is next
       }
+      if (job.phase === "analyze_early") {
+        // The next window is already on the row, so all this checkpoint has to
+        // do is flip the phase back. Analysis is safe to repeat if it never
+        // lands: a re-run refines what the first one wrote instead of adding to it.
+        await withLeaseHeartbeat(supabase, job.id, lease, () => deps.analyze(supabase, job, "early"));
+        job.phase = "historical";
+        job.stats = { ...job.stats, earlyAnalysisAt: new Date().toISOString() };
+        await patchJob(supabase, job.id, { phase: job.phase, stats: job.stats }, lease);
+        progressed = true;
+        continue;
+      }
       if (job.phase === "analyze") {
-        await withLeaseHeartbeat(supabase, job.id, lease, () => deps.analyze(supabase, job));
+        await withLeaseHeartbeat(supabase, job.id, lease, () => deps.analyze(supabase, job, "final"));
         await patchJob(supabase, job.id, {
           status: "completed",
           phase: "done",
+          stats: job.stats,
           finished_at: new Date().toISOString(),
         }, lease);
         await supabase
@@ -616,6 +746,7 @@ async function runHistoricalStep(
     rows_upserted: job.rows_upserted,
     row_cap: job.row_cap,
     windowRowCount: windowRows,
+    earlyAnalysisDone: typeof job.stats.earlyAnalysisAt === "string",
   });
 
   if (next.phase === "analyze") {
@@ -633,6 +764,9 @@ async function runHistoricalStep(
     return;
   }
 
+  // The early analysis goes in between windows with the next one already
+  // queued on the row, so finishing it is a phase flip and nothing else.
+  if (next.phase === "analyze_early") job.phase = "analyze_early";
   job.window_index += 1;
   const w = historicalWindow(historyAnchor(job, deps), job.window_index);
   job.window_from = w.from;
@@ -640,6 +774,7 @@ async function runHistoricalStep(
   job.enum_cursor = {};
   job.stats = { ...job.stats, currentWindowRows: 0 };
   await patchJob(supabase, job.id, {
+    phase: job.phase,
     window_index: job.window_index,
     window_from: job.window_from,
     window_to: job.window_to,
