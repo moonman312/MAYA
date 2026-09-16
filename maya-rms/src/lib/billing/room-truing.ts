@@ -1,7 +1,7 @@
 import "server-only";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { graceDaysLeft, graceExpired, measureRooms, ROOM_SHORTFALL_GRACE_DAYS } from "./room-count";
+import { graceExpired, measureRooms, ROOM_SHORTFALL_GRACE_DAYS } from "./room-count";
 import { formatUsd, isBillableRoomCount, MAX_ROOMS, priceCents, type BillingInterval } from "./tiers";
 import { isResendConfigured, sendEmail } from "@/lib/email/resend";
 import {
@@ -47,7 +47,14 @@ const SELECT_COLUMNS =
   "hotel_id, stripe_customer_id, stripe_subscription_id, billing_interval, billed_rooms, measured_rooms, room_shortfall_since, room_shortfall_notified_at, room_shortfall_notified_rooms";
 
 /**
- * Properties that have been short for longer than the grace period.
+ * Properties that have been short, and were told so, for longer than the grace
+ * period.
+ *
+ * The grace period runs from the notice, not from the first measurement: the
+ * Terms promise the owner the full period after being told. Counting from
+ * room_shortfall_since would let a late email, or a re-notice about a count
+ * that moved, be followed by a correction in the same sweep. The notice is at
+ * or after the first measurement, so filtering on both costs nothing.
  *
  * The window is filtered in SQL rather than here so a long backlog doesn't push
  * still-in-grace rows out of the batch. Oldest first: whoever has been
@@ -64,6 +71,8 @@ export async function dueForTruing(
     .select(SELECT_COLUMNS)
     .not("room_shortfall_since", "is", null)
     .lte("room_shortfall_since", cutoff)
+    .not("room_shortfall_notified_at", "is", null)
+    .lte("room_shortfall_notified_at", cutoff)
     // Nothing to true up on a plan that is never invoiced.
     .eq("plan_kind", "stripe")
     // A property above the self-serve ceiling waits for a human, and it waits
@@ -161,10 +170,10 @@ export async function notifyOne(
   if (!to) return { kind: "skipped", reason: "no_recipient" };
 
   const interval: BillingInterval = row.billing_interval === "year" ? "year" : "month";
-  const daysLeft = graceDaysLeft(row.room_shortfall_since, now);
-  const correctionDate = new Date(
-    Date.parse(row.room_shortfall_since ?? now.toISOString()) + ROOM_SHORTFALL_GRACE_DAYS * 86_400_000,
-  );
+  // Counted from this notice, which is what trueUpOne waits on. A notice that
+  // goes out late, or about a count that moved, still gives the full period.
+  const daysLeft = ROOM_SHORTFALL_GRACE_DAYS;
+  const correctionDate = new Date(now.getTime() + ROOM_SHORTFALL_GRACE_DAYS * 86_400_000);
 
   // Re-measured so the email can name the spaces we are NOT charging for. A
   // hotel that counts its own PMS will get a bigger number than this email
@@ -248,6 +257,11 @@ export async function trueUpOne(
   // Waiting costs one billing cycle; not waiting costs the customer.
   if (Number(row.room_shortfall_notified_rooms) !== Number(row.measured_rooms)) {
     return { kind: "skipped", reason: "not_yet_notified" };
+  }
+  // And told long enough ago. The notice about this count may be minutes old:
+  // the same sweep sends it just before this runs.
+  if (!graceExpired(row.room_shortfall_notified_at, now)) {
+    return { kind: "skipped", reason: "in_notice_period" };
   }
 
   const measured = Number(row.measured_rooms);
