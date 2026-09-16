@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
+  earlyResultsReady,
   ImportProgressBar,
   useOnboardingStatus,
 } from "@/components/onboarding/import-progress";
@@ -67,7 +68,13 @@ export function StrategyQuestions() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ completed: true }),
       }).catch(() => {});
-      router.push("/onboarding/progress");
+      // Often the analysis finished before they paid; then there is nothing to
+      // wait for, and the progress page would only bounce them on.
+      const job = status?.job;
+      const analysed = job?.status === "completed" || earlyResultsReady(job);
+      const somethingToReview =
+        (status?.proposedFindings ?? 0) > 0 || (job?.stats?.starterRules?.length ?? 0) > 0;
+      router.push(analysed && somethingToReview ? "/onboarding/review" : "/onboarding/progress");
       return;
     }
     setStep(next);

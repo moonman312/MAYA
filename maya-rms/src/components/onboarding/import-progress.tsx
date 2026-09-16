@@ -72,7 +72,11 @@ const PHASE_LABELS: Record<string, string> = {
  * years while older ones keep loading.
  */
 export function earlyResultsReady(job: OnboardingStatus["job"]): boolean {
-  return job?.status === "running" && typeof job.stats?.earlyAnalysisAt === "string";
+  // Queued counts: an import that stopped after its early analysis and was
+  // picked up again at payment is waiting to carry on, with results in hand.
+  return (
+    (job?.status === "running" || job?.status === "queued") && typeof job.stats?.earlyAnalysisAt === "string"
+  );
 }
 
 function phaseLabel(job: NonNullable<OnboardingStatus["job"]>): string {
@@ -95,6 +99,9 @@ export function ImportProgressBar({ status }: { status: OnboardingStatus | null 
 
   const finished = job.status === "completed";
   const failed = job.status === "failed";
+  // Stopped because the connection went away: nothing is running, so no
+  // spinner, and nobody has been told, so not the failure line either.
+  const stopped = job.status === "canceled";
   // "failed" is where the worker gave up, not where it is still trying —
   // promising more retries there leaves someone waiting on a thing that has
   // already stopped. Everything before it (queued, running) genuinely does
@@ -109,7 +116,7 @@ export function ImportProgressBar({ status }: { status: OnboardingStatus | null 
     <div className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-3">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          {!finished && !failed ? (
+          {!finished && !failed && !stopped ? (
             <span className="relative flex size-2.5">
               <span className="absolute inline-flex size-full animate-ping rounded-full bg-sky-400 opacity-60" />
               <span className="relative inline-flex size-2.5 rounded-full bg-sky-500" />

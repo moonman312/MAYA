@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   earlyResultsReady,
   ImportProgressBar,
@@ -23,13 +23,24 @@ export function ImportProgressView() {
     (status?.proposedFindings ?? 0) > 0 || (job?.stats?.starterRules?.length ?? 0) > 0;
   const moveOn = job?.status === "completed" || (earlyResultsReady(job) && somethingToReview);
 
+  // The import usually starts at the claim, so an owner back from paying
+  // often arrives to work that is already done. The pause is for watching it
+  // finish; with nothing to watch it only holds them up.
+  const loaded = status != null;
+  const readyOnArrival = useRef<boolean | null>(null);
+
   useEffect(() => {
+    if (!loaded) return;
+    if (readyOnArrival.current === null) readyOnArrival.current = moveOn;
     if (!moveOn) return;
-    const t = setTimeout(() => {
-      router.push(somethingToReview ? "/onboarding/review" : "/");
-    }, 1500);
+    const to = somethingToReview ? "/onboarding/review" : "/";
+    if (readyOnArrival.current) {
+      router.replace(to);
+      return;
+    }
+    const t = setTimeout(() => router.push(to), 1500);
     return () => clearTimeout(t);
-  }, [moveOn, somethingToReview, router]);
+  }, [loaded, moveOn, somethingToReview, router]);
 
   return (
     <div className="flex flex-col items-center gap-8 pt-10 text-center">
