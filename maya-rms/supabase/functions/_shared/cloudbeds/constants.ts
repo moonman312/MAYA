@@ -71,6 +71,14 @@ export const CLOUDBEDS_CANCELED_STATUSES = ["canceled", "no_show"] as const;
 export const CLOUDBEDS_PAGE_SIZE = Number(mwsEnv("CLOUDBEDS_PAGE_SIZE") ?? "100") || 100;
 
 /**
+ * getReservationsWithRateDetails page size. Cloudbeds documents 100 as the
+ * maximum. Larger sizes were accepted without error on the sandbox, but it had
+ * too few bookings to show whether they are silently capped, and a capped page
+ * would look exactly like the last one. Not configurable for that reason.
+ */
+export const CLOUDBEDS_RATE_DETAILS_PAGE_SIZE = 100;
+
+/**
  * Whether to fetch per-reservation detail (getReservation) to obtain true
  * per-night rates. When false, nightly rate = reservation total / nights.
  * Detail calls are 1 request per reservation → gated by rate limits; keep off

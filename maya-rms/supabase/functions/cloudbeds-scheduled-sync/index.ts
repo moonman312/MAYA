@@ -41,9 +41,10 @@ function publicSyncResult(sync: Awaited<ReturnType<typeof runCloudbedsSyncForHot
   return {
     ok: true as const,
     // A partial window looks identical to a complete one in the counters, so it
-    // has to be said explicitly. Sustained false here means the property is too
-    // large for the current per-reservation detail fetch and needs the
-    // incremental path, not a bigger budget.
+    // has to be said explicitly. False is expected for a few ticks on a very
+    // large book, which resumes from its checkpoint; sustained false alongside
+    // ingest.source "per_booking" means the account refused rate details and
+    // is on the slow path.
     windowFullyCovered: sync.windowFullyCovered,
     fetchWindow: sync.fetchWindow,
     apiPages: sync.apiPages,

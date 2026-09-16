@@ -203,8 +203,10 @@ export function cloudbedsRoomSlots(res: Json): (Json | null)[] {
  * 101 onto one row and let cancelling either one delete the other's nights.
  * A `subReservationID` is namespaced to its booking, but nothing in a payload
  * distinguishes one from a bare `roomID` except that prefix.
- * ⚠ VERIFY the `<reservationID>-<n>` shape against a live account: the only
- * evidence for it here is one payload fixture (src/lib/pms/redact.test.ts).
+ * Checked on the sandbox 2026-09-16 across 61 bookings: every booking has one
+ * room whose subReservationID is the reservation id itself and every further
+ * room is `<reservationID>-<n>`, so exactly one room per booking takes a
+ * derived key and the keys do not depend on the order rooms are listed in.
  */
 export function cloudbedsRoomRowIds(parentId: string, slots: (Json | null)[]): string[] {
   const explicit = slots.map((entry) => {
@@ -394,6 +396,67 @@ export function parseCloudbedsReservations(
     stats,
     canceledExternalIds: [...canceled],
   };
+}
+
+/** A booking's own check-in and check-out as a rate-details or detail payload names them. */
+export function cloudbedsStayDates(res: Json): { checkIn: string | null; checkOut: string | null } {
+  return {
+    checkIn: toYmd(firstString(res, ["reservationCheckIn", "startDate", "checkIn"]) ?? ""),
+    checkOut: toYmd(firstString(res, ["reservationCheckOut", "endDate", "checkOut"]) ?? ""),
+  };
+}
+
+/**
+ * A getReservationsWithRateDetails booking in the shape
+ * parseCloudbedsReservationDetail reads, so both sources produce rows through
+ * one parser. Checked on the sandbox against getReservation for 60 bookings
+ * (27 multi-room, 91 unassigned rooms, 36 canceled or no-show): 624 of 624
+ * stored rows identical.
+ *
+ * `rooms[]` holds every room, assigned or not, so it becomes `assigned`. Each
+ * room's `detailedRoomRates` map becomes that room's `dailyRates`. The
+ * booking-level `detailedRates` is deliberately not read: it is the sum across
+ * rooms, so applying it to each room would multiply a group's revenue by its
+ * room count.
+ *
+ * Rooms name their dates `roomCheckIn`/`roomCheckOut` here where getReservation
+ * says `startDate`/`endDate`. They are copied across so the redacted payload
+ * keeps the dates it always carried; no other field is renamed.
+ */
+export function cloudbedsRateDetailsToDetail(row: Json): Json {
+  const rooms = Array.isArray(row.rooms)
+    ? row.rooms.filter((r): r is Json => !!r && typeof r === "object")
+    : [];
+  return {
+    reservationID: row.reservationID ?? row.reservationId,
+    status: row.status,
+    dateCreated: row.dateCreated,
+    startDate: row.reservationCheckIn ?? row.startDate,
+    endDate: row.reservationCheckOut ?? row.endDate,
+    assigned: rooms.map((room) => ({
+      ...room,
+      startDate: room.startDate ?? room.roomCheckIn,
+      endDate: room.endDate ?? room.roomCheckOut,
+      dailyRates: roomDailyRates(room.detailedRoomRates),
+    })),
+  };
+}
+
+/**
+ * `{date: amount}` to `[{date, rate}]`, amounts passed through untouched. A
+ * night with a null or blank amount keeps its row and lands as an unknown
+ * rate, the way getReservation's own dailyRates do; coercing it here would
+ * turn it into a $0 night, which MAYA reads as a comp.
+ */
+function roomDailyRates(value: unknown): Json[] {
+  if (Array.isArray(value)) {
+    return value.filter((e): e is Json => !!e && typeof e === "object");
+  }
+  if (!value || typeof value !== "object") return [];
+  return Object.entries(value as Json)
+    .filter(([date]) => toYmd(date) !== null)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([date, rate]) => ({ date, rate }));
 }
 
 /**

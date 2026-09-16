@@ -12,6 +12,7 @@ import type { CloudbedsResolvedCredentials } from "./types.ts";
 import { acquire, record } from "../pms/rate-limit.ts";
 import {
   CLOUDBEDS_PAGE_SIZE,
+  CLOUDBEDS_RATE_DETAILS_PAGE_SIZE,
 } from "./constants.ts";
 
 type JsonRecord = Record<string, unknown>;
@@ -402,6 +403,58 @@ export async function cloudbedsGetReservationsRange(
   }
 
   return { reservations: all, pages };
+}
+
+export type CloudbedsRateDetailsQuery = {
+  /** Only bookings checking out on or after this date (YYYY-MM-DD). */
+  checkOutFrom: string;
+  /** Upper check-out bound. Omit for everything from `checkOutFrom` on. */
+  checkOutTo?: string;
+  /** Only bookings touched since this (cloudbedsTimestamp format). */
+  modifiedFrom?: string;
+};
+
+/**
+ * One page of getReservationsWithRateDetails: whole bookings with every room,
+ * each room's own per-night rates, room type, party size, status and
+ * cancellation date. One call replaces a getReservation per booking.
+ *
+ * The filters it is given are the only ones it honours. Verified against the
+ * sandbox 2026-09-16: `status` and every check-in filter are silently ignored,
+ * so asking for them looks like it works while returning the whole book,
+ * canceled and no-show bookings included. Check-out, booking date and
+ * modifiedFrom are honoured. Callers filter by check-out here and apply any
+ * check-in bound themselves.
+ *
+ * includeGuestsDetails is never sent. Without it guest name and id still come
+ * back and redaction drops them; with it the payload adds emails, phone
+ * numbers and identity documents, which MAYA has no use for and must never
+ * hold even in memory.
+ */
+export async function cloudbedsGetReservationsWithRateDetailsPage(
+  creds: CloudbedsResolvedCredentials,
+  query: CloudbedsRateDetailsQuery,
+  pageNumber: number,
+): Promise<{ reservations: CloudbedsReservation[]; hasMore: boolean; total: number | null }> {
+  const res = await cloudbedsGet(creds, "getReservationsWithRateDetails", {
+    propertyID: creds.propertyId,
+    reservationCheckOutFrom: query.checkOutFrom,
+    reservationCheckOutTo: query.checkOutTo,
+    modifiedFrom: query.modifiedFrom,
+    pageNumber,
+    pageSize: CLOUDBEDS_RATE_DETAILS_PAGE_SIZE,
+  });
+  const data = res.data;
+  const chunk = Array.isArray(data) ? (data as CloudbedsReservation[]) : [];
+  const total =
+    typeof res.total === "number"
+      ? res.total
+      : typeof res.total === "string" && Number.isFinite(Number(res.total))
+        ? Number(res.total)
+        : null;
+  let hasMore = chunk.length >= CLOUDBEDS_RATE_DETAILS_PAGE_SIZE;
+  if (total != null && pageNumber * CLOUDBEDS_RATE_DETAILS_PAGE_SIZE >= total) hasMore = false;
+  return { reservations: chunk, hasMore, total };
 }
 
 /** getReservation detail (per-night / per-room rates). ⚠ VERIFY response shape. */
