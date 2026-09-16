@@ -155,6 +155,23 @@ Going back to test mode is the same three variables, the other way.
   call (verify in the sandbox; `saved_payment_method_options` may be needed).
   Flow B still cannot do groups at all: a group login there is refused with a
   plain message asking them to reply to their receipt.
+- **"Not now" for a sibling.** A group owner who only wants some of the
+  properties live can click "Not now — set this property up later" under the
+  pay button on the Marketplace subscribe screen. That stamps
+  `hotels.setup_deferred_at/_by` (`POST /api/onboarding/defer`,
+  `99_supabase_migration_setup_deferred_v1.sql`), `listUnpaidMarketplaceHotels`
+  leaves the property out, and `/onboarding` moves on to the next sibling or
+  into the product. The property stays parked exactly as it was: connection
+  `pending`, no import, no charge. The count on screen keeps the group's total
+  and treats the deferred one as done-for-now ("Property 2 of 3" after skipping
+  the first). The way back is Billing, where "Properties not set up yet" lists
+  each deferred property with a "Set up" button (`DELETE /api/onboarding/defer`)
+  that clears the flag and lands on `/onboarding`, which offers it again. Both
+  directions write a `pms.marketplace_deferred` / `pms.marketplace_resumed`
+  audit event. The link is not offered on the last parked property when nothing
+  is live — there would be nowhere to go — and never for Flow B. Deployed ahead
+  of its migration, the route answers 503 "This needs a database update first."
+  and the queue behaves as before.
 - **The pre-payment name lookup** is the only Cloudbeds call made for an unpaid
   property. If that is ever too much, the callback could skip
   `getHotelDetails` and name the hotel on activation instead.

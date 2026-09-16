@@ -2,6 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ManageBillingButton, RoomCountForm } from "@/components/billing/billing-actions";
+import { DeferredProperties, type DeferredPropertyItem } from "@/components/billing/deferred-properties";
 import {
   headlineFor,
   loadAccountBilling,
@@ -11,7 +12,9 @@ import {
 } from "@/lib/billing/account";
 import { hasHotelRank } from "@/lib/require-supabase-hotel";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
+import { listDeferredMarketplaceHotels } from "@/lib/billing/pending-hotel";
 import { formatUsd } from "@/lib/billing/tiers";
+import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -58,7 +61,10 @@ export default async function BillingPage() {
     );
   }
 
-  const billing = await loadAccountBilling(supabase, hotelId);
+  const [billing, deferred] = await Promise.all([
+    loadAccountBilling(supabase, hotelId),
+    deferredProperties(user.id),
+  ]);
   if (!billing) {
     return (
       <Shell>
@@ -66,6 +72,7 @@ export default async function BillingPage() {
           This property has no subscription — it was set up by hand rather than through checkout, so
           there is nothing to bill or manage here.
         </p>
+        <NotSetUpYet items={deferred} />
       </Shell>
     );
   }
@@ -139,14 +146,29 @@ export default async function BillingPage() {
             Your plan covers {billing.rooms} room{billing.rooms === 1 ? "" : "s"}. We check this
             against your property management system.
           </p>
-          {billing.notBilledFor.length > 0 && (
+          {billing.notBilledFor.some((s) => s.source === "heuristic") && (
             <p className="mt-2 max-w-2xl text-xs text-slate-400">
-              Not counted, because nobody sleeps in them:{" "}
+              Not counted, because they don&apos;t look like guest rooms:{" "}
               <span className="text-slate-300">
-                {billing.notBilledFor.map((s) => s.name).join(", ")}
+                {billing.notBilledFor.filter((s) => s.source === "heuristic").map((s) => s.name).join(", ")}
               </span>
-              . Your PMS lists these as bookable, so your own room count may look higher than your
-              bill. If one of them really is a guest room, tell us and we&apos;ll include it.
+              . That&apos;s our guess from the name. If one of them is a guest room, tick it under PMS
+              &gt; Room types and it joins the count.
+            </p>
+          )}
+          {billing.notBilledFor.some((s) => s.source === "owner") && (
+            <p className="mt-2 max-w-2xl text-xs text-slate-400">
+              You&apos;ve marked these as not rooms:{" "}
+              <span className="text-slate-300">
+                {billing.notBilledFor.filter((s) => s.source === "owner").map((s) => s.name).join(", ")}
+              </span>
+              . Change that under PMS &gt; Room types if it&apos;s wrong.
+            </p>
+          )}
+          {billing.allRoomTypesExcluded && (
+            <p className="mt-2 max-w-2xl text-xs text-amber-300">
+              Every room type is marked as not a room, so we can&apos;t measure your count. Tick the
+              ones guests sleep in under PMS &gt; Room types.
             </p>
           )}
           {billing.roomTruth.kind !== "unknown" && billing.roomTruth.kind !== "ok" && (
@@ -166,7 +188,46 @@ export default async function BillingPage() {
           </div>
         </section>
       )}
+
+      <NotSetUpYet items={deferred} />
     </Shell>
+  );
+}
+
+/**
+ * The owner's Marketplace properties they said "not now" to on /onboarding.
+ * Per owner rather than per property, which is why it reads on the admin
+ * client like the queue it mirrors. Any failure reads as "none": this page is
+ * about the live property's bill, and a list that could not be read must not
+ * take that down with it.
+ */
+async function deferredProperties(userId: string): Promise<DeferredPropertyItem[]> {
+  if (!isAdminConfigured()) return [];
+  try {
+    const rows = await listDeferredMarketplaceHotels(createAdminClient(), userId);
+    return rows.map((r) => ({
+      hotelId: r.hotelId,
+      name: r.propertyName ?? r.name,
+      deferredOn: longDate(r.deferredAt),
+    }));
+  } catch (e) {
+    console.error(
+      JSON.stringify({ fn: "billing/deferredProperties", error: e instanceof Error ? e.message : String(e) }),
+    );
+    return [];
+  }
+}
+
+/** Shown only when something was set aside; an empty list is no section at all. */
+function NotSetUpYet({ items }: { items: DeferredPropertyItem[] }) {
+  if (items.length === 0) return null;
+  return (
+    <section className="rounded border border-slate-800 bg-slate-900">
+      <h2 className="border-b border-slate-800 px-4 py-3 text-sm font-semibold text-slate-200">
+        Properties not set up yet
+      </h2>
+      <DeferredProperties items={items} />
+    </section>
   );
 }
 

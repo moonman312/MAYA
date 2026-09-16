@@ -38,6 +38,7 @@ function client() {
     const eqs: [string, unknown][] = [];
     const sortBy: string[] = [];
     let notNullCol: string | null = null;
+    let nullCol: string | null = null;
     let ins: [string, unknown[]] | null = null;
     let mode: "select" | "update" | "insert" | "upsert" = "select";
     let patch: Row | null = null;
@@ -47,7 +48,8 @@ function client() {
         (r) =>
           eqs.every(([c, v]) => r[c] === v) &&
           (!ins || ins[1].includes(r[ins[0]])) &&
-          (!notNullCol || r[notNullCol] != null),
+          (!notNullCol || r[notNullCol] != null) &&
+          (!nullCol || r[nullCol] == null),
       );
     const exec = (): Row[] => {
       if (mode === "update") {
@@ -87,6 +89,11 @@ function client() {
       },
       not: (col: string) => {
         notNullCol = col;
+        return api;
+      },
+      // Only `.is(col, null)` is used (the deferred-sibling filter).
+      is: (col: string) => {
+        nullCol = col;
         return api;
       },
       limit: () => api,

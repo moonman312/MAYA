@@ -9,16 +9,20 @@
  * checkout, the subscribe page and the return route each read this separately
  * and must all name the same "next".
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 type Row = Record<string, unknown>;
 
 /** Just the read shapes pending-hotel.ts uses, with order() honoured. */
-function fakeAdmin(seed: Record<string, Row[]>, opts: { noGroupKey?: boolean } = {}) {
+function fakeAdmin(
+  seed: Record<string, Row[]>,
+  opts: { noGroupKey?: boolean; noDeferredColumn?: boolean } = {},
+) {
   const tables = new Map(Object.entries(seed).map(([k, v]) => [k, v.map((r) => ({ ...r }))]));
   const orders: string[] = [];
   const builder = (table: string) => {
     const filters: ((r: Row) => boolean)[] = [];
+    const filterCols: string[] = [];
     const sortBy: string[] = [];
     let cap: number | null = null;
     let columns = "";
@@ -39,6 +43,11 @@ function fakeAdmin(seed: Record<string, Row[]>, opts: { noGroupKey?: boolean } =
         filters.push((r) => r[col] != null);
         return api;
       },
+      is(col: string) {
+        filterCols.push(col);
+        filters.push((r) => r[col] == null);
+        return api;
+      },
       order(col: string) {
         sortBy.push(col);
         orders.push(`${table}.${col}`);
@@ -50,6 +59,16 @@ function fakeAdmin(seed: Record<string, Row[]>, opts: { noGroupKey?: boolean } =
       },
       maybeSingle: async () => ({ data: run()[0] ?? null, error: null }),
       then(resolve: (v: unknown) => void) {
+        if (
+          opts.noDeferredColumn &&
+          table === "hotels" &&
+          (columns.includes("setup_deferred_at") || filterCols.includes("setup_deferred_at"))
+        ) {
+          return Promise.resolve({
+            data: null,
+            error: { code: "42703", message: "column hotels.setup_deferred_at does not exist" },
+          }).then(resolve);
+        }
         if (opts.noGroupKey && table === "pms_marketplace_claims" && columns.includes("group_key")) {
           return Promise.resolve({
             data: null,
@@ -78,7 +97,8 @@ function fakeAdmin(seed: Record<string, Row[]>, opts: { noGroupKey?: boolean } =
   return { client: { from: builder } as any, orders };
 }
 
-const { findPendingHotelForUser, listUnpaidMarketplaceHotels } = await import("./pending-hotel");
+const { findPendingHotelForUser, listDeferredMarketplaceHotels, listUnpaidMarketplaceHotels } =
+  await import("./pending-hotel");
 
 const USER = "user-1";
 const member = (hotelId: string) => ({ hotel_id: hotelId, user_id: USER, status: "active" });
@@ -87,7 +107,14 @@ const parked = (id: string, name: string, createdAt: string) => ({
   name,
   is_active: false,
   setup_pending_at: "2026-09-10T14:08:00Z",
+  setup_deferred_at: null,
   created_at: createdAt,
+});
+const DEFERRED_AT = "2026-09-16T09:00:00Z";
+const deferred = (id: string, name: string, createdAt: string) => ({
+  ...parked(id, name, createdAt),
+  setup_deferred_at: DEFERRED_AT,
+  setup_deferred_by: USER,
 });
 const claim = (hotelId: string, propertyName: string | null, groupKey: string | null = "grp-1") => ({
   token: `tok-${hotelId}`,
@@ -207,6 +234,42 @@ describe("listUnpaidMarketplaceHotels", () => {
     expect(unpaid[0]).toMatchObject({ hotelId: "h-1", groupKey: null });
   });
 
+  it("leaves out a property the owner said 'not now' to, and keeps counting the rest", async () => {
+    const { client } = fakeAdmin({
+      hotel_memberships: [member("h-a"), member("h-b"), member("h-c")],
+      hotels: [
+        parked("h-a", "Sea View Inn", "2026-09-10T14:08:00Z"),
+        deferred("h-b", "Bay Lodge", "2026-09-10T14:08:01Z"),
+        parked("h-c", "Cliff House", "2026-09-10T14:08:02Z"),
+      ],
+      pms_marketplace_claims: [claim("h-a", null), claim("h-b", null), claim("h-c", null)],
+    });
+    const unpaid = await listUnpaidMarketplaceHotels(client, USER);
+    expect(unpaid.map((u) => u.hotelId)).toEqual(["h-a", "h-c"]);
+    // The public shape does not grow a deferredAt: nothing in it is deferred.
+    expect(Object.keys(unpaid[0]).sort()).toEqual(["groupKey", "hotelId", "name", "pmsType", "propertyName"]);
+  });
+
+  it("offers every parked sibling, loudly, when the setup_deferred_at column has not been migrated", async () => {
+    const { client } = fakeAdmin(
+      {
+        hotel_memberships: [member("h-a"), member("h-b")],
+        hotels: [
+          parked("h-a", "Sea View Inn", "2026-09-10T14:08:00Z"),
+          parked("h-b", "Bay Lodge", "2026-09-10T14:08:01Z"),
+        ],
+        pms_marketplace_claims: [claim("h-a", null), claim("h-b", null)],
+      },
+      { noDeferredColumn: true },
+    );
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const unpaid = await listUnpaidMarketplaceHotels(client, USER);
+    expect(unpaid.map((u) => u.hotelId)).toEqual(["h-a", "h-b"]);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(String(errorSpy.mock.calls[0][0])).toContain("setup_deferred_v1");
+    errorSpy.mockRestore();
+  });
+
   it("throws rather than answering 'nothing owed' when a read fails", async () => {
     const broken = {
       from: () => ({
@@ -219,6 +282,60 @@ describe("listUnpaidMarketplaceHotels", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any;
     await expect(listUnpaidMarketplaceHotels(broken, USER)).rejects.toThrow("permission denied");
+  });
+});
+
+describe("listDeferredMarketplaceHotels", () => {
+  it("lists what was deferred, with when, and leaves the live queue alone", async () => {
+    const { client } = fakeAdmin({
+      hotel_memberships: [member("h-a"), member("h-b"), member("h-c"), member("h-paid")],
+      hotels: [
+        parked("h-a", "Sea View Inn", "2026-09-10T14:08:00Z"),
+        deferred("h-b", "Bay Lodge", "2026-09-10T14:08:01Z"),
+        deferred("h-c", "Cliff House", "2026-09-10T14:08:02Z"),
+        // Deferred and then paid for by some other path: not owed, not listed.
+        deferred("h-paid", "Paid", "2026-09-10T14:08:03Z"),
+      ],
+      pms_marketplace_claims: [claim("h-a", null), claim("h-b", "Bay Lodge"), claim("h-c", null), claim("h-paid", null)],
+      hotel_subscriptions: [{ hotel_id: "h-paid", status: "active" }],
+    });
+    const list = await listDeferredMarketplaceHotels(client, USER);
+    expect(list.map((d) => d.hotelId)).toEqual(["h-b", "h-c"]);
+    expect(list[0]).toEqual({
+      hotelId: "h-b",
+      name: "Bay Lodge",
+      propertyName: "Bay Lodge",
+      pmsType: "cloudbeds",
+      groupKey: "grp-1",
+      deferredAt: DEFERRED_AT,
+    });
+  });
+
+  it("ignores Flow B's placeholder and an unredeemed ticket, same as the unpaid list", async () => {
+    const { client } = fakeAdmin({
+      hotel_memberships: [member("h-flow-b"), member("h-ticket")],
+      hotels: [
+        deferred("h-flow-b", "Pending setup 1a2b3c4d", "2026-09-10T14:08:00Z"),
+        deferred("h-ticket", "Sea View Inn", "2026-09-10T14:08:01Z"),
+      ],
+      pms_marketplace_claims: [{ ...claim("h-ticket", null), claimed_by: null, claimed_at: null }],
+    });
+    await expect(listDeferredMarketplaceHotels(client, USER)).resolves.toEqual([]);
+  });
+
+  it("answers empty, loudly, before the column exists", async () => {
+    const { client } = fakeAdmin(
+      {
+        hotel_memberships: [member("h-a")],
+        hotels: [parked("h-a", "Sea View Inn", "2026-09-10T14:08:00Z")],
+        pms_marketplace_claims: [claim("h-a", null)],
+      },
+      { noDeferredColumn: true },
+    );
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(listDeferredMarketplaceHotels(client, USER)).resolves.toEqual([]);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    errorSpy.mockRestore();
   });
 });
 
@@ -247,5 +364,33 @@ describe("findPendingHotelForUser", () => {
       hotel_subscriptions: [{ hotel_id: "h-new", status: "active" }],
     });
     await expect(findPendingHotelForUser(client, USER)).resolves.toBe("h-new");
+  });
+
+  it("never adopts a property the owner said 'not now' to", async () => {
+    // Once every Marketplace sibling is deferred this is the only parked row
+    // left; handing it to Flow B's checkout would pay for it down the wrong
+    // path. Nothing pending is the honest answer.
+    const { client } = fakeAdmin({
+      hotel_memberships: [member("h-deferred"), member("h-live")],
+      hotels: [
+        deferred("h-deferred", "Parked", "2026-09-10T14:08:00Z"),
+        { id: "h-live", name: "Live", is_active: true, setup_pending_at: null, created_at: "2026-09-01T00:00:00Z" },
+      ],
+    });
+    await expect(findPendingHotelForUser(client, USER)).resolves.toBeNull();
+  });
+
+  it("falls back to every parked row, loudly, before the setup_deferred column exists", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { client } = fakeAdmin(
+      {
+        hotel_memberships: [member("h-1")],
+        hotels: [parked("h-1", "Only", "2026-09-10T14:08:00Z")],
+      },
+      { noDeferredColumn: true },
+    );
+    await expect(findPendingHotelForUser(client, USER)).resolves.toBe("h-1");
+    expect(String(errorSpy.mock.calls[0]?.[0])).toContain("setup_deferred_v1");
+    errorSpy.mockRestore();
   });
 });

@@ -2,6 +2,7 @@ import { PathChoice } from "@/components/onboarding/path-choice";
 import { SubscribeStep, type SubscribePmsOption } from "@/components/onboarding/subscribe-step";
 import { listUnpaidMarketplaceHotels } from "@/lib/billing/pending-hotel";
 import { listPmsSignupGates } from "@/lib/billing/pms-gates";
+import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { resolveOnboardingStep } from "@/lib/onboarding/step";
 import { marketplaceTrialDays } from "@/lib/pms/marketplace-activate";
 import { listPmsStatuses } from "@/lib/pms/registry";
@@ -46,6 +47,7 @@ export default async function OnboardingPage({
         lockPms
         hotelId={marketplace.hotelId}
         progress={progress}
+        deferrable={marketplace.deferrable}
         pmsOptions={[
           { type: marketplace.pmsType, displayName: marketplace.displayName, requiresSignupCode: false },
         ]}
@@ -72,7 +74,10 @@ export default async function OnboardingPage({
  *
  * A group grant parks several; the oldest unpaid one is next, and the screen
  * says where in the group it sits so paying three times in a row does not feel
- * like the same screen refusing to go away.
+ * like the same screen refusing to go away. One the owner has said "not now" to
+ * is out of the queue (listUnpaidMarketplaceHotels leaves it out) but still in
+ * the group's total, so it counts as done-for-now: "Property 2 of 3" after
+ * skipping the first, not a jump to "1 of 2".
  */
 async function marketplaceArrival(supabase: SupabaseClient): Promise<{
   hotelId: string;
@@ -81,6 +86,8 @@ async function marketplaceArrival(supabase: SupabaseClient): Promise<{
   propertyName: string | null;
   trialDays: number;
   progress?: { index: number; total: number };
+  /** Whether "Not now" is offered: there has to be somewhere else to go. */
+  deferrable: boolean;
 } | null> {
   try {
     const {
@@ -105,9 +112,15 @@ async function marketplaceArrival(supabase: SupabaseClient): Promise<{
         .eq("claimed_by", userId)
         .not("claimed_at", "is", null);
       const total = count ?? 0;
+      // Deferred siblings are not in `unpaid`, so they land on the done side.
       const left = unpaid.filter((u) => u.groupKey === next.groupKey).length;
       if (total > 1) progress = { index: total - left + 1, total };
     }
+
+    // "Not now" on the LAST parked property with nothing live would strand
+    // the owner on the ordinary subscribe screen with nothing to set up, so it
+    // is only offered while another sibling is waiting or a property is live.
+    const deferrable = unpaid.length > 1 || (await resolveAccessibleHotelId(supabase)) != null;
 
     const pms = listPmsStatuses().find((p) => p.type === next.pmsType);
     return {
@@ -117,6 +130,7 @@ async function marketplaceArrival(supabase: SupabaseClient): Promise<{
       propertyName: next.propertyName ?? next.name ?? null,
       trialDays: marketplaceTrialDays(),
       progress,
+      deferrable,
     };
   } catch (e) {
     // Falls back to the ordinary screen: they can still pay, they just get

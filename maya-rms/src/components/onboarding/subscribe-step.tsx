@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { checkoutQuote, type CodeDisplayEffect } from "@/lib/billing/quote";
 import {
@@ -49,6 +50,7 @@ export function SubscribeStep({
   submitLabel = "Continue to payment",
   hotelId,
   progress,
+  deferrable = false,
 }: {
   cancelled?: boolean;
   pmsOptions?: SubscribePmsOption[];
@@ -66,7 +68,13 @@ export function SubscribeStep({
   hotelId?: string;
   /** Where this property sits in its group — "Property 2 of 3". */
   progress?: { index: number; total: number };
+  /**
+   * Offer "Not now": a Marketplace sibling the owner can park and come back to
+   * from Billing. Never for Flow B, whose placeholder has nowhere to go back to.
+   */
+  deferrable?: boolean;
 }) {
+  const router = useRouter();
   const [roomsText, setRoomsText] = useState(initialRooms ? String(initialRooms) : "");
   const [interval, setInterval] = useState<BillingInterval>(initialInterval ?? "month");
   const [pmsType, setPmsType] = useState<string | null>(
@@ -81,6 +89,7 @@ export function SubscribeStep({
   >({ status: "idle" });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deferring, setDeferring] = useState(false);
 
   // Landing back here via the browser's back button restores this component
   // from the bfcache mid-"Taking you to checkout…", with the pay button
@@ -204,6 +213,30 @@ export function SubscribeStep({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't start checkout.");
       setSubmitting(false);
+    }
+  }
+
+  async function deferProperty() {
+    if (!hotelId) return;
+    setDeferring(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/onboarding/defer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hotelId }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Couldn't set that aside just now.");
+      }
+      // /onboarding re-resolves the queue: the next sibling, or the product.
+      // replace() also drops a stale ?checkout=cancelled from the URL.
+      router.replace("/onboarding");
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't set that aside just now.");
+      setDeferring(false);
     }
   }
 
@@ -392,8 +425,45 @@ export function SubscribeStep({
             {submitting ? "Taking you to checkout…" : submitLabel}
           </button>
           <p className="mt-2 text-[11px] text-slate-600">{footnote}</p>
+          {hotelId && deferrable ? (
+            <p className="mt-4 flex items-center gap-2 text-xs text-slate-500">
+              <button
+                type="button"
+                onClick={() => void deferProperty()}
+                disabled={deferring || submitting}
+                className="cursor-pointer underline decoration-slate-700 underline-offset-2 transition-colors hover:text-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deferring ? "Setting it aside…" : "Not now — set this property up later"}
+              </button>
+              <NotNowHelp />
+            </p>
+          ) : null}
         </div>
       </form>
     </div>
+  );
+}
+
+/**
+ * Hover/focus "?" beside the Not now link. One sentence, but it is reassurance
+ * rather than instruction, so it stays off the screen until asked for.
+ */
+function NotNowHelp() {
+  return (
+    <span className="group relative inline-flex">
+      <button
+        type="button"
+        aria-label="What happens if you set this property up later"
+        className="flex size-4 cursor-help items-center justify-center rounded-full border border-slate-700 text-[10px] font-semibold leading-none text-slate-500 transition-colors hover:border-slate-500 hover:text-slate-300 focus-visible:border-sky-400 focus-visible:text-sky-200 focus-visible:outline-none"
+      >
+        ?
+      </button>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute left-1/2 top-6 z-20 hidden w-56 -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-950 p-3 text-left text-xs leading-snug text-slate-400 shadow-xl group-focus-within:block group-hover:block"
+      >
+        You can come back to it from Billing any time.
+      </span>
+    </span>
   );
 }

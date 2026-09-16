@@ -52,15 +52,27 @@ export async function findPendingHotelForUser(
   // Ordered so two callers looking at the same pair of rows name the same one:
   // a group grant parks several at once, and ids[0] off an unordered read could
   // send checkout and the connect callback to different hotels.
-  const { data: pending, error: pendingErr } = await client
-    .from("hotels")
-    .select("id")
-    .in(
-      "id",
-      memberships.map((m) => String(m.hotel_id)),
-    )
-    .not("setup_pending_at", "is", null)
-    .order("created_at", { ascending: true });
+  //
+  // A property the owner said "not now" to is skipped: otherwise, once every
+  // sibling is deferred, Flow B's step resolver adopts the deferred one as its
+  // placeholder and its checkout pays for it through the wrong path. Ahead of
+  // the setup_deferred migration the filter cannot be applied, so the read
+  // falls back to every parked row, loudly.
+  const memberIds = memberships.map((m) => String(m.hotel_id));
+  const parked = () =>
+    client.from("hotels").select("id").in("id", memberIds).not("setup_pending_at", "is", null);
+  let pendingRes = await parked().is("setup_deferred_at", null).order("created_at", { ascending: true });
+  if (pendingRes.error && isMissingColumn(pendingRes.error, "setup_deferred_at")) {
+    console.error(
+      JSON.stringify({
+        fn: "findPendingHotelForUser",
+        warning: "hotels.setup_deferred_at is missing — run 99_supabase_migration_setup_deferred_v1.sql",
+        fallback: "a deferred property can be adopted as Flow B's placeholder until it lands",
+      }),
+    );
+    pendingRes = await parked().order("created_at", { ascending: true });
+  }
+  const { data: pending, error: pendingErr } = pendingRes;
   if (pendingErr) throw new Error(`Could not read pending properties: ${pendingErr.message}`);
   if (!pending?.length) return null;
   if (pending.length === 1) return String(pending[0].id);
@@ -91,6 +103,11 @@ export type UnpaidMarketplaceHotel = {
   groupKey: string | null;
 };
 
+export type DeferredMarketplaceHotel = UnpaidMarketplaceHotel & {
+  /** When the owner said "not now". */
+  deferredAt: string;
+};
+
 /**
  * The caller's Marketplace properties that are owned but not yet paid for,
  * oldest first (then by name).
@@ -98,8 +115,10 @@ export type UnpaidMarketplaceHotel = {
  * A group grant parks one hotel per property and the claim hands the owner all
  * of them at once, but a subscription is per hotel, so they are paid for one
  * at a time. This is the queue: what a redeemed claim points at, still parked,
- * with no live subscription. The claim row is what separates these from Flow
- * B's placeholder, which has the same shape and must be left to the PMS connect.
+ * with no live subscription, and not one the owner has said "not now" to —
+ * those sit in listDeferredMarketplaceHotels until they are set up from the
+ * billing page. The claim row is what separates these from Flow B's
+ * placeholder, which has the same shape and must be left to the PMS connect.
  *
  * Service-role client: pms_marketplace_claims is not readable by members.
  */
@@ -107,6 +126,49 @@ export async function listUnpaidMarketplaceHotels(
   admin: SupabaseClient,
   userId: string,
 ): Promise<UnpaidMarketplaceHotel[]> {
+  const rows = await listParkedMarketplaceHotels(admin, userId, "unpaid");
+  return rows.map(({ hotelId, name, propertyName, pmsType, groupKey }) => ({
+    hotelId,
+    name,
+    propertyName,
+    pmsType,
+    groupKey,
+  }));
+}
+
+/**
+ * The parked Marketplace properties the owner has said "not now" to. Same
+ * queue as listUnpaidMarketplaceHotels, other side of the flag; the billing
+ * page lists these with a "Set up" that clears it.
+ */
+export async function listDeferredMarketplaceHotels(
+  admin: SupabaseClient,
+  userId: string,
+): Promise<DeferredMarketplaceHotel[]> {
+  const rows = await listParkedMarketplaceHotels(admin, userId, "deferred");
+  return rows.flatMap((r) => (r.deferredAt ? [{ ...r, deferredAt: r.deferredAt }] : []));
+}
+
+type ParkedRow = { id: unknown; name?: unknown; created_at?: unknown; setup_deferred_at?: unknown };
+
+/** PostgREST's "column does not exist" — the column's migration has not run here. */
+function isMissingColumn(error: { code?: string; message?: string } | null, column: string): boolean {
+  if (!error) return false;
+  return error.code === "42703" || (error.message ?? "").includes(column);
+}
+
+/**
+ * The owner's parked Marketplace hotels, split by the "not now" flag. Filtering
+ * on setup_deferred_at needs the column to exist, and this code can be running
+ * before its migration has: in that case the unpaid list falls back to every
+ * parked sibling (what it always was) and the deferred list is empty, with a
+ * loud log either way, rather than failing the page that asked.
+ */
+async function listParkedMarketplaceHotels(
+  admin: SupabaseClient,
+  userId: string,
+  which: "unpaid" | "deferred",
+): Promise<(UnpaidMarketplaceHotel & { deferredAt: string | null })[]> {
   const { data: memberships, error: membershipErr } = await admin
     .from("hotel_memberships")
     .select("hotel_id")
@@ -114,20 +176,39 @@ export async function listUnpaidMarketplaceHotels(
     .eq("status", "active");
   if (membershipErr) throw new Error(`Could not read memberships: ${membershipErr.message}`);
   if (!memberships?.length) return [];
+  const memberIds = memberships.map((m) => String(m.hotel_id));
 
-  const { data: hotels, error: hotelsErr } = await admin
-    .from("hotels")
-    .select("id, name, created_at")
-    .in(
-      "id",
-      memberships.map((m) => String(m.hotel_id)),
-    )
-    .not("setup_pending_at", "is", null)
-    .eq("is_active", false)
+  const parked = (columns: string) =>
+    admin
+      .from("hotels")
+      .select(columns)
+      .in("id", memberIds)
+      .not("setup_pending_at", "is", null)
+      .eq("is_active", false);
+  const byFlag = parked("id, name, created_at, setup_deferred_at");
+  let flagged = await (which === "unpaid"
+    ? byFlag.is("setup_deferred_at", null)
+    : byFlag.not("setup_deferred_at", "is", null)
+  )
     .order("created_at", { ascending: true })
     .order("name", { ascending: true });
-  if (hotelsErr) throw new Error(`Could not read pending properties: ${hotelsErr.message}`);
-  if (!hotels?.length) return [];
+  if (flagged.error && isMissingColumn(flagged.error, "setup_deferred_at")) {
+    console.error(
+      JSON.stringify({
+        fn: "listParkedMarketplaceHotels",
+        which,
+        warning: "hotels.setup_deferred_at is missing — run 99_supabase_migration_setup_deferred_v1.sql",
+        fallback: which === "unpaid" ? "offering every parked sibling" : "no deferred properties",
+      }),
+    );
+    if (which === "deferred") return [];
+    flagged = await parked("id, name, created_at")
+      .order("created_at", { ascending: true })
+      .order("name", { ascending: true });
+  }
+  if (flagged.error) throw new Error(`Could not read pending properties: ${flagged.error.message}`);
+  const hotels = (flagged.data ?? []) as unknown as ParkedRow[];
+  if (!hotels.length) return [];
   const hotelIds = hotels.map((h) => String(h.id));
 
   // group_key arrives in its own migration and selecting a column that does not
@@ -167,7 +248,7 @@ export async function listUnpaidMarketplaceHotels(
 
   // Sorted here as well as in the query so the contract holds whatever the
   // client underneath does with order().
-  const byAge = (a: { created_at?: unknown; name?: unknown }, b: { created_at?: unknown; name?: unknown }) =>
+  const byAge = (a: ParkedRow, b: ParkedRow) =>
     String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")) ||
     String(a.name ?? "").localeCompare(String(b.name ?? ""));
 
@@ -184,6 +265,7 @@ export async function listUnpaidMarketplaceHotels(
           propertyName: claim.property_name == null ? null : String(claim.property_name),
           pmsType: String(claim.pms_type),
           groupKey: claim.group_key == null ? null : String(claim.group_key),
+          deferredAt: h.setup_deferred_at == null ? null : String(h.setup_deferred_at),
         },
       ];
     });
