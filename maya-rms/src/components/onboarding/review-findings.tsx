@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useTrackOnce } from "@/lib/analytics/track";
+import { TERMS_URL, TERMS_VERSION } from "@/lib/legal/versions";
 import {
   useOnboardingStatus,
   type OnboardingStatus,
@@ -303,7 +304,13 @@ function StarterRules({ status }: { status: OnboardingStatus | null }) {
     setGoing(true);
     setError(null);
     try {
-      const res = await fetch("/api/onboarding/activate", { method: "POST" });
+      // The version of the Terms whose 3.3 the line under the button cites, kept
+      // with the go-live record.
+      const res = await fetch("/api/onboarding/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ termsVersion: TERMS_VERSION }),
+      });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error ?? "Couldn't switch to live — try again.");
@@ -358,8 +365,33 @@ function StarterRules({ status }: { status: OnboardingStatus | null }) {
           </span>
         )}
       </div>
+      {inSimulation ? <GoLiveConfirmation /> : null}
       {error ? <p className="mt-2 text-xs text-rose-300">{error}</p> : null}
     </div>
+  );
+}
+
+/**
+ * What pressing go-live means, said where it is pressed. Terms 3.3 treats that
+ * press as confirming the rules and limits were reviewed, so the confirmation
+ * is stated beside the button rather than left to Terms accepted weeks
+ * earlier, possibly by someone else. A line, not a checkbox: no extra click.
+ */
+export function GoLiveConfirmation() {
+  return (
+    <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+      Going live sends these rates to your PMS automatically. You&apos;re confirming you&apos;ve
+      reviewed your rules and limits (
+      <a
+        href={TERMS_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline decoration-slate-600 underline-offset-2 hover:text-slate-200"
+      >
+        Terms
+      </a>{" "}
+      3.3).
+    </p>
   );
 }
 
