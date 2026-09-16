@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { describeFinding } from "@/components/onboarding/review-findings";
+import { isCountingRoom, roomCountQuestion } from "@/components/room-type-settings";
 
 function finding(kind: string, payload: Record<string, unknown>) {
   return {
@@ -24,6 +25,15 @@ describe("describeFinding", () => {
     expect(c.acknowledgeOnly).toBe(true);
     expect(c.confirmLabel).toBe("Got it");
     expect(c.body).toMatch(/Nothing you have to do/);
+  });
+
+  it("describes what confirming a suspect room type really does — out of the count, still priceable", () => {
+    // Confirm writes counts_as_room = false; a rule that lists the type as
+    // affected keeps pricing it. Promising "excluded from pricing" was a lie.
+    const c = describeFinding(finding("suspect_room_type", { name: "Spa Slot", reasons: ["no beds"] }));
+    expect(c.body).toContain("occupancy, RevPAR and the room count");
+    expect(c.body).toContain("still be priced");
+    expect(c.body).not.toContain("excludes it from pricing");
   });
 
   it("leaves actionable kinds with confirm/dismiss pairs", () => {
@@ -75,5 +85,18 @@ describe("describeFinding", () => {
     expect(c.acknowledgeOnly).toBeUndefined();
     expect(c.confirmLabel).toBe("Confirm");
     expect(c.dismissLabel).toBe("Dismiss");
+  });
+});
+
+describe("the room-count strip", () => {
+  it("asks the question with the count, singular and plural", () => {
+    expect(roomCountQuestion(3)).toBe("We're counting 3 room types as rooms — anything here that isn't?");
+    expect(roomCountQuestion(1)).toBe("We're counting 1 room type as rooms — anything here that isn't?");
+  });
+
+  it("ticks everything the import didn't flag — null is ticked, only false is unticked", () => {
+    expect(isCountingRoom({ counts_as_room: null })).toBe(true);
+    expect(isCountingRoom({ counts_as_room: true })).toBe(true);
+    expect(isCountingRoom({ counts_as_room: false })).toBe(false);
   });
 });

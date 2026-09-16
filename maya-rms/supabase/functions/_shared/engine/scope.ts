@@ -14,9 +14,13 @@ export function ruleScopeMatches(
   stayDate: string,
   _evalTs: string,
   hotelTimeZone: string = "UTC",
+  opts: { requireSignals?: boolean } = {},
 ): boolean {
   if (!rule.is_active) return false;
-  if (rule.signal_room_type_ids.length === 0) return false;
+  // A rule whose signal set was emptied by the counts_as_room filter (not by
+  // deactivation) stays in scope so its metrics come back blocked and any
+  // live ladder effect is deactivated instead of frozen — see evaluate.ts.
+  if (rule.signal_room_type_ids.length === 0 && opts.requireSignals !== false) return false;
   if (rule.affected_room_type_ids.length === 0) return false;
 
   if (!dateWindowMatches(rule, stayDate)) return false;

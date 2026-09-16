@@ -178,7 +178,7 @@ describe("manual price rows", () => {
     );
     expect(entry.narrative).toHaveLength(2);
     expect(entry.narrative?.[0]).toBe("Jake Mooney set the base rate to $250.00.");
-    expect(entry.narrative?.[1]).toMatch(/^"Busy-day bump" kicked in because occupancy \(82%\) was above 70%, which raised the rate 10%, from \$250\.00 to \$275\.00\.$/);
+    expect(entry.narrative?.[1]).toMatch(/^"Busy-day bump" kicked in because sellable occupancy \(82%\) was above 70%, which raised the rate 10%, from \$250\.00 to \$275\.00\.$/);
     expect(entry.rule_name).toBe("Busy-day bump");
   });
 
@@ -311,7 +311,7 @@ describe("buildEntry", () => {
     expect(entry.occupancy_pct).toBe(82);
     expect(entry.stay_date).toBe("2026-08-01");
     expect(entry.narrative).toEqual([
-      '"Busy-day bump" kicked in because occupancy (82%) was above 70%, which raised the rate 10%, from $200.00 to $220.00.',
+      '"Busy-day bump" kicked in because sellable occupancy (82%) was above 70%, which raised the rate 10%, from $200.00 to $220.00.',
     ]);
     expect(entry.description).toBe(entry.narrative!.join(" "));
   });

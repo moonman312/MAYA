@@ -8,6 +8,7 @@
 import type { EngineRule } from "@/types/domain";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ruleConditionsMatch } from "./conditions";
+import { MIGRATIONS, isMissingColumnError } from "./snapshots";
 import type { LadderTransitionAction, RuleMetrics } from "./types";
 
 export type LadderPassResult = {
@@ -37,9 +38,59 @@ export type OverrideProbe = {
 };
 
 /**
+ * Does ladder_rule_state have the suppressed_at column yet? One cheap read
+ * per evaluateHotel run. Before 99_supabase_migration_manual_price_v1.sql
+ * the column is missing, and every read or write that names it fails with
+ * 42703 — which, left alone, either throws the run away (the effects read)
+ * or silently drops every activation (the upsert). Deploy order is not
+ * ours to control, so the run notices, logs one line naming the migration,
+ * and prices the way it did before manual overrides existed: every active
+ * effect applies.
+ *
+ * Any other failure is reported as supported. The real reads then throw on
+ * their own, which is the right outcome for an outage — see
+ * loadActiveLadderEffects.
+ */
+export async function probeSuppressionSupport(
+  supabase: SupabaseClient,
+  hotelId: string,
+): Promise<boolean> {
+  const { error } = await supabase.from("ladder_rule_state").select("suppressed_at").limit(1);
+  if (!error) return true;
+  if (isMissingColumnError(error)) {
+    console.error(
+      JSON.stringify({
+        fn: "evaluateHotel",
+        step: "probe_suppressed_at",
+        hotelId,
+        schema: "pre-migration",
+        message: `ladder_rule_state.suppressed_at does not exist yet; manual price overrides cannot suppress rule effects this run and every active ladder effect applies. Run ${MIGRATIONS.manualPrice}.`,
+        migration: MIGRATIONS.manualPrice,
+        error: error.message,
+      }),
+    );
+    return false;
+  }
+  console.error(
+    JSON.stringify({
+      fn: "evaluateHotel",
+      step: "probe_suppressed_at",
+      hotelId,
+      error: error.message,
+      assumedSupported: true,
+    }),
+  );
+  return true;
+}
+
+/**
  * Run the ladder pass for a single (rule, stay_date, affected_room_type).
  *
  * Returns the transition action taken.
+ *
+ * `supportsSuppression` is the answer from probeSuppressionSupport; false
+ * keeps suppressed_at out of every write so a pre-migration database
+ * accepts them.
  */
 export async function evaluateLadderTriple(
   supabase: SupabaseClient,
@@ -50,6 +101,7 @@ export async function evaluateLadderTriple(
   metrics: RuleMetrics,
   evalTs: string,
   override?: OverrideProbe,
+  supportsSuppression: boolean = true,
 ): Promise<LadderPassResult> {
   const matches = ruleConditionsMatch(rule, metrics);
 
@@ -71,7 +123,9 @@ export async function evaluateLadderTriple(
     // existing inactive row has a history: whatever held at the override was
     // already handled, so its re-activation is a fresh trigger.
     const suppressedAt =
-      !rowExists && override && (await override.heldAtOverride()) ? override.set_at : null;
+      supportsSuppression && !rowExists && override && (await override.heldAtOverride())
+        ? override.set_at
+        : null;
     await activateLadder(
       supabase,
       rule,
@@ -81,12 +135,22 @@ export async function evaluateLadderTriple(
       metrics,
       evalTs,
       suppressedAt,
+      supportsSuppression,
     );
   } else if (matches && wasActive) {
     await touchLadderState(supabase, rule.id, stayDate, affectedRoomTypeId, evalTs);
   } else if (!matches && wasActive) {
     transition = "deactivate";
-    await deactivateLadder(supabase, rule, hotelId, stayDate, affectedRoomTypeId, metrics, evalTs);
+    await deactivateLadder(
+      supabase,
+      rule,
+      hotelId,
+      stayDate,
+      affectedRoomTypeId,
+      metrics,
+      evalTs,
+      supportsSuppression,
+    );
   } else if (!matches && !wasActive && rowExists) {
     await touchLadderState(supabase, rule.id, stayDate, affectedRoomTypeId, evalTs);
   }
@@ -113,6 +177,7 @@ async function activateLadder(
   metrics: RuleMetrics,
   evalTs: string,
   suppressedAt: string | null,
+  supportsSuppression: boolean,
 ): Promise<void> {
   await supabase.from("ladder_transition_event").insert({
     hotel_id: hotelId,
@@ -142,7 +207,7 @@ async function activateLadder(
       // manual base, which is exactly what the override promises. The one
       // exception is a first-ever row whose condition already held when the
       // price was typed (see OverrideProbe).
-      suppressed_at: suppressedAt,
+      ...(supportsSuppression ? { suppressed_at: suppressedAt } : {}),
       last_evaluated_at: evalTs,
       action_kind: rule.action_type,
       action_direction: rule.action_direction,
@@ -160,6 +225,7 @@ async function deactivateLadder(
   roomTypeId: string,
   metrics: RuleMetrics,
   evalTs: string,
+  supportsSuppression: boolean,
 ): Promise<void> {
   await supabase.from("ladder_transition_event").insert({
     hotel_id: hotelId,
@@ -183,7 +249,7 @@ async function deactivateLadder(
       // Suppression belongs to the trigger that was already holding when
       // the override landed. Once that trigger ends, the next one is new
       // and applies on top of the manual base.
-      suppressed_at: null,
+      ...(supportsSuppression ? { suppressed_at: null } : {}),
       last_evaluated_at: evalTs,
     })
     .eq("rule_id", rule.id)

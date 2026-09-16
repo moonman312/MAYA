@@ -161,6 +161,45 @@ export function computeOccupancyReference(
   return { surgePct, peakPct };
 }
 
+/**
+ * Active room types that count as rooms (counts_as_room is not false).
+ * Before the migration that adds the column, the select fails and every
+ * active type counts, which is what starter rules always did. Logged, never
+ * thrown: onboarding must finish whichever of code or SQL deployed first.
+ */
+async function loadCountingRoomTypeIds(
+  supabase: SupabaseClient,
+  hotelId: string,
+): Promise<string[]> {
+  const withFlag = await supabase
+    .from("room_types")
+    .select("id, counts_as_room")
+    .eq("hotel_id", hotelId)
+    .eq("is_active", true);
+  if (!withFlag.error) {
+    return (withFlag.data ?? [])
+      .filter((rt) => rt.counts_as_room !== false)
+      .map((rt) => String(rt.id));
+  }
+  console.error(
+    JSON.stringify({
+      fn: "generateStarterRules",
+      step: "counts_as_room",
+      hotelId,
+      error: withFlag.error.message,
+      message:
+        "Could not read room_types.counts_as_room; every active room type joins the starter rules. " +
+        "If the column is missing, run 99_supabase_migration_room_type_counts_as_room_v1.sql.",
+    }),
+  );
+  const { data } = await supabase
+    .from("room_types")
+    .select("id")
+    .eq("hotel_id", hotelId)
+    .eq("is_active", true);
+  return (data ?? []).map((rt) => String(rt.id));
+}
+
 /** Create the rules for a hotel. Returns specs created, or [] if skipped. */
 export async function generateStarterRules(
   supabase: SupabaseClient,
@@ -173,16 +212,14 @@ export async function generateStarterRules(
     .eq("hotel_id", hotelId);
   if ((existingRules ?? 0) > 0) return [];
 
-  const [{ data: dailyRaw }, { data: roomTypes }] = await Promise.all([
+  const [{ data: dailyRaw }, roomTypes] = await Promise.all([
     supabase.rpc("onboarding_daily_room_nights", { p_hotel_id: hotelId }),
-    supabase
-      .from("room_types")
-      .select("id, total_rooms")
-      .eq("hotel_id", hotelId)
-      .eq("is_active", true),
+    loadCountingRoomTypeIds(supabase, hotelId),
   ]);
 
-  const allRoomTypeIds = (roomTypes ?? []).map((rt) => String(rt.id));
+  // Starter rules measure and price only what counts as a room. A court the
+  // heuristic (or the owner) flagged never joins either set.
+  const allRoomTypeIds = roomTypes;
   if (allRoomTypeIds.length === 0) return [];
 
   const today = new Date().toISOString().slice(0, 10);

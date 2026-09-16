@@ -81,26 +81,32 @@ export function clampPrice(
 /**
  * Load all active ladder effects for a (stay_date, room_type_id),
  * ordered by rule_id ascending (§10.2).
+ *
+ * `supportsSuppression` false means the run found no suppressed_at column
+ * (see probeSuppressionSupport in ladder.ts): the filter is skipped and
+ * every active effect applies, exactly as before manual overrides existed.
  */
 export async function loadActiveLadderEffects(
   supabase: SupabaseClient,
   stayDate: string,
   roomTypeId: string,
+  supportsSuppression: boolean = true,
 ): Promise<AdjustmentSpec[]> {
-  const { data, error } = await supabase
+  let q = supabase
     .from("ladder_rule_state")
     .select("rule_id, action_kind, action_direction, action_value")
     .eq("stay_date", stayDate)
     .eq("room_type_id", roomTypeId)
-    .eq("is_active", true)
-    // A row suppressed by a manual price override is still active (its
-    // condition holds and it must not re-fire on the same trigger) but no
-    // longer moves the price. Suppression lifts on the next transition.
-    .is("suppressed_at", null)
-    .order("rule_id", { ascending: true });
-  // Loud, not empty: a failed read here (say, the suppressed_at column not
-  // migrated yet) would otherwise price the whole horizon with no rules and
-  // push that to the PMS as a successful run.
+    .eq("is_active", true);
+  // A row suppressed by a manual price override is still active (its
+  // condition holds and it must not re-fire on the same trigger) but no
+  // longer moves the price. Suppression lifts on the next transition.
+  if (supportsSuppression) q = q.is("suppressed_at", null);
+  const { data, error } = await q.order("rule_id", { ascending: true });
+  // Loud, not empty: a failed read here would otherwise price the whole
+  // horizon with no rules and push that to the PMS as a successful run. The
+  // one failure we know how to handle, the column not being migrated yet,
+  // is caught by the probe before we get here; anything else is an outage.
   if (error) throw new Error(`Failed to load ladder effects: ${error.message}`);
 
   return (data ?? []).map((r) => ({
@@ -151,8 +157,14 @@ export async function assemblePrice(
   roomType: RoomTypeRow,
   basePrice: number,
   baseSource: BaseSource,
+  supportsSuppression: boolean = true,
 ): Promise<AssembledPrice> {
-  const ladderEffects = await loadActiveLadderEffects(supabase, stayDate, roomType.id);
+  const ladderEffects = await loadActiveLadderEffects(
+    supabase,
+    stayDate,
+    roomType.id,
+    supportsSuppression,
+  );
   const pickupEffects = await loadActivePickupEffects(supabase, hotelId, stayDate, roomType.id);
 
   const preClamp = applyAdjustments(basePrice, ladderEffects, pickupEffects);

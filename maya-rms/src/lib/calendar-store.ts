@@ -17,6 +17,7 @@ import {
 } from "@/lib/calendar-color";
 import { formatUtcMonthYear } from "@/lib/calendar-month-label";
 import { ROOM_TYPES } from "@/lib/demo-data";
+import { loadOutOfServiceRows, sellableUnitsFor, type OutOfServiceRow } from "@/lib/engine/snapshots";
 import { evalIsoToHotelDateString } from "@/lib/engine/timezone";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import type { CalendarDay, CalendarResponse, CalendarRoomType } from "@/types/domain";
@@ -299,6 +300,92 @@ function getCalendarDemo(year: number, month: number): CalendarResponse {
   };
 }
 
+/* ── Sellable capacity ────────────────────────────────────────── */
+
+type RoomTypeRow = {
+  id: string;
+  name: string;
+  total_rooms: number | null;
+  /** null = never classified; treated as a room, which is what it always was. */
+  counts_as_room: boolean | null;
+};
+
+/** A type counts unless someone (or the import heuristic) said it doesn't. */
+export function isCountingRoom(rt: { counts_as_room?: boolean | null } | undefined): boolean {
+  return rt?.counts_as_room !== false;
+}
+
+/**
+ * The RevPAR denominator: total_rooms summed over the types that count as
+ * rooms. Types flagged as non-rooms are out; an unclassified type is in.
+ */
+export function countingCapacity(
+  rows: ReadonlyArray<{ total_rooms: number; counts_as_room?: boolean | null }>,
+): number {
+  return rows.reduce((s, rt) => (isCountingRoom(rt) ? s + rt.total_rooms : s), 0);
+}
+
+/**
+ * Active room types with their flag. Before the classification migration the
+ * column does not exist and PostgREST says 42703; code can be deployed ahead
+ * of the migration, so fall back to the old read, treat every type as a room
+ * and say so in the logs rather than lose the calendar.
+ */
+async function loadRoomTypeRows(
+  supabase: SupabaseClient,
+  hotelId: string,
+): Promise<{ data: RoomTypeRow[] | null }> {
+  const { data, error } = await supabase
+    .from("room_types")
+    .select("id, name, total_rooms, counts_as_room")
+    .eq("hotel_id", hotelId)
+    .eq("is_active", true)
+    .order("name");
+  if (!error) return { data: (data ?? []) as RoomTypeRow[] };
+  if ((error as { code?: string }).code !== "42703") return { data: null };
+
+  console.warn(
+    JSON.stringify({
+      fn: "calendar-store",
+      step: "pre-migration",
+      hotelId,
+      message: "room_types.counts_as_room is missing — run the room classification migration. Treating every active type as a room.",
+    }),
+  );
+  const fallback = await supabase
+    .from("room_types")
+    .select("id, name, total_rooms")
+    .eq("hotel_id", hotelId)
+    .eq("is_active", true)
+    .order("name");
+  return {
+    data: fallback.data ? (fallback.data as Omit<RoomTypeRow, "counts_as_room">[]).map((r) => ({ ...r, counts_as_room: null })) : null,
+  };
+}
+
+/** See the Promise.all in getCalendarFromDb: never throws. */
+async function loadOutOfServiceForCalendar(
+  supabase: SupabaseClient,
+  hotelId: string,
+  startDate: string,
+  endDate: string,
+): Promise<OutOfServiceRow[]> {
+  try {
+    return await loadOutOfServiceRows(supabase, hotelId, startDate, endDate);
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "calendar-store",
+        step: "room_type_out_of_service",
+        hotelId,
+        error: e instanceof Error ? e.message : String(e),
+        degradedToEmpty: true,
+      }),
+    );
+    return [];
+  }
+}
+
 /* ── Supabase-backed calendar ─────────────────────────────────── */
 
 async function getCalendarFromDb(
@@ -325,18 +412,14 @@ async function getCalendarFromDb(
     { data: publishedPrices },
     { data: manualPrices },
     history,
+    oosRows,
   ] = await Promise.all([
     supabase
       .from("hotels")
       .select("total_rooms_per_type, timezone")
       .eq("id", hotelId)
       .maybeSingle(),
-    supabase
-      .from("room_types")
-      .select("id, name, total_rooms")
-      .eq("hotel_id", hotelId)
-      .eq("is_active", true)
-      .order("name"),
+    loadRoomTypeRows(supabase, hotelId),
     supabase
       .from("reservations")
       .select("stay_date, room_type_id, base_rate, current_rate")
@@ -364,6 +447,14 @@ async function getCalendarFromDb(
     // Hotel-wide history (RevPAR series, closures, navigable range) —
     // cached for a few minutes per hotel; see HotelHistory above.
     historyCache.getOrLoad(hotelId, () => loadHotelHistory(supabase, hotelId)),
+    // Rooms out of service this month. The day card calls its number
+    // "sellable occupancy", which is the engine's word for booked over the
+    // count minus these; the same helper does the subtraction so the card
+    // and the change log agree on a night. Missing table = none, logged once
+    // by the loader; any other failure reads as none too, because a calendar
+    // that will not render is worse than a denominator that is a few rooms
+    // high for one page load.
+    loadOutOfServiceForCalendar(supabase, hotelId, startDate, endDate),
   ]);
 
   const hotelFallbackRooms = hotelRow?.total_rooms_per_type ?? 100;
@@ -377,12 +468,14 @@ async function getCalendarFromDb(
           name: rt.name,
           total_rooms: typeof rt.total_rooms === "number" && rt.total_rooms > 0 ? rt.total_rooms : hotelFallbackRooms,
           base_rate: defaultBaseRate,
+          counts_as_room: rt.counts_as_room,
         }))
       : ROOM_TYPES.map((rt) => ({
           id: rt.name,
           name: rt.name,
           total_rooms: rt.total_rooms,
           base_rate: rt.base_rate,
+          counts_as_room: true as boolean | null,
         }));
 
   const publishedByKey = new Map<string, { price: number; base: number | null }>();
@@ -410,7 +503,10 @@ async function getCalendarFromDb(
 
   const { revenueByDate, closedPeriods } = history;
 
-  const totalRoomsProperty = rtList.reduce((s, rt) => s + rt.total_rooms, 0);
+  // Sellable capacity: a meeting room or a court in the PMS's room list is
+  // still priced and still shown per cell, but it is not a room anyone sleeps
+  // in, so it is not in the RevPAR denominator or the day's occupancy.
+  const totalRoomsProperty = countingCapacity(rtList);
 
   // Split/scale are recomputed per request: they depend on "today", which the
   // cached series must not bake in (a cache entry can straddle midnight).
@@ -442,9 +538,17 @@ async function getCalendarFromDb(
       : { min: requestedMonth, max: requestedMonth };
 
   // Build a lookup: room_type_id -> room type info
-  const rtById: Record<string, { name: string; total_rooms: number; base_rate: number }> = {};
+  const rtById: Record<
+    string,
+    { name: string; total_rooms: number; base_rate: number; counts_as_room: boolean | null }
+  > = {};
   for (const rt of rtList) {
-    rtById[String(rt.id)] = { name: rt.name, total_rooms: rt.total_rooms, base_rate: rt.base_rate };
+    rtById[String(rt.id)] = {
+      name: rt.name,
+      total_rooms: rt.total_rooms,
+      base_rate: rt.base_rate,
+      counts_as_room: rt.counts_as_room,
+    };
   }
 
   /** Nightly room revenue: prefer imported base (stable BAR), else current PMS rate, else category default. */
@@ -480,14 +584,16 @@ async function getCalendarFromDb(
         0,
       );
       const adr = booked > 0 ? roomRevenue / booked : rt.base_rate;
-      const occPct = rt.total_rooms > 0 ? Math.round((booked / rt.total_rooms) * 100) : 0;
+      // Sellable, not physical: what the engine snapshots for this night.
+      const sellable = sellableUnitsFor(rt.total_rooms, oosRows, dateStr, String(rt.id));
+      const occPct = sellable > 0 ? Math.round((booked / sellable) * 100) : 0;
       const cellKey = `${dateStr}|${String(rt.id)}`;
       const published = publishedByKey.get(cellKey) ?? null;
 
       return {
         id: String(rt.id),
         name: rt.name,
-        total_rooms: rt.total_rooms,
+        total_rooms: sellable,
         occupancy_pct: occPct,
         booked,
         rate: Math.round(adr * 100) / 100,
@@ -499,8 +605,9 @@ async function getCalendarFromDb(
       };
     });
 
-    const totalRooms = roomTypes.reduce((s, rt) => s + rt.total_rooms, 0);
-    const totalBooked = roomTypes.reduce((s, rt) => s + rt.booked, 0);
+    const counting = roomTypes.filter((rt) => isCountingRoom(rtById[rt.id]));
+    const totalRooms = counting.reduce((s, rt) => s + rt.total_rooms, 0);
+    const totalBooked = counting.reduce((s, rt) => s + rt.booked, 0);
     const totalRevenue = roomTypes.reduce((s, rt) => s + rt.revenue, 0);
     const revpar = computeRevpar(revenueByDate.get(dateStr) ?? 0, totalRoomsProperty);
 

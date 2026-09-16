@@ -1,9 +1,93 @@
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
+import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { classifyRoomType } from "../../../room-types/classify";
+import { scheduleReprice } from "../../../room-types/reprice";
+
+/**
+ * Record the owner's answer to "is this a room?" on the type itself.
+ *
+ * counts_as_room, not is_active: is_active is the PMS's notion of whether the
+ * type exists and is sold, and repurposing it to mean "not a bedroom" made a
+ * confirmed court vanish from places that had nothing to do with room
+ * counting. The flag is read everywhere the room count matters — occupancy,
+ * Booking Speed, RevPAR, new rules' default sets, the simulator seed and the
+ * BILLED count — which is why every change is audited, with the actor and
+ * before/after, through the same helper the room-type settings PATCH uses.
+ *
+ * Runs on the service role after an explicit can_manage_hotel check (the
+ * same gate RLS applied when this ran on the user's session), so the row can
+ * carry who answered.
+ *
+ * Deploy order must not matter. Ahead of the migration the column is not
+ * there; the confirm path then does exactly what it did before this flag
+ * existed (is_active = false) and says so in the log, and the dismiss path is
+ * the no-op it used to be. Never a 500 over it.
+ *
+ * Returns the failure to answer with, or null when the answer is recorded.
+ */
+async function answerRoomTypeQuestion(
+  supabase: SupabaseClient,
+  hotelId: string,
+  actorUserId: string,
+  roomTypeId: string,
+  countsAsRoom: boolean,
+): Promise<{ status: number; error: string } | null> {
+  const { data: canManage } = await supabase.rpc("can_manage_hotel", { target_hotel_id: hotelId });
+  if (!canManage) return { status: 403, error: "This needs Revenue Manager access or higher on this property." };
+  if (!isAdminConfigured()) {
+    return { status: 503, error: "Classifying room types needs SUPABASE_SERVICE_ROLE_KEY set on the server." };
+  }
+  const admin = createAdminClient();
+
+  const outcome = await classifyRoomType(admin, {
+    hotelId,
+    roomTypeId,
+    countsAsRoom,
+    actorUserId,
+    via: "onboarding_review",
+  });
+  switch (outcome.kind) {
+    case "error":
+      return { status: 500, error: outcome.message };
+    case "not_found":
+      // The payload named a type the hotel no longer has. Nothing changed, so
+      // nothing is logged, and the finding goes back to proposed.
+      return { status: 404, error: "That room type isn't on this property any more." };
+    case "unchanged":
+    case "confirmed":
+      return null;
+    case "changed": {
+      // A live hotel (refresh mode) has published prices on the old
+      // denominator; a hotel mid-onboarding has nothing to re-price yet.
+      const { data: hotel } = await admin.from("hotels").select("is_active").eq("id", hotelId).maybeSingle();
+      if (hotel?.is_active === true) scheduleReprice(admin, hotelId, "onboarding-review");
+      return null;
+    }
+    case "pre_migration": {
+      console.warn(JSON.stringify({
+        fn: "answerRoomTypeQuestion",
+        hotel: hotelId,
+        warning: "room_types.counts_as_room is not in this database yet — run " +
+          "99_supabase_migration_room_type_counts_as_room_v1.sql. " +
+          (countsAsRoom
+            ? "The owner's 'yes, a room' answer was not recorded."
+            : "Falling back to is_active = false for this room type."),
+      }));
+      if (countsAsRoom) return null;
+      const { error: legacyErr } = await admin
+        .from("room_types")
+        .update({ is_active: false })
+        .eq("id", roomTypeId)
+        .eq("hotel_id", hotelId);
+      return legacyErr ? { status: 500, error: legacyErr.message } : null;
+    }
+  }
+}
 
 /**
  * Apply an accepted rule suggestion: either create the suggested rule or
@@ -124,7 +208,8 @@ async function applyRuleSuggestion(
 /**
  * Confirm or dismiss a finding, applying its side effect:
  * - closed_period confirm  -> insert hotel_closed_periods
- * - suspect_room_type confirm -> deactivate the room type
+ * - suspect_room_type confirm -> counts_as_room = false (audited)
+ * - suspect_room_type dismiss -> counts_as_room = true, the owner says it IS one (audited)
  * - duplicate_room_type dismiss -> reactivate (it was auto-deactivated)
  * - everything else: status change only
  */
@@ -234,14 +319,10 @@ export async function POST(
       }
     }
     if (finding.kind === "suspect_room_type" && payload.room_type_id) {
-      const { error } = await supabase
-        .from("room_types")
-        .update({ is_active: false })
-        .eq("id", String(payload.room_type_id))
-        .eq("hotel_id", hotelId);
-      if (error) {
+      const failed = await answerRoomTypeQuestion(supabase, hotelId, user.id, String(payload.room_type_id), false);
+      if (failed) {
         await revertClaim();
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ error: failed.error }, { status: failed.status });
       }
     }
     // Refresh-mode duplicate: the deactivation was only proposed — apply now.
@@ -284,6 +365,17 @@ export async function POST(
         await revertClaim();
         return NextResponse.json({ error: err }, { status: 500 });
       }
+    }
+  }
+
+  if (action === "dismiss" && finding.kind === "suspect_room_type" && payload.room_type_id) {
+    // Dismissing the accusation is an answer too: the owner has looked at the
+    // name and said people sleep there. Recording true (rather than leaving
+    // null) is what stops the bill-time heuristic from excluding it anyway.
+    const failed = await answerRoomTypeQuestion(supabase, hotelId, user.id, String(payload.room_type_id), true);
+    if (failed) {
+      await revertClaim();
+      return NextResponse.json({ error: failed.error }, { status: failed.status });
     }
   }
 

@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { getCalendar } from "./calendar-store";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { clearCalendarHistoryCache, countingCapacity, getCalendar, isCountingRoom } from "./calendar-store";
+import { fakeSupabase, missingRelation, type FakeRow } from "./engine/fake-supabase.test";
+
+vi.mock("@/lib/hotel-context", () => ({ resolveAccessibleHotelId: async () => "h1" }));
 
 describe("getCalendar (demo mode — no Supabase)", () => {
   /* ── Structure ──────────────────────────────────────────────── */
@@ -262,5 +266,106 @@ describe("createTtlCache stampede protection", () => {
     };
     await expect(cache.getOrLoad("k", flaky)).rejects.toThrow("transient");
     expect(await cache.getOrLoad("k", flaky)).toBe(42);
+  });
+});
+
+/**
+ * The engine's fake plus the one thing the calendar needs that it lacks: an
+ * rpc that can be paged with .range(), the way loadHotelHistory reads the
+ * revenue series.
+ */
+function calendarDb(seed: Record<string, FakeRow[]>, opts: Parameters<typeof fakeSupabase>[1] = {}) {
+  const { client, tables } = fakeSupabase(seed, opts);
+  const paged = { range: async () => ({ data: [], error: null }) };
+  (client as unknown as { rpc: unknown }).rpc = () => paged;
+  return { client: client as unknown as SupabaseClient, tables };
+}
+
+describe("getCalendar (Supabase) — sellable occupancy", () => {
+  afterEach(() => {
+    clearCalendarHistoryCache();
+    vi.restoreAllMocks();
+  });
+
+  const booking = (id: string, stay_date: string, room_type_id: string) => ({
+    id, hotel_id: "h1", stay_date, room_type_id, base_rate: 100, current_rate: 100,
+  });
+
+  it("divides by the sellable count, so the day card agrees with the change log", async () => {
+    // 20 Kings, 5 blocked for the first half of October, 12 sold on the 10th.
+    // The engine reads that night as 12/15 = 80% and a "above 70%" rule
+    // fires; the card under the same "sellable occupancy" label must not say
+    // 60%.
+    const { client } = calendarDb({
+      hotels: [{ id: "h1", timezone: "UTC", total_rooms_per_type: 100 }],
+      room_types: [
+        { id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 20, counts_as_room: true },
+        { id: "rt2", hotel_id: "h1", name: "Court", is_active: true, total_rooms: 3, counts_as_room: false },
+      ],
+      room_type_out_of_service: [
+        { id: "o1", hotel_id: "h1", room_type_id: "rt1", start_date: "2026-10-01", end_date: "2026-10-15", units: 5, cleared_at: null },
+      ],
+      reservations: Array.from({ length: 12 }, (_, i) => booking(`b${i}`, "2026-10-10", "rt1")),
+    });
+    const cal = await getCalendar(2026, 10, client);
+    const blocked = cal.days["10"];
+    expect(blocked.total).toBe(15);
+    expect(blocked.booked).toBe(12);
+    expect(blocked.occupancy_pct).toBe(80);
+    expect(blocked.room_types.find((r) => r.id === "rt1")).toMatchObject({ total_rooms: 15, occupancy_pct: 80 });
+    // The court is still shown per cell but never in the day's denominator.
+    expect(blocked.room_types.find((r) => r.id === "rt2")).toBeDefined();
+    // Past the block the physical count is back.
+    expect(cal.days["20"].total).toBe(20);
+  });
+
+  it("renders on the physical count, once loudly, before the out-of-service table exists", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { client } = calendarDb(
+      {
+        hotels: [{ id: "h1", timezone: "UTC", total_rooms_per_type: 100 }],
+        room_types: [{ id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 20, counts_as_room: true }],
+      },
+      { fault: (c) => (c.table === "room_type_out_of_service" ? missingRelation("room_type_out_of_service") : null) },
+    );
+    const cal = await getCalendar(2026, 10, client);
+    expect(cal.days["10"].total).toBe(20);
+    expect(err).toHaveBeenCalledTimes(1);
+    expect(String(err.mock.calls[0][0])).toContain("99_supabase_migration_room_type_out_of_service_v1.sql");
+  });
+});
+
+describe("countingCapacity — the RevPAR / sellable occupancy denominator", () => {
+  it("sums total_rooms over types that count as rooms", () => {
+    expect(
+      countingCapacity([
+        { total_rooms: 40, counts_as_room: true },
+        { total_rooms: 30, counts_as_room: true },
+      ]),
+    ).toBe(70);
+  });
+
+  it("leaves out a type flagged as not a room", () => {
+    expect(
+      countingCapacity([
+        { total_rooms: 40, counts_as_room: true },
+        { total_rooms: 2, counts_as_room: false }, // the pickleball court
+      ]),
+    ).toBe(40);
+  });
+
+  it("treats an unclassified type as a room — pre-migration rows still count", () => {
+    expect(
+      countingCapacity([
+        { total_rooms: 40, counts_as_room: null },
+        { total_rooms: 15 },
+      ]),
+    ).toBe(55);
+    expect(isCountingRoom(undefined)).toBe(true);
+    expect(isCountingRoom({ counts_as_room: false })).toBe(false);
+  });
+
+  it("is zero for an empty list, so RevPAR falls back to its no-rooms branch", () => {
+    expect(countingCapacity([])).toBe(0);
   });
 });

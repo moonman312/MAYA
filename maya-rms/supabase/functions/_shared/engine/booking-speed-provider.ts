@@ -68,12 +68,19 @@ export type BookingSpeedContext = {
  * Load everything booking-speed evaluation needs for one hotel run.
  * Returns null when the hotel has no reservation rows at all — conditions
  * then block with "insufficient_data" rather than matching on nothing.
+ *
+ * `excludeRoomTypeIds` are the room types that do not count as rooms. Their
+ * bookings are dropped from the history because `totalCapacity` is summed
+ * without them: a court selling six slots a night against a 20-room
+ * capacity would otherwise read as the hotel filling up. A row with no
+ * room type is kept — there is no evidence it was not a room.
  */
 export async function loadBookingSpeedContext(
   supabase: SupabaseClient,
   hotelId: string,
   localDate: string,
   totalCapacity: number,
+  excludeRoomTypeIds: ReadonlySet<string> = new Set(),
 ): Promise<BookingSpeedContext | null> {
   const historyStart = addDays(localDate, -(HISTORY_YEARS_BACK * 366));
   const historyEnd = addDays(localDate, -1);
@@ -83,7 +90,7 @@ export async function loadBookingSpeedContext(
     const from = page * PAGE;
     const { data, error } = await supabase
       .from("reservations")
-      .select("stay_date, booking_date, booking_window_days")
+      .select("stay_date, booking_date, booking_window_days, room_type_id")
       .eq("hotel_id", hotelId)
       .gte("stay_date", historyStart)
       .order("stay_date", { ascending: true })
@@ -97,6 +104,7 @@ export async function loadBookingSpeedContext(
     }
     if (!data) break;
     for (const r of data) {
+      if (r.room_type_id != null && excludeRoomTypeIds.has(String(r.room_type_id))) continue;
       rows.push({
         stay_date: String(r.stay_date),
         booking_date: r.booking_date != null ? String(r.booking_date) : null,

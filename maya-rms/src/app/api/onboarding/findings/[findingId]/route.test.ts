@@ -24,6 +24,9 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
     Object.entries(seed).map(([k, v]) => [k, v.map((r) => ({ ...r }))]),
   );
   const failInsertFor = new Set<string>();
+  /** Columns that "do not exist yet" — an update naming one fails the way PostgREST does pre-migration. */
+  const missingColumns = new Set<string>();
+  const rpcs: { name: string; args: Record<string, unknown> }[] = [];
   let nextId = 0;
   const tableOf = (name: string) => {
     if (!tables.has(name)) tables.set(name, []);
@@ -77,12 +80,12 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
         single = true;
         return run();
       },
-      then(resolve: (v: { data: unknown; error: { message: string } | null }) => void) {
+      then(resolve: (v: { data: unknown; error: { code?: string; message: string } | null }) => void) {
         return run().then(resolve);
       },
     };
 
-    async function run(): Promise<{ data: unknown; error: { message: string } | null }> {
+    async function run(): Promise<{ data: unknown; error: { code?: string; message: string } | null }> {
       if (mode === "insert" && pendingInsert) {
         if (failInsertFor.has(table)) {
           return { data: null, error: { message: `insert into ${table} rejected` } };
@@ -92,6 +95,16 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
         return { data: single ? (inserted[0] ?? null) : inserted, error: null };
       }
       if (mode === "update" && pendingUpdate) {
+        const missing = Object.keys(pendingUpdate).find((k) => missingColumns.has(k));
+        if (missing) {
+          return {
+            data: null,
+            error: {
+              code: "PGRST204",
+              message: `Could not find the '${missing}' column of '${table}' in the schema cache`,
+            },
+          };
+        }
         const rows = tableOf(table).filter((r) => matches(r, filters));
         for (const r of rows) Object.assign(r, pendingUpdate);
         return { data: single ? (rows[0] ?? null) : rows, error: null };
@@ -111,9 +124,16 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
   const client = {
     from: (t: string) => builder(t),
     auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) },
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      rpcs.push({ name, args });
+      // The room-type answer path checks rank explicitly now that it writes
+      // on the service role; the tests are about the answer, not the door.
+      if (name === "can_manage_hotel") return { data: true, error: null };
+      return { data: null, error: null };
+    },
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return { client: client as any, tables, failInsertFor };
+  return { client: client as any, tables, failInsertFor, missingColumns, rpcs };
 }
 
 const HOTEL = "hotel-1";
@@ -122,7 +142,23 @@ const state = vi.hoisted(() => ({ client: null as unknown, hotelId: "hotel-1" })
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
 vi.mock("@/utils/supabase/shared", () => ({ isSupabaseConfigured: () => true }));
 vi.mock("@/utils/supabase/server", () => ({ createClient: () => state.client }));
+// The audit line goes through the service-role client; the fake doubles as it
+// so the test can see the rpc land.
+vi.mock("@/utils/supabase/admin", () => ({
+  createAdminClient: () => state.client,
+  isAdminConfigured: () => true,
+}));
 vi.mock("@/lib/hotel-context", () => ({ resolveAccessibleHotelId: async () => state.hotelId }));
+// A live hotel is re-priced behind the response; mid-onboarding there is
+// nothing to re-price. Recorded, never run.
+const afterCalls = vi.hoisted(() => [] as Array<() => unknown>);
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (fn: () => unknown) => {
+    afterCalls.push(fn);
+  },
+}));
+vi.mock("@/lib/engine", () => ({ evaluateHotel: vi.fn() }));
 
 const { POST } = await import("./route");
 
@@ -257,5 +293,128 @@ describe("remove_rule: delete vs turn-it-off", () => {
     expect(tables.get("pricing_rules")?.[0]).toMatchObject({ id: "pk1", is_active: false });
     expect(tables.get("pickup_event")).toHaveLength(2);
     expect(tables.get("onboarding_findings")?.[0]).toMatchObject({ status: "confirmed" });
+  });
+});
+
+describe("suspect_room_type: the owner's answer is counts_as_room, not is_active", () => {
+  function seedSuspect() {
+    return fakeSupabase({
+      onboarding_findings: [
+        {
+          id: "f1",
+          hotel_id: HOTEL,
+          kind: "suspect_room_type",
+          status: "proposed",
+          payload: { room_type_id: "rt-court", name: "Pickleball Court", reasons: [] },
+        },
+      ],
+      room_types: [
+        { id: "rt-court", hotel_id: HOTEL, name: "Pickleball Court", is_active: true, counts_as_room: null },
+      ],
+    });
+  }
+
+  const audits = (rpcs: { name: string; args: Record<string, unknown> }[]) =>
+    rpcs.filter((r) => r.name === "platform_log_event");
+
+  it("confirm marks it not-a-room, stamps who answered, leaves is_active alone, and audits before/after", async () => {
+    const { client, tables, rpcs } = seedSuspect();
+    state.client = client;
+    const res = await post({ action: "confirm" });
+    expect(res.status).toBe(200);
+    // is_active is the PMS's flag; excluding a court from the room count must
+    // not also make it disappear from everything else.
+    expect(tables.get("room_types")?.[0]).toMatchObject({
+      counts_as_room: false,
+      counts_as_room_set_by: "user-1",
+      is_active: true,
+    });
+    expect(audits(rpcs)).toEqual([
+      {
+        name: "platform_log_event",
+        args: {
+          p_event_type: "room_type.classified",
+          p_entity_type: "room_type",
+          p_entity_id: "rt-court",
+          p_hotel_id: HOTEL,
+          p_detail: {
+            room_type_id: "rt-court",
+            name: "Pickleball Court",
+            before: null,
+            after: false,
+            via: "onboarding_review",
+            actor_user_id: "user-1",
+          },
+        },
+      },
+    ]);
+    // Mid-onboarding (no live hotel row): nothing to re-price.
+    expect(afterCalls).toHaveLength(0);
+  });
+
+  it("dismiss records that it IS a room, so the bill-time heuristic stops excluding it", async () => {
+    const { client, tables, rpcs } = seedSuspect();
+    state.client = client;
+    const res = await post({ action: "dismiss" });
+    expect(res.status).toBe(200);
+    expect(tables.get("room_types")?.[0]).toMatchObject({ counts_as_room: true, is_active: true });
+    expect(tables.get("onboarding_findings")?.[0]).toMatchObject({ status: "dismissed" });
+    expect(audits(rpcs)[0]?.args.p_detail).toMatchObject({ before: null, after: true, via: "onboarding_review" });
+  });
+
+  it("re-prices a live hotel (refresh mode) behind the response", async () => {
+    const { client, tables } = seedSuspect();
+    tables.set("hotels", [{ id: HOTEL, is_active: true }]);
+    state.client = client;
+    afterCalls.length = 0;
+    expect((await post({ action: "confirm" })).status).toBe(200);
+    expect(afterCalls).toHaveLength(1);
+    afterCalls.length = 0;
+  });
+
+  it("404s, logs nothing and leaves the finding retryable when the type is gone", async () => {
+    const { client, tables, rpcs } = seedSuspect();
+    tables.set("room_types", []);
+    state.client = client;
+    const res = await post({ action: "confirm" });
+    expect(res.status).toBe(404);
+    expect(audits(rpcs)).toEqual([]);
+    expect(tables.get("onboarding_findings")?.[0]).toMatchObject({ status: "proposed" });
+  });
+
+  it("403s below Revenue Manager without touching the type", async () => {
+    const { client, tables } = seedSuspect();
+    client.rpc = async (name: string) => ({ data: name === "can_manage_hotel" ? false : null, error: null });
+    state.client = client;
+    const res = await post({ action: "confirm" });
+    expect(res.status).toBe(403);
+    expect(tables.get("room_types")?.[0]).toMatchObject({ counts_as_room: null });
+    expect(tables.get("onboarding_findings")?.[0]).toMatchObject({ status: "proposed" });
+  });
+
+  it("ahead of the migration, confirm falls back to is_active = false and does not 500", async () => {
+    // Deploy order must not matter: the code can be live before the column is.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { client, tables, missingColumns } = seedSuspect();
+    missingColumns.add("counts_as_room");
+    state.client = client;
+    const res = await post({ action: "confirm" });
+    expect(res.status).toBe(200);
+    expect(tables.get("room_types")?.[0]).toMatchObject({ is_active: false, counts_as_room: null });
+    expect(tables.get("onboarding_findings")?.[0]).toMatchObject({ status: "confirmed" });
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it("ahead of the migration, dismiss is the no-op it always was, and does not 500", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { client, tables, missingColumns } = seedSuspect();
+    missingColumns.add("counts_as_room");
+    state.client = client;
+    const res = await post({ action: "dismiss" });
+    expect(res.status).toBe(200);
+    expect(tables.get("room_types")?.[0]).toMatchObject({ is_active: true, counts_as_room: null });
+    expect(tables.get("onboarding_findings")?.[0]).toMatchObject({ status: "dismissed" });
+    warn.mockRestore();
   });
 });

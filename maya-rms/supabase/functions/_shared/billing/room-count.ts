@@ -14,7 +14,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { nameLooksLikeNonRoom } from "../onboarding/analysis.ts";
+import { isMissingColumnError, nameLooksLikeNonRoom } from "../onboarding/analysis.ts";
 
 /**
  * How long a property has to fix its own room count before MAYA does it.
@@ -34,11 +34,39 @@ export type RoomVerdict =
   /** No usable measurement. Never an accusation. */
   | { kind: "unknown"; reason: "no_room_data" | "not_measured" };
 
+export type RoomExclusion = {
+  name: string;
+  rooms: number;
+  /**
+   * Who decided this is not a room: a person (counts_as_room = false with
+   * counts_as_room_set_by stamped — the review strip, room-type settings or a
+   * direct write) or MAYA's name heuristic (a `false` the import wrote, or an
+   * unclassified type the name test excludes at bill time). The shortfall
+   * notice words them differently — "you marked these as not rooms" is
+   * theirs to stand behind; "we guessed" is ours to be corrected on.
+   */
+  source: "owner" | "heuristic";
+};
+
 export type RoomMeasurement = {
   /** Sleeping rooms — the only thing MAYA will raise a bill over. */
   billable: number | null;
-  /** Active types that read as something other than a bedroom, and their rooms. */
-  excluded: { name: string; rooms: number }[];
+  /** Active types that are not being billed as bedrooms, and their rooms. */
+  excluded: RoomExclusion[];
+  /**
+   * Every active type is marked as not a room. billable is still null (a
+   * zero would read as the largest possible over-billing), but this is not
+   * the mid-import "nothing to count" case and the billing page says so.
+   */
+  allExcluded: boolean;
+};
+
+type MeasuredRoomTypeRow = {
+  name: string | null;
+  display_name?: string | null;
+  total_rooms: number | string | null;
+  counts_as_room?: boolean | null;
+  counts_as_room_set_by?: string | null;
 };
 
 /**
@@ -50,15 +78,18 @@ export type RoomMeasurement = {
  * inn with five courts for 25 rooms — and under an auto-correcting sweep that
  * becomes a real charge for rooms nobody sleeps in.
  *
- * is_active alone does not save us. It filters the ones an owner confirmed
- * during onboarding review, but not the ones on a property that skipped the
- * review, and not a court BUILT LATER — a new room type arrives from the sync
- * already active and is never re-analysed.
+ * The owner's word is counts_as_room, and where it is set it is final in both
+ * directions: false excludes a type whatever its name, true bills a
+ * "Pickleball Suite" that really is a suite. Where it is still null — a type
+ * the import has not classified, or a database ahead of the migration — the
+ * name test decides, from the same function the review screen uses. That
+ * fallback is deliberately one-directional: a misjudged exclusion under-bills
+ * us, which is recoverable, while a misjudged inclusion charges a customer for
+ * a car park.
  *
- * So the name test runs here too, from the same function the review screen uses.
- * It is deliberately one-directional: a misjudged exclusion under-bills us,
- * which is recoverable, while a misjudged inclusion charges a customer for a
- * car park.
+ * Provenance is read off counts_as_room_set_by, not inferred from the value:
+ * the import writes `false` too, and telling an owner they "marked" a type
+ * they never looked at would be a lie about their own decision.
  *
  * Returns billable: null rather than 0 when there is nothing to count. A
  * property mid-import genuinely has no measurement, and reading that as "zero
@@ -68,30 +99,102 @@ export async function measureRooms(
   supabase: SupabaseClient,
   hotelId: string,
 ): Promise<RoomMeasurement> {
-  const { data, error } = await supabase
-    .from("room_types")
-    .select("name, display_name, total_rooms")
-    .eq("hotel_id", hotelId)
-    .eq("is_active", true);
-
-  if (error) {
-    console.error(JSON.stringify({ fn: "measureRooms", hotel: hotelId, error: error.message }));
-    return { billable: null, excluded: [] };
-  }
-  if (!data?.length) return { billable: null, excluded: [] };
+  const data = await loadActiveRoomTypes(supabase, hotelId);
+  if (!data?.length) return { billable: null, excluded: [], allExcluded: false };
 
   let billable = 0;
-  const excluded: { name: string; rooms: number }[] = [];
+  const excluded: RoomExclusion[] = [];
   for (const rt of data) {
     const rooms = Number(rt.total_rooms) || 0;
     // Both names are checked: PMSes vary in which one carries the useful label,
     // and "Pickleball Court" appearing in either is enough.
     const label = String(rt.display_name || rt.name || "");
-    if (nameLooksLikeNonRoom(label)) excluded.push({ name: label, rooms });
+    if (rt.counts_as_room === false) {
+      excluded.push({ name: label, rooms, source: rt.counts_as_room_set_by ? "owner" : "heuristic" });
+    } else if (rt.counts_as_room === true) billable += rooms;
+    else if (nameLooksLikeNonRoom(label)) excluded.push({ name: label, rooms, source: "heuristic" });
     else billable += rooms;
   }
 
-  return { billable: billable > 0 ? billable : null, excluded };
+  const allExcluded = billable === 0 && excluded.length === data.length;
+  if (allExcluded) {
+    // Not a measurement gap: someone (or the heuristic) has marked every
+    // type as not a room, and the under-billing guard is blind until it is
+    // undone. Loud, with the hotel, so it is found.
+    console.error(JSON.stringify({
+      fn: "measureRooms",
+      hotel: hotelId,
+      error: "every active room type is marked as not a room; no billable count can be measured",
+      excluded,
+    }));
+  }
+  return { billable: billable > 0 ? billable : null, excluded, allExcluded };
+}
+
+/**
+ * Active room types with their classification. Null on a read error, so the
+ * caller reports "no measurement" rather than a number it made up.
+ *
+ * Asks for the full shape first and steps back a column at a time when one
+ * is not there: this code can ship ahead of its migration (or ahead of a
+ * re-run that added counts_as_room_set_by), and a billing sweep that stopped
+ * measuring everyone until the SQL ran would be a silent outage in the one
+ * place that must keep working. Each retry is the exact behaviour of the
+ * schema it matches, and the log line says which one you got.
+ */
+async function loadActiveRoomTypes(
+  supabase: SupabaseClient,
+  hotelId: string,
+): Promise<MeasuredRoomTypeRow[] | null> {
+  const full = await supabase
+    .from("room_types")
+    .select("name, display_name, total_rooms, counts_as_room, counts_as_room_set_by")
+    .eq("hotel_id", hotelId)
+    .eq("is_active", true);
+  if (!full.error) return (full.data ?? []) as MeasuredRoomTypeRow[];
+
+  if (isMissingColumnError(full.error, "counts_as_room_set_by")) {
+    console.warn(JSON.stringify({
+      fn: "measureRooms",
+      hotel: hotelId,
+      warning: "room_types.counts_as_room_set_by is not in this database yet — re-run " +
+        "99_supabase_migration_room_type_counts_as_room_v1.sql. Every exclusion reads as the " +
+        "heuristic's until it lands.",
+    }));
+  } else if (!isMissingColumnError(full.error, "counts_as_room")) {
+    console.error(JSON.stringify({ fn: "measureRooms", hotel: hotelId, error: full.error.message }));
+    return null;
+  }
+
+  const first = await supabase
+    .from("room_types")
+    .select("name, display_name, total_rooms, counts_as_room")
+    .eq("hotel_id", hotelId)
+    .eq("is_active", true);
+  if (!first.error) return (first.data ?? []) as MeasuredRoomTypeRow[];
+
+  if (!isMissingColumnError(first.error, "counts_as_room")) {
+    console.error(JSON.stringify({ fn: "measureRooms", hotel: hotelId, error: first.error.message }));
+    return null;
+  }
+
+  console.warn(JSON.stringify({
+    fn: "measureRooms",
+    hotel: hotelId,
+    warning: "room_types.counts_as_room is not in this database yet — run " +
+      "99_supabase_migration_room_type_counts_as_room_v1.sql. Measuring with the name " +
+      "heuristic alone; owner classifications cannot be honoured until it lands.",
+  }));
+  const second = await supabase
+    .from("room_types")
+    .select("name, display_name, total_rooms")
+    .eq("hotel_id", hotelId)
+    .eq("is_active", true);
+  if (second.error) {
+    console.error(JSON.stringify({ fn: "measureRooms", hotel: hotelId, error: second.error.message }));
+    return null;
+  }
+  return (second.data ?? []) as MeasuredRoomTypeRow[];
 }
 
 /**

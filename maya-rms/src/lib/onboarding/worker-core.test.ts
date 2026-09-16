@@ -176,6 +176,16 @@ function makeSupabaseStub(
         filters.push(["lte", col, val]);
         return chain;
       },
+      // The counts_as_room default pass filters on these; no test asserts on
+      // room_types state, so they only need to keep the chain going.
+      is: (col: string, val: unknown) => {
+        filters.push(["is", col, val]);
+        return chain;
+      },
+      in: (col: string, vals: unknown[]) => {
+        filters.push(["in", col, vals]);
+        return chain;
+      },
       maybeSingle: async () => {
         if (name === "hotels") return { data: { name: "X", timezone: "UTC", currency: "USD" } };
         if (name === "import_jobs") return { data: { ...jobRow }, error: null };

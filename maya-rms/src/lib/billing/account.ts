@@ -40,8 +40,13 @@ export type AccountBilling = {
   roomTruth: RoomVerdict;
   /** Days left to fix a shortfall themselves before MAYA does it. */
   roomGraceDaysLeft: number;
-  /** Bookable spaces excluded from billing because nobody sleeps in them. */
-  notBilledFor: { name: string; rooms: number }[];
+  /**
+   * Bookable spaces excluded from billing because nobody sleeps in them, with
+   * who decided — MAYA's guess reads differently from the owner's own answer.
+   */
+  notBilledFor: { name: string; rooms: number; source: "owner" | "heuristic" }[];
+  /** Every active type is marked as not a room: the count cannot be measured until one is ticked. */
+  allRoomTypesExcluded: boolean;
 };
 
 const COLUMNS =
@@ -127,6 +132,7 @@ export async function loadAccountBilling(
     signupCode,
     entitled,
     notBilledFor: measurement.excluded,
+    allRoomTypesExcluded: measurement.allExcluded,
     roomTruth: compareRooms(
       data.measured_rooms == null ? null : Number(data.measured_rooms),
       rooms,

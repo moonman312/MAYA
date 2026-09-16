@@ -26,7 +26,7 @@ describe("describeConditions", () => {
       { occupancy_operator: "gt", occupancy_threshold: 0.7 },
       { occupancy: 0.82 },
     );
-    expect(s).toBe("occupancy (82%) was above 70%");
+    expect(s).toBe("sellable occupancy (82%) was above 70%");
   });
 
   it("handles below / fewer-than directions", () => {
@@ -35,7 +35,13 @@ describe("describeConditions", () => {
         { occupancy_operator: "lt", occupancy_threshold: 0.3 },
         { occupancy: 0.22 },
       ),
-    ).toBe("occupancy (22%) was below 30%");
+    ).toBe("sellable occupancy (22%) was below 30%");
+    expect(
+      describeConditions(
+        { occupancy_operator: "gt", occupancy_threshold: 0.7 },
+        { occupancy: 0.82, excluded_from_occupancy: ["Court", "Parking"] },
+      ),
+    ).toBe("sellable occupancy (82%, not counting Court, Parking) was above 70%");
     expect(
       describeConditions(
         { dta_operator: "lt", dta_threshold_days: 7 },
@@ -58,7 +64,7 @@ describe("describeConditions", () => {
       { occupancy: 0.82, dta: 3, pickup_units: 9 },
     );
     expect(s).toBe(
-      "occupancy (82%) was above 70%, the stay was fewer than 7 days away (3 days out), and 9 bookings arrived in the last 3 days, more than the 4 bookings trigger",
+      "sellable occupancy (82%) was above 70%, the stay was fewer than 7 days away (3 days out), and 9 bookings arrived in the last 3 days, more than the 4 bookings trigger",
     );
     expect(s).not.toMatch(NO_MATH_SYMBOLS);
   });
@@ -68,7 +74,7 @@ describe("describeConditions", () => {
       { occupancy_operator: "gt", occupancy_threshold: 0.7 },
       null,
     );
-    expect(s).toBe("occupancy was above 70%");
+    expect(s).toBe("sellable occupancy was above 70%");
   });
 
   it("singularizes 1 day / 1 booking", () => {
@@ -117,7 +123,7 @@ describe("narrateChange: complex chained rules", () => {
 
     expect(sentences).toHaveLength(3);
     expect(sentences[0]).toBe(
-      '"Busy-day bump" kicked in because occupancy (82%) was above 70%, which raised the rate 10%, from $200.00 to $220.00.',
+      '"Busy-day bump" kicked in because sellable occupancy (82%) was above 70%, which raised the rate 10%, from $200.00 to $220.00.',
     );
     expect(sentences[1]).toBe(
       'Then "Last-minute premium" kicked in because the stay was fewer than 7 days away (3 days out), which raised the rate $15.00, from $220.00 to $235.00.',
@@ -149,7 +155,7 @@ describe("narrateChange: complex chained rules", () => {
       ],
     });
     expect(sentences).toHaveLength(1);
-    expect(sentences[0]).toContain("occupancy (91%) was above 85% and the stay was fewer than 3 days away (2 days out)");
+    expect(sentences[0]).toContain("sellable occupancy (91%) was above 85% and the stay was fewer than 3 days away (2 days out)");
   });
 
   it("narrates decreases without spin", () => {
@@ -167,7 +173,7 @@ describe("narrateChange: complex chained rules", () => {
       ],
     });
     expect(sentences[0]).toBe(
-      '"Slow-night saver" kicked in because occupancy (20%) was below 30%, which lowered the rate 10%, from $180.00 to $162.00.',
+      '"Slow-night saver" kicked in because sellable occupancy (20%) was below 30%, which lowered the rate 10%, from $180.00 to $162.00.',
     );
   });
 
@@ -320,7 +326,7 @@ describe("booking speed narration", () => {
       },
       { occupancy: 0.72, booking_speed: { label: "Faster Than Normal", recent: 11, expected: 6 } },
     );
-    expect(s).toContain("occupancy (72%) was above 60%");
+    expect(s).toContain("sellable occupancy (72%) was above 60%");
     expect(s).toContain("and booking speed over the past week reached Faster Than Normal");
     expect(s).not.toMatch(NO_MATH_SYMBOLS);
   });

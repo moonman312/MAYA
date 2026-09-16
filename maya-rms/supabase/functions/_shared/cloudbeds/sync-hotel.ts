@@ -40,6 +40,7 @@ import {
 import type { CloudbedsParsedReservationRow, CloudbedsResolvedCredentials } from "./types.ts";
 import { mwsEnv } from "../mews/env.ts";
 import { persistPropertyId, resolveOAuthCredentials } from "../pms/oauth-credentials.ts";
+import { proposeCountsAsRoom } from "../onboarding/analysis.ts";
 import { dropUnchangedReservationRows } from "../pms/row-diff.ts";
 import { decideSyncWindow } from "../pms/sync-mode.ts";
 import { installCloudbedsRequestLogging } from "./request-log.ts";
@@ -383,6 +384,11 @@ export async function runCloudbedsSyncForHotel(
         .from("room_types")
         .upsert(rtRows, { onConflict: "hotel_id,external_room_type_id" });
       if (rtErr) return { ok: false, error: rtErr.message };
+      // Default counts_as_room for types nobody has classified yet. Separate
+      // from the upsert on purpose: written there it would overwrite the
+      // owner's answer every tick. "sync" mode: only ever writes `true` —
+      // nobody is on the review screen to correct a guessed `false`.
+      await proposeCountsAsRoom(supabase, hotelId, rtRows, "sync");
     }
 
     // 5. Map external room-type id → internal uuid.

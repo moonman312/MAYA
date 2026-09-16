@@ -4,8 +4,8 @@
  * Live calendar refresh hook.
  *
  * Subscribes to Supabase Realtime postgres_changes on the tables the engine
- * writes (published_price, reservations) plus manual_price, which a person
- * writes, for the active hotel, and invokes
+ * writes (published_price, reservations) plus manual_price and
+ * room_type_out_of_service, which a person writes, for the active hotel, and invokes
  * `onChange` after the burst settles.  An engine run touches hundreds of rows,
  * so the callback is debounced: one refresh per burst, not one per row.
  *
@@ -20,8 +20,9 @@ import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import { useEffect, useRef } from "react";
 
 // manual_price is here so a price typed in one tab shows up in another
-// without waiting for the engine to republish the cell.
-const LIVE_TABLES = ["published_price", "reservations", "manual_price"] as const;
+// without waiting for the engine to republish the cell; room_type_out_of_service
+// because a block changes the day card's sellable denominator on its own.
+const LIVE_TABLES = ["published_price", "reservations", "manual_price", "room_type_out_of_service"] as const;
 
 const REFRESH_DEBOUNCE_MS = 2000;
 

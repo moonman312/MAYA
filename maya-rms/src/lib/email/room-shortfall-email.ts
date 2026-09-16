@@ -36,9 +36,16 @@ export type RoomShortfallInput = {
   currentAmount: string;
   /** Formatted — what they would pay at the measured count. */
   correctedAmount: string;
-  /** Bookable spaces deliberately NOT counted, so the numbers reconcile. */
-  notBilledFor: string[];
+  /**
+   * Bookable spaces deliberately NOT counted, so the numbers reconcile.
+   * Split by who decided: MAYA's guess is theirs to correct, their own answer
+   * is theirs to stand behind, and telling them to "reply" about a type they
+   * unticked themselves would be the wrong instruction.
+   */
+  notBilledFor: { guessed: string[]; marked: string[] };
 };
+
+const ROOM_TYPES_PATH = "PMS > Room types";
 
 export function roomShortfallSubject(input: RoomShortfallInput): string {
   return `Your MAYA plan covers ${input.billedRooms} rooms — your PMS shows ${input.measuredRooms}`;
@@ -62,10 +69,16 @@ export function roomShortfallText(input: RoomShortfallInput): string {
     `Set your room count: ${input.billingUrl}`,
   ];
 
-  if (input.notBilledFor.length > 0) {
+  if (input.notBilledFor.guessed.length > 0) {
     lines.push(
       "",
-      `For what it's worth, we are NOT counting these, because nobody sleeps in them: ${input.notBilledFor.join(", ")}. If one of those is actually a guest room, reply and we'll include it.`,
+      `For what it's worth, we are NOT counting these, because they don't look like guest rooms: ${input.notBilledFor.guessed.join(", ")}. If one of them is, tick it under ${ROOM_TYPES_PATH} and it joins the count.`,
+    );
+  }
+  if (input.notBilledFor.marked.length > 0) {
+    lines.push(
+      "",
+      `You've marked these as not rooms, so they aren't counted either: ${input.notBilledFor.marked.join(", ")}. Change that under ${ROOM_TYPES_PATH} if it's wrong.`,
     );
   }
 
@@ -79,13 +92,21 @@ export function roomShortfallHtml(input: RoomShortfallInput): string {
       ? `You have <strong style="color:${COLORS.heading}">${input.daysLeft} day${input.daysLeft === 1 ? "" : "s"}</strong> to set the number yourself. If it's still different on <strong style="color:${COLORS.heading}">${input.correctionDate}</strong> we'll update it to ${input.measuredRooms} and adjust your next invoice — nothing is charged today, and nothing is charged separately.`
       : `We'll update it to <strong style="color:${COLORS.heading}">${input.measuredRooms}</strong> shortly and adjust your next invoice. Nothing is charged separately.`;
 
-  const excluded =
-    input.notBilledFor.length > 0
+  const guessed =
+    input.notBilledFor.guessed.length > 0
       ? `<p style="margin:16px 0 0;color:${COLORS.muted};font-size:13px;line-height:20px">
-           We are <strong>not</strong> counting these, because nobody sleeps in them:
-           ${escapeHtml(input.notBilledFor.join(", "))}. If one of those is actually a guest room, reply and we'll include it.
+           We are <strong>not</strong> counting these, because they don't look like guest rooms:
+           ${escapeHtml(input.notBilledFor.guessed.join(", "))}. If one of them is, tick it under ${ROOM_TYPES_PATH} and it joins the count.
          </p>`
       : "";
+  const marked =
+    input.notBilledFor.marked.length > 0
+      ? `<p style="margin:16px 0 0;color:${COLORS.muted};font-size:13px;line-height:20px">
+           You've marked these as not rooms, so they aren't counted either:
+           ${escapeHtml(input.notBilledFor.marked.join(", "))}. Change that under ${ROOM_TYPES_PATH} if it's wrong.
+         </p>`
+      : "";
+  const excluded = guessed + marked;
 
   return `<!doctype html>
 <html>

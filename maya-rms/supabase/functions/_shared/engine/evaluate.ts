@@ -1,6 +1,10 @@
 /**
- * Hotel evaluation orchestrator — Implementation Guide (11-step pipeline).
+ * Hotel evaluation orchestrator — Implementation Guide
  * Deno-portable copy of src/lib/engine/evaluate.ts (import paths only differ).
+ *
+ * Implements the 11-step pipeline. Note: transactional “all-or-nothing”
+ * semantics are not fully enforceable via the Supabase JS client alone; a
+ * database-side procedure is recommended for hard guarantees.
  */
 
 import type { EngineRule } from "./domain.ts";
@@ -27,7 +31,7 @@ import type { BaseSource } from "./base-price.ts";
 import { resolveBase } from "./base-price.ts";
 import { ruleConditionsMatch } from "./conditions.ts";
 import type { LadderPassResult, OverrideProbe } from "./ladder.ts";
-import { evaluateLadderTriple } from "./ladder.ts";
+import { evaluateLadderTriple, probeSuppressionSupport } from "./ladder.ts";
 import { computeRuleMetrics } from "./metrics.ts";
 import {
   computeBaselineTs,
@@ -37,9 +41,17 @@ import {
 } from "./pickup.ts";
 import { assemblePrice, maybePublish } from "./pricing.ts";
 import { ruleScopeMatches } from "./scope.ts";
-import { fetchAllRows, purgeOldSnapshots, snapshotCurrentState } from "./snapshots.ts";
+import {
+  MIGRATIONS,
+  fetchAllRows,
+  isMissingColumnError,
+  isMissingRelationError,
+  purgeOldSnapshots,
+  snapshotCurrentState,
+} from "./snapshots.ts";
 import { addCalendarDays, evalIsoToHotelDateString } from "./timezone.ts";
 import type { PickupCandidate, RoomTypeRow, RuleMetrics } from "./types.ts";
+import { countsAsRoom } from "./types.ts";
 
 export type EvaluationResult = {
   run_id: string;
@@ -78,13 +90,40 @@ export async function evaluateHotel(
   const hotelTimeZone = hotelRow?.timezone ?? "UTC";
   const localDate = evalIsoToHotelDateString(now, hotelTimeZone);
 
-  const { data: rtData } = await supabase
-    .from("room_types")
-    .select("id, hotel_id, name, is_active, total_rooms, floor_price, ceiling_price")
-    .eq("hotel_id", hotelId)
-    .eq("is_active", true);
+  const RT_COLUMNS = "id, hotel_id, name, is_active, total_rooms, floor_price, ceiling_price";
+  // Typed loosely because the fallback select below returns a narrower row.
+  // deno-lint-ignore no-explicit-any
+  let rtRes: { data: any[] | null; error: { code?: string; message: string } | null } =
+    await supabase
+      .from("room_types")
+      .select(`${RT_COLUMNS}, counts_as_room`)
+      .eq("hotel_id", hotelId)
+      .eq("is_active", true);
+  // counts_as_room arrives in a migration. Against the old schema the select
+  // above fails, and the pre-flag behaviour (every active type is a room) is
+  // what the hotel was priced on yesterday, so re-read without the column and
+  // say so once. Same stance for every other schema gap in this run.
+  if (rtRes.error && isMissingColumnError(rtRes.error)) {
+    console.error(
+      JSON.stringify({
+        fn: "evaluateHotel",
+        step: "room_types",
+        hotelId,
+        schema: "pre-migration",
+        message: `room_types.counts_as_room does not exist yet; every active room type counts as a room this run. Run ${MIGRATIONS.countsAsRoom}.`,
+        migration: MIGRATIONS.countsAsRoom,
+        error: rtRes.error.message,
+      }),
+    );
+    rtRes = await supabase
+      .from("room_types")
+      .select(RT_COLUMNS)
+      .eq("hotel_id", hotelId)
+      .eq("is_active", true);
+  }
 
-  const roomTypes: RoomTypeRow[] = (rtData ?? []).map((r) => ({
+  // deno-lint-ignore no-explicit-any
+  const roomTypes: RoomTypeRow[] = ((rtRes.data ?? []) as any[]).map((r) => ({
     id: String(r.id),
     hotel_id: String(r.hotel_id),
     name: r.name,
@@ -92,8 +131,17 @@ export async function evaluateHotel(
     total_rooms: Number(r.total_rooms),
     floor_price: Number(r.floor_price),
     ceiling_price: Number(r.ceiling_price),
+    counts_as_room: typeof r.counts_as_room === "boolean" ? r.counts_as_room : null,
   }));
   const activeRoomTypeIds = new Set(roomTypes.map((rt) => rt.id));
+
+  // The room-count denominator, everywhere: only types that count as rooms
+  // get snapshots, feed occupancy, or add to Booking Speed capacity. A court
+  // stays in `roomTypes` because a rule that lists it as AFFECTED still
+  // prices it; it just never measures anything.
+  const countingRoomTypes = roomTypes.filter(countsAsRoom);
+  const countingIds = new Set(countingRoomTypes.map((rt) => rt.id));
+  const roomTypeNameById = new Map(roomTypes.map((rt) => [rt.id, rt.name]));
 
   if (roomTypes.length === 0) {
     return {
@@ -115,7 +163,12 @@ export async function evaluateHotel(
     cursor = addCalendarDays(cursor, 1);
   }
 
-  await snapshotCurrentState(supabase, hotelId, now, stayDates, roomTypes);
+  await snapshotCurrentState(supabase, hotelId, now, stayDates, countingRoomTypes);
+
+  // Once per run: can ladder_rule_state carry suppressed_at? See
+  // probeSuppressionSupport. The answer is threaded to every ladder write
+  // and every effects read below.
+  const supportsSuppression = await probeSuppressionSupport(supabase, hotelId);
 
   const { data: rulesData, error: rulesErr } = await supabase
     .from("pricing_rules")
@@ -151,8 +204,9 @@ export async function evaluateHotel(
 
   const rules: EngineRule[] = (rulesData ?? []).map((r) => {
     // deno-lint-ignore no-explicit-any
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rc: any = Array.isArray(r.rule_condition) ? r.rule_condition[0] : r.rule_condition;
+    const rc: any = Array.isArray(r.rule_condition)
+      ? r.rule_condition[0]
+      : r.rule_condition;
     return {
       id: String(r.id),
       hotel_id: String(r.hotel_id),
@@ -170,12 +224,20 @@ export async function evaluateHotel(
       is_pickup_rule: Boolean(r.is_pickup_rule),
       condition: {
         occupancy_operator: rc?.occupancy_operator ?? null,
-        occupancy_threshold: rc?.occupancy_threshold != null ? Number(rc.occupancy_threshold) : null,
+        occupancy_threshold:
+          rc?.occupancy_threshold != null
+            ? Number(rc.occupancy_threshold)
+            : null,
         dta_operator: rc?.dta_operator ?? null,
-        dta_threshold_days: rc?.dta_threshold_days != null ? Number(rc.dta_threshold_days) : null,
+        dta_threshold_days:
+          rc?.dta_threshold_days != null ? Number(rc.dta_threshold_days) : null,
         pickup_operator: rc?.pickup_operator ?? null,
-        pickup_threshold: rc?.pickup_threshold != null ? Number(rc.pickup_threshold) : null,
-        pickup_window_days: rc?.pickup_window_days != null ? (Number(rc.pickup_window_days) as 1 | 3 | 7) : null,
+        pickup_threshold:
+          rc?.pickup_threshold != null ? Number(rc.pickup_threshold) : null,
+        pickup_window_days:
+          rc?.pickup_window_days != null
+            ? (Number(rc.pickup_window_days) as 1 | 3 | 7)
+            : null,
         pickup_metric: rc?.pickup_metric ?? null,
         booking_speed_operator: rc?.booking_speed_operator ?? null,
         booking_speed_level: rc?.booking_speed_level ?? null,
@@ -197,18 +259,59 @@ export async function evaluateHotel(
       // the WHOLE rule even though its other signals are fine. Filtering here
       // drops only the dead entry, matching what deactivating a room type
       // ought to mean for a rule that also signals on other room types.
+      //
+      // The same filter drops signal types that do not count as rooms. The
+      // rule row is left alone (the court stays in its saved sets and keeps
+      // being priced as an AFFECTED type); it simply stops being measured.
+      // A rule whose signals were all courts ends up with an empty set. It
+      // is NOT dropped from scope the way an all-deactivated rule is (see
+      // emptiedByRoomFlag below): its metrics come back blocked, so its
+      // conditions fail and any ladder effect it holds on real rooms is
+      // deactivated on the normal path instead of frozen forever. What was
+      // dropped is named on the metrics (see noteExcludedSignals) so the
+      // change log can explain the number.
       signal_room_type_ids: (r.rule_signal_room_type ?? [])
         // deno-lint-ignore no-explicit-any
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .map((x: any) => String(x.room_type_id))
-        .filter((id: string) => activeRoomTypeIds.has(id)),
+        .filter((id: string) => activeRoomTypeIds.has(id) && countingIds.has(id)),
       // deno-lint-ignore no-explicit-any
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      affected_room_type_ids: (r.rule_affected_room_type ?? []).map((x: any) => String(x.room_type_id)),
+      affected_room_type_ids: (r.rule_affected_room_type ?? []).map((x: any) =>
+        String(x.room_type_id),
+      ),
       created_at: r.created_at,
       updated_at: r.updated_at,
     };
   });
+
+  // Per rule, the names of active signal types that were dropped for not
+  // counting as rooms. Recorded on every metrics object the rule produces so
+  // audit rows and transition events carry the reason for the denominator.
+  const excludedSignalNames = new Map<string, string[]>();
+  // Rules whose ACTIVE signal set was non-empty and the room flag alone
+  // emptied it. They stay in scope: nobody paused them, and their affected
+  // rooms are still being priced, so a held ladder effect has to be able to
+  // let go when the (now unmeasurable) condition can no longer be met.
+  const emptiedByRoomFlag = new Set<string>();
+  for (const r of rulesData ?? []) {
+    const activeSignals = (r.rule_signal_room_type ?? [])
+      // deno-lint-ignore no-explicit-any
+      .map((x: any) => String(x.room_type_id))
+      .filter((id: string) => activeRoomTypeIds.has(id));
+    const dropped = activeSignals.filter((id: string) => !countingIds.has(id));
+    if (dropped.length > 0) {
+      excludedSignalNames.set(
+        String(r.id),
+        dropped.map((id: string) => roomTypeNameById.get(id) ?? id),
+      );
+    }
+    if (activeSignals.length > 0 && dropped.length === activeSignals.length) {
+      emptiedByRoomFlag.add(String(r.id));
+    }
+  }
+  const noteExcludedSignals = (rule: EngineRule, metrics: RuleMetrics) => {
+    const names = excludedSignalNames.get(rule.id);
+    if (names) metrics.excluded_from_occupancy = names;
+  };
 
   let maxPickupWindowDays = 7;
   for (const r of rules) {
@@ -330,6 +433,7 @@ export async function evaluateHotel(
       });
     }
   } catch (e) {
+    const missing = isMissingRelationError(e);
     console.error(
       JSON.stringify({
         fn: "evaluateHotel",
@@ -337,6 +441,13 @@ export async function evaluateHotel(
         hotelId,
         error: e instanceof Error ? e.message : String(e),
         degradedToEmpty: true,
+        ...(missing
+          ? {
+              schema: "pre-migration",
+              message: `manual_price does not exist yet; no manual price overrides apply this run. Run ${MIGRATIONS.manualPrice}.`,
+              migration: MIGRATIONS.manualPrice,
+            }
+          : {}),
       }),
     );
   }
@@ -371,8 +482,11 @@ export async function evaluateHotel(
   let bsCtx: BookingSpeedContext | null = null;
   let lastBsFire: Map<string, string> | null = null;
   if (usesBookingSpeed) {
-    const totalCapacity = roomTypes.reduce((sum, rt) => sum + rt.total_rooms, 0);
-    bsCtx = await loadBookingSpeedContext(supabase, hotelId, localDate, totalCapacity);
+    // Capacity and history over the same set: the court's slots are out of
+    // both, or pace reads as the hotel filling on court traffic.
+    const totalCapacity = countingRoomTypes.reduce((sum, rt) => sum + rt.total_rooms, 0);
+    const nonRoomIds = new Set(roomTypes.filter((rt) => !countingIds.has(rt.id)).map((rt) => rt.id));
+    bsCtx = await loadBookingSpeedContext(supabase, hotelId, localDate, totalCapacity, nonRoomIds);
 
     // Most recent fire per (rule, stay date), for cooldown throttling of
     // event-style booking-speed rules. One query, built into a map. See
@@ -420,8 +534,9 @@ export async function evaluateHotel(
   const allLadderResults: Map<string, LadderPassResult[]> = new Map();
 
   for (const rule of ladderRules) {
+    const scopeOpts = { requireSignals: !emptiedByRoomFlag.has(rule.id) };
     for (const stayDate of stayDates) {
-      if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone)) continue;
+      if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone, scopeOpts)) continue;
 
       const metrics = await computeRuleMetrics(
         supabase,
@@ -434,6 +549,7 @@ export async function evaluateHotel(
         null,
       );
       attachBookingSpeed(rule, stayDate, metrics);
+      noteExcludedSignals(rule, metrics);
 
       // Whether this rule already held when a manual price was typed on one
       // of its cells, for a cell that has no state row yet (see OverrideProbe
@@ -482,6 +598,7 @@ export async function evaluateHotel(
           metrics,
           now,
           probe,
+          supportsSuppression,
         );
 
         const key = `${stayDate}|${rtId}`;
@@ -530,6 +647,7 @@ export async function evaluateHotel(
         baselineTs,
       );
       attachBookingSpeed(rule, stayDate, metrics);
+      noteExcludedSignals(rule, metrics);
 
       if (!ruleConditionsMatch(rule, metrics)) continue;
 
@@ -559,6 +677,7 @@ export async function evaluateHotel(
               cellBaselineTs,
             );
             attachBookingSpeed(rule, stayDate, cellMetrics);
+            noteExcludedSignals(rule, cellMetrics);
             if (!ruleConditionsMatch(rule, cellMetrics)) continue;
           }
         }
@@ -656,6 +775,7 @@ export async function evaluateHotel(
         basePrice,
         // Every priced cell has a source: the two maps are filled together.
         baseSourceByCell.get(key) ?? "remembered",
+        supportsSuppression,
       );
       const published = await maybePublish(
         supabase,

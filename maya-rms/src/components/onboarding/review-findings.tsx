@@ -2,7 +2,18 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useOnboardingStatus } from "@/components/onboarding/import-progress";
+import {
+  useOnboardingStatus,
+  type OnboardingStatus,
+} from "@/components/onboarding/import-progress";
+import {
+  COUNTS_AS_ROOM_HELP,
+  RoomCountHelp,
+  isCountingRoom,
+  roomCountQuestion,
+  saveCountsAsRoom,
+  type RoomTypeOption,
+} from "@/components/room-type-settings";
 
 /**
  * Post-import review: everything the analysis flagged, in plain language,
@@ -26,6 +37,9 @@ export function ReviewFindings() {
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [step, setStep] = useState<"assumptions" | "recommendations">("assumptions");
+  // One poll shared by the room-count strip (which needs the hotel id) and the
+  // starter rules (which need the job stats and simulation flag).
+  const status = useOnboardingStatus(15000);
 
   async function load() {
     // A failure has to be visible. Leaving `findings` null renders the loading
@@ -233,7 +247,9 @@ export function ReviewFindings() {
             </div>
           ) : null}
 
-          <StarterRules />
+          <RoomCountStrip hotelId={status?.hotelId} />
+
+          <StarterRules status={status} />
 
           <div>
             <button
@@ -256,8 +272,7 @@ export function ReviewFindings() {
 
 /* ── Starter rules: the payoff ────────────────────────────────────────────── */
 
-function StarterRules() {
-  const status = useOnboardingStatus(15000);
+function StarterRules({ status }: { status: OnboardingStatus | null }) {
   const [going, setGoing] = useState(false);
   const [live, setLive] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -328,6 +343,87 @@ function StarterRules() {
             ✓ Live — your rules are now managing prices
           </span>
         )}
+      </div>
+      {error ? <p className="mt-2 text-xs text-rose-300">{error}</p> : null}
+    </div>
+  );
+}
+
+/* ── Room count: what we're dividing by ───────────────────────────────────── */
+
+/**
+ * The import's guess at which room types are rooms, shown as ticked chips
+ * with the suspects already unticked. A tick is a save; there is no confirm
+ * and nothing here gates Finish. The same switch lives in the PMS tab later.
+ */
+function RoomCountStrip({ hotelId }: { hotelId: string | undefined }) {
+  const [types, setTypes] = useState<RoomTypeOption[] | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/room-types");
+        if (!res.ok || !alive) return;
+        const rows = (await res.json()) as RoomTypeOption[];
+        if (alive && Array.isArray(rows)) setTypes(rows);
+      } catch {
+        // The strip is a courtesy; the review is complete without it.
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (!types || types.length === 0) return null;
+  const counting = types.filter(isCountingRoom).length;
+
+  async function toggle(rt: RoomTypeOption, next: boolean) {
+    if (!hotelId) return;
+    setError(null);
+    setBusyId(rt.id);
+    const before = rt.counts_as_room;
+    setTypes((prev) => prev?.map((t) => (t.id === rt.id ? { ...t, counts_as_room: next } : t)) ?? prev);
+    const failure = await saveCountsAsRoom(hotelId, rt.id, next);
+    if (failure) {
+      setTypes((prev) => prev?.map((t) => (t.id === rt.id ? { ...t, counts_as_room: before } : t)) ?? prev);
+      setError(failure);
+    }
+    setBusyId(null);
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-sm text-slate-200">{roomCountQuestion(counting)}</p>
+        <RoomCountHelp {...COUNTS_AS_ROOM_HELP} />
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {types.map((rt) => {
+          const on = isCountingRoom(rt);
+          return (
+            <label
+              key={rt.id}
+              className={`flex cursor-pointer items-center gap-1.5 rounded border px-2 py-1 text-xs ${
+                on ? "border-slate-700 bg-slate-900 text-slate-200" : "border-slate-800 text-slate-500"
+              }`}
+            >
+              <input
+                type="checkbox"
+                className="rounded border-slate-600"
+                checked={on}
+                disabled={!hotelId || busyId === rt.id}
+                onChange={(e) => toggle(rt, e.target.checked)}
+                aria-label={`${rt.name} counts as a room`}
+              />
+              {rt.name}
+              <span className="text-slate-500">{rt.total_rooms}</span>
+            </label>
+          );
+        })}
       </div>
       {error ? <p className="mt-2 text-xs text-rose-300">{error}</p> : null}
     </div>
@@ -455,7 +551,7 @@ export function describeFinding(f: Finding): {
       const reasons = Array.isArray(p.reasons) ? (p.reasons as string[]).join("; ") : "";
       return {
         title: `Is "${String(p.name)}" actually a room?`,
-        body: `Some systems list every bookable space as a room — event rooms, spa slots, courts. This one caught our eye: ${reasons}. Confirming excludes it from pricing (it stays in your PMS untouched).`,
+        body: `Some systems list every bookable space as a room — event rooms, spa slots, courts. This one caught our eye: ${reasons}. Confirming takes it out of your occupancy, RevPAR and the room count you're billed for. It can still be priced if a rule targets it.`,
         confirmLabel: "Not a room — exclude it",
         dismissLabel: "It's a real room",
       };

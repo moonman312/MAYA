@@ -26,8 +26,10 @@ function bookingSpeedLabel(levelKey: string): string {
 }
 
 export type NarrativeMetrics = {
-  /** Occupancy as a fraction (0.82) — matches the engine's RuleMetrics. */
+  /** Sellable occupancy as a fraction (0.82) — matches the engine's RuleMetrics. */
   occupancy?: number | null;
+  /** Room types the engine left out of that occupancy (not rooms, e.g. a court). */
+  excluded_from_occupancy?: string[] | null;
   /** Days until arrival. */
   dta?: number | null;
   /** Net pickup units over the rule's window. */
@@ -80,7 +82,7 @@ function bookingWord(n: number): string {
 }
 
 /**
- * "occupancy (82%) was above 70%" / "the stay was fewer than 7 days away
+ * "sellable occupancy (82%) was above 70%" / "the stay was fewer than 7 days away
  * (3 days out)" / "pickup (9 bookings in the window) was more than 4" —
  * joined with "and" when a rule has several conditions.
  */
@@ -93,9 +95,11 @@ export function describeConditions(
 
   if (condition.occupancy_operator && condition.occupancy_threshold != null) {
     const dir = condition.occupancy_operator === "gt" ? "above" : "below";
+    const excluded = metrics?.excluded_from_occupancy ?? [];
+    const notCounting = excluded.length ? `, not counting ${excluded.join(", ")}` : "";
     const observed =
-      metrics?.occupancy != null ? ` (${pct(metrics.occupancy)})` : "";
-    parts.push(`occupancy${observed} was ${dir} ${pct(condition.occupancy_threshold)}`);
+      metrics?.occupancy != null ? ` (${pct(metrics.occupancy)}${notCounting})` : "";
+    parts.push(`sellable occupancy${observed} was ${dir} ${pct(condition.occupancy_threshold)}`);
   }
 
   if (condition.dta_operator && condition.dta_threshold_days != null) {

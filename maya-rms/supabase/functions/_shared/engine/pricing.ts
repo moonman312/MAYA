@@ -1,6 +1,9 @@
 /**
  * Price assembly and publishing — Implementation Guide §7.1, §10, §11 steps 9-10.
  * Deno-portable copy of src/lib/engine/pricing.ts (import paths only differ).
+ *
+ * Loads active ladder and pickup effects, applies them in order, clamps to
+ * floor/ceiling, and publishes diffs.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -22,27 +25,50 @@ export type AssembledPrice = {
   clamped_by: "ceiling" | "floor" | "none";
 };
 
-/** §10.2: Apply adjustments in order. */
+/**
+ * §10.2: Apply adjustments in order.
+ *
+ * Ladder effects in ascending rule_id order, then pickup effects in ascending
+ * applied_at order. Percent adjustments compose multiplicatively; fixed
+ * adjustments are additive.
+ */
 export function applyAdjustments(
   basePrice: number,
   ladderEffects: AdjustmentSpec[],
   pickupEffects: AdjustmentSpec[],
 ): number {
   let p = basePrice;
-  for (const adj of ladderEffects) p = applyOne(p, adj);
-  for (const adj of pickupEffects) p = applyOne(p, adj);
+
+  for (const adj of ladderEffects) {
+    p = applyOne(p, adj);
+  }
+
+  for (const adj of pickupEffects) {
+    p = applyOne(p, adj);
+  }
+
   return Math.round(p * 100) / 100;
 }
 
 function applyOne(p: number, adj: AdjustmentSpec): number {
-  if (adj.action_kind === "fixed" && adj.action_direction === "increase") return p + adj.action_value;
-  if (adj.action_kind === "fixed" && adj.action_direction === "decrease") return p - adj.action_value;
-  if (adj.action_kind === "percent" && adj.action_direction === "increase") return p * (1 + adj.action_value / 100);
-  if (adj.action_kind === "percent" && adj.action_direction === "decrease") return p * (1 - adj.action_value / 100);
+  if (adj.action_kind === "fixed" && adj.action_direction === "increase") {
+    return p + adj.action_value;
+  }
+  if (adj.action_kind === "fixed" && adj.action_direction === "decrease") {
+    return p - adj.action_value;
+  }
+  if (adj.action_kind === "percent" && adj.action_direction === "increase") {
+    return p * (1 + adj.action_value / 100);
+  }
+  if (adj.action_kind === "percent" && adj.action_direction === "decrease") {
+    return p * (1 - adj.action_value / 100);
+  }
   return p;
 }
 
-/** Clamp price to floor/ceiling. §10.3: never emit negative or zero prices. */
+/**
+ * Clamp price to floor/ceiling. §10.3: never emit negative or zero prices.
+ */
 export function clampPrice(
   price: number,
   floorPrice: number,
@@ -53,26 +79,35 @@ export function clampPrice(
   return { final: Math.round(price * 100) / 100, clamped_by: "none" };
 }
 
-/** Load all active ladder effects for a (stay_date, room_type_id), rule_id asc (§10.2). */
+/**
+ * Load all active ladder effects for a (stay_date, room_type_id),
+ * ordered by rule_id ascending (§10.2).
+ *
+ * `supportsSuppression` false means the run found no suppressed_at column
+ * (see probeSuppressionSupport in ladder.ts): the filter is skipped and
+ * every active effect applies, exactly as before manual overrides existed.
+ */
 export async function loadActiveLadderEffects(
   supabase: SupabaseClient,
   stayDate: string,
   roomTypeId: string,
+  supportsSuppression: boolean = true,
 ): Promise<AdjustmentSpec[]> {
-  const { data, error } = await supabase
+  let q = supabase
     .from("ladder_rule_state")
     .select("rule_id, action_kind, action_direction, action_value")
     .eq("stay_date", stayDate)
     .eq("room_type_id", roomTypeId)
-    .eq("is_active", true)
-    // A row suppressed by a manual price override is still active (its
-    // condition holds and it must not re-fire on the same trigger) but no
-    // longer moves the price. Suppression lifts on the next transition.
-    .is("suppressed_at", null)
-    .order("rule_id", { ascending: true });
-  // Loud, not empty: a failed read here (say, the suppressed_at column not
-  // migrated yet) would otherwise price the whole horizon with no rules and
-  // push that to the PMS as a successful run.
+    .eq("is_active", true);
+  // A row suppressed by a manual price override is still active (its
+  // condition holds and it must not re-fire on the same trigger) but no
+  // longer moves the price. Suppression lifts on the next transition.
+  if (supportsSuppression) q = q.is("suppressed_at", null);
+  const { data, error } = await q.order("rule_id", { ascending: true });
+  // Loud, not empty: a failed read here would otherwise price the whole
+  // horizon with no rules and push that to the PMS as a successful run. The
+  // one failure we know how to handle, the column not being migrated yet,
+  // is caught by the probe before we get here; anything else is an outage.
   if (error) throw new Error(`Failed to load ladder effects: ${error.message}`);
 
   return (data ?? []).map((r) => ({
@@ -83,7 +118,10 @@ export async function loadActiveLadderEffects(
   }));
 }
 
-/** Load all non-retired pickup events for a (stay_date, room_type_id), applied_at asc then id asc. */
+/**
+ * Load all non-retired pickup events for a (stay_date, room_type_id),
+ * ordered by applied_at ascending, then id ascending (§10.2).
+ */
 export async function loadActivePickupEffects(
   supabase: SupabaseClient,
   hotelId: string,
@@ -110,7 +148,9 @@ export async function loadActivePickupEffects(
   }));
 }
 
-/** Assemble the final price for a single (stay_date, room_type). */
+/**
+ * Assemble the final price for a single (stay_date, room_type).
+ */
 export async function assemblePrice(
   supabase: SupabaseClient,
   hotelId: string,
@@ -118,8 +158,14 @@ export async function assemblePrice(
   roomType: RoomTypeRow,
   basePrice: number,
   baseSource: BaseSource,
+  supportsSuppression: boolean = true,
 ): Promise<AssembledPrice> {
-  const ladderEffects = await loadActiveLadderEffects(supabase, stayDate, roomType.id);
+  const ladderEffects = await loadActiveLadderEffects(
+    supabase,
+    stayDate,
+    roomType.id,
+    supportsSuppression,
+  );
   const pickupEffects = await loadActivePickupEffects(supabase, hotelId, stayDate, roomType.id);
 
   const preClamp = applyAdjustments(basePrice, ladderEffects, pickupEffects);
@@ -140,7 +186,9 @@ export async function assemblePrice(
   };
 }
 
-/** §11 step 10: Publish diffs — update published_price only if changed. */
+/**
+ * §11 step 10: Publish diffs — update published_price only if changed.
+ */
 export async function maybePublish(
   supabase: SupabaseClient,
   hotelId: string,

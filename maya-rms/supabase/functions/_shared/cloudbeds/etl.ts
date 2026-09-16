@@ -80,7 +80,7 @@ function enumerateNights(checkIn: string, checkOut: string | null): string[] {
 
 /** ── Room types ─────────────────────────────────────────────
  * ⚠ VERIFY field names: roomTypeID, roomTypeName, roomTypeNameShort,
- * roomTypeUnits / roomsAvailable / totalUnits.
+ * roomTypeUnits / totalUnits.
  */
 export function parseCloudbedsRoomTypes(
   rows: Json[],
@@ -93,8 +93,10 @@ export function parseCloudbedsRoomTypes(
     const name =
       firstString(r, ["roomTypeName", "name", "roomTypeNameShort"]) ?? "Unknown";
     const shortName = firstString(r, ["roomTypeNameShort", "roomTypeName", "name"]);
+    // roomsAvailable is deliberately not a fallback: it is how many are free on
+    // a date, not how many exist, and would have stored 15 for a 20-room type.
     const units =
-      firstNumber(r, ["roomTypeUnits", "roomsAvailable", "totalUnits", "units", "roomTypeTotalUnits"]) ??
+      firstNumber(r, ["roomTypeUnits", "totalUnits", "units", "roomTypeTotalUnits"]) ??
       defaultRoomsPerCategory;
     out.push({
       external_room_type_id: id,

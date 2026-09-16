@@ -9,6 +9,7 @@ import { ManualPriceEditor } from "@/components/manual-price-editor";
 import { useCalendarLive } from "@/lib/use-calendar-live";
 import { PropertySelect } from "@/components/property-select";
 import { RateSimulator } from "@/components/rate-simulator";
+import { RoomTypeSettings, isCountingRoom } from "@/components/room-type-settings";
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
@@ -279,7 +280,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
   const [ruleFilter, setRuleFilter] = useState<"all" | "enabled" | "disabled">("all");
   const [ruleFormOpen, setRuleFormOpen] = useState(false);
   const [roomTypeOptions, setRoomTypeOptions] = useState<
-    { id: string; name: string }[]
+    { id: string; name: string; counts_as_room?: boolean | null }[]
   >([]);
   const [calendar, setCalendar] = useState<CalendarResponse | null>(null);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
@@ -514,9 +515,11 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
 
   async function reloadRoomTypes() {
     const data =
-      await api<Array<{ id: string; name: string }>>("/api/room-types");
+      await api<Array<{ id: string; name: string; counts_as_room?: boolean | null }>>("/api/room-types");
     setRoomTypeOptions(data);
-    setSelectedRoomTypeIds(data.map((item) => item.id));
+    // A new rule starts on the types that count as rooms — the same default
+    // the rules store applies server-side. The others stay one click away.
+    setSelectedRoomTypeIds(data.filter(isCountingRoom).map((item) => item.id));
   }
 
   async function applyActiveHotel(hotelId: string) {
@@ -687,7 +690,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
     setAdjPercent("10");
     setAdjDollars("");
     setAdjDirection("");
-    setSelectedRoomTypeIds(roomTypeOptions.map((r) => r.id));
+    setSelectedRoomTypeIds(roomTypeOptions.filter(isCountingRoom).map((r) => r.id));
     await reloadRules();
   }
 
@@ -1017,7 +1020,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                         {calendar.days[String(selectedDay)].booked}/
                         {calendar.days[String(selectedDay)].total} rooms ·{" "}
                         {calendar.days[String(selectedDay)].occupancy_pct}%
-                        occupancy ·{" "}
+                        sellable occupancy ·{" "}
                         {isFutureDay(year, month, selectedDay)
                           ? "revenue on the books"
                           : "revenue"}{" "}
@@ -1312,7 +1315,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                                   value="occupancy"
                                   disabled={taken.has("occupancy")}
                                 >
-                                  Occupancy (%)
+                                  Sellable occupancy (%)
                                 </option>
                                 <option
                                   value="booking_speed"
@@ -1614,11 +1617,12 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                   <div className="flex flex-wrap gap-2">
                     {roomTypeOptions.map((opt) => {
                       const on = selectedRoomTypeIds.includes(opt.id);
+                      const room = isCountingRoom(opt);
                       return (
                         <button
                           type="button"
                           key={opt.id}
-                          className={`cursor-pointer rounded px-2 py-1 text-xs ${on ? "bg-sky-600" : "bg-slate-800"}`}
+                          className={`cursor-pointer rounded px-2 py-1 text-xs ${on ? "bg-sky-600" : "bg-slate-800"} ${room ? "" : "text-slate-400"}`}
                           onClick={() =>
                             setSelectedRoomTypeIds((prev) =>
                               prev.includes(opt.id)
@@ -1626,9 +1630,14 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                                 : [...prev, opt.id],
                             )
                           }
-                          title={opt.name}
+                          title={room ? opt.name : `${opt.name} — not counted as a room (change this in the PMS tab)`}
                         >
                           {opt.name}
+                          {room ? null : (
+                            <span className="ml-1.5 rounded bg-slate-950/50 px-1 py-px text-[9px] uppercase tracking-wide text-slate-400">
+                              not a room
+                            </span>
+                          )}
                         </button>
                       );
                     })}
@@ -1865,6 +1874,10 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
             )}
           </section>
         )}
+
+        {tab === "pms" && activeHotelId ? (
+          <RoomTypeSettings hotelId={activeHotelId} onChanged={() => void reloadRoomTypes()} />
+        ) : null}
       </div>
     </main>
   );

@@ -5,7 +5,7 @@
  * underpaying, and then charging it more, on the strength of a measurement that
  * was really just missing data. Most of these pin that down.
  */
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   compareRooms,
@@ -20,24 +20,54 @@ const NOW = new Date("2026-07-30T12:00:00Z");
 
 beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
+// Fresh spies per test, or one test's warnings count against the next.
+afterEach(() => vi.restoreAllMocks());
+
+type FakeRoomType = {
+  name: string;
+  display_name?: string | null;
+  total_rooms: number;
+  counts_as_room?: boolean | null;
+  counts_as_room_set_by?: string | null;
+};
+
 function fakeAdmin(opts: {
-  roomTypes?: { name: string; display_name?: string | null; total_rooms: number }[] | null;
+  roomTypes?: FakeRoomType[] | null;
   roomTypesError?: string;
+  /** Simulate a database that has not run the counts_as_room migration. */
+  countsAsRoomMissing?: boolean;
+  /** Simulate a database that ran the migration before counts_as_room_set_by was added to it. */
+  setByMissing?: boolean;
   subscription?: { billed_rooms: number; room_shortfall_since: string | null } | null;
 }) {
   const patches: Record<string, unknown>[] = [];
+  const roomTypeSelects: string[] = [];
   const admin = {
     from(table: string) {
       if (table === "room_types") {
         return {
-          select: () => ({
+          select: (cols: string) => ({
             eq: () => ({
-              eq: async () =>
-                opts.roomTypesError
-                  ? { data: null, error: { message: opts.roomTypesError } }
-                  : { data: opts.roomTypes ?? [], error: null },
+              eq: async () => {
+                roomTypeSelects.push(cols);
+                if (opts.roomTypesError) return { data: null, error: { message: opts.roomTypesError } };
+                if (opts.countsAsRoomMissing && cols.includes("counts_as_room")) {
+                  return {
+                    data: null,
+                    error: { code: "42703", message: "column room_types.counts_as_room does not exist" },
+                  };
+                }
+                if (opts.setByMissing && cols.includes("counts_as_room_set_by")) {
+                  return {
+                    data: null,
+                    error: { code: "42703", message: "column room_types.counts_as_room_set_by does not exist" },
+                  };
+                }
+                return { data: opts.roomTypes ?? [], error: null };
+              },
             }),
           }),
         };
@@ -55,7 +85,7 @@ function fakeAdmin(opts: {
       };
     },
   };
-  return { admin: admin as unknown as SupabaseClient, patches };
+  return { admin: admin as unknown as SupabaseClient, patches, roomTypeSelects };
 }
 
 describe("measureRooms only counts places people sleep", () => {
@@ -80,6 +110,7 @@ describe("measureRooms only counts places people sleep", () => {
     const m = await measureRooms(admin, "h1");
     expect(m.billable).toBe(20);
     expect(m.excluded.map((e) => e.name)).toEqual(["Pickleball Court", "Grand Ballroom"]);
+    expect(m.excluded.every((e) => e.source === "heuristic")).toBe(true);
   });
 
   it.each([
@@ -128,6 +159,125 @@ describe("measureRooms only counts places people sleep", () => {
   it("returns null on a read error rather than guessing", async () => {
     const { admin } = fakeAdmin({ roomTypesError: "connection reset" });
     expect((await measureRooms(admin, "h1")).billable).toBeNull();
+  });
+});
+
+describe("measureRooms honours the owner's counts_as_room over the name", () => {
+  it("excludes a type the owner marked as not a room, whatever it is called", async () => {
+    const { admin } = fakeAdmin({
+      roomTypes: [
+        { name: "King Room", total_rooms: 20, counts_as_room: true },
+        // Reads as a bedroom to the heuristic; the owner says otherwise.
+        { name: "Staff Room", total_rooms: 3, counts_as_room: false, counts_as_room_set_by: "user-1" },
+      ],
+    });
+    const m = await measureRooms(admin, "h1");
+    expect(m.billable).toBe(20);
+    expect(m.excluded).toEqual([{ name: "Staff Room", rooms: 3, source: "owner" }]);
+  });
+
+  it("attributes a false the import wrote to the heuristic, not the owner", async () => {
+    // The onboarding import proposes `false` for a car park. Nobody has
+    // looked at it, so the notice must not say they "marked" it.
+    const { admin } = fakeAdmin({
+      roomTypes: [
+        { name: "King Room", total_rooms: 20, counts_as_room: true },
+        { name: "Parking", total_rooms: 30, counts_as_room: false, counts_as_room_set_by: null },
+      ],
+    });
+    const m = await measureRooms(admin, "h1");
+    expect(m.billable).toBe(20);
+    expect(m.excluded).toEqual([{ name: "Parking", rooms: 30, source: "heuristic" }]);
+  });
+
+  it("reads every exclusion as the heuristic's when only the set_by column is missing, and says so", async () => {
+    const { admin, roomTypeSelects } = fakeAdmin({
+      setByMissing: true,
+      roomTypes: [
+        { name: "King Room", total_rooms: 20, counts_as_room: true },
+        { name: "Staff Room", total_rooms: 3, counts_as_room: false },
+      ],
+    });
+    const m = await measureRooms(admin, "h1");
+    expect(m.billable).toBe(20);
+    expect(m.excluded).toEqual([{ name: "Staff Room", rooms: 3, source: "heuristic" }]);
+    expect(roomTypeSelects).toHaveLength(2);
+    expect(roomTypeSelects[1]).toContain("counts_as_room");
+    expect(roomTypeSelects[1]).not.toContain("counts_as_room_set_by");
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("counts_as_room_set_by"));
+  });
+
+  it("flags a property whose every type is marked as not a room, without inventing a zero", async () => {
+    const { admin } = fakeAdmin({
+      roomTypes: [{ name: "King Room", total_rooms: 20, counts_as_room: false, counts_as_room_set_by: "user-1" }],
+    });
+    const m = await measureRooms(admin, "h1");
+    expect(m.billable).toBeNull();
+    expect(m.allExcluded).toBe(true);
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("every active room type is marked as not a room"));
+    // Mid-import (nothing to read) is a different state and stays quiet.
+    expect((await measureRooms(fakeAdmin({ roomTypes: [] }).admin, "h1")).allExcluded).toBe(false);
+  });
+
+  it("bills a type the owner confirmed IS a room even when the name looks like a court", async () => {
+    const { admin } = fakeAdmin({
+      roomTypes: [{ name: "Pickleball Court", total_rooms: 4, counts_as_room: true }],
+    });
+    const m = await measureRooms(admin, "h1");
+    expect(m.billable).toBe(4);
+    expect(m.excluded).toEqual([]);
+  });
+
+  it("falls back to the name heuristic on an unclassified type and says so", async () => {
+    const { admin } = fakeAdmin({
+      roomTypes: [
+        { name: "King Room", total_rooms: 20, counts_as_room: null },
+        { name: "Pickleball Court", total_rooms: 5, counts_as_room: null },
+      ],
+    });
+    const m = await measureRooms(admin, "h1");
+    expect(m.billable).toBe(20);
+    expect(m.excluded).toEqual([{ name: "Pickleball Court", rooms: 5, source: "heuristic" }]);
+  });
+
+  it("tells owner exclusions from heuristic ones in the same list", async () => {
+    const { admin } = fakeAdmin({
+      roomTypes: [
+        { name: "King Room", total_rooms: 20 },
+        { name: "Parking", total_rooms: 30 },
+        { name: "Owner's Suite", total_rooms: 1, counts_as_room: false, counts_as_room_set_by: "user-1" },
+      ],
+    });
+    expect((await measureRooms(admin, "h1")).excluded.map((e) => e.source)).toEqual(["heuristic", "owner"]);
+  });
+
+  it("keeps measuring, heuristic-only, on a database that has not run the migration", async () => {
+    // Deploy order must not matter. A billing sweep that returned "no
+    // measurement" for every hotel until the SQL landed would be a silent
+    // outage in the one place that has to keep working.
+    const { admin, roomTypeSelects } = fakeAdmin({
+      countsAsRoomMissing: true,
+      roomTypes: [
+        { name: "King Room", total_rooms: 20 },
+        { name: "Pickleball Court", total_rooms: 5 },
+      ],
+    });
+    const m = await measureRooms(admin, "h1");
+    expect(m.billable).toBe(20);
+    expect(m.excluded).toEqual([{ name: "Pickleball Court", rooms: 5, source: "heuristic" }]);
+    // Full shape, then without set_by, then without the flag at all — and
+    // only the missing flag is warned about, not a missing set_by.
+    expect(roomTypeSelects).toHaveLength(3);
+    expect(roomTypeSelects[2]).not.toContain("counts_as_room");
+    const warned = vi.mocked(console.warn).mock.calls.map((c) => String(c[0]));
+    expect(warned.filter((w) => w.includes("counts_as_room is not in this database"))).toHaveLength(1);
+    expect(warned.some((w) => w.includes("counts_as_room_set_by is not"))).toBe(false);
+  });
+
+  it("does not retry on an unrelated error, and still returns null", async () => {
+    const { admin, roomTypeSelects } = fakeAdmin({ roomTypesError: "connection reset" });
+    expect((await measureRooms(admin, "h1")).billable).toBeNull();
+    expect(roomTypeSelects).toHaveLength(1);
   });
 });
 

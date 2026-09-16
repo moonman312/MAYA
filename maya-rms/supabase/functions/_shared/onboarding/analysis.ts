@@ -309,6 +309,198 @@ export function nameLooksLikeNonRoom(name: string): boolean {
   return NON_ROOM_WEAK.test(name) && !ROOM_NOUN.test(name);
 }
 
+/**
+ * The stricter half of the same judgement: only the words that are never a
+ * bedroom. "Deluxe Pool View" and "Spa Deluxe" trip the weak test — they are
+ * real bedrooms at real resorts — and that test is fine for a bill-time
+ * exclusion that under-charges us, but not for a default that takes a type
+ * out of the engine's occupancy before anyone has looked at it.
+ */
+export function nameIsCertainlyNonRoom(name: string): boolean {
+  return NON_ROOM_STRONG.test(name);
+}
+
+/**
+ * Whether a PostgREST error is "that column isn't there yet".
+ *
+ * Deploy order is not guaranteed: code that knows about a column can run
+ * against a database that has not had its migration. PostgREST reports the
+ * gap two ways — Postgres's own 42703 when the column is in a filter or a
+ * select list, PGRST204 ("not in the schema cache") when it is in an update
+ * or insert payload. Callers use this to fall back to the pre-migration path
+ * and say so in the logs, instead of failing a sync or a request over it.
+ */
+export function isMissingColumnError(
+  err: { code?: string; message?: string } | null | undefined,
+  column: string,
+): boolean {
+  if (!err) return false;
+  const msg = String(err.message ?? "");
+  if (!msg.includes(column)) return false;
+  return err.code === "42703" || err.code === "PGRST204" ||
+    /does not exist|schema cache/i.test(msg);
+}
+
+export type RoomTypeLabelRow = {
+  external_room_type_id: string;
+  name: string;
+  display_name?: string | null;
+};
+
+/**
+ * Where a classification pass is running from. It decides how bold the
+ * heuristic may be:
+ *
+ *   "import" — the onboarding discover step. The owner is about to see the
+ *              review strip with the guess on it, so the certain non-rooms
+ *              (parking, boardroom, pickleball) are proposed as `false` and
+ *              show up unticked for a one-click correction.
+ *   "sync"   — the steady-state five-minute tick on a live hotel, and a
+ *              refresh re-import. Nobody is looking. Writing `false` here
+ *              would drop a type out of every occupancy denominator, every
+ *              rule's signal set and the bill on the strength of a regex, so
+ *              the heuristic only ever writes `true`; a name it dislikes is
+ *              left null, which counts in the engine exactly as it did
+ *              before the flag existed, and billing keeps applying its own
+ *              one-directional name test at bill time.
+ */
+export type ProposeMode = "import" | "sync";
+
+/**
+ * Propose counts_as_room for room types the owner has not classified yet.
+ *
+ * Runs right after every room_types upsert. The upsert cannot tell an insert
+ * from an update, so writing the heuristic into the upsert payload would
+ * flatten the owner's choice on every five-minute tick. Instead this writes
+ * only where counts_as_room is still null — a new type gets a default, a
+ * decided one is never touched, in either direction. counts_as_room_set_by
+ * is left null on purpose: that is what marks a value as the heuristic's
+ * rather than a person's.
+ *
+ * Weak name matches ("Deluxe Pool View") are never proposed as non-rooms in
+ * either mode; they stay null and the review screen asks about them as a
+ * suspect_room_type finding instead.
+ *
+ * Never throws. A sync that dies over a classification hint is a far worse
+ * bug than an unclassified court, and ahead of the migration the column is
+ * simply not there: that case logs loudly and returns, and measureRooms
+ * falls back to the same heuristic at bill time.
+ */
+export async function proposeCountsAsRoom(
+  supabase: SupabaseClient,
+  hotelId: string,
+  rows: RoomTypeLabelRow[],
+  mode: ProposeMode,
+): Promise<{ proposedRooms: number; proposedNonRooms: number; leftUnclassified: number }> {
+  const nonRooms: string[] = [];
+  const rooms: string[] = [];
+  const unclassified: string[] = [];
+  for (const rt of rows) {
+    // Both names, same as billing: PMSes differ in which one carries the label.
+    const label = String(rt.display_name || rt.name || "");
+    if (!nameLooksLikeNonRoom(label)) rooms.push(rt.external_room_type_id);
+    else if (mode === "import" && nameIsCertainlyNonRoom(label)) nonRooms.push(rt.external_room_type_id);
+    else unclassified.push(rt.external_room_type_id);
+  }
+  if (mode === "sync" && unclassified.length > 0) {
+    // Worth a line: these are the types billing will exclude by name until
+    // someone decides in room-type settings.
+    console.log(JSON.stringify({
+      fn: "proposeCountsAsRoom",
+      hotel: hotelId,
+      leftUnclassified: unclassified,
+      note: "names read as non-rooms; not written outside onboarding, the owner decides in room-type settings",
+    }));
+  }
+
+  const nothing = { proposedRooms: 0, proposedNonRooms: 0, leftUnclassified: unclassified.length };
+  try {
+    for (const [value, ids] of [[false, nonRooms], [true, rooms]] as const) {
+      if (ids.length === 0) continue;
+      const { error } = await supabase
+        .from("room_types")
+        .update({ counts_as_room: value })
+        .eq("hotel_id", hotelId)
+        .is("counts_as_room", null)
+        .in("external_room_type_id", ids);
+      if (!error) continue;
+      if (isMissingColumnError(error, "counts_as_room")) {
+        console.warn(JSON.stringify({
+          fn: "proposeCountsAsRoom",
+          hotel: hotelId,
+          warning: "room_types.counts_as_room is not in this database yet — run " +
+            "99_supabase_migration_room_type_counts_as_room_v1.sql. Skipping the default " +
+            "pass; billing falls back to the name heuristic until it lands.",
+        }));
+        return nothing;
+      }
+      console.error(JSON.stringify({ fn: "proposeCountsAsRoom", hotel: hotelId, error: error.message }));
+      return nothing;
+    }
+  } catch (e) {
+    console.error(JSON.stringify({
+      fn: "proposeCountsAsRoom",
+      hotel: hotelId,
+      error: e instanceof Error ? e.message : String(e),
+    }));
+    return nothing;
+  }
+  return { proposedRooms: rooms.length, proposedNonRooms: nonRooms.length, leftUnclassified: unclassified.length };
+}
+
+/**
+ * Room types the owner has already answered for. A suspect_room_type finding
+ * is a question, and re-asking one that has been answered lets a teammate on
+ * the review screen flip the owner's yes to a no without knowing it was ever
+ * asked — so analyzeImport drops those suspects.
+ *
+ * "Answered" means counts_as_room_set_by is set: the heuristic's own writes
+ * leave it null, and a heuristic `true` must not silence the other triggers
+ * (all-single-night bookings, say) on a type nobody has looked at. On a
+ * database with the flag but not yet the set_by column, any classified type
+ * counts as answered — the older, safer reading; without the flag at all,
+ * nothing does.
+ */
+export async function loadAnsweredRoomTypeIds(
+  supabase: SupabaseClient,
+  hotelId: string,
+): Promise<Set<string>> {
+  const withSetBy = await supabase
+    .from("room_types")
+    .select("id, counts_as_room, counts_as_room_set_by")
+    .eq("hotel_id", hotelId)
+    .not("counts_as_room", "is", null);
+  if (!withSetBy.error) {
+    return new Set(
+      (withSetBy.data ?? [])
+        .filter((r: { counts_as_room_set_by?: unknown }) => r.counts_as_room_set_by != null)
+        .map((r: { id: unknown }) => String(r.id)),
+    );
+  }
+  if (isMissingColumnError(withSetBy.error, "counts_as_room_set_by")) {
+    console.warn(JSON.stringify({
+      fn: "loadAnsweredRoomTypeIds",
+      hotel: hotelId,
+      warning: "room_types.counts_as_room_set_by is not in this database yet — re-run " +
+        "99_supabase_migration_room_type_counts_as_room_v1.sql. Treating every classified type as answered.",
+    }));
+    const flagOnly = await supabase
+      .from("room_types")
+      .select("id")
+      .eq("hotel_id", hotelId)
+      .not("counts_as_room", "is", null);
+    if (!flagOnly.error) return new Set((flagOnly.data ?? []).map((r: { id: unknown }) => String(r.id)));
+    if (!isMissingColumnError(flagOnly.error, "counts_as_room")) {
+      console.error(JSON.stringify({ fn: "loadAnsweredRoomTypeIds", hotel: hotelId, error: flagOnly.error.message }));
+    }
+    return new Set();
+  }
+  if (!isMissingColumnError(withSetBy.error, "counts_as_room")) {
+    console.error(JSON.stringify({ fn: "loadAnsweredRoomTypeIds", hotel: hotelId, error: withSetBy.error.message }));
+  }
+  return new Set();
+}
+
 export type SuspectRoomTypeFinding = {
   room_type_id: string;
   name: string;
@@ -506,7 +698,11 @@ export async function analyzeImport(
     ]);
 
   const { seasonal, oneOff } = mergeSeasonalClosures(findClosedPeriods(daily, today));
-  const suspects = findSuspectRoomTypes(stats);
+  // A question the owner has answered is not asked again (see
+  // loadAnsweredRoomTypeIds); confirming a re-raised card would overwrite
+  // their answer.
+  const answered = await loadAnsweredRoomTypeIds(supabase, hotelId);
+  const suspects = findSuspectRoomTypes(stats).filter((s) => !answered.has(s.room_type_id));
   const duplicates = findDuplicateRoomTypes(stats);
   const outliers = findRateOutliers(stats);
 

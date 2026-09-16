@@ -37,6 +37,7 @@ import type {
   AdapterReservationRow,
   OnboardingPmsAdapter,
 } from "../pms/onboarding-adapter.ts";
+import { proposeCountsAsRoom } from "./analysis.ts";
 
 export type ImportJobRow = {
   id: string;
@@ -506,17 +507,30 @@ async function runDiscover(
   // column default, existing rows keep whatever we decided.
   const roomTypes = await adapter.fetchRoomTypes();
   if (roomTypes.length > 0) {
-    const { error } = await supabase.from("room_types").upsert(
-      roomTypes.map((rt) => ({
-        hotel_id: job.hotel_id,
-        external_room_type_id: rt.external_room_type_id,
-        name: rt.name,
-        display_name: rt.display_name,
-        total_rooms: rt.total_rooms,
-      })),
-      { onConflict: "hotel_id,external_room_type_id" },
-    );
+    const rtRows = roomTypes.map((rt) => ({
+      hotel_id: job.hotel_id,
+      external_room_type_id: rt.external_room_type_id,
+      name: rt.name,
+      display_name: rt.display_name,
+      total_rooms: rt.total_rooms,
+    }));
+    const { error } = await supabase
+      .from("room_types")
+      .upsert(rtRows, { onConflict: "hotel_id,external_room_type_id" });
     if (error) throw new Error(`room_types upsert failed: ${error.message}`);
+    // Default counts_as_room for types nobody has classified yet. Separate
+    // from the upsert for the same reason is_active is kept out of it: the
+    // review strip shows this guess and the owner's answer has to survive
+    // every later re-import. A first import may propose non-rooms because
+    // the strip is about to show them unticked; a refresh of a live hotel is
+    // a sync as far as the heuristic is concerned — its guesses stay
+    // advisory and the findings ask instead.
+    await proposeCountsAsRoom(
+      supabase,
+      job.hotel_id,
+      rtRows,
+      job.stats.mode === "refresh" ? "sync" : "import",
+    );
   }
 
   job.phase = "sync_current";

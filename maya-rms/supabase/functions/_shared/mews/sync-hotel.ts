@@ -9,6 +9,7 @@ import { parseMewsApiResponse } from "./etl.ts";
 import { mwsEnv } from "./env.ts";
 import { resolveMewsCredentials } from "./resolve-credentials.ts";
 import type { MewsCredentialsInput } from "./types.ts";
+import { proposeCountsAsRoom } from "../onboarding/analysis.ts";
 import { dropUnchangedReservationRows } from "../pms/row-diff.ts";
 import { decideSyncWindow } from "../pms/sync-mode.ts";
 
@@ -292,6 +293,10 @@ export async function runMewsSyncForHotel(
     }
     let walkError: string | null = null;
     const deadlineAt = Date.now() + MEWS_SYNC_BUDGET_MS;
+    // Categories already offered a counts_as_room default this run. Every
+    // window re-upserts the same handful, and 107 windows of no-op updates is
+    // not free.
+    const classifiedExternalIds = new Set<string>();
 
     const walk = await mewsWalkReservationWindows(
       resolved.creds,
@@ -326,6 +331,16 @@ export async function runMewsSyncForHotel(
           if (rtErr) {
             walkError = rtErr.message;
             return false;
+          }
+          // Default counts_as_room for types nobody has classified yet.
+          // Separate from the upsert on purpose: written there it would
+          // overwrite the owner's answer every tick. "sync" mode: only ever
+          // writes `true` — nobody is on the review screen to correct a
+          // guessed `false`.
+          const unclassified = rtRows.filter((r) => !classifiedExternalIds.has(r.external_room_type_id));
+          if (unclassified.length > 0) {
+            await proposeCountsAsRoom(supabase, hotelId, unclassified, "sync");
+            for (const r of unclassified) classifiedExternalIds.add(r.external_room_type_id);
           }
           const { data: idRows, error: idErr } = await supabase
             .from("room_types")

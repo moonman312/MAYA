@@ -184,7 +184,10 @@ export async function notifyOne(
     daysLeft,
     currentAmount: formatUsd(priceCents(billed, interval)),
     correctedAmount: formatUsd(priceCents(measured, interval)),
-    notBilledFor: excluded.map((e) => e.name),
+    notBilledFor: {
+      guessed: excluded.filter((e) => e.source === "heuristic").map((e) => e.name),
+      marked: excluded.filter((e) => e.source === "owner").map((e) => e.name),
+    },
   };
 
   try {

@@ -1,10 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   analyzeImport,
   findClosedPeriods,
   findDuplicateRoomTypes,
   findRateOutliers,
   findSuspectRoomTypes,
+  nameIsCertainlyNonRoom,
+  nameLooksLikeNonRoom,
+  proposeCountsAsRoom,
   type DailyRoomNights,
   type RoomTypeStats,
 } from "../../../supabase/functions/_shared/onboarding/analysis";
@@ -336,7 +339,12 @@ function makeJob(stats: Row = {}): ImportJobRow {
  * back empty so the guardrail/starter-rule tail short-circuits — these tests
  * are about which findings survive a re-run, not about rule generation.
  */
-function makeAnalysisClient(opts: { stats: RoomTypeStats[]; findings?: Row[] }) {
+function makeAnalysisClient(opts: {
+  stats: RoomTypeStats[];
+  findings?: Row[];
+  /** Room types a person has already classified (counts_as_room_set_by stamped). */
+  answered?: string[];
+}) {
   const findings: Row[] = (opts.findings ?? []).map((f) => ({ ...f }));
   const active = new Map(opts.stats.map((s) => [s.room_type_id, s.is_active]));
   const deletes: Row[] = [];
@@ -345,6 +353,7 @@ function makeAnalysisClient(opts: { stats: RoomTypeStats[]; findings?: Row[] }) 
     const eqs: Row = {};
     let op = "select";
     let body: unknown = null;
+    let columns = "";
 
     const matches = (row: Row) =>
       Object.entries(eqs).every(([col, val]) => String(row[col]) === String(val));
@@ -368,6 +377,15 @@ function makeAnalysisClient(opts: { stats: RoomTypeStats[]; findings?: Row[] }) 
         if (op === "update" && typeof eqs.id === "string") {
           active.set(eqs.id, (body as Row).is_active === true);
         }
+        // The answered-suspects read is the only room_types select with a
+        // payload here; everything else stays empty so the rule tail
+        // short-circuits.
+        if (op === "select" && columns.includes("counts_as_room_set_by")) {
+          return {
+            data: (opts.answered ?? []).map((id) => ({ id, counts_as_room: false, counts_as_room_set_by: "user-1" })),
+            error: null,
+          };
+        }
         return { data: [], error: null };
       }
       // reservations / pricing_rules counts, hotel_settings lookup.
@@ -375,7 +393,10 @@ function makeAnalysisClient(opts: { stats: RoomTypeStats[]; findings?: Row[] }) 
     };
 
     const chain = {
-      select: () => chain,
+      select: (cols = "") => {
+        columns = cols;
+        return chain;
+      },
       eq: (col: string, val: unknown) => {
         eqs[col] = val;
         return chain;
@@ -428,7 +449,112 @@ const DUPLICATE_PAIR = [
   rt({ room_type_id: "rt-dead", name: "Deluxe  King", row_count: 0, reservation_count: 0 }),
 ];
 
+describe("the name heuristic, in two strengths", () => {
+  it.each(["Deluxe Pool View", "Superior Pool", "Spa Deluxe", "Golf View Deluxe", "Poolside Cabana"])(
+    "%j trips the weak test (billing may exclude it) but is never CERTAINLY a non-room",
+    (name) => {
+      // Real bedrooms at real resorts. The weak test is fine for a bill-time
+      // exclusion that under-charges us; it must never become an engine-wide
+      // default nobody confirmed.
+      expect(nameLooksLikeNonRoom(name)).toBe(true);
+      expect(nameIsCertainlyNonRoom(name)).toBe(false);
+    },
+  );
+
+  it.each(["Parking Bay", "Pickleball Court", "Boardroom", "Conference Room B", "Resort Fee"])(
+    "%j is certainly not a room",
+    (name) => {
+      expect(nameIsCertainlyNonRoom(name)).toBe(true);
+    },
+  );
+});
+
+/** Records the counts_as_room writes proposeCountsAsRoom makes. */
+function makeProposeClient(fault?: { code: string; message: string }) {
+  const writes: { value: unknown; ids: unknown[] }[] = [];
+  const client = {
+    from: () => {
+      let value: unknown;
+      let ids: unknown[] = [];
+      const chain = {
+        update: (patch: Row) => ((value = patch.counts_as_room), chain),
+        eq: () => chain,
+        is: () => chain,
+        in: (_col: string, vals: unknown[]) => ((ids = vals), chain),
+        then: (resolve: (v: unknown) => void) => {
+          if (fault) return resolve({ error: fault });
+          writes.push({ value, ids });
+          return resolve({ error: null });
+        },
+      };
+      return chain;
+    },
+  } as unknown as SupabaseClient;
+  return { client, writes };
+}
+
+describe("proposeCountsAsRoom", () => {
+  const rows = [
+    { external_room_type_id: "king", name: "King Room" },
+    { external_room_type_id: "parking", name: "Parking Bay" },
+    { external_room_type_id: "poolview", name: "Deluxe Pool View" },
+  ];
+  const writtenAs = (writes: { value: unknown; ids: unknown[] }[], value: boolean) =>
+    writes.filter((w) => w.value === value).flatMap((w) => w.ids);
+
+  it("on import, proposes the certain non-room as false and leaves the weak match unclassified", async () => {
+    const { client, writes } = makeProposeClient();
+    const r = await proposeCountsAsRoom(client, "hotel-1", rows, "import");
+    expect(writtenAs(writes, true)).toEqual(["king"]);
+    expect(writtenAs(writes, false)).toEqual(["parking"]);
+    // "Deluxe Pool View" is a bedroom at plenty of resorts: null keeps it
+    // counting, and the review screen asks about it as a finding instead.
+    expect(r).toEqual({ proposedRooms: 1, proposedNonRooms: 1, leftUnclassified: 1 });
+  });
+
+  it("on a steady-state sync, never writes false — the heuristic is advisory on a live hotel", async () => {
+    // Nobody is on a review screen. A false here would drop a live hotel's
+    // type out of every occupancy denominator, every rule's signal set and
+    // the bill on the strength of a regex.
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const { client, writes } = makeProposeClient();
+    const r = await proposeCountsAsRoom(client, "hotel-1", rows, "sync");
+    expect(writtenAs(writes, true)).toEqual(["king"]);
+    expect(writtenAs(writes, false)).toEqual([]);
+    expect(r).toEqual({ proposedRooms: 1, proposedNonRooms: 0, leftUnclassified: 2 });
+    expect(String(log.mock.calls[0]?.[0])).toContain("parking");
+    log.mockRestore();
+  });
+
+  it("never throws, and names the migration when the column is not there yet", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { client } = makeProposeClient({ code: "42703", message: "column room_types.counts_as_room does not exist" });
+    const r = await proposeCountsAsRoom(client, "hotel-1", rows, "import");
+    expect(r.proposedRooms).toBe(0);
+    expect(String(warn.mock.calls[0]?.[0])).toContain("99_supabase_migration_room_type_counts_as_room_v1.sql");
+    warn.mockRestore();
+  });
+});
+
 describe("analyzeImport re-runs", () => {
+  it("does not re-ask about a room type the owner has already answered for", async () => {
+    // The owner dismissed "Is 'Pickleball Suite' a room?" (counts_as_room =
+    // true). A refresh re-derives every proposed finding; re-raising this
+    // card lets a teammate flip that yes to a no without knowing it was
+    // answered. The unanswered court is still asked about.
+    const sb = makeAnalysisClient({
+      stats: [
+        rt({ room_type_id: "rt-king", name: "King", row_count: 900 }),
+        rt({ room_type_id: "rt-pb", name: "Pickleball Suite", row_count: 40 }),
+        rt({ room_type_id: "rt-court", name: "Tennis Court", row_count: 40 }),
+      ],
+      answered: ["rt-pb"],
+    });
+    await analyzeImport(sb.client, makeJob({ mode: "refresh" }));
+    const suspects = sb.findings.filter((f) => f.kind === "suspect_room_type");
+    expect(suspects.map((f) => (f.payload as Row).room_type_id)).toEqual(["rt-court"]);
+  });
+
   it("auto-deactivates the duplicate and records it", async () => {
     const sb = makeAnalysisClient({ stats: DUPLICATE_PAIR });
 

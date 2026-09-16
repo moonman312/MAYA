@@ -413,6 +413,50 @@ export function listEngineRulesFromMemory(allRoomTypeIds: string[]): EngineRule[
   });
 }
 
+/* ── Room-count flag ──────────────────────────────────────────── */
+
+/**
+ * Which of these room types count as rooms (room_types.counts_as_room is
+ * not false). New rules default their signal set, and an affected set the
+ * caller left implicit, to the counting subset so a pickleball court never
+ * lands in an occupancy denominator by accident. Saved rules are never
+ * rewritten here; the engine applies the same filter at read time.
+ *
+ * Before the migration adds the column the select fails; every type then
+ * counts, which is what every rule was built on until now. Logged, not
+ * thrown, because deploy order is not something we get to choose.
+ */
+async function filterCountingRoomTypeIds(
+  supabase: SupabaseClient,
+  hotelId: string,
+  roomTypeIds: string[],
+): Promise<string[]> {
+  if (roomTypeIds.length === 0) return roomTypeIds;
+  const { data, error } = await supabase
+    .from("room_types")
+    .select("id, counts_as_room")
+    .eq("hotel_id", hotelId)
+    .in("id", roomTypeIds);
+  if (error) {
+    console.error(
+      JSON.stringify({
+        fn: "createRule",
+        step: "counts_as_room",
+        hotelId,
+        error: error.message,
+        message:
+          "Could not read room_types.counts_as_room; every room type counts for this rule. " +
+          "If the column is missing, run 99_supabase_migration_room_type_counts_as_room_v1.sql.",
+      }),
+    );
+    return roomTypeIds;
+  }
+  const nonCounting = new Set(
+    (data ?? []).filter((r) => r.counts_as_room === false).map((r) => String(r.id)),
+  );
+  return roomTypeIds.filter((id) => !nonCounting.has(id));
+}
+
 /* ── Create ───────────────────────────────────────────────────── */
 
 export type CreateRuleInput = {
@@ -587,8 +631,11 @@ export async function createRule(
     await supabase.from("pricing_rule_conditions").insert(legacyCondRows);
   }
 
-  // Resolve room type IDs.
-  const roomTypeIds: string[] = [];
+  // Resolve room type IDs. An affected set the caller chose is taken as is
+  // (ticking a court to price it is a decision); one resolved from names is
+  // a default, and defaults skip types that do not count as rooms.
+  let roomTypeIds: string[] = [];
+  let affectedDefaulted = false;
   if (input.affected_room_type_ids && input.affected_room_type_ids.length > 0) {
     roomTypeIds.push(...input.affected_room_type_ids);
   } else {
@@ -601,9 +648,24 @@ export async function createRule(
         .maybeSingle();
       if (rt?.id) roomTypeIds.push(String(rt.id));
     }
+    roomTypeIds = await filterCountingRoomTypeIds(supabase, hotelId, roomTypeIds);
+    affectedDefaulted = true;
   }
 
-  const signalIds = input.signal_room_type_ids ?? roomTypeIds;
+  // The signal set measures; it only ever defaults to types that count.
+  // Unless the caller picked ONLY non-rooms: then the filter would leave an
+  // enabled rule with nothing to measure, which never fires and never says
+  // why. Ticking just the court is a decision to price it on its own
+  // occupancy, so the rule measures what it prices.
+  let signalIds: string[];
+  if (input.signal_room_type_ids) {
+    signalIds = input.signal_room_type_ids;
+  } else if (affectedDefaulted) {
+    signalIds = roomTypeIds;
+  } else {
+    const counting = await filterCountingRoomTypeIds(supabase, hotelId, roomTypeIds);
+    signalIds = counting.length === 0 && roomTypeIds.length > 0 ? roomTypeIds : counting;
+  }
 
   // Write new signal / affected mapping tables.
   if (signalIds.length > 0) {

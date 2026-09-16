@@ -171,8 +171,13 @@ function toNarrativeMetrics(
     typeof bs.expected === "number"
       ? { label: bs.label, recent: bs.recent, expected: bs.expected }
       : null;
+  const excludedRaw = metrics.excluded_from_occupancy;
+  const excluded = Array.isArray(excludedRaw)
+    ? excludedRaw.filter((n): n is string => typeof n === "string" && n.length > 0)
+    : [];
   return {
     occupancy: typeof occupancy === "number" ? occupancy : null,
+    ...(excluded.length ? { excluded_from_occupancy: excluded } : {}),
     dta: typeof dta === "number" ? dta : null,
     pickup_units: typeof pickup === "number" ? pickup : null,
     booking_speed: bookingSpeed,
