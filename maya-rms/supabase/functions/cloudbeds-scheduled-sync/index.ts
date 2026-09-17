@@ -4,7 +4,10 @@
  * For every hotel with a `pms_type = 'cloudbeds'` connection (or a single hotel
  * when `{ hotel_id }` is posted):
  *   1. Pull fresh reservations/room-types from Cloudbeds (runCloudbedsSyncForHotel)
- *   2. Run the pricing rules engine                      (evaluateHotel)
+ *   2. Refresh the property's own base rates             (ensureBaseRateCalendar)
+ *   3. Run the pricing rules engine                      (evaluateHotel)
+ *   4. Push changed prices, Live hotels only             (pushRatesForHotel)
+ * Steps 2-4 share one hotel date and one horizon (runPricingTick).
  *
  * Parallel to mews-scheduled-sync. Auth: pg_cron/pg_net sends
  * `x-cloudbeds-cron-secret`, validated against CLOUDBEDS_CRON_SECRET
@@ -15,8 +18,8 @@ import { createClient } from "npm:@supabase/supabase-js@2.99.3";
 import { resolveCloudbedsCredentials, runCloudbedsSyncForHotel } from "../_shared/cloudbeds/sync-hotel.ts";
 import { evaluateHotel } from "../_shared/engine/index.ts";
 import { createCloudbedsRateAdapter } from "../_shared/cloudbeds/rate-push.ts";
-import { pushRatesForHotel } from "../_shared/pms/rate-push.ts";
-import { ensureBaseRateCalendar } from "../_shared/pms/base-rate-calendar.ts";
+import { type PricingTickResult, runPricingTick } from "../_shared/pms/pricing-tick.ts";
+import { pricingHorizonDays } from "../_shared/pms/pricing-window.ts";
 import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
 import { hotelsImportingNow, splitByParked } from "../_shared/pms/parked.ts";
 import {
@@ -61,6 +64,8 @@ function publicSyncResult(sync: Awaited<ReturnType<typeof runCloudbedsSyncForHot
   };
 }
 
+type PricingTick = PricingTickResult<Awaited<ReturnType<typeof evaluateHotel>>>;
+
 function getEnv(name: string): string | undefined {
   const v = Deno.env.get(name);
   return v && v !== "" ? v : undefined;
@@ -93,10 +98,9 @@ Deno.serve(async (req) => {
   }
 
   const runEvaluate = (getEnv("MAYA_RUN_EVALUATE") ?? "true").toLowerCase() !== "false";
-  // Keep the per-tick evaluation small enough to finish inside the Edge runtime
-  // limit. 45 days covers the near-term calendar; raise once you've confirmed
-  // run durations in the logs. Env override: MAYA_EVAL_HORIZON_DAYS.
-  const horizonDays = Math.max(1, Number(getEnv("MAYA_EVAL_HORIZON_DAYS") ?? "45") || 45);
+  // Nights evaluated, refreshed and pushed per tick: 60 by default, the window
+  // the support page promises. Env override: MAYA_EVAL_HORIZON_DAYS.
+  const horizonDays = pricingHorizonDays();
   // Outbound rate push is OFF unless explicitly enabled, and even then only
   // fires for hotels in LIVE mode (gated inside pushRatesForHotel).
   const pushRatesEnabled = (getEnv("MAYA_PUSH_RATES") ?? "false").toLowerCase() === "true";
@@ -207,10 +211,9 @@ Deno.serve(async (req) => {
   const results: Array<{
     hotelId: string;
     sync: ReturnType<typeof publicSyncResult> | { ok: true; skipped: "import_running" };
-    evaluate?: Awaited<ReturnType<typeof evaluateHotel>> | { error: string } | { skipped: true | "out_of_time" };
-    // deno-lint-ignore no-explicit-any
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    push?: any;
+    calendar?: PricingTick["calendar"];
+    evaluate?: PricingTick["evaluate"];
+    push?: PricingTick["push"];
     rooms?: Awaited<ReturnType<typeof recordRoomCount>> | null;
   }> = [];
 
@@ -235,62 +238,25 @@ Deno.serve(async (req) => {
         : await resolveCloudbedsCredentials(supabase, hotelId);
     const tSync = Date.now();
 
-    // The property's own rate, captured BEFORE the engine runs so a brand new
-    // hotel has a base on day one instead of skipping every unbooked cell, and
-    // so a booking taken at one of our own prices can never become the base.
-    // Cells we have already pushed to are excluded inside; this only fills gaps.
-    if (creds) {
-      try {
-        await ensureBaseRateCalendar(supabase, hotelId, createCloudbedsRateAdapter(creds), {
-          horizonDays,
-        });
-      } catch {
-        // Never fail a tick over the calendar; pricing falls back as before.
-      }
-    }
-
-    // Too little time left to evaluate safely. Starting anyway ran past the
-    // wall clock and the invocation was killed before any release. The hotel
-    // is released due again in OUT_OF_TIME_RETRY_SECONDS, so the next tick
-    // takes it early.
-    const outOfTime = Date.now() > evaluateBy;
-    let evaluate: (typeof results)[number]["evaluate"];
-    if (outOfTime) {
-      evaluate = { skipped: "out_of_time" };
-    } else if (runEvaluate) {
-      try {
-        evaluate = await evaluateHotel(supabase, hotelId, undefined, horizonDays);
-      } catch (e) {
-        evaluate = { error: e instanceof Error ? e.message : "evaluate failed" };
-      }
-    } else {
-      evaluate = { skipped: true };
-    }
-    const tEval = Date.now();
-
-    // Outbound rate push — needs live credentials (only available when sync
-    // succeeded). Internally no-ops unless the hotel is in LIVE mode.
-    // deno-lint-ignore no-explicit-any
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let push: any = pushRatesEnabled ? undefined : { skipped: "disabled" };
-    if (pushRatesEnabled && outOfTime) {
-      push = { skipped: "out_of_time" };
-    } else if (pushRatesEnabled) {
-      if (creds) {
-        try {
-          const adapter = createCloudbedsRateAdapter(creds);
-          push = await pushRatesForHotel(supabase, hotelId, adapter, {
-            // Leaves the room count and the release their time.
-            deadlineAt: invocationDeadline - 20_000,
-          });
-        } catch (e) {
-          push = { error: e instanceof Error ? e.message : "push failed" };
-        }
-      } else {
-        push = { skipped: "no_credentials" };
-      }
-    }
-    const tPush = Date.now();
+    // The property's own rate is re-read BEFORE the engine runs, so a brand new
+    // hotel has a base on day one and a rate the hotel changed in Cloudbeds is
+    // what this tick prices on. Push needs live credentials (only available
+    // when sync succeeded) and no-ops unless the hotel is in LIVE mode.
+    const tick = await runPricingTick(
+      supabase,
+      hotelId,
+      {
+        horizonDays,
+        adapter: creds ? createCloudbedsRateAdapter(creds) : null,
+        runEvaluate,
+        pushEnabled: pushRatesEnabled,
+        evaluateBy,
+        // Leaves the room count and the release their time.
+        pushDeadlineAt: invocationDeadline - 20_000,
+      },
+      { evaluate: evaluateHotel },
+    );
+    const { calendar, evaluate, push, outOfTime } = tick;
 
     console.log(
       JSON.stringify({
@@ -299,11 +265,15 @@ Deno.serve(async (req) => {
         syncOk: sync.ok,
         syncTruncated: "windowFullyCovered" in sync ? !sync.windowFullyCovered : undefined,
         syncError: sync.ok ? undefined : sync.error,
+        today: tick.today,
+        calendar,
+        pmsEditedPushedNights: tick.pmsEditedPushedNights,
         evaluate,
         push,
         syncMs: tSync - t0,
-        evalMs: tEval - tSync,
-        pushMs: tPush - tEval,
+        calendarMs: tick.calendarMs,
+        evalMs: tick.evalMs,
+        pushMs: tick.pushMs,
         horizonDays,
       }),
     );
@@ -314,7 +284,14 @@ Deno.serve(async (req) => {
     // reading meant a hotel that opened a wing paid its old price forever.
     const roomVerdict = sync.ok && !syncSkipped ? await recordRoomCount(supabase, hotelId, new Date()) : null;
 
-    results.push({ hotelId, sync: "skipped" in sync ? sync : publicSyncResult(sync), evaluate, push, rooms: roomVerdict });
+    results.push({
+      hotelId,
+      sync: "skipped" in sync ? sync : publicSyncResult(sync),
+      calendar,
+      evaluate,
+      push,
+      rooms: roomVerdict,
+    });
 
     // Hand the claim back and say when this hotel next wants looking at. A
     // failure backs off exponentially inside release_pms_sync, so one hotel with

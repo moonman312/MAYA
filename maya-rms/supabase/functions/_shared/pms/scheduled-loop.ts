@@ -28,7 +28,14 @@ export type ScheduledLoopConfig = {
   invocationBudgetMs: number;
   /** A hotel does not start with less than this left, however fast earlier ones were. */
   minHotelReserveMs: number;
-  /** Kept back from each hotel's PMS read for the evaluation and push after it. */
+  /**
+   * Kept back from each hotel's PMS read for the base rate refresh, evaluation
+   * and push after it. Not raised when the horizon went from 45 nights to 60:
+   * the engine pages its reads across the whole horizon, so its round trips
+   * barely grow with it, and the refresh is one PMS read at most hourly per
+   * hotel (two small queries otherwise). A refresh that runs long only moves
+   * the evaluation to the next tick, which then finds the refresh throttled.
+   */
   evalReserveMs: number;
   /** The PMS read's own budget; the deadline passed down is never later than this from its start. */
   syncBudgetMs: number;

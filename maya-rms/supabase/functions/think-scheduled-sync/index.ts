@@ -4,7 +4,10 @@
  * For every hotel with a `pms_type = 'think'` connection (or a single hotel
  * when `{ hotel_id }` is posted):
  *   1. Pull fresh reservations/room-types from Think (runThinkSyncForHotel)
- *   2. Run the pricing rules engine                  (evaluateHotel)
+ *   2. Refresh the property's own base rates         (ensureBaseRateCalendar)
+ *   3. Run the pricing rules engine                  (evaluateHotel)
+ *   4. Push changed prices, Live hotels only         (pushRatesForHotel)
+ * Steps 2-4 share one hotel date and one horizon (runPricingTick).
  *
  * Parallel to mews-scheduled-sync. Auth: pg_cron/pg_net sends
  * `x-think-cron-secret`, validated against THINK_CRON_SECRET
@@ -16,8 +19,9 @@ import { runThinkSyncForHotel } from "../_shared/think/sync-hotel.ts";
 import { createThinkRateAdapter } from "../_shared/think/rate-push.ts";
 import { THINK_API_BASE_URL } from "../_shared/think/constants.ts";
 import { evaluateHotel } from "../_shared/engine/index.ts";
-import { pushRatesForHotel } from "../_shared/pms/rate-push.ts";
-import { ensureBaseRateCalendar } from "../_shared/pms/base-rate-calendar.ts";
+import type { PmsRatePushAdapter } from "../_shared/pms/rate-push.ts";
+import { type PricingTickResult, runPricingTick, type TickSkip } from "../_shared/pms/pricing-tick.ts";
+import { pricingHorizonDays } from "../_shared/pms/pricing-window.ts";
 import { resolveOAuthCredentials } from "../_shared/pms/oauth-credentials.ts";
 import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
 import { hotelsImportingNow, splitByParked } from "../_shared/pms/parked.ts";
@@ -29,6 +33,8 @@ import {
 } from "../_shared/pms/scheduled-loop.ts";
 import { THINK_SYNC_BUDGET_MS } from "../_shared/think/constants.ts";
 import { recordRoomCount } from "../_shared/billing/room-count.ts";
+
+type PricingTick = PricingTickResult<Awaited<ReturnType<typeof evaluateHotel>>>;
 
 function getEnv(name: string): string | undefined {
   const v = Deno.env.get(name);
@@ -62,8 +68,9 @@ Deno.serve(async (req) => {
   }
 
   const runEvaluate = (getEnv("MAYA_RUN_EVALUATE") ?? "true").toLowerCase() !== "false";
-  // Bound the per-tick evaluation so it finishes inside the Edge runtime limit.
-  const horizonDays = Math.max(1, Number(getEnv("MAYA_EVAL_HORIZON_DAYS") ?? "45") || 45);
+  // Nights evaluated, refreshed and pushed per tick: 60 by default, the window
+  // the support page promises. Env override: MAYA_EVAL_HORIZON_DAYS.
+  const horizonDays = pricingHorizonDays();
   // Outbound rate push is OFF unless explicitly enabled, and even then only
   // fires for hotels in LIVE mode (gated inside pushRatesForHotel).
   const pushRatesEnabled = (getEnv("MAYA_PUSH_RATES") ?? "false").toLowerCase() === "true";
@@ -175,7 +182,8 @@ Deno.serve(async (req) => {
   const results: Array<{
     hotelId: string;
     sync: Awaited<ReturnType<typeof runThinkSyncForHotel>> | { ok: true; skipped: "import_running" };
-    evaluate?: Awaited<ReturnType<typeof evaluateHotel>> | { error: string } | { skipped: true | "out_of_time" };
+    calendar?: PricingTick["calendar"];
+    evaluate?: PricingTick["evaluate"];
     rooms?: Awaited<ReturnType<typeof recordRoomCount>> | null;
   }> = [];
 
@@ -193,78 +201,57 @@ Deno.serve(async (req) => {
     const sync = syncSkipped
       ? { ok: true as const, skipped: "import_running" as const }
       : await runThinkSyncForHotel(supabase, hotelId, { deadlineAt });
+
+    // The sync result carries no credentials (unlike Cloudbeds'), so they are
+    // resolved again: one Vault RPC, and the token the sync just refreshed is
+    // the one that comes back. Needed whether or not pushing is on, because
+    // the base rate refresh reads the property's own rates with them.
+    let adapter: PmsRatePushAdapter | null = null;
+    let noAdapter: TickSkip = { skipped: "no_credentials" };
+    if (sync.ok) {
+      try {
+        const resolved = await resolveOAuthCredentials(supabase, hotelId, "think");
+        if (!("error" in resolved) && resolved.propertyId) {
+          const { data: connRow } = await supabase
+            .from("pms_connections")
+            .select("base_url")
+            .eq("hotel_id", hotelId)
+            .eq("pms_type", "think")
+            .maybeSingle();
+          const baseUrl = (
+            (connRow?.base_url as string | null) || THINK_API_BASE_URL
+          ).replace(/\/$/, "");
+          adapter = createThinkRateAdapter(
+            { accessToken: resolved.accessToken, baseUrl },
+            resolved.propertyId,
+          );
+        }
+      } catch (e) {
+        noAdapter = { error: (e instanceof Error ? e.message : "credentials unavailable").slice(0, 300) };
+      }
+    }
     const tSync = Date.now();
 
-    // Too little time left to evaluate safely. Starting anyway ran past the
-    // wall clock and the invocation was killed before any release. The hotel
-    // is released due again in OUT_OF_TIME_RETRY_SECONDS, so the next tick
-    // takes it early.
-    const outOfTime = Date.now() > evaluateBy;
-    let evaluate: (typeof results)[number]["evaluate"];
-    if (outOfTime) {
-      evaluate = { skipped: "out_of_time" };
-    } else if (runEvaluate) {
-      try {
-        evaluate = await evaluateHotel(supabase, hotelId, undefined, horizonDays);
-      } catch (e) {
-        evaluate = { error: e instanceof Error ? e.message : "evaluate failed" };
-      }
-    } else {
-      evaluate = { skipped: true };
-    }
-    const tEval = Date.now();
-
-    // Outbound rate push. The sync result carries no credentials (unlike
-    // Cloudbeds'), so the push re-resolves them — one Vault RPC, and the
-    // token the sync just refreshed is the one that comes back. Internally
-    // no-ops unless the hotel is in LIVE mode.
-    // deno-lint-ignore no-explicit-any
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let push: any = pushRatesEnabled ? undefined : { skipped: "disabled" };
-    if (pushRatesEnabled && outOfTime) {
-      push = { skipped: "out_of_time" };
-    } else if (pushRatesEnabled) {
-      if (sync.ok) {
-        try {
-          const resolved = await resolveOAuthCredentials(supabase, hotelId, "think");
-          if ("error" in resolved || !resolved.propertyId) {
-            push = { skipped: "no_credentials" };
-          } else {
-            const { data: connRow } = await supabase
-              .from("pms_connections")
-              .select("base_url")
-              .eq("hotel_id", hotelId)
-              .eq("pms_type", "think")
-              .maybeSingle();
-            const baseUrl = (
-              (connRow?.base_url as string | null) || THINK_API_BASE_URL
-            ).replace(/\/$/, "");
-            const adapter = createThinkRateAdapter(
-              { accessToken: resolved.accessToken, baseUrl },
-              resolved.propertyId,
-            );
-            // Capture the property's own rate BEFORE this tick's push moves
-            // it. Cells we have pushed to before are excluded inside, so this
-            // only ever fills gaps — the engine picks it up next tick, which
-            // is what stops a booking taken at our own price becoming the base.
-            try {
-              await ensureBaseRateCalendar(supabase, hotelId, adapter, { horizonDays });
-            } catch {
-              // Never fail a tick over the calendar.
-            }
-            push = await pushRatesForHotel(supabase, hotelId, adapter, {
-              // Leaves the room count and the release their time.
-              deadlineAt: invocationDeadline - 20_000,
-            });
-          }
-        } catch (e) {
-          push = { error: e instanceof Error ? e.message : "push failed" };
-        }
-      } else {
-        push = { skipped: "no_credentials" };
-      }
-    }
-    const tPush = Date.now();
+    // The property's own rate is re-read BEFORE the engine runs, so a rate the
+    // hotel changed in Think is what this tick prices on, and a booking taken
+    // at one of our own prices can never become the base. Push no-ops unless
+    // the hotel is in LIVE mode.
+    const tick = await runPricingTick(
+      supabase,
+      hotelId,
+      {
+        horizonDays,
+        adapter,
+        noAdapter,
+        runEvaluate,
+        pushEnabled: pushRatesEnabled,
+        evaluateBy,
+        // Leaves the room count and the release their time.
+        pushDeadlineAt: invocationDeadline - 20_000,
+      },
+      { evaluate: evaluateHotel },
+    );
+    const { calendar, evaluate, push, outOfTime } = tick;
 
     console.log(
       JSON.stringify({
@@ -276,11 +263,15 @@ Deno.serve(async (req) => {
         // getting it — worth a look before it needs a bigger budget.
         windowFullyCovered: "windowFullyCovered" in sync ? sync.windowFullyCovered : undefined,
         syncError: sync.ok ? undefined : sync.error,
+        today: tick.today,
+        calendar,
+        pmsEditedPushedNights: tick.pmsEditedPushedNights,
         evaluate,
         push,
         syncMs: tSync - t0,
-        evalMs: tEval - tSync,
-        pushMs: tPush - tEval,
+        calendarMs: tick.calendarMs,
+        evalMs: tick.evalMs,
+        pushMs: tick.pushMs,
         horizonDays,
       }),
     );
@@ -291,7 +282,7 @@ Deno.serve(async (req) => {
     // reading meant a hotel that opened a wing paid its old price forever.
     const roomVerdict = sync.ok && !syncSkipped ? await recordRoomCount(supabase, hotelId, new Date()) : null;
 
-    results.push({ hotelId, sync, evaluate, rooms: roomVerdict });
+    results.push({ hotelId, sync, calendar, evaluate, rooms: roomVerdict });
 
     // Hand the claim back and say when this hotel next wants looking at. A
     // failure backs off exponentially inside release_pms_sync, so one hotel with
