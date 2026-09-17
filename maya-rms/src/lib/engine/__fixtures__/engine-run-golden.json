@@ -1,0 +1,454 @@
+{
+  "migrated, suppression supported": [
+    {
+      "counts": {
+        "hotel_id": "h1",
+        "stay_dates_evaluated": 21,
+        "prices_published": 74,
+        "ladder_activations": 77,
+        "ladder_deactivations": 0,
+        "pickup_events_created": 20
+      },
+      "sizes": {
+        "published_price": 74,
+        "ladder_rule_state": 79,
+        "ladder_transition_event": 76,
+        "pickup_event": 20,
+        "evaluation_audit": 74,
+        "evaluation_run_log": 1,
+        "stay_date_snapshot": 63
+      },
+      "hashes": {
+        "published_price": "850997b9779045ae2a8ffee29f93877549c446f8bcc555209166429de8e5c4a8",
+        "ladder_rule_state": "8d09e94dc7a30ab933ee6434eff66f2a6b8bf32aa75962285d44894954992a8a",
+        "ladder_transition_event": "a39a35b1e2eb1ed399fc401b5a43e40a593cf64c974fa74a3bb0cb4e2d2149a3",
+        "pickup_event": "8311338da5c14a0e3c679507ac16565cea0f9bb0126ac35577297a13e34bb0ba",
+        "evaluation_audit": "1cf6ca35e4fb4cc3ff1bcbb6335c7db8fd15e0cace246ed8583d4fe2c619177b",
+        "evaluation_run_log": "528c17a157eca74cf7fdc0cfaa080fba02564470ce3957fc384cc51489cfa200",
+        "stay_date_snapshot": "284096f4a3d403cd90d1f18fc4227ad90551bdd1abe0d8333728823c6f9013a3"
+      }
+    },
+    {
+      "counts": {
+        "hotel_id": "h1",
+        "stay_dates_evaluated": 21,
+        "prices_published": 27,
+        "ladder_activations": 13,
+        "ladder_deactivations": 6,
+        "pickup_events_created": 0
+      },
+      "sizes": {
+        "published_price": 79,
+        "ladder_rule_state": 92,
+        "ladder_transition_event": 95,
+        "pickup_event": 20,
+        "evaluation_audit": 103,
+        "evaluation_run_log": 2,
+        "stay_date_snapshot": 126
+      },
+      "hashes": {
+        "published_price": "96e206eb83e0333629bb331dd3c300add0dc0af032be56debe83435c0b0ee2d4",
+        "ladder_rule_state": "baf99244db5807d998a3cd1889d548b06319a9c34bb31b2f749f87676011d523",
+        "ladder_transition_event": "269f860671e07becad63a9020ce6286ecd0ddd4e64c4a9f1bb947a58dc39dc78",
+        "pickup_event": "8311338da5c14a0e3c679507ac16565cea0f9bb0126ac35577297a13e34bb0ba",
+        "evaluation_audit": "9d0e95d5f20d104904c5cf7467cb0378b5345041871dbec41a49a83718550927",
+        "evaluation_run_log": "e7744b045e91a7f752efd5d06b04402fafe2a61303abbabc32042637327ee11e",
+        "stay_date_snapshot": "93ce095f2ca3c36f1cae07cafded976d2f9474fbb99472619dbe78e8e1532708"
+      }
+    },
+    {
+      "counts": {
+        "hotel_id": "h1",
+        "stay_dates_evaluated": 21,
+        "prices_published": 22,
+        "ladder_activations": 6,
+        "ladder_deactivations": 5,
+        "pickup_events_created": 9
+      },
+      "sizes": {
+        "published_price": 82,
+        "ladder_rule_state": 98,
+        "ladder_transition_event": 106,
+        "pickup_event": 29,
+        "evaluation_audit": 128,
+        "evaluation_run_log": 3,
+        "stay_date_snapshot": 189
+      },
+      "hashes": {
+        "published_price": "0c6a3cd449ce56b37bb57b7eb139ea3234517d017440be78cdb7a4ee2807a0f6",
+        "ladder_rule_state": "d005c5ffbed17a217c6e0f1df6d07e3e0d110f54745c1eba80b64bebbe33d269",
+        "ladder_transition_event": "7c8eadc83dc29ee2072e4dac5a63931dffeba871a07395511f0727302a85c2a0",
+        "pickup_event": "206346f06c0d6041c5e9b20d14ff5df72aa0004f59212e295cb78196891bf2ca",
+        "evaluation_audit": "37a6cca59274ff5e8d48759a5811206f23665201b0571ac84b4c7d155ef881a5",
+        "evaluation_run_log": "74863b12569b8da2b58242fc3b51c7d82118ade93eb9a95f88c950d143b9038b",
+        "stay_date_snapshot": "9096ce3a6209832ed7689b05b9babfa69b9a86f46c8baa60b541b1e318c61140"
+      }
+    },
+    {
+      "counts": {
+        "hotel_id": "h1",
+        "stay_dates_evaluated": 21,
+        "prices_published": 34,
+        "ladder_activations": 34,
+        "ladder_deactivations": 6,
+        "pickup_events_created": 2
+      },
+      "sizes": {
+        "published_price": 85,
+        "ladder_rule_state": 132,
+        "ladder_transition_event": 146,
+        "pickup_event": 31,
+        "evaluation_audit": 167,
+        "evaluation_run_log": 4,
+        "stay_date_snapshot": 252
+      },
+      "hashes": {
+        "published_price": "12502f9fc0ce03f19598e13da94f1b4ac47efd4fb9309ec8f7163c8ddfc4a7a3",
+        "ladder_rule_state": "a9647a1c640ea695a2fc3261a178c3a0b2b236de1496a1d3c506698e420abdaa",
+        "ladder_transition_event": "2ab36750feff5b194480821ddd3b7c8a4824808419f3f10446078a887363da69",
+        "pickup_event": "b035b594d1be1a18f745bef36774b84fae0d5a780badd904ed87ab58c1439b1f",
+        "evaluation_audit": "263c70c5694a2e1e356f07440e804069489e4ffe25e1718721aa2e919220638e",
+        "evaluation_run_log": "50a08c1ada18ffed980b69e30a17c9951f6d2bdb8f6a0dbdbe5a79371d7b87fb",
+        "stay_date_snapshot": "5f959d0814f9beeba25dec0925c54a914a4f117becbdac56743bc06f5bfae722"
+      }
+    },
+    {
+      "counts": {
+        "hotel_id": "h1",
+        "stay_dates_evaluated": 21,
+        "prices_published": 20,
+        "ladder_activations": 5,
+        "ladder_deactivations": 1,
+        "pickup_events_created": 1
+      },
+      "sizes": {
+        "published_price": 87,
+        "ladder_rule_state": 137,
+        "ladder_transition_event": 152,
+        "pickup_event": 32,
+        "evaluation_audit": 187,
+        "evaluation_run_log": 5,
+        "stay_date_snapshot": 315
+      },
+      "hashes": {
+        "published_price": "06da4337e0020df773b1b6d96b2c7a76bfbdc04444de213769520ad0885eff34",
+        "ladder_rule_state": "2ed22b2bc1dc2947386857d7dbdfccff485d7ec672ca50ddbeeb037b350f746e",
+        "ladder_transition_event": "da8641bde5c1fe7167c675b18b9486d7e89d2ea20c41f044ea413a4ccc5fb45f",
+        "pickup_event": "fe13da74de6792267d6615dd7a484875d5f7194a7ef91c531f36599003fb7024",
+        "evaluation_audit": "4d55e70c7f8ed4843f6acbabc422a381667904403b31c77f5d15c2c73d1e55ce",
+        "evaluation_run_log": "d532bbff6edf83a9cd11ec00ef87f5149c5dcb65f106fc767ab316654fc3aa43",
+        "stay_date_snapshot": "5d04c9caef36bf402e2950adac55ffbe209122674f65671c539769d66cc3e9f0"
+      }
+    },
+    {
+      "counts": {
+        "hotel_id": "h1",
+        "stay_dates_evaluated": 21,
+        "prices_published": 24,
+        "ladder_activations": 9,
+        "ladder_deactivations": 1,
+        "pickup_events_created": 6
+      },
+      "sizes": {
+        "published_price": 95,
+        "ladder_rule_state": 146,
+        "ladder_transition_event": 162,
+        "pickup_event": 38,
+        "evaluation_audit": 215,
+        "evaluation_run_log": 6,
+        "stay_date_snapshot": 378
+      },
+      "hashes": {
+        "published_price": "a6ee8bce7f130360a9b2ca8a5a130e70b440b2d1ec9d75c23925704720cae9f0",
+        "ladder_rule_state": "dd1d278175f5fadc8d18ae5f3992ca4ab6f815f32f5ad256bfd8154e534d1c9b",
+        "ladder_transition_event": "4f54ffc6aa46013f7823b1eba81aa54c709478ba3ce966e3ec2b329e9283baa0",
+        "pickup_event": "f9feba487c103707fd3affd5fc09c1e3861c662457c71f1612224f0d47457108",
+        "evaluation_audit": "fd2a366cd4d83bd1615c3bd82b764ad7113ee6a23ea06ae279667b7ee9e10d20",
+        "evaluation_run_log": "b5e0879593a797e9bed732c336477459192d3228d3c582eda897462dd80c9e3b",
+        "stay_date_snapshot": "095618b4a3b12c233bc424ac82bc2225366ddbeb811a30bf03fbe7b3e848fcc0"
+      }
+    },
+    {
+      "counts": {
+        "hotel_id": "h1",
+        "stay_dates_evaluated": 9,
+        "prices_published": 17,
+        "ladder_activations": 16,
+        "ladder_deactivations": 0,
+        "pickup_events_created": 1
+      },
+      "sizes": {
+        "published_price": 96,
+        "ladder_rule_state": 162,
+        "ladder_transition_event": 178,
+        "pickup_event": 39,
+        "evaluation_audit": 234,
+        "evaluation_run_log": 7,
+        "stay_date_snapshot": 405
+      },
+      "hashes": {
+        "published_price": "b379a12c007fdd155637245e9ec02ce876424ab90a3067e8eacf5dd021c9cb11",
+        "ladder_rule_state": "8b29655b2dfa1ce849df188bbeb2bcdbe24162ba0722710cb5ceca2bd6825714",
+        "ladder_transition_event": "92697803149800e28857f5d4398552230f747636fa27bf6459d1af5e8c5c8375",
+        "pickup_event": "a07bf8fb0c2b49c7f3cbd27e007a7cf99aafd7413c39d06f45aee30a99cd95cb",
+        "evaluation_audit": "5a770831eb541cd7a3286f1c31aed90b26f673cf920e1d02464aa81311a91712",
+        "evaluation_run_log": "0eb76b18f6bde98631244c5dc841d3354d7e2fd2c17928e3dbbc1ed1f9bc210b",
+        "stay_date_snapshot": "d910e8a6a99fcaf19325f44f0bca125a4a47f209380e639e31816177cb7a04b4"
+      }
+    },
+    {
+      "counts": {
+        "hotel_id": "h1",
+        "stay_dates_evaluated": 9,
+        "prices_published": 14,
+        "ladder_activations": 4,
+        "ladder_deactivations": 2,
+        "pickup_events_created": 8
+      },
+      "sizes": {
+        "published_price": 99,
+        "ladder_rule_state": 166,
+        "ladder_transition_event": 184,
+        "pickup_event": 47,
+        "evaluation_audit": 253,
+        "evaluation_run_log": 8,
+        "stay_date_snapshot": 117
+      },
+      "hashes": {
+        "published_price": "dfe757ffdd3484371ab251e293db515f855a28b27b4deb076d1ca31c85edf51f",
+        "ladder_rule_state": "fa4c61e88cad3fac98dae28994221e8981f612b326b399a1dcb710189ecb2f7d",
+        "ladder_transition_event": "533e1c3d32859526500cc12c63fcf619b76324e9974a501924c50c6840fba394",
+        "pickup_event": "9a285da0d06a581191f6beda74181d2726d4e7c48bea17905bc116b36933ea48",
+        "evaluation_audit": "b5d0ace842f23e46620ea4be6f0ad4513d7ad996749b98f1569de8603dae5cc6",
+        "evaluation_run_log": "92f55ae86ad772b9502fe2d982947d821e885630f7a8e4f9ec4c2871cc2084e1",
+        "stay_date_snapshot": "e6dbda1cf64c7962820af162a1d8eac922c93d9f951d8886424a01b088360e0f"
+      }
+    }
+  ],
+  "pre-migration, no suppressed_at column": [
+    {
+      "counts": {
+        "hotel_id": "h1",
+        "stay_dates_evaluated": 21,
+        "prices_published": 74,
+        "ladder_activations": 77,
+        "ladder_deactivations": 0,
+        "pickup_events_created": 20
+      },
+      "sizes": {
+        "published_price": 74,
+        "ladder_rule_state": 79,
+        "ladder_transition_event": 76,
+        "pickup_event": 20,
+        "evaluation_audit": 74,
+        "evaluation_run_log": 1,
+        "stay_date_snapshot": 63
+      },
+      "hashes": {
+        "published_price": "f5cf5f8484841dfb660243792ce7637b988bfb437dfb10489056a996c61f2eab",
+        "ladder_rule_state": "74ae98face0861648f4e630e5f2f1138e829648eada25ebaaada9fe616871a55",
+        "ladder_transition_event": "a39a35b1e2eb1ed399fc401b5a43e40a593cf64c974fa74a3bb0cb4e2d2149a3",
+        "pickup_event": "8311338da5c14a0e3c679507ac16565cea0f9bb0126ac35577297a13e34bb0ba",
+        "evaluation_audit": "883296deed03f36dc0091244b97c1765a71fbb3ffe2f600d0c869b7ff6280447",
+        "evaluation_run_log": "528c17a157eca74cf7fdc0cfaa080fba02564470ce3957fc384cc51489cfa200",
+        "stay_date_snapshot": "284096f4a3d403cd90d1f18fc4227ad90551bdd1abe0d8333728823c6f9013a3"
+      }
+    },
+    {
+      "counts": {
+        "hotel_id": "h1",
+        "stay_dates_evaluated": 21,
+        "prices_published": 27,
+        "ladder_activations": 13,
+        "ladder_deactivations": 6,
+        "pickup_events_created": 0
+      },
+      "sizes": {
+        "published_price": 79,
+        "ladder_rule_state": 92,
+        "ladder_transition_event": 95,
+        "pickup_event": 20,
+        "evaluation_audit": 103,
+        "evaluation_run_log": 2,
+        "stay_date_snapshot": 126
+      },
+      "hashes": {
+        "published_price": "b1a980cf36eac5831d36093e3f8731738510a4b84e47d0b5a963b26668ad5328",
+        "ladder_rule_state": "f34c61ee280e42abfc2455232b7f1400df662a656cbc28a0e658164ae28d9c4f",
+        "ladder_transition_event": "269f860671e07becad63a9020ce6286ecd0ddd4e64c4a9f1bb947a58dc39dc78",
+        "pickup_event": "8311338da5c14a0e3c679507ac16565cea0f9bb0126ac35577297a13e34bb0ba",
+        "evaluation_audit": "376d35eaa67ff3e48a2516d371cac31e52ea46bb3df67caaf85f28c4070f9e73",
+        "evaluation_run_log": "e7744b045e91a7f752efd5d06b04402fafe2a61303abbabc32042637327ee11e",
+        "stay_date_snapshot": "93ce095f2ca3c36f1cae07cafded976d2f9474fbb99472619dbe78e8e1532708"
+      }
+    },
+    {
+      "counts": {
+        "hotel_id": "h1",
+        "stay_dates_evaluated": 21,
+        "prices_published": 22,
+        "ladder_activations": 6,
+        "ladder_deactivations": 5,
+        "pickup_events_created": 9
+      },
+      "sizes": {
+        "published_price": 82,
+        "ladder_rule_state": 98,
+        "ladder_transition_event": 106,
+        "pickup_event": 29,
+        "evaluation_audit": 128,
+        "evaluation_run_log": 3,
+        "stay_date_snapshot": 189
+      },
+      "hashes": {
+        "published_price": "07342a7e054eefeaa473f7fa9d9afe48f98328f229550fb2fd18d2d457d0a4f2",
+        "ladder_rule_state": "a409dd4bf29d669cc546c9b3083a64bfe10a8c8d8bf0b89922ee2d33903eb221",
+        "ladder_transition_event": "7c8eadc83dc29ee2072e4dac5a63931dffeba871a07395511f0727302a85c2a0",
+        "pickup_event": "206346f06c0d6041c5e9b20d14ff5df72aa0004f59212e295cb78196891bf2ca",
+        "evaluation_audit": "b86fa0c80bc34613edfe9955bdc3f4fc13b651edc29a5d893d6747a4abd44f17",
+        "evaluation_run_log": "74863b12569b8da2b58242fc3b51c7d82118ade93eb9a95f88c950d143b9038b",
+        "stay_date_snapshot": "9096ce3a6209832ed7689b05b9babfa69b9a86f46c8baa60b541b1e318c61140"
+      }
+    },
+    {
+      "counts": {
+        "hotel_id": "h1",
+        "stay_dates_evaluated": 21,
+        "prices_published": 34,
+        "ladder_activations": 34,
+        "ladder_deactivations": 6,
+        "pickup_events_created": 2
+      },
+      "sizes": {
+        "published_price": 85,
+        "ladder_rule_state": 132,
+        "ladder_transition_event": 146,
+        "pickup_event": 31,
+        "evaluation_audit": 167,
+        "evaluation_run_log": 4,
+        "stay_date_snapshot": 252
+      },
+      "hashes": {
+        "published_price": "dddfd4b5903fa4f4265602fc841ed6af897bcc6418ae06640dc9e6a24caeaaf8",
+        "ladder_rule_state": "58b90772ea2652f9651d3d04844042e63d4007dff9625e2165646f93e61bea96",
+        "ladder_transition_event": "2ab36750feff5b194480821ddd3b7c8a4824808419f3f10446078a887363da69",
+        "pickup_event": "b035b594d1be1a18f745bef36774b84fae0d5a780badd904ed87ab58c1439b1f",
+        "evaluation_audit": "ce26d3dce6e79078a465227c7dd5b5f700903b81fb8f6ce0fcd8ce8068d6a0f7",
+        "evaluation_run_log": "50a08c1ada18ffed980b69e30a17c9951f6d2bdb8f6a0dbdbe5a79371d7b87fb",
+        "stay_date_snapshot": "5f959d0814f9beeba25dec0925c54a914a4f117becbdac56743bc06f5bfae722"
+      }
+    },
+    {
+      "counts": {
+        "hotel_id": "h1",
+        "stay_dates_evaluated": 21,
+        "prices_published": 20,
+        "ladder_activations": 5,
+        "ladder_deactivations": 1,
+        "pickup_events_created": 1
+      },
+      "sizes": {
+        "published_price": 87,
+        "ladder_rule_state": 137,
+        "ladder_transition_event": 152,
+        "pickup_event": 32,
+        "evaluation_audit": 187,
+        "evaluation_run_log": 5,
+        "stay_date_snapshot": 315
+      },
+      "hashes": {
+        "published_price": "398879405086417750b83ee59af24d11a6b5f60070a3867a96a738bc626ae678",
+        "ladder_rule_state": "30ebcd8620f25a7428d00f0e93ae9afb73201ebcd3d7cb4813180fcee21435a1",
+        "ladder_transition_event": "da8641bde5c1fe7167c675b18b9486d7e89d2ea20c41f044ea413a4ccc5fb45f",
+        "pickup_event": "fe13da74de6792267d6615dd7a484875d5f7194a7ef91c531f36599003fb7024",
+        "evaluation_audit": "5306b7c711f2cc2a73b5209d613147bf2a009a3995fa59b838e3f367a37bc126",
+        "evaluation_run_log": "d532bbff6edf83a9cd11ec00ef87f5149c5dcb65f106fc767ab316654fc3aa43",
+        "stay_date_snapshot": "5d04c9caef36bf402e2950adac55ffbe209122674f65671c539769d66cc3e9f0"
+      }
+    },
+    {
+      "counts": {
+        "hotel_id": "h1",
+        "stay_dates_evaluated": 21,
+        "prices_published": 24,
+        "ladder_activations": 9,
+        "ladder_deactivations": 1,
+        "pickup_events_created": 6
+      },
+      "sizes": {
+        "published_price": 95,
+        "ladder_rule_state": 146,
+        "ladder_transition_event": 162,
+        "pickup_event": 38,
+        "evaluation_audit": 215,
+        "evaluation_run_log": 6,
+        "stay_date_snapshot": 378
+      },
+      "hashes": {
+        "published_price": "30ee28159de7f33bca3d73408d9f0bfbc5e22c664914030878f7a53c813520e1",
+        "ladder_rule_state": "ca7021e0bd0993ed2498aac8401335fda4d97c5457586afcd7a0087981571887",
+        "ladder_transition_event": "4f54ffc6aa46013f7823b1eba81aa54c709478ba3ce966e3ec2b329e9283baa0",
+        "pickup_event": "f9feba487c103707fd3affd5fc09c1e3861c662457c71f1612224f0d47457108",
+        "evaluation_audit": "42bfe9976e2d6bbef1f1f6cf8cf51f98e7ee10a9ab4aac18857a50cb60bbf0b8",
+        "evaluation_run_log": "b5e0879593a797e9bed732c336477459192d3228d3c582eda897462dd80c9e3b",
+        "stay_date_snapshot": "095618b4a3b12c233bc424ac82bc2225366ddbeb811a30bf03fbe7b3e848fcc0"
+      }
+    },
+    {
+      "counts": {
+        "hotel_id": "h1",
+        "stay_dates_evaluated": 9,
+        "prices_published": 17,
+        "ladder_activations": 16,
+        "ladder_deactivations": 0,
+        "pickup_events_created": 1
+      },
+      "sizes": {
+        "published_price": 96,
+        "ladder_rule_state": 162,
+        "ladder_transition_event": 178,
+        "pickup_event": 39,
+        "evaluation_audit": 234,
+        "evaluation_run_log": 7,
+        "stay_date_snapshot": 405
+      },
+      "hashes": {
+        "published_price": "b0cd2c65ed8cd605b3612dc8d9027f286521dc7b4cc22558c3a5bcf6320f6a06",
+        "ladder_rule_state": "145c9d09112704c869e86548a8e4ca7db1b094192bf2b7e84d2fc7535feb02ef",
+        "ladder_transition_event": "92697803149800e28857f5d4398552230f747636fa27bf6459d1af5e8c5c8375",
+        "pickup_event": "a07bf8fb0c2b49c7f3cbd27e007a7cf99aafd7413c39d06f45aee30a99cd95cb",
+        "evaluation_audit": "a2512c200942463128f607b4122c20abc524ee61241f0a08b28057e80c06eb67",
+        "evaluation_run_log": "0eb76b18f6bde98631244c5dc841d3354d7e2fd2c17928e3dbbc1ed1f9bc210b",
+        "stay_date_snapshot": "d910e8a6a99fcaf19325f44f0bca125a4a47f209380e639e31816177cb7a04b4"
+      }
+    },
+    {
+      "counts": {
+        "hotel_id": "h1",
+        "stay_dates_evaluated": 9,
+        "prices_published": 14,
+        "ladder_activations": 4,
+        "ladder_deactivations": 2,
+        "pickup_events_created": 8
+      },
+      "sizes": {
+        "published_price": 99,
+        "ladder_rule_state": 166,
+        "ladder_transition_event": 184,
+        "pickup_event": 47,
+        "evaluation_audit": 253,
+        "evaluation_run_log": 8,
+        "stay_date_snapshot": 117
+      },
+      "hashes": {
+        "published_price": "229c9ee942f65afdd530987741f27dffe3b953d9894497184c65e24bc0c06041",
+        "ladder_rule_state": "bcdc5fbab08b5529e4e5f2efb3e303435448c9b16c065fc11415c53a4a2de05d",
+        "ladder_transition_event": "533e1c3d32859526500cc12c63fcf619b76324e9974a501924c50c6840fba394",
+        "pickup_event": "9a285da0d06a581191f6beda74181d2726d4e7c48bea17905bc116b36933ea48",
+        "evaluation_audit": "45f61b15bb675d3468aecc789bc24bafc0bcc580b23fcf10422e862488e60be5",
+        "evaluation_run_log": "92f55ae86ad772b9502fe2d982947d821e885630f7a8e4f9ec4c2871cc2084e1",
+        "stay_date_snapshot": "e6dbda1cf64c7962820af162a1d8eac922c93d9f951d8886424a01b088360e0f"
+      }
+    }
+  ]
+}
