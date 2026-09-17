@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { GoLiveDialog } from "@/components/go-live-dialog";
+import { GoLiveDialog, pmsConnected } from "@/components/go-live-dialog";
 
 /**
  * Per-hotel pricing-mode toggle. The switch represents LIVE:
@@ -18,12 +18,15 @@ export function SimulationModeToggle({
   hotelId,
   simulationMode,
   pmsType,
+  pmsStatus,
   windowDays,
 }: {
   hotelId: string;
   simulationMode: boolean;
   /** The hotel's PMS, for what the confirm step says will happen. */
   pmsType: string | null;
+  /** That connection's status; null when the hotel has none. */
+  pmsStatus: string | null;
   /** Nights the push sends (pricingHorizonDays). */
   windowDays: number;
 }) {
@@ -105,6 +108,7 @@ export function SimulationModeToggle({
       <GoLiveDialog
         open={confirming}
         pmsType={pmsType}
+        connected={pmsConnected(pmsType, pmsStatus)}
         windowDays={windowDays}
         busy={pending}
         onConfirm={() => void toggle()}

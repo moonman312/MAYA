@@ -114,6 +114,7 @@ export default async function AdminHotelDetailPage({
             hotelId={hotel.id}
             simulationMode={simulationMode}
             pmsType={hotel.pms_type}
+            pmsStatus={hotel.pms_status}
             windowDays={pricingHorizonDays()}
           />
           <HotelTestToggle hotelId={hotel.id} isTest={hotel.is_test === true} />

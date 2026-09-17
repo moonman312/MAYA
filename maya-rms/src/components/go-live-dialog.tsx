@@ -13,7 +13,9 @@ import { useEffect, useId, useRef, type ReactNode } from "react";
  * the sync cycle, about every 5 minutes, writing over the rate those nights
  * have in the PMS, and after that sends a night again when its price changes.
  * Only Cloudbeds and Think have a rate push; for anything else the dialog
- * says nothing is sent.
+ * says nothing is sent. Nor is anything sent without a connection the sync
+ * picks up (none, disconnected, or pending payment), and the admin switch,
+ * which can see the connection, says so.
  */
 
 /** The PMSes with a rate push adapter (_shared/cloudbeds/rate-push.ts, _shared/think/rate-push.ts). */
@@ -26,16 +28,33 @@ const PMS_NAMES: Record<string, string> = {
   opera: "Opera",
 };
 
-/** The dialog's sentences. Exported for tests. */
-export function goLiveCopy(p: { pmsType: string | null; windowDays: number | null }): {
+/** Connection statuses the scheduled sync does not pick up (claim_pms_sync_batch). */
+const NOT_SYNCED = new Set(["disconnected", "pending"]);
+
+/**
+ * Whether the scheduled sync picks up a hotel's connection, from what the
+ * admin hotel row says: its PMS and that connection's status.
+ */
+export function pmsConnected(pmsType: string | null, pmsStatus: string | null): boolean {
+  return pmsType != null && pmsStatus != null && !NOT_SYNCED.has(pmsStatus);
+}
+
+/**
+ * The dialog's sentences. `connected` is whether the hotel has a connection
+ * the sync picks up; left out, it is taken as yes. Exported for tests.
+ */
+export function goLiveCopy(p: { pmsType: string | null; windowDays: number | null; connected?: boolean }): {
   title: string;
   lines: string[];
 } {
+  if (p.connected === false) {
+    return { title: "Go live?", lines: ["No PMS is connected, so nothing is sent until one is."] };
+  }
   const known = p.pmsType ? PMS_NAMES[p.pmsType] : undefined;
   const pms = known ?? "your PMS";
-  // A PMS that could not be read (null) is taken as one MAYA sends to: the
-  // owner's screen only goes live after onboarding connected one, and
-  // onboarding only connects those.
+  // Without `connected`, a PMS that could not be read (null) is taken as one
+  // MAYA sends to: that is the owner's onboarding screen, which only goes live
+  // after onboarding connected one, and onboarding only connects those.
   if (p.pmsType && !PMS_WITH_RATE_PUSH.has(p.pmsType)) {
     return {
       title: "Go live?",
@@ -55,6 +74,7 @@ export function goLiveCopy(p: { pmsType: string | null; windowDays: number | nul
 export function GoLiveDialog({
   open,
   pmsType,
+  connected,
   windowDays,
   busy = false,
   error = null,
@@ -65,6 +85,8 @@ export function GoLiveDialog({
   open: boolean;
   /** pms_connections.pms_type of the hotel's connection; null when not known. */
   pmsType: string | null;
+  /** Whether the sync picks that connection up (pmsConnected); left out when not known. */
+  connected?: boolean;
   /** The push window in nights (pricingHorizonDays); null leaves the number out. */
   windowDays: number | null;
   busy?: boolean;
@@ -88,7 +110,7 @@ export function GoLiveDialog({
   }, [open, busy, onCancel]);
 
   if (!open) return null;
-  const copy = goLiveCopy({ pmsType, windowDays });
+  const copy = goLiveCopy({ pmsType, windowDays, connected });
 
   return (
     <div

@@ -5,7 +5,7 @@
  */
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GoLiveDialog, goLiveCopy } from "./go-live-dialog";
+import { GoLiveDialog, goLiveCopy, pmsConnected } from "./go-live-dialog";
 import { StarterRules } from "./onboarding/review-findings";
 import { SimulationModeToggle } from "./admin/simulation-mode-toggle";
 
@@ -38,6 +38,20 @@ describe("goLiveCopy", () => {
       "Send prices to your PMS? MAYA starts sending its prices to your PMS on the next cycle, in about 5 minutes. Each price it sends replaces that night's rate in your PMS, and a night is sent again whenever its price changes.",
     );
     for (const c of [cloudbeds, goLiveCopy({ pmsType: "mews", windowDays: 60 })]) expect(text(c)).not.toMatch(/[—–]/);
+  });
+
+  it("says nothing is sent when the hotel has no connection the sync picks up", () => {
+    expect(goLiveCopy({ pmsType: null, windowDays: 60, connected: false })).toEqual({
+      title: "Go live?",
+      lines: ["No PMS is connected, so nothing is sent until one is."],
+    });
+    expect(text(goLiveCopy({ pmsType: "cloudbeds", windowDays: 60, connected: false }))).not.toContain("Cloudbeds");
+    // Still sent: a connection with sync errors is still synced and pushed to.
+    for (const status of ["connected", "degraded", "error"]) expect(pmsConnected("cloudbeds", status)).toBe(true);
+    expect(pmsConnected(null, null)).toBe(false);
+    expect(pmsConnected("cloudbeds", null)).toBe(false);
+    expect(pmsConnected("think", "disconnected")).toBe(false);
+    expect(pmsConnected("cloudbeds", "pending")).toBe(false);
   });
 
   it("doesn't promise to send to a PMS MAYA has no rate push for", () => {
@@ -119,7 +133,7 @@ describe("the onboarding go-live button", () => {
 
 describe("the platform admin Live switch", () => {
   it("asks before turning a hotel live, and sends nothing until the confirm", async () => {
-    const view = render(<SimulationModeToggle hotelId="hotel-1" simulationMode pmsType="think" windowDays={60} />);
+    const view = render(<SimulationModeToggle hotelId="hotel-1" simulationMode pmsType="think" pmsStatus="connected" windowDays={60} />);
 
     fireEvent.click(view.getByRole("switch", { name: "Toggle live pricing" }));
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -139,8 +153,19 @@ describe("the platform admin Live switch", () => {
     expect(JSON.parse(String(init.body))).toEqual({ simulationMode: false });
   });
 
+  it("says nothing is sent for a hotel created without a PMS, or whose connection is gone", () => {
+    for (const [pmsType, pmsStatus] of [[null, null], ["cloudbeds", "disconnected"]] as const) {
+      const view = render(<SimulationModeToggle hotelId="hotel-1" simulationMode pmsType={pmsType} pmsStatus={pmsStatus} windowDays={60} />);
+      fireEvent.click(view.getByRole("switch", { name: "Toggle live pricing" }));
+      const dialog = view.getByRole("dialog", { name: "Go live?" });
+      expect(dialog.textContent).toContain("No PMS is connected, so nothing is sent until one is.");
+      expect(dialog.textContent).not.toContain("MAYA starts sending");
+      cleanup();
+    }
+  });
+
   it("goes back to simulation at once, with no dialog", async () => {
-    const view = render(<SimulationModeToggle hotelId="hotel-1" simulationMode={false} pmsType="cloudbeds" windowDays={60} />);
+    const view = render(<SimulationModeToggle hotelId="hotel-1" simulationMode={false} pmsType="cloudbeds" pmsStatus="connected" windowDays={60} />);
     await act(async () => {
       fireEvent.click(view.getByRole("switch", { name: "Toggle live pricing" }));
     });
