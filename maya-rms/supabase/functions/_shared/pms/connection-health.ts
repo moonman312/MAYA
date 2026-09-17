@@ -29,7 +29,7 @@ export type PmsTypeName = "cloudbeds" | "mews" | "think";
  * "connected" while every single call was refused. Observed live on a partner's
  * own property during certification, 2026-09-10.
  */
-const REVOCATION_PHRASES = [
+export const REVOCATION_PHRASES = [
   "application is not available to be connected",
   "app is not connected",
   "invalid_grant",

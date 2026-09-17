@@ -76,13 +76,16 @@ export function createCloudbedsRateAdapter(
     /**
      * Fresh credentials for a write refused with 401. Credentials are resolved
      * once when the sync starts, and a token that expires during the tick
-     * would otherwise read as a revoked grant.
+     * would otherwise read as a refused write. A 401 again on a different
+     * token is a grant that is gone (freshCredentialsRefused).
      */
     refreshCredentials?: () => Promise<CloudbedsResolvedCredentials | null>;
   } = {},
 ): PmsRatePushAdapter {
   let current = creds;
   let refreshedOnce = false;
+  // `current` is a token the refresh handed over in place of one refused with 401.
+  let onFreshToken = false;
   // ONE call for the whole window. detailedRates returns roomRateDetailed[]
   // — a per-night breakdown — which is both what Cloudbeds requires of an
   // RMS integration and the only way to get per-night numbers: without it a
@@ -168,16 +171,24 @@ export function createCloudbedsRateAdapter(
             refreshedOnce = true;
             const fresh = await auth.refreshCredentials().catch(() => null);
             if (fresh) {
+              onFreshToken = fresh.accessToken !== current.accessToken;
               current = fresh;
               res = await cloudbedsPatchRate(current, rateId, intervals);
             }
           }
+          const freshCredentialsRefused = !res.ok && res.status === 401 && onFreshToken;
           for (const run of chunk) {
             for (const c of run.cells) {
               results.push(
                 res.ok
                   ? { cell: c, ok: true, jobReference: res.jobReferenceID }
-                  : { cell: c, ok: false, error: res.error, httpStatus: res.status },
+                  : {
+                      cell: c,
+                      ok: false,
+                      error: res.error,
+                      httpStatus: res.status,
+                      ...(freshCredentialsRefused ? { freshCredentialsRefused } : {}),
+                    },
               );
             }
           }

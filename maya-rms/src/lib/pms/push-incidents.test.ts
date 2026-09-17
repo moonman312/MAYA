@@ -214,7 +214,7 @@ describe("recordPushIncidents", () => {
     const fake = db();
     await recordPushIncidents(
       fake.client,
-      tick(0, [failure("2026-09-20", "rt-1", 0, { pms: "cloudbeds", phase: "send", message: "Cloudbeds patchRate failed (401): expired" })]),
+      tick(0, [failure("2026-09-20", "rt-1", 0, { pms: "cloudbeds", phase: "send", message: "Cloudbeds patchRate failed (400): Application is not available to be connected" })]),
       deps,
     );
     expect(fake.tables.rate_push_incidents[0]).toMatchObject({ cause: "auth_revoked", alerted_at: null });

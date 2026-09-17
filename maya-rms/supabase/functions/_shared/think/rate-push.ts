@@ -39,8 +39,9 @@ export function createThinkRateAdapter(
   auth: {
     /**
      * Fresh credentials for a write refused with 401. Credentials are resolved
-     * once per tick, and a token that expires during it would otherwise read
-     * as a revoked grant.
+     * once per tick, and a token that expires during it would otherwise be
+     * held as a refused write until a reconnect or a day has passed. A Think
+     * write never takes the connection offline (push-failure.ts).
      */
     refreshCredentials?: () => Promise<ThinkCredentials | null>;
   } = {},

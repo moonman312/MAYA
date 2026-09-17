@@ -250,8 +250,8 @@ Deno.serve(async (req) => {
       hotelId,
       {
         horizonDays,
-        // A token that expires mid-tick gets one refresh before a refused
-        // write is taken as a revoked grant.
+        // A token that expires mid-tick gets one refresh before a write it
+        // refuses is filed; a 401 on the new token too takes the grant as gone.
         adapter: creds
           ? createCloudbedsRateAdapter(creds, undefined, {
               refreshCredentials: () => resolveCloudbedsCredentials(supabase, hotelId),

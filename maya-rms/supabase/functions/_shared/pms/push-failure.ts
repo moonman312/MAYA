@@ -102,6 +102,11 @@ export type PushFailureInput = {
   attempt?: number;
   /** For a "no rate target" skip: what the catalog read said about the room type. */
   targetGap?: TargetGap | null;
+  /**
+   * The send was refused with 401, sent again on credentials minted after
+   * that refusal (a different token), and refused with 401 again.
+   */
+  freshCredentialsRefused?: boolean;
 };
 
 export type PushFailure = {
@@ -164,7 +169,7 @@ const CATALOG: Record<PushCause, CatalogEntry> = {
     sentence: (w) => `${w.pms} stopped accepting MAYA's connection, so ${w.roomsRates} can't be changed`,
     action: (w) => `Reconnect ${w.pms} on the PMS tab.`,
     admin:
-      "The PMS refused the grant (401 after a credential refresh, or revocation wording). The push marks the connection disconnected, which alerts.",
+      "The PMS says the app is no longer connected, or refused a write with 401 again on credentials minted after the first 401. The push marks the connection disconnected, which alerts. Never filed for Think from a push.",
   },
   missing_write_permission: {
     known: true,
@@ -173,7 +178,8 @@ const CATALOG: Record<PushCause, CatalogEntry> = {
     clearedByReconnect: true,
     sentence: (w) => `${w.pms} won't let MAYA change ${w.roomsRates} because MAYA doesn't have permission to update rates`,
     action: (w) => `Give MAYA permission to update rates in ${w.pms}, then reconnect on the PMS tab.`,
-    admin: "Reads work but the rate write is refused: the grant lacks the rate write scope (403 or scope wording).",
+    admin:
+      "Reads work but the rate write is refused: 403 or scope wording, or a 401 or token wording on a write after this tick's read worked. Held until a reconnect or a day; the connection is left connected.",
   },
   rate_plan_not_updatable: {
     known: true,
@@ -298,17 +304,12 @@ export function isIncidentSkipReason(reason: unknown): boolean {
  */
 
 // connection-health.ts REVOCATION_PHRASES, the first seen live from Cloudbeds
-// 2026-09-10. The token phrases are unverified guesses.
-const REVOKED = [
-  "application is not available to be connected",
-  "app is not connected",
-  "invalid_grant",
-  "invalid token",
-  "invalid_token",
-  "token expired",
-  "token has expired",
-  "expired token",
-];
+// 2026-09-10. Kept to exactly those: this wording takes the connection offline.
+const REVOKED = ["application is not available to be connected", "app is not connected", "invalid_grant"];
+
+// Unverified guesses. On a write, after this tick's read worked with the same
+// token, they are the write refused, not a grant that is gone.
+const TOKEN_REFUSED = ["invalid token", "invalid_token", "token expired", "token has expired", "expired token"];
 
 // "scope required for this call was not granted by property" seen live from
 // Cloudbeds getTaxesAndFees 2026-09-08. The rest are unverified guesses.
@@ -426,7 +427,17 @@ function causeOf(input: PushFailureInput): PushCause {
   // most likely a wrong URL. Nothing is known about it.
   if (parsed.nonJson) return "unknown";
 
-  if (includesAny(text, REVOKED)) return "auth_revoked";
+  // Only a grant the PMS says is gone takes the connection offline (rate-push.ts
+  // marks it disconnected): its wording for an app that is not connected, or a
+  // 401 again on credentials minted after the first. A push runs only after
+  // this tick's read of the same PMS worked, so anything less on the write is
+  // the write refused to a grant that reads, and every read, evaluation and
+  // push of the property must not stop over it. A Think grant can read and
+  // still be refused a PUT, so a Think push never takes it offline.
+  if (includesAny(text, REVOKED) || (status === 401 && input.freshCredentialsRefused === true)) {
+    return input.pms === "think" ? "missing_write_permission" : "auth_revoked";
+  }
+  if (includesAny(text, TOKEN_REFUSED)) return "missing_write_permission";
   if (includesAny(text, PERMISSION)) return "missing_write_permission";
   if (includesAny(text, DERIVED)) return "rate_plan_not_updatable";
   if (includesAny(text, NOT_FOUND)) return "rate_not_found";
@@ -440,10 +451,10 @@ function causeOf(input: PushFailureInput): PushCause {
   if (includesAny(text, THROTTLED)) return "throttled";
   if (includesAny(text, UNAVAILABLE)) return "pms_unavailable";
 
-  if (status === 401) return "auth_revoked";
   // A push runs only after this tick's read of the same PMS succeeded, so the
-  // grant exists; a 403 on the write is the write being forbidden. Unverified.
-  if (status === 403) return "missing_write_permission";
+  // grant exists; a 401 or 403 on the write is the write being forbidden.
+  // Unverified.
+  if (status === 401 || status === 403) return "missing_write_permission";
   // Unverified: Think answers an unknown rate type id this way, Cloudbeds
   // reports its errors as success:false instead.
   if (status === 404) return "rate_not_found";

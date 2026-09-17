@@ -19,6 +19,7 @@ import {
   SEND_IN_PROGRESS_MESSAGE,
 } from "../../../supabase/functions/_shared/pms/push-failure";
 import { GUARDRAIL, NO_RATE_TARGET_REASON } from "../../../supabase/functions/_shared/pms/push-guardrails";
+import { REVOCATION_PHRASES } from "../../../supabase/functions/_shared/pms/connection-health";
 
 const send = (message: string, httpStatus: number | null = null, over: Partial<PushFailureInput> = {}): PushFailureInput => ({
   pms: "cloudbeds",
@@ -39,7 +40,26 @@ describe("classifyPushFailure", () => {
       "critical",
       "hold",
     ],
-    ["a bare 401", send("Think /v1/hotels/1/rate_types/2/daily failed (401): Unauthorized", 401, { pms: "think" }), "auth_revoked", true, "critical", "hold"],
+    // A write refused after this tick's read worked: held, the connection left up.
+    ["a bare 401", send("Cloudbeds patchRate failed (401): Unauthorized", 401), "missing_write_permission", true, "critical", "hold"],
+    ["a bare 401 from Think", send("Think /v1/hotels/1/rate_types/2/daily failed (401): Unauthorized", 401, { pms: "think" }), "missing_write_permission", true, "critical", "hold"],
+    ["token wording on a write", send("Cloudbeds patchRate failed (200): Invalid token"), "missing_write_permission", true, "critical", "hold"],
+    [
+      "a 401 again on new credentials",
+      send("Cloudbeds patchRate failed (401): Unauthorized", 401, { freshCredentialsRefused: true }),
+      "auth_revoked",
+      true,
+      "critical",
+      "hold",
+    ],
+    [
+      "a Think write refused on new credentials, or in not-connected wording",
+      send("Think /v1/x failed (401): invalid_grant", 401, { pms: "think", freshCredentialsRefused: true }),
+      "missing_write_permission",
+      true,
+      "critical",
+      "hold",
+    ],
     [
       "a missing scope, in the wording Cloudbeds used for taxes",
       send("Cloudbeds patchRate failed (400): Scope required for this call was not granted by property."),
@@ -100,8 +120,18 @@ describe("classifyPushFailure", () => {
   });
 
   it("leaves connection health to alert a revoked grant", () => {
-    expect(classifyPushFailure(send("", 401)).alertedElsewhere).toBe(true);
+    expect(classifyPushFailure(send("", 401, { freshCredentialsRefused: true })).alertedElsewhere).toBe(true);
+    expect(classifyPushFailure(send("", 401)).alertedElsewhere).toBe(false);
     expect(classifyPushFailure(send("", 403)).alertedElsewhere).toBe(false);
+  });
+
+  it("takes a grant as gone on exactly the wording connection health does, and never for Think", () => {
+    for (const phrase of REVOCATION_PHRASES) {
+      expect(classifyPushFailure(send(`Cloudbeds patchRate failed (400): ${phrase}`)).cause).toBe("auth_revoked");
+      expect(classifyPushFailure(send(`Think /v1/x failed (400): ${phrase}`, 400, { pms: "think" })).cause).toBe("missing_write_permission");
+    }
+    // A 401 on new credentials only counts as one when it is a 401.
+    expect(classifyPushFailure(send("Cloudbeds patchRate failed (503): down", 503, { freshCredentialsRefused: true })).cause).toBe("pms_unavailable");
   });
 
   it("only drops the target cache for causes that can mean the ids are stale", () => {

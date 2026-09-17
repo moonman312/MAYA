@@ -254,4 +254,28 @@ describe("cloudbeds adapter after a catalog read, and on a refused grant", () =>
     expect(refreshCredentials).toHaveBeenCalledTimes(1);
     expect(patchRate.mock.calls.map((c) => (c[0] as { accessToken: string }).accessToken)).toEqual(["t", "t2", "t2"]);
   });
+
+  it("says a write was refused on new credentials only when a different token got a 401 too", async () => {
+    const cell = (roomTypeId: string) => ({ stayDate: "2026-10-01", roomTypeId, externalRoomTypeId: roomTypeId, price: 200, externalRateId: `rate-${roomTypeId}` });
+    patchRate.mockReset();
+    patchRate.mockResolvedValue({ ok: false, status: 401, error: "Cloudbeds patchRate failed (401): Unauthorized" });
+
+    // A new token, refused as well, then on every call after.
+    const minted = createCloudbedsRateAdapter(CREDS, false, { refreshCredentials: async () => ({ ...(CREDS as object), accessToken: "t2" }) as never });
+    expect((await minted.pushCells([cell("RT1"), cell("RT2")])).map((r) => r.freshCredentialsRefused)).toEqual([true, true]);
+
+    // The resolver handed back the token that was refused: nothing new was tried.
+    const same = createCloudbedsRateAdapter(CREDS, false, { refreshCredentials: async () => CREDS });
+    expect((await same.pushCells([cell("RT1")]))[0]).not.toHaveProperty("freshCredentialsRefused");
+
+    // No new credentials at all, or a refusal that is not a 401.
+    const none = createCloudbedsRateAdapter(CREDS, false, { refreshCredentials: async () => null });
+    expect((await none.pushCells([cell("RT1")]))[0]).not.toHaveProperty("freshCredentialsRefused");
+    patchRate.mockImplementation(async (creds: { accessToken: string }) =>
+      creds.accessToken === "t" ? { ok: false, status: 401, error: "Cloudbeds patchRate failed (401): Unauthorized" } : { ok: false, status: 403, error: "Cloudbeds patchRate failed (403): Forbidden" },
+    );
+    const forbidden = createCloudbedsRateAdapter(CREDS, false, { refreshCredentials: async () => ({ ...(CREDS as object), accessToken: "t2" }) as never });
+    expect((await forbidden.pushCells([cell("RT1")]))[0]).toMatchObject({ ok: false, httpStatus: 403 });
+    expect((await forbidden.pushCells([cell("RT1")]))[0]).not.toHaveProperty("freshCredentialsRefused");
+  });
 });

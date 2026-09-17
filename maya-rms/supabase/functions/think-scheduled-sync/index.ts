@@ -228,7 +228,7 @@ Deno.serve(async (req) => {
             resolved.propertyId,
             {
               // A token that expires mid-tick gets one refresh before a
-              // refused write is taken as a revoked grant.
+              // refused write is filed and held.
               refreshCredentials: async () => {
                 const fresh = await resolveOAuthCredentials(supabase, hotelId, "think");
                 return "error" in fresh ? null : { accessToken: fresh.accessToken, baseUrl };

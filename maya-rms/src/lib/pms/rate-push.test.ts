@@ -1558,6 +1558,71 @@ describe("pushRatesForHotel and what the tick knows", () => {
     expect(finalLedger(db).find((r) => r.stay_date === "2026-08-05")).toMatchObject({ status: "skipped", error: "guardrail:stale_price" });
   });
 
+  describe("a write refused over the grant", () => {
+    function connected(pmsType = "cloudbeds") {
+      return fakeSupabase({
+        hotel_settings: [{ hotel_id: "hotel-1", simulation_mode: false }],
+        room_types: [{ id: "rt-king", hotel_id: "hotel-1", external_room_type_id: "CB-KING", ...OPEN_BOUNDS }],
+        published_price: [{ hotel_id: "hotel-1", stay_date: "2026-08-01", room_type_id: "rt-king", price: 210, computed_at: JUST_NOW }],
+        pms_connections: [{ id: "conn-1", hotel_id: "hotel-1", pms_type: pmsType, status: "connected", push_rate_targets: { "CB-KING": "rate-100" } }],
+      });
+    }
+    const refusing = (result: Partial<CellPushResult>, pmsType: PmsRatePushAdapter["pmsType"] = "cloudbeds") => {
+      const { adapter } = makeAdapter({ "CB-KING": "rate-100" });
+      adapter.pmsType = pmsType;
+      adapter.pushCells = async (cells) => cells.map((cell) => ({ cell, ok: false, ...result }));
+      return adapter;
+    };
+
+    it("leaves the connection up on a bare 401 after the read worked, and holds the night for the owner to see", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const db = connected();
+
+      const res = await pushRatesForHotel(db.client, "hotel-1", refusing({ error: "Cloudbeds patchRate failed (401): Unauthorized", httpStatus: 401 }), WIDE);
+
+      expect(res).toMatchObject({ failed: 1 });
+      expect(db.tables.pms_connections[0].status).toBe("connected");
+      expect(db.calls.some((c) => c.table === "rpc:platform_log_event")).toBe(false);
+      expect(db.tables.rate_push_incidents).toEqual([
+        expect.objectContaining({ cause: "missing_write_permission", severity: "critical", customer_visible_at: expect.any(String) }),
+      ]);
+      // Held until a reconnect, not sent again next tick.
+      const next = await pushRatesForHotel(db.client, "hotel-1", makeAdapter({ "CB-KING": "rate-100" }).adapter, WIDE);
+      expect(next).toMatchObject({ sent: 0, skippedHeld: 1 });
+    });
+
+    it("takes the grant as gone when credentials minted after the 401 are refused too", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const db = connected();
+
+      await pushRatesForHotel(
+        db.client,
+        "hotel-1",
+        refusing({ error: "Cloudbeds patchRate failed (401): Unauthorized", httpStatus: 401, freshCredentialsRefused: true }),
+        WIDE,
+      );
+
+      expect(db.tables.pms_connections[0].status).toBe("disconnected");
+      expect(db.tables.rate_push_incidents).toEqual([expect.objectContaining({ cause: "auth_revoked" })]);
+    });
+
+    it("never takes a Think connection offline from a push", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      for (const result of [
+        { error: "Think /v1/hotels/1/rate_types/2/daily failed (401): invalid_grant", httpStatus: 401, freshCredentialsRefused: true },
+        { error: "Think /v1/hotels/1/rate_types/2/daily failed (400): App is not connected", httpStatus: 400 },
+      ]) {
+        const db = connected("think");
+        await pushRatesForHotel(db.client, "hotel-1", refusing(result, "think"), WIDE);
+        expect(db.tables.pms_connections[0].status).toBe("connected");
+        expect(db.tables.rate_push_incidents).toEqual([expect.objectContaining({ cause: "missing_write_permission" })]);
+      }
+    });
+  });
+
   it("marks the connection disconnected when the write says the grant is gone", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "log").mockImplementation(() => {});

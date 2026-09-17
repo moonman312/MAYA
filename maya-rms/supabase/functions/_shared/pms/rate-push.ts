@@ -94,6 +94,12 @@ export type CellPushResult = {
   /** The HTTP status of a refused send, when the vendor answered with one. */
   httpStatus?: number | null;
   /**
+   * Refused with 401 on credentials minted after an earlier 401 this run (a
+   * different token than the one refused). The only 401 that takes the
+   * connection offline (push-failure.ts).
+   */
+  freshCredentialsRefused?: boolean;
+  /**
    * Not attempted: the deadline passed before its call started. Not a
    * failure, and not recorded, so the next tick sends it.
    */
@@ -825,9 +831,12 @@ export async function pushRatesForHotel(
         httpStatus: r.httpStatus ?? null,
         message,
         attempt: tries,
+        freshCredentialsRefused: r.freshCredentialsRefused === true,
       });
       if (failure.dropTargets) staleTargets = true;
-      if (failure.cause === "auth_revoked" && revoked == null) revoked = message ?? "rate write refused the grant";
+      if (failure.cause === "auth_revoked" && adapter.pmsType !== "think" && revoked == null) {
+        revoked = message ?? "rate write refused the grant";
+      }
       run.cells.set(key, { ...cellRef(r.cell), state: "failing", failure });
       run.failures.push({
         ...cellRef(r.cell),
@@ -842,9 +851,11 @@ export async function pushRatesForHotel(
     });
   }
 
-  // A grant the PMS refused on the write (after the adapter's own credential
-  // refresh) is a disconnected connection: the PMS tab says so, and connection
-  // health raises the alert the incident leaves to it.
+  // A grant the PMS says is gone (auth_revoked: its not-connected wording, or
+  // new credentials refused again) is a disconnected connection: the PMS tab
+  // says so, and connection health raises the alert the incident leaves to it.
+  // Any other refusal of a write holds its cells and leaves the connection up,
+  // reads and all.
   if (revoked != null) {
     await markConnectionDisconnected(supabase, hotelId, adapter.pmsType, `rate push: ${String(revoked).slice(0, 300)}`);
   }
