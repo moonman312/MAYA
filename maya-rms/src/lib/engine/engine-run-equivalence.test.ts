@@ -10,6 +10,28 @@
  * difference in a published price, a ladder state or transition, a pickup
  * event, an audit row or a run's counts fails here.
  *
+ * The pickup_event hashes, and the audit and price hashes of the cells those
+ * fires touch, were rewritten a fourth time for stacking. Every difference was
+ * read row by row against a dump of the previous engine first:
+ *   - A Suite raise on a night already published at its 169.50 ceiling no
+ *     longer fires (it could not move the price), and starts no wait, so the
+ *     rule keeps measuring that night. Those nights' prices are unchanged
+ *     while the ceiling holds; Suite 2026-06-25 reads 168.00 from run 6,
+ *     where the old blocked raise had held it at the ceiling.
+ *   - A pickup count rule now waits its own window before firing again, so
+ *     the 1-day KING rule does not fire a second time the next morning:
+ *     2026-06-27 and 2026-06-29 publish 3% lower from runs 3 and 4.
+ *   - A Booking Speed rule measures no pickup window, so its fires record
+ *     this run's booked units as both start and end, and baseline_start_ts
+ *     as now minus its 30-day window (informational).
+ *   - Every fire carries fire_seq, cancel_check, signal_set_key and its
+ *     frozen window, every retirement carries a reason (night_passed here),
+ *     and audit details carry applied_at and fire_seq per effect plus
+ *     event_id on the fire that won.
+ *   - Fewer audit rows in the later runs: a cell whose fire never happened
+ *     has nothing new to record. The 30-day observation now appears on
+ *     nights the rule is no longer waiting on.
+ *
  * The golden file was written by this same test at commit 4ef5d65 with
  * MAYA_WRITE_ENGINE_GOLDEN=1. Its ladder_rule_state hashes were rewritten
  * once, leaving out last_evaluated_at, from an engine that still matched the
@@ -326,7 +348,11 @@ const VARIANTS: Variant[] = [
     fault: faults((c) =>
       c.table === "ladder_rule_state" && callTouchesColumn(c, "suppressed_at") ? missingColumn("ladder_rule_state", "suppressed_at") : null,
     ),
-    rpc: (fn) => new FakeRpcError(missingFunction(fn)),
+    // Every function of the large property migration is missing, so each
+    // caller takes its old path. pickup_fire_heads is not one of those: the
+    // stacking migration has no pre-migration path (a run with no fire
+    // history would stack on every tick), so it answers here.
+    rpc: (fn) => (fn === "pickup_fire_heads" ? undefined : new FakeRpcError(missingFunction(fn))),
   },
 ];
 
@@ -428,6 +454,14 @@ describe("a Booking Speed rule measuring only some room types", () => {
   const notSuite = (rows: string[], col = "room_type_id") =>
     rows.filter((r) => (JSON.parse(r) as Record<string, unknown>)[col] !== SUITE);
 
+  const withoutObservations = (rows: string[]) =>
+    rows.map((r) => {
+      const row = JSON.parse(r) as Record<string, unknown>;
+      const details = { ...(row.details as Record<string, unknown>) };
+      delete details.booking_speed_observations;
+      return JSON.stringify({ ...row, details });
+    });
+
   it.each(VARIANTS)("$name: every other room type's prices, ladders, events and audits are unchanged", async (variant) => {
     const before = await runAll(variant, []);
     const after = await runAll(variant, [SUITE_ONLY]);
@@ -438,7 +472,18 @@ describe("a Booking Speed rule measuring only some room types", () => {
       expect(notSuite(a.ladder_rule_state)).toEqual(notSuite(b.ladder_rule_state));
       expect(notSuite(a.ladder_transition_event)).toEqual(notSuite(b.ladder_transition_event));
       expect(notSuite(a.pickup_event, "affected_room_type_id")).toEqual(notSuite(b.pickup_event, "affected_room_type_id"));
-      expect(notSuite(a.evaluation_audit)).toEqual(notSuite(b.evaluation_audit));
+      // Everything a room's audit row says about its own price: identical.
+      //
+      // Not the hotel-wide Booking Speed observations it also carries. A run
+      // records every observation it made for the night on every cell of that
+      // night, and the Suite rule moves the Suite's price, which decides
+      // whether the Suite's own event rule may fire there — and so whether
+      // its 30-day observation was made at all. That list changing on a King
+      // row is this run consulting a different window, not the King being
+      // priced differently.
+      expect(withoutObservations(notSuite(a.evaluation_audit))).toEqual(
+        withoutObservations(notSuite(b.evaluation_audit)),
+      );
       expect(a.stay_date_snapshot).toEqual(b.stay_date_snapshot);
       for (const row of a.evaluation_audit.map((r) => JSON.parse(r) as FakeRow)) {
         const observations = ((row.details as FakeRow).booking_speed_observations ?? []) as FakeRow[];
