@@ -29,26 +29,38 @@ describe("measuresDifferently", () => {
 });
 
 describe("ruleRoomTypesLabel", () => {
-  const rule = (signal: string[], affected: string[], names: string[], signalNames: string[]) => ({
+  const NAMES: Record<string, string> = { std: "Standard", dlx: "Deluxe", ph: "Penthouse", court: "Court" };
+  const rule = (signal: string[], affected: string[], names: string[]) => ({
     room_types: names,
     signal_room_type_ids: signal,
     affected_room_type_ids: affected,
-    signal_room_types: signalNames,
+    signal_room_types: signal.map((id) => ({ id, name: NAMES[id] })),
   });
 
   it("reads exactly as before when the rule measures what it changes", () => {
-    expect(ruleRoomTypesLabel(rule(["std", "dlx"], ["std", "dlx"], ["Standard", "Deluxe"], ["Standard", "Deluxe"]), isCounting)).toBe(
+    expect(ruleRoomTypesLabel(rule(["std", "dlx"], ["std", "dlx"], ["Standard", "Deluxe"]), isCounting)).toBe(
       "Standard, Deluxe",
     );
-    expect(ruleRoomTypesLabel(rule(["std"], ["std", "court"], ["Standard", "Court"], ["Standard"]), isCounting)).toBe("Standard, Court");
+    expect(ruleRoomTypesLabel(rule(["std"], ["std", "court"], ["Standard", "Court"]), isCounting)).toBe("Standard, Court");
     expect(ruleRoomTypesLabel({ room_types: [] }, isCounting)).toBe("All");
     expect(ruleRoomTypesLabel({ room_types: ["Suite"] }, isCounting)).toBe("Suite");
   });
 
   it("names both sets when they differ", () => {
-    expect(ruleRoomTypesLabel(rule(["std", "dlx"], ["ph"], ["Suites"], ["Standard", "Deluxe"]), isCounting)).toBe(
+    expect(ruleRoomTypesLabel(rule(["std", "dlx"], ["ph"], ["Suites"]), isCounting)).toBe(
       "Watches Standard, Deluxe · Changes Suites",
     );
+  });
+
+  it("names only the watched types that count as rooms, as the engine and change log do", () => {
+    expect(ruleRoomTypesLabel(rule(["std", "court"], ["ph"], ["Penthouse"]), isCounting)).toBe("Watches Standard · Changes Penthouse");
+    // A name missing from the embed never shifts another type's name onto its id.
+    expect(
+      ruleRoomTypesLabel(
+        { ...rule(["court", "dlx"], ["ph"], ["Penthouse"]), signal_room_types: [{ id: "dlx", name: "Deluxe" }] },
+        isCounting,
+      ),
+    ).toBe("Watches Deluxe · Changes Penthouse");
   });
 });
 
@@ -111,7 +123,10 @@ describe("the rules store with separate sets", () => {
     const [listed] = await listRules(client, "h1");
     expect(listed.signal_room_type_ids).toEqual(["std", "dlx"]);
     expect(listed.affected_room_type_ids).toEqual(["ph"]);
-    expect(listed.signal_room_types).toEqual(["Standard", "Deluxe"]);
+    expect(listed.signal_room_types).toEqual([
+      { id: "std", name: "Standard" },
+      { id: "dlx", name: "Deluxe" },
+    ]);
     expect(ruleRoomTypesLabel(listed, isCounting)).toBe("Watches Standard, Deluxe · Changes Penthouse");
   });
 

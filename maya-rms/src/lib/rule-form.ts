@@ -265,22 +265,25 @@ export function measuresDifferently(
 /**
  * The room types column of a rule card: the changed names as they always
  * read, or "Watches A, B · Changes C" when the rule measures something else.
+ * Only watched types that count as rooms are named, since those are all the
+ * engine measures (the change log names the same ones).
  */
 export function ruleRoomTypesLabel(
   rule: {
     room_types: string[];
     signal_room_type_ids?: string[];
     affected_room_type_ids?: string[];
-    signal_room_types?: string[];
+    signal_room_types?: { id: string; name: string }[];
   },
   isCounting: (id: string) => boolean,
 ): string {
   const changes = rule.room_types.length ? rule.room_types.join(", ") : "All";
   const signal = rule.signal_room_type_ids;
   const affected = rule.affected_room_type_ids;
-  if (!signal || !affected || !rule.signal_room_types?.length) return changes;
-  if (!measuresDifferently(signal, affected, isCounting)) return changes;
-  return `Watches ${rule.signal_room_types.join(", ")} · Changes ${changes}`;
+  if (!signal || !affected || !measuresDifferently(signal, affected, isCounting)) return changes;
+  const watched = (rule.signal_room_types ?? []).filter((rt) => isCounting(rt.id)).map((rt) => rt.name);
+  if (!watched.length) return changes;
+  return `Watches ${watched.join(", ")} · Changes ${changes}`;
 }
 
 /**

@@ -231,10 +231,10 @@ function dbRowToRuleConfig(row: any): RuleConfig {
   }
 
   const signal = row.rule_signal_room_type ?? [];
-  const signal_room_types: string[] = [];
+  const signal_room_types: { id: string; name: string }[] = [];
   for (const rt of signal) {
     const n = embedRoomTypeName(rt);
-    if (n) signal_room_types.push(n);
+    if (n) signal_room_types.push({ id: String(rt.room_type_id), name: n });
   }
 
   return {

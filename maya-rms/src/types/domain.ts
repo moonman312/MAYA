@@ -18,8 +18,8 @@ export type RuleConfig = {
   affected_room_type_ids?: string[];
   /** The room types its conditions measure. Absent in demo data. */
   signal_room_type_ids?: string[];
-  /** Names of signal_room_type_ids, in the same order where known. */
-  signal_room_types?: string[];
+  /** signal_room_type_ids with their names, where the name is known. */
+  signal_room_types?: { id: string; name: string }[];
 };
 
 /* ── Rules Engine v1 types (Implementation Guide aligned) ──────────── */
