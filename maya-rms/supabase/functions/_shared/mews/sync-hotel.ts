@@ -92,6 +92,11 @@ async function deleteStaleStayNightsForActiveReservations(
         .select("external_reservation_id, stay_date")
         .eq("hotel_id", hotelId)
         .in("external_reservation_id", chunk)
+        // OFFSET pages need a total order: without one, rows written between
+        // two pages can shift a row past the boundary and it is never seen.
+        // This is the reservations unique key's order.
+        .order("external_reservation_id", { ascending: true })
+        .order("stay_date", { ascending: true })
         .range(from, from + READ_PAGE - 1);
       if (error) return { error };
       for (const row of data ?? []) {

@@ -136,6 +136,8 @@ function makeSupabaseStub(seed: ResRow[] = [], syncState: ResRow = {}) {
         preds.push((r) => vals.includes(r[col]));
         return builder;
       },
+      // Ordering is honoured by the static array's own order.
+      order: () => builder,
       range: async (from: number, to: number) => ({
         data: reservations.filter((r) => preds.every((p) => p(r))).slice(from, to + 1),
         error: null,

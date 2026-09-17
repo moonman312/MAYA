@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fakeSupabase as sharedFake } from "../engine/fake-supabase.test";
 import {
   dropUnchangedReservationRows,
   fingerprintDigest,
@@ -32,8 +33,10 @@ function fakeSupabase(stored: ReservationWriteRow[], failRead = false) {
   const builder = {
     select: () => builder,
     eq: () => builder,
-    in: (_c: string, ids: unknown[]) => ({
-      range: async (from: number, to: number) =>
+    in: (_c: string, ids: unknown[]) => {
+      const page = {
+        order: () => page,
+        range: async (from: number, to: number) =>
         failRead
           ? { data: null, error: { message: "read exploded" } }
           : {
@@ -42,7 +45,9 @@ function fakeSupabase(stored: ReservationWriteRow[], failRead = false) {
                 .slice(from, to + 1),
               error: null,
             },
-    }),
+      };
+      return page;
+    },
   };
   return { from: () => builder } as unknown as SupabaseClient;
 }
@@ -148,5 +153,32 @@ describe("fingerprint digest", () => {
   it("is 16 hex characters and separates near misses", () => {
     expect(fingerprintDigest("abc")).toMatch(/^[0-9a-f]{16}$/);
     expect(fingerprintDigest("abc|1")).not.toBe(fingerprintDigest("abc|2"));
+  });
+});
+
+describe("reading back a large chunk", () => {
+  it("pages 1,500 stored nights of one chunk in the unique key's order and misses none", async () => {
+    const stored: ReservationWriteRow[] = [];
+    for (let i = 0; i < 1500; i++) {
+      stored.push(row({ external_reservation_id: `R${i % 150}`, stay_date: `2027-${String(1 + (i % 12)).padStart(2, "0")}-${String(1 + ((i / 12) | 0) % 28).padStart(2, "0")}` }));
+    }
+    const unique = [...new Map(stored.map((r) => [`${r.external_reservation_id}:${r.stay_date}`, r])).values()];
+    // Stored in an order that is not the key order, as a heap table would be.
+    const shuffled = [...unique].sort((a, b) => (a.current_rate! * 7 + a.stay_date.charCodeAt(9)) % 11 - (b.current_rate! * 7 + b.stay_date.charCodeAt(9)) % 11 || b.stay_date.localeCompare(a.stay_date));
+    const orders: string[] = [];
+    const { client } = sharedFake({ reservations: shuffled.map((r) => ({ ...r })) }, { maxRows: 1000 });
+    const realFrom = client.from.bind(client);
+    (client as unknown as { from: unknown }).from = (t: string) => {
+      const b = realFrom(t) as unknown as { order: (col: string, o?: unknown) => unknown };
+      const realOrder = b.order;
+      b.order = (col: string, o?: unknown) => (orders.push(col), realOrder(col, o));
+      return b;
+    };
+    const incoming = unique.map((r, i) => (i % 10 === 0 ? { ...r, current_rate: 1 } : r));
+    const res = await dropUnchangedReservationRows(client, "hotel-1", incoming);
+    expect(res.error).toBeNull();
+    expect(res.rows.length).toBe(Math.ceil(unique.length / 10));
+    expect(res.unchanged).toBe(unique.length - res.rows.length);
+    expect(orders.slice(0, 2)).toEqual(["external_reservation_id", "stay_date"]);
   });
 });
