@@ -529,6 +529,28 @@ describe("a rate changed in the PMS, through the tick", () => {
     expect(stamps[0]).toMatchObject({ price: 242, status: "sent", confirmed_at: new Date(T0).toISOString() });
   });
 
+  it("takes the manual price back when the hotel sets it again over a rule MAYA stacked on it, and sends nothing", async () => {
+    const { d, sent, tick, setPmsRate } = setup([settledSend(275)]);
+    const adoptedAt = new Date(T0 - 5 * 3_600_000).toISOString();
+    // 250 changed in Cloudbeds earlier, the busy rule it answered suppressed;
+    // a second rule fired later and went out as 275.
+    d.tables.manual_price.push({ hotel_id: HOTEL, stay_date: NIGHT, room_type_id: "rt-king", price: 250, set_by: null, set_at: adoptedAt, cleared_at: null, source: "pms", pms_type: "cloudbeds" });
+    d.tables.ladder_rule_state[0].suppressed_at = adoptedAt;
+    d.tables.pricing_rules.push(busyRule("r2", new Date(T0 - 4 * 3_600_000).toISOString()));
+    d.tables.ladder_rule_state.push({ rule_id: "r2", rule_version: 1, stay_date: NIGHT, room_type_id: "rt-king", is_active: true, suppressed_at: null, action_kind: "percent", action_direction: "increase", action_value: 10 });
+    d.tables.published_price[0].price = 275;
+    d.tables.published_price[0].base_price = 250;
+    setPmsRate(250);
+
+    const res = await tick(T0);
+
+    expect(res.pmsEditsAdopted).toBe(1);
+    expect(d.tables.ladder_rule_state.find((r) => r.rule_id === "r2")).toMatchObject({ is_active: true, suppressed_at: new Date(T0).toISOString() });
+    expect(published(d)).toBe(250);
+    expect(sent).toEqual([]);
+    expect(d.tables.rate_updates[0]).toMatchObject({ price: 250, status: "sent" });
+  });
+
   it("does not adopt a night whose manual price is already the PMS rate", async () => {
     const { d, sent, tick } = setup([settledSend(220)]);
     // Typed in MAYA half an hour ago (the route suppressed the busy rule), and typed into Cloudbeds too.
