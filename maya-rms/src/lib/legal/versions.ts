@@ -11,7 +11,7 @@
  */
 
 export const TERMS_VERSION = "1";
-export const PRIVACY_VERSION = "2";
+export const PRIVACY_VERSION = "3";
 
 export const TERMS_URL = "https://www.get-maya.com/terms";
 export const PRIVACY_URL = "https://www.get-maya.com/privacy";
