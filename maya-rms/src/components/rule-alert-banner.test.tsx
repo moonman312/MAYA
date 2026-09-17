@@ -29,7 +29,8 @@ const view = (over: Partial<RuleAlertsView> = {}): RuleAlertsView => ({
           stay_date: "2026-11-14",
           label: "Sat, Nov 14 2026",
           fires: 3,
-          room_types: ["Standard"],
+          uneven: false,
+          fires_line: "3 times on Standard",
           why: ["In the 30 days it measured, 1 booking came in. A night like this usually has about 6 by then."],
           limit_line: "Your floor for Standard is still MAYA's $1.00 default, so the price can fall that far.",
           limit_is_default: true,
@@ -38,7 +39,8 @@ const view = (over: Partial<RuleAlertsView> = {}): RuleAlertsView => ({
           stay_date: "2026-11-16",
           label: "Mon, Nov 16 2026",
           fires: 3,
-          room_types: ["Standard"],
+          uneven: false,
+          fires_line: "3 times on Standard",
           why: ["In the 30 days it measured, no bookings came in."],
           limit_line: "If it keeps cutting, the price can fall to your $80.00 floor for Standard.",
           limit_is_default: false,
@@ -145,6 +147,30 @@ describe("RuleAlertBanner", () => {
     await waitFor(() => screen.getByText("Sat, Nov 14 2026"));
     expect(screen.queryByText(/on all 1 night/)).toBeNull();
     expect(screen.getByText("Stop for this night")).toBeTruthy();
+  });
+
+  it("names a few nights and puts the rest behind a disclosure, with the range answers first", async () => {
+    // A rule that reaches three fires on every night of a long horizon would
+    // otherwise render one card per night above the tabs.
+    const many = view();
+    const first = many.alerts[0].nights[0];
+    many.alerts[0].nights = Array.from({ length: 30 }, (_, i) => ({
+      ...first,
+      stay_date: `2026-11-${String(i + 1).padStart(2, "0")}`,
+      label: `Night ${i + 1}`,
+    }));
+    serve(many);
+    const { container } = render(<RuleAlertBanner />);
+    await waitFor(() => screen.getByText("Keep adjusting on all 30 nights"));
+
+    const summary = container.querySelector("summary");
+    expect(summary?.textContent).toContain("Night 1, Night 2, Night 3 and 27 more nights");
+    // The answers that cover the range come before the list of nights.
+    const details = container.querySelector("details")!;
+    const rangeButton = screen.getByText("Stop on all 30 nights");
+    expect(rangeButton.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Every night is still answerable, inside the disclosure.
+    expect(details.querySelectorAll("li")).toHaveLength(30);
   });
 
   it("says so when the answer did not save, and keeps the alert on screen", async () => {

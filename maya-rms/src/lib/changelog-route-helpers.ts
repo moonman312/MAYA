@@ -494,7 +494,10 @@ function nightsWord(n: number): string {
  * One answer covers every night it settled: rule_repeat_alert_choose stamps
  * them all with one instant, so (rule, choice, instant) is the action the
  * owner took. "Stop" says what happens to the changes already made, because
- * that is the question the word leaves open.
+ * that is the question the word leaves open, and it says it by direction: a
+ * cut is never undone on MAYA's own account, while a raise still comes off if
+ * enough of the bookings behind it cancel (pickup.ts firesToRetire runs on
+ * every open raise, stop or no stop).
  */
 export function buildAlertChoices(
   rows: AlertChoiceRow[],
@@ -525,7 +528,9 @@ export function buildAlertChoices(
       last_night: dates[dates.length - 1],
       title:
         first.choice === "stop"
-          ? `${who} stopped "${ruleName}" on ${where}. What it already changed stays.`
+          ? lookups.rules.get(first.rule_id)?.action_direction === "increase"
+            ? `${who} stopped "${ruleName}" on ${where}. The raises it already made stay, unless enough of the bookings behind them cancel.`
+            : `${who} stopped "${ruleName}" on ${where}. What it already cut stays.`
           : `${who} told "${ruleName}" to carry on with ${where}.`,
     });
   }

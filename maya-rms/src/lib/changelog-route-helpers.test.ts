@@ -648,15 +648,26 @@ describe("buildAlertChoices", () => {
     expect(items[0].nights).toBe(2);
     expect(items[0].first_night).toBe("2026-11-14");
     expect(items[0].last_night).toBe("2026-11-16");
-    expect(items[0].title).toBe('Jake stopped "Demand-spike catcher" on 2 nights. What it already changed stays.');
+    // "Demand-spike catcher" raises, and a stop does not hold a raise against
+    // the cancellation check.
+    expect(items[0].title).toBe(
+      'Jake stopped "Demand-spike catcher" on 2 nights. The raises it already made stay, unless enough of the bookings behind them cancel.',
+    );
     expect(items[1].title).toBe('A manager told "Busy-day bump" to carry on with Sat, Nov 14 2026.');
     expect(items.every(isRuleAlertChoice)).toBe(true);
+  });
+
+  it("says a cut it already made stays, because nothing MAYA does takes one back", () => {
+    const cutter = new Map(lookups().rules);
+    cutter.set("rule-2", { ...cutter.get("rule-2")!, name: "Slow-date rescue", action_direction: "decrease" });
+    const items = buildAlertChoices([rows[0]], { rules: cutter });
+    expect(items[0].title).toBe('A manager stopped "Slow-date rescue" on Mon, Nov 16 2026. What it already cut stays.');
   });
 
   it("says nothing it cannot back up when the rule is gone", () => {
     const items = buildAlertChoices([rows[0]], { rules: new Map() });
     expect(items[0].title).toBe(
-      'A manager stopped "A rule" on Mon, Nov 16 2026. What it already changed stays.',
+      'A manager stopped "A rule" on Mon, Nov 16 2026. What it already cut stays.',
     );
     expect(items[0].title).not.toMatch(/—/);
   });

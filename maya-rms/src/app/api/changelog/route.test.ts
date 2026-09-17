@@ -297,7 +297,7 @@ describe("changelog route: failures are errors, never demo data", () => {
       nights: 2,
       timestamp: "2026-07-29T09:00:00Z",
     });
-    expect(answer.title).toBe('Jake stopped "Slow-date rescue" on 2 nights. What it already changed stays.');
+    expect(answer.title).toBe('Jake stopped "Slow-date rescue" on 2 nights. What it already cut stays.');
     // It sits above the run it happened after, and never replaces it.
     expect(body[0].kind).toBe("rule_alert_choice");
     expect(body.some((i: { has_changes?: boolean }) => i.has_changes === true)).toBe(true);

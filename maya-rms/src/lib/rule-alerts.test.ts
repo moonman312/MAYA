@@ -10,12 +10,13 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  ALERT_CHOICE_HELP,
+  alertChoiceHelp,
   alertConsequence,
   alertHeadline,
   alertLimitHelp,
   buildRuleAlerts,
   limitActionLabel,
+  nightFiresLine,
   nightLimit,
   nightLimitLine,
   nightWhy,
@@ -185,21 +186,55 @@ describe("nightLimit", () => {
 
 describe("nightLimitLine", () => {
   it("names where the price can end up", () => {
-    expect(nightLimitLine({ limit: 80, names: ["Standard"], isDefault: false }, "decrease", "$")).toBe(
+    expect(nightLimitLine({ limit: 80, names: ["Standard"], isDefault: false }, "decrease", "$", false)).toBe(
       "If it keeps cutting, the price can fall to your $80.00 floor for Standard.",
     );
     expect(
-      nightLimitLine({ limit: 400, names: ["Standard", "Suite"], isDefault: false }, "increase", "$"),
+      nightLimitLine({ limit: 400, names: ["Standard", "Suite"], isDefault: false }, "increase", "$", false),
     ).toBe("If it keeps raising, the price can climb to your $400.00 ceiling for Standard and Suite.");
   });
 
   it("says a limit nobody has set stops nothing in practice", () => {
-    expect(nightLimitLine({ limit: 1, names: ["Standard"], isDefault: true }, "decrease", "$")).toBe(
+    expect(nightLimitLine({ limit: 1, names: ["Standard"], isDefault: true }, "decrease", "$", false)).toBe(
       "Your floor for Standard is still MAYA's $1.00 default, so the price can fall that far.",
     );
-    expect(nightLimitLine({ limit: 99999.99, names: ["Standard"], isDefault: true }, "increase", "$")).toBe(
+    expect(nightLimitLine({ limit: 99999.99, names: ["Standard"], isDefault: true }, "increase", "$", false)).toBe(
       "Your ceiling for Standard is still MAYA's $99,999.99 default, so the price can climb that far.",
     );
+  });
+
+  it("keeps a simulating hotel in the conditional, like the rest of its card", () => {
+    // MAYA has sent nothing to its PMS, so no published price can go anywhere.
+    expect(nightLimitLine({ limit: 80, names: ["Standard"], isDefault: false }, "decrease", "$", true)).toBe(
+      "If it kept cutting, the price would fall to your $80.00 floor for Standard.",
+    );
+    expect(nightLimitLine({ limit: 400, names: ["Standard"], isDefault: false }, "increase", "$", true)).toBe(
+      "If it kept raising, the price would climb to your $400.00 ceiling for Standard.",
+    );
+    expect(nightLimitLine({ limit: 1, names: ["Standard"], isDefault: true }, "decrease", "$", true)).toBe(
+      "Your floor for Standard is still MAYA's $1.00 default, so the price would fall that far.",
+    );
+    expect(nightLimitLine({ limit: 99999.99, names: ["Standard"], isDefault: true }, "increase", "$", true)).toBe(
+      "Your ceiling for Standard is still MAYA's $99,999.99 default, so the price would climb that far.",
+    );
+  });
+});
+
+describe("nightFiresLine", () => {
+  it("gives every room type its own count", () => {
+    const rooms = [
+      { room_type_id: STD, fires: 3, limit: 80, limit_is_default: false, price: 100 },
+      { room_type_id: SUITE, fires: 1, limit: 80, limit_is_default: false, price: 200 },
+    ];
+    expect(nightFiresLine(night({ room_types: rooms, fire_count: 3 }), roomTypeNames)).toBe(
+      "3 times on Standard and once on Suite",
+    );
+    expect(nightFiresLine(night(), roomTypeNames)).toBe("3 times on Standard");
+  });
+
+  it("falls back to the count that filed the night when no room type can be named", () => {
+    expect(nightFiresLine(night({ room_types: [] }), roomTypeNames)).toBe("3 times");
+    expect(nightFiresLine(night({ fire_count: 1, room_types: [] }), roomTypeNames)).toBe("once");
   });
 });
 
@@ -220,13 +255,32 @@ describe("buildRuleAlerts", () => {
     expect(card.rule_name).toBe("Slow-date rescue");
     expect(card.nights.map((n) => n.stay_date)).toEqual(["2026-11-14", "2026-11-16"]);
     expect(card.nights[0].label).toBe("Sat, Nov 14 2026");
-    expect(card.nights[0].room_types).toEqual(["Standard"]);
+    expect(card.nights[0].fires_line).toBe("3 times on Standard");
     expect(card.headline).toBe('"Slow-date rescue" has cut 2 nights, 3 times each.');
   });
 
   it("leaves out an alert with nothing left to answer, and one whose rule it cannot name", () => {
     expect(build({ nights: [] })).toEqual([]);
     expect(build({ ruleNames: new Map() })).toEqual([]);
+  });
+
+  it("counts each room type on its own, and says \"up to\" in the headline that has one number", () => {
+    // Standard cut three times, Suite once: the card must not say it cut the
+    // Suite three times.
+    const [card] = build({
+      nights: [
+        night({
+          fire_count: 3,
+          room_types: [
+            { room_type_id: STD, fires: 3, limit: 80, limit_is_default: false, price: 100 },
+            { room_type_id: SUITE, fires: 1, limit: 80, limit_is_default: false, price: 200 },
+          ],
+        }),
+      ],
+    });
+    expect(card.nights[0].fires_line).toBe("3 times on Standard and once on Suite");
+    expect(card.nights[0].uneven).toBe(true);
+    expect(card.headline).toBe('"Slow-date rescue" has cut Sat, Nov 14 2026 up to 3 times.');
   });
 
   it("carries the default-limit warning through to the night", () => {
@@ -256,8 +310,9 @@ describe("the words themselves", () => {
       card.headline,
       card.consequence,
       ...card.nights.flatMap((n) => [...n.why, n.limit_line ?? ""]),
-      ALERT_CHOICE_HELP.title,
-      ...ALERT_CHOICE_HELP.lines,
+      alertChoiceHelp("decrease").title,
+      ...alertChoiceHelp("decrease").lines,
+      ...alertChoiceHelp("increase").lines,
       alertLimitHelp("$").title,
       ...alertLimitHelp("$").lines,
       limitActionLabel("decrease"),
@@ -275,9 +330,17 @@ describe("the words themselves", () => {
     expect(alertLimitHelp("$").lines.join(" ")).toContain("Rules tab");
   });
 
-  it("promises only what the choice does: the rule stops, its changes stay", () => {
-    const lines = ALERT_CHOICE_HELP.lines.join(" ");
-    expect(lines).toContain("What it already changed stays.");
-    expect(lines).toContain("MAYA stops asking");
+  it("promises only what the choice does, and says a raise can still come off", () => {
+    const cut = alertChoiceHelp("decrease").lines.join(" ");
+    expect(cut).toContain("What it already cut stays.");
+    expect(cut).toContain("MAYA stops asking");
+    // A stop holds back new fires; it does not stop the cancellation check
+    // taking a raise off, so the help must not promise that it does.
+    const raise = alertChoiceHelp("increase").lines.join(" ");
+    expect(raise).toContain("unless enough of the bookings behind it cancel");
+    expect(raise).not.toContain("What it already changed stays.");
+    // And both say where a stopped night can be let go again.
+    expect(cut).toContain("Rules tab");
+    expect(raise).toContain("Rules tab");
   });
 });

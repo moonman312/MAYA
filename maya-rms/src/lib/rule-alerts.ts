@@ -64,8 +64,10 @@ export type RuleAlertNight = {
   label: string;
   /** Fires on the busiest room type that night, which is what filed it. */
   fires: number;
-  /** Names of the room types it has fired on that night, in the order given. */
-  room_types: string[];
+  /** True when the room types it fired on that night have different counts. */
+  uneven: boolean;
+  /** "3 times on Standard, once on Deluxe" — one count per room type. */
+  fires_line: string;
   /** What the rule saw at its latest fire, in plain words. */
   why: string[];
   /** Where the price can end up if it carries on, or null when no limit is known. */
@@ -108,6 +110,10 @@ function nightWord(n: number): string {
   return n === 1 ? "1 night" : `${n} nights`;
 }
 
+function timesWord(n: number): string {
+  return n === 1 ? "once" : `${n} times`;
+}
+
 function listWords(items: string[]): string {
   if (items.length < 2) return items.join("");
   return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
@@ -120,24 +126,49 @@ export function alertVerb(direction: "increase" | "decrease", simulation: boolea
 }
 
 /**
+ * "3 times on Standard, once on Deluxe" — what the rule did to each room type
+ * that night. The night's own fire_count is the most on any one of them, so a
+ * rule that cut Standard three times and Deluxe once would otherwise read as
+ * having cut both three times. Room types whose name this run could not read
+ * are left out, and a night with none of them falls back to the count that
+ * filed it.
+ */
+export function nightFiresLine(night: AlertNightRow, roomTypeNames: Map<string, string>): string {
+  const named = night.room_types.flatMap((rt) => {
+    const name = roomTypeNames.get(rt.room_type_id);
+    return name ? [{ name, fires: rt.fires }] : [];
+  });
+  if (named.length === 0) return timesWord(night.fire_count);
+  return listWords(named.map((rt) => `${timesWord(rt.fires)} on ${rt.name}`));
+}
+
+/** The room types it fired on that night did not all get the same number. */
+export function nightIsUneven(night: AlertNightRow): boolean {
+  const counts = night.room_types.map((rt) => rt.fires);
+  return counts.length > 1 && Math.min(...counts) !== Math.max(...counts);
+}
+
+/**
  * "\"Slow-date rescue\" has cut 4 nights, 3 times each." One night names the
  * night; several say how far the range goes, because that is the number the
- * owner is being asked about.
+ * owner is being asked about. When a night's room types got different numbers
+ * the headline says "up to", and the line under each night gives each one.
  */
 export function alertHeadline(input: {
   ruleName: string;
   direction: "increase" | "decrease";
-  nights: { label: string; fires: number }[];
+  nights: { label: string; fires: number; uneven?: boolean }[];
   simulation: boolean;
 }): string {
   const verb = alertVerb(input.direction, input.simulation);
   const counts = input.nights.map((n) => n.fires);
   const low = Math.min(...counts);
   const high = Math.max(...counts);
+  const upTo = input.nights.some((n) => n.uneven);
   if (input.nights.length === 1) {
-    return `"${input.ruleName}" ${verb} ${input.nights[0].label} ${low} times.`;
+    return `"${input.ruleName}" ${verb} ${input.nights[0].label} ${upTo ? "up to " : ""}${low} times.`;
   }
-  const howOften = low === high ? `${low} times each` : `${low} to ${high} times each`;
+  const howOften = upTo ? `up to ${high} times each` : low === high ? `${low} times each` : `${low} to ${high} times each`;
   return `"${input.ruleName}" ${verb} ${nightWord(input.nights.length)}, ${howOften}.`;
 }
 
@@ -216,36 +247,58 @@ export function nightLimit(
   return { limit, names, isDefault };
 }
 
-/** "If it keeps cutting, the price can fall to your $80.00 floor for Standard." */
+/**
+ * "If it keeps cutting, the price can fall to your $80.00 floor for Standard."
+ *
+ * A simulating hotel reads it in the conditional like the rest of the card:
+ * MAYA has sent nothing to its PMS, so nothing it publishes can go anywhere.
+ */
 export function nightLimitLine(
   limit: { limit: number; names: string[]; isDefault: boolean },
   direction: "increase" | "decrease",
   currencySymbol: string,
+  simulation: boolean,
 ): string {
   const cut = direction === "decrease";
   const word = cut ? "floor" : "ceiling";
   const names = listWords(limit.names);
   const amount = money(limit.limit, currencySymbol);
+  const move = cut ? (simulation ? "would fall" : "can fall") : simulation ? "would climb" : "can climb";
   if (limit.isDefault) {
-    return cut
-      ? `Your ${word} for ${names} is still MAYA's ${amount} default, so the price can fall that far.`
-      : `Your ${word} for ${names} is still MAYA's ${amount} default, so the price can climb that far.`;
+    return `Your ${word} for ${names} is still MAYA's ${amount} default, so the price ${move} that far.`;
   }
-  return cut
-    ? `If it keeps cutting, the price can fall to your ${amount} ${word} for ${names}.`
-    : `If it keeps raising, the price can climb to your ${amount} ${word} for ${names}.`;
+  const keeps = cut ? "cutting" : "raising";
+  return simulation
+    ? `If it kept ${keeps}, the price would ${cut ? "fall" : "climb"} to your ${amount} ${word} for ${names}.`
+    : `If it keeps ${keeps}, the price ${move} to your ${amount} ${word} for ${names}.`;
 }
 
-/** Behind the "?" beside the two answers. */
-export const ALERT_CHOICE_HELP: { label: string; title: string; lines: string[] } = {
-  label: "What each answer does",
-  title: "Your two answers",
-  lines: [
-    "Keep adjusting: the rule carries on as it is, and MAYA stops asking about that night.",
-    "Stop for this night: the rule makes no more changes on that night. What it already changed stays.",
-    "Either way, your other rules keep working on these nights, and an edit to this rule starts it fresh.",
-  ],
-};
+/**
+ * Behind the "?" beside the two answers.
+ *
+ * What "stop" leaves in place depends on the direction. A cut is never undone
+ * by anything MAYA does on its own. A raise still comes off if enough of the
+ * bookings behind it cancel: the stop holds back new fires, it does not freeze
+ * the ones already made (pickup.ts firesToRetire).
+ */
+export function alertChoiceHelp(direction: "increase" | "decrease"): {
+  label: string;
+  title: string;
+  lines: string[];
+} {
+  return {
+    label: "What each answer does",
+    title: "Your two answers",
+    lines: [
+      "Keep adjusting: the rule carries on as it is, and MAYA stops asking about that night.",
+      direction === "increase"
+        ? "Stop for this night: the rule makes no more changes on that night. A raise it already made stays, unless enough of the bookings behind it cancel."
+        : "Stop for this night: the rule makes no more changes on that night. What it already cut stays.",
+      "A stopped night shows on the Rules tab, where you can let the rule run on it again.",
+      "Either way, your other rules keep working on these nights, and an edit to this rule starts it fresh.",
+    ],
+  };
+}
 
 /** Behind the "?" on a limit that is still MAYA's default. */
 export function alertLimitHelp(currencySymbol: string): { label: string; title: string; lines: string[] } {
@@ -302,11 +355,12 @@ export function buildRuleAlerts(input: {
         stay_date: night.stay_date,
         label: humanDate(night.stay_date),
         fires: night.fire_count,
-        room_types: night.room_types
-          .map((rt) => input.roomTypeNames.get(rt.room_type_id))
-          .filter((n): n is string => !!n),
+        uneven: nightIsUneven(night),
+        fires_line: nightFiresLine(night, input.roomTypeNames),
         why: nightWhy(night, input.currencySymbol),
-        limit_line: limit ? nightLimitLine(limit, alert.action_direction, input.currencySymbol) : null,
+        limit_line: limit
+          ? nightLimitLine(limit, alert.action_direction, input.currencySymbol, input.simulation)
+          : null,
         limit_is_default: limit?.isDefault ?? false,
       };
     });
