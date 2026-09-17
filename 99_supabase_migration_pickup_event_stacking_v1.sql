@@ -563,7 +563,10 @@ grant execute on function public.set_manual_prices_from_pms(uuid, public.pms_typ
 --                     least one night ended without an answer).
 --
 -- rule_repeat_alert_nights, one row per (rule, night, rule version):
---   fire_count        the count above at the latest update (3 or more).
+--   fire_count        the count above at the latest update. 3 or more while a
+--                     night is waiting on an answer or carries one; a resumed
+--                     night's follows its fires down when a typed price takes
+--                     them off (see closed_reason).
 --   reached_at        the run that filed it.
 --   last_fire_at      the newest fire counted.
 --   last_event_id     that fire's pickup_event id.
@@ -601,8 +604,12 @@ grant execute on function public.set_manual_prices_from_pms(uuid, public.pms_typ
 --                     same way. A resumed night opens again once the rule has
 --                     adjusted it 3 more times than the fire_count on its row,
 --                     so letting a rule run again does not put the same
---                     question straight back. night_passed and rule_edited end
---                     a night for good.
+--                     question straight back. That fire_count is the fires the
+--                     owner has already seen, so a typed price that takes them
+--                     off takes it down with them, to the count that is left:
+--                     three adjustments on the typed price bring the night
+--                     back, not three on top of fires nobody can see any more.
+--                     night_passed and rule_edited end a night for good.
 --
 -- The engine honours a stop from the run after it is made, on every run that
 -- prices the night. It never writes a choice.
@@ -643,7 +650,7 @@ create table if not exists public.rule_repeat_alert_nights (
   rule_id            uuid not null references public.pricing_rules(id) on delete cascade,
   rule_version       integer not null,
   stay_date          date not null,
-  fire_count         integer not null check (fire_count >= 3),
+  fire_count         integer not null,
   reached_at         timestamptz not null,
   last_fire_at       timestamptz not null,
   last_event_id      uuid,
@@ -678,6 +685,17 @@ alter table public.rule_repeat_alert_nights
 alter table public.rule_repeat_alert_nights
   add constraint rule_repeat_alert_nights_closed_reason_chk
   check (closed_reason is null or closed_reason in ('night_passed', 'rule_edited', 'price_set', 'resumed'));
+
+-- The same swap for fire_count, which an earlier copy of this file held at 3
+-- or more. A night is still filed at 3, but a resumed night's count follows
+-- its fires down when a typed price takes them off, which can leave it at 0
+-- until the rule fires again.
+alter table public.rule_repeat_alert_nights
+  drop constraint if exists rule_repeat_alert_nights_fire_count_chk;
+alter table public.rule_repeat_alert_nights
+  drop constraint if exists rule_repeat_alert_nights_fire_count_check;
+alter table public.rule_repeat_alert_nights
+  add constraint rule_repeat_alert_nights_fire_count_chk check (fire_count >= 0);
 
 comment on table public.rule_repeat_alert_nights is
   'The nights of a rule_repeat_alerts row, with the numbers behind the latest fire and the owner''s choice. '
@@ -789,8 +807,10 @@ grant execute on function public.rule_repeat_alert_choose(uuid, text, date[]) to
 -- the owner has just said what they want, and putting the same question
 -- straight back on the same three fires would be no answer at all. The engine
 -- opens it again once the rule has adjusted it 3 more times than the
--- fire_count on its row (_shared/engine/repeat-alerts.ts), and the row's
--- numbers are frozen at the resume until then.
+-- fire_count on its row (_shared/engine/repeat-alerts.ts). The row's other
+-- numbers are frozen at the resume until then; its fire_count is not, because
+-- it stands for the fires the owner has already seen: a typed price that
+-- takes those fires off takes it down to the count that is left.
 --
 -- p_stay_dates null resumes every answered night of the alert. Nights nobody
 -- answered, and nights already closed, never change. A resolved alert stays

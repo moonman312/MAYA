@@ -16,8 +16,9 @@
  * longer need an answer (updateRepeatAlerts). A night closed because a price
  * someone set took its fires off opens again if the rule stacks its way back
  * to three, and a night the owner resumed once the rule has adjusted it three
- * more times than the count on its row; only a passed night or an edit ends
- * one for good. The alert tables take writes
+ * more times than the count on its row, a count that comes down again with
+ * any fires a typed price takes off; only a passed night or an edit ends one
+ * for good. The alert tables take writes
  * from the service role only, so a run under a signed-in session (the
  * evaluate button) logs its alert writes as refused and the next scheduled
  * run makes them: filing works from the fire history, not from what one run
@@ -248,17 +249,30 @@ export async function updateRepeatAlerts(
   // again. Nor is a night the owner let the rule run on again: the fires
   // behind their answer are the ones they have already seen, so it takes
   // REPEAT_ALERT_FIRES more before the question comes back, counted from the
-  // fire_count frozen on the row at the resume. Only a passed night or an
-  // edit ends a night for good.
+  // fire_count on the row.
+  //
+  // That count follows the fires down. A price someone types takes fires off
+  // the record (retired_reason 'manual_price'), and what the owner has seen
+  // goes off with them: held at the old number, the night would need the
+  // wiped fires made good before the rule could ask again. Nothing else takes
+  // a counted fire off a night still to come, so the count never falls for
+  // any other reason. Only a passed night or an edit ends a night for good.
   const toReopen: RepeatAlertNight[] = [];
+  const toRebase: { night: RepeatAlertNight; count: number }[] = [];
   for (const [key, list] of input.nights) {
     const rule = eventRulesById.get(key.split("|")[0]);
     if (!rule || key.split("|")[1] < input.localDate) continue;
     const count = counts.get(key)?.count ?? 0;
     for (const n of list) {
       if (n.rule_version !== rule.version || n.choice !== null) continue;
-      const bar = n.closed_reason === "resumed" ? n.fire_count + REPEAT_ALERT_FIRES : REPEAT_ALERT_FIRES;
-      if ((n.closed_reason === "price_set" || n.closed_reason === "resumed") && count >= bar) toReopen.push(n);
+      if (n.closed_reason !== "price_set" && n.closed_reason !== "resumed") continue;
+      let seen = n.fire_count;
+      if (n.closed_reason === "resumed" && count < seen) {
+        seen = count;
+        toRebase.push({ night: n, count });
+      }
+      const bar = n.closed_reason === "resumed" ? seen + REPEAT_ALERT_FIRES : REPEAT_ALERT_FIRES;
+      if (count >= bar) toReopen.push(n);
     }
   }
 
@@ -349,6 +363,20 @@ export async function updateRepeatAlerts(
       .select("alert_id");
     if (error) logAlertError(hotelId, "close_price_set_nights", error.message);
     else result.closed += (data ?? []).length;
+  }
+
+  // Resumed nights whose count a typed price took down: the row keeps the
+  // fires that are left, so the next three bring the question back. Not
+  // counted as an update: the night is closed and nobody is waiting on it.
+  for (const { night, count } of toRebase) {
+    const { error } = await supabase
+      .from("rule_repeat_alert_nights")
+      .update({ fire_count: count, updated_at: now })
+      .eq("alert_id", night.alert_id)
+      .eq("stay_date", night.stay_date)
+      .is("choice", null)
+      .eq("closed_reason", "resumed");
+    if (error) logAlertError(hotelId, "rebase_resumed_night", error.message);
   }
 
   // Nights back at the bar after a price closed them: open the row again, on

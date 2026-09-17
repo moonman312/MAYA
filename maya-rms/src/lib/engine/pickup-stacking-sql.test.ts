@@ -560,6 +560,27 @@ describe.skipIf(!PGLITE_DIR)("the pickup event stacking migration in PGlite", ()
     expect(rest.rows).toEqual([{ stay_date: NIGHT2 }]);
   });
 
+  it("lets a resumed night's count follow its fires down to nothing", async () => {
+    // What the engine writes when a typed price takes a resumed night's fires
+    // off (_shared/engine/repeat-alerts.ts): the count on the row becomes the
+    // fires that are left, which can be none of them. A filed night still
+    // reaches 3 first; nothing counts below zero.
+    const alert = "00000009-0000-4000-8000-000000000000";
+    await db.exec(`set request.jwt.claim.role = 'service_role';`);
+    await db.exec(
+      `update public.rule_repeat_alert_nights set fire_count = 0 where alert_id = '${alert}' and stay_date = '${NIGHT}'`,
+    );
+    expect(
+      (await db.query(`select fire_count from public.rule_repeat_alert_nights where alert_id = '${alert}' and stay_date = '${NIGHT}'`)).rows,
+    ).toEqual([{ fire_count: 0 }]);
+    await expect(
+      db.exec(`update public.rule_repeat_alert_nights set fire_count = -1 where alert_id = '${alert}' and stay_date = '${NIGHT}'`),
+    ).rejects.toThrow(/rule_repeat_alert_nights_fire_count_chk/);
+    await db.exec(
+      `update public.rule_repeat_alert_nights set fire_count = 3 where alert_id = '${alert}' and stay_date = '${NIGHT}'`,
+    );
+  });
+
   it("survives a replay of push_guardrails, whose price function now names the reason on its own", async () => {
     // 99_supabase_migration_push_guardrails_v1.sql sorts after this migration,
     // so replaying the 99_ files in filename order restores its
