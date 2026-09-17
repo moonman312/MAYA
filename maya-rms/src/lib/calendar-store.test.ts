@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { clearCalendarHistoryCache, countingCapacity, getCalendar, isCountingRoom } from "./calendar-store";
-import { FakeRpcError, fakeSupabase, missingRelation, type FakeRow } from "./engine/fake-supabase.test";
+import { FakeRpcError, fakeSupabase, missingColumn, missingRelation, type FakeCall, type FakeError, type FakeRow } from "./engine/fake-supabase.test";
 import { calendarDailyRevenue } from "./engine/scale-rpc-model.test";
 
 vi.mock("@/lib/hotel-context", () => ({ resolveAccessibleHotelId: async () => "h1" }));
@@ -458,5 +458,65 @@ describe("getCalendar (Supabase) revenue series", () => {
     expect(viaV2).toEqual(viaV1);
     expect(viaV2.range.min).toBe("2023-01");
     expect(v2.calls.filter((c) => c.table === "rpc:calendar_daily_revenue_v2").length).toBe(2);
+  });
+});
+
+describe("getCalendar (Supabase) manual prices", () => {
+  afterEach(() => {
+    clearCalendarHistoryCache();
+    vi.restoreAllMocks();
+  });
+
+  const seed = (manual: FakeRow[]) => ({
+    hotels: [{ id: "h1", timezone: "UTC", total_rooms_per_type: 100 }],
+    room_types: [{ id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 20, counts_as_room: true }],
+    manual_price: manual,
+  });
+
+  /** A client that fails a manual_price read ordered by a column the table doesn't have, as PostgREST does. */
+  function strictDb(rows: Record<string, FakeRow[]>, fault?: (c: FakeCall) => FakeError | null) {
+    let orderedById = false;
+    const db = calendarDb(rows, {
+      fault: (c) =>
+        c.table === "manual_price" && orderedById ? { code: "42703", message: "column manual_price.id does not exist" } : (fault?.(c) ?? null),
+    });
+    type Builder = { order: (col: string, o?: unknown) => Builder };
+    const from = (db.client as unknown as { from: (t: string) => Builder }).from;
+    (db.client as unknown as { from: unknown }).from = (table: string) => {
+      const b = from(table);
+      if (table !== "manual_price") return b;
+      const order = b.order;
+      b.order = (col: string, o?: unknown) => {
+        if (col === "id") orderedById = true;
+        return order(col, o);
+      };
+      return b;
+    };
+    return db;
+  }
+
+  it("shows a typed price and a price changed in the PMS, and says which", async () => {
+    const { client } = strictDb(
+      seed([
+        { hotel_id: "h1", stay_date: "2026-10-10", room_type_id: "rt1", price: 150, set_at: "2026-09-01T00:00:00Z", cleared_at: null, source: "maya", pms_type: null },
+        { hotel_id: "h1", stay_date: "2026-10-11", room_type_id: "rt1", price: 0, set_at: "2026-09-02T00:00:00Z", cleared_at: null, source: "pms", pms_type: "cloudbeds" },
+        { hotel_id: "h1", stay_date: "2026-10-12", room_type_id: "rt1", price: 180, set_at: "2026-09-02T00:00:00Z", cleared_at: "2026-09-03T00:00:00Z", source: "pms", pms_type: "cloudbeds" },
+      ]),
+    );
+    const cal = await getCalendar(2026, 10, client);
+    const cell = (day: string) => cal.days[day].room_types[0].manual_price;
+    expect(cell("10")).toEqual({ price: 150, set_at: "2026-09-01T00:00:00Z", source: "maya", pms_type: null });
+    expect(cell("11")).toEqual({ price: 0, set_at: "2026-09-02T00:00:00Z", source: "pms", pms_type: "cloudbeds" });
+    expect(cell("12")).toBeNull();
+  });
+
+  it("still shows manual prices on a database without the source columns", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { client } = strictDb(
+      seed([{ hotel_id: "h1", stay_date: "2026-10-10", room_type_id: "rt1", price: 150, set_at: "2026-09-01T00:00:00Z", cleared_at: null }]),
+      (c) => (c.table === "manual_price" && c.columns.includes("source") ? missingColumn("manual_price", "source") : null),
+    );
+    const cal = await getCalendar(2026, 10, client);
+    expect(cal.days["10"].room_types[0].manual_price).toEqual({ price: 150, set_at: "2026-09-01T00:00:00Z", source: "maya", pms_type: null });
   });
 });

@@ -227,8 +227,10 @@ export type CalendarRoomType = {
   /**
    * An open manual price for this (stay_date, room_type) — a person typed it
    * and it outranks every other base. Null when MAYA is pricing the night.
+   * `source` "pms": the hotel changed the rate in its PMS (`pms_type`) on a
+   * night MAYA had sent, and MAYA kept it; clearing works the same.
    */
-  manual_price: { price: number; set_at: string } | null;
+  manual_price: { price: number; set_at: string; source?: "maya" | "pms"; pms_type?: string | null } | null;
 };
 
 export type CalendarDay = {

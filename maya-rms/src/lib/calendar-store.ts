@@ -19,6 +19,7 @@ import { formatUtcMonthYear } from "@/lib/calendar-month-label";
 import { ROOM_TYPES } from "@/lib/demo-data";
 import {
   fetchAllRows,
+  isMissingColumnError,
   isMissingFunctionError,
   loadOutOfServiceRows,
   sellableUnitsFor,
@@ -468,6 +469,45 @@ async function readMonthRows(
   }
 }
 
+/**
+ * The month's open manual prices, with where each came from. A database
+ * without the source columns yet reads them without, as typed in MAYA.
+ */
+async function readManualPrices(
+  supabase: SupabaseClient,
+  hotelId: string,
+  startDate: string,
+  endDate: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any[]> {
+  const read = (columns: string) => () =>
+    supabase
+      .from("manual_price")
+      .select(columns)
+      .eq("hotel_id", hotelId)
+      .is("cleared_at", null)
+      .gte("stay_date", startDate)
+      .lte("stay_date", endDate)
+      .order("stay_date", { ascending: true })
+      .order("room_type_id", { ascending: true });
+  try {
+    return await fetchAllRows(read("stay_date, room_type_id, price, set_at, source, pms_type"));
+  } catch (e) {
+    if (isMissingColumnError(e)) return readMonthRows(hotelId, "manual_price", read("stay_date, room_type_id, price, set_at"));
+    // The same degraded read readMonthRows makes of every other table.
+    console.error(
+      JSON.stringify({
+        fn: "calendar-store",
+        step: "manual_price",
+        hotelId,
+        error: e instanceof Error ? e.message : String(e),
+        degradedToEmpty: true,
+      }),
+    );
+    return [];
+  }
+}
+
 /* ── Supabase-backed calendar ─────────────────────────────────── */
 
 async function getCalendarFromDb(
@@ -528,20 +568,12 @@ async function getCalendarFromDb(
         .order("stay_date", { ascending: true })
         .order("room_type_id", { ascending: true }),
     ),
-    // Prices a person typed. Cleared rows stay in the table for audit, so
-    // only the open ones count.
-    readMonthRows(hotelId, "manual_price", () =>
-      supabase
-        .from("manual_price")
-        .select("stay_date, room_type_id, price, set_at")
-        .eq("hotel_id", hotelId)
-        .is("cleared_at", null)
-        .gte("stay_date", startDate)
-        .lte("stay_date", endDate)
-        .order("stay_date", { ascending: true })
-        .order("room_type_id", { ascending: true })
-        .order("id", { ascending: true }),
-    ),
+    // Prices a person typed, or the hotel changed in its PMS on a night MAYA
+    // had sent. Cleared rows stay in the table for audit, so only the open
+    // ones count. The table has no id: (stay_date, room_type_id) is the
+    // whole key within a hotel, and ordering by an id it lacks failed the
+    // read, which showed no manual price at all.
+    readManualPrices(supabase, hotelId, startDate, endDate),
     // Hotel-wide history (RevPAR series, closures, navigable range) —
     // cached for a few minutes per hotel; see HotelHistory above.
     historyCache.getOrLoad(hotelId, () => loadHotelHistory(supabase, hotelId)),
@@ -588,13 +620,15 @@ async function getCalendarFromDb(
     }
   }
 
-  const manualByKey = new Map<string, { price: number; set_at: string }>();
+  const manualByKey = new Map<string, NonNullable<CalendarRoomType["manual_price"]>>();
   for (const m of manualPrices) {
     const price = m.price != null ? Number(m.price) : NaN;
     if (Number.isFinite(price)) {
       manualByKey.set(`${m.stay_date}|${String(m.room_type_id)}`, {
         price,
         set_at: String(m.set_at),
+        source: m.source === "pms" ? "pms" : "maya",
+        pms_type: m.source === "pms" && m.pms_type != null ? String(m.pms_type) : null,
       });
     }
   }
