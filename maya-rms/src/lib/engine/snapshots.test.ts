@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fakeSupabase, missingRelation, missingRelationPg } from "./fake-supabase.test";
-import { fetchAllRows, sellableUnitsFor, snapshotCurrentState, type OutOfServiceRow } from "./snapshots";
+import { fetchAllRows, purgeOldSnapshots, sellableUnitsFor, snapshotCurrentState, type OutOfServiceRow } from "./snapshots";
 import type { RoomTypeRow } from "./types";
 
 const rt = (id: string, total_rooms: number): RoomTypeRow => ({
@@ -132,5 +132,52 @@ describe("fetchAllRows", () => {
     const { client } = fakeSupabase({ t: rows }, { maxRows: 1000 });
     const got = await fetchAllRows(() => client.from("t").select("id").eq("hotel_id", "h1").order("id"));
     expect(got.map((r) => r.id)).toEqual(rows.map((r) => r.id));
+  });
+});
+
+describe("purgeOldSnapshots", () => {
+  const NOW = Date.parse("2026-09-16T12:00:00Z");
+  const snapshotsEvery = (hours: number, count: number, startMs: number) =>
+    Array.from({ length: count }, (_, i) => new Date(startMs + i * hours * 3_600_000).toISOString()).flatMap((ts) =>
+      ["2026-09-20", "2026-09-21"].map((d) => ({
+        hotel_id: "h1", snapshot_ts: ts, stay_date: d, room_type_id: "rt1", sellable_units: 5, booked_units: 1, booked_revenue: 10,
+      })),
+    );
+
+  afterEach(() => vi.useRealTimers());
+
+  it("works through a backlog a slice at a time and ends where one big delete would", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    // 20 days of snapshots every 20 minutes, plus another hotel's rows.
+    const rows = [
+      ...snapshotsEvery(1 / 3, 20 * 72, NOW - 20 * 86_400_000),
+      ...snapshotsEvery(24, 30, NOW - 30 * 86_400_000).map((r) => ({ ...r, hotel_id: "h2" })),
+    ];
+    const cutoff = new Date(NOW - 14 * 86_400_000).toISOString();
+    const expected = rows.filter((r) => !(r.hotel_id === "h1" && r.snapshot_ts < cutoff));
+
+    const { client, tables, calls } = fakeSupabase({ stay_date_snapshot: rows });
+    let ticks = 0;
+    let done = false;
+    while (!done && ticks < 100) {
+      done = await purgeOldSnapshots(client, "h1", 14, { maxSlices: 24 });
+      ticks++;
+      // Every delete is bounded to one slice past the oldest row it found.
+      const deletes = calls.filter((c) => c.op === "delete");
+      expect(deletes.every((c) => c.filters.some((f) => f.kind === "lt"))).toBe(true);
+    }
+    expect(done).toBe(true);
+    expect(ticks).toBeGreaterThan(1);
+    const key = (r: Record<string, unknown>) => `${r.hotel_id}|${r.snapshot_ts}|${r.stay_date}`;
+    expect(tables.stay_date_snapshot.map(key).sort()).toEqual(expected.map(key).sort());
+  });
+
+  it("does nothing when there is nothing to purge", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const { client, calls } = fakeSupabase({ stay_date_snapshot: snapshotsEvery(1, 5, NOW - 3_600_000 * 5) });
+    expect(await purgeOldSnapshots(client, "h1", 14)).toBe(true);
+    expect(calls.filter((c) => c.op === "delete")).toHaveLength(0);
   });
 });

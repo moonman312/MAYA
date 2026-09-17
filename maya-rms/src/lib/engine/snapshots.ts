@@ -489,15 +489,43 @@ export async function purgeOldSnapshots(
   supabase: SupabaseClient,
   hotelId: string,
   retentionDays: number = 60,
-): Promise<void> {
+  opts: { sliceMs?: number; maxSlices?: number; budgetMs?: number } = {},
+): Promise<boolean> {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - retentionDays);
+  const cutoffMs = cutoff.getTime();
 
-  const { error } = await supabase
-    .from("stay_date_snapshot")
-    .delete()
-    .eq("hotel_id", hotelId)
-    .lt("snapshot_ts", cutoff.toISOString());
+  // One unbounded delete after a backlog (a paused hotel, a long outage) can
+  // be millions of rows in one statement: it times out, and it used to take
+  // the audit and run-log purges down with it. Instead the oldest snapshots
+  // go a slice of snapshot_ts at a time, up to a small budget per run; the
+  // next run carries on. Each delete is a range on the primary key's
+  // (hotel_id, snapshot_ts) prefix.
+  const sliceMs = opts.sliceMs ?? 3_600_000;
+  const maxSlices = opts.maxSlices ?? 24;
+  const budgetMs = opts.budgetMs ?? 10_000;
+  const started = Date.now();
+  for (let slice = 0; slice < maxSlices; slice++) {
+    const { data: oldest, error: readError } = await supabase
+      .from("stay_date_snapshot")
+      .select("snapshot_ts")
+      .eq("hotel_id", hotelId)
+      .lt("snapshot_ts", cutoff.toISOString())
+      .order("snapshot_ts", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (readError) throw new Error(`Snapshot purge failed: ${readError.message}`);
+    if (!oldest) return true;
 
-  if (error) throw new Error(`Snapshot purge failed: ${error.message}`);
+    const sliceEnd = Math.min(Date.parse(String(oldest.snapshot_ts)) + sliceMs, cutoffMs);
+    const { error } = await supabase
+      .from("stay_date_snapshot")
+      .delete()
+      .eq("hotel_id", hotelId)
+      .lt("snapshot_ts", new Date(sliceEnd).toISOString());
+    if (error) throw new Error(`Snapshot purge failed: ${error.message}`);
+    if (sliceEnd >= cutoffMs) return true;
+    if (Date.now() - started > budgetMs) return false;
+  }
+  return false;
 }

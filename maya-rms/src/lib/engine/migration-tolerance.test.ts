@@ -266,3 +266,22 @@ describe("real outages still throw", () => {
     await expect(evaluateHotel(client, "h1", EVAL_TS, 1)).rejects.toThrow(/Failed to load pricing rules/);
   });
 });
+
+describe("post-run bookkeeping", () => {
+  it("a snapshot purge that fails does not stop the audit and run-log purges", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { client, calls } = fakeSupabase(seed(), {
+      fault: (c) =>
+        c.table === "stay_date_snapshot" && c.op === "select" && c.columns === "snapshot_ts"
+          ? { code: "57014", message: "canceling statement due to statement timeout" }
+          : null,
+    });
+    const result = await evaluateHotel(client, "h1", EVAL_TS, 1);
+    expect(result.prices_published).toBe(1);
+    expect(calls.some((c) => c.table === "evaluation_audit" && c.op === "delete")).toBe(true);
+    expect(calls.some((c) => c.table === "evaluation_run_log" && c.op === "delete")).toBe(true);
+    const lines = err.mock.calls.map((c) => JSON.parse(String(c[0])));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ step: "post_run_bookkeeping", task: "purge_snapshots" });
+  });
+});

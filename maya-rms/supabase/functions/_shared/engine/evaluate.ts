@@ -949,24 +949,33 @@ export async function evaluateHotel(
   // Discovered the hard way — before this guard, an unmigrated
   // evaluation_run_log took down every evaluation, scheduled and manual,
   // with prices already correctly published and then thrown away.
-  try {
+  //
+  // Each task gets its own guard: a snapshot purge that times out on a
+  // backlog must not stop the audit and run-log purges behind it.
+  const bookkeeping: [string, () => Promise<unknown>][] = [
     // One tiny row regardless of cellsChanged — this is what keeps a fully
     // quiet run visible in the Change Log even though write-on-change means
     // no evaluation_audit rows exist for it.
-    await recordRunHeartbeat(supabase, hotelId, runId, now, cellsChecked, cellsChanged);
-    await purgeOldSnapshots(supabase, hotelId, maxPickupWindowDays + 7);
-    await purgeOldAuditRows(supabase, hotelId);
-    await purgeOldRunLogRows(supabase, hotelId);
-  } catch (e) {
-    console.error(
-      JSON.stringify({
-        fn: "evaluateHotel",
-        step: "post_run_bookkeeping",
-        hotelId,
-        runId,
-        error: e instanceof Error ? e.message : String(e),
-      }),
-    );
+    ["heartbeat", () => recordRunHeartbeat(supabase, hotelId, runId, now, cellsChecked, cellsChanged)],
+    ["purge_snapshots", () => purgeOldSnapshots(supabase, hotelId, maxPickupWindowDays + 7)],
+    ["purge_audit", () => purgeOldAuditRows(supabase, hotelId)],
+    ["purge_run_log", () => purgeOldRunLogRows(supabase, hotelId)],
+  ];
+  for (const [task, run] of bookkeeping) {
+    try {
+      await run();
+    } catch (e) {
+      console.error(
+        JSON.stringify({
+          fn: "evaluateHotel",
+          step: "post_run_bookkeeping",
+          task,
+          hotelId,
+          runId,
+          error: e instanceof Error ? e.message : String(e),
+        }),
+      );
+    }
   }
 
   return {
