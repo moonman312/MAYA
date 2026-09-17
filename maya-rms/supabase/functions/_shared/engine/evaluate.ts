@@ -107,12 +107,11 @@ export type EvaluationResult = {
 /**
  * Evaluate a hotel: run the full 11-step pipeline.
  *
- * `horizonDays` bounds how many days forward are priced in this run. The engine
- * makes many sequential Supabase calls per day, so the default 365 is too heavy
- * for a Supabase Edge Function's wall-clock/CPU limit (it gets killed mid-run
- * before writing anything). Scheduled ticks pass a smaller horizon (e.g. 45) so
- * the near-term calendar is always fresh; run a separate, less-frequent job for
- * the far horizon if you need it.
+ * `horizonDays` bounds how many days forward are priced in this run. Reads and
+ * writes are paged across the whole horizon rather than made per cell, so a
+ * 365-day run on a 500-room, 20-type property is a few hundred round trips.
+ * Scheduled ticks still pass a smaller horizon (e.g. 45) so each tick stays
+ * short.
  */
 export async function evaluateHotel(
   supabase: SupabaseClient,

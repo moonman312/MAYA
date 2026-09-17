@@ -106,10 +106,9 @@ export type EvaluationResult = {
 /**
  * Evaluate a hotel: run the full 11-step pipeline.
  *
- * `horizonDays` bounds how many days forward are priced in this run. The engine
- * makes many sequential Supabase calls per day, so the full 365 takes tens of
- * minutes on a busy hotel; callers with a wall clock (API routes, smoke
- * scripts) pass a smaller horizon, same as the Deno copy's scheduled ticks.
+ * `horizonDays` bounds how many days forward are priced in this run. Reads and
+ * writes are paged across the whole horizon rather than made per cell, so a
+ * 365-day run on a 500-room, 20-type property is a few hundred round trips.
  */
 export async function evaluateHotel(
   supabase: SupabaseClient,
