@@ -29,6 +29,7 @@ import {
   bookingSpeedWindows,
   calendarDailyRevenue,
   roomTypeMaxRates,
+  ruleFireCounts,
 } from "./scale-rpc-model.test";
 
 const PGLITE_DIR = process.env.MAYA_PGLITE_DIR;
@@ -76,6 +77,25 @@ create table if not exists public.stay_date_snapshot (
   booked_units integer not null,
   booked_revenue numeric(12,2) not null,
   primary key (hotel_id, snapshot_ts, stay_date, room_type_id)
+);
+create table if not exists public.evaluation_run_log (
+  id uuid primary key default gen_random_uuid(),
+  hotel_id uuid not null,
+  evaluation_run_id uuid not null,
+  evaluated_at timestamptz not null,
+  cells_checked integer,
+  cells_changed integer
+);
+create table if not exists public.ladder_transition_event (
+  id uuid primary key default gen_random_uuid(),
+  hotel_id uuid not null,
+  rule_id uuid not null,
+  transition text not null
+);
+create table if not exists public.pickup_event (
+  id uuid primary key default gen_random_uuid(),
+  hotel_id uuid not null,
+  rule_id uuid not null
 );
 create table if not exists public.evaluation_audit (
   id uuid primary key default gen_random_uuid(),
@@ -145,6 +165,7 @@ const SIGNATURES: Record<string, Record<string, string>> = {
   booking_speed_windows: { p_hotel_id: "uuid", p_dates: "date[]", p_exclude: "uuid[]" },
   audit_last_signatures: { p_hotel_id: "uuid", p_from: "date", p_to: "date" },
   room_type_max_rates: { p_hotel_id: "uuid" },
+  rule_fire_counts: { p_hotel_id: "uuid" },
   engine_reservation_cells: { p_hotel_id: "uuid", p_from: "date", p_to: "date" },
   calendar_daily_revenue: { p_hotel_id: "uuid" },
   calendar_daily_revenue_v2: { p_hotel_id: "uuid", p_after: "date", p_limit: "int" },
@@ -493,6 +514,54 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
     expect(v2.map((x) => ({ stay_date: x.stay_date, revenue: Number(x.revenue) }))).toEqual(
       calendarDailyRevenue(rows, { p_hotel_id: H1 }),
     );
+  }, 120_000);
+
+  it("rule_fire_counts matches counting activations and pickup events row by row", async () => {
+    const r = rng(71);
+    const rules = ["r1", "r2", "r3"].map(uuidFor);
+    const other = uuidFor("other");
+    const ladder: FakeRow[] = [];
+    const pickup: FakeRow[] = [];
+    for (let i = 0; i < 3000; i++) {
+      ladder.push({ hotel_id: r() < 0.05 ? other : H1, rule_id: rules[Math.floor(r() * 3)], transition: r() < 0.3 ? "deactivate" : "activate" });
+    }
+    for (let i = 0; i < 1200; i++) pickup.push({ hotel_id: r() < 0.05 ? other : H1, rule_id: rules[Math.floor(r() * 3)] });
+    await db.exec("truncate public.ladder_transition_event; truncate public.pickup_event;");
+    await db.query("insert into public.ladder_transition_event (hotel_id, rule_id, transition) select * from json_to_recordset($1::json) as x(hotel_id uuid, rule_id uuid, transition text)", [JSON.stringify(ladder)]);
+    await db.query("insert into public.pickup_event (hotel_id, rule_id) select * from json_to_recordset($1::json) as x(hotel_id uuid, rule_id uuid)", [JSON.stringify(pickup)]);
+    const { data, error } = await pgliteRpc(db)("rule_fire_counts", { p_hotel_id: H1 });
+    expect(error).toBeNull();
+    const got = Object.fromEntries((data as { rule_id: string; fires: unknown }[]).map((x) => [x.rule_id, Number(x.fires)]));
+    const want = Object.fromEntries(ruleFireCounts(ladder, pickup, { p_hotel_id: H1 }).map((x) => [x.rule_id, x.fires]));
+    expect(got).toEqual(want);
+  }, 120_000);
+
+  it("engine_data_sweep_proc removes exactly what engine_data_sweep removes, committing per batch", async () => {
+    await db.exec(`create index if not exists idx_stay_date_snapshot_ts on public.stay_date_snapshot (snapshot_ts);`);
+    await db.exec(readFileSync(resolve(__dirname, "../../../../99_supabase_migration_engine_data_sweep_v1.sql"), "utf8"));
+    const seed = async () => {
+      await db.exec("truncate public.stay_date_snapshot; truncate public.evaluation_audit; truncate public.evaluation_run_log;");
+      await db.exec(`
+        insert into public.stay_date_snapshot
+        select '${H1}'::uuid, now() - make_interval(days => (g % 120)), date '2026-01-01' + (g % 50), gen_random_uuid(), 5, 1, 10
+        from generate_series(1, 2500) g;
+        insert into public.evaluation_audit (hotel_id, evaluation_run_id, stay_date, room_type_id, evaluated_at, final_price, details)
+        select '${H1}'::uuid, gen_random_uuid(), date '2026-01-01', gen_random_uuid(), now() - make_interval(days => (g % 150)), 100, '{}'::jsonb
+        from generate_series(1, 2500) g;
+        insert into public.evaluation_run_log (hotel_id, evaluation_run_id, evaluated_at)
+        select '${H1}'::uuid, gen_random_uuid(), now() - make_interval(days => (g % 150)) from generate_series(1, 700) g;
+      `);
+    };
+    const remaining = async () =>
+      (await db.query(`select (select count(*) from public.stay_date_snapshot)::int s, (select count(*) from public.evaluation_audit)::int a, (select count(*) from public.evaluation_run_log)::int l`)).rows[0];
+    await seed();
+    await db.exec("select public.engine_data_sweep(60, 90, 90, 100);");
+    const viaFunction = await remaining();
+    await seed();
+    await db.exec("call public.engine_data_sweep_proc(60, 90, 90, 100);");
+    const viaProc = await remaining();
+    expect(viaProc).toEqual(viaFunction);
+    expect(viaProc.s).toBeLessThan(2500);
   }, 120_000);
 
   it("refuses a caller who is neither service_role nor a member of the hotel", async () => {

@@ -27,6 +27,16 @@
 --   create index concurrently if not exists idx_snapshot_cell_ts
 --     on public.stay_date_snapshot (hotel_id, stay_date, room_type_id, snapshot_ts desc);
 --
+-- Optional, when you want the nightly engine sweep to commit per batch (see
+-- section 8). Only after this file has run:
+--
+--   select cron.unschedule('engine-data-sweep');
+--   select cron.schedule('engine-data-sweep', '50 8 * * *',
+--     $$ call public.engine_data_sweep_proc(); $$);
+--
+-- never_paid_retention_sweep is left as it is: it holds each property's row
+-- lock across that property's deletes, and a commit per batch would release it.
+--
 -- Nothing here needs folding into 02_supabase_schema.sql for existing
 -- databases; fold the functions in when the base schema is next regenerated.
 -- ============================================================================
@@ -453,5 +463,83 @@ $$;
 
 revoke all on function public.calendar_daily_revenue_v2(uuid, date, int) from public, anon;
 grant execute on function public.calendar_daily_revenue_v2(uuid, date, int) to authenticated, service_role;
+
+-- ----------------------------------------------------------------------------
+-- 8. Engine data sweep that commits as it goes
+--
+-- engine_data_sweep deletes in batches but is one function call, so one
+-- transaction: up to 40 x 50,000 rows per table held open until the end. A
+-- large property's backlog makes that a long lock and a lot of WAL at once.
+-- This procedure does the same deletes and commits after every batch.
+--
+-- SECURITY INVOKER and no SET clause, on purpose: Postgres refuses COMMIT
+-- inside a SECURITY DEFINER procedure or one with a SET clause. Every table is
+-- schema-qualified and every function it calls lives in pg_catalog, so no
+-- search_path can redirect it. pg_cron runs it as the database owner, and only
+-- service_role is granted execute besides.
+--
+-- Not scheduled by this file. See the header for the cron change.
+-- ----------------------------------------------------------------------------
+
+create or replace procedure public.engine_data_sweep_proc(
+  p_snapshot_days integer default 60,
+  p_audit_days integer default 90,
+  p_run_log_days integer default 90,
+  p_batch integer default 50000
+)
+language plpgsql
+as $$
+declare
+  batch_removed integer;
+  passes integer;
+begin
+  passes := 0;
+  loop
+    delete from public.stay_date_snapshot
+     where ctid in (
+       select ctid from public.stay_date_snapshot
+        where snapshot_ts < now() - make_interval(days => p_snapshot_days)
+        limit p_batch
+     );
+    get diagnostics batch_removed = row_count;
+    commit;
+    passes := passes + 1;
+    exit when batch_removed < p_batch or passes >= 40;
+  end loop;
+
+  passes := 0;
+  loop
+    delete from public.evaluation_audit
+     where id in (
+       select id from public.evaluation_audit
+        where evaluated_at < now() - make_interval(days => p_audit_days)
+        order by evaluated_at
+        limit p_batch
+     );
+    get diagnostics batch_removed = row_count;
+    commit;
+    passes := passes + 1;
+    exit when batch_removed < p_batch or passes >= 40;
+  end loop;
+
+  passes := 0;
+  loop
+    delete from public.evaluation_run_log
+     where id in (
+       select id from public.evaluation_run_log
+        where evaluated_at < now() - make_interval(days => p_run_log_days)
+        order by evaluated_at
+        limit p_batch
+     );
+    get diagnostics batch_removed = row_count;
+    commit;
+    passes := passes + 1;
+    exit when batch_removed < p_batch or passes >= 40;
+  end loop;
+end;
+$$;
+
+revoke all on procedure public.engine_data_sweep_proc(integer, integer, integer, integer) from public, anon, authenticated;
+grant execute on procedure public.engine_data_sweep_proc(integer, integer, integer, integer) to service_role;
 
 notify pgrst, 'reload schema';
