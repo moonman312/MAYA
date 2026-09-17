@@ -127,6 +127,9 @@ describe("planPmsEdits", () => {
     expect(plan([read({ pmsRate: 0 })], { [key]: { price: 180, source: "maya", setAtMs: NOW - 30 * 60_000 } })).toMatchObject({ closed: [], typedSinceSend: 1 });
     // Not before the send there has settled.
     expect(plan([read({ pmsRate: 0, ledger: { confirmed_at: null } })])).toMatchObject({ closed: [], waiting: 1 });
+    // A comp night typed at 0, a fixed rule sent on top, and the hotel set the 0 back: that manual price, taken again.
+    const comp = plan([read({ pmsRate: 0, ledger: { price: 20 } })], { [key]: { price: 0, source: "maya", setAtMs: NOW - 5 * 3_600_000 } });
+    expect(comp).toMatchObject({ closed: [], edits: [expect.objectContaining({ price: 0 })] });
     // A closed night says nothing about a ratio: the rest still read as the PMS's own rule.
     const reads = Array.from({ length: 12 }, (_, i) =>
       read({ stayDate: `2026-10-${String(i + 1).padStart(2, "0")}`, pmsRate: i < 2 ? 0 : (200 + i * 10) * 1.1, ledger: { price: 200 + i * 10 } }),

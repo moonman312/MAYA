@@ -44,7 +44,8 @@
  * PMS 0 as a night closed or not loaded (zero_base), and a manual price of 0
  * lets a rule stacked on it through under the floor: a +$20 rule opened a
  * night the hotel had just closed at $20. So a settled night the PMS now has
- * at 0 is the hotel closing it. Its base rate goes to 0, exactly as a night
+ * at 0 is the hotel closing it, unless its open manual price is 0 already (a
+ * comp night, set back by hand). Its base rate goes to 0, exactly as a night
  * closed before MAYA ever sent to it, so the engine stops pricing it and the
  * push has nothing to send; the ledger says the PMS holds 0, so the calendar
  * reads a rate the hotel opens it at later as the hotel's own; and an open
@@ -218,7 +219,9 @@ export function planPmsEdits(input: {
       continue;
     }
     // Neither MAYA's price nor any ratio of it: no say in whether there is one.
-    if (!ratesDiffer(r.pmsRate, 0)) {
+    // A comp night's manual price of 0 set back by hand over a rule MAYA
+    // stacked on it is that manual price, as any other.
+    if (!ratesDiffer(r.pmsRate, 0) && !(manual && !ratesDiffer(manual.price, 0))) {
       plan.closed.push(r);
       continue;
     }
