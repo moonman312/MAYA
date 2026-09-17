@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   historicalWindow,
+  effectiveRowCap,
   nextAfterWindow,
   processJob,
   type CurrentSyncResult,
@@ -402,6 +403,33 @@ describe("processJob", () => {
     expect(outcome).toBe("completed");
     expect(job.stats.historyStopReason).toBe("row_cap");
     expect(job.rows_upserted).toBe(200); // finished window 1, then stopped
+  });
+
+  it("grows the cap with the property, and history is not charged for current-window passes", async () => {
+    // 500 rooms over ten windows derives a cap near 2.75M; the stored 300k
+    // would have stopped the import about a year and a half in.
+    expect(effectiveRowCap(300_000, 500, 10)).toBe(2_745_000);
+    expect(effectiveRowCap(300_000, 2000, 10)).toBe(3_000_000);
+    expect(effectiveRowCap(300_000, 20, 10)).toBe(300_000);
+
+    const supabase = makeSupabaseStub();
+    const pages = Array.from({ length: 8 }, (_, i) => pageOfRows(100, `2025-01-${String(10 + i).padStart(2, "0")}`));
+    const adapter = makeAdapter(new Map([[0, pages]]));
+    const deps = makeDeps(adapter);
+    // One room, one window: a derived cap of 549 rows. The stored cap is 150,
+    // and 1,000 rows already came from current-window passes.
+    const job = makeJob({
+      phase: "historical",
+      row_cap: 150,
+      max_windows: 1,
+      rows_upserted: 1000,
+      stats: { countingRooms: 1, currentSync: { covered: true, passes: 3, stalls: 0, resumeFrom: null, rows: 1000 } },
+    });
+
+    expect(await processJob(supabase, job, deps, 60_000)).toBe("completed");
+    expect(job.stats.historyStopReason).toBe("row_cap");
+    // Stopped on the first page past 549 history rows, not at 150 and not at once.
+    expect(job.rows_upserted).toBe(1000 + 600);
   });
 
   it("stops mid-window at the row cap instead of paging forever", async () => {

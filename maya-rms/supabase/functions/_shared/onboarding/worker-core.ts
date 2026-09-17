@@ -805,6 +805,58 @@ async function runDiscover(
   }, lease);
 }
 
+/** The most history rows any job may import, however large the property. */
+const ROW_CAP_CEILING = 3_000_000;
+
+/**
+ * The cap a job actually runs to. import_jobs.row_cap defaults to 300,000,
+ * which a 500-room property fills in about a year and a half of its ten, and
+ * nothing sets it per property. So the cap grows with the property: room
+ * count x 366 nights x the windows it may import, with half again for
+ * multi-room nights and cancellations, never below the stored cap and never
+ * above ROW_CAP_CEILING.
+ */
+export function effectiveRowCap(rowCap: number, countingRooms: number, maxWindows: number): number {
+  const derived = Math.ceil(Math.max(0, countingRooms) * 366 * Math.max(1, maxWindows) * 1.5);
+  return Math.max(rowCap, Math.min(ROW_CAP_CEILING, derived));
+}
+
+/**
+ * Rows the historical phase wrote. rows_upserted also counts every
+ * current-window pass (see sync_current), and those passes can repeat for a
+ * large book, so they must not eat into the history the cap allows.
+ */
+function historicalRows(job: ImportJobRow): number {
+  return Math.max(0, job.rows_upserted - currentSyncProgress(job.stats).rows);
+}
+
+/** Rooms the job's property sells, read once per job and kept on its stats. */
+async function countingRoomsFor(supabase: SupabaseClient, job: ImportJobRow): Promise<number> {
+  if (typeof job.stats.countingRooms === "number") return job.stats.countingRooms;
+  let res: { data: unknown[] | null; error: { code?: string; message: string } | null } = await supabase
+    .from("room_types")
+    .select("total_rooms, counts_as_room")
+    .eq("hotel_id", job.hotel_id)
+    .eq("is_active", true);
+  if (res.error && isMissingColumn(res.error, "counts_as_room")) {
+    res = await supabase
+      .from("room_types")
+      .select("total_rooms")
+      .eq("hotel_id", job.hotel_id)
+      .eq("is_active", true);
+  }
+  // A failed read leaves the stored cap as it was.
+  if (res.error) return 0;
+  let rooms = 0;
+  for (const r of (res.data ?? []) as { total_rooms?: unknown; counts_as_room?: unknown }[]) {
+    if (r.counts_as_room === false) continue;
+    const n = Number(r.total_rooms);
+    if (Number.isFinite(n) && n > 0) rooms += n;
+  }
+  job.stats = { ...job.stats, countingRooms: rooms };
+  return rooms;
+}
+
 /** One historical list page: upsert it, then checkpoint or advance the phase. */
 async function runHistoricalStep(
   supabase: SupabaseClient,
@@ -831,6 +883,7 @@ async function runHistoricalStep(
 
   const roomTypeMap = await loadRoomTypeMap(supabase, job.hotel_id);
   const upserted = await upsertSlimRows(supabase, job.hotel_id, roomTypeMap, rows);
+  const rowCap = effectiveRowCap(job.row_cap, await countingRoomsFor(supabase, job), job.max_windows);
 
   const windowRows = Number(job.stats.currentWindowRows ?? 0) + upserted;
   job.rows_upserted += upserted;
@@ -847,7 +900,7 @@ async function runHistoricalStep(
     // enumeration that never stops handing back cursors — a PMS that ignores
     // the page number, say — otherwise never reaches a window boundary for
     // nextAfterWindow to stop it at, and the self-chain pages forever.
-    if (job.rows_upserted >= job.row_cap) {
+    if (historicalRows(job) >= rowCap) {
       job.phase = "analyze";
       job.stats = { ...job.stats, historyStopReason: "row_cap" };
       await patchJob(supabase, job.id, {
@@ -878,8 +931,8 @@ async function runHistoricalStep(
   const next = nextAfterWindow({
     window_index: job.window_index,
     max_windows: job.max_windows,
-    rows_upserted: job.rows_upserted,
-    row_cap: job.row_cap,
+    rows_upserted: historicalRows(job),
+    row_cap: rowCap,
     windowRowCount: windowRows,
     earlyAnalysisDone: typeof job.stats.earlyAnalysisAt === "string",
   });
