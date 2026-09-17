@@ -299,3 +299,30 @@ describe("pushRatesForHotel retry ceiling", () => {
     expect(kingLedger).toMatchObject({ status: "failed", attempts: 1 });
   });
 });
+
+describe("pushRatesForHotel against a deadline", () => {
+  it("stops between batches once the deadline passes, and leaves the rest unrecorded for the next tick", async () => {
+    const prices: Row[] = [];
+    for (let d = 0; d < 400; d++) {
+      const day = new Date(Date.UTC(2026, 7, 1) + d * 86_400_000).toISOString().slice(0, 10);
+      prices.push({ stay_date: day, room_type_id: "rt-king", price: 200 + d }, { stay_date: day, room_type_id: "rt-queen", price: 150 + d });
+    }
+    const db = makeSupabaseStub({ publishedPrice: prices, roomTypes: ROOM_TYPES, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } });
+    const { adapter, attempts } = makeAdapter(CACHED_TWO);
+    let clock = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => clock);
+    const push = adapter.pushCells.bind(adapter);
+    adapter.pushCells = async (cells) => {
+      clock += 5_000; // each batch takes five seconds
+      return push(cells);
+    };
+    const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter, { pushHorizonDays: 365, deadlineAt: 1_000_000 + 8_000 });
+    vi.restoreAllMocks();
+    // 800 changed cells in batches of 300: two batches fit, the last 200 wait.
+    expect(res).toMatchObject({ pushed: true, sent: 600, deferred: 200 });
+    expect(attempts).toHaveLength(600);
+    // Nearest nights went first.
+    expect(db.ledgerUpserts.map((r) => r.stay_date).sort().at(-1)).toBe("2027-05-27"); // night 299 of 400
+    expect(db.ledgerUpserts).toHaveLength(600);
+  });
+});

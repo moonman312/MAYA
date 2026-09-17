@@ -3,8 +3,9 @@
  *   • resolveRateTargets — map external_room_type_id (Cloudbeds roomTypeID) to
  *     its base BAR rateID from getRatePlans (non-derived; base rates lack
  *     `ratePlanID`). Only non-derived rates are updatable via patchRate.
- *   • pushCells — group by rateID, chunk into ≤30 single-night intervals, and
- *     POST patchRate.
+ *   • pushCells — group by rateID, chunk into ≤30 intervals (one per night, or
+ *     one per run of same-price nights with CLOUDBEDS_MERGE_RATE_INTERVALS),
+ *     and POST patchRate.
  *
  * ⚠ VERIFY against the live sandbox: getRatePlans field names (roomTypeID,
  * rateID, isDerived, ratePlanID) and the patchRate success/job envelope.
@@ -17,6 +18,7 @@ import {
   cloudbedsPatchRate,
   type CloudbedsRateInterval,
 } from "./client.ts";
+import { CLOUDBEDS_MERGE_RATE_INTERVALS } from "./constants.ts";
 import type { CloudbedsResolvedCredentials } from "./types.ts";
 import type {
   CellPushResult,
@@ -39,8 +41,35 @@ function str(obj: any, keys: string[]): string | null {
   return null;
 }
 
+/**
+ * The intervals one rate's cells go out as. Unmerged, every night is its own
+ * interval (startDate = endDate, inclusive, per the Cloudbeds example).
+ * Merged, consecutive nights at the same price share one interval.
+ */
+export function rateIntervalRuns<C extends RateCell>(
+  cells: C[],
+  merge: boolean,
+): { interval: CloudbedsRateInterval; cells: C[] }[] {
+  if (!merge) {
+    return cells.map((c) => ({ interval: { startDate: c.stayDate, endDate: c.stayDate, rate: c.price }, cells: [c] }));
+  }
+  const sorted = [...cells].sort((a, b) => (a.stayDate < b.stayDate ? -1 : a.stayDate > b.stayDate ? 1 : 0));
+  const runs: { interval: CloudbedsRateInterval; cells: C[] }[] = [];
+  for (const c of sorted) {
+    const last = runs[runs.length - 1];
+    if (last && last.interval.rate === c.price && addOneDay(last.interval.endDate) === c.stayDate) {
+      last.interval.endDate = c.stayDate;
+      last.cells.push(c);
+    } else {
+      runs.push({ interval: { startDate: c.stayDate, endDate: c.stayDate, rate: c.price }, cells: [c] });
+    }
+  }
+  return runs;
+}
+
 export function createCloudbedsRateAdapter(
   creds: CloudbedsResolvedCredentials,
+  mergeIntervals: boolean = CLOUDBEDS_MERGE_RATE_INTERVALS,
 ): PmsRatePushAdapter {
   return {
     pmsType: "cloudbeds",
@@ -92,21 +121,21 @@ export function createCloudbedsRateAdapter(
 
       const results: CellPushResult[] = [];
       for (const [rateId, group] of byRate) {
-        // Chunk into ≤30 single-night intervals per patchRate call.
-        for (let i = 0; i < group.length; i += MAX_INTERVALS_PER_CALL) {
-          const chunk = group.slice(i, i + MAX_INTERVALS_PER_CALL);
-          const intervals: CloudbedsRateInterval[] = chunk.map((c) => ({
-            startDate: c.stayDate,
-            endDate: c.stayDate, // single night (inclusive), per Cloudbeds example
-            rate: c.price,
-          }));
+        // Chunk into ≤30 intervals per patchRate call. Each interval keeps the
+        // cells it covers, so every cell still gets its own ledger result.
+        const runs = rateIntervalRuns(group, mergeIntervals);
+        for (let i = 0; i < runs.length; i += MAX_INTERVALS_PER_CALL) {
+          const chunk = runs.slice(i, i + MAX_INTERVALS_PER_CALL);
+          const intervals: CloudbedsRateInterval[] = chunk.map((run) => run.interval);
           const res = await cloudbedsPatchRate(creds, rateId, intervals);
-          for (const c of chunk) {
-            results.push(
-              res.ok
-                ? { cell: c, ok: true, jobReference: res.jobReferenceID }
-                : { cell: c, ok: false, error: res.error },
-            );
+          for (const run of chunk) {
+            for (const c of run.cells) {
+              results.push(
+                res.ok
+                  ? { cell: c, ok: true, jobReference: res.jobReferenceID }
+                  : { cell: c, ok: false, error: res.error },
+              );
+            }
           }
         }
       }

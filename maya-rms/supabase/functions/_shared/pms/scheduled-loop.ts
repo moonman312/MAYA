@@ -45,8 +45,11 @@ export function scheduledLoopConfigFromEnv(syncBudgetMs: number): ScheduledLoopC
 
 export type ScheduledLoopDeps = {
   now: () => number;
-  /** Sync, evaluate, push and release one hotel. `deadlineAt` bounds its PMS read. */
-  processHotel: (hotelId: string, deadlineAt: number) => Promise<void>;
+  /**
+   * Sync, evaluate, push and release one hotel. `deadlineAt` bounds its PMS
+   * read; `invocationDeadline` is when the whole invocation is out of time.
+   */
+  processHotel: (hotelId: string, deadlineAt: number, invocationDeadline: number) => Promise<void>;
   /** Give back a claim that was never started, without touching its schedule. */
   handBack: (hotelId: string) => Promise<void>;
   /** Release a hotel whose work threw before it released itself. */
@@ -98,7 +101,7 @@ export async function runScheduledHotels(
     const deadlineAt = Math.min(now + config.syncBudgetMs, invocationDeadline - config.evalReserveMs);
     result.started.push(hotelId);
     try {
-      await deps.processHotel(hotelId, Math.max(now, deadlineAt));
+      await deps.processHotel(hotelId, Math.max(now, deadlineAt), invocationDeadline);
     } catch (e) {
       result.crashed.push(hotelId);
       deps.log({ step: "hotel_crashed", hotelId, error: e instanceof Error ? e.message : String(e) });

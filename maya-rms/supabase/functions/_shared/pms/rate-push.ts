@@ -85,6 +85,12 @@ export type RatePushOptions = {
   pushHorizonDays?: number;
   /** Force re-resolve of the cached rate targets. */
   refreshTargets?: boolean;
+  /**
+   * Absolute time (ms) after which no further batch of cells is sent. Cells
+   * not sent stay unrecorded, so the next tick picks them up, nearest nights
+   * first.
+   */
+  deadlineAt?: number;
 };
 
 export type RatePushSummary =
@@ -101,6 +107,8 @@ export type RatePushSummary =
       jobsConfirmed?: number;
       /** Cells the vendor ACCEPTED then rejected — put back in play, not left looking live. */
       jobsRejected?: number;
+      /** Changed cells left for the next tick because the deadline passed. */
+      deferred?: number;
     };
 
 /**
@@ -110,6 +118,8 @@ export type RatePushSummary =
  * tick, forever. A new engine price starts the count over.
  */
 const MAX_PUSH_ATTEMPTS = 10;
+/** Cells handed to one adapter.pushCells call. 300 is ten full Cloudbeds patchRate calls. */
+const PUSH_BATCH_CELLS = 300;
 
 // deno-lint-ignore no-explicit-any
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -293,7 +303,17 @@ export async function pushRatesForHotel(
   }
 
   // ── Push ──────────────────────────────────────────────────────────────────
-  const results = withTarget.length > 0 ? await adapter.pushCells(withTarget) : [];
+  // In batches, nearest nights first, so a large first push stops at the
+  // caller's deadline instead of running past the end of its invocation.
+  const results: CellPushResult[] = [];
+  let deferred = 0;
+  for (let i = 0; i < withTarget.length; i += PUSH_BATCH_CELLS) {
+    if (i > 0 && opts.deadlineAt != null && Date.now() > opts.deadlineAt) {
+      deferred = withTarget.length - i;
+      break;
+    }
+    results.push(...(await adapter.pushCells(withTarget.slice(i, i + PUSH_BATCH_CELLS))));
+  }
   const nowIso = new Date().toISOString();
 
   // ── Record ledger (upsert latest state per cell) ──────────────────────────
@@ -369,6 +389,7 @@ export async function pushRatesForHotel(
     skippedNoTarget: noTarget.length,
     skippedExhausted,
     ...(jobConfirmed != null ? { jobsConfirmed: jobConfirmed.ok, jobsRejected: jobConfirmed.rejected } : {}),
+    ...(deferred > 0 ? { deferred } : {}),
   };
 }
 

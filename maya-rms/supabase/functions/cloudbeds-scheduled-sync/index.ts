@@ -189,7 +189,7 @@ Deno.serve(async (req) => {
   }
 
   // Each hotel runs inside the invocation's wall clock; see scheduled-loop.ts.
-  const processHotel = async (hotelId: string, deadlineAt: number) => {
+  const processHotel = async (hotelId: string, deadlineAt: number, invocationDeadline: number) => {
     const t0 = Date.now();
     // Mid-import: the worker is reading this property; only the read is skipped.
     const syncSkipped = importing.has(hotelId);
@@ -238,7 +238,10 @@ Deno.serve(async (req) => {
       if (creds) {
         try {
           const adapter = createCloudbedsRateAdapter(creds);
-          push = await pushRatesForHotel(supabase, hotelId, adapter);
+          push = await pushRatesForHotel(supabase, hotelId, adapter, {
+            // Leaves the room count and the release their time.
+            deadlineAt: invocationDeadline - 20_000,
+          });
         } catch (e) {
           push = { error: e instanceof Error ? e.message : "push failed" };
         }

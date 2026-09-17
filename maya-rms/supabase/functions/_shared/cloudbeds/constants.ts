@@ -138,3 +138,14 @@ export const CLOUDBEDS_INCREMENTAL_OVERLAP_MS =
  */
 export const CLOUDBEDS_FULL_SYNC_INTERVAL_MS =
   Number(mwsEnv("CLOUDBEDS_FULL_SYNC_INTERVAL_MS") ?? "86400000") || 86_400_000;
+
+/**
+ * Whether consecutive nights at the same price go to patchRate as one
+ * multi-night interval instead of one interval per night. Off until a
+ * multi-night interval has been checked against the live API: the single-night
+ * form (startDate = endDate) is what has been verified, and it implies an
+ * inclusive endDate, but a wrong guess here would move the rate on a night
+ * nobody meant to price. On, a 60-night push of a flat rate is one interval.
+ */
+export const CLOUDBEDS_MERGE_RATE_INTERVALS =
+  (mwsEnv("CLOUDBEDS_MERGE_RATE_INTERVALS") ?? "false").toLowerCase() === "true";

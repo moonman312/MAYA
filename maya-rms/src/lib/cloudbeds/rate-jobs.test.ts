@@ -18,7 +18,7 @@ vi.mock("../../../supabase/functions/_shared/cloudbeds/client", () => ({
   cloudbedsPatchRate: vi.fn(),
 }));
 
-const { createCloudbedsRateAdapter } = await import(
+const { createCloudbedsRateAdapter, rateIntervalRuns } = await import(
   "../../../supabase/functions/_shared/cloudbeds/rate-push"
 );
 const CREDS = { accessToken: "t", tokenType: "Bearer", baseUrl: "https://api.test", propertyId: "P1" } as never;
@@ -71,5 +71,42 @@ describe("cloudbeds fetchJobOutcomes", () => {
       { jobReferenceID: "SOMEONE_ELSE", status: "completed", dateCreated: null, updates: [] },
     ]);
     expect(await createCloudbedsRateAdapter(CREDS).fetchJobOutcomes!(["J1"])).toEqual({});
+  });
+});
+
+describe("rateIntervalRuns", () => {
+  const cell = (stayDate: string, price: number) => ({ stayDate, roomTypeId: "rt", externalRoomTypeId: "X", price });
+
+  it("unmerged, sends one night per interval, as before", () => {
+    const cells = [cell("2026-08-01", 100), cell("2026-08-02", 100)];
+    expect(rateIntervalRuns(cells, false).map((r) => r.interval)).toEqual([
+      { startDate: "2026-08-01", endDate: "2026-08-01", rate: 100 },
+      { startDate: "2026-08-02", endDate: "2026-08-02", rate: 100 },
+    ]);
+  });
+
+  it("merged, expands back to exactly the cells it was given, price for price", () => {
+    let seed = 3;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const cells = [];
+    for (let d = 0; d < 400; d++) {
+      if (rnd() < 0.2) continue; // gaps break a run
+      const day = new Date(Date.UTC(2026, 7, 1) + d * 86_400_000).toISOString().slice(0, 10);
+      cells.push(cell(day, rnd() < 0.7 ? 150 : 150 + Math.floor(rnd() * 3)));
+    }
+    const shuffled = [...cells].sort(() => rnd() - 0.5);
+    const runs = rateIntervalRuns(shuffled, true);
+    const expanded: { stayDate: string; price: number }[] = [];
+    for (const run of runs) {
+      let d = run.interval.startDate;
+      for (;;) {
+        expanded.push({ stayDate: d, price: run.interval.rate });
+        if (d === run.interval.endDate) break;
+        d = new Date(Date.parse(`${d}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+      }
+      expect(run.cells.map((c) => c.stayDate)).toEqual(expanded.slice(-run.cells.length).map((e) => e.stayDate));
+    }
+    expect(expanded).toEqual(cells.map((c) => ({ stayDate: c.stayDate, price: c.price })));
+    expect(runs.length).toBeLessThan(cells.length);
   });
 });
