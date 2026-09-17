@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { describeClear, describeSave } from "./manual-price-editor";
+import { describeClear, describeSave, manualPriceBadge } from "./manual-price-editor";
+
+describe("manualPriceBadge", () => {
+  it("says a rate changed in the PMS was changed there, and a typed one is manual", () => {
+    expect(manualPriceBadge({ price: 180, source: "pms" }, "Cloudbeds")).toBe("Changed in Cloudbeds · $180.00");
+    expect(manualPriceBadge({ price: 0, source: "pms" }, "Think Reservations")).toBe("Changed in Think Reservations · $0.00");
+    expect(manualPriceBadge({ price: 150, source: "maya" }, "Cloudbeds")).toBe("Manual · $150.00");
+    // Older rows and servers say nothing about where it came from.
+    expect(manualPriceBadge({ price: 150 }, "Cloudbeds")).toBe("Manual · $150.00");
+  });
+});
 
 describe("describeSave", () => {
   it("names the push path and the hotel's own PMS in house voice", () => {

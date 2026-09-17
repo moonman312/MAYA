@@ -11,6 +11,7 @@ import {
   narrateChange,
 } from "@/lib/changelog-narrative";
 import { measuresDifferently } from "@/lib/rule-form";
+import { pmsName } from "../../supabase/functions/_shared/pms/push-failure";
 import type {
   ChangelogCycle,
   ChangelogEntry,
@@ -76,14 +77,29 @@ export function measuredRoomTypeNames(
  * The manual_override the engine stamps into details when a typed price was
  * the base for this row. Read loosely: the audit table holds every shape the
  * engine has ever written, and a row without it is simply MAYA's own pricing.
+ * `pms` names the PMS when the price was changed there on a night MAYA had
+ * sent, rather than typed in MAYA; null otherwise.
  */
 export function manualOverrideFor(
   details: EvaluationAuditDetails,
-): { set_by: string | null } | null {
+): { set_by: string | null; pms: string | null } | null {
   const mo = (details as { manual_override?: unknown } | null)?.manual_override;
   if (!mo || typeof mo !== "object") return null;
-  const setBy = (mo as { set_by?: unknown }).set_by;
-  return { set_by: typeof setBy === "string" && setBy ? setBy : null };
+  const { set_by: setBy, source, pms_type: pmsType } = mo as { set_by?: unknown; source?: unknown; pms_type?: unknown };
+  return {
+    set_by: typeof setBy === "string" && setBy ? setBy : null,
+    pms: source === "pms" ? (typeof pmsType === "string" && pmsType ? pmsType : "") : null,
+  };
+}
+
+/** Where a manual price changed in the PMS was changed: "Cloudbeds", or "the PMS" when the row doesn't say. */
+function pmsOf(override: { pms: string | null }): string {
+  return override.pms ? pmsName(override.pms) : "the PMS";
+}
+
+/** How a manual price is named in the change log: "Manual price", or where the hotel changed it. */
+export function manualPriceTitle(override: { pms: string | null }): string {
+  return override.pms == null ? "Manual price" : `Changed in ${pmsOf(override)}`;
 }
 
 export const MAX_RUNS = 10;
@@ -308,7 +324,12 @@ export function buildEntry(
   if (override) {
     const setter =
       (override.set_by ? lookups.setterNames?.get(override.set_by) : null) ?? "A manager";
-    const lead = `${setter} set the base rate to ${lookups.currencySymbol}${basePrice.toFixed(2)}.`;
+    const amount = `${lookups.currencySymbol}${basePrice.toFixed(2)}`;
+    // A rate the hotel changed in its PMS names no person: nobody typed it in MAYA.
+    const lead =
+      override.pms != null
+        ? `The base rate was changed in ${pmsOf(override)} to ${amount}.`
+        : `${setter} set the base rate to ${amount}.`;
     // With nothing stacked on the typed number, narrateChange's only sentence
     // is the "moved from X to X" fallback, which the lead already says better.
     narrative =
@@ -317,7 +338,7 @@ export function buildEntry(
 
   return {
     room_type: roomType,
-    rule_name: applications[0]?.rule_name ?? (override ? "Manual price" : "Price update"),
+    rule_name: applications[0]?.rule_name ?? (override ? manualPriceTitle(override) : "Price update"),
     original_rate: basePrice,
     new_rate: finalPrice,
     change_pct:

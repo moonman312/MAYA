@@ -220,6 +220,40 @@ describe("manual price rows", () => {
     ]);
   });
 
+  it("says a price changed in the PMS was changed there, naming no one", () => {
+    const fromPms = (pms_type: unknown) =>
+      ({ ...details(), manual_override: { set_by: null, set_at: "2026-07-28T09:00:00Z", source: "pms", pms_type } }) as EvaluationAuditDetails;
+    const entry = buildEntry(row({ base_price: 180, final_price: 180, details: fromPms("cloudbeds") }), lookups());
+    expect(entry.narrative).toEqual(["The base rate was changed in Cloudbeds to $180.00."]);
+    expect(entry.rule_name).toBe("Changed in Cloudbeds");
+    expect(entry.description).not.toContain("—");
+
+    const stacked = buildEntry(
+      row({
+        base_price: 180,
+        final_price: 198,
+        details: {
+          ...fromPms("think"),
+          matched_ladder_rules: row().details.matched_ladder_rules,
+          active_ladder_effects: row().details.active_ladder_effects,
+          application_order: ["ladder:rule-1"],
+        } as EvaluationAuditDetails,
+      }),
+      lookups(),
+    );
+    expect(stacked.narrative?.slice(0, 2)).toEqual([
+      "The base rate was changed in Think Reservations to $180.00.",
+      '"Busy-day bump" raised this night 10%, from $180.00 to $198.00.',
+    ]);
+
+    // A comp night, and a row that lost which PMS.
+    expect(buildEntry(row({ base_price: 0, final_price: 0, details: fromPms("cloudbeds") }), lookups()).narrative).toEqual([
+      "The base rate was changed in Cloudbeds to $0.00.",
+    ]);
+    expect(buildEntry(row({ base_price: 180, final_price: 180, details: fromPms(null) }), lookups()).rule_name).toBe("Changed in the PMS");
+    expect(isChangeRow(row({ base_price: 180, final_price: 180, details: fromPms("cloudbeds") }))).toBe(true);
+  });
+
   it("surfaces a manual-only run as a cycle with changes", () => {
     const cycles = buildCyclesFromAudit(
       [row({ base_price: 250, final_price: 250, details: withOverride() })],

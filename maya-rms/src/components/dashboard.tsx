@@ -7,7 +7,7 @@ import { PmsReconnect } from "@/components/pms-reconnect";
 import { isPushProblem, PushProblemItem } from "@/components/push-problem-item";
 import { OnboardingReviewBanner } from "@/components/onboarding/review-banner";
 import { CorrectionsPanel, ExplainDrilldown } from "@/components/explain-drilldown";
-import { ManualPriceEditor } from "@/components/manual-price-editor";
+import { ManualPriceEditor, manualPriceBadge } from "@/components/manual-price-editor";
 import { useCalendarLive } from "@/lib/use-calendar-live";
 import { track } from "@/lib/analytics/track";
 import { PropertySelect } from "@/components/property-select";
@@ -1084,9 +1084,16 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                                 {rt.manual_price ? (
                                   <span
                                     className="rounded-full border border-amber-500/60 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300"
-                                    title={`Set ${formatFriendlyDateTime(rt.manual_price.set_at)}`}
+                                    title={`${rt.manual_price.source === "pms" ? "Seen" : "Set"} ${formatFriendlyDateTime(rt.manual_price.set_at)}`}
                                   >
-                                    Manual · ${rt.manual_price.price.toFixed(2)}
+                                    {manualPriceBadge(
+                                      rt.manual_price,
+                                      rt.manual_price.pms_type
+                                        ? formatPmsName(rt.manual_price.pms_type)
+                                        : pmsActivity?.connection
+                                          ? formatPmsName(pmsActivity.connection.pms_type)
+                                          : "your PMS",
+                                    )}
                                   </span>
                                 ) : null}
                               </p>
@@ -1115,9 +1122,11 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                                   currentPrice={rt.current_rate ?? rt.current_price ?? null}
                                   manualPrice={rt.manual_price ?? null}
                                   pmsName={
-                                    pmsActivity?.connection
-                                      ? formatPmsName(pmsActivity.connection.pms_type)
-                                      : "your PMS"
+                                    rt.manual_price?.pms_type
+                                      ? formatPmsName(rt.manual_price.pms_type)
+                                      : pmsActivity?.connection
+                                        ? formatPmsName(pmsActivity.connection.pms_type)
+                                        : "your PMS"
                                   }
                                   onSaved={() => {
                                     // The realtime subscription will catch

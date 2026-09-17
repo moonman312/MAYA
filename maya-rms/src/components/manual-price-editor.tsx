@@ -72,6 +72,19 @@ export function describeSave(
   return `${base} Paused ${paused} rule${paused === 1 ? "" : "s"} on ${nightsWord(res.cells)} for this room; new rules will apply on top.`;
 }
 
+/** An open manual price as the day card and the editor see it. */
+export type ManualPriceShown = { price: number; set_at: string; source?: "maya" | "pms"; pms_type?: string | null };
+
+/**
+ * The day card's badge: "Manual" for a price typed in MAYA, "Changed in
+ * Cloudbeds" for a rate the hotel changed in its PMS on a night MAYA had
+ * sent. `pmsName` is where that change was made. Exported for tests.
+ */
+export function manualPriceBadge(manual: Pick<ManualPriceShown, "price" | "source">, pmsName: string): string {
+  const amount = `$${manual.price.toFixed(2)}`;
+  return manual.source === "pms" ? `Changed in ${pmsName} · ${amount}` : `Manual · ${amount}`;
+}
+
 /** The line after a clear. Exported for tests. */
 export function describeClear(cells: number | undefined): string {
   return cells != null && cells > 1
@@ -108,7 +121,7 @@ export function ManualPriceEditor({
   stayDate: string;
   /** What the night is asking today; pre-fills the input when no manual price exists. */
   currentPrice: number | null;
-  manualPrice: { price: number; set_at: string } | null;
+  manualPrice: ManualPriceShown | null;
   /** Fired after a successful save or clear so the calendar can refetch. */
   onSaved: () => void;
 }) {
@@ -258,6 +271,7 @@ export function ManualPriceEditor({
           <button
             type="button"
             disabled={busy}
+            title={manualPrice.source === "pms" ? `Changed in ${pmsName}. Clear hands the night back to MAYA.` : undefined}
             onClick={() => void clear()}
             className="cursor-pointer rounded border border-slate-700 px-3 py-1 text-xs font-medium text-slate-300 hover:border-slate-500 disabled:opacity-60"
           >
@@ -338,6 +352,9 @@ function ManualPriceHelp({ pmsName }: { pmsName: string }) {
             <span className="block">
               Rules that had already moved this night are paused for this room type. Rules that
               fire later still apply on top of your price.
+            </span>
+            <span className="block">
+              A rate changed in {pmsName} on a night MAYA already sent is kept the same way.
             </span>
             <span className="block">Clear hands the night back to MAYA&apos;s own pricing.</span>
           </span>
