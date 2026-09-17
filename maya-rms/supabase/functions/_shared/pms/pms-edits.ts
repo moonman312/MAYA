@@ -6,9 +6,12 @@
  * it in MAYA hands the night back to MAYA's pricing.
  *
  * The base rate refresh reads the PMS for the window every hour and calls
- * this with each night MAYA has sent to. The hard part is never taking MAYA's
- * own output for a hotel's change. A night is a hand edit only when all of
- * these hold:
+ * this with each night MAYA has sent to. A tick about to send a new price to
+ * a night MAYA has sent to reads it again first, if its refresh did not read
+ * the PMS already (pricing-tick.ts), so a rate the hotel changed since the
+ * hourly read is not written over before it is seen. The hard part is never
+ * taking MAYA's own output for a hotel's change. A night is a hand edit only
+ * when all of these hold:
  *
  *   - the hotel is live (a simulating hotel sends nothing);
  *   - its ledger row is 'sent': not a send still marked in progress, a
@@ -274,6 +277,11 @@ export type PmsEditsResult = {
   rebased: number;
   suppressedRules: number;
   retiredPickups: number;
+  /**
+   * `stay_date|room_type_id` of the nights the PMS rate moved on: taken as a
+   * change, closed, or a new base. Listed even when writing them failed.
+   */
+  movedCells: string[];
 };
 
 /** A night's ledger row as read, with what this step now knows about it. */
@@ -363,7 +371,14 @@ export async function applyPmsEdits(
     rebased: plan.rebased.length,
     suppressedRules: reset.suppressedRules,
     retiredPickups: reset.retiredPickups,
+    movedCells: movedCells(plan),
   };
+}
+
+function movedCells(plan: Pick<PmsEditPlan, "edits" | "closed" | "rebased">): string[] {
+  return [...plan.edits.map((e) => e.read), ...plan.closed, ...plan.rebased.map((e) => e.read)].map(
+    (r) => `${r.stayDate}|${r.roomTypeId}`,
+  );
 }
 
 /** Nights' base rates, as the PMS has them. */
@@ -461,7 +476,17 @@ export async function adoptPmsEdits(
   window: { firstDate: string; lastDate: string },
   at: string,
 ): Promise<PmsEditsResult> {
-  const none: PmsEditsResult = { adopted: 0, inStep: 0, landed: 0, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 0, retiredPickups: 0 };
+  const none: PmsEditsResult = {
+    adopted: 0,
+    inStep: 0,
+    landed: 0,
+    closed: 0,
+    clearedManual: 0,
+    rebased: 0,
+    suppressedRules: 0,
+    retiredPickups: 0,
+    movedCells: [],
+  };
   const inWindow = reads.filter((r) => r.stayDate >= window.firstDate && r.stayDate <= window.lastDate);
   const worthALook = inWindow.some((r) =>
     r.ledger.status === "skipped" ||
@@ -509,7 +534,8 @@ export async function adoptPmsEdits(
         error: (e instanceof Error ? e.message : String((e as { message?: unknown })?.message ?? e)).slice(0, 300),
       }),
     );
-    return none;
+    // Not recorded, but still not MAYA's to write over.
+    return plan ? { ...none, movedCells: movedCells(plan) } : none;
   }
 }
 
@@ -563,7 +589,7 @@ function logPreMigration(hotelId: string): PmsEditsResult {
       migration: "99_supabase_migration_push_guardrails_v1.sql",
     }),
   );
-  return { adopted: 0, inStep: 0, landed: 0, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 0, retiredPickups: 0 };
+  return { adopted: 0, inStep: 0, landed: 0, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 0, retiredPickups: 0, movedCells: [] };
 }
 
 /** One line per hotel per refresh, counts only. */

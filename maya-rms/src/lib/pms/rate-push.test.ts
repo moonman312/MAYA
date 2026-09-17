@@ -1512,6 +1512,59 @@ describe("pushRatesForHotel and what the tick knows", () => {
     expect(finalLedger(db).map((r) => r.room_type_id)).toEqual(["rt-queen"]);
   });
 
+  it("reads the PMS again before a new price goes to a night it sent to, and holds the nights whose rate there moved", async () => {
+    const PRICES = [
+      ...PRICES_TWO,
+      { stay_date: "2026-08-02", room_type_id: "rt-king", price: 220, computed_at: JUST_NOW },
+    ];
+    const db = makeSupabaseStub({
+      publishedPrice: PRICES,
+      roomTypes: ROOM_TYPES,
+      ledger: [
+        { stay_date: "2026-08-01", room_type_id: "rt-king", price: 200, status: "sent", attempts: 1 },
+        { stay_date: "2026-08-02", room_type_id: "rt-king", price: 200, status: "sent", attempts: 1 },
+      ],
+      connection: { id: "conn-1", push_rate_targets: CACHED_TWO },
+    });
+    const { adapter, attempts } = makeAdapter(CACHED_TWO);
+    let reads = 0;
+    const readBeforeResend = async () => {
+      reads += 1;
+      // The hotel changed the King on the 1st since the hourly read.
+      return new Set(["2026-08-01|rt-king"]);
+    };
+
+    const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter, { ...WIDE, readBeforeResend });
+
+    expect(reads).toBe(1);
+    expect(attempts.map((a) => a.externalRoomTypeId).sort()).toEqual(["CB-KING", "CB-QUEEN"]);
+    expect(finalLedger(db).map((r) => `${r.stay_date}|${r.room_type_id}|${r.price}`).sort()).toEqual([
+      "2026-08-01|rt-queen|180",
+      "2026-08-02|rt-king|220",
+    ]);
+    expect(res).toMatchObject({ sent: 2, changedInPms: 1 });
+  });
+
+  it("sends as before when the read before re-sending could not be made, and reads nothing for nights it never sent to", async () => {
+    const sentBefore = [{ stay_date: "2026-08-01", room_type_id: "rt-king", price: 200, status: "sent", attempts: 1 }];
+    const db = makeSupabaseStub({ publishedPrice: PRICES_TWO, roomTypes: ROOM_TYPES, ledger: sentBefore, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } });
+    const { adapter, attempts } = makeAdapter(CACHED_TWO);
+    const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter, { ...WIDE, readBeforeResend: async () => null });
+    expect(attempts).toHaveLength(2);
+    expect(res).not.toHaveProperty("changedInPms");
+
+    const fresh = makeSupabaseStub({ publishedPrice: PRICES_TWO, roomTypes: ROOM_TYPES, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } });
+    let reads = 0;
+    await pushRatesForHotel(fresh.supabase, "hotel-1", makeAdapter(CACHED_TWO).adapter, {
+      ...WIDE,
+      readBeforeResend: async () => {
+        reads += 1;
+        return new Set();
+      },
+    });
+    expect(reads).toBe(0);
+  });
+
   it("sends a cell held for a missing permission again once the connection was re-authorized after the refusal", async () => {
     const scope = "Cloudbeds patchRate failed (403): scope required for this call was not granted by property";
     const ledger = [

@@ -235,6 +235,16 @@ export type RatePushOptions = {
    * it. Held cells are not recorded; the next tick sends them.
    */
   holdNeverPushed?: boolean;
+  /**
+   * Read the PMS again before a new price goes to a night MAYA has sent to,
+   * and say which nights' rates there moved since the evaluation priced them
+   * (null when the read could not be made). The tick passes it unless its
+   * base rate refresh read the PMS already: that refresh runs hourly, and a
+   * rate the hotel changed in between would otherwise be written over before
+   * it was ever seen. Those nights wait for the next evaluation; with null,
+   * everything goes as it would have.
+   */
+  readBeforeResend?: () => Promise<Set<string> | null>;
 };
 
 export type RatePushSummary =
@@ -267,6 +277,8 @@ export type RatePushSummary =
       awaitingBaseRead?: number;
       /** Cells whose published price predates the manual price on their night, held until it is priced again. */
       awaitingEvaluation?: number;
+      /** Cells whose rate the PMS had moved on since they were priced (readBeforeResend), held until priced again. */
+      changedInPms?: number;
       /**
        * A rate_updates write failed and nothing more was sent this run.
        * `unrecorded` cells reached the PMS (or were refused by it) with only
@@ -636,10 +648,12 @@ export async function pushRatesForHotel(
     ...(skippedGuardrail > 0 ? { guardrails } : {}),
   };
   let skippedHeld = sittingOut.length - summary.skippedExhausted;
+  let changedInPms = 0;
   const extras = () => ({
     ...(skippedHeld > 0 ? { skippedHeld } : {}),
     ...(awaitingBaseRead > 0 ? { awaitingBaseRead } : {}),
     ...(awaitingEvaluation > 0 ? { awaitingEvaluation } : {}),
+    ...(changedInPms > 0 ? { changedInPms } : {}),
   });
 
   // Held-back cells are recorded before anything is sent. A ledger that
@@ -754,7 +768,7 @@ export async function pushRatesForHotel(
   if (skippedGuardrail > 0) Object.assign(summary, { guardrails });
 
   // Attach rate ids; separate cells with no target
-  const withTarget: Array<RateCell & { externalRateId: string }> = [];
+  let withTarget: Array<RateCell & { externalRateId: string }> = [];
   const noTargetRows: Record<string, unknown>[] = [];
   let skippedNoTarget = 0;
   for (const c of [...changed, ...retargetSkips]) {
@@ -800,6 +814,19 @@ export async function pushRatesForHotel(
       ...(withTarget.length > 0 ? { deferred: withTarget.length } : {}),
       ledgerWriteFailed: { unrecorded: 0, error: noTargetWrite },
     };
+  }
+
+  // A new price for a night MAYA has sent to writes over whatever the PMS has
+  // there now, which may be a rate the hotel changed since the last read.
+  if (opts.readBeforeResend && withTarget.some((c) => priorRow.get(`${c.stayDate}|${c.roomTypeId}`)?.status === "sent")) {
+    const moved = await opts.readBeforeResend();
+    if (moved && moved.size > 0) {
+      withTarget = withTarget.filter((c) => {
+        if (!moved.has(`${c.stayDate}|${c.roomTypeId}`)) return true;
+        changedInPms += 1;
+        return false;
+      });
+    }
   }
 
   // ── Push, recorded before it goes and again once the PMS answers ──────────

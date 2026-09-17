@@ -88,6 +88,12 @@ export type SeedCalendarResult =
       /** Of `captured`, sent-to nights stored at 0 that the hotel has since loaded a rate for. */
       loadedAfterZeroBase: number;
       days: number;
+      /**
+       * `stay_date|room_type_id` of every night whose rate in the PMS this
+       * read found moved: base rates written, and nights pms-edits.ts took
+       * (a change, a closed night, a new base).
+       */
+      movedCells: string[];
     };
 
 /**
@@ -287,6 +293,7 @@ async function seedWithTargets(
       pmsEditsAdopted: pmsEdits?.adopted ?? 0,
       loadedAfterZeroBase,
       days: horizon,
+      movedCells: [...rows.map((r) => `${r.stay_date}|${r.room_type_id}`), ...(pmsEdits?.movedCells ?? [])],
     },
     targets: read.targets,
   };

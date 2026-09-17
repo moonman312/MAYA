@@ -354,7 +354,8 @@ function ManualPriceHelp({ pmsName }: { pmsName: string }) {
               fire later still apply on top of your price.
             </span>
             <span className="block">
-              A rate changed in {pmsName} on a night MAYA already sent is kept the same way.
+              A rate changed in {pmsName} is kept the same way, once MAYA&apos;s own price has been there
+              for an hour.
             </span>
             <span className="block">Clear hands the night back to MAYA&apos;s own pricing.</span>
           </span>

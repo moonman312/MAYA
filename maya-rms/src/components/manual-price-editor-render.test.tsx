@@ -30,7 +30,7 @@ describe("ManualPriceEditor", () => {
 
     fireEvent.click(view.getByRole("button", { name: "What a manual price does" }));
     const help = view.getByRole("tooltip").textContent ?? "";
-    expect(help).toContain("A rate changed in Cloudbeds on a night MAYA already sent is kept the same way.");
+    expect(help).toContain("A rate changed in Cloudbeds is kept the same way, once MAYA's own price has been there for an hour.");
     expect(help).not.toContain("—");
   });
 

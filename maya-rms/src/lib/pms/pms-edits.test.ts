@@ -325,7 +325,7 @@ describe("adoptPmsEdits", () => {
       AT,
     );
 
-    expect(res).toEqual({ adopted: 1, inStep: 0, landed: 0, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 1, retiredPickups: 1 });
+    expect(res).toEqual({ adopted: 1, inStep: 0, landed: 0, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 1, retiredPickups: 1, movedCells: ["2026-10-05|rt-king"] });
     expect(d.tables.manual_price).toEqual([
       expect.objectContaining({ hotel_id: "h1", stay_date: "2026-10-05", room_type_id: "rt-king", price: 250, source: "pms", pms_type: "cloudbeds", set_by: null, note: null, set_at: AT, cleared_at: null }),
     ]);
@@ -357,7 +357,7 @@ describe("adoptPmsEdits", () => {
       WINDOW,
       AT,
     );
-    expect(res).toEqual({ adopted: 0, inStep: 0, landed: 1, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 0, retiredPickups: 0 });
+    expect(res).toEqual({ adopted: 0, inStep: 0, landed: 1, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 0, retiredPickups: 0, movedCells: [] });
     expect(d.tables.manual_price).toEqual([]);
     expect(d.tables.rate_updates).toEqual([
       expect.objectContaining({
@@ -711,6 +711,28 @@ describe("a rate changed in the PMS, through the tick", () => {
     // 260 and the busy rule's 10%, sent as going live said it would be.
     expect(published(d)).toBe(286);
     expect(sent).toEqual([{ price: 286, stayDate: NIGHT }]);
+  });
+
+  it("reads the PMS before re-pricing a night it sent to between hourly reads, so a rate changed in between is kept, not written over", async () => {
+    const { d, sent, tick, setPmsRate } = setup([settledSend(220)]);
+    // Read at 11:40; the hotel set 250 in Cloudbeds at 11:50; at 12:00 a new rule fires on the night.
+    d.tables.pms_connections[0].base_rates_refreshed_at = new Date(T0 - 20 * 60_000).toISOString();
+    setPmsRate(250);
+    d.tables.pricing_rules.push(busyRule("r2", new Date(T0 - 10 * 60_000).toISOString()));
+
+    const first = await tick(T0);
+
+    expect(first.calendar).toMatchObject({ reason: "throttled" });
+    expect(first.push).toMatchObject({ sent: 0, changedInPms: 1 });
+    expect(sent).toEqual([]);
+    expect(d.tables.manual_price).toEqual([expect.objectContaining({ price: 250, source: "pms" })]);
+    // Both rules that had fired are suppressed.
+    expect(d.tables.ladder_rule_state.map((r) => r.suppressed_at)).toEqual([new Date(T0).toISOString(), new Date(T0).toISOString()]);
+
+    // Next tick prices the night at the hotel's rate, and there is nothing to send.
+    await tick(T0 + 5 * 60_000);
+    expect(published(d)).toBe(250);
+    expect(sent).toEqual([]);
   });
 
   it("does not adopt a night whose manual price is already the PMS rate", async () => {

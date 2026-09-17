@@ -18,7 +18,10 @@
  *
  * The refresh also adopts rates the hotel changed in the PMS on nights MAYA
  * had sent to (pms-edits.ts), at the tick's instant, so the evaluation right
- * after publishes them and the push does not write over them.
+ * after publishes them and the push does not write over them. When the
+ * refresh did not read the PMS this tick (it runs hourly), the push reads it
+ * again before sending a new price to a night it has sent to, and holds the
+ * nights whose rate there moved until the next tick prices them.
  *
  * The base rate refresh has the evaluation cut-off as its deadline: it does
  * not start without a minute to spare, and stops waiting on the PMS past it.
@@ -169,8 +172,10 @@ export async function runPricingTick<E>(
     // Without the hotel's date there is no telling which nights were priced.
     push = { error: clockError };
   } else {
+    const adapter = opts.adapter;
+    const activeClock = clock;
     try {
-      push = await pushRatesForHotel(supabase, hotelId, opts.adapter, {
+      push = await pushRatesForHotel(supabase, hotelId, adapter, {
         today: clock.today,
         // Never a night this tick did not evaluate.
         pushHorizonDays: opts.horizonDays,
@@ -179,6 +184,19 @@ export async function runPricingTick<E>(
         // or skipped evaluation leaves the push to judge each price's age.
         evaluatedAt,
         holdNeverPushed: !baseReadRecently(calendar),
+        ...(baseReadThisTick(calendar)
+          ? {}
+          : {
+            readBeforeResend: async () => {
+              const again = await ensureBaseRateCalendar(supabase, hotelId, adapter, {
+                horizonDays: opts.horizonDays,
+                clock: activeClock,
+                refreshIntervalMs: 0,
+                deadlineAt: opts.pushDeadlineAt,
+              });
+              return again.ok ? new Set(again.movedCells) : null;
+            },
+          }),
       });
     } catch (e) {
       push = { error: errorText(e, "push failed") };
@@ -201,8 +219,12 @@ export async function runPricingTick<E>(
 
 /** Whether the base under this tick was read from the PMS just now, or within the refresh interval. */
 function baseReadRecently(calendar: EnsureCalendarResult | TickSkip): boolean {
-  if ("ok" in calendar && calendar.ok) return true;
-  return "reason" in calendar && calendar.reason === "throttled";
+  return baseReadThisTick(calendar) || ("reason" in calendar && calendar.reason === "throttled");
+}
+
+/** Whether this tick's refresh read the PMS. */
+function baseReadThisTick(calendar: EnsureCalendarResult | TickSkip): boolean {
+  return "ok" in calendar && calendar.ok;
 }
 
 /** A step's error for the log line and the response, which pg_net stores. Vendor text can be long. */
