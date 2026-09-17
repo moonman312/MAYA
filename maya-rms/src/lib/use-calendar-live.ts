@@ -25,14 +25,25 @@ import { useEffect, useRef } from "react";
 const LIVE_TABLES = ["published_price", "reservations", "manual_price", "room_type_out_of_service"] as const;
 
 const REFRESH_DEBOUNCE_MS = 2000;
-/** However busy the stream, the calendar refreshes at least this often. */
+/** However busy the stream, a price change reaches the calendar this soon. */
 const REFRESH_MAX_WAIT_MS = 10_000;
+/**
+ * A burst of reservation changes alone waits longer. An import or a daily
+ * sweep on a large property streams row changes for hours, and every refresh
+ * clears the month cache and reloads it, so ten seconds meant a full calendar
+ * read every ten seconds per open tab. Prices still land within
+ * REFRESH_MAX_WAIT_MS: any other table in the burst brings the refresh forward.
+ */
+const RESERVATIONS_MAX_WAIT_MS = 60_000;
 
 /* ── Debounce helper (exported for tests) ─────────────────────── */
 
 export interface Debounced {
-  /** Schedule `fn`; resets the timer if already pending. */
-  call: () => void;
+  /**
+   * Schedule `fn`; resets the timer if already pending. `maxWaitMs` overrides
+   * the default ceiling for this call; the burst keeps the shortest one seen.
+   */
+  call: (maxWaitMs?: number) => void;
   /** Drop any pending invocation. */
   cancel: () => void;
 }
@@ -43,16 +54,23 @@ export function createDebounced(fn: () => void, delayMs: number, maxWaitMs?: num
   // writing thousands of reservation rows) never pauses for `delayMs`, so
   // without a ceiling the refresh would never run at all.
   let burstStartedAt: number | null = null;
+  // The latest the burst may run to, from the shortest ceiling any call gave.
+  let burstDeadline: number | null = null;
   return {
-    call: () => {
+    call: (callMaxWaitMs?: number) => {
       if (timer !== null) clearTimeout(timer);
       const now = Date.now();
       if (burstStartedAt === null) burstStartedAt = now;
-      const wait =
-        maxWaitMs === undefined ? delayMs : Math.max(0, Math.min(delayMs, burstStartedAt + maxWaitMs - now));
+      const ceiling = callMaxWaitMs ?? maxWaitMs;
+      if (ceiling !== undefined) {
+        const deadline = burstStartedAt + ceiling;
+        burstDeadline = burstDeadline === null ? deadline : Math.min(burstDeadline, deadline);
+      }
+      const wait = burstDeadline === null ? delayMs : Math.max(0, Math.min(delayMs, burstDeadline - now));
       timer = setTimeout(() => {
         timer = null;
         burstStartedAt = null;
+        burstDeadline = null;
         fn();
       }, wait);
     },
@@ -62,6 +80,7 @@ export function createDebounced(fn: () => void, delayMs: number, maxWaitMs?: num
         timer = null;
       }
       burstStartedAt = null;
+      burstDeadline = null;
     },
   };
 }
@@ -90,7 +109,7 @@ export function useCalendarLive(hotelId: string | null, onChange: () => void): v
         channel.on(
           "postgres_changes",
           { event: "*", schema: "public", table, filter: `hotel_id=eq.${hotelId}` },
-          () => debounced.call(),
+          () => debounced.call(table === "reservations" ? RESERVATIONS_MAX_WAIT_MS : undefined),
         );
       }
       channel.subscribe();

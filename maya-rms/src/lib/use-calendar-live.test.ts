@@ -89,4 +89,25 @@ describe("createDebounced", () => {
     vi.advanceTimersByTime(2000);
     expect(fn).toHaveBeenCalledTimes(3);
   });
+
+  it("lets a reservations-only stream wait for its longer ceiling, and a price change bring it forward", () => {
+    const fn = vi.fn();
+    const debounced = createDebounced(fn, 2000, 10_000);
+    // An import streaming reservation rows for 50 seconds: no refresh yet.
+    for (let t = 0; t < 50_000; t += 500) {
+      debounced.call(60_000);
+      vi.advanceTimersByTime(500);
+    }
+    expect(fn).not.toHaveBeenCalled();
+    // The engine republishes a price: the burst's ceiling drops to 10s, long past.
+    debounced.call();
+    vi.advanceTimersByTime(0);
+    expect(fn).toHaveBeenCalledTimes(1);
+    // A reservations-only stream still refreshes once its own minute is up.
+    for (let t = 0; t < 70_000; t += 500) {
+      debounced.call(60_000);
+      vi.advanceTimersByTime(500);
+    }
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
 });
