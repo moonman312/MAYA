@@ -746,6 +746,8 @@ describe("pushRatesForHotel keeps the ledger truthful", () => {
     vi.restoreAllMocks();
   });
 
+  const KING_PRICE = [PRICES_TWO[0]];
+
   function nights(count: number): Row[] {
     const out: Row[] = [];
     for (let d = 0; d < count; d++) {
@@ -826,6 +828,16 @@ describe("pushRatesForHotel keeps the ledger truthful", () => {
     expect(seen).toEqual([{ deadlineAt: expect.any(Number) }]);
     expect(res).toMatchObject({ sent: 1, failed: 0, deferred: 1 });
     expect(db.ledgerUpserts.map((r) => r.room_type_id)).toEqual(["rt-king"]);
+  });
+
+  it("stores at most 300 characters of a vendor's error", async () => {
+    const db = makeSupabaseStub({ publishedPrice: KING_PRICE, roomTypes: ROOM_TYPES, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } });
+    const { adapter } = makeAdapter(CACHED_TWO);
+    adapter.pushCells = async (cells) => cells.map((cell) => ({ cell, ok: false, error: "x".repeat(2000) }));
+
+    await pushRatesForHotel(db.supabase, "hotel-1", adapter, WIDE);
+
+    expect(db.ledgerUpserts).toEqual([expect.objectContaining({ status: "failed", error: "x".repeat(300) })]);
   });
 
   it("starts no batch once the deadline has passed", async () => {

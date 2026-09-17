@@ -897,7 +897,7 @@ async function reconcileJobOutcomes(
           price: c.cell.price,
           status: "failed",
           pms_job_reference: jobRef,
-          error: outcome.message ?? "rate job rejected",
+          error: (outcome.message ?? "rate job rejected").slice(0, 300),
           attempts: 1,
           pushed_at: nowIso,
         });
