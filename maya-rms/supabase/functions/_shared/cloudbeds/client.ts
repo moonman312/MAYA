@@ -334,8 +334,8 @@ export type CloudbedsReservation = JsonRecord;
  */
 /**
  * Fetch ONE page of getReservations for one status. The building block for
- * both the full-range loop below and the onboarding worker's checkpointed
- * historical pull (which persists its cursor between pages).
+ * the full-range loop below, and for the onboarding history import on a
+ * property that refuses getReservationsWithRateDetails.
  */
 export async function cloudbedsGetReservationsPage(
   creds: CloudbedsResolvedCredentials,
@@ -427,6 +427,12 @@ export type CloudbedsRateDetailsQuery = {
   checkOutTo?: string;
   /** Only bookings touched since this (cloudbedsTimestamp format). */
   modifiedFrom?: string;
+  /**
+   * Statuses the server should leave out, sent as one comma list. The only
+   * status filter this endpoint honours; `status` itself is ignored. The live
+   * sync omits it because it reads cancellations off the same pages.
+   */
+  excludeStatuses?: readonly string[];
 };
 
 /**
@@ -456,6 +462,7 @@ export async function cloudbedsGetReservationsWithRateDetailsPage(
     reservationCheckOutFrom: query.checkOutFrom,
     reservationCheckOutTo: query.checkOutTo,
     modifiedFrom: query.modifiedFrom,
+    excludeStatuses: query.excludeStatuses?.length ? query.excludeStatuses.join(",") : undefined,
     pageNumber,
     pageSize: CLOUDBEDS_RATE_DETAILS_PAGE_SIZE,
   });

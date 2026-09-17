@@ -111,6 +111,28 @@ describe("getReservationsWithRateDetails paging", () => {
     expect(params).not.toHaveProperty("includeGuestsDetails");
   });
 
+  it("sends excluded statuses as one comma list, the only status filter it honours", async () => {
+    const urls = captureUrls([{ data: [], total: 0 }]);
+
+    await cloudbedsGetReservationsWithRateDetailsPage(
+      CREDS,
+      { checkOutFrom: "2024-06-25", checkOutTo: "2025-06-26", excludeStatuses: ["canceled", "no_show"] },
+      3,
+    );
+
+    const params = Object.fromEntries(urls[0].searchParams);
+    expect(params).toEqual({
+      propertyID: "prop-1",
+      reservationCheckOutFrom: "2024-06-25",
+      reservationCheckOutTo: "2025-06-26",
+      excludeStatuses: "canceled,no_show",
+      pageNumber: "3",
+      pageSize: "100",
+    });
+    expect(params).not.toHaveProperty("status");
+    expect(params).not.toHaveProperty("includeGuestsDetails");
+  });
+
   it("stops on the page that reaches the total, even when it is full", async () => {
     captureUrls([{ data: Array.from({ length: 100 }, (_, i) => ({ reservationID: String(i) })), total: 200 }]);
 

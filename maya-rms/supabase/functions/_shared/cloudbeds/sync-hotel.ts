@@ -49,6 +49,7 @@ import { proposeCountsAsRoom } from "../onboarding/analysis.ts";
 import { dropUnchangedReservationRows } from "../pms/row-diff.ts";
 import { decideSyncWindow } from "../pms/sync-mode.ts";
 import { installCloudbedsRequestLogging } from "./request-log.ts";
+import { cloudbedsRateDetailsRefused } from "./rate-details-refusal.ts";
 
 const RECONCILE_IN_CHUNK = 200;
 const PAGE_GUARD = 1000;
@@ -946,21 +947,6 @@ async function pullPerBooking(args: WindowArgs): Promise<WindowPull> {
 }
 
 /**
- * Whether rate details said no in words, rather than being unreachable.
- *
- * An account can lack the endpoint or a scope it needs, and Cloudbeds answer
- * that with a success:false body or a 4xx. That is a fact about the property,
- * so the sync carries on the slow way instead of stopping. A revoked grant,
- * throttling, a 5xx or a timeout is not: those fail the run as before, and the
- * next run tries rate details again.
- */
-function rateDetailsRefused(error: unknown): error is CloudbedsHttpError {
-  if (!(error instanceof CloudbedsHttpError)) return false;
-  if (error.status === 429 || error.status >= 500 || error.status < 400) return false;
-  return !isAuthRevocation(error.status, error.message);
-}
-
-/**
  * The credentials a sync resolves before it reads anything, for a caller that
  * needs them without syncing (a rate push while the import worker holds the
  * PMS). Null when they cannot be resolved; no property discovery is attempted.
@@ -1198,7 +1184,7 @@ export async function runCloudbedsSyncForHotel(
       pull = await pullWithRateDetails(windowArgs);
     } catch (error) {
       if (error instanceof WindowWriteError) return { ok: false, error: error.message };
-      if (!rateDetailsRefused(error)) throw error;
+      if (!cloudbedsRateDetailsRefused(error)) throw error;
       rateDetailsRefusal = error.message.slice(0, 300);
       console.error(
         JSON.stringify({
