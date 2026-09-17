@@ -240,7 +240,13 @@ grant execute on function public.snapshot_cells_at(uuid, timestamptz, date, date
 -- The engine skips an audit row when a cell's outcome matches the newest row
 -- already written for it. This returns that newest row per (stay date, room
 -- type), ties on evaluated_at broken by id, with only the details fields the
--- signature reads. Served by idx_evaluation_audit_cell.
+-- signature reads.
+--
+-- It probes idx_evaluation_audit_cell once per (night, room type) for the
+-- newest row. A DISTINCT ON over the date range read and sorted every row kept
+-- for those nights (90 days of runs), and PostgREST re-ran it for each page.
+-- Only the hotel's room types are probed: the engine never asks for a cell
+-- whose room type is gone.
 -- ----------------------------------------------------------------------------
 
 create or replace function public.audit_last_signatures(
@@ -270,7 +276,7 @@ begin
   end if;
 
   return query
-  select distinct on (a.stay_date, a.room_type_id)
+  select
     a.stay_date,
     a.room_type_id,
     a.final_price,
@@ -278,11 +284,20 @@ begin
     a.details ->> 'clamped_by',
     a.details ->> 'base_source',
     a.details -> 'manual_override'
-  from public.evaluation_audit a
-  where a.hotel_id = p_hotel_id
-    and a.stay_date >= p_from
-    and a.stay_date <= p_to
-  order by a.stay_date, a.room_type_id, a.evaluated_at desc, a.id desc;
+  from generate_series(p_from::timestamp, p_to::timestamp, interval '1 day') d(day)
+  cross join (
+    select rt.id from public.room_types rt where rt.hotel_id = p_hotel_id
+  ) t
+  cross join lateral (
+    select x.*
+    from public.evaluation_audit x
+    where x.hotel_id = p_hotel_id
+      and x.stay_date = d.day::date
+      and x.room_type_id = t.id
+    order by x.evaluated_at desc, x.id desc
+    limit 1
+  ) a
+  order by 1, 2;
 end;
 $$;
 

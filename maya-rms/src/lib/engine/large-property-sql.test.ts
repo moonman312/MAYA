@@ -97,6 +97,10 @@ create table if not exists public.pickup_event (
   hotel_id uuid not null,
   rule_id uuid not null
 );
+create table if not exists public.room_types (
+  id uuid primary key default gen_random_uuid(),
+  hotel_id uuid not null
+);
 create table if not exists public.evaluation_audit (
   id uuid primary key default gen_random_uuid(),
   evaluation_run_id uuid,
@@ -400,6 +404,11 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
         [JSON.stringify(rows.slice(i, i + 1000))],
       );
     }
+    await db.exec("truncate public.room_types;");
+    await db.query(
+      `insert into public.room_types (id, hotel_id) select unnest($1::uuid[]), $2::uuid`,
+      [types, H1],
+    );
     const { client: viaSql } = fakeSupabase({});
     (viaSql as unknown as { rpc: unknown }).rpc = pgliteRpc(db);
     const { client: viaJs } = fakeSupabase(
@@ -410,6 +419,26 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
     const fromJs = await loadLastAuditSignatures(viaJs, H1, "2026-08-01", "2026-09-30");
     expect(fromSql.size).toBeGreaterThan(50);
     expect(fromSql).toEqual(fromJs);
+
+    // The per-cell probe returns exactly what the DISTINCT ON it replaced did.
+    await db.exec("select set_config('request.jwt.claim.role', 'service_role', false);");
+    const probe = await db.query(
+      `select stay_date, room_type_id, final_price, application_order, clamped_by, base_source, manual_override
+       from public.audit_last_signatures($1::uuid, '2026-08-01', '2026-09-30')`,
+      [H1],
+    );
+    const distinctOn = await db.query(
+      `select distinct on (a.stay_date, a.room_type_id)
+         a.stay_date, a.room_type_id, a.final_price, a.details -> 'application_order' as application_order,
+         a.details ->> 'clamped_by' as clamped_by, a.details ->> 'base_source' as base_source,
+         a.details -> 'manual_override' as manual_override
+       from public.evaluation_audit a
+       where a.hotel_id = $1::uuid and a.stay_date between '2026-08-01' and '2026-09-30'
+       order by a.stay_date, a.room_type_id, a.evaluated_at desc, a.id desc`,
+      [H1],
+    );
+    expect(probe.rows.length).toBeGreaterThan(50);
+    expect(probe.rows).toEqual(distinctOn.rows);
   }, 120_000);
 
   it("room_type_max_rates equals each type's maximum over the same rows", async () => {
