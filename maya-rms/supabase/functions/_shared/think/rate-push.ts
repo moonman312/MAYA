@@ -12,6 +12,9 @@
  * a queue that quietly drops a batch. The sandbox's queue did exactly that
  * during testing, so until Think confirms the row contract the shape here is
  * the strongest available guess: it round-trips what GET /daily returns.
+ * With no job to ask about, a 202 is never taken as applied: the send counts
+ * as settled only once the base rate refresh reads its price back
+ * (pms-edits.ts).
  */
 
 import {

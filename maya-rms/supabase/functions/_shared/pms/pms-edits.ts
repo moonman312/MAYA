@@ -13,9 +13,12 @@
  *   - the hotel is live (a simulating hotel sends nothing);
  *   - its ledger row is 'sent': not a send still marked in progress, a
  *     refused or rejected send, a job never confirmed, or a skip;
- *   - that send is settled: its job confirmed (rate_updates.confirmed_at,
- *     stamped by the push when the vendor reports it applied) or accepted by
- *     a vendor with no job to ask about ("accepted:");
+ *   - that send is settled (rate_updates.confirmed_at): the vendor reported
+ *     its job applied (the push stamps that), or a read here found its price
+ *     in the PMS (this stamps that). A vendor's word that it took the rates
+ *     is not enough. Think answers 202 and applies them later, and its queue
+ *     has dropped a batch: an earlier price of MAYA's still in the PMS under
+ *     a later one that never landed looks exactly like a hotel's change;
  *   - it went out at least the settle window ago (MAYA_PMS_EDIT_SETTLE_MINUTES,
  *     60 by default), so a PMS still catching up is not read as a change;
  *   - it went to the rate this read quoted (same room type, same rate id): a
@@ -23,9 +26,6 @@
  *   - the PMS rate differs from the price sent by more than half a cent, and
  *     is not that price rounded to a whole unit (a PMS keeping whole units,
  *     or a currency without cents);
- *   - for a send nobody can confirm, the PMS rate is not the hotel's own rate
- *     from before MAYA sent (base_rate_calendar): a batch the vendor dropped
- *     looks exactly like that;
  *   - no open manual price is at that rate already, and no price typed in
  *     MAYA after the send is still on its way there;
  *   - not every settled night read differs by one and the same ratio. That is
@@ -33,18 +33,24 @@
  *     included, a markup), not a person editing nights, and adopting would
  *     freeze the whole window. Nothing is adopted and the count is logged.
  *
- * A night whose PMS rate already equals its open manual price is not a change
- * either. When the push held that very price back (a comp night's 0 MAYA
- * would not send, which the hotel then set by hand) and the send under the
- * hold has settled, the ledger is brought in step, so the push stops trying
- * to send what is already there. A sent row is left as it is: its price may
- * be a rule stacked on the manual price, and the push would then write that
- * over the PMS.
+ * When the push held a night's manual price back (a comp night's 0 MAYA
+ * would not send) and the hotel then set that price by hand, the ledger is
+ * brought in step, so the push stops trying to send what is already there.
+ *
+ * A night whose PMS rate equals its open manual price while MAYA's settled
+ * send there was another number is a change like any other. MAYA sent a
+ * rule stacked on the manual price, and the hotel set the manual price back
+ * by hand: taking it again suppresses that rule, so MAYA publishes what the
+ * hotel set rather than keep counting its own price as there.
  *
  * After adopting, the ledger row says the PMS holds the rate (price and
  * sent_price, pms_edited_at stamped), so the evaluation that follows in the
  * same tick publishes the PMS rate and the push finds nothing to send. The
  * send's job reference and confirmation stay as they were.
+ *
+ * A send never confirmed or read back is never settled, so a change the
+ * hotel made before MAYA first saw its price there is not taken; nor is one
+ * on a night whose last send never landed.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -86,8 +92,6 @@ export type PushedNightRead = {
   externalRoomTypeId: string;
   /** What the PMS quotes for the night now. */
   pmsRate: number;
-  /** base_rate_calendar's rate for the night: the hotel's own from before MAYA sent to it. */
-  storedBase: number | null;
   /** The night's rate_updates row, with the settle columns. */
   ledger: Record<string, unknown>;
 };
@@ -99,6 +103,8 @@ export type PmsEditPlan = {
   edits: { read: PushedNightRead; price: number }[];
   /** Nights the push holds back at their open manual price, which the PMS has already. */
   inStep: { read: PushedNightRead; price: number }[];
+  /** Sends not settled yet whose price the PMS has: settled now. */
+  landed: PushedNightRead[];
   /** Differ from MAYA's last send, which is not settled or not old enough yet. */
   waiting: number;
   /** Differ, with a price typed in MAYA since the send still to go out. */
@@ -115,7 +121,7 @@ export function planPmsEdits(input: {
   nowMs: number;
   settleMs: number;
 }): PmsEditPlan {
-  const plan: PmsEditPlan = { edits: [], inStep: [], waiting: 0, typedSinceSend: 0, systematic: 0 };
+  const plan: PmsEditPlan = { edits: [], inStep: [], landed: [], waiting: 0, typedSinceSend: 0, systematic: 0 };
   // Settled, old enough and sent to the rate read: the nights a change can be told on.
   const comparable: { pmsRate: number; sent: number }[] = [];
 
@@ -129,29 +135,27 @@ export function planPmsEdits(input: {
       String(l.external_room_type_id ?? "") === r.externalRoomTypeId;
     const pushedAtMs = l.pushed_at != null ? Date.parse(String(l.pushed_at)) : NaN;
     const oldEnough = pushedAtMs <= input.nowMs - input.settleMs;
-    const ref = l.pms_job_reference != null ? String(l.pms_job_reference) : "";
-    const accepted = ref.startsWith("accepted:");
     const sent = l.status === "sent";
-    const settled = sent && (accepted || l.confirmed_at != null);
+    const settled = sent && l.confirmed_at != null;
     const ledgerPrice = l.price != null ? Number(l.price) : NaN;
     const manual = input.manual.get(key);
 
-    if (manual && Number.isFinite(manual.price) && pmsHoldsPrice(r.pmsRate, manual.price)) {
-      const heldBackThisPrice = l.status === "skipped" && !ratesDiffer(ledgerPrice, manual.price);
+    if (l.status === "skipped" && manual && Number.isFinite(manual.price) && pmsHoldsPrice(r.pmsRate, manual.price)) {
+      const heldBackThisPrice = !ratesDiffer(ledgerPrice, manual.price);
       if (heldBackThisPrice && sameTarget && oldEnough) plan.inStep.push({ read: r, price: manual.price });
       continue;
     }
 
     if (!sent || !Number.isFinite(ledgerPrice)) continue;
     if (!sameTarget) continue;
+    const holds = pmsHoldsPrice(r.pmsRate, ledgerPrice);
+    if (holds && !settled) plan.landed.push(r);
     if (!settled || !oldEnough) {
-      if (!pmsHoldsPrice(r.pmsRate, ledgerPrice)) plan.waiting += 1;
+      if (!holds) plan.waiting += 1;
       continue;
     }
     comparable.push({ pmsRate: r.pmsRate, sent: ledgerPrice });
-    if (pmsHoldsPrice(r.pmsRate, ledgerPrice)) continue;
-    // Nobody confirmed the send landed, and the PMS still has the hotel's rate from before it.
-    if (accepted && r.storedBase != null && !ratesDiffer(r.pmsRate, r.storedBase)) continue;
+    if (holds) continue;
     if (manual && manual.source === "maya" && manual.setAtMs > pushedAtMs && ratesDiffer(manual.price, ledgerPrice)) {
       plan.typedSinceSend += 1;
       continue;
@@ -182,20 +186,23 @@ function oneRatio(nights: { pmsRate: number; sent: number }[]): boolean {
 export type PmsEditsResult = {
   adopted: number;
   inStep: number;
+  /** Sends found in the PMS and stamped settled. */
+  landed: number;
   suppressedRules: number;
   retiredPickups: number;
 };
 
 /**
- * Adopt the plan's edits as manual prices and bring the ledger in step with
- * what the PMS holds. `at` is the tick's instant: set_at, and the evaluation
- * that follows prices at it. Throws the database's error on a failed write.
+ * Adopt the plan's edits as manual prices, bring the ledger in step with what
+ * the PMS holds, and stamp the sends it found there as settled. `at` is the
+ * tick's instant: set_at, and the evaluation that follows prices at it.
+ * Throws the database's error on a failed write.
  */
 export async function applyPmsEdits(
   supabase: SupabaseClient,
   hotelId: string,
   pmsType: string,
-  plan: Pick<PmsEditPlan, "edits" | "inStep">,
+  plan: Pick<PmsEditPlan, "edits" | "inStep" | "landed">,
   at: string,
 ): Promise<PmsEditsResult> {
   let reset = { suppressedRules: 0, retiredPickups: 0 };
@@ -230,14 +237,39 @@ export async function applyPmsEdits(
       pms_edited_at: at,
     };
   });
-  for (let i = 0; i < rows.length; i += 500) {
-    const error = await upsertLedger(supabase, rows.slice(i, i + 500));
-    if (error) throw new Error(`Failed to record PMS rates in the ledger: ${error.message}`);
+  // The row as it was read, now settled. Written whole, as the ledger's
+  // upserts all are; the tick holds the hotel's lease, so nothing wrote it since.
+  const landed = plan.landed.map((read) => {
+    const l = read.ledger;
+    return {
+      hotel_id: hotelId,
+      pms_type: l.pms_type != null ? String(l.pms_type) : pmsType,
+      room_type_id: read.roomTypeId,
+      external_room_type_id: read.externalRoomTypeId,
+      stay_date: read.stayDate,
+      price: Number(l.price),
+      external_rate_id: l.external_rate_id != null ? String(l.external_rate_id) : null,
+      status: "sent",
+      pms_job_reference: l.pms_job_reference != null ? String(l.pms_job_reference) : null,
+      error: null,
+      attempts: l.attempts != null ? Number(l.attempts) : 1,
+      pushed_at: l.pushed_at != null ? String(l.pushed_at) : null,
+      sent_price: l.sent_price != null ? Number(l.sent_price) : Number(l.price),
+      confirmed_at: at,
+      pms_edited_at: l.pms_edited_at != null ? String(l.pms_edited_at) : null,
+    };
+  });
+  for (const batch of [rows, landed]) {
+    for (let i = 0; i < batch.length; i += 500) {
+      const error = await upsertLedger(supabase, batch.slice(i, i + 500));
+      if (error) throw new Error(`Failed to record PMS rates in the ledger: ${error.message}`);
+    }
   }
 
   return {
     adopted: plan.edits.length,
     inStep: plan.inStep.length,
+    landed: plan.landed.length,
     suppressedRules: reset.suppressedRules,
     retiredPickups: reset.retiredPickups,
   };
@@ -245,11 +277,13 @@ export async function applyPmsEdits(
 
 /**
  * The refresh's step: find this hotel's hand edits among the nights MAYA has
- * sent to and adopt them. Reads nothing more unless some night's PMS rate
- * differs from its ledger row or the row is a skip, and adopts nothing for a
- * hotel that is not live or a database without the columns that say where a
- * price came from. Logs one line of counts when there was anything to count.
- * Never throws: a failed write is logged and the next refresh looks again.
+ * sent to and adopt them, and stamp the sends it finds in the PMS as settled.
+ * Reads nothing more unless some night's PMS rate differs from its ledger
+ * row, the row is a skip, or its send is not settled yet, and does nothing
+ * for a hotel that is not live or a database without the columns that say
+ * where a price came from. Logs one line of counts when there was anything
+ * to count. Never throws: a failed write is logged and the next refresh
+ * looks again.
  */
 export async function adoptPmsEdits(
   supabase: SupabaseClient,
@@ -260,11 +294,13 @@ export async function adoptPmsEdits(
   window: { firstDate: string; lastDate: string },
   at: string,
 ): Promise<PmsEditsResult> {
-  const none: PmsEditsResult = { adopted: 0, inStep: 0, suppressedRules: 0, retiredPickups: 0 };
+  const none: PmsEditsResult = { adopted: 0, inStep: 0, landed: 0, suppressedRules: 0, retiredPickups: 0 };
   const inWindow = reads.filter((r) => r.stayDate >= window.firstDate && r.stayDate <= window.lastDate);
   const worthALook = inWindow.some((r) =>
     r.ledger.status === "skipped" ||
-    (r.ledger.status === "sent" && r.ledger.price != null && !pmsHoldsPrice(r.pmsRate, Number(r.ledger.price)))
+    (r.ledger.status === "sent" &&
+      r.ledger.price != null &&
+      (r.ledger.confirmed_at == null || !pmsHoldsPrice(r.pmsRate, Number(r.ledger.price))))
   );
   if (!worthALook) return none;
 
@@ -283,7 +319,9 @@ export async function adoptPmsEdits(
     if (!manual) return none;
     plan = planPmsEdits({ reads: inWindow, targets, manual, nowMs: Date.parse(at), settleMs: pmsEditSettleMs() });
     const result =
-      plan.edits.length > 0 || plan.inStep.length > 0 ? await applyPmsEdits(supabase, hotelId, pmsType, plan, at) : none;
+      plan.edits.length > 0 || plan.inStep.length > 0 || plan.landed.length > 0
+        ? await applyPmsEdits(supabase, hotelId, pmsType, plan, at)
+        : none;
     logPlan(hotelId, pmsType, plan, result);
     return result;
   } catch (e) {
@@ -349,7 +387,7 @@ async function readOpenManualPrices(
 
 /** One line per hotel per refresh, counts only. */
 function logPlan(hotelId: string, pmsType: string, plan: PmsEditPlan, result: PmsEditsResult): void {
-  if (plan.edits.length + plan.inStep.length + plan.waiting + plan.typedSinceSend + plan.systematic === 0) return;
+  if (plan.edits.length + plan.inStep.length + plan.landed.length + plan.waiting + plan.typedSinceSend + plan.systematic === 0) return;
   console.log(
     JSON.stringify({
       fn: "adoptPmsEdits",
@@ -358,6 +396,7 @@ function logPlan(hotelId: string, pmsType: string, plan: PmsEditPlan, result: Pm
       found: plan.edits.length,
       adopted: result.adopted,
       inStep: result.inStep,
+      landed: result.landed,
       suppressedRules: result.suppressedRules,
       retiredPickups: result.retiredPickups,
       waiting: plan.waiting,

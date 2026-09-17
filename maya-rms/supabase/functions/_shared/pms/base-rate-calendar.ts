@@ -51,7 +51,8 @@
  * captured either: it is adopted as a manual price for that night
  * (pms-edits.ts), once MAYA's own send there has settled. That happens here,
  * before the tick evaluates, so the same tick publishes the hotel's rate and
- * the push has nothing to send.
+ * the push has nothing to send. A send whose price this read finds in the
+ * PMS is stamped settled here too.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -239,7 +240,6 @@ async function seedWithTargets(
           roomTypeId,
           externalRoomTypeId: e.externalRoomTypeId,
           pmsRate: e.price,
-          storedBase: was ?? null,
           ledger: pushedCells.get(key)!,
         });
         continue;
@@ -293,10 +293,11 @@ async function seedWithTargets(
 }
 
 /**
- * The window's ledger rows. sent_price and the settle columns (confirmed_at)
- * are read too, and left out on a database the push guardrails migration has
- * not given them to yet: only sent rows then say what MAYA put in the PMS, and
- * `settleKnown` is false, so no night is taken as changed in the PMS.
+ * The window's ledger rows. sent_price and the settle columns (confirmed_at,
+ * pms_edited_at) are read too, and left out on a database the push guardrails
+ * migration has not given them to yet: only sent rows then say what MAYA put
+ * in the PMS, and `settleKnown` is false, so no night is taken as changed in
+ * the PMS.
  */
 async function readPushedCells(
   supabase: SupabaseClient,
@@ -311,7 +312,7 @@ async function readPushedCells(
   const base =
     "stay_date, room_type_id, price, status, attempts, pushed_at, pms_type, external_room_type_id, external_rate_id, pms_job_reference";
   try {
-    return { rows: await read(`${base}, sent_price, confirmed_at`), settleKnown: true };
+    return { rows: await read(`${base}, sent_price, confirmed_at, pms_edited_at`), settleKnown: true };
   } catch (e) {
     if (!isMissingColumnError(e)) throw e;
     return { rows: await read(base), settleKnown: false };

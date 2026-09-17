@@ -65,19 +65,23 @@
 -- 8. A rate the hotel changes in its PMS on a night MAYA has sent to becomes a
 --    manual price at that rate (_shared/pms/pms-edits.ts), so MAYA stops
 --    writing over it. rate_updates.confirmed_at says a send is settled: the
---    push stamps it when the vendor reports the send's job applied. Only a
---    settled send an hour old lets a different PMS rate count as the hotel's
---    change; a synchronous vendor's accepted send ("accepted:") needs no
---    stamp. rate_updates.pms_edited_at says when the ledger was brought in
---    step with a rate read in the PMS. manual_price.source ('maya' or 'pms')
---    and manual_price.pms_type say where a manual price came from; a PMS
---    change has no set_by, and set_manual_prices_from_pms writes it with its
---    reset (effects suppressed, pickups retired) in one transaction. The
---    manual_price.set product event stays a price typed in MAYA, and a PMS
---    change is manual_price.changed_in_pms. Sends
---    from before this carry no stamp and are not backfilled: nobody knows
---    which of them applied, so a change on those nights is left alone until
---    MAYA sends to them again.
+--    push stamps it when the vendor reports the send's job applied, and the
+--    base rate refresh stamps it when it reads the send's price back in the
+--    PMS. A vendor only accepting a send is not enough: Think answers 202
+--    ("accepted:") and applies the rates later, and its queue has dropped a
+--    batch. Only a settled send an hour old lets a different PMS rate count
+--    as the hotel's change. rate_updates.pms_edited_at says when the ledger
+--    was brought in step with a rate read in the PMS. manual_price.source
+--    ('maya' or 'pms') and manual_price.pms_type say where a manual price
+--    came from; a PMS change has no set_by, and set_manual_prices_from_pms
+--    writes it with its reset (effects suppressed, pickups retired) in one
+--    transaction. The manual_price.set product event stays a price typed in
+--    MAYA, and a PMS change is manual_price.changed_in_pms. Sends from before
+--    this carry no stamp and are not backfilled: nobody knows which of them
+--    applied. The first refresh that finds one's price in the PMS stamps it,
+--    and only a change after that is taken. A night the PMS already has at
+--    another rate when this is deployed is left alone until MAYA sends to it
+--    again, on Cloudbeds and Think alike.
 --
 -- Before deploying, run the zero-base check at the end of this file: nights
 -- an earlier push opened at the floor while the PMS had them at 0.
@@ -198,9 +202,10 @@ alter table public.rate_updates
   add column if not exists pms_edited_at timestamptz;
 
 comment on column public.rate_updates.confirmed_at is
-  'When the vendor reported this row''s send applied (its job confirmed). A sent row '
-  'with it, or with an "accepted:" reference, is settled: only then can a different '
-  'rate in the PMS be taken as the hotel''s own change. Null on every new send.';
+  'When this row''s send was known to be in the PMS: the vendor reported its job applied, '
+  'or the base rate refresh read its price there. A sent row with it is settled: only '
+  'then can a different rate in the PMS be taken as the hotel''s own change. An '
+  '"accepted:" reference alone is not. Null on every new send.';
 comment on column public.rate_updates.pms_edited_at is
   'When the ledger was brought in step with a rate read in the PMS: a change the hotel '
   'made there (adopted as a manual price), or a manual price the PMS already had. '

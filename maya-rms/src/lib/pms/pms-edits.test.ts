@@ -29,7 +29,6 @@ function read(over: Partial<PushedNightRead> & { ledger?: Record<string, unknown
     roomTypeId: "rt-king",
     externalRoomTypeId: "CB-KING",
     pmsRate: 250,
-    storedBase: 200,
     ...over,
     ledger: {
       status: "sent",
@@ -75,10 +74,11 @@ describe("pmsHoldsPrice", () => {
 });
 
 describe("planPmsEdits", () => {
-  it("adopts a settled send the hotel changed, confirmed or accepted by a vendor with no job to ask about", () => {
+  it("adopts a settled send the hotel changed, confirmed by its vendor or found in the PMS since", () => {
     const p = plan([
       read(),
-      read({ stayDate: "2026-10-06", ledger: { pms_job_reference: "accepted:202", confirmed_at: null } }),
+      // Think: no job to ask about, and a refresh an hour ago read the price back.
+      read({ stayDate: "2026-10-06", ledger: { pms_job_reference: "accepted:202", confirmed_at: hoursAgo(1) } }),
       read({ stayDate: "2026-10-07", pmsRate: 199.999 }),
     ]);
     expect(p.edits.map((e) => [e.read.stayDate, e.price])).toEqual([
@@ -86,6 +86,37 @@ describe("planPmsEdits", () => {
       ["2026-10-06", 250],
       ["2026-10-07", 200],
     ]);
+  });
+
+  it("never takes a send the vendor only accepted as settled, so a batch it dropped is not a hotel's change", () => {
+    // MAYA sent 220 to a Think night and it landed; later it sent 240, which
+    // Think answered 202 for and never applied. The PMS still has 220.
+    const dropped = read({ pmsRate: 220, ledger: { price: 240, sent_price: 240, pms_job_reference: "accepted:202", confirmed_at: null, pushed_at: hoursAgo(3) } });
+    expect(plan([dropped])).toMatchObject({ edits: [], landed: [], waiting: 1 });
+    // Still queued, or a hotel's change made before MAYA saw its own price there: the same.
+    expect(plan([read({ ledger: { pms_job_reference: "accepted:202", confirmed_at: null } })])).toMatchObject({ edits: [], waiting: 1 });
+    // Every older send has no stamp: none is taken on the first refresh after deploy.
+    const older = Array.from({ length: 15 }, (_, i) =>
+      read({ stayDate: `2026-10-${String(i + 10).padStart(2, "0")}`, pmsRate: 300 + i, ledger: { pms_job_reference: i % 2 ? "accepted:202" : "job-1", confirmed_at: null, pushed_at: hoursAgo(72) } }),
+    );
+    expect(plan(older)).toMatchObject({ edits: [], waiting: 15 });
+  });
+
+  it("stamps a send whose price the PMS has as settled, and takes a change after that", () => {
+    const unstamped = { pms_job_reference: "accepted:202", confirmed_at: null };
+    const p = plan([
+      read({ pmsRate: 220, ledger: unstamped }),
+      // Rounded to a whole unit by the PMS: there too.
+      read({ stayDate: "2026-10-06", pmsRate: 220, ledger: { ...unstamped, price: 219.6, sent_price: 219.6 } }),
+      // Minutes old: found there all the same.
+      read({ stayDate: "2026-10-07", pmsRate: 220, ledger: { ...unstamped, pushed_at: hoursAgo(0.1) } }),
+      // Already stamped, to another rate, or not a send.
+      read({ stayDate: "2026-10-08", pmsRate: 220 }),
+      read({ stayDate: "2026-10-09", pmsRate: 220, ledger: { ...unstamped, external_rate_id: "rate-old" } }),
+      read({ stayDate: "2026-10-10", pmsRate: 220, ledger: { ...unstamped, status: "failed", error: "send in progress" } }),
+    ]);
+    expect(p.landed.map((r) => r.stayDate)).toEqual(["2026-10-05", "2026-10-06", "2026-10-07"]);
+    expect(p.edits).toEqual([]);
   });
 
   it("takes a comp night the hotel set to 0 in the PMS as an edit", () => {
@@ -108,7 +139,7 @@ describe("planPmsEdits", () => {
       ["a send with no rate id on record", read({ ledger: { external_rate_id: null } })],
       ["a send to another room type id", read({ ledger: { external_room_type_id: "CB-OLD" } })],
       ["a room type the read has no target for", read({ externalRoomTypeId: "CB-SUITE", ledger: { external_room_type_id: "CB-SUITE" } })],
-      ["an unconfirmable send the PMS may have dropped", read({ pmsRate: 200, ledger: { pms_job_reference: "accepted:202", confirmed_at: null } })],
+      ["an accepted send never found in the PMS", read({ pmsRate: 200, ledger: { pms_job_reference: "accepted:202", confirmed_at: null } })],
       ["a negative rate", read({ pmsRate: -5 })],
     ];
     for (const [label, r] of cases) {
@@ -123,15 +154,9 @@ describe("planPmsEdits", () => {
 
   it("leaves a night whose open manual price is the PMS rate already, and brings a hold at that price in step", () => {
     const key = "2026-10-05|rt-king";
-    // Typed in MAYA and in the PMS alike: not a change, and the sent row stays as it is.
+    // Typed in MAYA since the send, and in the PMS alike: not a change, and the sent row stays as it is.
     const same = plan([read()], { [key]: { price: 250, source: "maya", setAtMs: NOW - 30 * 60_000 } });
-    expect(same).toMatchObject({ edits: [], inStep: [] });
-    // A rule stacked on the manual price went out as 275, and the hotel set the manual price back by hand:
-    // rewriting the ledger to 250 would have the push send 275 over it.
-    expect(plan([read({ ledger: { price: 275 } })], { [key]: { price: 250, source: "pms", setAtMs: NOW - 5 * 3_600_000 } })).toMatchObject({
-      edits: [],
-      inStep: [],
-    });
+    expect(same).toMatchObject({ edits: [], inStep: [], typedSinceSend: 1 });
 
     // A comp night MAYA would not send, set to 0 in the PMS by hand: the hold goes in step.
     const zeroHold = { status: "skipped", error: "guardrail:zero_rate_unsupported", price: 0 };
@@ -143,6 +168,19 @@ describe("planPmsEdits", () => {
     expect(plan([read({ pmsRate: 0, ledger: { ...zeroHold, price: 20 } })], zeroManual).inStep).toEqual([]);
     expect(plan([read({ pmsRate: 0, ledger: { ...zeroHold, pushed_at: hoursAgo(0.2) } })], zeroManual).inStep).toEqual([]);
     expect(plan([read({ pmsRate: 0, ledger: { ...zeroHold, external_rate_id: "rate-old" } })], zeroManual).inStep).toEqual([]);
+  });
+
+  it("takes a manual price the hotel set back by hand over the rule MAYA stacked on it", () => {
+    const key = "2026-10-05|rt-king";
+    // A +10% rule stacked on a manual price of 250 went out as 275 and settled; the hotel set 250 again.
+    for (const source of ["pms", "maya"] as const) {
+      const p = plan([read({ pmsRate: 250, ledger: { price: 275, sent_price: 275 } })], { [key]: { price: 250, source, setAtMs: NOW - 5 * 3_600_000 } });
+      expect({ source, edits: p.edits.map((e) => e.price) }).toEqual({ source, edits: [250] });
+    }
+    // Not while the 275 is still settling, or never confirmed.
+    const manual = { [key]: { price: 250, source: "pms" as const, setAtMs: NOW - 5 * 3_600_000 } };
+    expect(plan([read({ ledger: { price: 275, pushed_at: hoursAgo(0.5) } })], manual).edits).toEqual([]);
+    expect(plan([read({ ledger: { price: 275, confirmed_at: null } })], manual).edits).toEqual([]);
   });
 
   it("does not adopt over a price typed in MAYA after the send that is still on its way", () => {
@@ -216,7 +254,7 @@ describe("adoptPmsEdits", () => {
       AT,
     );
 
-    expect(res).toEqual({ adopted: 1, inStep: 0, suppressedRules: 1, retiredPickups: 1 });
+    expect(res).toEqual({ adopted: 1, inStep: 0, landed: 0, suppressedRules: 1, retiredPickups: 1 });
     expect(d.tables.manual_price).toEqual([
       expect.objectContaining({ hotel_id: "h1", stay_date: "2026-10-05", room_type_id: "rt-king", price: 250, source: "pms", pms_type: "cloudbeds", set_by: null, note: null, set_at: AT, cleared_at: null }),
     ]);
@@ -231,7 +269,30 @@ describe("adoptPmsEdits", () => {
     // One line, counts only.
     const lines = log.mock.calls.map((c) => JSON.parse(String(c[0]))).filter((l) => l.fn === "adoptPmsEdits");
     expect(lines).toEqual([
-      { fn: "adoptPmsEdits", hotelId: "h1", pmsType: "cloudbeds", found: 1, adopted: 1, inStep: 0, suppressedRules: 1, retiredPickups: 1, waiting: 1, typedSinceSend: 0, systematic: 0 },
+      { fn: "adoptPmsEdits", hotelId: "h1", pmsType: "cloudbeds", found: 1, adopted: 1, inStep: 0, landed: 0, suppressedRules: 1, retiredPickups: 1, waiting: 1, typedSinceSend: 0, systematic: 0 },
+    ]);
+  });
+
+  it("stamps the sends it finds in the PMS as settled, keeping the rest of the row", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const d = db();
+    const unstamped = { pms_job_reference: "accepted:202", pms_type: "think", confirmed_at: null, pms_edited_at: hoursAgo(30) };
+    const res = await adoptPmsEdits(
+      d.client,
+      "h1",
+      "think",
+      [read({ pmsRate: 220, ledger: unstamped }), read({ stayDate: "2026-10-06", pmsRate: 230, ledger: unstamped })],
+      TARGETS,
+      WINDOW,
+      AT,
+    );
+    expect(res).toEqual({ adopted: 0, inStep: 0, landed: 1, suppressedRules: 0, retiredPickups: 0 });
+    expect(d.tables.manual_price).toEqual([]);
+    expect(d.tables.rate_updates).toEqual([
+      expect.objectContaining({
+        stay_date: "2026-10-05", status: "sent", price: 220, sent_price: 220, pms_job_reference: "accepted:202", pms_type: "think",
+        pushed_at: hoursAgo(2), attempts: 1, confirmed_at: AT, pms_edited_at: hoursAgo(30),
+      }),
     ]);
   });
 
@@ -448,6 +509,24 @@ describe("a rate changed in the PMS, through the tick", () => {
     expect(d.tables.manual_price).toEqual([expect.objectContaining({ price: 0, source: "pms" })]);
     expect(published(d)).toBe(0);
     expect(sent).toEqual([]);
+  });
+
+  it("never takes a Think batch that was accepted and dropped for a change, and settles a send once it reads the price back", async () => {
+    // MAYA's 220 landed; its later 242 was answered 202 and never applied.
+    const dropped = settledSend(242, { pms_job_reference: "accepted:202", confirmed_at: null, pushed_at: new Date(T0 - 3 * 3_600_000).toISOString() });
+    const { d, tick, setPmsRate } = setup([dropped]);
+    setPmsRate(220);
+    const first = await tick(T0);
+    expect(first.pmsEditsAdopted).toBe(0);
+    expect(d.tables.manual_price).toEqual([]);
+    expect(d.tables.ladder_rule_state[0].suppressed_at).toBeNull();
+
+    // A later read finds MAYA's price there: that send is settled from then.
+    const later = setup([settledSend(242, { pms_job_reference: "accepted:202", confirmed_at: null })]);
+    later.setPmsRate(242);
+    await later.tick(T0);
+    const stamps = later.d.calls.filter((c) => c.table === "rate_updates" && c.op === "upsert").flatMap((c) => c.payload as FakeRow[]);
+    expect(stamps[0]).toMatchObject({ price: 242, status: "sent", confirmed_at: new Date(T0).toISOString() });
   });
 
   it("does not adopt a night whose manual price is already the PMS rate", async () => {

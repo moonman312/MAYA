@@ -430,7 +430,7 @@ export async function pushRatesForHotel(
       sentAttempts.set(key, Number(l.attempts) || 1);
       const ref = l.pms_job_reference != null ? String(l.pms_job_reference) : "";
       const pushedAt = l.pushed_at != null ? Date.parse(String(l.pushed_at)) : NaN;
-      // "accepted:" is a synchronous vendor's stand-in, not a job to look up.
+      // "accepted:" is a vendor with no job to look up (Think's 202).
       if (ref && !ref.startsWith("accepted:") && pushedAt >= lookbackFrom) {
         recentlySent.push({
           key,
@@ -1340,11 +1340,11 @@ function logTargetsWriteFailed(hotelId: string, pmsType: string, step: "cache" |
 
 /**
  * Stamps confirmed_at on the sent rows of jobs the vendor reported as
- * applied. A send is settled once stamped (or once a synchronous vendor
- * accepted it, "accepted:"), and only a settled send lets the base rate
- * refresh take a different rate in the PMS as the hotel's own change. True
- * when written, or when there is no column to write to yet; false leaves the
- * jobs undecided so the next tick asks again.
+ * applied. A send is settled once stamped, here or by the base rate refresh
+ * finding its price in the PMS (pms-edits.ts), and only a settled send lets
+ * the refresh take a different rate in the PMS as the hotel's own change.
+ * True when written, or when there is no column to write to yet; false
+ * leaves the jobs undecided so the next tick asks again.
  */
 async function stampConfirmed(
   supabase: SupabaseClient,
