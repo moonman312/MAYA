@@ -427,10 +427,27 @@ describe("adoptPmsEdits", () => {
     }
   });
 
-  it("reads nothing more when every night still has MAYA's price", async () => {
-    const d = db();
+  it("reads nothing but the hotel's settings when every night still has MAYA's price, known there since it went live", async () => {
+    const d = db({ hotel_settings: [{ hotel_id: "h1", simulation_mode: false, live_since: hoursAgo(3) }] });
     await adoptPmsEdits(d.client, "h1", "cloudbeds", [read({ pmsRate: 220 })], TARGETS, WINDOW, AT);
-    expect(d.calls).toEqual([]);
+    expect(d.calls.map((c) => c.table)).toEqual(["hotel_settings"]);
+    // Nothing sent or held: not even that.
+    const none = db();
+    await adoptPmsEdits(none.client, "h1", "cloudbeds", [read({ ledger: { status: "failed", error: "send in progress" } })], TARGETS, WINDOW, AT);
+    expect(none.calls).toEqual([]);
+  });
+
+  it("stamps again a send known there only from before the hotel last went live, so a change after going live is the hotel's", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const d = db({ hotel_settings: [{ hotel_id: "h1", simulation_mode: false, live_since: hoursAgo(1) }] });
+    // Every night still has MAYA's price; the only stamp is from before going live.
+    await adoptPmsEdits(d.client, "h1", "cloudbeds", [read({ pmsRate: 220 })], TARGETS, WINDOW, AT);
+    expect(d.tables.rate_updates).toEqual([expect.objectContaining({ price: 220, confirmed_at: AT })]);
+
+    // An hour on, the hotel changes it: taken as its change, not as a base.
+    const later = new Date(NOW + 3_600_000).toISOString();
+    const res = await adoptPmsEdits(d.client, "h1", "cloudbeds", [read({ pmsRate: 250, ledger: { confirmed_at: AT } })], TARGETS, WINDOW, later);
+    expect(res).toMatchObject({ adopted: 1, rebased: 0 });
   });
 
   it("leaves a night outside the window alone", async () => {

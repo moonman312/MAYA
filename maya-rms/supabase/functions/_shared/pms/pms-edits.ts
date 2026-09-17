@@ -463,12 +463,12 @@ async function closeNights(
 /**
  * The refresh's step: find this hotel's hand edits among the nights MAYA has
  * sent to and adopt them, and stamp the sends it finds in the PMS as settled.
- * Reads nothing more unless some night's PMS rate differs from its ledger
- * row, the row is a skip, or its send is not settled yet, and does nothing
- * for a hotel that is not live or a database without the columns that say
- * where a price came from. Logs one line of counts when there was anything
- * to count. Never throws: a failed write is logged and the next refresh
- * looks again.
+ * Reads the hotel's settings, and nothing more unless some night's PMS rate
+ * differs from its ledger row, the row is a skip, or its send is not known
+ * to be there since the hotel went live. Does nothing for a hotel that is
+ * not live or a database without the columns that say where a price came
+ * from. Logs one line of counts when there was anything to count. Never
+ * throws: a failed write is logged and the next refresh looks again.
  */
 export async function adoptPmsEdits(
   supabase: SupabaseClient,
@@ -490,14 +490,10 @@ export async function adoptPmsEdits(
     retiredPickups: 0,
     movedCells: [],
   };
-  const inWindow = reads.filter((r) => r.stayDate >= window.firstDate && r.stayDate <= window.lastDate);
-  const worthALook = inWindow.some((r) =>
-    r.ledger.status === "skipped" ||
-    (r.ledger.status === "sent" &&
-      r.ledger.price != null &&
-      (r.ledger.confirmed_at == null || !pmsHoldsPrice(r.pmsRate, Number(r.ledger.price))))
+  const inWindow = reads.filter((r) =>
+    r.stayDate >= window.firstDate && r.stayDate <= window.lastDate && (r.ledger.status === "sent" || r.ledger.status === "skipped")
   );
-  if (!worthALook) return none;
+  if (inWindow.length === 0) return none;
 
   let plan: PmsEditPlan | null = null;
   try {
@@ -512,6 +508,18 @@ export async function adoptPmsEdits(
     }
     // A missing row is simulation, as the push reads it.
     if (settings?.simulation_mode !== false) return none;
+    const liveSinceMs = settings.live_since != null ? Date.parse(String(settings.live_since)) : NaN;
+
+    // Nothing more is read while every sent night still has MAYA's price,
+    // known to be there since the hotel went live, and nothing is held back.
+    const worthALook = inWindow.some((r) => {
+      if (r.ledger.status === "skipped") return true;
+      if (r.ledger.price == null) return false;
+      const confirmedAtMs = r.ledger.confirmed_at != null ? Date.parse(String(r.ledger.confirmed_at)) : NaN;
+      return !(confirmedAtMs >= (Number.isFinite(liveSinceMs) ? liveSinceMs : -Infinity)) ||
+        !pmsHoldsPrice(r.pmsRate, Number(r.ledger.price));
+    });
+    if (!worthALook) return none;
 
     const manual = await readOpenManualPrices(supabase, hotelId, window.firstDate, window.lastDate);
     if (!manual) return none;
@@ -521,7 +529,7 @@ export async function adoptPmsEdits(
       manual,
       nowMs: Date.parse(at),
       settleMs: pmsEditSettleMs(),
-      liveSinceMs: settings.live_since != null ? Date.parse(String(settings.live_since)) : NaN,
+      liveSinceMs,
     });
     const found = plan.edits.length + plan.inStep.length + plan.landed.length + plan.closed.length + plan.rebased.length;
     const result = found > 0 ? await applyPmsEdits(supabase, hotelId, pmsType, plan, at, manual) : none;
