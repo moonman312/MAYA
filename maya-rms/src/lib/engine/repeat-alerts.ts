@@ -250,14 +250,14 @@ export async function updateRepeatAlerts(
 
   // A night filed as another run or the owner resolved its alert is still
   // waiting on an answer: open its alert again.
-  const orphaned = new Set<string>();
+  const orphaned = new Map<string, string>();
   const openIds = new Set([...openAlerts.values()].map((a) => a.id));
   for (const [key, list] of input.nights) {
     const rule = eventRulesById.get(key.split("|")[0]);
     if (!rule) continue;
     for (const n of list) {
       if (n.rule_version === rule.version && n.choice === null && n.closed_at === null && !openIds.has(n.alert_id)) {
-        orphaned.add(n.alert_id);
+        orphaned.set(n.alert_id, n.rule_id);
       }
     }
   }
@@ -265,23 +265,33 @@ export async function updateRepeatAlerts(
   // rule has no other open one, which would fail uq_rule_repeat_alerts_open;
   // otherwise the night moves onto the rule's open alert below.
   for (const n of toReopen) {
-    if (!openIds.has(n.alert_id) && !openAlerts.has(n.rule_id)) orphaned.add(n.alert_id);
+    if (!openIds.has(n.alert_id) && !openAlerts.has(n.rule_id)) orphaned.set(n.alert_id, n.rule_id);
   }
-  for (const id of orphaned) {
-    const { data, error } = await supabase
-      .from("rule_repeat_alerts")
-      .update({ resolved_at: null, resolution: null, updated_at: now })
-      .eq("id", id)
-      .not("resolved_at", "is", null)
-      .select("id, rule_id, rule_version");
-    if (error) {
-      logAlertError(hotelId, "reopen_alert", error.message);
-      continue;
+  /**
+   * Open resolved alerts again, and count them as their rule's open one. One
+   * per rule: uq_rule_repeat_alerts_open allows no more, and a rule whose
+   * nights were filed across several episodes can offer two. The rest keep
+   * their rows and a later run, once the open one has resolved, reopens them.
+   */
+  const reopenAlerts = async (ids: ReadonlyMap<string, string>) => {
+    for (const [id, ruleId] of ids) {
+      if (openAlerts.has(ruleId)) continue;
+      const { data, error } = await supabase
+        .from("rule_repeat_alerts")
+        .update({ resolved_at: null, resolution: null, updated_at: now })
+        .eq("id", id)
+        .not("resolved_at", "is", null)
+        .select("id, rule_id, rule_version");
+      if (error) {
+        logAlertError(hotelId, "reopen_alert", error.message);
+        continue;
+      }
+      for (const a of (data ?? []) as Record<string, unknown>[]) {
+        openAlerts.set(String(a.rule_id), { id: String(a.id), rule_version: Number(a.rule_version) });
+      }
     }
-    for (const a of (data ?? []) as Record<string, unknown>[]) {
-      openAlerts.set(String(a.rule_id), { id: String(a.id), rule_version: Number(a.rule_version) });
-    }
-  }
+  };
+  await reopenAlerts(orphaned);
 
   // An alert whose rule has been edited since: its unanswered nights close.
   const edited = [...openAlerts].filter(([ruleId, a]) => {
@@ -386,6 +396,22 @@ export async function updateRepeatAlerts(
       result.resolved++;
     }
   }
+
+  // A night reopened onto its own alert, because the rule's open one belonged
+  // to another version, is waiting on an answer under an alert nobody can
+  // see: the banner reads open alerts. That other alert is usually an older
+  // version's, whose unanswered nights closed above and which resolved just
+  // now, so its rule is free again and the night's own alert can be opened
+  // without two open alerts for one rule (uq_rule_repeat_alerts_open). When
+  // the rule still has one, the night keeps its row and the orphan pass on
+  // the next run picks it up, once that alert is gone.
+  const stillClosed = new Map<string, string>();
+  for (const night of toReopen) {
+    const alertId = reopened.get(`${night.rule_id}|${night.stay_date}`);
+    if (alertId === undefined || openAlerts.has(night.rule_id)) continue;
+    stillClosed.set(alertId, night.rule_id);
+  }
+  await reopenAlerts(stillClosed);
 
   // Nights to file, and unanswered ones fired on again.
   const toFile: NightCount[] = [];

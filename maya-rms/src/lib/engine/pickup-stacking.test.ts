@@ -831,6 +831,65 @@ describe("a rule that keeps adjusting the same night", () => {
     const alertId = alertFor(start(w))!.alert_id;
     expect(start(w).rule_repeat_alerts.find((a) => a.id === alertId)).toMatchObject({ resolved_at: null });
   }, 120_000);
+  it("reopens a night's own alert when the rule's open one belongs to another version", async () => {
+    // A night a price closed comes back at three fires, but the rule's open
+    // alert is at a version that is not the night's: the night can't move
+    // onto it, so it lands on its own, which was resolved. Left there it
+    // waits on an answer under an alert the banner never reads.
+    const w = world({ rules: [daily], reservations: [booking(NIGHT, addDays(D0, -30))] });
+    await w.run(T0);
+    await w.run(T0 + DAY);
+    await w.run(T0 + 2 * DAY);
+
+    const setAt = iso(T0 + 2 * DAY + HOUR);
+    w.tables.manual_price.push({ hotel_id: "h1", stay_date: NIGHT, room_type_id: STD, price: 150, set_by: "u1", set_at: setAt, cleared_at: null });
+    for (const e of w.tables.pickup_event.filter((x) => x.stay_date === NIGHT)) {
+      e.retired_at = setAt;
+      e.retired_reason = "manual_price";
+    }
+    await w.run(T0 + 2 * DAY + 2 * HOUR);
+    const own = alertFor(start(w))!.alert_id;
+    expect(alertFor(start(w))).toMatchObject({ closed_reason: "price_set", alert_id: own });
+
+    // Its wait runs from the price; two of the three cuts it needs.
+    await w.run(T0 + 3 * DAY + 2 * HOUR);
+    await w.run(T0 + 4 * DAY + 2 * HOUR);
+
+    // The owner answers every other night, so the night's own alert resolves,
+    // and the rule picks up an open alert at another version.
+    const answeredAt = iso(T0 + 4 * DAY + 3 * HOUR);
+    for (const n of start(w).rule_repeat_alert_nights) {
+      if (n.stay_date === NIGHT) continue;
+      n.choice = "keep_adjusting";
+      n.chosen_at = answeredAt;
+    }
+    for (const a of start(w).rule_repeat_alerts) {
+      a.resolved_at = answeredAt;
+      a.resolution = "chosen";
+    }
+    start(w).rule_repeat_alerts.push({
+      id: "alert-v2", hotel_id: "h1", rule_id: "r-daily", rule_version: 2,
+      action_direction: "decrease", opened_at: answeredAt, updated_at: answeredAt,
+      resolved_at: null, resolution: null,
+    });
+    start(w).rule_repeat_alert_nights.push({
+      alert_id: "alert-v2", hotel_id: "h1", rule_id: "r-daily", rule_version: 2,
+      stay_date: addDays(D0, 7), fire_count: 3, reached_at: answeredAt, last_fire_at: answeredAt,
+      choice: "keep_adjusting", chosen_at: answeredAt, chosen_by: null, closed_at: null, closed_reason: null,
+      room_types: [], updated_at: answeredAt,
+    });
+
+    // The third cut: the night is back at the bar.
+    await w.run(T0 + 5 * DAY + 2 * HOUR);
+
+    const night = alertFor(start(w))!;
+    expect(night).toMatchObject({ alert_id: own, fire_count: 3, choice: null, closed_at: null, closed_reason: null });
+    // Its own alert is open again, and the other version's is done with.
+    expect(start(w).rule_repeat_alerts.find((a) => a.id === own)).toMatchObject({ resolved_at: null, resolution: null });
+    expect(start(w).rule_repeat_alerts.find((a) => a.id === "alert-v2")?.resolved_at).not.toBeNull();
+    // Still one open alert for the rule.
+    expect(start(w).rule_repeat_alerts.filter((a) => a.rule_id === "r-daily" && a.resolved_at === null)).toHaveLength(1);
+  }, 120_000);
 });
 
 /* ── Two runs at once ─────────────────────────────────────────── */
