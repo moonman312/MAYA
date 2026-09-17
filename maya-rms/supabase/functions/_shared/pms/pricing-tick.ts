@@ -20,8 +20,11 @@
  * had sent to (pms-edits.ts), at the tick's instant, so the evaluation right
  * after publishes them and the push does not write over them. When the
  * refresh did not read the PMS this tick (it runs hourly), the push reads it
- * again before sending a new price to a night it has sent to, and holds the
- * nights whose rate there moved until the next tick prices them.
+ * again before sending a new price to a night it last sent to over the settle
+ * window ago, and holds the nights whose rate there moved until the next tick
+ * prices them. Not when the refresh's own read of the PMS failed this tick,
+ * or found nothing to target: asking again straight away only doubles the
+ * calls. The push log says how long the read took (readBeforeResendMs).
  *
  * The base rate refresh has the evaluation cut-off as its deadline: it does
  * not start without a minute to spare, and stops waiting on the PMS past it.
@@ -35,6 +38,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ensureBaseRateCalendar, type EnsureCalendarResult } from "./base-rate-calendar.ts";
+import { pmsEditSettleMs } from "./pms-edits.ts";
 import { type HotelClock, readHotelClock } from "./pricing-window.ts";
 import { pushRatesForHotel, type PmsRatePushAdapter, type RatePushSummary } from "./rate-push.ts";
 
@@ -184,17 +188,20 @@ export async function runPricingTick<E>(
         // or skipped evaluation leaves the push to judge each price's age.
         evaluatedAt,
         holdNeverPushed: !baseReadRecently(calendar),
-        ...(baseReadThisTick(calendar)
+        ...(baseReadThisTick(calendar) || pmsAnsweredRead(calendar)
           ? {}
           : {
-            readBeforeResend: async () => {
-              const again = await ensureBaseRateCalendar(supabase, hotelId, adapter, {
-                horizonDays: opts.horizonDays,
-                clock: activeClock,
-                refreshIntervalMs: 0,
-                deadlineAt: opts.pushDeadlineAt,
-              });
-              return again.ok ? new Set(again.movedCells) : null;
+            readBeforeResend: {
+              settleMs: pmsEditSettleMs(),
+              read: async () => {
+                const again = await ensureBaseRateCalendar(supabase, hotelId, adapter, {
+                  horizonDays: opts.horizonDays,
+                  clock: activeClock,
+                  refreshIntervalMs: 0,
+                  deadlineAt: opts.pushDeadlineAt,
+                });
+                return again.ok ? new Set(again.movedCells) : null;
+              },
             },
           }),
       });
@@ -225,6 +232,16 @@ function baseReadRecently(calendar: EnsureCalendarResult | TickSkip): boolean {
 /** Whether this tick's refresh read the PMS. */
 function baseReadThisTick(calendar: EnsureCalendarResult | TickSkip): boolean {
   return "ok" in calendar && calendar.ok;
+}
+
+/**
+ * Whether this tick's refresh asked the PMS for its rates and was refused, or
+ * told there is nothing to target. Asking again within the tick only doubles
+ * the calls, against the vendor's rate limit and the push's deadline.
+ */
+function pmsAnsweredRead(calendar: EnsureCalendarResult | TickSkip): boolean {
+  if (!("reason" in calendar)) return false;
+  return calendar.reason === "no_rate_targets" || ("step" in calendar && calendar.step === "pms_read");
 }
 
 /** A step's error for the log line and the response, which pg_net stores. Vendor text can be long. */

@@ -46,9 +46,10 @@
  *     until an evaluation has priced the night again. On a night changed in
  *     the PMS (base-rate-calendar.ts) that old price is MAYA's, and sending
  *     it would write over the hotel's change.
- *   • Changes in the PMS — before a new price goes to a night already sent
- *     to, the tick can read the PMS again (readBeforeResend); a night whose
- *     rate there moved waits for the next evaluation instead.
+ *   • Changes in the PMS — before a new price goes to a night last sent to
+ *     over the settle window ago, the tick can read the PMS again
+ *     (readBeforeResend); a night whose rate there moved waits for the next
+ *     evaluation instead.
  *   • Ledger — each batch is recorded as in progress before it goes out, and
  *     again as soon as the PMS answers it. A send the ledger does not know
  *     about would be read back by the base rate calendar as the hotel's own
@@ -242,12 +243,17 @@ export type RatePushOptions = {
    * Read the PMS again before a new price goes to a night MAYA has sent to,
    * and say which nights' rates there moved since the evaluation priced them
    * (null when the read could not be made). The tick passes it unless its
-   * base rate refresh read the PMS already: that refresh runs hourly, and a
-   * rate the hotel changed in between would otherwise be written over before
-   * it was ever seen. Those nights wait for the next evaluation; with null,
-   * everything goes as it would have.
+   * base rate refresh read the PMS already, or had its read of the PMS fail
+   * this tick: that refresh runs hourly, and a rate the hotel changed in
+   * between would otherwise be written over before it was ever seen. Those
+   * nights wait for the next evaluation; with null, everything goes as it
+   * would have.
+   *
+   * A read finds the hotel's change only on a night whose last send is at
+   * least `settleMs` old (pmsEditSettleMs()), so it is made only when a night
+   * about to get a new price was last sent to that long ago.
    */
-  readBeforeResend?: () => Promise<Set<string> | null>;
+  readBeforeResend?: { settleMs: number; read: () => Promise<Set<string> | null> };
 };
 
 export type RatePushSummary =
@@ -282,6 +288,8 @@ export type RatePushSummary =
       awaitingEvaluation?: number;
       /** Cells whose rate the PMS had moved on since they were priced (readBeforeResend), held until priced again. */
       changedInPms?: number;
+      /** How long the read before re-sending took, when one was made. */
+      readBeforeResendMs?: number;
       /**
        * A rate_updates write failed and nothing more was sent this run.
        * `unrecorded` cells reached the PMS (or were refused by it) with only
@@ -426,7 +434,7 @@ export async function pushRatesForHotel(
   // The rate each sent cell went to, so a cell whose target has since moved is sent again.
   const lastSentRateId = new Map<string, string>();
   const lastFailed = new Map<string, FailedCell>();
-  const priorRow = new Map<string, { status: unknown; price: unknown; attempts: unknown; error: unknown }>();
+  const priorRow = new Map<string, { status: unknown; price: unknown; attempts: unknown; error: unknown; pushedAtMs: number }>();
   // Tries a sent cell took at its price, so a job rejected later carries the count on.
   const sentAttempts = new Map<string, number>();
   // Cells an earlier run sent whose job may not have been confirmed yet.
@@ -438,7 +446,13 @@ export async function pushRatesForHotel(
   const lookbackFrom = nowMs - RECONCILE_LOOKBACK_MS;
   for (const l of ledgerRows) {
     const key = `${l.stay_date}|${String(l.room_type_id)}`;
-    priorRow.set(key, { status: l.status, price: l.price, attempts: l.attempts, error: l.error });
+    priorRow.set(key, {
+      status: l.status,
+      price: l.price,
+      attempts: l.attempts,
+      error: l.error,
+      pushedAtMs: l.pushed_at != null ? Date.parse(String(l.pushed_at)) : NaN,
+    });
     if (l.status === "sent" && l.price != null) {
       lastSent.set(key, Number(l.price));
       if (l.external_rate_id != null && l.external_rate_id !== "") lastSentRateId.set(key, String(l.external_rate_id));
@@ -652,11 +666,13 @@ export async function pushRatesForHotel(
   };
   let skippedHeld = sittingOut.length - summary.skippedExhausted;
   let changedInPms = 0;
+  let readBeforeResendMs: number | null = null;
   const extras = () => ({
     ...(skippedHeld > 0 ? { skippedHeld } : {}),
     ...(awaitingBaseRead > 0 ? { awaitingBaseRead } : {}),
     ...(awaitingEvaluation > 0 ? { awaitingEvaluation } : {}),
     ...(changedInPms > 0 ? { changedInPms } : {}),
+    ...(readBeforeResendMs != null ? { readBeforeResendMs } : {}),
   });
 
   // Held-back cells are recorded before anything is sent. A ledger that
@@ -820,16 +836,30 @@ export async function pushRatesForHotel(
   }
 
   // A new price for a night MAYA has sent to writes over whatever the PMS has
-  // there now, which may be a rate the hotel changed since the last read.
-  if (opts.readBeforeResend && withTarget.some((c) => priorRow.get(`${c.stayDate}|${c.roomTypeId}`)?.status === "sent")) {
-    const moved = await opts.readBeforeResend();
-    if (moved && moved.size > 0) {
-      withTarget = withTarget.filter((c) => {
-        if (!moved.has(`${c.stayDate}|${c.roomTypeId}`)) return true;
-        changedInPms += 1;
-        return false;
-      });
+  // there now, which may be a rate the hotel changed since the last read. A
+  // read costs PMS calls against the vendor's rate limit and the deadline, so
+  // it is made only when it can find something: a night last sent to longer
+  // ago than a change there can be told from a send still landing.
+  let moved: Set<string> | null = null;
+  if (opts.readBeforeResend) {
+    const settledBefore = Date.now() - opts.readBeforeResend.settleMs;
+    const worthReading = withTarget.some((c) => {
+      const prior = priorRow.get(`${c.stayDate}|${c.roomTypeId}`);
+      return prior?.status === "sent" && prior.pushedAtMs <= settledBefore;
+    });
+    if (worthReading) {
+      const startedAt = Date.now();
+      moved = await opts.readBeforeResend.read();
+      readBeforeResendMs = Date.now() - startedAt;
     }
+  }
+  if (moved && moved.size > 0) {
+    const hold = moved;
+    withTarget = withTarget.filter((c) => {
+      if (!hold.has(`${c.stayDate}|${c.roomTypeId}`)) return true;
+      changedInPms += 1;
+      return false;
+    });
   }
 
   // ── Push, recorded before it goes and again once the PMS answers ──────────

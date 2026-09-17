@@ -1521,17 +1521,20 @@ describe("pushRatesForHotel and what the tick knows", () => {
       publishedPrice: PRICES,
       roomTypes: ROOM_TYPES,
       ledger: [
-        { stay_date: "2026-08-01", room_type_id: "rt-king", price: 200, status: "sent", attempts: 1 },
-        { stay_date: "2026-08-02", room_type_id: "rt-king", price: 200, status: "sent", attempts: 1 },
+        { stay_date: "2026-08-01", room_type_id: "rt-king", price: 200, status: "sent", attempts: 1, pushed_at: minutesAgo(90) },
+        { stay_date: "2026-08-02", room_type_id: "rt-king", price: 200, status: "sent", attempts: 1, pushed_at: minutesAgo(90) },
       ],
       connection: { id: "conn-1", push_rate_targets: CACHED_TWO },
     });
     const { adapter, attempts } = makeAdapter(CACHED_TWO);
     let reads = 0;
-    const readBeforeResend = async () => {
-      reads += 1;
-      // The hotel changed the King on the 1st since the hourly read.
-      return new Set(["2026-08-01|rt-king"]);
+    const readBeforeResend = {
+      settleMs: 60 * 60_000,
+      read: async () => {
+        reads += 1;
+        // The hotel changed the King on the 1st since the hourly read.
+        return new Set(["2026-08-01|rt-king"]);
+      },
     };
 
     const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter, { ...WIDE, readBeforeResend });
@@ -1546,23 +1549,58 @@ describe("pushRatesForHotel and what the tick knows", () => {
   });
 
   it("sends as before when the read before re-sending could not be made, and reads nothing for nights it never sent to", async () => {
-    const sentBefore = [{ stay_date: "2026-08-01", room_type_id: "rt-king", price: 200, status: "sent", attempts: 1 }];
+    const sentBefore = [{ stay_date: "2026-08-01", room_type_id: "rt-king", price: 200, status: "sent", attempts: 1, pushed_at: minutesAgo(90) }];
     const db = makeSupabaseStub({ publishedPrice: PRICES_TWO, roomTypes: ROOM_TYPES, ledger: sentBefore, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } });
     const { adapter, attempts } = makeAdapter(CACHED_TWO);
-    const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter, { ...WIDE, readBeforeResend: async () => null });
+    const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter, { ...WIDE, readBeforeResend: { settleMs: 60 * 60_000, read: async () => null } });
     expect(attempts).toHaveLength(2);
     expect(res).not.toHaveProperty("changedInPms");
 
     const fresh = makeSupabaseStub({ publishedPrice: PRICES_TWO, roomTypes: ROOM_TYPES, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } });
     let reads = 0;
-    await pushRatesForHotel(fresh.supabase, "hotel-1", makeAdapter(CACHED_TWO).adapter, {
+    const none = await pushRatesForHotel(fresh.supabase, "hotel-1", makeAdapter(CACHED_TWO).adapter, {
       ...WIDE,
-      readBeforeResend: async () => {
-        reads += 1;
-        return new Set();
+      readBeforeResend: {
+        settleMs: 60 * 60_000,
+        read: async () => {
+          reads += 1;
+          return new Set<string>();
+        },
       },
     });
     expect(reads).toBe(0);
+    expect(none).not.toHaveProperty("readBeforeResendMs");
+  });
+
+  it("reads before re-sending only when a night about to get a new price was sent to over the settle window ago, and says how long it took", async () => {
+    let reads = 0;
+    const readBeforeResend = {
+      settleMs: 60 * 60_000,
+      read: async () => {
+        reads += 1;
+        return new Set<string>();
+      },
+    };
+    const sent = (over: Row) => [{ stay_date: "2026-08-01", room_type_id: "rt-king", price: 200, status: "sent", attempts: 1, ...over }];
+    const push = (ledger: Row[]) =>
+      pushRatesForHotel(
+        makeSupabaseStub({ publishedPrice: PRICES_TWO, roomTypes: ROOM_TYPES, ledger, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } }).supabase,
+        "hotel-1",
+        makeAdapter(CACHED_TWO).adapter,
+        { ...WIDE, readBeforeResend },
+      );
+
+    // Sent twenty minutes ago, or with no time on record: no read could take a change there, so none is made.
+    for (const ledger of [sent({ pushed_at: minutesAgo(20) }), sent({ pushed_at: null })]) {
+      const res = await push(ledger);
+      expect(res).toMatchObject({ sent: 2 });
+      expect(res).not.toHaveProperty("readBeforeResendMs");
+    }
+    expect(reads).toBe(0);
+
+    const old = await push(sent({ pushed_at: minutesAgo(61) }));
+    expect(reads).toBe(1);
+    expect(old).toMatchObject({ sent: 2, readBeforeResendMs: expect.any(Number) });
   });
 
   it("sends a cell held for a missing permission again once the connection was re-authorized after the refusal", async () => {

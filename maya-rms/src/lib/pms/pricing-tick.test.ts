@@ -229,14 +229,63 @@ describe("runPricingTick", () => {
 
     const res = await runPricingTick(d.client, HOTEL, { ...BASE_OPTS, adapter, evaluateBy: T0 + 5 * 60_000 }, { evaluate, now: () => T0 });
 
-    expect(res.calendar).toEqual({ ok: false, reason: "failed", captured: 0 });
+    expect(res.calendar).toEqual({ ok: false, reason: "failed", captured: 0, step: "pms_read" });
     expect(log).toEqual(["evaluate", "push:2026-11-29"]);
     expect(res.push).toMatchObject({ pushed: true, sent: 1, awaitingBaseRead: 1 });
   });
 
+  it("does not ask the PMS again before re-sending when this tick's refresh already asked and was refused or told there is nothing to target", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const tick = async (read: () => Promise<{ targets: Record<string, string>; entries: RateCalendarEntry[] }>, opts: Parameters<typeof db>[1] = {}) => {
+      const d = db(
+        {
+          // Sent two hours ago at 240; this tick prices it at 250.
+          rate_updates: [{ hotel_id: HOTEL, stay_date: "2026-11-29", room_type_id: "rt-king", price: 240, status: "sent", attempts: 1, pushed_at: new Date(T0 - 2 * 3_600_000).toISOString() }],
+          pms_connections: [
+            { id: "conn-1", hotel_id: HOTEL, pms_type: "cloudbeds", base_rates_refreshed_at: null, push_rate_targets: { "CB-KING": "base-1" } },
+          ],
+        },
+        opts,
+      );
+      const { adapter, log } = makeAdapter();
+      let reads = 0;
+      adapter.readBaseRateCalendar = async () => {
+        reads += 1;
+        return read();
+      };
+      const { evaluate } = makeEvaluate(d, log, ["2026-11-29"]);
+      const res = await runPricingTick(d.client, HOTEL, { ...BASE_OPTS, adapter, evaluateBy: T0 + 5 * 60_000 }, { evaluate, now: () => T0 });
+      return { res, reads, log };
+    };
+
+    const refused = await tick(async () => {
+      throw new Error("Cloudbeds getRatePlans failed (429): too many requests");
+    });
+    expect(refused.reads).toBe(1);
+    expect(refused.log).toEqual(["evaluate", "push:2026-11-29"]);
+    expect(refused.res.push).not.toHaveProperty("readBeforeResendMs");
+
+    const nothing = await tick(async () => ({ targets: {}, entries: [] }));
+    expect(nothing.res.calendar).toEqual({ ok: false, reason: "no_rate_targets", captured: 0 });
+    expect(nothing.reads).toBe(1);
+
+    // MAYA's own read failed after the PMS answered: the PMS is asked again before the re-send.
+    const ours = await tick(async () => ({ targets: { "CB-KING": "base-1" }, entries: [] }), {
+      // The refresh's read of the stored base, not the push's read of closed nights.
+      fault: (c) =>
+        c.table === "base_rate_calendar" && c.op === "select" && !c.filters.some((f) => f.col === "price") ? { message: "statement timeout" } : null,
+    });
+    expect(ours.res.calendar).toEqual({ ok: false, reason: "failed", captured: 0 });
+    expect(ours.reads).toBe(2);
+    expect(ours.res.push).toMatchObject({ readBeforeResendMs: expect.any(Number) });
+  });
+
   it("sends a night it never sent to only on a base read this tick or within the refresh interval", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const sentBefore = { hotel_id: HOTEL, stay_date: "2026-11-29", room_type_id: "rt-king", price: 240, status: "sent", attempts: 1 };
+    const sentBefore = {
+      hotel_id: HOTEL, stay_date: "2026-11-29", room_type_id: "rt-king", price: 240, status: "sent", attempts: 1,
+      pushed_at: new Date(T0 - 2 * 3_600_000).toISOString(),
+    };
     const connection = (refreshedAt: string | null) => [
       { id: "conn-1", hotel_id: HOTEL, pms_type: "cloudbeds", base_rates_refreshed_at: refreshedAt, push_rate_targets: { "CB-KING": "base-1" } },
     ];
