@@ -860,10 +860,10 @@ export async function pushRatesForHotel(
   }
 
   // A new price for a night MAYA has sent to writes over whatever the PMS has
-  // there now, which may be a rate the hotel changed since the last read. A
-  // read costs PMS calls against the vendor's rate limit and the deadline, so
-  // it is made only when it can find something: a night last sent to longer
-  // ago than a change there can be told from a send still landing.
+  // there now, which may be a rate the hotel changed since the last read. The
+  // read costs PMS calls, against the vendor's rate limit and this run's
+  // deadline, and can only find a change on a night whose last send is past
+  // the settle window, so it is made only when one of these nights is.
   let moved = opts.movedInPms ?? null;
   if (opts.readBeforeResend) {
     const settledBefore = Date.now() - opts.readBeforeResend.settleMs;

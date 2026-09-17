@@ -43,7 +43,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { ensureBaseRateCalendar, type EnsureCalendarResult } from "./base-rate-calendar.ts";
 import { pmsEditSettleMs } from "./pms-edits.ts";
 import { type HotelClock, readHotelClock } from "./pricing-window.ts";
-import { pushRatesForHotel, type PmsRatePushAdapter, type RatePushSummary } from "./rate-push.ts";
+import { pushRatesForHotel, type PmsRatePushAdapter, type RatePushOptions, type RatePushSummary } from "./rate-push.ts";
 
 export type TickSkip =
   | { skipped: "no_credentials" | "out_of_time" | "disabled" | "sync_failed" | "sync_incomplete" }
@@ -181,6 +181,27 @@ export async function runPricingTick<E>(
   } else {
     const adapter = opts.adapter;
     const activeClock = clock;
+    // What the push does about rates the hotel may have changed since the
+    // last read: hold the nights this tick's own read found moved and could
+    // not record, read again, or neither when the PMS has answered already.
+    const changedInPms: Pick<RatePushOptions, "movedInPms" | "readBeforeResend"> = baseReadThisTick(calendar)
+      ? calendar.holdCells.length > 0 ? { movedInPms: new Set(calendar.holdCells) } : {}
+      : pmsAnsweredRead(calendar)
+      ? {}
+      : {
+        readBeforeResend: {
+          settleMs: pmsEditSettleMs(),
+          read: async () => {
+            const again = await ensureBaseRateCalendar(supabase, hotelId, adapter, {
+              horizonDays: opts.horizonDays,
+              clock: activeClock,
+              refreshIntervalMs: 0,
+              deadlineAt: opts.pushDeadlineAt,
+            });
+            return again.ok ? new Set(again.movedCells) : null;
+          },
+        },
+      };
     try {
       push = await pushRatesForHotel(supabase, hotelId, adapter, {
         today: clock.today,
@@ -191,24 +212,7 @@ export async function runPricingTick<E>(
         // or skipped evaluation leaves the push to judge each price's age.
         evaluatedAt,
         holdNeverPushed: !baseReadRecently(calendar),
-        ...(baseReadThisTick(calendar)
-          ? calendar.holdCells.length > 0 ? { movedInPms: new Set(calendar.holdCells) } : {}
-          : pmsAnsweredRead(calendar)
-          ? {}
-          : {
-            readBeforeResend: {
-              settleMs: pmsEditSettleMs(),
-              read: async () => {
-                const again = await ensureBaseRateCalendar(supabase, hotelId, adapter, {
-                  horizonDays: opts.horizonDays,
-                  clock: activeClock,
-                  refreshIntervalMs: 0,
-                  deadlineAt: opts.pushDeadlineAt,
-                });
-                return again.ok ? new Set(again.movedCells) : null;
-              },
-            },
-          }),
+        ...changedInPms,
       });
     } catch (e) {
       push = { error: errorText(e, "push failed") };
