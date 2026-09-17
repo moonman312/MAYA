@@ -319,6 +319,8 @@ comment on function public.pickup_event_manual_price_reason() is
   'pickup_event.retired_reason (the deploy gap, and a replay of '
   '99_supabase_migration_push_guardrails_v1.sql). Every other reason-less retirement still fails.';
 
+revoke all on function public.pickup_event_manual_price_reason() from public, anon, authenticated;
+
 drop trigger if exists trg_pickup_event_manual_price_reason on public.pickup_event;
 create trigger trg_pickup_event_manual_price_reason
   before update on public.pickup_event
@@ -776,6 +778,9 @@ commit;
 --   -- the trigger and its function are gone:
 --   select tgname from pg_trigger where tgname = 'trg_rule_condition_sync_pickup';
 --   select proname from pg_proc where proname = 'sync_rule_pickup_flag_from_condition';
+--
+--   -- and the one that names a price save's retirement is there:
+--   select tgname from pg_trigger where tgname = 'trg_pickup_event_manual_price_reason';
 --
 --   -- one signature each:
 --   select proname, pg_get_function_identity_arguments(oid) from pg_proc

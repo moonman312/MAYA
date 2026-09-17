@@ -550,7 +550,8 @@ create index if not exists idx_pickup_event_rule_stay
 -- Guards against two overlapping evaluation runs both inserting the same fire
 -- for a (rule, stay date, room type): the second gets a unique violation
 -- naming this index. See 99_supabase_migration_pickup_event_stacking_v1.sql,
--- which also has pickup_fire_heads and the owner alert tables (not folded in
+-- which also has pickup_fire_heads, the owner alert tables and the trigger
+-- that names a retirement a price save made without a reason (not folded in
 -- here yet).
 create unique index if not exists uq_pickup_event_fire
   on pickup_event (rule_id, stay_date, affected_room_type_id, fire_seq);
