@@ -3,7 +3,9 @@
 import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
 import {
   conditionRowsToRuleCondition,
+  defaultSignalIds,
   isRuleConditionEmpty,
+  measuresDifferently,
   newConditionRow,
   ruleConditionForInsert,
   ruleConditionToLegacyConditions,
@@ -21,7 +23,7 @@ import {
 } from "@/lib/simulator";
 import type { EngineRule, RuleAction } from "@/types/domain";
 import { trackOnce } from "@/lib/analytics/track";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 /**
  * Rate Simulator — try a rule on a night that hasn't happened yet.
@@ -132,6 +134,16 @@ export function RateSimulator({
     };
   }, [activeHotelId]);
 
+  const countsAsRoom = useCallback(
+    (id: string) => roomTypes.find((rt) => rt.id === id)?.counts_as_room !== false,
+    [roomTypes],
+  );
+  const namesOf = (ids: string[]) =>
+    roomTypes
+      .filter((rt) => ids.includes(rt.id))
+      .map((rt) => rt.name)
+      .join(", ");
+
   const draftRule = useMemo<EngineRule | null>(() => {
     if (!draftOpen) return null;
     const condition = ruleConditionForInsert(conditionRowsToRuleCondition(draftRows));
@@ -159,7 +171,9 @@ export function RateSimulator({
       // here and the other way once saved.
       is_pickup_rule: !!condition.pickup_operator || !!condition.booking_speed_operator,
       condition,
-      signal_room_type_ids: draftRoomTypeIds,
+      // One picker, so the same default the rules builder sends: measure the
+      // picked types that count as rooms.
+      signal_room_type_ids: defaultSignalIds(draftRoomTypeIds, countsAsRoom),
       affected_room_type_ids: draftRoomTypeIds,
       created_at: "",
       updated_at: "",
@@ -172,6 +186,7 @@ export function RateSimulator({
     draftDirection,
     draftName,
     draftRoomTypeIds,
+    countsAsRoom,
     activeHotelId,
   ]);
 
@@ -247,7 +262,8 @@ export function RateSimulator({
           conditions: ruleConditionToLegacyConditions(draftRule.condition),
           action,
           room_types: names,
-          affected_room_type_ids: draftRoomTypeIds,
+          signal_room_type_ids: draftRule.signal_room_type_ids,
+          affected_room_type_ids: draftRule.affected_room_type_ids,
           // Off at birth. A rule nobody has approved must never get a window in
           // which a scheduled run could price with it.
           is_active: false,
@@ -511,6 +527,12 @@ export function RateSimulator({
                   <span className="text-[11px] text-slate-500">
                     {r.is_pickup_rule ? "event" : "ladder"}
                   </span>
+                  {measuresDifferently(r.signal_room_type_ids, r.affected_room_type_ids, countsAsRoom) && (
+                    <span className="text-[11px] text-slate-500">
+                      Watches {namesOf(r.signal_room_type_ids.filter(countsAsRoom))} · Changes{" "}
+                      {namesOf(r.affected_room_type_ids)}
+                    </span>
+                  )}
                   {!r.is_active && (
                     <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
                       off

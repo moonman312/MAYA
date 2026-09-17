@@ -36,6 +36,8 @@ export type SimRoomType = {
   total_rooms: number;
   floor_price: number;
   ceiling_price: number;
+  /** false for a court or meeting room: priced when affected, never measured. */
+  counts_as_room?: boolean | null;
 };
 
 /** One editable row of the scenario: the owner's made-up numbers for a room type. */
@@ -133,7 +135,11 @@ function metricsForRule(
   let pickupRevenue = 0;
   let sawAnySignal = false;
 
-  for (const rtId of rule.signal_room_type_ids) {
+  // The engine only measures signal types that count as rooms. A rule whose
+  // signals are all non-rooms measures nothing, booking speed included.
+  const signalIds = rule.signal_room_type_ids.filter((id) => byId.get(id)?.counts_as_room !== false);
+
+  for (const rtId of signalIds) {
     const rt = byId.get(rtId);
     const input = scenario.rooms[rtId];
     if (!rt || !input) continue;
@@ -155,11 +161,11 @@ function metricsForRule(
     pickupRevenue += picked * safeNumber(input.basePrice);
   }
 
-  const occupancy = computeOccupancy(snapshots, rule.signal_room_type_ids);
+  const occupancy = computeOccupancy(snapshots, signalIds);
   const dta = computeDta(scenario.stayDate, scenario.evalDate);
 
   const level = scenario.bookingSpeedLevel;
-  const hasSpeed = level != null && isBookingSpeed(level);
+  const hasSpeed = level != null && isBookingSpeed(level) && signalIds.length > 0;
 
   return {
     occupancy,

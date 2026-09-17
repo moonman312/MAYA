@@ -430,3 +430,36 @@ describe("isoDatePlus", () => {
     expect(isoDatePlus(1, new Date("2028-02-28T00:00:00Z"))).toBe("2028-02-29");
   });
 });
+
+describe("simulate: measured and changed room types", () => {
+  const COURT: SimRoomType = { id: "rt-court", name: "Court", total_rooms: 4, floor_price: 10, ceiling_price: 90, counts_as_room: false };
+  const rooms = {
+    [STANDARD.id]: { basePrice: 200, occupancyPct: 50, pickupUnits: 0 },
+    [SUITE.id]: { basePrice: 400, occupancyPct: 50, pickupUnits: 0 },
+    [COURT.id]: { basePrice: 40, occupancyPct: 100, pickupUnits: 0 },
+  };
+
+  it("never measures a room type that does not count as a room, as the engine does", () => {
+    const rule = makeRule({ signal_room_type_ids: [STANDARD.id, COURT.id], affected_room_type_ids: [STANDARD.id] });
+    const [standard] = simulate([rule], [STANDARD, SUITE, COURT], scenario({ rooms }));
+    // 10 of 20 standards; the court's 4 of 4 would make it 14 of 24.
+    expect(standard.outcomes[0].occupancySeen).toBeCloseTo(0.5, 5);
+  });
+
+  it("a Booking Speed rule measuring only a court cannot fire", () => {
+    const condition = { booking_speed_operator: "at_least" as const, booking_speed_level: "normal", booking_speed_window_days: 7 as const };
+    const onCourt = makeRule({ condition, signal_room_type_ids: [COURT.id], affected_room_type_ids: [STANDARD.id] });
+    const onRooms = makeRule({ id: "r2", condition, signal_room_type_ids: [SUITE.id], affected_room_type_ids: [STANDARD.id] });
+    const [standard] = simulate([onCourt, onRooms], [STANDARD, SUITE, COURT], scenario({ rooms, bookingSpeedLevel: "faster" }));
+    expect(standard.outcomes.find((o) => o.ruleId === "r1")!.fired).toBe(false);
+    expect(standard.outcomes.find((o) => o.ruleId === "r2")!.fired).toBe(true);
+  });
+
+  it("changes only the affected room types while measuring others", () => {
+    const rule = makeRule({ signal_room_type_ids: [STANDARD.id], affected_room_type_ids: [SUITE.id] });
+    const busy = { ...rooms, [STANDARD.id]: { basePrice: 200, occupancyPct: 90, pickupUnits: 0 } };
+    const [standard, suite] = simulate([rule], [STANDARD, SUITE, COURT], scenario({ rooms: busy }));
+    expect(suite.finalPrice).toBe(440);
+    expect(standard.finalPrice).toBe(200);
+  });
+});
