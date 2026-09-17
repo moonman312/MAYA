@@ -141,7 +141,7 @@ const CATALOG: Record<PushCause, CatalogEntry> = {
     retry: "hold",
     alertedElsewhere: true,
     sentence: (w) => `${w.pms} stopped accepting MAYA's connection, so ${w.roomsRates} can't be changed`,
-    action: (w) => `Reconnect ${w.pms} on the Property System tab.`,
+    action: (w) => `Reconnect ${w.pms} on the PMS tab.`,
     admin: "The PMS refused the grant (401, or revocation wording). Connection health marks it disconnected and alerts.",
   },
   missing_write_permission: {
@@ -149,7 +149,7 @@ const CATALOG: Record<PushCause, CatalogEntry> = {
     severity: "critical",
     retry: "hold",
     sentence: (w) => `${w.pms} won't let MAYA change ${w.roomsRates} because MAYA doesn't have permission to update rates`,
-    action: (w) => `Give MAYA permission to update rates in ${w.pms}, then reconnect on the Property System tab.`,
+    action: (w) => `Give MAYA permission to update rates in ${w.pms}, then reconnect on the PMS tab.`,
     admin: "Reads work but the rate write is refused: the grant lacks the rate write scope (403 or scope wording).",
   },
   rate_plan_not_updatable: {
