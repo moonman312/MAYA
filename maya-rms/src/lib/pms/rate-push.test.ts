@@ -580,7 +580,7 @@ describe("pushRatesForHotel pushes the hotel's own nights", () => {
     expect(pushedNights(db)).toEqual(["2026-10-02", "2026-11-30"]);
   });
 
-  it("uses the tick's date and horizon when given, and asks for targets on that date", async () => {
+  it("uses the tick's date and horizon when given, and asks for targets over those nights", async () => {
     const db = hotelDb("America/Los_Angeles", ["2026-10-01", "2026-10-03", "2026-10-04"]);
     db.tables.pms_connections[0].push_rate_targets = null;
     const { adapter } = makeAdapter({ "CB-KING": "rate-100" });
@@ -591,7 +591,7 @@ describe("pushRatesForHotel pushes the hotel's own nights", () => {
     await pushRatesForHotel(db.client, "hotel-1", adapter, { today: "2026-10-01", pushHorizonDays: 3 });
 
     expect(pushedNights(db)).toEqual(["2026-10-01", "2026-10-03"]);
-    expect(seen).toEqual([{ today: "2026-10-01" }]);
+    expect(seen).toEqual([{ today: "2026-10-01", lastNight: "2026-10-03" }]);
     // The tick already knows the date; the timezone is not read again.
     expect(db.calls.some((c) => c.table === "hotels")).toBe(false);
   });

@@ -182,6 +182,35 @@ describe("cloudbeds base rate targeting with an independent package plan", () =>
     const [, start, end] = getRatePlans.mock.calls[0];
     expect([start, end]).toEqual(["2026-12-31", "2027-01-01"]);
   });
+
+  it("reads the catalog over the push's nights, the ones the refresh reads, so a plan loaded only for later nights stays a target", async () => {
+    // The base rate for RT2 is loaded from November only.
+    getRatePlans.mockImplementation(async (_creds: unknown, _start: string, end: string) => [
+      { ...BASE, roomRateDetailed: nights([["2026-10-01", 200]]) },
+      ...(end > "2026-11-01" ? [{ roomTypeID: "RT2", rateID: "base-2", isDerived: false, roomRateDetailed: nights([["2026-11-20", 300]]) }] : []),
+    ]);
+
+    const pushOnly = createCloudbedsRateAdapter(CREDS);
+    expect(await pushOnly.resolveRateTargets({ today: "2026-10-01", lastNight: "2026-11-29" })).toEqual({ RT1: "base-1", RT2: "base-2" });
+    expect(getRatePlans.mock.calls[0].slice(1, 3)).toEqual(["2026-10-01", "2026-11-30"]);
+
+    // After this tick's refresh read the same nights, the push asks nothing more.
+    getRatePlans.mockClear();
+    const refreshed = createCloudbedsRateAdapter(CREDS);
+    const cal = await refreshed.readBaseRateCalendar!("2026-10-01", "2026-11-29");
+    expect(await refreshed.resolveRateTargets({ today: "2026-10-01", lastNight: "2026-11-29" })).toEqual(cal.targets);
+    expect(getRatePlans).toHaveBeenCalledTimes(1);
+    expect(refreshed.missingTargetReason!("RT9")).toBe("not_in_catalog");
+
+    // Other nights, or a refresh that listed nothing, are read again.
+    await refreshed.resolveRateTargets({ today: "2026-10-02", lastNight: "2026-11-30" });
+    expect(getRatePlans).toHaveBeenCalledTimes(2);
+    const empty = createCloudbedsRateAdapter(CREDS);
+    getRatePlans.mockResolvedValueOnce([]);
+    await empty.readBaseRateCalendar!("2026-10-01", "2026-11-29");
+    await empty.resolveRateTargets({ today: "2026-10-01", lastNight: "2026-11-29" });
+    expect(getRatePlans).toHaveBeenCalledTimes(4);
+  });
 });
 
 describe("cloudbeds adapter after a catalog read, and on a refused grant", () => {

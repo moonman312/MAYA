@@ -293,7 +293,7 @@ async function readPmsCalendar(
     const read = await adapter.readBaseRateCalendar(firstDate, lastDate, { deadlineAt });
     return Object.keys(read.targets).length > 0 ? read : null;
   }
-  const targets = await adapter.resolveRateTargets({ today: firstDate, deadlineAt });
+  const targets = await adapter.resolveRateTargets({ today: firstDate, lastNight: lastDate, deadlineAt });
   if (Object.keys(targets).length === 0) return null;
   return { targets, entries: await adapter.fetchRateCalendar!(firstDate, lastDate, targets, { deadlineAt }) };
 }

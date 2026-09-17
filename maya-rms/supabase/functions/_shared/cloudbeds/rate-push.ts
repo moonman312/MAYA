@@ -95,26 +95,35 @@ export function createCloudbedsRateAdapter(
   // a read lists something: an empty answer is a hiccup, not a teardown, and
   // says nothing about any room type.
   let lastGaps: Record<string, TargetGap> | null = null;
-  const noteGaps = (plans: unknown[], withoutBaseRate: Record<string, number>) => {
+  // The last read that listed something, by the nights it covered. An adapter
+  // lives for one hotel's tick, so this is the tick's own read.
+  let lastListed: { start: string; end: string; targets: RateTargetMap } | null = null;
+  const noteRead = (start: string, end: string, plans: unknown[], targets: RateTargetMap, withoutBaseRate: Record<string, number>) => {
     lastGaps = plans.length > 0 ? targetGaps(withoutBaseRate) : null;
+    lastListed = plans.length > 0 ? { start, end, targets } : null;
   };
 
   return {
     pmsType: "cloudbeds",
 
-    async resolveRateTargets(opts: { today?: string; deadlineAt?: number } = {}): Promise<RateTargetMap> {
-      // getRatePlans requires a date window even for the catalog; a 1-day range
-      // from the hotel's today is enough, since the roomTypeID → rateID mapping
-      // is date-independent. The UTC date is only a fallback for a caller
-      // outside the push path.
+    async resolveRateTargets(
+      opts: { today?: string; lastNight?: string; deadlineAt?: number } = {},
+    ): Promise<RateTargetMap> {
+      // getRatePlans requires a date window even for the catalog, and only
+      // lists a plan for nights it has rates on. The push passes its window,
+      // the nights the base rate refresh reads, so both see the same plans: a
+      // one-night read that left out a plan loaded only for later nights wrote
+      // a smaller map than the hourly refresh and filed its room type as gone,
+      // and the two flipped the cache back and forth. A read of the same
+      // nights earlier in this tick is used again rather than made twice. The
+      // UTC date is only a fallback for a caller outside the push path.
       const start = opts.today ?? new Date().toISOString().slice(0, 10);
-      const plans = await cloudbedsGetRatePlans(current, start, addOneDay(start), {
-        detailedRates: true,
-        deadlineAt: opts.deadlineAt,
-      });
+      const end = opts.lastNight != null && opts.lastNight > start ? opts.lastNight : start;
+      if (lastListed && lastListed.start === start && lastListed.end === end) return { ...lastListed.targets };
+      const plans = await ratePlansFor(start, end, opts.deadlineAt);
       const { targets, withoutBaseRate } = chooseBaseRates(plans);
       logRateTargets(current.propertyId, targets, withoutBaseRate);
-      noteGaps(plans, withoutBaseRate);
+      noteRead(start, end, plans, targets, withoutBaseRate);
       return targets;
     },
 
@@ -226,7 +235,7 @@ export function createCloudbedsRateAdapter(
       const plans = await ratePlansFor(startDate, endDate, opts.deadlineAt);
       const { targets, withoutBaseRate } = chooseBaseRates(plans);
       logRateTargets(current.propertyId, targets, withoutBaseRate);
-      noteGaps(plans, withoutBaseRate);
+      noteRead(startDate, endDate, plans, targets, withoutBaseRate);
       return { targets, entries: calendarEntries(plans, startDate, endDate, targets) };
     },
   };

@@ -29,7 +29,8 @@
  *     cell it doesn't cover shows up, or a sent cell went to a rate it doesn't
  *     name, and dropped after a push rejection, so a new room type or a
  *     rebuilt rate catalog heals on the next tick. The hourly base rate
- *     refresh writes the map it read over a cache that differs from it.
+ *     refresh writes the map it read over a cache that differs from it, and
+ *     a re-resolve reads the same nights it does.
  *   • Window — [hotel today, hotel today + horizon - 1], the same nights the
  *     tick evaluated (pricing-window.ts).
  *   • Guardrails — every cell about to be sent is checked against its room
@@ -111,11 +112,13 @@ export interface PmsRatePushAdapter {
    * Resolve external_room_type_id -> external rate id: the room type's BASE
    * rate, and only that. A room type with no base rate is left out of the map
    * rather than given some other plan, so its cells are recorded as skipped
-   * instead of landing on a package. `today` is the hotel's date, for a
-   * vendor whose catalog read needs a date window. Past `deadlineAt` the read
-   * stops waiting out rate limits and gives up.
+   * instead of landing on a package. `today` and `lastNight` are the nights
+   * the caller works on, for a vendor whose catalog read needs a date window:
+   * the push and the base rate refresh pass the same ones, so they see the
+   * same catalog. Past `deadlineAt` the read stops waiting out rate limits and
+   * gives up.
    */
-  resolveRateTargets(opts?: { today?: string; deadlineAt?: number }): Promise<RateTargetMap>;
+  resolveRateTargets(opts?: { today?: string; lastNight?: string; deadlineAt?: number }): Promise<RateTargetMap>;
   /**
    * Why the last catalog read left this room type out of the map, when the
    * adapter can tell: its only rates follow another plan, it has rates but
@@ -626,7 +629,7 @@ export async function pushRatesForHotel(
       // down the cells the cached map still targets.
       let resolved: RateTargetMap = {};
       try {
-        resolved = await adapter.resolveRateTargets({ today: firstDate, deadlineAt: opts.deadlineAt });
+        resolved = await adapter.resolveRateTargets({ today: firstDate, lastNight: lastDate, deadlineAt: opts.deadlineAt });
       } catch (e) {
         if (!usingCache && changed.length > 0) throw e;
         const msg = e instanceof Error ? e.message : String(e);

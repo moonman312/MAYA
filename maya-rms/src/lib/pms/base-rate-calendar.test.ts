@@ -145,7 +145,7 @@ describe("seedBaseRateCalendar", () => {
     const { adapter, calls } = makeAdapter([]);
     await seedBaseRateCalendar(d.client, HOTEL, adapter, { today: "2026-10-01" });
     expect(calls.fetch[0].slice(0, 2)).toEqual(["2026-10-01", "2026-11-29"]); // 60 nights inclusive
-    expect(calls.resolve).toEqual([{ today: "2026-10-01" }]);
+    expect(calls.resolve).toEqual([{ today: "2026-10-01", lastNight: "2026-11-29" }]);
   });
 
   it("makes one read when the adapter can return targets and rates together", async () => {
@@ -445,7 +445,7 @@ describe("ensureBaseRateCalendar refresh", () => {
     const res = await ensureBaseRateCalendar(d.client, HOTEL, adapter, { horizonDays: 2, clock: clock("2026-10-01T12:00:00.000Z"), deadlineAt });
 
     expect(res).toEqual({ ok: false, reason: "deferred", captured: 0 });
-    expect(calls.resolve).toEqual([{ today: "2026-10-01", deadlineAt }]);
+    expect(calls.resolve).toEqual([{ today: "2026-10-01", lastNight: "2026-10-02", deadlineAt }]);
     expect(d.tables.pms_connections[0].base_rates_refreshed_at).toBeNull();
   });
 
