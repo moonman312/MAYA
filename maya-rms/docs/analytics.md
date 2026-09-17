@@ -306,13 +306,15 @@ in `supabase/functions/_shared/pms/push-failure.ts`.
 Per cause, over incidents opened in the window: incidents, tries, hotels;
 **by retry** = closed with its cells landing and never shown to the owner;
 **shown** = reached the owner's change log (a known critical cause at once, or
-a cell still failing after 2 hours and 5 tries); open now; median hours from
-opening to landing, over incidents that closed by landing. **Root cause** is
-Known or Unknown; guardrail causes are MAYA's own holds and never shown to
-owners, and the ones marked MAYA bug mean a bad row was published. For
-Unknown, up to five of the PMS's own messages, most frequent first, so the
-classifier can be taught them. Below, every hotel with an incident open right
-now, whatever the window.
+a cell still failing after 2 hours and 5 tries in one episode); open now;
+median hours from opening to landing, over incidents that closed by landing.
+**Root cause** is Known or Unknown; guardrail causes are MAYA's own holds and
+never shown to owners, and the ones marked MAYA bug mean a bad row was
+published (a price under a floor raised since, or over a ceiling lowered
+since, is not one). For Unknown, up to five of the PMS's own messages from the
+newest 200 unknown incidents in the window, said in the most incidents first,
+so the classifier can be taught them. Below, every hotel with an incident open
+right now, whatever the window.
 
 ### Right now (`analytics_book`)
 
