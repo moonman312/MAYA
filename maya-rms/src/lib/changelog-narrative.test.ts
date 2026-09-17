@@ -662,6 +662,12 @@ describe("a rule that measures other room types than it changes", () => {
         measured,
       ),
     ).toEqual(["Standard and Deluxe were 92% full with 5 days to go, past the 90% and 21-day marks you set."]);
+    expect(describeConditions({ occupancy_operator: "gt", occupancy_threshold: 0.9 }, { occupancy: 0.92 }, ["Standard"])).toEqual([
+      "Standard was 92% full, past the 90% mark you set.",
+    ]);
+    expect(
+      describeConditions({ occupancy_operator: "gt", occupancy_threshold: 0.9, dta_operator: "lt", dta_threshold_days: 21 }, { occupancy: 0.92, dta: 3 }, ["Standard"]),
+    ).toEqual(["Standard was 92% full with 3 days to go, past the 90% and 21-day marks you set."]);
     expect(
       describeConditions({ pickup_operator: "gt", pickup_threshold: 4, pickup_window_days: 3 }, { pickup_units: 9 }, measured),
     ).toEqual(["9 Standard and Deluxe bookings arrived in the last 3 days, past the 4-booking mark you set."]);

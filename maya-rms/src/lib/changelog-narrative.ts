@@ -150,7 +150,7 @@ function fullnessSentence(
 
   if (marks.length === 0) return null;
   const limits = describeMarks(marks);
-  const whatWas = measured?.length ? `${listWords(measured)} were` : "It was";
+  const whatWas = measured?.length ? `${listWords(measured)} ${measured.length === 1 ? "was" : "were"}` : "It was";
   if (fullness && toGo) return `${whatWas} ${fullness} with ${toGo}, ${limits}.`;
   if (fullness) return `${whatWas} ${fullness}, ${limits}.`;
   if (toGo) return `It had ${toGo}, ${limits}.`;
