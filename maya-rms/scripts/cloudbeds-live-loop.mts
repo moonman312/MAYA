@@ -6,6 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import { runCloudbedsSyncForHotel } from "../src/lib/cloudbeds/sync-hotel";
 import { evaluateHotel } from "../src/lib/engine/index";
 import { pushRatesForHotel } from "../supabase/functions/_shared/pms/rate-push";
+import { pricingHorizonDays } from "../supabase/functions/_shared/pms/pricing-window";
 import { createCloudbedsRateAdapter } from "../supabase/functions/_shared/cloudbeds/rate-push";
 
 const HOTEL_ID = "5846fcc4-4590-400c-8b08-50bd61ccdbf4";
@@ -44,7 +45,10 @@ console.log(`  ${TARGET_DATE} booked room-nights: ${newRows?.length}`,
 
 // ── 2. EVALUATE ──
 mark("evalStart");
-const evalRes = await evaluateHotel(admin, HOTEL_ID, undefined, 45);
+// One window for the evaluation and the push, as the scheduled tick uses: a
+// push reaching past the nights just evaluated sends prices nobody re-derived.
+const HORIZON_DAYS = pricingHorizonDays();
+const evalRes = await evaluateHotel(admin, HOTEL_ID, undefined, HORIZON_DAYS);
 mark("evalEnd");
 console.log(`[2 EVALUATE] ${ms("evalStart", "evalEnd")} —`, JSON.stringify(evalRes).slice(0, 250));
 
@@ -74,7 +78,7 @@ const adapter = createCloudbedsRateAdapter({
   baseUrl: "https://api.cloudbeds.com/api/v1.2",
   propertyId: secret.propertyId,
 });
-const push = await pushRatesForHotel(admin, HOTEL_ID, adapter);
+const push = await pushRatesForHotel(admin, HOTEL_ID, adapter, { pushHorizonDays: HORIZON_DAYS });
 mark("pushEnd");
 console.log(`[3 PUSH] ${ms("pushStart", "pushEnd")} —`, JSON.stringify(push));
 

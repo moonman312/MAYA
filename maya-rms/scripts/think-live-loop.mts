@@ -7,6 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import { runThinkSyncForHotel } from "../src/lib/think/sync-hotel";
 import { evaluateHotel } from "../src/lib/engine/index";
 import { pushRatesForHotel } from "../supabase/functions/_shared/pms/rate-push";
+import { pricingHorizonDays } from "../supabase/functions/_shared/pms/pricing-window";
 import { createThinkRateAdapter } from "../src/lib/think/rate-push";
 
 const HOTEL_ID = "0709dcce-86ea-4b09-aa17-25c70ece91e1";
@@ -44,7 +45,10 @@ console.log(`  ${TARGET_DATE} now has ${newRows?.length} booked room-nights:`, n
 
 // ── 2. EVALUATE (rule should fire) ──
 mark("evalStart");
-const evalRes = await evaluateHotel(admin, HOTEL_ID, undefined, 45);
+// One window for the evaluation and the push, as the scheduled tick uses: a
+// push reaching past the nights just evaluated sends prices nobody re-derived.
+const HORIZON_DAYS = pricingHorizonDays();
+const evalRes = await evaluateHotel(admin, HOTEL_ID, undefined, HORIZON_DAYS);
 mark("evalEnd");
 console.log(`[2 EVALUATE] ${ms("evalStart", "evalEnd")} —`, JSON.stringify(evalRes).slice(0, 300));
 
@@ -81,7 +85,7 @@ const adapter = createThinkRateAdapter(
   },
   THINK_HOTEL_ID,
 );
-const push = await pushRatesForHotel(admin, HOTEL_ID, adapter);
+const push = await pushRatesForHotel(admin, HOTEL_ID, adapter, { pushHorizonDays: HORIZON_DAYS });
 mark("pushEnd");
 console.log(`[3 PUSH] ${ms("pushStart", "pushEnd")} —`, JSON.stringify(push));
 

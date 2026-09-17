@@ -3,6 +3,8 @@
  * today through today + horizon - 1, 60 nights unless MAYA_EVAL_HORIZON_DAYS
  * says otherwise.
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   lastNightOf,
@@ -64,5 +66,16 @@ describe("readHotelClock", () => {
   it("throws when the hotel can't be read, rather than quietly using the UTC date", async () => {
     const db = fakeSupabase({}, { fault: (c) => (c.table === "hotels" ? { message: "timeout" } : null) });
     await expect(readHotelClock(db.client, "h")).rejects.toThrow(/timezone/);
+  });
+});
+
+describe("the dev loops that push to a real PMS", () => {
+  // They run the tick's steps by hand. Evaluating 45 nights and pushing the
+  // default 60 sent nights 46 to 60 at whatever an older run had left.
+  it.each(["scripts/cloudbeds-live-loop.mts", "scripts/think-live-loop.mts"])("%s evaluates and pushes one window", (script) => {
+    const source = readFileSync(resolve(__dirname, "../../..", script), "utf8");
+    expect(source).toMatch(/evaluateHotel\(admin, HOTEL_ID, undefined, HORIZON_DAYS\)/);
+    expect(source).toMatch(/pushRatesForHotel\(admin, HOTEL_ID, adapter, \{ pushHorizonDays: HORIZON_DAYS \}\)/);
+    expect(source).toMatch(/const HORIZON_DAYS = pricingHorizonDays\(\);/);
   });
 });
