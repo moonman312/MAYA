@@ -18,8 +18,13 @@
  * a second time when a ladder row that stays unwritten started failing the
  * run: the injected event-insert failure became one the row-by-row retry
  * recovers from, which adds exactly that event row to every run, and every
- * other count, size and hash was checked unchanged before the rewrite. Every
- * other hash is unchanged from 4ef5d65. Setting MAYA_ENGINE_DUMP=<dir> writes the full
+ * other count, size and hash was checked unchanged before the rewrite. Its
+ * pickup_event hashes for runs 6 and 7 were rewritten a third time when
+ * cancelled-pickup retirement moved ahead of the pickup pass: one decrease
+ * event that run 6 fired used to be retired by that same run, and is now left
+ * open until run 7 retires it (its night is over by then). Rows, counts,
+ * prices and audits were checked unchanged in every run before the rewrite.
+ * Every other hash is unchanged from 4ef5d65. Setting MAYA_ENGINE_DUMP=<dir> writes the full
  * normalized tables per run for diffing.
  */
 import { createHash } from "node:crypto";

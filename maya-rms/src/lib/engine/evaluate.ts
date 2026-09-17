@@ -704,6 +704,22 @@ export async function evaluateHotel(
 
   await ladderBatch.flush();
 
+  // An event whose bookings have all cancelled is holding a price on
+  // evidence that no longer exists. Retire it; if the date still has real
+  // momentum the observation engine sees it and the rule fires again.
+  // Before the pickup pass reads any event, so a retired one is already out
+  // of the prices this run publishes. After the pass, the increase stayed on
+  // for one more run. Only events from earlier runs are checked here: one
+  // the pass inserts below is priced before anything can retire it.
+  await retireUndonePickupEvents(
+    supabase,
+    hotelId,
+    rules,
+    now,
+    now,
+    new Map(writtenSnapshots.map((s) => [`${s.stay_date}|${s.room_type_id}`, s.booked_units])),
+  );
+
   const allPickupCandidates: PickupCandidate[] = [];
   const allPickupWinners: Map<string, PickupCandidate[]> = new Map();
   const allPickupLosers: Map<string, PickupCandidate[]> = new Map();
@@ -995,18 +1011,6 @@ export async function evaluateHotel(
     .eq("hotel_id", hotelId)
     .lt("stay_date", localDate)
     .is("retired_at", null);
-
-  // An event whose bookings have all cancelled is holding a price on
-  // evidence that no longer exists. Retire it; if the date still has real
-  // momentum the observation engine sees it and the rule fires again.
-  await retireUndonePickupEvents(
-    supabase,
-    hotelId,
-    rules,
-    now,
-    now,
-    new Map(writtenSnapshots.map((s) => [`${s.stay_date}|${s.room_type_id}`, s.booked_units])),
-  );
 
   // Bookkeeping only, past this point — the correct prices are already
   // computed and published above. None of it may be allowed to fail the

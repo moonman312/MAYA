@@ -1,6 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { addDays } from "@/lib/observations/calendar";
 import type { EngineRule } from "@/types/domain";
-import { fakeSupabase as sharedFake } from "./fake-supabase.test";
+import { resetBookingSpeedLogOnce } from "./booking-speed-provider";
+import { evaluateHotel } from "./evaluate";
+import { fakeSupabase as sharedFake, type FakeRow } from "./fake-supabase.test";
 import { retireUndonePickupEvents } from "./pickup";
 
 type Event = {
@@ -156,4 +159,101 @@ describe("retireUndonePickupEvents", () => {
     expect(fake.calls.some((c) => c.op === "update")).toBe(false);
     spy.mockRestore();
   });
+});
+
+describe("a whole run after a pickup increase's bookings cancel", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("takes the increase off in the same run, not the one after", async () => {
+    resetBookingSpeedLogOnce();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const TODAY = "2026-09-16";
+    const RT = "a0000000-0000-4000-8000-0000000000a1";
+    const NIGHT = addDays(TODAY, 5);
+    const HORIZON = 10;
+    const t0 = Date.parse(`${TODAY}T12:00:00.000Z`);
+    let n = 0;
+    const booking = (stay: string, lead: number, bookedOn = addDays(stay, -lead)): FakeRow => ({
+      id: `f0000000-0000-4000-8000-${String(++n).padStart(12, "0")}`,
+      hotel_id: "h1",
+      stay_date: stay,
+      room_type_id: RT,
+      booking_date: bookedOn,
+      booking_window_days: lead,
+      current_rate: 100,
+      base_rate: 100,
+      created_at: `${bookedOn}T10:00:00Z`,
+    });
+    // One booking a night from long ago; the baseline three days back saw one on NIGHT.
+    const reservations = Array.from({ length: HORIZON }, (_, i) => booking(addDays(TODAY, i), 40));
+    const baselineTs = new Date(t0 - 73 * 3_600_000).toISOString();
+    const stay_date_snapshot = reservations.map((r) => ({
+      hotel_id: "h1",
+      snapshot_ts: baselineTs,
+      stay_date: r.stay_date,
+      room_type_id: RT,
+      sellable_units: 20,
+      booked_units: 1,
+      booked_revenue: 100,
+    }));
+    // Then four arrive today.
+    const surge = [0, 1, 2, 3].map(() => booking(NIGHT, 5, TODAY));
+    const { client, tables } = sharedFake({
+      hotels: [{ id: "h1", timezone: "UTC" }],
+      room_types: [{ id: RT, hotel_id: "h1", name: "Standard", is_active: true, total_rooms: 20, floor_price: 10, ceiling_price: 5000, counts_as_room: true }],
+      reservations: [...reservations, ...surge],
+      base_rate_calendar: Array.from({ length: HORIZON }, (_, i) => ({ hotel_id: "h1", stay_date: addDays(TODAY, i), room_type_id: RT, price: 100 })),
+      pricing_rules: [
+        {
+          id: "r-surge",
+          hotel_id: "h1",
+          name: "Surge",
+          is_active: true,
+          version: 1,
+          priority: 100,
+          start_date: null,
+          end_date: null,
+          is_annual: false,
+          dow_mask: 127,
+          action_type: "percent",
+          action_direction: "increase",
+          action_value: 15,
+          is_pickup_rule: true,
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+          rule_condition: [{ pickup_operator: "gt", pickup_threshold: 3, pickup_window_days: 3, pickup_metric: "units" }],
+          rule_signal_room_type: [{ room_type_id: RT }],
+          rule_affected_room_type: [{ room_type_id: RT }],
+        },
+      ],
+      stay_date_snapshot,
+    });
+    const priceOnNight = () => Number(tables.published_price.find((p) => p.stay_date === NIGHT && p.room_type_id === RT)?.price);
+    const runAt = (minutes: number) => {
+      const at = new Date(t0 + minutes * 60_000).toISOString();
+      vi.setSystemTime(new Date(at));
+      return evaluateHotel(client, "h1", at, HORIZON).then(() => at);
+    };
+
+    await runAt(0);
+    expect(priceOnNight()).toBe(115);
+    // Priced in the run that fired it, before anything could retire it.
+    expect(tables.pickup_event.filter((e) => e.stay_date === NIGHT)).toEqual([
+      expect.objectContaining({ signal_booked_units_start: 1, retired_at: null }),
+    ]);
+
+    // All four cancel before the next run.
+    const gone = new Set(surge.map((b) => b.id));
+    tables.reservations = tables.reservations.filter((r) => !gone.has(r.id));
+    const second = await runAt(5);
+
+    expect(priceOnNight()).toBe(100);
+    expect(tables.pickup_event.filter((e) => e.stay_date === NIGHT)).toEqual([
+      expect.objectContaining({ retired_at: second }),
+    ]);
+  }, 60_000);
 });
