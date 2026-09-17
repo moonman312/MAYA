@@ -81,7 +81,11 @@
 --    applied. The first refresh that finds one's price in the PMS stamps it,
 --    and only a change after that is taken. A night the PMS already has at
 --    another rate when this is deployed is left alone until MAYA sends to it
---    again, on Cloudbeds and Think alike.
+--    again, on Cloudbeds and Think alike. hotel_settings.live_since (kept by
+--    a trigger) says when the hotel last went live: a send settled before
+--    then that the PMS now has at another rate was changed while MAYA only
+--    simulated, so that rate becomes the night's base and MAYA prices on it,
+--    as it does every night it never sent to.
 --
 -- Before deploying, run the zero-base check at the end of this file: nights
 -- an earlier push opened at the floor while the PMS had them at 0.
@@ -102,8 +106,9 @@
 -- Ahead of section 7, each ledger write is refused once and sent again
 -- without sent_price, and only sent rows count as known to the calendar.
 -- Ahead of section 8, the same retry leaves out confirmed_at and
--- pms_edited_at, no rate changed in the PMS is adopted, a price typed in MAYA
--- is saved without a source, and every manual price reads as typed in MAYA.
+-- pms_edited_at, no rate changed in the PMS is adopted or read as a base, a
+-- price typed in MAYA is saved without a source, and every manual price reads
+-- as typed in MAYA.
 --
 -- NOT mirrored into 02_supabase_schema.sql yet — fold it in on the next
 -- schema consolidation pass.
@@ -210,6 +215,37 @@ comment on column public.rate_updates.pms_edited_at is
   'When the ledger was brought in step with a rate read in the PMS: a change the hotel '
   'made there (adopted as a manual price), or a manual price the PMS already had. '
   'price and sent_price are then that rate. Null on every new send.';
+
+-- When the hotel last went live. A send settled before then says nothing
+-- about who changed the night since: the hotel priced by hand while MAYA only
+-- simulated, which is its base again, not a change to keep MAYA off.
+alter table public.hotel_settings
+  add column if not exists live_since timestamptz;
+
+comment on column public.hotel_settings.live_since is
+  'When simulation_mode last went from true (or nothing) to false. A rate_updates '
+  'send settled before it is not taken as the hotel''s own change: a rate the hotel '
+  'set there becomes the night''s base instead. Null on a hotel live since before '
+  'this column: every settled send counts.';
+
+create or replace function public.hotel_settings_live_since()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if new.simulation_mode = false
+     and (tg_op = 'INSERT' or old.simulation_mode is distinct from false) then
+    new.live_since := now();
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_hotel_settings_live_since on public.hotel_settings;
+create trigger trg_hotel_settings_live_since
+  before insert or update of simulation_mode on public.hotel_settings
+  for each row execute function public.hotel_settings_live_since();
 
 alter table public.manual_price
   add column if not exists source text not null default 'maya',

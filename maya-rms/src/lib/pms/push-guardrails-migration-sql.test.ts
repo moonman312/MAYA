@@ -188,6 +188,11 @@ describe.skipIf(!PGLITE_DIR)("push guardrails migration section 8 in PGlite", ()
         note text,
         primary key (hotel_id, stay_date, room_type_id)
       );
+      create table public.hotel_settings (
+        hotel_id uuid primary key,
+        simulation_mode boolean not null default false,
+        updated_at timestamptz not null default now()
+      );
       create table public.pricing_rules (id uuid primary key, hotel_id uuid not null);
       create table public.ladder_rule_state (
         rule_id uuid not null,
@@ -296,6 +301,40 @@ describe.skipIf(!PGLITE_DIR)("push guardrails migration section 8 in PGlite", ()
       { event: "manual_price.cleared", user_id: user, source: "trigger", pms_type: "cloudbeds", nights: "1", first_night: "2026-10-03" },
       { event: "manual_price.set", user_id: user, source: "trigger", pms_type: "cloudbeds", nights: "2", first_night: "2026-10-01" },
     ]);
+  }, 60_000);
+
+  it("keeps when the hotel last went live, however the switch is written", async () => {
+    const H3 = "00000000-0000-4000-8000-000000000003";
+    const liveSince = async (hotel: string) =>
+      (await db.query(`select live_since from public.hotel_settings where hotel_id = $1`, [hotel])).rows[0]?.live_since as Date | null;
+    const later = () => db.exec("select pg_sleep(0.01)");
+
+    // Created in simulation: never live.
+    await db.exec(`insert into public.hotel_settings (hotel_id, simulation_mode) values ('${H2}', true)`);
+    expect(await liveSince(H2)).toBeNull();
+    // Created live (the admin's create with simulation off).
+    await db.exec(`insert into public.hotel_settings (hotel_id, simulation_mode) values ('${H3}', false)`);
+    expect(await liveSince(H3)).not.toBeNull();
+
+    // The owner's go-live: an update.
+    await db.exec(`update public.hotel_settings set simulation_mode = false, updated_at = now() where hotel_id = '${H2}'`);
+    const first = await liveSince(H2);
+    expect(first).not.toBeNull();
+    // Written live again, or anything else about it: unchanged.
+    await later();
+    await db.exec(`update public.hotel_settings set simulation_mode = false where hotel_id = '${H2}'`);
+    await db.exec(`update public.hotel_settings set updated_at = now() where hotel_id = '${H2}'`);
+    // The admin switch's upsert, on a hotel already live.
+    await db.exec(`insert into public.hotel_settings (hotel_id, simulation_mode) values ('${H2}', false) on conflict (hotel_id) do update set simulation_mode = excluded.simulation_mode`);
+    expect(await liveSince(H2)).toEqual(first);
+
+    // Back to simulation keeps it; live again moves it on, by either write.
+    await db.exec(`update public.hotel_settings set simulation_mode = true where hotel_id = '${H2}'`);
+    expect(await liveSince(H2)).toEqual(first);
+    await later();
+    await db.exec(`insert into public.hotel_settings (hotel_id, simulation_mode) values ('${H2}', false) on conflict (hotel_id) do update set simulation_mode = excluded.simulation_mode`);
+    const second = await liveSince(H2);
+    expect(second!.getTime()).toBeGreaterThan(first!.getTime());
   }, 60_000);
 
   it("takes a PMS change as a manual price with its reset in one transaction, or not at all", async () => {

@@ -46,8 +46,8 @@ function read(over: Partial<PushedNightRead> & { ledger?: Record<string, unknown
   };
 }
 
-function plan(reads: PushedNightRead[], manual: Record<string, OpenManualPrice> = {}) {
-  return planPmsEdits({ reads, targets: TARGETS, manual: new Map(Object.entries(manual)), nowMs: NOW, settleMs: 60 * 60_000 });
+function plan(reads: PushedNightRead[], manual: Record<string, OpenManualPrice> = {}, liveSinceMs?: number) {
+  return planPmsEdits({ reads, targets: TARGETS, manual: new Map(Object.entries(manual)), nowMs: NOW, settleMs: 60 * 60_000, liveSinceMs });
 }
 
 describe("pmsEditSettleMs", () => {
@@ -194,6 +194,36 @@ describe("planPmsEdits", () => {
     expect(plan([read({ ledger: { price: 275, confirmed_at: null } })], manual).edits).toEqual([]);
   });
 
+  it("takes a rate changed while MAYA only simulated as the night's base, and a change after going live again as the hotel's", () => {
+    // Settled two days ago; the hotel went back to simulation, then live again six hours ago.
+    const beforeLive = { confirmed_at: hoursAgo(48), pushed_at: hoursAgo(48) };
+    const liveSince = NOW - 6 * 3_600_000;
+    const p = plan(
+      [
+        read({ ledger: beforeLive }),
+        // Still MAYA's price: stamped again, so a change from now on is taken.
+        read({ stayDate: "2026-10-06", pmsRate: 220, ledger: beforeLive }),
+        // Settled since going live: a change like any other.
+        read({ stayDate: "2026-10-07", ledger: { confirmed_at: hoursAgo(5) } }),
+        // Closed while simulating: closed all the same.
+        read({ stayDate: "2026-10-08", pmsRate: 0, ledger: beforeLive }),
+        // The night was the hotel's already (a manual price from the PMS): its new rate is too.
+        read({ stayDate: "2026-10-09", pmsRate: 260, ledger: { ...beforeLive, price: 230 } }),
+      ],
+      { "2026-10-09|rt-king": { price: 230, source: "pms", setAtMs: NOW - 72 * 3_600_000 } },
+      liveSince,
+    );
+    expect(p.rebased.map((e) => [e.read.stayDate, e.price])).toEqual([["2026-10-05", 250]]);
+    expect(p.edits.map((e) => [e.read.stayDate, e.price])).toEqual([
+      ["2026-10-07", 250],
+      ["2026-10-09", 260],
+    ]);
+    expect(p.landed.map((r) => r.stayDate)).toEqual(["2026-10-06"]);
+    expect(p.closed.map((r) => r.stayDate)).toEqual(["2026-10-08"]);
+    // A hotel live since before the column, or never back in simulation: every settled send counts.
+    expect(plan([read({ ledger: beforeLive })]).edits).toHaveLength(1);
+  });
+
   it("does not adopt over a price typed in MAYA after the send that is still on its way", () => {
     const key = "2026-10-05|rt-king";
     const typedSince = plan([read()], { [key]: { price: 180, source: "maya", setAtMs: NOW - 30 * 60_000 } });
@@ -295,7 +325,7 @@ describe("adoptPmsEdits", () => {
       AT,
     );
 
-    expect(res).toEqual({ adopted: 1, inStep: 0, landed: 0, closed: 0, clearedManual: 0, suppressedRules: 1, retiredPickups: 1 });
+    expect(res).toEqual({ adopted: 1, inStep: 0, landed: 0, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 1, retiredPickups: 1 });
     expect(d.tables.manual_price).toEqual([
       expect.objectContaining({ hotel_id: "h1", stay_date: "2026-10-05", room_type_id: "rt-king", price: 250, source: "pms", pms_type: "cloudbeds", set_by: null, note: null, set_at: AT, cleared_at: null }),
     ]);
@@ -310,7 +340,7 @@ describe("adoptPmsEdits", () => {
     // One line, counts only.
     const lines = log.mock.calls.map((c) => JSON.parse(String(c[0]))).filter((l) => l.fn === "adoptPmsEdits");
     expect(lines).toEqual([
-      { fn: "adoptPmsEdits", hotelId: "h1", pmsType: "cloudbeds", found: 1, adopted: 1, inStep: 0, landed: 0, closed: 0, clearedManual: 0, suppressedRules: 1, retiredPickups: 1, waiting: 1, typedSinceSend: 0, systematic: 0 },
+      { fn: "adoptPmsEdits", hotelId: "h1", pmsType: "cloudbeds", found: 1, adopted: 1, inStep: 0, landed: 0, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 1, retiredPickups: 1, waiting: 1, typedSinceSend: 0, systematic: 0 },
     ]);
   });
 
@@ -327,7 +357,7 @@ describe("adoptPmsEdits", () => {
       WINDOW,
       AT,
     );
-    expect(res).toEqual({ adopted: 0, inStep: 0, landed: 1, closed: 0, clearedManual: 0, suppressedRules: 0, retiredPickups: 0 });
+    expect(res).toEqual({ adopted: 0, inStep: 0, landed: 1, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 0, retiredPickups: 0 });
     expect(d.tables.manual_price).toEqual([]);
     expect(d.tables.rate_updates).toEqual([
       expect.objectContaining({
@@ -360,8 +390,30 @@ describe("adoptPmsEdits", () => {
     ]);
     expect(d.tables.ladder_rule_state.map((r) => r.suppressed_at)).toEqual([null, earlier]);
     expect(d.tables.rate_updates).toEqual([
-      expect.objectContaining({ stay_date: "2026-10-05", status: "sent", price: 0, sent_price: 0, pms_edited_at: AT, confirmed_at: hoursAgo(2), pms_job_reference: "job-1" }),
+      expect.objectContaining({ stay_date: "2026-10-05", status: "sent", price: 0, sent_price: 0, pms_edited_at: AT, confirmed_at: AT, pms_job_reference: "job-1" }),
     ]);
+  });
+
+  it("writes a rate changed while MAYA only simulated as the night's base, with no manual price, and the ledger read now", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const d = db({
+      hotel_settings: [{ hotel_id: "h1", simulation_mode: false, live_since: hoursAgo(1) }],
+      base_rate_calendar: [{ hotel_id: "h1", stay_date: "2026-10-05", room_type_id: "rt-king", price: 200, source: "pms", captured_at: hoursAgo(900) }],
+    });
+    const res = await adoptPmsEdits(d.client, "h1", "cloudbeds", [read()], TARGETS, WINDOW, AT);
+    expect(res).toMatchObject({ adopted: 0, rebased: 1 });
+    expect(d.tables.manual_price).toEqual([]);
+    expect(d.tables.ladder_rule_state.map((r) => r.suppressed_at)).toEqual([null, null]);
+    expect(d.tables.base_rate_calendar).toEqual([expect.objectContaining({ stay_date: "2026-10-05", price: 250, source: "pms", captured_at: AT })]);
+    expect(d.tables.rate_updates).toEqual([expect.objectContaining({ stay_date: "2026-10-05", status: "sent", price: 250, sent_price: 250, confirmed_at: AT, pms_edited_at: AT })]);
+  });
+
+  it("adopts nothing on a database without the column that says when the hotel went live", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const d = db({}, { fault: (c) => (c.table === "hotel_settings" && c.columns.includes("live_since") ? missingColumn("hotel_settings", "live_since") : null) });
+    expect(await adoptPmsEdits(d.client, "h1", "cloudbeds", [read()], TARGETS, WINDOW, AT)).toMatchObject({ adopted: 0, rebased: 0 });
+    expect(d.tables.manual_price).toEqual([]);
+    expect(d.tables.rate_updates).toEqual([]);
   });
 
   it("never adopts on a simulating hotel, or a hotel with no settings row", async () => {
@@ -639,6 +691,26 @@ describe("a rate changed in the PMS, through the tick", () => {
     expect(published(d)).toBe(250);
     expect(sent).toEqual([]);
     expect(d.tables.rate_updates[0]).toMatchObject({ price: 250, status: "sent" });
+  });
+
+  it("prices on a rate the hotel set while MAYA only simulated, and sends MAYA's price on it, when the hotel goes live again", async () => {
+    // Sent and confirmed two days ago; then simulation for a while, with the
+    // night re-priced by hand at 260; then live again an hour ago.
+    const { d, sent, tick, setPmsRate } = setup([
+      settledSend(220, { confirmed_at: new Date(T0 - 48 * 3_600_000).toISOString(), pushed_at: new Date(T0 - 48 * 3_600_000).toISOString() }),
+    ]);
+    d.tables.hotel_settings[0].live_since = new Date(T0 - 3_600_000).toISOString();
+    setPmsRate(260);
+
+    const res = await tick(T0);
+
+    expect(res.pmsEditsAdopted ?? 0).toBe(0);
+    expect(d.tables.manual_price).toEqual([]);
+    expect(d.tables.ladder_rule_state[0].suppressed_at).toBeNull();
+    expect(d.tables.base_rate_calendar.find((r) => r.stay_date === NIGHT)).toMatchObject({ price: 260 });
+    // 260 and the busy rule's 10%, sent as going live said it would be.
+    expect(published(d)).toBe(286);
+    expect(sent).toEqual([{ price: 286, stayDate: NIGHT }]);
   });
 
   it("does not adopt a night whose manual price is already the PMS rate", async () => {

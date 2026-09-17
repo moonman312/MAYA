@@ -67,6 +67,18 @@
  * A send never confirmed or read back is never settled, so a change the
  * hotel made before MAYA first saw its price there is not taken; nor is one
  * on a night whose last send never landed.
+ *
+ * Nor is a change on a night whose send settled before the hotel last went
+ * live (hotel_settings.live_since). While MAYA only simulated, the hotel went
+ * on pricing by hand, and taking those rates as manual prices when it goes
+ * live again would keep MAYA off every night it priced, where going live
+ * says MAYA's prices replace the hotel's. Such a rate becomes the night's
+ * base instead, as a night MAYA never sent to is read again, and MAYA prices
+ * on it; the ledger says the PMS holds it, read now, so a change after this
+ * is taken. A night whose open manual price came from the PMS was the
+ * hotel's already, and its new rate is taken as before. A send whose price
+ * the PMS still has is stamped again, so a change the hotel makes to it
+ * from now on is taken.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -131,6 +143,8 @@ export type PmsEditPlan = {
   landed: PushedNightRead[];
   /** Settled nights the PMS now has at 0: closed by the hotel. */
   closed: PushedNightRead[];
+  /** Nights changed while MAYA only simulated: the PMS rate is the night's base again. */
+  rebased: { read: PushedNightRead; price: number }[];
   /** Differ from MAYA's last send, which is not settled or not old enough yet. */
   waiting: number;
   /** Differ, with a price typed in MAYA since the send still to go out. */
@@ -139,20 +153,26 @@ export type PmsEditPlan = {
   systematic: number;
 };
 
-/** Which nights are hand edits, which are in step already, and why the rest are not. Reads nothing. */
+/**
+ * Which nights are hand edits, which are in step already, and why the rest
+ * are not. `liveSinceMs` is when the hotel last went live, NaN when not
+ * known. Reads nothing.
+ */
 export function planPmsEdits(input: {
   reads: PushedNightRead[];
   targets: RateTargetMap;
   manual: Map<string, OpenManualPrice>;
   nowMs: number;
   settleMs: number;
+  liveSinceMs?: number;
 }): PmsEditPlan {
-  const plan: PmsEditPlan = { edits: [], inStep: [], landed: [], closed: [], waiting: 0, typedSinceSend: 0, systematic: 0 };
+  const plan: PmsEditPlan = { edits: [], inStep: [], landed: [], closed: [], rebased: [], waiting: 0, typedSinceSend: 0, systematic: 0 };
+  const liveSinceMs = input.liveSinceMs ?? NaN;
   // Settled, old enough, sent to the rate read and not typed over since: the
   // nights a change can be told on, whether the PMS still quotes MAYA's price.
   let comparable = 0;
   // Of those, the ones it does not.
-  const differing: { read: PushedNightRead; pmsRate: number; sent: number }[] = [];
+  const differing: { read: PushedNightRead; pmsRate: number; sent: number; whileLive: boolean }[] = [];
 
   for (const r of input.reads) {
     const l = r.ledger;
@@ -165,7 +185,10 @@ export function planPmsEdits(input: {
     const pushedAtMs = l.pushed_at != null ? Date.parse(String(l.pushed_at)) : NaN;
     const oldEnough = pushedAtMs <= input.nowMs - input.settleMs;
     const sent = l.status === "sent";
+    const confirmedAtMs = l.confirmed_at != null ? Date.parse(String(l.confirmed_at)) : NaN;
     const settled = sent && l.confirmed_at != null;
+    // Known to be in the PMS since the hotel last went live.
+    const settledWhileLive = settled && !(liveSinceMs > confirmedAtMs);
     const ledgerPrice = l.price != null ? Number(l.price) : NaN;
     const manual = input.manual.get(key);
 
@@ -178,7 +201,7 @@ export function planPmsEdits(input: {
     if (!sent || !Number.isFinite(ledgerPrice)) continue;
     if (!sameTarget) continue;
     const holds = pmsHoldsPrice(r.pmsRate, ledgerPrice);
-    if (holds && !settled) plan.landed.push(r);
+    if (holds && !settledWhileLive) plan.landed.push(r);
     if (!settled || !oldEnough) {
       if (!holds) plan.waiting += 1;
       continue;
@@ -197,7 +220,7 @@ export function planPmsEdits(input: {
       continue;
     }
     comparable += 1;
-    differing.push({ read: r, pmsRate: r.pmsRate, sent: ledgerPrice });
+    differing.push({ read: r, pmsRate: r.pmsRate, sent: ledgerPrice, whileLive: settledWhileLive || manual?.source === "pms" });
   }
 
   const fits = sharedRatio(differing);
@@ -205,7 +228,9 @@ export function planPmsEdits(input: {
   if (systematic) plan.systematic = fits.size;
   differing.forEach((d, i) => {
     if (systematic && fits.has(i)) return;
-    plan.edits.push({ read: d.read, price: Math.round(d.pmsRate * 100) / 100 });
+    const change = { read: d.read, price: Math.round(d.pmsRate * 100) / 100 };
+    if (d.whileLive) plan.edits.push(change);
+    else plan.rebased.push(change);
   });
   return plan;
 }
@@ -245,6 +270,8 @@ export type PmsEditsResult = {
   closed: number;
   /** Open manual prices on those nights, cleared. */
   clearedManual: number;
+  /** Nights changed while MAYA only simulated, now at that rate as their base. */
+  rebased: number;
   suppressedRules: number;
   retiredPickups: number;
 };
@@ -274,23 +301,24 @@ function ledgerRow(hotelId: string, pmsType: string, read: PushedNightRead, over
 
 /**
  * Adopt the plan's edits as manual prices, close the nights the hotel closed,
- * bring the ledger in step with what the PMS holds, and stamp the sends it
- * found there as settled. `at` is the tick's instant: set_at, and the
- * evaluation that follows prices at it. Throws the database's error on a
- * failed write.
+ * take the rates it set while MAYA only simulated as base rates, bring the
+ * ledger in step with what the PMS holds, and stamp the sends it found there
+ * as settled. `at` is the tick's instant: set_at, and the evaluation that
+ * follows prices at it. Throws the database's error on a failed write.
  *
- * A closed night's base goes first: on its own it only stops MAYA pricing a
- * night the PMS has at 0. A failure after it leaves the ledger saying MAYA's
- * price is there, so the next refresh closes the night again.
+ * Base rates go first: on their own they only have MAYA price a night on the
+ * rate the PMS has. A failure after them leaves the ledger saying MAYA's
+ * price is there, so the next refresh finds the night again.
  */
 export async function applyPmsEdits(
   supabase: SupabaseClient,
   hotelId: string,
   pmsType: string,
-  plan: Pick<PmsEditPlan, "edits" | "inStep" | "landed" | "closed">,
+  plan: Pick<PmsEditPlan, "edits" | "inStep" | "landed" | "closed" | "rebased">,
   at: string,
   manual: Map<string, OpenManualPrice> = new Map(),
 ): Promise<PmsEditsResult> {
+  await writeBaseRates(supabase, hotelId, plan.rebased, at);
   const clearedManual = await closeNights(supabase, hotelId, plan.closed, manual, at);
   let reset = { suppressedRules: 0, retiredPickups: 0 };
   if (plan.edits.length > 0) {
@@ -305,7 +333,7 @@ export async function applyPmsEdits(
 
   // Rows are written whole, from the row as read, as the ledger's upserts all
   // are; the tick holds the hotel's lease, so nothing wrote them since.
-  const inStep = [...plan.edits, ...plan.inStep, ...plan.closed.map((read) => ({ read, price: 0 }))].map(({ read, price }) =>
+  const inStep = [...plan.edits, ...plan.inStep].map(({ read, price }) =>
     ledgerRow(hotelId, pmsType, read, {
       price,
       sent_price: price,
@@ -314,6 +342,10 @@ export async function applyPmsEdits(
       pms_edited_at: at,
     })
   );
+  // Read there just now, since the hotel went live: a change from here is the hotel's.
+  for (const { read, price } of [...plan.closed.map((read) => ({ read, price: 0 })), ...plan.rebased]) {
+    inStep.push(ledgerRow(hotelId, pmsType, read, { price, sent_price: price, confirmed_at: at, pms_edited_at: at }));
+  }
   const landed = plan.landed.map((read) => ledgerRow(hotelId, pmsType, read, { confirmed_at: at }));
   for (const batch of [inStep, landed]) {
     for (let i = 0; i < batch.length; i += 500) {
@@ -328,9 +360,33 @@ export async function applyPmsEdits(
     landed: plan.landed.length,
     closed: plan.closed.length,
     clearedManual,
+    rebased: plan.rebased.length,
     suppressedRules: reset.suppressedRules,
     retiredPickups: reset.retiredPickups,
   };
+}
+
+/** Nights' base rates, as the PMS has them. */
+async function writeBaseRates(
+  supabase: SupabaseClient,
+  hotelId: string,
+  nights: { read: PushedNightRead; price: number }[],
+  at: string,
+): Promise<void> {
+  const rows = nights.map(({ read, price }) => ({
+    hotel_id: hotelId,
+    stay_date: read.stayDate,
+    room_type_id: read.roomTypeId,
+    price,
+    source: "pms",
+    captured_at: at,
+  }));
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await supabase
+      .from("base_rate_calendar")
+      .upsert(rows.slice(i, i + 500), { onConflict: "hotel_id,stay_date,room_type_id" });
+    if (error) throw new Error(`Failed to write base rates read in the PMS: ${error.message}`);
+  }
 }
 
 /**
@@ -346,20 +402,7 @@ async function closeNights(
   at: string,
 ): Promise<number> {
   if (nights.length === 0) return 0;
-  const base = nights.map((r) => ({
-    hotel_id: hotelId,
-    stay_date: r.stayDate,
-    room_type_id: r.roomTypeId,
-    price: 0,
-    source: "pms",
-    captured_at: at,
-  }));
-  for (let i = 0; i < base.length; i += 500) {
-    const { error } = await supabase
-      .from("base_rate_calendar")
-      .upsert(base.slice(i, i + 500), { onConflict: "hotel_id,stay_date,room_type_id" });
-    if (error) throw new Error(`Failed to write closed nights' base rates: ${error.message}`);
-  }
+  await writeBaseRates(supabase, hotelId, nights.map((read) => ({ read, price: 0 })), at);
 
   const withManual = nights.filter((r) => manual.has(`${r.stayDate}|${r.roomTypeId}`));
   if (withManual.length === 0) return 0;
@@ -418,7 +461,7 @@ export async function adoptPmsEdits(
   window: { firstDate: string; lastDate: string },
   at: string,
 ): Promise<PmsEditsResult> {
-  const none: PmsEditsResult = { adopted: 0, inStep: 0, landed: 0, closed: 0, clearedManual: 0, suppressedRules: 0, retiredPickups: 0 };
+  const none: PmsEditsResult = { adopted: 0, inStep: 0, landed: 0, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 0, retiredPickups: 0 };
   const inWindow = reads.filter((r) => r.stayDate >= window.firstDate && r.stayDate <= window.lastDate);
   const worthALook = inWindow.some((r) =>
     r.ledger.status === "skipped" ||
@@ -432,20 +475,28 @@ export async function adoptPmsEdits(
   try {
     const { data: settings, error: settingsError } = await supabase
       .from("hotel_settings")
-      .select("simulation_mode")
+      .select("simulation_mode, live_since")
       .eq("hotel_id", hotelId)
       .maybeSingle();
-    if (settingsError) throw settingsError;
+    if (settingsError) {
+      if (isMissingColumnError(settingsError)) return logPreMigration(hotelId);
+      throw settingsError;
+    }
     // A missing row is simulation, as the push reads it.
     if (settings?.simulation_mode !== false) return none;
 
     const manual = await readOpenManualPrices(supabase, hotelId, window.firstDate, window.lastDate);
     if (!manual) return none;
-    plan = planPmsEdits({ reads: inWindow, targets, manual, nowMs: Date.parse(at), settleMs: pmsEditSettleMs() });
-    const result =
-      plan.edits.length > 0 || plan.inStep.length > 0 || plan.landed.length > 0 || plan.closed.length > 0
-        ? await applyPmsEdits(supabase, hotelId, pmsType, plan, at, manual)
-        : none;
+    plan = planPmsEdits({
+      reads: inWindow,
+      targets,
+      manual,
+      nowMs: Date.parse(at),
+      settleMs: pmsEditSettleMs(),
+      liveSinceMs: settings.live_since != null ? Date.parse(String(settings.live_since)) : NaN,
+    });
+    const found = plan.edits.length + plan.inStep.length + plan.landed.length + plan.closed.length + plan.rebased.length;
+    const result = found > 0 ? await applyPmsEdits(supabase, hotelId, pmsType, plan, at, manual) : none;
     logPlan(hotelId, pmsType, plan, result);
     return result;
   } catch (e) {
@@ -483,14 +534,7 @@ async function readOpenManualPrices(
       .range(from, from + 999);
     if (error) {
       if (isMissingColumnError(error) || isMissingRelationError(error)) {
-        console.error(
-          JSON.stringify({
-            fn: "adoptPmsEdits",
-            hotelId,
-            schema: "pre-migration",
-            migration: "99_supabase_migration_push_guardrails_v1.sql",
-          }),
-        );
+        logPreMigration(hotelId);
         return null;
       }
       throw error;
@@ -509,9 +553,22 @@ async function readOpenManualPrices(
   return out;
 }
 
+/** A database without the columns this reads: nothing is taken. */
+function logPreMigration(hotelId: string): PmsEditsResult {
+  console.error(
+    JSON.stringify({
+      fn: "adoptPmsEdits",
+      hotelId,
+      schema: "pre-migration",
+      migration: "99_supabase_migration_push_guardrails_v1.sql",
+    }),
+  );
+  return { adopted: 0, inStep: 0, landed: 0, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 0, retiredPickups: 0 };
+}
+
 /** One line per hotel per refresh, counts only. */
 function logPlan(hotelId: string, pmsType: string, plan: PmsEditPlan, result: PmsEditsResult): void {
-  const found = plan.edits.length + plan.inStep.length + plan.landed.length + plan.closed.length;
+  const found = plan.edits.length + plan.inStep.length + plan.landed.length + plan.closed.length + plan.rebased.length;
   if (found + plan.waiting + plan.typedSinceSend + plan.systematic === 0) return;
   console.log(
     JSON.stringify({
@@ -524,6 +581,7 @@ function logPlan(hotelId: string, pmsType: string, plan: PmsEditPlan, result: Pm
       landed: result.landed,
       closed: result.closed,
       clearedManual: result.clearedManual,
+      rebased: result.rebased,
       suppressedRules: result.suppressedRules,
       retiredPickups: result.retiredPickups,
       waiting: plan.waiting,
