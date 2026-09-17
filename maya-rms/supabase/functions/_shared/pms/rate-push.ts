@@ -203,11 +203,11 @@ export type RatePushOptions = {
    */
   evaluatedAt?: string;
   /**
-   * Hold back cells MAYA has never sent to. The tick sets it when this tick's
-   * base rate read was due and did not happen: the first send to a night
-   * writes over whatever the hotel has there, and that has to be the rate
-   * the engine just priced on, not one read before the hotel changed it.
-   * Held cells are not recorded; the next tick sends them.
+   * Hold back cells MAYA has never sent to. The tick sets it unless its base
+   * rate read worked, or one within the refresh interval did: the first send
+   * to a night writes over whatever the hotel has there, and that has to be
+   * the rate the engine just priced on, not one read before the hotel changed
+   * it. Held cells are not recorded; the next tick sends them.
    */
   holdNeverPushed?: boolean;
 };
@@ -969,12 +969,31 @@ function jobSummary(j: { ok: number; rejected: number; unconfirmed: number }) {
 async function writeLedgerRows(supabase: SupabaseClient, rows: Record<string, unknown>[]): Promise<string | null> {
   const CHUNK = 500;
   for (let i = 0; i < rows.length; i += CHUNK) {
-    const { error } = await supabase
-      .from("rate_updates")
-      .upsert(rows.slice(i, i + CHUNK), { onConflict: "hotel_id,room_type_id,stay_date" });
+    const error = await upsertLedger(supabase, rows.slice(i, i + CHUNK));
     if (error) return String(error.message ?? "rate_updates write failed").slice(0, 300);
   }
   return null;
+}
+
+/**
+ * One rate_updates upsert. Every row in it carries the same columns: PostgREST
+ * writes null into a column one row of a chunk leaves out and another has.
+ * Before the push guardrails migration there is no sent_price, and the rows
+ * go again without it.
+ */
+async function upsertLedger(supabase: SupabaseClient, rows: Record<string, unknown>[]): Promise<{ message: string } | null> {
+  const write = (chunk: Record<string, unknown>[]) =>
+    supabase.from("rate_updates").upsert(chunk, { onConflict: "hotel_id,room_type_id,stay_date" });
+  let { error } = await write(rows);
+  if (error && isMissingColumnError(error) && rows.some((r) => "sent_price" in r)) {
+    const withoutSentPrice = rows.map((r) => {
+      const copy = { ...r };
+      delete copy.sent_price;
+      return copy;
+    });
+    ({ error } = await write(withoutSentPrice));
+  }
+  return error ? { message: String(error.message) } : null;
 }
 
 /**
@@ -982,6 +1001,8 @@ async function writeLedgerRows(supabase: SupabaseClient, rows: Record<string, un
  * message, so that if nothing overwrites it the next tick sends it again and
  * the base rate calendar treats the night as sent to meanwhile. Its tries are
  * the ones already on record at this price; the send's own outcome adds one.
+ * Whether an earlier price is still in the PMS is not known until it answers,
+ * so sent_price is cleared.
  */
 function pendingLedgerRow(
   hotelId: string,
@@ -1004,10 +1025,14 @@ function pendingLedgerRow(
     error: SEND_IN_PROGRESS_MESSAGE,
     attempts: prior && prior.price === c.price ? prior.attempts : 0,
     pushed_at: pushedAt,
+    sent_price: null,
   };
 }
 
-/** A sent or failed cell's ledger row. */
+/**
+ * A sent or failed cell's ledger row. sent_price is the price a send put in
+ * the PMS, and null after a refusal: nothing on record says what is there.
+ */
 function attemptLedgerRow(
   hotelId: string,
   pmsType: string,
@@ -1033,6 +1058,7 @@ function attemptLedgerRow(
     // keeps the count too: its job can still come back rejected.
     attempts: prior && prior.price === r.cell.price ? prior.attempts + 1 : 1,
     pushed_at: pushedAt,
+    sent_price: r.ok ? r.cell.price : null,
   };
 }
 
@@ -1040,8 +1066,9 @@ function attemptLedgerRow(
  * A held-back cell's ledger row, or null when the row already says exactly
  * this. `attempts` keeps saying whether MAYA ever sent to the night (see
  * push-guardrails.ts): 0 while it never has, 1 once a send or failed send
- * sits underneath. The job reference and rate id of the row underneath are
- * left as they were, not blanked: they are what shows a send happened.
+ * sits underneath. The job reference, rate id and sent_price of the row
+ * underneath are left as they were, not blanked: they are what shows a send
+ * happened, and what it left in the PMS.
  */
 function skippedLedgerRow(
   hotelId: string,
@@ -1305,6 +1332,8 @@ async function reconcileJobOutcomes(
           error: message,
           attempts,
           pushed_at: nowIso,
+          // The job never applied, and what was in the PMS before it is not on record.
+          sent_price: null,
         });
         failures.push({
           cell: c.cell,
@@ -1356,9 +1385,7 @@ async function reconcileJobOutcomes(
 
     let dropTargets = false;
     if (corrections.length > 0) {
-      const { error: correctionError } = await supabase
-        .from("rate_updates")
-        .upsert(corrections, { onConflict: "hotel_id,room_type_id,stay_date" });
+      const correctionError = await upsertLedger(supabase, corrections);
       if (correctionError) {
         console.error(
           JSON.stringify({

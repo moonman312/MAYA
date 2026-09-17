@@ -332,6 +332,73 @@ describe("ensureBaseRateCalendar refresh", () => {
     ]);
   });
 
+  it("takes only a price known to be in the PMS as MAYA's on a zero-base night, and leaves the rest frozen", async () => {
+    const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+    const zero = (stay_date: string) => ({ hotel_id: HOTEL, stay_date, room_type_id: "local-1", price: 0, source: "pms", captured_at: "2026-09-01T00:00:00Z" });
+    const d = db({
+      base_rate_calendar: ["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"].map(zero),
+      rate_updates: [
+        // 140 went out, then 160 was refused: the PMS still quotes MAYA's 140.
+        { id: "1", hotel_id: HOTEL, stay_date: "2026-10-01", room_type_id: "local-1", price: 160, status: "failed", attempts: 1, sent_price: null, pushed_at: hoursAgo(2) },
+        // 140 went out, then 160 was held back: nothing says what is under it.
+        { id: "2", hotel_id: HOTEL, stay_date: "2026-10-02", room_type_id: "local-1", price: 160, status: "skipped", error: "guardrail:above_ceiling", attempts: 1, pushed_at: hoursAgo(2) },
+        // The typed 140 went out, was cleared, and the night is held at 0 over it; the hotel has since loaded 180.
+        { id: "3", hotel_id: HOTEL, stay_date: "2026-10-03", room_type_id: "local-1", price: 140, status: "skipped", error: "guardrail:zero_base", attempts: 1, sent_price: 140, pushed_at: hoursAgo(2) },
+        // The same, with MAYA's 140 still there.
+        { id: "4", hotel_id: HOTEL, stay_date: "2026-10-04", room_type_id: "local-1", price: 140, status: "skipped", error: "guardrail:zero_base", attempts: 1, sent_price: 140, pushed_at: hoursAgo(2) },
+      ],
+    });
+    const { adapter } = makeAdapter([
+      { stayDate: "2026-10-01", externalRoomTypeId: "EXT-1", price: 140 },
+      { stayDate: "2026-10-02", externalRoomTypeId: "EXT-1", price: 140 },
+      { stayDate: "2026-10-03", externalRoomTypeId: "EXT-1", price: 180 },
+      { stayDate: "2026-10-04", externalRoomTypeId: "EXT-1", price: 140 },
+    ]);
+
+    const res = await ensureBaseRateCalendar(d.client, HOTEL, adapter, { horizonDays: 4, clock: clock("2026-10-01T12:00:00.000Z") });
+
+    expect(res).toMatchObject({ ok: true, captured: 1, loadedAfterZeroBase: 1, skippedAlreadyPushed: 3, pmsEditedPushedNights: 0 });
+    expect(calendar(d)).toEqual(["2026-10-01|local-1|0", "2026-10-02|local-1|0", "2026-10-03|local-1|180", "2026-10-04|local-1|0"]);
+  });
+
+  it("goes by sent rows alone on a database without sent_price yet", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+    const d = db(
+      {
+        base_rate_calendar: [{ hotel_id: HOTEL, stay_date: "2026-10-01", room_type_id: "local-1", price: 0, source: "pms", captured_at: "2026-09-01T00:00:00Z" }],
+        rate_updates: [{ id: "1", hotel_id: HOTEL, stay_date: "2026-10-01", room_type_id: "local-1", price: 140, status: "sent", attempts: 1, pushed_at: hoursAgo(2) }],
+      },
+      { fault: (c) => (c.table === "rate_updates" && c.columns.includes("sent_price") ? missingColumn("rate_updates", "sent_price") : null) },
+    );
+    const { adapter } = makeAdapter([{ stayDate: "2026-10-01", externalRoomTypeId: "EXT-1", price: 180 }]);
+
+    const res = await ensureBaseRateCalendar(d.client, HOTEL, adapter, { horizonDays: 1, clock: clock("2026-10-01T12:00:00.000Z") });
+
+    expect(res).toMatchObject({ ok: true, captured: 1, loadedAfterZeroBase: 1 });
+    expect(calendar(d)).toEqual(["2026-10-01|local-1|180"]);
+  });
+
+  it("does not stamp a refresh that found nothing to target, so the next tick reads again", async () => {
+    const noTargets = db();
+    const { adapter, calls } = makeAdapter([]);
+    adapter.resolveRateTargets = async (opts) => (calls.resolve.push(opts), {});
+    expect(await ensureBaseRateCalendar(noTargets.client, HOTEL, adapter, { horizonDays: 2, clock: clock("2026-10-01T12:00:00.000Z") })).toEqual({
+      ok: false,
+      reason: "no_rate_targets",
+      captured: 0,
+    });
+    expect(noTargets.tables.pms_connections[0].base_rates_refreshed_at).toBeNull();
+    await ensureBaseRateCalendar(noTargets.client, HOTEL, adapter, { horizonDays: 2, clock: clock("2026-10-01T12:05:00.000Z") });
+    expect(calls.resolve).toHaveLength(2);
+
+    const noRooms = db({ room_types: [] });
+    expect(await ensureBaseRateCalendar(noRooms.client, HOTEL, makeAdapter([]).adapter, { horizonDays: 2, clock: clock("2026-10-01T12:00:00.000Z") })).toMatchObject({
+      reason: "no_room_types",
+    });
+    expect(noRooms.tables.pms_connections[0].base_rates_refreshed_at).toBeNull();
+  });
+
   it("hands the rate targets it read to the push's cache when they differ from it, and leaves a matching cache alone", async () => {
     const d = db();
     d.tables.pms_connections[0].push_rate_targets = { "EXT-1": "old-std", "EXT-2": "rate-a" };

@@ -18,10 +18,12 @@
  *
  * The base rate refresh has the evaluation cut-off as its deadline: it does
  * not start without a minute to spare, and stops waiting on the PMS past it.
- * When a refresh was due and did not happen (failed, or deferred for time),
- * the push still sends the nights it has sent to before, but not a night it
- * never has: that first send writes over the hotel's own rate, which must be
- * the one this tick just read.
+ * Unless the refresh read the PMS this tick, or was not due because a read
+ * within the interval did (throttled), the push still sends the nights it has
+ * sent to before, but not a night it never has: that first send writes over
+ * the hotel's own rate, which must be one MAYA has just read. A refresh that
+ * failed, ran out of time, found nothing to target, or could not tell when it
+ * last ran and only checked for gaps (covered) holds them.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -172,7 +174,7 @@ export async function runPricingTick<E>(
         // Vouches for every price this tick's evaluation re-derived. A failed
         // or skipped evaluation leaves the push to judge each price's age.
         evaluatedAt,
-        holdNeverPushed: "reason" in calendar && (calendar.reason === "failed" || calendar.reason === "deferred"),
+        holdNeverPushed: !baseReadRecently(calendar),
       });
     } catch (e) {
       push = { error: errorText(e, "push failed") };
@@ -191,6 +193,12 @@ export async function runPricingTick<E>(
     evalMs: tEval - tCalendar,
     pushMs: tPush - tEval,
   };
+}
+
+/** Whether the base under this tick was read from the PMS just now, or within the refresh interval. */
+function baseReadRecently(calendar: EnsureCalendarResult | TickSkip): boolean {
+  if ("ok" in calendar && calendar.ok) return true;
+  return "reason" in calendar && calendar.reason === "throttled";
 }
 
 /** A step's error for the log line and the response, which pg_net stores. Vendor text can be long. */

@@ -34,9 +34,14 @@
  * the 0 is not an echo, and the engine never prices a 0 base on its own: left
  * frozen, the night was abandoned for good once the typed price was cleared,
  * even after the hotel loaded its rate. So when the PMS now quotes something
- * other than the last price MAYA put on the night, and that send is over an
- * hour old (a job still settling can quote an older MAYA price), the hotel
- * set it, and it is captured.
+ * other than the last price MAYA is known to have put there, and that row is
+ * over an hour old (a job still settling can quote an older MAYA price), the
+ * hotel set it, and it is captured. Known means a sent row's price, or the
+ * sent_price a skipped row kept from the send under it. A row that only
+ * tried a price (failed, or held back over a failed send) says nothing about
+ * what is in the PMS: its price may never have landed while an earlier send
+ * of MAYA's did, and that send must not come back as the hotel's rate. Such
+ * a night stays frozen.
  *
  * Every other cell is re-read, not just captured once. The hotel changes its
  * rates in the PMS while MAYA is simulating, and a base read once, weeks ago,
@@ -161,27 +166,17 @@ async function seedWithTargets(
   if (!read) return { result: { ok: false, reason: "no_rate_targets", captured: 0 }, targets: null };
 
   // Read after the PMS, so a push that landed in between is seen here.
-  const pushed = await readAll(
-    supabase,
-    "rate_updates",
-    "stay_date, room_type_id, price, status, attempts, pushed_at",
-    hotelId,
-    firstDate,
-    lastDate,
-    ["stay_date", "room_type_id", "id"],
-    "pushed cells",
-  );
+  const pushed = await readPushedCells(supabase, hotelId, firstDate, lastDate);
   const pushedCells = new Set<string>();
-  const lastSentPrice = new Map<string, number>();
-  // The price on each pushed cell's row and when it was written, whatever its status.
-  const lastPushed = new Map<string, { price: number; atMs: number }>();
+  // The last price each pushed cell is known to hold from MAYA, and when its row was written.
+  const knownSent = new Map<string, { price: number; atMs: number }>();
   for (const p of pushed) {
     if (!p.room_type_id || ledgerRowNeverSent(p)) continue;
     const key = `${p.stay_date}|${p.room_type_id}`;
     pushedCells.add(key);
-    if (p.status === "sent" && p.price != null) lastSentPrice.set(key, Number(p.price));
-    if (p.price != null) {
-      lastPushed.set(key, { price: Number(p.price), atMs: p.pushed_at != null ? Date.parse(String(p.pushed_at)) : NaN });
+    const price = p.status === "sent" ? p.price : p.status === "skipped" ? p.sent_price : null;
+    if (price != null) {
+      knownSent.set(key, { price: Number(price), atMs: p.pushed_at != null ? Date.parse(String(p.pushed_at)) : NaN });
     }
   }
 
@@ -217,18 +212,17 @@ async function seedWithTargets(
     const was = storedPrice.get(key);
     if (pushedCells.has(key)) {
       // See the header: a zero base under a send is not MAYA's echo.
-      const last = lastPushed.get(key);
+      const sent = knownSent.get(key);
       const hotelLoadedIt =
         was != null &&
         !ratesDiffer(was, 0) &&
         ratesDiffer(e.price, 0) &&
-        last != null &&
-        ratesDiffer(e.price, last.price) &&
-        !(last.atMs > settledBefore);
+        sent != null &&
+        ratesDiffer(e.price, sent.price) &&
+        !(sent.atMs > settledBefore);
       if (!hotelLoadedIt) {
         skippedAlreadyPushed++;
-        const sent = lastSentPrice.get(key);
-        if (sent != null && ratesDiffer(e.price, sent)) pmsEditedPushedNights++;
+        if (sent != null && ratesDiffer(e.price, sent.price)) pmsEditedPushedNights++;
         continue;
       }
       loadedAfterZeroBase++;
@@ -263,6 +257,29 @@ async function seedWithTargets(
     result: { ok: true, captured: rows.length, unchanged, skippedAlreadyPushed, pmsEditedPushedNights, loadedAfterZeroBase, days: horizon },
     targets: read.targets,
   };
+}
+
+/**
+ * The window's ledger rows. sent_price is read too, and left out on a database
+ * the push guardrails migration has not given it to yet: only sent rows then
+ * say what MAYA put in the PMS.
+ */
+async function readPushedCells(
+  supabase: SupabaseClient,
+  hotelId: string,
+  firstDate: string,
+  lastDate: string,
+  // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any[]> {
+  const read = (columns: string) =>
+    readAll(supabase, "rate_updates", columns, hotelId, firstDate, lastDate, ["stay_date", "room_type_id", "id"], "pushed cells");
+  try {
+    return await read("stay_date, room_type_id, price, status, attempts, pushed_at, sent_price");
+  } catch (e) {
+    if (!isMissingColumnError(e)) throw e;
+    return await read("stay_date, room_type_id, price, status, attempts, pushed_at");
+  }
 }
 
 /** Targets and nightly rates, from one read where the vendor allows it; null when nothing is targetable. */
@@ -342,7 +359,9 @@ async function readAll(
  *
  * Failures are swallowed: a hotel with no calendar prices exactly as it did
  * before this table existed, so a PMS hiccup here must never take down a tick.
- * A failed run is not marked as a refresh, so the next tick tries again.
+ * Only a read that worked is marked as a refresh. A failed one, or one that
+ * found nothing to target (no_rate_targets, no_room_types), is not, so the
+ * next tick tries again and the push keeps holding nights it never sent to.
  */
 export async function ensureBaseRateCalendar(
   supabase: SupabaseClient,
@@ -392,7 +411,7 @@ export async function ensureBaseRateCalendar(
       today: clock.today,
       deadlineAt: opts.deadlineAt,
     });
-    if (connection !== "unknown") {
+    if (connection !== "unknown" && result.ok) {
       const cached = connection.pushRateTargets;
       const newTargets = targets && Object.keys(targets).length > 0 && !sameTargets(targets, cached) ? targets : null;
       await markRefreshed(supabase, hotelId, adapter.pmsType, clock.at, newTargets);

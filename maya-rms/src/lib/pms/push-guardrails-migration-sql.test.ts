@@ -1,7 +1,8 @@
 /**
- * Section 6 of 99_supabase_migration_push_guardrails_v1.sql, the reset of
- * legacy "no rate target" skips, run for real in PGlite with its count query.
- * Only runs with MAYA_PGLITE_DIR set (see large-property-sql.test.ts).
+ * Sections 6 and 7 of 99_supabase_migration_push_guardrails_v1.sql, the reset
+ * of legacy "no rate target" skips (with its count query) and sent_price, run
+ * for real in PGlite. Only runs with MAYA_PGLITE_DIR set (see
+ * large-property-sql.test.ts).
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -30,6 +31,12 @@ function sectionSix(): { count: string; update: string } {
   return { count, update };
 }
 
+/** Section 7's statements, up to the commit that ends the block. */
+function sectionSeven(): string {
+  const start = MIGRATION.indexOf("-- 7.\nalter table");
+  return MIGRATION.slice(start, MIGRATION.indexOf("commit;", start));
+}
+
 const H1 = "00000000-0000-4000-8000-000000000001";
 const H2 = "00000000-0000-4000-8000-000000000002";
 const rt = (n: number) => `00000000-0000-4000-8000-0000000001${String(n).padStart(2, "0")}`;
@@ -38,7 +45,7 @@ const SENT_ON_A_PAST_NIGHT = rt(2);
 const FAILED_ONCE = rt(3);
 const SKIP_WITH_REFERENCE = rt(4);
 
-describe.skipIf(!PGLITE_DIR)("push guardrails migration section 6 in PGlite", () => {
+describe.skipIf(!PGLITE_DIR)("push guardrails migration sections 6 and 7 in PGlite", () => {
   let db: Db;
 
   beforeAll(async () => {
@@ -53,6 +60,7 @@ describe.skipIf(!PGLITE_DIR)("push guardrails migration section 6 in PGlite", ()
         stay_date date not null,
         status text not null,
         error text,
+        price numeric(10,2) not null default 0,
         attempts integer not null default 0,
         pms_job_reference text,
         external_rate_id text,
@@ -60,19 +68,19 @@ describe.skipIf(!PGLITE_DIR)("push guardrails migration section 6 in PGlite", ()
       );
     `);
     const skip = (hotel: string, room: string, night: string, extra = "null, null") =>
-      `('${hotel}', '${room}', '${night}', 'skipped', 'no rate target for room type', 1, ${extra})`;
+      `('${hotel}', '${room}', '${night}', 'skipped', 'no rate target for room type', 1, ${extra}, 5)`;
     await db.exec(`
-      insert into public.rate_updates (hotel_id, room_type_id, stay_date, status, error, attempts, pms_job_reference, external_rate_id) values
+      insert into public.rate_updates (hotel_id, room_type_id, stay_date, status, error, attempts, pms_job_reference, external_rate_id, price) values
         ${skip(H1, NEVER, "2026-09-20")},
         ${skip(H1, NEVER, "2026-09-21")},
         -- A bulk upsert nulled this skip's reference; the send it overwrote shows on an older night.
-        ('${H1}', '${SENT_ON_A_PAST_NIGHT}', '2026-08-01', 'sent', null, 1, 'job-1', 'rate-1'),
+        ('${H1}', '${SENT_ON_A_PAST_NIGHT}', '2026-08-01', 'sent', null, 1, 'job-1', 'rate-1', 1),
         ${skip(H1, SENT_ON_A_PAST_NIGHT, "2026-09-20")},
-        ('${H1}', '${FAILED_ONCE}', '2026-09-19', 'failed', 'Service Unavailable', 2, null, 'rate-3'),
+        ('${H1}', '${FAILED_ONCE}', '2026-09-19', 'failed', 'Service Unavailable', 2, null, 'rate-3', 2),
         ${skip(H1, FAILED_ONCE, "2026-09-20")},
         ${skip(H1, SKIP_WITH_REFERENCE, "2026-09-20", "'job-9', 'rate-9'")},
         -- Another hotel's sends say nothing about this one's room types.
-        ('${H2}', '${rt(9)}', '2026-09-20', 'sent', null, 1, 'job-2', 'rate-2');
+        ('${H2}', '${rt(9)}', '2026-09-20', 'sent', null, 1, 'job-2', 'rate-2', 3);
     `);
   }, 120_000);
   afterAll(async () => {
@@ -104,6 +112,22 @@ describe.skipIf(!PGLITE_DIR)("push guardrails migration section 6 in PGlite", ()
     await db.exec(update);
     expect((await db.query(`select sum(attempts)::int as total from public.rate_updates where status = 'skipped'`)).rows).toEqual([
       { total: 3 },
+    ]);
+  }, 60_000);
+
+  it("adds sent_price with sent rows' prices filled in, and can run again", async () => {
+    await db.exec(sectionSeven());
+    await db.exec(sectionSeven());
+    const rows = await db.query(
+      `select status, price::text, sent_price::text from public.rate_updates where status <> 'skipped' order by hotel_id, room_type_id`,
+    );
+    expect(rows.rows).toEqual([
+      { status: "sent", price: "1.00", sent_price: "1.00" },
+      { status: "failed", price: "2.00", sent_price: null },
+      { status: "sent", price: "3.00", sent_price: "3.00" },
+    ]);
+    expect((await db.query(`select count(*)::int as n from public.rate_updates where status = 'skipped' and sent_price is not null`)).rows).toEqual([
+      { n: 0 },
     ]);
   }, 60_000);
 });

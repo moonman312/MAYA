@@ -218,6 +218,50 @@ describe("runPricingTick", () => {
     expect(res.push).toMatchObject({ pushed: true, sent: 1, awaitingBaseRead: 1 });
   });
 
+  it("sends a night it never sent to only on a base read this tick or within the refresh interval", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const sentBefore = { hotel_id: HOTEL, stay_date: "2026-11-29", room_type_id: "rt-king", price: 240, status: "sent", attempts: 1 };
+    const connection = (refreshedAt: string | null) => [
+      { id: "conn-1", hotel_id: HOTEL, pms_type: "cloudbeds", base_rates_refreshed_at: refreshedAt, push_rate_targets: { "CB-KING": "base-1" } },
+    ];
+    const tick = async (d: ReturnType<typeof db>, adapter: PmsRatePushAdapter, log: string[]) => {
+      const { evaluate } = makeEvaluate(d, log, ["2026-10-01", "2026-11-29"]);
+      return runPricingTick(d.client, HOTEL, { ...BASE_OPTS, adapter, evaluateBy: T0 + 5 * 60_000 }, { evaluate, now: () => T0 });
+    };
+
+    // The catalog listed nothing to target.
+    const empty = db({ rate_updates: [sentBefore], pms_connections: connection(null) });
+    const a = makeAdapter();
+    a.adapter.readBaseRateCalendar = async () => ({ targets: {}, entries: [] });
+    const noTargets = await tick(empty, a.adapter, a.log);
+    expect(noTargets.calendar).toEqual({ ok: false, reason: "no_rate_targets", captured: 0 });
+    expect(a.log).toEqual(["evaluate", "push:2026-11-29"]);
+    expect(noTargets.push).toMatchObject({ sent: 1, awaitingBaseRead: 1 });
+
+    // When it last ran could not be read, so it only checked the calendar reaches the last night.
+    const unknown = db(
+      {
+        rate_updates: [sentBefore],
+        pms_connections: connection(null),
+        base_rate_calendar: [{ hotel_id: HOTEL, stay_date: "2026-11-29", room_type_id: "rt-king", price: 200 }],
+      },
+      { fault: (c) => (c.table === "pms_connections" && c.columns.includes("base_rates_refreshed_at") ? { message: "statement timeout" } : null) },
+    );
+    const b = makeAdapter();
+    const covered = await tick(unknown, b.adapter, b.log);
+    expect(covered.calendar).toEqual({ ok: false, reason: "covered", captured: 0 });
+    expect(b.log).toEqual(["evaluate", "push:2026-11-29"]);
+    expect(covered.push).toMatchObject({ sent: 1, awaitingBaseRead: 1 });
+
+    // Read ten minutes ago: not due, and the base under it is fresh.
+    const recent = db({ rate_updates: [sentBefore], pms_connections: connection(new Date(T0 - 10 * 60_000).toISOString()) });
+    const c = makeAdapter();
+    const throttled = await tick(recent, c.adapter, c.log);
+    expect(throttled.calendar).toEqual({ ok: false, reason: "throttled", captured: 0 });
+    expect(c.log).toEqual(["evaluate", "push:2026-10-01,2026-11-29"]);
+    expect(throttled.push).not.toHaveProperty("awaitingBaseRead");
+  });
+
   it("defers a due refresh with under a minute to the evaluation cut-off, and still evaluates", async () => {
     const d = db();
     const { adapter, log } = makeAdapter();

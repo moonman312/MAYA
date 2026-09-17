@@ -52,6 +52,16 @@
 --    reference and rate id of whatever they overwrite, and write 0 only
 --    where nothing was ever sent.
 --
+-- 7. rate_updates.sent_price — the price MAYA's last accepted send left in the
+--    PMS for the night. A held-back row keeps it from the send under it; a
+--    refused or unconfirmed send clears it. The base rate calendar takes a
+--    rate on a sent-to night stored at 0 as the hotel's own only when it
+--    differs from this. Comparing with the row's own price, whatever its
+--    status, let an earlier send of MAYA's that was still in the PMS, under a
+--    later price that never landed, be captured as the hotel's rate. Sent
+--    rows are backfilled; a held-back row written before this has none, and
+--    its night stays frozen.
+--
 -- Before deploying, run the zero-base check at the end of this file: nights
 -- an earlier push opened at the floor while the PMS had them at 0.
 --
@@ -65,6 +75,8 @@
 -- section 4, runs are logged without their nights, and a push whose tick's
 -- evaluation failed holds back every price whose own row is old. Ahead of
 -- section 5, a reconnect's stamp is logged as failed and holds wait their day.
+-- Ahead of section 7, each ledger write is refused once and sent again
+-- without sent_price, and only sent rows count as known to the calendar.
 --
 -- NOT mirrored into 02_supabase_schema.sql yet — fold it in on the next
 -- schema consolidation pass.
@@ -135,6 +147,20 @@ update public.rate_updates u
             and s.room_type_id = u.room_type_id
             and s.status in ('sent', 'failed')
        );
+
+-- 7.
+alter table public.rate_updates
+  add column if not exists sent_price numeric(10,2);
+
+comment on column public.rate_updates.sent_price is
+  'The price MAYA''s last accepted send left in the PMS for this night: the '
+  'price of a sent row, kept by a skipped row over it, null after a refused '
+  'or unconfirmed send or when no send is known.';
+
+update public.rate_updates
+   set sent_price = price
+ where status = 'sent'
+   and sent_price is null;
 
 commit;
 
