@@ -186,6 +186,9 @@ export type EvaluationAuditDetails = {
      * concurrent_fire: another run recorded the same fire first.
      * write_failed: the fire could not be written.
      * idempotency_skip: rows written before stacking only.
+     *
+     * A rule the owner stopped on that night (rule_repeat_alert_nights.choice
+     * = stop) is not a candidate at all, so it appears nowhere in this list.
      */
     outcome:
       | "won"
