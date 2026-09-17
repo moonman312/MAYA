@@ -669,8 +669,12 @@ create table if not exists public.rule_repeat_alert_nights (
 
 -- Swapped rather than left as the create found it: a table an earlier copy of
 -- this file made carries the reasons that copy knew about ('resumed' is new).
+-- The second name is what Postgres gave the check when it was written inline
+-- in the create, which is how that copy had it.
 alter table public.rule_repeat_alert_nights
   drop constraint if exists rule_repeat_alert_nights_closed_reason_chk;
+alter table public.rule_repeat_alert_nights
+  drop constraint if exists rule_repeat_alert_nights_closed_reason_check;
 alter table public.rule_repeat_alert_nights
   add constraint rule_repeat_alert_nights_closed_reason_chk
   check (closed_reason is null or closed_reason in ('night_passed', 'rule_edited', 'price_set', 'resumed'));
