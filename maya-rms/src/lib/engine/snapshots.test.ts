@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fakeSupabase, missingRelation, missingRelationPg } from "./fake-supabase.test";
-import { sellableUnitsFor, snapshotCurrentState, type OutOfServiceRow } from "./snapshots";
+import { fetchAllRows, sellableUnitsFor, snapshotCurrentState, type OutOfServiceRow } from "./snapshots";
 import type { RoomTypeRow } from "./types";
 
 const rt = (id: string, total_rooms: number): RoomTypeRow => ({
@@ -114,5 +114,23 @@ describe("snapshotCurrentState with out-of-service rows", () => {
       /Failed to load rooms out of service/,
     );
     expect(tables.stay_date_snapshot).toEqual([]);
+  });
+});
+
+describe("fetchAllRows", () => {
+  it("throws instead of returning a silently truncated set past its page guard", async () => {
+    // Every page comes back full, so there is always "more".
+    const makeQuery = () => ({
+      range: (from: number, to: number) =>
+        Promise.resolve({ data: Array.from({ length: to - from + 1 }, (_, i) => ({ i: from + i })), error: null }),
+    });
+    await expect(fetchAllRows(makeQuery, 10)).rejects.toThrow(/there are more/);
+  });
+
+  it("reads every page past PostgREST's 1,000-row cap", async () => {
+    const rows = Array.from({ length: 2500 }, (_, i) => ({ id: `r${String(i).padStart(5, "0")}`, hotel_id: "h1" }));
+    const { client } = fakeSupabase({ t: rows }, { maxRows: 1000 });
+    const got = await fetchAllRows(() => client.from("t").select("id").eq("hotel_id", "h1").order("id"));
+    expect(got.map((r) => r.id)).toEqual(rows.map((r) => r.id));
   });
 });

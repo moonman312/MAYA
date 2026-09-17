@@ -26,7 +26,12 @@ export type FakeFault = (call: FakeCall) => FakeError | null | undefined;
 
 export function fakeSupabase(
   seed: Record<string, FakeRow[]> = {},
-  opts: { fault?: FakeFault; rpc?: (fn: string, args: unknown) => unknown } = {},
+  opts: {
+    fault?: FakeFault;
+    rpc?: (fn: string, args: unknown) => unknown;
+    /** PostgREST's db-max-rows: any read returns at most this many rows, silently. */
+    maxRows?: number;
+  } = {},
 ) {
   const tables: Record<string, FakeRow[]> = {};
   for (const [t, rows] of Object.entries(seed)) tables[t] = rows.map((r) => ({ ...r }));
@@ -85,6 +90,7 @@ export function fakeSupabase(
       }
       if (range) out = out.slice(range[0], range[1] + 1);
       if (limit != null) out = out.slice(0, limit);
+      if (opts.maxRows != null) out = out.slice(0, opts.maxRows);
       return out;
     };
 

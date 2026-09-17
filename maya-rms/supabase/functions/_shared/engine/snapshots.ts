@@ -79,7 +79,11 @@ export async function fetchAllRows(makeQuery: () => any, pageSize = 1000): Promi
   let from = 0;
   let guard = 0;
   for (;;) {
-    if (++guard > 1000) break; // safety backstop (~1M rows)
+    // A backstop, not a stopping point: quietly returning the first million
+    // rows would hand the caller a truncated set that looks complete.
+    if (++guard > 1000) {
+      throw new Error(`fetchAllRows read ${pageSize * 1000} rows and there are more; narrow the query.`);
+    }
     const { data, error } = await makeQuery().range(from, from + pageSize - 1);
     if (error) throw postgrestError(error);
     const rows = data ?? [];

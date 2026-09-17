@@ -6,6 +6,7 @@
 import type { EngineRule } from "./domain.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { conditionCount } from "./conditions.ts";
+import { fetchAllRows } from "./snapshots.ts";
 import type { PickupCandidate } from "./types.ts";
 
 /* ── Baseline computation (§8) ────────────────────────────────── */
@@ -314,24 +315,71 @@ export async function retireUndonePickupEvents(
   rules: EngineRule[],
   snapshotTs: string,
   now: string,
+  /**
+   * booked_units per `stay_date|room_type_id` from the snapshot this run just
+   * wrote. When the caller has it in memory the table is not re-read.
+   */
+  currentBookedByCell?: ReadonlyMap<string, number>,
 ): Promise<number> {
-  const { data: events } = await supabase
-    .from("pickup_event")
-    .select("id, rule_id, stay_date, signal_booked_units_start")
-    .eq("hotel_id", hotelId)
-    .is("retired_at", null);
-  if (!events || events.length === 0) return 0;
+  // Paged: a large property holds far more than 1,000 open events, and an
+  // unpaged read silently stopped at PostgREST's cap, so the events past it
+  // were never checked. A failed read retires nothing, as before.
+  // deno-lint-ignore no-explicit-any
+  let events: any[];
+  try {
+    events = await fetchAllRows(() =>
+      supabase
+        .from("pickup_event")
+        .select("id, rule_id, stay_date, signal_booked_units_start")
+        .eq("hotel_id", hotelId)
+        .is("retired_at", null)
+        .order("id", { ascending: true }),
+    );
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "retireUndonePickupEvents",
+        step: "load_events",
+        hotelId,
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+    return 0;
+  }
+  if (events.length === 0) return 0;
 
   // Current booked units come from the snapshot this run just wrote, so the
   // comparison uses exactly the numbers the rest of the run reasoned about.
-  const { data: snapRows } = await supabase
-    .from("stay_date_snapshot")
-    .select("stay_date, room_type_id, booked_units")
-    .eq("hotel_id", hotelId)
-    .eq("snapshot_ts", snapshotTs);
-  const bookedByCell = new Map<string, number>();
-  for (const s of snapRows ?? []) {
-    bookedByCell.set(`${s.stay_date}|${s.room_type_id}`, Number(s.booked_units ?? 0));
+  let bookedByCell: ReadonlyMap<string, number>;
+  if (currentBookedByCell) {
+    bookedByCell = currentBookedByCell;
+  } else {
+    const fromDb = new Map<string, number>();
+    try {
+      const snapRows = await fetchAllRows(() =>
+        supabase
+          .from("stay_date_snapshot")
+          .select("stay_date, room_type_id, booked_units")
+          .eq("hotel_id", hotelId)
+          .eq("snapshot_ts", snapshotTs)
+          .order("stay_date", { ascending: true })
+          .order("room_type_id", { ascending: true }),
+      );
+      for (const s of snapRows) {
+        fromDb.set(`${s.stay_date}|${s.room_type_id}`, Number(s.booked_units ?? 0));
+      }
+    } catch (e) {
+      console.error(
+        JSON.stringify({
+          fn: "retireUndonePickupEvents",
+          step: "load_snapshot",
+          hotelId,
+          error: e instanceof Error ? e.message : String(e),
+        }),
+      );
+      return 0;
+    }
+    bookedByCell = fromDb;
   }
 
   const signalRoomTypesByRule = new Map(rules.map((r) => [r.id, r.signal_room_type_ids]));
@@ -359,6 +407,26 @@ export async function retireUndonePickupEvents(
   }
 
   if (undone.length === 0) return 0;
-  await supabase.from("pickup_event").update({ retired_at: now }).in("id", undone);
-  return undone.length;
+  // Chunked: thousands of ids in one `in` filter overflow the request URL.
+  let retired = 0;
+  for (let i = 0; i < undone.length; i += RETIRE_CHUNK) {
+    const chunk = undone.slice(i, i + RETIRE_CHUNK);
+    const { error } = await supabase.from("pickup_event").update({ retired_at: now }).in("id", chunk);
+    if (error) {
+      console.error(
+        JSON.stringify({
+          fn: "retireUndonePickupEvents",
+          step: "retire",
+          hotelId,
+          ids: chunk.length,
+          error: error.message,
+        }),
+      );
+      continue;
+    }
+    retired += chunk.length;
+  }
+  return retired;
 }
+
+const RETIRE_CHUNK = 200;
