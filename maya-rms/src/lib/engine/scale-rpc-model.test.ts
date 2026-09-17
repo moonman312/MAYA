@@ -98,6 +98,37 @@ export function snapshotCellsAt(snapshots: FakeRow[], a: Record<string, unknown>
     }));
 }
 
+/** audit_last_signatures(p_hotel_id, p_from, p_to) */
+export function auditLastSignatures(audits: FakeRow[], a: Record<string, unknown>): FakeRow[] {
+  const best = new Map<string, FakeRow>();
+  for (const r of audits) {
+    if (r.hotel_id !== a.p_hotel_id) continue;
+    const d = String(r.stay_date);
+    if (d < String(a.p_from) || d > String(a.p_to)) continue;
+    const key = `${d}|${r.room_type_id}`;
+    const prev = best.get(key);
+    const newer =
+      !prev ||
+      Date.parse(String(r.evaluated_at)) > Date.parse(String(prev.evaluated_at)) ||
+      (Date.parse(String(r.evaluated_at)) === Date.parse(String(prev.evaluated_at)) && String(r.id) > String(prev.id));
+    if (newer) best.set(key, r);
+  }
+  return [...best.entries()]
+    .sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0))
+    .map(([, r]) => {
+      const d = (r.details ?? {}) as Record<string, unknown>;
+      return {
+        stay_date: r.stay_date,
+        room_type_id: r.room_type_id,
+        final_price: r.final_price,
+        application_order: d.application_order ?? null,
+        clamped_by: d.clamped_by != null ? String(d.clamped_by) : null,
+        base_source: d.base_source != null ? String(d.base_source) : null,
+        manual_override: d.manual_override ?? null,
+      };
+    });
+}
+
 /** An rpc handler for fakeSupabase that answers every modeled function from the fake's own tables. */
 export function scaleRpc(fn: string, args: unknown, tables: Record<string, FakeRow[]>): unknown {
   const a = args as Record<string, unknown>;
@@ -106,6 +137,8 @@ export function scaleRpc(fn: string, args: unknown, tables: Record<string, FakeR
       return bookingSpeedHistorySummary(tables.reservations ?? [], a);
     case "booking_speed_windows":
       return bookingSpeedWindows(tables.reservations ?? [], a);
+    case "audit_last_signatures":
+      return auditLastSignatures(tables.evaluation_audit ?? [], a);
     case "snapshot_cells_at":
       return snapshotCellsAt(tables.stay_date_snapshot ?? [], a);
     default:

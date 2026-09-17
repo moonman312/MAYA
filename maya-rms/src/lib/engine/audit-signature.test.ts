@@ -6,9 +6,20 @@
  * priced cell on every five-minute run regardless of whether anything
  * happened.
  */
-import { describe, expect, it } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { describe, expect, it, vi } from "vitest";
+import { addDays } from "@/lib/observations/calendar";
 import type { AssembledPrice } from "./pricing";
-import { auditSignature, writeAudit, type AuditInput } from "./audit";
+import {
+  auditBaseKey,
+  auditSignature,
+  loadLastAuditSignatures,
+  resetAuditSignaturesLogOnce,
+  writeAudit,
+  type AuditInput,
+} from "./audit";
+import { rng } from "./booking-speed-legacy.test";
+import { FakeRpcError, fakeSupabase as sharedFake, missingFunction, type FakeRow } from "./fake-supabase.test";
 
 function fakeSupabase() {
   const inserted: Record<string, unknown>[] = [];
@@ -135,5 +146,115 @@ describe("writeAudit write-on-change", () => {
     );
     expect(wrote).toBe(true);
     expect(inserted).toHaveLength(1);
+  });
+});
+
+/* ── loadLastAuditSignatures ─────────────────────────────────────────── */
+
+/** The loader as it was: full details, newest first, no tie-break. */
+async function legacyLoadLastAuditSignatures(
+  supabase: SupabaseClient,
+  hotelId: string,
+  firstDate: string,
+  lastDate: string,
+): Promise<Map<string, string>> {
+  const PAGE = 1000;
+  const signatures = new Map<string, string>();
+  const seenKeys = new Set<string>();
+  for (let from = 0; ; from += PAGE) {
+    const { data } = await supabase
+      .from("evaluation_audit")
+      .select("stay_date, room_type_id, final_price, details")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", firstDate)
+      .lte("stay_date", lastDate)
+      .order("evaluated_at", { ascending: false })
+      .range(from, from + PAGE - 1);
+    const rows = data ?? [];
+    for (const r of rows) {
+      const key = `${r.stay_date}|${r.room_type_id}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      const d = r.details ?? {};
+      signatures.set(key, auditSignature(Number(r.final_price), d.application_order ?? [], d.clamped_by ?? "none", auditBaseKey(d)));
+    }
+    if (rows.length < PAGE) break;
+  }
+  return signatures;
+}
+
+function auditFixture(seed: number, runs: number, opts: { ties?: boolean } = {}): FakeRow[] {
+  const r = rng(seed);
+  const rows: FakeRow[] = [];
+  let id = 0;
+  const types = ["a0000000-0000-4000-8000-000000000001", "a0000000-0000-4000-8000-000000000002", "a0000000-0000-4000-8000-000000000003"];
+  for (let run = 0; run < runs; run++) {
+    const at = new Date(Date.parse("2026-08-01T00:00:00Z") + run * 300_000).toISOString();
+    for (let d = 0; d < 60; d++) {
+      for (const t of types) {
+        if (r() < 0.6) continue; // write-on-change: most cells are quiet
+        const copies = opts.ties && r() < 0.1 ? 2 : 1;
+        for (let c = 0; c < copies; c++) {
+          const manual = r() < 0.1;
+          rows.push({
+            id: `e0000000-0000-4000-8000-${String(1_000_000 - ++id).padStart(12, "0")}`,
+            hotel_id: r() < 0.03 ? "h2" : "h1",
+            stay_date: addDays("2026-08-01", d),
+            room_type_id: t,
+            evaluated_at: at,
+            final_price: 100 + Math.floor(r() * 30),
+            details: {
+              application_order: r() < 0.3 ? [] : [`ladder:r${Math.floor(r() * 3)}`, `pickup:e${Math.floor(r() * 3)}`],
+              ...(r() < 0.9 ? { clamped_by: r() < 0.2 ? "ceiling" : "none" } : {}),
+              base_source: manual ? "manual" : "calendar",
+              ...(manual ? { manual_override: { set_by: "u1", set_at: "2026-07-30T00:00:00Z" } } : {}),
+              pickup_candidates: [{ big: "x".repeat(200) }],
+            },
+          });
+        }
+      }
+    }
+  }
+  return rows;
+}
+
+describe("loadLastAuditSignatures", () => {
+  it("gives the old loader's answer with far less read, past the 1,000-row page", async () => {
+    const rows = auditFixture(1, 40);
+    expect(rows.length).toBeGreaterThan(2500);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    resetAuditSignaturesLogOnce();
+    const { client: oldClient } = sharedFake({ evaluation_audit: rows }, { maxRows: 1000 });
+    const expected = await legacyLoadLastAuditSignatures(oldClient, "h1", "2026-08-01", "2026-09-29");
+    expect(expected.size).toBeGreaterThan(100);
+
+    const { client: preMigration, calls } = sharedFake(
+      { evaluation_audit: rows },
+      { maxRows: 1000, rpc: (fn) => new FakeRpcError(missingFunction(fn)) },
+    );
+    expect(await loadLastAuditSignatures(preMigration, "h1", "2026-08-01", "2026-09-29")).toEqual(expected);
+    const read = calls.find((c) => c.table === "evaluation_audit");
+    expect(read?.columns).not.toContain(" details,");
+    expect(read?.columns).toContain("details->application_order");
+
+    const { client: migrated } = sharedFake({ evaluation_audit: rows }, { maxRows: 1000 });
+    expect(await loadLastAuditSignatures(migrated, "h1", "2026-08-01", "2026-09-29")).toEqual(expected);
+    spy.mockRestore();
+  });
+
+  it("with ties on evaluated_at, both paths pick the same row per cell", async () => {
+    const rows = auditFixture(2, 12, { ties: true });
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { client: pre } = sharedFake({ evaluation_audit: rows }, { maxRows: 1000, rpc: (fn) => new FakeRpcError(missingFunction(fn)) });
+    const { client: mig } = sharedFake({ evaluation_audit: rows }, { maxRows: 1000 });
+    expect(await loadLastAuditSignatures(mig, "h1", "2026-08-01", "2026-09-29")).toEqual(
+      await loadLastAuditSignatures(pre, "h1", "2026-08-01", "2026-09-29"),
+    );
+    spy.mockRestore();
+  });
+
+  it("throws on a real failure", async () => {
+    const { client } = sharedFake({}, { rpc: () => new FakeRpcError({ code: "57014", message: "statement timeout" }) });
+    await expect(loadLastAuditSignatures(client, "h1", "2026-08-01", "2026-09-29")).rejects.toThrow(/prior audit signatures/);
   });
 });

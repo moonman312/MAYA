@@ -21,7 +21,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { addDays } from "@/lib/observations/calendar";
 import { legacy, makeFixture, rng, type Fixture } from "./booking-speed-legacy.test";
 import { loadBookingSpeedContext, observeForStayDate, resetBookingSpeedLogOnce } from "./booking-speed-provider";
-import { fakeSupabase, type FakeRow } from "./fake-supabase.test";
+import { loadLastAuditSignatures } from "./audit";
+import { FakeRpcError, fakeSupabase, missingFunction, type FakeRow } from "./fake-supabase.test";
 import { findSnapshotAt } from "./snapshots";
 import { bookingSpeedHistorySummary, bookingSpeedWindows } from "./scale-rpc-model.test";
 
@@ -70,6 +71,17 @@ create table if not exists public.stay_date_snapshot (
   booked_units integer not null,
   booked_revenue numeric(12,2) not null,
   primary key (hotel_id, snapshot_ts, stay_date, room_type_id)
+);
+create table if not exists public.evaluation_audit (
+  id uuid primary key default gen_random_uuid(),
+  evaluation_run_id uuid,
+  hotel_id uuid not null,
+  stay_date date not null,
+  room_type_id uuid not null,
+  evaluated_at timestamptz not null,
+  base_price numeric(10,2),
+  final_price numeric(10,2) not null,
+  details jsonb not null
 );
 `;
 
@@ -126,6 +138,7 @@ async function insertReservations(db: Db, rows: FakeRow[]): Promise<void> {
 const SIGNATURES: Record<string, Record<string, string>> = {
   booking_speed_history_summary: { p_hotel_id: "uuid", p_from: "date", p_to: "date", p_exclude: "uuid[]", p_ranks: "int[]" },
   booking_speed_windows: { p_hotel_id: "uuid", p_dates: "date[]", p_exclude: "uuid[]" },
+  audit_last_signatures: { p_hotel_id: "uuid", p_from: "date", p_to: "date" },
   snapshot_cells_at: { p_hotel_id: "uuid", p_ts: "timestamptz", p_from: "date", p_to: "date", p_room_types: "uuid[]" },
 };
 
@@ -315,6 +328,58 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
       }
       expect(cells).toBe(28);
     }
+  }, 120_000);
+
+  it("audit_last_signatures gives the signatures the paged JS loader builds, ties included", async () => {
+    const r = rng(31);
+    const rows: FakeRow[] = [];
+    const types = ["x1", "x2"].map(uuidFor);
+    let id = 0;
+    for (let run = 0; run < 30; run++) {
+      const at = new Date(Date.parse("2026-08-01T00:00:00Z") + run * 300_000).toISOString();
+      for (let d = 0; d < 45; d++) {
+        for (const t of types) {
+          if (r() < 0.5) continue;
+          const copies = r() < 0.15 ? 2 : 1;
+          for (let c = 0; c < copies; c++) {
+            const manual = r() < 0.15;
+            rows.push({
+              id: `e0000000-0000-4000-8000-${(0xfffffff - ++id * 7919).toString(16).padStart(12, "0")}`,
+              hotel_id: r() < 0.05 ? uuidFor("other") : H1,
+              stay_date: addDays("2026-08-01", d),
+              room_type_id: t,
+              evaluated_at: at,
+              final_price: Math.round((90 + r() * 40) * 100) / 100,
+              details: {
+                application_order: r() < 0.3 ? [] : [`ladder:${uuidFor("r" + Math.floor(r() * 3))}`],
+                ...(r() < 0.9 ? { clamped_by: r() < 0.2 ? "floor" : "none" } : {}),
+                base_source: manual ? "manual" : "reservation",
+                ...(manual ? { manual_override: { set_by: null, set_at: "2026-07-31T10:00:00.000Z" } } : {}),
+              },
+            });
+          }
+        }
+      }
+    }
+    await db.exec("truncate public.evaluation_audit;");
+    for (let i = 0; i < rows.length; i += 1000) {
+      await db.query(
+        `insert into public.evaluation_audit (id, hotel_id, stay_date, room_type_id, evaluated_at, final_price, details)
+         select id, hotel_id, stay_date, room_type_id, evaluated_at, final_price, details
+         from json_populate_recordset(null::public.evaluation_audit, $1::json)`,
+        [JSON.stringify(rows.slice(i, i + 1000))],
+      );
+    }
+    const { client: viaSql } = fakeSupabase({});
+    (viaSql as unknown as { rpc: unknown }).rpc = pgliteRpc(db);
+    const { client: viaJs } = fakeSupabase(
+      { evaluation_audit: rows },
+      { maxRows: 1000, rpc: (fn) => new FakeRpcError(missingFunction(fn)) },
+    );
+    const fromSql = await loadLastAuditSignatures(viaSql as SupabaseClient, H1, "2026-08-01", "2026-09-30");
+    const fromJs = await loadLastAuditSignatures(viaJs, H1, "2026-08-01", "2026-09-30");
+    expect(fromSql.size).toBeGreaterThan(50);
+    expect(fromSql).toEqual(fromJs);
   }, 120_000);
 
   it("refuses a caller who is neither service_role nor a member of the hotel", async () => {

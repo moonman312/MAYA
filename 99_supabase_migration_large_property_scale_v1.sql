@@ -216,4 +216,60 @@ revoke all on function public.snapshot_cells_at(uuid, timestamptz, date, date, u
 grant execute on function public.snapshot_cells_at(uuid, timestamptz, date, date, uuid[])
   to authenticated, service_role;
 
+-- ----------------------------------------------------------------------------
+-- 3. Last audit signature per cell
+--
+-- The engine skips an audit row when a cell's outcome matches the newest row
+-- already written for it. This returns that newest row per (stay date, room
+-- type), ties on evaluated_at broken by id, with only the details fields the
+-- signature reads. Served by idx_evaluation_audit_cell.
+-- ----------------------------------------------------------------------------
+
+create or replace function public.audit_last_signatures(
+  p_hotel_id uuid,
+  p_from date,
+  p_to date
+)
+returns table(
+  stay_date date,
+  room_type_id uuid,
+  final_price numeric,
+  application_order jsonb,
+  clamped_by text,
+  base_source text,
+  manual_override jsonb
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_hotel_accessible(p_hotel_id) then
+    raise exception 'Not authorized to read the audit trail for hotel %', p_hotel_id
+      using errcode = '42501';
+  end if;
+
+  return query
+  select distinct on (a.stay_date, a.room_type_id)
+    a.stay_date,
+    a.room_type_id,
+    a.final_price,
+    a.details -> 'application_order',
+    a.details ->> 'clamped_by',
+    a.details ->> 'base_source',
+    a.details -> 'manual_override'
+  from public.evaluation_audit a
+  where a.hotel_id = p_hotel_id
+    and a.stay_date >= p_from
+    and a.stay_date <= p_to
+  order by a.stay_date, a.room_type_id, a.evaluated_at desc, a.id desc;
+end;
+$$;
+
+revoke all on function public.audit_last_signatures(uuid, date, date) from public, anon;
+grant execute on function public.audit_last_signatures(uuid, date, date)
+  to authenticated, service_role;
+
 notify pgrst, 'reload schema';

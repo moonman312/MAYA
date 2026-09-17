@@ -11,6 +11,7 @@ import type { BaseSource } from "./base-price";
 import type { LadderPassResult } from "./ladder";
 import { basePriceKey, pickupTieBreakTrace } from "./pickup";
 import type { AssembledPrice } from "./pricing";
+import { MIGRATIONS, isMissingFunctionError } from "./snapshots";
 import type { PickupCandidate } from "./types";
 
 export type AuditInput = {
@@ -240,12 +241,39 @@ export async function insertAuditRows(supabase: SupabaseClient, rows: Record<str
   await send();
 }
 
+/** The details fields a signature is built from, and nothing else. */
+const SIGNATURE_COLUMNS =
+  "stay_date, room_type_id, final_price, " +
+  "application_order:details->application_order, clamped_by:details->>clamped_by, " +
+  "base_source:details->>base_source, manual_override:details->manual_override";
+
+let loggedAuditSignaturesMissing = false;
+
+/** Test hook: forget that the pre-migration line was already logged. */
+export function resetAuditSignaturesLogOnce(): void {
+  loggedAuditSignaturesMissing = false;
+}
+
+function signatureOf(r: Record<string, unknown>): string {
+  return auditSignature(
+    Number(r.final_price),
+    Array.isArray(r.application_order) ? (r.application_order as string[]) : [],
+    r.clamped_by != null ? String(r.clamped_by) : "none",
+    auditBaseKey({
+      base_source: r.base_source != null ? String(r.base_source) : undefined,
+      manual_override: (r.manual_override ?? null) as { set_at: string } | null,
+    }),
+  );
+}
+
 /**
  * Batched lookup of the most recent audit signature per (stay_date,
  * room_type) across the whole horizon — one query instead of one per cell.
- * Paged and ordered newest-first, keeping only the first (most recent) row
- * seen per cell; since every cell historically got a row on every run, the
- * first page already covers every cell in practice.
+ *
+ * With the large property migration, audit_last_signatures picks the newest
+ * row per cell in the database. Before it, rows are paged newest first
+ * (ties broken by id, so a page boundary inside one run cannot skip a row)
+ * and only the fields a signature reads come back, never the full details.
  */
 export async function loadLastAuditSignatures(
   supabase: SupabaseClient,
@@ -255,32 +283,59 @@ export async function loadLastAuditSignatures(
 ): Promise<Map<string, string>> {
   const PAGE = 1000;
   const signatures = new Map<string, string>();
+
+  let rpcAvailable = true;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .rpc("audit_last_signatures", { p_hotel_id: hotelId, p_from: firstDate, p_to: lastDate })
+      .order("stay_date", { ascending: true })
+      .order("room_type_id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) {
+      if (!isMissingFunctionError(error)) {
+        throw new Error(`Failed to load prior audit signatures: ${error.message}`);
+      }
+      if (!loggedAuditSignaturesMissing) {
+        loggedAuditSignaturesMissing = true;
+        console.error(
+          JSON.stringify({
+            fn: "loadLastAuditSignatures",
+            hotelId,
+            schema: "pre-migration",
+            message: `audit_last_signatures does not exist yet; paging the audit rows instead. Run ${MIGRATIONS.largePropertyScale}.`,
+            migration: MIGRATIONS.largePropertyScale,
+            error: error.message,
+          }),
+        );
+      }
+      rpcAvailable = false;
+      signatures.clear();
+      break;
+    }
+    const rows = (data ?? []) as Record<string, unknown>[];
+    for (const r of rows) signatures.set(`${r.stay_date}|${r.room_type_id}`, signatureOf(r));
+    if (rows.length < PAGE) break;
+  }
+  if (rpcAvailable) return signatures;
+
   const seenKeys = new Set<string>();
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase
       .from("evaluation_audit")
-      .select("stay_date, room_type_id, final_price, details")
+      .select(SIGNATURE_COLUMNS)
       .eq("hotel_id", hotelId)
       .gte("stay_date", firstDate)
       .lte("stay_date", lastDate)
       .order("evaluated_at", { ascending: false })
+      .order("id", { ascending: false })
       .range(from, from + PAGE - 1);
     if (error) throw new Error(`Failed to load prior audit signatures: ${error.message}`);
-    const rows = data ?? [];
+    const rows = (data ?? []) as unknown as Record<string, unknown>[];
     for (const r of rows) {
       const key = `${r.stay_date}|${r.room_type_id}`;
       if (seenKeys.has(key)) continue;
       seenKeys.add(key);
-      const d = (r.details ?? {}) as EvaluationAuditDetails & Partial<AuditBaseDetails>;
-      signatures.set(
-        key,
-        auditSignature(
-          Number(r.final_price),
-          d.application_order ?? [],
-          d.clamped_by ?? "none",
-          auditBaseKey(d),
-        ),
-      );
+      signatures.set(key, signatureOf(r));
     }
     if (rows.length < PAGE) break;
   }

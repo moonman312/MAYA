@@ -136,6 +136,39 @@ export function fakeSupabase(
     return pred(r);
   };
 
+  /**
+   * Column lists that use JSON paths (`alias:details->a->>b`) are projected
+   * the way PostgREST does: `->` keeps JSON, `->>` gives text. Any other
+   * select returns whole rows, as the fake always has.
+   */
+  const project = (rows: FakeRow[], columns: string): FakeRow[] => {
+    if (!columns.includes("->")) return rows;
+    const items = splitTop(columns).map((raw) => {
+      const item = raw.trim();
+      const colon = item.indexOf(":");
+      const expr = colon >= 0 && !item.slice(0, colon).includes("-") ? item.slice(colon + 1) : item;
+      const alias = colon >= 0 && expr !== item ? item.slice(0, colon) : null;
+      const parts = expr.split(/(->>|->)/);
+      const col = parts[0];
+      const steps: { op: string; key: string }[] = [];
+      for (let i = 1; i < parts.length; i += 2) steps.push({ op: parts[i], key: parts[i + 1] });
+      return { name: alias ?? (steps.length ? steps[steps.length - 1].key : col), col, steps };
+    });
+    return rows.map((r) => {
+      const out: FakeRow = {};
+      for (const it of items) {
+        let v: unknown = r[it.col];
+        for (const st of it.steps) {
+          v = v != null && typeof v === "object" ? (v as Record<string, unknown>)[st.key] : undefined;
+          if (v === undefined) v = null;
+          if (st.op === "->>" && v != null) v = typeof v === "object" ? JSON.stringify(v) : String(v);
+        }
+        out[it.name] = v === undefined ? null : v;
+      }
+      return out;
+    });
+  };
+
   function from(table: string) {
     const rows = (tables[table] ??= []);
     const call: FakeCall = { table, op: "select", columns: "", filters: [], payload: null };
@@ -201,7 +234,7 @@ export function fakeSupabase(
       switch (call.op) {
         case "select": {
           if (headCount) return { data: null, error: null, count: matched().length };
-          return { data: matched(), error: null };
+          return { data: project(matched(), call.columns), error: null };
         }
         case "insert": {
           const list = Array.isArray(call.payload) ? call.payload : [call.payload!];
