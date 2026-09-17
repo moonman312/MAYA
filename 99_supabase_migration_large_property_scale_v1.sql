@@ -413,4 +413,45 @@ $$;
 revoke all on function public.engine_reservation_cells(uuid, date, date) from public, anon;
 grant execute on function public.engine_reservation_cells(uuid, date, date) to authenticated, service_role;
 
+-- ----------------------------------------------------------------------------
+-- 7. Calendar revenue series, keyset paged
+--
+-- calendar_daily_revenue runs as the caller, so the reservations RLS policy is
+-- evaluated for every row, over a million on a large property, and each
+-- OFFSET page re-aggregated the whole book. This checks access once and pages
+-- by stay date: each call returns up to p_limit dates after p_after.
+-- ----------------------------------------------------------------------------
+
+create or replace function public.calendar_daily_revenue_v2(
+  p_hotel_id uuid,
+  p_after date default null,
+  p_limit int default 1000
+)
+returns table(stay_date date, revenue numeric)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_hotel_accessible(p_hotel_id) then
+    raise exception 'Not authorized to read revenue for hotel %', p_hotel_id
+      using errcode = '42501';
+  end if;
+
+  return query
+  select r.stay_date, sum(coalesce(r.current_rate, 0))::numeric
+  from public.reservations r
+  where r.hotel_id = p_hotel_id
+    and (p_after is null or r.stay_date > p_after)
+  group by r.stay_date
+  order by r.stay_date
+  limit greatest(1, least(coalesce(p_limit, 1000), 1000));
+end;
+$$;
+
+revoke all on function public.calendar_daily_revenue_v2(uuid, date, int) from public, anon;
+grant execute on function public.calendar_daily_revenue_v2(uuid, date, int) to authenticated, service_role;
+
 notify pgrst, 'reload schema';

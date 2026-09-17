@@ -24,7 +24,12 @@ import { loadBookingSpeedContext, observeForStayDate, resetBookingSpeedLogOnce }
 import { loadLastAuditSignatures } from "./audit";
 import { FakeRpcError, fakeSupabase, missingFunction, type FakeRow } from "./fake-supabase.test";
 import { findSnapshotAt, loadReservationCells } from "./snapshots";
-import { bookingSpeedHistorySummary, bookingSpeedWindows, roomTypeMaxRates } from "./scale-rpc-model.test";
+import {
+  bookingSpeedHistorySummary,
+  bookingSpeedWindows,
+  calendarDailyRevenue,
+  roomTypeMaxRates,
+} from "./scale-rpc-model.test";
 
 const PGLITE_DIR = process.env.MAYA_PGLITE_DIR;
 const MIGRATION = resolve(__dirname, "../../../../99_supabase_migration_large_property_scale_v1.sql");
@@ -141,6 +146,8 @@ const SIGNATURES: Record<string, Record<string, string>> = {
   audit_last_signatures: { p_hotel_id: "uuid", p_from: "date", p_to: "date" },
   room_type_max_rates: { p_hotel_id: "uuid" },
   engine_reservation_cells: { p_hotel_id: "uuid", p_from: "date", p_to: "date" },
+  calendar_daily_revenue: { p_hotel_id: "uuid" },
+  calendar_daily_revenue_v2: { p_hotel_id: "uuid", p_after: "date", p_limit: "int" },
   snapshot_cells_at: { p_hotel_id: "uuid", p_ts: "timestamptz", p_from: "date", p_to: "date", p_room_types: "uuid[]" },
 };
 
@@ -444,6 +451,48 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
       expect(Math.round(got.revenue * 100) / 100).toBe(Math.round(e.revenue * 100) / 100);
       expect(fromSql!.latestBase.get(key)!.base_rate).toBe(latest.get(key)!.base_rate);
     }
+  }, 120_000);
+
+  it("calendar_daily_revenue_v2 pages, concatenated, equal calendar_daily_revenue", async () => {
+    await db.exec(readFileSync(resolve(__dirname, "../../../../99_supabase_migration_calendar_revenue_v1.sql"), "utf8"));
+    const r = rng(61);
+    const rows: FakeRow[] = [];
+    for (let i = 0; i < 9000; i++) {
+      rows.push({
+        id: `c0000000-0000-4000-8000-${i.toString(16).padStart(12, "0")}`,
+        hotel_id: r() < 0.03 ? uuidFor("other") : H1,
+        stay_date: addDays("2021-01-01", Math.floor(r() * 2600)),
+        room_type_id: null,
+        current_rate: r() < 0.1 ? null : Math.round(r() * 50000) / 100,
+      });
+    }
+    await insertReservations(db, rows);
+    const rpc = pgliteRpc(db);
+    const v1: Record<string, unknown>[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await rpc("calendar_daily_revenue", { p_hotel_id: H1 }).range(from, from + 999);
+      expect(error).toBeNull();
+      v1.push(...(data as Record<string, unknown>[]));
+      if ((data as unknown[]).length < 1000) break;
+    }
+    const v2: Record<string, unknown>[] = [];
+    let after: string | null = null;
+    let pages = 0;
+    for (;;) {
+      const { data, error } = await rpc("calendar_daily_revenue_v2", { p_hotel_id: H1, p_after: after, p_limit: 1000 });
+      expect(error).toBeNull();
+      const page = data as Record<string, unknown>[];
+      v2.push(...page);
+      pages++;
+      if (page.length < 1000) break;
+      after = String(page[page.length - 1].stay_date);
+    }
+    expect(v1.length).toBeGreaterThan(2000);
+    expect(pages).toBeGreaterThan(2);
+    expect(v2).toEqual(v1);
+    expect(v2.map((x) => ({ stay_date: x.stay_date, revenue: Number(x.revenue) }))).toEqual(
+      calendarDailyRevenue(rows, { p_hotel_id: H1 }),
+    );
   }, 120_000);
 
   it("refuses a caller who is neither service_role nor a member of the hotel", async () => {

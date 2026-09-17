@@ -186,6 +186,25 @@ export function engineReservationCells(reservations: FakeRow[], a: Record<string
     }));
 }
 
+/** calendar_daily_revenue(p_hotel_id): every date, the whole series. */
+export function calendarDailyRevenue(reservations: FakeRow[], a: Record<string, unknown>): FakeRow[] {
+  const cents = new Map<string, number>();
+  for (const r of reservations) {
+    if (r.hotel_id !== a.p_hotel_id) continue;
+    const d = String(r.stay_date);
+    cents.set(d, (cents.get(d) ?? 0) + (r.current_rate != null ? Math.round(Number(r.current_rate) * 100) : 0));
+  }
+  return [...cents.keys()].sort().map((d) => ({ stay_date: d, revenue: cents.get(d)! / 100 }));
+}
+
+/** calendar_daily_revenue_v2(p_hotel_id, p_after, p_limit) */
+export function calendarDailyRevenueV2(reservations: FakeRow[], a: Record<string, unknown>): FakeRow[] {
+  const limit = Math.max(1, Math.min(Number(a.p_limit ?? 1000), 1000));
+  return calendarDailyRevenue(reservations, a)
+    .filter((r) => a.p_after == null || String(r.stay_date) > String(a.p_after))
+    .slice(0, limit);
+}
+
 /** An rpc handler for fakeSupabase that answers every modeled function from the fake's own tables. */
 export function scaleRpc(fn: string, args: unknown, tables: Record<string, FakeRow[]>): unknown {
   const a = args as Record<string, unknown>;
@@ -202,6 +221,8 @@ export function scaleRpc(fn: string, args: unknown, tables: Record<string, FakeR
       return ruleFireCounts(tables.ladder_transition_event ?? [], tables.pickup_event ?? [], a);
     case "engine_reservation_cells":
       return engineReservationCells(tables.reservations ?? [], a);
+    case "calendar_daily_revenue_v2":
+      return calendarDailyRevenueV2(tables.reservations ?? [], a);
     case "snapshot_cells_at":
       return snapshotCellsAt(tables.stay_date_snapshot ?? [], a);
     default:

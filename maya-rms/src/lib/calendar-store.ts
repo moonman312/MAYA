@@ -17,7 +17,13 @@ import {
 } from "@/lib/calendar-color";
 import { formatUtcMonthYear } from "@/lib/calendar-month-label";
 import { ROOM_TYPES } from "@/lib/demo-data";
-import { fetchAllRows, loadOutOfServiceRows, sellableUnitsFor, type OutOfServiceRow } from "@/lib/engine/snapshots";
+import {
+  fetchAllRows,
+  isMissingFunctionError,
+  loadOutOfServiceRows,
+  sellableUnitsFor,
+  type OutOfServiceRow,
+} from "@/lib/engine/snapshots";
 import { evalIsoToHotelDateString } from "@/lib/engine/timezone";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import type { CalendarDay, CalendarResponse, CalendarRoomType } from "@/types/domain";
@@ -122,6 +128,24 @@ export function clearCalendarHistoryCache(): void {
   historyCache.clear();
 }
 
+let loggedRevenueV2Missing = false;
+
+function logRevenueV2MissingOnce(hotelId: string, error: string): void {
+  if (loggedRevenueV2Missing) return;
+  loggedRevenueV2Missing = true;
+  console.error(
+    JSON.stringify({
+      fn: "calendar-store",
+      step: "calendar_daily_revenue_v2",
+      hotelId,
+      schema: "pre-migration",
+      message: "calendar_daily_revenue_v2 does not exist yet; using calendar_daily_revenue. Run 99_supabase_migration_large_property_scale_v1.sql.",
+      migration: "99_supabase_migration_large_property_scale_v1.sql",
+      error,
+    }),
+  );
+}
+
 async function loadHotelHistory(
   supabase: SupabaseClient,
   hotelId: string,
@@ -139,13 +163,7 @@ async function loadHotelHistory(
   const revenueByDate = new Map<string, number>();
   let minStayDate: string | null = null;
   let maxStayDate: string | null = null;
-  const PAGE = 1000;
-  for (let from = 0, guard = 0; guard < 100; from += PAGE, guard++) {
-    const { data: seriesRows, error: seriesErr } = await supabase
-      .rpc("calendar_daily_revenue", { p_hotel_id: hotelId })
-      .range(from, from + PAGE - 1);
-    if (seriesErr) throw new Error(seriesErr.message);
-    const rows = (seriesRows ?? []) as { stay_date: string; revenue: number | string | null }[];
+  const addRows = (rows: { stay_date: string; revenue: number | string | null }[]) => {
     for (const row of rows) {
       const stayDate = String(row.stay_date);
       const amount = Number(row.revenue ?? 0);
@@ -153,6 +171,43 @@ async function loadHotelHistory(
       if (minStayDate === null || stayDate < minStayDate) minStayDate = stayDate;
       if (maxStayDate === null || stayDate > maxStayDate) maxStayDate = stayDate;
     }
+  };
+  const PAGE = 1000;
+
+  // calendar_daily_revenue_v2 checks access once and pages by date; v1 ran
+  // the RLS check on every reservation and re-aggregated the book per page,
+  // which can time out on a large property. v1 stays as the fallback until
+  // the migration has run.
+  let v2 = true;
+  let after: string | null = null;
+  for (let guard = 0; guard < 100; guard++) {
+    const { data: seriesRows, error: seriesErr } = await supabase.rpc("calendar_daily_revenue_v2", {
+      p_hotel_id: hotelId,
+      p_after: after,
+      p_limit: PAGE,
+    });
+    if (seriesErr) {
+      if (!isMissingFunctionError(seriesErr)) throw new Error(seriesErr.message);
+      logRevenueV2MissingOnce(hotelId, seriesErr.message);
+      v2 = false;
+      revenueByDate.clear();
+      minStayDate = null;
+      maxStayDate = null;
+      break;
+    }
+    const rows = (seriesRows ?? []) as { stay_date: string; revenue: number | string | null }[];
+    addRows(rows);
+    if (rows.length < PAGE) break;
+    after = String(rows[rows.length - 1].stay_date);
+  }
+
+  for (let from = 0, guard = 0; !v2 && guard < 100; from += PAGE, guard++) {
+    const { data: seriesRows, error: seriesErr } = await supabase
+      .rpc("calendar_daily_revenue", { p_hotel_id: hotelId })
+      .range(from, from + PAGE - 1);
+    if (seriesErr) throw new Error(seriesErr.message);
+    const rows = (seriesRows ?? []) as { stay_date: string; revenue: number | string | null }[];
+    addRows(rows);
     if (rows.length < PAGE) break;
   }
 

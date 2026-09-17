@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { clearCalendarHistoryCache, countingCapacity, getCalendar, isCountingRoom } from "./calendar-store";
-import { fakeSupabase, missingRelation, type FakeRow } from "./engine/fake-supabase.test";
+import { FakeRpcError, fakeSupabase, missingRelation, type FakeRow } from "./engine/fake-supabase.test";
+import { calendarDailyRevenue } from "./engine/scale-rpc-model.test";
 
 vi.mock("@/lib/hotel-context", () => ({ resolveAccessibleHotelId: async () => "h1" }));
 
@@ -418,5 +419,44 @@ describe("getCalendar (Supabase) on a property past the 1,000-row cap", () => {
     expect(capped.days["31"].booked).toBeGreaterThan(0);
     expect(capped.days["31"].room_types.find((r) => r.id === "rt3")!.manual_price).toMatchObject({ price: 99 });
     expect(capped.days["31"].room_types.find((r) => r.id === "rt2")!.current_price).toBe(181);
+  });
+});
+
+describe("getCalendar (Supabase) revenue series", () => {
+  afterEach(() => {
+    clearCalendarHistoryCache();
+    vi.restoreAllMocks();
+  });
+
+  it("reads the same series through calendar_daily_revenue_v2 as through the v1 fallback, past 1,000 dates", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const reservations: FakeRow[] = [];
+    for (let d = 0; d < 1500; d++) {
+      const stay = new Date(Date.UTC(2023, 0, 1) + d * 86_400_000).toISOString().slice(0, 10);
+      for (let k = 0; k < 1 + (d % 3); k++) {
+        reservations.push({ id: `r${d}-${k}`, hotel_id: "h1", stay_date: stay, room_type_id: "rt1", base_rate: 100, current_rate: k === 1 ? null : 90 + (d % 50) + 0.33 });
+      }
+    }
+    const seed = {
+      hotels: [{ id: "h1", timezone: "UTC", total_rooms_per_type: 100 }],
+      room_types: [{ id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 20, counts_as_room: true }],
+      reservations,
+    };
+    const v2 = fakeSupabase(seed, { maxRows: 1000 });
+    const viaV2 = await getCalendar(2026, 1, v2.client);
+    clearCalendarHistoryCache();
+    const v1 = fakeSupabase(seed, {
+      maxRows: 1000,
+      rpc: (fn, args, tables) =>
+        fn === "calendar_daily_revenue_v2"
+          ? new FakeRpcError({ code: "PGRST202", message: "Could not find the function public.calendar_daily_revenue_v2" })
+          : fn === "calendar_daily_revenue"
+            ? calendarDailyRevenue(tables.reservations, args as Record<string, unknown>)
+            : undefined,
+    });
+    const viaV1 = await getCalendar(2026, 1, v1.client);
+    expect(viaV2).toEqual(viaV1);
+    expect(viaV2.range.min).toBe("2023-01");
+    expect(v2.calls.filter((c) => c.table === "rpc:calendar_daily_revenue_v2").length).toBe(2);
   });
 });
