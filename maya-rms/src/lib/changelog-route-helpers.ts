@@ -11,6 +11,7 @@ import {
   type NarrativeRetirement,
   narrateChange,
 } from "@/lib/changelog-narrative";
+import { humanDate } from "@/lib/explain";
 import { measuresDifferently } from "@/lib/rule-form";
 import { pmsName } from "../../supabase/functions/_shared/pms/push-failure";
 import type {
@@ -512,7 +513,7 @@ export function buildAlertChoices(
     const dates = list.map((r) => r.stay_date).sort();
     const ruleName = lookups.rules.get(first.rule_id)?.name ?? "A rule";
     const who = (first.chosen_by ? lookups.setterNames?.get(first.chosen_by) : null) ?? "A manager";
-    const where = list.length === 1 ? dates[0] : nightsWord(list.length);
+    const where = list.length === 1 ? humanDate(dates[0]) : nightsWord(list.length);
     out.push({
       kind: "rule_alert_choice",
       id: key,

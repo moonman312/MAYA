@@ -220,6 +220,104 @@ describe("changelog route: failures are errors, never demo data", () => {
     expect(fallback[0].changes[0].description).toBe("A manager set the base rate to $180.00.");
   });
 
+  it("puts the owner's answer to a repeating rule in the timeline, with their name", async () => {
+    state.hotelId = HOTEL;
+    state.configured = true;
+    state.admin = fakeSupabase({ profiles: [{ id: "user-2", full_name: "Jake" }] }).client;
+    // Two nights answered in one go, after the run the log shows.
+    const nights = [
+      {
+        hotel_id: HOTEL,
+        rule_id: "rule-1",
+        stay_date: "2026-11-14",
+        choice: "stop",
+        chosen_at: "2026-07-29T09:00:00Z",
+        chosen_by: "user-2",
+      },
+      {
+        hotel_id: HOTEL,
+        rule_id: "rule-1",
+        stay_date: "2026-11-16",
+        choice: "stop",
+        chosen_at: "2026-07-29T09:00:00Z",
+        chosen_by: "user-2",
+      },
+    ];
+    const merged = fakeSupabase({
+      evaluation_audit: [
+        {
+          id: "audit-1",
+          hotel_id: HOTEL,
+          evaluation_run_id: "run-1",
+          stay_date: "2026-08-01",
+          room_type_id: "rt-1",
+          evaluated_at: "2026-07-29T08:00:00Z",
+          base_price: 180,
+          final_price: 198,
+          pre_clamp_price: 198,
+          floor_price: 100,
+          ceiling_price: 400,
+          details: {
+            application_order: ["rule:rule-1"],
+            matched_ladder_rules: [
+              {
+                rule_id: "rule-1",
+                action: { kind: "percent", direction: "increase", value: 10 },
+                metrics: { occupancy: 0.82 },
+              },
+            ],
+          },
+        },
+      ],
+      hotels: [{ id: HOTEL, currency: "USD" }],
+      room_types: [{ id: "rt-1", hotel_id: HOTEL, name: "Garden King" }],
+      pricing_rules: [
+        {
+          id: "rule-1",
+          hotel_id: HOTEL,
+          name: "Slow-date rescue",
+          action_type: "percent",
+          action_direction: "decrease",
+          action_value: 15,
+          is_pickup_rule: true,
+        },
+      ],
+      evaluation_run_log: [
+        { hotel_id: HOTEL, evaluation_run_id: "run-1", evaluated_at: "2026-07-29T08:00:00Z" },
+      ],
+      rule_repeat_alert_nights: nights,
+    });
+    state.client = merged.client;
+
+    const body = await (await GET()).json();
+    const answer = body.find((i: { kind?: string }) => i.kind === "rule_alert_choice");
+    expect(answer).toMatchObject({
+      rule_name: "Slow-date rescue",
+      choice: "stop",
+      nights: 2,
+      timestamp: "2026-07-29T09:00:00Z",
+    });
+    expect(answer.title).toBe('Jake stopped "Slow-date rescue" on 2 nights. What it already changed stays.');
+    // It sits above the run it happened after, and never replaces it.
+    expect(body[0].kind).toBe("rule_alert_choice");
+    expect(body.some((i: { has_changes?: boolean }) => i.has_changes === true)).toBe(true);
+  });
+
+  it("shows the runs even when the answers cannot be read", async () => {
+    const { client, failSelectFor } = seedHealthyHotel();
+    failSelectFor.set("rule_repeat_alert_nights", { message: "boom" });
+    state.client = client;
+    state.hotelId = HOTEL;
+    state.configured = true;
+    state.admin = null;
+
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0].has_changes).toBe(true);
+  });
+
   it("still serves the demo changelog when Supabase is not configured", async () => {
     state.configured = false;
 

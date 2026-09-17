@@ -239,3 +239,39 @@ describe("listRules: occupancy percentage display does not show float noise", ()
     expect(rules[0].conditions.occupancy_percentage).toBe(`>${pct}`);
   });
 });
+
+describe("listRules: a booking speed rule's card says how long it waits", () => {
+  const card = async (cooldown: number | null) => {
+    const { client } = fakeSupabase({
+      pricing_rules: [
+        {
+          id: "r1",
+          hotel_id: "h1",
+          name: "Hot-week surge",
+          is_active: true,
+          version: 1,
+          action_type: "percent",
+          action_direction: "increase",
+          action_value: 25,
+          is_pickup_rule: true,
+          rule_condition: {
+            booking_speed_operator: "at_least",
+            booking_speed_level: "much_faster",
+            booking_speed_window_days: 7,
+            booking_speed_cooldown_days: cooldown,
+          },
+        },
+      ],
+    });
+    return (await listRules(client, "h1"))[0].conditions.booking_speed;
+  };
+
+  it("names the wait, because the rule acts again once it is over", async () => {
+    expect(await card(2)).toBe("at least Much Faster Than Normal (past week), then waits 2 days");
+    expect(await card(14)).toBe("at least Much Faster Than Normal (past week), then waits 2 weeks");
+  });
+
+  it("reads a rule saved without one as the week the engine gives it", async () => {
+    expect(await card(null)).toBe("at least Much Faster Than Normal (past week), then waits 1 week");
+  });
+});

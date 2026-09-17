@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   type AuditChangeRow,
   type ChangelogLookups,
+  buildAlertChoices,
   buildApplications,
   buildCyclesFromAudit,
   buildEntry,
+  buildRetirements,
   currencySymbolFor,
   groupAuditRuns,
   isChangeRow,
+  isRuleAlertChoice,
 } from "./changelog-route-helpers";
 import type { EvaluationAuditDetails } from "@/types/domain";
 
@@ -544,5 +547,117 @@ describe("measured room types in the change log", () => {
     expect(narrative({ ruleRoomSets: sets(["rt-1"], ["rt-1", "court"]), countingRoomTypeIds: new Set(["rt-1", "rt-2", "rt-3"]) })).toEqual(plain);
     // No sets known (an old rule row, or none loaded): as before.
     expect(narrative({})).toEqual(plain);
+  });
+});
+
+describe("an event rule that fired more than once on one night", () => {
+  /** Two fires of rule-2 on the cell; only the newer one is this run's. */
+  const stacked = () =>
+    details({
+      active_pickup_effects: [
+        { event_id: "evt-1", rule_id: "rule-2", delta: "+12%", applied_at: "2026-07-21T10:00:00Z", fire_seq: 1 },
+        { event_id: "evt-2", rule_id: "rule-2", delta: "+12%", applied_at: "2026-07-28T10:00:00Z", fire_seq: 2 },
+      ],
+      pickup_candidates: [
+        {
+          rule_id: "rule-2",
+          outcome: "won",
+          metrics: { occupancy: 0.9, dta: 3, net_pickup_units: 9 },
+          tie_break_trace: ["winner"],
+          event_id: "evt-2",
+          fire_seq: 2,
+        },
+      ],
+      application_order: ["pickup:evt-1", "pickup:evt-2"],
+    });
+
+  it("gives this run's numbers to the fire this run made, not to the one it stacked on", () => {
+    const apps = buildApplications(stacked(), lookups());
+    expect(apps).toHaveLength(2);
+    expect(apps[0].metrics).toBeNull();
+    expect(apps[0].repeat).toBeUndefined();
+    expect(apps[1].metrics).toEqual({ occupancy: 0.9, dta: 3, pickup_units: 9, booking_speed: null });
+    expect(apps[1].repeat).toBe(true);
+  });
+
+  it("still reads a row from before stacking, where the rule id named the winner", () => {
+    const old = details({
+      active_pickup_effects: [{ event_id: "evt-9", rule_id: "rule-2", delta: "+12%" }],
+      pickup_candidates: [
+        { rule_id: "rule-2", outcome: "won", metrics: { net_pickup_units: 4 }, tie_break_trace: ["winner"] },
+      ],
+      application_order: ["pickup:evt-9"],
+    });
+    expect(buildApplications(old, lookups())[0].metrics?.pickup_units).toBe(4);
+  });
+
+  it("narrates the second fire as the same rule going again", () => {
+    const entry = buildEntry(
+      row({ base_price: 200, final_price: 250.88, details: stacked() }),
+      lookups(),
+    );
+    expect(entry.narrative).toEqual([
+      '"Demand-spike catcher" raised this night 12%, from $200.00 to $224.00.',
+      'Then "Demand-spike catcher" raised it again 12%, from $224.00 to $250.88.',
+    ]);
+  });
+});
+
+describe("buildRetirements", () => {
+  const retired = () =>
+    details({
+      retired_pickup_effects: [
+        {
+          event_id: "evt-3",
+          rule_id: "rule-2",
+          delta: "+12%",
+          applied_at: "2026-07-21T10:00:00Z",
+          fire_seq: 1,
+          reason: "bookings_cancelled",
+          cancel_check: "either",
+        },
+      ],
+    });
+
+  it("names the rule behind a fire the run took off", () => {
+    expect(buildRetirements(retired(), lookups().rules)).toEqual([
+      { rule_name: "Demand-spike catcher", delta: "+12%", reason: "bookings_cancelled" },
+    ]);
+    expect(buildRetirements(details(), lookups().rules)).toEqual([]);
+  });
+
+  it("puts it in the entry before whatever is still applying", () => {
+    const entry = buildEntry(row({ base_price: 200, final_price: 200, details: retired() }), lookups());
+    expect(entry.narrative?.[0]).toBe(
+      '"Demand-spike catcher" stopped applying an earlier 12% raise here: enough of the bookings behind it cancelled.',
+    );
+    expect(entry.rule_name).toBe("Demand-spike catcher");
+  });
+});
+
+describe("buildAlertChoices", () => {
+  const rows = [
+    { rule_id: "rule-2", stay_date: "2026-11-16", choice: "stop" as const, chosen_at: "2026-09-17T12:00:00Z", chosen_by: "u1" },
+    { rule_id: "rule-2", stay_date: "2026-11-14", choice: "stop" as const, chosen_at: "2026-09-17T12:00:00Z", chosen_by: "u1" },
+    { rule_id: "rule-1", stay_date: "2026-11-14", choice: "keep_adjusting" as const, chosen_at: "2026-09-16T09:00:00Z", chosen_by: null },
+  ];
+
+  it("makes one item per answer, however many nights it settled, newest first", () => {
+    const items = buildAlertChoices(rows, { rules: lookups().rules, setterNames: new Map([["u1", "Jake"]]) });
+    expect(items).toHaveLength(2);
+    expect(items[0].nights).toBe(2);
+    expect(items[0].first_night).toBe("2026-11-14");
+    expect(items[0].last_night).toBe("2026-11-16");
+    expect(items[0].title).toBe('Jake stopped "Demand-spike catcher" on 2 nights. What it already changed stays.');
+    expect(items[1].title).toBe('A manager told "Busy-day bump" to carry on with Sat, Nov 14 2026.');
+    expect(items.every(isRuleAlertChoice)).toBe(true);
+  });
+
+  it("says nothing it cannot back up when the rule is gone", () => {
+    const items = buildAlertChoices([rows[0]], { rules: new Map() });
+    expect(items[0].title).toBe(
+      'A manager stopped "A rule" on Mon, Nov 16 2026. What it already changed stays.',
+    );
+    expect(items[0].title).not.toMatch(/—/);
   });
 });
