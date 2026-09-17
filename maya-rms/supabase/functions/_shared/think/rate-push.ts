@@ -1,9 +1,8 @@
 /**
  * Think rate-push adapter. Implements the shared PmsRatePushAdapter:
- *   • resolveRateTargets — map each room type to the STANDARD rate type MAYA
- *     should write, preferring the property's Best Available Rate. DERIVED
- *     rate types reprice themselves off their parent, so writing the parent
- *     is the whole job.
+ *   • resolveRateTargets — map each room type to the property's base STANDARD
+ *     rate type (chooseThinkBaseRates). DERIVED rate types reprice themselves
+ *     off their parent, so writing the parent is the whole job.
  *   • pushCells — group by rate type and PUT gzipped daily-rate rows.
  *
  * VERIFIED live 2026-08-05 on the sandbox: the gzip body is mandatory (plain
@@ -41,35 +40,16 @@ export function createThinkRateAdapter(
 
     async resolveRateTargets(): Promise<RateTargetMap> {
       const rateTypes = await thinkGetRateTypes(creds, thinkHotelId);
-      // Per room type, pick a STANDARD rate: Best Available Rate by name if
-      // one exists, else the STANDARD type covering the most room types (the
-      // property's broadest base rate).
-      type Candidate = { id: string; isBar: boolean; breadth: number };
-      const chosen = new Map<string, Candidate>();
-      for (const rt of rateTypes) {
-        if (rt.type === "DERIVED") continue;
-        const id = typeof rt.id === "string" ? rt.id : String(rt.id ?? "");
-        if (!id) continue;
-        const roomTypeIds = Array.isArray(rt.roomTypeIds)
-          ? rt.roomTypeIds.map(String)
-          : [];
-        const isBar =
-          typeof rt.name === "string" && /best\s*available/i.test(rt.name);
-        for (const roomTypeId of roomTypeIds) {
-          const prev = chosen.get(roomTypeId);
-          const next: Candidate = { id, isBar, breadth: roomTypeIds.length };
-          if (
-            !prev ||
-            (isBar && !prev.isBar) ||
-            (isBar === prev.isBar && next.breadth > prev.breadth)
-          ) {
-            chosen.set(roomTypeId, next);
-          }
-        }
-      }
-      const map: RateTargetMap = {};
-      for (const [roomTypeId, v] of chosen) map[roomTypeId] = v.id;
-      return map;
+      const { targets, withoutBaseRate } = chooseThinkBaseRates(rateTypes);
+      console.log(
+        JSON.stringify({
+          fn: "thinkRateTargets",
+          thinkHotelId,
+          targets,
+          ...(Object.keys(withoutBaseRate).length > 0 ? { withoutBaseRate } : {}),
+        }),
+      );
+      return targets;
     },
 
     async pushCells(
@@ -138,4 +118,63 @@ export function createThinkRateAdapter(
       return out;
     },
   };
+}
+
+/**
+ * Each room type's base rate type, and nothing else.
+ *
+ * Think marks a rate type STANDARD or DERIVED and nothing more: a
+ * non-refundable rate or a package is STANDARD just like the Best Available
+ * Rate (sandbox: BAR 44186 and Non-Refundable 44910, both STANDARD). So the
+ * base is chosen once for the whole property: its STANDARD types named Best
+ * Available, or, when none is, the single STANDARD type covering the most room
+ * types. A room type no base type covers is left out rather than handed the
+ * next STANDARD type that happens to cover it, which is how a room's price
+ * used to land on the non-refundable or package rate. A tie for broadest is
+ * no base at all: guessing between two is how the wrong one gets written.
+ *
+ * Only an affirmative STANDARD counts. Skipping just DERIVED would make a type
+ * with the field missing a push target.
+ */
+export function chooseThinkBaseRates(rateTypes: Record<string, unknown>[]): {
+  targets: RateTargetMap;
+  withoutBaseRate: Record<string, number>;
+} {
+  type Standard = { id: string; isBar: boolean; roomTypeIds: string[] };
+  const standard: Standard[] = [];
+  for (const rt of rateTypes) {
+    if (String(rt.type ?? "").toUpperCase() !== "STANDARD") continue;
+    const id = typeof rt.id === "string" ? rt.id : String(rt.id ?? "");
+    if (!id) continue;
+    const roomTypeIds = Array.isArray(rt.roomTypeIds) ? rt.roomTypeIds.map(String) : [];
+    standard.push({ id, isBar: typeof rt.name === "string" && /best\s*available/i.test(rt.name), roomTypeIds });
+  }
+
+  let base = standard.filter((rt) => rt.isBar);
+  if (base.length === 0 && standard.length > 0) {
+    const widest = Math.max(...standard.map((rt) => rt.roomTypeIds.length));
+    const broadest = standard.filter((rt) => rt.roomTypeIds.length === widest);
+    base = broadest.length === 1 ? broadest : [];
+  }
+
+  // Among base types, the broadest covering a room type wins; first listed on a tie.
+  const targets: RateTargetMap = {};
+  const breadth = new Map<string, number>();
+  for (const rt of base) {
+    for (const roomTypeId of rt.roomTypeIds) {
+      if ((breadth.get(roomTypeId) ?? -1) >= rt.roomTypeIds.length) continue;
+      targets[roomTypeId] = rt.id;
+      breadth.set(roomTypeId, rt.roomTypeIds.length);
+    }
+  }
+
+  const withoutBaseRate: Record<string, number> = {};
+  for (const rt of standard) {
+    for (const roomTypeId of rt.roomTypeIds) {
+      if (targets[roomTypeId]) continue;
+      // Any type covering a room type left out is, by construction, not a base.
+      withoutBaseRate[roomTypeId] = (withoutBaseRate[roomTypeId] ?? 0) + 1;
+    }
+  }
+  return { targets, withoutBaseRate };
 }

@@ -1,8 +1,9 @@
 /**
  * Cloudbeds rate-push adapter. Implements the shared PmsRatePushAdapter:
  *   • resolveRateTargets — map external_room_type_id (Cloudbeds roomTypeID) to
- *     its base BAR rateID from getRatePlans (non-derived; base rates lack
- *     `ratePlanID`). Only non-derived rates are updatable via patchRate.
+ *     its base rateID from getRatePlans (non-derived; base rates lack
+ *     `ratePlanID`). Only non-derived rates are updatable via patchRate, and
+ *     only the base rate is ever a target (chooseBaseRates).
  *   • pushCells — group by rateID, chunk into ≤30 intervals (one per night, or
  *     one per run of same-price nights with CLOUDBEDS_MERGE_RATE_INTERVALS),
  *     and POST patchRate.
@@ -71,41 +72,28 @@ export function createCloudbedsRateAdapter(
   creds: CloudbedsResolvedCredentials,
   mergeIntervals: boolean = CLOUDBEDS_MERGE_RATE_INTERVALS,
 ): PmsRatePushAdapter {
+  // ONE call for the whole window. detailedRates returns roomRateDetailed[]
+  // — a per-night breakdown — which is both what Cloudbeds requires of an
+  // RMS integration and the only way to get per-night numbers: without it a
+  // range collapses to a single aggregated roomRate per plan (verified
+  // 2026-09-08: a 3-day window returned roomRate 338 and no dates).
+  // endDate is exclusive, so ask for one extra day to include it.
+  const ratePlansFor = (startDate: string, endDate: string) =>
+    cloudbedsGetRatePlans(creds, startDate, addOneDay(endDate), { detailedRates: true });
+
   return {
     pmsType: "cloudbeds",
 
-    async resolveRateTargets(): Promise<RateTargetMap> {
+    async resolveRateTargets(opts: { today?: string } = {}): Promise<RateTargetMap> {
       // getRatePlans requires a date window even for the catalog; a 1-day range
-      // is enough — the roomTypeID → rateID mapping is date-independent.
-      const start = new Date().toISOString().slice(0, 10);
-      const end = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
-      const plans = await cloudbedsGetRatePlans(creds, start, end, { detailedRates: true });
-      // Per room type, pick a non-derived rate, preferring the base BAR
-      // (base rates lack `ratePlanID`).
-      const chosen = new Map<string, { rateId: string; isBase: boolean }>();
-      for (const plan of plans) {
-        // deno-lint-ignore no-explicit-any
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const p = plan as any;
-        // Cloudbeds' rule is "only update rates with isDerived set to FALSE", and
-        // that phrasing is deliberate. Skipping only an affirmative true left
-        // this fail-OPEN: a plan with the field absent, null, 1 or "1" became a
-        // push target, Cloudbeds accepted the job and then rejected the cell,
-        // and the property's real rate never moved. Require the affirmative.
-        // (Live shape on the sandbox is a real boolean, checked 2026-09-10.)
-        if (p.isDerived !== false && p.isDerived !== "false") continue;
-        const roomTypeId = str(p, ["roomTypeID", "roomTypeId"]);
-        const rateId = str(p, ["rateID", "rateId"]);
-        if (!roomTypeId || !rateId) continue;
-        const isBase = p.ratePlanID == null && p.ratePlanNamePublic == null;
-        const prev = chosen.get(roomTypeId);
-        if (!prev || (isBase && !prev.isBase)) {
-          chosen.set(roomTypeId, { rateId, isBase });
-        }
-      }
-      const map: RateTargetMap = {};
-      for (const [roomTypeId, v] of chosen) map[roomTypeId] = v.rateId;
-      return map;
+      // from the hotel's today is enough, since the roomTypeID → rateID mapping
+      // is date-independent. The UTC date is only a fallback for a caller
+      // outside the push path.
+      const start = opts.today ?? new Date().toISOString().slice(0, 10);
+      const plans = await cloudbedsGetRatePlans(creds, start, addOneDay(start), { detailedRates: true });
+      const { targets, withoutBaseRate } = chooseBaseRates(plans);
+      logRateTargets(creds.propertyId, targets, withoutBaseRate);
+      return targets;
     },
 
     async pushCells(
@@ -177,40 +165,130 @@ export function createCloudbedsRateAdapter(
       endDate: string,
       targets: RateTargetMap,
     ): Promise<RateCalendarEntry[]> {
-      // ONE call for the whole window. detailedRates returns roomRateDetailed[]
-      // — a per-night breakdown — which is both what Cloudbeds requires of an
-      // RMS integration and the only way to get per-night numbers: without it a
-      // range collapses to a single aggregated roomRate per plan (verified
-      // 2026-09-08: a 3-day window returned roomRate 338 and no dates).
-      // endDate is exclusive, so ask for one extra day to include it.
-      const roomTypesWanted = new Set(Object.keys(targets));
-      const plans = await cloudbedsGetRatePlans(creds, startDate, addOneDay(endDate), {
-        detailedRates: true,
-      });
+      return calendarEntries(await ratePlansFor(startDate, endDate), startDate, endDate, targets);
+    },
 
-      const out: RateCalendarEntry[] = [];
-      for (const plan of plans) {
-        // Derived plans reprice off their parent, so the parent carries the
-        // property's own rate — the same choice resolveRateTargets makes.
-        if (plan.isDerived !== false && plan.isDerived !== "false") continue;
-        const roomTypeId = String(plan.roomTypeID ?? "");
-        if (!roomTypesWanted.has(roomTypeId)) continue;
-        const nights = Array.isArray(plan.roomRateDetailed) ? plan.roomRateDetailed : [];
-        for (const night of nights as Record<string, unknown>[]) {
-          const date = String(night.date ?? "");
-          if (!date || date < startDate || date > endDate) continue;
-          // null/undefined is a MISSING rate, and Number(null) is 0 — writing
-          // that would hand the engine a $0 base and price the night at the
-          // floor. An explicit 0 is a real comp rate and is kept.
-          if (night.rate == null) continue;
-          const price = Number(night.rate);
-          if (!Number.isFinite(price)) continue;
-          out.push({ stayDate: date, externalRoomTypeId: roomTypeId, price });
-        }
-      }
-      return out;
+    async readBaseRateCalendar(
+      startDate: string,
+      endDate: string,
+    ): Promise<{ targets: RateTargetMap; entries: RateCalendarEntry[] }> {
+      // The catalog and the nightly rates arrive in the same response, so a
+      // whole horizon's refresh is one getRatePlans call.
+      const plans = await ratePlansFor(startDate, endDate);
+      const { targets, withoutBaseRate } = chooseBaseRates(plans);
+      logRateTargets(creds.propertyId, targets, withoutBaseRate);
+      return { targets, entries: calendarEntries(plans, startDate, endDate, targets) };
     },
   };
+}
+
+// deno-lint-ignore no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function isNonDerived(p: any): boolean {
+  // Cloudbeds' rule is "only update rates with isDerived set to FALSE", and
+  // that phrasing is deliberate. Skipping only an affirmative true left this
+  // fail-OPEN: a plan with the field absent, null, 1 or "1" became a push
+  // target, Cloudbeds accepted the job and then rejected the cell, and the
+  // property's real rate never moved. Require the affirmative. (Live shape on
+  // the sandbox is a real boolean, checked 2026-09-10.)
+  return p?.isDerived === false || p?.isDerived === "false";
+}
+
+/**
+ * Each room type's base rate, and nothing else.
+ *
+ * The base rate is the non-derived plan with no ratePlanID and no
+ * ratePlanNamePublic; every rate plan built on top of it carries both. This
+ * used to fall back to the first other non-derived plan when a room type had
+ * no base, and an independent package or long-stay plan is non-derived too,
+ * so MAYA's price could land on the breakfast package while the room's own
+ * rate never moved. A room type without a base rate is now left out: its
+ * cells are recorded as skipped "no rate target for room type" instead.
+ *
+ * `withoutBaseRate` counts, per room type left out, the non-derived plans it
+ * did have, so a property whose base rates look different from the sandbox's
+ * shows up in the log rather than as silence.
+ */
+export function chooseBaseRates(plans: unknown[]): {
+  targets: RateTargetMap;
+  withoutBaseRate: Record<string, number>;
+} {
+  const targets: RateTargetMap = {};
+  const otherPlans = new Map<string, Set<string>>();
+  for (const plan of plans) {
+    // deno-lint-ignore no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const p = plan as any;
+    const roomTypeId = str(p, ["roomTypeID", "roomTypeId"]);
+    if (!roomTypeId) continue;
+    const others = otherPlans.get(roomTypeId) ?? new Set<string>();
+    otherPlans.set(roomTypeId, others);
+    if (!isNonDerived(p)) continue;
+    const rateId = str(p, ["rateID", "rateId"]);
+    if (!rateId) continue;
+    const isBase = p.ratePlanID == null && p.ratePlanNamePublic == null;
+    if (!isBase) {
+      others.add(rateId);
+      continue;
+    }
+    if (!targets[roomTypeId]) targets[roomTypeId] = rateId;
+  }
+  const withoutBaseRate: Record<string, number> = {};
+  for (const [roomTypeId, others] of otherPlans) {
+    if (!targets[roomTypeId]) withoutBaseRate[roomTypeId] = others.size;
+  }
+  return { targets, withoutBaseRate };
+}
+
+/** The resolved map, one line per resolve. Ids and counts only. */
+function logRateTargets(propertyId: string, targets: RateTargetMap, withoutBaseRate: Record<string, number>): void {
+  console.log(
+    JSON.stringify({
+      fn: "cloudbedsRateTargets",
+      propertyId,
+      targets,
+      ...(Object.keys(withoutBaseRate).length > 0 ? { withoutBaseRate } : {}),
+    }),
+  );
+}
+
+/**
+ * Each targeted room type's nightly rate from its targeted plan only. Reading
+ * every non-derived plan gave a room type one entry per plan per night: a
+ * package's rate could become the base, and two entries for one cell in one
+ * write made Postgres reject the whole chunk.
+ */
+function calendarEntries(
+  plans: unknown[],
+  startDate: string,
+  endDate: string,
+  targets: RateTargetMap,
+): RateCalendarEntry[] {
+  const out: RateCalendarEntry[] = [];
+  for (const plan of plans) {
+    // deno-lint-ignore no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const p = plan as any;
+    // Derived plans reprice off their parent, so the parent carries the
+    // property's own rate — the same choice resolveRateTargets makes.
+    if (!isNonDerived(p)) continue;
+    const roomTypeId = str(p, ["roomTypeID", "roomTypeId"]);
+    if (!roomTypeId || !targets[roomTypeId]) continue;
+    if (str(p, ["rateID", "rateId"]) !== targets[roomTypeId]) continue;
+    const nights = Array.isArray(p.roomRateDetailed) ? p.roomRateDetailed : [];
+    for (const night of nights as Record<string, unknown>[]) {
+      const date = String(night.date ?? "");
+      if (!date || date < startDate || date > endDate) continue;
+      // null/undefined is a MISSING rate, and Number(null) is 0 — writing
+      // that would hand the engine a $0 base and price the night at the
+      // floor. An explicit 0 is a real comp rate and is kept.
+      if (night.rate == null) continue;
+      const price = Number(night.rate);
+      if (!Number.isFinite(price)) continue;
+      out.push({ stayDate: date, externalRoomTypeId: roomTypeId, price });
+    }
+  }
+  return out;
 }
 
 /** YYYY-MM-DD + 1 day, via UTC so no local-timezone drift. */
