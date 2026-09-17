@@ -62,6 +62,13 @@ describe("ruleRoomTypesLabel", () => {
       ),
     ).toBe("Watches Deluxe · Changes Penthouse");
   });
+
+  it("reads as an ordinary rule when the only extra watched type was deactivated", () => {
+    // The dashboard treats an id missing from the active list as not counting,
+    // because the engine never measures an inactive room type.
+    const withOld = { ...rule(["std"], ["std"], ["Standard"]), signal_room_type_ids: ["std", "old-suite"], signal_room_types: [{ id: "std", name: "Standard" }, { id: "old-suite", name: "Old Suite" }] };
+    expect(ruleRoomTypesLabel(withOld, isCounting)).toBe("Standard");
+  });
 });
 
 describe("roomTypeIdListError", () => {

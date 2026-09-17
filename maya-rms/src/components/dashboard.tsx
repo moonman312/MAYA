@@ -606,8 +606,10 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
 
   const isCountingRoomTypeId = useCallback(
     (id: string) => {
+      // Only active room types are listed, and the engine only measures
+      // active ones, so an id missing from the list is not measured.
       const option = roomTypeOptions.find((r) => r.id === id);
-      return option ? isCountingRoom(option) : true;
+      return option ? isCountingRoom(option) : false;
     },
     [roomTypeOptions],
   );
@@ -640,7 +642,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
       const n = Number(p);
       if (!Number.isFinite(n) || n < 0) {
         setRuleFormError(
-          "Enter the percentage as a positive number — the direction dropdown decides increase or decrease.",
+          "Enter the percentage as a positive number. The direction dropdown decides increase or decrease.",
         );
         return;
       }
@@ -655,7 +657,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
       const n = Number(p);
       if (!Number.isFinite(n) || n < 0) {
         setRuleFormError(
-          "Enter the amount as a positive number — the direction dropdown decides increase or decrease.",
+          "Enter the amount as a positive number. The direction dropdown decides increase or decrease.",
         );
         return;
       }
@@ -680,18 +682,33 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
 
     const legacyConditions = ruleConditionToLegacyConditions(rc);
 
-    await api("/api/rules", {
-      method: "POST",
-      body: JSON.stringify({
-        rule_name: ruleName,
-        condition: rc,
-        conditions: legacyConditions,
-        action,
-        room_types,
-        signal_room_type_ids,
-        affected_room_type_ids,
-      }),
-    });
+    // Read the body on failure: a room type set the server refuses (one
+    // deactivated in another tab, say) comes back as a 400 with a message
+    // the owner can act on, which the shared api() helper would swallow.
+    let res: Response;
+    try {
+      res = await fetch("/api/rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rule_name: ruleName,
+          condition: rc,
+          conditions: legacyConditions,
+          action,
+          room_types,
+          signal_room_type_ids,
+          affected_room_type_ids,
+        }),
+      });
+    } catch {
+      setRuleFormError("Could not save the rule. Check your connection and try again.");
+      return;
+    }
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      setRuleFormError(body.error ?? "Could not save the rule. Try again in a moment.");
+      return;
+    }
 
     setRuleName("");
     setCondRows([newConditionRow("occupancy")]);
