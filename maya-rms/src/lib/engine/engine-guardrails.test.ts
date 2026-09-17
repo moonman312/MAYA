@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { addDays } from "@/lib/observations/calendar";
 import { pricesOnBase } from "./base-price";
 import { evaluateHotel } from "./evaluate";
-import { fakeSupabase, type FakeCall, type FakeRow } from "./fake-supabase.test";
+import { fakeSupabase, missingColumn, type FakeCall, type FakeRow } from "./fake-supabase.test";
 
 const EVAL_TS = "2026-09-16T12:00:00Z";
 const D0 = "2026-09-16";
@@ -80,6 +80,50 @@ describe("a night the PMS has at 0", () => {
     expect(tables.evaluation_audit?.some((r) => r.stay_date === D0) ?? false).toBe(false);
   });
 
+  it("keeps the published price of a night MAYA already sent a rate to, since that rate is still in the PMS", async () => {
+    const { client, tables } = fakeSupabase(
+      seed({
+        base_rate_calendar: [
+          { hotel_id: "h1", stay_date: D0, room_type_id: "rt1", price: 0 },
+          { hotel_id: "h1", stay_date: addDays(D0, 1), room_type_id: "rt1", price: 0 },
+          { hotel_id: "h1", stay_date: addDays(D0, 2), room_type_id: "rt1", price: 0 },
+        ],
+        published_price: [
+          // Typed at 140 and sent; the manual price was cleared since.
+          { hotel_id: "h1", stay_date: D0, room_type_id: "rt1", price: 140, base_price: 140, computed_at: "2026-09-15T00:00:00Z" },
+          // Held back before any send: never MAYA's rate in the PMS.
+          { hotel_id: "h1", stay_date: addDays(D0, 1), room_type_id: "rt1", price: 89, base_price: 0, computed_at: "2026-09-15T00:00:00Z" },
+          // An old floor price that went out.
+          { hotel_id: "h1", stay_date: addDays(D0, 2), room_type_id: "rt1", price: 89, base_price: 0, computed_at: "2026-09-15T00:00:00Z" },
+        ],
+        rate_updates: [
+          { hotel_id: "h1", stay_date: D0, room_type_id: "rt1", price: 140, status: "sent", attempts: 1 },
+          { hotel_id: "h1", stay_date: addDays(D0, 1), room_type_id: "rt1", price: 89, status: "skipped", attempts: 0, error: "guardrail:zero_base" },
+          { hotel_id: "h1", stay_date: addDays(D0, 2), room_type_id: "rt1", price: 89, status: "skipped", attempts: 1, error: "guardrail:zero_base" },
+        ],
+      }),
+    );
+
+    await evaluateHotel(client, "h1", EVAL_TS, 3);
+
+    expect(tables.published_price.map((r) => `${r.stay_date}|${r.price}`).sort()).toEqual([`${D0}|140`, `${addDays(D0, 2)}|89`]);
+  });
+
+  it("clears nothing this run when the ledger can't be read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { client, tables } = fakeSupabase(
+      seed({
+        base_rate_calendar: [{ hotel_id: "h1", stay_date: D0, room_type_id: "rt1", price: 0 }],
+        published_price: [{ hotel_id: "h1", stay_date: D0, room_type_id: "rt1", price: 89, base_price: 0, computed_at: "2026-09-15T00:00:00Z" }],
+      }),
+      { fault: (c) => (c.table === "rate_updates" ? { message: "canceling statement due to statement timeout" } : null) },
+    );
+
+    await evaluateHotel(client, "h1", EVAL_TS, 1);
+
+    expect(tables.published_price).toHaveLength(1);
+  });
+
   it("is left unpriced when the base comes from a booking at 0, with no calendar", async () => {
     const { client, tables } = fakeSupabase(seed({ reservations: booked(2, 0) }));
 
@@ -137,5 +181,39 @@ describe("a ladder pass whose writes did not all land", () => {
     // The rule still reads as active, and the price that goes with it stands.
     expect(tables.ladder_rule_state[0].is_active).toBe(true);
     expect(tables.published_price[0].price).toBe(110);
+  });
+});
+
+describe("what a run says about itself", () => {
+  it("fails rather than pricing on UTC's date when the hotel's timezone can't be read", async () => {
+    const { client, tables } = fakeSupabase(seed({ reservations: booked(2, 100) }), {
+      fault: (c) => (c.table === "hotels" ? { code: "57014", message: "canceling statement due to statement timeout" } : null),
+    });
+
+    await expect(evaluateHotel(client, "h1", EVAL_TS, 1)).rejects.toThrow(/Failed to read hotel timezone: canceling statement/);
+    expect(tables.published_price ?? []).toEqual([]);
+  });
+
+  it("logs the nights it priced, so the push can tell which prices it vouches for", async () => {
+    const { client, tables } = fakeSupabase(seed({ reservations: booked(2, 100) }));
+
+    await evaluateHotel(client, "h1", EVAL_TS, 3);
+
+    expect(tables.evaluation_run_log).toEqual([
+      expect.objectContaining({ hotel_id: "h1", evaluated_at: EVAL_TS, first_stay_date: D0, last_stay_date: addDays(D0, 2) }),
+    ]);
+  });
+
+  it("still logs the run on a database without those columns", async () => {
+    const lacksNights = (c: FakeCall) =>
+      c.table === "evaluation_run_log" && JSON.stringify(c.payload ?? {}).includes("first_stay_date")
+        ? missingColumn("evaluation_run_log", "first_stay_date")
+        : null;
+    const { client, tables } = fakeSupabase(seed({ reservations: booked(2, 100) }), { fault: lacksNights });
+
+    await evaluateHotel(client, "h1", EVAL_TS, 1);
+
+    expect(tables.evaluation_run_log).toEqual([expect.objectContaining({ hotel_id: "h1", evaluated_at: EVAL_TS })]);
+    expect(tables.evaluation_run_log[0]).not.toHaveProperty("first_stay_date");
   });
 });

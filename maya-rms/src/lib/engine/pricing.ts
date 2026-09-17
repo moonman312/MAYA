@@ -466,6 +466,14 @@ export async function publishPrices(
  * a night MAYA no longer prices: the calendar shows no current price, and the
  * push has no row to send. Only called for cells that have a row.
  *
+ * Except a night MAYA has sent a rate to (its rate_updates row is anything
+ * but a skip with attempts 0; see push-guardrails.ts). That rate is still in
+ * the PMS whatever MAYA publishes, and removing the row hid it: the dashboard
+ * showed nothing and the push never looked at the night again. Kept, the row
+ * shows the rate that is there, and the push holds the night and files it
+ * (guardrail:zero_base) so admins can see it. A ledger that can't be read
+ * keeps every row this run, for the same reason.
+ *
  * Never throws: the prices this run did publish stand either way. A row that
  * could not be removed is logged; the push holds back a closed night on its
  * own check (guardrail:zero_base). Under a signed-in session this matches no
@@ -487,15 +495,34 @@ export async function clearUnpricedCells(
   for (const [roomTypeId, dates] of byRoomType) {
     for (let i = 0; i < dates.length; i += PUBLISH_CHUNK) {
       const chunk = dates.slice(i, i + PUBLISH_CHUNK);
+      const { data: sentTo, error: ledgerError } = await supabase
+        .from("rate_updates")
+        .select("stay_date, status, attempts")
+        .eq("hotel_id", hotelId)
+        .eq("room_type_id", roomTypeId)
+        .in("stay_date", chunk);
+      if (ledgerError) {
+        console.error(
+          JSON.stringify({ fn: "clearUnpricedCells", hotelId, roomTypeId, nights: chunk.length, step: "ledger", error: ledgerError.message }),
+        );
+        continue;
+      }
+      const keep = new Set(
+        ((sentTo ?? []) as { stay_date: unknown; status: unknown; attempts: unknown }[])
+          .filter((r) => !(r.status === "skipped" && r.attempts != null && Number(r.attempts) === 0))
+          .map((r) => String(r.stay_date).slice(0, 10)),
+      );
+      const clear = chunk.filter((d) => !keep.has(d));
+      if (clear.length === 0) continue;
       const { error } = await supabase
         .from("published_price")
         .delete()
         .eq("hotel_id", hotelId)
         .eq("room_type_id", roomTypeId)
-        .in("stay_date", chunk);
+        .in("stay_date", clear);
       if (error) {
         console.error(
-          JSON.stringify({ fn: "clearUnpricedCells", hotelId, roomTypeId, nights: chunk.length, error: error.message }),
+          JSON.stringify({ fn: "clearUnpricedCells", hotelId, roomTypeId, nights: clear.length, error: error.message }),
         );
       }
     }

@@ -303,7 +303,9 @@ function normalizeTables(tables: Record<string, FakeRow[]>) {
     ladder_transition_event: rows("ladder_transition_event", ["id"]),
     pickup_event: rows("pickup_event", ["id"]),
     evaluation_audit: rows("evaluation_audit", ["id", "evaluation_run_id"]),
-    evaluation_run_log: rows("evaluation_run_log", ["id", "evaluation_run_id"]),
+    // The nights a run priced are logged since the push guardrails; the
+    // pre-batching engine had no such columns, and every other one is compared.
+    evaluation_run_log: rows("evaluation_run_log", ["id", "evaluation_run_id", "first_stay_date", "last_stay_date"]),
     stay_date_snapshot: rows("stay_date_snapshot", ["id"]),
   };
 }

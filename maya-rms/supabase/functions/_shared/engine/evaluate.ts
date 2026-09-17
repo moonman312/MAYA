@@ -125,11 +125,16 @@ export async function evaluateHotel(
   const now = evalTs ?? new Date().toISOString();
   const runId = crypto.randomUUID();
 
-  const { data: hotelRow } = await supabase
+  const { data: hotelRow, error: hotelErr } = await supabase
     .from("hotels")
     .select("timezone")
     .eq("id", hotelId)
     .maybeSingle();
+  // A failed read must not quietly price on UTC's date: the scheduled tick
+  // reads the same timezone for its push window (readHotelClock), and the
+  // two disagreeing is how tonight got pushed on an old price while the
+  // engine priced a night the push never sent.
+  if (hotelErr) throw new Error(`Failed to read hotel timezone: ${hotelErr.message}`);
   const hotelTimeZone = hotelRow?.timezone ?? "UTC";
   const localDate = evalIsoToHotelDateString(now, hotelTimeZone);
 
@@ -1027,7 +1032,14 @@ export async function evaluateHotel(
     // One tiny row regardless of cellsChanged — this is what keeps a fully
     // quiet run visible in the Change Log even though write-on-change means
     // no evaluation_audit rows exist for it.
-    ["heartbeat", () => recordRunHeartbeat(supabase, hotelId, runId, now, cellsChecked, cellsChanged)],
+    [
+      "heartbeat",
+      () =>
+        recordRunHeartbeat(supabase, hotelId, runId, now, cellsChecked, cellsChanged, {
+          first: stayDates[0],
+          last: stayDates[stayDates.length - 1],
+        }),
+    ],
     ["purge_snapshots", () => purgeOldSnapshots(supabase, hotelId, maxPickupWindowDays + 7)],
     ["purge_audit", () => purgeOldAuditRows(supabase, hotelId)],
     ["purge_run_log", () => purgeOldRunLogRows(supabase, hotelId)],

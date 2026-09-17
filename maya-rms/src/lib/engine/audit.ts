@@ -11,7 +11,7 @@ import type { BaseSource } from "./base-price";
 import type { LadderPassResult } from "./ladder";
 import { basePriceKey, pickupTieBreakTrace } from "./pickup";
 import type { AssembledPrice } from "./pricing";
-import { MIGRATIONS, isMissingFunctionError } from "./snapshots";
+import { MIGRATIONS, isMissingColumnError, isMissingFunctionError } from "./snapshots";
 import type { PickupCandidate } from "./types";
 
 export type AuditInput = {
@@ -382,17 +382,26 @@ export async function recordRunHeartbeat(
   evalTs: string,
   cellsChecked: number,
   cellsChanged: number,
+  nights?: { first: string; last: string },
 ): Promise<void> {
-  const { error } = await supabase.from("evaluation_run_log").upsert(
-    {
-      hotel_id: hotelId,
-      evaluation_run_id: runId,
-      evaluated_at: evalTs,
-      cells_checked: cellsChecked,
-      cells_changed: cellsChanged,
-    },
-    { onConflict: "hotel_id,evaluation_run_id" },
-  );
+  const row = {
+    hotel_id: hotelId,
+    evaluation_run_id: runId,
+    evaluated_at: evalTs,
+    cells_checked: cellsChecked,
+    cells_changed: cellsChanged,
+  };
+  // The nights this run priced. The push only takes a run as proof that a
+  // price is current for nights it covered: a manual price save evaluates up
+  // to the night it changed, not the whole window.
+  const withNights = nights ? { ...row, first_stay_date: nights.first, last_stay_date: nights.last } : row;
+  let { error } = await supabase
+    .from("evaluation_run_log")
+    .upsert(withNights, { onConflict: "hotel_id,evaluation_run_id" });
+  if (error && nights && isMissingColumnError(error)) {
+    // Before the push guardrails migration: the heartbeat still counts for the change log.
+    ({ error } = await supabase.from("evaluation_run_log").upsert(row, { onConflict: "hotel_id,evaluation_run_id" }));
+  }
   if (error) throw new Error(`Run heartbeat failed: ${error.message}`);
 }
 
