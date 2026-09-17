@@ -26,8 +26,10 @@
  *     failure, even when no room type has one; only a catalog read that
  *     taught nothing (failed, or empty) stops the run quietly.
  *   • Target freshness — the cached room-type→rate map is re-resolved whenever a
- *     cell it doesn't cover shows up, and dropped after a push rejection, so a
- *     new room type or a rebuilt rate catalog heals on the next tick.
+ *     cell it doesn't cover shows up, or a sent cell went to a rate it doesn't
+ *     name, and dropped after a push rejection, so a new room type or a
+ *     rebuilt rate catalog heals on the next tick. The hourly base rate
+ *     refresh writes the map it read over a cache that differs from it.
  *   • Window — [hotel today, hotel today + horizon - 1], the same nights the
  *     tick evaluated (pricing-window.ts).
  *   • Guardrails — every cell about to be sent is checked against its room
