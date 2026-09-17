@@ -187,7 +187,7 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
   const [{ data: hotel }, { data: roomTypes }, { data: rules }, { data: runLogRows }] =
     await Promise.all([
       supabase.from("hotels").select("currency").eq("id", hotelId).maybeSingle(),
-      supabase.from("room_types").select("id, name").eq("hotel_id", hotelId),
+      loadRoomTypes(supabase, hotelId),
       supabase
         .from("pricing_rules")
         .select(
@@ -197,7 +197,9 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
              dta_operator, dta_threshold_days,
              pickup_operator, pickup_threshold, pickup_window_days, pickup_metric,
              booking_speed_operator, booking_speed_level, booking_speed_window_days
-           )`,
+           ),
+           rule_signal_room_type ( room_type_id ),
+           rule_affected_room_type ( room_type_id )`,
         )
         .eq("hotel_id", hotelId),
       supabase
@@ -212,10 +214,27 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
     (roomTypes ?? []).map((rt) => [String(rt.id), String(rt.name)]),
   );
 
+  // Before the counts_as_room migration the column is missing and every room
+  // type counts, which is what an unset countingRoomTypeIds means.
+  const countingRoomTypeIds = (roomTypes ?? []).some((rt) => "counts_as_room" in rt)
+    ? new Set(
+        (roomTypes ?? [])
+          .filter((rt) => (rt as { counts_as_room?: unknown }).counts_as_room !== false)
+          .map((rt) => String(rt.id)),
+      )
+    : undefined;
+
   const ruleLookup = new Map<string, RuleLookupEntry>();
   const conditionLookup = new Map<string, RuleCondition>();
+  const ruleRoomSets = new Map<string, { signal: string[]; affected: string[] }>();
   for (const rule of rules ?? []) {
     const id = String(rule.id);
+    const idsOf = (rows: unknown) =>
+      Array.isArray(rows) ? rows.map((r) => String((r as { room_type_id: unknown }).room_type_id)) : [];
+    ruleRoomSets.set(id, {
+      signal: idsOf(rule.rule_signal_room_type),
+      affected: idsOf(rule.rule_affected_room_type),
+    });
     ruleLookup.set(id, {
       name: String(rule.name),
       action_type: rule.action_type as RuleLookupEntry["action_type"],
@@ -256,6 +275,8 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
     roomTypeNames,
     rules: ruleLookup,
     conditions: conditionLookup,
+    ruleRoomSets,
+    countingRoomTypeIds,
     currencySymbol: currencySymbolFor(hotel?.currency ? String(hotel.currency) : null),
     setterNames: await setterNamesFor(
       supabase,
@@ -273,6 +294,16 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
   }));
 
   return buildCyclesFromAudit(rows, lookups, heartbeats);
+}
+
+/**
+ * The hotel's room types with whether each counts as a room, or without it on
+ * a database that has not had that column added yet.
+ */
+async function loadRoomTypes(supabase: SupabaseClient, hotelId: string) {
+  const withFlag = await supabase.from("room_types").select("id, name, counts_as_room").eq("hotel_id", hotelId);
+  if (!withFlag.error) return withFlag;
+  return supabase.from("room_types").select("id, name").eq("hotel_id", hotelId);
 }
 
 /**

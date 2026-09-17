@@ -219,3 +219,27 @@ describe("humanDate", () => {
     expect(humanDate("not-a-date")).toBe("not-a-date");
   });
 });
+
+describe("an observation over some of the room types", () => {
+  const names = new Map([
+    ["std", "Standard"],
+    ["dlx", "Deluxe"],
+  ]);
+
+  it("says which room types the bookings were, with the counts it measured", () => {
+    const view = buildExplainView({ ...comparableSnapshot, measuredRoomTypeIds: ["std", "dlx"] }, names)!;
+    expect(view.measured).toEqual(["Standard", "Deluxe"]);
+    expect(view.observed).toBe(
+      "In the last 7 days, 9 Standard and Deluxe bookings arrived for this night, with 17 days still to go before arrival.",
+    );
+    expect(view.comparables.map((c) => c.summary)).toEqual(buildExplainView(comparableSnapshot)!.comparables.map((c) => c.summary));
+    const unnamed = buildExplainView({ ...comparableSnapshot, measuredRoomTypeIds: ["gone"] }, names)!;
+    expect(unnamed.observed).toContain("9 bookings for the room types this rule watches arrived");
+  });
+
+  it("reads an older snapshot exactly as before", () => {
+    const view = buildExplainView(comparableSnapshot, names)!;
+    expect(view.measured).toBeNull();
+    expect(view.observed).toBe("In the last 7 days, 9 bookings arrived for this night, with 17 days still to go before arrival.");
+  });
+});

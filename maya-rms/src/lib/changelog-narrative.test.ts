@@ -647,3 +647,59 @@ describe("Harbor Light Inn change log", () => {
     ]);
   });
 });
+
+describe("a rule that measures other room types than it changes", () => {
+  const measured = ["Standard", "Deluxe"];
+
+  it("names what it measured in each sentence", () => {
+    expect(describeConditions({ occupancy_operator: "gt", occupancy_threshold: 0.9 }, { occupancy: 0.92 }, measured)).toEqual([
+      "Standard and Deluxe were 92% full, past the 90% mark you set.",
+    ]);
+    expect(
+      describeConditions(
+        { occupancy_operator: "gt", occupancy_threshold: 0.9, dta_operator: "lt", dta_threshold_days: 21 },
+        { occupancy: 0.92, dta: 5 },
+        measured,
+      ),
+    ).toEqual(["Standard and Deluxe were 92% full with 5 days to go, past the 90% and 21-day marks you set."]);
+    expect(
+      describeConditions({ pickup_operator: "gt", pickup_threshold: 4, pickup_window_days: 3 }, { pickup_units: 9 }, measured),
+    ).toEqual(["9 Standard and Deluxe bookings arrived in the last 3 days, past the 4-booking mark you set."]);
+    expect(describeConditions({ pickup_operator: "gt", pickup_threshold: 0, pickup_window_days: 1 }, { pickup_units: 1 }, ["Standard"])).toEqual([
+      "1 Standard booking arrived in the last 1 day, past the 0-booking mark you set.",
+    ]);
+    expect(
+      describeConditions(
+        { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 7 },
+        { booking_speed: { label: "Faster Than Normal", recent: 9, expected: 4 } },
+        measured,
+      ),
+    ).toEqual(["Standard and Deluxe bookings came in faster than normal this past week: 9, against the 4 a night like this usually has by now."]);
+    expect(
+      describeConditions({ booking_speed_operator: "at_most", booking_speed_level: "stalled", booking_speed_window_days: 30 }, null, ["Standard"]),
+    ).toEqual(["Standard bookings all but stopped this past month."]);
+  });
+
+  it("reads a Suite price change on Standard and Deluxe fullness", () => {
+    const lines = narrateChange({
+      room_type: "Suite",
+      base_price: 300,
+      final_price: 330,
+      applications: [app({ rule_name: "Fill the suites", measured_room_types: measured, metrics: { occupancy: 0.92 } })],
+    });
+    expect(lines).toEqual([
+      '"Fill the suites" raised this night 10%, from $300.00 to $330.00.',
+      "Standard and Deluxe were 92% full, past the 70% mark you set.",
+    ]);
+    for (const line of lines) expect(line).not.toMatch(/—/);
+  });
+
+  it("reads exactly as before without the field", () => {
+    for (const none of [undefined, null, []]) {
+      expect(narrateChange({ room_type: "Suite", base_price: 300, final_price: 330, applications: [app({ measured_room_types: none })] })).toEqual([
+        '"Busy-day bump" raised this night 10%, from $300.00 to $330.00.',
+        "It was 82% full, past the 70% mark you set.",
+      ]);
+    }
+  });
+});

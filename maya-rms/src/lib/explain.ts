@@ -66,6 +66,12 @@ export type ExplainComparable = {
 };
 
 export type ExplainView = {
+  /**
+   * Names of the room types this observation counted, when a rule measures
+   * only some of them. null for a hotel-wide observation. Every count below
+   * is over these room types.
+   */
+  measured: string[] | null;
   /** Level 2 — the observation and the verdict. */
   observed: string;
   expected: string;
@@ -82,11 +88,20 @@ export type ExplainView = {
   momentum_notes: string[];
 };
 
+function listWords(items: string[]): string {
+  if (items.length < 2) return items.join("");
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
 /**
  * Build the tiered view from one raw snapshot. Returns null when the
  * snapshot lacks the essentials (legacy rows, malformed JSON).
+ * `roomTypeNames` turns a snapshot's measured room type ids into names.
  */
-export function buildExplainView(raw: unknown): ExplainView | null {
+export function buildExplainView(
+  raw: unknown,
+  roomTypeNames?: ReadonlyMap<string, string>,
+): ExplainView | null {
   const snap = rec(raw);
   if (!snap) return null;
   const target = str(snap.target);
@@ -104,8 +119,19 @@ export function buildExplainView(raw: unknown): ExplainView | null {
   const methodKey: ExplainView["method"] =
     method === "momentum" ? "momentum" : method === "insufficient_data" ? "insufficient_data" : "comparable";
 
+  const measuredIds = Array.isArray(snap.measuredRoomTypeIds)
+    ? snap.measuredRoomTypeIds.filter((id): id is string => typeof id === "string")
+    : null;
+  const measured = measuredIds
+    ? measuredIds.map((id) => roomTypeNames?.get(id)).filter((n): n is string => !!n)
+    : null;
   const windowPhrase = windowDays === 1 ? "day" : `${windowDays} days`;
-  const observed = `In the last ${windowPhrase}, ${bookingWord(recent)} arrived for this night, with ${dayWord(daysOut)} still to go before arrival.`;
+  const arrived = !measured
+    ? bookingWord(recent)
+    : measured.length > 0
+      ? `${recent} ${listWords(measured)} ${recent === 1 ? "booking" : "bookings"}`
+      : `${bookingWord(recent)} for the room types this rule watches`;
+  const observed = `In the last ${windowPhrase}, ${arrived} arrived for this night, with ${dayWord(daysOut)} still to go before arrival.`;
 
   // The engine persists insufficient_data snapshots with a numeric
   // expectedBookings of 0 and a fully computed classification — but it also
@@ -258,6 +284,7 @@ export function buildExplainView(raw: unknown): ExplainView | null {
   }
 
   return {
+    measured,
     observed,
     expected: expectedSentence,
     verdict,

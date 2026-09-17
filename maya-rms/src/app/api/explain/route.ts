@@ -63,8 +63,14 @@ export async function GET(request: Request) {
   const snapshots = Array.isArray(details.booking_speed_observations)
     ? details.booking_speed_observations
     : [];
+  // Names only matter for a rule that measures some of the room types.
+  let roomTypeNames: Map<string, string> | undefined;
+  if (snapshots.some((s) => Array.isArray((s as { measuredRoomTypeIds?: unknown } | null)?.measuredRoomTypeIds))) {
+    const { data: roomTypes } = await supabase.from("room_types").select("id, name").eq("hotel_id", hotelId);
+    roomTypeNames = new Map((roomTypes ?? []).map((rt) => [String(rt.id), String(rt.name)]));
+  }
   const views = snapshots
-    .map(buildExplainView)
+    .map((snapshot) => buildExplainView(snapshot, roomTypeNames))
     .filter((v): v is ExplainView => v !== null);
 
   return NextResponse.json({ stay_date: stayDate, views });

@@ -10,6 +10,7 @@ import {
   type NarrativeApplication,
   narrateChange,
 } from "@/lib/changelog-narrative";
+import { measuresDifferently } from "@/lib/rule-form";
 import type {
   ChangelogCycle,
   ChangelogEntry,
@@ -45,7 +46,31 @@ export type ChangelogLookups = {
   currencySymbol: string;
   /** user id -> display name, for attributing a manual price to whoever typed it. */
   setterNames?: Map<string, string>;
+  /** rule id -> the room types it measures and the ones it changes. */
+  ruleRoomSets?: Map<string, { signal: string[]; affected: string[] }>;
+  /** Room types that count as rooms; unset means every room type does. */
+  countingRoomTypeIds?: Set<string>;
 };
+
+/**
+ * Names of what a rule measures, when that is not what it changes. null for
+ * the ordinary rule, so its sentences stay exactly as they were.
+ */
+export function measuredRoomTypeNames(
+  ruleId: string,
+  lookups: Partial<Pick<ChangelogLookups, "ruleRoomSets" | "countingRoomTypeIds" | "roomTypeNames">>,
+): string[] | null {
+  const sets = lookups.ruleRoomSets?.get(ruleId);
+  if (!sets) return null;
+  const counting = lookups.countingRoomTypeIds;
+  const isCounting = (id: string) => !counting || counting.has(id);
+  if (!measuresDifferently(sets.signal, sets.affected, isCounting)) return null;
+  const names = sets.signal
+    .filter(isCounting)
+    .map((id) => lookups.roomTypeNames?.get(id))
+    .filter((n): n is string => !!n);
+  return names.length > 0 ? names : null;
+}
 
 /**
  * The manual_override the engine stamps into details when a typed price was
@@ -194,7 +219,8 @@ function toNarrativeMetrics(
  */
 export function buildApplications(
   details: EvaluationAuditDetails,
-  lookups: Pick<ChangelogLookups, "rules" | "conditions">,
+  lookups: Pick<ChangelogLookups, "rules" | "conditions"> &
+    Partial<Pick<ChangelogLookups, "ruleRoomSets" | "countingRoomTypeIds" | "roomTypeNames">>,
 ): NarrativeApplication[] {
   const applications: NarrativeApplication[] = [];
   const matchedByRule = new Map(
@@ -236,12 +262,14 @@ export function buildApplications(
       metrics = toNarrativeMetrics(wonPickupByRule.get(ruleId)?.metrics ?? null);
     }
 
+    const measured = measuredRoomTypeNames(ruleId, lookups);
     applications.push({
       rule_name: rule?.name ?? "Pricing rule",
       condition: lookups.conditions.get(ruleId) ?? null,
       action,
       metrics,
       is_pickup: isPickup,
+      ...(measured ? { measured_room_types: measured } : {}),
     });
   }
 

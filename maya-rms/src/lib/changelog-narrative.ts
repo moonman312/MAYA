@@ -22,6 +22,8 @@
  *     rule's "from" price is what shows it stacked on the first.
  *   - Clamps get their own sentence — hitting a floor/ceiling is exactly the
  *     kind of thing an owner wants to notice.
+ *   - A rule that watches other room types than the ones it changed names
+ *     them: "Standard and Deluxe were 92% full", on a Suite price change.
  */
 
 import { bookingSpeedPhrase as speedPhrase, isBookingSpeed } from "@/lib/observations/booking-speed";
@@ -62,6 +64,11 @@ export type NarrativeApplication = {
   };
   metrics?: NarrativeMetrics | null;
   is_pickup: boolean;
+  /**
+   * Names of the room types the rule measures, set only when they are not
+   * the ones it changes. Absent, the sentences read as they always have.
+   */
+  measured_room_types?: string[] | null;
 };
 
 export type NarrativeInput = {
@@ -121,6 +128,7 @@ function describeMarks(marks: Mark[]): string {
 function fullnessSentence(
   condition: RuleCondition,
   metrics?: NarrativeMetrics | null,
+  measured?: string[] | null,
 ): string | null {
   const marks: Mark[] = [];
   let fullness: string | null = null;
@@ -146,8 +154,9 @@ function fullnessSentence(
 
   if (marks.length === 0) return null;
   const limits = describeMarks(marks);
-  if (fullness && toGo) return `It was ${fullness} with ${toGo}, ${limits}.`;
-  if (fullness) return `It was ${fullness}, ${limits}.`;
+  const whatWas = measured?.length ? `${listWords(measured)} were` : "It was";
+  if (fullness && toGo) return `${whatWas} ${fullness} with ${toGo}, ${limits}.`;
+  if (fullness) return `${whatWas} ${fullness}, ${limits}.`;
   if (toGo) return `It had ${toGo}, ${limits}.`;
   return `This night was ${limits}.`;
 }
@@ -156,14 +165,19 @@ function fullnessSentence(
 function pickupSentence(
   condition: RuleCondition,
   metrics?: NarrativeMetrics | null,
+  measured?: string[] | null,
 ): string | null {
   if (!condition.pickup_operator || condition.pickup_threshold == null) return null;
   const windowDays = condition.pickup_window_days ?? 3;
   const dir = condition.pickup_operator === "gt" ? "past" : "under";
   const limit = `${dir} the ${Number(condition.pickup_threshold)}-booking mark you set`;
   const seen = metrics?.pickup_units;
-  return seen != null
-    ? `${bookingWord(seen)} arrived in the last ${dayWord(windowDays)}, ${limit}.`
+  const kind = measured?.length ? `${listWords(measured)} ` : "";
+  if (seen != null) {
+    return `${seen} ${kind}${seen === 1 ? "booking" : "bookings"} arrived in the last ${dayWord(windowDays)}, ${limit}.`;
+  }
+  return kind
+    ? `${kind}bookings in the last ${dayWord(windowDays)} came in ${limit}.`
     : `Bookings in the last ${dayWord(windowDays)} came in ${limit}.`;
 }
 
@@ -172,11 +186,11 @@ function pickupSentence(
  * and normal aren't comparisons, and forcing them into that frame is how a
  * sentence starts sounding like a label again.
  */
-function speedLead(levelKey: string, when: string): string {
-  if (levelKey === "stalled") return `Bookings all but stopped ${when}`;
-  if (levelKey === "surging") return `Bookings surged ${when}`;
-  if (levelKey === "normal") return `Bookings came in at the normal pace ${when}`;
-  return `Bookings came in ${speedWords(levelKey)} ${when}`;
+function speedLead(levelKey: string, when: string, subject = "Bookings"): string {
+  if (levelKey === "stalled") return `${subject} all but stopped ${when}`;
+  if (levelKey === "surging") return `${subject} surged ${when}`;
+  if (levelKey === "normal") return `${subject} came in at the normal pace ${when}`;
+  return `${subject} came in ${speedWords(levelKey)} ${when}`;
 }
 
 /**
@@ -186,6 +200,7 @@ function speedLead(levelKey: string, when: string): string {
 function bookingSpeedSentence(
   condition: RuleCondition,
   metrics?: NarrativeMetrics | null,
+  measured?: string[] | null,
 ): string | null {
   if (!condition.booking_speed_operator || !condition.booking_speed_level) return null;
   const when =
@@ -194,7 +209,11 @@ function bookingSpeedSentence(
       : condition.booking_speed_window_days === 30
         ? "this past month"
         : "this past week";
-  const lead = speedLead(condition.booking_speed_level, when);
+  const lead = speedLead(
+    condition.booking_speed_level,
+    when,
+    measured?.length ? `${listWords(measured)} bookings` : undefined,
+  );
 
   const bs = metrics?.booking_speed;
   if (!bs) return `${lead}.`;
@@ -228,12 +247,13 @@ function exclusionSentence(
 export function describeConditions(
   condition: RuleCondition | null,
   metrics?: NarrativeMetrics | null,
+  measured?: string[] | null,
 ): string[] {
   if (!condition) return [];
   const sentences = [
-    fullnessSentence(condition, metrics),
-    pickupSentence(condition, metrics),
-    bookingSpeedSentence(condition, metrics),
+    fullnessSentence(condition, metrics, measured),
+    pickupSentence(condition, metrics, measured),
+    bookingSpeedSentence(condition, metrics, measured),
     // Last, on purpose: it qualifies the occupancy figure, and a reader
     // shouldn't have to step over it to reach the point.
     exclusionSentence(condition, metrics),
@@ -284,7 +304,7 @@ export function narrateChange(input: NarrativeInput): string[] {
     const opener =
       i === 0 ? `"${app.rule_name}" ${verb} this night` : `Then "${app.rule_name}" ${verb} it`;
     sentences.push(`${opener} ${amount}, from ${money(before, sym)} to ${money(running, sym)}.`);
-    sentences.push(...describeConditions(app.condition, app.metrics));
+    sentences.push(...describeConditions(app.condition, app.metrics, app.measured_room_types));
   });
 
   if (input.clamped_by === "ceiling" && input.ceiling_price != null) {

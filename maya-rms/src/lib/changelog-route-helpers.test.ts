@@ -464,3 +464,30 @@ describe("buildCyclesFromAudit", () => {
     });
   });
 });
+
+describe("measured room types in the change log", () => {
+  const sets = (signal: string[], affected: string[]) => new Map([["rule-1", { signal, affected }]]);
+  const names = new Map([
+    ["rt-1", "Deluxe King"],
+    ["rt-2", "Standard"],
+    ["rt-3", "Queen"],
+    ["court", "Court"],
+  ]);
+
+  it("names the measured room types only when they differ from the changed ones", () => {
+    const narrative = (o: Partial<ChangelogLookups>) => buildEntry(row(), lookups({ roomTypeNames: names, ...o })).narrative;
+    expect(narrative({ ruleRoomSets: sets(["rt-2", "rt-3"], ["rt-1"]) })).toEqual([
+      '"Busy-day bump" raised this night 10%, from $200.00 to $220.00.',
+      "Standard and Queen were 82% full, past the 70% mark you set.",
+    ]);
+    const plain = [
+      '"Busy-day bump" raised this night 10%, from $200.00 to $220.00.',
+      "It was 82% full, past the 70% mark you set.",
+    ];
+    expect(narrative({ ruleRoomSets: sets(["rt-1"], ["rt-1"]) })).toEqual(plain);
+    // The court is changed but never measured: still one list.
+    expect(narrative({ ruleRoomSets: sets(["rt-1"], ["rt-1", "court"]), countingRoomTypeIds: new Set(["rt-1", "rt-2", "rt-3"]) })).toEqual(plain);
+    // No sets known (an old rule row, or none loaded): as before.
+    expect(narrative({})).toEqual(plain);
+  });
+});
