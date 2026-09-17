@@ -22,13 +22,26 @@ export type FakeCall = {
 };
 
 export type FakeError = { code?: string; message: string };
+
+/** Return from an rpc handler to make that call fail with `error`. */
+export class FakeRpcError {
+  constructor(public error: FakeError) {}
+}
+
+/** PostgREST's answer for a function no migration has created yet. */
+export function missingFunction(fn: string): FakeError {
+  return {
+    code: "PGRST202",
+    message: `Could not find the function public.${fn} without parameters in the schema cache`,
+  };
+}
 export type FakeFault = (call: FakeCall) => FakeError | null | undefined;
 
 export function fakeSupabase(
   seed: Record<string, FakeRow[]> = {},
   opts: {
     fault?: FakeFault;
-    rpc?: (fn: string, args: unknown) => unknown;
+    rpc?: (fn: string, args: unknown, tables: Record<string, FakeRow[]>) => unknown;
     /** PostgREST's db-max-rows: any read returns at most this many rows, silently. */
     maxRows?: number;
   } = {},
@@ -45,6 +58,83 @@ export function fakeSupabase(
     return (a as number) < (b as number) ? -1 : 1;
   };
 
+  /**
+   * PostgREST's `or=(...)` grammar, the subset the engine writes:
+   * `col.op.value` terms joined by commas, nested `and(...)`, and the
+   * operators eq/gt/gte/lt/lte/is.null/in.(...)/not.in.(...).
+   */
+  const splitTop = (expr: string): string[] => {
+    const out: string[] = [];
+    let depth = 0;
+    let cur = "";
+    for (const ch of expr) {
+      if (ch === "(") depth++;
+      if (ch === ")") depth--;
+      if (ch === "," && depth === 0) {
+        out.push(cur);
+        cur = "";
+      } else cur += ch;
+    }
+    if (cur) out.push(cur);
+    return out;
+  };
+  type Pred = (r: FakeRow) => boolean;
+  const compileTerm = (term: string): Pred => {
+    if (term.startsWith("and(") && term.endsWith(")")) {
+      const parts = splitTop(term.slice(4, -1)).map(compileTerm);
+      return (r) => parts.every((p) => p(r));
+    }
+    if (term.startsWith("or(") && term.endsWith(")")) {
+      const parts = splitTop(term.slice(3, -1)).map(compileTerm);
+      return (r) => parts.some((p) => p(r));
+    }
+    const [col, ...rest] = term.split(".");
+    let op = rest.shift() ?? "";
+    let negate = false;
+    if (op === "not") {
+      negate = true;
+      op = rest.shift() ?? "";
+    }
+    const raw = rest.join(".");
+    const list = op === "in" ? raw.replace(/^\(|\)$/g, "").split(",") : [];
+    const test = (v: unknown): boolean => {
+      switch (op) {
+        case "eq":
+          return String(v) === raw;
+        case "gt":
+          return v != null && String(v) > raw;
+        case "gte":
+          return v != null && String(v) >= raw;
+        case "lt":
+          return v != null && String(v) < raw;
+        case "lte":
+          return v != null && String(v) <= raw;
+        case "is":
+          return raw === "null" ? v == null : String(v) === raw;
+        case "in":
+          return v != null && list.includes(String(v));
+        default:
+          return true;
+      }
+    };
+    return (r) => {
+      const v = r[col];
+      // SQL: a NULL compared with IN (...) is never true, negated or not.
+      if (op === "in" && v == null) return false;
+      return negate ? !test(v) : test(v);
+    };
+  };
+  const compiledOr = new Map<string, Pred>();
+  const orPasses = (r: FakeRow, expr: string) => {
+    let pred = compiledOr.get(expr);
+    if (!pred) {
+      const terms = splitTop(expr).map(compileTerm);
+      pred = (row) => terms.some((t) => t(row));
+      compiledOr.set(expr, pred);
+    }
+    return pred(r);
+  };
+
   function from(table: string) {
     const rows = (tables[table] ??= []);
     const call: FakeCall = { table, op: "select", columns: "", filters: [], payload: null };
@@ -58,6 +148,7 @@ export function fakeSupabase(
 
     const passes = (r: FakeRow) =>
       call.filters.every(({ col, kind, value }) => {
+        if (kind === "or") return orPasses(r, String(value));
         const v = r[col];
         switch (kind) {
           case "eq":
@@ -85,8 +176,14 @@ export function fakeSupabase(
 
     const matched = () => {
       let out = rows.filter(passes);
-      for (const o of [...orders].reverse()) {
-        out = [...out].sort((a, b) => (o.asc ? 1 : -1) * compare(a[o.col], b[o.col]));
+      if (orders.length > 0) {
+        out = [...out].sort((a, b) => {
+          for (const o of orders) {
+            const c = compare(a[o.col], b[o.col]);
+            if (c !== 0) return o.asc ? c : -c;
+          }
+          return 0;
+        });
       }
       if (range) out = out.slice(range[0], range[1] + 1);
       if (limit != null) out = out.slice(0, limit);
@@ -170,6 +267,7 @@ export function fakeSupabase(
       gt: filter("gt"),
       lte: filter("lte"),
       lt: filter("lt"),
+      or: (expr: string) => (call.filters.push({ col: "", kind: "or", value: expr }), b),
       not: (col: string, op: string, value: unknown) => (
         call.filters.push({ col, kind: `not.${op}`, value }), b
       ),
@@ -200,11 +298,38 @@ export function fakeSupabase(
     return b;
   }
 
-  const client = {
-    from,
-    rpc: (fn: string, args: unknown) =>
-      Promise.resolve({ data: opts.rpc ? opts.rpc(fn, args) : null, error: null }),
-  };
+  /**
+   * An rpc call is a builder too: a set-returning function can be ordered
+   * and paged, and is capped at maxRows like any other read. A handler that
+   * returns FakeRpcError answers with that error instead.
+   */
+  function rpc(fn: string, args: unknown) {
+    const orders: { col: string; asc: boolean }[] = [];
+    let range: [number, number] | null = null;
+    const exec = () => {
+      calls.push({ table: `rpc:${fn}`, op: "select", columns: "", filters: [], payload: args as FakeRow });
+      const out = opts.rpc ? opts.rpc(fn, args, tables) : null;
+      if (out instanceof FakeRpcError) return { data: null, error: out.error };
+      if (!Array.isArray(out)) return { data: out, error: null };
+      let rows = [...out] as FakeRow[];
+      for (const o of [...orders].reverse()) {
+        rows = [...rows].sort((a, b) => (o.asc ? 1 : -1) * compare(a[o.col], b[o.col]));
+      }
+      if (range) rows = rows.slice(range[0], range[1] + 1);
+      if (opts.maxRows != null) rows = rows.slice(0, opts.maxRows);
+      return { data: rows, error: null };
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rb: any = {
+      order: (col: string, o?: { ascending?: boolean }) => (orders.push({ col, asc: o?.ascending ?? true }), rb),
+      range: (a: number, z: number) => ((range = [a, z]), rb),
+      then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
+        Promise.resolve(exec()).then(res, rej),
+    };
+    return rb;
+  }
+
+  const client = { from, rpc };
 
   return { client: client as unknown as SupabaseClient, tables, calls };
 }

@@ -18,7 +18,15 @@
  */
 
 import { addDays, daysBetween, holidayContextForDate } from "./calendar.ts";
-import { hasAnyRow, pickupInWindow, round2, trimmedMean, type SlimReservationRow } from "./booking-rows.ts";
+import {
+  hasAnyRowIndexed,
+  indexBookingRows,
+  pickupInWindowIndexed,
+  round2,
+  trimmedMean,
+  type BookingWindowIndex,
+  type SlimReservationRow,
+} from "./booking-rows.ts";
 
 export const MOMENTUM_RADIUS_DAYS = 10;
 /**
@@ -66,7 +74,9 @@ export interface MomentumEstimate {
 }
 
 export interface EstimateMomentumOptions {
-  rows: SlimReservationRow[];
+  rows?: SlimReservationRow[];
+  /** The same rows grouped (see indexBookingRows); used instead of `rows` when given. */
+  index?: BookingWindowIndex;
   target: string;
   asOf: string;
   windowDays: number;
@@ -113,6 +123,7 @@ export function estimateMomentumFallback(opts: EstimateMomentumOptions): Momentu
   const isExcluded = opts.isExcluded ?? (() => false);
 
   const neighbors = neighborDates(opts.target, opts.asOf, radiusDays, isExcluded);
+  const index = opts.index ?? indexBookingRows(opts.rows ?? []);
 
   let neighborsUsed = 0;
   let matchedRecentTotal = 0;
@@ -128,7 +139,7 @@ export function estimateMomentumFallback(opts: EstimateMomentumOptions): Momentu
     // Skipping it would keep only the busy exceptions and inflate
     // neighborRecentPaces toward whichever dates happen to have rows.
     const neighborDaysOut = daysBetween(opts.asOf, neighbor);
-    const recent = pickupInWindow(opts.rows, neighbor, neighborDaysOut, opts.windowDays);
+    const recent = pickupInWindowIndexed(index, neighbor, neighborDaysOut, opts.windowDays);
     neighborsUsed++;
     neighborRecentPaces.push(recent);
 
@@ -142,10 +153,10 @@ export function estimateMomentumFallback(opts: EstimateMomentumOptions): Momentu
     const priorDaysOut = daysBetween(priorAsOf, priorNeighbor);
     if (
       priorDaysOut >= 0 &&
-      hasAnyRow(opts.rows, priorNeighbor) &&
+      hasAnyRowIndexed(index, priorNeighbor) &&
       isUsableComparisonDate(priorNeighbor, isExcluded)
     ) {
-      const historical = pickupInWindow(opts.rows, priorNeighbor, priorDaysOut, opts.windowDays);
+      const historical = pickupInWindowIndexed(index, priorNeighbor, priorDaysOut, opts.windowDays);
       matchedRecentTotal += recent;
       matchedHistoricalTotal += historical;
       pairs.push({
@@ -175,10 +186,10 @@ export function estimateMomentumFallback(opts: EstimateMomentumOptions): Momentu
   let baselineDate: string | null;
   if (
     priorTargetDaysOut >= 0 &&
-    hasAnyRow(opts.rows, priorTarget) &&
+    hasAnyRowIndexed(index, priorTarget) &&
     isUsableComparisonDate(priorTarget, isExcluded)
   ) {
-    naiveBaselineBookings = pickupInWindow(opts.rows, priorTarget, priorTargetDaysOut, opts.windowDays);
+    naiveBaselineBookings = pickupInWindowIndexed(index, priorTarget, priorTargetDaysOut, opts.windowDays);
     baselineSource = "target_year_ago";
     baselineDate = priorTarget;
   } else {

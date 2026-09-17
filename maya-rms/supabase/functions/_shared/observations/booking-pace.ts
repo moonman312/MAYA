@@ -21,7 +21,7 @@
  * be steered by MAYA's own pricing output. Pure functions, no clocks.
  */
 
-import { bookingWindowOf, type SlimReservationRow } from "./booking-rows.ts";
+import { bookingWindowOf, type BookingWindowIndex, type SlimReservationRow } from "./booking-rows.ts";
 import type { DailyDemand } from "./seasons.ts";
 
 /** Occupancy fractions, ascending. Sellout is 1. */
@@ -110,6 +110,65 @@ export function dailyPaceSeries(
   for (const [stay_date, windows] of byDate) {
     windows.sort((a, b) => b - a);
     out.push({ stay_date, value: paceScore(milestonesFromWindows(windows, capacity, thresholds)) });
+  }
+  return out.sort((a, b) => a.stay_date.localeCompare(b.stay_date));
+}
+
+/**
+ * The cumulative booking count at which each milestone is reached: position
+ * k in the date's windows sorted latest-booked-first (1-based). Computed
+ * exactly as milestonesFromWindows compares, float rounding included, so a
+ * database that picks the window at each rank lands on the same milestone.
+ */
+export function milestoneRanks(
+  capacity: number,
+  thresholds: readonly number[] = PACE_OCCUPANCY_MILESTONES,
+): number[] {
+  if (capacity <= 0) throw new Error("milestoneRanks requires a positive capacity");
+  // cumulative starts at 1, so a rank below 1 is reached by the first booking.
+  return thresholds.map((t) => Math.max(1, Math.ceil(t * capacity)));
+}
+
+/**
+ * Pace score from the window found at each milestone rank (null when the
+ * date never had that many usable bookings). Unreached milestones add
+ * nothing, same as paceScore.
+ */
+export function paceScoreFromRankWindows(rankWindows: readonly (number | null)[]): number {
+  let sum = 0;
+  for (const w of rankWindows) sum += w ?? 0;
+  return sum;
+}
+
+/**
+ * dailyPaceSeries over grouped rows (see indexBookingRows). Each window
+ * adds its count at once; with at-least semantics that reaches every
+ * milestone at the same window as adding its rows one by one.
+ */
+export function dailyPaceSeriesFromIndex(
+  index: BookingWindowIndex,
+  capacity: number,
+  thresholds: readonly number[] = PACE_OCCUPANCY_MILESTONES,
+): DailyDemand[] {
+  if (capacity <= 0) throw new Error("dailyPaceSeries requires a positive capacity");
+  const out: DailyDemand[] = [];
+  for (const [stay_date, entry] of index) {
+    const usable = entry.windows
+      .filter((w): w is { bw: number; n: number } => w.bw !== null && w.bw >= 0 && w.n > 0)
+      .sort((a, b) => b.bw - a.bw);
+    if (usable.length === 0) continue;
+    const milestones: OccupancyMilestone[] = thresholds.map((t) => ({ threshold: t, daysOut: null }));
+    let cumulative = 0;
+    let next = 0;
+    for (const w of usable) {
+      cumulative += w.n;
+      while (next < milestones.length && cumulative >= Math.ceil(milestones[next].threshold * capacity)) {
+        milestones[next].daysOut = w.bw;
+        next++;
+      }
+      if (next >= milestones.length) break;
+    }
+    out.push({ stay_date, value: paceScore(milestones) });
   }
   return out.sort((a, b) => a.stay_date.localeCompare(b.stay_date));
 }

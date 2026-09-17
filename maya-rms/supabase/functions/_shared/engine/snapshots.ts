@@ -25,6 +25,7 @@ export const MIGRATIONS = {
   manualPrice: "99_supabase_migration_manual_price_v1.sql",
   countsAsRoom: "99_supabase_migration_room_type_counts_as_room_v1.sql",
   outOfService: "99_supabase_migration_room_type_out_of_service_v1.sql",
+  largePropertyScale: "99_supabase_migration_large_property_scale_v1.sql",
 } as const;
 
 type PostgrestLike = { code?: string | null; message?: string | null } | null | undefined;
@@ -70,6 +71,16 @@ export function isMissingRelationError(e: unknown): boolean {
     /relation .* does not exist/i.test(message) ||
     /could not find the table/i.test(message)
   );
+}
+
+/**
+ * An rpc no migration has created yet. PostgREST answers from its schema
+ * cache (PGRST202, "Could not find the function"); Postgres itself says
+ * 42883.
+ */
+export function isMissingFunctionError(e: unknown): boolean {
+  const { code, message } = codeAndMessage(e);
+  return code === "PGRST202" || code === "42883" || /could not find the function/i.test(message);
 }
 
 // deno-lint-ignore no-explicit-any

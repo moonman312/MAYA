@@ -5,12 +5,13 @@
  * that lists it as AFFECTED keeps pricing it. null means unclassified and
  * counts, so an unmigrated or fresh import behaves exactly as before.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { generateStarterRules } from "../../../supabase/functions/_shared/onboarding/generate-rules";
 import { createRule } from "../rules-store";
 import { loadBookingSpeedContext } from "./booking-speed-provider";
 import { evaluateHotel } from "./evaluate";
-import { fakeSupabase, type FakeRow } from "./fake-supabase.test";
+import { FakeRpcError, fakeSupabase, missingFunction, type FakeRow } from "./fake-supabase.test";
+import { scaleRpc } from "./scale-rpc-model.test";
 
 const EVAL_TS = "2026-09-16T12:00:00Z";
 const D0 = "2026-09-16";
@@ -294,38 +295,53 @@ describe("counts_as_room in the rule builder", () => {
   });
 });
 
-describe("counts_as_room in Booking Speed", () => {
+describe.each([
+  ["migrated", { rpc: scaleRpc }],
+  ["pre-migration", { rpc: () => new FakeRpcError(missingFunction("booking_speed_history_summary")) }],
+] as const)("counts_as_room in Booking Speed (%s)", (_label, opts) => {
   // Capacity is summed over counting types only, so the booking history has
   // to be too: six court slots a night against a 20-room capacity would read
   // as the hotel filling up. A row with no room type is kept — no evidence
   // it was not a room.
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
   it("drops non-room bookings from the pace history but keeps unmapped ones", async () => {
     const row = (id: string, stay_date: string, room_type_id: string | null) => ({
       id, hotel_id: "h1", stay_date, room_type_id, booking_date: "2025-08-01", booking_window_days: 30,
     });
-    const { client } = fakeSupabase({
-      reservations: [
-        row("a", "2025-09-01", "rt1"),
-        row("b", "2025-09-01", "rt2"),
-        row("c", "2025-09-01", "rt2"),
-        row("d", "2025-09-02", null),
-        row("e", "2025-09-02", "rt3"),
-      ],
-    });
+    const { client } = fakeSupabase(
+      {
+        reservations: [
+          row("a", "2025-09-01", "rt1"),
+          row("b", "2025-09-01", "rt2"),
+          row("c", "2025-09-01", "rt2"),
+          row("d", "2025-09-02", null),
+          row("e", "2025-09-02", "rt3"),
+        ],
+      },
+      opts,
+    );
     const ctx = await loadBookingSpeedContext(client, "h1", D0, 30, new Set(["rt2"]));
     expect(ctx).not.toBeNull();
-    expect(ctx!.rowsByDate.get("2025-09-01")).toHaveLength(1);
-    expect(ctx!.rowsByDate.get("2025-09-02")).toHaveLength(2);
+    const history = new Map(ctx!.dailyDemand.map((d) => [d.stay_date, d.value]));
+    expect(history.get("2025-09-01")).toBe(1);
+    expect(history.get("2025-09-02")).toBe(2);
   });
 
   it("keeps every booking when nothing is excluded", async () => {
-    const { client } = fakeSupabase({
-      reservations: [
-        { id: "a", hotel_id: "h1", stay_date: "2025-09-01", room_type_id: "rt2", booking_date: "2025-08-01", booking_window_days: 30 },
-      ],
-    });
+    const { client } = fakeSupabase(
+      {
+        reservations: [
+          { id: "a", hotel_id: "h1", stay_date: "2025-09-01", room_type_id: "rt2", booking_date: "2025-08-01", booking_window_days: 30 },
+        ],
+      },
+      opts,
+    );
     const ctx = await loadBookingSpeedContext(client, "h1", D0, 30);
-    expect(ctx!.rowsByDate.get("2025-09-01")).toHaveLength(1);
+    const history = new Map(ctx!.dailyDemand.map((d) => [d.stay_date, d.value]));
+    expect(history.get("2025-09-01")).toBe(1);
   });
 });
 

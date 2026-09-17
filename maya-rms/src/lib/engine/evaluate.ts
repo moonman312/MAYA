@@ -484,7 +484,7 @@ export async function evaluateHotel(
     // both, or pace reads as the hotel filling on court traffic.
     const totalCapacity = countingRoomTypes.reduce((sum, rt) => sum + rt.total_rooms, 0);
     const nonRoomIds = new Set(roomTypes.filter((rt) => !countingIds.has(rt.id)).map((rt) => rt.id));
-    bsCtx = await loadBookingSpeedContext(supabase, hotelId, localDate, totalCapacity, nonRoomIds);
+    bsCtx = await loadBookingSpeedContext(supabase, hotelId, localDate, totalCapacity, nonRoomIds, lastDate);
 
     // Most recent fire per (rule, stay date), for cooldown throttling of
     // event-style booking-speed rules. See loadLastBookingSpeedFires.

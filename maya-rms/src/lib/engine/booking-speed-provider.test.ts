@@ -11,20 +11,16 @@ import {
 } from "./booking-speed-provider";
 import { detectSeasons } from "@/lib/observations/seasons";
 import type { SlimReservationRow } from "@/lib/observations/expected-bookings";
+import { indexBookingRows } from "@/lib/observations/booking-rows";
 import type { EngineRule } from "@/types/domain";
 import { fakeSupabase } from "./fake-supabase.test";
 
 function makeContext(rows: SlimReservationRow[], asOf: string): BookingSpeedContext {
-  const rowsByDate = new Map<string, SlimReservationRow[]>();
-  for (const row of rows) {
-    const list = rowsByDate.get(row.stay_date);
-    if (list) list.push(row);
-    else rowsByDate.set(row.stay_date, [row]);
-  }
   return {
     asOf,
-    rowsByDate,
+    windowsByDate: indexBookingRows(rows),
     seasonModel: detectSeasons([]), // degenerate Year-Round model — fine for these tests
+    dailyDemand: [],
     historyStart: "2023-01-01",
     historyEnd: "2026-07-27",
     isExcluded: () => false,

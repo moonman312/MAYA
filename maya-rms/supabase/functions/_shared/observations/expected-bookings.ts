@@ -36,10 +36,12 @@ import {
 import { describeComparableSelection, type ComparableSelection } from "./comparable-dates.ts";
 import {
   DEFAULT_WINDOW_DAYS,
-  hasAnyRow,
-  pickupInWindow,
+  hasAnyRowIndexed,
+  indexBookingRows,
+  pickupInWindowIndexed,
   round2,
   trimmedMean,
+  type BookingWindowIndex,
   type SlimReservationRow,
 } from "./booking-rows.ts";
 import {
@@ -80,7 +82,15 @@ export interface BookingSpeedObservation {
 }
 
 export interface ObserveBookingSpeedOptions {
-  rows: SlimReservationRow[];
+  rows?: SlimReservationRow[];
+  /**
+   * The same history already grouped by stay date and booking window (see
+   * indexBookingRows). Used instead of `rows` when given; the answer is the
+   * same either way. It must cover every date this observation can consult:
+   * the target, its comparables, and momentum's neighbors and their
+   * year-ago dates.
+   */
+  index?: BookingWindowIndex;
   target: string;
   asOf: string;
   selection: ComparableSelection;
@@ -102,22 +112,16 @@ export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSp
     throw new Error("booking speed target must not be in the past");
   }
 
-  const byStayDate = new Map<string, SlimReservationRow[]>();
-  for (const row of opts.rows) {
-    const list = byStayDate.get(row.stay_date);
-    if (list) list.push(row);
-    else byStayDate.set(row.stay_date, [row]);
-  }
-  const rowsFor = (date: string) => byStayDate.get(date) ?? [];
+  const index = opts.index ?? indexBookingRows(opts.rows ?? []);
 
-  const recentBookings = pickupInWindow(rowsFor(opts.target), opts.target, daysOut, windowDays);
+  const recentBookings = pickupInWindowIndexed(index, opts.target, daysOut, windowDays);
 
   const perComparable: ComparablePickup[] = opts.selection.comparables.map((c) => ({
     date: c.date,
-    bookings: pickupInWindow(rowsFor(c.date), c.date, daysOut, windowDays),
+    bookings: pickupInWindowIndexed(index, c.date, daysOut, windowDays),
     tier: c.tier,
     reasons: c.reasons,
-    hasData: hasAnyRow(opts.rows, c.date),
+    hasData: hasAnyRowIndexed(index, c.date),
   }));
   const usableComparables = perComparable.filter((c) => c.hasData);
 
@@ -146,7 +150,7 @@ export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSp
   }
 
   const momentum = estimateMomentumFallback({
-    rows: opts.rows,
+    index,
     target: opts.target,
     asOf: opts.asOf,
     windowDays,
