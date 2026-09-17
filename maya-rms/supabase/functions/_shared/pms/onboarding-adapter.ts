@@ -2,8 +2,9 @@
  * PMS-agnostic adapter interface for the onboarding flow.
  *
  * Onboarding needs four things from any PMS: who the property is, what its
- * room types are, and its reservation history (a fast slim list pull for
- * multi-year history, plus an accurate detail pull for the current window).
+ * room types are, and its reservation history (a slim, checkpointed pull of
+ * multi-year history a page at a time, plus the live sync over the current
+ * window).
  * Implement this interface for a new PMS and the entire onboarding flow —
  * hotel auto-creation, background import, cleaning, analysis — works with
  * zero changes elsewhere. Register the implementation in
@@ -48,7 +49,7 @@ export type AdapterReservationRow = {
 export type AdapterCursor = Record<string, unknown>;
 
 export type OnboardingAdapterCapabilities = {
-  /** Can pull arbitrary historical check-in windows. */
+  /** Can pull arbitrary historical windows. */
   historicalImport: boolean;
   /** List endpoint lacks per-night rates; current window needs detail calls. */
   needsDetailFetch: boolean;
@@ -64,15 +65,34 @@ export interface OnboardingPmsAdapter {
   fetchRoomTypes(): Promise<AdapterRoomType[]>;
 
   /**
-   * One page of slim reservation rows (dates + price, no PII) for a check-in
+   * One page of slim reservation rows (dates + price, no PII) for one history
    * window. `cursor` null starts the window; returns `nextCursor` null when
    * the window is exhausted. The worker persists the cursor between calls so
    * a killed run resumes exactly where it stopped.
+   *
+   * `from`/`to` are inclusive stay dates, and consecutive windows tile with
+   * no gap. How a booking is assigned to a window is the adapter's to keep
+   * consistent: Think reads by stay date, Cloudbeds by check-out date.
+   * `newest` is set on window 0, the one directly behind the current-window
+   * sync (which starts the day after its `to`). An adapter whose windows are
+   * not owned by check-in must also return, there, bookings that check in on
+   * or before `to` and check out later — guests in house when the current
+   * window starts, which a check-in-owned current window never stores.
+   *
+   * With `nextCursor` null an adapter may also return `nextWindowCursor`: the
+   * worker starts the next (older) window with it instead of null. It is how
+   * an adapter tells its next window how this one assigned bookings, so a
+   * change of rule between windows (a fallback, or a deploy that lands
+   * mid-import) leaves no booking between them.
    */
   fetchReservationListPage(
-    window: { from: string; to: string },
+    window: { from: string; to: string; newest?: boolean },
     cursor: AdapterCursor | null,
-  ): Promise<{ rows: AdapterReservationRow[]; nextCursor: AdapterCursor | null }>;
+  ): Promise<{
+    rows: AdapterReservationRow[];
+    nextCursor: AdapterCursor | null;
+    nextWindowCursor?: AdapterCursor | null;
+  }>;
 }
 
 export type PreResolvedOAuthCredentials = {

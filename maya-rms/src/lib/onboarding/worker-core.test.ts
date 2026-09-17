@@ -38,6 +38,23 @@ describe("historicalWindow", () => {
     dayAfterW2To.setUTCDate(dayAfterW2To.getUTCDate() + 1);
     expect(dayAfterW2To.toISOString().slice(0, 10)).toBe(w1.from);
   });
+
+  it("ten windows tile 3,650 days back from the anchor, through a leap day, with no gap", () => {
+    const anchor = "2026-06-26";
+    const windows = Array.from({ length: 10 }, (_, i) => historicalWindow(anchor, i));
+    const dayAfter = (ymd: string) => {
+      const d = new Date(`${ymd}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + 1);
+      return d.toISOString().slice(0, 10);
+    };
+    expect(dayAfter(windows[0].to)).toBe(anchor);
+    for (let i = 1; i < windows.length; i += 1) {
+      expect(dayAfter(windows[i].to)).toBe(windows[i - 1].from);
+    }
+    const span = (Date.parse(anchor) - Date.parse(windows[9].from)) / 86_400_000;
+    expect(span).toBe(3650);
+    expect(windows[2]).toEqual({ from: "2023-06-27", to: "2024-06-25" });
+  });
 });
 
 describe("nextAfterWindow stop conditions", () => {
@@ -533,6 +550,37 @@ describe("processJob history coverage", () => {
     expect(adapter.windows[0].to).toBe("2026-06-25");
     expect(adapter.windows[0].from).toBe("2025-06-26");
     expect(job.stats.historyAnchor).toBe(COVERED_FROM);
+  });
+
+  it("marks only window 0 as the newest, so it also takes guests in house on the anchor", async () => {
+    const supabase = makeSupabaseStub();
+    const adapter = makeAdapter(
+      new Map([[0, [pageOfRows(4, "2026-05-10")]], [1, [pageOfRows(4, "2025-05-10")]], [2, [[]]]]),
+    );
+    const job = makeJob();
+
+    await processJob(supabase, job, makeDeps(adapter), 60_000);
+
+    expect(adapter.windows.map((w) => (w as { newest?: boolean }).newest)).toEqual([true, false, false]);
+  });
+
+  it("starts the next window from the handover the last page gave, and a page cursor never leaks across windows", async () => {
+    const supabase = makeSupabaseStub();
+    const base = makeAdapter(new Map([[0, [pageOfRows(3, "2026-05-10")]], [1, [pageOfRows(3, "2025-05-10")]], [2, [[]]]]));
+    const cursors: Array<AdapterCursor | null> = [];
+    const adapter: OnboardingPmsAdapter = {
+      ...base,
+      fetchReservationListPage: async (window, cursor) => {
+        cursors.push(cursor);
+        const page = await base.fetchReservationListPage(window, cursor && "page" in cursor ? cursor : null);
+        return { ...page, nextWindowCursor: page.nextCursor ? undefined : { after: `window-ending-${window.to}` } };
+      },
+    };
+    const job = makeJob();
+
+    await processJob(supabase, job, makeDeps(adapter), 60_000);
+
+    expect(cursors).toEqual([null, { after: "window-ending-2026-06-25" }, { after: "window-ending-2025-06-25" }]);
   });
 
   it("falls back to today when the sync doesn't report its window", async () => {

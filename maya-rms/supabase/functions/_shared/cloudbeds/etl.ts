@@ -11,6 +11,7 @@
  */
 
 import {
+  CLOUDBEDS_ACTIVE_STATUSES,
   CLOUDBEDS_CANCELED_STATUSES,
 } from "./constants.ts";
 import { redactCloudbedsPayload } from "../pms/redact.ts";
@@ -309,12 +310,13 @@ export type ParsedCloudbeds = {
  * KNOWN UNDERCOUNT, unfixable from a list payload: most accounts' list rows name
  * neither rooms nor a room count (see the fetch comment in sync-hotel.ts), and
  * such a booking is recorded as ONE room at the whole-booking nightly rate — for
- * an N-room group, occupancy 1/N of the truth and ADR N× it. Nothing repairs it
- * afterwards: the onboarding historical windows are the only pass that ever
- * reads stays older than the live sync's own check-in window. The fix is a
- * payload that carries the rooms (Cloudbeds' getReservationsWithRateDetails is
- * page-level, so it costs one call per page, not per reservation), not a
- * guess — fabricating slots we cannot identify double-counts instead.
+ * an N-room group, occupancy 1/N of the truth and ADR N× it. Fabricating slots
+ * we cannot identify would double-count instead.
+ *
+ * Only one caller is left: the onboarding history import for a property whose
+ * account refuses getReservationsWithRateDetails. Every other property's
+ * history comes from parseCloudbedsHistoryRateDetails below, which reads each
+ * room's own type and nightly rates and has no such undercount.
  */
 export function parseCloudbedsReservations(
   reservations: Json[],
@@ -513,4 +515,126 @@ export function parseCloudbedsReservationDetail(detail: Json): {
   }
 
   return { reservationId, status, rows };
+}
+
+/**
+ * One onboarding history window, owned by check-out date.
+ *
+ * `from`/`to` are inclusive stay dates. `openEnd` also gives it every booking
+ * that checks in on or before `to` and checks out after it: set when the
+ * newer neighbour did not own bookings by check-out — the live sync, which
+ * owns by check-in from the day after `to`, or a history window read by
+ * check-in (the list fallback, or the list-only deploy).
+ */
+export type CloudbedsHistoryWindow = { from: string; to: string; openEnd?: boolean };
+
+/**
+ * Whether a history window owns a booking. Exactly one window, or the live
+ * sync, owns each booking, so a booking read by two overlapping requests is
+ * still stored once:
+ *
+ *  - the live sync owns every booking that checks in on or after its anchor
+ *    (the day after window 0's `to`);
+ *  - a history window owns a booking that checks in on or before its `to` and
+ *    checks out inside [`from`, `to`];
+ *  - an open-ended window also owns a booking that checks in on or before its
+ *    `to` and checks out after it. For window 0 that is a guest in house when
+ *    the live window starts, whom a check-in-owned live window never stores.
+ *
+ * The check-out date falls back to the check-in date when a payload lacks it,
+ * as enumerateNights does. A booking without a check-in date is owned by
+ * nobody, as in the live sync.
+ */
+export function cloudbedsHistoryWindowOwns(
+  window: CloudbedsHistoryWindow,
+  checkIn: string | null,
+  checkOut: string | null,
+): boolean {
+  if (!checkIn || checkIn > window.to) return false;
+  const out = checkOut ?? checkIn;
+  if (out < window.from) return false;
+  return out <= window.to || window.openEnd === true;
+}
+
+export type CloudbedsHistoryRow = Omit<CloudbedsParsedReservationRow, "raw_payload"> & {
+  raw_payload: null;
+};
+
+export type CloudbedsHistoryParseStats = {
+  bookings: number;
+  owned: number;
+  canceled: number;
+  unknownStatus: number;
+  outsideWindow: number;
+  missingReservationId: number;
+};
+
+function isActiveReservationStatus(status: string | null): boolean {
+  if (!status) return false;
+  return (CLOUDBEDS_ACTIVE_STATUSES as readonly string[]).includes(status.trim().toLowerCase());
+}
+
+/**
+ * Slim history rows from one page of getReservationsWithRateDetails.
+ *
+ * The rows are exactly what the live sync writes for the same bookings
+ * (cloudbedsRateDetailsToDetail, then parseCloudbedsReservationDetail): one
+ * per room per night, keyed `<reservationID>-<n>`, each room's own room type
+ * and its own nightly rate. Only raw_payload differs, null here, so history
+ * holds no guest-derived payload at all.
+ *
+ * Canceled and no-show bookings are asked to be left out server-side, and are
+ * dropped here again along with any status MAYA does not count as a sale, the
+ * same set the list path used to walk one status at a time. Nothing about a
+ * booking is logged or returned beyond these rows and counts.
+ */
+export function parseCloudbedsHistoryRateDetails(
+  bookings: Json[],
+  window: CloudbedsHistoryWindow,
+): { rows: CloudbedsHistoryRow[]; stats: CloudbedsHistoryParseStats } {
+  const stats: CloudbedsHistoryParseStats = {
+    bookings: bookings.length,
+    owned: 0,
+    canceled: 0,
+    unknownStatus: 0,
+    outsideWindow: 0,
+    missingReservationId: 0,
+  };
+  const byKey = new Map<string, CloudbedsHistoryRow>();
+  for (const booking of bookings) {
+    if (!booking || typeof booking !== "object") continue;
+    const detail = cloudbedsRateDetailsToDetail(booking);
+    const status = firstString(detail, ["status", "reservationStatus"]);
+    if (isCanceled(status)) {
+      stats.canceled += 1;
+      continue;
+    }
+    if (!isActiveReservationStatus(status)) {
+      stats.unknownStatus += 1;
+      continue;
+    }
+    const { checkIn, checkOut } = cloudbedsStayDates(booking);
+    if (!cloudbedsHistoryWindowOwns(window, checkIn, checkOut)) {
+      stats.outsideWindow += 1;
+      continue;
+    }
+    const parsed = parseCloudbedsReservationDetail(detail);
+    if (!parsed.reservationId) {
+      stats.missingReservationId += 1;
+      continue;
+    }
+    stats.owned += 1;
+    for (const r of parsed.rows) {
+      byKey.set(`${r.external_reservation_id}:${r.stay_date}`, {
+        external_reservation_id: r.external_reservation_id,
+        external_room_type_id: r.external_room_type_id,
+        stay_date: r.stay_date,
+        booking_date: r.booking_date,
+        booking_window_days: r.booking_window_days,
+        current_rate: r.current_rate,
+        raw_payload: null,
+      });
+    }
+  }
+  return { rows: [...byKey.values()], stats };
 }

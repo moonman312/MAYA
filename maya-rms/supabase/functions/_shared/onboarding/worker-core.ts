@@ -12,8 +12,9 @@
  *                  reports the first check-in date it covered and history
  *                  tiles back from there — its window is a runtime setting,
  *                  not something to assume.
- *   historical     slim list-only pull, one year-window at a time going back:
- *                  dates + price only, raw_payload null, checkpointed per page
+ *   historical     slim pull, one year-window at a time going back: dates,
+ *                  room type and each night's price, raw_payload null,
+ *                  checkpointed per page (the adapter's own page cursor)
  *   analyze_early  findings and starter rules from the first three years, so
  *                  the owner can review and run rules while older years load
  *   analyze        the same analysis over everything; refines what the early
@@ -249,6 +250,15 @@ function addDays(ymd: string, days: number): string {
  * Historical window N: the year ending the day before `anchorYmd`, stepped
  * back N whole years. The anchor is where the current-window sync's own
  * coverage starts, so window 0 sits directly behind it with no gap.
+ *
+ * Exact bounds, both inclusive: window N is
+ *   [anchor - 365(N+1), anchor - 365N - 1]
+ * so window N+1 ends the day before window N starts, and max_windows of them
+ * (10 by default) reach 3,650 days behind the anchor. Years are 365 days, not
+ * calendar years: a leap day just shifts later windows by a day, never opens
+ * a gap. What a window holds is the adapter's rule — Cloudbeds assigns a
+ * booking by its check-out date and puts in-house guests at the anchor in
+ * window 0 (see `newest` on fetchReservationListPage).
  */
 export function historicalWindow(anchorYmd: string, windowIndex: number): {
   from: string;
@@ -888,8 +898,11 @@ async function runHistoricalStep(
       ? (job.enum_cursor as AdapterCursor)
       : null;
 
-  const { rows, nextCursor } = await adapter.fetchReservationListPage(
-    { from: job.window_from, to: job.window_to },
+  // Window 0 butts onto the current window, so it also takes the guests in
+  // house on the anchor day. job.window_index, not the dates, says which one
+  // this is: it is what the row has always stored.
+  const { rows, nextCursor, nextWindowCursor } = await adapter.fetchReservationListPage(
+    { from: job.window_from, to: job.window_to, newest: job.window_index === 0 },
     cursor,
   );
 
@@ -971,7 +984,9 @@ async function runHistoricalStep(
   const w = historicalWindow(historyAnchor(job, deps), job.window_index);
   job.window_from = w.from;
   job.window_to = w.to;
-  job.enum_cursor = {};
+  // Usually {}. An adapter can hand the next window a starting cursor that
+  // says how this one assigned bookings (see fetchReservationListPage).
+  job.enum_cursor = nextWindowCursor && Object.keys(nextWindowCursor).length > 0 ? nextWindowCursor : {};
   job.stats = { ...job.stats, currentWindowRows: 0 };
   await patchJob(supabase, job.id, {
     phase: job.phase,
