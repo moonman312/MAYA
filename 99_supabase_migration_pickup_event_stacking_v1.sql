@@ -809,8 +809,10 @@ grant execute on function public.rule_repeat_alert_choose(uuid, text, date[]) to
 -- opens it again once the rule has adjusted it 3 more times than the
 -- fire_count on its row (_shared/engine/repeat-alerts.ts). The row's other
 -- numbers are frozen at the resume until then; its fire_count is not, because
--- it stands for the fires the owner has already seen: a typed price that
--- takes those fires off takes it down to the count that is left.
+-- it stands for the fires the owner has already seen. This function brings it
+-- up to the fires the rule has really made, which a night answered
+-- keep_adjusting outgrew while nobody was updating its row, and the engine
+-- brings it down again when a typed price takes those fires off.
 --
 -- p_stay_dates null resumes every answered night of the alert. Nights nobody
 -- answered, and nights already closed, never change. A resolved alert stays
@@ -845,6 +847,27 @@ begin
      set choice = null,
          chosen_at = null,
          chosen_by = null,
+         -- The count on the row stands for the fires the owner has already
+         -- seen, and the engine asks again 3 above it. A night answered
+         -- keep_adjusting went on firing with its row left where the answer
+         -- found it, so bring the count up to the fires the rule has really
+         -- made: the same count the engine reads (the most on any one room
+         -- type, open or taken off for cancellations). Never down -- a typed
+         -- price takes fires off after the resume too, and that is the
+         -- engine's to notice.
+         fire_count = greatest(n.fire_count, (
+           select coalesce(max(k.fires), 0)
+             from (
+               select count(*) as fires
+                 from public.pickup_event e
+                where e.hotel_id = n.hotel_id
+                  and e.rule_id = n.rule_id
+                  and e.rule_version = n.rule_version
+                  and e.stay_date = n.stay_date
+                  and (e.retired_at is null or e.retired_reason = 'bookings_cancelled')
+                group by e.affected_room_type_id
+             ) k
+         )),
          closed_at = v_now,
          closed_reason = 'resumed',
          updated_at = v_now

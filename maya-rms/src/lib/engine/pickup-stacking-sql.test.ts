@@ -560,6 +560,50 @@ describe.skipIf(!PGLITE_DIR)("the pickup event stacking migration in PGlite", ()
     expect(rest.rows).toEqual([{ stay_date: NIGHT2 }]);
   });
 
+
+  it("brings a resumed night's count up to the fires the rule has really made", async () => {
+    // A night answered keep_adjusting keeps firing with its row left where
+    // the answer found it. Taking that answer back on a frozen count would
+    // put the same question straight back at the next fire, because the
+    // engine asks again 3 above the count on the row.
+    const alert = "0000000a-0000-4000-8000-000000000000";
+    const NIGHT3 = "2026-10-03";
+    await db.exec(`set request.jwt.claim.role = 'service_role';`);
+    await db.exec(`
+      insert into public.pickup_event (
+        id, hotel_id, rule_id, rule_version, stay_date, affected_room_type_id,
+        baseline_start_ts, baseline_end_ts, signal_booked_units_start, signal_booked_units_end,
+        signal_booked_revenue_start, signal_booked_revenue_end, applied_at, retired_at, retired_reason,
+        action_kind, action_direction, action_value, fire_seq, signal_set_key)
+      select ('0000000b-0000-4000-8000-00000000000' || g)::uuid, '${H1}', '${R_RAISE}', 1, '${NIGHT3}', '${STD}',
+             now(), now(), 1, 5, 100, 500, now(), null, null, 'percent', 'increase', 10, g, '${STD}'
+        from generate_series(1, 5) g;
+      -- Not counted: a fire a typed price took off. And another room type the
+      -- rule has fired on less, which the count is a max over.
+      insert into public.pickup_event (
+        id, hotel_id, rule_id, rule_version, stay_date, affected_room_type_id,
+        baseline_start_ts, baseline_end_ts, signal_booked_units_start, signal_booked_units_end,
+        signal_booked_revenue_start, signal_booked_revenue_end, applied_at, retired_at, retired_reason,
+        action_kind, action_direction, action_value, fire_seq, signal_set_key)
+      values
+        ('0000000b-0000-4000-8000-000000000006', '${H1}', '${R_RAISE}', 1, '${NIGHT3}', '${STD}',
+         now(), now(), 1, 5, 100, 500, now(), now(), 'manual_price', 'percent', 'increase', 10, 6, '${STD}'),
+        ('0000000b-0000-4000-8000-000000000007', '${H1}', '${R_RAISE}', 1, '${NIGHT3}', '${SUITE}',
+         now(), now(), 1, 5, 100, 500, now(), null, null, 'percent', 'increase', 10, 1, '${STD}');
+      insert into public.rule_repeat_alerts (id, hotel_id, rule_id, rule_version, action_direction, opened_at)
+        values ('${alert}', '${H1}', '${R_RAISE}', 1, 'increase', now());
+      insert into public.rule_repeat_alert_nights
+        (alert_id, hotel_id, rule_id, rule_version, stay_date, fire_count, reached_at, last_fire_at)
+      values ('${alert}', '${H1}', '${R_RAISE}', 1, '${NIGHT3}', 3, now(), now());
+    `);
+
+    await db.exec(`set request.jwt.claim.role = 'authenticated'; set test.manager_hotel = '${H1}'; set test.user_id = '${USER}';`);
+    await db.query(`select * from public.rule_repeat_alert_choose('${alert}', 'keep_adjusting')`);
+    const back = await db.query(
+      `select fire_count, closed_reason from public.rule_repeat_alert_resume('${alert}')`,
+    );
+    expect(back.rows).toEqual([{ fire_count: 5, closed_reason: "resumed" }]);
+  });
   it("lets a resumed night's count follow its fires down to nothing", async () => {
     // What the engine writes when a typed price takes a resumed night's fires
     // off (_shared/engine/repeat-alerts.ts): the count on the row becomes the
