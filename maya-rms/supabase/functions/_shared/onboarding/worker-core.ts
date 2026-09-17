@@ -106,11 +106,16 @@ export type WorkerDeps = {
     hotelId: string,
     pmsType: string,
   ) => Promise<OnboardingPmsAdapter>;
-  /** The live sync for the current window (existing pipeline). */
+  /**
+   * The live sync for the current window (existing pipeline). It stops reading
+   * by `deadlineAt` (epoch ms) and checkpoints, so a pass started late in an
+   * invocation still ends inside its wall clock.
+   */
   runCurrentSync: (
     supabase: SupabaseClient,
     hotelId: string,
     pmsType: string,
+    deadlineAt: number,
   ) => Promise<CurrentSyncResult>;
   /** Cleaning heuristics + findings + starter rules. Wired in from analysis.ts. */
   analyze: (supabase: SupabaseClient, job: ImportJobRow, pass: AnalysisPass) => Promise<void>;
@@ -190,6 +195,13 @@ export const LEASE_SECONDS = 180;
 const HEARTBEAT_MS = 60_000;
 /** Consecutive invocations that moved nothing before we call the job dead. */
 const NO_PROGRESS_LIMIT = 50;
+/**
+ * How far past the worker's budget a current-window pass may read. A pass is
+ * one opaque call that can start just before the budget runs out; without a
+ * deadline it ran its own 210s plus writes, past the free plan's 150s wall
+ * clock, and every kill counted toward NO_PROGRESS_LIMIT.
+ */
+export const CURRENT_SYNC_GRACE_MS = 30_000;
 
 /**
  * History windows imported before the early analysis. Three, not two: the
@@ -592,7 +604,7 @@ export async function processJob(
         };
         await patchJob(supabase, job.id, { stats: job.stats }, lease);
         const res = await withLeaseHeartbeat(supabase, job.id, lease, () =>
-          deps.runCurrentSync(supabase, job.hotel_id, job.pms_type),
+          deps.runCurrentSync(supabase, job.hotel_id, job.pms_type, start + budgetMs + CURRENT_SYNC_GRACE_MS),
         );
         if (!res.ok) throw new Error(res.error ?? "current-window sync failed");
         const before = currentSyncProgress(job.stats);

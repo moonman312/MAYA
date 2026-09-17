@@ -3,6 +3,7 @@ import {
   historicalWindow,
   effectiveRowCap,
   nextAfterWindow,
+  CURRENT_SYNC_GRACE_MS,
   processJob,
   type CurrentSyncResult,
   type ImportJobRow,
@@ -331,6 +332,20 @@ function makeDeps(adapter: OnboardingPmsAdapter): WorkerDeps {
 }
 
 describe("processJob", () => {
+  it("gives the current-window pass a deadline just past the invocation's budget", async () => {
+    const supabase = makeSupabaseStub();
+    const adapter = makeAdapter(new Map([[0, [[]]]]));
+    const deps = makeDeps(adapter);
+    let clock = 5_000_000;
+    deps.now = () => clock;
+    deps.runCurrentSync = vi.fn(async () => {
+      clock += 1000;
+      return covered();
+    });
+    await processJob(supabase, makeJob(), deps, 60_000);
+    expect(deps.runCurrentSync).toHaveBeenCalledWith(supabase, "hotel-1", expect.any(String), 5_000_000 + 60_000 + CURRENT_SYNC_GRACE_MS);
+  });
+
   it("runs discover -> sync_current -> historical -> analyze and completes on an empty window", async () => {
     const supabase = makeSupabaseStub();
     // Window 0 has two pages of data, window 1 is empty -> stop.

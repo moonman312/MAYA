@@ -31,7 +31,7 @@ function getEnv(name: string): string | undefined {
 const deps: WorkerDeps = {
   createAdapter: (supabase, hotelId, pmsType) =>
     createOnboardingAdapter(supabase, hotelId, pmsType),
-  runCurrentSync: async (supabase, hotelId, pmsType) => {
+  runCurrentSync: async (supabase, hotelId, pmsType, deadlineAt) => {
     // Report the window each sync actually covered — depth is
     // env-configurable (MAYA_SYNC_DAYS_BACK), so the historical phase must
     // not assume one. A fresh onboarding hotel always takes the full-sweep
@@ -39,7 +39,7 @@ const deps: WorkerDeps = {
     // Coverage is passed through as the sync reported it: the worker repeats
     // the phase until it is true.
     if (pmsType === "cloudbeds") {
-      const res = await runCloudbedsSyncForHotel(supabase, hotelId);
+      const res = await runCloudbedsSyncForHotel(supabase, hotelId, { deadlineAt });
       return res.ok
         ? {
             ok: true,
@@ -53,7 +53,7 @@ const deps: WorkerDeps = {
         : { ok: false, error: res.error };
     }
     if (pmsType === "think") {
-      const res = await runThinkSyncForHotel(supabase, hotelId);
+      const res = await runThinkSyncForHotel(supabase, hotelId, { deadlineAt });
       return res.ok
         ? {
             ok: true,
