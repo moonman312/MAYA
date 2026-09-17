@@ -64,7 +64,9 @@
 --
 -- 8. A rate the hotel changes in its PMS on a night MAYA has sent to becomes a
 --    manual price at that rate (_shared/pms/pms-edits.ts), so MAYA stops
---    writing over it. rate_updates.confirmed_at says a send is settled: the
+--    writing over it. A rate of 0 there is the hotel closing the night: its
+--    base rate goes to 0 and the ledger row to a sent 0, and MAYA stops
+--    pricing it until the hotel opens it again. rate_updates.confirmed_at says a send is settled: the
 --    push stamps it when the vendor reports the send's job applied, and the
 --    base rate refresh stamps it when it reads the send's price back in the
 --    PMS. A vendor only accepting a send is not enough: Think answers 202
