@@ -11,7 +11,8 @@ import { useCalendarLive } from "@/lib/use-calendar-live";
 import { track } from "@/lib/analytics/track";
 import { PropertySelect } from "@/components/property-select";
 import { RateSimulator } from "@/components/rate-simulator";
-import { RoomTypeSettings, isCountingRoom } from "@/components/room-type-settings";
+import { RoomCountHelp, RoomTypeSettings, isCountingRoom } from "@/components/room-type-settings";
+import { bookingSpeedHelp } from "@/lib/booking-speed-help";
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { RuleRoomTypesField } from "@/components/rule-room-types-field";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
@@ -1497,9 +1498,14 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                           {row.metric === "booking_speed" ? (
                             <div className="mt-3 grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-2">
                               <div>
-                                <label className="mb-0.5 block text-[11px] text-slate-500">
-                                  Measured over
-                                </label>
+                                <div className="mb-0.5 flex items-center gap-1.5">
+                                  <label className="block text-[11px] text-slate-500">
+                                    Measured over
+                                  </label>
+                                  <RoomCountHelp
+                                    {...bookingSpeedHelp(row.booking_speed_window_days)}
+                                  />
+                                </div>
                                 <select
                                   className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
                                   value={String(row.booking_speed_window_days)}
@@ -1516,10 +1522,6 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                                   <option value="30">Past month</option>
                                 </select>
                               </div>
-                              <p className="self-end pb-2 text-[11px] leading-4 text-slate-500">
-                                Compared with how similar past dates were
-                                booking when they were this far from arrival.
-                              </p>
                             </div>
                           ) : null}
                         </div>
