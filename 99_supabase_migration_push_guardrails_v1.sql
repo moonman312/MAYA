@@ -27,13 +27,39 @@
 --    made at them. Owners see an incident in the change log only once it
 --    needs a person; admins see all of them in analytics. See section 3 below.
 --
+-- 4. evaluation_run_log.first_stay_date / last_stay_date — the nights a run
+--    priced. When a tick's own evaluation fails, the push accepts a logged
+--    run as proof a price is current, and a manual price save evaluates only
+--    up to the night it changed. A logged run now vouches for its nights
+--    only. Rows written before this carry nulls and vouch for nothing.
+--
+-- 5. pms_connections.reauthorized_at — when a person last stored a new grant
+--    (the PMS tab's reconnect, or a Marketplace reconnect). A cell held for a
+--    missing rate permission or a refused grant waited a day even after the
+--    owner fixed it; a reconnect newer than its last try now ends the hold.
+--
+-- 6. Legacy "no rate target" skips. The old push wrote every skip with
+--    attempts 1, even on nights it never sent to, and the base rate calendar
+--    treats attempts 1 as sent to, so those nights were never read again. A
+--    skip that overwrote a real send kept that send's job reference (the old
+--    skip did not write the column), so a skip with no job reference and no
+--    rate id was never a send, and goes back to attempts 0. Safe to run again
+--    after the code is deployed: its skips keep the reference and rate id of
+--    whatever they overwrite.
+--
+-- Before deploying, run the zero-base check at the end of this file: nights
+-- an earlier push opened at the floor while the PMS had them at 0.
+--
 -- Run AFTER 99_supabase_migration_rate_push_v1.sql,
 -- 99_supabase_migration_roles_v2_part2.sql (is_hotel_accessible) and
 -- 99_supabase_migration_rls_helpers_lockdown_v1.sql (is_platform_admin).
 -- Idempotent. Code deployed ahead of sections 1 and 2 fills calendar gaps
 -- only, as before, and logs that the column is missing. Code deployed ahead
 -- of section 3 still pushes; recording incidents fails and is logged
--- (rate_push_incident_write_failed) on every run that has a failure.
+-- (rate_push_incident_write_failed) on every run that has a failure. Ahead of
+-- section 4, runs are logged without their nights, and a push whose tick's
+-- evaluation failed holds back every price whose own row is old. Ahead of
+-- section 5, a reconnect's stamp is logged as failed and holds wait their day.
 --
 -- NOT mirrored into 02_supabase_schema.sql yet — fold it in on the next
 -- schema consolidation pass.
@@ -45,11 +71,40 @@ alter table public.pms_connections
 
 comment on column public.pms_connections.base_rates_refreshed_at is
   'Instant of the scheduled tick that last re-read this hotel''s base rates '
-  'from the PMS into base_rate_calendar. Throttles the refresh; null = never.';
+  'from the PMS into base_rate_calendar. Throttles the refresh; null = never '
+  '(going live clears it, so the first live push prices on a fresh read).';
 
 update public.pms_connections
    set push_rate_targets = null
  where push_rate_targets is not null;
+
+-- 4.
+alter table public.evaluation_run_log
+  add column if not exists first_stay_date date,
+  add column if not exists last_stay_date date;
+
+comment on column public.evaluation_run_log.first_stay_date is
+  'First night the run priced. With last_stay_date, the nights the push takes '
+  'this run as proof of a current price for; null = none.';
+comment on column public.evaluation_run_log.last_stay_date is
+  'Last night the run priced (see first_stay_date).';
+
+-- 5.
+alter table public.pms_connections
+  add column if not exists reauthorized_at timestamptz;
+
+comment on column public.pms_connections.reauthorized_at is
+  'When a person last stored a new grant for this connection. Ends a rate push '
+  'hold for a missing permission or a refused grant whose last try is older.';
+
+-- 6.
+update public.rate_updates
+   set attempts = 0
+ where status = 'skipped'
+   and error = 'no rate target for room type'
+   and attempts = 1
+   and pms_job_reference is null
+   and external_rate_id is null;
 
 commit;
 
@@ -144,6 +199,9 @@ create index if not exists idx_rate_push_incidents_opened
 create index if not exists idx_rate_push_incidents_resolved
   on public.rate_push_incidents (resolved_at)
   where resolved_at is not null;
+-- Deleting a hotel cascades here; the indexes above are partial.
+create index if not exists idx_rate_push_incidents_hotel
+  on public.rate_push_incidents (hotel_id);
 
 create table if not exists public.rate_push_incident_cells (
   incident_id      uuid not null references public.rate_push_incidents(id) on delete cascade,
@@ -166,6 +224,11 @@ comment on table public.rate_push_incident_cells is
 create index if not exists idx_rate_push_incident_cells_open
   on public.rate_push_incident_cells (stay_date)
   where state = 'open';
+-- Deleting a hotel or a room type cascades here.
+create index if not exists idx_rate_push_incident_cells_hotel
+  on public.rate_push_incident_cells (hotel_id);
+create index if not exists idx_rate_push_incident_cells_room_type
+  on public.rate_push_incident_cells (room_type_id);
 
 create table if not exists public.rate_push_attempts (
   id            uuid primary key default gen_random_uuid(),
@@ -190,6 +253,11 @@ comment on table public.rate_push_attempts is
 -- The change log's condensed retries and the admin panel's sample messages.
 create index if not exists idx_rate_push_attempts_incident
   on public.rate_push_attempts (incident_id, attempted_at);
+-- Deleting a hotel or a room type cascades here.
+create index if not exists idx_rate_push_attempts_hotel
+  on public.rate_push_attempts (hotel_id);
+create index if not exists idx_rate_push_attempts_room_type
+  on public.rate_push_attempts (room_type_id);
 
 alter table public.rate_push_incidents enable row level security;
 alter table public.rate_push_incident_cells enable row level security;
@@ -285,16 +353,18 @@ begin
        )
     returning c.incident_id
   )
+  -- updated_at is left alone: it is the push's last write, which the close
+  -- below waits on, and an incident whose last cells were stopped here closes
+  -- in this same pass.
   update public.rate_push_incidents i
-     set cells_stopped = i.cells_stopped + n.cells,
-         updated_at = now()
+     set cells_stopped = i.cells_stopped + n.cells
     from (select incident_id, count(*)::integer as cells from stopped group by incident_id) n
    where i.id = n.incident_id;
 
   -- Open incidents with nothing left open. Same tie order as the code
   -- (resolutionOf): landed, then superseded, then stopped. Left alone for ten
-  -- minutes after a write, so a push writing a new incident before its cells
-  -- is never closed under it.
+  -- minutes after a push's write, so a push writing a new incident before its
+  -- cells is never closed under it.
   update public.rate_push_incidents i
      set resolved_at = now(),
          resolution = case
@@ -346,3 +416,28 @@ commit;
 --   -- one SELECT policy per table, nothing else
 --
 --   select indexname from pg_indexes where tablename like 'rate_push_%' order by indexname;
+--
+-- Zero-base check, before deploying. Nights of live hotels where MAYA's rate
+-- is in the PMS while the hotel's own rate for the night was 0 (closed, or
+-- not loaded) and nobody typed a price: the old engine priced such a night at
+-- the floor and the push opened it. The new engine stops pricing these
+-- nights, keeps the row so it still shows, and the push files each one for
+-- admins as guardrail_zero_base. Anything listed here is worth a word with
+-- the hotel: close the night in the PMS, or load its rate.
+--
+--   select h.name as hotel, rt.name as room_type, u.stay_date, u.price, u.pushed_at
+--     from public.rate_updates u
+--     join public.base_rate_calendar b
+--       on b.hotel_id = u.hotel_id and b.room_type_id = u.room_type_id and b.stay_date = u.stay_date
+--     join public.hotel_settings s on s.hotel_id = u.hotel_id and s.simulation_mode = false
+--     join public.hotels h on h.id = u.hotel_id
+--     join public.room_types rt on rt.id = u.room_type_id
+--    where u.status = 'sent'
+--      and b.price = 0
+--      and u.stay_date >= current_date
+--      and not exists (
+--        select 1 from public.manual_price m
+--         where m.hotel_id = u.hotel_id and m.room_type_id = u.room_type_id
+--           and m.stay_date = u.stay_date and m.cleared_at is null
+--      )
+--    order by h.name, rt.name, u.stay_date;
