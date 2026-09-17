@@ -387,7 +387,9 @@ export async function cloudbedsGetReservationsRange(
   statuses: readonly string[],
   /** Only reservations touched since this. Omit for a full sweep. */
   modifiedFrom?: string,
-): Promise<{ reservations: CloudbedsReservation[]; pages: number }> {
+  /** Stop listing once this time (ms) has passed; the result says so. */
+  deadlineAt?: number,
+): Promise<{ reservations: CloudbedsReservation[]; pages: number; truncated?: boolean }> {
   const all: CloudbedsReservation[] = [];
   let pages = 0;
 
@@ -397,6 +399,9 @@ export async function cloudbedsGetReservationsRange(
     let guard = 0;
     while (guard < 1000) {
       guard += 1;
+      if (deadlineAt != null && Date.now() > deadlineAt) {
+        return { reservations: all, pages, truncated: true };
+      }
       const { reservations, hasMore } = await cloudbedsGetReservationsPage(
         creds,
         checkInFrom,

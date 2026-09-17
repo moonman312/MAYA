@@ -69,6 +69,11 @@ const SLICE_GUARD = 800;
 const OPEN_SLICE_REACH_DAYS = 31;
 /** Marks a checkpoint as a check-out date, so neither path misreads the other's cursor. */
 const CHECKOUT_CURSOR_PREFIX = "checkout:";
+/**
+ * Marks a per-booking sweep whose active pass is done and whose cancellation
+ * pass ran out of time after the booking id that follows.
+ */
+const CANCEL_CURSOR_PREFIX = "cancel:";
 
 type Json = Record<string, unknown>;
 
@@ -214,7 +219,8 @@ async function listCanceledReservations(
   checkInTo: string,
   /** Same watermark as the active pull: a cancellation IS a modification. */
   modifiedFrom?: string,
-): Promise<{ items: CloudbedsReservation[]; pages: number; statusesFailed: number }> {
+  deadlineAt: number = Infinity,
+): Promise<{ items: CloudbedsReservation[]; pages: number; statusesFailed: number; truncated: boolean }> {
   const items: CloudbedsReservation[] = [];
   let pages = 0;
   let statusesFailed = 0;
@@ -223,6 +229,7 @@ async function listCanceledReservations(
     let pageNumber = 1;
     try {
       for (let guard = 0; guard < PAGE_GUARD; guard += 1) {
+        if (Date.now() > deadlineAt) return { items, pages, statusesFailed, truncated: true };
         const page = await cloudbedsGetReservationsPage(
           creds,
           checkInFrom,
@@ -247,7 +254,7 @@ async function listCanceledReservations(
     }
   }
 
-  return { items, pages, statusesFailed };
+  return { items, pages, statusesFailed, truncated: false };
 }
 
 async function deleteCanceledReservationRows(
@@ -772,16 +779,28 @@ async function pullWithRateDetails(args: WindowArgs): Promise<WindowPull> {
 async function pullPerBooking(args: WindowArgs): Promise<WindowPull> {
   const { creds, checkInFrom, checkInTo, modifiedFrom, deadlineAt, checkpointable } = args;
   const stored = args.storedCursor;
+  // A sweep whose active pass already finished and whose cancellation pass
+  // ran out of time: skip straight to the cancellations, after that id.
+  const cancelCursor =
+    checkpointable && stored && stored.startsWith(CANCEL_CURSOR_PREFIX)
+      ? stored.slice(CANCEL_CURSOR_PREFIX.length)
+      : null;
   const sweepCursor =
-    checkpointable && stored && !stored.startsWith(CHECKOUT_CURSOR_PREFIX) ? stored : null;
+    checkpointable && stored && !stored.startsWith(CHECKOUT_CURSOR_PREFIX) && cancelCursor === null
+      ? stored
+      : null;
 
-  const { reservations: listItems, pages } = await cloudbedsGetReservationsRange(
-    creds,
-    checkInFrom,
-    checkInTo,
-    CLOUDBEDS_ACTIVE_STATUSES,
-    modifiedFrom,
-  );
+  const listed = cancelCursor !== null
+    ? { reservations: [] as CloudbedsReservation[], pages: 0, truncated: false }
+    : await cloudbedsGetReservationsRange(
+        creds,
+        checkInFrom,
+        checkInTo,
+        CLOUDBEDS_ACTIVE_STATUSES,
+        modifiedFrom,
+        deadlineAt,
+      );
+  const { reservations: listItems, pages } = listed;
 
   // A sweep bigger than one budget finishes across several ticks, so its
   // order has to be one every tick agrees on — the API's own ordering is
@@ -797,12 +816,14 @@ async function pullPerBooking(args: WindowArgs): Promise<WindowPull> {
   let detailFetched = 0;
   let detailFailed = 0;
   let canceledSeen = 0;
-  let truncated = false;
+  // A listing cut off by the deadline has read no details yet: the run stops
+  // where it is and the next one lists again from its checkpoint.
+  let truncated = listed.truncated === true;
   // Advances past failures too: a booking whose detail call keeps 500ing must
   // not wedge the sweep on itself forever — the next daily sweep retries it.
   let sweepReachedId: string | null = null;
 
-  for (const item of listItems) {
+  for (const item of truncated ? [] : listItems) {
     if (Date.now() > deadlineAt) {
       truncated = true;
       break;
@@ -855,12 +876,32 @@ async function pullPerBooking(args: WindowArgs): Promise<WindowPull> {
       // Cancelling a booking modifies it, so the same watermark applies — and
       // the rows for anything cancelled before it were already removed on the
       // run that saw it.
-      const canceledList = await listCanceledReservations(creds, checkInFrom, checkInTo, modifiedFrom);
+      const canceledList = await listCanceledReservations(
+        creds,
+        checkInFrom,
+        checkInTo,
+        modifiedFrom,
+        deadlineAt,
+      );
       let canceledDetailFailed = 0;
+      // Resumable only in a fixed order, the same one the active pass uses.
+      if (checkpointable) {
+        canceledList.items.sort((a, b) => sweepIdCompare(reservationIdOf(a) ?? "", reservationIdOf(b) ?? ""));
+      }
+      let cancelReached: string | null = cancelCursor;
+      // A cut-off listing is only partly known, so it can be worked through
+      // but not checkpointed past: the next run lists it again.
+      let stoppedEarly = canceledList.truncated;
       for (const item of canceledList.items) {
         const rid = reservationIdOf(item);
         if (!rid || seenResIds.has(rid)) continue;
+        if (cancelCursor && sweepIdCompare(rid, cancelCursor) <= 0) continue;
+        if (Date.now() > deadlineAt) {
+          stoppedEarly = true;
+          break;
+        }
         seenResIds.add(rid);
+        if (!canceledList.truncated) cancelReached = rid;
         const detail = await cloudbedsGetReservationDetail(creds, rid);
         if (!detail) {
           // The list said canceled, so clear what the list item itself names —
@@ -880,6 +921,13 @@ async function pullPerBooking(args: WindowArgs): Promise<WindowPull> {
         if (status && !isCanceledStatus(status)) continue;
         pull.canceledSeen += 1;
         for (const id of rowIdsForReservation(rid, detail)) pull.canceledRowIds.add(id);
+      }
+      if (stoppedEarly) {
+        // The run reports itself truncated so the watermark stays put. A
+        // checkpointed sweep resumes the cancellations where they stopped
+        // instead of redoing its whole active pass.
+        pull.truncated = true;
+        pull.nextCursor = checkpointable ? `${CANCEL_CURSOR_PREFIX}${cancelReached ?? ""}` : null;
       }
       return {
         pages: canceledList.pages,

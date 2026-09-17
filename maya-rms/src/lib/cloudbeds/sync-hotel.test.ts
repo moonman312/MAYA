@@ -1380,3 +1380,74 @@ describe.skipIf(!process.env.MAYA_HEAP_PROBE)("heap on a 21,000-booking sweep (p
     process.stdout.write(`HEAP_PROBE rows=${supabase.reservations.length} baselineMB=${(baseline / 1e6).toFixed(0)} gc=${gc ? "yes" : "no"} peakMB=${(peak / 1e6).toFixed(0)} deltaMB=${((peak - baseline) / 1e6).toFixed(0)}\n`);
   }, 300_000);
 });
+
+describe("the per-booking path on a book bigger than one budget", () => {
+  let errorLog: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => errorLog.mockRestore());
+
+  function world(detailMs: number) {
+    const active = Array.from({ length: 150 }, (_, i) => `A${1000 + i}`);
+    const canceled = Array.from({ length: 300 }, (_, i) => `C${2000 + i}`);
+    refuseRateDetails();
+    client.cloudbedsGetReservationsRange.mockResolvedValue({
+      reservations: active.map((id) => ({ reservationID: id })),
+      pages: 2,
+    });
+    client.cloudbedsGetReservationsPage.mockImplementation(
+      async (_creds: unknown, _from: string, _to: string, status: string) => {
+        vi.advanceTimersByTime(detailMs);
+        return {
+          reservations: status === "canceled" ? canceled.map((id) => ({ reservationID: id })) : [],
+          hasMore: false,
+        };
+      },
+    );
+    client.cloudbedsGetReservationDetail.mockImplementation(async (_c: unknown, rid: string) => {
+      vi.advanceTimersByTime(detailMs);
+      // Every seventh cancellation's detail call fails; its list item still clears it.
+      if (rid.startsWith("C") && Number(rid.slice(1)) % 7 === 0) return null;
+      return detailFor(rid, `${rid}-1`, rid.startsWith("A") ? "confirmed" : "canceled");
+    });
+    const seed: ResRow[] = [
+      ...canceled.map((id) => ({ external_reservation_id: `${id}-1`, stay_date: "2026-08-15", current_rate: 90 })),
+      ...canceled.filter((_, i) => i % 7 === 0).map((id) => ({ external_reservation_id: id, stay_date: "2026-08-16", current_rate: 90 })),
+    ];
+    return seed;
+  }
+
+  const tableOf = (rows: ResRow[]) =>
+    rows.map((r) => `${r.external_reservation_id}|${r.stay_date}|${r.current_rate}|${r.base_rate}`).sort();
+
+  it("stops on its deadline in both passes, resumes the cancellations, and ends where an unbounded run does", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+
+    const unbounded = makeSupabaseStub(world(0));
+    const one = await runCloudbedsSyncForHotel(unbounded, "hotel-1");
+    expect(one.ok && one.windowFullyCovered).toBe(true);
+
+    const seed = world(1000);
+    const bounded = makeSupabaseStub(seed);
+    const callsBefore = client.cloudbedsGetReservationDetail.mock.calls.length;
+    const cursors: (string | null)[] = [];
+    let runs = 0;
+    for (; runs < 20; runs++) {
+      const res = await runCloudbedsSyncForHotel(bounded, "hotel-1");
+      expect(res.ok).toBe(true);
+      if (!res.ok) break;
+      cursors.push(res.sweepCursor);
+      if (res.windowFullyCovered) break;
+      vi.advanceTimersByTime(60_000);
+    }
+    expect(runs).toBeGreaterThan(1);
+    expect(cursors.some((c) => c?.startsWith("cancel:"))).toBe(true);
+    expect(cursors.at(-1)).toBeNull();
+    expect(tableOf(bounded.reservations)).toEqual(tableOf(unbounded.reservations));
+    expect(bounded.reservations.length).toBe(450);
+    // Resuming never re-fetched a booking an earlier run already finished.
+    expect(client.cloudbedsGetReservationDetail.mock.calls.length - callsBefore).toBe(450);
+  }, 120_000);
+});
