@@ -9,7 +9,7 @@ import type { EvaluationAuditDetails } from "@/types/domain";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BaseSource } from "./base-price";
 import type { LadderPassResult } from "./ladder";
-import { basePriceKey, pickupTieBreakTrace } from "./pickup";
+import { basePriceKey, pickupTieBreakTrace, type PickupWin, type RetiredPickupFire } from "./pickup";
 import type { AssembledPrice } from "./pricing";
 import { MIGRATIONS, isMissingColumnError, isMissingFunctionError } from "./snapshots";
 import type { PickupCandidate } from "./types";
@@ -20,11 +20,21 @@ export type AuditInput = {
   evalTs: string;
   assembled: AssembledPrice;
   ladderResults: LadderPassResult[];
-  pickupWinners: PickupCandidate[];
+  /** Fires this run made on the cell (at most one), with the rows they wrote. */
+  pickupWinners: PickupWin[];
   pickupLosers: PickupCandidate[];
-  pickupIdempotentSkips: PickupCandidate[];
-  /** A rule fired and lost its price effect to a write error — must read distinctly from an idempotency skip. */
+  /** Outranked by a rule still waiting on the cell, so nothing fired. */
+  pickupHeld?: { candidate: PickupCandidate; holder: PickupCandidate }[];
+  /** The waiting rule that held the cell. */
+  pickupHolding?: PickupCandidate[];
+  /** Another run recorded the fire first: not written by this run. */
+  pickupConcurrentSkips?: PickupCandidate[];
+  /** A rule fired and lost its price effect to a write error — must read distinctly from a concurrent fire. */
   pickupWriteFailures: PickupCandidate[];
+  /** Candidates that could not move the price in their direction (limitAllowsFire), so did not fire. */
+  pickupNoPriceChange?: PickupCandidate[];
+  /** Fires this run took off the cell. */
+  retiredPickupEffects?: RetiredPickupFire[];
   basePrices: Map<string, number>;
   /** Layer 1 Booking Speed observations consulted for this stay date this run. */
   bookingSpeedObservations?: Record<string, unknown>[];
@@ -119,7 +129,7 @@ export function buildAuditRow(input: AuditInput): Record<string, unknown> | null
 
   const pickupDelta = computePickupDelta(assembled);
 
-  const winnerForRoom = input.pickupWinners[0];
+  const winnerForRoom = input.pickupWinners[0]?.candidate;
 
   const details: EvaluationAuditDetails & AuditBaseDetails = {
     matched_ladder_rules: input.ladderResults.map((lr) => ({
@@ -134,11 +144,13 @@ export function buildAuditRow(input: AuditInput): Record<string, unknown> | null
       metrics: lr.metrics as unknown as Record<string, unknown>,
     })),
     pickup_candidates: [
-      ...input.pickupWinners.map((c) => ({
+      ...input.pickupWinners.map(({ candidate: c, effect }) => ({
         rule_id: c.rule.id,
         outcome: "won" as const,
         metrics: enrichPickupMetrics(c, basePrices),
         tie_break_trace: ["winner"],
+        event_id: effect.event_id,
+        fire_seq: c.fire_seq,
       })),
       ...input.pickupLosers.map((c) => ({
         rule_id: c.rule.id,
@@ -147,11 +159,29 @@ export function buildAuditRow(input: AuditInput): Record<string, unknown> | null
         tie_break_trace:
           winnerForRoom != null ? pickupTieBreakTrace(winnerForRoom, c, basePrices) : [`priority=${c.rule.priority}`],
       })),
-      ...input.pickupIdempotentSkips.map((c) => ({
+      ...(input.pickupHeld ?? []).map(({ candidate: c, holder }) => ({
         rule_id: c.rule.id,
-        outcome: "idempotency_skip" as const,
+        outcome: "held_by_waiting_rule" as const,
         metrics: enrichPickupMetrics(c, basePrices),
-        tie_break_trace: ["idempotency_guard_same_run"],
+        tie_break_trace: pickupTieBreakTrace(holder, c, basePrices),
+      })),
+      ...(input.pickupHolding ?? []).map((c) => ({
+        rule_id: c.rule.id,
+        outcome: "waiting" as const,
+        metrics: enrichPickupMetrics(c, basePrices),
+        tie_break_trace: ["waiting_after_last_fire"],
+      })),
+      ...(input.pickupNoPriceChange ?? []).map((c) => ({
+        rule_id: c.rule.id,
+        outcome: "no_price_change" as const,
+        metrics: enrichPickupMetrics(c, basePrices),
+        tie_break_trace: [c.rule.action_direction === "decrease" ? "price_at_floor" : "price_at_ceiling"],
+      })),
+      ...(input.pickupConcurrentSkips ?? []).map((c) => ({
+        rule_id: c.rule.id,
+        outcome: "concurrent_fire" as const,
+        metrics: enrichPickupMetrics(c, basePrices),
+        tie_break_trace: [`fire_${c.fire_seq}_recorded_by_another_run`],
       })),
       ...input.pickupWriteFailures.map((c) => ({
         rule_id: c.rule.id,
@@ -168,7 +198,22 @@ export function buildAuditRow(input: AuditInput): Record<string, unknown> | null
       event_id: e.event_id,
       rule_id: e.rule_id,
       delta: formatDelta(e.action_kind, e.action_direction, e.action_value),
+      ...(e.applied_at !== undefined ? { applied_at: e.applied_at } : {}),
+      ...(e.fire_seq !== undefined ? { fire_seq: e.fire_seq } : {}),
     })),
+    ...(input.retiredPickupEffects && input.retiredPickupEffects.length > 0
+      ? {
+          retired_pickup_effects: input.retiredPickupEffects.map(({ fire, reason }) => ({
+            event_id: fire.id,
+            rule_id: fire.rule_id,
+            delta: formatDelta(fire.action_kind, fire.action_direction, fire.action_value),
+            applied_at: fire.applied_at,
+            fire_seq: fire.fire_seq,
+            reason,
+            cancel_check: fire.cancel_check,
+          })),
+        }
+      : {}),
     application_order: [
       ...assembled.ladder_effects.map((e) => `ladder:${e.rule_id}`),
       ...assembled.pickup_effects.map((e) => `pickup:${e.event_id}`),

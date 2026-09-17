@@ -9,7 +9,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BaseSource } from "./base-price.ts";
 import { fetchAllRows } from "./snapshots.ts";
+import type { ActionDirection } from "./domain.ts";
 import type { AdjustmentSpec, RoomTypeRow } from "./types.ts";
+
+/** An open fire of an event rule, as it applies to a cell's price. */
+export type PickupEffect = AdjustmentSpec & {
+  event_id: string;
+  /** When it fired, and its fire number on the cell. Absent only in hand-built test data. */
+  applied_at?: string;
+  fire_seq?: number;
+};
 
 export type AssembledPrice = {
   stay_date: string;
@@ -20,7 +29,7 @@ export type AssembledPrice = {
   floor_price: number;
   ceiling_price: number;
   ladder_effects: AdjustmentSpec[];
-  pickup_effects: (AdjustmentSpec & { event_id: string })[];
+  pickup_effects: PickupEffect[];
   pre_clamp_price: number;
   final_price: number;
   clamped_by: "ceiling" | "floor" | "none";
@@ -80,6 +89,26 @@ export function clampPrice(
   if (price > ceilingPrice) return { final: ceilingPrice, clamped_by: "ceiling" };
   if (price < floorPrice) return { final: floorPrice, clamped_by: "floor" };
   return { final: Math.round(price * 100) / 100, clamped_by: "none" };
+}
+
+/**
+ * Whether an event rule may fire on a cell whose published price is
+ * `currentFinal`, given the cell's bounds (priceBounds): a cut only while the
+ * price is above the floor, a raise only while it is below the ceiling.
+ *
+ * Only the limit in the fire's own direction stops it. A raise on a night
+ * whose stacked cuts sit hidden under a floor raised since still fires, and
+ * so does a cut hidden above a lowered ceiling: each moves the pre-clamp
+ * price back toward the range, and blocking them would leave the night stuck
+ * at the limit through a change of demand.
+ */
+export function limitAllowsFire(
+  currentFinal: number,
+  bounds: { floor: number; ceiling: number },
+  direction: ActionDirection,
+): boolean {
+  const cents = Math.round(currentFinal * 100);
+  return direction === "decrease" ? cents > Math.round(bounds.floor * 100) : cents < Math.round(bounds.ceiling * 100);
 }
 
 /**
@@ -153,10 +182,10 @@ export async function loadActivePickupEffects(
   hotelId: string,
   stayDate: string,
   roomTypeId: string,
-): Promise<(AdjustmentSpec & { event_id: string })[]> {
+): Promise<PickupEffect[]> {
   const { data, error } = await supabase
     .from("pickup_event")
-    .select("id, rule_id, action_kind, action_direction, action_value")
+    .select("id, rule_id, applied_at, fire_seq, action_kind, action_direction, action_value")
     .eq("hotel_id", hotelId)
     .eq("stay_date", stayDate)
     .eq("affected_room_type_id", roomTypeId)
@@ -165,13 +194,22 @@ export async function loadActivePickupEffects(
     .order("id", { ascending: true });
   if (error) throw new Error(`Failed to load pickup effects: ${error.message}`);
 
-  return (data ?? []).map((r) => ({
+  return (data ?? []).map(pickupEffectOf);
+}
+
+/** A pickup_event row as the effect it applies. */
+// deno-lint-ignore no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function pickupEffectOf(r: any): PickupEffect {
+  return {
     event_id: String(r.id),
     rule_id: String(r.rule_id),
+    ...(r.applied_at != null ? { applied_at: String(r.applied_at) } : {}),
+    ...(r.fire_seq != null ? { fire_seq: Number(r.fire_seq) } : {}),
     action_kind: r.action_kind,
     action_direction: r.action_direction,
     action_value: Number(r.action_value),
-  }));
+  };
 }
 
 /**
@@ -232,8 +270,8 @@ export async function loadActivePickupEffectsForRange(
   roomTypeIds: string[],
   firstDate: string,
   lastDate: string,
-): Promise<Map<string, (AdjustmentSpec & { event_id: string })[]>> {
-  const out = new Map<string, (AdjustmentSpec & { event_id: string })[]>();
+): Promise<Map<string, PickupEffect[]>> {
+  const out = new Map<string, PickupEffect[]>();
   if (roomTypeIds.length === 0) return out;
   // deno-lint-ignore no-explicit-any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -242,7 +280,7 @@ export async function loadActivePickupEffectsForRange(
     rows = await fetchAllRows(() =>
       supabase
         .from("pickup_event")
-        .select("id, rule_id, stay_date, affected_room_type_id, action_kind, action_direction, action_value")
+        .select("id, rule_id, stay_date, affected_room_type_id, applied_at, fire_seq, action_kind, action_direction, action_value")
         .eq("hotel_id", hotelId)
         .in("affected_room_type_id", roomTypeIds)
         .gte("stay_date", firstDate)
@@ -259,13 +297,7 @@ export async function loadActivePickupEffectsForRange(
   for (const r of rows) {
     const key = `${r.stay_date}|${r.affected_room_type_id}`;
     const list = out.get(key) ?? [];
-    list.push({
-      event_id: String(r.id),
-      rule_id: String(r.rule_id),
-      action_kind: r.action_kind,
-      action_direction: r.action_direction,
-      action_value: Number(r.action_value),
-    });
+    list.push(pickupEffectOf(r));
     out.set(key, list);
   }
   return out;
@@ -300,7 +332,7 @@ export function assemblePriceFrom(
   basePrice: number,
   baseSource: BaseSource,
   ladderEffects: AdjustmentSpec[],
-  pickupEffects: (AdjustmentSpec & { event_id: string })[],
+  pickupEffects: PickupEffect[],
 ): AssembledPrice {
   const preClamp = applyAdjustments(basePrice, ladderEffects, pickupEffects);
   const bounds = priceBounds(roomType.floor_price, roomType.ceiling_price, basePrice, baseSource);

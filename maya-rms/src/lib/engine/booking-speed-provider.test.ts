@@ -3,10 +3,10 @@ import {
   DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS,
   bookingSpeedAuditSnapshots,
   bookingSpeedMetrics,
-  cooldownLookbackDays,
+  bookingsInFrozenWindow,
   isWithinCooldown,
-  loadLastBookingSpeedFires,
   observeForStayDate,
+  signalSetKey,
   type BookingSpeedContext,
 } from "./booking-speed-provider";
 import { detectSeasons } from "@/lib/observations/seasons";
@@ -41,35 +41,6 @@ describe("isWithinCooldown", () => {
 
   it("defaults to a week, per the starter-ladder design", () => {
     expect(DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS).toBe(7);
-  });
-});
-
-describe("cooldownLookbackDays", () => {
-  function bsRule(cooldownDays: number | null | undefined) {
-    return { condition: { booking_speed_operator: "at_least", booking_speed_cooldown_days: cooldownDays } };
-  }
-  function nonBsRule() {
-    return { condition: { booking_speed_operator: null, booking_speed_cooldown_days: 90 } };
-  }
-
-  it("stays at the 31-day floor when no rule configures a longer cooldown", () => {
-    expect(cooldownLookbackDays([bsRule(7), bsRule(3)])).toBe(31);
-    expect(cooldownLookbackDays([bsRule(null)])).toBe(31); // defaults to 7
-    expect(cooldownLookbackDays([])).toBe(31);
-  });
-
-  it("extends past the floor for a rule with a longer cooldown — the actual bug", () => {
-    // A 60-day cooldown whose last fire was 35 days ago used to be
-    // invisible to a fixed 31-day lookback, so the rule re-fired ~25 days
-    // before its own cooldown said it should.
-    expect(cooldownLookbackDays([bsRule(60)])).toBe(61);
-    expect(cooldownLookbackDays([bsRule(7), bsRule(60), bsRule(3)])).toBe(61);
-  });
-
-  it("ignores cooldown_days on rules that aren't booking-speed rules", () => {
-    // A non-booking-speed rule's cooldown_days column (if ever populated)
-    // must not stretch a horizon that exists only for booking-speed fires.
-    expect(cooldownLookbackDays([nonBsRule()])).toBe(31);
   });
 });
 
@@ -111,72 +82,36 @@ describe("observeForStayDate + snapshots", () => {
   });
 });
 
-describe("loadLastBookingSpeedFires", () => {
-  const NOW = "2026-09-16T12:00:00.000Z";
-  const TODAY = "2026-09-16";
-  const mk = (id: string, pickup: boolean, bs: boolean, cooldown: number | null = null) =>
-    ({
-      id,
-      is_pickup_rule: pickup,
-      condition: { booking_speed_operator: bs ? "at_least" : null, booking_speed_cooldown_days: cooldown },
-    }) as unknown as EngineRule;
+describe("bookingsInFrozenWindow", () => {
+  const rows: SlimReservationRow[] = [];
+  // Five bookings for the night, made 14, 15, 16, 20 and 21 days before it.
+  for (const w of [14, 15, 16, 20, 21]) rows.push({ stay_date: "2026-08-15", booking_window_days: w });
 
-  it("sees every fire past PostgREST's 1,000-row cap, same as a full read for every key it is asked about", async () => {
-    const rules = [mk("bs1", true, true), mk("bs2", true, true, 45), mk("plain", true, false), mk("ladder", false, true)];
-    const events: Record<string, unknown>[] = [];
-    let n = 0;
-    const day = (offset: number) => new Date(Date.UTC(2026, 8, 16) + offset * 86_400_000).toISOString().slice(0, 10);
-    // Older fires first (lower ids), so an unpaged read would keep only them.
-    for (let back = 60; back >= 0; back--) {
-      for (const ruleId of ["bs1", "bs2", "plain"]) {
-        for (let d = -5; d < 20; d++) {
-          if ((back + d) % 3 !== 0) continue;
-          events.push({
-            id: `ev${String(n++).padStart(6, "0")}`,
-            hotel_id: "h1",
-            rule_id: ruleId,
-            stay_date: day(d),
-            applied_at: new Date(Date.parse(NOW) - back * 86_400_000).toISOString(),
-          });
-        }
-      }
-    }
-    expect(events.length).toBeGreaterThan(1000);
-
-    const { client } = fakeSupabase({ pickup_event: events }, { maxRows: 1000 });
-    const got = await loadLastBookingSpeedFires(client, "h1", rules, TODAY, NOW);
-
-    // Truth: the old unfiltered read with no cap, then only the keys the
-    // engine ever looks up (booking-speed pickup rules, today onward).
-    const horizon = new Date(Date.parse(NOW) - 46 * 86_400_000).toISOString();
-    const truth = new Map<string, string>();
-    for (const f of events) {
-      if (String(f.applied_at) < horizon) continue;
-      const key = `${f.rule_id}|${f.stay_date}`;
-      const prev = truth.get(key);
-      if (!prev || String(f.applied_at) > prev) truth.set(key, String(f.applied_at));
-    }
-    let looked = 0;
-    for (const ruleId of ["bs1", "bs2"]) {
-      for (let d = 0; d < 20; d++) {
-        const key = `${ruleId}|${day(d)}`;
-        expect(got.get(key)).toBe(truth.get(key));
-        if (truth.has(key)) looked++;
-      }
-    }
-    expect(looked).toBeGreaterThan(20);
-    for (const key of got.keys()) expect(key.startsWith("plain|")).toBe(false);
+  it("counts the bookings whose booking date is in the window, and no others", () => {
+    const ctx = makeContext(rows, "2026-08-01");
+    // A 7-day window ending on the day the fire was made (14 days out).
+    expect(bookingsInFrozenWindow(ctx, "2026-08-15", "2026-07-26", "2026-08-01")).toBe(4);
+    // The same count the observation made when it fired.
+    expect(observeForStayDate(ctx, "2026-08-15", 7).recentBookings).toBe(4);
+    // A window a week earlier holds the two oldest bookings.
+    expect(bookingsInFrozenWindow(ctx, "2026-08-15", "2026-07-25", "2026-07-26")).toBe(2);
+    // A single day.
+    expect(bookingsInFrozenWindow(ctx, "2026-08-15", "2026-08-01", "2026-08-01")).toBe(1);
   });
 
-  it("skips the read when no pickup rule uses booking speed", async () => {
-    const { client, calls } = fakeSupabase({});
-    const got = await loadLastBookingSpeedFires(client, "h1", [mk("ladder", false, true)], TODAY, NOW);
-    expect(got.size).toBe(0);
-    expect(calls.length).toBe(0);
+  it("answers nothing for a night this run did not load", () => {
+    const ctx = makeContext(rows, "2026-08-01");
+    ctx.loadedTargets = new Set(["2026-08-16"]);
+    expect(bookingsInFrozenWindow(ctx, "2026-08-15", "2026-07-26", "2026-08-01")).toBeNull();
   });
 
-  it("throws on a failed read rather than lifting every cooldown", async () => {
-    const { client } = fakeSupabase({}, { fault: () => ({ message: "timeout" }) });
-    await expect(loadLastBookingSpeedFires(client, "h1", [mk("bs1", true, true)], TODAY, NOW)).rejects.toThrow(/timeout/);
+  it("reads the rule's own room types when it measures part of the hotel", () => {
+    const ctx = makeContext(rows, "2026-08-01");
+    ctx.hotelSetKey = signalSetKey(["rt1", "rt2"]);
+    ctx.setWindows = new Map([[signalSetKey(["rt2"]), indexBookingRows([{ stay_date: "2026-08-15", booking_window_days: 14 }])]]);
+    expect(bookingsInFrozenWindow(ctx, "2026-08-15", "2026-07-26", "2026-08-01", ["rt2"])).toBe(1);
+    expect(bookingsInFrozenWindow(ctx, "2026-08-15", "2026-07-26", "2026-08-01", ["rt1", "rt2"])).toBe(4);
+    // A set whose history this run never loaded says nothing.
+    expect(bookingsInFrozenWindow(ctx, "2026-08-15", "2026-07-26", "2026-08-01", ["rt3"])).toBeNull();
   });
 });

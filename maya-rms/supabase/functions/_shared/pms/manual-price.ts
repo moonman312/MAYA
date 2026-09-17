@@ -164,7 +164,9 @@ export async function setManualPrices(
   for (const run of runs) {
     const { data, error } = await supabase
       .from("pickup_event")
-      .update({ retired_at: now })
+      // A fire retired for a price someone set never starts the rule's wait:
+      // the wait runs from the price's own set_at instead (pickup.ts).
+      .update({ retired_at: now, retired_reason: "manual_price" })
       .eq("hotel_id", hotelId)
       .eq("affected_room_type_id", run.roomTypeId)
       .gte("stay_date", run.from)

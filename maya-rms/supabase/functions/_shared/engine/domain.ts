@@ -32,9 +32,24 @@ export type RuleCondition = {
   /** A BookingSpeed level key, e.g. "much_slower" — the Observation Engine's ordered vocabulary. */
   booking_speed_level?: string | null;
   booking_speed_window_days?: BookingSpeedWindowDays | null;
-  /** Days a fired event-style rule waits before it may re-fire on the same stay date. */
+  /**
+   * Days a fired event rule waits before it may fire again on the same night
+   * and room type. Null reads as a week; anything under a day as a day.
+   */
   booking_speed_cooldown_days?: number | null;
 };
+
+/** Which cancellation test can take a raise off. Cuts are always "none". */
+export type PickupCancelCheck = "none" | "net_units" | "window_bookings" | "either";
+
+/** Why a fire stopped applying. "legacy" and "self_cancelled" only mark rows from before stacking. */
+export type PickupRetiredReason =
+  | "night_passed"
+  | "bookings_cancelled"
+  | "manual_price"
+  | "rule_edited"
+  | "self_cancelled"
+  | "legacy";
 
 export type EngineRule = {
   id: string;
@@ -68,12 +83,45 @@ export type EvaluationAuditDetails = {
   }[];
   pickup_candidates: {
     rule_id: string;
-    outcome: "won" | "lost_competition" | "idempotency_skip" | "write_failed";
+    /**
+     * won: fired this run (event_id and fire_seq name the new fire).
+     * lost_competition: another rule fired on the cell.
+     * held_by_waiting_rule: a stronger rule that fired earlier is still
+     * waiting and still matches, so nothing fired on the cell.
+     * waiting: that stronger rule.
+     * no_price_change: a cut already at the floor, or a raise already at the
+     * ceiling, so it did not fire.
+     * concurrent_fire: another run recorded the same fire first.
+     * write_failed: the fire could not be written.
+     * idempotency_skip: rows written before stacking only.
+     */
+    outcome:
+      | "won"
+      | "lost_competition"
+      | "held_by_waiting_rule"
+      | "waiting"
+      | "no_price_change"
+      | "concurrent_fire"
+      | "write_failed"
+      | "idempotency_skip";
     metrics: Record<string, unknown>;
     tie_break_trace: string[];
+    event_id?: string;
+    fire_seq?: number;
   }[];
   active_ladder_effects: { rule_id: string; delta: string }[];
-  active_pickup_effects: { event_id: string; rule_id: string; delta: string }[];
+  /** applied_at and fire_seq are missing on rows written before stacking. */
+  active_pickup_effects: { event_id: string; rule_id: string; delta: string; applied_at?: string; fire_seq?: number }[];
+  /** Fires this run took off the cell, when any. */
+  retired_pickup_effects?: {
+    event_id: string;
+    rule_id: string;
+    delta: string;
+    applied_at: string;
+    fire_seq: number;
+    reason: "bookings_cancelled" | "manual_price" | "rule_edited";
+    cancel_check: PickupCancelCheck;
+  }[];
   application_order: string[];
   pre_clamp_price: string;
   clamped_by: "ceiling" | "floor" | "none";

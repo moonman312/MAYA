@@ -48,6 +48,7 @@ export function setManualPricesFromPms(tables: Record<string, FakeRow[]>, a: Rec
   for (const e of tables.pickup_event ?? []) {
     if (e.hotel_id !== a.p_hotel_id || !cells.has(`${e.affected_room_type_id}|${e.stay_date}`) || e.retired_at != null) continue;
     e.retired_at = a.p_set_at;
+    e.retired_reason = "manual_price";
     retired += 1;
   }
   return [{ cells: cells.size, suppressed_rules: suppressed, retired_pickups: retired }];

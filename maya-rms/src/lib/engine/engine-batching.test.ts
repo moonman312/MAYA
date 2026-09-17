@@ -10,7 +10,6 @@ import { insertAuditRows } from "./audit";
 import { rng } from "./booking-speed-legacy.test";
 import { FakeRpcError, fakeSupabase, missingFunction, type FakeCall, type FakeRow } from "./fake-supabase.test";
 import { createLadderPassBatch, evaluateLadderTriple } from "./ladder";
-import { baselineTsFrom, computeBaselineTs, loadLastPickupApplied } from "./pickup";
 import {
   loadActiveLadderEffects,
   loadActiveLadderEffectsForRange,
@@ -98,17 +97,6 @@ describe("effects for the whole horizon", () => {
     }
   });
 
-  it("the newest open event per rule and date matches computeBaselineTs", async () => {
-    const { client } = fakeSupabase({ pickup_event: pickup }, { maxRows: 1000 });
-    const now = "2026-06-02T12:00:00.000Z";
-    const last = await loadLastPickupApplied(client, "h1", rules.slice(0, 12), days[0], days[days.length - 1]);
-    for (const [i, id] of rules.slice(0, 12).entries()) {
-      const rule = { id, condition: { pickup_window_days: [1, 3, 7][i % 3] } } as unknown as EngineRule;
-      for (const d of days) {
-        expect(baselineTsFrom(rule, now, last.get(`${id}|${d}`) ?? null)).toBe(await computeBaselineTs(client, rule, d, now));
-      }
-    }
-  });
 });
 
 describe("ladder pass batch", () => {

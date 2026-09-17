@@ -847,13 +847,6 @@ export async function updateRule(
       .eq("id", id)
       .single();
     updates.version = (current?.version ?? 0) + 1;
-
-    // Retire all active pickup events for this rule (§7.4).
-    await supabase
-      .from("pickup_event")
-      .update({ retired_at: new Date().toISOString() })
-      .eq("rule_id", id)
-      .is("retired_at", null);
   }
 
   const { error } = await supabase
@@ -862,6 +855,22 @@ export async function updateRule(
     .eq("id", id);
 
   if (error) return false;
+
+  if (isBehavioralEdit) {
+    // Retire every open fire of this rule (§7.4), after the new version is
+    // stored: a fire of an older version never holds the edited rule back,
+    // and the next run takes off any this write missed.
+    const { error: retireError } = await supabase
+      .from("pickup_event")
+      .update({ retired_at: new Date().toISOString(), retired_reason: "rule_edited" })
+      .eq("rule_id", id)
+      .is("retired_at", null);
+    if (retireError) {
+      console.error(
+        JSON.stringify({ fn: "updateRule", step: "retire_fires", ruleId: id, error: retireError.message }),
+      );
+    }
+  }
 
   // Update condition row. The old row is fetched first so a failed insert
   // can be repaired rather than leaving the rule with zero conditions —

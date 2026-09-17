@@ -332,26 +332,14 @@ create policy evaluation_audit_access
   using (is_hotel_accessible(hotel_id))
   with check (can_manage_hotel(hotel_id));
 
--- §3.2 — keep is_pickup_rule aligned with rule_condition.pickup_operator
-create or replace function public.sync_rule_pickup_flag_from_condition()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  update pricing_rules
-  set is_pickup_rule = (new.pickup_operator is not null),
-      updated_at = now()
-  where id = new.rule_id;
-  return new;
-end;
-$$;
-
+-- §3.2 — this file used to create trg_rule_condition_sync_pickup here, setting
+-- is_pickup_rule = (pickup_operator is not null) after every rule_condition
+-- insert. The app saves pricing_rules first and its condition after, so every
+-- booking speed rule became a ladder rule with no wait. The app sets the flag
+-- itself (event rule for any pickup or booking speed condition), and
+-- 99_supabase_migration_pickup_event_stacking_v1.sql removed the trigger and
+-- repaired the flags. Dropped again here so a re-run can't bring it back.
 drop trigger if exists trg_rule_condition_sync_pickup on rule_condition;
-create trigger trg_rule_condition_sync_pickup
-  after insert or update of pickup_operator on rule_condition
-  for each row
-  execute function public.sync_rule_pickup_flag_from_condition();
+drop function if exists public.sync_rule_pickup_flag_from_condition();
 
 commit;

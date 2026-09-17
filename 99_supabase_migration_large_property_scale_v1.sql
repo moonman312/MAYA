@@ -493,6 +493,9 @@ begin
     select p.rule_id
     from public.pickup_event p
     where p.hotel_id = p_hotel_id
+      -- retired_reason arrives in 99_supabase_migration_pickup_event_stacking_v1.sql,
+      -- which replaces this function; kept the same here so a re-run can't undo it.
+      and p.retired_reason is distinct from 'self_cancelled'
   ) f
   group by f.rule_id;
 end;

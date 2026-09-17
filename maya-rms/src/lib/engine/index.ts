@@ -16,14 +16,18 @@ export type { LadderPassResult } from "./ladder";
 
 export {
   basePriceKey,
-  computeBaselineTs,
+  baselineTsFrom,
+  cancelCheckFor,
   pickupTieBreakTrace,
+  ruleWaitDays,
   runPickupPass,
   selectPickupWinner,
 } from "./pickup";
 
-export { applyAdjustments, clampPrice, assemblePrice, maybePublish } from "./pricing";
-export type { AssembledPrice } from "./pricing";
+export { isStoppedOnNight, REPEAT_ALERT_FIRES } from "./repeat-alerts";
+
+export { applyAdjustments, clampPrice, assemblePrice, limitAllowsFire, maybePublish } from "./pricing";
+export type { AssembledPrice, PickupEffect } from "./pricing";
 
 export { writeAudit } from "./audit";
 

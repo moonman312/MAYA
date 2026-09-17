@@ -19,12 +19,9 @@ import {
   recordRunHeartbeat,
 } from "./audit.ts";
 import {
-  DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS,
   bookingSpeedAuditSnapshots,
   bookingSpeedMetrics,
-  isWithinCooldown,
   loadBookingSpeedContext,
-  loadLastBookingSpeedFires,
   observeForStayDate,
   signalSetKey,
   type BookingSpeedContext,
@@ -37,20 +34,38 @@ import { createLadderPassBatch, evaluateLadderTriple, probeSuppressionSupport } 
 import { computeRuleMetrics } from "./metrics.ts";
 import {
   baselineTsFrom,
-  computeBaselineTs,
-  floorBaselineToOverride,
-  loadLastPickupApplied,
-  retireUndonePickupEvents,
+  candidateFor,
+  fireHeadKey,
+  firesToRetire,
+  isWaiting,
+  loadOpenPickupFires,
+  loadPickupFireHeads,
+  pickupEffectsFromFires,
+  retireFires,
+  retirePassedNights,
+  ruleWaitDays,
   runPickupPass,
+  waitAnchor,
+  type FireHead,
+  type PickupWin,
+  type RetiredPickupFire,
 } from "./pickup.ts";
 import {
   assemblePriceFrom,
   clearUnpricedCells,
+  limitAllowsFire,
   loadActiveLadderEffectsForRange,
-  loadActivePickupEffectsForRange,
+  loadActivePickupEffects,
+  priceBounds,
   publishPrices,
   type AssembledPrice,
 } from "./pricing.ts";
+import {
+  isStoppedOnNight,
+  loadRepeatAlertNights,
+  updateRepeatAlerts,
+  type RepeatAlertNight,
+} from "./repeat-alerts.ts";
 import { ruleScopeMatches } from "./scope.ts";
 import {
   MIGRATIONS,
@@ -69,6 +84,12 @@ import { countsAsRoom } from "./types.ts";
 
 /** Cells sharing one baseline timestamp before a single read serves them all. */
 const SHARED_BASELINE_MIN_CELLS = 40;
+
+function pushTo<T>(map: Map<string, T[]>, key: string, value: T): void {
+  const list = map.get(key);
+  if (list) list.push(value);
+  else map.set(key, [value]);
+}
 
 /**
  * Most pickup cells share a handful of baselines (now minus the rule's
@@ -583,7 +604,6 @@ export async function evaluateHotel(
   // actually uses the observation — everyone else pays nothing.
   const usesBookingSpeed = rules.some((r) => r.condition.booking_speed_operator);
   let bsCtx: BookingSpeedContext | null = null;
-  let lastBsFire: Map<string, string> | null = null;
   if (usesBookingSpeed) {
     // Capacity and history over the same set: the court's slots are out of
     // both, or pace reads as the hotel filling on court traffic.
@@ -602,10 +622,6 @@ export async function evaluateHotel(
       [...countingIds],
       rules.filter((r) => r.condition.booking_speed_operator).map((r) => r.signal_room_type_ids),
     );
-
-    // Most recent fire per (rule, stay date), for cooldown throttling of
-    // event-style booking-speed rules. See loadLastBookingSpeedFires.
-    lastBsFire = await loadLastBookingSpeedFires(supabase, hotelId, rules, localDate, now);
   }
 
   const attachBookingSpeed = (
@@ -729,190 +745,228 @@ export async function evaluateHotel(
 
   await ladderBatch.flush();
 
-  // An event whose bookings have all cancelled is holding a price on
-  // evidence that no longer exists. Retire it; if the date still has real
-  // momentum the observation engine sees it and the rule fires again.
-  // Before the pickup pass reads any event, so a retired one is already out
-  // of the prices this run publishes. After the pass, the increase stayed on
-  // for one more run. Only events from earlier runs are checked here: one
-  // the pass inserts below is priced before anything can retire it.
-  await retireUndonePickupEvents(
+  // ── Event rules (see pickup.ts for what fires, waits and comes off) ──
+
+  const roomTypeIds = roomTypes.map((rt) => rt.id);
+  const roomTypeById = new Map(roomTypes.map((rt) => [rt.id, rt]));
+
+  // A night that is over keeps no fire open. Past nights are never priced.
+  await retirePassedNights(supabase, hotelId, localDate, now);
+
+  // Every open fire on the horizon, read once: the fires this run prices,
+  // heals and tests for cancellations. Before anything fires, so a fire taken
+  // off here is already out of the prices this run publishes, and one this
+  // run makes can never be taken off by the run that made it.
+  const openFires = await loadOpenPickupFires(supabase, hotelId, roomTypeIds, firstDate, lastDate);
+  const retireReasons = firesToRetire(openFires, {
+    rules: new Map(rules.map((r) => [r.id, r])),
+    manualSetAtByCell: new Map([...manualByCell].map(([key, m]) => [key, m.set_at])),
+    bookedByCell: new Map(writtenSnapshots.map((s) => [`${s.stay_date}|${s.room_type_id}`, s.booked_units])),
+    bsCtx,
+    now,
+  });
+  const retiredIds = retireReasons.size > 0 ? await retireFires(supabase, hotelId, retireReasons, now) : new Set<string>();
+  const retiredByCell = new Map<string, RetiredPickupFire[]>();
+  for (const fire of openFires) {
+    if (!retiredIds.has(fire.id)) continue;
+    pushTo(retiredByCell, `${fire.stay_date}|${fire.affected_room_type_id}`, { fire, reason: retireReasons.get(fire.id)! });
+  }
+  const pickupEffectsByCell = pickupEffectsFromFires(openFires, retiredIds);
+  // Ladder writes are flushed: these are the rows the pass left active.
+  const ladderEffectsByCell = await loadActiveLadderEffectsForRange(
     supabase,
-    hotelId,
-    rules,
-    now,
-    now,
-    new Map(writtenSnapshots.map((s) => [`${s.stay_date}|${s.room_type_id}`, s.booked_units])),
+    roomTypeIds,
+    firstDate,
+    lastDate,
+    supportsSuppression,
   );
 
-  const allPickupCandidates: PickupCandidate[] = [];
-  const allPickupWinners: Map<string, PickupCandidate[]> = new Map();
-  const allPickupLosers: Map<string, PickupCandidate[]> = new Map();
-  const allPickupIdempotent: Map<string, PickupCandidate[]> = new Map();
-  const allPickupWriteFailures: Map<string, PickupCandidate[]> = new Map();
+  // Each event rule's fire history on each cell, after the retirements
+  // above, and the owner's answers to repeat alerts on these nights.
+  const fireHeads =
+    pickupRules.length > 0
+      ? await loadPickupFireHeads(supabase, hotelId, pickupRules, firstDate, lastDate)
+      : new Map<string, FireHead>();
+  const alertNights =
+    pickupRules.length > 0
+      ? await loadRepeatAlertNights(supabase, hotelId, pickupRules.map((r) => r.id), firstDate, lastDate)
+      : new Map<string, RepeatAlertNight[]>();
 
-  // The newest open event per (pickup rule, stay date), in one paged read.
-  // Nothing inserts or retires an event between here and runPickupPass, so
-  // this is what each cell's own read would have returned. If the read
-  // fails, each cell reads for itself as before.
-  let lastApplied: Map<string, string> | null = null;
-  if (pickupRules.length > 0) {
-    try {
-      lastApplied = await loadLastPickupApplied(
-        supabase,
-        hotelId,
-        pickupRules.map((r) => r.id),
-        firstDate,
-        lastDate,
-      );
-    } catch (e) {
-      console.error(
-        JSON.stringify({
-          fn: "evaluateHotel",
-          step: "pickup_last_applied",
-          hotelId,
-          error: e instanceof Error ? e.message : String(e),
-        }),
-      );
-    }
-  }
-
-  // Which (rule, stay date) cells the pass will measure, and against which
-  // baseline, decided before any metric is read so that baselines shared by
-  // many cells can be fetched in one call.
-  const pickupCells: { rule: EngineRule; stayDate: string; baselineTs: string }[] = [];
+  // Per (rule, night) in scope: which of its room types it may fire on now,
+  // and which it is still waiting on. A night the owner stopped the rule on
+  // is left out entirely.
+  type RuleNight = {
+    rule: EngineRule;
+    stayDate: string;
+    baselineTs: string | null;
+    open: string[];
+    waiting: string[];
+    metrics?: RuleMetrics;
+    matched?: boolean;
+  };
+  const ruleNights: RuleNight[] = [];
   for (const rule of pickupRules) {
+    const waitDays = ruleWaitDays(rule);
+    const baselineTs = baselineTsFrom(rule, now);
     for (const stayDate of stayDates) {
       if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone)) continue;
-
-      // Event-style booking-speed rules are throttled per stay date: after
-      // firing, the rule waits out its cooldown before it may re-fire, so a
-      // persistent slow/fast state stacks corrections weekly, not every run.
-      if (rule.condition.booking_speed_operator) {
-        const cooldownDays =
-          rule.condition.booking_speed_cooldown_days ?? DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS;
-        if (isWithinCooldown(lastBsFire?.get(`${rule.id}|${stayDate}`), now, cooldownDays)) {
-          continue;
-        }
+      if (isStoppedOnNight(alertNights, rule, stayDate)) continue;
+      const open: string[] = [];
+      const waiting: string[] = [];
+      for (const rtId of rule.affected_room_type_ids) {
+        const anchor = waitAnchor(
+          rule,
+          fireHeads.get(fireHeadKey(rule.id, stayDate, rtId)),
+          manualByCell.get(`${stayDate}|${rtId}`),
+        );
+        (isWaiting(anchor, now, waitDays) ? waiting : open).push(rtId);
       }
-
-      const baselineTs = lastApplied
-        ? baselineTsFrom(rule, now, lastApplied.get(`${rule.id}|${stayDate}`) ?? null)
-        : await computeBaselineTs(supabase, rule, stayDate, now);
-      if (!baselineTs) continue;
-      pickupCells.push({ rule, stayDate, baselineTs });
+      ruleNights.push({ rule, stayDate, baselineTs, open, waiting });
     }
   }
-  await preloadSharedBaselines(snapshots, pickupCells);
 
-  for (const { rule, stayDate, baselineTs } of pickupCells) {
+  const measure = async (rn: RuleNight) => {
+    if (rn.metrics) return;
     const metrics = await computeRuleMetrics(
       supabase,
-      rule,
+      rn.rule,
       hotelId,
-      stayDate,
+      rn.stayDate,
       now,
       localDate,
       now,
-      baselineTs,
+      rn.baselineTs,
       snapshots,
     );
-    attachBookingSpeed(rule, stayDate, metrics);
-    noteExcludedSignals(rule, metrics);
+    attachBookingSpeed(rn.rule, rn.stayDate, metrics);
+    noteExcludedSignals(rn.rule, metrics);
+    rn.metrics = metrics;
+    rn.matched = ruleConditionsMatch(rn.rule, metrics);
+  };
+  const withBaseline = (list: RuleNight[]) =>
+    list.flatMap((rn) => (rn.baselineTs ? [{ rule: rn.rule, stayDate: rn.stayDate, baselineTs: rn.baselineTs }] : []));
+  const candidate = (rn: RuleNight, rtId: string) =>
+    candidateFor({
+      rule: rn.rule,
+      metrics: rn.metrics!,
+      stayDate: rn.stayDate,
+      roomTypeId: rtId,
+      now,
+      localDate,
+      baselineTs: rn.baselineTs,
+      head: fireHeads.get(fireHeadKey(rn.rule.id, rn.stayDate, rtId)),
+    });
 
-    if (!ruleConditionsMatch(rule, metrics)) continue;
+  // Metrics only where a rule may fire: baselines shared by many cells are
+  // fetched in one call first.
+  const measured = ruleNights.filter((rn) => rn.open.length > 0);
+  await preloadSharedBaselines(snapshots, withBaseline(measured));
+  for (const rn of measured) await measure(rn);
 
-    for (const rtId of rule.affected_room_type_ids) {
-      // Manual price override floor. The baseline above is per (rule,
-      // stay_date); an override is per cell. Bookings that predate the
-      // override on THIS cell are already priced into the typed number, so
-      // this cell's baseline moves up to the override's set_at and the net
-      // pickup is re-read against it. The rule must still have matched on
-      // its own full window (the gate above) — the floor can only withhold
-      // a fire, never manufacture one from a window that is minutes long.
-      // Cells without an open override never enter this branch.
-      let cellBaselineTs: string = baselineTs;
-      let cellMetrics: RuleMetrics = metrics;
-      const override = manualByCell.get(`${stayDate}|${rtId}`);
-      if (override) {
-        cellBaselineTs = floorBaselineToOverride(baselineTs, override.set_at);
-        if (cellBaselineTs !== baselineTs) {
-          cellMetrics = await computeRuleMetrics(
-            supabase,
-            rule,
-            hotelId,
-            stayDate,
-            now,
-            localDate,
-            now,
-            cellBaselineTs,
-            snapshots,
-          );
-          attachBookingSpeed(rule, stayDate, cellMetrics);
-          noteExcludedSignals(rule, cellMetrics);
-          if (!ruleConditionsMatch(rule, cellMetrics)) continue;
-        }
+  // The price each cell would publish before anything fires, for the limit
+  // guard: a cut already at the floor or a raise already at the ceiling
+  // can't move the price, so it doesn't fire and starts no wait. A cell this
+  // run leaves unpriced (no base, a closed night, an inactive room type)
+  // gets no fire at all.
+  const currentByCell = new Map<string, { final: number; bounds: { floor: number; ceiling: number } } | null>();
+  const currentPrice = (stayDate: string, rtId: string) => {
+    const key = `${stayDate}|${rtId}`;
+    if (!currentByCell.has(key)) {
+      const rt = roomTypeById.get(rtId);
+      const base = basePrices.get(key);
+      if (!rt || base === undefined) {
+        currentByCell.set(key, null);
+      } else {
+        const source = baseSourceByCell.get(key) ?? "remembered";
+        const assembled = assemblePriceFrom(
+          stayDate,
+          rt,
+          base,
+          source,
+          ladderEffectsByCell.get(key) ?? [],
+          pickupEffectsByCell.get(key) ?? [],
+        );
+        currentByCell.set(key, {
+          final: assembled.final_price,
+          bounds: priceBounds(rt.floor_price, rt.ceiling_price, base, source),
+        });
       }
+    }
+    return currentByCell.get(key)!;
+  };
 
-      allPickupCandidates.push({
-        rule,
-        metrics: cellMetrics,
-        stay_date: stayDate,
-        baseline_ts: cellBaselineTs,
-        affected_room_type_id: rtId,
-        eval_ts: now,
-        signal_booked_units_start: cellMetrics.signal_booked_units_baseline ?? 0,
-        signal_booked_units_end: cellMetrics.signal_booked_units_now ?? 0,
-        signal_booked_revenue_start: cellMetrics.signal_booked_revenue_baseline ?? 0,
-        signal_booked_revenue_end: cellMetrics.signal_booked_revenue_now ?? 0,
-      });
+  const allPickupCandidates: PickupCandidate[] = [];
+  const allPickupNoPriceChange = new Map<string, PickupCandidate[]>();
+  for (const rn of measured) {
+    if (!rn.matched) continue;
+    for (const rtId of rn.open) {
+      const current = currentPrice(rn.stayDate, rtId);
+      if (!current) continue;
+      const c = candidate(rn, rtId);
+      if (!limitAllowsFire(current.final, current.bounds, rn.rule.action_direction)) {
+        pushTo(allPickupNoPriceChange, `${rn.stayDate}|${rtId}`, c);
+        continue;
+      }
+      allPickupCandidates.push(c);
     }
   }
 
-  const pickupInsertedKeys = new Set<string>();
-  if (allPickupCandidates.length > 0) {
-    const { winners, losers, idempotent_skips, write_failures } = await runPickupPass(
-      supabase,
-      allPickupCandidates,
-      hotelId,
-      pickupInsertedKeys,
-      basePrices,
-    );
-    pickupEventsCreated = winners.length;
+  // Rules still waiting on a cell that has a live candidate stay in its
+  // competition when their conditions still match: a stronger rule that
+  // fired recently holds the cell, and a weaker one can't fire under it.
+  const liveCells = new Set(allPickupCandidates.map((c) => `${c.stay_date}|${c.affected_room_type_id}`));
+  const holders: PickupCandidate[] = [];
+  if (liveCells.size > 0) {
+    const holding = ruleNights.filter((rn) => rn.waiting.some((rtId) => liveCells.has(`${rn.stayDate}|${rtId}`)));
+    await preloadSharedBaselines(snapshots, withBaseline(holding.filter((rn) => !rn.metrics)));
+    for (const rn of holding) {
+      await measure(rn);
+      if (!rn.matched) continue;
+      for (const rtId of rn.waiting) {
+        if (liveCells.has(`${rn.stayDate}|${rtId}`)) holders.push(candidate(rn, rtId));
+      }
+    }
+  }
 
-    for (const w of winners) {
-      const key = `${w.stay_date}|${w.affected_room_type_id}`;
-      const list = allPickupWinners.get(key) ?? [];
-      list.push(w);
-      allPickupWinners.set(key, list);
+  const allPickupWinners: Map<string, PickupWin[]> = new Map();
+  const allPickupLosers: Map<string, PickupCandidate[]> = new Map();
+  const allPickupHeld: Map<string, { candidate: PickupCandidate; holder: PickupCandidate }[]> = new Map();
+  const allPickupHolding: Map<string, PickupCandidate[]> = new Map();
+  const allPickupConcurrent: Map<string, PickupCandidate[]> = new Map();
+  const allPickupWriteFailures: Map<string, PickupCandidate[]> = new Map();
+  const cellOf = (c: PickupCandidate) => `${c.stay_date}|${c.affected_room_type_id}`;
+
+  if (allPickupCandidates.length > 0) {
+    const pass = await runPickupPass(supabase, allPickupCandidates, hotelId, basePrices, holders);
+    pickupEventsCreated = pass.winners.length;
+
+    for (const w of pass.winners) {
+      pushTo(allPickupWinners, cellOf(w.candidate), w);
+      // The fire applies after every earlier one on the cell, as the table
+      // orders them (applied_at is this run's now).
+      pushTo(pickupEffectsByCell, cellOf(w.candidate), w.effect);
     }
-    for (const l of losers) {
-      const key = `${l.stay_date}|${l.affected_room_type_id}`;
-      const list = allPickupLosers.get(key) ?? [];
-      list.push(l);
-      allPickupLosers.set(key, list);
+    for (const l of pass.losers) pushTo(allPickupLosers, cellOf(l), l);
+    for (const h of pass.held) pushTo(allPickupHeld, cellOf(h.candidate), h);
+    for (const h of pass.holding) pushTo(allPickupHolding, cellOf(h), h);
+    for (const s of pass.concurrent_skips) {
+      pushTo(allPickupConcurrent, cellOf(s), s);
+      // Another run recorded this fire: price the cell with it.
+      pickupEffectsByCell.set(
+        cellOf(s),
+        await loadActivePickupEffects(supabase, hotelId, s.stay_date, s.affected_room_type_id),
+      );
     }
-    for (const s of idempotent_skips) {
-      const key = `${s.stay_date}|${s.affected_room_type_id}`;
-      const list = allPickupIdempotent.get(key) ?? [];
-      list.push(s);
-      allPickupIdempotent.set(key, list);
-    }
-    for (const f of write_failures) {
-      const key = `${f.stay_date}|${f.affected_room_type_id}`;
-      const list = allPickupWriteFailures.get(key) ?? [];
-      list.push(f);
-      allPickupWriteFailures.set(key, list);
-    }
-    if (write_failures.length > 0) {
+    for (const f of pass.write_failures) pushTo(allPickupWriteFailures, cellOf(f), f);
+    if (pass.write_failures.length > 0) {
       console.error(
         JSON.stringify({
           fn: "evaluateHotel",
           step: "pickup_event_insert",
           hotelId,
           runId,
-          failed_count: write_failures.length,
-          rule_ids: write_failures.map((f) => f.rule.id),
+          failed_count: pass.write_failures.length,
+          rule_ids: pass.write_failures.map((f) => f.rule.id),
         }),
       );
     }
@@ -930,25 +984,6 @@ export async function evaluateHotel(
 
   let cellsChecked = 0;
   let cellsChanged = 0;
-
-  // Every active effect for the horizon, read once now that both passes
-  // have written: the same rows, in the same per-cell order, that each
-  // cell's own read returned.
-  const roomTypeIds = roomTypes.map((rt) => rt.id);
-  const ladderEffectsByCell = await loadActiveLadderEffectsForRange(
-    supabase,
-    roomTypeIds,
-    firstDate,
-    lastDate,
-    supportsSuppression,
-  );
-  const pickupEffectsByCell = await loadActivePickupEffectsForRange(
-    supabase,
-    hotelId,
-    roomTypeIds,
-    firstDate,
-    lastDate,
-  );
 
   const assembledCells: { key: string; basePrice: number; assembled: AssembledPrice }[] = [];
   for (const stayDate of stayDates) {
@@ -1013,8 +1048,12 @@ export async function evaluateHotel(
       ladderResults: allLadderResults.get(key) ?? [],
       pickupWinners: allPickupWinners.get(key) ?? [],
       pickupLosers: allPickupLosers.get(key) ?? [],
-      pickupIdempotentSkips: allPickupIdempotent.get(key) ?? [],
+      pickupHeld: allPickupHeld.get(key) ?? [],
+      pickupHolding: allPickupHolding.get(key) ?? [],
+      pickupConcurrentSkips: allPickupConcurrent.get(key) ?? [],
       pickupWriteFailures: allPickupWriteFailures.get(key) ?? [],
+      pickupNoPriceChange: allPickupNoPriceChange.get(key) ?? [],
+      retiredPickupEffects: retiredByCell.get(key) ?? [],
       basePrices,
       bookingSpeedObservations: bsCtx
         ? bookingSpeedAuditSnapshots(bsCtx, stayDate, setKeysByRoomType.get(assembled.room_type_id))
@@ -1029,13 +1068,6 @@ export async function evaluateHotel(
     }
   }
   await insertAuditRows(supabase, auditRows);
-
-  await supabase
-    .from("pickup_event")
-    .update({ retired_at: now })
-    .eq("hotel_id", hotelId)
-    .lt("stay_date", localDate)
-    .is("retired_at", null);
 
   // Bookkeeping only, past this point — the correct prices are already
   // computed and published above. None of it may be allowed to fail the
@@ -1059,6 +1091,29 @@ export async function evaluateHotel(
           first: stayDates[0],
           last: stayDates[stayDates.length - 1],
         }),
+    ],
+    // Nights a rule has adjusted 3 times, for the owner to answer.
+    [
+      "repeat_alerts",
+      () =>
+        pickupRules.length > 0
+          ? updateRepeatAlerts(supabase, {
+              hotelId,
+              now,
+              localDate,
+              eventRules: pickupRules,
+              allRules: rules,
+              heads: fireHeads,
+              wins: [...allPickupWinners.values()].flat().map((w) => ({
+                rule_id: w.candidate.rule.id,
+                stay_date: w.candidate.stay_date,
+                affected_room_type_id: w.candidate.affected_room_type_id,
+              })),
+              nights: alertNights,
+              roomTypes,
+              finalPriceByCell: new Map(assembledCells.map((c) => [c.key, c.assembled.final_price])),
+            })
+          : Promise.resolve(),
     ],
     ["purge_snapshots", () => purgeOldSnapshots(supabase, hotelId, maxPickupWindowDays + 7)],
     ["purge_audit", () => purgeOldAuditRows(supabase, hotelId)],

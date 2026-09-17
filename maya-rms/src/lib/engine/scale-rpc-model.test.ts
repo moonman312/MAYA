@@ -161,7 +161,8 @@ export function ruleFireCounts(ladder: FakeRow[], pickup: FakeRow[], a: Record<s
     counts.set(String(e.rule_id), (counts.get(String(e.rule_id)) ?? 0) + 1);
   }
   for (const e of pickup) {
-    if (e.hotel_id !== a.p_hotel_id) continue;
+    // A fire the old same-run bug wrote and took off at once never happened.
+    if (e.hotel_id !== a.p_hotel_id || e.retired_reason === "self_cancelled") continue;
     counts.set(String(e.rule_id), (counts.get(String(e.rule_id)) ?? 0) + 1);
   }
   return [...counts].map(([rule_id, fires]) => ({ rule_id, fires }));
