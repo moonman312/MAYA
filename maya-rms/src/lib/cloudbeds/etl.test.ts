@@ -169,8 +169,9 @@ describe("cloudbeds etl room-night grain", () => {
   });
 
   it("keys slim rows so a later detail import upserts over them", () => {
-    // A refresh re-runs the historical windows over check-ins the 5-min detail
-    // sync already stored. Both paths must land on the same
+    // On a property that refuses rate details, a refresh re-runs the list
+    // history over check-ins the 5-min detail sync already stored. Both paths
+    // must land on the same
     // (external_reservation_id, stay_date) or every night is counted twice.
     const detail = parseCloudbedsReservationDetail(
       groupDetail(["12345-1", "12345-2"], 200),

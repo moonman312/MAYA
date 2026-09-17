@@ -42,7 +42,8 @@ three days after its ticket expires (`99_supabase_migration_marketplace_claim_sw
 history import for the property the owner is about to be shown
 (`lib/pms/eager-import.ts`): property details and room types, the current
 booking window with per-night rates (`getReservationsWithRateDetails`, a
-hundred bookings a call), three years of history, an early analysis that writes
+hundred bookings a call), three years of history (the same endpoint, a year of
+check-outs at a time, so past nights carry their real rate and room type too), an early analysis that writes
 the findings and starter rules, the rest of the history back to the first empty
 year, and a final analysis. The worker runs it for the unpaid property without
 touching its connection status or activating it. A group grant is imported one
@@ -236,8 +237,10 @@ Going back to test mode is the same three variables, the other way.
 - **Pre-payment API budget.** An unclaimed connect costs the callback's 1 + N
   calls and nothing more. A claimed property that never pays costs one import:
   for a 42-room property with seven years of history, roughly 390 Cloudbeds
-  calls (about 20 for the current window with paged rate details, about 52 per
-  year of history across the four active statuses, a few for the empty year that
-  stops it), paced at least 220 ms apart, and an estimated 28 MB of rows until
+  calls (about 20 for the current window with paged rate details, about 50 per
+  year of history with one page per hundred bookings across every active status,
+  about 20 more in the newest year, which also reads the forward book to catch
+  guests in house when the current window starts, and one for the empty year
+  that stops it), paced at least 220 ms apart, and an estimated 28 MB of rows until
   the 180-day sweep. Watch the ratio of claims to conversions: a Marketplace
   listing that attracts browsers is a cost line, not just a funnel.
