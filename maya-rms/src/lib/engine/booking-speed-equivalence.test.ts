@@ -173,32 +173,67 @@ describe("Booking Speed boundaries", () => {
     }
   }, 60_000);
 
-  it("stops with the migration's name past the pre-migration row budget", async () => {
+  it("reads a full 500-room history before the migration in bounded date ranges, with no row ceiling", async () => {
+    // Two quiet years, then a 520-a-night property (rooms plus a few room-less
+    // rows): 575k+ rows over history and horizon. The fixed 500,000-row budget
+    // used to throw here; this serves the rows without holding them.
+    const localDate = "2026-09-16";
+    const denseFrom = addDays(localDate, -400);
+    const perDay = (d: string) => (d < denseFrom ? 3 : 520);
     const { client } = fakeSupabase({}, { rpc: () => new FakeRpcError(missingFunction("booking_speed_history_summary")) });
-    // Every page is full and never ends.
     const realFrom = client.from.bind(client);
+    const reads: { gte: string; lte: string; from: number; ordered: string[]; or: boolean }[] = [];
     let served = 0;
     (client as unknown as { from: unknown }).from = (table: string) => {
       if (table !== "reservations") return realFrom(table);
+      const q = { gte: "", lte: "", ordered: [] as string[], or: false, gt: "" };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const b: any = {};
-      for (const m of ["select", "eq", "gte", "lte", "or", "order"]) b[m] = () => b;
-      b.limit = (n: number) =>
-        Promise.resolve({
-          data: Array.from({ length: n }, () => ({
-            id: `id${String(++served).padStart(9, "0")}`,
-            stay_date: "2026-01-01",
-            booking_date: null,
-            booking_window_days: 1,
-            room_type_id: null,
-          })),
-          error: null,
-        });
+      b.select = () => b;
+      b.eq = () => b;
+      b.gte = (_c: string, v: string) => ((q.gte = v), b);
+      b.lte = (_c: string, v: string) => ((q.lte = v), b);
+      b.gt = (_c: string, v: string) => ((q.gt = v), b);
+      b.or = () => ((q.or = true), b);
+      b.order = (c: string) => (q.ordered.push(c), b);
+      b.limit = () => Promise.resolve({ data: [], error: null }); // hasKeptRowAfter
+      b.range = (from: number, to: number) => {
+        reads.push({ gte: q.gte, lte: q.lte, from, ordered: q.ordered, or: q.or });
+        const data: FakeRow[] = [];
+        let i = 0;
+        for (let d = q.gte; d <= q.lte && i <= to; d = addDays(d, 1)) {
+          for (let k = 0; k < perDay(d) && i <= to; k++, i++) {
+            if (i < from) continue;
+            data.push({
+              id: `${d}-${String(k).padStart(4, "0")}`,
+              stay_date: d,
+              booking_date: addDays(d, -(k % 90)),
+              booking_window_days: null,
+              room_type_id: k % 13 === 0 ? null : "rt-a",
+            });
+          }
+        }
+        served += data.length;
+        return Promise.resolve({ data, error: null });
+      };
       return b;
     };
-    await expect(loadBookingSpeedContext(client, "h1", "2026-09-16", 10, new Set(), "2026-09-20")).rejects.toThrow(
-      /99_supabase_migration_large_property_scale_v1\.sql/,
-    );
+    const horizonEnd = addDays(localDate, 44);
+    const ctx = await loadBookingSpeedContext(client, "h1", localDate, 500, new Set(), horizonEnd);
+    expect(ctx).not.toBeNull();
+    expect(served).toBeGreaterThan(200_000);
+    expect(ctx!.dailyDemand.find((d) => d.stay_date === addDays(localDate, -1))?.value).toBe(520);
+    expect(ctx!.dailyDemand.find((d) => d.stay_date === addDays(localDate, -900))?.value).toBe(3);
+    for (const r of reads) {
+      expect(r.or).toBe(false);
+      expect(r.gte).not.toBe("");
+      expect(r.lte).not.toBe("");
+      expect(r.ordered).toEqual(["stay_date", "id"]);
+      // No page reaches deep into its range, dense or not.
+      expect(r.from).toBeLessThan(10_000);
+    }
+    // About one call per 1,000 rows plus one per slice, not one per date.
+    expect(reads.length).toBeLessThan(served / 1000 + 250);
   }, 60_000);
 
   it("logs the pre-migration fallback once", async () => {
