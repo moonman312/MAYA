@@ -317,7 +317,7 @@ describe("PATCH /api/room-types — the flip", () => {
     // horizon — the full 365 does not fit inside the route's wall clock.
     expect(evaluateHotel).not.toHaveBeenCalled();
     await flushAfter();
-    expect(evaluateHotel).toHaveBeenCalledWith(fake(), HOTEL, undefined, 45);
+    expect(evaluateHotel).toHaveBeenCalledWith(fake(), HOTEL, undefined, 60);
   });
 
   it("stamps who decided on the row and names them in the audit line", async () => {
@@ -331,10 +331,10 @@ describe("PATCH /api/room-types — the flip", () => {
   });
 
   it("honours MAYA_EVAL_HORIZON_DAYS for the re-price", async () => {
-    vi.stubEnv("MAYA_EVAL_HORIZON_DAYS", "60");
+    vi.stubEnv("MAYA_EVAL_HORIZON_DAYS", "30");
     await patch({ hotelId: HOTEL, roomTypeId: ROOM, countsAsRoom: false });
     await flushAfter();
-    expect(evaluateHotel).toHaveBeenCalledWith(fake(), HOTEL, undefined, 60);
+    expect(evaluateHotel).toHaveBeenCalledWith(fake(), HOTEL, undefined, 30);
     vi.unstubAllEnvs();
   });
 

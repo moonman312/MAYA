@@ -26,6 +26,7 @@ import {
   scheduledLoopConfigFromEnv,
 } from "../_shared/pms/scheduled-loop.ts";
 import { MEWS_SYNC_BUDGET_MS } from "../_shared/mews/constants.ts";
+import { pricingHorizonDays } from "../_shared/pms/pricing-window.ts";
 import { recordRoomCount } from "../_shared/billing/room-count.ts";
 
 function getEnv(name: string): string | undefined {
@@ -60,8 +61,9 @@ Deno.serve(async (req) => {
   }
 
   const runEvaluate = (getEnv("MAYA_RUN_EVALUATE") ?? "true").toLowerCase() !== "false";
-  // Bound the per-tick evaluation so it finishes inside the Edge runtime limit.
-  const horizonDays = Math.max(1, Number(getEnv("MAYA_EVAL_HORIZON_DAYS") ?? "45") || 45);
+  // Nights evaluated per tick, the same window the Cloudbeds and Think syncs
+  // price and push: 60 by default. Env override: MAYA_EVAL_HORIZON_DAYS.
+  const horizonDays = pricingHorizonDays();
 
   // Optional single-hotel dispatch: body { hotel_id }.
   let bodyHotelId: string | null = null;

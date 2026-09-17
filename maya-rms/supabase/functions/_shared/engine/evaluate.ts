@@ -112,8 +112,8 @@ export type EvaluationResult = {
  * `horizonDays` bounds how many days forward are priced in this run. Reads and
  * writes are paged across the whole horizon rather than made per cell, so a
  * 365-day run on a 500-room, 20-type property is a few hundred round trips.
- * Scheduled ticks still pass a smaller horizon (e.g. 45) so each tick stays
- * short.
+ * Scheduled ticks still pass a smaller horizon (pricingHorizonDays, 60 by
+ * default) so each tick stays short.
  */
 export async function evaluateHotel(
   supabase: SupabaseClient,

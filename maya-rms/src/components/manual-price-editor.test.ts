@@ -69,6 +69,21 @@ describe("describeSave", () => {
     ).toBe("Saved (simulation: not sent to Cloudbeds).");
   });
 
+  it("names the window the server says the push uses", () => {
+    expect(
+      describeSave(
+        { pushed: "nudged", suppressedRules: 0, retiredPickups: 0, cells: 4, pushWindow: { now: 2, later: 2, days: 30 } },
+        "Cloudbeds",
+      ),
+    ).toBe("Saved. 2 nights sending to Cloudbeds now; 2 more will be sent as they enter the 30-day window.");
+    expect(
+      describeSave(
+        { pushed: "beyond_window", suppressedRules: 0, retiredPickups: 0, cells: 1, pushWindow: { now: 0, later: 1, days: 90 } },
+        "Cloudbeds",
+      ),
+    ).toBe("Saved. It will be sent when the date enters the 90-day push window.");
+  });
+
   it("still appends the paused-rules clause after the split sentence", () => {
     expect(
       describeSave(

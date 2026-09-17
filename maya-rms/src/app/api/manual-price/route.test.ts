@@ -239,6 +239,7 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchSpy);
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://proj.supabase.co");
   vi.stubEnv("CLOUDBEDS_CRON_SECRET", "shh");
+  vi.stubEnv("MAYA_EVAL_HORIZON_DAYS", "");
 });
 
 afterEach(() => {
@@ -501,10 +502,19 @@ describe("POST /api/manual-price — pushed", () => {
   it("beyond_window only when every night is past the push horizon", async () => {
     // today + 59 = 2026-11-13 is the last night the push covers.
     const inside = await (await post({ ...GOOD, dateFrom: "2026-11-13" })).json();
-    expect(inside).toMatchObject({ pushed: "nudged", pushWindow: { now: 1, later: 0 } });
+    expect(inside).toMatchObject({ pushed: "nudged", pushWindow: { now: 1, later: 0, days: 60 } });
     const beyond = await (await post({ ...GOOD, dateFrom: "2026-11-14" })).json();
-    expect(beyond).toMatchObject({ pushed: "beyond_window", pushWindow: { now: 0, later: 1 } });
+    expect(beyond).toMatchObject({ pushed: "beyond_window", pushWindow: { now: 0, later: 1, days: 60 } });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the same window as the scheduled push when MAYA_EVAL_HORIZON_DAYS moves it", async () => {
+    vi.stubEnv("MAYA_EVAL_HORIZON_DAYS", "30");
+    // today + 29 = 2026-10-14 is now the last pushed night.
+    const inside = await (await post({ ...GOOD, dateFrom: "2026-10-14" })).json();
+    expect(inside).toMatchObject({ pushed: "nudged", pushWindow: { now: 1, later: 0, days: 30 } });
+    const beyond = await (await post({ ...GOOD, dateFrom: "2026-10-15" })).json();
+    expect(beyond).toMatchObject({ pushed: "beyond_window", pushWindow: { now: 0, later: 1, days: 30 } });
   });
 
   it("counts a range wholly inside the window as all now", async () => {

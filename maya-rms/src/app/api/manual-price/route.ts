@@ -22,6 +22,7 @@ import { currencySymbolFor } from "@/lib/changelog-route-helpers";
 import { evaluateHotel } from "@/lib/engine";
 import { clampPrice } from "@/lib/engine/pricing";
 import { isMissingRelationError } from "@/lib/engine/snapshots";
+import { lastNightOf, pricingHorizonDays } from "@/lib/pms/pricing-window";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { roleLabel } from "@/lib/roles";
 import { hotelToday } from "@/lib/simulator";
@@ -38,8 +39,6 @@ export const maxDuration = 300;
 
 /** Inclusive number of nights one request may cover. */
 const MAX_SPAN_DAYS = 366;
-/** The scheduled rate push covers [today, today + 59]; past that, cron gets it. */
-const PUSH_WINDOW_DAYS = 59;
 /** The engine prices a year ahead (evaluateHotel caps its horizon at 365). */
 const MAX_DAYS_AHEAD = 364;
 /** Stored verbatim on every row of a span; enough for a sentence, not a memo. */
@@ -64,9 +63,10 @@ type Pushed = "nudged" | "next_cycle" | "simulation" | "beyond_window";
  * How many of the saved nights the scheduled push covers today (`now`) and how
  * many sit past its horizon and go out as the window reaches them (`later`).
  * A range straddling the edge is the common case for a season set in one go,
- * and "sending now" for all of it would be a lie about the far end.
+ * and "sending now" for all of it would be a lie about the far end. `days` is
+ * the window's length, so the copy names the window the push really uses.
  */
-type PushWindow = { now: number; later: number };
+type PushWindow = { now: number; later: number; days: number };
 
 type PostBody = {
   hotelId?: unknown;
@@ -137,16 +137,21 @@ function datesInRange(fromIso: string, toIso: string): string[] {
   return out;
 }
 
-/** Nights of the range on each side of the push horizon [today, today + 59]. */
+/**
+ * Nights of the range on each side of the push window, [today, today + horizon
+ * - 1] on the hotel's calendar: the nights the scheduled tick evaluates and
+ * pushes (pricing-window.ts).
+ */
 function splitByPushWindow(range: Range, today: string): PushWindow {
+  const days = pricingHorizonDays();
   const nights = daysBetween(range.dateFrom, range.dateTo) + 1;
-  const lastPushed = isoDatePlus(today, PUSH_WINDOW_DAYS);
+  const lastPushed = lastNightOf(today, days);
   // dateFrom is never before today on a save; a clear can name earlier
   // nights, which the push doesn't carry either way, so they count as "now"
   // only insofar as they are inside the window.
   const inside = daysBetween(range.dateFrom, lastPushed) + 1;
   const now = Math.max(0, Math.min(nights, inside));
-  return { now, later: nights - now };
+  return { now, later: nights - now, days };
 }
 
 /**

@@ -20,12 +20,19 @@ type SaveResponse = {
   suppressedRules: number;
   retiredPickups: number;
   pushed: Pushed;
-  /** Nights inside the 60-day push window today vs. past it. Older servers omit it. */
-  pushWindow?: { now: number; later: number };
+  /**
+   * Nights inside the push window today vs. past it, and the window's length.
+   * Older servers omit it, or omit `days` (their window was 60 days).
+   */
+  pushWindow?: { now: number; later: number; days?: number };
   preview: { stay_date: string; base: number; final: number; clamped_by: string | null }[];
 };
 
-function pushedCopy(pushed: Pushed, pmsName: string, pushWindow?: { now: number; later: number }): string {
+/** What servers sent before the window's length was in the response. */
+const DEFAULT_WINDOW_DAYS = 60;
+
+function pushedCopy(pushed: Pushed, pmsName: string, pushWindow?: SaveResponse["pushWindow"]): string {
+  const days = pushWindow?.days ?? DEFAULT_WINDOW_DAYS;
   // A range across the edge of the window gets the honest per-night version:
   // what leaves now, and what waits. Only when both sides have something in
   // them — otherwise the single-state sentence below already tells the truth.
@@ -34,7 +41,7 @@ function pushedCopy(pushed: Pushed, pmsName: string, pushWindow?: { now: number;
     const when = pushed === "nudged" ? "now" : "on the next cycle (about 5 min)";
     return `Saved. ${now} night${now === 1 ? "" : "s"} sending to ${pmsName} ${when}; ${later} more will be sent as ${
       later === 1 ? "it enters" : "they enter"
-    } the 60-day window.`;
+    } the ${days}-day window.`;
   }
   switch (pushed) {
     case "nudged":
@@ -44,7 +51,7 @@ function pushedCopy(pushed: Pushed, pmsName: string, pushWindow?: { now: number;
     case "simulation":
       return `Saved (simulation: not sent to ${pmsName}).`;
     case "beyond_window":
-      return "Saved. It will be sent when the date enters the 60-day push window.";
+      return `Saved. It will be sent when the date enters the ${days}-day push window.`;
     default:
       return "Saved.";
   }

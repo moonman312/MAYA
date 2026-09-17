@@ -292,7 +292,7 @@ describe("POST — the block", () => {
     // Bounded horizon: the route's wall clock cannot fit the full 365.
     expect(evaluateHotel).not.toHaveBeenCalled();
     await flushAfter();
-    expect(evaluateHotel).toHaveBeenCalledWith(fake(), HOTEL, undefined, 45);
+    expect(evaluateHotel).toHaveBeenCalledWith(fake(), HOTEL, undefined, 60);
   });
 
   it("refuses a block that would stack past the type's count on an overlapping night", async () => {

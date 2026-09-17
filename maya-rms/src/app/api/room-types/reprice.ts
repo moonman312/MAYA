@@ -11,6 +11,7 @@
 
 import { evaluateHotel } from "@/lib/engine";
 import { isMissingRelationError } from "@/lib/engine/snapshots";
+import { pricingHorizonDays } from "@/lib/pms/pricing-window";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { after } from "next/server";
 
@@ -20,12 +21,11 @@ const running = new Map<string, { again: boolean }>();
  * How far forward a re-price reaches. The full 365 is tens of minutes of
  * sequential reads on a busy hotel and this runs under the route's 300s cap,
  * which would kill it half way with the near dates rewritten and the far
- * ones not. Same knob the scheduled syncs use (MAYA_EVAL_HORIZON_DAYS,
- * default 45); the cron covers the far horizon on its next tick.
+ * ones not. The same window the scheduled syncs evaluate and push
+ * (MAYA_EVAL_HORIZON_DAYS, default 60); nights past it are not pushed.
  */
 export function repriceHorizonDays(): number {
-  const raw = Number(process.env.MAYA_EVAL_HORIZON_DAYS ?? "45");
-  return Math.max(1, Math.floor(raw) || 45);
+  return pricingHorizonDays();
 }
 
 export function scheduleReprice(admin: SupabaseClient, hotelId: string, source: string): void {
