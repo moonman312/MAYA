@@ -685,7 +685,7 @@ export async function cloudbedsPatchRate(
   creds: CloudbedsResolvedCredentials,
   rateID: string,
   intervals: CloudbedsRateInterval[],
-): Promise<{ ok: true; jobReferenceID: string | null } | { ok: false; error: string }> {
+): Promise<{ ok: true; jobReferenceID: string | null } | { ok: false; error: string; status: number | null }> {
   try {
     const res = await cloudbedsPost(creds, "patchRate", {
       propertyID: creds.propertyId,
@@ -698,7 +698,11 @@ export async function cloudbedsPatchRate(
       null;
     return { ok: true, jobReferenceID: job };
   } catch (e) {
-    return { ok: false, error: e instanceof CloudbedsHttpError ? e.message : String(e) };
+    // The status lets a refusal be told from an outage. success:false arrives
+    // as 400 (see cloudbedsPost); a network failure or timeout has none.
+    return e instanceof CloudbedsHttpError
+      ? { ok: false, error: e.message, status: e.status }
+      : { ok: false, error: String(e), status: null };
   }
 }
 

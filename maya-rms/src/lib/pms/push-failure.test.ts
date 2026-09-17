@@ -97,7 +97,7 @@ describe("classifyPushFailure", () => {
   });
 
   it("files every guardrail code as an admin-only cause that is re-checked, not retried", () => {
-    const bugs = new Set([GUARDRAIL.invalidPrice, GUARDRAIL.invalidBounds, GUARDRAIL.belowFloor, GUARDRAIL.aboveCeiling, GUARDRAIL.stalePrice]);
+    const bugs = new Set<string>([GUARDRAIL.invalidPrice, GUARDRAIL.invalidBounds, GUARDRAIL.belowFloor, GUARDRAIL.aboveCeiling, GUARDRAIL.stalePrice]);
     for (const code of Object.values(GUARDRAIL)) {
       const f = classifyPushFailure({ pms: "cloudbeds", phase: "guardrail", message: code });
       expect(f.cause).toBe(code.replace("guardrail:", "guardrail_"));

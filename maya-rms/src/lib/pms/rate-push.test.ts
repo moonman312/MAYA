@@ -8,7 +8,7 @@ import {
   type RateTargetMap,
 } from "../../../supabase/functions/_shared/pms/rate-push";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fakeSupabase } from "../engine/fake-supabase.test";
+import { fakeSupabase, missingRelation } from "../engine/fake-supabase.test";
 
 type Row = Record<string, unknown>;
 
@@ -33,18 +33,25 @@ type Chain = {
   gte: () => Chain;
   lte: () => Chain;
   is: () => Chain;
+  in: () => Chain;
   order: () => Chain;
   limit: () => Chain;
   range: () => Promise<{ data: Row[]; error: null }>;
   maybeSingle: () => Promise<{ data: Row | null; error: null }>;
   upsert: (rows: Row[]) => Promise<{ error: { message: string } | null }>;
+  insert: (rows: Row[]) => Promise<{ error: null }>;
   update: (patch: Row) => Chain;
 };
 
-/** Minimal chainable stub covering the query shapes pushRatesForHotel uses. Filters are ignored. */
+/**
+ * Minimal chainable stub covering the query shapes pushRatesForHotel uses.
+ * Filters are ignored. The incident tables read empty and their writes are
+ * kept apart from the ledger's (rate-push-incidents.test.ts covers them).
+ */
 function makeSupabaseStub(fx: Fixture) {
   const connectionUpdates: Row[] = [];
   const ledgerUpserts: Row[] = [];
+  const incidentWrites: Record<string, Row[]> = {};
   let ledgerWrites = 0;
   const reads: Record<string, Row[]> = {
     published_price: fx.publishedPrice ?? [],
@@ -61,6 +68,7 @@ function makeSupabaseStub(fx: Fixture) {
       gte: () => chain,
       lte: () => chain,
       is: () => chain,
+      in: () => chain,
       order: () => chain,
       limit: () => chain,
       range: async () => ({ data: reads[name] ?? [], error: null }),
@@ -76,12 +84,20 @@ function makeSupabaseStub(fx: Fixture) {
         error: null,
       }),
       upsert: async (rows: Row[]) => {
+        if (name !== "rate_updates") {
+          (incidentWrites[name] ??= []).push(...rows);
+          return { error: null };
+        }
         ledgerWrites += 1;
         if (fx.failLedgerWrite === ledgerWrites) return { error: { message: "connection reset" } };
         if (fx.failCorrections && rows.some((r) => r.status === "failed")) {
           return { error: { message: "connection reset" } };
         }
         ledgerUpserts.push(...rows);
+        return { error: null };
+      },
+      insert: async (rows: Row[]) => {
+        (incidentWrites[name] ??= []).push(...rows);
         return { error: null };
       },
       update: (patch: Row) => {
@@ -96,6 +112,7 @@ function makeSupabaseStub(fx: Fixture) {
     supabase: { from: (name: string) => table(name) } as unknown as SupabaseClient,
     connectionUpdates,
     ledgerUpserts,
+    incidentWrites,
   };
 }
 
@@ -284,7 +301,7 @@ describe("pushRatesForHotel retry ceiling", () => {
       publishedPrice: PRICES_TWO,
       roomTypes: ROOM_TYPES,
       ledger: [
-        { stay_date: "2026-08-01", room_type_id: "rt-king", price: 210, status: "failed", attempts: 10 },
+        { stay_date: "2026-08-01", room_type_id: "rt-king", price: 210, status: "failed", attempts: 10, pushed_at: new Date().toISOString() },
       ],
       connection: { id: "conn-1", push_rate_targets: { ...CACHED_TWO } },
     });
@@ -869,5 +886,254 @@ describe("pushRatesForHotel keeps the ledger truthful", () => {
 
     expect(res).toMatchObject({ sent: 2 });
     expect(errors.mock.calls.some((c) => String(c[0]).includes('"event":"rate_targets_write_failed"'))).toBe(true);
+  });
+});
+
+describe("pushRatesForHotel retries by cause", () => {
+  afterEach(() => {
+    resetDecidedJobs();
+    vi.restoreAllMocks();
+  });
+  const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+  const VALUE_REFUSED = "Cloudbeds patchRate failed (400): Rate must be greater than 500";
+  const OUTAGE = "Cloudbeds patchRate failed (503): Service Unavailable";
+
+  /** Every cell for `room` is refused with `error` (and `httpStatus`). */
+  function refusing(room: string, error: string, httpStatus: number | null = null) {
+    const made = makeAdapter(CACHED_TWO);
+    made.adapter.pushCells = async (cells) =>
+      cells.map((cell) => {
+        made.attempts.push({ externalRoomTypeId: cell.externalRoomTypeId, externalRateId: cell.externalRateId });
+        return cell.externalRoomTypeId === room
+          ? { cell, ok: false, error, httpStatus }
+          : { cell, ok: true, jobReference: "job-1" };
+      });
+    return made;
+  }
+
+  it("carries a send's tries into a job rejection, for this run's jobs and earlier ones", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = makeSupabaseStub({
+      publishedPrice: [...PRICES_TWO, { stay_date: "2026-08-02", room_type_id: "rt-queen", price: 180, computed_at: JUST_NOW }],
+      roomTypes: ROOM_TYPES,
+      ledger: [
+        // Refused four times at this price by an outage; this run sends it again.
+        { stay_date: "2026-08-01", room_type_id: "rt-king", price: 210, status: "failed", attempts: 4, error: OUTAGE, pushed_at: minutesAgo(5) },
+        // Went out on an earlier run after three tries; its job is still open.
+        { stay_date: "2026-08-02", room_type_id: "rt-queen", external_room_type_id: "CB-QUEEN", price: 180, status: "sent", attempts: 3, pms_job_reference: "job-old", pushed_at: minutesAgo(10) },
+      ],
+      connection: { id: "conn-1", push_rate_targets: CACHED_TWO },
+    });
+    const { adapter } = makeAdapter(CACHED_TWO);
+    adapter.fetchJobOutcomes = async (refs) => Object.fromEntries(refs.map((r) => [r, { done: true, ok: false, message: "rate closed" }]));
+
+    const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter, WIDE);
+
+    expect(res).toMatchObject({ sent: 2, jobsRejected: 3 });
+    const corrected = (night: string, room: string) =>
+      db.ledgerUpserts.filter((r) => r.stay_date === night && r.room_type_id === room && r.status === "failed").at(-1);
+    expect(db.ledgerUpserts.find((r) => r.room_type_id === "rt-king" && r.status === "sent")).toMatchObject({ attempts: 5 });
+    expect(corrected("2026-08-01", "rt-king")).toMatchObject({ attempts: 5, error: "rate closed" });
+    expect(corrected("2026-08-01", "rt-queen")).toMatchObject({ attempts: 1 });
+    expect(corrected("2026-08-02", "rt-queen")).toMatchObject({ attempts: 3, pms_job_reference: "job-old" });
+  });
+
+  it("rests a cell whose jobs keep being rejected, instead of re-sending it every tick", async () => {
+    const db = makeSupabaseStub({
+      publishedPrice: PRICES_TWO,
+      roomTypes: ROOM_TYPES,
+      ledger: [
+        { stay_date: "2026-08-01", room_type_id: "rt-king", price: 210, status: "failed", attempts: 10, error: "rate closed", pms_job_reference: "job-9", pushed_at: minutesAgo(5) },
+      ],
+      connection: { id: "conn-1", push_rate_targets: CACHED_TWO },
+    });
+    const { adapter, attempts } = makeAdapter(CACHED_TWO);
+
+    const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter, WIDE);
+
+    expect(res).toMatchObject({ sent: 1, skippedExhausted: 1 });
+    expect(attempts.map((a) => a.externalRoomTypeId)).toEqual(["CB-QUEEN"]);
+  });
+
+  it("tries a cell that used its tries again once a day has passed", async () => {
+    const db = makeSupabaseStub({
+      publishedPrice: PRICES_TWO,
+      roomTypes: ROOM_TYPES,
+      ledger: [
+        { stay_date: "2026-08-01", room_type_id: "rt-king", price: 210, status: "failed", attempts: 10, error: OUTAGE, pushed_at: minutesAgo(25 * 60) },
+      ],
+      connection: { id: "conn-1", push_rate_targets: CACHED_TWO },
+    });
+    const { adapter, attempts } = refusing("CB-KING", OUTAGE, 503);
+
+    const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter, WIDE);
+
+    expect(res).toMatchObject({ sent: 1, failed: 1, skippedExhausted: 0 });
+    expect(attempts.map((a) => a.externalRoomTypeId)).toContain("CB-KING");
+    // Rests for another day straight away.
+    expect(db.ledgerUpserts.find((r) => r.room_type_id === "rt-king")).toMatchObject({ status: "failed", attempts: 11 });
+  });
+
+  it("holds a cell refused for a known critical cause from the first refusal, until its price changes", async () => {
+    const ledger: Row[] = [
+      { stay_date: "2026-08-01", room_type_id: "rt-king", price: 210, status: "failed", attempts: 1, error: VALUE_REFUSED, external_rate_id: "rate-100", pushed_at: minutesAgo(5) },
+    ];
+    const held = makeSupabaseStub({ publishedPrice: PRICES_TWO, roomTypes: ROOM_TYPES, ledger, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } });
+    const first = makeAdapter(CACHED_TWO);
+    expect(await pushRatesForHotel(held.supabase, "hotel-1", first.adapter, WIDE)).toMatchObject({ sent: 1, skippedHeld: 1, skippedExhausted: 0 });
+    expect(first.attempts.map((a) => a.externalRoomTypeId)).toEqual(["CB-QUEEN"]);
+
+    const repriced = makeSupabaseStub({
+      publishedPrice: [{ ...PRICES_TWO[0], price: 520 }, PRICES_TWO[1]],
+      roomTypes: ROOM_TYPES,
+      ledger,
+      connection: { id: "conn-1", push_rate_targets: CACHED_TWO },
+    });
+    const second = makeAdapter(CACHED_TWO);
+    const res = await pushRatesForHotel(repriced.supabase, "hotel-1", second.adapter, WIDE);
+    expect(res).toMatchObject({ sent: 2 });
+    expect(res).not.toHaveProperty("skippedHeld");
+  });
+
+  it("lets a held cell go when its room type now maps to a different rate", async () => {
+    const db = makeSupabaseStub({
+      publishedPrice: PRICES_TWO,
+      roomTypes: ROOM_TYPES,
+      ledger: [
+        { stay_date: "2026-08-01", room_type_id: "rt-king", price: 210, status: "failed", attempts: 2, error: "Cloudbeds patchRate failed (400): Invalid rateID", external_rate_id: "rate-gone", pushed_at: minutesAgo(5) },
+      ],
+      connection: { id: "conn-1", push_rate_targets: CACHED_TWO },
+    });
+    const { adapter, attempts } = makeAdapter(CACHED_TWO);
+
+    const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter, WIDE);
+
+    expect(res).toMatchObject({ sent: 2 });
+    expect(attempts).toContainEqual({ externalRoomTypeId: "CB-KING", externalRateId: "rate-100" });
+  });
+
+  it("keeps the cached targets through an outage or a refused value", async () => {
+    for (const [error, status] of [
+      [OUTAGE, 503],
+      [VALUE_REFUSED, 400],
+    ] as const) {
+      const db = makeSupabaseStub({ publishedPrice: PRICES_TWO, roomTypes: ROOM_TYPES, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } });
+      const { adapter } = refusing("CB-KING", error, status);
+      expect(await pushRatesForHotel(db.supabase, "hotel-1", adapter, WIDE)).toMatchObject({ failed: 1 });
+      expect(db.connectionUpdates).toEqual([]);
+    }
+  });
+
+  it("takes a job never reported on as not applied, so the cell goes out again", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = makeSupabaseStub({
+      publishedPrice: PRICES_TWO.slice(0, 1),
+      roomTypes: ROOM_TYPES,
+      ledger: [
+        { stay_date: "2026-08-01", room_type_id: "rt-king", external_room_type_id: "CB-KING", price: 210, status: "sent", attempts: 1, pms_job_reference: "job-lost", pushed_at: minutesAgo(50) },
+      ],
+      connection: { id: "conn-1", push_rate_targets: CACHED_TWO },
+    });
+    const { adapter } = makeAdapter(CACHED_TWO);
+    adapter.fetchJobOutcomes = async () => ({});
+
+    const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter, WIDE);
+
+    expect(res).toMatchObject({ sent: 0, jobsRejected: 0, jobsUnconfirmed: 1 });
+    expect(db.ledgerUpserts).toEqual([
+      expect.objectContaining({ status: "failed", error: "rate job never confirmed", pms_job_reference: "job-lost", attempts: 1 }),
+    ]);
+  });
+});
+
+describe("pushRatesForHotel files failures as incidents", () => {
+  function liveHotel(price: number, ledger: Row[] = []) {
+    return fakeSupabase({
+      hotel_settings: [{ hotel_id: "hotel-1", simulation_mode: false }],
+      room_types: [{ id: "rt-king", hotel_id: "hotel-1", external_room_type_id: "CB-KING", ...OPEN_BOUNDS }],
+      published_price: [{ hotel_id: "hotel-1", stay_date: "2026-08-01", room_type_id: "rt-king", price, computed_at: new Date().toISOString() }],
+      pms_connections: [{ id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", push_rate_targets: { "CB-KING": "rate-100" } }],
+      rate_updates: ledger,
+    });
+  }
+  const incidentCalls = (db: ReturnType<typeof liveHotel>) => db.calls.filter((c) => c.table.startsWith("rate_push_"));
+
+  it("makes no incident call on a clean run with nothing failing on record", async () => {
+    const db = liveHotel(210);
+    const { adapter } = makeAdapter({ "CB-KING": "rate-100" });
+
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+
+    expect(res).toMatchObject({ sent: 1 });
+    expect(res).not.toHaveProperty("incidents");
+    expect(incidentCalls(db)).toEqual([]);
+  });
+
+  it("opens an incident for a refused price, shows it to the owner, and closes it when a new price lands", async () => {
+    const db = liveHotel(210);
+    const refused = makeAdapter({ "CB-KING": "rate-100" });
+    refused.adapter.pushCells = async (cells) =>
+      cells.map((cell) => ({ cell, ok: false, error: "Cloudbeds patchRate failed (400): Rate must be greater than 500", httpStatus: 400 }));
+
+    const first = await pushRatesForHotel(db.client, "hotel-1", refused.adapter, WIDE);
+
+    expect(first).toMatchObject({ failed: 1, incidents: { opened: 1, escalated: 1 } });
+    expect(db.tables.rate_push_incidents).toEqual([
+      expect.objectContaining({ hotel_id: "hotel-1", cause: "value_rejected", severity: "critical", resolved_at: null }),
+    ]);
+    expect(db.tables.rate_push_incidents[0].customer_visible_at).not.toBeNull();
+    expect(db.tables.rate_push_attempts).toEqual([
+      expect.objectContaining({ phase: "send", outcome: "failed", http_status: 400, price: 210, stay_date: "2026-08-01", room_type_id: "rt-king" }),
+    ]);
+
+    // Held at that price: nothing is sent and the incident stays open.
+    const held = await pushRatesForHotel(db.client, "hotel-1", makeAdapter({ "CB-KING": "rate-100" }).adapter, WIDE);
+    expect(held).toMatchObject({ sent: 0, skippedHeld: 1 });
+    expect(db.tables.rate_push_incidents[0].resolved_at).toBeNull();
+
+    // The engine moves the price and it lands.
+    db.tables.published_price[0].price = 520;
+    const landed = await pushRatesForHotel(db.client, "hotel-1", makeAdapter({ "CB-KING": "rate-100" }).adapter, WIDE);
+    expect(landed).toMatchObject({ sent: 1, incidents: { resolved: 1 } });
+    expect(db.tables.rate_push_incidents[0]).toMatchObject({ resolution: "superseded" });
+
+    // Nothing failing any more: back to no incident calls at all.
+    const before = incidentCalls(db).length;
+    db.tables.published_price[0].price = 530;
+    await pushRatesForHotel(db.client, "hotel-1", makeAdapter({ "CB-KING": "rate-100" }).adapter, WIDE);
+    expect(incidentCalls(db)).toHaveLength(before);
+  });
+
+  it("files a room type whose only rates follow another plan under that cause", async () => {
+    const db = liveHotel(210);
+    const { adapter } = makeAdapter({ "CB-QUEEN": "rate-200" });
+    adapter.missingTargetReason = (ext) => (ext === "CB-KING" ? "derived_only" : null);
+    db.tables.pms_connections[0].push_rate_targets = null;
+
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+
+    expect(res).toMatchObject({ skippedNoTarget: 1, incidents: { opened: 1 } });
+    expect(db.tables.rate_push_incidents[0]).toMatchObject({ cause: "rate_plan_not_updatable", admin_only: false });
+    expect(db.tables.rate_push_attempts[0]).toMatchObject({ phase: "guardrail", outcome: "skipped", message: "no rate target for room type" });
+  });
+
+  it("never lets recording undo a push", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = fakeSupabase(
+      {
+        hotel_settings: [{ hotel_id: "hotel-1", simulation_mode: false }],
+        room_types: [{ id: "rt-king", hotel_id: "hotel-1", external_room_type_id: "CB-KING", ...OPEN_BOUNDS }],
+        published_price: [{ hotel_id: "hotel-1", stay_date: "2026-08-01", room_type_id: "rt-king", price: 210, computed_at: new Date().toISOString() }],
+        pms_connections: [{ id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", push_rate_targets: { "CB-KING": "rate-100" } }],
+      },
+      { fault: (c) => (c.table.startsWith("rate_push_") ? missingRelation(c.table) : null) },
+    );
+    const { adapter } = makeAdapter({ "CB-KING": "rate-100" }, "CB-KING");
+
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+
+    expect(res).toMatchObject({ pushed: true, failed: 1, incidents: { error: expect.stringContaining("rate_push_incidents") } });
+    expect(db.tables.rate_updates).toEqual([expect.objectContaining({ status: "failed" })]);
+    errors.mockRestore();
   });
 });

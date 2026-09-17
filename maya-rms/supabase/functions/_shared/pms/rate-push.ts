@@ -12,8 +12,13 @@
  *     is enabled, so deploying the code changes nothing until you opt in.
  *   • Idempotency — a cell is skipped when the ledger already recorded a 'sent'
  *     push at the same price, so we never spam unchanged rates.
- *   • Give-up — a cell the PMS has rejected MAX_PUSH_ATTEMPTS times at the
- *     same price is retired until the engine publishes a different number.
+ *   • Retries — every failure is classified (push-failure.ts). A cause that
+ *     clears on its own is retried quietly each tick, up to MAX_PUSH_ATTEMPTS
+ *     at one price, then once a day. A known critical cause is not sent again
+ *     until the price or the cell's rate target changes, or a day has passed.
+ *   • Incidents — failures are filed by cause and the owner hears about the
+ *     ones that need a person (push-incidents.ts). A run with nothing failing
+ *     and nothing on record as failing makes no extra database call for this.
  *   • Target freshness — the cached room-type→rate map is re-resolved whenever a
  *     cell it doesn't cover shows up, and dropped after a push rejection, so a
  *     new room type or a rebuilt rate catalog heals on the next tick.
@@ -41,6 +46,20 @@ import {
   NO_RATE_TARGET_REASON,
   pushMaxPriceAgeMs,
 } from "./push-guardrails.ts";
+import {
+  classifyPushFailure,
+  isIncidentSkipReason,
+  JOB_UNCONFIRMED_MESSAGE,
+  type PushFailure,
+  retryDecision,
+  type TargetGap,
+} from "./push-failure.ts";
+import {
+  type IncidentRecordSummary,
+  recordPushIncidents,
+  type RunCell,
+  type RunFailure,
+} from "./push-incidents.ts";
 
 /** external_room_type_id -> external rate identifier (Cloudbeds base rateID, etc.). */
 export type RateTargetMap = Record<string, string>;
@@ -57,6 +76,8 @@ export type CellPushResult = {
   ok: boolean;
   jobReference?: string | null;
   error?: string;
+  /** The HTTP status of a refused send, when the vendor answered with one. */
+  httpStatus?: number | null;
   /**
    * Not attempted: the deadline passed before its call started. Not a
    * failure, and not recorded, so the next tick sends it.
@@ -81,6 +102,13 @@ export interface PmsRatePushAdapter {
    * vendor whose catalog read needs a date window.
    */
   resolveRateTargets(opts?: { today?: string }): Promise<RateTargetMap>;
+  /**
+   * Why the last catalog read left this room type out of the map, when the
+   * adapter can tell: its only rates follow another plan, it has rates but
+   * none is a base, or the catalog does not list it at all. Null when there
+   * has been no read yet or the vendor's catalog does not say. Optional.
+   */
+  missingTargetReason?(externalRoomTypeId: string): TargetGap | null;
   /**
    * Push cells (already carrying their externalRateId); batch internally per
    * vendor limits. No vendor call starts after `deadlineAt`: the cells it
@@ -167,6 +195,8 @@ export type RatePushSummary =
       skippedUnchanged: number;
       skippedNoTarget: number;
       skippedExhausted: number;
+      /** Failed cells not re-sent: their cause is known and critical, and nothing about them changed. */
+      skippedHeld?: number;
       /** Changed cells held back by a guardrail, recorded as skipped. */
       skippedGuardrail: number;
       /** skippedGuardrail by reason code, when there were any. */
@@ -183,15 +213,10 @@ export type RatePushSummary =
        * ledger row to show for it.
        */
       ledgerWriteFailed?: { unrecorded: number; error: string };
+      /** What recording failures as incidents did, when there was anything to record. */
+      incidents?: IncidentRecordSummary | { error: string };
     };
 
-/**
- * Rejected writes stop being retried at this many attempts per price. A rate
- * plan that has refused the same number this often will not take it on the
- * next tick either — without a ceiling every cell it rejects is re-sent every
- * tick, forever. A new engine price starts the count over.
- */
-const MAX_PUSH_ATTEMPTS = 10;
 /** Cells handed to one adapter.pushCells call. 300 is ten full Cloudbeds patchRate calls. */
 const PUSH_BATCH_CELLS = 300;
 /**
@@ -201,15 +226,17 @@ const PUSH_BATCH_CELLS = 300;
  * time, used to be recorded as sent for good: nothing ever asked again.
  */
 const RECONCILE_LOOKBACK_MS = 60 * 60_000;
-/** Past this age a job still undecided is logged, once per isolate. */
+/**
+ * Past this age a job the vendor has not reported on is taken as not applied:
+ * its cells are written back as failed and sent again (reconcileJobOutcomes).
+ */
 const RECONCILE_UNCONFIRMED_AFTER_MS = 45 * 60_000;
-const loggedUnconfirmed = new Set<string>();
 /**
  * Earlier jobs this isolate has already seen decided, by hotel, PMS and job
  * reference. A confirmed job's cells stay "sent" in the ledger for the whole
  * lookback, so without this every tick asked the vendor about it again,
- * counted its cells as confirmed again, and logged rate_job_unconfirmed once
- * it dropped off the vendor's recent-jobs list.
+ * counted its cells as confirmed again, and took it as unconfirmed once it
+ * dropped off the vendor's recent-jobs list.
  */
 const decidedJobs = new Set<string>();
 const DECIDED_JOBS_MAX = 5000;
@@ -307,24 +334,34 @@ export async function pushRatesForHotel(
   const ledgerRows = await fetchAll(() =>
     supabase
       .from("rate_updates")
-      .select("room_type_id, external_room_type_id, stay_date, price, status, attempts, error, pms_job_reference, pushed_at")
+      .select(
+        "room_type_id, external_room_type_id, stay_date, price, status, attempts, error, pms_job_reference, external_rate_id, pushed_at",
+      )
       .eq("hotel_id", hotelId)
       .gte("stay_date", firstDate)
       .lte("stay_date", lastDate)
       .order("stay_date", { ascending: true })
       .order("room_type_id", { ascending: true }),
   );
+  const nowMs = Date.now();
   const lastSent = new Map<string, number>();
-  const lastFailed = new Map<string, { price: number; attempts: number }>();
+  const lastFailed = new Map<string, FailedCell>();
   const priorRow = new Map<string, { status: unknown; price: unknown; attempts: unknown; error: unknown }>();
+  // Tries a sent cell took at its price, so a job rejected later carries the count on.
+  const sentAttempts = new Map<string, number>();
   // Cells an earlier run sent whose job may not have been confirmed yet.
   const recentlySent: Array<{ key: string; ref: string; pushedAt: number; result: CellPushResult }> = [];
-  const lookbackFrom = Date.now() - RECONCILE_LOOKBACK_MS;
+  // Something in the window is on record as failing or held back, so an
+  // incident may be open. Without it, and without a failure this run, the
+  // incident tables are never read.
+  let mayHaveOpen = false;
+  const lookbackFrom = nowMs - RECONCILE_LOOKBACK_MS;
   for (const l of ledgerRows) {
     const key = `${l.stay_date}|${String(l.room_type_id)}`;
     priorRow.set(key, { status: l.status, price: l.price, attempts: l.attempts, error: l.error });
     if (l.status === "sent" && l.price != null) {
       lastSent.set(key, Number(l.price));
+      sentAttempts.set(key, Number(l.attempts) || 1);
       const ref = l.pms_job_reference != null ? String(l.pms_job_reference) : "";
       const pushedAt = l.pushed_at != null ? Date.parse(String(l.pushed_at)) : NaN;
       // "accepted:" is a synchronous vendor's stand-in, not a job to look up.
@@ -346,9 +383,22 @@ export async function pushRatesForHotel(
         });
       }
     } else if (l.status === "failed" && l.price != null) {
-      lastFailed.set(key, { price: Number(l.price), attempts: Number(l.attempts) || 1 });
+      mayHaveOpen = true;
+      lastFailed.set(key, {
+        price: Number(l.price),
+        attempts: Number(l.attempts) || 1,
+        error: l.error != null ? String(l.error) : null,
+        jobReference: l.pms_job_reference != null ? String(l.pms_job_reference) : null,
+        externalRateId: l.external_rate_id != null ? String(l.external_rate_id) : null,
+        pushedAtMs: l.pushed_at != null ? Date.parse(String(l.pushed_at)) : NaN,
+      });
+    } else if (l.status === "skipped" && isIncidentSkipReason(l.error)) {
+      mayHaveOpen = true;
     }
   }
+
+  // What this run did to each cell, and the failures it hit, for push-incidents.ts.
+  const run: RunTrack = { cells: new Map(), failures: [] };
 
   // ── Which cells changed since the last successful push? ───────────────────
   const candidates: Array<RateCell & { computedAtMs: number; roomType: GuardrailRoomType }> = [];
@@ -363,8 +413,10 @@ export async function pushRatesForHotel(
       continue;
     }
     const price = p.price == null ? NaN : Number(p.price);
-    if (lastSent.get(`${p.stay_date}|${roomTypeId}`) === price) {
+    const key = `${p.stay_date}|${roomTypeId}`;
+    if (lastSent.get(key) === price) {
       skippedUnchanged += 1; // unchanged since last send
+      run.cells.set(key, { stayDate: String(p.stay_date), roomTypeId, price, state: "landed" });
       continue;
     }
     candidates.push({
@@ -391,9 +443,12 @@ export async function pushRatesForHotel(
   const guardrailRows: Record<string, unknown>[] = [];
   const guardrails: Partial<Record<GuardrailCode, number>> = {};
   let skippedGuardrail = 0;
-  let skippedExhausted = 0;
+  // Failed cells not sent this run: a critical cause is holding them, or they
+  // used their tries at this price. Both wait a day unless the target moves.
+  const sittingOut: Array<{ cell: RateCell; failed: FailedCell; verdict: "held" | "exhausted" }> = [];
   for (const c of candidates) {
     const key = `${c.stayDate}|${c.roomTypeId}`;
+    const cell: RateCell = { stayDate: c.stayDate, roomTypeId: c.roomTypeId, externalRoomTypeId: c.externalRoomTypeId, price: c.price };
     const code = checkPushGuardrails({
       stayDate: c.stayDate,
       price: c.price,
@@ -408,16 +463,26 @@ export async function pushRatesForHotel(
     if (code) {
       skippedGuardrail += 1;
       guardrails[code] = (guardrails[code] ?? 0) + 1;
+      const failure = classifyPushFailure({ pms: adapter.pmsType, phase: "guardrail", message: code });
+      run.cells.set(key, { ...cellRef(cell), state: "failing", failure });
       const row = skippedLedgerRow(hotelId, adapter.pmsType, c, code, priorRow.get(key), nowIso);
-      if (row) guardrailRows.push(row);
+      if (row) {
+        guardrailRows.push(row);
+        run.failures.push(skipFailure(cell, code, failure, nowIso));
+      }
       continue;
     }
     const failed = lastFailed.get(key);
-    if (failed && failed.price === c.price && failed.attempts >= MAX_PUSH_ATTEMPTS) {
-      skippedExhausted += 1;
-      continue;
+    if (failed && failed.price === c.price) {
+      const failure = ledgerFailure(adapter.pmsType, failed);
+      const verdict = retryDecision({ failure, attempts: failed.attempts, lastAttemptAtMs: failed.pushedAtMs, nowMs });
+      if (verdict !== "retry") {
+        sittingOut.push({ cell, failed, verdict });
+        run.cells.set(key, { ...cellRef(cell), state: "failing", failure });
+        continue;
+      }
     }
-    changed.push({ stayDate: c.stayDate, roomTypeId: c.roomTypeId, externalRoomTypeId: c.externalRoomTypeId, price: c.price });
+    changed.push(cell);
   }
 
   const summary = {
@@ -427,10 +492,11 @@ export async function pushRatesForHotel(
     failed: 0,
     skippedUnchanged,
     skippedNoTarget: 0,
-    skippedExhausted,
+    skippedExhausted: sittingOut.filter((s) => s.verdict === "exhausted").length,
     skippedGuardrail,
     ...(skippedGuardrail > 0 ? { guardrails } : {}),
   };
+  let skippedHeld = sittingOut.length - summary.skippedExhausted;
 
   // Held-back cells are recorded before anything is sent. A ledger that
   // cannot take these will not take the sends either.
@@ -439,6 +505,7 @@ export async function pushRatesForHotel(
     logLedgerWriteFailed(hotelId, adapter.pmsType, "guardrail_skips", guardrailWrite, 0);
     return {
       ...summary,
+      ...(skippedHeld > 0 ? { skippedHeld } : {}),
       ...(changed.length > 0 ? { deferred: changed.length } : {}),
       ledgerWriteFailed: { unrecorded: 0, error: guardrailWrite },
     };
@@ -448,11 +515,30 @@ export async function pushRatesForHotel(
     const earlier = earlierJobs(recentlySent, new Set(), (ref) => decidedJobs.has(decidedKey(hotelId, adapter.pmsType, ref)));
     const jobConfirmed =
       earlier.size > 0
-        ? await reconcileJobOutcomes(supabase, hotelId, adapter, [], nowIso, earlier, opts.deadlineAt)
+        ? await reconcileJobOutcomes(supabase, hotelId, adapter, [], nowIso, earlier, opts.deadlineAt, { run, sentAttempts })
         : null;
+    // No map was loaded this run, so the stale one is dropped by hotel.
+    if (jobConfirmed?.dropTargets) {
+      const { error } = await supabase
+        .from("pms_connections")
+        .update({ push_rate_targets: null })
+        .eq("hotel_id", hotelId)
+        .eq("pms_type", adapter.pmsType);
+      if (error) logTargetsWriteFailed(hotelId, adapter.pmsType, "drop", error.message);
+    }
+    const incidents = await recordPushIncidents(supabase, {
+      hotelId,
+      pmsType: adapter.pmsType,
+      nowMs,
+      cells: run.cells,
+      failures: run.failures,
+      mayHaveOpen,
+    });
     return {
       ...summary,
-      ...(jobConfirmed != null ? { jobsConfirmed: jobConfirmed.ok, jobsRejected: jobConfirmed.rejected } : {}),
+      ...(skippedHeld > 0 ? { skippedHeld } : {}),
+      ...(jobConfirmed != null ? jobSummary(jobConfirmed) : {}),
+      ...(incidents ? { incidents } : {}),
     };
   }
 
@@ -503,19 +589,50 @@ export async function pushRatesForHotel(
     return { pushed: false, reason: "no_rate_targets" };
   }
 
+  // A cell sitting out whose room type now maps to a different rate than the
+  // one that failed is a new question, so it goes out with the rest.
+  let requeued = 0;
+  for (const s of sittingOut) {
+    const rateId = targets[s.cell.externalRoomTypeId];
+    if (!rateId || !s.failed.externalRateId || rateId === s.failed.externalRateId) continue;
+    changed.push(s.cell);
+    requeued += 1;
+    if (s.verdict === "exhausted") summary.skippedExhausted -= 1;
+    else skippedHeld -= 1;
+  }
+  if (requeued > 0) {
+    // Nearest nights first, as the published rows were read.
+    changed.sort((a, b) =>
+      a.stayDate < b.stayDate ? -1 : a.stayDate > b.stayDate ? 1 : a.roomTypeId < b.roomTypeId ? -1 : a.roomTypeId > b.roomTypeId ? 1 : 0,
+    );
+  }
+
   // Attach rate ids; separate cells with no target
   const withTarget: Array<RateCell & { externalRateId: string }> = [];
   const noTargetRows: Record<string, unknown>[] = [];
   let skippedNoTarget = 0;
   for (const c of changed) {
     const rateId = targets[c.externalRoomTypeId];
+    const key = `${c.stayDate}|${c.roomTypeId}`;
     if (rateId) {
       withTarget.push({ ...c, externalRateId: rateId });
+      // Until the PMS answers for it.
+      run.cells.set(key, { ...cellRef(c), state: "waiting" });
       continue;
     }
     skippedNoTarget += 1;
-    const row = skippedLedgerRow(hotelId, adapter.pmsType, c, NO_RATE_TARGET_REASON, priorRow.get(`${c.stayDate}|${c.roomTypeId}`), nowIso);
-    if (row) noTargetRows.push(row);
+    const failure = classifyPushFailure({
+      pms: adapter.pmsType,
+      phase: "guardrail",
+      message: NO_RATE_TARGET_REASON,
+      targetGap: adapter.missingTargetReason?.(c.externalRoomTypeId) ?? null,
+    });
+    run.cells.set(key, { ...cellRef(c), state: "failing", failure });
+    const row = skippedLedgerRow(hotelId, adapter.pmsType, c, NO_RATE_TARGET_REASON, priorRow.get(key), nowIso);
+    if (row) {
+      noTargetRows.push(row);
+      run.failures.push(skipFailure(c, NO_RATE_TARGET_REASON, failure, nowIso));
+    }
   }
   summary.skippedNoTarget = skippedNoTarget;
 
@@ -524,6 +641,7 @@ export async function pushRatesForHotel(
     logLedgerWriteFailed(hotelId, adapter.pmsType, "no_target_skips", noTargetWrite, 0);
     return {
       ...summary,
+      ...(skippedHeld > 0 ? { skippedHeld } : {}),
       ...(withTarget.length > 0 ? { deferred: withTarget.length } : {}),
       ledgerWriteFailed: { unrecorded: 0, error: noTargetWrite },
     };
@@ -536,6 +654,7 @@ export async function pushRatesForHotel(
   let deferred = 0;
   let sent = 0;
   let failed = 0;
+  let staleTargets = false;
   let ledgerWriteFailed: { unrecorded: number; error: string } | undefined;
   for (let i = 0; i < withTarget.length; i += PUSH_BATCH_CELLS) {
     if (opts.deadlineAt != null && Date.now() > opts.deadlineAt) {
@@ -562,6 +681,39 @@ export async function pushRatesForHotel(
       break;
     }
     results.push(...attempted);
+    attempted.forEach((r, n) => {
+      const key = `${r.cell.stayDate}|${r.cell.roomTypeId}`;
+      const tries = Number(rows[n].attempts);
+      if (r.ok) {
+        sentAttempts.set(key, tries);
+        run.cells.set(key, {
+          ...cellRef(r.cell),
+          state: "landed",
+          sent: { at: batchAt, phase: "send", jobReference: r.jobReference ?? null },
+        });
+        return;
+      }
+      const message = rows[n].error != null ? String(rows[n].error) : null;
+      const failure = classifyPushFailure({
+        pms: adapter.pmsType,
+        phase: "send",
+        httpStatus: r.httpStatus ?? null,
+        message,
+        attempt: tries,
+      });
+      if (failure.dropTargets) staleTargets = true;
+      run.cells.set(key, { ...cellRef(r.cell), state: "failing", failure });
+      run.failures.push({
+        ...cellRef(r.cell),
+        at: batchAt,
+        phase: "send",
+        outcome: "failed",
+        httpStatus: r.httpStatus ?? null,
+        message,
+        jobReference: null,
+        failure,
+      });
+    });
   }
 
   // "Accepted" is not "applied". patchRate queues a job, so a cell we just
@@ -577,25 +729,93 @@ export async function pushRatesForHotel(
     new Set(results.map((r) => `${r.cell.stayDate}|${r.cell.roomTypeId}`)),
     (ref) => decidedJobs.has(decidedKey(hotelId, adapter.pmsType, ref)),
   );
-  const jobConfirmed = await reconcileJobOutcomes(supabase, hotelId, adapter, results, nowIso, earlier, opts.deadlineAt);
+  const jobConfirmed = await reconcileJobOutcomes(supabase, hotelId, adapter, results, nowIso, earlier, opts.deadlineAt, {
+    run,
+    sentAttempts,
+  });
 
-  // Rejections against cached rate ids usually mean the catalog was rebuilt and
-  // those ids are gone. Failed cells stay "changed" (only sends land in the
-  // ledger's lastSent), so dropping the cache is enough for the next tick to
-  // re-resolve and retry them instead of hammering dead ids forever.
-  if (failed > 0 && usingCache && conn?.id) {
+  // A refusal that can mean the cached rate ids are gone (the catalog was
+  // rebuilt) drops the cache. Failed cells stay "changed" (only sends land in
+  // the ledger's lastSent), so the next tick re-resolves and retries them
+  // instead of hammering dead ids. An outage or a refused value says nothing
+  // about the ids, and re-reading the catalog then only adds load.
+  if ((staleTargets || jobConfirmed?.dropTargets) && usingCache && conn?.id) {
     const { error } = await supabase.from("pms_connections").update({ push_rate_targets: null }).eq("id", conn.id);
     // Left in place, the dead ids are tried again next tick and dropped then.
     if (error) logTargetsWriteFailed(hotelId, adapter.pmsType, "drop", error.message);
   }
 
+  // A ledger that could not take a batch leaves cells whose state nobody
+  // knows; the next run records what it finds.
+  const incidents = ledgerWriteFailed
+    ? null
+    : await recordPushIncidents(supabase, {
+        hotelId,
+        pmsType: adapter.pmsType,
+        nowMs,
+        cells: run.cells,
+        failures: run.failures,
+        mayHaveOpen,
+      });
+
   return {
     ...summary,
     sent,
     failed,
-    ...(jobConfirmed != null ? { jobsConfirmed: jobConfirmed.ok, jobsRejected: jobConfirmed.rejected } : {}),
+    ...(skippedHeld > 0 ? { skippedHeld } : {}),
+    ...(jobConfirmed != null ? jobSummary(jobConfirmed) : {}),
     ...(deferred > 0 ? { deferred } : {}),
     ...(ledgerWriteFailed ? { ledgerWriteFailed } : {}),
+    ...(incidents ? { incidents } : {}),
+  };
+}
+
+/** A failed ledger row, as the retry decision reads it. */
+type FailedCell = {
+  price: number;
+  attempts: number;
+  error: string | null;
+  jobReference: string | null;
+  /** The rate it was sent to, so a re-resolved target that differs lets it go again. */
+  externalRateId: string | null;
+  pushedAtMs: number;
+};
+
+type RunTrack = { cells: Map<string, RunCell>; failures: RunFailure[] };
+
+function cellRef(c: RateCell): { stayDate: string; roomTypeId: string; price: number } {
+  return { stayDate: c.stayDate, roomTypeId: c.roomTypeId, price: c.price };
+}
+
+/** A failed row's cause. A real job reference means the vendor's job queue refused it. */
+function ledgerFailure(pmsType: string, failed: FailedCell): PushFailure {
+  const job = !!failed.jobReference && !failed.jobReference.startsWith("accepted:");
+  return classifyPushFailure({
+    pms: pmsType,
+    phase: job ? "job" : "send",
+    message: failed.error,
+    attempt: failed.attempts,
+  });
+}
+
+function skipFailure(c: RateCell, reason: string, failure: PushFailure, at: string): RunFailure {
+  return {
+    ...cellRef(c),
+    at,
+    phase: "guardrail",
+    outcome: "skipped",
+    httpStatus: null,
+    message: reason,
+    jobReference: null,
+    failure,
+  };
+}
+
+function jobSummary(j: { ok: number; rejected: number; unconfirmed: number }) {
+  return {
+    jobsConfirmed: j.ok,
+    jobsRejected: j.rejected,
+    ...(j.unconfirmed > 0 ? { jobsUnconfirmed: j.unconfirmed } : {}),
   };
 }
 
@@ -618,7 +838,7 @@ function attemptLedgerRow(
   r: CellPushResult,
   lastFailed: Map<string, { price: number; attempts: number }>,
   pushedAt: string,
-): Record<string, unknown> {
+): Record<string, unknown> & { attempts: number; error: string | null } {
   const prior = lastFailed.get(`${r.cell.stayDate}|${r.cell.roomTypeId}`);
   return {
     hotel_id: hotelId,
@@ -632,9 +852,10 @@ function attemptLedgerRow(
     pms_job_reference: r.jobReference ?? null,
     // Vendor text: cut, and only ever the vendor's own message about the call.
     error: r.ok ? null : (r.error ?? "push failed").slice(0, 300),
-    // Counted per price, so MAX_PUSH_ATTEMPTS can retire a cell the PMS
-    // keeps rejecting without ever giving up on a freshly computed number.
-    attempts: r.ok ? 1 : prior && prior.price === r.cell.price ? prior.attempts + 1 : 1,
+    // Tries at this price, this one included, so MAX_PUSH_ATTEMPTS can rest a
+    // cell the PMS keeps refusing without giving up on a new number. A send
+    // keeps the count too: its job can still come back rejected.
+    attempts: prior && prior.price === r.cell.price ? prior.attempts + 1 : 1,
     pushed_at: pushedAt,
   };
 }
@@ -804,7 +1025,15 @@ function earlierJobs(
  * more than reporting: the idempotency check treats a sent row as the last
  * price the PMS accepted, so leaving a failure recorded as sent would make the
  * next tick skip that cell as unchanged and the wrong rate would stand
- * indefinitely. Marking it failed puts the cell back in play.
+ * indefinitely. Marking it failed puts the cell back in play. It keeps the
+ * tries its send had used, so a rate plan that rejects every job rests after
+ * MAX_PUSH_ATTEMPTS like one that refuses the send, instead of being re-sent
+ * every tick forever.
+ *
+ * A job the vendor has still not reported on RECONCILE_UNCONFIRMED_AFTER_MS
+ * after it went out is written back the same way, as JOB_UNCONFIRMED_MESSAGE.
+ * Nothing says it applied, and a queue that quietly dropped it would
+ * otherwise leave the cell looking live for good.
  *
  * Never throws. This is reconciliation after the fact — the prices are already
  * pushed, and a vendor hiccup here must not turn a good push into an error.
@@ -817,7 +1046,8 @@ async function reconcileJobOutcomes(
   nowIso: string,
   earlier: Map<string, { pushedAt: number; cells: CellPushResult[] }> = new Map(),
   deadlineAt?: number,
-): Promise<{ ok: number; rejected: number } | null> {
+  track?: { run: RunTrack; sentAttempts: Map<string, number> },
+): Promise<{ ok: number; rejected: number; unconfirmed: number; dropTargets: boolean } | null> {
   if (!adapter.fetchJobOutcomes) return null;
 
   const byJob = new Map<string, CellPushResult[]>();
@@ -852,28 +1082,47 @@ async function reconcileJobOutcomes(
     }
     let ok = 0;
     let rejected = 0;
+    let unconfirmed = 0;
     const corrections: Record<string, unknown>[] = [];
-    const rejectedRefs: string[] = [];
+    const correctedRefs: string[] = [];
+    const failures: Array<{ cell: RateCell; failure: PushFailure; message: string; jobRef: string; outcome: "rejected" | "unconfirmed" }> = [];
+
+    const correct = (jobRef: string, cells: CellPushResult[], message: string, outcome: "rejected" | "unconfirmed") => {
+      correctedRefs.push(jobRef);
+      for (const c of cells) {
+        const attempts = track?.sentAttempts.get(`${c.cell.stayDate}|${c.cell.roomTypeId}`) ?? 1;
+        corrections.push({
+          hotel_id: hotelId,
+          pms_type: adapter.pmsType,
+          room_type_id: c.cell.roomTypeId,
+          external_room_type_id: c.cell.externalRoomTypeId,
+          stay_date: c.cell.stayDate,
+          price: c.cell.price,
+          status: "failed",
+          pms_job_reference: jobRef,
+          error: message,
+          attempts,
+          pushed_at: nowIso,
+        });
+        failures.push({
+          cell: c.cell,
+          failure: classifyPushFailure({ pms: adapter.pmsType, phase: "job", message, attempt: attempts }),
+          message,
+          jobRef,
+          outcome,
+        });
+      }
+    };
 
     for (const [jobRef, cells] of byJob) {
       const outcome = outcomes[jobRef];
       if (!outcome || !outcome.done) {
         // Still running, or not in the vendor's list this time: ask again next
-        // tick, for up to RECONCILE_LOOKBACK_MS after it was sent.
+        // tick, until it has gone unreported too long to count as applied.
         const sentAt = earlier.get(jobRef)?.pushedAt;
-        if (sentAt != null && Date.now() - sentAt > RECONCILE_UNCONFIRMED_AFTER_MS && !loggedUnconfirmed.has(jobRef)) {
-          if (loggedUnconfirmed.size > 5000) loggedUnconfirmed.clear();
-          loggedUnconfirmed.add(jobRef);
-          console.error(
-            JSON.stringify({
-              fn: "reconcileJobOutcomes",
-              hotelId,
-              pmsType: adapter.pmsType,
-              jobReference: jobRef,
-              cells: cells.length,
-              event: "rate_job_unconfirmed",
-            }),
-          );
+        if (sentAt != null && Date.now() - sentAt > RECONCILE_UNCONFIRMED_AFTER_MS) {
+          unconfirmed += cells.length;
+          correct(jobRef, cells, JOB_UNCONFIRMED_MESSAGE, "unconfirmed");
         }
         continue;
       }
@@ -885,25 +1134,11 @@ async function reconcileJobOutcomes(
       // A rejected job only counts as decided once its cells are stored as
       // failed. If that write fails, the ledger still says sent, and asking
       // again next tick is what gets the correction written.
-      rejectedRefs.push(jobRef);
       rejected += cells.length;
-      for (const c of cells) {
-        corrections.push({
-          hotel_id: hotelId,
-          pms_type: adapter.pmsType,
-          room_type_id: c.cell.roomTypeId,
-          external_room_type_id: c.cell.externalRoomTypeId,
-          stay_date: c.cell.stayDate,
-          price: c.cell.price,
-          status: "failed",
-          pms_job_reference: jobRef,
-          error: (outcome.message ?? "rate job rejected").slice(0, 300),
-          attempts: 1,
-          pushed_at: nowIso,
-        });
-      }
+      correct(jobRef, cells, (outcome.message ?? "rate job rejected").slice(0, 300), "rejected");
     }
 
+    let dropTargets = false;
     if (corrections.length > 0) {
       const { error: correctionError } = await supabase
         .from("rate_updates")
@@ -918,20 +1153,40 @@ async function reconcileJobOutcomes(
             event: "rate_job_correction_failed",
           }),
         );
-        return { ok, rejected };
+        return { ok, rejected, unconfirmed, dropTargets: false };
       }
-      for (const ref of rejectedRefs) markDecided(hotelId, adapter.pmsType, ref);
+      for (const ref of correctedRefs) markDecided(hotelId, adapter.pmsType, ref);
+      for (const f of failures) {
+        if (f.failure.dropTargets) dropTargets = true;
+        if (!track) continue;
+        track.run.cells.set(`${f.cell.stayDate}|${f.cell.roomTypeId}`, {
+          ...cellRef(f.cell),
+          state: "failing",
+          failure: f.failure,
+        });
+        track.run.failures.push({
+          ...cellRef(f.cell),
+          at: nowIso,
+          phase: "job",
+          outcome: f.outcome,
+          httpStatus: null,
+          message: f.message,
+          jobReference: f.jobRef,
+          failure: f.failure,
+        });
+      }
       console.error(
         JSON.stringify({
           fn: "reconcileJobOutcomes",
           hotelId,
           pmsType: adapter.pmsType,
-          rejected: corrections.length,
-          event: "rate_job_rejected",
+          rejected,
+          ...(unconfirmed > 0 ? { unconfirmed } : {}),
+          event: rejected > 0 ? "rate_job_rejected" : "rate_job_unconfirmed",
         }),
       );
     }
-    return { ok, rejected };
+    return { ok, rejected, unconfirmed, dropTargets };
   } catch (e) {
     console.error(
       JSON.stringify({

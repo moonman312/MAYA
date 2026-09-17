@@ -18,8 +18,10 @@ import {
   thinkGetDailyRates,
   thinkGetRateTypes,
   thinkPutDailyRates,
+  ThinkHttpError,
   type ThinkDailyRateRow,
 } from "./client.ts";
+import type { TargetGap } from "../pms/push-failure.ts";
 import type { ThinkCredentials } from "./types.ts";
 import type {
   CellPushResult,
@@ -35,12 +37,15 @@ export function createThinkRateAdapter(
   creds: ThinkCredentials,
   thinkHotelId: string,
 ): PmsRatePushAdapter {
+  // Room types the last catalog read left out, and why, where Think says.
+  let lastWithoutBase: Record<string, number> | null = null;
   return {
     pmsType: "think",
 
     async resolveRateTargets(): Promise<RateTargetMap> {
       const rateTypes = await thinkGetRateTypes(creds, thinkHotelId);
       const { targets, withoutBaseRate } = chooseThinkBaseRates(rateTypes);
+      lastWithoutBase = withoutBaseRate;
       console.log(
         JSON.stringify({
           fn: "thinkRateTargets",
@@ -50,6 +55,12 @@ export function createThinkRateAdapter(
         }),
       );
       return targets;
+    },
+
+    // A room type some STANDARD type covers has rates, just no base among
+    // them. Think's catalog does not say more than that about the rest.
+    missingTargetReason(externalRoomTypeId: string): TargetGap | null {
+      return lastWithoutBase && lastWithoutBase[externalRoomTypeId] ? "no_base_rate" : null;
     },
 
     async pushCells(
@@ -84,7 +95,8 @@ export function createThinkRateAdapter(
             }
           } catch (e) {
             const msg = e instanceof Error ? e.message : "push failed";
-            for (const c of chunk) results.push({ cell: c, ok: false, error: msg });
+            const httpStatus = e instanceof ThinkHttpError ? e.status : null;
+            for (const c of chunk) results.push({ cell: c, ok: false, error: msg, httpStatus });
           }
         }
       }

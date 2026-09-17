@@ -21,6 +21,7 @@ import {
 } from "./client.ts";
 import { CLOUDBEDS_MERGE_RATE_INTERVALS } from "./constants.ts";
 import type { CloudbedsResolvedCredentials } from "./types.ts";
+import type { TargetGap } from "../pms/push-failure.ts";
 import type {
   CellPushResult,
   PmsRatePushAdapter,
@@ -80,6 +81,8 @@ export function createCloudbedsRateAdapter(
   // endDate is exclusive, so ask for one extra day to include it.
   const ratePlansFor = (startDate: string, endDate: string) =>
     cloudbedsGetRatePlans(creds, startDate, addOneDay(endDate), { detailedRates: true });
+  // What the last catalog read said about room types it left out.
+  let lastGaps: Record<string, TargetGap> | null = null;
 
   return {
     pmsType: "cloudbeds",
@@ -93,7 +96,13 @@ export function createCloudbedsRateAdapter(
       const plans = await cloudbedsGetRatePlans(creds, start, addOneDay(start), { detailedRates: true });
       const { targets, withoutBaseRate } = chooseBaseRates(plans);
       logRateTargets(creds.propertyId, targets, withoutBaseRate);
+      lastGaps = targetGaps(withoutBaseRate);
       return targets;
+    },
+
+    missingTargetReason(externalRoomTypeId: string): TargetGap | null {
+      if (!lastGaps) return null;
+      return lastGaps[externalRoomTypeId] ?? "not_in_catalog";
     },
 
     async pushCells(
@@ -131,7 +140,7 @@ export function createCloudbedsRateAdapter(
               results.push(
                 res.ok
                   ? { cell: c, ok: true, jobReference: res.jobReferenceID }
-                  : { cell: c, ok: false, error: res.error },
+                  : { cell: c, ok: false, error: res.error, httpStatus: res.status },
               );
             }
           }
@@ -187,6 +196,7 @@ export function createCloudbedsRateAdapter(
       const plans = await ratePlansFor(startDate, endDate);
       const { targets, withoutBaseRate } = chooseBaseRates(plans);
       logRateTargets(creds.propertyId, targets, withoutBaseRate);
+      lastGaps = targetGaps(withoutBaseRate);
       return { targets, entries: calendarEntries(plans, startDate, endDate, targets) };
     },
   };
@@ -248,6 +258,20 @@ export function chooseBaseRates(plans: unknown[]): {
     if (!targets[roomTypeId]) withoutBaseRate[roomTypeId] = others.size;
   }
   return { targets, withoutBaseRate };
+}
+
+/**
+ * Why each room type chooseBaseRates saw was left out. One with other
+ * non-derived plans has rates but no base among them (packages); one with
+ * none has only rates that follow another plan. A room type the catalog did
+ * not list at all is absent here, and reads as not_in_catalog.
+ */
+function targetGaps(withoutBaseRate: Record<string, number>): Record<string, TargetGap> {
+  const gaps: Record<string, TargetGap> = {};
+  for (const [roomTypeId, others] of Object.entries(withoutBaseRate)) {
+    gaps[roomTypeId] = others > 0 ? "no_base_rate" : "derived_only";
+  }
+  return gaps;
 }
 
 /** The resolved map, one line per resolve. Ids and counts only. */
