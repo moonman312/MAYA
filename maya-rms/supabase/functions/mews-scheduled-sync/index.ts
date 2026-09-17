@@ -27,6 +27,7 @@ import {
 } from "../_shared/pms/scheduled-loop.ts";
 import { MEWS_SYNC_BUDGET_MS } from "../_shared/mews/constants.ts";
 import { pricingHorizonDays } from "../_shared/pms/pricing-window.ts";
+import { readOutcome } from "../_shared/pms/pricing-tick.ts";
 import { recordRoomCount } from "../_shared/billing/room-count.ts";
 
 function getEnv(name: string): string | undefined {
@@ -172,7 +173,10 @@ Deno.serve(async (req) => {
   const results: Array<{
     hotelId: string;
     sync: Awaited<ReturnType<typeof runMewsSyncForHotel>> | { ok: true; skipped: "import_running" };
-    evaluate?: Awaited<ReturnType<typeof evaluateHotel>> | { error: string } | { skipped: true | "out_of_time" };
+    evaluate?:
+      | Awaited<ReturnType<typeof evaluateHotel>>
+      | { error: string }
+      | { skipped: true | "out_of_time" | "sync_failed" };
     rooms?: Awaited<ReturnType<typeof recordRoomCount>> | null;
   }> = [];
 
@@ -192,13 +196,19 @@ Deno.serve(async (req) => {
       : await runMewsSyncForHotel(supabase, hotelId, { deadlineAt });
     const tSync = Date.now();
 
+    // Nothing is priced on a failed read: bookings stopped arriving, and a
+    // "pace is slow" rule would fire on data that is only stale. The failed
+    // release backs the hotel off, and the next read that works prices it.
+    const readFailed = readOutcome(sync) === "failed";
     // Too little time left to evaluate safely. Starting anyway ran past the
     // wall clock and the invocation was killed before any release. The hotel
     // is released due again in OUT_OF_TIME_RETRY_SECONDS, so the next tick
     // takes it early.
-    const outOfTime = Date.now() > evaluateBy;
+    const outOfTime = !readFailed && Date.now() > evaluateBy;
     let evaluate: (typeof results)[number]["evaluate"];
-    if (outOfTime) {
+    if (readFailed) {
+      evaluate = { skipped: "sync_failed" };
+    } else if (outOfTime) {
       evaluate = { skipped: "out_of_time" };
     } else if (runEvaluate) {
       try {

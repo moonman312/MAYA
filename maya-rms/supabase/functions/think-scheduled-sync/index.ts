@@ -20,7 +20,7 @@ import { createThinkRateAdapter } from "../_shared/think/rate-push.ts";
 import { THINK_API_BASE_URL } from "../_shared/think/constants.ts";
 import { evaluateHotel } from "../_shared/engine/index.ts";
 import type { PmsRatePushAdapter } from "../_shared/pms/rate-push.ts";
-import { type PricingTickResult, runPricingTick, type TickSkip } from "../_shared/pms/pricing-tick.ts";
+import { type PricingTickResult, readOutcome, runPricingTick, type TickSkip } from "../_shared/pms/pricing-tick.ts";
 import { pricingHorizonDays } from "../_shared/pms/pricing-window.ts";
 import { resolveOAuthCredentials } from "../_shared/pms/oauth-credentials.ts";
 import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
@@ -235,7 +235,8 @@ Deno.serve(async (req) => {
     // The property's own rate is re-read BEFORE the engine runs, so a rate the
     // hotel changed in Think is what this tick prices on, and a booking taken
     // at one of our own prices can never become the base. Push no-ops unless
-    // the hotel is in LIVE mode.
+    // the hotel is in LIVE mode. A failed read prices and pushes nothing; a
+    // truncated one pushes nothing.
     const tick = await runPricingTick(
       supabase,
       hotelId,
@@ -248,6 +249,7 @@ Deno.serve(async (req) => {
         evaluateBy,
         // Leaves the room count and the release their time.
         pushDeadlineAt: invocationDeadline - 20_000,
+        read: readOutcome(sync),
       },
       { evaluate: evaluateHotel },
     );

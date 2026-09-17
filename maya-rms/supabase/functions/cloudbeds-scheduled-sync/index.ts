@@ -18,7 +18,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.99.3";
 import { resolveCloudbedsCredentials, runCloudbedsSyncForHotel } from "../_shared/cloudbeds/sync-hotel.ts";
 import { evaluateHotel } from "../_shared/engine/index.ts";
 import { createCloudbedsRateAdapter } from "../_shared/cloudbeds/rate-push.ts";
-import { type PricingTickResult, runPricingTick } from "../_shared/pms/pricing-tick.ts";
+import { type PricingTickResult, readOutcome, runPricingTick } from "../_shared/pms/pricing-tick.ts";
 import { pricingHorizonDays } from "../_shared/pms/pricing-window.ts";
 import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
 import { hotelsImportingNow, splitByParked } from "../_shared/pms/parked.ts";
@@ -241,7 +241,8 @@ Deno.serve(async (req) => {
     // The property's own rate is re-read BEFORE the engine runs, so a brand new
     // hotel has a base on day one and a rate the hotel changed in Cloudbeds is
     // what this tick prices on. Push needs live credentials (only available
-    // when sync succeeded) and no-ops unless the hotel is in LIVE mode.
+    // when sync succeeded) and no-ops unless the hotel is in LIVE mode. A
+    // failed read prices and pushes nothing; a truncated one pushes nothing.
     const tick = await runPricingTick(
       supabase,
       hotelId,
@@ -253,6 +254,7 @@ Deno.serve(async (req) => {
         evaluateBy,
         // Leaves the room count and the release their time.
         pushDeadlineAt: invocationDeadline - 20_000,
+        read: readOutcome(sync),
       },
       { evaluate: evaluateHotel },
     );
