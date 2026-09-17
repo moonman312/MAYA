@@ -397,6 +397,28 @@ describe("a fire that can't move the price doesn't happen", () => {
     expect(w.price(NIGHT)).toBe(110);
   }, 60_000);
 
+  it("a percent raise on a comp night typed as 0 never fires, however long it runs", async () => {
+    // 0 is a real price someone set, so the night is published and no ceiling
+    // is in the way. A percent of 0 is still 0, so the raise would fire on
+    // every wait for ever without the night ever moving.
+    const raise = rule(
+      "r-comp-raise",
+      { pickup_operator: "lt", pickup_threshold: 1, pickup_window_days: 1, pickup_metric: "room_nights" },
+      { action_direction: "increase", action_value: 10 },
+    );
+    const w = world({
+      rules: [raise],
+      reservations: [booking(NIGHT, addDays(D0, -30))],
+      manual: [{ hotel_id: "h1", stay_date: NIGHT, room_type_id: STD, price: 0, set_by: "u1", set_at: iso(T0 - 2 * DAY), cleared_at: null }],
+    });
+    for (let day = 0; day <= 4; day++) await w.run(T0 + day * DAY);
+    expect(w.fires(NIGHT)).toHaveLength(0);
+    expect(w.audits(NIGHT)).toHaveLength(1);
+    expect(w.price(NIGHT)).toBe(0);
+    // The rule is doing its job everywhere else.
+    expect(w.fires(addDays(D0, 8)).length).toBeGreaterThan(1);
+  }, 60_000);
+
   it("a night the run leaves unpriced gets no fire", async () => {
     // The hotel has the night at 0 in its own calendar: MAYA does not price it.
     const w = world({
@@ -733,10 +755,48 @@ describe("a rule that keeps adjusting the same night", () => {
 
     // The rule is edited: every night still waiting on an answer closes with it.
     w.tables.pricing_rules[0].version = 2;
+
     await w.run(T0 + 2 * DAY + 3 * HOUR);
     expect((start(w).rule_repeat_alert_nights ?? []).every((n) => n.closed_at != null)).toBe(true);
     expect(start(w).rule_repeat_alerts[0]).toMatchObject({ resolution: "closed" });
     expect(start(w).rule_repeat_alerts[0].resolved_at).not.toBeNull();
+  }, 120_000);
+
+  it("asks again when the rule stacks its way back to three on a night a price closed", async () => {
+    const w = world({ rules: [daily], reservations: [booking(NIGHT, addDays(D0, -30))] });
+    await w.run(T0);
+    await w.run(T0 + DAY);
+    await w.run(T0 + 2 * DAY);
+    expect(alertFor(start(w))).toMatchObject({ fire_count: 3, choice: null, closed_at: null });
+
+    const setAt = iso(T0 + 2 * DAY + HOUR);
+    w.tables.manual_price.push({ hotel_id: "h1", stay_date: NIGHT, room_type_id: STD, price: 150, set_by: "u1", set_at: setAt, cleared_at: null });
+    for (const e of w.tables.pickup_event.filter((x) => x.stay_date === NIGHT)) {
+      e.retired_at = setAt;
+      e.retired_reason = "manual_price";
+    }
+    await w.run(T0 + 2 * DAY + 2 * HOUR);
+    expect(alertFor(start(w))).toMatchObject({ closed_reason: "price_set", choice: null });
+
+    // The wait runs from the price; after it the rule cuts the typed number
+    // the same way. Three cuts on and the night is in front of the owner
+    // again, on the row it was filed under.
+    await w.run(T0 + 3 * DAY + 2 * HOUR);
+    await w.run(T0 + 4 * DAY + 2 * HOUR);
+    expect(alertFor(start(w))).toMatchObject({ closed_reason: "price_set" });
+    await w.run(T0 + 5 * DAY + 2 * HOUR);
+
+    expect(w.fires(NIGHT).filter((e) => e.retired_at === null)).toHaveLength(3);
+    expect(alertFor(start(w))).toMatchObject({
+      fire_count: 3,
+      choice: null,
+      closed_at: null,
+      closed_reason: null,
+      reached_at: iso(T0 + 5 * DAY + 2 * HOUR),
+    });
+    expect((start(w).rule_repeat_alert_nights ?? []).filter((n) => n.stay_date === NIGHT)).toHaveLength(1);
+    const alertId = alertFor(start(w))!.alert_id;
+    expect(start(w).rule_repeat_alerts.find((a) => a.id === alertId)).toMatchObject({ resolved_at: null });
   }, 120_000);
 });
 

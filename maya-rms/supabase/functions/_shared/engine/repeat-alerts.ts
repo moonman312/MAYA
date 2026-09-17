@@ -1,5 +1,6 @@
 /**
  * Owner alerts when an event rule keeps adjusting the same night.
+ *
  * Deno-portable copy of src/lib/engine/repeat-alerts.ts (import paths only differ).
  *
  * Tables and their meaning: 99_supabase_migration_pickup_event_stacking_v1.sql
@@ -13,7 +14,10 @@
  *
  * The engine reads the answers before it fires (isStoppedOnNight) and, after
  * prices are published, files and updates nights and closes the ones that no
- * longer need an answer (updateRepeatAlerts). The alert tables take writes
+ * longer need an answer (updateRepeatAlerts). A night closed because a price
+ * someone set took its fires off opens again if the rule stacks its way back
+ * to three; only a passed night or an edit ends one for good. The alert
+ * tables take writes
  * from the service role only, so a run under a signed-in session (the
  * evaluate button) logs its alert writes as refused and the next scheduled
  * run makes them: filing works from the fire history, not from what one run
@@ -45,7 +49,15 @@ export type RepeatAlertNight = {
   last_fire_at: string;
   choice: RepeatAlertChoice | null;
   closed_at: string | null;
+  closed_reason: RepeatAlertClosedReason | null;
 };
+
+/** Why an unanswered night stopped needing an answer. */
+export type RepeatAlertClosedReason = "night_passed" | "rule_edited" | "price_set";
+
+function closedReasonOf(value: unknown): RepeatAlertClosedReason | null {
+  return value === "night_passed" || value === "rule_edited" || value === "price_set" ? value : null;
+}
 
 /**
  * Every filed night of the given rules over a range of nights, any version,
@@ -66,7 +78,7 @@ export async function loadRepeatAlertNights(
     rows = await fetchAllRows(() =>
       supabase
         .from("rule_repeat_alert_nights")
-        .select("alert_id, rule_id, rule_version, stay_date, fire_count, last_fire_at, choice, closed_at")
+        .select("alert_id, rule_id, rule_version, stay_date, fire_count, last_fire_at, choice, closed_at, closed_reason")
         .eq("hotel_id", hotelId)
         .in("rule_id", ruleIds)
         .gte("stay_date", firstDate)
@@ -88,6 +100,7 @@ export async function loadRepeatAlertNights(
       last_fire_at: String(r.last_fire_at),
       choice: r.choice === "stop" || r.choice === "keep_adjusting" ? r.choice : null,
       closed_at: r.closed_at != null ? String(r.closed_at) : null,
+      closed_reason: closedReasonOf(r.closed_reason),
     };
     const key = `${night.rule_id}|${night.stay_date}`;
     const list = out.get(key) ?? [];
@@ -223,6 +236,20 @@ export async function updateRepeatAlerts(
   const loaded = new Map(input.allRules.map((r) => [r.id, r]));
   const eventRulesById = new Map(input.eventRules.map((r) => [r.id, r]));
 
+  // A night closed because a price someone set took its fires off is not done
+  // with: once the wait from that price has passed, the rule stacks on the new
+  // price just the same, and at 3 counted fires again the owner is asked
+  // again. Only a passed night or an edit ends a night for good.
+  const toReopen: RepeatAlertNight[] = [];
+  for (const [key, list] of input.nights) {
+    const rule = eventRulesById.get(key.split("|")[0]);
+    if (!rule || (counts.get(key)?.count ?? 0) < REPEAT_ALERT_FIRES) continue;
+    if (key.split("|")[1] < input.localDate) continue;
+    for (const n of list) {
+      if (n.rule_version === rule.version && n.choice === null && n.closed_reason === "price_set") toReopen.push(n);
+    }
+  }
+
   // A night filed as another run or the owner resolved its alert is still
   // waiting on an answer: open its alert again.
   const orphaned = new Set<string>();
@@ -235,6 +262,12 @@ export async function updateRepeatAlerts(
         orphaned.add(n.alert_id);
       }
     }
+  }
+  // A reopened night needs an alert too. Its own is reopened only when the
+  // rule has no other open one, which would fail uq_rule_repeat_alerts_open;
+  // otherwise the night moves onto the rule's open alert below.
+  for (const n of toReopen) {
+    if (!openIds.has(n.alert_id) && !openAlerts.has(n.rule_id)) orphaned.add(n.alert_id);
   }
   for (const id of orphaned) {
     const { data, error } = await supabase
@@ -296,6 +329,27 @@ export async function updateRepeatAlerts(
     else result.closed += (data ?? []).length;
   }
 
+  // Nights back at the bar after a price closed them: open the row again, on
+  // the rule's open alert when it has one. This runs before alerts are
+  // resolved, so the run that reopens a night can't resolve its alert in the
+  // same breath. The numbers on the row are refreshed by the update below.
+  const reopened = new Map<string, string>();
+  for (const night of toReopen) {
+    const open = openAlerts.get(night.rule_id);
+    const alertId = open && open.rule_version === night.rule_version ? open.id : night.alert_id;
+    const { error } = await supabase
+      .from("rule_repeat_alert_nights")
+      .update({ alert_id: alertId, closed_at: null, closed_reason: null, reached_at: now, updated_at: now })
+      .eq("alert_id", night.alert_id)
+      .eq("stay_date", night.stay_date)
+      .is("choice", null);
+    if (error) {
+      logAlertError(hotelId, "reopen_night", error.message);
+      continue;
+    }
+    reopened.set(`${night.rule_id}|${night.stay_date}`, alertId);
+  }
+
   // Resolve open alerts with nothing left to answer.
   if (openAlerts.size > 0) {
     const ids = [...openAlerts.values()].map((a) => a.id);
@@ -341,8 +395,14 @@ export async function updateRepeatAlerts(
   for (const [key, c] of counts) {
     if (c.count < REPEAT_ALERT_FIRES || c.stayDate < input.localDate) continue;
     const night = input.nights.get(key)?.find((n) => n.rule_version === c.rule.version);
-    if (!night) toFile.push(c);
-    else if (
+    if (!night) {
+      toFile.push(c);
+      continue;
+    }
+    const reopenedAlert = reopened.get(key);
+    if (reopenedAlert !== undefined) {
+      toUpdate.push({ night: { ...night, alert_id: reopenedAlert, closed_at: null, closed_reason: null }, count: c });
+    } else if (
       night.choice === null &&
       night.closed_at === null &&
       c.lastAt !== null &&

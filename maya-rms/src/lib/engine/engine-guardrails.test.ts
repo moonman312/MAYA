@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { addDays } from "@/lib/observations/calendar";
 import { pricesOnBase } from "./base-price";
+import { firingMovesPrice } from "./pricing";
 import { evaluateHotel } from "./evaluate";
 import { fakeSupabase, missingColumn, type FakeCall, type FakeRow } from "./fake-supabase.test";
 
@@ -52,6 +53,28 @@ describe("pricesOnBase", () => {
     expect(pricesOnBase({ price: -5, source: "calendar" })).toBe(false);
     expect(pricesOnBase({ price: 0, source: "manual" })).toBe(true);
     expect(pricesOnBase({ price: NaN, source: "manual" })).toBe(false);
+  });
+});
+
+describe("firingMovesPrice", () => {
+  const raise = { rule_id: "r1", action_kind: "percent" as const, action_direction: "increase" as const, action_value: 10 };
+  const fixed = { ...raise, action_kind: "fixed" as const, action_value: 20 };
+
+  it("says no to a percent on a base of 0, and yes to one on any other price", () => {
+    expect(firingMovesPrice(0, [], [], raise)).toBe(false);
+    expect(firingMovesPrice(0, [], [], fixed)).toBe(true);
+    expect(firingMovesPrice(200, [], [], raise)).toBe(true);
+  });
+
+  it("measures before the clamp, so a raise hidden under a raised floor still counts", () => {
+    // Stacked cuts left the pre-clamp price at 144.50 under a floor of 180;
+    // the raise moves that number even though the published price will not
+    // change, and blocking it would strand the night at the floor.
+    const cuts = [
+      { rule_id: "r2", action_kind: "percent" as const, action_direction: "decrease" as const, action_value: 15 },
+      { rule_id: "r2", action_kind: "percent" as const, action_direction: "decrease" as const, action_value: 15 },
+    ];
+    expect(firingMovesPrice(200, [], cuts, raise)).toBe(true);
   });
 });
 

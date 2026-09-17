@@ -52,6 +52,7 @@ import {
 import {
   assemblePriceFrom,
   clearUnpricedCells,
+  firingMovesPrice,
   limitAllowsFire,
   loadActiveLadderEffectsForRange,
   loadActivePickupEffects,
@@ -856,10 +857,12 @@ export async function evaluateHotel(
 
   // The price each cell would publish before anything fires, for the limit
   // guard: a cut already at the floor or a raise already at the ceiling
-  // can't move the price, so it doesn't fire and starts no wait. A cell this
-  // run leaves unpriced (no base, a closed night, an inactive room type)
-  // gets no fire at all.
-  const currentByCell = new Map<string, { final: number; bounds: { floor: number; ceiling: number } } | null>();
+  // can't move the price, so it doesn't fire and starts no wait, and neither
+  // does an adjustment that leaves the price where it is whatever the limits
+  // say (a percent on a comp night typed as 0). A cell this run leaves
+  // unpriced (no base, a closed night, an inactive room type) gets no fire
+  // at all.
+  const currentByCell = new Map<string, { price: AssembledPrice; bounds: { floor: number; ceiling: number } } | null>();
   const currentPrice = (stayDate: string, rtId: string) => {
     const key = `${stayDate}|${rtId}`;
     if (!currentByCell.has(key)) {
@@ -878,7 +881,7 @@ export async function evaluateHotel(
           pickupEffectsByCell.get(key) ?? [],
         );
         currentByCell.set(key, {
-          final: assembled.final_price,
+          price: assembled,
           bounds: priceBounds(rt.floor_price, rt.ceiling_price, base, source),
         });
       }
@@ -894,7 +897,21 @@ export async function evaluateHotel(
       const current = currentPrice(rn.stayDate, rtId);
       if (!current) continue;
       const c = candidate(rn, rtId);
-      if (!limitAllowsFire(current.final, current.bounds, rn.rule.action_direction)) {
+      const adjustment = {
+        rule_id: rn.rule.id,
+        action_kind: rn.rule.action_type,
+        action_direction: rn.rule.action_direction,
+        action_value: rn.rule.action_value,
+      };
+      if (
+        !limitAllowsFire(current.price.final_price, current.bounds, rn.rule.action_direction) ||
+        !firingMovesPrice(
+          current.price.base_price,
+          current.price.ladder_effects,
+          current.price.pickup_effects,
+          adjustment,
+        )
+      ) {
         pushTo(allPickupNoPriceChange, `${rn.stayDate}|${rtId}`, c);
         continue;
       }

@@ -25,7 +25,7 @@ export {
 
 export { isStoppedOnNight, REPEAT_ALERT_FIRES } from "./repeat-alerts.ts";
 
-export { applyAdjustments, clampPrice, assemblePrice, limitAllowsFire, maybePublish } from "./pricing.ts";
+export { applyAdjustments, clampPrice, assemblePrice, firingMovesPrice, limitAllowsFire, maybePublish } from "./pricing.ts";
 export type { AssembledPrice, PickupEffect } from "./pricing.ts";
 
 export { writeAudit } from "./audit.ts";

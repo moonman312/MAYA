@@ -509,7 +509,12 @@ grant execute on function public.set_manual_prices_from_pms(uuid, public.pms_typ
 --   closed_at, closed_reason
 --                     set when an unanswered night stops needing an answer:
 --                     night_passed, rule_edited, or price_set (a manual price
---                     took its fires off, so its count fell below 3).
+--                     took its fires off, so its count fell below 3). A
+--                     price_set night opens again, on the rule's open alert,
+--                     if the rule stacks its way back to 3 on it: the wait
+--                     runs from the price, and after it the rule adjusts the
+--                     new price the same way. night_passed and rule_edited
+--                     end a night for good.
 --
 -- The engine honours a stop from the run after it is made, on every run that
 -- prices the night. It never writes a choice.

@@ -26,7 +26,7 @@ export {
 
 export { isStoppedOnNight, REPEAT_ALERT_FIRES } from "./repeat-alerts";
 
-export { applyAdjustments, clampPrice, assemblePrice, limitAllowsFire, maybePublish } from "./pricing";
+export { applyAdjustments, clampPrice, assemblePrice, firingMovesPrice, limitAllowsFire, maybePublish } from "./pricing";
 export type { AssembledPrice, PickupEffect } from "./pricing";
 
 export { writeAudit } from "./audit";

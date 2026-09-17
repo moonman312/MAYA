@@ -111,6 +111,30 @@ export function limitAllowsFire(
 }
 
 /**
+ * Whether the adjustment itself would move the cell's price, before any
+ * clamp. A percent on a comp night typed as 0 is the case this catches:
+ * nothing multiplies 0 into anything else, so the rule would fire on every
+ * wait for ever, writing a fire and an audit row each time and telling the
+ * owner after three of them that a night published at 0.00 has been raised
+ * three times. The limit guard can't see it, because 0 is under no ceiling.
+ *
+ * Deliberately pre-clamp: a raise whose result is still hidden under a floor
+ * raised since does move the price it is stacked on, and blocking it would
+ * leave the night stuck at that floor through a change of demand
+ * (limitAllowsFire).
+ */
+export function firingMovesPrice(
+  basePrice: number,
+  ladderEffects: AdjustmentSpec[],
+  pickupEffects: AdjustmentSpec[],
+  adjustment: AdjustmentSpec,
+): boolean {
+  const before = applyAdjustments(basePrice, ladderEffects, pickupEffects);
+  const after = applyAdjustments(basePrice, ladderEffects, [...pickupEffects, adjustment]);
+  return Math.round(before * 100) !== Math.round(after * 100);
+}
+
+/**
  * The floor and ceiling a cell's price is clamped to.
  *
  * A manual price is published as it is, under the floor (a $0 comp night) or
