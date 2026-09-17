@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useTrackOnce } from "@/lib/analytics/track";
+import { currencySymbolFor } from "@/lib/changelog-route-helpers";
 import { TERMS_URL, TERMS_VERSION } from "@/lib/legal/versions";
 import {
   useOnboardingStatus,
@@ -147,6 +148,7 @@ export function ReviewFindings() {
   const assumptions = open.filter((f) => !RECOMMENDATION_KINDS.has(f.kind));
   const recommendations = open.filter((f) => RECOMMENDATION_KINDS.has(f.kind));
   const showAssumptionStep = step === "assumptions" && assumptions.length > 0;
+  const currencySymbol = currencySymbolFor(status?.currency);
 
   return (
     <div className="flex flex-col gap-6 pt-6">
@@ -241,6 +243,7 @@ export function ReviewFindings() {
                 <FindingCard
                   key={f.id}
                   finding={f}
+                  currencySymbol={currencySymbol}
                   busy={busy === f.id}
                   onConfirm={(value) => act(f.id, "confirm", value)}
                   onKeep={() => act(f.id, "confirm", undefined, true)}
@@ -478,14 +481,17 @@ function RoomCountStrip({ hotelId }: { hotelId: string | undefined }) {
 
 /* ── Per-kind rendering ───────────────────────────────────────────────────── */
 
-function FindingCard({
+export function FindingCard({
   finding,
+  currencySymbol = "$",
   busy,
   onConfirm,
   onKeep,
   onDismiss,
 }: {
   finding: Finding;
+  /** The hotel's own, next to the amount on guardrail cards. */
+  currencySymbol?: string;
   busy: boolean;
   onConfirm: (value?: number) => void;
   /** Middle option on removal cards: accept the conflict, pause the rule instead of deleting it. */
@@ -518,7 +524,7 @@ function FindingCard({
       <div className="mt-3 flex flex-wrap items-center gap-3">
         {editable ? (
           <label className="flex items-center gap-2 text-xs text-slate-400">
-            $
+            {currencySymbol.trim()}
             <input
               type="number"
               step="any"
@@ -652,9 +658,11 @@ export function describeFinding(f: Finding): {
     }
     case "guardrail_suggestion": {
       const isFloor = p.field === "floor_price";
+      // The rationale already names the number and where it came from, and
+      // the amount sits in the input right under it.
       return {
         title: `Set a ${isFloor ? "floor" : "ceiling"} for "${String(p.room_type_name)}"?`,
-        body: `${String(p.rationale)} We'd set it to ${Number(p.suggested).toLocaleString()}.`,
+        body: String(p.rationale),
         confirmLabel: `Set it to ${Number(p.suggested).toLocaleString()}`,
         dismissLabel: "No thanks",
       };

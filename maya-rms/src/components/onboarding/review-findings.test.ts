@@ -80,11 +80,48 @@ describe("describeFinding", () => {
     }
   });
 
+  it("shows a guardrail card's rationale as its whole body, since it already names the number", () => {
+    const rationale = "Deluxe King has typically sold for $220 a night, so MAYA suggests a floor of $90.";
+    const c = describeFinding(
+      finding("guardrail_suggestion", { field: "floor_price", room_type_name: "Deluxe King", rationale, suggested: 90 }),
+    );
+    expect(c.title).toBe('Set a floor for "Deluxe King"?');
+    expect(c.body).toBe(rationale);
+    expect(c.confirmLabel).toBe("Set it to 90");
+  });
+
   it("keeps the fallback for unknown kinds intact", () => {
     const c = describeFinding(finding("mystery_kind", { foo: "bar" }));
     expect(c.acknowledgeOnly).toBeUndefined();
     expect(c.confirmLabel).toBe("Confirm");
     expect(c.dismissLabel).toBe("Dismiss");
+  });
+});
+
+describe("FindingCard", () => {
+  it("puts the hotel's own currency next to a guardrail card's amount", async () => {
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { FindingCard } = await import("@/components/onboarding/review-findings");
+    const render = (currencySymbol?: string) =>
+      renderToStaticMarkup(
+        createElement(FindingCard, {
+          finding: finding("guardrail_suggestion", {
+            field: "ceiling_price",
+            room_type_name: "Suite",
+            rationale: "r",
+            suggested: 600,
+          }),
+          currencySymbol,
+          busy: false,
+          onConfirm: () => {},
+          onKeep: () => {},
+          onDismiss: () => {},
+        }),
+      );
+    expect(render("€")).toMatch(/<label[^>]*>€<input/);
+    expect(render("CHF ")).toMatch(/<label[^>]*>CHF<input/);
+    expect(render()).toMatch(/<label[^>]*>\$<input/);
   });
 });
 
