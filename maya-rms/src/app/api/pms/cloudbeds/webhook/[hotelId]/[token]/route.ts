@@ -43,7 +43,12 @@ type AppStatePayload = {
   event?: unknown;
   propertyID?: unknown;
   propertyID_str?: unknown;
-  /** The new state. Cloudbeds have used more than one field name for this. */
+  /**
+   * The new state. The documented delivery sends `newState` (beside
+   * `oldState`, which must never be read as the new one); the other names are
+   * kept in case a delivery spells it differently.
+   */
+  newState?: unknown;
   state?: unknown;
   app_state?: unknown;
   appState?: unknown;
@@ -52,7 +57,7 @@ type AppStatePayload = {
 
 /** Read the new state out of whichever field this delivery happens to use. */
 function readState(body: AppStatePayload): string | null {
-  for (const v of [body.state, body.app_state, body.appState, body.status]) {
+  for (const v of [body.newState, body.state, body.app_state, body.appState, body.status]) {
     if (typeof v === "string" && v) return v.toLowerCase();
   }
   return null;

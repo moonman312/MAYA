@@ -63,6 +63,35 @@ describe("cloudbeds appstate webhook", () => {
     expect(marked[0].hotelId).toBe(HOTEL);
   });
 
+  it("disconnects on the documented delivery, which names the state newState", async () => {
+    // https://developers.cloudbeds.com/docs/webhooks-1, integration/appstate_changed
+    const res = await POST(
+      post(
+        JSON.stringify({
+          version: "1.0",
+          timestamp: 1611758157.431234,
+          event: "integration/appstate_changed",
+          propertyID: 320691,
+          propertyID_str: "320691",
+          clientID: 1234,
+          oldState: "enabled",
+          newState: "disabled",
+        }),
+      ),
+      { params },
+    );
+    expect(res.status).toBe(200);
+    expect(marked).toEqual([expect.objectContaining({ hotelId: HOTEL })]);
+  });
+
+  it("does NOT disconnect when an app comes back from disabled", async () => {
+    await POST(
+      post(JSON.stringify({ event: "integration/appstate_changed", oldState: "disabled", newState: "enabled" })),
+      { params },
+    );
+    expect(marked).toEqual([]);
+  });
+
   it("accepts a form-encoded delivery, since their docs show both", async () => {
     const res = await POST(
       post("event=integration%2Fappstate_changed&state=disabled&propertyID=320691", "application/x-www-form-urlencoded"),
