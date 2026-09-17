@@ -24,8 +24,9 @@
  *   - A Booking Speed rule measures no pickup window, so its fires record
  *     this run's booked units as both start and end, and baseline_start_ts
  *     as now minus its 30-day window (informational).
- *   - Every fire carries fire_seq, cancel_check, signal_set_key and its
- *     frozen window, every retirement carries a reason (night_passed here),
+ *   - Every fire carries fire_seq, cancel_check, signal_set_key, its frozen
+ *     window and retired_reason (null while it is open), every retirement
+ *     carries a reason (night_passed here),
  *     and audit details carry applied_at and fire_seq per effect plus
  *     event_id on the fire that won.
  *   - Fewer audit rows in the later runs: a cell whose fire never happened

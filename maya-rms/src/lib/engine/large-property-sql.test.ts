@@ -96,7 +96,10 @@ create table if not exists public.ladder_transition_event (
 create table if not exists public.pickup_event (
   id uuid primary key default gen_random_uuid(),
   hotel_id uuid not null,
-  rule_id uuid not null
+  rule_id uuid not null,
+  -- From the stacking migration: rule_fire_counts leaves the same-run bug's
+  -- rows out (99_supabase_migration_pickup_event_stacking_v1.sql).
+  retired_reason text
 );
 create table if not exists public.room_types (
   id uuid primary key default gen_random_uuid(),
