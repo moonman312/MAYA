@@ -369,3 +369,54 @@ describe("countingCapacity — the RevPAR / sellable occupancy denominator", () 
     expect(countingCapacity([])).toBe(0);
   });
 });
+
+describe("getCalendar (Supabase) on a property past the 1,000-row cap", () => {
+  afterEach(() => {
+    clearCalendarHistoryCache();
+    vi.restoreAllMocks();
+  });
+
+  function bigMonth() {
+    const types = ["rt1", "rt2", "rt3"].map((id, i) => ({
+      id, hotel_id: "h1", name: `T${i}`, is_active: true, total_rooms: 60, counts_as_room: i < 2,
+    }));
+    const reservations: FakeRow[] = [];
+    const published: FakeRow[] = [];
+    let n = 0;
+    for (let d = 1; d <= 31; d++) {
+      const stay = `2026-10-${String(d).padStart(2, "0")}`;
+      for (const [t, rt] of types.entries()) {
+        for (let k = 0; k < 20 + ((d * 7 + t) % 25); k++) {
+          n++;
+          reservations.push({
+            id: `r${String(n).padStart(6, "0")}`, hotel_id: "h1", stay_date: stay, room_type_id: rt.id,
+            base_rate: n % 9 === 0 ? null : 100 + (n % 37) + 0.25,
+            current_rate: n % 13 === 0 ? null : 120 + (n % 11) + 0.5,
+          });
+        }
+        published.push({ hotel_id: "h1", stay_date: stay, room_type_id: rt.id, price: 150 + d, base_price: d % 3 ? 140 : null });
+      }
+      reservations.push({ id: `u${d}`, hotel_id: "h1", stay_date: stay, room_type_id: null, base_rate: 1, current_rate: 1 });
+    }
+    return {
+      hotels: [{ id: "h1", timezone: "UTC", total_rooms_per_type: 100 }],
+      room_types: types,
+      reservations,
+      published_price: published,
+      manual_price: [{ id: "m1", hotel_id: "h1", stay_date: "2026-10-31", room_type_id: "rt3", price: 99, set_at: "2026-09-01T00:00:00Z", cleared_at: null }],
+    };
+  }
+
+  it("builds every cell from every row, the same cells an uncapped read gives", async () => {
+    const seed = bigMonth();
+    expect(seed.reservations.length).toBeGreaterThan(2000);
+    const uncapped = await getCalendar(2026, 10, calendarDb(seed).client);
+    clearCalendarHistoryCache();
+    const capped = await getCalendar(2026, 10, calendarDb(seed, { maxRows: 1000 }).client);
+    expect(capped.days).toEqual(uncapped.days);
+    // The last day of the month, well past the first 1,000 rows, is booked.
+    expect(capped.days["31"].booked).toBeGreaterThan(0);
+    expect(capped.days["31"].room_types.find((r) => r.id === "rt3")!.manual_price).toMatchObject({ price: 99 });
+    expect(capped.days["31"].room_types.find((r) => r.id === "rt2")!.current_price).toBe(181);
+  });
+});

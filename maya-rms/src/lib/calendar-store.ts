@@ -17,7 +17,7 @@ import {
 } from "@/lib/calendar-color";
 import { formatUtcMonthYear } from "@/lib/calendar-month-label";
 import { ROOM_TYPES } from "@/lib/demo-data";
-import { loadOutOfServiceRows, sellableUnitsFor, type OutOfServiceRow } from "@/lib/engine/snapshots";
+import { fetchAllRows, loadOutOfServiceRows, sellableUnitsFor, type OutOfServiceRow } from "@/lib/engine/snapshots";
 import { evalIsoToHotelDateString } from "@/lib/engine/timezone";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import type { CalendarDay, CalendarResponse, CalendarRoomType } from "@/types/domain";
@@ -386,6 +386,33 @@ async function loadOutOfServiceForCalendar(
   }
 }
 
+/**
+ * Every row of one month's read. A failed read shows the month as empty, the
+ * way the unpaged read did, rather than failing the whole calendar.
+ */
+async function readMonthRows(
+  hotelId: string,
+  table: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  makeQuery: () => any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any[]> {
+  try {
+    return await fetchAllRows(makeQuery);
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "calendar-store",
+        step: table,
+        hotelId,
+        error: e instanceof Error ? e.message : String(e),
+        degradedToEmpty: true,
+      }),
+    );
+    return [];
+  }
+}
+
 /* ── Supabase-backed calendar ─────────────────────────────────── */
 
 async function getCalendarFromDb(
@@ -408,9 +435,9 @@ async function getCalendarFromDb(
   const [
     { data: hotelRow },
     { data: roomTypeRows },
-    { data: reservations },
-    { data: publishedPrices },
-    { data: manualPrices },
+    reservations,
+    publishedPrices,
+    manualPrices,
     history,
     oosRows,
   ] = await Promise.all([
@@ -420,30 +447,46 @@ async function getCalendarFromDb(
       .eq("id", hotelId)
       .maybeSingle(),
     loadRoomTypeRows(supabase, hotelId),
-    supabase
-      .from("reservations")
-      .select("stay_date, room_type_id, base_rate, current_rate")
-      .eq("hotel_id", hotelId)
-      .gte("stay_date", startDate)
-      .lte("stay_date", endDate),
+    // Paged: a month of room-nights passes PostgREST's 1,000-row cap at about
+    // 43 rooms, and every night past the cap showed as unbooked.
+    readMonthRows(hotelId, "reservations", () =>
+      supabase
+        .from("reservations")
+        .select("stay_date, room_type_id, base_rate, current_rate")
+        .eq("hotel_id", hotelId)
+        .gte("stay_date", startDate)
+        .lte("stay_date", endDate)
+        .order("stay_date", { ascending: true })
+        .order("room_type_id", { ascending: true })
+        .order("id", { ascending: true }),
+    ),
     // Engine-published prices (the current asking price after rules +
     // clamps). Absent until the first evaluation run, so the UI treats
     // null as "not priced yet".
-    supabase
-      .from("published_price")
-      .select("stay_date, room_type_id, price, base_price")
-      .eq("hotel_id", hotelId)
-      .gte("stay_date", startDate)
-      .lte("stay_date", endDate),
+    readMonthRows(hotelId, "published_price", () =>
+      supabase
+        .from("published_price")
+        .select("stay_date, room_type_id, price, base_price")
+        .eq("hotel_id", hotelId)
+        .gte("stay_date", startDate)
+        .lte("stay_date", endDate)
+        .order("stay_date", { ascending: true })
+        .order("room_type_id", { ascending: true }),
+    ),
     // Prices a person typed. Cleared rows stay in the table for audit, so
     // only the open ones count.
-    supabase
-      .from("manual_price")
-      .select("stay_date, room_type_id, price, set_at")
-      .eq("hotel_id", hotelId)
-      .is("cleared_at", null)
-      .gte("stay_date", startDate)
-      .lte("stay_date", endDate),
+    readMonthRows(hotelId, "manual_price", () =>
+      supabase
+        .from("manual_price")
+        .select("stay_date, room_type_id, price, set_at")
+        .eq("hotel_id", hotelId)
+        .is("cleared_at", null)
+        .gte("stay_date", startDate)
+        .lte("stay_date", endDate)
+        .order("stay_date", { ascending: true })
+        .order("room_type_id", { ascending: true })
+        .order("id", { ascending: true }),
+    ),
     // Hotel-wide history (RevPAR series, closures, navigable range) —
     // cached for a few minutes per hotel; see HotelHistory above.
     historyCache.getOrLoad(hotelId, () => loadHotelHistory(supabase, hotelId)),
@@ -479,7 +522,7 @@ async function getCalendarFromDb(
         }));
 
   const publishedByKey = new Map<string, { price: number; base: number | null }>();
-  for (const p of publishedPrices ?? []) {
+  for (const p of publishedPrices) {
     const price = p.price != null ? Number(p.price) : NaN;
     if (Number.isFinite(price)) {
       const base = p.base_price != null ? Number(p.base_price) : NaN;
@@ -491,7 +534,7 @@ async function getCalendarFromDb(
   }
 
   const manualByKey = new Map<string, { price: number; set_at: string }>();
-  for (const m of manualPrices ?? []) {
+  for (const m of manualPrices) {
     const price = m.price != null ? Number(m.price) : NaN;
     if (Number.isFinite(price)) {
       manualByKey.set(`${m.stay_date}|${String(m.room_type_id)}`, {
@@ -569,15 +612,23 @@ async function getCalendarFromDb(
 
   const days: Record<string, CalendarDay> = {};
 
+  // Grouped once by night and room type, in read order, instead of
+  // re-filtering the whole month for every cell.
+  const reservationsByCell = new Map<string, { base_rate: number | null; current_rate: number | null }[]>();
+  for (const r of reservations) {
+    const key = `${r.stay_date}|${String(r.room_type_id)}`;
+    const list = reservationsByCell.get(key);
+    if (list) list.push(r);
+    else reservationsByCell.set(key, [r]);
+  }
+
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = `${year}-${pad2(month)}-${pad2(d)}`;
     const dayDate = new Date(Date.UTC(year, month - 1, d));
     const weekday = WEEKDAY_NAMES[dayDate.getUTCDay()];
 
-    const dayReservations = (reservations ?? []).filter((r) => r.stay_date === dateStr);
-
     const roomTypes: CalendarRoomType[] = rtList.map((rt) => {
-      const matching = dayReservations.filter((r) => String(r.room_type_id) === String(rt.id));
+      const matching = reservationsByCell.get(`${dateStr}|${String(rt.id)}`) ?? [];
       const booked = matching.length;
       const roomRevenue = matching.reduce(
         (s, r) => s + nightlyRoomAmount(r, rt.base_rate),
