@@ -156,6 +156,9 @@ select * from (
     exists(select 1 from public.pickup_event
            where hotel_id = (select id from h) and retired_at is null)
   union all
+  -- A rule that lost a night can fire on it on a later evaluation, once the
+  -- winner's wait has passed and it is not holding the cell any more, so this
+  -- reads the FIRST fire on the Suites, not every one of them.
   select 25, 'Suite Pickup Surge beat Property Pickup Bump on Suites',
     not exists(
       select 1 from public.pickup_event pe
@@ -163,6 +166,7 @@ select * from (
       where pe.hotel_id = (select id from h)
         and pe.affected_room_type_id = (select id from rts where code = 'STE')
         and pe.retired_at is null
+        and pe.fire_seq = 1
         and pr.name <> 'Suite Pickup Surge')
     and exists(
       select 1 from public.pickup_event pe
@@ -206,6 +210,21 @@ select * from (
              and ea.stay_date = (select day0 + 8 from seed)
              and ea.room_type_id = (select id from rts where code = 'BGT')
              and ea.pre_clamp_price > ea.final_price)
+  union all
+  -- Every fire is numbered per rule, night and room type, and no number is
+  -- used twice: that is what stops two overlapping runs recording the same
+  -- fire (uq_pickup_event_fire).
+  select 32, 'no two fires share a fire number on one cell, and every fire has one',
+    not exists(
+      select 1 from public.pickup_event pe
+      where pe.hotel_id = (select id from h)
+      group by pe.rule_id, pe.stay_date, pe.affected_room_type_id, pe.fire_seq
+      having count(*) > 1)
+    and not exists(
+      select 1 from public.pickup_event pe
+      where pe.hotel_id = (select id from h)
+        and (pe.fire_seq is null
+             or (pe.retired_at is null) is distinct from (pe.retired_reason is null)))
 ) checks order by ord;
 
 -- ────────────────────────────────────────────────────────────────────────────

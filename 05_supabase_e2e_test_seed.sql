@@ -171,7 +171,8 @@ begin
   get diagnostics v_snap_count = row_count;
 
   -- ── 7. Clear stale engine output from previous runs ──────────────────────
-  -- (pickup_event / ladder_* cascade away with the rules below; these don't.)
+  -- (ladder_* cascade away with the rules below; these don't. pickup_event
+  -- has no cascade either: section 8 clears it before the rules go.)
   delete from public.published_price   where hotel_id = v_hotel_id;
   delete from public.evaluation_audit  where hotel_id = v_hotel_id;
   delete from public.ladder_transition_event where hotel_id = v_hotel_id;
