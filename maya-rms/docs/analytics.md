@@ -295,6 +295,25 @@ overlap with the last week and says how many days.
 Group grants first connected in the window: size, properties connected,
 claimed, subscribed, deferred now, expired unclaimed.
 
+### Rate push problems (`lib/admin/push-problems.ts`)
+
+Not an `analytics_*` function: read with the service role from
+`rate_push_incidents` (99_supabase_migration_push_guardrails_v1.sql, section
+3) and counted in TypeScript. One incident is one hotel, PMS and cause while
+that cause keeps rates from landing; the cause codes and what each means live
+in `supabase/functions/_shared/pms/push-failure.ts`.
+
+Per cause, over incidents opened in the window: incidents, tries, hotels;
+**by retry** = closed with its cells landing and never shown to the owner;
+**shown** = reached the owner's change log (a known critical cause at once, or
+a cell still failing after 2 hours and 5 tries); open now; median hours from
+opening to landing, over incidents that closed by landing. **Root cause** is
+Known or Unknown; guardrail causes are MAYA's own holds and never shown to
+owners, and the ones marked MAYA bug mean a bad row was published. For
+Unknown, up to five of the PMS's own messages, most frequent first, so the
+classifier can be taught them. Below, every hotel with an incident open right
+now, whatever the window.
+
 ### Right now (`analytics_book`)
 
 Active properties; paying, trialing, past due, internal; live vs simulating
