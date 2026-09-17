@@ -46,11 +46,18 @@
  * Every other cell is re-read, not just captured once. The hotel changes its
  * rates in the PMS while MAYA is simulating, and a base read once, weeks ago,
  * would have the first live push write over those changes.
+ *
+ * A rate the hotel changed in the PMS on a night MAYA has sent to is not
+ * captured either: it is adopted as a manual price for that night
+ * (pms-edits.ts), once MAYA's own send there has settled. That happens here,
+ * before the tick evaluates, so the same tick publishes the hotel's rate and
+ * the push has nothing to send.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PmsRatePushAdapter, RateCalendarEntry, RateTargetMap } from "./rate-push.ts";
 import { ledgerRowNeverSent } from "./push-guardrails.ts";
+import { adoptPmsEdits, type PushedNightRead } from "./pms-edits.ts";
 import { mwsEnv } from "../mews/env.ts";
 import { isMissingColumnError } from "../engine/snapshots.ts";
 import { evalIsoToHotelDateString } from "../engine/timezone.ts";
@@ -73,11 +80,10 @@ export type SeedCalendarResult =
       /** Nights MAYA has pushed to, left alone. */
       skippedAlreadyPushed: number;
       /**
-       * Of those, how many the PMS now quotes differently from the price MAYA
-       * last sent: someone changed the rate in the PMS after our push. Counted
-       * only; what to do about them is not decided yet.
+       * Of those, how many the hotel changed in the PMS since MAYA's send
+       * there settled, now open manual prices at the PMS rate (pms-edits.ts).
        */
-      pmsEditedPushedNights: number;
+      pmsEditsAdopted: number;
       /** Of `captured`, sent-to nights stored at 0 that the hotel has since loaded a rate for. */
       loadedAfterZeroBase: number;
       days: number;
@@ -130,17 +136,21 @@ export async function seedBaseRateCalendar(
   supabase: SupabaseClient,
   hotelId: string,
   adapter: PmsRatePushAdapter,
-  opts: { horizonDays?: number; today?: string; deadlineAt?: number } = {},
+  opts: { horizonDays?: number; today?: string; deadlineAt?: number; at?: string } = {},
 ): Promise<SeedCalendarResult> {
   return (await seedWithTargets(supabase, hotelId, adapter, opts)).result;
 }
 
-/** seedBaseRateCalendar, and the rate targets the read resolved (null when there was no read). */
+/**
+ * seedBaseRateCalendar, and the rate targets the read resolved (null when
+ * there was no read). `at` is the instant a PMS change is adopted at: the
+ * tick's, which its evaluation prices at too.
+ */
 async function seedWithTargets(
   supabase: SupabaseClient,
   hotelId: string,
   adapter: PmsRatePushAdapter,
-  opts: { horizonDays?: number; today?: string; deadlineAt?: number },
+  opts: { horizonDays?: number; today?: string; deadlineAt?: number; at?: string },
 ): Promise<{ result: SeedCalendarResult; targets: RateTargetMap | null }> {
   if (!adapter.fetchRateCalendar && !adapter.readBaseRateCalendar) {
     return { result: { ok: false, reason: "unsupported", captured: 0 }, targets: null };
@@ -166,14 +176,15 @@ async function seedWithTargets(
   if (!read) return { result: { ok: false, reason: "no_rate_targets", captured: 0 }, targets: null };
 
   // Read after the PMS, so a push that landed in between is seen here.
-  const pushed = await readPushedCells(supabase, hotelId, firstDate, lastDate);
-  const pushedCells = new Set<string>();
+  const { rows: pushed, settleKnown } = await readPushedCells(supabase, hotelId, firstDate, lastDate);
+  // Each pushed cell's ledger row.
+  const pushedCells = new Map<string, Record<string, unknown>>();
   // The last price each pushed cell is known to hold from MAYA, and when its row was written.
   const knownSent = new Map<string, { price: number; atMs: number }>();
   for (const p of pushed) {
     if (!p.room_type_id || ledgerRowNeverSent(p)) continue;
     const key = `${p.stay_date}|${p.room_type_id}`;
-    pushedCells.add(key);
+    pushedCells.set(key, p);
     const price = p.status === "sent" ? p.price : p.status === "skipped" ? p.sent_price : null;
     if (price != null) {
       knownSent.set(key, { price: Number(price), atMs: p.pushed_at != null ? Date.parse(String(p.pushed_at)) : NaN });
@@ -198,8 +209,9 @@ async function seedWithTargets(
   const seen = new Set<string>();
   let unchanged = 0;
   let skippedAlreadyPushed = 0;
-  let pmsEditedPushedNights = 0;
   let loadedAfterZeroBase = 0;
+  // Pushed nights as the PMS quotes them now, for pms-edits.ts.
+  const pushedReads: PushedNightRead[] = [];
   const settledBefore = Date.now() - ZERO_BASE_SETTLE_MS;
   for (const e of read.entries) {
     const roomTypeId = localByExternal.get(e.externalRoomTypeId);
@@ -222,7 +234,14 @@ async function seedWithTargets(
         !(sent.atMs > settledBefore);
       if (!hotelLoadedIt) {
         skippedAlreadyPushed++;
-        if (sent != null && ratesDiffer(e.price, sent.price)) pmsEditedPushedNights++;
+        pushedReads.push({
+          stayDate: e.stayDate,
+          roomTypeId,
+          externalRoomTypeId: e.externalRoomTypeId,
+          pmsRate: e.price,
+          storedBase: was ?? null,
+          ledger: pushedCells.get(key)!,
+        });
         continue;
       }
       loadedAfterZeroBase++;
@@ -253,16 +272,31 @@ async function seedWithTargets(
     }
   }
 
+  // A database without the settle columns can't tell a settled send, so nothing there is a hand edit.
+  const pmsEdits =
+    settleKnown && pushedReads.length > 0
+      ? await adoptPmsEdits(supabase, hotelId, adapter.pmsType, pushedReads, read.targets, { firstDate, lastDate }, opts.at ?? capturedAt)
+      : null;
+
   return {
-    result: { ok: true, captured: rows.length, unchanged, skippedAlreadyPushed, pmsEditedPushedNights, loadedAfterZeroBase, days: horizon },
+    result: {
+      ok: true,
+      captured: rows.length,
+      unchanged,
+      skippedAlreadyPushed,
+      pmsEditsAdopted: pmsEdits?.adopted ?? 0,
+      loadedAfterZeroBase,
+      days: horizon,
+    },
     targets: read.targets,
   };
 }
 
 /**
- * The window's ledger rows. sent_price is read too, and left out on a database
- * the push guardrails migration has not given it to yet: only sent rows then
- * say what MAYA put in the PMS.
+ * The window's ledger rows. sent_price and the settle columns (confirmed_at)
+ * are read too, and left out on a database the push guardrails migration has
+ * not given them to yet: only sent rows then say what MAYA put in the PMS, and
+ * `settleKnown` is false, so no night is taken as changed in the PMS.
  */
 async function readPushedCells(
   supabase: SupabaseClient,
@@ -271,14 +305,16 @@ async function readPushedCells(
   lastDate: string,
   // deno-lint-ignore no-explicit-any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): Promise<any[]> {
+): Promise<{ rows: any[]; settleKnown: boolean }> {
   const read = (columns: string) =>
     readAll(supabase, "rate_updates", columns, hotelId, firstDate, lastDate, ["stay_date", "room_type_id", "id"], "pushed cells");
+  const base =
+    "stay_date, room_type_id, price, status, attempts, pushed_at, pms_type, external_room_type_id, external_rate_id, pms_job_reference";
   try {
-    return await read("stay_date, room_type_id, price, status, attempts, pushed_at, sent_price");
+    return { rows: await read(`${base}, sent_price, confirmed_at`), settleKnown: true };
   } catch (e) {
     if (!isMissingColumnError(e)) throw e;
-    return await read("stay_date, room_type_id, price, status, attempts, pushed_at");
+    return { rows: await read(base), settleKnown: false };
   }
 }
 
@@ -346,7 +382,8 @@ async function readAll(
  *
  * `clock` is the tick's instant and hotel date, shared with the evaluation and
  * push that follow. Cells MAYA has already pushed to are excluded inside
- * seedBaseRateCalendar, so this is safe on a live hotel.
+ * seedBaseRateCalendar, so this is safe on a live hotel; a rate the hotel
+ * changed on one of them is adopted as a manual price set at that instant.
  *
  * `deadlineAt` bounds the read: a due refresh with less than
  * BASE_REFRESH_RESERVE_MS left does not start, and the PMS client stops
@@ -410,6 +447,7 @@ export async function ensureBaseRateCalendar(
       horizonDays: horizon,
       today: clock.today,
       deadlineAt: opts.deadlineAt,
+      at: clock.at,
     });
     if (connection !== "unknown" && result.ok) {
       const cached = connection.pushRateTargets;

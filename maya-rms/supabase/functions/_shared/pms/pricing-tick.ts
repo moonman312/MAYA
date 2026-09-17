@@ -16,6 +16,10 @@
  * covering its window is not a failure: the engine still runs on what arrived,
  * but nothing is pushed until a read covers the window.
  *
+ * The refresh also adopts rates the hotel changed in the PMS on nights MAYA
+ * had sent to (pms-edits.ts), at the tick's instant, so the evaluation right
+ * after publishes them and the push does not write over them.
+ *
  * The base rate refresh has the evaluation cut-off as its deadline: it does
  * not start without a minute to spare, and stops waiting on the PMS past it.
  * Unless the refresh read the PMS this tick, or was not due because a read
@@ -54,8 +58,8 @@ export type PricingTickResult<E> = {
   calendar: EnsureCalendarResult | TickSkip;
   evaluate: E | { error: string } | { skipped: true | "out_of_time" | "sync_failed" };
   push: RatePushSummary | TickSkip;
-  /** Nights MAYA pushed that the PMS now quotes differently, when the calendar was re-read. */
-  pmsEditedPushedNights?: number;
+  /** Nights changed in the PMS after MAYA's send that this refresh adopted as manual prices. */
+  pmsEditsAdopted?: number;
   /** Too little time was left to evaluate; the caller releases the hotel due again soon. */
   outOfTime: boolean;
   calendarMs: number;
@@ -187,7 +191,7 @@ export async function runPricingTick<E>(
     calendar,
     evaluate,
     push,
-    ...("pmsEditedPushedNights" in calendar ? { pmsEditedPushedNights: calendar.pmsEditedPushedNights } : {}),
+    ...("pmsEditsAdopted" in calendar ? { pmsEditsAdopted: calendar.pmsEditsAdopted } : {}),
     outOfTime,
     calendarMs: tCalendar - t0,
     evalMs: tEval - tCalendar,

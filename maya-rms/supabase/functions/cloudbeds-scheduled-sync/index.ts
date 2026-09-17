@@ -277,7 +277,7 @@ Deno.serve(async (req) => {
         syncError: sync.ok ? undefined : sync.error,
         today: tick.today,
         calendar,
-        pmsEditedPushedNights: tick.pmsEditedPushedNights,
+        pmsEditsAdopted: tick.pmsEditsAdopted,
         evaluate,
         push,
         syncMs: tSync - t0,

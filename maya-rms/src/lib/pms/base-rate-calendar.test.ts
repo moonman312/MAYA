@@ -79,7 +79,7 @@ describe("seedBaseRateCalendar", () => {
 
     const res = await seedBaseRateCalendar(d.client, HOTEL, adapter, { horizonDays: 3, today: "2026-10-01" });
 
-    expect(res).toMatchObject({ ok: true, captured: 2, unchanged: 0, skippedAlreadyPushed: 0, pmsEditedPushedNights: 0 });
+    expect(res).toMatchObject({ ok: true, captured: 2, unchanged: 0, skippedAlreadyPushed: 0, pmsEditsAdopted: 0 });
     expect(d.tables.base_rate_calendar).toEqual([
       expect.objectContaining({ hotel_id: HOTEL, stay_date: "2026-10-01", room_type_id: "local-1", price: 200, source: "pms" }),
       expect.objectContaining({ room_type_id: "local-2", price: 240 }),
@@ -232,7 +232,7 @@ describe("seedBaseRateCalendar", () => {
     const d = db({ room_types: types, rate_updates: pushed });
     const { adapter } = makeAdapter(entries);
     const res = await seedBaseRateCalendar(d.client, HOTEL, adapter, { horizonDays: 365, today: "2026-10-01" });
-    expect(res).toMatchObject({ ok: true, captured: 0, skippedAlreadyPushed: 1460, pmsEditedPushedNights: 0 });
+    expect(res).toMatchObject({ ok: true, captured: 0, skippedAlreadyPushed: 1460, pmsEditsAdopted: 0 });
     expect(upserts(d)).toHaveLength(0);
   });
 
@@ -273,7 +273,7 @@ describe("ensureBaseRateCalendar refresh", () => {
     expect(upserts(d).map((c) => (c.payload as FakeRow[]).length)).toEqual([1]);
   });
 
-  it("leaves a pushed night alone and counts it when the PMS rate no longer matches what MAYA sent", async () => {
+  it("leaves a pushed night's base alone when the PMS rate no longer matches what MAYA sent, and a simulating hotel adopts nothing", async () => {
     const d = db({
       base_rate_calendar: STORED.map((r) => ({ ...r })),
       rate_updates: [
@@ -293,9 +293,10 @@ describe("ensureBaseRateCalendar refresh", () => {
 
     const res = await ensureBaseRateCalendar(d.client, HOTEL, adapter, { horizonDays: 2, clock: clock("2026-10-01T12:00:00.000Z") });
 
-    expect(res).toMatchObject({ ok: true, captured: 0, skippedAlreadyPushed: 3, pmsEditedPushedNights: 1 });
+    expect(res).toMatchObject({ ok: true, captured: 0, skippedAlreadyPushed: 3, pmsEditsAdopted: 0 });
     expect(calendar(d)).toEqual(["2026-10-01|local-1|200", "2026-10-02|local-1|200"]);
     expect(upserts(d)).toHaveLength(0);
+    expect(d.tables.manual_price ?? []).toEqual([]);
   });
 
   it("captures a sent-to night stored at 0 once the hotel loads a rate of its own, and nothing that could be MAYA's", async () => {
@@ -323,7 +324,7 @@ describe("ensureBaseRateCalendar refresh", () => {
 
     const res = await ensureBaseRateCalendar(d.client, HOTEL, adapter, { horizonDays: 3, clock: clock("2026-10-01T12:00:00.000Z") });
 
-    expect(res).toMatchObject({ ok: true, captured: 1, loadedAfterZeroBase: 1, skippedAlreadyPushed: 3, pmsEditedPushedNights: 2 });
+    expect(res).toMatchObject({ ok: true, captured: 1, loadedAfterZeroBase: 1, skippedAlreadyPushed: 3, pmsEditsAdopted: 0 });
     expect(calendar(d)).toEqual([
       "2026-10-01|local-1|180",
       "2026-10-01|local-2|120",
@@ -357,7 +358,7 @@ describe("ensureBaseRateCalendar refresh", () => {
 
     const res = await ensureBaseRateCalendar(d.client, HOTEL, adapter, { horizonDays: 4, clock: clock("2026-10-01T12:00:00.000Z") });
 
-    expect(res).toMatchObject({ ok: true, captured: 1, loadedAfterZeroBase: 1, skippedAlreadyPushed: 3, pmsEditedPushedNights: 0 });
+    expect(res).toMatchObject({ ok: true, captured: 1, loadedAfterZeroBase: 1, skippedAlreadyPushed: 3, pmsEditsAdopted: 0 });
     expect(calendar(d)).toEqual(["2026-10-01|local-1|0", "2026-10-02|local-1|0", "2026-10-03|local-1|180", "2026-10-04|local-1|0"]);
   });
 

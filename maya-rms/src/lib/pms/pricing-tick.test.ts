@@ -111,10 +111,10 @@ describe("runPricingTick", () => {
     expect(sentNights(d)).toEqual(["2026-10-01", "2026-11-29"]);
     expect(res).toMatchObject({
       today: "2026-10-01",
-      calendar: { ok: true, captured: 1, pmsEditedPushedNights: 0 },
+      calendar: { ok: true, captured: 1, pmsEditsAdopted: 0 },
       evaluate: { run_id: "run-1" },
       push: { pushed: true, sent: 2 },
-      pmsEditedPushedNights: 0,
+      pmsEditsAdopted: 0,
       outOfTime: false,
     });
   });
@@ -144,12 +144,24 @@ describe("runPricingTick", () => {
     expect(sentNights(d)).toEqual(["2026-10-01", "2026-10-14"]);
   });
 
-  it("surfaces pushed nights the PMS now quotes differently", async () => {
+  it("adopts a rate changed in the PMS on a night MAYA sent to before it evaluates, set at the tick's instant", async () => {
+    const twoHoursBefore = new Date(T0 - 2 * 3_600_000).toISOString();
     const d = db({
-      rate_updates: [{ id: "1", hotel_id: HOTEL, stay_date: "2026-10-03", room_type_id: "rt-king", price: 230, status: "sent" }],
+      rate_updates: [
+        {
+          id: "1", hotel_id: HOTEL, pms_type: "cloudbeds", stay_date: "2026-10-03", room_type_id: "rt-king", external_room_type_id: "CB-KING",
+          external_rate_id: "base-1", price: 230, sent_price: 230, status: "sent", attempts: 1, pms_job_reference: "job-1",
+          confirmed_at: twoHoursBefore, pushed_at: twoHoursBefore,
+        },
+      ],
     });
     const { adapter, log } = makeAdapter([{ stayDate: "2026-10-03", externalRoomTypeId: "CB-KING", price: 199 }]);
-    const { evaluate } = makeEvaluate(d, log, []);
+    let manualAtEvaluation: FakeRow[] = [];
+    const evaluate = async () => {
+      log.push("evaluate");
+      manualAtEvaluation = (d.tables.manual_price ?? []).map((r) => ({ ...r }));
+      return { run_id: "run-1" };
+    };
 
     const res = await runPricingTick(
       d.client,
@@ -158,8 +170,12 @@ describe("runPricingTick", () => {
       { evaluate, now: () => T0 },
     );
 
-    expect(res.pmsEditedPushedNights).toBe(1);
+    expect(res.pmsEditsAdopted).toBe(1);
     expect(res.push).toEqual({ skipped: "disabled" });
+    expect(manualAtEvaluation).toEqual([
+      expect.objectContaining({ stay_date: "2026-10-03", room_type_id: "rt-king", price: 199, source: "pms", pms_type: "cloudbeds", set_by: null, set_at: new Date(T0).toISOString() }),
+    ]);
+    // The hotel's own rate from before MAYA stays as it was.
     expect(d.tables.base_rate_calendar).toEqual([]);
   });
 
