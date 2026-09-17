@@ -22,7 +22,7 @@ import { resolveOAuthCredentials } from "../_shared/pms/oauth-credentials.ts";
 import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
 import { hotelsImportingNow, splitByParked } from "../_shared/pms/parked.ts";
 import {
-  claimDispatchedHotel,
+  claimDispatchedHotelWaiting,
   OUT_OF_TIME_RETRY_SECONDS,
   runScheduledHotels,
   scheduledLoopConfigFromEnv,
@@ -147,11 +147,19 @@ Deno.serve(async (req) => {
 
   // A single-hotel dispatch takes the same lease a cron claim does, so it never
   // runs a hotel that another invocation or a manual sync is already working.
-  // That run evaluates and pushes it; this one steps aside.
+  // While the hotel is busy it tries again for up to a minute from the start of
+  // this invocation: the holder may be a manual sync that never prices, or a
+  // run that read published_price before the save. Past that it steps aside
+  // and the next due tick picks the change up.
   let dispatchLeased = false;
   if (bodyHotelId && hotelIds.length > 0) {
-    const claim = await claimDispatchedHotel(supabase, "think", bodyHotelId, workerId, (line) =>
-      console.log(JSON.stringify({ fn: "think-scheduled-sync", ...line })),
+    const claim = await claimDispatchedHotelWaiting(
+      supabase,
+      "think",
+      bodyHotelId,
+      workerId,
+      (line) => console.log(JSON.stringify({ fn: "think-scheduled-sync", ...line })),
+      invocationStartedAt,
     );
     if (claim === "busy") {
       return new Response(
@@ -191,7 +199,8 @@ Deno.serve(async (req) => {
     // wall clock and the invocation was killed before any release. The hotel
     // is released due again in OUT_OF_TIME_RETRY_SECONDS, so the next tick
     // takes it early.
-    const outOfTime = Date.now() > evaluateBy;
+    const evalStartedAt = Date.now();
+    const outOfTime = evalStartedAt > evaluateBy;
     let evaluate: (typeof results)[number]["evaluate"];
     if (outOfTime) {
       evaluate = { skipped: "out_of_time" };
@@ -304,6 +313,9 @@ Deno.serve(async (req) => {
         );
       }
     }
+    // What evaluating took, through the release, so the loop can size the
+    // cut-off for the hotels after this one.
+    return outOfTime ? undefined : Date.now() - evalStartedAt;
   };
 
   const loop = await runScheduledHotels(

@@ -13,6 +13,11 @@
  * failure count untouched, so the next tick can take them at once. Each
  * started hotel gets a deadline for its PMS read that leaves room for its
  * evaluation, and a hotel whose work throws is still released.
+ *
+ * The cut-off for starting an evaluation follows the slowest evaluate and push
+ * seen so far in the invocation, between EVAL_RESERVE_FLOOR_MS and minEvalMs.
+ * A flat minEvalMs made a small hotel late in the batch read its PMS and then
+ * skip pricing it, a whole tick later than it needed to be.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -31,10 +36,15 @@ export type ScheduledLoopConfig = {
    * A hotel whose read ends with less than this left before the invocation's
    * deadline skips evaluation and push for this tick, and is released due again
    * shortly. Starting an evaluation that runs past the wall clock got the
-   * invocation killed before it released anything.
+   * invocation killed before it released anything. Once a hotel has evaluated,
+   * the slowest evaluate and push seen replaces it, never below
+   * EVAL_RESERVE_FLOOR_MS and never above this.
    */
   minEvalMs: number;
 };
+
+/** The least time kept back for an evaluation, however fast earlier ones were. */
+export const EVAL_RESERVE_FLOOR_MS = 5_000;
 
 /** How soon a hotel that ran out of time to evaluate is due again. */
 export const OUT_OF_TIME_RETRY_SECONDS = 30;
@@ -60,9 +70,15 @@ export type ScheduledLoopDeps = {
   /**
    * Sync, evaluate, push and release one hotel. `deadlineAt` bounds its PMS
    * read; `invocationDeadline` is when the whole invocation is out of time;
-   * past `evaluateBy` there is no time left to start evaluating it.
+   * past `evaluateBy` there is no time left to start evaluating it. Resolves
+   * to how long its evaluate and push took, or nothing when they did not run.
    */
-  processHotel: (hotelId: string, deadlineAt: number, invocationDeadline: number, evaluateBy: number) => Promise<void>;
+  processHotel: (
+    hotelId: string,
+    deadlineAt: number,
+    invocationDeadline: number,
+    evaluateBy: number,
+  ) => Promise<number | void>;
   /** Give back a claim that was never started, without touching its schedule. */
   handBack: (hotelId: string) => Promise<void>;
   /** Release a hotel whose work threw before it released itself. */
@@ -85,6 +101,8 @@ export async function runScheduledHotels(
   const invocationDeadline = startedAt + config.invocationBudgetMs;
   const result: ScheduledLoopResult = { started: [], handedBack: [], crashed: [] };
   let slowestMs = 0;
+  // Slowest evaluate and push so far; 0 until one has run.
+  let slowestEvalMs = 0;
 
   for (let i = 0; i < hotelIds.length; i++) {
     const hotelId = hotelIds[i];
@@ -113,8 +131,13 @@ export async function runScheduledHotels(
 
     const deadlineAt = Math.min(now + config.syncBudgetMs, invocationDeadline - config.evalReserveMs);
     result.started.push(hotelId);
+    const evalReserve =
+      slowestEvalMs > 0
+        ? Math.min(config.minEvalMs, Math.max(EVAL_RESERVE_FLOOR_MS, slowestEvalMs))
+        : config.minEvalMs;
     try {
-      await deps.processHotel(hotelId, Math.max(now, deadlineAt), invocationDeadline, invocationDeadline - config.minEvalMs);
+      const evalMs = await deps.processHotel(hotelId, Math.max(now, deadlineAt), invocationDeadline, invocationDeadline - evalReserve);
+      if (typeof evalMs === "number" && Number.isFinite(evalMs)) slowestEvalMs = Math.max(slowestEvalMs, evalMs);
     } catch (e) {
       result.crashed.push(hotelId);
       deps.log({ step: "hotel_crashed", hotelId, error: e instanceof Error ? e.message : String(e) });
@@ -167,4 +190,48 @@ export async function claimDispatchedHotel(
   if (data === "claimed") return "claimed";
   if (data === "busy") return "busy";
   return "unleased";
+}
+
+/** How long from the invocation's start a busy single-hotel dispatch keeps trying. */
+export const DISPATCH_BUSY_WAIT_MS = 60_000;
+/** Between tries while the hotel is busy. */
+export const DISPATCH_BUSY_RETRY_MS = 3_000;
+
+/**
+ * claimDispatchedHotel, waiting a bounded time while the hotel is busy.
+ *
+ * Stepping aside at once assumed the holder would price and push the change
+ * that prompted the dispatch, but a manual sync only reads the PMS, and a cron
+ * run may have read published_price before the save. The saved price then sat
+ * until the next due tick, minutes away, while the UI said it was being sent.
+ * Holders mostly finish within a minute, so this tries again every
+ * DISPATCH_BUSY_RETRY_MS until DISPATCH_BUSY_WAIT_MS after `startedAt`, then
+ * gives up as "busy".
+ */
+export async function claimDispatchedHotelWaiting(
+  supabase: SupabaseClient,
+  pmsType: string,
+  hotelId: string,
+  owner: string,
+  log: (line: Record<string, unknown>) => void,
+  startedAt: number,
+  clock: { now: () => number; sleep: (ms: number) => Promise<void> } = {
+    now: Date.now,
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  },
+): Promise<"claimed" | "busy" | "unleased"> {
+  let tries = 0;
+  for (;;) {
+    const claim = await claimDispatchedHotel(supabase, pmsType, hotelId, owner, log);
+    tries++;
+    if (claim !== "busy") {
+      if (tries > 1) log({ step: "dispatch_claim_waited", hotelId, tries, claim, waitedMs: clock.now() - startedAt });
+      return claim;
+    }
+    if (clock.now() + DISPATCH_BUSY_RETRY_MS > startedAt + DISPATCH_BUSY_WAIT_MS) {
+      log({ step: "dispatch_busy", hotelId, tries, waitedMs: clock.now() - startedAt });
+      return "busy";
+    }
+    await clock.sleep(DISPATCH_BUSY_RETRY_MS);
+  }
 }
