@@ -1,8 +1,8 @@
 /**
- * Sections 6 and 7 of 99_supabase_migration_push_guardrails_v1.sql, the reset
- * of legacy "no rate target" skips (with its count query) and sent_price, run
- * for real in PGlite. Only runs with MAYA_PGLITE_DIR set (see
- * large-property-sql.test.ts).
+ * Sections 6, 7 and 8 of 99_supabase_migration_push_guardrails_v1.sql, the
+ * reset of legacy "no rate target" skips (with its count query), sent_price,
+ * and rates changed in the PMS, run for real in PGlite. Only runs with
+ * MAYA_PGLITE_DIR set (see large-property-sql.test.ts).
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -132,6 +132,16 @@ describe.skipIf(!PGLITE_DIR)("push guardrails migration sections 6 and 7 in PGli
   }, 60_000);
 });
 
+const PRODUCT_EVENTS = readFileSync(resolve(__dirname, "../../../../99_supabase_migration_product_events_v1.sql"), "utf8");
+
+/** One statement of 99_supabase_migration_product_events_v1.sql, from where it starts to the end of its body. */
+function productEventsStatement(start: string): string {
+  const at = PRODUCT_EVENTS.indexOf(start);
+  if (at < 0) throw new Error(`not in the product events migration: ${start}`);
+  const bodyEnd = start.startsWith("create table") ? PRODUCT_EVENTS.indexOf(");\n", at) + 2 : PRODUCT_EVENTS.indexOf("$$;", PRODUCT_EVENTS.indexOf("$$", at) + 2) + 3;
+  return PRODUCT_EVENTS.slice(at, bodyEnd);
+}
+
 /** Section 8's block, begin to commit. */
 function sectionEight(): string {
   const start = MIGRATION.indexOf("-- 8. Rates changed in the PMS");
@@ -142,6 +152,8 @@ function sectionEight(): string {
 describe.skipIf(!PGLITE_DIR)("push guardrails migration section 8 in PGlite", () => {
   let db: Db;
   const ROOM = rt(1);
+  const OWNER = "00000000-0000-4000-8000-00000000bbbb";
+  const TYPIST = "00000000-0000-4000-8000-00000000aaaa";
 
   beforeAll(async () => {
     const mod = await import(
@@ -149,7 +161,8 @@ describe.skipIf(!PGLITE_DIR)("push guardrails migration section 8 in PGlite", ()
     );
     db = new mod.PGlite() as Db;
     // manual_price as 99_supabase_migration_manual_price_v1.sql makes it, and
-    // the product event plumbing section 8 builds on, reduced to what it calls.
+    // the product event plumbing section 8 builds on: the real product_events
+    // table and the functions that write it, over the tables they read.
     await db.exec(`
       create role anon;
       create role authenticated;
@@ -174,26 +187,34 @@ describe.skipIf(!PGLITE_DIR)("push guardrails migration section 8 in PGlite", ()
         note text,
         primary key (hotel_id, stay_date, room_type_id)
       );
-      create table public.product_events (
-        event text not null,
-        hotel_id uuid,
-        user_id uuid,
-        properties jsonb not null,
-        dedupe_key text unique
+      create table public.hotels (
+        id uuid primary key,
+        name text not null,
+        is_test boolean not null default false,
+        external_enterprise_id text
       );
-      create function public.product_event_emit(
-        p_event text, p_hotel_id uuid default null, p_user_id uuid default null, p_properties jsonb default '{}'::jsonb,
-        p_source text default 'trigger', p_occurred_at timestamptz default null, p_dedupe_key text default null,
-        p_pms_type text default null, p_pms_property_id text default null, p_property_name text default null, p_is_test boolean default null
-      ) returns bigint language plpgsql as $$
-      begin
-        insert into public.product_events (event, hotel_id, user_id, properties, dedupe_key)
-        values (p_event, p_hotel_id, p_user_id, p_properties, p_dedupe_key)
-        on conflict (dedupe_key) do nothing;
-        return 1;
-      end;
-      $$;
+      create table public.pms_connections (
+        hotel_id uuid not null,
+        pms_type public.pms_type not null,
+        updated_at timestamptz not null default now()
+      );
+      create table public.hotel_memberships (
+        hotel_id uuid not null,
+        user_id uuid not null,
+        role text not null,
+        status text not null,
+        created_at timestamptz not null default now()
+      );
+      insert into public.hotels (id, name, external_enterprise_id) values ('${H1}', 'Harbour Inn', 'cloudbeds:320691');
+      insert into public.pms_connections (hotel_id, pms_type) values ('${H1}', 'cloudbeds');
+      insert into public.hotel_memberships (hotel_id, user_id, role, status, created_at) values
+        ('${H1}', '${OWNER}', 'hotel_admin', 'active', '2026-01-01T00:00:00Z'),
+        ('${H1}', '${TYPIST}', 'revenue_manager', 'active', '2026-02-01T00:00:00Z');
     `);
+    await db.exec(productEventsStatement("create table if not exists public.product_events ("));
+    await db.exec("create unique index uq_product_events_dedupe on public.product_events (dedupe_key);");
+    await db.exec(productEventsStatement("create or replace function public.product_event_hotel_context("));
+    await db.exec(productEventsStatement("create or replace function public.product_event_emit("));
   }, 120_000);
   afterAll(async () => {
     await db?.close();
@@ -230,7 +251,7 @@ describe.skipIf(!PGLITE_DIR)("push guardrails migration section 8 in PGlite", ()
   }, 60_000);
 
   it("records a typed save as manual_price.set and a PMS change as its own event, once per room type and save", async () => {
-    const user = "00000000-0000-4000-8000-00000000aaaa";
+    const user = TYPIST;
     await db.exec(`
       insert into public.manual_price (hotel_id, stay_date, room_type_id, price, set_by, set_at)
       values ('${H1}', '2026-10-01', '${ROOM}', 150, '${user}', '2026-09-20T10:00:00Z'),
@@ -248,13 +269,15 @@ describe.skipIf(!PGLITE_DIR)("push guardrails migration section 8 in PGlite", ()
     await db.exec(`update public.manual_price set cleared_at = '2026-09-22T10:00:00Z', cleared_by = '${user}' where stay_date = '2026-10-03'`);
 
     const events = await db.query(
-      `select event, user_id, properties->>'nights' as nights, properties->>'first_night' as first_night
+      `select event, user_id, source, pms_type, properties->>'nights' as nights, properties->>'first_night' as first_night
          from public.product_events order by dedupe_key`,
     );
+    // A PMS change names nobody, so product_event_emit files it under the
+    // property's owner, as it does every PMS event (docs/analytics.md).
     expect(events.rows).toEqual([
-      { event: "manual_price.changed_in_pms", user_id: null, nights: "2", first_night: "2026-10-02" },
-      { event: "manual_price.cleared", user_id: user, nights: "1", first_night: "2026-10-03" },
-      { event: "manual_price.set", user_id: user, nights: "2", first_night: "2026-10-01" },
+      { event: "manual_price.changed_in_pms", user_id: OWNER, source: "trigger", pms_type: "cloudbeds", nights: "2", first_night: "2026-10-02" },
+      { event: "manual_price.cleared", user_id: user, source: "trigger", pms_type: "cloudbeds", nights: "1", first_night: "2026-10-03" },
+      { event: "manual_price.set", user_id: user, source: "trigger", pms_type: "cloudbeds", nights: "2", first_night: "2026-10-01" },
     ]);
   }, 60_000);
 });
