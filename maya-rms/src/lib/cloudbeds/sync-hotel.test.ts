@@ -677,6 +677,36 @@ describe("incremental pulls", () => {
     // No tax call on an incremental tick.
     expect(client.cloudbedsGetTaxesAndFees).not.toHaveBeenCalled();
   });
+
+  it("hands over to the checkpointed full sweep when a pull runs out of time", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const watermark = new Date(NOW.getTime() - 10 * 60_000).toISOString();
+    const supabase = makeSupabaseStub([], {
+      reservations_modified_through: watermark,
+      last_full_sync_at: new Date(NOW.getTime() - 60 * 60_000).toISOString(),
+    });
+    // Everything was touched recently and pages are slow: the pull cannot finish.
+    const book = Array.from({ length: 2400 }, (_, i) =>
+      booking({ id: String(500000 + i), status: "confirmed", checkIn: "2026-08-15", checkOut: `2026-08-${String(16 + (i % 12)).padStart(2, "0")}`, modified: "2026-08-04 09:59:00" }),
+    );
+    serve(book, { onCall: () => vi.advanceTimersByTime(60_000) });
+
+    const first = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+    expect(first.ok && first.windowFullyCovered).toBe(false);
+    expect(rateDetailsQueries()[0].modifiedFrom).toBeDefined();
+    const rowsAfterFirst = supabase.reservations.length;
+    expect(supabase.connection.last_full_sync_at).toBeNull();
+    expect(supabase.connection.reservations_modified_through).toBe(watermark);
+
+    client.cloudbedsGetReservationsWithRateDetailsPage.mockClear();
+    serve(book, { onCall: () => vi.advanceTimersByTime(10_000) });
+    const second = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+    expect(second.ok).toBe(true);
+    // The next run is the full sweep, which checkpoints instead of starting over.
+    expect(rateDetailsQueries()[0].modifiedFrom).toBeUndefined();
+    expect(supabase.reservations.length).toBeGreaterThanOrEqual(rowsAfterFirst);
+  });
 });
 
 describe("re-syncing unchanged data writes nothing", () => {

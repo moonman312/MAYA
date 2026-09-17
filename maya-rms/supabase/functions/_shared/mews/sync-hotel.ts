@@ -485,6 +485,10 @@ export async function runMewsSyncForHotel(
               ).toISOString(),
             }
           : {}),
+        // An incremental pull that ran out of time has no checkpoint to resume
+        // from, so it would retry the same too-big pull every tick. Clearing
+        // this makes the next run the checkpointed full sweep instead.
+        ...(truncated && incremental ? { last_full_sync_at: null } : {}),
         ...(checkpointable && truncated
           ? {
               full_sweep_after_id: String(walk.lastIndex),

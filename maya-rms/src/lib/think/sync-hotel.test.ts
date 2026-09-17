@@ -350,6 +350,24 @@ describe("runThinkSyncForHotel sync modes and checkpoints", () => {
     expect(stamp).not.toHaveProperty("last_full_sync_at");
   });
 
+  it("clears last_full_sync_at when an incremental pull runs out of time, so the next run is the full sweep", async () => {
+    const supabase = makeSupabaseStub([], undefined, [], {
+      id: "conn-1",
+      reservations_modified_through: "2026-08-05T09:50:00.000Z",
+      last_full_sync_at: "2026-08-05T02:00:00.000Z",
+    });
+    client.thinkGetReservationsPage.mockImplementation(async (_c, _h, _r, page: number) => {
+      vi.advanceTimersByTime(300_000);
+      return { content: client.state.pages[page] ?? [], totalPages: 2, last: false, number: page };
+    });
+    const res = await runThinkSyncForHotel(supabase, "hotel-1");
+    expect(res.ok && res.windowFullyCovered).toBe(false);
+    const stamp = supabase.connUpdates.at(-1)!;
+    expect(stamp.last_full_sync_at).toBeNull();
+    expect(stamp).not.toHaveProperty("reservations_modified_through");
+    expect(stamp).not.toHaveProperty("full_sweep_after_id");
+  });
+
   it("sweeps the stay window in full on first run, with no updated filter", async () => {
     const supabase = makeSupabaseStub([], undefined, [], { id: "conn-1" });
 

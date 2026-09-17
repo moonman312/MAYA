@@ -1295,6 +1295,10 @@ export async function runCloudbedsSyncForHotel(
               ).toISOString(),
             }
           : {}),
+        // An incremental pull that ran out of time has no checkpoint to resume
+        // from, so it would retry the same too-big pull every tick. Clearing
+        // this makes the next run the checkpointed full sweep instead.
+        ...(truncated && incremental ? { last_full_sync_at: null } : {}),
         // The checkpoint itself: a truncated sweep records how far it got and
         // when the whole thing began; a completed one clears both so the next
         // daily sweep starts fresh.

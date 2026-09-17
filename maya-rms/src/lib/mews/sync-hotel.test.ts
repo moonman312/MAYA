@@ -321,6 +321,27 @@ describe("runMewsSyncForHotel sync modes and checkpoints", () => {
     expect(stamp).not.toHaveProperty("last_full_sync_at");
   });
 
+  it("clears last_full_sync_at when an incremental pull runs out of time, so the next run is the full sweep", async () => {
+    withConnection();
+    const supabase = makeSupabaseStub([], undefined, [], {
+      id: "conn-1",
+      reservations_modified_through: "2026-08-05T09:50:00.000Z",
+      last_full_sync_at: "2026-08-05T02:00:00.000Z",
+    });
+    client.mewsWalkReservationWindows.mockImplementationOnce(
+      async (_c: unknown, s2: string, e2: string, onWindow: (v: never) => Promise<boolean>) => {
+        vi.advanceTimersByTime(300_000);
+        await onWindow({ index: 0, raw: client.fixtureRaw, startUtc: s2, endUtc: e2 } as never);
+        return { windowsFetched: 1, lastIndex: 0, completed: false };
+      },
+    );
+    const res = await runMewsSyncForHotel(supabase, "hotel-1");
+    expect(res.ok && res.windowFullyCovered).toBe(false);
+    const stamp = supabase.connUpdates.at(-1)!;
+    expect(stamp.last_full_sync_at).toBeNull();
+    expect(stamp).not.toHaveProperty("reservations_modified_through");
+  });
+
   it("sweeps in full on first run, with no Updated filter", async () => {
     withConnection();
     const supabase = makeSupabaseStub([], undefined, [], { id: "conn-1" });
