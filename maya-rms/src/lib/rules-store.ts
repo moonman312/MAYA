@@ -16,6 +16,7 @@ import { bookingSpeedLabel, isBookingSpeed } from "@/lib/observations/booking-sp
 import {
   RoomTypeSetError,
   bookingSpeedWaitLabel,
+  eventRuleWaitDays,
   isRuleConditionEmpty,
   ruleConditionForInsert,
   ruleConditionToLegacyConditions,
@@ -161,19 +162,30 @@ function uiActionToDb(action: RuleAction): {
  * "at least Much Faster Than Normal (past week), then waits 2 days" — the
  * rules-table summary text. The wait is part of what the rule does: once it
  * is over and the rule is still true, the rule adjusts that night again.
+ *
+ * A rule that also counts pickup waits the longer of its stored wait and that
+ * lookback window (eventRuleWaitDays, the engine's ruleWaitDays), so the card
+ * shows the wait the engine keeps, not the one on the dropdown.
  */
 function formatBookingSpeedCondition(
   operator: string,
   levelKey: string,
   windowDays: number,
   cooldownDays: number | null,
+  pickup: { hasPickup: boolean; windowDays: number | null },
 ): string {
   const label = isBookingSpeed(levelKey) ? bookingSpeedLabel(levelKey) : levelKey;
   const opWords =
     operator === "at_least" ? "at least " : operator === "at_most" ? "at most " : "";
   const windowWords =
     windowDays === 1 ? "past day" : windowDays === 30 ? "past month" : "past week";
-  return `${opWords}${label} (${windowWords}), then waits ${bookingSpeedWaitLabel(cooldownDays)}`;
+  const waitDays = eventRuleWaitDays({
+    hasBookingSpeed: true,
+    cooldownDays,
+    hasPickup: pickup.hasPickup,
+    pickupWindowDays: pickup.windowDays,
+  });
+  return `${opWords}${label} (${windowWords}), then waits ${bookingSpeedWaitLabel(waitDays)}`;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -213,6 +225,10 @@ function dbRowToRuleConfig(row: any): RuleConfig {
         String(rc.booking_speed_level),
         rc.booking_speed_window_days != null ? Number(rc.booking_speed_window_days) : 7,
         rc.booking_speed_cooldown_days != null ? Number(rc.booking_speed_cooldown_days) : null,
+        {
+          hasPickup: rc.pickup_operator != null,
+          windowDays: rc.pickup_window_days != null ? Number(rc.pickup_window_days) : null,
+        },
       );
     }
   } else {

@@ -32,13 +32,23 @@ export function bookingSpeedHelp(windowDays: number): { label: string; title: st
  * The "?" beside the wait. What it says is what the engine does: the wait is
  * counted per night and room type from that cell's last fire, a stronger rule
  * may still step in during it, and a rule with no wait stored waits a week.
+ *
+ * A rule that also counts pickup waits the longer of the two (ruleWaitDays),
+ * so when the lookback window is what decides it the panel says so once and
+ * `label` is that window, not the dropdown.
  */
-export function bookingSpeedWaitHelp(label: string): { label: string; title: string; lines: string[] } {
+export function bookingSpeedWaitHelp(
+  label: string,
+  pickupWindowLabel?: string | null,
+): { label: string; title: string; lines: string[] } {
   return {
     label: "How the wait works",
     title: "Waiting before it fires again",
     lines: [
       `After this rule adjusts a night, it leaves that night alone for ${label}.`,
+      ...(pickupWindowLabel
+        ? [`This rule also counts pickup over ${pickupWindowLabel}, which is longer, so that is what it waits.`]
+        : []),
       "If the rule is still true when the wait is over, it adjusts again, and MAYA tells you once a night has been adjusted three times.",
       "Each room type waits on its own, and a stronger rule can still step in while this one waits.",
     ],

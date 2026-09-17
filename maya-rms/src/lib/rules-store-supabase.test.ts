@@ -241,7 +241,7 @@ describe("listRules: occupancy percentage display does not show float noise", ()
 });
 
 describe("listRules: a booking speed rule's card says how long it waits", () => {
-  const card = async (cooldown: number | null) => {
+  const card = async (cooldown: number | null, pickup?: { operator: string; windowDays: number }) => {
     const { client } = fakeSupabase({
       pricing_rules: [
         {
@@ -259,6 +259,9 @@ describe("listRules: a booking speed rule's card says how long it waits", () => 
             booking_speed_level: "much_faster",
             booking_speed_window_days: 7,
             booking_speed_cooldown_days: cooldown,
+            ...(pickup
+              ? { pickup_operator: pickup.operator, pickup_threshold: 5, pickup_window_days: pickup.windowDays }
+              : {}),
           },
         },
       ],
@@ -273,5 +276,16 @@ describe("listRules: a booking speed rule's card says how long it waits", () => 
 
   it("reads a rule saved without one as the week the engine gives it", async () => {
     expect(await card(null)).toBe("at least Much Faster Than Normal (past week), then waits 1 week");
+  });
+
+  it("names the longer wait when the rule also counts pickup, because that is the one the engine keeps", async () => {
+    // ruleWaitDays takes the longer of the stored wait and the pickup window.
+    expect(await card(1, { operator: "gt", windowDays: 7 })).toBe(
+      "at least Much Faster Than Normal (past week), then waits 1 week",
+    );
+    // And the stored wait still wins when it is the longer one.
+    expect(await card(14, { operator: "gt", windowDays: 7 })).toBe(
+      "at least Much Faster Than Normal (past week), then waits 2 weeks",
+    );
   });
 });

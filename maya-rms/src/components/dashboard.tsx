@@ -24,6 +24,8 @@ import {
   BOOKING_SPEED_WAIT_OPTIONS,
   RULE_FIRES_HELP,
   bookingSpeedWaitLabel,
+  eventRuleWaitDays,
+  pickupWindowSetsWait,
   conditionRowsToRuleCondition,
   formatRuleConditionsDisplay,
   isRuleActionEmpty,
@@ -1348,6 +1350,18 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                           .filter((r) => r.id !== row.id)
                           .map((r) => r.metric),
                       );
+                      // A rule with both conditions waits the longer of the
+                      // stored wait and the pickup lookback (the engine's
+                      // ruleWaitDays), so the wait shown is that one.
+                      const pickupRow = condRows.find((r) => r.metric === "pickup");
+                      const waitInput = {
+                        hasBookingSpeed: true,
+                        cooldownDays: row.booking_speed_cooldown_days,
+                        hasPickup: pickupRow !== undefined,
+                        pickupWindowDays: pickupRow?.pickup_window_days ?? null,
+                      };
+                      const waitLabel = bookingSpeedWaitLabel(eventRuleWaitDays(waitInput));
+                      const pickupSetsWait = pickupWindowSetsWait(waitInput);
                       return (
                         <div
                           key={row.id}
@@ -1565,7 +1579,8 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                                   </label>
                                   <RoomCountHelp
                                     {...bookingSpeedWaitHelp(
-                                      bookingSpeedWaitLabel(row.booking_speed_cooldown_days),
+                                      waitLabel,
+                                      pickupSetsWait ? waitLabel : null,
                                     )}
                                   />
                                 </div>
@@ -1584,6 +1599,9 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                                   {BOOKING_SPEED_WAIT_OPTIONS.map((o) => (
                                     <option key={o.days} value={o.days}>
                                       {o.label}
+                                      {pickupSetsWait && o.days < eventRuleWaitDays(waitInput)
+                                        ? ` (pickup holds it to ${waitLabel})`
+                                        : ""}
                                     </option>
                                   ))}
                                 </select>

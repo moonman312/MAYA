@@ -30,6 +30,41 @@ export const BOOKING_SPEED_WAIT_OPTIONS: { days: BookingSpeedWaitDays; label: st
 export const DEFAULT_BOOKING_SPEED_WAIT_DAYS: BookingSpeedWaitDays = 7;
 
 /**
+ * Whole days an event rule waits on a night and room type before it may fire
+ * there again, the same way the engine works it out (ruleWaitDays in
+ * engine/pickup.ts): a booking speed rule waits its stored wait, at least a
+ * day; a pickup count rule waits its lookback window; a rule with both waits
+ * the longer of the two. rule-form.test.ts checks this against the engine's
+ * own function, because a card that says a different number is a card that
+ * lies about what the rule does.
+ */
+export function eventRuleWaitDays(input: {
+  hasBookingSpeed: boolean;
+  cooldownDays: number | null | undefined;
+  hasPickup: boolean;
+  pickupWindowDays: number | null | undefined;
+}): number {
+  const bookingSpeed = input.hasBookingSpeed
+    ? Math.max(1, input.cooldownDays ?? DEFAULT_BOOKING_SPEED_WAIT_DAYS)
+    : 0;
+  const pickup = input.hasPickup ? (input.pickupWindowDays ?? 3) : 0;
+  const days = Math.max(bookingSpeed, pickup);
+  return days > 0 ? days : DEFAULT_BOOKING_SPEED_WAIT_DAYS;
+}
+
+/** True when a pickup condition, not the stored wait, is what sets the wait. */
+export function pickupWindowSetsWait(input: {
+  hasBookingSpeed: boolean;
+  cooldownDays: number | null | undefined;
+  hasPickup: boolean;
+  pickupWindowDays: number | null | undefined;
+}): boolean {
+  if (!input.hasPickup) return false;
+  const cooldown = input.hasBookingSpeed ? Math.max(1, input.cooldownDays ?? DEFAULT_BOOKING_SPEED_WAIT_DAYS) : 0;
+  return (input.pickupWindowDays ?? 3) > cooldown;
+}
+
+/**
  * The wait in words. A rule saved before the builder offered the choice has
  * none stored, and the engine reads that as a week, so that is what it says.
  * A number that is not on the list still reads correctly.

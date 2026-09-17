@@ -44,6 +44,15 @@ describe("bookingSpeedWaitHelp", () => {
     expect(h.lines.join(" ")).toContain("three times");
   });
 
+  it("says once when the pickup lookback is what sets the wait", () => {
+    // A rule with both conditions waits the longer of the two, so a dropdown
+    // set to a day but a 7-day pickup window really waits a week.
+    const h = bookingSpeedWaitHelp("1 week", "1 week");
+    expect(h.lines[0]).toBe("After this rule adjusts a night, it leaves that night alone for 1 week.");
+    expect(h.lines[1]).toBe("This rule also counts pickup over 1 week, which is longer, so that is what it waits.");
+    expect(bookingSpeedWaitHelp("1 week").lines.join(" ")).not.toContain("also counts pickup");
+  });
+
   it("has no em dashes and no math symbols", () => {
     const h = bookingSpeedWaitHelp("1 week");
     const words = [h.label, h.title, ...h.lines].join(" ");
