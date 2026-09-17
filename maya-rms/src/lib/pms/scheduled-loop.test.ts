@@ -12,18 +12,21 @@ const config: ScheduledLoopConfig = {
   minHotelReserveMs: 30_000,
   evalReserveMs: 60_000,
   syncBudgetMs: 210_000,
+  minEvalMs: 30_000,
 };
 
 function harness(durations: Record<string, number>, opts: { throws?: string } = {}) {
   let clock = 1_000_000;
   const events: string[] = [];
   const deadlines: Record<string, number> = {};
+  const evaluateBy: Record<string, number> = {};
   const logs: Record<string, unknown>[] = [];
   const deps = {
     now: () => clock,
-    processHotel: async (id: string, deadlineAt: number) => {
+    processHotel: async (id: string, deadlineAt: number, _invocationDeadline: number, evalBy: number) => {
       events.push(`process:${id}`);
       deadlines[id] = deadlineAt;
+      evaluateBy[id] = evalBy;
       clock += durations[id] ?? 1000;
       if (opts.throws === id) throw new Error("boom");
       events.push(`release:${id}`);
@@ -36,7 +39,7 @@ function harness(durations: Record<string, number>, opts: { throws?: string } = 
     },
     log: (line: Record<string, unknown>) => logs.push(line),
   };
-  return { deps, events, deadlines, logs, start: clock };
+  return { deps, events, deadlines, evaluateBy, logs, start: clock };
 }
 
 describe("runScheduledHotels", () => {
@@ -69,6 +72,13 @@ describe("runScheduledHotels", () => {
     expect(h.deadlines.a).toBe(h.start + 210_000);
     // b starts 100s in: its 210s budget would overrun, so it stops 60s before the invocation's end.
     expect(h.deadlines.b).toBe(h.start + 330_000 - 60_000);
+  });
+
+  it("tells each hotel the last moment it may still start evaluating", async () => {
+    const h = harness({ a: 1000 });
+    await runScheduledHotels(["a"], h.start, config, h.deps);
+    // 30s before the invocation's budget ends, still well inside the wall clock.
+    expect(h.evaluateBy.a).toBe(h.start + 330_000 - 30_000);
   });
 
   it("releases a hotel whose work throws and carries on", async () => {

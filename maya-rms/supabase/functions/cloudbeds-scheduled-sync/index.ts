@@ -21,6 +21,7 @@ import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
 import { hotelsImportingNow, splitByParked } from "../_shared/pms/parked.ts";
 import {
   claimDispatchedHotel,
+  OUT_OF_TIME_RETRY_SECONDS,
   runScheduledHotels,
   scheduledLoopConfigFromEnv,
 } from "../_shared/pms/scheduled-loop.ts";
@@ -198,7 +199,7 @@ Deno.serve(async (req) => {
   const results: Array<{
     hotelId: string;
     sync: ReturnType<typeof publicSyncResult> | { ok: true; skipped: "import_running" };
-    evaluate?: Awaited<ReturnType<typeof evaluateHotel>> | { error: string } | { skipped: true };
+    evaluate?: Awaited<ReturnType<typeof evaluateHotel>> | { error: string } | { skipped: true | "out_of_time" };
     // deno-lint-ignore no-explicit-any
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     push?: any;
@@ -212,7 +213,7 @@ Deno.serve(async (req) => {
   }
 
   // Each hotel runs inside the invocation's wall clock; see scheduled-loop.ts.
-  const processHotel = async (hotelId: string, deadlineAt: number, invocationDeadline: number) => {
+  const processHotel = async (hotelId: string, deadlineAt: number, invocationDeadline: number, evaluateBy: number) => {
     const t0 = Date.now();
     // Mid-import: the worker is reading this property; only the read is skipped.
     const syncSkipped = importing.has(hotelId);
@@ -240,8 +241,15 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Too little time left to evaluate safely. Starting anyway ran past the
+    // wall clock and the invocation was killed before any release. The hotel
+    // is released due again in OUT_OF_TIME_RETRY_SECONDS, so the next tick
+    // takes it early.
+    const outOfTime = Date.now() > evaluateBy;
     let evaluate: (typeof results)[number]["evaluate"];
-    if (runEvaluate) {
+    if (outOfTime) {
+      evaluate = { skipped: "out_of_time" };
+    } else if (runEvaluate) {
       try {
         evaluate = await evaluateHotel(supabase, hotelId, undefined, horizonDays);
       } catch (e) {
@@ -257,7 +265,9 @@ Deno.serve(async (req) => {
     // deno-lint-ignore no-explicit-any
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let push: any = pushRatesEnabled ? undefined : { skipped: "disabled" };
-    if (pushRatesEnabled) {
+    if (pushRatesEnabled && outOfTime) {
+      push = { skipped: "out_of_time" };
+    } else if (pushRatesEnabled) {
       if (creds) {
         try {
           const adapter = createCloudbedsRateAdapter(creds);
@@ -307,7 +317,7 @@ Deno.serve(async (req) => {
         p_hotel_id: hotelId,
         p_pms_type: "cloudbeds",
         p_ok: sync.ok,
-        p_interval_seconds: syncIntervalSeconds,
+        p_interval_seconds: outOfTime ? OUT_OF_TIME_RETRY_SECONDS : syncIntervalSeconds,
       });
       if (releaseErr) {
         // Not fatal: the lease expires on its own and the next tick reclaims it.

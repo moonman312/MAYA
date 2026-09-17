@@ -27,7 +27,17 @@ export type ScheduledLoopConfig = {
   evalReserveMs: number;
   /** The PMS read's own budget; the deadline passed down is never later than this from its start. */
   syncBudgetMs: number;
+  /**
+   * A hotel whose read ends with less than this left before the invocation's
+   * deadline skips evaluation and push for this tick, and is released due again
+   * shortly. Starting an evaluation that runs past the wall clock got the
+   * invocation killed before it released anything.
+   */
+  minEvalMs: number;
 };
+
+/** How soon a hotel that ran out of time to evaluate is due again. */
+export const OUT_OF_TIME_RETRY_SECONDS = 30;
 
 function envMs(name: string, fallback: number): number {
   const raw = mwsEnv(name)?.trim();
@@ -41,6 +51,7 @@ export function scheduledLoopConfigFromEnv(syncBudgetMs: number): ScheduledLoopC
     minHotelReserveMs: envMs("MAYA_SYNC_HOTEL_RESERVE_MS", 30_000),
     evalReserveMs: envMs("MAYA_SYNC_EVAL_RESERVE_MS", 60_000),
     syncBudgetMs,
+    minEvalMs: envMs("MAYA_SYNC_MIN_EVAL_MS", 30_000),
   };
 }
 
@@ -48,9 +59,10 @@ export type ScheduledLoopDeps = {
   now: () => number;
   /**
    * Sync, evaluate, push and release one hotel. `deadlineAt` bounds its PMS
-   * read; `invocationDeadline` is when the whole invocation is out of time.
+   * read; `invocationDeadline` is when the whole invocation is out of time;
+   * past `evaluateBy` there is no time left to start evaluating it.
    */
-  processHotel: (hotelId: string, deadlineAt: number, invocationDeadline: number) => Promise<void>;
+  processHotel: (hotelId: string, deadlineAt: number, invocationDeadline: number, evaluateBy: number) => Promise<void>;
   /** Give back a claim that was never started, without touching its schedule. */
   handBack: (hotelId: string) => Promise<void>;
   /** Release a hotel whose work threw before it released itself. */
@@ -102,7 +114,7 @@ export async function runScheduledHotels(
     const deadlineAt = Math.min(now + config.syncBudgetMs, invocationDeadline - config.evalReserveMs);
     result.started.push(hotelId);
     try {
-      await deps.processHotel(hotelId, Math.max(now, deadlineAt), invocationDeadline);
+      await deps.processHotel(hotelId, Math.max(now, deadlineAt), invocationDeadline, invocationDeadline - config.minEvalMs);
     } catch (e) {
       result.crashed.push(hotelId);
       deps.log({ step: "hotel_crashed", hotelId, error: e instanceof Error ? e.message : String(e) });
