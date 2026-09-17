@@ -10,6 +10,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { manualPriceRpc } from "./manual-price-rpc-model.test";
 import { scaleRpc } from "./scale-rpc-model.test";
 
 export type FakeRow = Record<string, unknown>;
@@ -343,11 +344,11 @@ export function fakeSupabase(
     let range: [number, number] | null = null;
     const exec = () => {
       calls.push({ table: `rpc:${fn}`, op: "select", columns: "", filters: [], payload: args as FakeRow });
-      // Functions from the large-property migration answer from the fake's
-      // own tables unless a test's handler says otherwise, so the fake
-      // behaves like a migrated database by default.
+      // Functions from the large-property and push guardrails migrations
+      // answer from the fake's own tables unless a test's handler says
+      // otherwise, so the fake behaves like a migrated database by default.
       const custom = opts.rpc ? opts.rpc(fn, args, tables) : undefined;
-      const out = custom === undefined ? scaleRpc(fn, args, tables) : custom;
+      const out = custom === undefined ? (scaleRpc(fn, args, tables) ?? manualPriceRpc(fn, args, tables)) : custom;
       if (out instanceof FakeRpcError) return { data: null, error: out.error };
       if (!Array.isArray(out)) return { data: out, error: null };
       let rows = [...out] as FakeRow[];

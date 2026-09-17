@@ -71,8 +71,10 @@
 --    stamp. rate_updates.pms_edited_at says when the ledger was brought in
 --    step with a rate read in the PMS. manual_price.source ('maya' or 'pms')
 --    and manual_price.pms_type say where a manual price came from; a PMS
---    change has no set_by. The manual_price.set product event stays a price
---    typed in MAYA, and a PMS change is manual_price.changed_in_pms. Sends
+--    change has no set_by, and set_manual_prices_from_pms writes it with its
+--    reset (effects suppressed, pickups retired) in one transaction. The
+--    manual_price.set product event stays a price typed in MAYA, and a PMS
+--    change is manual_price.changed_in_pms. Sends
 --    from before this carry no stamp and are not backfilled: nobody knows
 --    which of them applied, so a change on those nights is left alone until
 --    MAYA sends to them again.
@@ -347,6 +349,72 @@ create trigger trg_product_events_manual_price_update
   after update on public.manual_price
   referencing old table as old_rows new table as new_rows
   for each statement execute function public.product_events_manual_price_update();
+
+-- A rate changed in the PMS becomes a manual price in one transaction: the
+-- rows, the ladder effects already holding on those cells suppressed, and
+-- their open pickup events retired, exactly as setManualPrices does for a
+-- price typed in MAYA (_shared/pms/manual-price.ts). Written in steps, a
+-- failure after the rows left an open manual price with its effects still
+-- applying, and the same tick published and sent the hotel's rate plus those
+-- effects over the hotel's own. The next read then found MAYA's price there
+-- and never took the change again. p_cells is a JSON array of
+-- {room_type_id, stay_date, price}; each cell once.
+create or replace function public.set_manual_prices_from_pms(
+  p_hotel_id uuid,
+  p_pms_type public.pms_type,
+  p_set_at timestamptz,
+  p_cells jsonb
+) returns table (cells integer, suppressed_rules integer, retired_pickups integer)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_cells integer;
+  v_rules integer;
+  v_pickups integer;
+begin
+  insert into public.manual_price as mp
+    (hotel_id, stay_date, room_type_id, price, note, set_by, set_at, cleared_at, cleared_by, source, pms_type)
+  select distinct on (c.room_type_id, c.stay_date)
+         p_hotel_id, c.stay_date, c.room_type_id, c.price, null, null, p_set_at, null, null, 'pms', p_pms_type
+    from jsonb_to_recordset(p_cells) as c(room_type_id uuid, stay_date date, price numeric)
+  on conflict (hotel_id, stay_date, room_type_id) do update
+     set price = excluded.price,
+         note = null,
+         set_by = null,
+         set_at = excluded.set_at,
+         cleared_at = null,
+         cleared_by = null,
+         source = 'pms',
+         pms_type = excluded.pms_type;
+  get diagnostics v_cells = row_count;
+
+  update public.ladder_rule_state s
+     set suppressed_at = p_set_at
+   where s.rule_id in (select r.id from public.pricing_rules r where r.hotel_id = p_hotel_id)
+     and (s.room_type_id, s.stay_date) in (
+           select c.room_type_id, c.stay_date
+             from jsonb_to_recordset(p_cells) as c(room_type_id uuid, stay_date date))
+     and s.is_active
+     and s.suppressed_at is null;
+  get diagnostics v_rules = row_count;
+
+  update public.pickup_event e
+     set retired_at = p_set_at
+   where e.hotel_id = p_hotel_id
+     and (e.affected_room_type_id, e.stay_date) in (
+           select c.room_type_id, c.stay_date
+             from jsonb_to_recordset(p_cells) as c(room_type_id uuid, stay_date date))
+     and e.retired_at is null;
+  get diagnostics v_pickups = row_count;
+
+  return query select v_cells, v_rules, v_pickups;
+end;
+$$;
+
+revoke all on function public.set_manual_prices_from_pms(uuid, public.pms_type, timestamptz, jsonb) from public, anon, authenticated;
+grant execute on function public.set_manual_prices_from_pms(uuid, public.pms_type, timestamptz, jsonb) to service_role;
 
 commit;
 

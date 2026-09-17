@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { nightRuns, setManualPrices } from "./manual-price";
-import { fakeSupabase, missingColumn, type FakeRow } from "../engine/fake-supabase.test";
+import { FakeRpcError, fakeSupabase, missingColumn, missingFunction, type FakeRow } from "../engine/fake-supabase.test";
 
 const NOW = "2026-09-16T12:00:00.000Z";
 
@@ -80,6 +80,27 @@ describe("setManualPrices", () => {
       "other-rule|2026-09-20|rt1|-|true",
     ]);
     expect(d.tables.pickup_event.map((r) => r.retired_at)).toEqual([NOW, null]);
+    // One call, one transaction: never the rows without their reset.
+    expect(d.calls.map((c) => `${c.op} ${c.table}`)).toEqual(["select rpc:set_manual_prices_from_pms"]);
+    expect(d.calls[0].payload).toEqual({
+      p_hotel_id: "h1",
+      p_pms_type: "cloudbeds",
+      p_set_at: NOW,
+      p_cells: [
+        { room_type_id: "rt1", stay_date: "2026-09-20", price: 180 },
+        { room_type_id: "rt1", stay_date: "2026-09-21", price: 0 },
+      ],
+    });
+  });
+
+  it("leaves nothing behind when the PMS change's transaction fails", async () => {
+    const d = db({}, { rpc: (fn) => (fn === "set_manual_prices_from_pms" ? new FakeRpcError({ code: "57014", message: "canceling statement due to statement timeout" }) : undefined) });
+    await expect(
+      setManualPrices(d.client, "h1", [{ roomTypeId: "rt1", stayDate: "2026-09-20", price: 180 }], { source: "pms", pmsType: "cloudbeds" }, NOW),
+    ).rejects.toMatchObject({ code: "57014" });
+    expect(d.tables.manual_price).toEqual([]);
+    expect(d.tables.ladder_rule_state.every((r) => r.suppressed_at == null)).toBe(true);
+    expect(d.tables.pickup_event.every((r) => r.retired_at == null)).toBe(true);
   });
 
   it("writes a typed price with its person and note, and without the source columns on a database that lacks them", async () => {
@@ -91,10 +112,10 @@ describe("setManualPrices", () => {
   });
 
   it("writes nothing from the PMS, and resets nothing, until the database can say where a price came from", async () => {
-    const d = db({}, { fault: (c) => (c.table === "manual_price" && c.op === "upsert" ? missingColumn("manual_price", "source") : null) });
+    const d = db({}, { rpc: (fn) => (fn === "set_manual_prices_from_pms" ? new FakeRpcError(missingFunction(fn)) : undefined) });
     await expect(
       setManualPrices(d.client, "h1", [{ roomTypeId: "rt1", stayDate: "2026-09-20", price: 180 }], { source: "pms", pmsType: "think" }, NOW),
-    ).rejects.toMatchObject({ code: "42703" });
+    ).rejects.toMatchObject({ code: "PGRST202" });
     expect(d.tables.manual_price).toEqual([]);
     expect(d.tables.ladder_rule_state.every((r) => r.suppressed_at == null)).toBe(true);
   });

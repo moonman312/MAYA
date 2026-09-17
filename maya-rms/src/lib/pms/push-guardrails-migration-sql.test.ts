@@ -166,6 +166,7 @@ describe.skipIf(!PGLITE_DIR)("push guardrails migration section 8 in PGlite", ()
     await db.exec(`
       create role anon;
       create role authenticated;
+      create role service_role;
       create type public.pms_type as enum ('mews', 'cloudbeds', 'think', 'opera', 'other');
       create table public.rate_updates (
         hotel_id uuid not null,
@@ -186,6 +187,22 @@ describe.skipIf(!PGLITE_DIR)("push guardrails migration section 8 in PGlite", ()
         cleared_by uuid,
         note text,
         primary key (hotel_id, stay_date, room_type_id)
+      );
+      create table public.pricing_rules (id uuid primary key, hotel_id uuid not null);
+      create table public.ladder_rule_state (
+        rule_id uuid not null,
+        stay_date date not null,
+        room_type_id uuid not null,
+        is_active boolean not null,
+        suppressed_at timestamptz,
+        primary key (rule_id, stay_date, room_type_id)
+      );
+      create table public.pickup_event (
+        id uuid primary key,
+        hotel_id uuid not null,
+        stay_date date not null,
+        affected_room_type_id uuid not null,
+        retired_at timestamptz
       );
       create table public.hotels (
         id uuid primary key,
@@ -279,5 +296,73 @@ describe.skipIf(!PGLITE_DIR)("push guardrails migration section 8 in PGlite", ()
       { event: "manual_price.cleared", user_id: user, source: "trigger", pms_type: "cloudbeds", nights: "1", first_night: "2026-10-03" },
       { event: "manual_price.set", user_id: user, source: "trigger", pms_type: "cloudbeds", nights: "2", first_night: "2026-10-01" },
     ]);
+  }, 60_000);
+
+  it("takes a PMS change as a manual price with its reset in one transaction, or not at all", async () => {
+    const H2_ROOM = rt(2);
+    const RULE = "00000000-0000-4000-8000-0000000002aa";
+    const OTHER_HOTELS_RULE = "00000000-0000-4000-8000-0000000002bb";
+    const pickup = (n: number) => `00000000-0000-4000-8000-0000000003${String(n).padStart(2, "0")}`;
+    await db.exec(`
+      insert into public.pricing_rules (id, hotel_id) values ('${RULE}', '${H1}'), ('${OTHER_HOTELS_RULE}', '${H2}');
+      insert into public.ladder_rule_state (rule_id, stay_date, room_type_id, is_active, suppressed_at) values
+        ('${RULE}', '2026-11-01', '${H2_ROOM}', true, null),
+        ('${RULE}', '2026-11-02', '${H2_ROOM}', true, null),
+        ('${RULE}', '2026-11-02', '${ROOM}', true, null),
+        ('${RULE}', '2026-11-03', '${H2_ROOM}', false, null),
+        ('${OTHER_HOTELS_RULE}', '2026-11-01', '${H2_ROOM}', true, null);
+      insert into public.pickup_event (id, hotel_id, stay_date, affected_room_type_id, retired_at) values
+        ('${pickup(1)}', '${H1}', '2026-11-02', '${H2_ROOM}', null),
+        ('${pickup(2)}', '${H1}', '2026-11-04', '${H2_ROOM}', null);
+      insert into public.manual_price (hotel_id, stay_date, room_type_id, price, set_by, set_at, note)
+      values ('${H1}', '2026-11-02', '${H2_ROOM}', 150, '${TYPIST}', '2026-09-01T00:00:00Z', 'typed');
+    `);
+    const call = (cells: unknown[], at: string) =>
+      db.query(`select * from public.set_manual_prices_from_pms($1, 'cloudbeds', $2, $3::jsonb)`, [H1, at, JSON.stringify(cells)]);
+    const state = async () => ({
+      manual: (await db.query(`select stay_date::text, price::text, set_by, note, source, pms_type::text, set_at from public.manual_price where room_type_id = '${H2_ROOM}' order by stay_date`)).rows,
+      suppressed: (await db.query(`select rule_id, stay_date::text, room_type_id, suppressed_at is not null as s from public.ladder_rule_state order by rule_id, stay_date, room_type_id`)).rows,
+      retired: (await db.query(`select id, retired_at is not null as r from public.pickup_event order by id`)).rows,
+    });
+
+    // Fails part way (the pickup write): nothing of it stays.
+    const before = await state();
+    await db.exec(`
+      create function pg_temp.refuse() returns trigger language plpgsql as $$ begin raise exception 'statement timeout'; end $$;
+      create trigger refuse_pickups before update on public.pickup_event for each row execute function pg_temp.refuse();
+    `);
+    await expect(call([{ room_type_id: H2_ROOM, stay_date: "2026-11-02", price: 180 }], "2026-09-21T10:00:00Z")).rejects.toThrow(/statement timeout/);
+    expect(await state()).toEqual(before);
+    await db.exec("drop trigger refuse_pickups on public.pickup_event;");
+
+    const res = await call(
+      [
+        { room_type_id: H2_ROOM, stay_date: "2026-11-01", price: 180 },
+        { room_type_id: H2_ROOM, stay_date: "2026-11-02", price: 0 },
+        { room_type_id: H2_ROOM, stay_date: "2026-11-03", price: 199.99 },
+      ],
+      "2026-09-21T10:00:00Z",
+    );
+    expect(res.rows).toEqual([{ cells: 3, suppressed_rules: 2, retired_pickups: 1 }]);
+    const after = await state();
+    expect(after.manual).toEqual([
+      { stay_date: "2026-11-01", price: "180.00", set_by: null, note: null, source: "pms", pms_type: "cloudbeds", set_at: expect.anything() },
+      { stay_date: "2026-11-02", price: "0.00", set_by: null, note: null, source: "pms", pms_type: "cloudbeds", set_at: expect.anything() },
+      { stay_date: "2026-11-03", price: "199.99", set_by: null, note: null, source: "pms", pms_type: "cloudbeds", set_at: expect.anything() },
+    ]);
+    // Only this hotel's active effects on the cells written.
+    expect(after.suppressed.filter((r) => r.s).map((r) => `${r.stay_date}|${r.room_type_id === H2_ROOM ? "room" : "other"}|${r.rule_id === RULE ? "rule" : "other"}`)).toEqual([
+      "2026-11-01|room|rule",
+      "2026-11-02|room|rule",
+    ]);
+    expect(after.retired).toEqual([
+      { id: pickup(1), r: true },
+      { id: pickup(2), r: false },
+    ]);
+    // One save: one event for the room type.
+    const events = await db.query(
+      `select user_id, properties->>'nights' as nights from public.product_events where event = 'manual_price.changed_in_pms' and properties->>'room_type_id' = '${H2_ROOM}'`,
+    );
+    expect(events.rows).toEqual([{ user_id: OWNER, nights: "3" }]);
   }, 60_000);
 });

@@ -21,6 +21,13 @@
  * evaluation that follows prices at: the route's republish after a save, the
  * tick's clock for a PMS change.
  *
+ * A PMS change is written in one transaction (set_manual_prices_from_pms).
+ * Nobody is there to see a half-done one: with the rows written and the
+ * effects not yet suppressed, the tick's evaluation publishes the hotel's
+ * rate plus those effects and the push sends it over the hotel's own. A price
+ * typed in MAYA is written in steps, and a failed step fails the save, which
+ * the person sees and makes again.
+ *
  * Clearing is the route's DELETE, the same whichever source set the price.
  */
 
@@ -98,26 +105,27 @@ export async function setManualPrices(
   now: string,
 ): Promise<ManualPriceResult> {
   if (cells.length === 0) return { cells: 0, suppressedRules: 0, retiredPickups: 0 };
+  if (origin.source === "pms") return setFromPms(supabase, hotelId, cells, origin.pmsType, now);
 
   const rows = cells.map((c) => ({
     hotel_id: hotelId,
     room_type_id: c.roomTypeId,
     stay_date: c.stayDate,
     price: c.price,
-    note: origin.source === "maya" ? origin.note : null,
-    set_by: origin.source === "maya" ? origin.setBy : null,
+    note: origin.note,
+    set_by: origin.setBy,
     set_at: now,
     cleared_at: null,
     cleared_by: null,
     source: origin.source,
-    pms_type: origin.source === "pms" ? origin.pmsType : null,
+    pms_type: null,
   }));
   for (let i = 0; i < rows.length; i += CHUNK) {
     const chunk = rows.slice(i, i + CHUNK);
     const write = (payload: Record<string, unknown>[]) =>
       supabase.from("manual_price").upsert(payload, { onConflict: "hotel_id,stay_date,room_type_id" });
     let { error } = await write(chunk);
-    if (error && origin.source === "maya" && isMissingColumnError(error)) {
+    if (error && isMissingColumnError(error)) {
       const withoutSource = chunk.map((r) => {
         const copy: Record<string, unknown> = { ...r };
         delete copy.source;
@@ -168,6 +176,34 @@ export async function setManualPrices(
   }
 
   return { cells: rows.length, suppressedRules, retiredPickups };
+}
+
+/**
+ * A PMS change's rows and reset, in one transaction per chunk: a chunk that
+ * fails leaves its cells as they were, and the next refresh takes them again.
+ */
+async function setFromPms(
+  supabase: SupabaseClient,
+  hotelId: string,
+  cells: ManualPriceCell[],
+  pmsType: string,
+  now: string,
+): Promise<ManualPriceResult> {
+  const out: ManualPriceResult = { cells: 0, suppressedRules: 0, retiredPickups: 0 };
+  for (let i = 0; i < cells.length; i += CHUNK) {
+    const { data, error } = await supabase.rpc("set_manual_prices_from_pms", {
+      p_hotel_id: hotelId,
+      p_pms_type: pmsType,
+      p_set_at: now,
+      p_cells: cells.slice(i, i + CHUNK).map((c) => ({ room_type_id: c.roomTypeId, stay_date: c.stayDate, price: c.price })),
+    });
+    if (error) throw error;
+    const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null;
+    out.cells += Number(row?.cells ?? 0);
+    out.suppressedRules += Number(row?.suppressed_rules ?? 0);
+    out.retiredPickups += Number(row?.retired_pickups ?? 0);
+  }
+  return out;
 }
 
 /** YYYY-MM-DD + 1 day, via UTC so no local-timezone drift. */

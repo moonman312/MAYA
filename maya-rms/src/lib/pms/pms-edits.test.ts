@@ -16,7 +16,7 @@ import { runPricingTick } from "../../../supabase/functions/_shared/pms/pricing-
 import type { CellPushResult, PmsRatePushAdapter, RateCalendarEntry, RateCell } from "../../../supabase/functions/_shared/pms/rate-push";
 import { ensureBaseRateCalendar } from "./base-rate-calendar";
 import { evaluateHotel } from "../engine/evaluate";
-import { fakeSupabase, missingColumn, type FakeRow } from "../engine/fake-supabase.test";
+import { FakeRpcError, fakeSupabase, missingColumn, type FakeRow } from "../engine/fake-supabase.test";
 
 const NOW = Date.parse("2026-10-01T12:00:00Z");
 const hoursAgo = (h: number) => new Date(NOW - h * 3_600_000).toISOString();
@@ -294,7 +294,7 @@ describe("adoptPmsEdits", () => {
   it("logs a failed write and carries on, so the refresh still counts", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    const d = db({}, { fault: (c) => (c.table === "manual_price" && c.op === "upsert" ? { code: "57014", message: "canceling statement due to statement timeout" } : null) });
+    const d = db({}, { rpc: (fn) => (fn === "set_manual_prices_from_pms" ? new FakeRpcError({ code: "57014", message: "canceling statement due to statement timeout" }) : undefined) });
     expect(await adoptPmsEdits(d.client, "h1", "cloudbeds", [read()], TARGETS, WINDOW, AT)).toMatchObject({ adopted: 0 });
     expect(errors.mock.calls.some((c) => String(c[0]).includes("statement timeout"))).toBe(true);
     expect(d.tables.rate_updates).toEqual([]);
