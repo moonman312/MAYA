@@ -46,6 +46,9 @@
  *     until an evaluation has priced the night again. On a night changed in
  *     the PMS (base-rate-calendar.ts) that old price is MAYA's, and sending
  *     it would write over the hotel's change.
+ *   • Changes in the PMS — before a new price goes to a night already sent
+ *     to, the tick can read the PMS again (readBeforeResend); a night whose
+ *     rate there moved waits for the next evaluation instead.
  *   • Ledger — each batch is recorded as in progress before it goes out, and
  *     again as soon as the PMS answers it. A send the ledger does not know
  *     about would be read back by the base rate calendar as the hotel's own
