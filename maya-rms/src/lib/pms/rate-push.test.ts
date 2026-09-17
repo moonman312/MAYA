@@ -16,6 +16,8 @@ type Fixture = {
   roomTypes?: Row[];
   ledger?: Row[];
   connection?: Row | null;
+  /** Writing cells as failed errors, the way a dropped connection would. */
+  failCorrections?: boolean;
 };
 
 type Chain = {
@@ -58,6 +60,9 @@ function makeSupabaseStub(fx: Fixture) {
         error: null,
       }),
       upsert: async (rows: Row[]) => {
+        if (fx.failCorrections && rows.some((r) => r.status === "failed")) {
+          return { error: { message: "connection reset" } };
+        }
         ledgerUpserts.push(...rows);
         return { error: null };
       },
@@ -420,6 +425,30 @@ describe("pushRatesForHotel asks again about earlier jobs", () => {
 
     // Another hotel's job with the same reference is still its own question.
     await pushRatesForHotel(makeSupabaseStub(fixture).supabase, "hotel-2", adapter);
+    expect(asked).toHaveLength(2);
+    errors.mockRestore();
+  });
+
+  it("asks about a rejected job again when its cells could not be stored as failed", async () => {
+    const ledger: Row[] = [
+      { stay_date: "2026-08-01", room_type_id: "rt-king", external_room_type_id: "CB-KING", price: 210, status: "sent", attempts: 1, pms_job_reference: "job-bad", pushed_at: minutesAgo(5) },
+    ];
+    const fixture = { publishedPrice: PRICES_TWO.slice(0, 1), roomTypes: ROOM_TYPES, ledger, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } };
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { adapter, asked } = jobAdapter(() => ({ "job-bad": { done: true, ok: false, message: "invalid rate" } }));
+
+    await pushRatesForHotel(makeSupabaseStub({ ...fixture, failCorrections: true }).supabase, "hotel-1", adapter);
+    expect(errors.mock.calls.some((c) => String(c[0]).includes("rate_job_correction_failed"))).toBe(true);
+
+    // The ledger still says sent, so the job is asked about again and the
+    // correction written this time.
+    const db = makeSupabaseStub(fixture);
+    await pushRatesForHotel(db.supabase, "hotel-1", adapter);
+    expect(asked).toEqual([["job-bad"], ["job-bad"]]);
+    expect(db.ledgerUpserts.filter((r) => r.status === "failed")).toHaveLength(1);
+
+    // Once stored, it is decided and not asked about again.
+    await pushRatesForHotel(makeSupabaseStub(fixture).supabase, "hotel-1", adapter);
     expect(asked).toHaveLength(2);
     errors.mockRestore();
   });

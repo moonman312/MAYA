@@ -144,6 +144,11 @@ function decidedKey(hotelId: string, pmsType: string, ref: string): string {
   return `${hotelId}|${pmsType}|${ref}`;
 }
 
+function markDecided(hotelId: string, pmsType: string, jobRef: string): void {
+  if (decidedJobs.size >= DECIDED_JOBS_MAX) decidedJobs.clear();
+  decidedJobs.add(decidedKey(hotelId, pmsType, jobRef));
+}
+
 /** Test hook: forget which jobs were already decided. */
 export function resetDecidedJobs(): void {
   decidedJobs.clear();
@@ -531,6 +536,7 @@ async function reconcileJobOutcomes(
     let ok = 0;
     let rejected = 0;
     const corrections: Record<string, unknown>[] = [];
+    const rejectedRefs: string[] = [];
 
     for (const [jobRef, cells] of byJob) {
       const outcome = outcomes[jobRef];
@@ -554,12 +560,15 @@ async function reconcileJobOutcomes(
         }
         continue;
       }
-      if (decidedJobs.size >= DECIDED_JOBS_MAX) decidedJobs.clear();
-      decidedJobs.add(decidedKey(hotelId, adapter.pmsType, jobRef));
       if (outcome.ok) {
+        markDecided(hotelId, adapter.pmsType, jobRef);
         ok += cells.length;
         continue;
       }
+      // A rejected job only counts as decided once its cells are stored as
+      // failed. If that write fails, the ledger still says sent, and asking
+      // again next tick is what gets the correction written.
+      rejectedRefs.push(jobRef);
       rejected += cells.length;
       for (const c of cells) {
         corrections.push({
@@ -579,9 +588,22 @@ async function reconcileJobOutcomes(
     }
 
     if (corrections.length > 0) {
-      await supabase
+      const { error: correctionError } = await supabase
         .from("rate_updates")
         .upsert(corrections, { onConflict: "hotel_id,room_type_id,stay_date" });
+      if (correctionError) {
+        console.error(
+          JSON.stringify({
+            fn: "reconcileJobOutcomes",
+            hotelId,
+            pmsType: adapter.pmsType,
+            error: correctionError.message,
+            event: "rate_job_correction_failed",
+          }),
+        );
+        return { ok, rejected };
+      }
+      for (const ref of rejectedRefs) markDecided(hotelId, adapter.pmsType, ref);
       console.error(
         JSON.stringify({
           fn: "reconcileJobOutcomes",
