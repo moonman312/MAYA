@@ -319,3 +319,149 @@ describe("changelog route: a large property's runs", () => {
     }
   });
 });
+
+describe("changelog route: rates not reaching the PMS", () => {
+  const incident = (over: Row): Row => ({
+    id: "inc-visible",
+    hotel_id: HOTEL,
+    pms_type: "cloudbeds",
+    cause: "rate_plan_not_updatable",
+    known: true,
+    severity: "critical",
+    admin_only: false,
+    opened_at: "2026-07-29T08:02:00Z",
+    attempt_count: 25,
+    attempts_stored: 25,
+    customer_visible_at: "2026-07-29T08:02:00Z",
+    resolved_at: null,
+    resolution: null,
+    ...over,
+  });
+
+  function liveHotel(extra: Record<string, Row[]> = {}) {
+    const attempts: Row[] = [];
+    for (let tick = 0; tick < 12; tick++) {
+      for (const night of ["2026-08-01", "2026-08-02"]) {
+        attempts.push({
+          id: `att-${tick}-${night}`,
+          incident_id: "inc-visible",
+          hotel_id: HOTEL,
+          attempted_at: new Date(Date.parse("2026-07-29T08:02:00Z") + tick * 300_000).toISOString(),
+          stay_date: night,
+          room_type_id: "rt-1",
+          price: 198,
+          phase: "guardrail",
+          outcome: "skipped",
+          http_status: null,
+          message: "no rate target for room type",
+        });
+      }
+    }
+    attempts.push({
+      id: "att-hidden",
+      incident_id: "inc-hidden",
+      hotel_id: HOTEL,
+      attempted_at: "2026-07-29T08:03:00Z",
+      stay_date: "2026-08-01",
+      room_type_id: "rt-1",
+      price: 198,
+      phase: "send",
+      outcome: "failed",
+      http_status: 503,
+      message: "Cloudbeds patchRate failed (503): Service Unavailable",
+    });
+    return fakeSupabase({
+      ...pricingRuns(),
+      hotel_settings: [{ hotel_id: HOTEL, simulation_mode: false }],
+      rate_push_incidents: [
+        incident({}),
+        // Retrying quietly, not escalated: never sent to the owner.
+        incident({ id: "inc-hidden", cause: "pms_unavailable", severity: "transient", customer_visible_at: null }),
+        // A guardrail hold is MAYA's own business.
+        incident({ id: "inc-guardrail", cause: "guardrail_stale_price", admin_only: true, customer_visible_at: null }),
+      ],
+      rate_push_incident_cells: [
+        { incident_id: "inc-visible", hotel_id: HOTEL, room_type_id: "rt-1", stay_date: "2026-08-01", state: "open" },
+        { incident_id: "inc-visible", hotel_id: HOTEL, room_type_id: "rt-1", stay_date: "2026-08-02", state: "open" },
+      ],
+      rate_push_attempts: attempts,
+      ...extra,
+    });
+  }
+
+  /** Two pricing runs five minutes apart, the first with one change. */
+  function pricingRuns(): Record<string, Row[]> {
+    return {
+      evaluation_audit: [
+        {
+          id: "audit-1",
+          hotel_id: HOTEL,
+          evaluation_run_id: "run-1",
+          stay_date: "2026-08-01",
+          room_type_id: "rt-1",
+          evaluated_at: "2026-07-29T08:00:00Z",
+          base_price: 180,
+          final_price: 198,
+          pre_clamp_price: 198,
+          floor_price: 100,
+          ceiling_price: 400,
+          details: { application_order: ["rule:rule-1"], matched_ladder_rules: [] },
+        },
+      ],
+      hotels: [{ id: HOTEL, currency: "USD" }],
+      room_types: [{ id: "rt-1", hotel_id: HOTEL, name: "Garden King" }],
+      pricing_rules: [],
+      evaluation_run_log: [
+        { hotel_id: HOTEL, evaluation_run_id: "run-1", evaluated_at: "2026-07-29T08:00:00Z" },
+        { hotel_id: HOTEL, evaluation_run_id: "run-2", evaluated_at: "2026-07-29T08:05:00Z" },
+      ],
+    };
+  }
+
+  async function get(client: unknown) {
+    state.client = client;
+    state.hotelId = HOTEL;
+    state.configured = true;
+    state.admin = null;
+    const res = await GET();
+    expect(res.status).toBe(200);
+    return res.json();
+  }
+
+  it("adds each problem the owner should see as one condensed item, placed by when it started", async () => {
+    const body = await get(liveHotel().client);
+
+    expect(body.map((item: Row) => item.kind ?? item.timestamp)).toEqual(["2026-07-29T08:05:00Z", "push_problem", "2026-07-29T08:00:00Z"]);
+    const problem = body[1];
+    expect(problem).toMatchObject({
+      id: "inc-visible",
+      pms: "Cloudbeds",
+      title: "Cloudbeds won't let MAYA change Garden King rates because that rate follows another rate plan",
+      nights: 2,
+      room_types: ["Garden King"],
+      status: "ongoing",
+      attempts: 25,
+    });
+    // 24 identical skips read as one line.
+    expect(problem.retries).toEqual([
+      expect.objectContaining({ count: 24, nights: 2, outcome: "skipped", first_at: "2026-07-29T08:02:00.000Z", last_at: "2026-07-29T08:57:00.000Z" }),
+    ]);
+    expect(JSON.stringify(body)).not.toContain("inc-hidden");
+    expect(JSON.stringify(body)).not.toContain("guardrail_stale_price");
+  });
+
+  it("shows none while the hotel is simulating", async () => {
+    const body = await get(liveHotel({ hotel_settings: [{ hotel_id: HOTEL, simulation_mode: true }] }).client);
+    expect(body.some((item: Row) => item.kind === "push_problem")).toBe(false);
+  });
+
+  it("still serves the change log on a database without the incident tables", async () => {
+    const fake = liveHotel();
+    fake.failSelectFor.set("rate_push_incidents", {
+      code: "PGRST205",
+      message: "Could not find the table 'public.rate_push_incidents' in the schema cache",
+    });
+    const body = await get(fake.client);
+    expect(body).toHaveLength(2);
+  });
+});

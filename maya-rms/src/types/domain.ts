@@ -313,3 +313,46 @@ export type ChangelogCycle = {
   has_changes: boolean;
   changes: ChangelogEntry[];
 };
+
+/** Tries at a push problem that went the same way, condensed to one line. */
+export type PushProblemRetries = {
+  first_at: string;
+  last_at: string;
+  count: number;
+  nights: number;
+  room_types: number;
+  outcome: "failed" | "rejected" | "skipped" | "unconfirmed" | "landed";
+  /** Plain words for the outcome, e.g. "Cloudbeds refused them". */
+  label: string;
+  /** The PMS's own message, when it gave one. */
+  detail: string | null;
+};
+
+/**
+ * Rates that are not reaching the PMS, as one change log item: the root cause
+ * in plain words, what it affects, and the tries behind it. Only incidents
+ * that need the owner are ever sent (rate_push_incidents.customer_visible_at).
+ */
+export type ChangelogPushProblem = {
+  kind: "push_problem";
+  id: string;
+  /** When it started. */
+  timestamp: string;
+  pms: string;
+  cause: string;
+  title: string;
+  /** What the owner can do about it, when there is anything. */
+  action: string | null;
+  nights: number;
+  room_types: string[];
+  status: "ongoing" | "resolved";
+  resolved_at: string | null;
+  resolution: "landed" | "superseded" | "stopped" | null;
+  attempts: number;
+  retries: PushProblemRetries[];
+  /** Tries counted but not kept (past the per-incident cap). */
+  retries_not_kept: number;
+};
+
+/** The change log timeline, newest first: pricing runs and push problems. */
+export type ChangelogItem = ChangelogCycle | ChangelogPushProblem;

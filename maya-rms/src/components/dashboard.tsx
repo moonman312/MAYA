@@ -4,6 +4,7 @@ import { AskForHelp } from "@/components/onboarding/ask-for-help";
 import { BillingBanner } from "@/components/billing/billing-banner";
 import { MayaLockup } from "@/components/brand/logo";
 import { PmsReconnect } from "@/components/pms-reconnect";
+import { isPushProblem, PushProblemItem } from "@/components/push-problem-item";
 import { OnboardingReviewBanner } from "@/components/onboarding/review-banner";
 import { CorrectionsPanel, ExplainDrilldown } from "@/components/explain-drilldown";
 import { ManualPriceEditor } from "@/components/manual-price-editor";
@@ -32,7 +33,7 @@ import {
 } from "@/lib/rule-form";
 import type {
   CalendarResponse,
-  ChangelogCycle,
+  ChangelogItem,
   RuleAction,
   RuleConfig,
 } from "@/types/domain";
@@ -292,7 +293,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
   >([]);
   const [calendar, setCalendar] = useState<CalendarResponse | null>(null);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
-  const [changelog, setChangelog] = useState<ChangelogCycle[]>([]);
+  const [changelog, setChangelog] = useState<ChangelogItem[]>([]);
   const [changelogError, setChangelogError] = useState<string | null>(null);
   const [changesOnly, setChangesOnly] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -468,7 +469,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
   const reloadChangelog = useCallback(async () => {
     setChangelogError(null);
     try {
-      const data = await api<ChangelogCycle[]>("/api/changelog");
+      const data = await api<ChangelogItem[]>("/api/changelog");
       setChangelog(data);
     } catch {
       // Keep whatever loaded before — it was real. Never fill the gap.
@@ -725,7 +726,8 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
   }
 
   const visibleCycles = useMemo(
-    () => (changesOnly ? changelog.filter((c) => c.has_changes) : changelog),
+    // A push problem is always shown: it is never a "nothing changed" run.
+    () => (changesOnly ? changelog.filter((c) => isPushProblem(c) || c.has_changes) : changelog),
     [changesOnly, changelog],
   );
 
@@ -1678,6 +1680,17 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
             ) : null}
             <div className="space-y-2">
               {visibleCycles.map((cycle) => {
+                if (isPushProblem(cycle)) {
+                  return (
+                    <PushProblemItem
+                      key={`push-${cycle.id}`}
+                      item={cycle}
+                      formatWhen={formatFriendlyDateTime}
+                      formatAge={formatRelativeAge}
+                      formatExact={formatDisplayTime}
+                    />
+                  );
+                }
                 const whenRelative = formatRelativeAge(cycle.timestamp);
                 return (
                   <div
