@@ -361,6 +361,18 @@ describe("POST /api/manual-price — the save", () => {
     expect(rows.map((r) => r.stay_date)).toEqual(["2026-09-20", "2026-09-21", "2026-09-22"]);
   });
 
+  it("records a typed price as MAYA's, and typing over a price changed in the PMS makes it the typist's", async () => {
+    state.fake = seed({
+      manual_price: [
+        { hotel_id: HOTEL, room_type_id: ROOM, stay_date: "2026-09-20", price: 180, set_by: null, set_at: "2026-09-14T00:00:00Z", cleared_at: null, cleared_by: null, source: "pms", pms_type: "cloudbeds" },
+      ],
+    });
+    expect((await post()).status).toBe(200);
+    const rows = tables().get("manual_price")!;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ price: 250, set_by: USER, set_at: NOW.toISOString(), source: "maya", pms_type: null });
+  });
+
   it("re-opens a cleared row rather than leaving a second one behind", async () => {
     state.fake = seed({
       manual_price: [
@@ -634,6 +646,22 @@ describe("DELETE /api/manual-price", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("clears a price changed in the PMS like any other, handing the night back to MAYA", async () => {
+    state.fake = seed({
+      manual_price: [
+        { hotel_id: HOTEL, room_type_id: ROOM, stay_date: "2026-09-20", price: 180, set_by: null, cleared_at: null, cleared_by: null, source: "pms", pms_type: "cloudbeds" },
+      ],
+      ladder_rule_state: [
+        { rule_id: RULE_A, stay_date: "2026-09-20", room_type_id: ROOM, is_active: true, suppressed_at: "2026-09-14T00:00:00Z" },
+      ],
+    });
+    const res = await del({ hotelId: HOTEL, roomTypeId: ROOM, dateFrom: "2026-09-20" });
+    expect(await res.json()).toEqual({ ok: true, cells: 1 });
+    expect(tables().get("manual_price")![0]).toMatchObject({ cleared_at: NOW.toISOString(), cleared_by: USER, source: "pms" });
+    expect(tables().get("ladder_rule_state")![0].suppressed_at).toBeNull();
+    expect(evaluateHotel).toHaveBeenCalledTimes(1);
+  });
+
   it("defaults the end date to the start date", async () => {
     state.fake = seedOverridden();
     const res = await del({ hotelId: HOTEL, roomTypeId: ROOM, dateFrom: "2026-09-20" });
@@ -669,8 +697,20 @@ describe("GET /api/manual-price", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       overrides: [
-        { stay_date: "2026-09-20", room_type_id: ROOM, price: 250, set_at: "2026-09-15T18:00:00Z", set_by: USER },
+        { stay_date: "2026-09-20", room_type_id: ROOM, price: 250, set_at: "2026-09-15T18:00:00Z", set_by: USER, source: "maya", pms_type: null },
       ],
     });
+  });
+
+  it("says when a price was changed in the PMS", async () => {
+    state.fake = seed({
+      manual_price: [
+        { hotel_id: HOTEL, room_type_id: ROOM, stay_date: "2026-09-20", price: "180.00", set_at: "2026-09-15T18:00:00Z", set_by: null, cleared_at: null, source: "pms", pms_type: "cloudbeds" },
+      ],
+    });
+    const res = await get(`hotelId=${HOTEL}&from=2026-09-01&to=2026-09-30`);
+    expect((await res.json()).overrides).toEqual([
+      { stay_date: "2026-09-20", room_type_id: ROOM, price: 180, set_at: "2026-09-15T18:00:00Z", set_by: null, source: "pms", pms_type: "cloudbeds" },
+    ]);
   });
 });

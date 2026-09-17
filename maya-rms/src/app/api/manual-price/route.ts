@@ -5,7 +5,9 @@
  * MAYA was doing: it becomes the base, and every rule effect already holding
  * on the cell is suppressed (ladder rows stamped suppressed_at, pickup events
  * retired) so what gets published is the number the manager typed. Rules that
- * fire afterwards stack on the new base like they would on any other.
+ * fire afterwards stack on the new base like they would on any other. The
+ * reset itself is setManualPrices, which a rate changed in the PMS on a night
+ * MAYA had sent goes through too.
  *
  * Writes run on the service-role client after the can_manage_hotel gate:
  * ladder_rule_state and pickup_event are engine tables the user-scoped client
@@ -21,7 +23,8 @@ import { dbErrorResponse, isRealIsoDate, isUuid } from "@/lib/api-guards";
 import { currencySymbolFor } from "@/lib/changelog-route-helpers";
 import { evaluateHotel } from "@/lib/engine";
 import { clampPrice } from "@/lib/engine/pricing";
-import { isMissingRelationError } from "@/lib/engine/snapshots";
+import { isMissingColumnError, isMissingRelationError } from "@/lib/engine/snapshots";
+import { hotelRuleIds, setManualPrices } from "@/lib/pms/manual-price";
 import { lastNightOf, pricingHorizonDays } from "@/lib/pms/pricing-window";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { roleLabel } from "@/lib/roles";
@@ -322,13 +325,6 @@ async function hotelPmsType(admin: SupabaseClient, hotelId: string): Promise<str
   return live ? String(live.pms_type) : "";
 }
 
-/** ladder_rule_state carries no hotel_id; the hotel's rules are the join. */
-async function hotelRuleIds(admin: SupabaseClient, hotelId: string): Promise<string[]> {
-  const { data, error } = await admin.from("pricing_rules").select("id").eq("hotel_id", hotelId);
-  if (error) throw error;
-  return (data ?? []).map((r) => String(r.id));
-}
-
 export async function POST(req: Request) {
   try {
     const body = await readBody(req);
@@ -395,53 +391,15 @@ export async function POST(req: Request) {
     const now = new Date().toISOString();
     const dates = datesInRange(range.dateFrom, range.dateTo);
 
-    const { error: upsertErr } = await admin.from("manual_price").upsert(
-      dates.map((stay_date) => ({
-        hotel_id: range.hotelId,
-        room_type_id: range.roomTypeId,
-        stay_date,
-        price,
-        note,
-        set_by: userId,
-        set_at: now,
-        cleared_at: null,
-        cleared_by: null,
-      })),
-      { onConflict: "hotel_id,stay_date,room_type_id" },
+    // The row, then the reset: every effect already holding on these cells
+    // suppressed or retired (setManualPrices).
+    const { suppressedRules, retiredPickups } = await setManualPrices(
+      admin,
+      range.hotelId,
+      dates.map((stayDate) => ({ roomTypeId: range.roomTypeId, stayDate, price })),
+      { source: "maya", setBy: userId, note },
+      now,
     );
-    if (upsertErr) throw upsertErr;
-
-    // Suppress what had already fired on these cells. Active ladder rows stay
-    // is_active (the condition still holds and the rule must not re-fire on
-    // the same trigger) but stop contributing until their next transition.
-    let suppressedRules = 0;
-    const ruleIds = await hotelRuleIds(admin, range.hotelId);
-    if (ruleIds.length > 0) {
-      const { data, error } = await admin
-        .from("ladder_rule_state")
-        .update({ suppressed_at: now })
-        .in("rule_id", ruleIds)
-        .eq("room_type_id", range.roomTypeId)
-        .gte("stay_date", range.dateFrom)
-        .lte("stay_date", range.dateTo)
-        .eq("is_active", true)
-        .is("suppressed_at", null)
-        .select("rule_id");
-      if (error) throw error;
-      suppressedRules = (data ?? []).length;
-    }
-
-    const { data: retired, error: retireErr } = await admin
-      .from("pickup_event")
-      .update({ retired_at: now })
-      .eq("hotel_id", range.hotelId)
-      .eq("affected_room_type_id", range.roomTypeId)
-      .gte("stay_date", range.dateFrom)
-      .lte("stay_date", range.dateTo)
-      .is("retired_at", null)
-      .select("id");
-    if (retireErr) throw retireErr;
-    const retiredPickups = (retired ?? []).length;
 
     const { pushed, pushWindow } = await republish(admin, range, today, now);
 
@@ -547,23 +505,32 @@ export async function GET(req: Request) {
 
     // Reads go through the caller's own client: manual_price is readable by
     // anyone on the hotel under RLS, and a stranger simply sees nothing.
-    const { data, error } = await supabase
-      .from("manual_price")
-      .select("stay_date, room_type_id, price, set_at, set_by")
-      .eq("hotel_id", hotelId)
-      .gte("stay_date", from)
-      .lte("stay_date", to)
-      .is("cleared_at", null)
-      .order("stay_date", { ascending: true });
+    // Where a price came from arrives in a later migration; without it every
+    // price reads as typed in MAYA.
+    const read = (columns: string) =>
+      supabase
+        .from("manual_price")
+        .select(columns)
+        .eq("hotel_id", hotelId)
+        .gte("stay_date", from)
+        .lte("stay_date", to)
+        .is("cleared_at", null)
+        .order("stay_date", { ascending: true });
+    let { data, error } = await read("stay_date, room_type_id, price, set_at, set_by, source, pms_type");
+    if (error && isMissingColumnError(error)) {
+      ({ data, error } = await read("stay_date, room_type_id, price, set_at, set_by"));
+    }
     if (error) throw error;
 
     return NextResponse.json({
-      overrides: (data ?? []).map((r) => ({
+      overrides: ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => ({
         stay_date: String(r.stay_date),
         room_type_id: String(r.room_type_id),
         price: Number(r.price),
         set_at: String(r.set_at),
         set_by: r.set_by == null ? null : String(r.set_by),
+        source: r.source === "pms" ? "pms" : "maya",
+        pms_type: r.source === "pms" && r.pms_type != null ? String(r.pms_type) : null,
       })),
     });
   } catch (error) {
