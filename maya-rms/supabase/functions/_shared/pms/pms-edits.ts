@@ -318,9 +318,10 @@ function ledgerRow(hotelId: string, pmsType: string, read: PushedNightRead, over
  * follows prices at it. Throws the database's error on a failed write.
  *
  * Base rates go first: on their own they only have MAYA price a night on the
- * rate the PMS has, or not price a closed one. A failure after them leaves
- * nothing sent over the hotel's rate: a closed night is held as zero_base,
- * and a night with a new base goes out priced on it.
+ * rate the PMS has, or stop pricing a closed one. If a write after them
+ * fails, a night with a new base is priced on it all the same, and a closed
+ * night is found again by the next refresh unless its manual price was
+ * already cleared, when the push holds it as zero_base.
  */
 export async function applyPmsEdits(
   supabase: SupabaseClient,
