@@ -13,6 +13,7 @@ import { PropertySelect } from "@/components/property-select";
 import { RateSimulator } from "@/components/rate-simulator";
 import { RoomTypeSettings, isCountingRoom } from "@/components/room-type-settings";
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
+import { RuleRoomTypesField } from "@/components/rule-room-types-field";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
 import {
@@ -23,6 +24,8 @@ import {
   newConditionRow,
   ruleConditionForInsert,
   ruleConditionToLegacyConditions,
+  ruleRoomTypeSets,
+  ruleRoomTypesLabel,
   type ConditionFormRow,
   type ConditionMetric,
 } from "@/lib/rule-form";
@@ -314,6 +317,10 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
   // beats a silent sign convention they'd have to remember.
   const [adjDirection, setAdjDirection] = useState<"" | "increase" | "decrease">("");
   const [selectedRoomTypeIds, setSelectedRoomTypeIds] = useState<string[]>([]);
+  // Ticked: selectedRoomTypeIds is what the rule measures and these are what
+  // it changes. Unticked: one list does both.
+  const [splitRoomTypeSets, setSplitRoomTypeSets] = useState(false);
+  const [changeRoomTypeIds, setChangeRoomTypeIds] = useState<string[]>([]);
   const [ruleFormError, setRuleFormError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -524,6 +531,8 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
     // A new rule starts on the types that count as rooms — the same default
     // the rules store applies server-side. The others stay one click away.
     setSelectedRoomTypeIds(data.filter(isCountingRoom).map((item) => item.id));
+    setSplitRoomTypeSets(false);
+    setChangeRoomTypeIds([]);
   }
 
   async function applyActiveHotel(hotelId: string) {
@@ -595,14 +604,13 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
     );
   }
 
-  const roomTypeSummary = useMemo(() => {
-    const n = roomTypeOptions.length;
-    const k = selectedRoomTypeIds.length;
-    if (n === 0) return "No room types loaded";
-    if (k === 0) return "None selected";
-    if (k === n) return "All room types";
-    return `${k} of ${n} room types`;
-  }, [roomTypeOptions.length, selectedRoomTypeIds.length]);
+  const isCountingRoomTypeId = useCallback(
+    (id: string) => {
+      const option = roomTypeOptions.find((r) => r.id === id);
+      return option ? isCountingRoom(option) : true;
+    },
+    [roomTypeOptions],
+  );
 
   async function onCreateRule(e: React.FormEvent) {
     e.preventDefault();
@@ -658,20 +666,17 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
       return;
     }
 
-    const allSelected =
-      roomTypeOptions.length > 0 &&
-      selectedRoomTypeIds.length === roomTypeOptions.length;
-    const affected_room_type_ids = allSelected
-      ? roomTypeOptions.map((r) => r.id)
-      : selectedRoomTypeIds.slice();
-    if (affected_room_type_ids.length === 0) {
-      setRuleFormError("Select at least one room type.");
+    const sets = ruleRoomTypeSets({
+      options: roomTypeOptions,
+      selected: selectedRoomTypeIds,
+      split: splitRoomTypeSets,
+      changeIds: changeRoomTypeIds,
+    });
+    if ("error" in sets) {
+      setRuleFormError(sets.error);
       return;
     }
-
-    const room_types = roomTypeOptions
-      .filter((r) => affected_room_type_ids.includes(r.id))
-      .map((r) => r.name);
+    const { room_types, signal_room_type_ids, affected_room_type_ids } = sets;
 
     const legacyConditions = ruleConditionToLegacyConditions(rc);
 
@@ -683,6 +688,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
         conditions: legacyConditions,
         action,
         room_types,
+        signal_room_type_ids,
         affected_room_type_ids,
       }),
     });
@@ -695,6 +701,8 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
     setAdjDollars("");
     setAdjDirection("");
     setSelectedRoomTypeIds(roomTypeOptions.filter(isCountingRoom).map((r) => r.id));
+    setSplitRoomTypeSets(false);
+    setChangeRoomTypeIds([]);
     await reloadRules();
   }
 
@@ -1185,9 +1193,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                         {formatRuleConditionsDisplay(rule.conditions)}
                       </td>
                       <td className="py-2 pr-3">
-                        {rule.room_types.length
-                          ? rule.room_types.join(", ")
-                          : "All"}
+                        {ruleRoomTypesLabel(rule, isCountingRoomTypeId)}
                       </td>
                       <td className="py-2 pr-3 tabular-nums">
                         {rule.action.adjust_rate_percent !== undefined &&
@@ -1596,62 +1602,15 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                 </div>
 
                 <div className="md:col-span-2">
-                  <div className="mb-2 flex flex-wrap items-center gap-3">
-                    <p className="text-xs font-medium text-slate-400">
-                      Apply to room types
-                    </p>
-                    <span className="text-xs text-slate-500">
-                      {roomTypeSummary}
-                    </span>
-                    <div className="ml-auto flex gap-2">
-                      <button
-                        type="button"
-                        className="cursor-pointer rounded bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
-                        onClick={() =>
-                          setSelectedRoomTypeIds(
-                            roomTypeOptions.map((r) => r.id),
-                          )
-                        }
-                      >
-                        Select all
-                      </button>
-                      <button
-                        type="button"
-                        className="cursor-pointer rounded bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
-                        onClick={() => setSelectedRoomTypeIds([])}
-                      >
-                        Clear
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {roomTypeOptions.map((opt) => {
-                      const on = selectedRoomTypeIds.includes(opt.id);
-                      const room = isCountingRoom(opt);
-                      return (
-                        <button
-                          type="button"
-                          key={opt.id}
-                          className={`cursor-pointer rounded px-2 py-1 text-xs ${on ? "bg-sky-600" : "bg-slate-800"} ${room ? "" : "text-slate-400"}`}
-                          onClick={() =>
-                            setSelectedRoomTypeIds((prev) =>
-                              prev.includes(opt.id)
-                                ? prev.filter((x) => x !== opt.id)
-                                : [...prev, opt.id],
-                            )
-                          }
-                          title={room ? opt.name : `${opt.name} — not counted as a room (change this in the PMS tab)`}
-                        >
-                          {opt.name}
-                          {room ? null : (
-                            <span className="ml-1.5 rounded bg-slate-950/50 px-1 py-px text-[9px] uppercase tracking-wide text-slate-400">
-                              not a room
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <RuleRoomTypesField
+                    options={roomTypeOptions}
+                    selected={selectedRoomTypeIds}
+                    onSelected={setSelectedRoomTypeIds}
+                    split={splitRoomTypeSets}
+                    onSplit={setSplitRoomTypeSets}
+                    changeIds={changeRoomTypeIds}
+                    onChangeIds={setChangeRoomTypeIds}
+                  />
                 </div>
               </div>
 

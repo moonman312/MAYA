@@ -296,3 +296,40 @@ export function roomTypeIdListError(value: unknown, what: "measure" | "change"):
   if (value.length === 0) return `Pick at least one room type to ${what}.`;
   return null;
 }
+
+export type RoomTypeOption = { id: string; name: string; counts_as_room?: boolean | null };
+
+/**
+ * The room type sets the rule builder sends. With one list, the rule changes
+ * the picked types and measures the ones among them that count as rooms,
+ * exactly what the server would default to. With "Change prices on different
+ * room types" ticked, the first list is what it measures (rooms only) and the
+ * second what it changes.
+ */
+export function ruleRoomTypeSets(input: {
+  options: RoomTypeOption[];
+  selected: string[];
+  split: boolean;
+  changeIds: string[];
+}):
+  | { error: string }
+  | { signal_room_type_ids: string[]; affected_room_type_ids: string[]; room_types: string[] } {
+  const { options } = input;
+  const counts = (id: string) => options.find((o) => o.id === id)?.counts_as_room !== false;
+  const names = (ids: string[]) => options.filter((o) => ids.includes(o.id)).map((o) => o.name);
+  if (!input.split) {
+    const allSelected = options.length > 0 && input.selected.length === options.length;
+    const affected = allSelected ? options.map((o) => o.id) : input.selected.slice();
+    if (affected.length === 0) return { error: "Select at least one room type." };
+    return {
+      signal_room_type_ids: defaultSignalIds(affected, counts),
+      affected_room_type_ids: affected,
+      room_types: names(affected),
+    };
+  }
+  const signal = options.filter((o) => input.selected.includes(o.id) && counts(o.id)).map((o) => o.id);
+  if (signal.length === 0) return { error: "Pick at least one room type to measure." };
+  const affected = options.filter((o) => input.changeIds.includes(o.id)).map((o) => o.id);
+  if (affected.length === 0) return { error: "Pick at least one room type to change." };
+  return { signal_room_type_ids: signal, affected_room_type_ids: affected, room_types: names(affected) };
+}
