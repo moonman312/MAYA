@@ -14,65 +14,21 @@
  * context.
  */
 import { describe, expect, it, vi } from "vitest";
+import { fakeSupabase as sharedFake } from "@/lib/engine/fake-supabase.test";
 
 type Row = Record<string, unknown>;
 
+/** The engine's in-memory fake (paging, JSON-path selects) plus a session. */
 function fakeSupabase(seed: Record<string, Row[]> = {}) {
-  const tables = new Map<string, Row[]>(
-    Object.entries(seed).map(([k, v]) => [k, v.map((r) => ({ ...r }))]),
-  );
   const failSelectFor = new Map<string, { message: string; code?: string }>();
-  const tableOf = (name: string) => tables.get(name) ?? [];
-
-  function builder(table: string) {
-    const filters: Array<[string, unknown]> = [];
-    let single = false;
-
-    const api = {
-      select() {
-        return api;
-      },
-      eq(col: string, val: unknown) {
-        filters.push([col, val]);
-        return api;
-      },
-      in(col: string, vals: unknown[]) {
-        filters.push([col, vals]);
-        return api;
-      },
-      order() {
-        return api;
-      },
-      limit() {
-        return api;
-      },
-      maybeSingle() {
-        single = true;
-        return run();
-      },
-      then(resolve: (v: { data: unknown; error: { message: string } | null }) => void) {
-        return run().then(resolve);
-      },
-    };
-
-    async function run(): Promise<{ data: unknown; error: { message: string } | null }> {
-      const failure = failSelectFor.get(table);
-      if (failure) return { data: null, error: failure };
-      const rows = tableOf(table).filter((r) =>
-        filters.every(([col, val]) => (Array.isArray(val) ? val.includes(r[col]) : r[col] === val)),
-      );
-      return { data: single ? (rows[0] ?? null) : rows, error: null };
-    }
-
-    return api;
-  }
-
-  const client = {
-    from: (t: string) => builder(t),
+  const fake = sharedFake(seed, {
+    fault: (c) => (c.op === "select" ? (failSelectFor.get(c.table) ?? null) : null),
+  });
+  const client = Object.assign(fake.client, {
     auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) },
-  };
+  });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return { client: client as any, failSelectFor };
+  return { client: client as any, failSelectFor, calls: fake.calls };
 }
 
 const HOTEL = "hotel-1";
@@ -103,6 +59,7 @@ function seedHealthyHotel() {
   return fakeSupabase({
     evaluation_audit: [
       {
+        id: "audit-1",
         hotel_id: HOTEL,
         evaluation_run_id: "run-1",
         stay_date: "2026-08-01",
@@ -213,6 +170,7 @@ describe("changelog route: failures are errors, never demo data", () => {
   // nobody but the caller. The names come off the service role instead.
   it("names a teammate who typed a manual price, via the service role", async () => {
     const manualRow = {
+      id: "audit-2",
       hotel_id: HOTEL,
       evaluation_run_id: "run-2",
       stay_date: "2026-08-02",
@@ -269,5 +227,88 @@ describe("changelog route: failures are errors, never demo data", () => {
     const body = await res.json();
     expect(res.status).toBe(200);
     expect(body).toHaveLength(10);
+  });
+});
+
+describe("changelog route: a large property's runs", () => {
+  function hotelWithRuns(rowsPerRun: (run: number) => number) {
+    const audit: Row[] = [];
+    const runLog: Row[] = [];
+    let n = 0;
+    for (let run = 0; run < 12; run++) {
+      const at = new Date(Date.parse("2026-07-01T00:00:00Z") + run * 300_000).toISOString();
+      runLog.push({ hotel_id: HOTEL, evaluation_run_id: `run-${run}`, evaluated_at: at, cells_changed: rowsPerRun(run) });
+      for (let i = 0; i < rowsPerRun(run); i++) {
+        n++;
+        const kind = n % 5;
+        const base = 100 + (n % 97);
+        audit.push({
+          id: `a${String(n).padStart(7, "0")}`,
+          hotel_id: HOTEL,
+          evaluation_run_id: `run-${run}`,
+          stay_date: `2026-08-${String(1 + (i % 28)).padStart(2, "0")}`,
+          room_type_id: "rt-1",
+          evaluated_at: at,
+          base_price: base,
+          // Distinct moves so the ranking has no ties to break.
+          final_price: kind === 0 ? base : base + (n % 1000) / 7 + i / 1000,
+          pre_clamp_price: base,
+          floor_price: 50,
+          ceiling_price: 900,
+          details: {
+            application_order: kind === 1 ? ["ladder:rule-1"] : [],
+            ...(kind === 2 ? { base_source: "manual", manual_override: { set_by: null, set_at: at } } : {}),
+            matched_ladder_rules: [],
+          },
+        });
+      }
+    }
+    return {
+      evaluation_audit: audit,
+      evaluation_run_log: runLog,
+      hotels: [{ id: HOTEL, currency: "USD" }],
+      room_types: [{ id: "rt-1", hotel_id: HOTEL, name: "Garden King" }],
+      pricing_rules: [{ id: "rule-1", hotel_id: HOTEL, name: "Busy", action_type: "percent", action_direction: "increase", action_value: 5, is_pickup_rule: false, rule_condition: null }],
+    };
+  }
+
+  async function getWith(seed: Record<string, Row[]>, opts: { noRunLog?: boolean } = {}) {
+    const fake = fakeSupabase(seed);
+    if (opts.noRunLog) {
+      fake.failSelectFor.set("evaluation_run_log", { code: "PGRST205", message: "Could not find the table 'public.evaluation_run_log' in the schema cache" });
+    }
+    state.client = fake.client;
+    state.hotelId = HOTEL;
+    state.configured = true;
+    state.admin = null;
+    const res = await GET();
+    expect(res.status).toBe(200);
+    return { body: await res.json(), calls: fake.calls };
+  }
+
+  it("gives the old change log on a hotel whose history fits the old 600-row read", async () => {
+    const seed = hotelWithRuns(() => 45);
+    // 10 runs x 45 rows is under 600; the 12-run log is capped at 10 either way.
+    const legacy = await getWith({ ...seed, evaluation_audit: seed.evaluation_audit.filter((r) => Number(String(r.evaluation_run_id).slice(4)) >= 2) }, { noRunLog: true });
+    const current = await getWith(seed);
+    expect(current.body).toEqual(legacy.body);
+    expect(current.body).toHaveLength(10);
+    expect(current.body[0].changes).toHaveLength(36); // 45 rows, one in five unchanged
+  });
+
+  it("still shows older runs' changes when the newest run alone wrote thousands of rows", async () => {
+    const seed = hotelWithRuns((run) => (run === 11 ? 2500 : 30));
+    const legacy = await getWith(seed, { noRunLog: true });
+    const current = await getWith(seed);
+    // The old read spent its 600 rows on the newest run.
+    expect(legacy.body.filter((c: { has_changes: boolean }) => c.has_changes)).toHaveLength(1);
+    expect(current.body).toHaveLength(10);
+    expect(current.body.every((c: { has_changes: boolean }) => c.has_changes)).toBe(true);
+    expect(current.body[1].changes.length).toBeGreaterThan(0);
+    // Details were read only for the entries shown.
+    const fullReads = current.calls.filter((c) => c.table === "evaluation_audit" && c.columns.includes(" details"));
+    for (const c of fullReads) {
+      expect((c.filters.find((f) => f.col === "id")?.value as string[]).length).toBeLessThanOrEqual(40);
+    }
   });
 });

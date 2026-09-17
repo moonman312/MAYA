@@ -61,8 +61,8 @@ export function manualOverrideFor(
   return { set_by: typeof setBy === "string" && setBy ? setBy : null };
 }
 
-const MAX_RUNS = 10;
-const MAX_ENTRIES_PER_CYCLE = 40;
+export const MAX_RUNS = 10;
+export const MAX_ENTRIES_PER_CYCLE = 40;
 
 export function currencySymbolFor(code: string | null | undefined): string {
   switch (code) {
@@ -305,6 +305,48 @@ export function buildEntry(
     has_booking_speed_details:
       (row.details?.booking_speed_observations ?? []).length > 0,
   };
+}
+
+/** The ordering key buildEntry reports as change_pct, from the two prices alone. */
+export function changePctOf(row: { base_price: number; final_price: number }): number {
+  const basePrice = Number(row.base_price);
+  const finalPrice = Number(row.final_price);
+  return basePrice > 0 ? Math.round(((finalPrice - basePrice) / basePrice) * 1000) / 10 : 0;
+}
+
+/**
+ * The rows one run's entries are built from, chosen from its change rows the
+ * way buildCyclesFromAudit chooses them: largest move first, stable on the
+ * given order, at most MAX_ENTRIES_PER_CYCLE.
+ */
+export function topChangeRows<T extends { base_price: number; final_price: number }>(changeRows: T[]): T[] {
+  return changeRows
+    .map((row, i) => ({ row, i, pct: Math.abs(changePctOf(row)) }))
+    .sort((a, b) => b.pct - a.pct || a.i - b.i)
+    .slice(0, MAX_ENTRIES_PER_CYCLE)
+    .map((x) => x.row);
+}
+
+/** One run as the per-run read assembles it. */
+export type RunSummary = {
+  evaluation_run_id: string;
+  timestamp: string;
+  hasChanges: boolean;
+  /** The run's top change rows with full details, in topChangeRows order. */
+  topRows: AuditChangeRow[];
+};
+
+/** buildCyclesFromAudit for runs that were each read on their own (newest first). */
+export function buildCyclesFromRuns(runs: RunSummary[], lookups: ChangelogLookups): ChangelogCycle[] {
+  const capped = runs.slice(0, MAX_RUNS);
+  return capped.map((run, index) => ({
+    cycle: capped.length - index,
+    timestamp: run.timestamp,
+    has_changes: run.hasChanges,
+    changes: run.topRows
+      .map((row) => buildEntry(row, lookups))
+      .sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct)),
+  }));
 }
 
 /**
