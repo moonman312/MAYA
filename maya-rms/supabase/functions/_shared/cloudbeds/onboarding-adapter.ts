@@ -14,9 +14,10 @@
  * filter). See cloudbedsHistoryWindowOwns in etl.ts for the rule and
  * historicalWindow in onboarding/worker-core.ts for the dates.
  *
- * Page order across separate calls was never verified, and pages here are
- * minutes apart, so a stored page number only means something while the
- * result set holds still. Three things keep it still: every status is read
+ * Pages come newest booking first (dateCreated descending, the same order on
+ * a second full read; sandbox, 2026-09-17), and pages here are minutes apart,
+ * so a stored page number only means something while the result set holds
+ * still. Three things keep it still: every status is read
  * (a cancellation changes a booking, it does not remove it), the booking
  * created bound is pinned for the whole window (a new booking cannot join),
  * and the set's total is carried on the cursor: if it moved anyway, the window
@@ -165,7 +166,10 @@ function addDaysYmd(ymd: string, days: number): string {
  * The booking-created bound a window is pinned to, taken when its first page
  * is read: a day before now. The day covers whatever time zone Cloudbeds reads
  * the timestamp in, so the bound is in the past however it is read, and no
- * booking made while the window pages can join it. What it gives up is a
+ * booking made while the window pages can join it, and since pages are newest
+ * first, one that did would push every later booking down a place. The
+ * sandbox takes this `YYYY-MM-DD HH:MM:SS` form and cuts on it exactly
+ * (2026-09-17). What it gives up is a
  * booking entered in the last day for a stay the window owns, which checked
  * in at least 31 days ago: a stay keyed in a month late.
  */
