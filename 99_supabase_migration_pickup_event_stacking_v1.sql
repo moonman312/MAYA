@@ -866,6 +866,8 @@ begin
      set choice = null,
          chosen_at = null,
          chosen_by = null,
+         resumed_at = v_now,
+         resumed_by = auth.uid(),
          -- The count on the row stands for the fires the owner has already
          -- seen, and the engine asks again 3 above it. A night answered
          -- keep_adjusting went on firing with its row left where the answer
@@ -874,8 +876,6 @@ begin
          -- type, open or taken off for cancellations). Never down -- a typed
          -- price takes fires off after the resume too, and that is the
          -- engine's to notice.
-         resumed_at = v_now,
-         resumed_by = auth.uid(),
          fire_count = greatest(n.fire_count, (
            select coalesce(max(k.fires), 0)
              from (

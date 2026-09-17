@@ -630,6 +630,86 @@ describe.skipIf(!PGLITE_DIR)("the pickup event stacking migration in PGlite", ()
     );
   });
 
+  it("runs over the alert tables an earlier copy of this file left behind", async () => {
+    // That copy wrote its checks inline in the create, so Postgres named them
+    // itself, and it knew nothing about a resume: no 'resumed' reason, no
+    // count below 3, no resumed_at. create table if not exists leaves all of
+    // that alone, so the swaps have to do it.
+    const mod = await import(
+      /* @vite-ignore */ pathToFileURL(`${PGLITE_DIR}/node_modules/@electric-sql/pglite/dist/index.js`).href
+    );
+    const old = new mod.PGlite({ parsers: { 1082: (v: string) => v, 1184: (v: string) => v } }) as Db;
+    try {
+      await old.exec("set timezone = 'UTC';");
+      await old.exec(BEFORE);
+      await old.exec(seedSql());
+      await old.exec(`
+        create table public.rule_repeat_alerts (
+          id               uuid primary key default gen_random_uuid(),
+          hotel_id         uuid not null references public.hotels(id) on delete cascade,
+          rule_id          uuid not null references public.pricing_rules(id) on delete cascade,
+          rule_version     integer not null,
+          action_direction text not null check (action_direction in ('increase', 'decrease')),
+          opened_at        timestamptz not null,
+          updated_at       timestamptz not null default now(),
+          resolved_at      timestamptz,
+          resolution       text check (resolution in ('chosen', 'closed')),
+          created_at       timestamptz not null default now(),
+          constraint rule_repeat_alerts_resolution_chk check ((resolved_at is null) = (resolution is null))
+        );
+        create table public.rule_repeat_alert_nights (
+          alert_id           uuid not null references public.rule_repeat_alerts(id) on delete cascade,
+          hotel_id           uuid not null references public.hotels(id) on delete cascade,
+          rule_id            uuid not null references public.pricing_rules(id) on delete cascade,
+          rule_version       integer not null,
+          stay_date          date not null,
+          fire_count         integer not null check (fire_count >= 3),
+          reached_at         timestamptz not null,
+          last_fire_at       timestamptz not null,
+          last_event_id      uuid,
+          window_days        integer,
+          window_bookings    integer,
+          window_expected    numeric(10,2),
+          pickup_metric      text,
+          pickup_threshold   numeric(10,2),
+          pickup_window_days integer,
+          pickup_net         numeric(12,2),
+          room_types         jsonb not null default '[]'::jsonb,
+          choice             text check (choice in ('keep_adjusting', 'stop')),
+          chosen_at          timestamptz,
+          chosen_by          uuid references auth.users(id) on delete set null,
+          closed_at          timestamptz,
+          closed_reason      text check (closed_reason in ('night_passed', 'rule_edited', 'price_set')),
+          updated_at         timestamptz not null default now(),
+          primary key (alert_id, stay_date),
+          constraint rule_repeat_alert_nights_choice_chk check ((choice is null) = (chosen_at is null)),
+          constraint rule_repeat_alert_nights_closed_chk check ((closed_at is null) = (closed_reason is null)),
+          constraint rule_repeat_alert_nights_one_end_chk check (choice is null or closed_at is null)
+        );
+      `);
+      await old.exec(readFileSync(MIGRATION, "utf8"));
+
+      // A night let run again and then wiped by a typed price: every part of
+      // it the old table refused goes in.
+      const alert = "0000000c-0000-4000-8000-000000000000";
+      await old.exec(`
+        insert into public.rule_repeat_alerts (id, hotel_id, rule_id, rule_version, action_direction, opened_at)
+          values ('${alert}', '${H1}', '${R_CUT}', 1, 'decrease', now());
+        insert into public.rule_repeat_alert_nights
+          (alert_id, hotel_id, rule_id, rule_version, stay_date, fire_count, reached_at, last_fire_at,
+           closed_at, closed_reason, resumed_at, resumed_by)
+        values ('${alert}', '${H1}', '${R_CUT}', 1, '${NIGHT}', 0, now(), now(), now(), 'resumed', now(), '${USER}');
+      `);
+      expect(
+        (await old.query(
+          `select fire_count, closed_reason, resumed_by::text as resumed_by from public.rule_repeat_alert_nights`,
+        )).rows,
+      ).toEqual([{ fire_count: 0, closed_reason: "resumed", resumed_by: USER }]);
+    } finally {
+      await old.close();
+    }
+  }, 120_000);
+
   it("survives a replay of push_guardrails, whose price function now names the reason on its own", async () => {
     // 99_supabase_migration_push_guardrails_v1.sql sorts after this migration,
     // so replaying the 99_ files in filename order restores its
