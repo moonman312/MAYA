@@ -251,20 +251,30 @@ export type CloudbedsPropertySummary = { propertyId: string; name: string | null
 export async function cloudbedsListProperties(
   creds: Omit<CloudbedsResolvedCredentials, "propertyId">,
 ): Promise<CloudbedsPropertySummary[]> {
-  const withCreds: CloudbedsResolvedCredentials = { ...creds, propertyId: "" };
   try {
-    const res = await cloudbedsGet(withCreds, "getHotels", {});
-    const arr = res.data;
-    if (!Array.isArray(arr)) return [];
-    return (arr as JsonRecord[])
-      .map((h) => ({
-        propertyId: String(h.propertyID ?? h.property_id ?? h.id ?? ""),
-        name: h.propertyName != null ? String(h.propertyName) : null,
-      }))
-      .filter((p) => p.propertyId !== "");
+    return await cloudbedsListPropertiesOrThrow(creds);
   } catch {
     return [];
   }
+}
+
+/**
+ * The same list, but a failed call throws instead of reading as "this login
+ * reaches no properties". For a caller that must tell an outage from a real
+ * answer, like checking a reconnect reaches the property it is bound to.
+ */
+export async function cloudbedsListPropertiesOrThrow(
+  creds: Omit<CloudbedsResolvedCredentials, "propertyId">,
+): Promise<CloudbedsPropertySummary[]> {
+  const res = await cloudbedsGet({ ...creds, propertyId: "" }, "getHotels", {});
+  const arr = res.data;
+  if (!Array.isArray(arr)) return [];
+  return (arr as JsonRecord[])
+    .map((h) => ({
+      propertyId: String(h.propertyID ?? h.property_id ?? h.id ?? ""),
+      name: h.propertyName != null ? String(h.propertyName) : null,
+    }))
+    .filter((p) => p.propertyId !== "");
 }
 
 export type CloudbedsPropertyDetails = {

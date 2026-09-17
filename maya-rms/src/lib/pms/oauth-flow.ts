@@ -6,10 +6,7 @@ import { pmsSignupCodeRequired } from "@/lib/billing/pms-gates";
 import { isStripeConfigured } from "@/lib/billing/stripe";
 import { handleOnboardingConnect } from "@/lib/onboarding/connect";
 import { ensureAppStateWebhook } from "@/lib/pms/cloudbeds-webhooks";
-import {
-  cloudbedsDiscoverPropertyId,
-  cloudbedsListProperties,
-} from "../../../supabase/functions/_shared/cloudbeds/client";
+import { cloudbedsListPropertiesOrThrow } from "../../../supabase/functions/_shared/cloudbeds/client";
 import { defaultCloudbedsBaseUrl } from "../../../supabase/functions/_shared/cloudbeds/constants";
 import { handleMarketplaceConnect } from "@/lib/pms/marketplace-connect";
 import { findMarketplaceClaimForHotel, hasEntitledSubscription } from "@/lib/pms/marketplace-activate";
@@ -405,11 +402,19 @@ async function marketplacePropertyForGrant(
   tokens: { accessToken: string; tokenType: string },
 ): Promise<{ ok: true; propertyId: string | null } | { ok: false; message: string }> {
   if (pmsType !== "cloudbeds") return { ok: true, propertyId: null };
-  let claim: Awaited<ReturnType<typeof findMarketplaceClaimForHotel>>;
   let enterpriseId: string | null = null;
   try {
-    claim = await findMarketplaceClaimForHotel(admin, hotelId);
-    if (!claim) return { ok: true, propertyId: null };
+    // Read directly so a failed read stops here. The shared lookup reads an
+    // error as "no claim", which would skip the very check this is.
+    const { data: claimRow, error: claimErr } = await admin
+      .from("pms_marketplace_claims")
+      .select("token")
+      .eq("hotel_id", hotelId)
+      .not("claimed_at", "is", null)
+      .limit(1)
+      .maybeSingle();
+    if (claimErr) throw new Error(claimErr.message);
+    if (!claimRow) return { ok: true, propertyId: null };
     const { data, error } = await admin
       .from("hotels")
       .select("external_enterprise_id")
@@ -426,10 +431,13 @@ async function marketplacePropertyForGrant(
   if (!propertyId) return { ok: false, message: "Reconnect this property from the Cloudbeds Marketplace." };
 
   const bare = { accessToken: tokens.accessToken, tokenType: tokens.tokenType, baseUrl: defaultCloudbedsBaseUrl() };
-  let reachable = (await cloudbedsListProperties(bare)).map((p) => p.propertyId);
-  if (reachable.length === 0) {
-    const only = await cloudbedsDiscoverPropertyId(bare).catch(() => null);
-    if (only) reachable = [only];
+  let reachable: string[];
+  try {
+    reachable = (await cloudbedsListPropertiesOrThrow(bare)).map((p) => p.propertyId);
+  } catch {
+    // An outage is not an answer. Saying "different property" here would send
+    // the owner looking for a login they already used.
+    return { ok: false, message: "Cloudbeds didn't answer. Try connecting again in a moment." };
   }
   if (!reachable.includes(propertyId)) {
     return { ok: false, message: "This login is for a different property." };

@@ -15,7 +15,8 @@ const state = vi.hoisted(() => ({
   db: null as unknown as ReturnType<typeof import("../engine/fake-supabase.test").fakeSupabase>,
   rpcs: [] as { fn: string; args: Record<string, unknown> }[],
   properties: [{ propertyId: "320691", name: "Sea View Inn" }] as { propertyId: string; name: string | null }[],
-  discovered: "320691" as string | null,
+  listFails: false,
+  claimsReadFails: false,
 }));
 
 vi.mock("@/lib/billing/stripe", () => ({ isStripeConfigured: () => state.stripe }));
@@ -23,8 +24,10 @@ vi.mock("@/utils/supabase/admin", () => ({ createAdminClient: () => state.db.cli
 vi.mock("@/utils/supabase/server", () => ({ createClient: () => null }));
 vi.mock("@/lib/pms/cloudbeds-webhooks", () => ({ ensureAppStateWebhook: async () => ({ ok: true }) }));
 vi.mock("../../../supabase/functions/_shared/cloudbeds/client", () => ({
-  cloudbedsListProperties: async () => state.properties,
-  cloudbedsDiscoverPropertyId: async () => state.discovered,
+  cloudbedsListPropertiesOrThrow: async () => {
+    if (state.listFails) throw new Error("Cloudbeds 503");
+    return state.properties;
+  },
 }));
 vi.mock("@/lib/onboarding/connect", () => ({ handleOnboardingConnect: async () => new Response() }));
 vi.mock("@/lib/pms/oauth-state", () => ({
@@ -60,6 +63,8 @@ function property(opts: { claimed: boolean; purged: boolean; isActive?: boolean;
     import_jobs: [],
     onboarding_states: [],
   }, {
+    fault: (c) =>
+      state.claimsReadFails && c.table === "pms_marketplace_claims" ? { message: "connection reset", code: "08006" } : null,
     rpc: (fn, args) => {
       state.rpcs.push({ fn, args: args as Record<string, unknown> });
       return null;
@@ -80,7 +85,8 @@ beforeEach(() => {
   state.stripe = true;
   state.rpcs = [];
   state.properties = [{ propertyId: "320691", name: "Sea View Inn" }];
-  state.discovered = "320691";
+  state.listFails = false;
+  state.claimsReadFails = false;
   process.env.CLOUDBEDS_CLIENT_ID = "id";
   process.env.CLOUDBEDS_CLIENT_SECRET = "secret";
   process.env.MAYA_INVITE_REDIRECT_BASE = "https://app.example";
@@ -142,7 +148,6 @@ describe("the reconnect prompt's OAuth callback", () => {
       { propertyId: "320690", name: "Sea View Annex" },
       { propertyId: "320691", name: "Sea View Inn" },
     ];
-    state.discovered = null;
     const db = property({ claimed: true, purged: true });
     const res = await callback();
     expect(res.status).toBe(302);
@@ -151,17 +156,30 @@ describe("the reconnect prompt's OAuth callback", () => {
     expect(db.tables.pms_connections[0]).toMatchObject({ status: "pending" });
   });
 
-  it("falls back to single-property discovery when the property list is unreadable", async () => {
-    state.properties = [];
+  it("says Cloudbeds didn't answer, not \"different property\", when the property list call fails", async () => {
+    state.listFails = true;
     const db = property({ claimed: true, purged: true });
-    await callback();
-    expect(storedSecret()).toMatchObject({ propertyId: "320691" });
-    expect(db.tables.import_jobs).toHaveLength(1);
+    const res = await callback();
+    expect(res.status).toBe(400);
+    const text = await res.text();
+    expect(text).toContain("Cloudbeds didn't answer");
+    expect(text).not.toContain("different property");
+    expect(storedSecret()).toBeUndefined();
+    expect(db.tables.import_jobs).toEqual([]);
+  });
+
+  it("stores nothing when the claim can't be read, rather than treating the property as unbound", async () => {
+    state.claimsReadFails = true;
+    const db = property({ claimed: true, purged: true });
+    const res = await callback();
+    expect(res.status).toBe(400);
+    expect(storedSecret()).toBeUndefined();
+    expect(db.tables.pms_connections).toEqual([]);
+    expect(db.tables.import_jobs).toEqual([]);
   });
 
   it("refuses a login for a different property: no credential, no connection, no import", async () => {
     state.properties = [{ propertyId: "999999", name: "Somewhere Else" }];
-    state.discovered = "999999";
     const db = property({ claimed: true, purged: true, isActive: true, subscription: "active" });
     const res = await callback();
     expect(res.status).toBe(400);
