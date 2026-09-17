@@ -127,3 +127,35 @@ async function purgedAwaitingImport(supabase: SupabaseClient, hotelIds: string[]
   }
   return held;
 }
+
+/**
+ * Hotels whose onboarding import is running right now under a live lease.
+ *
+ * The import worker and the scheduled sync both call the PMS with the same
+ * credential, and their rate limiting is per isolate, so running both at once
+ * spends the property's allowance twice as fast. The worker's own
+ * current-window pass keeps these hotels' reservations fresh, so the scheduled
+ * run skips only its PMS read for them and still evaluates and pushes prices:
+ * a refresh import must never freeze a live hotel's pricing.
+ *
+ * Fails open: on a read error nobody is skipped, which is how every tick ran
+ * before this existed.
+ */
+export async function hotelsImportingNow(
+  supabase: SupabaseClient,
+  hotelIds: string[],
+  nowIso: string = new Date().toISOString(),
+): Promise<Set<string>> {
+  if (hotelIds.length === 0) return new Set();
+  const { data, error } = await supabase
+    .from("import_jobs")
+    .select("hotel_id")
+    .in("hotel_id", hotelIds)
+    .eq("status", "running")
+    .gt("lease_expires_at", nowIso);
+  if (error) {
+    console.error(JSON.stringify({ fn: "hotelsImportingNow", error: error.message, failedOpen: hotelIds.length }));
+    return new Set();
+  }
+  return new Set((data ?? []).map((r) => String((r as { hotel_id: unknown }).hotel_id)));
+}

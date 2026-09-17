@@ -12,13 +12,13 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2.99.3";
-import { runCloudbedsSyncForHotel } from "../_shared/cloudbeds/sync-hotel.ts";
+import { resolveCloudbedsCredentials, runCloudbedsSyncForHotel } from "../_shared/cloudbeds/sync-hotel.ts";
 import { evaluateHotel } from "../_shared/engine/index.ts";
 import { createCloudbedsRateAdapter } from "../_shared/cloudbeds/rate-push.ts";
 import { pushRatesForHotel } from "../_shared/pms/rate-push.ts";
 import { ensureBaseRateCalendar } from "../_shared/pms/base-rate-calendar.ts";
 import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
-import { splitByParked } from "../_shared/pms/parked.ts";
+import { hotelsImportingNow, splitByParked } from "../_shared/pms/parked.ts";
 import { runScheduledHotels, scheduledLoopConfigFromEnv } from "../_shared/pms/scheduled-loop.ts";
 import { CLOUDBEDS_SYNC_BUDGET_MS } from "../_shared/cloudbeds/constants.ts";
 import { recordRoomCount } from "../_shared/billing/room-count.ts";
@@ -174,7 +174,7 @@ Deno.serve(async (req) => {
 
   const results: Array<{
     hotelId: string;
-    sync: ReturnType<typeof publicSyncResult>;
+    sync: ReturnType<typeof publicSyncResult> | { ok: true; skipped: "import_running" };
     evaluate?: Awaited<ReturnType<typeof evaluateHotel>> | { error: string } | { skipped: true };
     // deno-lint-ignore no-explicit-any
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -182,19 +182,34 @@ Deno.serve(async (req) => {
     rooms?: Awaited<ReturnType<typeof recordRoomCount>> | null;
   }> = [];
 
+  // Hotels mid-import skip only the PMS read; see hotelsImportingNow.
+  const importing = await hotelsImportingNow(supabase, hotelIds);
+  if (importing.size > 0) {
+    console.log(JSON.stringify({ fn: "cloudbeds-scheduled-sync", syncSkippedImportRunning: [...importing] }));
+  }
+
   // Each hotel runs inside the invocation's wall clock; see scheduled-loop.ts.
   const processHotel = async (hotelId: string, deadlineAt: number) => {
     const t0 = Date.now();
-    const sync = await runCloudbedsSyncForHotel(supabase, hotelId, { deadlineAt });
+    // Mid-import: the worker is reading this property; only the read is skipped.
+    const syncSkipped = importing.has(hotelId);
+    const sync = syncSkipped
+      ? { ok: true as const, skipped: "import_running" as const }
+      : await runCloudbedsSyncForHotel(supabase, hotelId, { deadlineAt });
+    const creds = !sync.ok
+      ? null
+      : "creds" in sync
+        ? sync.creds
+        : await resolveCloudbedsCredentials(supabase, hotelId);
     const tSync = Date.now();
 
     // The property's own rate, captured BEFORE the engine runs so a brand new
     // hotel has a base on day one instead of skipping every unbooked cell, and
     // so a booking taken at one of our own prices can never become the base.
     // Cells we have already pushed to are excluded inside; this only fills gaps.
-    if (sync.ok) {
+    if (creds) {
       try {
-        await ensureBaseRateCalendar(supabase, hotelId, createCloudbedsRateAdapter(sync.creds), {
+        await ensureBaseRateCalendar(supabase, hotelId, createCloudbedsRateAdapter(creds), {
           horizonDays,
         });
       } catch {
@@ -220,9 +235,9 @@ Deno.serve(async (req) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let push: any = pushRatesEnabled ? undefined : { skipped: "disabled" };
     if (pushRatesEnabled) {
-      if (sync.ok) {
+      if (creds) {
         try {
-          const adapter = createCloudbedsRateAdapter(sync.creds);
+          const adapter = createCloudbedsRateAdapter(creds);
           push = await pushRatesForHotel(supabase, hotelId, adapter);
         } catch (e) {
           push = { error: e instanceof Error ? e.message : "push failed" };
@@ -238,7 +253,7 @@ Deno.serve(async (req) => {
         fn: "cloudbeds-scheduled-sync",
         hotelId,
         syncOk: sync.ok,
-        syncTruncated: sync.ok ? !sync.windowFullyCovered : undefined,
+        syncTruncated: "windowFullyCovered" in sync ? !sync.windowFullyCovered : undefined,
         syncError: sync.ok ? undefined : sync.error,
         evaluate,
         push,
@@ -253,9 +268,9 @@ Deno.serve(async (req) => {
     // PMS, so this is the freshest the number ever gets. Measuring here rather
     // than at onboarding is the point: properties grow, and the old one-off
     // reading meant a hotel that opened a wing paid its old price forever.
-    const roomVerdict = sync.ok ? await recordRoomCount(supabase, hotelId, new Date()) : null;
+    const roomVerdict = sync.ok && !syncSkipped ? await recordRoomCount(supabase, hotelId, new Date()) : null;
 
-    results.push({ hotelId, sync: publicSyncResult(sync), evaluate, push, rooms: roomVerdict });
+    results.push({ hotelId, sync: "skipped" in sync ? sync : publicSyncResult(sync), evaluate, push, rooms: roomVerdict });
 
     // Hand the claim back and say when this hotel next wants looking at. A
     // failure backs off exponentially inside release_pms_sync, so one hotel with
@@ -276,7 +291,7 @@ Deno.serve(async (req) => {
         );
       }
     }
-    };
+  };
 
   const loop = await runScheduledHotels(
     hotelIds,

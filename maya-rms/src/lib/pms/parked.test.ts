@@ -8,7 +8,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { splitByParked } from "../../../supabase/functions/_shared/pms/parked";
+import { hotelsImportingNow, splitByParked } from "../../../supabase/functions/_shared/pms/parked";
 import { callTouchesColumn, fakeSupabase, missingColumn, type FakeFault, type FakeRow } from "../engine/fake-supabase.test";
 
 type Row = { hotel_id: string; status: string; pms_type: string };
@@ -155,5 +155,30 @@ describe("splitByParked for a purged property", () => {
     expect(r.allowed).toEqual([]);
     expect(r.parked.map((p) => p.status)).toEqual(["unknown", "unknown"]);
     spy.mockRestore();
+  });
+});
+
+describe("hotelsImportingNow", () => {
+  const NOW = "2026-09-16T12:00:00.000Z";
+  const jobs: FakeRow[] = [
+    { hotel_id: "h-running", status: "running", lease_expires_at: "2026-09-16T12:02:00.000Z" },
+    // Its worker died: the lease ran out, nobody is calling the PMS for it.
+    { hotel_id: "h-expired", status: "running", lease_expires_at: "2026-09-16T11:00:00.000Z" },
+    { hotel_id: "h-queued", status: "queued", lease_expires_at: null },
+    { hotel_id: "h-done", status: "completed", lease_expires_at: "2026-09-16T12:02:00.000Z" },
+    { hotel_id: "h-elsewhere", status: "running", lease_expires_at: "2026-09-16T12:02:00.000Z" },
+  ];
+
+  it("names only hotels in the batch whose import holds a live lease", async () => {
+    const { client } = fakeSupabase({ import_jobs: jobs });
+    const got = await hotelsImportingNow(client, ["h-running", "h-expired", "h-queued", "h-done", "h-idle"], NOW);
+    expect([...got]).toEqual(["h-running"]);
+  });
+
+  it("fails open, so a read error never stops a tick from syncing", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { client } = fakeSupabase({ import_jobs: jobs }, { fault: () => ({ message: "timeout" }) });
+    expect((await hotelsImportingNow(client, ["h-running"], NOW)).size).toBe(0);
+    err.mockRestore();
   });
 });

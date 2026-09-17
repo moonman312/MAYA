@@ -18,7 +18,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.99.3";
 import { runMewsSyncForHotel } from "../_shared/mews/sync-hotel.ts";
 import { evaluateHotel } from "../_shared/engine/index.ts";
 import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
-import { splitByParked } from "../_shared/pms/parked.ts";
+import { hotelsImportingNow, splitByParked } from "../_shared/pms/parked.ts";
 import { runScheduledHotels, scheduledLoopConfigFromEnv } from "../_shared/pms/scheduled-loop.ts";
 import { MEWS_SYNC_BUDGET_MS } from "../_shared/mews/constants.ts";
 import { recordRoomCount } from "../_shared/billing/room-count.ts";
@@ -137,15 +137,25 @@ Deno.serve(async (req) => {
 
   const results: Array<{
     hotelId: string;
-    sync: Awaited<ReturnType<typeof runMewsSyncForHotel>>;
+    sync: Awaited<ReturnType<typeof runMewsSyncForHotel>> | { ok: true; skipped: "import_running" };
     evaluate?: Awaited<ReturnType<typeof evaluateHotel>> | { error: string } | { skipped: true };
     rooms?: Awaited<ReturnType<typeof recordRoomCount>> | null;
   }> = [];
 
+  // Hotels mid-import skip only the PMS read; see hotelsImportingNow.
+  const importing = await hotelsImportingNow(supabase, hotelIds);
+  if (importing.size > 0) {
+    console.log(JSON.stringify({ fn: "mews-scheduled-sync", syncSkippedImportRunning: [...importing] }));
+  }
+
   // Each hotel runs inside the invocation's wall clock; see scheduled-loop.ts.
   const processHotel = async (hotelId: string, deadlineAt: number) => {
     const t0 = Date.now();
-    const sync = await runMewsSyncForHotel(supabase, hotelId, { deadlineAt });
+    // Mid-import: the worker is reading this property; only the read is skipped.
+    const syncSkipped = importing.has(hotelId);
+    const sync = syncSkipped
+      ? { ok: true as const, skipped: "import_running" as const }
+      : await runMewsSyncForHotel(supabase, hotelId, { deadlineAt });
     const tSync = Date.now();
 
     let evaluate: (typeof results)[number]["evaluate"];
@@ -177,7 +187,7 @@ Deno.serve(async (req) => {
     // PMS, so this is the freshest the number ever gets. Measuring here rather
     // than at onboarding is the point: properties grow, and the old one-off
     // reading meant a hotel that opened a wing paid its old price forever.
-    const roomVerdict = sync.ok ? await recordRoomCount(supabase, hotelId, new Date()) : null;
+    const roomVerdict = sync.ok && !syncSkipped ? await recordRoomCount(supabase, hotelId, new Date()) : null;
 
     results.push({ hotelId, sync, evaluate, rooms: roomVerdict });
 
@@ -200,7 +210,7 @@ Deno.serve(async (req) => {
         );
       }
     }
-    };
+  };
 
   const loop = await runScheduledHotels(
     hotelIds,

@@ -955,6 +955,31 @@ function rateDetailsRefused(error: unknown): error is CloudbedsHttpError {
   return !isAuthRevocation(error.status, error.message);
 }
 
+/**
+ * The credentials a sync resolves before it reads anything, for a caller that
+ * needs them without syncing (a rate push while the import worker holds the
+ * PMS). Null when they cannot be resolved; no property discovery is attempted.
+ */
+export async function resolveCloudbedsCredentials(
+  supabase: SupabaseClient,
+  hotelId: string,
+): Promise<CloudbedsResolvedCredentials | null> {
+  const resolved = await resolveOAuthCredentials(supabase, hotelId, "cloudbeds");
+  if ("error" in resolved || !resolved.propertyId) return null;
+  const { data: connRow } = await supabase
+    .from("pms_connections")
+    .select("base_url")
+    .eq("hotel_id", hotelId)
+    .eq("pms_type", "cloudbeds")
+    .maybeSingle();
+  return {
+    accessToken: resolved.accessToken,
+    tokenType: resolved.tokenType,
+    baseUrl: (connRow?.base_url || defaultCloudbedsBaseUrl()).replace(/\/$/, ""),
+    propertyId: resolved.propertyId,
+  };
+}
+
 export async function runCloudbedsSyncForHotel(
   supabase: SupabaseClient,
   hotelId: string,
