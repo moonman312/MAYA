@@ -4,7 +4,8 @@
  * Shared by the list route and the answer route, which returns the list
  * again so the banner never shows an answer it has already given. The reads
  * run under the caller's session: RLS lets any member of the hotel see them,
- * and only rule_repeat_alert_choose can change one.
+ * and only rule_repeat_alert_choose and rule_repeat_alert_resume can change
+ * one.
  */
 
 import { isMissingRelationError } from "@/lib/engine/snapshots";

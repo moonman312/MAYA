@@ -17,8 +17,9 @@
  *
  * Rules are a Revenue Manager's job, so the route checks that rank before it
  * calls either function, and both check can_manage_hotel again in the
- * database. The answer itself is recorded by the database (chosen_at,
- * chosen_by), shows in the change log, and is counted once here for product
+ * database. What was done is recorded by the database on the night itself (an
+ * answer on chosen_at and chosen_by, taking one back on resumed_at and
+ * resumed_by), shows in the change log, and is counted once here for product
  * analytics. The refreshed list comes back so the banner never re-asks.
  */
 
