@@ -4,7 +4,6 @@ import {
   DISPATCH_BUSY_RETRY_MS,
   DISPATCH_BUSY_WAIT_MS,
   DISPATCH_LEASE_SECONDS,
-  EVAL_RESERVE_FLOOR_MS,
   claimDispatchedHotel,
   claimDispatchedHotelWaiting,
   runScheduledHotels,
@@ -21,7 +20,7 @@ const config: ScheduledLoopConfig = {
 
 function harness(
   durations: Record<string, number>,
-  opts: { throws?: string; evalMs?: Record<string, number> } = {},
+  opts: { throws?: string } = {},
 ) {
   let clock = 1_000_000;
   const events: string[] = [];
@@ -37,7 +36,6 @@ function harness(
       clock += durations[id] ?? 1000;
       if (opts.throws === id) throw new Error("boom");
       events.push(`release:${id}`);
-      return opts.evalMs?.[id];
     },
     handBack: async (id: string) => {
       events.push(`handBack:${id}`);
@@ -89,54 +87,15 @@ describe("runScheduledHotels", () => {
     expect(h.evaluateBy.a).toBe(h.start + 330_000 - 30_000);
   });
 
-  it("sizes the evaluate cut-off from the slowest evaluation so far, between the floor and minEvalMs", async () => {
-    const end = (h: { start: number }) => h.start + config.invocationBudgetMs;
-    const h = harness(
-      { a: 1000, b: 1000, c: 1000, d: 1000, e: 1000 },
-      { evalMs: { a: 8_000, b: 2_000, c: 45_000 } },
-    );
-    await runScheduledHotels(["a", "b", "c", "d", "e"], h.start, config, h.deps);
-    // Nothing measured yet: the first hotel keeps the full minEvalMs.
-    expect(h.evaluateBy.a).toBe(end(h) - 30_000);
-    // a took 8s to evaluate and push, so b keeps back 8s.
-    expect(h.evaluateBy.b).toBe(end(h) - 8_000);
-    // b was quicker; the slowest still rules.
-    expect(h.evaluateBy.c).toBe(end(h) - 8_000);
-    // c took 45s: capped at minEvalMs.
-    expect(h.evaluateBy.d).toBe(end(h) - 30_000);
-    expect(h.evaluateBy.e).toBe(end(h) - 30_000);
-
-    const fast = harness({ a: 1000, b: 1000 }, { evalMs: { a: 700 } });
-    await runScheduledHotels(["a", "b"], fast.start, config, fast.deps);
-    // A very quick evaluation never shrinks the reserve below the floor.
-    expect(fast.evaluateBy.b).toBe(end(fast) - EVAL_RESERVE_FLOOR_MS);
-  });
-
-  it("lets a small hotel late in the batch evaluate instead of skipping after its read", async () => {
-    // Ten 29s hotels that each spend 4s evaluating: the eleventh starts with
-    // 40s left, reads for 20s and has 20s to go. A flat 30s cut-off skipped it.
-    const durations: Record<string, number> = {};
-    const evalMs: Record<string, number> = {};
-    const ids: string[] = [];
-    for (let i = 0; i < 10; i++) {
-      ids.push(`h${i}`);
-      durations[`h${i}`] = 29_000;
-      evalMs[`h${i}`] = 4_000;
-    }
-    ids.push("tail");
-    durations.tail = 20_000;
-    const h = harness(durations, { evalMs });
-    const res = await runScheduledHotels(ids, h.start, config, h.deps);
-    expect(res.started).toContain("tail");
-    const readDoneAt = h.start + 10 * 29_000 + 20_000;
-    expect(readDoneAt).toBeGreaterThan(h.start + config.invocationBudgetMs - config.minEvalMs);
-    expect(readDoneAt).toBeLessThanOrEqual(h.evaluateBy.tail);
-  });
-
-  it("ignores a hotel that reports no evaluation time", async () => {
-    const h = harness({ a: 1000, b: 1000 }, { evalMs: {} });
-    await runScheduledHotels(["a", "b"], h.start, config, h.deps);
-    expect(h.evaluateBy.b).toBe(h.start + config.invocationBudgetMs - config.minEvalMs);
+  it("keeps the full evaluate reserve for a large hotel after small, quick ones", async () => {
+    // Small hotels first, then a big one: the cut-off must not shrink to what
+    // the small ones took, or the big one starts an evaluation it can't finish.
+    const h = harness({ small1: 1000, small2: 1000, big: 1000 });
+    await runScheduledHotels(["small1", "small2", "big"], h.start, config, h.deps);
+    const cutOff = h.start + config.invocationBudgetMs - config.minEvalMs;
+    expect(h.evaluateBy.small1).toBe(cutOff);
+    expect(h.evaluateBy.small2).toBe(cutOff);
+    expect(h.evaluateBy.big).toBe(cutOff);
   });
 
   it("releases a hotel whose work throws and carries on", async () => {

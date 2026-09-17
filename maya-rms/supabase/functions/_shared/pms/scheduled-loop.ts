@@ -14,10 +14,10 @@
  * started hotel gets a deadline for its PMS read that leaves room for its
  * evaluation, and a hotel whose work throws is still released.
  *
- * The cut-off for starting an evaluation follows the slowest evaluate and push
- * seen so far in the invocation, between EVAL_RESERVE_FLOOR_MS and minEvalMs.
- * A flat minEvalMs made a small hotel late in the batch read its PMS and then
- * skip pricing it, a whole tick later than it needed to be.
+ * The cut-off for starting an evaluation is a flat minEvalMs before the
+ * invocation's deadline. Sizing it from earlier, smaller hotels would let a
+ * large property start an evaluation it cannot finish; the cost of the flat
+ * reserve is an occasional small hotel priced one tick later.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -36,15 +36,10 @@ export type ScheduledLoopConfig = {
    * A hotel whose read ends with less than this left before the invocation's
    * deadline skips evaluation and push for this tick, and is released due again
    * shortly. Starting an evaluation that runs past the wall clock got the
-   * invocation killed before it released anything. Once a hotel has evaluated,
-   * the slowest evaluate and push seen replaces it, never below
-   * EVAL_RESERVE_FLOOR_MS and never above this.
+   * invocation killed before it released anything.
    */
   minEvalMs: number;
 };
-
-/** The least time kept back for an evaluation, however fast earlier ones were. */
-export const EVAL_RESERVE_FLOOR_MS = 5_000;
 
 /** How soon a hotel that ran out of time to evaluate is due again. */
 export const OUT_OF_TIME_RETRY_SECONDS = 30;
@@ -70,15 +65,14 @@ export type ScheduledLoopDeps = {
   /**
    * Sync, evaluate, push and release one hotel. `deadlineAt` bounds its PMS
    * read; `invocationDeadline` is when the whole invocation is out of time;
-   * past `evaluateBy` there is no time left to start evaluating it. Resolves
-   * to how long its evaluate and push took, or nothing when they did not run.
+   * past `evaluateBy` there is no time left to start evaluating it.
    */
   processHotel: (
     hotelId: string,
     deadlineAt: number,
     invocationDeadline: number,
     evaluateBy: number,
-  ) => Promise<number | void>;
+  ) => Promise<void>;
   /** Give back a claim that was never started, without touching its schedule. */
   handBack: (hotelId: string) => Promise<void>;
   /** Release a hotel whose work threw before it released itself. */
@@ -101,8 +95,6 @@ export async function runScheduledHotels(
   const invocationDeadline = startedAt + config.invocationBudgetMs;
   const result: ScheduledLoopResult = { started: [], handedBack: [], crashed: [] };
   let slowestMs = 0;
-  // Slowest evaluate and push so far; 0 until one has run.
-  let slowestEvalMs = 0;
 
   for (let i = 0; i < hotelIds.length; i++) {
     const hotelId = hotelIds[i];
@@ -131,13 +123,8 @@ export async function runScheduledHotels(
 
     const deadlineAt = Math.min(now + config.syncBudgetMs, invocationDeadline - config.evalReserveMs);
     result.started.push(hotelId);
-    const evalReserve =
-      slowestEvalMs > 0
-        ? Math.min(config.minEvalMs, Math.max(EVAL_RESERVE_FLOOR_MS, slowestEvalMs))
-        : config.minEvalMs;
     try {
-      const evalMs = await deps.processHotel(hotelId, Math.max(now, deadlineAt), invocationDeadline, invocationDeadline - evalReserve);
-      if (typeof evalMs === "number" && Number.isFinite(evalMs)) slowestEvalMs = Math.max(slowestEvalMs, evalMs);
+      await deps.processHotel(hotelId, Math.max(now, deadlineAt), invocationDeadline, invocationDeadline - config.minEvalMs);
     } catch (e) {
       result.crashed.push(hotelId);
       deps.log({ step: "hotel_crashed", hotelId, error: e instanceof Error ? e.message : String(e) });

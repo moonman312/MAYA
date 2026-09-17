@@ -199,8 +199,7 @@ Deno.serve(async (req) => {
     // wall clock and the invocation was killed before any release. The hotel
     // is released due again in OUT_OF_TIME_RETRY_SECONDS, so the next tick
     // takes it early.
-    const evalStartedAt = Date.now();
-    const outOfTime = evalStartedAt > evaluateBy;
+    const outOfTime = Date.now() > evaluateBy;
     let evaluate: (typeof results)[number]["evaluate"];
     if (outOfTime) {
       evaluate = { skipped: "out_of_time" };
@@ -313,9 +312,6 @@ Deno.serve(async (req) => {
         );
       }
     }
-    // What evaluating took, through the release, so the loop can size the
-    // cut-off for the hotels after this one.
-    return outOfTime ? undefined : Date.now() - evalStartedAt;
   };
 
   const loop = await runScheduledHotels(
