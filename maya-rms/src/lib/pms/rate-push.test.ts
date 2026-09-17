@@ -1796,6 +1796,41 @@ describe("pushRatesForHotel and manual prices", () => {
     ]);
   });
 
+  it("counts a comp night the PMS already has at 0 as nothing to send once MAYA never sent to it, and closes what it filed", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const db = manualDb([{ stay_date: "2026-08-03", price: 0 }], [{ stay_date: "2026-08-03", price: 0 }]);
+    const first = await pushRatesForHotel(db.client, "hotel-1", makeAdapter({ "CB-KING": "rate-100" }).adapter, WIDE);
+    expect(first).toMatchObject({ sent: 0, skippedGuardrail: 1, guardrails: { "guardrail:zero_rate_unsupported": 1 } });
+    expect(db.tables.rate_push_incidents).toEqual([expect.objectContaining({ cause: "zero_rate_unsupported", resolved_at: null })]);
+
+    // The owner sets the night to 0 in Cloudbeds, and the base rate read stores that.
+    db.tables.base_rate_calendar = [{ hotel_id: "hotel-1", stay_date: "2026-08-03", room_type_id: "rt-king", price: 0 }];
+    const second = await pushRatesForHotel(db.client, "hotel-1", makeAdapter({ "CB-KING": "rate-100" }).adapter, WIDE);
+
+    expect(second).toMatchObject({ sent: 0, skippedGuardrail: 0, compInPms: 1 });
+    expect(second).not.toHaveProperty("guardrails");
+    expect(db.tables.rate_push_incidents[0]).toMatchObject({ resolution: "landed" });
+    // Nothing was ever sent there, and the ledger still says so.
+    expect(db.tables.rate_updates).toEqual([
+      expect.objectContaining({ stay_date: "2026-08-03", status: "skipped", error: "guardrail:zero_rate_unsupported", attempts: 0 }),
+    ]);
+  });
+
+  it("keeps filing a comp night the PMS has at 0 under a send of MAYA's, whose stored base says nothing about now", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const db = manualDb([{ stay_date: "2026-08-03", price: 0 }], [{ stay_date: "2026-08-03", price: 0 }], {
+      base_rate_calendar: [{ hotel_id: "hotel-1", stay_date: "2026-08-03", room_type_id: "rt-king", price: 0 }],
+      rate_updates: [
+        { hotel_id: "hotel-1", pms_type: "cloudbeds", stay_date: "2026-08-03", room_type_id: "rt-king", external_room_type_id: "CB-KING", price: 180, status: "sent", attempts: 1 },
+      ],
+    });
+
+    const res = await pushRatesForHotel(db.client, "hotel-1", makeAdapter({ "CB-KING": "rate-100" }).adapter, WIDE);
+
+    expect(res).toMatchObject({ skippedGuardrail: 1, guardrails: { "guardrail:zero_rate_unsupported": 1 } });
+    expect(res).not.toHaveProperty("compInPms");
+  });
+
   it("sends a comp night's 0 to a PMS that takes it", async () => {
     const db = manualDb([{ stay_date: "2026-08-01", price: 0 }], [{ stay_date: "2026-08-01", price: 0 }]);
     const { adapter } = makeAdapter({ "CB-KING": "rate-100" });

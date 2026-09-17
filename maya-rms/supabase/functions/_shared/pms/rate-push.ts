@@ -40,7 +40,9 @@
  *     with a reason code and never sent. Codes: push-guardrails.ts. A price
  *     only counts as vouched for by an evaluation that priced its night.
  *     A manual price is sent as the engine published it, under the floor or
- *     over the ceiling included; a price of 0 only to a PMS known to take it.
+ *     over the ceiling included; a price of 0 only to a PMS known to take it,
+ *     and a comp night the PMS already has at 0 on a night MAYA never sent to
+ *     is nothing to send rather than a problem to file.
  *   • Manual prices — a published price older than the manual price on its
  *     night was priced before that manual price existed, and is not sent
  *     until an evaluation has priced the night again. On a night changed in
@@ -64,6 +66,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { lastNightOf, MAX_PRICING_HORIZON_DAYS, pricingHorizonDays, readHotelClock } from "./pricing-window.ts";
 import {
   checkPushGuardrails,
+  GUARDRAIL,
   type GuardrailCode,
   type GuardrailRoomType,
   ledgerRowNeverSent,
@@ -295,6 +298,8 @@ export type RatePushSummary =
       awaitingEvaluation?: number;
       /** Cells whose rate the PMS had moved on since they were priced (readBeforeResend, movedInPms), held until priced again. */
       changedInPms?: number;
+      /** Comp nights (a manual price of 0) MAYA never sent to that the PMS already has at 0: nothing to send. */
+      compInPms?: number;
       /** How long the read before re-sending took, when one was made. */
       readBeforeResendMs?: number;
       /**
@@ -549,10 +554,12 @@ export async function pushRatesForHotel(
     candidates.length > 0 || unchanged.length > 0
       ? await loadOpenManualPrices(supabase, hotelId, firstDate, lastDate)
       : new Map<string, OpenManualPrice>();
-  const zeroBase =
+  // Nights the PMS has at 0, and of those the ones nobody typed a price for.
+  const pmsZero =
     candidates.length > 0 || unchanged.length > 0
-      ? await loadZeroBaseNights(supabase, hotelId, firstDate, lastDate, manualPrices)
+      ? await loadZeroBaseNights(supabase, hotelId, firstDate, lastDate)
       : new Set<string>();
+  const zeroBase = new Set([...pmsZero].filter((key) => !manualPrices.has(key)));
   const freshAfterMs = Date.now() - pushMaxPriceAgeMs();
   const tickEvaluatedAtMs = opts.evaluatedAt ? Date.parse(opts.evaluatedAt) : NaN;
   // Evaluations on record that may vouch for a price, read once and only when needed.
@@ -585,7 +592,8 @@ export async function pushRatesForHotel(
   const lateGuardrailRows: Record<string, unknown>[] = [];
   const guardrails: Partial<Record<GuardrailCode, number>> = {};
   let skippedGuardrail = 0;
-  /** Held back with a code: recorded, never sent. True when the cell was held. */
+  let compInPms = 0;
+  /** Held back with a code, or already in the PMS: recorded or not, never sent. True when the cell is not going out. */
   const holdBack = async (c: Candidate, rows: Record<string, unknown>[]): Promise<boolean> => {
     const key = `${c.stayDate}|${c.roomTypeId}`;
     const code = checkPushGuardrails({
@@ -603,6 +611,14 @@ export async function pushRatesForHotel(
     });
     if (!code) return false;
     const cell = cellOf(c);
+    // A comp night MAYA never sent to that the PMS already has at 0: the
+    // owner set it there, as the save asked them to. Nothing to send, and
+    // nothing wrong to tell them about.
+    if (code === GUARDRAIL.zeroRateUnsupported && pmsZero.has(key) && ledgerRowNeverSent(priorRow.get(key))) {
+      compInPms += 1;
+      run.cells.set(key, { ...cellRef(cell), state: "landed" });
+      return true;
+    }
     skippedGuardrail += 1;
     guardrails[code] = (guardrails[code] ?? 0) + 1;
     const failure = classifyPushFailure({ pms: adapter.pmsType, phase: "guardrail", message: code });
@@ -679,6 +695,7 @@ export async function pushRatesForHotel(
     ...(awaitingBaseRead > 0 ? { awaitingBaseRead } : {}),
     ...(awaitingEvaluation > 0 ? { awaitingEvaluation } : {}),
     ...(changedInPms > 0 ? { changedInPms } : {}),
+    ...(compInPms > 0 ? { compInPms } : {}),
     ...(readBeforeResendMs != null ? { readBeforeResendMs } : {}),
   });
 
@@ -1298,16 +1315,15 @@ function finiteOr(ms: number): number {
 }
 
 /**
- * Nights whose PMS base rate is 0 (closed, or rates not loaded that far) and
- * that have no open manual price. Throws on a failed read: without it there
- * is no telling a closed night from an open one.
+ * Nights whose PMS base rate is 0: closed, rates not loaded that far, or a
+ * comp night the owner has set to 0 in the PMS themselves. Throws on a failed
+ * read: without it there is no telling a closed night from an open one.
  */
 async function loadZeroBaseNights(
   supabase: SupabaseClient,
   hotelId: string,
   firstDate: string,
   lastDate: string,
-  manualPrices: Map<string, OpenManualPrice>,
 ): Promise<Set<string>> {
   const zero = new Set<string>();
   const calRows = await fetchAll(() =>
@@ -1324,7 +1340,6 @@ async function loadZeroBaseNights(
   for (const r of calRows) {
     if (r.room_type_id && r.price != null && Number(r.price) === 0) zero.add(`${r.stay_date}|${r.room_type_id}`);
   }
-  for (const key of manualPrices.keys()) zero.delete(key);
   return zero;
 }
 

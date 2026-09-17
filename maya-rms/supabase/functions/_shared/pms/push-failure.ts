@@ -132,7 +132,7 @@ export type PushFailure = {
   retry: PushRetryPolicy;
   /** Guardrail holds are MAYA's own decisions: counted for admins, never shown to owners. */
   adminOnly: boolean;
-  /** Connection health already alerts this condition; recording it must not alert twice. */
+  /** Someone already hears about this condition elsewhere; recording it must not alert on top. */
   alertedElsewhere: boolean;
   /** A guardrail that should never fire unless MAYA published a bad row: worth a warning. */
   mayaBug: boolean;
@@ -280,10 +280,13 @@ const CATALOG: Record<PushCause, CatalogEntry> = {
     known: true,
     severity: "critical",
     retry: "recheck",
+    // The save that took the 0 says MAYA won't send it and to set it in the
+    // PMS, and the change log keeps saying so: an alert adds nothing.
+    alertedElsewhere: true,
     sentence: (w) => `MAYA doesn't send a price of 0 to ${w.pms}, so ${w.roomsRates} set to 0 in MAYA weren't changed there`,
     action: (w) => `If the night is meant to be free, set it to 0 in ${w.pms} yourself.`,
     admin:
-      "A manual price of 0 (a comp night) is published, and nobody has checked that this PMS's rate write takes 0 (PmsRatePushAdapter acceptsZeroRate), so it is not sent. Once the PMS itself has the night at the manual price the base rate refresh records that and the night closes as landed.",
+      "A manual price of 0 (a comp night) is published, and nobody has checked that this PMS's rate write takes 0 (PmsRatePushAdapter acceptsZeroRate), so it is not sent. Once the PMS itself has the night at the manual price the base rate refresh records that on a night MAYA has sent to, or the push reads a base of 0 on one it never has, and the night closes as landed. Shown to the owner, never alerted: the save already told them.",
   },
   pms_rates_shared_ratio: {
     known: true,

@@ -13,6 +13,8 @@ import {
   MAX_PUSH_ATTEMPTS,
   parseVendorError,
   PUSH_CAUSES,
+  REFRESH_CAUSES,
+  SHARED_RATIO_REASON,
   type PushFailureInput,
   RETRY_AFTER_GIVING_UP_MS,
   retryDecision,
@@ -156,9 +158,12 @@ describe("classifyPushFailure", () => {
     }
   });
 
-  it("files a comp night the PMS isn't sent as something the owner hears about at once", () => {
+  it("files a comp night the PMS isn't sent as something the owner hears about at once, without an alert on top", () => {
     const f = classifyPushFailure({ pms: "think", phase: "guardrail", message: GUARDRAIL.zeroRateUnsupported });
     expect(f).toMatchObject({ cause: "zero_rate_unsupported", known: true, severity: "critical", retry: "recheck", adminOnly: false, mayaBug: false });
+    // The save that took the 0 already told the owner to set it in the PMS.
+    expect(f.alertedElsewhere).toBe(true);
+    expect(causeFacts("zero_rate_unsupported").alertedElsewhere).toBe(true);
     expect(f.customerSentence).toBe(
       "MAYA doesn't send a price of 0 to Think Reservations, so some rates set to 0 in MAYA weren't changed there",
     );
@@ -168,6 +173,12 @@ describe("classifyPushFailure", () => {
     });
     expect(isIncidentSkipReason(GUARDRAIL.zeroRateUnsupported)).toBe(true);
     expect(causeFacts("zero_rate_unsupported")).toMatchObject({ known: true, adminOnly: false });
+  });
+
+  it("names the refresh's own cause for rates it did not take as the hotel's", () => {
+    const f = classifyPushFailure({ pms: "cloudbeds", phase: "guardrail", message: SHARED_RATIO_REASON });
+    expect(f).toMatchObject({ cause: "pms_rates_shared_ratio", known: true, severity: "transient", adminOnly: true, mayaBug: false });
+    expect(REFRESH_CAUSES).toEqual(["pms_rates_shared_ratio"]);
   });
 
   it("tells apart the reasons a room type has no rate to send to", () => {
