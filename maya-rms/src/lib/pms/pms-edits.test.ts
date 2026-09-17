@@ -195,18 +195,48 @@ describe("planPmsEdits", () => {
     expect(plan([read({ ledger: { price: 230, pms_edited_at: hoursAgo(1) } })], { [key]: { price: 230, source: "pms", setAtMs: NOW - 3_600_000 } }).edits).toHaveLength(1);
   });
 
-  it("adopts nothing when every settled night differs by one ratio, which is the PMS's own rule, not a person", () => {
-    const nights = (n: number, rate: (i: number) => number) =>
+  describe("a PMS reporting MAYA's prices through a ratio of its own", () => {
+    const night = (i: number) => `2026-${String(10 + Math.floor(i / 28)).padStart(2, "0")}-${String((i % 28) + 1).padStart(2, "0")}`;
+    const nights = (n: number, sentAt: (i: number) => number, rate: (i: number, sent: number) => number) =>
       Array.from({ length: n }, (_, i) =>
-        read({ stayDate: `2026-10-${String(i + 1).padStart(2, "0")}`, pmsRate: rate(i), ledger: { price: 200 + i * 10, sent_price: 200 + i * 10 } }),
+        read({ stayDate: night(i), pmsRate: rate(i, sentAt(i)), ledger: { price: sentAt(i), sent_price: sentAt(i) } }),
       );
-    const taxed = plan(nights(12, (i) => (200 + i * 10) * 1.1));
-    expect(taxed).toMatchObject({ edits: [], systematic: 12 });
-    // Fewer nights than that, varied changes, or one night MAYA's price is still on: edits.
-    expect(plan(nights(5, (i) => (200 + i * 10) * 1.1)).edits).toHaveLength(5);
-    expect(plan(nights(12, (i) => (i % 2 ? 300 : 150))).edits).toHaveLength(12);
-    const oneUntouched = nights(12, (i) => (i === 0 ? 200 : (200 + i * 10) * 1.1));
-    expect(plan(oneUntouched).edits).toHaveLength(11);
+    const sent = (i: number) => 200 + i * 10;
+    const taxed = (_: number, price: number) => Math.round(price * 1.1 * 100) / 100;
+
+    it("adopts none of the nights the ratio explains", () => {
+      expect(plan(nights(12, sent, taxed))).toMatchObject({ edits: [], systematic: 12 });
+      // Fewer nights than that, or changes with no ratio in common: edits.
+      expect(plan(nights(5, sent, taxed)).edits).toHaveLength(5);
+      expect(plan(nights(12, sent, (i) => (i % 2 ? 300 : 150))).edits).toHaveLength(12);
+    });
+
+    it("still finds it with a price typed in MAYA since the send on one night", () => {
+      const reads = nights(30, sent, taxed);
+      const typed = { [`${night(3)}|rt-king`]: { price: 199, source: "maya" as const, setAtMs: NOW - 30 * 60_000 } };
+      expect(plan(reads, typed)).toMatchObject({ edits: [], systematic: 29, typedSinceSend: 1 });
+    });
+
+    it("adopts only the night the hotel really changed", () => {
+      const reads = nights(30, sent, (i, price) => (i === 7 ? 999 : taxed(i, price)));
+      const p = plan(reads);
+      expect(p.systematic).toBe(29);
+      expect(p.edits.map((e) => [e.read.stayDate, e.price])).toEqual([[night(7), 999]]);
+    });
+
+    it("still finds it when the PMS rounds what it reports to whole units on low prices", () => {
+      const low = (i: number) => 40 + ((i * 7) % 31) + 0.45;
+      const p = plan(nights(30, low, (_, price) => Math.round(price * 1.1)));
+      expect(p).toMatchObject({ edits: [], systematic: 30 });
+    });
+
+    it("takes a hotel raising some of its nights by one percentage while the rest still quote MAYA's price", () => {
+      const p = plan(nights(42, sent, (i, price) => (i < 12 ? taxed(i, price) : price)));
+      expect(p).toMatchObject({ systematic: 0 });
+      expect(p.edits).toHaveLength(12);
+      // A few untouched nights among many that fit are not enough to say so.
+      expect(plan(nights(12, sent, (i, price) => (i === 0 ? price : taxed(i, price))))).toMatchObject({ edits: [], systematic: 11 });
+    });
   });
 });
 

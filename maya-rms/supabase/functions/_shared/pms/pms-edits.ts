@@ -26,12 +26,16 @@
  *   - the PMS rate differs from the price sent by more than half a cent, and
  *     is not that price rounded to a whole unit (a PMS keeping whole units,
  *     or a currency without cents);
- *   - no open manual price is at that rate already, and no price typed in
- *     MAYA after the send is still on its way there;
- *   - not every settled night read differs by one and the same ratio. That is
- *     the PMS reporting MAYA's prices through some rule of its own (tax
- *     included, a markup), not a person editing nights, and adopting would
- *     freeze the whole window. Nothing is adopted and the count is logged.
+ *   - no price typed in MAYA after the send is still on its way there;
+ *   - it is not one of the nights explained by a ratio shared by nearly all
+ *     the settled nights read (SYSTEMATIC_SHARE), to within a whole unit.
+ *     That is the PMS reporting MAYA's prices through some rule of its own
+ *     (tax included, a markup), not a person editing nights, and adopting
+ *     would freeze the window at prices the rule has inflated, which rules
+ *     stacked on them would inflate again. Those nights are counted and
+ *     logged; a night that does not fit the ratio is still a change. A
+ *     settled night still quoting MAYA's own price counts against a ratio,
+ *     so a hotel raising some of its nights by one percentage is taken.
  *
  * When the push held a night's manual price back (a comp night's 0 MAYA
  * would not send) and the hotel then set that price by hand, the ledger is
@@ -63,10 +67,18 @@ const DEFAULT_SETTLE_MINUTES = 60;
 const HALF_CENT = 0.005 + 1e-9;
 /** numeric(10,2). */
 const MAX_PRICE = 99_999_999.99;
-/** Fewer settled nights than this never read as a systematic difference. */
+/** Fewer nights than this sharing a ratio never read as a systematic difference. */
 const SYSTEMATIC_MIN_NIGHTS = 10;
-/** Ratios this close are one ratio. */
+/** The share of the settled nights read a ratio has to explain to be the PMS's own rule. */
+const SYSTEMATIC_SHARE = 0.8;
+/** A ratio this close to 1 is MAYA's price, not a rule. */
 const SYSTEMATIC_RATIO_SPREAD = 0.005;
+/**
+ * How far a PMS rate may sit from the price sent times the ratio and still
+ * fit it: a whole unit, for a PMS that rounds what it reports to one, with the
+ * ratio itself read off a rounded rate.
+ */
+const SYSTEMATIC_FIT = 1;
 
 /** How long a settled send must have been in the PMS before a different rate there is the hotel's, from MAYA_PMS_EDIT_SETTLE_MINUTES. */
 export function pmsEditSettleMs(raw: string | undefined = mwsEnv("MAYA_PMS_EDIT_SETTLE_MINUTES")): number {
@@ -109,7 +121,7 @@ export type PmsEditPlan = {
   waiting: number;
   /** Differ, with a price typed in MAYA since the send still to go out. */
   typedSinceSend: number;
-  /** Differed all by one ratio, so none was adopted. */
+  /** Differed by the ratio nearly all settled nights share, so were not adopted. */
   systematic: number;
 };
 
@@ -122,8 +134,11 @@ export function planPmsEdits(input: {
   settleMs: number;
 }): PmsEditPlan {
   const plan: PmsEditPlan = { edits: [], inStep: [], landed: [], waiting: 0, typedSinceSend: 0, systematic: 0 };
-  // Settled, old enough and sent to the rate read: the nights a change can be told on.
-  const comparable: { pmsRate: number; sent: number }[] = [];
+  // Settled, old enough, sent to the rate read and not typed over since: the
+  // nights a change can be told on, whether the PMS still quotes MAYA's price.
+  let comparable = 0;
+  // Of those, the ones it does not.
+  const differing: { read: PushedNightRead; pmsRate: number; sent: number }[] = [];
 
   for (const r of input.reads) {
     const l = r.ledger;
@@ -154,33 +169,52 @@ export function planPmsEdits(input: {
       if (!holds) plan.waiting += 1;
       continue;
     }
-    comparable.push({ pmsRate: r.pmsRate, sent: ledgerPrice });
-    if (holds) continue;
+    if (holds) {
+      comparable += 1;
+      continue;
+    }
     if (manual && manual.source === "maya" && manual.setAtMs > pushedAtMs && ratesDiffer(manual.price, ledgerPrice)) {
       plan.typedSinceSend += 1;
       continue;
     }
-    plan.edits.push({ read: r, price: Math.round(r.pmsRate * 100) / 100 });
+    comparable += 1;
+    differing.push({ read: r, pmsRate: r.pmsRate, sent: ledgerPrice });
   }
 
-  if (
-    plan.edits.length >= SYSTEMATIC_MIN_NIGHTS &&
-    plan.edits.length === comparable.length &&
-    oneRatio(comparable)
-  ) {
-    plan.systematic = plan.edits.length;
-    plan.edits = [];
-  }
+  const fits = sharedRatio(differing);
+  const systematic = fits.size >= SYSTEMATIC_MIN_NIGHTS && fits.size >= SYSTEMATIC_SHARE * comparable;
+  if (systematic) plan.systematic = fits.size;
+  differing.forEach((d, i) => {
+    if (systematic && fits.has(i)) return;
+    plan.edits.push({ read: d.read, price: Math.round(d.pmsRate * 100) / 100 });
+  });
   return plan;
 }
 
-/** Every PMS rate is its sent price times one factor other than 1. */
-function oneRatio(nights: { pmsRate: number; sent: number }[]): boolean {
-  if (nights.some((n) => !(n.sent > 0))) return false;
-  const ratios = nights.map((n) => n.pmsRate / n.sent);
-  const first = ratios[0];
-  if (Math.abs(first - 1) <= SYSTEMATIC_RATIO_SPREAD) return false;
-  return ratios.every((x) => Math.abs(x - first) <= SYSTEMATIC_RATIO_SPREAD * first);
+/**
+ * The nights (by index) that fit the ratio fitting the most of them: PMS
+ * rate within SYSTEMATIC_FIT of the price sent times it. Each night's own
+ * ratio is tried, largest prices first, since theirs carries the least
+ * rounding. Empty when no ratio away from 1 fits SYSTEMATIC_MIN_NIGHTS.
+ */
+function sharedRatio(nights: { pmsRate: number; sent: number }[]): Set<number> {
+  let best = new Set<number>();
+  if (nights.length < SYSTEMATIC_MIN_NIGHTS) return best;
+  const order = nights
+    .map((_, i) => i)
+    .filter((i) => nights[i].sent > 0 && nights[i].pmsRate > 0)
+    .sort((a, b) => nights[b].sent - nights[a].sent);
+  for (const i of order) {
+    if (best.size === order.length) break;
+    const ratio = nights[i].pmsRate / nights[i].sent;
+    if (Math.abs(ratio - 1) <= SYSTEMATIC_RATIO_SPREAD) continue;
+    const fit = new Set<number>();
+    for (const j of order) {
+      if (Math.abs(nights[j].pmsRate - nights[j].sent * ratio) <= SYSTEMATIC_FIT) fit.add(j);
+    }
+    if (fit.size > best.size) best = fit;
+  }
+  return best.size >= SYSTEMATIC_MIN_NIGHTS ? best : new Set();
 }
 
 export type PmsEditsResult = {
