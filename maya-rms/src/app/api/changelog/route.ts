@@ -334,19 +334,29 @@ async function loadPushProblems(
   if (settingsErr) throw settingsErr;
   if (settings?.simulation_mode !== false) return [];
 
-  let query = supabase
-    .from("rate_push_incidents")
-    .select("id, pms_type, cause, opened_at, attempt_count, attempts_stored, resolved_at, resolution")
-    .eq("hotel_id", hotelId)
-    .eq("admin_only", false)
-    .not("customer_visible_at", "is", null);
-  query = since ? query.or(`resolved_at.is.null,resolved_at.gte.${since}`) : query.is("resolved_at", null);
-  const { data: incidents, error } = await query.order("opened_at", { ascending: false }).limit(MAX_PUSH_PROBLEMS);
+  const visible = () =>
+    supabase
+      .from("rate_push_incidents")
+      .select("id, pms_type, cause, opened_at, attempt_count, attempts_stored, resolved_at, resolution")
+      .eq("hotel_id", hotelId)
+      .eq("admin_only", false)
+      .not("customer_visible_at", "is", null);
+  // Two plain reads rather than one with an or(): a timestamp inside or() needs quoting.
+  const [ongoingRead, endedRead] = await Promise.all([
+    visible().is("resolved_at", null).order("opened_at", { ascending: false }).limit(MAX_PUSH_PROBLEMS),
+    since
+      ? visible().gte("resolved_at", since).order("opened_at", { ascending: false }).limit(MAX_PUSH_PROBLEMS)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  const error = ongoingRead.error ?? endedRead.error;
   if (error) {
     if (isMissingRelationError(error)) return [];
     throw error;
   }
-  if (!incidents || incidents.length === 0) return [];
+  const incidents = [...(ongoingRead.data ?? []), ...(endedRead.data ?? [])]
+    .sort((a, b) => (String(a.opened_at) < String(b.opened_at) ? 1 : String(a.opened_at) > String(b.opened_at) ? -1 : 0))
+    .slice(0, MAX_PUSH_PROBLEMS);
+  if (incidents.length === 0) return [];
 
   const ids = incidents.map((i) => String(i.id));
   const cells: IncidentCellForLog[] = [];
