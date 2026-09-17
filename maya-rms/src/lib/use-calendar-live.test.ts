@@ -76,4 +76,17 @@ describe("createDebounced", () => {
 
     expect(() => debounced.cancel()).not.toThrow();
   });
+
+  it("still fires during an endless stream once the max wait has passed, then starts a new burst", () => {
+    const fn = vi.fn();
+    const debounced = createDebounced(fn, 2000, 10_000);
+    // A change every 500ms for 25 seconds never leaves a 2s gap.
+    for (let t = 0; t < 25_000; t += 500) {
+      debounced.call();
+      vi.advanceTimersByTime(500);
+    }
+    expect(fn).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(2000);
+    expect(fn).toHaveBeenCalledTimes(3);
+  });
 });

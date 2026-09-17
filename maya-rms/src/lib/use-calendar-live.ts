@@ -25,6 +25,8 @@ import { useEffect, useRef } from "react";
 const LIVE_TABLES = ["published_price", "reservations", "manual_price", "room_type_out_of_service"] as const;
 
 const REFRESH_DEBOUNCE_MS = 2000;
+/** However busy the stream, the calendar refreshes at least this often. */
+const REFRESH_MAX_WAIT_MS = 10_000;
 
 /* ── Debounce helper (exported for tests) ─────────────────────── */
 
@@ -35,21 +37,31 @@ export interface Debounced {
   cancel: () => void;
 }
 
-export function createDebounced(fn: () => void, delayMs: number): Debounced {
+export function createDebounced(fn: () => void, delayMs: number, maxWaitMs?: number): Debounced {
   let timer: ReturnType<typeof setTimeout> | null = null;
+  // When the current burst began. A steady stream of changes (an import
+  // writing thousands of reservation rows) never pauses for `delayMs`, so
+  // without a ceiling the refresh would never run at all.
+  let burstStartedAt: number | null = null;
   return {
     call: () => {
       if (timer !== null) clearTimeout(timer);
+      const now = Date.now();
+      if (burstStartedAt === null) burstStartedAt = now;
+      const wait =
+        maxWaitMs === undefined ? delayMs : Math.max(0, Math.min(delayMs, burstStartedAt + maxWaitMs - now));
       timer = setTimeout(() => {
         timer = null;
+        burstStartedAt = null;
         fn();
-      }, delayMs);
+      }, wait);
     },
     cancel: () => {
       if (timer !== null) {
         clearTimeout(timer);
         timer = null;
       }
+      burstStartedAt = null;
     },
   };
 }
@@ -67,7 +79,7 @@ export function useCalendarLive(hotelId: string | null, onChange: () => void): v
   useEffect(() => {
     if (!hotelId || !isSupabaseConfigured()) return;
 
-    const debounced = createDebounced(() => onChangeRef.current(), REFRESH_DEBOUNCE_MS);
+    const debounced = createDebounced(() => onChangeRef.current(), REFRESH_DEBOUNCE_MS, REFRESH_MAX_WAIT_MS);
 
     let supabase: SupabaseClient | null = null;
     let channel: RealtimeChannel | null = null;
