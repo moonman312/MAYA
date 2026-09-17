@@ -347,4 +347,70 @@ $$;
 revoke all on function public.rule_fire_counts(uuid) from public, anon;
 grant execute on function public.rule_fire_counts(uuid) to authenticated, service_role;
 
+-- ----------------------------------------------------------------------------
+-- 6. The horizon's reservations per cell, for the engine
+--
+-- Per (stay date, room type) over the priced horizon: room-nights, the sum of
+-- current_rate (a missing rate counts as 0), and the base_rate of the newest
+-- row, newest by created_at and then lowest id, the order the engine reads
+-- rows in. Rows with no room type are left out, as the engine leaves them out.
+-- The engine used to pull every room-night in the horizon twice to work these
+-- out.
+-- ----------------------------------------------------------------------------
+
+create or replace function public.engine_reservation_cells(
+  p_hotel_id uuid,
+  p_from date,
+  p_to date
+)
+returns table(
+  stay_date date,
+  room_type_id uuid,
+  units int,
+  revenue numeric,
+  latest_base_rate numeric,
+  latest_created_at timestamptz
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_hotel_accessible(p_hotel_id) then
+    raise exception 'Not authorized to read reservations for hotel %', p_hotel_id
+      using errcode = '42501';
+  end if;
+
+  return query
+  with totals as (
+    select r.stay_date as sd, r.room_type_id as rt, count(*)::int as n, sum(coalesce(r.current_rate, 0)) as rev
+    from public.reservations r
+    where r.hotel_id = p_hotel_id
+      and r.stay_date >= p_from
+      and r.stay_date <= p_to
+      and r.room_type_id is not null
+    group by r.stay_date, r.room_type_id
+  ),
+  newest as (
+    select distinct on (r.stay_date, r.room_type_id)
+      r.stay_date as sd, r.room_type_id as rt, r.base_rate as base, r.created_at as created
+    from public.reservations r
+    where r.hotel_id = p_hotel_id
+      and r.stay_date >= p_from
+      and r.stay_date <= p_to
+      and r.room_type_id is not null
+    order by r.stay_date, r.room_type_id, r.created_at desc, r.id asc
+  )
+  select t.sd, t.rt, t.n, t.rev, w.base, w.created
+  from totals t
+  join newest w on w.sd = t.sd and w.rt = t.rt
+  order by t.sd, t.rt;
+end;
+$$;
+
+revoke all on function public.engine_reservation_cells(uuid, date, date) from public, anon;
+grant execute on function public.engine_reservation_cells(uuid, date, date) to authenticated, service_role;
+
 notify pgrst, 'reload schema';

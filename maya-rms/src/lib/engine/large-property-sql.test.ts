@@ -23,7 +23,7 @@ import { legacy, makeFixture, rng, type Fixture } from "./booking-speed-legacy.t
 import { loadBookingSpeedContext, observeForStayDate, resetBookingSpeedLogOnce } from "./booking-speed-provider";
 import { loadLastAuditSignatures } from "./audit";
 import { FakeRpcError, fakeSupabase, missingFunction, type FakeRow } from "./fake-supabase.test";
-import { findSnapshotAt } from "./snapshots";
+import { findSnapshotAt, loadReservationCells } from "./snapshots";
 import { bookingSpeedHistorySummary, bookingSpeedWindows, roomTypeMaxRates } from "./scale-rpc-model.test";
 
 const PGLITE_DIR = process.env.MAYA_PGLITE_DIR;
@@ -140,6 +140,7 @@ const SIGNATURES: Record<string, Record<string, string>> = {
   booking_speed_windows: { p_hotel_id: "uuid", p_dates: "date[]", p_exclude: "uuid[]" },
   audit_last_signatures: { p_hotel_id: "uuid", p_from: "date", p_to: "date" },
   room_type_max_rates: { p_hotel_id: "uuid" },
+  engine_reservation_cells: { p_hotel_id: "uuid", p_from: "date", p_to: "date" },
   snapshot_cells_at: { p_hotel_id: "uuid", p_ts: "timestamptz", p_from: "date", p_to: "date", p_room_types: "uuid[]" },
 };
 
@@ -394,6 +395,55 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
       list.map((x) => `${x.room_type_id}|${Number(x.max_rate).toFixed(2)}`).sort();
     expect(norm(data as Record<string, unknown>[])).toEqual(norm(roomTypeMaxRates(rows, { p_hotel_id: H1 })));
     expect((data as unknown[]).length).toBeGreaterThan(1);
+  }, 120_000);
+
+  it("engine_reservation_cells gives the snapshot counts and base rates the engine computes from rows", async () => {
+    const r = rng(53);
+    const types = ["k", "q", "s"].map(uuidFor);
+    const rows: FakeRow[] = [];
+    for (let i = 0; i < 6000; i++) {
+      const day = addDays("2026-09-16", Math.floor(r() * 60));
+      rows.push({
+        id: `f0000000-0000-4000-8000-${(i * 7919 % 0xffffff).toString(16).padStart(12, "0")}`,
+        hotel_id: r() < 0.05 ? uuidFor("other") : H1,
+        stay_date: day,
+        room_type_id: r() < 0.05 ? null : types[Math.floor(r() * 3)],
+        current_rate: r() < 0.1 ? null : Math.round(r() * 40000) / 100,
+        base_rate: r() < 0.15 ? null : Math.round(r() * 40000) / 100,
+        // Few distinct instants, so created_at ties are common.
+        created_at: `2026-09-${String(1 + Math.floor(r() * 4)).padStart(2, "0")}T0${Math.floor(r() * 3)}:00:00+00:00`,
+      });
+    }
+    await insertReservations(db, rows);
+    const { client: viaSql } = fakeSupabase({});
+    (viaSql as unknown as { rpc: unknown }).rpc = pgliteRpc(db);
+    const fromSql = await loadReservationCells(viaSql as SupabaseClient, H1, "2026-09-16", "2026-11-14");
+
+    // The engine's own reads, over the same rows, the way PostgREST returns them.
+    const pgRows = (await db.query("select id::text, stay_date, room_type_id::text, current_rate::float8 as current_rate, base_rate::float8 as base_rate, created_at from public.reservations where hotel_id = $1 and stay_date between '2026-09-16' and '2026-11-14' order by id", [H1])).rows;
+    const booked = new Map<string, { units: number; revenue: number }>();
+    const latest = new Map<string, { base_rate: number | null; created_at: string }>();
+    for (const row of pgRows) {
+      if (!row.room_type_id) continue;
+      const key = `${row.stay_date}|${row.room_type_id}`;
+      const e = booked.get(key) ?? { units: 0, revenue: 0 };
+      e.units += 1;
+      e.revenue += Number(row.current_rate ?? 0);
+      booked.set(key, e);
+      const prev = latest.get(key);
+      if (!prev || Date.parse(String(row.created_at)) > Date.parse(prev.created_at)) {
+        latest.set(key, { base_rate: row.base_rate != null ? Number(row.base_rate) : null, created_at: String(row.created_at) });
+      }
+    }
+    expect(fromSql).not.toBeNull();
+    expect(fromSql!.booked.size).toBe(booked.size);
+    for (const [key, e] of booked) {
+      const got = fromSql!.booked.get(key)!;
+      expect(got.units).toBe(e.units);
+      // The snapshot stores Math.round(revenue * 100) / 100.
+      expect(Math.round(got.revenue * 100) / 100).toBe(Math.round(e.revenue * 100) / 100);
+      expect(fromSql!.latestBase.get(key)!.base_rate).toBe(latest.get(key)!.base_rate);
+    }
   }, 120_000);
 
   it("refuses a caller who is neither service_role nor a member of the hotel", async () => {

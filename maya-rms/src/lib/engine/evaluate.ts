@@ -55,6 +55,7 @@ import {
   fetchAllRows,
   isMissingColumnError,
   isMissingRelationError,
+  loadReservationCells,
   purgeOldSnapshots,
   snapshotCurrentState,
 } from "./snapshots";
@@ -200,7 +201,22 @@ export async function evaluateHotel(
     cursor = addCalendarDays(cursor, 1);
   }
 
-  const writtenSnapshots = await snapshotCurrentState(supabase, hotelId, now, stayDates, countingRoomTypes);
+  // The horizon's reservations grouped per cell, once, for both the snapshot
+  // and the base rates below. Null before the migration: each reads rows.
+  const reservationCells = await loadReservationCells(
+    supabase,
+    hotelId,
+    stayDates[0],
+    stayDates[stayDates.length - 1],
+  );
+  const writtenSnapshots = await snapshotCurrentState(
+    supabase,
+    hotelId,
+    now,
+    stayDates,
+    countingRoomTypes,
+    reservationCells?.booked,
+  );
   // Every snapshot read below goes through this: the rows just written are
   // answered from memory, older ones are read once per (cell, timestamp).
   const snapshots = createSnapshotLookup(supabase, hotelId, now, writtenSnapshots);
@@ -372,28 +388,34 @@ export async function evaluateHotel(
   const firstDate = stayDates[0];
   const lastDate = stayDates[stayDates.length - 1];
 
-  const resRows = await fetchAllRows(() =>
-    supabase
-      .from("reservations")
-      .select("stay_date, room_type_id, base_rate, created_at")
-      .eq("hotel_id", hotelId)
-      .gte("stay_date", firstDate)
-      .lte("stay_date", lastDate)
-      .order("id", { ascending: true }),
-  );
+  let latestResByCell: ReadonlyMap<string, { base_rate: number | null; created_at: string }>;
+  if (reservationCells) {
+    latestResByCell = reservationCells.latestBase;
+  } else {
+    const resRows = await fetchAllRows(() =>
+      supabase
+        .from("reservations")
+        .select("stay_date, room_type_id, base_rate, created_at")
+        .eq("hotel_id", hotelId)
+        .gte("stay_date", firstDate)
+        .lte("stay_date", lastDate)
+        .order("id", { ascending: true }),
+    );
 
-  const latestResByCell = new Map<string, { base_rate: number | null; created_at: string }>();
-  for (const r of resRows ?? []) {
-    if (!r.room_type_id) continue;
-    const key = `${r.stay_date}|${r.room_type_id}`;
-    const createdAt = String(r.created_at ?? "");
-    const prev = latestResByCell.get(key);
-    if (!prev || createdAt > prev.created_at) {
-      latestResByCell.set(key, {
-        base_rate: r.base_rate != null ? Number(r.base_rate) : null,
-        created_at: createdAt,
-      });
+    const fromRows = new Map<string, { base_rate: number | null; created_at: string }>();
+    for (const r of resRows ?? []) {
+      if (!r.room_type_id) continue;
+      const key = `${r.stay_date}|${r.room_type_id}`;
+      const createdAt = String(r.created_at ?? "");
+      const prev = fromRows.get(key);
+      if (!prev || createdAt > prev.created_at) {
+        fromRows.set(key, {
+          base_rate: r.base_rate != null ? Number(r.base_rate) : null,
+          created_at: createdAt,
+        });
+      }
     }
+    latestResByCell = fromRows;
   }
 
   const ppRows = await fetchAllRows(() =>

@@ -200,12 +200,84 @@ export function sellableUnitsFor(
  * denominator. sellable_units is the SELLABLE count (see sellableUnitsFor),
  * which is why the metric built on it is called sellable occupancy.
  */
+/** What the horizon's reservations add up to per `stay_date|room_type_id`. */
+export type ReservationCells = {
+  /** Room-nights and the sum of current_rate (null as 0). */
+  booked: Map<string, { units: number; revenue: number }>;
+  /** base_rate of the newest row (created_at, then lowest id), null when that row has none. */
+  latestBase: Map<string, { base_rate: number | null; created_at: string }>;
+};
+
+let loggedReservationCellsMissing = false;
+
+/** Test hook: forget that the pre-migration line was already logged. */
+export function resetReservationCellsLogOnce(): void {
+  loggedReservationCellsMissing = false;
+}
+
+/**
+ * The horizon's reservations, grouped per cell in the database
+ * (engine_reservation_cells). The engine used to read every room-night in the
+ * horizon twice, once for the snapshot and once for base rates: on a
+ * 500-room property that is over 100,000 rows each time. Null before the
+ * migration; the caller reads the rows as it always did.
+ */
+export async function loadReservationCells(
+  supabase: SupabaseClient,
+  hotelId: string,
+  firstDate: string,
+  lastDate: string,
+): Promise<ReservationCells | null> {
+  const booked = new Map<string, { units: number; revenue: number }>();
+  const latestBase = new Map<string, { base_rate: number | null; created_at: string }>();
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .rpc("engine_reservation_cells", { p_hotel_id: hotelId, p_from: firstDate, p_to: lastDate })
+      .order("stay_date", { ascending: true })
+      .order("room_type_id", { ascending: true })
+      .range(from, from + 999);
+    if (error) {
+      if (!isMissingFunctionError(error)) {
+        throw new Error(`Failed to load reservation cells: ${error.message}`);
+      }
+      if (!loggedReservationCellsMissing) {
+        loggedReservationCellsMissing = true;
+        console.error(
+          JSON.stringify({
+            fn: "evaluateHotel",
+            step: "engine_reservation_cells",
+            hotelId,
+            schema: "pre-migration",
+            message: `engine_reservation_cells does not exist yet; reading every room-night in the horizon. Run ${MIGRATIONS.largePropertyScale}.`,
+            migration: MIGRATIONS.largePropertyScale,
+            error: error.message,
+          }),
+        );
+      }
+      return null;
+    }
+    const rows = (data ?? []) as Record<string, unknown>[];
+    for (const r of rows) {
+      const key = `${r.stay_date}|${r.room_type_id}`;
+      booked.set(key, { units: Number(r.units), revenue: Number(r.revenue) });
+      latestBase.set(key, {
+        base_rate: r.latest_base_rate != null ? Number(r.latest_base_rate) : null,
+        created_at: String(r.latest_created_at ?? ""),
+      });
+    }
+    if (rows.length < 1000) break;
+  }
+  return { booked, latestBase };
+}
+
 export async function snapshotCurrentState(
   supabase: SupabaseClient,
   hotelId: string,
   snapshotTs: string,
   stayDates: string[],
   roomTypes: RoomTypeRow[],
+  /** Booked units and revenue per cell when the caller already has them (loadReservationCells). */
+  bookedByCell?: ReadonlyMap<string, { units: number; revenue: number }>,
 ): Promise<SnapshotRow[]> {
   if (stayDates.length === 0 || roomTypes.length === 0) return [];
 
@@ -233,23 +305,29 @@ export async function snapshotCurrentState(
   // snapshots as zero booked, so occupancy reads 0 and pickup deltas go
   // negative. Discount ladders wrongly activate and increase ladders wrongly
   // deactivate for the whole far horizon.
-  const agg = await fetchAllRows(() =>
-    supabase
-      .from("reservations")
-      .select("stay_date, room_type_id, current_rate")
-      .eq("hotel_id", hotelId)
-      .in("stay_date", stayDates)
-      .in("room_type_id", rtIds)
-      .order("id", { ascending: true }),
-  );
+  let bookedMap: ReadonlyMap<string, { units: number; revenue: number }>;
+  if (bookedByCell) {
+    bookedMap = bookedByCell;
+  } else {
+    const agg = await fetchAllRows(() =>
+      supabase
+        .from("reservations")
+        .select("stay_date, room_type_id, current_rate")
+        .eq("hotel_id", hotelId)
+        .in("stay_date", stayDates)
+        .in("room_type_id", rtIds)
+        .order("id", { ascending: true }),
+    );
 
-  const bookedMap = new Map<string, { units: number; revenue: number }>();
-  for (const row of agg ?? []) {
-    const key = `${row.stay_date}|${row.room_type_id}`;
-    const entry = bookedMap.get(key) ?? { units: 0, revenue: 0 };
-    entry.units += 1;
-    entry.revenue += Number(row.current_rate ?? 0);
-    bookedMap.set(key, entry);
+    const fromRows = new Map<string, { units: number; revenue: number }>();
+    for (const row of agg ?? []) {
+      const key = `${row.stay_date}|${row.room_type_id}`;
+      const entry = fromRows.get(key) ?? { units: 0, revenue: 0 };
+      entry.units += 1;
+      entry.revenue += Number(row.current_rate ?? 0);
+      fromRows.set(key, entry);
+    }
+    bookedMap = fromRows;
   }
 
   const rows: SnapshotRow[] = [];

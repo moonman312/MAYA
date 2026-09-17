@@ -154,6 +154,38 @@ export function ruleFireCounts(ladder: FakeRow[], pickup: FakeRow[], a: Record<s
   return [...counts].map(([rule_id, fires]) => ({ rule_id, fires }));
 }
 
+/** engine_reservation_cells(p_hotel_id, p_from, p_to), with the engine's own tie-break (created_at, then id). */
+export function engineReservationCells(reservations: FakeRow[], a: Record<string, unknown>): FakeRow[] {
+  const cells = new Map<string, { units: number; revenue: number; latest: FakeRow }>();
+  const ordered = reservations
+    .filter((r) => r.hotel_id === a.p_hotel_id && r.room_type_id != null)
+    .filter((r) => String(r.stay_date) >= String(a.p_from) && String(r.stay_date) <= String(a.p_to))
+    .sort((x, y) => (String(x.id) < String(y.id) ? -1 : String(x.id) > String(y.id) ? 1 : 0));
+  for (const r of ordered) {
+    const key = `${r.stay_date}|${r.room_type_id}`;
+    const c = cells.get(key);
+    const rate = r.current_rate != null ? Math.round(Number(r.current_rate) * 100) : 0;
+    if (!c) {
+      cells.set(key, { units: 1, revenue: rate, latest: r });
+    } else {
+      c.units += 1;
+      c.revenue += rate;
+      if (String(r.created_at ?? "") > String(c.latest.created_at ?? "")) c.latest = r;
+    }
+  }
+  return [...cells.entries()]
+    .sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0))
+    .map(([, c]) => ({
+      stay_date: c.latest.stay_date,
+      room_type_id: c.latest.room_type_id,
+      units: c.units,
+      // Exact cents, the way numeric sums them.
+      revenue: c.revenue / 100,
+      latest_base_rate: c.latest.base_rate ?? null,
+      latest_created_at: c.latest.created_at,
+    }));
+}
+
 /** An rpc handler for fakeSupabase that answers every modeled function from the fake's own tables. */
 export function scaleRpc(fn: string, args: unknown, tables: Record<string, FakeRow[]>): unknown {
   const a = args as Record<string, unknown>;
@@ -168,6 +200,8 @@ export function scaleRpc(fn: string, args: unknown, tables: Record<string, FakeR
       return roomTypeMaxRates(tables.reservations ?? [], a);
     case "rule_fire_counts":
       return ruleFireCounts(tables.ladder_transition_event ?? [], tables.pickup_event ?? [], a);
+    case "engine_reservation_cells":
+      return engineReservationCells(tables.reservations ?? [], a);
     case "snapshot_cells_at":
       return snapshotCellsAt(tables.stay_date_snapshot ?? [], a);
     default:

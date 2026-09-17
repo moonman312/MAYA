@@ -19,7 +19,13 @@ import {
   maybePublish,
   publishPrices,
 } from "./pricing";
-import { createSnapshotLookup, findSnapshotAt, resetSnapshotLookupLogOnce } from "./snapshots";
+import {
+  createSnapshotLookup,
+  findSnapshotAt,
+  loadReservationCells,
+  resetSnapshotLookupLogOnce,
+  snapshotCurrentState,
+} from "./snapshots";
 import type { RuleMetrics, SnapshotRow } from "./types";
 
 afterEach(() => vi.restoreAllMocks());
@@ -280,5 +286,50 @@ describe("snapshot lookup", () => {
       }
     }
     if ("rpc" in opts) expect(err.mock.calls.filter((c) => String(c[0]).includes("snapshot_cells_at"))).toHaveLength(1);
+  });
+});
+
+describe("reservation cells for the horizon", () => {
+  it("snapshot and base rates match the row reads past the 1,000-row cap, without reading rows", async () => {
+    const r = rng(77);
+    const rows: FakeRow[] = [];
+    for (let i = 0; i < 4000; i++) {
+      rows.push({
+        id: uuid("dddddddd", 100000 - i),
+        hotel_id: "h1",
+        stay_date: addDays(D0, Math.floor(r() * 30)),
+        room_type_id: r() < 0.05 ? null : ["rt1", "rt2"][Math.floor(r() * 2)],
+        current_rate: r() < 0.1 ? null : Math.round(r() * 30000) / 100,
+        base_rate: r() < 0.2 ? null : Math.round(r() * 30000) / 100,
+        created_at: `2026-06-0${1 + Math.floor(r() * 3)}T00:00:00Z`,
+      });
+    }
+    const types = ["rt1", "rt2"].map((id) => ({ id, hotel_id: "h1", name: id, is_active: true, total_rooms: 99, floor_price: 1, ceiling_price: 999 }));
+    const days = dates(30);
+
+    const pre = fakeSupabase({ reservations: rows }, { maxRows: 1000, rpc: (fn) => new FakeRpcError(missingFunction(fn)) });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const snapRows = await snapshotCurrentState(pre.client, "h1", "2026-06-10T00:00:00.000Z", days, types);
+
+    const mig = fakeSupabase({ reservations: rows }, { maxRows: 1000 });
+    const cells = await loadReservationCells(mig.client, "h1", days[0], days[days.length - 1]);
+    const snapFromCells = await snapshotCurrentState(mig.client, "h1", "2026-06-10T00:00:00.000Z", days, types, cells!.booked);
+    expect(snapFromCells).toEqual(snapRows);
+    expect(mig.calls.filter((c) => c.table === "reservations")).toHaveLength(0);
+
+    // Base rates: the engine's newest-row rule over the same rows.
+    const expected = new Map<string, number | null>();
+    const byId = [...rows].sort((a, b) => (String(a.id) < String(b.id) ? -1 : 1));
+    const seen = new Map<string, string>();
+    for (const row of byId) {
+      if (!row.room_type_id) continue;
+      const key = `${row.stay_date}|${row.room_type_id}`;
+      const prev = seen.get(key);
+      if (prev === undefined || String(row.created_at) > prev) {
+        seen.set(key, String(row.created_at));
+        expected.set(key, row.base_rate != null ? Number(row.base_rate) : null);
+      }
+    }
+    expect(new Map([...cells!.latestBase].map(([k, v]) => [k, v.base_rate]))).toEqual(expected);
   });
 });
