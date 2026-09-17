@@ -642,6 +642,44 @@ describe("a rule that keeps adjusting the same night", () => {
     expect(w.fires(NIGHT)).toHaveLength(4);
   }, 120_000);
 
+  it("files a night whose three fires are already on record, even on a run that fires nothing", async () => {
+    // What happens after a run under a signed-in session, which may not write
+    // the alert: the fires are the record, so the next scheduled run files it.
+    const fires = [1, 2, 3].map((seq) => ({
+      id: `e${seq}`,
+      hotel_id: "h1",
+      rule_id: "r-daily",
+      rule_version: 1,
+      stay_date: NIGHT,
+      affected_room_type_id: STD,
+      baseline_start_ts: iso(T0 - (4 - seq) * DAY - 12 * HOUR),
+      baseline_end_ts: iso(T0 - (3 - seq) * DAY - 12 * HOUR),
+      signal_booked_units_start: 1,
+      signal_booked_units_end: 1,
+      signal_booked_revenue_start: 100,
+      signal_booked_revenue_end: 100,
+      applied_at: iso(T0 - (3 - seq) * DAY - 12 * HOUR),
+      retired_at: null,
+      retired_reason: null,
+      action_kind: "percent",
+      action_direction: "decrease",
+      action_value: 5,
+      fire_seq: seq,
+      cancel_check: "none",
+      window_from: null,
+      window_to: null,
+      window_bookings_at_fire: null,
+      window_expected_at_fire: null,
+      signal_set_key: STD,
+    }));
+    const w = world({ rules: [daily], reservations: [booking(NIGHT, addDays(D0, -30))], extra: { pickup_event: fires } });
+    // Its wait has not passed, so this run fires nothing on that night.
+    const r = await w.run(T0);
+    expect(w.fires(NIGHT)).toHaveLength(3);
+    expect(r.pickup_events_created).toBe(w.nights.length - 1);
+    expect(alertFor(start(w))).toMatchObject({ fire_count: 3, last_fire_at: iso(T0 - 12 * HOUR) });
+  }, 120_000);
+
   it("stops firing on a night the owner stopped, and keeps going on the others", async () => {
     const w = world({ rules: [daily], reservations: [booking(NIGHT, addDays(D0, -30))] });
     await w.run(T0);
