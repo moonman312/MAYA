@@ -227,10 +227,13 @@ const PUSH_BATCH_CELLS = 300;
  */
 const RECONCILE_LOOKBACK_MS = 60 * 60_000;
 /**
- * Past this age a job the vendor has not reported on is taken as not applied:
- * its cells are written back as failed and sent again (reconcileJobOutcomes).
+ * Past this age a job the vendor still lists as not finished is taken as not
+ * applied: its cells are written back as failed and sent again. One missing
+ * from the vendor's list is only logged, once per isolate (see
+ * reconcileJobOutcomes).
  */
 const RECONCILE_UNCONFIRMED_AFTER_MS = 45 * 60_000;
+const loggedUnconfirmed = new Set<string>();
 /**
  * Earlier jobs this isolate has already seen decided, by hotel, PMS and job
  * reference. A confirmed job's cells stay "sent" in the ledger for the whole
@@ -1030,10 +1033,13 @@ function earlierJobs(
  * MAX_PUSH_ATTEMPTS like one that refuses the send, instead of being re-sent
  * every tick forever.
  *
- * A job the vendor has still not reported on RECONCILE_UNCONFIRMED_AFTER_MS
- * after it went out is written back the same way, as JOB_UNCONFIRMED_MESSAGE.
- * Nothing says it applied, and a queue that quietly dropped it would
- * otherwise leave the cell looking live for good.
+ * A job the vendor still lists as unfinished RECONCILE_UNCONFIRMED_AFTER_MS
+ * after it went out is written back the same way, as JOB_UNCONFIRMED_MESSAGE:
+ * jobs settle in seconds, and a stuck one would otherwise leave the cell
+ * looking live for good. A job missing from the list is not: a new isolate
+ * has forgotten which jobs it already saw confirmed, and a confirmed job
+ * drops off the vendor's recent list, so absence proves nothing. That one is
+ * logged and left as sent, as before.
  *
  * Never throws. This is reconciliation after the fact — the prices are already
  * pushed, and a vendor hiccup here must not turn a good push into an error.
@@ -1118,11 +1124,25 @@ async function reconcileJobOutcomes(
       const outcome = outcomes[jobRef];
       if (!outcome || !outcome.done) {
         // Still running, or not in the vendor's list this time: ask again next
-        // tick, until it has gone unreported too long to count as applied.
+        // tick, for up to RECONCILE_LOOKBACK_MS after it was sent.
         const sentAt = earlier.get(jobRef)?.pushedAt;
-        if (sentAt != null && Date.now() - sentAt > RECONCILE_UNCONFIRMED_AFTER_MS) {
+        if (sentAt == null || Date.now() - sentAt <= RECONCILE_UNCONFIRMED_AFTER_MS) continue;
+        if (outcome) {
           unconfirmed += cells.length;
           correct(jobRef, cells, JOB_UNCONFIRMED_MESSAGE, "unconfirmed");
+        } else if (!loggedUnconfirmed.has(jobRef)) {
+          if (loggedUnconfirmed.size > 5000) loggedUnconfirmed.clear();
+          loggedUnconfirmed.add(jobRef);
+          console.error(
+            JSON.stringify({
+              fn: "reconcileJobOutcomes",
+              hotelId,
+              pmsType: adapter.pmsType,
+              jobReference: jobRef,
+              cells: cells.length,
+              event: "rate_job_unconfirmed",
+            }),
+          );
         }
         continue;
       }

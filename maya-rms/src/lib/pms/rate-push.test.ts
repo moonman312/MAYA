@@ -1024,25 +1024,37 @@ describe("pushRatesForHotel retries by cause", () => {
     }
   });
 
-  it("takes a job never reported on as not applied, so the cell goes out again", async () => {
+  it("takes a job the vendor still lists as unfinished after 45 minutes as not applied, so the cell goes out again", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const db = makeSupabaseStub({
-      publishedPrice: PRICES_TWO.slice(0, 1),
-      roomTypes: ROOM_TYPES,
-      ledger: [
-        { stay_date: "2026-08-01", room_type_id: "rt-king", external_room_type_id: "CB-KING", price: 210, status: "sent", attempts: 1, pms_job_reference: "job-lost", pushed_at: minutesAgo(50) },
-      ],
-      connection: { id: "conn-1", push_rate_targets: CACHED_TWO },
-    });
+    const ledger: Row[] = [
+      { stay_date: "2026-08-01", room_type_id: "rt-king", external_room_type_id: "CB-KING", price: 210, status: "sent", attempts: 1, pms_job_reference: "job-stuck", pushed_at: minutesAgo(50) },
+    ];
+    const db = makeSupabaseStub({ publishedPrice: PRICES_TWO.slice(0, 1), roomTypes: ROOM_TYPES, ledger, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } });
     const { adapter } = makeAdapter(CACHED_TWO);
-    adapter.fetchJobOutcomes = async () => ({});
+    adapter.fetchJobOutcomes = async () => ({ "job-stuck": { done: false, ok: false } });
 
     const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter, WIDE);
 
     expect(res).toMatchObject({ sent: 0, jobsRejected: 0, jobsUnconfirmed: 1 });
     expect(db.ledgerUpserts).toEqual([
-      expect.objectContaining({ status: "failed", error: "rate job never confirmed", pms_job_reference: "job-lost", attempts: 1 }),
+      expect.objectContaining({ status: "failed", error: "rate job never confirmed", pms_job_reference: "job-stuck", attempts: 1 }),
     ]);
+  });
+
+  it("leaves a job missing from the vendor's list as sent: it may just have been confirmed and dropped off", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const ledger: Row[] = [
+      { stay_date: "2026-08-01", room_type_id: "rt-king", external_room_type_id: "CB-KING", price: 210, status: "sent", attempts: 1, pms_job_reference: "job-gone", pushed_at: minutesAgo(50) },
+    ];
+    const db = makeSupabaseStub({ publishedPrice: PRICES_TWO.slice(0, 1), roomTypes: ROOM_TYPES, ledger, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } });
+    const { adapter } = makeAdapter(CACHED_TWO);
+    adapter.fetchJobOutcomes = async () => ({});
+
+    const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter, WIDE);
+
+    expect(res).not.toHaveProperty("jobsUnconfirmed");
+    expect(db.ledgerUpserts).toEqual([]);
+    expect(errors.mock.calls.some((c) => String(c[0]).includes('"event":"rate_job_unconfirmed"'))).toBe(true);
   });
 });
 
