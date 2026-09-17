@@ -22,6 +22,7 @@ import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
 import {
   BOOKING_SPEED_WAIT_OPTIONS,
+  RULE_FIRES_HELP,
   bookingSpeedWaitLabel,
   conditionRowsToRuleCondition,
   formatRuleConditionsDisplay,
@@ -1197,7 +1198,12 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                 <thead>
                   <tr className="border-b border-slate-700 text-left text-slate-300">
                     <th className="py-2">Name</th>
-                    <th className="py-2">Fired</th>
+                    <th className="py-2">
+                      <span className="flex items-center gap-1.5">
+                        Fired
+                        <RoomCountHelp {...RULE_FIRES_HELP} />
+                      </span>
+                    </th>
                     <th className="py-2">Conditions</th>
                     <th className="py-2">Room Types</th>
                     <th className="py-2">Price Change</th>

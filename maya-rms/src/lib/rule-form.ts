@@ -95,6 +95,22 @@ export function directionalBookingSpeedOperator(levelKey: string): BookingSpeedR
   return rank < 0 ? "at_most" : rank > 0 ? "at_least" : "is";
 }
 
+/**
+ * The "?" beside the rules table's Fired column. rule_fire_counts counts one
+ * row per ladder activation and one per fire an event rule made, on every
+ * night and room type, leaving out only the same-run cancellations from
+ * before stacking landed.
+ */
+export const RULE_FIRES_HELP: { label: string; title: string; lines: string[] } = {
+  label: "What counts as a fire",
+  title: "Times fired",
+  lines: [
+    "Every time the rule acted, counted once per night and room type.",
+    "A booking speed or pickup rule can act on the same night more than once, when its wait is over and it is still true, and each time counts here.",
+    "A change that came off later still counts.",
+  ],
+};
+
 /** True when no usable condition family is set. */
 export function isRuleConditionEmpty(c: RuleCondition | undefined | null): boolean {
   if (!c) return true;
