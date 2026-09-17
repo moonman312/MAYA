@@ -4,7 +4,7 @@
  * the PMS is quoting our own adjustment back at us.
  */
 import { describe, expect, it, vi } from "vitest";
-import { seedBaseRateCalendar } from "./base-rate-calendar";
+import { ensureBaseRateCalendar, seedBaseRateCalendar } from "./base-rate-calendar";
 import type { PmsRatePushAdapter } from "../../../supabase/functions/_shared/pms/rate-push";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -14,25 +14,37 @@ function makeSupabase(opts: {
   roomTypes?: Row[];
   pushed?: Row[];
   upsertError?: string;
+  pushedError?: string;
 }) {
   const upserts: Row[][] = [];
   const supabase = {
     from(table: string) {
       if (table === "base_rate_calendar") {
+        const newest: Record<string, unknown> = {};
+        for (const m of ["select", "eq", "gte", "order", "limit"]) newest[m] = () => newest;
+        newest.maybeSingle = () => Promise.resolve({ data: null, error: null });
         return {
+          select: () => newest,
           upsert(rows: Row[]) {
             upserts.push(rows);
             return Promise.resolve({ error: opts.upsertError ? { message: opts.upsertError } : null });
           },
         };
       }
-      const data = table === "room_types" ? (opts.roomTypes ?? []) : (opts.pushed ?? []);
+      const all = table === "room_types" ? (opts.roomTypes ?? []) : (opts.pushed ?? []);
+      let window: [number, number] | null = null;
       const q: Record<string, unknown> = {};
-      for (const m of ["select", "eq", "gte", "lte"]) {
+      for (const m of ["select", "eq", "gte", "lte", "order", "limit"]) {
         q[m] = () => q;
       }
-      // Every chain in the seeder ends by awaiting the builder.
-      (q as { then: unknown }).then = (res: (v: { data: Row[] }) => unknown) => res({ data });
+      q.range = (a: number, z: number) => ((window = [a, z]), q);
+      // Every chain in the seeder ends by awaiting the builder. Reads are
+      // capped at 1,000 rows, as PostgREST does.
+      (q as { then: unknown }).then = (res: (v: { data: Row[] | null; error: unknown }) => unknown) => {
+        if (table === "rate_updates" && opts.pushedError) return res({ data: null, error: { message: opts.pushedError } });
+        const data = (window ? all.slice(window[0], window[1] + 1) : all).slice(0, 1000);
+        return res({ data, error: null });
+      };
       return q;
     },
   } as unknown as SupabaseClient;
@@ -127,6 +139,37 @@ describe("seedBaseRateCalendar", () => {
     const res = await seedBaseRateCalendar(supabase, "h1", adapter, { horizonDays: 1, today: "2026-10-01" });
     expect(res).toMatchObject({ ok: true });
     expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("never re-captures a pushed cell past the first 1,000 pushed rows", async () => {
+    // A 400-day horizon over 4 room types is 1,600 pushed cells. An unpaged
+    // read saw only the first 1,000 and re-captured our own rate for the rest.
+    const types = Array.from({ length: 4 }, (_, i) => ({ id: `local-${i}`, external_room_type_id: `EXT-${i}` }));
+    const pushed: Row[] = [];
+    const entries: { stayDate: string; externalRoomTypeId: string; price: number }[] = [];
+    for (let d = 0; d < 396; d++) {
+      const day = new Date(Date.UTC(2026, 9, 1) + d * 86_400_000).toISOString().slice(0, 10);
+      for (let t = 0; t < 4; t++) {
+        pushed.push({ stay_date: day, room_type_id: `local-${t}` });
+        entries.push({ stayDate: day, externalRoomTypeId: `EXT-${t}`, price: 230 });
+      }
+    }
+    const { supabase, upserts } = makeSupabase({ roomTypes: types, pushed });
+    const { adapter } = makeAdapter(entries);
+    const res = await seedBaseRateCalendar(supabase, "h1", adapter, { horizonDays: 396, today: "2026-10-01" });
+    expect(res).toMatchObject({ ok: true, captured: 0, skippedAlreadyPushed: 1584 });
+    expect(upserts.flat()).toHaveLength(0);
+  });
+
+  it("skips seeding this tick when the pushed-cell read fails", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { supabase, upserts } = makeSupabase({ roomTypes: ROOM_TYPES, pushedError: "statement timeout" });
+    const { adapter } = makeAdapter([{ stayDate: "2026-10-01", externalRoomTypeId: "EXT-1", price: 230 }]);
+    const res = await ensureBaseRateCalendar(supabase, "h1", adapter, { horizonDays: 1, today: "2026-10-01" });
+    expect(res).toEqual({ ok: false, reason: "failed", captured: 0 });
+    expect(upserts).toHaveLength(0);
+    expect(String(spy.mock.calls[0]?.[0])).toContain("Failed to read pushed cells");
     spy.mockRestore();
   });
 });

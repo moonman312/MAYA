@@ -31,6 +31,7 @@ export type SeedCalendarResult =
   | { ok: true; captured: number; skippedAlreadyPushed: number; days: number };
 
 const CHUNK = 500;
+const PUSHED_PAGE = 1000;
 
 function addDaysYmd(ymd: string, n: number): string {
   const [y, m, d] = ymd.split("-").map(Number);
@@ -66,14 +67,29 @@ export async function seedBaseRateCalendar(
   const entries = await adapter.fetchRateCalendar(firstDate, lastDate, targets);
 
   // Cells MAYA has already pushed to are off limits — see THE REFRESH RULE.
-  const { data: pushed } = await supabase
-    .from("rate_updates")
-    .select("stay_date, room_type_id")
-    .eq("hotel_id", hotelId)
-    .gte("stay_date", firstDate)
-    .lte("stay_date", lastDate);
+  // Paged: a year of cells on a large property is far past PostgREST's
+  // 1,000-row cap, and every pushed cell past it would have been re-captured
+  // with our own rate. A failed read skips seeding this tick; the caller
+  // treats the throw as a failed run.
+  const pushed: { stay_date: unknown; room_type_id: unknown }[] = [];
+  for (let from = 0; ; from += PUSHED_PAGE) {
+    const { data, error } = await supabase
+      .from("rate_updates")
+      .select("stay_date, room_type_id")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", firstDate)
+      .lte("stay_date", lastDate)
+      .order("stay_date", { ascending: true })
+      .order("room_type_id", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + PUSHED_PAGE - 1);
+    if (error) throw new Error(`Failed to read pushed cells: ${error.message}`);
+    const rows = data ?? [];
+    pushed.push(...rows);
+    if (rows.length < PUSHED_PAGE) break;
+  }
   const pushedCells = new Set(
-    (pushed ?? [])
+    pushed
       .filter((p) => p.room_type_id)
       .map((p) => `${p.stay_date}|${p.room_type_id}`),
   );
