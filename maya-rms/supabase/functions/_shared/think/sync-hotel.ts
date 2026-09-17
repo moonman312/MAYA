@@ -82,6 +82,8 @@ async function stampConnection(
 export type ThinkSyncOptions = {
   daysBack?: number;
   daysForward?: number;
+  /** Absolute time (ms) to stop reading by; never later than THINK_SYNC_BUDGET_MS from the start. */
+  deadlineAt?: number;
 };
 
 export type ThinkSyncSuccess = {
@@ -420,7 +422,7 @@ export async function runThinkSyncForHotel(
     // API response at a time.
     const activeNights = new Map<string, Set<string>>();
     const canceledKeys = new Set<string>();
-    const deadlineAt = Date.now() + THINK_SYNC_BUDGET_MS;
+    const deadlineAt = Math.min(Date.now() + THINK_SYNC_BUDGET_MS, options?.deadlineAt ?? Infinity);
     let truncated = false;
     let pagesFetched = 0;
     let lastCompletedPage = sweepFromPage - 1;

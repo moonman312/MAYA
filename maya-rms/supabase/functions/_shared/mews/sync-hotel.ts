@@ -124,6 +124,8 @@ export type MewsSyncHotelOptions = {
   mews?: MewsCredentialsInput | null;
   daysBack?: number;
   daysForward?: number;
+  /** Absolute time (ms) to stop reading by; never later than MEWS_SYNC_BUDGET_MS from the start. */
+  deadlineAt?: number;
 };
 
 /** Match `shared/legacy-python/config.py` when env is unset. */
@@ -326,7 +328,7 @@ export async function runMewsSyncForHotel(
       }
     }
     let walkError: string | null = null;
-    const deadlineAt = Date.now() + MEWS_SYNC_BUDGET_MS;
+    const deadlineAt = Math.min(Date.now() + MEWS_SYNC_BUDGET_MS, options?.deadlineAt ?? Infinity);
     // Categories already offered a counts_as_room default this run. Every
     // window re-upserts the same handful, and 107 windows of no-op updates is
     // not free.

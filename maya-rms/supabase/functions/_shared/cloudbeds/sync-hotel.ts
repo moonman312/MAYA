@@ -75,6 +75,12 @@ type Json = Record<string, unknown>;
 export type CloudbedsSyncOptions = {
   daysBack?: number;
   daysForward?: number;
+  /**
+   * Absolute time (ms) the run must stop reading by, when the caller has a
+   * wall clock of its own (a scheduled invocation, an API route). The run
+   * still never exceeds CLOUDBEDS_SYNC_BUDGET_MS.
+   */
+  deadlineAt?: number;
 };
 
 export type CloudbedsSyncSuccess = {
@@ -887,7 +893,7 @@ export async function runCloudbedsSyncForHotel(
       checkInFrom,
       checkInTo,
       modifiedFrom,
-      deadlineAt: Date.now() + CLOUDBEDS_SYNC_BUDGET_MS,
+      deadlineAt: Math.min(Date.now() + CLOUDBEDS_SYNC_BUDGET_MS, options?.deadlineAt ?? Infinity),
       storedCursor,
       checkpointable,
     };

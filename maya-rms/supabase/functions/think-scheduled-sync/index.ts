@@ -21,6 +21,8 @@ import { ensureBaseRateCalendar } from "../_shared/pms/base-rate-calendar.ts";
 import { resolveOAuthCredentials } from "../_shared/pms/oauth-credentials.ts";
 import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
 import { splitByParked } from "../_shared/pms/parked.ts";
+import { runScheduledHotels, scheduledLoopConfigFromEnv } from "../_shared/pms/scheduled-loop.ts";
+import { THINK_SYNC_BUDGET_MS } from "../_shared/think/constants.ts";
 import { recordRoomCount } from "../_shared/billing/room-count.ts";
 
 function getEnv(name: string): string | undefined {
@@ -36,6 +38,7 @@ function unauthorized(msg: string): Response {
 }
 
 Deno.serve(async (req) => {
+  const invocationStartedAt = Date.now();
   const cronSecret = getEnv("THINK_CRON_SECRET");
   if (cronSecret) {
     const header = req.headers.get("x-think-cron-secret");
@@ -144,9 +147,10 @@ Deno.serve(async (req) => {
     rooms?: Awaited<ReturnType<typeof recordRoomCount>> | null;
   }> = [];
 
-  for (const hotelId of hotelIds) {
+  // Each hotel runs inside the invocation's wall clock; see scheduled-loop.ts.
+  const processHotel = async (hotelId: string, deadlineAt: number) => {
     const t0 = Date.now();
-    const sync = await runThinkSyncForHotel(supabase, hotelId);
+    const sync = await runThinkSyncForHotel(supabase, hotelId, { deadlineAt });
     const tSync = Date.now();
 
     let evaluate: (typeof results)[number]["evaluate"];
@@ -254,7 +258,38 @@ Deno.serve(async (req) => {
         );
       }
     }
-  }
+    };
+
+  const loop = await runScheduledHotels(
+    hotelIds,
+    invocationStartedAt,
+    scheduledLoopConfigFromEnv(THINK_SYNC_BUDGET_MS),
+    {
+      now: Date.now,
+      processHotel,
+      // A claim nobody started: drop the lease and leave its due time and
+      // failure count alone, so the next tick takes it straight away.
+      handBack: async (hotelId) => {
+        if (bodyHotelId) return;
+        await supabase
+          .from("pms_connections")
+          .update({ sync_lease_until: null, sync_lease_owner: null })
+          .eq("hotel_id", hotelId)
+          .eq("pms_type", "think")
+          .eq("sync_lease_owner", workerId);
+      },
+      releaseFailed: async (hotelId) => {
+        if (bodyHotelId) return;
+        await supabase.rpc("release_pms_sync", {
+          p_hotel_id: hotelId,
+          p_pms_type: "think",
+          p_ok: false,
+          p_interval_seconds: syncIntervalSeconds,
+        });
+      },
+      log: (line) => console.log(JSON.stringify({ fn: "think-scheduled-sync", ...line })),
+    },
+  );
 
   const failed = results.filter(
     (r) => r.sync.ok === false || (r.evaluate && "error" in r.evaluate),
@@ -264,6 +299,8 @@ Deno.serve(async (req) => {
     JSON.stringify({
       ok: failed.length === 0,
       hotels: hotelIds.length,
+      // Claimed but not started this invocation for lack of time; the next tick takes them.
+      handedBack: loop.handedBack,
       failedHotels: failed.length,
       evaluated: runEvaluate,
       // Reported rather than merely logged: a hotel silently absent from a run
