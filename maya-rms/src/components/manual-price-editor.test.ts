@@ -22,6 +22,9 @@ describe("describeSave", () => {
     expect(describeSave({ pushed: "beyond_window", suppressedRules: 0, retiredPickups: 0 }, "Mews")).toBe(
       "Saved. It will be sent when the date enters the 60-day push window.",
     );
+    expect(describeSave({ pushed: "zero_not_sent", suppressedRules: 0, retiredPickups: 0 }, "Cloudbeds")).toBe(
+      "Saved. MAYA doesn't send a price of 0 to Cloudbeds, so set the night to 0 there yourself.",
+    );
   });
 
   it("mentions paused rules only when something was paused", () => {

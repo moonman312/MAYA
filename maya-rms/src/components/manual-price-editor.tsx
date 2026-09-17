@@ -12,7 +12,7 @@ import { useEffect, useId, useRef, useState } from "react";
  * behind the "?" — it matters, but not on every card, every time.
  */
 
-type Pushed = "nudged" | "next_cycle" | "simulation" | "beyond_window";
+type Pushed = "nudged" | "next_cycle" | "simulation" | "beyond_window" | "zero_not_sent";
 
 type SaveResponse = {
   ok: boolean;
@@ -52,6 +52,8 @@ function pushedCopy(pushed: Pushed, pmsName: string, pushWindow?: SaveResponse["
       return `Saved (simulation: not sent to ${pmsName}).`;
     case "beyond_window":
       return `Saved. It will be sent when the date enters the ${days}-day push window.`;
+    case "zero_not_sent":
+      return `Saved. MAYA doesn't send a price of 0 to ${pmsName}, so set the night to 0 there yourself.`;
     default:
       return "Saved.";
   }
@@ -348,7 +350,9 @@ function ManualPriceHelp({ pmsName }: { pmsName: string }) {
         >
           <span className="block text-xs font-semibold text-slate-200">Setting a price yourself</span>
           <span className="mt-2 block space-y-1.5 text-xs leading-snug text-slate-400">
-            <span className="block">The number you type is what goes to {pmsName}.</span>
+            <span className="block">
+              The number you type is what goes to {pmsName}, except 0, which you set there yourself.
+            </span>
             <span className="block">
               Rules that had already moved this night are paused for this room type. Rules that
               fire later still apply on top of your price.

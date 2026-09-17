@@ -311,6 +311,17 @@ describe("POST /api/manual-price — validation", () => {
     });
   }
 
+  it("saves a comp night's 0, under the floor, and previews it as 0", async () => {
+    const res = await post({ ...GOOD, price: 0 });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.preview).toEqual([{ stay_date: "2026-09-20", base: 0, final: 0, clamped_by: "none" }]);
+    expect(tables().get("manual_price")).toEqual([expect.objectContaining({ price: 0, set_by: USER, source: "maya" })]);
+    // A few thousandths round to 0 too; a cent is under the floor.
+    expect((await post({ ...GOOD, price: 0.004 })).status).toBe(200);
+    expect((await post({ ...GOOD, price: 0.01 })).status).toBe(400);
+  });
+
   it("accepts the last night inside the year", async () => {
     expect((await post({ ...GOOD, dateFrom: "2027-09-14" })).status).toBe(200);
   });
@@ -459,6 +470,12 @@ describe("POST /api/manual-price — the save", () => {
 });
 
 describe("POST /api/manual-price — pushed", () => {
+  it("says a comp night's 0 is not sent on a live hotel, and nothing more in simulation", async () => {
+    expect((await (await post({ ...GOOD, price: 0 })).json()).pushed).toBe("zero_not_sent");
+    state.fake = seed({ hotel_settings: [{ hotel_id: HOTEL, simulation_mode: true }] });
+    expect((await (await post({ ...GOOD, price: 0 })).json()).pushed).toBe("simulation");
+  });
+
   it("nudges the sync function with the secret when the hotel is live and in window", async () => {
     const res = await post();
     expect((await res.json()).pushed).toBe("nudged");

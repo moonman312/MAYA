@@ -22,7 +22,7 @@
 import { dbErrorResponse, isRealIsoDate, isUuid } from "@/lib/api-guards";
 import { currencySymbolFor } from "@/lib/changelog-route-helpers";
 import { evaluateHotel } from "@/lib/engine";
-import { clampPrice } from "@/lib/engine/pricing";
+import { clampPrice, priceBounds } from "@/lib/engine/pricing";
 import { isMissingColumnError, isMissingRelationError } from "@/lib/engine/snapshots";
 import { hotelRuleIds, setManualPrices } from "@/lib/pms/manual-price";
 import { lastNightOf, pricingHorizonDays } from "@/lib/pms/pricing-window";
@@ -60,7 +60,12 @@ const SYNC_NUDGE: Record<string, { fn: string; header: string; env: string }> = 
   mews: { fn: "mews-scheduled-sync", header: "x-mews-cron-secret", env: "MEWS_CRON_SECRET" },
 };
 
-type Pushed = "nudged" | "next_cycle" | "simulation" | "beyond_window";
+/**
+ * "zero_not_sent": a comp night's 0 on a live hotel. No rate push takes a
+ * rate of 0 yet (PmsRatePushAdapter acceptsZeroRate), so the push holds it and
+ * the change log tells the owner to set it in the PMS.
+ */
+type Pushed = "nudged" | "next_cycle" | "simulation" | "beyond_window" | "zero_not_sent";
 
 /**
  * How many of the saved nights the scheduled push covers today (`now`) and how
@@ -377,11 +382,13 @@ export async function POST(req: Request) {
 
     // Reject rather than clamp. A typed number that silently comes back as a
     // different number is exactly the kind of surprise this screen exists to
-    // remove; the manager can lift the floor or ceiling if they mean it.
+    // remove; the manager can lift the floor or ceiling if they mean it. A
+    // price of 0 is a comp night, not a price under the floor: the engine
+    // publishes it as it is (priceBounds), and the floor can't go to 0.
     const sym = currencySymbolFor(hotel.currency ? String(hotel.currency) : null);
     const floor = Number(roomType.floor_price);
     const ceiling = Number(roomType.ceiling_price);
-    if (price < floor) {
+    if (price > 0 && price < floor) {
       return bad(`Below this room type's floor of ${sym}${floor.toFixed(2)}.`);
     }
     if (price > ceiling) {
@@ -401,12 +408,15 @@ export async function POST(req: Request) {
       now,
     );
 
-    const { pushed, pushWindow } = await republish(admin, range, today, now);
+    const republished = await republish(admin, range, today, now);
+    const { pushWindow } = republished;
+    const pushed: Pushed = price === 0 && republished.pushed !== "simulation" ? "zero_not_sent" : republished.pushed;
 
     // Nothing is left applying on the cell, so base and final only part ways
     // at a clamp — and validation already ruled that out. Computed with the
-    // engine's own clampPrice anyway so the preview can't drift from it.
-    const clamp = clampPrice(price, floor, ceiling);
+    // engine's own bounds and clampPrice anyway so the preview can't drift from it.
+    const bounds = priceBounds(floor, ceiling, price, "manual");
+    const clamp = clampPrice(price, bounds.floor, bounds.ceiling);
     const preview = dates.map((stay_date) => ({
       stay_date,
       base: price,
