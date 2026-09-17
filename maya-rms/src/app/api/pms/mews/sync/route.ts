@@ -1,6 +1,7 @@
 import type { MewsCredentialsInput } from "@/lib/mews/types";
 import { runMewsSyncForHotel } from "@/lib/mews/sync-hotel";
 import { requireEntitledHotel } from "@/lib/billing/require-entitled";
+import { hotelsImportingNow } from "@/lib/pms/parked";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { requireSupabaseHotelRank } from "@/lib/require-supabase-hotel";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
@@ -53,6 +54,15 @@ export async function POST(req: Request) {
     }
 
     const admin = createAdminClient();
+
+    // The import worker is refreshing this property's current bookings with
+    // the same credential. A sync now would only race it for the PMS allowance.
+    if ((await hotelsImportingNow(admin, [ctx.hotelId])).has(ctx.hotelId)) {
+      return NextResponse.json(
+        { ok: false, error: "This hotel's booking import is running and is bringing bookings up to date. Try again once it finishes." },
+        { status: 409 },
+      );
+    }
 
     // The request counter above bounds how often; this bounds how many at
     // once. It is the same lease the scheduled worker claims, so a second

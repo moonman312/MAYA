@@ -15,6 +15,7 @@
  * evaluation, and a hotel whose work throws is still released.
  */
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { mwsEnv } from "../mews/env.ts";
 
 export type ScheduledLoopConfig = {
@@ -114,4 +115,44 @@ export async function runScheduledHotels(
     slowestMs = Math.max(slowestMs, deps.now() - now);
   }
   return result;
+}
+
+/**
+ * Lease for a single-hotel dispatch (`{ hotel_id }` posted, as a manual price
+ * save does). Longer than one invocation's wall clock, so a cron tick can
+ * never take the same hotel while the dispatch is still on it.
+ */
+export const DISPATCH_LEASE_SECONDS = 420;
+
+/**
+ * What a single-hotel dispatch may do. "claimed": it holds the lease and must
+ * release it. "busy": another invocation or a manual sync holds it, so this one
+ * does nothing; that run evaluates and pushes the same hotel. "unleased": there
+ * is no connection row to hold, or the claim could not be read, so it runs as
+ * dispatches always did.
+ *
+ * Without a lease a dispatch ran the same hotel alongside the cron: two sweeps
+ * on one checkpoint, two isolates pacing one PMS credential, and two
+ * evaluations writing the same ladder transitions.
+ */
+export async function claimDispatchedHotel(
+  supabase: SupabaseClient,
+  pmsType: string,
+  hotelId: string,
+  owner: string,
+  log: (line: Record<string, unknown>) => void,
+): Promise<"claimed" | "busy" | "unleased"> {
+  const { data, error } = await supabase.rpc("claim_pms_sync_one", {
+    p_hotel_id: hotelId,
+    p_pms_type: pmsType,
+    p_lease_seconds: DISPATCH_LEASE_SECONDS,
+    p_owner: owner,
+  });
+  if (error) {
+    log({ step: "dispatch_claim", hotelId, error: error.message });
+    return "unleased";
+  }
+  if (data === "claimed") return "claimed";
+  if (data === "busy") return "busy";
+  return "unleased";
 }

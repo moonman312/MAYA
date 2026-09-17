@@ -19,7 +19,11 @@ import { pushRatesForHotel } from "../_shared/pms/rate-push.ts";
 import { ensureBaseRateCalendar } from "../_shared/pms/base-rate-calendar.ts";
 import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
 import { hotelsImportingNow, splitByParked } from "../_shared/pms/parked.ts";
-import { runScheduledHotels, scheduledLoopConfigFromEnv } from "../_shared/pms/scheduled-loop.ts";
+import {
+  claimDispatchedHotel,
+  runScheduledHotels,
+  scheduledLoopConfigFromEnv,
+} from "../_shared/pms/scheduled-loop.ts";
 import { CLOUDBEDS_SYNC_BUDGET_MS } from "../_shared/cloudbeds/constants.ts";
 import { recordRoomCount } from "../_shared/billing/room-count.ts";
 
@@ -172,6 +176,25 @@ Deno.serve(async (req) => {
   }
   hotelIds = liveHotelIds;
 
+  // A single-hotel dispatch takes the same lease a cron claim does, so it never
+  // runs a hotel that another invocation or a manual sync is already working.
+  // That run evaluates and pushes it; this one steps aside.
+  let dispatchLeased = false;
+  if (bodyHotelId && hotelIds.length > 0) {
+    const claim = await claimDispatchedHotel(supabase, "cloudbeds", bodyHotelId, workerId, (line) =>
+      console.log(JSON.stringify({ fn: "cloudbeds-scheduled-sync", ...line })),
+    );
+    if (claim === "busy") {
+      return new Response(
+        JSON.stringify({ ok: true, hotels: 0, skipped: "sync_running", hotelId: bodyHotelId }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    dispatchLeased = claim === "claimed";
+  }
+  // Whether this invocation holds the lease on the hotels it runs.
+  const leased = !bodyHotelId || dispatchLeased;
+
   const results: Array<{
     hotelId: string;
     sync: ReturnType<typeof publicSyncResult> | { ok: true; skipped: "import_running" };
@@ -278,8 +301,8 @@ Deno.serve(async (req) => {
     // Hand the claim back and say when this hotel next wants looking at. A
     // failure backs off exponentially inside release_pms_sync, so one hotel with
     // a revoked token stops costing a full-rate retry every tick forever.
-    // Skipped for a single-hotel dispatch, which never took a lease.
-    if (!bodyHotelId) {
+    // Skipped for a single-hotel dispatch that runs without a lease.
+    if (leased) {
       const { error: releaseErr } = await supabase.rpc("release_pms_sync", {
         p_hotel_id: hotelId,
         p_pms_type: "cloudbeds",
@@ -306,7 +329,7 @@ Deno.serve(async (req) => {
       // A claim nobody started: drop the lease and leave its due time and
       // failure count alone, so the next tick takes it straight away.
       handBack: async (hotelId) => {
-        if (bodyHotelId) return;
+        if (!leased) return;
         await supabase
           .from("pms_connections")
           .update({ sync_lease_until: null, sync_lease_owner: null })
@@ -315,7 +338,7 @@ Deno.serve(async (req) => {
           .eq("sync_lease_owner", workerId);
       },
       releaseFailed: async (hotelId) => {
-        if (bodyHotelId) return;
+        if (!leased) return;
         await supabase.rpc("release_pms_sync", {
           p_hotel_id: hotelId,
           p_pms_type: "cloudbeds",

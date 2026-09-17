@@ -50,9 +50,23 @@ const state = vi.hoisted(() => {
   return {
     userClient: null as unknown,
     adminRpc,
-    adminClient: { marker: "service-role", rpc: adminRpc } as unknown,
+    importing: false,
+    adminClient: null as unknown,
   };
 });
+// import_jobs answers the running-import check; everything else goes through rpc.
+state.adminClient = {
+  marker: "service-role",
+  rpc: state.adminRpc,
+  from: () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const q: any = {};
+    for (const k of ["select", "in", "eq", "gt"]) q[k] = () => q;
+    q.then = (resolve: (v: unknown) => unknown) =>
+      Promise.resolve({ data: state.importing ? [{ hotel_id: "hotel-1" }] : [], error: null }).then(resolve);
+    return q;
+  },
+};
 const runCloudbedsSyncForHotel = vi.hoisted(() => vi.fn());
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
@@ -88,6 +102,7 @@ const SYNC_OK = {
 };
 
 beforeEach(() => {
+  state.importing = false;
   runCloudbedsSyncForHotel.mockReset();
   runCloudbedsSyncForHotel.mockResolvedValue(SYNC_OK);
   state.adminRpc.mockReset();
@@ -161,6 +176,14 @@ describe("POST /api/pms/cloudbeds/sync rank gate", () => {
 describe("POST /api/pms/cloudbeds/sync in-flight guard", () => {
   beforeEach(() => {
     state.userClient = fakeUserClient({ userId: "user-1", role: "revenue_manager" });
+  });
+
+  it("409s a press while the import is refreshing the current window, before any claim", async () => {
+    state.importing = true;
+    const res = await post();
+    expect(res.status).toBe(409);
+    expect(runCloudbedsSyncForHotel).not.toHaveBeenCalled();
+    expect(rpcCalls("claim_pms_sync_one")).toHaveLength(0);
   });
 
   it("409s a press while another sync holds the connection's lease", async () => {

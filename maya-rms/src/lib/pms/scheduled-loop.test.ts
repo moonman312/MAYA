@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  DISPATCH_LEASE_SECONDS,
+  claimDispatchedHotel,
   runScheduledHotels,
   type ScheduledLoopConfig,
 } from "../../../supabase/functions/_shared/pms/scheduled-loop";
@@ -73,5 +76,40 @@ describe("runScheduledHotels", () => {
     const res = await runScheduledHotels(["a", "b"], h.start, config, h.deps);
     expect(res.crashed).toEqual(["a"]);
     expect(h.events).toEqual(["process:a", "releaseFailed:a", "process:b", "release:b"]);
+  });
+});
+
+describe("claimDispatchedHotel", () => {
+  function client(answer: { data: unknown; error: { message: string } | null }) {
+    const calls: [string, Record<string, unknown>][] = [];
+    const c = {
+      rpc: async (fn: string, args: Record<string, unknown>) => {
+        calls.push([fn, args]);
+        return answer;
+      },
+    } as unknown as SupabaseClient;
+    return { c, calls };
+  }
+
+  it("takes the same lease a cron claim does, for longer than one invocation", async () => {
+    const { c, calls } = client({ data: "claimed", error: null });
+    expect(await claimDispatchedHotel(c, "cloudbeds", "h1", "worker-1", () => {})).toBe("claimed");
+    expect(calls).toEqual([
+      ["claim_pms_sync_one", { p_hotel_id: "h1", p_pms_type: "cloudbeds", p_lease_seconds: DISPATCH_LEASE_SECONDS, p_owner: "worker-1" }],
+    ]);
+    expect(DISPATCH_LEASE_SECONDS).toBeGreaterThan(400);
+  });
+
+  it("steps aside while another run holds the hotel", async () => {
+    expect(await claimDispatchedHotel(client({ data: "busy", error: null }).c, "think", "h1", "w", () => {})).toBe("busy");
+  });
+
+  it("runs unleased with no connection row, or when the claim cannot be read", async () => {
+    const logs: Record<string, unknown>[] = [];
+    expect(await claimDispatchedHotel(client({ data: "missing", error: null }).c, "mews", "h1", "w", () => {})).toBe("unleased");
+    expect(
+      await claimDispatchedHotel(client({ data: null, error: { message: "timeout" } }).c, "mews", "h1", "w", (l) => logs.push(l)),
+    ).toBe("unleased");
+    expect(logs).toHaveLength(1);
   });
 });
