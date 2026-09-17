@@ -272,4 +272,40 @@ revoke all on function public.audit_last_signatures(uuid, date, date) from publi
 grant execute on function public.audit_last_signatures(uuid, date, date)
   to authenticated, service_role;
 
+-- ----------------------------------------------------------------------------
+-- 4. Highest rate per room type
+--
+-- Strategy projection only applies a hotel-wide ceiling to a room type that
+-- has never sold above it. Reading the top rates hotel-wide stopped at
+-- PostgREST's 1,000 rows, so a type whose best rate fell below that cut looked
+-- like it had never sold at all. A type with no rated booking has no row.
+-- ----------------------------------------------------------------------------
+
+create or replace function public.room_type_max_rates(p_hotel_id uuid)
+returns table(room_type_id uuid, max_rate numeric)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_hotel_accessible(p_hotel_id) then
+    raise exception 'Not authorized to read rates for hotel %', p_hotel_id
+      using errcode = '42501';
+  end if;
+
+  return query
+  select r.room_type_id, max(r.current_rate)
+  from public.reservations r
+  where r.hotel_id = p_hotel_id
+    and r.room_type_id is not null
+    and r.current_rate is not null
+  group by r.room_type_id;
+end;
+$$;
+
+revoke all on function public.room_type_max_rates(uuid) from public, anon;
+grant execute on function public.room_type_max_rates(uuid) to authenticated, service_role;
+
 notify pgrst, 'reload schema';

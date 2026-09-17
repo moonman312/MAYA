@@ -24,7 +24,7 @@ import { loadBookingSpeedContext, observeForStayDate, resetBookingSpeedLogOnce }
 import { loadLastAuditSignatures } from "./audit";
 import { FakeRpcError, fakeSupabase, missingFunction, type FakeRow } from "./fake-supabase.test";
 import { findSnapshotAt } from "./snapshots";
-import { bookingSpeedHistorySummary, bookingSpeedWindows } from "./scale-rpc-model.test";
+import { bookingSpeedHistorySummary, bookingSpeedWindows, roomTypeMaxRates } from "./scale-rpc-model.test";
 
 const PGLITE_DIR = process.env.MAYA_PGLITE_DIR;
 const MIGRATION = resolve(__dirname, "../../../../99_supabase_migration_large_property_scale_v1.sql");
@@ -139,6 +139,7 @@ const SIGNATURES: Record<string, Record<string, string>> = {
   booking_speed_history_summary: { p_hotel_id: "uuid", p_from: "date", p_to: "date", p_exclude: "uuid[]", p_ranks: "int[]" },
   booking_speed_windows: { p_hotel_id: "uuid", p_dates: "date[]", p_exclude: "uuid[]" },
   audit_last_signatures: { p_hotel_id: "uuid", p_from: "date", p_to: "date" },
+  room_type_max_rates: { p_hotel_id: "uuid" },
   snapshot_cells_at: { p_hotel_id: "uuid", p_ts: "timestamptz", p_from: "date", p_to: "date", p_room_types: "uuid[]" },
 };
 
@@ -380,6 +381,19 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
     const fromJs = await loadLastAuditSignatures(viaJs, H1, "2026-08-01", "2026-09-30");
     expect(fromSql.size).toBeGreaterThan(50);
     expect(fromSql).toEqual(fromJs);
+  }, 120_000);
+
+  it("room_type_max_rates equals each type's maximum over the same rows", async () => {
+    const fx = asUuids(makeFixture(41, 60));
+    const r = rng(41);
+    const rows = fx.reservations.map((x) => ({ ...x, current_rate: r() < 0.1 ? null : Math.round(r() * 50000) / 100 }));
+    await insertReservations(db, rows);
+    const { data, error } = await pgliteRpc(db)("room_type_max_rates", { p_hotel_id: H1 }).order("room_type_id");
+    expect(error).toBeNull();
+    const norm = (list: Record<string, unknown>[]) =>
+      list.map((x) => `${x.room_type_id}|${Number(x.max_rate).toFixed(2)}`).sort();
+    expect(norm(data as Record<string, unknown>[])).toEqual(norm(roomTypeMaxRates(rows, { p_hotel_id: H1 })));
+    expect((data as unknown[]).length).toBeGreaterThan(1);
   }, 120_000);
 
   it("refuses a caller who is neither service_role nor a member of the hotel", async () => {

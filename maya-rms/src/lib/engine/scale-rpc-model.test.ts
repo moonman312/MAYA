@@ -129,6 +129,17 @@ export function auditLastSignatures(audits: FakeRow[], a: Record<string, unknown
     });
 }
 
+/** room_type_max_rates(p_hotel_id) */
+export function roomTypeMaxRates(reservations: FakeRow[], a: Record<string, unknown>): FakeRow[] {
+  const max = new Map<string, number>();
+  for (const r of reservations) {
+    if (r.hotel_id !== a.p_hotel_id || r.room_type_id == null || r.current_rate == null) continue;
+    const id = String(r.room_type_id);
+    max.set(id, Math.max(max.get(id) ?? -Infinity, Number(r.current_rate)));
+  }
+  return [...max].map(([room_type_id, max_rate]) => ({ room_type_id, max_rate }));
+}
+
 /** An rpc handler for fakeSupabase that answers every modeled function from the fake's own tables. */
 export function scaleRpc(fn: string, args: unknown, tables: Record<string, FakeRow[]>): unknown {
   const a = args as Record<string, unknown>;
@@ -139,6 +150,8 @@ export function scaleRpc(fn: string, args: unknown, tables: Record<string, FakeR
       return bookingSpeedWindows(tables.reservations ?? [], a);
     case "audit_last_signatures":
       return auditLastSignatures(tables.evaluation_audit ?? [], a);
+    case "room_type_max_rates":
+      return roomTypeMaxRates(tables.reservations ?? [], a);
     case "snapshot_cells_at":
       return snapshotCellsAt(tables.stay_date_snapshot ?? [], a);
     default:
