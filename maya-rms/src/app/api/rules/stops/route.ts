@@ -9,8 +9,13 @@
  * all on a dozen nights. This is what the rules table's "Stopped on N nights"
  * chip reads, and the chip is where the owner lets the rule run again.
  *
- * Only the current version's answers count, the same as the engine. Nights
- * that have passed are left out: nothing can fire on them anyway.
+ * Only the current version's answers count, the same as the engine. The chip
+ * counts the nights still to come, because a passed night is not a night the
+ * rule is doing nothing on -- it is over. "Let it run again" takes the answer
+ * off every stopped night all the same, passed ones included: leaving those
+ * behind would leave a change log entry saying the owner stopped the rule on
+ * the handful of nights nobody took the answer off, which is not what they
+ * did.
  */
 
 import { dbErrorResponse } from "@/lib/api-guards";
@@ -36,13 +41,14 @@ export async function GET() {
       .maybeSingle();
     const today = hotelToday(String(hotel?.timezone ?? "UTC"));
 
+    // Newest night first, so a rule stopped on more nights than are read
+    // keeps the ones still to come rather than filling up with old ones.
     const { data: rows, error } = await ctx.supabase
       .from("rule_repeat_alert_nights")
       .select("alert_id, rule_id, rule_version, stay_date")
       .eq("hotel_id", ctx.hotelId)
       .eq("choice", "stop")
-      .gte("stay_date", today)
-      .order("stay_date", { ascending: true })
+      .order("stay_date", { ascending: false })
       .limit(MAX_STOPPED_NIGHTS);
     if (error) {
       // A database without the alert tables yet has nothing to show, which is
@@ -60,17 +66,31 @@ export async function GET() {
     const versions = new Map((rules ?? []).map((r) => [String(r.id), Number(r.version)]));
 
     const byRule = new Map<string, RuleStops>();
-    for (const row of answered) {
-      const ruleId = String(row.rule_id);
+    const oldestFirst = answered
+      .map((row) => ({
+        alert_id: String(row.alert_id),
+        rule_id: String(row.rule_id),
+        rule_version: Number(row.rule_version),
+        stay_date: String(row.stay_date).slice(0, 10),
+      }))
+      .sort((a, b) => (a.stay_date < b.stay_date ? -1 : a.stay_date > b.stay_date ? 1 : 0));
+    for (const row of oldestFirst) {
       // An edit starts the rule fresh, so an older version's answer is spent.
-      if (versions.get(ruleId) !== Number(row.rule_version)) continue;
-      const entry = byRule.get(ruleId) ?? { rule_id: ruleId, alert_ids: [], nights: [] };
-      const alertId = String(row.alert_id);
-      if (!entry.alert_ids.includes(alertId)) entry.alert_ids.push(alertId);
-      entry.nights.push(String(row.stay_date).slice(0, 10));
-      byRule.set(ruleId, entry);
+      if (versions.get(row.rule_id) !== row.rule_version) continue;
+      const entry = byRule.get(row.rule_id) ?? {
+        rule_id: row.rule_id,
+        alert_ids: [],
+        nights: [],
+        resume_nights: [],
+      };
+      if (!entry.alert_ids.includes(row.alert_id)) entry.alert_ids.push(row.alert_id);
+      entry.resume_nights.push(row.stay_date);
+      if (row.stay_date >= today) entry.nights.push(row.stay_date);
+      byRule.set(row.rule_id, entry);
     }
-    return NextResponse.json([...byRule.values()]);
+    // A rule whose stops have all passed is not stopped on anything: no chip,
+    // and nothing for the owner to take back.
+    return NextResponse.json([...byRule.values()].filter((s) => s.nights.length > 0));
   } catch (error) {
     const { status, message } = dbErrorResponse(error);
     return NextResponse.json({ error: message }, { status });

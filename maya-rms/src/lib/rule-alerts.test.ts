@@ -319,10 +319,31 @@ describe("the nights a rule was stopped on", () => {
   it("lets the rule run again by clearing the answer, not by answering again", () => {
     // keep_adjusting cleared the stop and silenced the night for good, so a
     // rule that went on adjusting it never reached the owner again.
-    expect(letRunAgainBody(["2026-11-14", "2026-11-16"])).toEqual({
+    expect(
+      letRunAgainBody({
+        rule_id: "r1",
+        alert_ids: ["a1"],
+        nights: ["2026-11-14", "2026-11-16"],
+        resume_nights: ["2026-11-14", "2026-11-16"],
+      }),
+    ).toEqual({
       choice: "resume",
       stay_dates: ["2026-11-14", "2026-11-16"],
     });
+  });
+
+  it("takes the answer off the nights that have passed as well", () => {
+    // The chip counts what the rule is doing nothing on, which a passed night
+    // is not. The answer still has to come off it, or the change log reads as
+    // if the owner had only ever stopped the rule on the leftovers.
+    expect(
+      letRunAgainBody({
+        rule_id: "r1",
+        alert_ids: ["a1"],
+        nights: ["2026-11-16"],
+        resume_nights: ["2026-08-01", "2026-11-16"],
+      }).stay_dates,
+    ).toEqual(["2026-08-01", "2026-11-16"]);
   });
 
   it("sums the rest up rather than listing a whole season", () => {

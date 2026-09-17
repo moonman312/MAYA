@@ -549,6 +549,11 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
    * filed under. "resume" clears the answer outright: answering keep_adjusting
    * instead would silence those nights for good, so a rule that went on to
    * adjust one of them twenty times would never reach the owner again.
+   *
+   * Every stopped night, not only the ones still to come: what the owner did
+   * was stop the rule on a run of nights, and taking the answer off some of
+   * them would leave the change log reading as if they had only ever stopped
+   * the rest.
    */
   async function letRuleRunAgain(stops: RuleStops) {
     setLettingRun(stops.rule_id);
@@ -557,7 +562,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
         await fetch(`/api/rules/alerts/${alertId}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(letRunAgainBody(stops.nights)),
+          body: JSON.stringify(letRunAgainBody(stops)),
         });
       }
       setRuleStops(await api<RuleStops[]>("/api/rules/stops"));

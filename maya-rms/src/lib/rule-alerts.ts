@@ -318,8 +318,15 @@ export type RuleStops = {
   rule_id: string;
   /** The alerts those nights were filed under: answering again goes through them. */
   alert_ids: string[];
-  /** Stay dates, oldest first. */
+  /** Stay dates still to come, oldest first: what the chip counts and names. */
   nights: string[];
+  /**
+   * Every stopped night of the rule's current version, passed ones included,
+   * oldest first. "Let it run again" takes the answer off all of them: a
+   * passed night can't fire either way, and leaving one answered would leave
+   * the change log saying the owner stopped the rule on just those.
+   */
+  resume_nights: string[];
 };
 
 /**
@@ -328,9 +335,14 @@ export type RuleStops = {
  * answer: it clears the choice, so the rule adjusts those nights again and
  * MAYA asks about one again if it keeps adjusting it. Answering
  * keep_adjusting cleared the stop too, but silenced those nights for good.
+ *
+ * Every stopped night goes in, not only the ones the chip counts: the owner
+ * stopped a run of nights in one go, and taking the answer off only the ones
+ * still to come would leave the change log saying they had stopped the rule
+ * on the handful that had already passed.
  */
-export function letRunAgainBody(nights: string[]): { choice: "resume"; stay_dates: string[] } {
-  return { choice: "resume", stay_dates: nights };
+export function letRunAgainBody(stops: RuleStops): { choice: "resume"; stay_dates: string[] } {
+  return { choice: "resume", stay_dates: stops.resume_nights };
 }
 
 /** The chip on the rules table: "Stopped on 12 nights". */

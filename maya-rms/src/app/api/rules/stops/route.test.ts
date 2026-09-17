@@ -2,9 +2,10 @@
  * GET /api/rules/stops — what the rules table reads to show that a rule the
  * owner stopped is doing nothing on some nights.
  *
- * A "stop" belongs to the rule version it was given on and to nights still to
- * come, exactly as the engine reads it (isStoppedOnNight), so an edited rule
- * and a night that has passed drop out here too.
+ * A "stop" belongs to the rule version it was given on, exactly as the engine
+ * reads it (isStoppedOnNight), so an edited rule's old answers drop out here
+ * too. A night that has passed is not counted in the chip, but it is still
+ * one of the nights "Let it run again" takes the answer off.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -104,19 +105,44 @@ describe("GET /api/rules/stops", () => {
       { id: OTHER_RULE, version: 1 },
     ]);
     const body = await (await GET()).json();
+    const upcoming = [AHEAD("11-14"), AHEAD("11-16"), AHEAD("12-01")];
     expect(body).toEqual([
-      { rule_id: RULE, alert_ids: [ALERT, ALERT2], nights: [AHEAD("11-14"), AHEAD("11-16"), AHEAD("12-01")] },
-      { rule_id: OTHER_RULE, alert_ids: [ALERT2], nights: [AHEAD("11-14")] },
+      { rule_id: RULE, alert_ids: [ALERT, ALERT2], nights: upcoming, resume_nights: upcoming },
+      { rule_id: OTHER_RULE, alert_ids: [ALERT2], nights: [AHEAD("11-14")], resume_nights: [AHEAD("11-14")] },
     ]);
   });
 
-  it("leaves out a night nobody stopped, one that has passed, and an older version's answer", async () => {
+  it("leaves out a night nobody stopped and an older version's answer", async () => {
     state.fake = seed([
       night({ choice: "keep_adjusting" }),
       night({ choice: null }),
-      night({ stay_date: "2000-01-01" }),
       night({ rule_version: 0, stay_date: AHEAD("11-20") }),
     ]);
+    expect(await (await GET()).json()).toEqual([]);
+  });
+
+  it("counts only the nights still to come, and takes the answer off the passed ones too", async () => {
+    // Stopped on a run of nights weeks ago, some of them now behind the
+    // hotel. The chip says what the rule is doing nothing on; "Let it run
+    // again" covers the lot, so the change log doesn't end up saying the
+    // owner stopped the rule on the leftovers.
+    state.fake = seed([
+      night({ stay_date: "2000-01-01", alert_id: ALERT2 }),
+      night({ stay_date: "2000-01-02", alert_id: ALERT2 }),
+      night(),
+    ]);
+    expect(await (await GET()).json()).toEqual([
+      {
+        rule_id: RULE,
+        alert_ids: [ALERT2, ALERT],
+        nights: [AHEAD("11-14")],
+        resume_nights: ["2000-01-01", "2000-01-02", AHEAD("11-14")],
+      },
+    ]);
+  });
+
+  it("says nothing about a rule whose stopped nights have all passed", async () => {
+    state.fake = seed([night({ stay_date: "2000-01-01" })]);
     expect(await (await GET()).json()).toEqual([]);
   });
 
