@@ -175,6 +175,14 @@ describe("computeRuleSuggestions", () => {
         pickup({ affected_room_type_ids: [] }),
       ),
     ).toHaveLength(0);
+    // A ladder watching only some of the room types does not replace a
+    // pickup rule that watched others, even where the prices land.
+    expect(
+      removesFor(
+        bookingSpeedRule({ signal_room_type_ids: ["rt-standard"], affected_room_type_ids: ["rt1"] }),
+        pickup({ signal_room_type_ids: ["rt1"], affected_room_type_ids: ["rt1"] }),
+      ),
+    ).toHaveLength(0);
     // A PAUSED ladder covers nothing either — it also suppresses re-offering
     // the adds, so without this a hotel with a paused ladder would get
     // removal suggestions with no active coverage anywhere.
@@ -198,6 +206,13 @@ describe("computeRuleSuggestions", () => {
         (s) => s.suggestion_type === "remove_rule",
       );
 
+    // Ladder watches more room types than the pickup rule did.
+    expect(
+      removesFor(
+        bookingSpeedRule({ signal_room_type_ids: ["rt1", "rt2"] }),
+        pickup({ signal_room_type_ids: ["rt2"] }),
+      ),
+    ).toHaveLength(1);
     // Ladder covers more room types than the pickup rule prices.
     expect(
       removesFor(

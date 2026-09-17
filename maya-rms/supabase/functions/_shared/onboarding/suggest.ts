@@ -61,11 +61,12 @@ const monthDay = (ymd: string) => Number(ymd.slice(5, 7)) * 100 + Number(ymd.sli
 /**
  * Whether a booking-speed rule's scope contains a pickup rule's, i.e.
  * whether removing the pickup rule leaves every date/room it was pricing
- * still covered. Booking speed reads pace at the hotel level, so the signal
- * sets don't need to line up — what has to line up is where the PRICE
- * lands: dates, days of week, and affected room types. Every comparison
- * errs toward "not covered": a wrongly-suppressed removal suggestion costs
- * nothing, a wrongly-offered one deletes a rule the ladder never replaced.
+ * still covered. Booking speed counts bookings on the rule's own signal
+ * room types, so the ladder has to watch at least what the pickup rule
+ * watched, and the PRICE has to land in the same places: dates, days of
+ * week, and affected room types. Every comparison errs toward "not
+ * covered": a wrongly-suppressed removal suggestion costs nothing, a
+ * wrongly-offered one deletes a rule the ladder never replaced.
  */
 function coversScopeOf(bs: ExistingRuleSummary, r: ExistingRuleSummary): boolean {
   // A rule with no signal or no affected room types never fires (see
@@ -73,6 +74,9 @@ function coversScopeOf(bs: ExistingRuleSummary, r: ExistingRuleSummary): boolean
   // columns say.
   if (bs.signal_room_type_ids.length === 0) return false;
   if (bs.affected_room_type_ids.length === 0) return false;
+
+  const bsSignal = new Set(bs.signal_room_type_ids);
+  if (!r.signal_room_type_ids.every((id) => bsSignal.has(id))) return false;
 
   const bsAffected = new Set(bs.affected_room_type_ids);
   if (!r.affected_room_type_ids.every((id) => bsAffected.has(id))) return false;
