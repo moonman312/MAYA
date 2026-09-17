@@ -593,6 +593,30 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
     expect(viaProc.s).toBeLessThan(2500);
   }, 120_000);
 
+  it("engine_data_sweep_proc fixes its cutoffs when it starts, so a long run never reaches newer rows", async () => {
+    await db.exec(`create index if not exists idx_stay_date_snapshot_ts on public.stay_date_snapshot (snapshot_ts);`);
+    await db.exec("truncate public.stay_date_snapshot; truncate public.evaluation_audit; truncate public.evaluation_run_log;");
+    // Enough old snapshots that the first loop takes a while.
+    await db.exec(`
+      insert into public.stay_date_snapshot
+      select '${H1}'::uuid, now() - interval '100 days' - make_interval(secs => g), date '2026-01-01', gen_random_uuid(), 5, 1, 10
+      from generate_series(1, 400000) g;
+    `);
+    // Run-log rows a moment inside the 90-day window when the call starts.
+    await db.exec(`
+      insert into public.evaluation_run_log (hotel_id, evaluation_run_id, evaluated_at)
+      select '${H1}'::uuid, gen_random_uuid(), clock_timestamp() - interval '90 days' + interval '150 milliseconds'
+      from generate_series(1, 20);
+    `);
+    const t0 = Date.now();
+    await db.exec("call public.engine_data_sweep_proc(60, 90, 90, 10000);");
+    const elapsed = Date.now() - t0;
+    const left = (await db.query(`select count(*)::int n from public.evaluation_run_log`)).rows[0].n;
+    // Only meaningful when the run outlasted the rows' margin.
+    expect(elapsed).toBeGreaterThan(150);
+    expect(left).toBe(20);
+  }, 120_000);
+
   it("refuses a caller who is neither service_role nor a member of the hotel", async () => {
     const rpc = pgliteRpc(db, "authenticated");
     await db.exec("select set_config('test.accessible_hotel', '', false);");

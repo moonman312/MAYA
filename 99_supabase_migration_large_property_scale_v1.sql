@@ -29,7 +29,18 @@
 --
 --   drop index concurrently if exists public.idx_eval_audit_hotel_stay;
 --
--- The second one removes an exact duplicate: idx_eval_audit_hotel_stay and
+-- Before that drop, check the index it duplicates is there:
+--
+--   select 1 from pg_indexes
+--    where schemaname = 'public' and indexname = 'idx_evaluation_audit_cell';
+--
+-- No row (a database that never ran 99_supabase_migration_audit_indexes_v1.sql)
+-- means create it first, on its own, and only then drop the duplicate:
+--
+--   create index concurrently if not exists idx_evaluation_audit_cell
+--     on public.evaluation_audit (hotel_id, stay_date, room_type_id, evaluated_at desc);
+--
+-- The drop removes an exact duplicate: idx_eval_audit_hotel_stay and
 -- idx_evaluation_audit_cell are both (hotel_id, stay_date, room_type_id,
 -- evaluated_at desc), so every audit insert, and a large property writes
 -- thousands per run, maintained the same index twice.
@@ -44,6 +55,39 @@
 --
 -- never_paid_retention_sweep is left as it is: it holds each property's row
 -- lock across that property's deletes, and a commit per batch would release it.
+-- What can shrink is one run. The example schedule (5 properties, up to 40 x
+-- 50,000 reservations each) can delete millions of rows in one transaction
+-- once large never-paid properties come due. Optional: one property and
+-- smaller batches, hourly, so one run is at most 400,000 deletes and the rest
+-- resumes an hour later (the sweep's advisory lock keeps runs from overlapping):
+--
+--   select cron.unschedule('never-paid-retention-sweep');
+--   select cron.schedule('never-paid-retention-sweep', '15 * * * *',
+--     $$ select public.never_paid_retention_sweep(p_max_properties => 1, p_batch => 10000); $$);
+--
+-- Optional, and your call: reservations is still in the supabase_realtime
+-- publication, so an import streams every row change through Realtime. The
+-- calendar no longer refreshes more than once a minute on those alone, but
+-- the stream itself remains. Dropping the table from the publication means a
+-- booking reaches an open calendar with the next price the engine publishes,
+-- or the calendar's own 5-minute refresh:
+--
+--   do $$ begin
+--     if exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime'
+--                and schemaname = 'public' and tablename = 'reservations') then
+--       alter publication supabase_realtime drop table public.reservations;
+--     end if;
+--   end $$;
+--
+-- Checking numbers by hand: every function below refuses a caller that is
+-- neither service_role nor a member of the hotel, and the SQL editor, psql and
+-- pg_cron carry no JWT, so they are refused too (42501). Say you are the
+-- service role for one transaction first:
+--
+--   begin;
+--   select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+--   select * from public.engine_reservation_cells('<hotel id>', current_date, current_date + 44);
+--   commit;
 --
 -- Nothing here needs folding into 02_supabase_schema.sql for existing
 -- databases; fold the functions in when the base schema is next regenerated.
@@ -515,13 +559,19 @@ as $$
 declare
   batch_removed integer;
   passes integer;
+  -- Fixed once, up front. now() is the transaction's start and every COMMIT
+  -- starts a new one, so a cutoff worked out per batch crept forward as the
+  -- run went on and deleted rows the one-transaction sweep would have kept.
+  v_snapshot_cut timestamptz := now() - make_interval(days => p_snapshot_days);
+  v_audit_cut timestamptz := now() - make_interval(days => p_audit_days);
+  v_run_log_cut timestamptz := now() - make_interval(days => p_run_log_days);
 begin
   passes := 0;
   loop
     delete from public.stay_date_snapshot
      where ctid in (
        select ctid from public.stay_date_snapshot
-        where snapshot_ts < now() - make_interval(days => p_snapshot_days)
+        where snapshot_ts < v_snapshot_cut
         limit p_batch
      );
     get diagnostics batch_removed = row_count;
@@ -535,7 +585,7 @@ begin
     delete from public.evaluation_audit
      where id in (
        select id from public.evaluation_audit
-        where evaluated_at < now() - make_interval(days => p_audit_days)
+        where evaluated_at < v_audit_cut
         order by evaluated_at
         limit p_batch
      );
@@ -550,7 +600,7 @@ begin
     delete from public.evaluation_run_log
      where id in (
        select id from public.evaluation_run_log
-        where evaluated_at < now() - make_interval(days => p_run_log_days)
+        where evaluated_at < v_run_log_cut
         order by evaluated_at
         limit p_batch
      );
