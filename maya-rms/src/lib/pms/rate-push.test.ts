@@ -326,3 +326,64 @@ describe("pushRatesForHotel against a deadline", () => {
     expect(db.ledgerUpserts).toHaveLength(600);
   });
 });
+
+describe("pushRatesForHotel asks again about earlier jobs", () => {
+  const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+
+  function jobAdapter(outcomes: (refs: string[]) => Record<string, { done: boolean; ok: boolean; message?: string }>) {
+    const { adapter, attempts } = makeAdapter(CACHED_TWO);
+    const asked: string[][] = [];
+    adapter.fetchJobOutcomes = async (refs) => {
+      asked.push([...refs].sort());
+      return outcomes(refs);
+    };
+    return { adapter, attempts, asked };
+  }
+
+  it("does not wait past the deadline for a job the vendor has not listed yet, and records the cells as sent", async () => {
+    const db = makeSupabaseStub({ publishedPrice: PRICES_TWO, roomTypes: ROOM_TYPES, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } });
+    const { adapter, asked } = jobAdapter(() => ({}));
+    const t0 = Date.now();
+    const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter, { deadlineAt: Date.now() + 1000 });
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(res).toMatchObject({ sent: 2, jobsConfirmed: 0, jobsRejected: 0 });
+    expect(asked).toEqual([["job-1"]]);
+    expect(db.ledgerUpserts.map((r) => r.status)).toEqual(["sent", "sent"]);
+  });
+
+  it("flips an earlier run's cells to failed when their job turns out rejected, even with nothing new to send", async () => {
+    const ledger: Row[] = [
+      { stay_date: "2026-08-01", room_type_id: "rt-king", external_room_type_id: "CB-KING", price: 210, status: "sent", attempts: 1, pms_job_reference: "job-old", pushed_at: minutesAgo(10) },
+      { stay_date: "2026-08-01", room_type_id: "rt-queen", external_room_type_id: "CB-QUEEN", price: 180, status: "sent", attempts: 1, pms_job_reference: "job-old", pushed_at: minutesAgo(10) },
+    ];
+    const db = makeSupabaseStub({ publishedPrice: PRICES_TWO, roomTypes: ROOM_TYPES, ledger, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } });
+    const { adapter, attempts, asked } = jobAdapter(() => ({ "job-old": { done: true, ok: false, message: "rate closed" } }));
+    const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter);
+    expect(attempts).toHaveLength(0);
+    expect(asked).toEqual([["job-old"]]);
+    expect(res).toMatchObject({ sent: 0, jobsRejected: 2 });
+    expect(db.ledgerUpserts).toHaveLength(2);
+    expect(db.ledgerUpserts.every((r) => r.status === "failed" && r.error === "rate closed" && r.external_room_type_id)).toBe(true);
+  });
+
+  it("leaves re-sent cells to their new job, skips synchronous refs, and stops asking after an hour", async () => {
+    const ledger: Row[] = [
+      // Re-sent this run at a new price: its new job decides it.
+      { stay_date: "2026-08-01", room_type_id: "rt-king", external_room_type_id: "CB-KING", price: 199, status: "sent", attempts: 1, pms_job_reference: "job-old", pushed_at: minutesAgo(10) },
+      { stay_date: "2026-08-01", room_type_id: "rt-queen", external_room_type_id: "CB-QUEEN", price: 180, status: "sent", attempts: 1, pms_job_reference: "accepted:200", pushed_at: minutesAgo(10) },
+      { stay_date: "2026-08-02", room_type_id: "rt-queen", external_room_type_id: "CB-QUEEN", price: 180, status: "sent", attempts: 1, pms_job_reference: "job-ancient", pushed_at: minutesAgo(90) },
+    ];
+    const db = makeSupabaseStub({
+      publishedPrice: [...PRICES_TWO, { stay_date: "2026-08-02", room_type_id: "rt-queen", price: 180 }],
+      roomTypes: ROOM_TYPES,
+      ledger,
+      connection: { id: "conn-1", push_rate_targets: CACHED_TWO },
+    });
+    const { adapter, asked } = jobAdapter((refs) => Object.fromEntries(refs.map((r) => [r, { done: true, ok: false, message: "no" }])));
+    const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter);
+    expect(asked).toEqual([["job-1"]]);
+    expect(res).toMatchObject({ sent: 1, jobsRejected: 1 });
+    const failed = db.ledgerUpserts.filter((r) => r.status === "failed");
+    expect(failed.map((r) => `${r.stay_date}|${r.room_type_id}|${r.pms_job_reference}`)).toEqual(["2026-08-01|rt-king|job-1"]);
+  });
+});

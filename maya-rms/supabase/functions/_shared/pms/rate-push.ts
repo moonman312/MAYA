@@ -120,6 +120,16 @@ export type RatePushSummary =
 const MAX_PUSH_ATTEMPTS = 10;
 /** Cells handed to one adapter.pushCells call. 300 is ten full Cloudbeds patchRate calls. */
 const PUSH_BATCH_CELLS = 300;
+/**
+ * How long a sent cell's job keeps being asked about after the run that sent
+ * it. A large first push submits dozens of jobs, and one still running after
+ * the run's last look, or missing from the vendor's recent-jobs list that
+ * time, used to be recorded as sent for good: nothing ever asked again.
+ */
+const RECONCILE_LOOKBACK_MS = 60 * 60_000;
+/** Past this age a job still undecided is logged, once per isolate. */
+const RECONCILE_UNCONFIRMED_AFTER_MS = 45 * 60_000;
+const loggedUnconfirmed = new Set<string>();
 
 // deno-lint-ignore no-explicit-any
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -201,7 +211,7 @@ export async function pushRatesForHotel(
   const ledgerRows = await fetchAll(() =>
     supabase
       .from("rate_updates")
-      .select("room_type_id, stay_date, price, status, attempts")
+      .select("room_type_id, external_room_type_id, stay_date, price, status, attempts, pms_job_reference, pushed_at")
       .eq("hotel_id", hotelId)
       .gte("stay_date", firstDate)
       .lte("stay_date", lastDate)
@@ -210,10 +220,33 @@ export async function pushRatesForHotel(
   );
   const lastSent = new Map<string, number>();
   const lastFailed = new Map<string, { price: number; attempts: number }>();
+  // Cells an earlier run sent whose job may not have been confirmed yet.
+  const recentlySent: Array<{ key: string; ref: string; pushedAt: number; result: CellPushResult }> = [];
+  const lookbackFrom = Date.now() - RECONCILE_LOOKBACK_MS;
   for (const l of ledgerRows) {
     const key = `${l.stay_date}|${String(l.room_type_id)}`;
     if (l.status === "sent" && l.price != null) {
       lastSent.set(key, Number(l.price));
+      const ref = l.pms_job_reference != null ? String(l.pms_job_reference) : "";
+      const pushedAt = l.pushed_at != null ? Date.parse(String(l.pushed_at)) : NaN;
+      // "accepted:" is a synchronous vendor's stand-in, not a job to look up.
+      if (ref && !ref.startsWith("accepted:") && pushedAt >= lookbackFrom) {
+        recentlySent.push({
+          key,
+          ref,
+          pushedAt,
+          result: {
+            cell: {
+              stayDate: String(l.stay_date),
+              roomTypeId: String(l.room_type_id),
+              externalRoomTypeId: String(l.external_room_type_id ?? ""),
+              price: Number(l.price),
+            },
+            ok: true,
+            jobReference: ref,
+          },
+        });
+      }
     } else if (l.status === "failed" && l.price != null) {
       lastFailed.set(key, { price: Number(l.price), attempts: Number(l.attempts) || 1 });
     }
@@ -238,6 +271,11 @@ export async function pushRatesForHotel(
   }
   const skippedUnchanged = ppRows.length - changed.length - skippedExhausted;
   if (changed.length === 0) {
+    const earlier = earlierJobs(recentlySent, new Set());
+    const jobConfirmed =
+      earlier.size > 0
+        ? await reconcileJobOutcomes(supabase, hotelId, adapter, [], new Date().toISOString(), earlier, opts.deadlineAt)
+        : null;
     return {
       pushed: true,
       cellsConsidered: ppRows.length,
@@ -246,6 +284,7 @@ export async function pushRatesForHotel(
       skippedUnchanged,
       skippedNoTarget: 0,
       skippedExhausted,
+      ...(jobConfirmed != null ? { jobsConfirmed: jobConfirmed.ok, jobsRejected: jobConfirmed.rejected } : {}),
     };
   }
 
@@ -370,7 +409,9 @@ export async function pushRatesForHotel(
   // both misreport the rate as live AND suppress every future retry of it.
   // Reconcile the jobs we have references for; anything still running is left
   // alone for the next tick to ask about again.
-  const jobConfirmed = await reconcileJobOutcomes(supabase, hotelId, adapter, results, nowIso);
+  // Cells re-sent just now carry this run's job, not the earlier one.
+  const earlier = earlierJobs(recentlySent, new Set(results.map((r) => `${r.cell.stayDate}|${r.cell.roomTypeId}`)));
+  const jobConfirmed = await reconcileJobOutcomes(supabase, hotelId, adapter, results, nowIso, earlier, opts.deadlineAt);
 
   // Rejections against cached rate ids usually mean the catalog was rebuilt and
   // those ids are gone. Failed cells stay "changed" (only sends land in the
@@ -393,9 +434,26 @@ export async function pushRatesForHotel(
   };
 }
 
+/** Earlier runs' sent cells grouped by job, leaving out cells in `resent`. */
+function earlierJobs(
+  recentlySent: Array<{ key: string; ref: string; pushedAt: number; result: CellPushResult }>,
+  resent: Set<string>,
+): Map<string, { pushedAt: number; cells: CellPushResult[] }> {
+  const out = new Map<string, { pushedAt: number; cells: CellPushResult[] }>();
+  for (const r of recentlySent) {
+    if (resent.has(r.key)) continue;
+    const entry = out.get(r.ref) ?? { pushedAt: r.pushedAt, cells: [] };
+    entry.cells.push(r.result);
+    entry.pushedAt = Math.min(entry.pushedAt, r.pushedAt);
+    out.set(r.ref, entry);
+  }
+  return out;
+}
+
 /**
- * Ask the vendor what became of the jobs this run submitted, and correct the
- * ledger where "accepted" turned out not to mean "applied".
+ * Ask the vendor what became of the jobs this run submitted, and of the ones
+ * earlier runs submitted in the last hour, and correct the ledger where
+ * "accepted" turned out not to mean "applied".
  *
  * A rejected job is written back as failed WITH its reason, which matters for
  * more than reporting: the idempotency check treats a sent row as the last
@@ -412,6 +470,8 @@ async function reconcileJobOutcomes(
   adapter: PmsRatePushAdapter,
   results: CellPushResult[],
   nowIso: string,
+  earlier: Map<string, { pushedAt: number; cells: CellPushResult[] }> = new Map(),
+  deadlineAt?: number,
 ): Promise<{ ok: number; rejected: number } | null> {
   if (!adapter.fetchJobOutcomes) return null;
 
@@ -421,6 +481,11 @@ async function reconcileJobOutcomes(
     const list = byJob.get(r.jobReference) ?? [];
     list.push(r);
     byJob.set(r.jobReference, list);
+  }
+  // Only this run's jobs are worth waiting for; earlier ones are asked once.
+  const current = [...byJob.keys()];
+  for (const [ref, { cells }] of earlier) {
+    if (!byJob.has(ref)) byJob.set(ref, cells);
   }
   if (byJob.size === 0) return null;
 
@@ -433,8 +498,10 @@ async function reconcileJobOutcomes(
     const refs = [...byJob.keys()];
     let outcomes = await adapter.fetchJobOutcomes(refs);
     for (const attempt of [0, 1]) {
-      const undecided = refs.filter((r) => !outcomes[r]?.done);
+      const undecided = current.filter((r) => !outcomes[r]?.done);
       if (undecided.length === 0) break;
+      // No sleeping past the invocation's end; the next tick asks again.
+      if (deadlineAt != null && Date.now() + 3500 > deadlineAt) break;
       await new Promise((r) => setTimeout(r, attempt === 0 ? 2500 : 3500));
       outcomes = { ...outcomes, ...(await adapter.fetchJobOutcomes(undecided)) };
     }
@@ -444,7 +511,26 @@ async function reconcileJobOutcomes(
 
     for (const [jobRef, cells] of byJob) {
       const outcome = outcomes[jobRef];
-      if (!outcome || !outcome.done) continue; // still running — ask again next tick
+      if (!outcome || !outcome.done) {
+        // Still running, or not in the vendor's list this time: ask again next
+        // tick, for up to RECONCILE_LOOKBACK_MS after it was sent.
+        const sentAt = earlier.get(jobRef)?.pushedAt;
+        if (sentAt != null && Date.now() - sentAt > RECONCILE_UNCONFIRMED_AFTER_MS && !loggedUnconfirmed.has(jobRef)) {
+          if (loggedUnconfirmed.size > 5000) loggedUnconfirmed.clear();
+          loggedUnconfirmed.add(jobRef);
+          console.error(
+            JSON.stringify({
+              fn: "reconcileJobOutcomes",
+              hotelId,
+              pmsType: adapter.pmsType,
+              jobReference: jobRef,
+              cells: cells.length,
+              event: "rate_job_unconfirmed",
+            }),
+          );
+        }
+        continue;
+      }
       if (outcome.ok) {
         ok += cells.length;
         continue;
