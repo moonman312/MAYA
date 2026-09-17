@@ -1,0 +1,32 @@
+-- Example: schedule the rate push incident sweep.
+--
+-- Pure SQL, no secrets. The function lives in the database
+-- (99_supabase_migration_push_guardrails_v1.sql, section 3) and cron calls it
+-- directly.
+--
+-- The push closes an incident's cells as it sees them land or change. This
+-- closes the ones it cannot see: nights that are over, and hotels that went
+-- back to simulation (the push reads nothing for those). It also deletes
+-- incidents resolved more than 180 days ago, with their cells and attempts.
+-- Hourly, so an owner's change log never says "ongoing" for long about a
+-- problem nobody is pushing into any more.
+--
+-- 0) Ensure the extension exists:
+--    create extension if not exists pg_cron;
+--
+-- 1) Schedule (every hour at :17):
+--    select cron.schedule(
+--      'rate-push-incident-sweep',
+--      '17 * * * *',
+--      $$ select public.rate_push_incident_sweep(); $$
+--    );
+--
+-- Inspect:    select jobid, jobname, schedule, active from cron.job;
+-- Runs log:   select * from cron.job_run_details order by start_time desc limit 20;
+-- Unschedule: select cron.unschedule('rate-push-incident-sweep');
+--
+-- What is open right now:
+--   select h.name, i.cause, i.opened_at, i.attempt_count, i.customer_visible_at
+--     from rate_push_incidents i join hotels h on h.id = i.hotel_id
+--    where i.resolved_at is null
+--    order by i.opened_at;
