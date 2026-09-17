@@ -287,6 +287,17 @@ export function ruleRoomTypesLabel(
 }
 
 /**
+ * A room type set the store refused: empty, or nothing in it belongs to the
+ * rule's hotel. The routes answer it with a 400, like roomTypeIdListError.
+ */
+export class RoomTypeSetError extends Error {
+  constructor(what: "measure" | "change") {
+    super(`Pick at least one room type to ${what}.`);
+    this.name = "RoomTypeSetError";
+  }
+}
+
+/**
  * Why a room type id list in a request is unusable, or null when it is fine
  * (or absent). An empty list would leave a rule with nothing to measure or
  * nothing to change.

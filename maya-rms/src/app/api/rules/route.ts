@@ -1,5 +1,6 @@
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import {
+  RoomTypeSetError,
   isRuleActionEmpty,
   isRuleConditionEmpty,
   roomTypeIdListError,
@@ -109,6 +110,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json(rule, { status: 201 });
   } catch (error) {
+    if (error instanceof RoomTypeSetError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to create rule." },
       { status: 500 },

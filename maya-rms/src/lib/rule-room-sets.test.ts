@@ -3,7 +3,7 @@
  * and the change log share, and what the store accepts.
  */
 import { describe, expect, it } from "vitest";
-import { defaultSignalIds, measuresDifferently, roomTypeIdListError, ruleRoomTypesLabel } from "./rule-form";
+import { RoomTypeSetError, defaultSignalIds, measuresDifferently, roomTypeIdListError, ruleRoomTypesLabel } from "./rule-form";
 import { createRule, listRules, updateRule } from "./rules-store";
 import { fakeSupabase, type FakeRow } from "./engine/fake-supabase.test";
 
@@ -104,7 +104,7 @@ describe("the rules store with separate sets", () => {
       { signal_room_type_ids: ["std"], affected_room_type_ids: ["other"] },
     ]) {
       const { client, tables } = fakeSupabase({ room_types: roomTypes });
-      await expect(createRule({ ...input, ...sets }, client, "h1")).rejects.toThrow(/Pick at least one room type/);
+      await expect(createRule({ ...input, ...sets }, client, "h1")).rejects.toBeInstanceOf(RoomTypeSetError);
       expect(tables.pricing_rules ?? []).toEqual([]);
     }
   });
@@ -138,14 +138,14 @@ describe("the rules store with separate sets", () => {
       rule_affected_room_type: [{ rule_id: "r1", room_type_id: "std" }],
     });
     const empty = fakeSupabase(seed());
-    expect(await updateRule("r1", { signal_room_type_ids: [] }, empty.client)).toBe(false);
+    await expect(updateRule("r1", { signal_room_type_ids: [] }, empty.client)).rejects.toBeInstanceOf(RoomTypeSetError);
     expect(empty.tables.pricing_rules[0].version).toBe(1);
 
     const { client, tables } = fakeSupabase(seed());
     expect(await updateRule("r1", { signal_room_type_ids: ["dlx", "other"], affected_room_type_ids: ["ph"] }, client)).toBe(true);
     expect(tables.rule_signal_room_type.map((r) => r.room_type_id)).toEqual(["dlx"]);
     expect(tables.rule_affected_room_type.map((r) => r.room_type_id)).toEqual(["ph"]);
-    expect(await updateRule("r1", { affected_room_type_ids: ["other"] }, client)).toBe(false);
+    await expect(updateRule("r1", { affected_room_type_ids: ["other"] }, client)).rejects.toThrow("Pick at least one room type to change.");
     expect(tables.rule_affected_room_type.map((r) => r.room_type_id)).toEqual(["ph"]);
   });
 });

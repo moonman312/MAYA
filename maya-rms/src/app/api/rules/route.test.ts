@@ -21,6 +21,7 @@ vi.mock("@/lib/rules-store", () => ({
 }));
 
 const { POST } = await import("@/app/api/rules/route");
+const { RoomTypeSetError } = await import("@/lib/rule-form");
 const { PUT } = await import("@/app/api/rules/[id]/route");
 
 const base = {
@@ -56,6 +57,22 @@ describe("room type sets on the rules routes", () => {
     const res = await POST(req({ ...base, signal_room_type_ids: ["rt1"], affected_room_type_ids: ["rt2"] }));
     expect(res.status).toBe(201);
     expect(createRule.mock.calls[0][0]).toMatchObject({ signal_room_type_ids: ["rt1"], affected_room_type_ids: ["rt2"] });
+  });
+
+  it("answers 400, not a server error or not found, when the store refuses another hotel's room types", async () => {
+    createRule.mockRejectedValueOnce(new RoomTypeSetError("measure"));
+    const created = await POST(req({ ...base, signal_room_type_ids: ["elsewhere"], affected_room_type_ids: ["rt1"] }));
+    expect(created.status).toBe(400);
+    expect((await created.json()).error).toBe("Pick at least one room type to measure.");
+
+    updateRule.mockRejectedValueOnce(new RoomTypeSetError("change"));
+    const updated = await PUT(req({ affected_room_type_ids: ["elsewhere"] }, "PUT"), params);
+    expect(updated.status).toBe(400);
+    expect((await updated.json()).error).toBe("Pick at least one room type to change.");
+
+    // Anything else is still a server error.
+    createRule.mockRejectedValueOnce(new Error("boom"));
+    expect((await POST(req(base))).status).toBe(500);
   });
 
   it("PUT refuses an empty set and passes a good one", async () => {

@@ -14,6 +14,7 @@
 import { INITIAL_RULES } from "@/lib/demo-data";
 import { bookingSpeedLabel, isBookingSpeed } from "@/lib/observations/booking-speed";
 import {
+  RoomTypeSetError,
   isRuleConditionEmpty,
   ruleConditionForInsert,
   ruleConditionToLegacyConditions,
@@ -566,11 +567,11 @@ export async function createRule(
   let explicitAffected: string[] | undefined;
   if (input.signal_room_type_ids) {
     explicitSignal = await ownRoomTypeIds(supabase, hotelId, input.signal_room_type_ids);
-    if (explicitSignal.length === 0) throw new Error("Pick at least one room type to measure.");
+    if (explicitSignal.length === 0) throw new RoomTypeSetError("measure");
   }
   if (input.affected_room_type_ids && input.affected_room_type_ids.length > 0) {
     explicitAffected = await ownRoomTypeIds(supabase, hotelId, input.affected_room_type_ids);
-    if (explicitAffected.length === 0) throw new Error("Pick at least one room type to change.");
+    if (explicitAffected.length === 0) throw new RoomTypeSetError("change");
   }
 
   // Booking-speed rules run event-style (fire once, effect persists, then a
@@ -783,21 +784,23 @@ export async function updateRule(
   }
 
   // Same for the room type sets: never empty, and only this rule's hotel's
-  // room types.
+  // room types. A refused set throws RoomTypeSetError, so the caller can tell
+  // it from a missing rule.
   let signalIds: string[] | undefined;
   let affectedIds: string[] | undefined;
   if (input.signal_room_type_ids || input.affected_room_type_ids) {
-    if (input.signal_room_type_ids?.length === 0 || input.affected_room_type_ids?.length === 0) return false;
+    if (input.signal_room_type_ids?.length === 0) throw new RoomTypeSetError("measure");
+    if (input.affected_room_type_ids?.length === 0) throw new RoomTypeSetError("change");
     const { data: owner } = await supabase.from("pricing_rules").select("hotel_id").eq("id", id).maybeSingle();
     if (!owner?.hotel_id) return false;
     const hotelId = String(owner.hotel_id);
     if (input.signal_room_type_ids) {
       signalIds = await ownRoomTypeIds(supabase, hotelId, input.signal_room_type_ids);
-      if (signalIds.length === 0) return false;
+      if (signalIds.length === 0) throw new RoomTypeSetError("measure");
     }
     if (input.affected_room_type_ids) {
       affectedIds = await ownRoomTypeIds(supabase, hotelId, input.affected_room_type_ids);
-      if (affectedIds.length === 0) return false;
+      if (affectedIds.length === 0) throw new RoomTypeSetError("change");
     }
   }
 

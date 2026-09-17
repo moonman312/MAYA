@@ -1,4 +1,4 @@
-import { roomTypeIdListError } from "@/lib/rule-form";
+import { RoomTypeSetError, roomTypeIdListError } from "@/lib/rule-form";
 import { deleteRule, updateRule } from "@/lib/rules-store";
 import type { UpdateRuleInput } from "@/lib/rules-store";
 import { createClient } from "@/utils/supabase/server";
@@ -36,6 +36,9 @@ export async function PUT(req: Request, { params }: Params) {
     }
     return NextResponse.json({ ok: true });
   } catch (error) {
+    if (error instanceof RoomTypeSetError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to update rule." },
       { status: 500 },
