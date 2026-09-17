@@ -19,6 +19,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
+/** Every value of the pms_type enum. */
+const PMS_TYPES = ["cloudbeds", "mews", "think", "opera", "other"] as const;
 /** The scheduled tick runs every 5 minutes; three misses is a real stall, not a blip. */
 const ENGINE_STALL_MS = 15 * 60 * 1000;
 
@@ -31,20 +33,29 @@ export async function GET() {
   const admin = createAdminClient();
 
   try {
-    // PMS traffic in the window, by vendor.
-    const { data: reqs } = await admin
-      .from("pms_request_log")
-      .select("pms_type, ok")
-      .gte("created_at", since);
-
+    // PMS traffic in the window, by vendor. Exact counts, not rows: a day of
+    // request log across every property is far past PostgREST's 1,000-row
+    // cap, and counting the rows that came back reported a fraction of it.
     const byPms = new Map<string, { total: number; failures: number }>();
-    for (const r of reqs ?? []) {
-      const key = String(r.pms_type ?? "unknown");
-      const agg = byPms.get(key) ?? { total: 0, failures: 0 };
-      agg.total += 1;
-      if (r.ok === false) agg.failures += 1;
-      byPms.set(key, agg);
-    }
+    await Promise.all(
+      PMS_TYPES.map(async (pms) => {
+        const [{ count: total, error: totalErr }, { count: failures, error: failErr }] = await Promise.all([
+          admin
+            .from("pms_request_log")
+            .select("id", { count: "exact", head: true })
+            .eq("pms_type", pms)
+            .gte("created_at", since),
+          admin
+            .from("pms_request_log")
+            .select("id", { count: "exact", head: true })
+            .eq("pms_type", pms)
+            .eq("ok", false)
+            .gte("created_at", since),
+        ]);
+        if (totalErr || failErr) throw new Error((totalErr ?? failErr)!.message);
+        if ((total ?? 0) > 0) byPms.set(pms, { total: total ?? 0, failures: failures ?? 0 });
+      }),
+    );
 
     const integrations = [...byPms.entries()]
       .map(([pms, agg]) => {
