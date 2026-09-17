@@ -45,7 +45,7 @@ export type PushProblemCause = {
   open: number;
   /** Median hours from opening to the cells landing, over incidents that closed that way. */
   medianHoursToLand: number | null;
-  /** Unknown causes only: what the PMS actually said, most frequent first. */
+  /** Unknown causes only: what the PMS actually said, said in the most incidents first. */
   sampleMessages: string[];
 };
 
@@ -67,8 +67,11 @@ export type PushProblemAnalytics =
 
 const INCIDENT_COLUMNS =
   "id, hotel_id, pms_type, cause, opened_at, attempt_count, customer_visible_at, resolved_at, resolution";
-/** Unknown-cause messages read per range, and shown per cause. */
-const SAMPLE_READ_LIMIT = 1000;
+/** Unknown incidents whose messages are sampled: the newest in the range. */
+const SAMPLE_INCIDENTS = 200;
+/** Incidents per sample read, and tries read per chunk, so one noisy incident fills one chunk at most. */
+const SAMPLE_CHUNK = 25;
+const SAMPLE_READ_LIMIT = 250;
 const SAMPLES_SHOWN = 5;
 
 function median(values: number[]): number | null {
@@ -78,7 +81,11 @@ function median(values: number[]): number | null {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
-/** Per cause, most incidents first; unknown causes lead a tie so they get taught. */
+/**
+ * Per cause, most incidents first; unknown causes lead a tie so they get
+ * taught. A sample message counts once per incident that said it, so one
+ * incident retrying the same refusal all day doesn't crowd out the rest.
+ */
 export function aggregatePushProblems(
   incidents: PushIncidentRow[],
   messagesByIncident: Map<string, string[]> = new Map(),
@@ -99,7 +106,7 @@ export function aggregatePushProblems(
     const counts = new Map<string, number>();
     if (!facts.known) {
       for (const i of list) {
-        for (const m of messagesByIncident.get(i.id) ?? []) counts.set(m, (counts.get(m) ?? 0) + 1);
+        for (const m of new Set(messagesByIncident.get(i.id) ?? [])) counts.set(m, (counts.get(m) ?? 0) + 1);
       }
     }
     rows.push({
@@ -182,15 +189,26 @@ export async function loadPushProblemAnalytics(
     ).filter((i) => nameById.has(String(i.hotel_id)));
 
     const messages = new Map<string, string[]>();
-    const unknownIds = inRange.filter((i) => !causeFacts(i.cause).known).map((i) => i.id).slice(0, 200);
-    if (unknownIds.length > 0) {
-      const { data, error } = await admin
-        .from("rate_push_attempts")
-        .select("incident_id, message")
-        .in("incident_id", unknownIds)
-        .not("message", "is", null)
-        .order("attempted_at", { ascending: false })
-        .limit(SAMPLE_READ_LIMIT);
+    // The newest: new vendor wording is what the classifier needs to learn.
+    const unknownIds = inRange
+      .filter((i) => !causeFacts(i.cause).known)
+      .map((i) => i.id)
+      .reverse()
+      .slice(0, SAMPLE_INCIDENTS);
+    const chunks: string[][] = [];
+    for (let i = 0; i < unknownIds.length; i += SAMPLE_CHUNK) chunks.push(unknownIds.slice(i, i + SAMPLE_CHUNK));
+    const reads = await Promise.all(
+      chunks.map((ids) =>
+        admin
+          .from("rate_push_attempts")
+          .select("incident_id, message")
+          .in("incident_id", ids)
+          .not("message", "is", null)
+          .order("attempted_at", { ascending: false })
+          .limit(SAMPLE_READ_LIMIT),
+      ),
+    );
+    for (const { data, error } of reads) {
       if (error) throw error;
       for (const r of (data ?? []) as { incident_id: string; message: string | null }[]) {
         if (!r.message) continue;

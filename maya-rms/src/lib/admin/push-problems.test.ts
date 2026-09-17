@@ -44,6 +44,18 @@ describe("aggregatePushProblems", () => {
     expect(rows[1]).toMatchObject({ cause: "rate_plan_not_updatable", known: true, incidents: 1, escalated: 1, open: 1, medianHoursToLand: null });
   });
 
+  it("counts a sample message once per incident, so one noisy incident doesn't outrank wording several hotels hit", () => {
+    const rows = aggregatePushProblems(
+      [incident({ id: "u1", cause: "unknown" }), incident({ id: "u2", cause: "unknown" }), incident({ id: "u3", cause: "unknown" })],
+      new Map([
+        ["u1", Array.from({ length: 40 }, () => "Cloudbeds patchRate failed (400): Loud thing")],
+        ["u2", ["Cloudbeds patchRate failed (400): Common thing"]],
+        ["u3", ["Cloudbeds patchRate failed (400): Common thing"]],
+      ]),
+    );
+    expect(rows[0].sampleMessages).toEqual(["Cloudbeds patchRate failed (400): Common thing", "Cloudbeds patchRate failed (400): Loud thing"]);
+  });
+
   it("flags unknown causes and lists what the PMS said, most frequent first", () => {
     const rows = aggregatePushProblems(
       [incident({ id: "u1", cause: "unknown" }), incident({ id: "u2", cause: "unknown" }), incident({ id: "g", cause: "guardrail_stale_price" })],
@@ -96,6 +108,20 @@ describe("loadPushProblemAnalytics", () => {
     const withTest = await loadPushProblemAnalytics(fakeSupabase(seed()).client, "2026-09-14", "2026-09-20", true);
     if (!withTest.available) throw new Error("expected data");
     expect(withTest.causes.find((c) => c.cause === "pms_unavailable")?.incidents).toBe(2);
+  });
+
+  it("samples the newest unknown incidents in a busy range, not the oldest", async () => {
+    const many: FakeRow[] = [];
+    const attempts: FakeRow[] = [];
+    for (let n = 0; n < 250; n++) {
+      const opened = new Date(Date.parse("2026-09-14T00:00:00Z") + n * 60_000).toISOString();
+      many.push(incident({ id: `u${n}`, cause: "unknown", opened_at: opened }) as unknown as FakeRow);
+      attempts.push({ id: `a${n}`, incident_id: `u${n}`, attempted_at: opened, message: n < 50 ? "old wording" : "new wording" });
+    }
+    const { client } = fakeSupabase({ ...seed(), rate_push_incidents: many, rate_push_attempts: attempts });
+    const res = await loadPushProblemAnalytics(client, "2026-09-14", "2026-09-20", false);
+    if (!res.available) throw new Error("expected data");
+    expect(res.causes[0].sampleMessages).toEqual(["new wording"]);
   });
 
   it("says the migration is missing instead of failing the page", async () => {
