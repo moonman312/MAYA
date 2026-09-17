@@ -488,29 +488,45 @@ export async function evaluateHotel(
     );
   }
 
-  // A number a human typed for the cell. Open rows only — clearing an
-  // override stamps cleared_at and the cell falls back to the tiers above.
+  // A number a human typed for the cell, or changed in the PMS on a night
+  // MAYA had sent (source 'pms'). Open rows only — clearing an override
+  // stamps cleared_at and the cell falls back to the tiers above.
   // Same degrade-to-empty stance as the calendar: this table also arrives in
   // a migration, and pricing without overrides beats not pricing at all.
-  const manualByCell = new Map<string, { price: number; set_by: string | null; set_at: string }>();
+  // Where a price came from arrives in a later migration; without it every
+  // row reads as typed in MAYA.
+  const manualByCell = new Map<
+    string,
+    { price: number; set_by: string | null; set_at: string; source: "maya" | "pms"; pms_type: string | null }
+  >();
   try {
-    const manualRows = await fetchAllRows(() =>
-      supabase
-        .from("manual_price")
-        .select("stay_date, room_type_id, price, set_by, set_at")
-        .eq("hotel_id", hotelId)
-        .gte("stay_date", firstDate)
-        .lte("stay_date", lastDate)
-        .is("cleared_at", null)
-        .order("stay_date", { ascending: true })
-        .order("room_type_id", { ascending: true }),
-    );
+    const readManual = (columns: string) =>
+      fetchAllRows(() =>
+        supabase
+          .from("manual_price")
+          .select(columns)
+          .eq("hotel_id", hotelId)
+          .gte("stay_date", firstDate)
+          .lte("stay_date", lastDate)
+          .is("cleared_at", null)
+          .order("stay_date", { ascending: true })
+          .order("room_type_id", { ascending: true }),
+      );
+    let manualRows;
+    try {
+      manualRows = await readManual("stay_date, room_type_id, price, set_by, set_at, source, pms_type");
+    } catch (e) {
+      if (!isMissingColumnError(e)) throw e;
+      manualRows = await readManual("stay_date, room_type_id, price, set_by, set_at");
+    }
     for (const m of manualRows) {
       if (!m.room_type_id || m.price == null) continue;
       manualByCell.set(`${m.stay_date}|${m.room_type_id}`, {
         price: Number(m.price),
         set_by: m.set_by != null ? String(m.set_by) : null,
         set_at: String(m.set_at),
+        source: m.source === "pms" ? "pms" : "maya",
+        pms_type: m.source === "pms" && m.pms_type != null ? String(m.pms_type) : null,
       });
     }
   } catch (e) {

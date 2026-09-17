@@ -68,7 +68,9 @@ function applyOne(p: number, adj: AdjustmentSpec): number {
 }
 
 /**
- * Clamp price to floor/ceiling. §10.3: never emit negative or zero prices.
+ * Clamp price to floor/ceiling. §10.3: never emit negative or zero prices,
+ * except that a floor of 0 is taken as given: only priceBounds makes one, for
+ * a manual price of 0.
  */
 export function clampPrice(
   price: number,
@@ -78,6 +80,29 @@ export function clampPrice(
   if (price > ceilingPrice) return { final: ceilingPrice, clamped_by: "ceiling" };
   if (price < floorPrice) return { final: floorPrice, clamped_by: "floor" };
   return { final: Math.round(price * 100) / 100, clamped_by: "none" };
+}
+
+/**
+ * The floor and ceiling a cell's price is clamped to.
+ *
+ * A manual price is published as it is, under the floor (a $0 comp night) or
+ * over the ceiling included: the bounds hold MAYA's own moves, not a number a
+ * person set, whether it was typed in MAYA or changed in the PMS on a night
+ * MAYA had sent. Clamping it published a different number, and on a night
+ * changed in the PMS the push then wrote that number over the hotel's own.
+ * Rules stacked on it are still clamped, to bounds widened only as far as the
+ * manual price itself, so no rule takes the price further out than the
+ * person put it. The push's guardrails allow exactly the same range
+ * (push-guardrails.ts).
+ */
+export function priceBounds(
+  floorPrice: number,
+  ceilingPrice: number,
+  basePrice: number,
+  baseSource: BaseSource,
+): { floor: number; ceiling: number } {
+  if (baseSource !== "manual" || !Number.isFinite(basePrice)) return { floor: floorPrice, ceiling: ceilingPrice };
+  return { floor: Math.min(floorPrice, basePrice), ceiling: Math.max(ceilingPrice, basePrice) };
 }
 
 /**
@@ -278,7 +303,8 @@ export function assemblePriceFrom(
   pickupEffects: (AdjustmentSpec & { event_id: string })[],
 ): AssembledPrice {
   const preClamp = applyAdjustments(basePrice, ladderEffects, pickupEffects);
-  const { final, clamped_by } = clampPrice(preClamp, roomType.floor_price, roomType.ceiling_price);
+  const bounds = priceBounds(roomType.floor_price, roomType.ceiling_price, basePrice, baseSource);
+  const { final, clamped_by } = clampPrice(preClamp, bounds.floor, bounds.ceiling);
 
   return {
     stay_date: stayDate,

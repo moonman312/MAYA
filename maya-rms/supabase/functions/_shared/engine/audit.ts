@@ -41,7 +41,13 @@ export type AuditInput = {
    */
   previousSignature?: string | null;
   /** The open manual_price row for this cell, when one exists. */
-  manualOverride?: { set_by: string | null; set_at: string } | null;
+  manualOverride?: {
+    set_by: string | null;
+    set_at: string;
+    /** 'pms': changed in the PMS on a night MAYA had sent. Missing or 'maya': typed in MAYA. */
+    source?: "maya" | "pms";
+    pms_type?: string | null;
+  } | null;
 };
 
 /**
@@ -51,7 +57,7 @@ export type AuditInput = {
  */
 export type AuditBaseDetails = {
   base_source: BaseSource;
-  manual_override?: { set_by: string | null; set_at: string };
+  manual_override?: { set_by: string | null; set_at: string; source?: "pms"; pms_type?: string | null };
 };
 
 /**
@@ -173,6 +179,10 @@ export function buildAuditRow(input: AuditInput): Record<string, unknown> | null
           manual_override: {
             set_by: input.manualOverride.set_by,
             set_at: input.manualOverride.set_at,
+            // Only a PMS change is marked, so a typed price's row reads as it always has.
+            ...(input.manualOverride.source === "pms"
+              ? { source: "pms" as const, pms_type: input.manualOverride.pms_type ?? null }
+              : {}),
           },
         }
       : {}),

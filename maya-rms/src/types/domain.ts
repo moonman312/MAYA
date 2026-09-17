@@ -169,8 +169,12 @@ export type EvaluationAuditDetails = {
   booking_speed_observations?: Record<string, unknown>[];
   /** Which precedence slot supplied the base. Rows written before manual prices existed lack it. */
   base_source?: "manual" | "calendar" | "reservation" | "remembered";
-  /** Present only when base_source is "manual": who typed the price and when. */
-  manual_override?: { set_by: string | null; set_at: string };
+  /**
+   * Present only when base_source is "manual": who typed the price and when.
+   * `source` "pms" (with no setter) is a price changed in the PMS on a night
+   * MAYA had sent; rows typed in MAYA leave it out.
+   */
+  manual_override?: { set_by: string | null; set_at: string; source?: "pms"; pms_type?: string | null };
 };
 
 export type EvaluationAudit = {
