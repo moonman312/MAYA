@@ -130,6 +130,24 @@ const RECONCILE_LOOKBACK_MS = 60 * 60_000;
 /** Past this age a job still undecided is logged, once per isolate. */
 const RECONCILE_UNCONFIRMED_AFTER_MS = 45 * 60_000;
 const loggedUnconfirmed = new Set<string>();
+/**
+ * Earlier jobs this isolate has already seen decided, by hotel, PMS and job
+ * reference. A confirmed job's cells stay "sent" in the ledger for the whole
+ * lookback, so without this every tick asked the vendor about it again,
+ * counted its cells as confirmed again, and logged rate_job_unconfirmed once
+ * it dropped off the vendor's recent-jobs list.
+ */
+const decidedJobs = new Set<string>();
+const DECIDED_JOBS_MAX = 5000;
+
+function decidedKey(hotelId: string, pmsType: string, ref: string): string {
+  return `${hotelId}|${pmsType}|${ref}`;
+}
+
+/** Test hook: forget which jobs were already decided. */
+export function resetDecidedJobs(): void {
+  decidedJobs.clear();
+}
 
 // deno-lint-ignore no-explicit-any
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -271,7 +289,7 @@ export async function pushRatesForHotel(
   }
   const skippedUnchanged = ppRows.length - changed.length - skippedExhausted;
   if (changed.length === 0) {
-    const earlier = earlierJobs(recentlySent, new Set());
+    const earlier = earlierJobs(recentlySent, new Set(), (ref) => decidedJobs.has(decidedKey(hotelId, adapter.pmsType, ref)));
     const jobConfirmed =
       earlier.size > 0
         ? await reconcileJobOutcomes(supabase, hotelId, adapter, [], new Date().toISOString(), earlier, opts.deadlineAt)
@@ -410,7 +428,11 @@ export async function pushRatesForHotel(
   // Reconcile the jobs we have references for; anything still running is left
   // alone for the next tick to ask about again.
   // Cells re-sent just now carry this run's job, not the earlier one.
-  const earlier = earlierJobs(recentlySent, new Set(results.map((r) => `${r.cell.stayDate}|${r.cell.roomTypeId}`)));
+  const earlier = earlierJobs(
+    recentlySent,
+    new Set(results.map((r) => `${r.cell.stayDate}|${r.cell.roomTypeId}`)),
+    (ref) => decidedJobs.has(decidedKey(hotelId, adapter.pmsType, ref)),
+  );
   const jobConfirmed = await reconcileJobOutcomes(supabase, hotelId, adapter, results, nowIso, earlier, opts.deadlineAt);
 
   // Rejections against cached rate ids usually mean the catalog was rebuilt and
@@ -434,14 +456,15 @@ export async function pushRatesForHotel(
   };
 }
 
-/** Earlier runs' sent cells grouped by job, leaving out cells in `resent`. */
+/** Earlier runs' sent cells grouped by job, leaving out cells in `resent` and jobs already decided. */
 function earlierJobs(
   recentlySent: Array<{ key: string; ref: string; pushedAt: number; result: CellPushResult }>,
   resent: Set<string>,
+  decided: (ref: string) => boolean = () => false,
 ): Map<string, { pushedAt: number; cells: CellPushResult[] }> {
   const out = new Map<string, { pushedAt: number; cells: CellPushResult[] }>();
   for (const r of recentlySent) {
-    if (resent.has(r.key)) continue;
+    if (resent.has(r.key) || decided(r.ref)) continue;
     const entry = out.get(r.ref) ?? { pushedAt: r.pushedAt, cells: [] };
     entry.cells.push(r.result);
     entry.pushedAt = Math.min(entry.pushedAt, r.pushedAt);
@@ -531,6 +554,8 @@ async function reconcileJobOutcomes(
         }
         continue;
       }
+      if (decidedJobs.size >= DECIDED_JOBS_MAX) decidedJobs.clear();
+      decidedJobs.add(decidedKey(hotelId, adapter.pmsType, jobRef));
       if (outcome.ok) {
         ok += cells.length;
         continue;

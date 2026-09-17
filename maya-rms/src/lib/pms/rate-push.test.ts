@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   pushRatesForHotel,
+  resetDecidedJobs,
   type CellPushResult,
   type PmsRatePushAdapter,
   type RateCell,
@@ -328,6 +329,7 @@ describe("pushRatesForHotel against a deadline", () => {
 });
 
 describe("pushRatesForHotel asks again about earlier jobs", () => {
+  afterEach(() => resetDecidedJobs());
   const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
 
   function jobAdapter(outcomes: (refs: string[]) => Record<string, { done: boolean; ok: boolean; message?: string }>) {
@@ -385,5 +387,51 @@ describe("pushRatesForHotel asks again about earlier jobs", () => {
     expect(res).toMatchObject({ sent: 1, jobsRejected: 1 });
     const failed = db.ledgerUpserts.filter((r) => r.status === "failed");
     expect(failed.map((r) => `${r.stay_date}|${r.room_type_id}|${r.pms_job_reference}`)).toEqual(["2026-08-01|rt-king|job-1"]);
+  });
+
+  it("stops asking about an earlier job once it has been confirmed", async () => {
+    const ledger: Row[] = [
+      { stay_date: "2026-08-01", room_type_id: "rt-king", external_room_type_id: "CB-KING", price: 210, status: "sent", attempts: 1, pms_job_reference: "job-done", pushed_at: minutesAgo(5) },
+      { stay_date: "2026-08-01", room_type_id: "rt-queen", external_room_type_id: "CB-QUEEN", price: 180, status: "sent", attempts: 1, pms_job_reference: "job-done", pushed_at: minutesAgo(5) },
+    ];
+    const fixture = { publishedPrice: PRICES_TWO, roomTypes: ROOM_TYPES, ledger, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } };
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    // The vendor lists it as applied once, then it drops off its recent list.
+    let listed = true;
+    const { adapter, asked } = jobAdapter((refs) =>
+      listed ? Object.fromEntries(refs.map((r) => [r, { done: true, ok: true }])) : {},
+    );
+    const first = await pushRatesForHotel(makeSupabaseStub(fixture).supabase, "hotel-1", adapter);
+    expect(first).toMatchObject({ sent: 0, jobsConfirmed: 2 });
+    expect(asked).toEqual([["job-done"]]);
+
+    listed = false;
+    const second = await pushRatesForHotel(makeSupabaseStub(fixture).supabase, "hotel-1", adapter);
+    // Not asked again and not counted twice.
+    expect(asked).toHaveLength(1);
+    expect(second).toMatchObject({ sent: 0 });
+    expect(second).not.toHaveProperty("jobsConfirmed");
+
+    // Nor reported unconfirmed later in the hour.
+    const late = ledger.map((r) => ({ ...r, pushed_at: minutesAgo(50) }));
+    await pushRatesForHotel(makeSupabaseStub({ ...fixture, ledger: late }).supabase, "hotel-1", adapter);
+    expect(asked).toHaveLength(1);
+    expect(errors.mock.calls.some((c) => String(c[0]).includes("rate_job_unconfirmed"))).toBe(false);
+
+    // Another hotel's job with the same reference is still its own question.
+    await pushRatesForHotel(makeSupabaseStub(fixture).supabase, "hotel-2", adapter);
+    expect(asked).toHaveLength(2);
+    errors.mockRestore();
+  });
+
+  it("keeps asking about a job the vendor has not decided", async () => {
+    const ledger: Row[] = [
+      { stay_date: "2026-08-01", room_type_id: "rt-king", external_room_type_id: "CB-KING", price: 210, status: "sent", attempts: 1, pms_job_reference: "job-slow", pushed_at: minutesAgo(5) },
+    ];
+    const fixture = { publishedPrice: PRICES_TWO.slice(0, 1), roomTypes: ROOM_TYPES, ledger, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } };
+    const { adapter, asked } = jobAdapter(() => ({ "job-slow": { done: false, ok: false } }));
+    await pushRatesForHotel(makeSupabaseStub(fixture).supabase, "hotel-1", adapter);
+    await pushRatesForHotel(makeSupabaseStub(fixture).supabase, "hotel-1", adapter);
+    expect(asked).toEqual([["job-slow"], ["job-slow"]]);
   });
 });
