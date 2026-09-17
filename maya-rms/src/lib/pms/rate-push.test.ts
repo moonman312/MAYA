@@ -28,7 +28,7 @@ type Chain = {
   order: () => Chain;
   range: () => Promise<{ data: Row[]; error: null }>;
   maybeSingle: () => Promise<{ data: Row | null; error: null }>;
-  upsert: (rows: Row[]) => Promise<{ error: null }>;
+  upsert: (rows: Row[]) => Promise<{ error: { message: string } | null }>;
   update: (patch: Row) => Chain;
 };
 
