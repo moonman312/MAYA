@@ -319,8 +319,26 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
  * session; RLS only returns incidents marked customer-visible, and the
  * filters below say the same thing. A database without the incident tables
  * yet has nothing to show.
+ *
+ * Never fails the change log. The problems sit beside the pricing runs, and a
+ * read that errors here is logged and shows none rather than hiding the runs.
  */
 async function loadPushProblems(
+  supabase: SupabaseClient,
+  hotelId: string,
+  roomTypeNames: Map<string, string>,
+  since: string | null,
+): Promise<ChangelogPushProblem[]> {
+  try {
+    return await readPushProblems(supabase, hotelId, roomTypeNames, since);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? e);
+    console.error(JSON.stringify({ fn: "api/changelog", step: "push_problems", hotelId, error: message.slice(0, 300) }));
+    return [];
+  }
+}
+
+async function readPushProblems(
   supabase: SupabaseClient,
   hotelId: string,
   roomTypeNames: Map<string, string>,

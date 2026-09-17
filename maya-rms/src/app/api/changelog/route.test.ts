@@ -502,6 +502,16 @@ describe("changelog route: rates not reaching the PMS", () => {
     expect(body.some((item: Row) => item.kind === "push_problem")).toBe(false);
   });
 
+  it("still serves the pricing runs when a problem read fails, and logs it", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fake = liveHotel();
+    fake.failSelectFor.set("rate_push_attempts", { code: "57014", message: "canceling statement due to statement timeout" });
+    const body = await get(fake.client);
+    expect(body.map((item: Row) => item.kind ?? item.timestamp)).toEqual(["2026-07-29T08:05:00Z", "2026-07-29T08:00:00Z"]);
+    expect(errors.mock.calls.some((c) => String(c[0]).includes('"step":"push_problems"') && String(c[0]).includes("statement timeout"))).toBe(true);
+    errors.mockRestore();
+  });
+
   it("still serves the change log on a database without the incident tables", async () => {
     const fake = liveHotel();
     fake.failSelectFor.set("rate_push_incidents", {
