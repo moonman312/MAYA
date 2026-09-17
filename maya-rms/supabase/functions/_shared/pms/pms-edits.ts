@@ -37,6 +37,18 @@
  *     settled night still quoting MAYA's own price counts against a ratio,
  *     so a hotel raising some of its nights by one percentage is taken.
  *
+ * A rate of 0 is not a price to adopt. Every other read of MAYA's takes a
+ * PMS 0 as a night closed or not loaded (zero_base), and a manual price of 0
+ * lets a rule stacked on it through under the floor: a +$20 rule opened a
+ * night the hotel had just closed at $20. So a settled night the PMS now has
+ * at 0 is the hotel closing it. Its base rate goes to 0, exactly as a night
+ * closed before MAYA ever sent to it, so the engine stops pricing it and the
+ * push has nothing to send; the ledger says the PMS holds 0, so the calendar
+ * reads a rate the hotel opens it at later as the hotel's own; and an open
+ * manual price on it is cleared, as the change log's Clear does, since it
+ * would otherwise go on being sent over the closed night. A price typed in
+ * MAYA since the send is left to go out, as with any change.
+ *
  * When the push held a night's manual price back (a comp night's 0 MAYA
  * would not send) and the hotel then set that price by hand, the ledger is
  * brought in step, so the push stops trying to send what is already there.
@@ -60,7 +72,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingColumnError, isMissingRelationError } from "../engine/snapshots.ts";
 import { mwsEnv } from "../mews/env.ts";
-import { setManualPrices } from "./manual-price.ts";
+import { hotelRuleIds, setManualPrices } from "./manual-price.ts";
 import { type RateTargetMap, upsertLedger } from "./rate-push.ts";
 
 const DEFAULT_SETTLE_MINUTES = 60;
@@ -117,6 +129,8 @@ export type PmsEditPlan = {
   inStep: { read: PushedNightRead; price: number }[];
   /** Sends not settled yet whose price the PMS has: settled now. */
   landed: PushedNightRead[];
+  /** Settled nights the PMS now has at 0: closed by the hotel. */
+  closed: PushedNightRead[];
   /** Differ from MAYA's last send, which is not settled or not old enough yet. */
   waiting: number;
   /** Differ, with a price typed in MAYA since the send still to go out. */
@@ -133,7 +147,7 @@ export function planPmsEdits(input: {
   nowMs: number;
   settleMs: number;
 }): PmsEditPlan {
-  const plan: PmsEditPlan = { edits: [], inStep: [], landed: [], waiting: 0, typedSinceSend: 0, systematic: 0 };
+  const plan: PmsEditPlan = { edits: [], inStep: [], landed: [], closed: [], waiting: 0, typedSinceSend: 0, systematic: 0 };
   // Settled, old enough, sent to the rate read and not typed over since: the
   // nights a change can be told on, whether the PMS still quotes MAYA's price.
   let comparable = 0;
@@ -175,6 +189,11 @@ export function planPmsEdits(input: {
     }
     if (manual && manual.source === "maya" && manual.setAtMs > pushedAtMs && ratesDiffer(manual.price, ledgerPrice)) {
       plan.typedSinceSend += 1;
+      continue;
+    }
+    // Neither MAYA's price nor any ratio of it: no say in whether there is one.
+    if (!ratesDiffer(r.pmsRate, 0)) {
+      plan.closed.push(r);
       continue;
     }
     comparable += 1;
@@ -222,23 +241,57 @@ export type PmsEditsResult = {
   inStep: number;
   /** Sends found in the PMS and stamped settled. */
   landed: number;
+  /** Nights closed in the PMS, now at a base of 0. */
+  closed: number;
+  /** Open manual prices on those nights, cleared. */
+  clearedManual: number;
   suppressedRules: number;
   retiredPickups: number;
 };
 
+/** A night's ledger row as read, with what this step now knows about it. */
+function ledgerRow(hotelId: string, pmsType: string, read: PushedNightRead, over: Record<string, unknown>): Record<string, unknown> {
+  const l = read.ledger;
+  return {
+    hotel_id: hotelId,
+    pms_type: l.pms_type != null ? String(l.pms_type) : pmsType,
+    room_type_id: read.roomTypeId,
+    external_room_type_id: read.externalRoomTypeId,
+    stay_date: read.stayDate,
+    price: Number(l.price),
+    external_rate_id: l.external_rate_id != null ? String(l.external_rate_id) : null,
+    status: "sent",
+    pms_job_reference: l.pms_job_reference != null ? String(l.pms_job_reference) : null,
+    error: null,
+    attempts: l.attempts != null ? Number(l.attempts) : 1,
+    pushed_at: l.pushed_at != null ? String(l.pushed_at) : null,
+    sent_price: l.sent_price != null ? Number(l.sent_price) : Number(l.price),
+    confirmed_at: l.confirmed_at != null ? String(l.confirmed_at) : null,
+    pms_edited_at: l.pms_edited_at != null ? String(l.pms_edited_at) : null,
+    ...over,
+  };
+}
+
 /**
- * Adopt the plan's edits as manual prices, bring the ledger in step with what
- * the PMS holds, and stamp the sends it found there as settled. `at` is the
- * tick's instant: set_at, and the evaluation that follows prices at it.
- * Throws the database's error on a failed write.
+ * Adopt the plan's edits as manual prices, close the nights the hotel closed,
+ * bring the ledger in step with what the PMS holds, and stamp the sends it
+ * found there as settled. `at` is the tick's instant: set_at, and the
+ * evaluation that follows prices at it. Throws the database's error on a
+ * failed write.
+ *
+ * A closed night's base goes first: on its own it only stops MAYA pricing a
+ * night the PMS has at 0. A failure after it leaves the ledger saying MAYA's
+ * price is there, so the next refresh closes the night again.
  */
 export async function applyPmsEdits(
   supabase: SupabaseClient,
   hotelId: string,
   pmsType: string,
-  plan: Pick<PmsEditPlan, "edits" | "inStep" | "landed">,
+  plan: Pick<PmsEditPlan, "edits" | "inStep" | "landed" | "closed">,
   at: string,
+  manual: Map<string, OpenManualPrice> = new Map(),
 ): Promise<PmsEditsResult> {
+  const clearedManual = await closeNights(supabase, hotelId, plan.closed, manual, at);
   let reset = { suppressedRules: 0, retiredPickups: 0 };
   if (plan.edits.length > 0) {
     reset = await setManualPrices(
@@ -250,50 +303,19 @@ export async function applyPmsEdits(
     );
   }
 
-  const rows = [...plan.edits, ...plan.inStep].map(({ read, price }) => {
-    const l = read.ledger;
-    return {
-      hotel_id: hotelId,
-      pms_type: l.pms_type != null ? String(l.pms_type) : pmsType,
-      room_type_id: read.roomTypeId,
-      external_room_type_id: read.externalRoomTypeId,
-      stay_date: read.stayDate,
+  // Rows are written whole, from the row as read, as the ledger's upserts all
+  // are; the tick holds the hotel's lease, so nothing wrote them since.
+  const inStep = [...plan.edits, ...plan.inStep, ...plan.closed.map((read) => ({ read, price: 0 }))].map(({ read, price }) =>
+    ledgerRow(hotelId, pmsType, read, {
       price,
-      external_rate_id: l.external_rate_id != null ? String(l.external_rate_id) : null,
-      status: "sent",
-      pms_job_reference: l.pms_job_reference != null ? String(l.pms_job_reference) : null,
-      error: null,
-      attempts: l.attempts != null ? Number(l.attempts) : 1,
-      pushed_at: l.pushed_at != null ? String(l.pushed_at) : null,
       sent_price: price,
       // The rate was read there just now.
-      confirmed_at: l.confirmed_at != null ? String(l.confirmed_at) : at,
+      confirmed_at: read.ledger.confirmed_at != null ? String(read.ledger.confirmed_at) : at,
       pms_edited_at: at,
-    };
-  });
-  // The row as it was read, now settled. Written whole, as the ledger's
-  // upserts all are; the tick holds the hotel's lease, so nothing wrote it since.
-  const landed = plan.landed.map((read) => {
-    const l = read.ledger;
-    return {
-      hotel_id: hotelId,
-      pms_type: l.pms_type != null ? String(l.pms_type) : pmsType,
-      room_type_id: read.roomTypeId,
-      external_room_type_id: read.externalRoomTypeId,
-      stay_date: read.stayDate,
-      price: Number(l.price),
-      external_rate_id: l.external_rate_id != null ? String(l.external_rate_id) : null,
-      status: "sent",
-      pms_job_reference: l.pms_job_reference != null ? String(l.pms_job_reference) : null,
-      error: null,
-      attempts: l.attempts != null ? Number(l.attempts) : 1,
-      pushed_at: l.pushed_at != null ? String(l.pushed_at) : null,
-      sent_price: l.sent_price != null ? Number(l.sent_price) : Number(l.price),
-      confirmed_at: at,
-      pms_edited_at: l.pms_edited_at != null ? String(l.pms_edited_at) : null,
-    };
-  });
-  for (const batch of [rows, landed]) {
+    })
+  );
+  const landed = plan.landed.map((read) => ledgerRow(hotelId, pmsType, read, { confirmed_at: at }));
+  for (const batch of [inStep, landed]) {
     for (let i = 0; i < batch.length; i += 500) {
       const error = await upsertLedger(supabase, batch.slice(i, i + 500));
       if (error) throw new Error(`Failed to record PMS rates in the ledger: ${error.message}`);
@@ -304,9 +326,77 @@ export async function applyPmsEdits(
     adopted: plan.edits.length,
     inStep: plan.inStep.length,
     landed: plan.landed.length,
+    closed: plan.closed.length,
+    clearedManual,
     suppressedRules: reset.suppressedRules,
     retiredPickups: reset.retiredPickups,
   };
+}
+
+/**
+ * Nights the hotel closed: base rate 0, and any open manual price on them
+ * cleared with the rules it paused let go again, as a Clear in MAYA does.
+ * Returns how many manual prices were cleared.
+ */
+async function closeNights(
+  supabase: SupabaseClient,
+  hotelId: string,
+  nights: PushedNightRead[],
+  manual: Map<string, OpenManualPrice>,
+  at: string,
+): Promise<number> {
+  if (nights.length === 0) return 0;
+  const base = nights.map((r) => ({
+    hotel_id: hotelId,
+    stay_date: r.stayDate,
+    room_type_id: r.roomTypeId,
+    price: 0,
+    source: "pms",
+    captured_at: at,
+  }));
+  for (let i = 0; i < base.length; i += 500) {
+    const { error } = await supabase
+      .from("base_rate_calendar")
+      .upsert(base.slice(i, i + 500), { onConflict: "hotel_id,stay_date,room_type_id" });
+    if (error) throw new Error(`Failed to write closed nights' base rates: ${error.message}`);
+  }
+
+  const withManual = nights.filter((r) => manual.has(`${r.stayDate}|${r.roomTypeId}`));
+  if (withManual.length === 0) return 0;
+  const byRoomType = new Map<string, string[]>();
+  for (const r of withManual) byRoomType.set(r.roomTypeId, [...(byRoomType.get(r.roomTypeId) ?? []), r.stayDate]);
+  let cleared = 0;
+  // Cleared before the rules are let go: the other way round, a failure
+  // between the two would have the rules apply on top of the manual price.
+  for (const [roomTypeId, dates] of byRoomType) {
+    for (let i = 0; i < dates.length; i += 100) {
+      const { data, error } = await supabase
+        .from("manual_price")
+        .update({ cleared_at: at, cleared_by: null })
+        .eq("hotel_id", hotelId)
+        .eq("room_type_id", roomTypeId)
+        .in("stay_date", dates.slice(i, i + 100))
+        .is("cleared_at", null)
+        .select("stay_date");
+      if (error) throw new Error(`Failed to clear manual prices on closed nights: ${error.message}`);
+      cleared += (data ?? []).length;
+    }
+  }
+  const ruleIds = await hotelRuleIds(supabase, hotelId);
+  if (ruleIds.length === 0) return cleared;
+  for (const [roomTypeId, dates] of byRoomType) {
+    for (let i = 0; i < dates.length; i += 100) {
+      const { error } = await supabase
+        .from("ladder_rule_state")
+        .update({ suppressed_at: null })
+        .in("rule_id", ruleIds)
+        .eq("room_type_id", roomTypeId)
+        .in("stay_date", dates.slice(i, i + 100))
+        .not("suppressed_at", "is", null);
+      if (error) throw new Error(`Failed to let rules go on closed nights: ${error.message}`);
+    }
+  }
+  return cleared;
 }
 
 /**
@@ -328,7 +418,7 @@ export async function adoptPmsEdits(
   window: { firstDate: string; lastDate: string },
   at: string,
 ): Promise<PmsEditsResult> {
-  const none: PmsEditsResult = { adopted: 0, inStep: 0, landed: 0, suppressedRules: 0, retiredPickups: 0 };
+  const none: PmsEditsResult = { adopted: 0, inStep: 0, landed: 0, closed: 0, clearedManual: 0, suppressedRules: 0, retiredPickups: 0 };
   const inWindow = reads.filter((r) => r.stayDate >= window.firstDate && r.stayDate <= window.lastDate);
   const worthALook = inWindow.some((r) =>
     r.ledger.status === "skipped" ||
@@ -353,8 +443,8 @@ export async function adoptPmsEdits(
     if (!manual) return none;
     plan = planPmsEdits({ reads: inWindow, targets, manual, nowMs: Date.parse(at), settleMs: pmsEditSettleMs() });
     const result =
-      plan.edits.length > 0 || plan.inStep.length > 0 || plan.landed.length > 0
-        ? await applyPmsEdits(supabase, hotelId, pmsType, plan, at)
+      plan.edits.length > 0 || plan.inStep.length > 0 || plan.landed.length > 0 || plan.closed.length > 0
+        ? await applyPmsEdits(supabase, hotelId, pmsType, plan, at, manual)
         : none;
     logPlan(hotelId, pmsType, plan, result);
     return result;
@@ -421,7 +511,8 @@ async function readOpenManualPrices(
 
 /** One line per hotel per refresh, counts only. */
 function logPlan(hotelId: string, pmsType: string, plan: PmsEditPlan, result: PmsEditsResult): void {
-  if (plan.edits.length + plan.inStep.length + plan.landed.length + plan.waiting + plan.typedSinceSend + plan.systematic === 0) return;
+  const found = plan.edits.length + plan.inStep.length + plan.landed.length + plan.closed.length;
+  if (found + plan.waiting + plan.typedSinceSend + plan.systematic === 0) return;
   console.log(
     JSON.stringify({
       fn: "adoptPmsEdits",
@@ -431,6 +522,8 @@ function logPlan(hotelId: string, pmsType: string, plan: PmsEditPlan, result: Pm
       adopted: result.adopted,
       inStep: result.inStep,
       landed: result.landed,
+      closed: result.closed,
+      clearedManual: result.clearedManual,
       suppressedRules: result.suppressedRules,
       retiredPickups: result.retiredPickups,
       waiting: plan.waiting,

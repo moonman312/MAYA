@@ -109,6 +109,31 @@ describe("a night the PMS has at 0", () => {
     expect(tables.published_price.map((r) => `${r.stay_date}|${r.price}`).sort()).toEqual([`${D0}|140`, `${addDays(D0, 2)}|89`]);
   });
 
+  it("removes the published price of a sent night the base rate refresh found closed in the PMS", async () => {
+    const { client, tables } = fakeSupabase(
+      seed({
+        base_rate_calendar: [
+          { hotel_id: "h1", stay_date: D0, room_type_id: "rt1", price: 0 },
+          { hotel_id: "h1", stay_date: addDays(D0, 1), room_type_id: "rt1", price: 0 },
+        ],
+        published_price: [
+          { hotel_id: "h1", stay_date: D0, room_type_id: "rt1", price: 220, base_price: 200, computed_at: "2026-09-15T00:00:00Z" },
+          { hotel_id: "h1", stay_date: addDays(D0, 1), room_type_id: "rt1", price: 220, base_price: 200, computed_at: "2026-09-15T00:00:00Z" },
+        ],
+        rate_updates: [
+          // Sent 220; the hotel then closed the night, and the ledger says the PMS holds 0.
+          { hotel_id: "h1", stay_date: D0, room_type_id: "rt1", price: 0, sent_price: 0, status: "sent", attempts: 1 },
+          // Sent 220, still there.
+          { hotel_id: "h1", stay_date: addDays(D0, 1), room_type_id: "rt1", price: 220, status: "sent", attempts: 1 },
+        ],
+      }),
+    );
+
+    await evaluateHotel(client, "h1", EVAL_TS, 2);
+
+    expect(tables.published_price.map((r) => `${r.stay_date}|${r.price}`)).toEqual([`${addDays(D0, 1)}|220`]);
+  });
+
   it("clears nothing this run when the ledger can't be read", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const { client, tables } = fakeSupabase(

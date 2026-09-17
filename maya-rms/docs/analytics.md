@@ -165,7 +165,7 @@ payment, so `import.started` and often `import.completed` land before
 | `rule.edited` | a behavioural edit (version bump) | same | `rule_id`, `origin`, `version` |
 | `rule.deleted` | deleted (effects reverted); not emitted when the hotel itself is deleted | same | `rule_id`, `origin`, `was_active`, `age_days` |
 | `manual_price.set` | one save of a typed price, over a range of nights | statement trigger on `manual_price` | `room_type_id`, `nights`, `first_night`, `last_night`, `lead_days` |
-| `manual_price.cleared` | one clear, of a typed price or one changed in the PMS | same | `room_type_id`, `nights`, `first_night`, `last_night` |
+| `manual_price.cleared` | one clear, of a typed price or one changed in the PMS; also the base rate refresh clearing one on nights the hotel closed in its PMS (set to 0), which names no person and is filed under the owner | same | `room_type_id`, `nights`, `first_night`, `last_night` |
 | `manual_price.changed_in_pms` | the base rate refresh kept rates the hotel changed in its PMS, on nights MAYA had sent to, as manual prices; one per room type per refresh | same | `room_type_id`, `nights`, `first_night`, `last_night`, `lead_days` |
 | `room_type.classified` | a person answered "is this a room?" (the import's guess is not recorded) | trigger on `room_types.counts_as_room` | `room_type_id`, `counts_as_room`, `previous`, `confirmed_guess` |
 | `room_type.out_of_service_added` | units taken out for a date range | trigger on `room_type_out_of_service` | `room_type_id`, `units`, `nights`, `starts_in_days` |

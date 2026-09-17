@@ -498,7 +498,9 @@ export async function publishPrices(
  * showed nothing and the push never looked at the night again. Kept, the row
  * shows the rate that is there, and the push holds the night and files it
  * (guardrail:zero_base) so admins can see it. A ledger that can't be read
- * keeps every row this run, for the same reason.
+ * keeps every row this run, for the same reason. Not a sent row at 0: the
+ * base rate refresh found the hotel closed that night in the PMS
+ * (pms-edits.ts), so MAYA's rate is not there any more.
  *
  * Never throws: the prices this run did publish stand either way. A row that
  * could not be removed is logged; the push holds back a closed night on its
@@ -523,7 +525,7 @@ export async function clearUnpricedCells(
       const chunk = dates.slice(i, i + PUBLISH_CHUNK);
       const { data: sentTo, error: ledgerError } = await supabase
         .from("rate_updates")
-        .select("stay_date, status, attempts")
+        .select("stay_date, status, attempts, price")
         .eq("hotel_id", hotelId)
         .eq("room_type_id", roomTypeId)
         .in("stay_date", chunk);
@@ -534,8 +536,9 @@ export async function clearUnpricedCells(
         continue;
       }
       const keep = new Set(
-        ((sentTo ?? []) as { stay_date: unknown; status: unknown; attempts: unknown }[])
+        ((sentTo ?? []) as { stay_date: unknown; status: unknown; attempts: unknown; price: unknown }[])
           .filter((r) => !(r.status === "skipped" && r.attempts != null && Number(r.attempts) === 0))
+          .filter((r) => !(r.status === "sent" && r.price != null && Number(r.price) === 0))
           .map((r) => String(r.stay_date).slice(0, 10)),
       );
       const clear = chunk.filter((d) => !keep.has(d));
