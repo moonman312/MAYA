@@ -420,6 +420,7 @@ export async function insertPickupEvent(
       signal_booked_revenue_end: candidate.signal_booked_revenue_end,
       applied_at: candidate.eval_ts,
       retired_at: null,
+      retired_reason: null,
       action_kind: candidate.rule.action_type,
       action_direction: candidate.rule.action_direction,
       action_value: candidate.rule.action_value,

@@ -375,6 +375,8 @@ export async function updateRepeatAlerts(
           action_direction: rule.action_direction,
           opened_at: now,
           updated_at: now,
+          resolved_at: null,
+          resolution: null,
         })
         .select("id, rule_version")
         .single();
@@ -408,6 +410,11 @@ export async function updateRepeatAlerts(
       rule_version: rule.version,
       reached_at: now,
       updated_at: now,
+      choice: null,
+      chosen_at: null,
+      chosen_by: null,
+      closed_at: null,
+      closed_reason: null,
     }));
     const { error } = await supabase.from("rule_repeat_alert_nights").insert(payload);
     if (!error) {
