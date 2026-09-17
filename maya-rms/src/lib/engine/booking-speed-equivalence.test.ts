@@ -15,11 +15,13 @@ import {
 import { indexBookingRows } from "@/lib/observations/booking-rows";
 import {
   HISTORY_YEARS_BACK,
+  bookingSpeedAuditSnapshots,
   loadBookingSpeedContext,
   observeForStayDate,
   resetBookingSpeedLogOnce,
+  signalSetKey,
 } from "./booking-speed-provider";
-import { legacy, makeFixture, type Fixture } from "./booking-speed-legacy.test";
+import { legacy, legacySetObservations, makeFixture, type Fixture } from "./booking-speed-legacy.test";
 import { FakeRpcError, fakeSupabase, missingFunction, type FakeRow } from "./fake-supabase.test";
 import { bookingSpeedHistorySummary, scaleRpc } from "./scale-rpc-model.test";
 
@@ -97,6 +99,133 @@ describe.each(fixtures)("Booking Speed old vs new: $name", (fx) => {
     const legacyPace = legacy.dailyPaceSeries(keptHistory, fx.capacity);
     expect(fromRanks).toEqual(legacyPace);
     expect(dailyPaceSeriesFromIndex(indexBookingRows(keptHistory), fx.capacity)).toEqual(legacyPace);
+  });
+});
+
+const COUNTING = ["rt-a", "rt-b"];
+const PATHS = [
+  ["migrated", { rpc: scaleRpc }],
+  ["pre-migration", { rpc: () => new FakeRpcError(missingFunction("booking_speed_history_summary")), maxRows: 1000 }],
+  [
+    "migrated, windows without an include list",
+    {
+      rpc: (fn: string, args: unknown, tables: Record<string, FakeRow[]>) =>
+        fn === "booking_speed_windows" && (args as Record<string, unknown>).p_include !== undefined
+          ? new FakeRpcError(missingFunction("booking_speed_windows"))
+          : scaleRpc(fn, args, tables),
+    },
+  ],
+] as const;
+
+/** Suites that only started selling in March 2025, so older dates are no evidence for them. */
+function withNewRoomType(fx: Fixture): Fixture {
+  return {
+    ...fx,
+    name: `${fx.name}, rt-b new in 2025`,
+    reservations: fx.reservations.filter((r) => !(r.room_type_id === "rt-b" && String(r.stay_date) < "2025-03-01")),
+  };
+}
+
+describe.each([fixtures[1], fixtures[2], fixtures[3], fixtures[5], withNewRoomType(makeFixture(9, 30))])(
+  "Booking Speed over measured sets: $name",
+  (fx) => {
+    const targets = Array.from({ length: HORIZON }, (_, i) => addDays(fx.localDate, i));
+    const horizonEnd = targets[targets.length - 1];
+    const closed = fx.closed.map((c) => ({ start_date: String(c.start_date), end_date: String(c.end_date) }));
+    const old = legacy.run(fx.reservations, closed, fx.challenges, fx.localDate, fx.capacity, fx.exclude, targets, WINDOWS);
+    const sets = [["rt-a"], ["rt-b"]];
+    const expected = new Map(sets.map((set) => [signalSetKey(set), legacySetObservations(fx, set, targets, WINDOWS)]));
+
+    it.each(PATHS)("%s path: the counting set is the hotel-wide observation, every other set matches the row model", async (_label, opts) => {
+      const { client } = fakeSupabase(
+        { reservations: fx.reservations, hotel_closed_periods: fx.closed, assumption_challenges: fx.challenges },
+        opts,
+      );
+      const ctx = await loadBookingSpeedContext(client, "h1", fx.localDate, fx.capacity, fx.exclude, horizonEnd, COUNTING, [
+        ["rt-b", "rt-a"],
+        ...sets,
+      ]);
+      expect(ctx).not.toBeNull();
+      expect(ctx!.seasonModel).toEqual(old!.seasonModel);
+      for (const target of targets) {
+        for (const w of WINDOWS) {
+          const hotel = observeForStayDate(ctx!, target, w, ["rt-b", "rt-a", "rt-a"]);
+          expect(hotel).toEqual(old!.observations.get(`${target}|${w}`));
+          expect(hotel).not.toHaveProperty("measuredRoomTypeIds");
+          for (const set of sets) {
+            const got = observeForStayDate(ctx!, target, w, set);
+            expect(got).toEqual(expected.get(signalSetKey(set))!.get(`${target}|${w}`));
+            // The comparables are the hotel's, whatever is measured.
+            expect(got.selection).toEqual(hotel.selection);
+          }
+        }
+      }
+      // The hotel-wide entries keep their old keys, so a default run's cache is unchanged.
+      expect(ctx!.observationCache.has(`${targets[0]}|7`)).toBe(true);
+      expect(ctx!.observationCache.size).toBe(targets.length * WINDOWS.length * 3);
+    });
+  },
+);
+
+describe("Booking Speed measured sets", () => {
+  const fx = makeFixture(31, 40);
+  const targets = Array.from({ length: 10 }, (_, i) => addDays(fx.localDate, i));
+  const horizonEnd = targets[targets.length - 1];
+
+  async function load(signalSets: string[][]) {
+    const { client, calls } = fakeSupabase(
+      { reservations: fx.reservations, hotel_closed_periods: fx.closed, assumption_challenges: fx.challenges },
+      { rpc: scaleRpc },
+    );
+    const ctx = await loadBookingSpeedContext(client, "h1", fx.localDate, fx.capacity, fx.exclude, horizonEnd, COUNTING, signalSets);
+    return { ctx: ctx!, calls };
+  }
+
+  it("shares one cache entry between rules measuring the same set in any order", async () => {
+    const { ctx } = await load([["rt-a", "rt-court"], ["rt-court", "rt-a"]]);
+    const a = observeForStayDate(ctx, targets[3], 7, ["rt-a", "rt-court"]);
+    const b = observeForStayDate(ctx, targets[3], 7, ["rt-court", "rt-a", "rt-a"]);
+    expect(b).toBe(a);
+    expect(ctx.observationCache.size).toBe(1);
+    expect(a.measuredRoomTypeIds).toEqual(["rt-a", "rt-court"]);
+    expect(ctx.setWindows!.size).toBe(1);
+  });
+
+  it("asks for a default-only run's windows exactly as before", async () => {
+    const plain = await load([]);
+    const counting = await load([COUNTING, ["rt-b", "rt-a"]]);
+    const rpcArgs = (calls: typeof plain.calls) => calls.filter((c) => c.table.startsWith("rpc:")).map((c) => JSON.stringify(c));
+    expect(rpcArgs(counting.calls)).toEqual(rpcArgs(plain.calls));
+    expect(counting.ctx.setWindows!.size).toBe(0);
+  });
+
+  it("a set with no bookings at all never makes a call", async () => {
+    const { ctx } = await load([["rt-never-sold"]]);
+    for (const t of targets) {
+      for (const w of WINDOWS) {
+        const obs = observeForStayDate(ctx, t, w, ["rt-never-sold"]);
+        expect(obs.method).not.toBe("comparable");
+        expect(obs.recentBookings).toBe(0);
+        expect(obs.perComparable.every((c) => !c.hasData)).toBe(true);
+        expect(obs.classification.speed).toBe("normal");
+      }
+    }
+  });
+
+  it("refuses a set that was not loaded rather than reading it as hotel-wide", async () => {
+    const { ctx } = await load([]);
+    expect(() => observeForStayDate(ctx, targets[0], 7, ["rt-a"])).toThrow(/not loaded/);
+  });
+
+  it("puts a narrower set's observation only in the audit of cells that asked for it", async () => {
+    const { ctx } = await load([["rt-a"]]);
+    observeForStayDate(ctx, targets[2], 7, COUNTING);
+    observeForStayDate(ctx, targets[2], 30, ["rt-a"]);
+    expect(bookingSpeedAuditSnapshots(ctx, targets[2])).toHaveLength(1);
+    const both = bookingSpeedAuditSnapshots(ctx, targets[2], new Set([signalSetKey(["rt-a"])]));
+    expect(both).toHaveLength(2);
+    expect(both[1]).toHaveProperty("measuredRoomTypeIds", ["rt-a"]);
+    expect(bookingSpeedAuditSnapshots(ctx, targets[1], new Set([signalSetKey(["rt-a"])]))).toHaveLength(0);
   });
 });
 

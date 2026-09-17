@@ -242,8 +242,10 @@ export const legacy = {
       .concat(seasonExclusionPeriods(reinforcement, Number(historyStart.slice(0, 4)), Number(historyEnd.slice(0, 4))));
     const seasonModel = detectSeasons(daily, { exclusions: seasonExclusions, ...(pace.length > 0 ? { pace } : {}) });
     const observations = new Map<string, unknown>();
+    const selections = new Map<string, ComparableSelection>();
     for (const target of targets) {
       const selection = selectComparableDates(target, { seasonModel, historyStart, historyEnd, isExcluded });
+      selections.set(target, selection);
       const dates = new Set<string>([target, addDays(target, -MOMENTUM_YEAR_OFFSET_DAYS)]);
       for (const c of selection.comparables) dates.add(c.date);
       for (let offset = -MOMENTUM_RADIUS_DAYS; offset <= MOMENTUM_RADIUS_DAYS; offset++) {
@@ -258,7 +260,7 @@ export const legacy = {
         observations.set(`${target}|${w}`, legacy.observe(relevant, target, localDate, selection, w, isExcluded));
       }
     }
-    return { daily, pace, seasonModel, observations };
+    return { daily, pace, seasonModel, observations, selections, isExcluded };
   },
 };
 
@@ -344,3 +346,67 @@ describe("legacy booking speed reference", () => {
     expect(legacy.run([], [], [], "2026-09-16", 10, new Set(), ["2026-09-16"], [7])).toBeNull();
   });
 });
+
+/* ── measured sets: a row-level reference ─────────────────────────────── */
+
+/**
+ * What a rule measuring only `include` should observe, from the rows. The
+ * comparables are the hotel's (legacy.run); the counts are the set's rows.
+ * A consulted date has data for the set when the hotel has a row that day
+ * and it is on or after the set's first row among the consulted dates. A
+ * marker row with no booking window stands for that presence: hasAnyRow sees
+ * it, pickupInWindow never counts it.
+ */
+export function legacySetObservations(
+  fx: Fixture,
+  include: string[],
+  targets: string[],
+  windows: number[],
+): Map<string, unknown> | null {
+  const closed = fx.closed.map((c) => ({ start_date: String(c.start_date), end_date: String(c.end_date) }));
+  const hotelRun = legacy.run(fx.reservations, closed, fx.challenges, fx.localDate, fx.capacity, fx.exclude, targets, windows);
+  if (!hotelRun) return null;
+  const historyStart = addDays(fx.localDate, -(HISTORY_YEARS_BACK * 366));
+  const relevantFor = (target: string) => {
+    const dates = new Set<string>([target, addDays(target, -MOMENTUM_YEAR_OFFSET_DAYS)]);
+    for (const c of hotelRun.selections.get(target)!.comparables) dates.add(c.date);
+    for (let offset = -MOMENTUM_RADIUS_DAYS; offset <= MOMENTUM_RADIUS_DAYS; offset++) {
+      if (offset === 0) continue;
+      const n = addDays(target, offset);
+      dates.add(n);
+      dates.add(addDays(n, -MOMENTUM_YEAR_OFFSET_DAYS));
+    }
+    return dates;
+  };
+  const consulted = new Set<string>();
+  for (const t of targets) for (const d of relevantFor(t)) if (d >= historyStart) consulted.add(d);
+  const mine = fx.reservations.filter((r) => r.hotel_id === "h1" && String(r.stay_date) >= historyStart);
+  const hotelDates = new Set(
+    mine.filter((r) => !(r.room_type_id != null && fx.exclude.has(String(r.room_type_id)))).map((r) => String(r.stay_date)),
+  );
+  const setRows = mine.filter((r) => r.room_type_id != null && include.includes(String(r.room_type_id)));
+  const setDates = new Set(setRows.map((r) => String(r.stay_date)));
+  const first = [...consulted].filter((d) => setDates.has(d)).sort()[0];
+  const measured = [...new Set(include)].sort();
+  const out = new Map<string, unknown>();
+  for (const target of targets) {
+    const relevant: SlimReservationRow[] = [];
+    for (const d of relevantFor(target)) {
+      if (first === undefined || d < first || d < historyStart || !hotelDates.has(d)) continue;
+      const rows = setRows.filter((r) => String(r.stay_date) === d);
+      if (rows.length === 0) relevant.push({ stay_date: d, booking_date: null, booking_window_days: null });
+      for (const r of rows) {
+        relevant.push({
+          stay_date: d,
+          booking_date: r.booking_date != null ? String(r.booking_date) : null,
+          booking_window_days: r.booking_window_days != null ? Number(r.booking_window_days) : null,
+        });
+      }
+    }
+    for (const w of windows) {
+      const obs = legacy.observe(relevant, target, fx.localDate, hotelRun.selections.get(target)!, w, hotelRun.isExcluded);
+      out.set(`${target}|${w}`, { ...obs, measuredRoomTypeIds: measured });
+    }
+  }
+  return out;
+}

@@ -19,7 +19,7 @@ import { pathToFileURL } from "node:url";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { addDays } from "@/lib/observations/calendar";
-import { legacy, makeFixture, rng, type Fixture } from "./booking-speed-legacy.test";
+import { legacy, legacySetObservations, makeFixture, rng, type Fixture } from "./booking-speed-legacy.test";
 import { loadBookingSpeedContext, observeForStayDate, resetBookingSpeedLogOnce } from "./booking-speed-provider";
 import { loadLastAuditSignatures } from "./audit";
 import { FakeRpcError, fakeSupabase, missingFunction, type FakeRow } from "./fake-supabase.test";
@@ -307,6 +307,35 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
         for (const t of targets) {
           for (const w of [1, 7, 30]) {
             expect(observeForStayDate(ctx!, t, w)).toEqual(old!.observations.get(`${t}|${w}`));
+          }
+        }
+      }, 120_000);
+
+      it("a rule measuring one room type observes what the row model says, through the include list", async () => {
+        await insertReservations(db, fx.reservations);
+        const { client } = fakeSupabase({ hotel_closed_periods: fx.closed, assumption_challenges: fx.challenges });
+        (client as unknown as { rpc: unknown }).rpc = pgliteRpc(db);
+        const counting = [uuidFor("rt-a"), uuidFor("rt-b")];
+        const set = [uuidFor("rt-b")];
+        const ctx = await loadBookingSpeedContext(
+          client as SupabaseClient,
+          H1,
+          fx.localDate,
+          fx.capacity,
+          fx.exclude,
+          targets[targets.length - 1],
+          counting,
+          [counting, set],
+        );
+        const expected = legacySetObservations(
+          { ...fx, reservations: fx.reservations.map((r) => ({ ...r, hotel_id: r.hotel_id === H1 ? "h1" : "other" })) },
+          set,
+          targets,
+          [1, 7, 30],
+        );
+        for (const t of targets) {
+          for (const w of [1, 7, 30]) {
+            expect(observeForStayDate(ctx!, t, w, set)).toEqual(expected!.get(`${t}|${w}`));
           }
         }
       }, 120_000);

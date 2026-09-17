@@ -79,6 +79,12 @@ export interface BookingSpeedObservation {
   momentum?: MomentumEstimate;
   selection: ComparableSelection;
   classification: BookingSpeedClassification;
+  /**
+   * The room types counted, when a rule measures only some of the hotel's.
+   * Absent for the hotel-wide observation (every room type that counts as a
+   * room), which is also how every snapshot written before this field reads.
+   */
+  measuredRoomTypeIds?: string[];
 }
 
 export interface ObserveBookingSpeedOptions {
