@@ -75,7 +75,10 @@
 --
 -- RLS: pickup_event keeps its policies. The alert tables are written by the
 -- service role only (the scheduled runs and the manual price republish). Any
--- member of the hotel reads them. A choice goes through
+-- member of the hotel reads them. A run under a signed-in session (the
+-- evaluate button, which runs the engine on the caller's own session) reads
+-- them and logs its alert writes as refused; the next scheduled run files
+-- what the fires already show. A choice goes through
 -- rule_repeat_alert_choose, which checks can_manage_hotel. Nobody signed in
 -- can delete, per 99_supabase_migration_no_customer_deletes_v1.sql.
 --
