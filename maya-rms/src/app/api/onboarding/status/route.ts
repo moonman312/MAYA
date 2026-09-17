@@ -1,4 +1,5 @@
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
+import { pricingHorizonDays } from "@/lib/pms/pricing-window";
 import { marketplaceReconnectNeeded } from "@/lib/pms/purged";
 import { getRegistry, type PmsType } from "@/lib/pms/registry";
 import { hasHotelRank } from "@/lib/require-supabase-hotel";
@@ -54,11 +55,14 @@ export async function GET() {
     job = data;
   }
 
-  const { data: settings } = await supabase
-    .from("hotel_settings")
-    .select("simulation_mode")
-    .eq("hotel_id", hotelId)
-    .maybeSingle();
+  const [{ data: settings }, { data: connections }] = await Promise.all([
+    supabase.from("hotel_settings").select("simulation_mode").eq("hotel_id", hotelId).maybeSingle(),
+    // Which PMS going live would send to, for the confirm step; a live
+    // connection wins over a stale one, as the manual price route reads it.
+    supabase.from("pms_connections").select("pms_type, status").eq("hotel_id", hotelId),
+  ]);
+  const connection =
+    (connections ?? []).find((c: { status: unknown }) => c.status === "connected") ?? (connections ?? [])[0] ?? null;
 
   const [{ count: proposedFindings }, { data: latestProposed }] = await Promise.all([
     supabase
@@ -119,5 +123,8 @@ export async function GET() {
     proposedFindings: proposedFindings ?? 0,
     latestProposedAt: latestProposed?.created_at ?? null,
     simulationMode: settings?.simulation_mode !== false,
+    pmsType: connection?.pms_type != null ? String(connection.pms_type) : null,
+    // The nights the push sends, so the go-live confirm names the real window.
+    pushWindowDays: pricingHorizonDays(),
   });
 }

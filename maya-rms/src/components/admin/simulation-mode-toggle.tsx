@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { GoLiveDialog } from "@/components/go-live-dialog";
 
 /**
  * Per-hotel pricing-mode toggle. The switch represents LIVE:
@@ -9,22 +10,39 @@ import { useState, useTransition } from "react";
  *   OFF (gray)   → simulation: data still syncs and prices are still computed
  *                  and shown, but nothing is written back to the PMS.
  * `simulationMode` is the current value (true = simulation / switch off).
+ *
+ * Turning it on asks first (GoLiveDialog), and nothing is sent to the server
+ * until the admin confirms. Turning it off stops sending, and goes at once.
  */
 export function SimulationModeToggle({
   hotelId,
   simulationMode,
+  pmsType,
+  windowDays,
 }: {
   hotelId: string;
   simulationMode: boolean;
+  /** The hotel's PMS, for what the confirm step says will happen. */
+  pmsType: string | null;
+  /** Nights the push sends (pricingHorizonDays). */
+  windowDays: number;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [sim, setSim] = useState(simulationMode);
+  const [confirming, setConfirming] = useState(false);
   const live = !sim;
+
+  function onSwitch() {
+    setError(null);
+    if (sim) setConfirming(true);
+    else void toggle();
+  }
 
   async function toggle() {
     setError(null);
+    setConfirming(false);
     const nextSim = !sim; // flipping the Live switch flips simulation
     setSim(nextSim);
     startTransition(async () => {
@@ -51,7 +69,7 @@ export function SimulationModeToggle({
           role="switch"
           aria-checked={live}
           aria-label="Toggle live pricing"
-          onClick={toggle}
+          onClick={onSwitch}
           disabled={pending}
           className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition ${
             live ? "bg-emerald-500" : "bg-slate-700"
@@ -83,6 +101,15 @@ export function SimulationModeToggle({
           rules and prices are correct first.
         </p>
       )}
+
+      <GoLiveDialog
+        open={confirming}
+        pmsType={pmsType}
+        windowDays={windowDays}
+        busy={pending}
+        onConfirm={() => void toggle()}
+        onCancel={() => setConfirming(false)}
+      />
     </div>
   );
 }

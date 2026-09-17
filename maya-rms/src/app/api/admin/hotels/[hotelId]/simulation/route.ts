@@ -8,6 +8,9 @@ import { NextResponse } from "next/server";
  * Body: { simulationMode: boolean }
  *   true  → simulation (compute + display only; no PMS writes)
  *   false → live (scheduled job pushes computed rates to the PMS)
+ *
+ * The platform admin who made the change is recorded on the
+ * hotel.simulation_mode_changed audit event (detail.actor_user_id).
  */
 export async function PATCH(
   req: Request,
@@ -31,7 +34,7 @@ export async function PATCH(
   }
 
   try {
-    await setHotelSimulationMode(ctx.admin, hotelId, body.simulationMode);
+    await setHotelSimulationMode(ctx.admin, hotelId, body.simulationMode, ctx.user.id);
     return NextResponse.json({ ok: true, simulationMode: body.simulationMode });
   } catch (error) {
     return NextResponse.json(

@@ -5,6 +5,7 @@ import { SimulationModeToggle } from "@/components/admin/simulation-mode-toggle"
 import { PmsStatusPill } from "@/components/admin/status-pill";
 import { getHotel, getHotelSimulationMode } from "@/lib/admin/hotels";
 import { listHotelMemberships, listPendingInvites } from "@/lib/admin/memberships";
+import { pricingHorizonDays } from "@/lib/pms/pricing-window";
 import { listPmsStatuses } from "@/lib/pms/registry";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
@@ -109,7 +110,12 @@ export default async function AdminHotelDetailPage({
           </h2>
         </header>
         <div className="space-y-4 p-4">
-          <SimulationModeToggle hotelId={hotel.id} simulationMode={simulationMode} />
+          <SimulationModeToggle
+            hotelId={hotel.id}
+            simulationMode={simulationMode}
+            pmsType={hotel.pms_type}
+            windowDays={pricingHorizonDays()}
+          />
           <HotelTestToggle hotelId={hotel.id} isTest={hotel.is_test === true} />
         </div>
       </section>

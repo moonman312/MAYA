@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTrackOnce } from "@/lib/analytics/track";
 import { currencySymbolFor } from "@/lib/changelog-route-helpers";
 import { TERMS_URL, TERMS_VERSION } from "@/lib/legal/versions";
+import { GoLiveDialog } from "@/components/go-live-dialog";
 import {
   useOnboardingStatus,
   type OnboardingStatus,
@@ -290,9 +291,11 @@ export function ReviewFindings() {
 
 /* ── Starter rules: the payoff ────────────────────────────────────────────── */
 
-function StarterRules({ status }: { status: OnboardingStatus | null }) {
+/** Exported for tests. */
+export function StarterRules({ status }: { status: OnboardingStatus | null }) {
   const [going, setGoing] = useState(false);
   const [live, setLive] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const rules = (status?.job?.stats?.starterRules ?? []) as Array<{
@@ -303,6 +306,7 @@ function StarterRules({ status }: { status: OnboardingStatus | null }) {
 
   const inSimulation = !live && status?.simulationMode !== false;
 
+  // Only the dialog's confirm calls the server; the button just asks first.
   async function goLive() {
     setGoing(true);
     setError(null);
@@ -316,11 +320,12 @@ function StarterRules({ status }: { status: OnboardingStatus | null }) {
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(body?.error ?? "Couldn't switch to live — try again.");
+        throw new Error(body?.error ?? "Couldn't switch to live. Try again.");
       }
       setLive(true);
+      setConfirming(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't switch to live — try again.");
+      setError(e instanceof Error ? e.message : "Couldn't switch to live. Try again.");
     } finally {
       setGoing(false);
     }
@@ -353,32 +358,46 @@ function StarterRules({ status }: { status: OnboardingStatus | null }) {
             <button
               type="button"
               disabled={going}
-              onClick={goLive}
+              onClick={() => {
+                setError(null);
+                setConfirming(true);
+              }}
               className="cursor-pointer rounded bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-60"
             >
               {going ? "Switching…" : "Turn them on for real"}
             </button>
             <span className="text-[11px] text-slate-400">
-              Or leave them in simulation and watch for a while — also a great choice.
+              Or leave them in simulation and watch for a while. That works too.
             </span>
           </>
         ) : (
           <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-medium text-emerald-300">
-            ✓ Live — your rules are now managing prices
+            ✓ Live: your rules are now managing prices
           </span>
         )}
       </div>
-      {inSimulation ? <GoLiveConfirmation /> : null}
-      {error ? <p className="mt-2 text-xs text-rose-300">{error}</p> : null}
+      {error && !confirming ? <p className="mt-2 text-xs text-rose-300">{error}</p> : null}
+      <GoLiveDialog
+        open={inSimulation && confirming}
+        pmsType={status?.pmsType ?? null}
+        windowDays={status?.pushWindowDays ?? null}
+        busy={going}
+        error={error}
+        onConfirm={() => void goLive()}
+        onCancel={() => setConfirming(false)}
+      >
+        <GoLiveConfirmation />
+      </GoLiveDialog>
     </div>
   );
 }
 
 /**
- * What pressing go-live means, said where it is pressed. Terms 3.3 treats that
- * press as confirming the rules and limits were reviewed, so the confirmation
- * is stated beside the button rather than left to Terms accepted weeks
- * earlier, possibly by someone else. A line, not a checkbox: no extra click.
+ * What pressing go-live means, said where it is pressed: in the confirm
+ * dialog, above its Go live button. Terms 3.3 treats that press as confirming
+ * the rules and limits were reviewed, so the confirmation is stated beside the
+ * button rather than left to Terms accepted weeks earlier, possibly by someone
+ * else. A line, not a checkbox: the dialog is the one extra click.
  */
 export function GoLiveConfirmation() {
   return (

@@ -32,6 +32,10 @@ export type OnboardingStatus = {
   } | null;
   proposedFindings?: number;
   simulationMode?: boolean;
+  /** The hotel's PMS (pms_connections.pms_type); older servers leave it out. */
+  pmsType?: string | null;
+  /** Nights the push sends (pricingHorizonDays); older servers leave it out. */
+  pushWindowDays?: number;
   /** The PMS connection is gone and the import cannot run until it is reconnected. */
   reconnect?: {
     pmsType: string;

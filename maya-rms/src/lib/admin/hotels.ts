@@ -137,11 +137,16 @@ export async function getHotelSimulationMode(
  * Flip a hotel between simulation and live pricing. Live means the scheduled
  * job will push computed rates back to the PMS; simulation means it won't.
  * Going live makes the next tick re-read the hotel's base rates first.
+ *
+ * `actorUserId` is the platform admin who flipped it. It rides in the audit
+ * event's detail, as every service-role audit write does: platform_log_event
+ * stores auth.uid(), which is null under the service role.
  */
 export async function setHotelSimulationMode(
   admin: SupabaseClient,
   hotelId: string,
   simulationMode: boolean,
+  actorUserId: string | null = null,
 ): Promise<void> {
   const { error } = await admin
     .from("hotel_settings")
@@ -154,6 +159,6 @@ export async function setHotelSimulationMode(
     p_entity_type: "hotel",
     p_entity_id: hotelId,
     p_hotel_id: hotelId,
-    p_detail: { simulation_mode: simulationMode },
+    p_detail: { simulation_mode: simulationMode, ...(actorUserId ? { actor_user_id: actorUserId } : {}) },
   });
 }
