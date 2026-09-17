@@ -200,6 +200,8 @@ export type GuardrailState = {
    *  MIN_ROWS_TO_TRUST_P99. Never use the raw max here: a single
    *  fat-fingered rate would become the basis of the ceiling. */
   observed_p99_rate: number | null;
+  /** Median nightly rate — the anchor for a data-derived floor. */
+  observed_median_rate: number | null;
   row_count: number;
 };
 
@@ -217,90 +219,7 @@ export type GuardrailSuggestion = {
 const FLOOR_UNSET_MAX = 1.0;
 const CEILING_UNSET_MIN = 99_000;
 
-/**
- * Only fills gaps. A guardrail someone actually set — any non-default value —
- * is their call and never questioned here.
- */
-export function computeGuardrailSuggestions(
-  roomTypes: GuardrailState[],
-  strategy: { floor: number | null; ceiling: number | null },
-  /** Room types the same analysis flagged as probably-not-rooms — don't
-   *  suggest guardrails for something we're also suggesting excluding. */
-  suspectRoomTypeIds: ReadonlySet<string> = new Set(),
-): GuardrailSuggestion[] {
-  const out: GuardrailSuggestion[] = [];
-  for (const rt of roomTypes) {
-    if (suspectRoomTypeIds.has(rt.room_type_id)) continue;
-
-    // Computed before either suggestion is pushed (but pushed in the
-    // original floor-then-ceiling order below): the hotel-wide strategy
-    // floor answer has no idea what THIS room type's own rates are, and a
-    // cheaper room type (or one still at schema defaults after a refresh,
-    // which skips the strategy projection entirely) can have a p99-derived
-    // ceiling below that floor. The pair would be impossible to accept —
-    // whichever field is applied second violates floor<=ceiling and the
-    // findings route 500s on it — so the floor suggestion below must know
-    // the ceiling target ahead of time, same discipline
-    // computeInitialGuardrails already applies.
-    let ceilingTarget: number | null = null;
-    if (rt.ceiling_price >= CEILING_UNSET_MIN) {
-      const p99Basis = rt.row_count >= MIN_ROWS_TO_TRUST_P99 ? rt.observed_p99_rate : null;
-      ceilingTarget =
-        strategy.ceiling && strategy.ceiling > (p99Basis ?? 0)
-          ? strategy.ceiling
-          : p99Basis
-            ? Math.round((p99Basis * 1.5) / 10) * 10
-            : null;
-    }
-
-    if (rt.floor_price <= FLOOR_UNSET_MAX && strategy.floor && strategy.floor > 0) {
-      // Whatever ceiling this room type is about to have (the target just
-      // computed, an already-set ceiling, or failing that its own observed
-      // p99) must clear the floor strictly — equal would pin the room to a
-      // single fixed price, which passes the DB check but is its own kind
-      // of wrong.
-      const effectiveCeiling =
-        ceilingTarget ?? (rt.ceiling_price < CEILING_UNSET_MIN ? rt.ceiling_price : rt.observed_p99_rate);
-      if (effectiveCeiling == null || strategy.floor < effectiveCeiling) {
-        out.push({
-          suggestion_type: "set_guardrail",
-          room_type_id: rt.room_type_id,
-          room_type_name: rt.name,
-          field: "floor_price",
-          current: rt.floor_price,
-          suggested: strategy.floor,
-          rationale: `"${rt.name}" has no price floor — nothing stops a rule from discounting it below what you'd ever accept.`,
-        });
-      }
-    }
-
-    if (ceilingTarget && ceilingTarget > 0) {
-      out.push({
-        suggestion_type: "set_guardrail",
-        room_type_id: rt.room_type_id,
-        room_type_name: rt.name,
-        field: "ceiling_price",
-        current: rt.ceiling_price,
-        suggested: ceilingTarget,
-        rationale: `"${rt.name}" has no ceiling — a runaway surge could price it absurdly and embarrass you on the OTAs.`,
-      });
-    }
-  }
-  return out;
-}
-
-/* ── Initial (first-run) guardrails ──────────────────────────── */
-
-export type InitialGuardrailInput = GuardrailState & {
-  /** Median nightly rate — the anchor for a data-derived floor. */
-  observed_median_rate: number | null;
-};
-
-export type InitialGuardrail = {
-  room_type_id: string;
-  field: "floor_price" | "ceiling_price";
-  value: number;
-};
+/* ── Data-derived guardrails ─────────────────────────────────── */
 
 /**
  * A floor well below normal discounting range still blocks a fat-fingered
@@ -321,14 +240,170 @@ export const MIN_ROWS_FOR_DATA_GUARDRAILS = 30;
 export const MIN_ROWS_TO_TRUST_P99 = 200;
 
 /**
+ * The floor a room type's own history supports, or null when there are too
+ * few nights to call anything typical. The first import writes this and a
+ * refresh only suggests it, so both go through here and never disagree.
+ */
+function dataFloorFor(rt: Pick<GuardrailState, "observed_median_rate" | "row_count">): number | null {
+  if (rt.row_count < MIN_ROWS_FOR_DATA_GUARDRAILS) return null;
+  if (!rt.observed_median_rate || rt.observed_median_rate <= 0) return null;
+  return Math.max(
+    MIN_DATA_FLOOR,
+    Math.round((rt.observed_median_rate * DATA_FLOOR_FRACTION_OF_MEDIAN) / 5) * 5,
+  );
+}
+
+/**
+ * The ceiling a room type's own history supports: p99 x 1.5, never the raw
+ * max, so one typo'd rate can't become the basis of the cap — which also
+ * needs enough rows that the typo itself isn't what p99 is measuring.
+ */
+function dataCeilingFor(rt: Pick<GuardrailState, "observed_p99_rate" | "row_count">): number | null {
+  if (rt.row_count < MIN_ROWS_TO_TRUST_P99) return null;
+  if (!rt.observed_p99_rate || rt.observed_p99_rate <= 0) return null;
+  const ceiling = Math.round((rt.observed_p99_rate * 1.5) / 10) * 10;
+  return ceiling > 0 ? ceiling : null;
+}
+
+// Same symbols the change log uses (src/lib/changelog-route-helpers.ts,
+// which Deno can't import).
+const CURRENCY_SYMBOLS: Record<string, string> = { USD: "$", EUR: "€", GBP: "£" };
+
+/** An amount in rationale copy, in the hotel's own currency. */
+function money(amount: number, currency: string | null): string {
+  const symbol = currency ? (CURRENCY_SYMBOLS[currency] ?? `${currency} `) : "$";
+  const cents = Number.isInteger(amount) ? 0 : 2;
+  return `${symbol}${amount.toLocaleString("en-US", { minimumFractionDigits: cents, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Only fills gaps. A guardrail someone actually set — any non-default value —
+ * is their call and never questioned here. A gap gets the owner's own
+ * strategy answer when they gave one, and otherwise the number the room
+ * type's own history supports: the same floor and ceiling a first import
+ * would have written. Each rationale says which of the two it came from.
+ */
+export function computeGuardrailSuggestions(
+  roomTypes: GuardrailState[],
+  strategy: { floor: number | null; ceiling: number | null },
+  /** Room types the same analysis flagged as probably-not-rooms — don't
+   *  suggest guardrails for something we're also suggesting excluding. */
+  suspectRoomTypeIds: ReadonlySet<string> = new Set(),
+  /** The hotel's currency code, for the amounts in the rationale. */
+  currency: string | null = null,
+): GuardrailSuggestion[] {
+  const out: GuardrailSuggestion[] = [];
+  const m = (amount: number) => money(amount, currency);
+  for (const rt of roomTypes) {
+    if (suspectRoomTypeIds.has(rt.room_type_id)) continue;
+    const name = rt.name || "This room type";
+
+    // Computed before either suggestion is pushed (but pushed in the
+    // original floor-then-ceiling order below): the hotel-wide strategy
+    // floor answer has no idea what THIS room type's own rates are, and a
+    // cheaper room type (or one still at schema defaults after a refresh,
+    // which skips the strategy projection entirely) can have a p99-derived
+    // ceiling below that floor. The pair would be impossible to accept —
+    // whichever field is applied second violates floor<=ceiling and the
+    // findings route 500s on it — so the floor suggestion below must know
+    // the ceiling target ahead of time, same discipline
+    // computeInitialGuardrails already applies.
+    let ceiling: { value: number; rationale: string } | null = null;
+    if (rt.ceiling_price >= CEILING_UNSET_MIN) {
+      const trustedP99 = rt.row_count >= MIN_ROWS_TO_TRUST_P99 ? rt.observed_p99_rate : null;
+      const fromData = dataCeilingFor(rt);
+      if (strategy.ceiling && strategy.ceiling > (trustedP99 ?? 0)) {
+        ceiling = {
+          value: strategy.ceiling,
+          rationale: `You said the most you'd charge for a night is ${m(strategy.ceiling)}, so MAYA suggests that as the ceiling.`,
+        };
+      } else if (fromData != null) {
+        ceiling = {
+          value: fromData,
+          rationale: `${name} has rarely sold for more than ${m(Math.round(trustedP99 ?? 0))} a night, so MAYA suggests a ceiling of ${m(fromData)}.`,
+        };
+      }
+    }
+
+    // A strategy answer is the owner's own number and wins outright. When it
+    // can't fit under this room type's ceiling, no floor is suggested at all
+    // rather than a lower one they said they'd never take; the data floor
+    // only fills in for an owner who never answered.
+    let floor: { value: number; rationale: string } | null = null;
+    if (rt.floor_price <= FLOOR_UNSET_MAX) {
+      if (strategy.floor && strategy.floor > 0) {
+        floor = {
+          value: strategy.floor,
+          rationale: `You said the lowest rate you'd accept is ${m(strategy.floor)}, so MAYA suggests that as the floor.`,
+        };
+      } else {
+        const fromData = dataFloorFor(rt);
+        if (fromData != null) {
+          floor = {
+            value: fromData,
+            rationale: `${name} has typically sold for ${m(Math.round(rt.observed_median_rate ?? 0))} a night, so MAYA suggests a floor of ${m(fromData)}.`,
+          };
+        }
+      }
+    }
+
+    if (floor) {
+      // Whatever ceiling this room type is about to have (the target just
+      // computed, an already-set ceiling, or failing that its own observed
+      // p99) must clear the floor strictly — equal would pin the room to a
+      // single fixed price, which passes the DB check but is its own kind
+      // of wrong.
+      const effectiveCeiling =
+        ceiling?.value ?? (rt.ceiling_price < CEILING_UNSET_MIN ? rt.ceiling_price : rt.observed_p99_rate);
+      if (effectiveCeiling == null || floor.value < effectiveCeiling) {
+        out.push({
+          suggestion_type: "set_guardrail",
+          room_type_id: rt.room_type_id,
+          room_type_name: rt.name,
+          field: "floor_price",
+          current: rt.floor_price,
+          suggested: floor.value,
+          rationale: floor.rationale,
+        });
+      }
+    }
+
+    // And the other way round: a ceiling at or under a floor someone already
+    // set can never be accepted either, same as computeInitialGuardrails.
+    if (ceiling && ceiling.value > rt.floor_price) {
+      out.push({
+        suggestion_type: "set_guardrail",
+        room_type_id: rt.room_type_id,
+        room_type_name: rt.name,
+        field: "ceiling_price",
+        current: rt.ceiling_price,
+        suggested: ceiling.value,
+        rationale: ceiling.rationale,
+      });
+    }
+  }
+  return out;
+}
+
+/* ── Initial (first-run) guardrails ──────────────────────────── */
+
+/** Same shape as a refresh reads: the median now rides on GuardrailState. */
+export type InitialGuardrailInput = GuardrailState;
+
+export type InitialGuardrail = {
+  room_type_id: string;
+  field: "floor_price" | "ceiling_price";
+  value: number;
+};
+
+/**
  * First-run gap-filling: data-derived floors and ceilings for room types
  * still at schema defaults AFTER the strategy answers were projected.
  * Room types whose guardrails were set by a human (or by strategy answers)
  * are untouched; suspect room types are skipped — no point fitting
  * guardrails to something the same analysis says is probably not a room.
- * Ceilings use p99 x 1.5, never the raw max, so one typo'd rate can't
- * become the basis of the cap — which requires enough rows that the typo
- * itself isn't what p99 is measuring (MIN_ROWS_TO_TRUST_P99).
+ * The numbers themselves come from dataFloorFor and dataCeilingFor, the
+ * same ones a refresh suggests.
  */
 export function computeInitialGuardrails(
   roomTypes: InitialGuardrailInput[],
@@ -346,29 +421,14 @@ export function computeInitialGuardrails(
     // rather than propose a patch that can never land: the room type keeps
     // no cap, but at least doesn't waste a doomed write pretending it tried.
     let newCeiling: number | null = null;
-    if (
-      rt.row_count >= MIN_ROWS_TO_TRUST_P99 &&
-      rt.ceiling_price >= CEILING_UNSET_MIN &&
-      rt.observed_p99_rate &&
-      rt.observed_p99_rate > 0
-    ) {
-      const candidate = Math.round((rt.observed_p99_rate * 1.5) / 10) * 10;
-      if (candidate > 0 && candidate > rt.floor_price) {
-        newCeiling = candidate;
-        out.push({ room_type_id: rt.room_type_id, field: "ceiling_price", value: newCeiling });
-      }
+    const dataCeiling = rt.ceiling_price >= CEILING_UNSET_MIN ? dataCeilingFor(rt) : null;
+    if (dataCeiling != null && dataCeiling > rt.floor_price) {
+      newCeiling = dataCeiling;
+      out.push({ room_type_id: rt.room_type_id, field: "ceiling_price", value: newCeiling });
     }
 
-    if (
-      rt.row_count >= MIN_ROWS_FOR_DATA_GUARDRAILS &&
-      rt.floor_price <= FLOOR_UNSET_MAX &&
-      rt.observed_median_rate &&
-      rt.observed_median_rate > 0
-    ) {
-      const floor = Math.max(
-        MIN_DATA_FLOOR,
-        Math.round((rt.observed_median_rate * DATA_FLOOR_FRACTION_OF_MEDIAN) / 5) * 5,
-      );
+    const floor = rt.floor_price <= FLOOR_UNSET_MAX ? dataFloorFor(rt) : null;
+    if (floor != null) {
       const effectiveCeiling =
         newCeiling ?? (rt.ceiling_price < CEILING_UNSET_MIN ? rt.ceiling_price : null);
       if (effectiveCeiling === null || floor < effectiveCeiling) {

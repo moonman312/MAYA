@@ -360,13 +360,16 @@ describe("computeGuardrailSuggestions", () => {
     floor_price: 1.0, // schema default = unset
     ceiling_price: 99999.99, // schema default = unset
     observed_p99_rate: 400,
+    observed_median_rate: 220,
     row_count: 500,
     ...o,
   });
+  const NO_ANSWERS = { floor: null, ceiling: null };
 
   it("fills unset guardrails, preferring the user's own strategy answers", () => {
     const out = computeGuardrailSuggestions([rt({})], { floor: 79, ceiling: 500 });
     expect(out).toHaveLength(2);
+    // Their stated floor (79) beats the median-derived 90.
     expect(out[0]).toMatchObject({ field: "floor_price", suggested: 79 });
     // Their stated ceiling (500) beats the p99-derived 600.
     expect(out[1]).toMatchObject({ field: "ceiling_price", suggested: 500 });
@@ -378,40 +381,66 @@ describe("computeGuardrailSuggestions", () => {
       { floor: 79, ceiling: 500 }, // data disagrees — doesn't matter
     );
     expect(out).toHaveLength(0);
+    // Nor with no answers, where the data would otherwise fill both.
+    expect(computeGuardrailSuggestions([rt({ floor_price: 45, ceiling_price: 350 })], NO_ANSWERS)).toHaveLength(0);
   });
 
-  it("derives a ceiling from observed rates when no strategy answer exists", () => {
-    const out = computeGuardrailSuggestions([rt({})], { floor: null, ceiling: null });
-    expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({ field: "ceiling_price", suggested: 600 }); // p99 400 * 1.5
+  it("derives both guardrails from observed rates when no strategy answer exists", () => {
+    const out = computeGuardrailSuggestions([rt({})], NO_ANSWERS);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatchObject({ field: "floor_price", suggested: 90 }); // median 220 * 0.4 -> 88 -> 90
+    expect(out[1]).toMatchObject({ field: "ceiling_price", suggested: 600 }); // p99 400 * 1.5
+  });
+
+  it("suggests exactly what a first import would have written from the same data", () => {
+    const cases = [
+      rt({}),
+      rt({ observed_median_rate: 18, observed_p99_rate: 40 }), // clamped to MIN_DATA_FLOOR
+      rt({ observed_median_rate: 137.5, observed_p99_rate: 263 }), // rounding both ways
+      rt({ row_count: 50, observed_median_rate: 200, observed_p99_rate: 5198 }), // floor only
+      rt({ row_count: 30 }), // right at the floor's row bar
+      rt({ floor_price: 60 }), // one set, one default
+      rt({ ceiling_price: 300 }),
+      rt({ floor_price: 700 }), // a set floor above what the data would cap at
+    ];
+    for (const c of cases) {
+      const suggested = computeGuardrailSuggestions([c], NO_ANSWERS).map((s) => [s.field, s.suggested]);
+      const written = computeInitialGuardrails([c]).map((g) => [g.field, g.value]);
+      expect(suggested.sort()).toEqual(written.sort());
+    }
+  });
+
+  it("uses the same row-count bars as the first import: 30 nights for a floor, 200 for a ceiling", () => {
+    expect(computeGuardrailSuggestions([rt({ row_count: 29 })], NO_ANSWERS)).toHaveLength(0);
+    const at30 = computeGuardrailSuggestions([rt({ row_count: 30 })], NO_ANSWERS);
+    expect(at30.map((s) => s.field)).toEqual(["floor_price"]);
+    const at200 = computeGuardrailSuggestions([rt({ row_count: 200 })], NO_ANSWERS);
+    expect(at200.map((s) => s.field)).toEqual(["floor_price", "ceiling_price"]);
   });
 
   it("a single fat-fingered rate cannot inflate the suggested ceiling", () => {
     // The $24,000 typo scenario: max is absurd but p99 stays sane, and the
     // ceiling suggestion follows p99 — the typo never becomes the baseline.
-    const out = computeGuardrailSuggestions([rt({ observed_p99_rate: 418 })], {
-      floor: null,
-      ceiling: null,
-    });
-    expect(out).toHaveLength(1);
-    expect(out[0].suggested).toBeLessThan(1000);
+    const out = computeGuardrailSuggestions([rt({ observed_p99_rate: 418 })], NO_ANSWERS);
+    expect(out.find((s) => s.field === "ceiling_price")!.suggested).toBeLessThan(1000);
   });
 
   it("suggests no guardrails for room types flagged as probably-not-rooms", () => {
-    const out = computeGuardrailSuggestions(
-      [rt({})],
-      { floor: 79, ceiling: 500 },
-      new Set(["rt1"]),
-    );
-    expect(out).toHaveLength(0);
+    expect(
+      computeGuardrailSuggestions([rt({})], { floor: 79, ceiling: 500 }, new Set(["rt1"])),
+    ).toHaveLength(0);
+    // The data-derived pair is skipped just the same.
+    expect(computeGuardrailSuggestions([rt({})], NO_ANSWERS, new Set(["rt1"]))).toHaveLength(0);
   });
 
   it("does not suggest a p99-derived ceiling below MIN_ROWS_TO_TRUST_P99 (refresh mode has the same exposure)", () => {
     const out = computeGuardrailSuggestions(
-      [rt({ row_count: 50, observed_p99_rate: 5198 })],
-      { floor: null, ceiling: null },
+      [rt({ row_count: 50, observed_median_rate: 200, observed_p99_rate: 5198 })],
+      NO_ANSWERS,
     );
     expect(out.find((s) => s.field === "ceiling_price")).toBeUndefined();
+    // The median-based floor has no such problem.
+    expect(out.find((s) => s.field === "floor_price")).toMatchObject({ suggested: 80 });
   });
 
   it("still lets the owner's own strategy ceiling apply even when p99 is untrusted", () => {
@@ -423,10 +452,10 @@ describe("computeGuardrailSuggestions", () => {
   });
 
   it("suggests nothing when there is nothing to go on", () => {
-    const out = computeGuardrailSuggestions([rt({ observed_p99_rate: null })], {
-      floor: null,
-      ceiling: null,
-    });
+    const out = computeGuardrailSuggestions(
+      [rt({ observed_p99_rate: null, observed_median_rate: null })],
+      NO_ANSWERS,
+    );
     expect(out).toHaveLength(0);
   });
 
@@ -435,7 +464,8 @@ describe("computeGuardrailSuggestions", () => {
     // answer keyed to standard rooms) against a Budget Single whose own
     // p99 is 90 — a floor=150/ceiling=140 pair is impossible to accept,
     // since whichever field lands second violates floor<=ceiling and 500s.
-    const out = computeGuardrailSuggestions([rt({ observed_p99_rate: 90 })], {
+    // Nor does a lower data floor stand in for the answer the owner gave.
+    const out = computeGuardrailSuggestions([rt({ observed_p99_rate: 90, observed_median_rate: 70 })], {
       floor: 150,
       ceiling: null,
     });
@@ -467,5 +497,60 @@ describe("computeGuardrailSuggestions", () => {
       ceiling: null,
     });
     expect(out.find((s) => s.field === "floor_price")).toBeUndefined();
+  });
+
+  it("never suggests a ceiling at or under a floor someone already set", () => {
+    // p99 400 would cap at 600, and an owner answer of 500 would too, but
+    // this room type's floor is already 700: either card would 500 on accept.
+    expect(computeGuardrailSuggestions([rt({ floor_price: 700 })], NO_ANSWERS)).toHaveLength(0);
+    expect(computeGuardrailSuggestions([rt({ floor_price: 700 })], { floor: null, ceiling: 500 })).toHaveLength(0);
+    expect(computeGuardrailSuggestions([rt({ floor_price: 600 })], NO_ANSWERS)).toHaveLength(0);
+    expect(computeGuardrailSuggestions([rt({ floor_price: 590 })], NO_ANSWERS)).toMatchObject([
+      { field: "ceiling_price", suggested: 600 },
+    ]);
+  });
+
+  it("holds the data floor to the same floor-below-ceiling bar", () => {
+    // Median 220 gives a data floor of 90: over a human-set $80 ceiling, and
+    // tying a room type that has only ever sold at $10 (under 200 rows, so
+    // its own p99 is the bound), neither is suggested.
+    expect(
+      computeGuardrailSuggestions([rt({ ceiling_price: 80 })], NO_ANSWERS).find((s) => s.field === "floor_price"),
+    ).toBeUndefined();
+    expect(
+      computeGuardrailSuggestions(
+        [rt({ row_count: 50, observed_median_rate: 10, observed_p99_rate: 10 })],
+        NO_ANSWERS,
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("says where each number came from, in plain words", () => {
+    const fromData = computeGuardrailSuggestions([rt({})], NO_ANSWERS);
+    expect(fromData.map((s) => s.rationale)).toEqual([
+      "Deluxe King has typically sold for $220 a night, so MAYA suggests a floor of $90.",
+      "Deluxe King has rarely sold for more than $400 a night, so MAYA suggests a ceiling of $600.",
+    ]);
+    const fromAnswers = computeGuardrailSuggestions([rt({})], { floor: 79.5, ceiling: 500 });
+    expect(fromAnswers.map((s) => s.rationale)).toEqual([
+      "You said the lowest rate you'd accept is $79.50, so MAYA suggests that as the floor.",
+      "You said the most you'd charge for a night is $500, so MAYA suggests that as the ceiling.",
+    ]);
+    for (const s of [...fromData, ...fromAnswers]) expect(s.rationale).not.toMatch(/[—–]/);
+  });
+
+  it("rounds the observed rates it quotes and uses the hotel's currency", () => {
+    const [floor, ceiling] = computeGuardrailSuggestions(
+      [rt({ observed_median_rate: 1234.4, observed_p99_rate: 2399.6 })],
+      NO_ANSWERS,
+      new Set(),
+      "EUR",
+    );
+    expect(floor.rationale).toBe("Deluxe King has typically sold for €1,234 a night, so MAYA suggests a floor of €495.");
+    expect(ceiling.rationale).toBe(
+      "Deluxe King has rarely sold for more than €2,400 a night, so MAYA suggests a ceiling of €3,600.",
+    );
+    const [chf] = computeGuardrailSuggestions([rt({})], NO_ANSWERS, new Set(), "CHF");
+    expect(chf.rationale).toContain("CHF 220");
   });
 });

@@ -1267,6 +1267,7 @@ async function buildSuggestionDrafts(
     { data: ruleRows, error: rulesErr },
     { data: roomTypes, error: typesErr },
     { data: settings, error: settingsErr },
+    { data: hotel, error: hotelErr },
   ] =
     await Promise.all([
       supabase
@@ -1285,8 +1286,9 @@ async function buildSuggestionDrafts(
         .select("strategy_floor, strategy_ceiling, pricing_confidence")
         .eq("hotel_id", hotelId)
         .maybeSingle(),
+      supabase.from("hotels").select("currency").eq("id", hotelId).maybeSingle(),
     ]);
-  const readErr = rulesErr ?? typesErr ?? settingsErr;
+  const readErr = rulesErr ?? typesErr ?? settingsErr ?? hotelErr;
   if (readErr) throw new Error(`suggestion inputs failed: ${readErr.message}`);
 
   const totalRooms = (roomTypes ?? []).reduce(
@@ -1328,29 +1330,31 @@ async function buildSuggestionDrafts(
     historyDays.map((d) => Math.min(1, d.room_nights / totalRooms)),
   );
 
-  const p99ByRoomType = new Map<string, number>();
-  const rowCountByRoomType = new Map<string, number>();
-  for (const s of parsedStats) {
-    if (s.p99_rate != null) p99ByRoomType.set(s.room_type_id, s.p99_rate);
-    rowCountByRoomType.set(s.room_type_id, s.row_count);
-  }
+  const statsById = new Map(parsedStats.map((s) => [s.room_type_id, s]));
   const suspectIds = new Set(findSuspectRoomTypes(parsedStats).map((f) => f.room_type_id));
 
   const ruleSuggestions = computeRuleSuggestions(existing, paceSpecs, occupancyRef);
+  // The median rides along so an unset floor gets the same data-derived
+  // suggestion a first import would have written, not silence.
   const guardrailSuggestions = computeGuardrailSuggestions(
-    (roomTypes ?? []).map((rt) => ({
-      room_type_id: String(rt.id),
-      name: String(rt.name),
-      floor_price: Number(rt.floor_price),
-      ceiling_price: Number(rt.ceiling_price),
-      observed_p99_rate: p99ByRoomType.get(String(rt.id)) ?? null,
-      row_count: rowCountByRoomType.get(String(rt.id)) ?? 0,
-    })),
+    (roomTypes ?? []).map((rt) => {
+      const s = statsById.get(String(rt.id));
+      return {
+        room_type_id: String(rt.id),
+        name: String(rt.name),
+        floor_price: Number(rt.floor_price),
+        ceiling_price: Number(rt.ceiling_price),
+        observed_p99_rate: s?.p99_rate ?? null,
+        observed_median_rate: s?.median_rate ?? null,
+        row_count: s?.row_count ?? 0,
+      };
+    }),
     {
       floor: settings?.strategy_floor != null ? Number(settings.strategy_floor) : null,
       ceiling: settings?.strategy_ceiling != null ? Number(settings.strategy_ceiling) : null,
     },
     suspectIds,
+    hotel?.currency != null ? String(hotel.currency) : null,
   );
 
   const allRoomTypeIds = (roomTypes ?? []).map((rt) => String(rt.id));

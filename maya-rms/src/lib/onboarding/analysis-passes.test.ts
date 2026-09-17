@@ -254,6 +254,78 @@ describe("analysing an import early and again at the end", () => {
   });
 });
 
+describe("guardrail suggestions on a refresh", () => {
+  /** A hotel that already has config: nothing answered, one floor set by hand. */
+  function refreshDb(opts: { strategyFloor?: number } = {}) {
+    return fakeSupabase(
+      {
+        room_types: [
+          { id: "rt-king", hotel_id: HOTEL, name: "Deluxe King", is_active: true, total_rooms: 10, floor_price: 1, ceiling_price: 99999.99, counts_as_room: null, counts_as_room_set_by: null },
+          { id: "rt-suite", hotel_id: HOTEL, name: "Garden Suite", is_active: true, total_rooms: 2, floor_price: 180, ceiling_price: 99999.99, counts_as_room: null, counts_as_room_set_by: null },
+        ],
+        hotels: [{ id: HOTEL, currency: "EUR" }],
+        hotel_settings: opts.strategyFloor != null ? [{ hotel_id: HOTEL, strategy_floor: opts.strategyFloor, strategy_ceiling: null }] : [],
+      },
+      {
+        rpc: (fn) => {
+          if (fn === "onboarding_daily_room_nights") return EARLY_DAILY;
+          if (fn !== "onboarding_room_type_stats") return null;
+          return [
+            stat({ room_type_id: "rt-king", name: "Deluxe King", median_rate: 200, p99_rate: 400, max_rate: 450 }),
+            stat({ room_type_id: "rt-suite", name: "Garden Suite", median_rate: 450, p99_rate: 900, max_rate: 950 }),
+          ];
+        },
+      },
+    );
+  }
+  const guardrailCards = (db: ReturnType<typeof refreshDb>) =>
+    db.tables.onboarding_findings
+      .filter((f) => f.kind === "guardrail_suggestion")
+      .map((f): Record<string, unknown> => ({ ...(f.payload as Record<string, unknown>), id: f.id, status: f.status }));
+
+  it("proposes a floor from the room type's own rates when it has none and there's no strategy answer", async () => {
+    const db = refreshDb();
+    await analyzeImport(db.client, importJob({ mode: "refresh" }), "early");
+
+    expect(guardrailCards(db).map((c) => [c.room_type_id, c.field, c.suggested, c.rationale])).toEqual([
+      ["rt-king", "floor_price", 80, "Deluxe King has typically sold for €200 a night, so MAYA suggests a floor of €80."],
+      ["rt-king", "ceiling_price", 600, "Deluxe King has rarely sold for more than €400 a night, so MAYA suggests a ceiling of €600."],
+      // The suite's floor was set by hand, so only its ceiling is a gap.
+      ["rt-suite", "ceiling_price", 1350, "Garden Suite has rarely sold for more than €900 a night, so MAYA suggests a ceiling of €1,350."],
+    ]);
+    // A refresh only ever suggests.
+    expect(db.tables.room_types.map((r) => [r.id, r.floor_price, r.ceiling_price])).toEqual([
+      ["rt-king", 1, 99999.99],
+      ["rt-suite", 180, 99999.99],
+    ]);
+  });
+
+  it("still proposes the owner's strategy floor over the data one", async () => {
+    const db = refreshDb({ strategyFloor: 95 });
+    await analyzeImport(db.client, importJob({ mode: "refresh" }), "early");
+    const floor = guardrailCards(db).find((c) => c.room_type_id === "rt-king" && c.field === "floor_price");
+    expect(floor).toMatchObject({ suggested: 95, rationale: "You said the lowest rate you'd accept is €95, so MAYA suggests that as the floor." });
+  });
+
+  it("does not re-propose a data floor the owner declined earlier in the same analysis", async () => {
+    const db = refreshDb();
+    const job = importJob({ mode: "refresh" });
+    await analyzeImport(db.client, job, "early");
+    const floorCard = db.tables.onboarding_findings.find(
+      (f) => f.kind === "guardrail_suggestion" && (f.payload as Record<string, unknown>).field === "floor_price",
+    )!;
+    floorCard.status = "dismissed";
+    const openBefore = guardrailCards(db).filter((c) => c.status === "proposed").map((c) => c.id);
+
+    await analyzeImport(db.client, { ...job, phase: "analyze", stats: { ...job.stats, earlyAnalysisAt: "x" } }, "final");
+
+    const cards = guardrailCards(db);
+    expect(cards.filter((c) => c.field === "floor_price").map((c) => c.status)).toEqual(["dismissed"]);
+    // The ceilings it didn't answer are the same cards, still open.
+    expect(cards.filter((c) => c.status === "proposed").map((c) => c.id)).toEqual(openBefore);
+  });
+});
+
 describe("planFindingWrites", () => {
   const open = (id: string, kind: string, payload: Record<string, unknown>) => ({ id, kind, status: "proposed", job_id: "job-1", payload });
 

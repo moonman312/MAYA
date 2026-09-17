@@ -15,6 +15,7 @@
  * context.
  */
 import { describe, expect, it, vi } from "vitest";
+import { computeGuardrailSuggestions } from "../../../../../../supabase/functions/_shared/onboarding/suggest";
 
 type Row = Record<string, unknown>;
 type Filter = ["eq", string, unknown] | ["in", string, unknown[]];
@@ -416,5 +417,59 @@ describe("suspect_room_type: the owner's answer is counts_as_room, not is_active
     expect(tables.get("room_types")?.[0]).toMatchObject({ is_active: true, counts_as_room: null });
     expect(tables.get("onboarding_findings")?.[0]).toMatchObject({ status: "dismissed" });
     warn.mockRestore();
+  });
+});
+
+describe("guardrail_suggestion: accepting sets the number on the room type", () => {
+  function seedDataFloor() {
+    // The card exactly as a refresh files it for an unset floor with no
+    // strategy answer: the number came from the room type's own rates.
+    const [floor] = computeGuardrailSuggestions(
+      [
+        {
+          room_type_id: "rt-king",
+          name: "Deluxe King",
+          floor_price: 1,
+          ceiling_price: 99999.99,
+          observed_p99_rate: 400,
+          observed_median_rate: 220,
+          row_count: 500,
+        },
+      ],
+      { floor: null, ceiling: null },
+    );
+    expect(floor).toMatchObject({ field: "floor_price", suggested: 90 });
+    return fakeSupabase({
+      onboarding_findings: [
+        { id: "f1", hotel_id: HOTEL, kind: "guardrail_suggestion", status: "proposed", payload: floor },
+      ],
+      room_types: [{ id: "rt-king", hotel_id: HOTEL, floor_price: 1, ceiling_price: 99999.99 }],
+    });
+  }
+
+  it("confirm applies the suggested floor", async () => {
+    const { client, tables } = seedDataFloor();
+    state.client = client;
+    const res = await post({ action: "confirm" });
+    expect(res.status).toBe(200);
+    expect(tables.get("room_types")?.[0]).toMatchObject({ floor_price: 90, ceiling_price: 99999.99 });
+    expect(tables.get("onboarding_findings")?.[0]).toMatchObject({ status: "confirmed" });
+  });
+
+  it("confirm with the owner's own number applies theirs instead", async () => {
+    const { client, tables } = seedDataFloor();
+    state.client = client;
+    const res = await post({ action: "confirm", value: 75 });
+    expect(res.status).toBe(200);
+    expect(tables.get("room_types")?.[0]).toMatchObject({ floor_price: 75 });
+  });
+
+  it("dismiss leaves the room type alone", async () => {
+    const { client, tables } = seedDataFloor();
+    state.client = client;
+    const res = await post({ action: "dismiss" });
+    expect(res.status).toBe(200);
+    expect(tables.get("room_types")?.[0]).toMatchObject({ floor_price: 1 });
+    expect(tables.get("onboarding_findings")?.[0]).toMatchObject({ status: "dismissed" });
   });
 });
