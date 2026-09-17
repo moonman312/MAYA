@@ -161,17 +161,25 @@ describe("splitByParked for a purged property", () => {
 describe("hotelsImportingNow", () => {
   const NOW = "2026-09-16T12:00:00.000Z";
   const jobs: FakeRow[] = [
-    { hotel_id: "h-running", status: "running", lease_expires_at: "2026-09-16T12:02:00.000Z" },
+    { hotel_id: "h-running", status: "running", phase: "sync_current", lease_expires_at: "2026-09-16T12:02:00.000Z" },
+    // Reading old years for hours: nothing keeps its current bookings fresh
+    // but the scheduled sync, so it must not be skipped.
+    { hotel_id: "h-history", status: "running", phase: "historical", lease_expires_at: "2026-09-16T12:02:00.000Z" },
+    { hotel_id: "h-analyze", status: "running", phase: "analyze", lease_expires_at: "2026-09-16T12:02:00.000Z" },
     // Its worker died: the lease ran out, nobody is calling the PMS for it.
-    { hotel_id: "h-expired", status: "running", lease_expires_at: "2026-09-16T11:00:00.000Z" },
+    { hotel_id: "h-expired", status: "running", phase: "sync_current", lease_expires_at: "2026-09-16T11:00:00.000Z" },
     { hotel_id: "h-queued", status: "queued", lease_expires_at: null },
     { hotel_id: "h-done", status: "completed", lease_expires_at: "2026-09-16T12:02:00.000Z" },
-    { hotel_id: "h-elsewhere", status: "running", lease_expires_at: "2026-09-16T12:02:00.000Z" },
+    { hotel_id: "h-elsewhere", status: "running", phase: "sync_current", lease_expires_at: "2026-09-16T12:02:00.000Z" },
   ];
 
-  it("names only hotels in the batch whose import holds a live lease", async () => {
+  it("names only hotels in the batch refreshing the current window under a live lease", async () => {
     const { client } = fakeSupabase({ import_jobs: jobs });
-    const got = await hotelsImportingNow(client, ["h-running", "h-expired", "h-queued", "h-done", "h-idle"], NOW);
+    const got = await hotelsImportingNow(
+      client,
+      ["h-running", "h-history", "h-analyze", "h-expired", "h-queued", "h-done", "h-idle"],
+      NOW,
+    );
     expect([...got]).toEqual(["h-running"]);
   });
 
