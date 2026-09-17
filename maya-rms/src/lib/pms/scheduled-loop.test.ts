@@ -8,9 +8,12 @@ import {
   claimDispatchedHotel,
   claimDispatchedHotelWaiting,
   healthyReleaseIntervalSeconds,
+  MIN_HEALTHY_GAP_SECONDS,
+  orderClaimedByDue,
   runScheduledHotels,
   type ScheduledLoopConfig,
 } from "../../../supabase/functions/_shared/pms/scheduled-loop";
+import { fakeSupabase } from "../engine/fake-supabase.test";
 
 const config: ScheduledLoopConfig = {
   invocationBudgetMs: 330_000,
@@ -267,8 +270,13 @@ describe("healthyReleaseIntervalSeconds", () => {
     expect(healthyReleaseIntervalSeconds(600, 1_000_000, 1_000_000)).toBe(600 - DUE_SLACK_SECONDS);
   });
 
-  it("is due at once when the invocation ran past the point it would have been due", () => {
-    expect(healthyReleaseIntervalSeconds(300, 1_000_000, 1_000_000 + 320_000)).toBe(0);
+  it("waits the floor after its release when the invocation ran near or past the point it would have been due", () => {
+    expect(healthyReleaseIntervalSeconds(300, 1_000_000, 1_000_000 + 320_000)).toBe(MIN_HEALTHY_GAP_SECONDS);
+    expect(healthyReleaseIntervalSeconds(300, 1_000_000, 1_000_000 + 250_000)).toBe(MIN_HEALTHY_GAP_SECONDS);
+    // Counted from the start while that is longer.
+    expect(healthyReleaseIntervalSeconds(300, 1_000_000, 1_000_000 + 200_000)).toBe(70);
+    // Never longer than the interval itself.
+    expect(healthyReleaseIntervalSeconds(40, 1_000_000, 1_000_000 + 60_000)).toBe(40);
   });
 
   it("syncs a hotel every tick, where counting from the release synced it every other tick", () => {
@@ -279,15 +287,29 @@ describe("healthyReleaseIntervalSeconds", () => {
     expect(simulate((startedAt, releasedAt) => healthyReleaseIntervalSeconds(300, startedAt, releasedAt), latency, work)).toHaveLength(12);
   });
 
-  it("keeps every tick however late in its invocation the hotel was released, or however late the cron started it", () => {
+  it("keeps every tick however late the cron started it", () => {
     const runs = simulate(
       (startedAt, releasedAt) => healthyReleaseIntervalSeconds(300, startedAt, releasedAt),
       (tick) => [200, 25_000, 3_000, 800][tick % 4],
-      (tick) => [5_000, 250_000, 60_000, 285_000][tick % 4] - [200, 25_000, 3_000, 800][tick % 4],
+      (tick) => [5_000, 40_000, 60_000, 90_000][tick % 4] - [200, 25_000, 3_000, 800][tick % 4],
     );
     expect(runs).toHaveLength(12);
     // Never claimed while it was still running.
     for (let i = 1; i < runs.length; i++) expect(runs[i].claimedAt).toBeGreaterThanOrEqual(runs[i - 1].releasedAt);
+  });
+
+  it("never syncs a hotel released near the end of its invocation again seconds later", () => {
+    // A large property that takes most of every invocation.
+    const latency = () => 1_000;
+    const work = () => 294_000;
+    const gaps = (runs: { claimedAt: number; releasedAt: number }[]) =>
+      runs.slice(1).map((r, i) => r.claimedAt - runs[i].releasedAt);
+    // Due at once, it was taken by the next invocation seconds after it finished.
+    const dueAtOnce = simulate((startedAt, releasedAt) => Math.max(0, Math.floor(300 - (releasedAt - startedAt) / 1000 - DUE_SLACK_SECONDS)), latency, work);
+    expect(Math.min(...gaps(dueAtOnce))).toBeLessThan(10_000);
+    const runs = simulate((startedAt, releasedAt) => healthyReleaseIntervalSeconds(300, startedAt, releasedAt), latency, work);
+    expect(Math.min(...gaps(runs))).toBeGreaterThanOrEqual(MIN_HEALTHY_GAP_SECONDS * 1000);
+    expect(runs).toHaveLength(6);
   });
 
   it("waits for the tick after when the run was still going at the next tick's claim", () => {
@@ -297,5 +319,35 @@ describe("healthyReleaseIntervalSeconds", () => {
       (tick) => (tick === 0 ? 310_000 : 5_000),
     );
     expect(runs.map((r) => Math.floor(r.claimedAt / TICK_MS))).toEqual([0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+  });
+});
+
+describe("orderClaimedByDue", () => {
+  const rows = [
+    { hotel_id: "h-late", pms_type: "cloudbeds", sync_due_at: "2026-09-17T12:04:00Z" },
+    { hotel_id: "h-early", pms_type: "cloudbeds", sync_due_at: "2026-09-17T12:00:00Z" },
+    { hotel_id: "h-mid", pms_type: "cloudbeds", sync_due_at: "2026-09-17T12:02:00Z" },
+    { hotel_id: "h-early", pms_type: "think", sync_due_at: "2026-09-17T13:00:00Z" },
+  ];
+
+  it("puts the most overdue claimed hotel first, and one with no due time last", async () => {
+    const d = fakeSupabase({ pms_connections: rows });
+    const log: Record<string, unknown>[] = [];
+    expect(await orderClaimedByDue(d.client, "cloudbeds", ["h-late", "h-gone", "h-early", "h-mid"], (l) => log.push(l))).toEqual([
+      "h-early",
+      "h-mid",
+      "h-late",
+      "h-gone",
+    ]);
+    expect(log).toEqual([]);
+  });
+
+  it("keeps the claim's order when the read fails, and reads nothing for one hotel", async () => {
+    const d = fakeSupabase({ pms_connections: rows }, { fault: () => ({ code: "57014", message: "statement timeout" }) });
+    const log: Record<string, unknown>[] = [];
+    expect(await orderClaimedByDue(d.client, "cloudbeds", ["h-late", "h-early"], (l) => log.push(l))).toEqual(["h-late", "h-early"]);
+    expect(log).toEqual([{ step: "order_claimed", error: "statement timeout" }]);
+    expect(await orderClaimedByDue(d.client, "cloudbeds", ["h-late"], () => {})).toEqual(["h-late"]);
+    expect(d.calls.filter((c) => c.table === "pms_connections")).toHaveLength(1);
   });
 });

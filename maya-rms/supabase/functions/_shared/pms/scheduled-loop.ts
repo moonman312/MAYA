@@ -61,26 +61,71 @@ export const OUT_OF_TIME_RETRY_SECONDS = 30;
 export const DUE_SLACK_SECONDS = 30;
 
 /**
+ * The least time between a hotel's healthy release and its next sync, however
+ * late in its invocation it was released. Never more than the interval itself.
+ */
+export const MIN_HEALTHY_GAP_SECONDS = 60;
+
+/**
  * The p_interval_seconds for release_pms_sync after a healthy run: the sync
  * interval counted from the start of the invocation, less DUE_SLACK_SECONDS,
- * rather than from the release.
+ * rather than from the release, and never under MIN_HEALTHY_GAP_SECONDS.
  *
  * release_pms_sync makes a hotel due its interval after its own now(). A
  * hotel released a few seconds into an invocation was then due a few seconds
  * after the next tick's claim, and waited for the tick after: on a 5-minute
  * cron every hotel synced every 10 minutes (measured: 35 syncs in 6 hours,
  * every gap 9.9 to 10.1 minutes). Counted from the invocation's start it is
- * due by the next tick however late it was released (at once, when the
- * invocation ran that long). It still can't run twice at once or twice in
- * one invocation: an invocation claims only when it starts, and a claimed
- * hotel stays leased until it is released.
+ * due by the next tick. It still can't run twice at once or twice in one
+ * invocation: an invocation claims only when it starts, and a claimed hotel
+ * stays leased until it is released.
+ *
+ * The floor is for a hotel released near the end of its invocation. Due at
+ * once, the next invocation could take it first and sync it again seconds
+ * after this one finished: a large property's reservation reads and pricing
+ * twice over, and more of Cloudbeds' 429s. Such a hotel waits the floor and
+ * is taken by the invocation after.
  *
  * Healthy releases only. A failure's backoff and the out-of-time retry are
  * still measured from the release.
  */
 export function healthyReleaseIntervalSeconds(intervalSeconds: number, invocationStartedAt: number, now: number): number {
   const elapsedSeconds = Math.max(0, now - invocationStartedAt) / 1000;
-  return Math.max(0, Math.floor(intervalSeconds - elapsedSeconds - DUE_SLACK_SECONDS));
+  const anchored = Math.floor(intervalSeconds - elapsedSeconds - DUE_SLACK_SECONDS);
+  return Math.max(0, anchored, Math.min(MIN_HEALTHY_GAP_SECONDS, intervalSeconds));
+}
+
+/**
+ * The claimed hotels, most overdue first. claim_pms_sync_batch picks the
+ * batch by sync_due_at but hands it back in whatever order its UPDATE
+ * returned rows, so a hotel's place in the loop, and with it how long after
+ * its last sync it runs, moved from one invocation to the next. Unknown due
+ * times go last; a failed read keeps the claim's order.
+ */
+export async function orderClaimedByDue(
+  supabase: SupabaseClient,
+  pmsType: string,
+  hotelIds: string[],
+  log: (line: Record<string, unknown>) => void,
+): Promise<string[]> {
+  if (hotelIds.length < 2) return hotelIds;
+  const { data, error } = await supabase
+    .from("pms_connections")
+    .select("hotel_id, sync_due_at")
+    .eq("pms_type", pmsType)
+    .in("hotel_id", hotelIds);
+  if (error) {
+    log({ step: "order_claimed", error: error.message });
+    return hotelIds;
+  }
+  const dueAt = new Map<string, number>();
+  for (const r of (data ?? []) as { hotel_id: unknown; sync_due_at: unknown }[]) {
+    const ms = r.sync_due_at != null ? Date.parse(String(r.sync_due_at)) : NaN;
+    if (Number.isFinite(ms)) dueAt.set(String(r.hotel_id), ms);
+  }
+  const at = (id: string) => dueAt.get(id) ?? Infinity;
+  // Array sort is stable, so equal due times keep the claim's order.
+  return [...hotelIds].sort((a, b) => (at(a) === at(b) ? 0 : at(a) < at(b) ? -1 : 1));
 }
 
 function envMs(name: string, fallback: number): number {

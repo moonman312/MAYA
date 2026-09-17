@@ -25,6 +25,7 @@ import { hotelsImportingNow, splitByParked } from "../_shared/pms/parked.ts";
 import {
   claimDispatchedHotelWaiting,
   healthyReleaseIntervalSeconds,
+  orderClaimedByDue,
   OUT_OF_TIME_RETRY_SECONDS,
   runScheduledHotels,
   scheduledLoopConfigFromEnv,
@@ -159,7 +160,10 @@ Deno.serve(async (req) => {
         headers: { "Content-Type": "application/json" },
       });
     }
-    hotelIds = ((claimed ?? []) as { hotel_id: string }[]).map((r) => r.hotel_id).filter(Boolean);
+    const claimedIds = ((claimed ?? []) as { hotel_id: string }[]).map((r) => r.hotel_id).filter(Boolean);
+    hotelIds = await orderClaimedByDue(supabase, "cloudbeds", claimedIds, (line) =>
+      console.error(JSON.stringify({ fn: "cloudbeds-scheduled-sync", ...line })),
+    );
   }
 
   // Lapsed hotels are dropped before any work happens, not after: syncing and
