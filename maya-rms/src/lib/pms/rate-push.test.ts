@@ -1070,7 +1070,7 @@ describe("pushRatesForHotel files failures as incidents", () => {
   }
   const incidentCalls = (db: ReturnType<typeof liveHotel>) => db.calls.filter((c) => c.table.startsWith("rate_push_"));
 
-  it("makes no incident call on a clean run with nothing failing on record", async () => {
+  it("makes one small incident read on a clean run with nothing failing on record", async () => {
     const db = liveHotel(210);
     const { adapter } = makeAdapter({ "CB-KING": "rate-100" });
 
@@ -1078,7 +1078,7 @@ describe("pushRatesForHotel files failures as incidents", () => {
 
     expect(res).toMatchObject({ sent: 1 });
     expect(res).not.toHaveProperty("incidents");
-    expect(incidentCalls(db)).toEqual([]);
+    expect(incidentCalls(db)).toEqual([expect.objectContaining({ table: "rate_push_incidents", op: "select", columns: "id" })]);
   });
 
   it("opens an incident for a refused price, shows it to the owner, and closes it when a new price lands", async () => {
@@ -1109,11 +1109,11 @@ describe("pushRatesForHotel files failures as incidents", () => {
     expect(landed).toMatchObject({ sent: 1, incidents: { resolved: 1 } });
     expect(db.tables.rate_push_incidents[0]).toMatchObject({ resolution: "superseded" });
 
-    // Nothing failing any more: back to no incident calls at all.
+    // Nothing failing or open any more: back to the one small read.
     const before = incidentCalls(db).length;
     db.tables.published_price[0].price = 530;
     await pushRatesForHotel(db.client, "hotel-1", makeAdapter({ "CB-KING": "rate-100" }).adapter, WIDE);
-    expect(incidentCalls(db)).toHaveLength(before);
+    expect(incidentCalls(db).slice(before)).toEqual([expect.objectContaining({ table: "rate_push_incidents", columns: "id" })]);
   });
 
   it("files a room type whose only rates follow another plan under that cause", async () => {

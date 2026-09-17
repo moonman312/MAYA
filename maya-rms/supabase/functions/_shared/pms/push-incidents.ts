@@ -21,10 +21,18 @@
  * ones that mean MAYA published a bad row raise a warning.
  *
  * Cost. pushRatesForHotel calls this with what the run already knows. When no
- * cell failed and the ledger it read shows nothing failing or held back,
- * nothing here touches the database. Otherwise: one read of the hotel's open
- * incidents, one of their open cells, a read of recently closed ones only
- * when a cause has no open incident, and at most three writes.
+ * cell failed and the ledger it read shows nothing failing or held back, one
+ * indexed read asks whether the hotel has any incident open at all, and that
+ * is all when it has none. The ledger alone is not enough: an incident whose
+ * last cells landed on a run that could not write it, or whose cells are on
+ * nights that left the window, has nothing failing in the ledger and would
+ * stay open for weeks. Otherwise: one read of the hotel's open incidents, one
+ * of their open cells, a read of recently closed ones only when a cause has
+ * no open incident, and at most three writes, then the alerts.
+ *
+ * Alerts go out after the incidents are written, all at once, and only while
+ * the run's deadline leaves room for the webhook's timeout. One that is not
+ * sent leaves alerted_at empty, so the next run tries again.
  *
  * Never throws. Recording runs after the rates went out; a failure here is
  * logged and the push result stands.
@@ -33,6 +41,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { raiseAlert, type Alert } from "./alerting.ts";
 import { causeFacts, pmsName, type PushFailure, type PushPhase } from "./push-failure.ts";
+import { isMissingRelationError } from "../engine/snapshots.ts";
 
 export const INCIDENTS_TABLE = "rate_push_incidents";
 export const INCIDENT_CELLS_TABLE = "rate_push_incident_cells";
@@ -44,6 +53,8 @@ export const MAX_STORED_ATTEMPTS = 500;
 export const ESCALATE_AFTER_MS = 2 * 60 * 60_000;
 /** ...over at least this many tries. */
 export const ESCALATE_AFTER_ATTEMPTS = 5;
+/** Longest an alert can take: raiseAlert's webhook timeout, plus its dedupe read. */
+export const ALERT_BUDGET_MS = 10_000;
 /**
  * An incident closed this recently is reopened rather than a new one opened.
  * A Cloudbeds send counts as landed when its job is still running at the end
@@ -89,6 +100,8 @@ export type PushRunRecord = {
   failures: RunFailure[];
   /** The ledger this run read holds a failed or held-back cell, so an incident may be open. */
   mayHaveOpen: boolean;
+  /** No alert starts when it could still be waiting on the webhook past this (ms). */
+  deadlineAt?: number;
 };
 
 export type IncidentRecordSummary = {
@@ -155,8 +168,8 @@ export async function recordPushIncidents(
   run: PushRunRecord,
   deps: RecordDeps = {},
 ): Promise<IncidentRecordSummary | { error: string } | null> {
-  if (!run.mayHaveOpen && run.failures.length === 0) return null;
   try {
+    if (!run.mayHaveOpen && run.failures.length === 0 && !(await hasOpenIncident(supabase, run))) return null;
     return await record(supabase, run, deps);
   } catch (e) {
     const error = (e instanceof Error ? e.message : String(e)).slice(0, 300);
@@ -171,6 +184,23 @@ export async function recordPushIncidents(
     );
     return { error };
   }
+}
+
+/** Whether the hotel has an incident open for this PMS. A database without the table has none. */
+async function hasOpenIncident(supabase: SupabaseClient, run: PushRunRecord): Promise<boolean> {
+  const { data, error } = await supabase
+    .from(INCIDENTS_TABLE)
+    .select("id")
+    .eq("hotel_id", run.hotelId)
+    .eq("pms_type", run.pmsType)
+    .is("resolved_at", null)
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    if (isMissingRelationError(error)) return false;
+    throw new Error(`open incident check: ${error.message}`);
+  }
+  return data != null;
 }
 
 const cellKey = (stayDate: string, roomTypeId: string) => `${stayDate}|${roomTypeId}`;
@@ -438,6 +468,11 @@ async function record(
       w.row[COUNTER[c.state]] = Math.max(0, w.row[COUNTER[c.state]] - 1);
       c.state = "open";
       c.closed_at = null;
+      // A new episode: "stuck" is measured from here. Counting on from an
+      // earlier failure that landed would show the owner a cell that has
+      // never been stuck for long, one short outage at a time.
+      c.attempts = 0;
+      c.first_attempt_at = f.at;
     }
     c.price = toMoney(f.price);
     c.attempts += 1;
@@ -511,14 +546,6 @@ async function record(
       alerts.push({ w, alert: alertFor(run, w, open, "critical") });
     }
   }
-  for (const { w, alert: a } of alerts) {
-    const res = await alert(supabase, a);
-    if (res.sent || res.reason === "deduped") {
-      w.row.alerted_at = now;
-      w.dirty = true;
-    }
-  }
-
   // ── Write: incidents first, the rest refer to them ────────────────────────
   const everyone = new Set([...incidents.values(), ...byId.values()]);
   const incidentWrites = [...everyone].filter((w) => w.dirty).map((w) => ({ ...w.row, updated_at: now }));
@@ -544,6 +571,43 @@ async function record(
     if (error) throw new Error(`attempts write: ${error.message}`);
   }
   summary.attemptsStored = attemptRows.length;
+
+  // ── Alerts, once everything above is stored ───────────────────────────────
+  // A hanging webhook must not keep the run from its writes or its release.
+  if (alerts.length > 0) {
+    if (run.deadlineAt != null && Date.now() + ALERT_BUDGET_MS > run.deadlineAt) {
+      console.log(
+        JSON.stringify({
+          fn: "recordPushIncidents",
+          hotelId: run.hotelId,
+          pmsType: run.pmsType,
+          alerts: alerts.length,
+          event: "rate_push_alerts_deferred",
+        }),
+      );
+      return summary;
+    }
+    const outcomes = await Promise.all(alerts.map(({ alert: a }) => alert(supabase, a)));
+    const alertedIds = alerts.filter((_, i) => outcomes[i].sent || outcomes[i].reason === "deduped").map(({ w }) => w.row.id);
+    if (alertedIds.length > 0) {
+      const { error } = await supabase
+        .from(INCIDENTS_TABLE)
+        .update({ alerted_at: now, updated_at: now })
+        .in("id", alertedIds);
+      // The alert went out; unmarked, the next run finds it deduped and marks it then.
+      if (error) {
+        console.error(
+          JSON.stringify({
+            fn: "recordPushIncidents",
+            hotelId: run.hotelId,
+            pmsType: run.pmsType,
+            error: String(error.message).slice(0, 300),
+            event: "rate_push_alerted_write_failed",
+          }),
+        );
+      }
+    }
+  }
   return summary;
 }
 

@@ -82,11 +82,45 @@ function db(seed: Record<string, FakeRow[]> = {}, fault?: FakeFault) {
 }
 
 describe("recordPushIncidents", () => {
-  it("touches nothing when nothing failed and nothing is on record as failing", async () => {
+  it("only asks whether anything is open when nothing failed and nothing is on record as failing", async () => {
     const fake = db();
     const res = await recordPushIncidents(fake.client, tick(0, [], [landed("2026-09-20", "rt-1", 0)], false), deps);
     expect(res).toBeNull();
-    expect(fake.calls).toHaveLength(0);
+    expect(fake.calls).toEqual([expect.objectContaining({ table: "rate_push_incidents", op: "select", columns: "id" })]);
+  });
+
+  it("closes an incident whose last cells landed on a run that could not write it, once the ledger shows nothing failing", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const scope: PushFailureInput = { pms: "cloudbeds", phase: "send", message: "Cloudbeds patchRate failed (403): scope required", httpStatus: 403 };
+    let failWrites = false;
+    const fake = db({}, (c) => (failWrites && c.table === "rate_push_incidents" && c.op === "upsert" ? { message: "connection reset" } : null));
+    await recordPushIncidents(fake.client, tick(0, [failure("2026-09-20", "rt-1", 0, scope)]), deps);
+    expect(fake.tables.rate_push_incidents[0]).toMatchObject({ cause: "missing_write_permission", resolved_at: null });
+
+    // The owner fixed it and the cell landed, but that run's write failed.
+    failWrites = true;
+    expect(await recordPushIncidents(fake.client, tick(5, [], [landed("2026-09-20", "rt-1", 5)]), deps)).toMatchObject({
+      error: expect.stringContaining("connection reset"),
+    });
+    expect(fake.tables.rate_push_incidents[0].resolved_at).toBeNull();
+
+    // Every later run sees only sent rows in the ledger.
+    failWrites = false;
+    const res = await recordPushIncidents(fake.client, tick(10, [], [landed("2026-09-20", "rt-1", 5)], false), deps);
+    expect(res).toMatchObject({ resolved: 1 });
+    expect(fake.tables.rate_push_incidents[0]).toMatchObject({ resolved_at: at(10), resolution: "landed" });
+    errors.mockRestore();
+  });
+
+  it("stops an open incident's cells once their nights leave the window, with nothing failing left in the ledger", async () => {
+    const fake = db();
+    const rejected: PushFailureInput = { pms: "cloudbeds", phase: "send", message: "Cloudbeds patchRate failed (400): Rate must be greater than 500" };
+    await recordPushIncidents(fake.client, tick(0, [failure("2026-09-20", "rt-1", 0, rejected)]), deps);
+
+    // The next day: tonight's night is gone from the push, and so from the run.
+    const res = await recordPushIncidents(fake.client, tick(24 * 60, [], [landed("2026-09-21", "rt-1", 0)], false), deps);
+    expect(res).toMatchObject({ resolved: 1 });
+    expect(fake.tables.rate_push_incidents[0]).toMatchObject({ cause: "value_rejected", resolution: "stopped", cells_stopped: 1 });
   });
 
   it("files every cell a retrying cause hit under one incident, out of the owner's sight", async () => {
@@ -193,17 +227,20 @@ describe("recordPushIncidents", () => {
     await recordPushIncidents(
       fake.client,
       tick(0, [
-        failure("2026-09-20", "rt-1", 0, { pms: "cloudbeds", phase: "guardrail", message: GUARDRAIL.belowFloor }),
+        failure("2026-09-20", "rt-1", 0, { pms: "cloudbeds", phase: "guardrail", message: GUARDRAIL.invalidPrice }),
         failure("2026-09-20", "rt-2", 0, { pms: "cloudbeds", phase: "guardrail", message: GUARDRAIL.inactiveRoomType }),
+        // A floor raised after the night was published: expected, not a bug.
+        failure("2026-09-20", "rt-3", 0, { pms: "cloudbeds", phase: "guardrail", message: GUARDRAIL.belowFloor }),
       ]),
       deps,
     );
     const rows = fake.tables.rate_push_incidents;
     expect(rows.map((r) => [r.cause, r.admin_only, r.customer_visible_at])).toEqual([
-      ["guardrail_below_floor", true, null],
+      ["guardrail_invalid_price", true, null],
       ["guardrail_inactive_room_type", true, null],
+      ["guardrail_below_floor", true, null],
     ]);
-    expect(alerts).toEqual([expect.objectContaining({ severity: "warn", key: `rate_push:guardrail_below_floor:${HOTEL}` })]);
+    expect(alerts).toEqual([expect.objectContaining({ severity: "warn", key: `rate_push:guardrail_invalid_price:${HOTEL}` })]);
   });
 
   it("closes a cell as superseded by a new price or another cause, and as stopped once it is not pushed", async () => {
@@ -245,12 +282,55 @@ describe("recordPushIncidents", () => {
     expect(res).toMatchObject({ opened: 0, reopened: 1 });
     expect(fake.tables.rate_push_incidents).toHaveLength(1);
     expect(fake.tables.rate_push_incidents[0]).toMatchObject({ resolved_at: null, resolution: null, cells_landed: 0 });
-    expect(fake.tables.rate_push_incident_cells[0]).toMatchObject({ state: "open", attempts: 2, closed_at: null });
+    // A new episode for the cell: its tries and its start count from the reopening.
+    expect(fake.tables.rate_push_incident_cells[0]).toMatchObject({ state: "open", attempts: 1, first_attempt_at: at(10), closed_at: null });
 
     // Past the hour, the same cause is a new incident.
     await recordPushIncidents(fake.client, tick(15, [], [landed("2026-09-20", "rt-1", 15)]), deps);
     await recordPushIncidents(fake.client, tick(90, [failure("2026-09-20", "rt-1", 90)]), deps);
     expect(fake.tables.rate_push_incidents).toHaveLength(2);
+  });
+
+  it("never shows the owner a cell that landed a few minutes after each of many short outages", async () => {
+    const fake = db();
+    const throttled: PushFailureInput = { pms: "cloudbeds", phase: "send", message: "Cloudbeds patchRate failed (429): Too many requests" };
+    // Refused every half hour, landing five minutes later each time. The
+    // incident closes and reopens within the hour, so it is one incident.
+    for (const m of [0, 30, 60, 90, 120]) {
+      await recordPushIncidents(fake.client, tick(m, [failure("2026-09-20", "rt-1", m, throttled)]), deps);
+      await recordPushIncidents(fake.client, tick(m + 5, [], [landed("2026-09-20", "rt-1", m + 5)]), deps);
+    }
+    expect(fake.tables.rate_push_incidents).toHaveLength(1);
+    expect(fake.tables.rate_push_incidents[0]).toMatchObject({ attempt_count: 10, customer_visible_at: null, alerted_at: null });
+    expect(alerts).toEqual([]);
+  });
+
+  it("writes the incident before any alert goes out, and leaves the alert for the next run when the deadline is close", async () => {
+    const fake = db();
+    const seen: number[] = [];
+    const slow = {
+      ...deps,
+      alert: async (_s: unknown, a: Alert) => {
+        seen.push((fake.tables.rate_push_incidents ?? []).length);
+        alerts.push(a);
+        return { sent: true };
+      },
+    };
+    const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+    const near = { ...tick(0, [failure("2026-09-20", "rt-1", 0, DERIVED)]), deadlineAt: Date.now() + 2_000 };
+    const res = await recordPushIncidents(fake.client, near, slow);
+    expect(res).toMatchObject({ opened: 1, escalated: 1 });
+    expect(alerts).toEqual([]);
+    expect(fake.tables.rate_push_incidents[0]).toMatchObject({ customer_visible_at: at(0), alerted_at: null });
+    expect(fake.tables.rate_push_incident_cells).toHaveLength(1);
+    logs.mockRestore();
+
+    // Time enough on the next run: the alert goes out after the writes, and is marked.
+    const [key, cell] = failing(failure("2026-09-20", "rt-1", 5, DERIVED));
+    await recordPushIncidents(fake.client, { ...tick(5, [], [[key, cell]]), deadlineAt: Date.now() + 60_000 }, slow);
+    expect(seen).toEqual([1]);
+    expect(alerts).toHaveLength(1);
+    expect(fake.tables.rate_push_incidents[0].alerted_at).toBe(at(5));
   });
 
   it("stops storing tries past the cap but keeps counting them", async () => {

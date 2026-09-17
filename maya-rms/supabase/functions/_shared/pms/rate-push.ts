@@ -536,6 +536,7 @@ export async function pushRatesForHotel(
       cells: run.cells,
       failures: run.failures,
       mayHaveOpen,
+      deadlineAt: opts.deadlineAt,
     });
     return {
       ...summary,
@@ -759,6 +760,7 @@ export async function pushRatesForHotel(
         cells: run.cells,
         failures: run.failures,
         mayHaveOpen,
+        deadlineAt: opts.deadlineAt,
       });
 
   return {
