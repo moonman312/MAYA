@@ -41,11 +41,16 @@
 -- 6. Legacy "no rate target" skips. The old push wrote every skip with
 --    attempts 1, even on nights it never sent to, and the base rate calendar
 --    treats attempts 1 as sent to, so those nights were never read again. A
---    skip that overwrote a real send kept that send's job reference (the old
---    skip did not write the column), so a skip with no job reference and no
---    rate id was never a send, and goes back to attempts 0. Safe to run again
---    after the code is deployed: its skips keep the reference and rate id of
---    whatever they overwrite.
+--    skip's own row can't say whether a send sits under it: the old push
+--    wrote skips and sends in the same bulk upsert, and PostgREST sets every
+--    column a row leaves out to null when the rows of one chunk differ, so a
+--    skip that overwrote a real send can have lost its job reference and rate
+--    id too. Only a room type with no sent or failed row on any night, past
+--    nights included, is taken as never sent to, and its skips go back to
+--    attempts 0; every other skip stays frozen. Run the count in section 6
+--    first. Safe to run again after the code is deployed: its skips keep the
+--    reference and rate id of whatever they overwrite, and write 0 only
+--    where nothing was ever sent.
 --
 -- Before deploying, run the zero-base check at the end of this file: nights
 -- an earlier push opened at the floor while the PMS had them at 0.
@@ -97,14 +102,39 @@ comment on column public.pms_connections.reauthorized_at is
   'When a person last stored a new grant for this connection. Ends a rate push '
   'hold for a missing permission or a refused grant whose last try is older.';
 
--- 6.
-update public.rate_updates
+-- 6. Before running, see what this resets and what it leaves frozen:
+--
+--   select (exists (
+--             select 1 from public.rate_updates s
+--              where s.hotel_id = u.hotel_id
+--                and s.room_type_id = u.room_type_id
+--                and s.status in ('sent', 'failed')
+--           )) as room_type_was_sent_to,
+--          count(*) as skips,
+--          count(distinct u.room_type_id) as room_types
+--     from public.rate_updates u
+--    where u.status = 'skipped'
+--      and u.error = 'no rate target for room type'
+--      and u.attempts = 1
+--      and u.pms_job_reference is null
+--      and u.external_rate_id is null
+--    group by 1;
+--
+-- room_type_was_sent_to false is what goes back to attempts 0.
+update public.rate_updates u
    set attempts = 0
- where status = 'skipped'
-   and error = 'no rate target for room type'
-   and attempts = 1
-   and pms_job_reference is null
-   and external_rate_id is null;
+ where u.status = 'skipped'
+   and u.error = 'no rate target for room type'
+   and u.attempts = 1
+   and u.pms_job_reference is null
+   and u.external_rate_id is null
+   and not exists (
+         select 1
+           from public.rate_updates s
+          where s.hotel_id = u.hotel_id
+            and s.room_type_id = u.room_type_id
+            and s.status in ('sent', 'failed')
+       );
 
 commit;
 
