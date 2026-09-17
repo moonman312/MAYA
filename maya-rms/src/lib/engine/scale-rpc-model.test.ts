@@ -15,8 +15,9 @@ function windowOf(r: FakeRow): number | null {
   return r.booking_window_days != null ? Number(r.booking_window_days) : null;
 }
 
-function kept(r: FakeRow, hotelId: unknown, exclude: unknown): boolean {
+function kept(r: FakeRow, hotelId: unknown, exclude: unknown, include: unknown = null): boolean {
   if (r.hotel_id !== hotelId) return false;
+  if (include != null) return r.room_type_id != null && (include as string[]).includes(String(r.room_type_id));
   const ex = (exclude as string[] | null) ?? [];
   return r.room_type_id == null || !ex.includes(String(r.room_type_id));
 }
@@ -46,12 +47,12 @@ export function bookingSpeedHistorySummary(reservations: FakeRow[], a: Record<st
   });
 }
 
-/** booking_speed_windows(p_hotel_id, p_dates, p_exclude) */
+/** booking_speed_windows(p_hotel_id, p_dates, p_exclude, p_include) */
 export function bookingSpeedWindows(reservations: FakeRow[], a: Record<string, unknown>): FakeRow[] {
   const wanted = new Set((a.p_dates as string[]) ?? []);
   const byDate = new Map<string, Map<number | null, number>>();
   for (const r of reservations) {
-    if (!kept(r, a.p_hotel_id, a.p_exclude)) continue;
+    if (!kept(r, a.p_hotel_id, a.p_exclude, a.p_include)) continue;
     const d = String(r.stay_date);
     if (!wanted.has(d)) continue;
     const m = byDate.get(d) ?? new Map();
@@ -254,5 +255,15 @@ describe("scale rpc models", () => {
   it("groups windows per requested date, nulls last", () => {
     const out = bookingSpeedWindows(rows, { p_hotel_id: "h1", p_dates: ["2026-01-02"], p_exclude: [] });
     expect(out).toEqual([{ stay_date: "2026-01-02", n: 5, bws: [-2, 5, 9, 32, null], counts: [1, 1, 1, 1, 1] }]);
+  });
+
+  it("keeps only the included room types, never a row with none, when given an include list", () => {
+    const out = bookingSpeedWindows(rows, { p_hotel_id: "h1", p_dates: ["2026-01-02"], p_exclude: ["a"], p_include: ["a"] });
+    expect(out).toEqual([{ stay_date: "2026-01-02", n: 3, bws: [-2, 32, null], counts: [1, 1, 1] }]);
+    expect(bookingSpeedWindows(rows, { p_hotel_id: "h1", p_dates: ["2026-01-02"], p_include: [] })).toEqual([]);
+    // A null include is the exclude filter, as before.
+    expect(bookingSpeedWindows(rows, { p_hotel_id: "h1", p_dates: ["2026-01-02"], p_exclude: ["x"], p_include: null })).toEqual([
+      { stay_date: "2026-01-02", n: 4, bws: [-2, 5, 32, null], counts: [1, 1, 1, 1] },
+    ]);
   });
 });

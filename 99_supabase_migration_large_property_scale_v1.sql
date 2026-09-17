@@ -121,6 +121,11 @@
 -- That is bookingWindowOf in observations/booking-rows.ts. Rows whose room type
 -- does not count as a room (p_exclude) are dropped; a row with no room type is
 -- kept.
+--
+-- The summary only feeds season detection, which is always hotel-wide, so it
+-- has no include list. booking_speed_windows also serves a rule that measures
+-- only some room types: given p_include, it keeps exactly the rows of those
+-- types (never a row with no room type) and p_exclude is not read.
 -- ----------------------------------------------------------------------------
 
 -- Per stay date from p_from (through p_to, when given): how many kept rows,
@@ -191,11 +196,18 @@ grant execute on function public.booking_speed_history_summary(uuid, date, date,
 
 -- Grouped windows for exactly the stay dates asked for: one row per date that
 -- has kept rows, with its row count and parallel arrays of (window, count),
--- windows ascending and the unknown window last.
+-- windows ascending and the unknown window last. p_include, when given, keeps
+-- only rows of those room types instead.
+--
+-- The three-argument version is dropped first so PostgREST never sees two
+-- overloads it cannot choose between.
+drop function if exists public.booking_speed_windows(uuid, date[], uuid[]);
+
 create or replace function public.booking_speed_windows(
   p_hotel_id uuid,
   p_dates date[],
-  p_exclude uuid[] default '{}'
+  p_exclude uuid[] default '{}',
+  p_include uuid[] default null
 )
 returns table(stay_date date, n int, bws int[], counts int[])
 language plpgsql
@@ -222,7 +234,13 @@ begin
     from public.reservations r
     where r.hotel_id = p_hotel_id
       and r.stay_date = any (coalesce(p_dates, '{}'::date[]))
-      and (r.room_type_id is null or not (r.room_type_id = any (coalesce(p_exclude, '{}'::uuid[]))))
+      and (
+        case
+          when p_include is null then
+            r.room_type_id is null or not (r.room_type_id = any (coalesce(p_exclude, '{}'::uuid[])))
+          else r.room_type_id = any (p_include)
+        end
+      )
     group by 1, 2
   )
   select
@@ -236,8 +254,8 @@ begin
 end;
 $$;
 
-revoke all on function public.booking_speed_windows(uuid, date[], uuid[]) from public, anon;
-grant execute on function public.booking_speed_windows(uuid, date[], uuid[])
+revoke all on function public.booking_speed_windows(uuid, date[], uuid[], uuid[]) from public, anon;
+grant execute on function public.booking_speed_windows(uuid, date[], uuid[], uuid[])
   to authenticated, service_role;
 
 -- ----------------------------------------------------------------------------

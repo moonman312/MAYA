@@ -166,7 +166,7 @@ async function insertReservations(db: Db, rows: FakeRow[]): Promise<void> {
 /** Argument types per function, for casting the named parameters. */
 const SIGNATURES: Record<string, Record<string, string>> = {
   booking_speed_history_summary: { p_hotel_id: "uuid", p_from: "date", p_to: "date", p_exclude: "uuid[]", p_ranks: "int[]" },
-  booking_speed_windows: { p_hotel_id: "uuid", p_dates: "date[]", p_exclude: "uuid[]" },
+  booking_speed_windows: { p_hotel_id: "uuid", p_dates: "date[]", p_exclude: "uuid[]", p_include: "uuid[]" },
   audit_last_signatures: { p_hotel_id: "uuid", p_from: "date", p_to: "date" },
   room_type_max_rates: { p_hotel_id: "uuid" },
   rule_fire_counts: { p_hotel_id: "uuid" },
@@ -268,6 +268,14 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
         const { data: windows, error: wErr } = await rpc("booking_speed_windows", windowArgs).order("stay_date");
         expect(wErr).toBeNull();
         expect(windows).toEqual(bookingSpeedWindows(fx.reservations, windowArgs));
+
+        // With an include list, with it null, and with an empty one.
+        for (const p_include of [[uuidFor("rt-a")], [uuidFor("rt-a"), uuidFor("rt-b")], null, []]) {
+          const args = { ...windowArgs, p_include };
+          const { data: got, error: iErr } = await rpc("booking_speed_windows", args).order("stay_date");
+          expect(iErr).toBeNull();
+          expect(got).toEqual(bookingSpeedWindows(fx.reservations, args));
+        }
       }, 120_000);
 
       it("the engine on the SQL path observes exactly what the old row-by-row code did", async () => {
@@ -630,5 +638,18 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
 
   it("is safe to run twice", async () => {
     await db.exec(readFileSync(MIGRATION, "utf8"));
+  });
+
+  it("leaves one booking_speed_windows, even over the earlier three-argument version", async () => {
+    await db.exec(`
+      create or replace function public.booking_speed_windows(p_hotel_id uuid, p_dates date[], p_exclude uuid[] default '{}')
+      returns table(stay_date date, n int, bws int[], counts int[]) language sql stable as $$ select null::date, 0, null::int[], null::int[] where false $$;
+    `);
+    await db.exec(readFileSync(MIGRATION, "utf8"));
+    const { rows } = await db.query(
+      `select pg_get_function_identity_arguments(p.oid) as args from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'booking_speed_windows'`,
+    );
+    expect(rows).toEqual([{ args: "p_hotel_id uuid, p_dates date[], p_exclude uuid[], p_include uuid[]" }]);
   });
 });
