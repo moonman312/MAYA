@@ -9,11 +9,12 @@
  *      the ladder transition logic in `src/lib/engine/ladder.ts`
  *      (activate / deactivate based on whether conditions currently match).
  *
- *   2) StandardVsPickupScene — same input data on Day 1, Day 2, Day 3:
+ *   2) StandardVsPickupScene — same input data on the days a 3-day pickup
+ *      rule can act (Day 1, Day 4, Day 7):
  *      - Standard rule activates once on Day 1; subsequent days are no-ops
  *        because the rule is already active (ladder is state-based).
- *      - Pickup rule inserts a new `pickup_event` each day the pickup
- *        threshold is met against the rolling baseline. Effects compound
+ *      - Pickup rule inserts a new `pickup_event` every time its window has
+ *        passed and the pickup still clears the threshold. Effects compound
  *        in `loadActivePickupEffects` -> `applyAdjustments`.
  *
  * No external animation deps — uses CSS transitions on Tailwind utilities
@@ -188,7 +189,7 @@ const CANCELLATION_SCENES: CancellationScene[] = [
     status: "inactive",
     bookings: 75,
     label: "More bookings arrive",
-    caption: "Occupancy climbs to 75% — it just crossed the 70% threshold the rule is watching.",
+    caption: "Occupancy climbs to 75%, just past the 70% threshold the rule is watching.",
   },
   {
     occ: 75,
@@ -212,7 +213,7 @@ const CANCELLATION_SCENES: CancellationScene[] = [
     status: "active",
     bookings: 65,
     label: "A guest cancels",
-    caption: "Occupancy drops back to 65% — below the 70% threshold. But the rule is still active for one more moment.",
+    caption: "Occupancy drops back to 65%, under the 70% threshold. The rule is still active for one more moment.",
   },
   {
     occ: 65,
@@ -281,10 +282,12 @@ function RuleCancellationScene() {
 /* ── Scene 2: Standard vs Pickup, day by day ──────────────────────────── */
 
 /**
- * Each day shows the same input data (high occupancy + short booking window),
- * with both rule types evaluating side by side. The standard rule activates
- * on day 1 and is then a no-op. The pickup rule inserts a new event each
- * day, stacking the adjustment.
+ * Each step shows the same input data (high occupancy + short booking
+ * window), with both rule types evaluating side by side. The standard rule
+ * activates on day 1 and is then a no-op. The pickup rule fires again every
+ * time its window has passed and the pickup still clears the threshold, so
+ * with a 3-day window the days are 1, 4 and 7. The third fire on one night
+ * is what puts it in front of the owner (engine/repeat-alerts.ts).
  */
 type ComparisonDay = {
   day: number;
@@ -312,7 +315,7 @@ type ComparisonDay = {
 const COMPARISON_DAYS: ComparisonDay[] = [
   {
     day: 0,
-    label: "Day 0 — Before",
+    label: "Day 0, before",
     occupancy: 60,
     bookingWindow: 12,
     pickup: 1,
@@ -327,12 +330,12 @@ const COMPARISON_DAYS: ComparisonDay[] = [
       priceBefore: 200,
       priceAfter: 200,
       events: 0,
-      note: "Pickup is only 1 booking in last 3 days — below threshold.",
+      note: "Pickup is only 1 booking in the last 3 days, under the threshold.",
     },
   },
   {
     day: 1,
-    label: "Day 1 — Conditions met",
+    label: "Day 1, conditions met",
     occupancy: 85,
     bookingWindow: 6,
     pickup: 5,
@@ -347,12 +350,12 @@ const COMPARISON_DAYS: ComparisonDay[] = [
       priceBefore: 200,
       priceAfter: 220,
       events: 1,
-      note: "Pickup of 5 in last 3 days clears threshold of 4. New event recorded. Price +10%.",
+      note: "Pickup of 5 in the last 3 days clears the threshold of 4. First fire recorded. Price +10%.",
     },
   },
   {
-    day: 2,
-    label: "Day 2 — Same conditions hold",
+    day: 4,
+    label: "Day 4, the wait is over",
     occupancy: 85,
     bookingWindow: 6,
     pickup: 5,
@@ -360,19 +363,19 @@ const COMPARISON_DAYS: ComparisonDay[] = [
       transition: "noop",
       priceBefore: 220,
       priceAfter: 220,
-      note: "Conditions still match — but the rule is already active. No new transition, price unchanged.",
+      note: "Conditions still match, but the rule is already active. No new transition, price unchanged.",
     },
     pickup_outcome: {
       fired: true,
       priceBefore: 220,
       priceAfter: 242,
       events: 2,
-      note: "Baseline reset to yesterday's event. 5 more bookings in last 3 days clear threshold again. Another event stacks — price +10% on top of $220.",
+      note: "The rule waited its 3-day window. 5 more bookings since its last fire clear the threshold again, so it fires a second time: +10% on top of $220.",
     },
   },
   {
-    day: 3,
-    label: "Day 3 — Conditions still hold",
+    day: 7,
+    label: "Day 7, still picking up",
     occupancy: 85,
     bookingWindow: 6,
     pickup: 5,
@@ -380,14 +383,14 @@ const COMPARISON_DAYS: ComparisonDay[] = [
       transition: "noop",
       priceBefore: 220,
       priceAfter: 220,
-      note: "Still active, still no-op. The standard rule fires once and stays put until conditions break.",
+      note: "Still active, still no change. The standard rule fires once and stays put until conditions break.",
     },
     pickup_outcome: {
       fired: true,
       priceBefore: 242,
       priceAfter: 266,
       events: 3,
-      note: "Pickup keeps accumulating against the new baseline. Threshold clears a third time — a third event stacks. Price compounds.",
+      note: "The threshold clears a third time, so it fires again and the price compounds. Three fires on one night is where MAYA asks you whether to carry on.",
     },
   },
 ];
@@ -418,7 +421,7 @@ function StandardVsPickupScene() {
             Standard vs. Pickup: what happens day after day
           </h4>
           <p className="mt-0.5 text-[11px] text-slate-500">
-            Same input data on both sides — only the rule type differs.
+            Same input data on both sides, only the rule type differs.
           </p>
         </div>
         <PlayPauseControls
@@ -650,10 +653,10 @@ export function RuleBehaviorAnimations() {
           <p className="text-[11px] leading-relaxed text-slate-500">
             <strong className="text-slate-400">Key takeaway:</strong> standard
             rules track the <em>current</em> state and undo themselves when
-            conditions break. Pickup rules record each qualifying moment as a
-            permanent event — they don&apos;t undo on a single cancellation,
-            and they can fire again on later days if new pickup keeps
-            accumulating.
+            conditions break. Event rules record each qualifying moment on its
+            own. A cut stays put, a raise comes off only if the bookings behind
+            it cancel, and once the rule&apos;s wait is over it can adjust the
+            same night again.
           </p>
         </div>
       )}
