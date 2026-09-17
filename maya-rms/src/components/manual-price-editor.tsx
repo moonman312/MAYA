@@ -19,6 +19,8 @@ type SaveResponse = {
   cells: number;
   suppressedRules: number;
   retiredPickups: number;
+  /** Rules paused, counted once each. Older responses don't carry it. */
+  pausedRules?: number;
   pushed: Pushed;
   /**
    * Nights inside the push window today vs. past it, and the window's length.
@@ -65,10 +67,16 @@ function nightsWord(cells: number | undefined): string {
 
 /** The one-line confirmation after a save, in house voice. Exported for tests. */
 export function describeSave(
-  res: Pick<SaveResponse, "pushed" | "suppressedRules" | "retiredPickups" | "pushWindow"> & { cells?: number },
+  res: Pick<SaveResponse, "pushed" | "suppressedRules" | "retiredPickups" | "pausedRules" | "pushWindow"> & {
+    cells?: number;
+  },
   pmsName: string,
 ): string {
-  const paused = (res.suppressedRules ?? 0) + (res.retiredPickups ?? 0);
+  // Rules, not rows: one rule can hold several fires on a night since
+  // stacking, so adding the row counts said "Paused 3 rules" for one rule
+  // that had cut the night three times. The sum is the fallback for a
+  // response from before the count was sent.
+  const paused = res.pausedRules ?? (res.suppressedRules ?? 0) + (res.retiredPickups ?? 0);
   const base = pushedCopy(res.pushed, pmsName, res.pushWindow);
   if (paused <= 0) return base;
   return `${base} Paused ${paused} rule${paused === 1 ? "" : "s"} on ${nightsWord(res.cells)} for this room; new rules will apply on top.`;

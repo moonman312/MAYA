@@ -108,6 +108,21 @@ describe("describeSave", () => {
     );
   });
 
+  it("counts rules, not fires, when one rule has cut the night several times", () => {
+    // Three stacked cuts of one rule on one night is one rule paused.
+    expect(
+      describeSave({ pushed: "nudged", suppressedRules: 0, retiredPickups: 3, pausedRules: 1, cells: 1 }, "Cloudbeds"),
+    ).toBe("Saved. Sending to Cloudbeds now. Paused 1 rule on this night for this room; new rules will apply on top.");
+    // Five nights with three stacks each, still the one rule.
+    expect(
+      describeSave({ pushed: "nudged", suppressedRules: 0, retiredPickups: 15, pausedRules: 1, cells: 5 }, "Cloudbeds"),
+    ).toContain("Paused 1 rule on these 5 nights");
+    // Nothing paused at all says nothing.
+    expect(
+      describeSave({ pushed: "nudged", suppressedRules: 0, retiredPickups: 0, pausedRules: 0 }, "Cloudbeds"),
+    ).toBe("Saved. Sending to Cloudbeds now.");
+  });
+
   it("counts the nights when the save covered a range", () => {
     expect(
       describeSave({ pushed: "nudged", suppressedRules: 6, retiredPickups: 0, cells: 3 }, "Cloudbeds"),

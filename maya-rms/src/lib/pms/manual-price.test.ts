@@ -25,8 +25,8 @@ function db(extra: Record<string, FakeRow[]> = {}, opts: Parameters<typeof fakeS
         { rule_id: "other-rule", stay_date: "2026-09-20", room_type_id: "rt1", is_active: true, suppressed_at: null },
       ],
       pickup_event: [
-        { id: "p1", hotel_id: "h1", stay_date: "2026-09-21", affected_room_type_id: "rt1", retired_at: null },
-        { id: "p2", hotel_id: "h1", stay_date: "2026-09-21", affected_room_type_id: "rt2", retired_at: null },
+        { id: "p1", hotel_id: "h1", rule_id: "r1", stay_date: "2026-09-21", affected_room_type_id: "rt1", retired_at: null },
+        { id: "p2", hotel_id: "h1", rule_id: "r1", stay_date: "2026-09-21", affected_room_type_id: "rt2", retired_at: null },
       ],
       ...extra,
     },
@@ -107,8 +107,34 @@ describe("setManualPrices", () => {
     const d = db({}, { fault: (c) => (c.table === "manual_price" && c.op === "upsert" && JSON.stringify(c.payload).includes('"source"') ? missingColumn("manual_price", "source") : null) });
     const res = await setManualPrices(d.client, "h1", [{ roomTypeId: "rt2", stayDate: "2026-09-20", price: 150 }], { source: "maya", setBy: "user-1", note: "event" }, NOW);
 
-    expect(res).toEqual({ cells: 1, suppressedRules: 1, retiredPickups: 0 });
+    expect(res).toEqual({ cells: 1, suppressedRules: 1, retiredPickups: 0, pausedRules: 1 });
     expect(d.tables.manual_price).toEqual([{ id: expect.any(String), hotel_id: "h1", room_type_id: "rt2", stay_date: "2026-09-20", price: 150, note: "event", set_by: "user-1", set_at: NOW, cleared_at: null, cleared_by: null }]);
+  });
+
+  it("counts the rules it paused once each, however many fires they hold", async () => {
+    // One rule that has cut the same night three times, and a second rule
+    // with one fire: two rules paused, four fires taken off.
+    const d = db({
+      pickup_event: [1, 2, 3].map((seq) => ({
+        id: `s${seq}`,
+        hotel_id: "h1",
+        rule_id: "r1",
+        stay_date: "2026-09-20",
+        affected_room_type_id: "rt1",
+        fire_seq: seq,
+        retired_at: null,
+      })).concat([
+        { id: "s4", hotel_id: "h1", rule_id: "r-other", stay_date: "2026-09-20", affected_room_type_id: "rt1", fire_seq: 1, retired_at: null },
+      ]),
+    });
+    const res = await setManualPrices(
+      d.client,
+      "h1",
+      [{ roomTypeId: "rt1", stayDate: "2026-09-20", price: 150 }],
+      { source: "maya", setBy: "user-1", note: null },
+      NOW,
+    );
+    expect(res).toEqual({ cells: 1, suppressedRules: 1, retiredPickups: 4, pausedRules: 2 });
   });
 
   it("writes nothing from the PMS, and resets nothing, until the database can say where a price came from", async () => {
