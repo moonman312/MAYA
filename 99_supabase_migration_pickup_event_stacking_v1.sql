@@ -273,12 +273,15 @@ alter table public.pickup_event add constraint pickup_event_window_chk
 --     however often they retry, the price is set all the same, the cell's
 --     fires are still stacked on it, and the route never reaches its
 --     republish, so nothing is sent or logged for those nights.
---   * set_manual_prices_from_pms as 99_supabase_migration_push_guardrails_v1.sql
---     defines it. That file sorts after this one, so replaying the 99_ files
---     in filename order (a fresh staging rebuild, a new region, or running the
---     list again) puts its reason-less body back last. Every PMS edit would
---     then fail to be adopted with a 23514, and MAYA would go on publishing
---     and sending its own price over the hotel's change.
+--   * set_manual_prices_from_pms as an older copy of
+--     99_supabase_migration_push_guardrails_v1.sql defines it. That file sorts
+--     after this one, so replaying the 99_ files in filename order (a fresh
+--     staging rebuild, a new region, or running the list again) puts its body
+--     back last. Every PMS edit would then fail to be adopted with a 23514,
+--     and MAYA would go on publishing and sending its own price over the
+--     hotel's change. That file now names the reason itself, so a replay of
+--     today's copy is safe on its own; the trigger stays for a checkout that
+--     still has the old one, and for the deploy gap above.
 --
 -- Both write the price first and stamp retired_at with the same instant they
 -- wrote its set_at, so the reason can be read off the cell. Everything else

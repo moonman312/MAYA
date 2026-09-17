@@ -402,6 +402,21 @@ create trigger trg_product_events_manual_price_update
 -- effects over the hotel's own. The next read then found MAYA's price there
 -- and never took the change again. p_cells is a JSON array of
 -- {room_type_id, stay_date, price}; each cell once.
+--
+-- pickup_event.retired_reason is added by
+-- 99_supabase_migration_pickup_event_stacking_v1.sql, which sorts before this
+-- file, so a fresh install already has the column when this function is
+-- created and the line below is the whole story. This file has been run in
+-- production, so the two lines here matter only for a re-run and for fresh
+-- installs: the add-column is idempotent (the column keeps the check
+-- constraint and the backfill that migration gives it), and naming the reason
+-- on the retirement is what that migration's check
+-- pickup_event_retired_reason_set_chk asks for. The trigger
+-- trg_pickup_event_manual_price_reason stays where it is: it is what keeps
+-- this function safe on a database where this file was replayed last, and it
+-- covers /api/manual-price in the deploy gap as well.
+alter table public.pickup_event add column if not exists retired_reason text;
+
 create or replace function public.set_manual_prices_from_pms(
   p_hotel_id uuid,
   p_pms_type public.pms_type,
@@ -444,7 +459,8 @@ begin
   get diagnostics v_rules = row_count;
 
   update public.pickup_event e
-     set retired_at = p_set_at
+     set retired_at = p_set_at,
+         retired_reason = 'manual_price'
    where e.hotel_id = p_hotel_id
      and (e.affected_room_type_id, e.stay_date) in (
            select c.room_type_id, c.stay_date

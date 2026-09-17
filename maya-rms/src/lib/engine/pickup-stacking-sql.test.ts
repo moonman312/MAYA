@@ -523,13 +523,17 @@ describe.skipIf(!PGLITE_DIR)("the pickup event stacking migration in PGlite", ()
     expect(again.rows).toEqual([{ choice: "keep_adjusting" }]);
   });
 
-  it("survives a replay of push_guardrails putting its reason-less price function back", async () => {
+  it("survives a replay of push_guardrails, whose price function now names the reason on its own", async () => {
     // 99_supabase_migration_push_guardrails_v1.sql sorts after this migration,
-    // so replaying the 99_ files in filename order restores a
-    // set_manual_prices_from_pms that retires fires without a reason. Without
-    // the trigger this raises 23514, no PMS edit is ever adopted, and MAYA
-    // goes on sending its own price over the hotel's change.
+    // so replaying the 99_ files in filename order restores its
+    // set_manual_prices_from_pms last. That body used to retire fires without
+    // a reason: with the trigger dropped it raises 23514, no PMS edit is ever
+    // adopted, and MAYA goes on sending its own price over the hotel's change.
+    // It names the reason itself now, so the replayed body stands alone --
+    // the trigger stays for a checkout that still has the old file, and for
+    // /api/manual-price in the deploy gap (the test above).
     await db.exec(functionSql(GUARDRAILS, "set_manual_prices_from_pms"));
+    await db.exec(`drop trigger trg_pickup_event_manual_price_reason on public.pickup_event;`);
     await db.exec(`set request.jwt.claim.role = 'service_role';`);
     const out = await db.query(
       `select * from public.set_manual_prices_from_pms('${H1}', 'cloudbeds', '2026-09-28T09:00:00Z',
@@ -539,6 +543,11 @@ describe.skipIf(!PGLITE_DIR)("the pickup event stacking migration in PGlite", ()
     expect(
       (await db.query(`select retired_reason from public.pickup_event where left(id::text, 8) = '00000004'`)).rows,
     ).toEqual([{ retired_reason: "manual_price" }]);
+    await db.exec(`
+      create trigger trg_pickup_event_manual_price_reason
+        before update on public.pickup_event
+        for each row execute function public.pickup_event_manual_price_reason();
+    `);
   });
 
   it("lets a hotel's members read the alerts and nobody signed in write them", async () => {
