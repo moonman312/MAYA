@@ -70,7 +70,8 @@
 --      rule_repeat_alert_nights   one row per (rule, night, rule version) that
 --                                 reached 3 fires, with the numbers behind the
 --                                 latest fire and the owner's choice.
---      rule_repeat_alert_choose() how a rule manager answers.
+--      rule_repeat_alert_choose() how a rule manager answers, and
+--      rule_repeat_alert_resume() how they take an answer back.
 --    See section 6 for what each column means and what writes it.
 --
 -- RLS: pickup_event keeps its policies. The alert tables are written by the
@@ -79,7 +80,8 @@
 -- evaluate button, which runs the engine on the caller's own session) reads
 -- them and logs its alert writes as refused; the next scheduled run files
 -- what the fires already show. A choice goes through
--- rule_repeat_alert_choose, which checks can_manage_hotel. Nobody signed in
+-- rule_repeat_alert_choose and is taken back through
+-- rule_repeat_alert_resume; both check can_manage_hotel. Nobody signed in
 -- can delete, per 99_supabase_migration_no_customer_deletes_v1.sql.
 --
 -- Run AFTER 02_supabase_schema.sql, 99_supabase_migration_rules_engine_v1.sql,
@@ -90,11 +92,11 @@
 -- 99_supabase_migration_large_property_scale_v1.sql and
 -- 99_supabase_migration_push_guardrails_v1.sql. Re-running
 -- 99_supabase_migration_push_guardrails_v1.sql afterwards brings back its
--- set_manual_prices_from_pms, which retires fires without a reason. Section 1f
--- names those retirements 'manual_price' from the cell's own price, so a
--- replay of the 99_ files in filename order (this file sorts first) leaves a
--- database that works; running this file again also puts the newer function
--- back.
+-- set_manual_prices_from_pms, which names 'manual_price' on the fires it
+-- retires. An older copy of that file does not: section 1f names those
+-- retirements from the cell's own price, so a replay of the 99_ files in
+-- filename order (this file sorts first) leaves a database that works either
+-- way.
 --
 -- Idempotent. There is no pre-migration path in the code: run this, then
 -- deploy cloudbeds-scheduled-sync, mews-scheduled-sync,
@@ -585,17 +587,22 @@ grant execute on function public.set_manual_prices_from_pms(uuid, public.pms_typ
 --                     alerts for this rule and night) or stop (the rule makes
 --                     no more fires on this night; adjustments already made
 --                     stay, and raises can still come off for cancellations).
---                     Both apply to this rule version only.
+--                     Both apply to this rule version only, and
+--                     rule_repeat_alert_resume() takes either one back.
 --   chosen_at, chosen_by
 --   closed_at, closed_reason
 --                     set when an unanswered night stops needing an answer:
---                     night_passed, rule_edited, or price_set (a manual price
---                     took its fires off, so its count fell below 3). A
---                     price_set night opens again, on the rule's open alert,
---                     if the rule stacks its way back to 3 on it: the wait
---                     runs from the price, and after it the rule adjusts the
---                     new price the same way. night_passed and rule_edited
---                     end a night for good.
+--                     night_passed, rule_edited, price_set (a manual price
+--                     took its fires off, so its count fell below 3) or
+--                     resumed (the owner took their answer back). A price_set
+--                     night opens again, on the rule's open alert, if the rule
+--                     stacks its way back to 3 on it: the wait runs from the
+--                     price, and after it the rule adjusts the new price the
+--                     same way. A resumed night opens again once the rule has
+--                     adjusted it 3 more times than the fire_count on its row,
+--                     so letting a rule run again does not put the same
+--                     question straight back. night_passed and rule_edited end
+--                     a night for good.
 --
 -- The engine honours a stop from the run after it is made, on every run that
 -- prices the night. It never writes a choice.
@@ -652,13 +659,21 @@ create table if not exists public.rule_repeat_alert_nights (
   chosen_at          timestamptz,
   chosen_by          uuid references auth.users(id) on delete set null,
   closed_at          timestamptz,
-  closed_reason      text check (closed_reason in ('night_passed', 'rule_edited', 'price_set')),
+  closed_reason      text,
   updated_at         timestamptz not null default now(),
   primary key (alert_id, stay_date),
   constraint rule_repeat_alert_nights_choice_chk check ((choice is null) = (chosen_at is null)),
   constraint rule_repeat_alert_nights_closed_chk check ((closed_at is null) = (closed_reason is null)),
   constraint rule_repeat_alert_nights_one_end_chk check (choice is null or closed_at is null)
 );
+
+-- Swapped rather than left as the create found it: a table an earlier copy of
+-- this file made carries the reasons that copy knew about ('resumed' is new).
+alter table public.rule_repeat_alert_nights
+  drop constraint if exists rule_repeat_alert_nights_closed_reason_chk;
+alter table public.rule_repeat_alert_nights
+  add constraint rule_repeat_alert_nights_closed_reason_chk
+  check (closed_reason is null or closed_reason in ('night_passed', 'rule_edited', 'price_set', 'resumed'));
 
 comment on table public.rule_repeat_alert_nights is
   'The nights of a rule_repeat_alerts row, with the numbers behind the latest fire and the owner''s choice. '
@@ -763,6 +778,73 @@ $$;
 revoke all on function public.rule_repeat_alert_choose(uuid, text, date[]) from public, anon;
 grant execute on function public.rule_repeat_alert_choose(uuid, text, date[]) to authenticated, service_role;
 
+-- Taking an answer back: the rule runs on those nights again. Answering
+-- keep_adjusting cannot do this -- it silences the night for good -- so the
+-- rules table's "Let it run again" comes here instead. The answer is cleared
+-- and the night is filed as resumed, which means it is not waiting on anyone:
+-- the owner has just said what they want, and putting the same question
+-- straight back on the same three fires would be no answer at all. The engine
+-- opens it again once the rule has adjusted it 3 more times than the
+-- fire_count on its row (_shared/engine/repeat-alerts.ts), and the row's
+-- numbers are frozen at the resume until then.
+--
+-- p_stay_dates null resumes every answered night of the alert. Nights nobody
+-- answered, and nights already closed, never change. A resolved alert stays
+-- resolved, since nothing is waiting; its resolution becomes 'closed',
+-- because a night of it has now ended without an answer. Call it with the
+-- signed-in user's session. Returns the nights it changed.
+create or replace function public.rule_repeat_alert_resume(
+  p_alert_id uuid,
+  p_stay_dates date[] default null
+)
+returns setof public.rule_repeat_alert_nights
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_hotel uuid;
+  v_now timestamptz := now();
+begin
+  select a.hotel_id into v_hotel from public.rule_repeat_alerts a where a.id = p_alert_id;
+  if v_hotel is null then
+    raise exception 'Alert % not found', p_alert_id using errcode = 'P0002';
+  end if;
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.can_manage_hotel(v_hotel) then
+    raise exception 'Not authorized to change rules for hotel %', v_hotel
+      using errcode = '42501';
+  end if;
+
+  return query
+  update public.rule_repeat_alert_nights n
+     set choice = null,
+         chosen_at = null,
+         chosen_by = null,
+         closed_at = v_now,
+         closed_reason = 'resumed',
+         updated_at = v_now
+   where n.alert_id = p_alert_id
+     and n.choice is not null
+     and (p_stay_dates is null or n.stay_date = any(p_stay_dates))
+  returning n.*;
+
+  update public.rule_repeat_alerts a
+     set resolution = 'closed',
+         updated_at = v_now
+   where a.id = p_alert_id
+     and a.resolved_at is not null
+     and a.resolution = 'chosen'
+     and exists (
+       select 1 from public.rule_repeat_alert_nights n
+        where n.alert_id = a.id and n.closed_at is not null
+     );
+end;
+$$;
+
+revoke all on function public.rule_repeat_alert_resume(uuid, date[]) from public, anon;
+grant execute on function public.rule_repeat_alert_resume(uuid, date[]) to authenticated, service_role;
+
 commit;
 
 -- Checks afterwards (read-only):
@@ -787,7 +869,8 @@ commit;
 --
 --   -- one signature each:
 --   select proname, pg_get_function_identity_arguments(oid) from pg_proc
---    where proname in ('pickup_fire_heads', 'rule_repeat_alert_choose', 'set_manual_prices_from_pms');
+--    where proname in ('pickup_fire_heads', 'rule_repeat_alert_choose',
+--                      'rule_repeat_alert_resume', 'set_manual_prices_from_pms');
 --
 --   -- only SELECT policies on the alert tables:
 --   select tablename, policyname, cmd from pg_policies

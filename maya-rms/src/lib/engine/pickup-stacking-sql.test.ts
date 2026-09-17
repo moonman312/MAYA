@@ -523,6 +523,43 @@ describe.skipIf(!PGLITE_DIR)("the pickup event stacking migration in PGlite", ()
     expect(again.rows).toEqual([{ choice: "keep_adjusting" }]);
   });
 
+  it("only a rule manager takes an answer back, and the night is filed as resumed", async () => {
+    const alert = "00000009-0000-4000-8000-000000000000";
+    await db.exec(`set request.jwt.claim.role = 'authenticated'; set test.manager_hotel = '${H2}'; set test.user_id = '${USER}';`);
+    await expect(db.query(`select * from public.rule_repeat_alert_resume('${alert}')`)).rejects.toThrow(/Not authorized/);
+    await expect(
+      db.query(`select * from public.rule_repeat_alert_resume('00000000-0000-4000-8000-00000000dead')`),
+    ).rejects.toThrow(/not found/);
+
+    await db.exec(`set test.manager_hotel = '${H1}';`);
+    // Both nights were answered above; one is taken back by name.
+    const back = await db.query(
+      `select stay_date::text as stay_date, choice, chosen_at, chosen_by, closed_reason
+         from public.rule_repeat_alert_resume('${alert}', array['${NIGHT}']::date[])`,
+    );
+    expect(back.rows).toEqual([
+      { stay_date: NIGHT, choice: null, chosen_at: null, chosen_by: null, closed_reason: "resumed" },
+    ]);
+    // The alert was resolved once every night was answered; it stays resolved,
+    // because a resumed night is not waiting on anyone. Its resolution now
+    // says a night of it ended without an answer.
+    expect((await db.query(`select resolved_at is not null as resolved, resolution from public.rule_repeat_alerts where id = '${alert}'`)).rows).toEqual([
+      { resolved: true, resolution: "closed" },
+    ]);
+    // The other night keeps its answer, and a resumed night is not resumed twice.
+    expect(
+      (await db.query(`select stay_date::text as stay_date, choice from public.rule_repeat_alert_nights where alert_id = '${alert}' order by stay_date`)).rows,
+    ).toEqual([
+      { stay_date: NIGHT, choice: null },
+      { stay_date: NIGHT2, choice: "keep_adjusting" },
+    ]);
+    expect((await db.query(`select * from public.rule_repeat_alert_resume('${alert}', array['${NIGHT}']::date[])`)).rows).toEqual([]);
+
+    // And a closed night is left alone: only an answer can be taken back.
+    const rest = await db.query(`select stay_date::text as stay_date from public.rule_repeat_alert_resume('${alert}')`);
+    expect(rest.rows).toEqual([{ stay_date: NIGHT2 }]);
+  });
+
   it("survives a replay of push_guardrails, whose price function now names the reason on its own", async () => {
     // 99_supabase_migration_push_guardrails_v1.sql sorts after this migration,
     // so replaying the 99_ files in filename order restores its

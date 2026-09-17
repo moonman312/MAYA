@@ -15,6 +15,7 @@ import {
   alertHeadline,
   alertLimitHelp,
   buildRuleAlerts,
+  letRunAgainBody,
   limitActionLabel,
   nightFiresLine,
   nightLimit,
@@ -308,10 +309,20 @@ describe("the nights a rule was stopped on", () => {
     expect(cut.lines[0]).toBe("You told this rule to stop on Sat, Nov 14 2026 and Mon, Nov 16 2026.");
     expect(cut.lines[1]).toContain("What it already cut stays.");
     expect(cut.lines.join(" ")).toContain("Let it run again");
+    expect(cut.lines.join(" ")).toContain("MAYA asks you again");
     // A stop does not hold a raise against the cancellation check.
     expect(stoppedNightsHelp(["2026-11-14"], "increase").lines[1]).toContain(
       "unless enough of the bookings behind it cancel",
     );
+  });
+
+  it("lets the rule run again by clearing the answer, not by answering again", () => {
+    // keep_adjusting cleared the stop and silenced the night for good, so a
+    // rule that went on adjusting it never reached the owner again.
+    expect(letRunAgainBody(["2026-11-14", "2026-11-16"])).toEqual({
+      choice: "resume",
+      stay_dates: ["2026-11-14", "2026-11-16"],
+    });
   });
 
   it("sums the rest up rather than listing a whole season", () => {

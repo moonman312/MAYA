@@ -294,7 +294,7 @@ export function alertChoiceHelp(direction: "increase" | "decrease"): {
       direction === "increase"
         ? "Stop for this night: the rule makes no more changes on that night. A raise it already made stays, unless enough of the bookings behind it cancel."
         : "Stop for this night: the rule makes no more changes on that night. What it already cut stays.",
-      "A stopped night shows on the Rules tab, where you can let the rule run on it again.",
+      "A stopped night shows on the Rules tab, where you can let the rule run on it again; MAYA then asks about it again if the rule keeps adjusting it.",
       "Either way, your other rules keep working on these nights, and an edit to this rule starts it fresh.",
     ],
   };
@@ -322,6 +322,17 @@ export type RuleStops = {
   nights: string[];
 };
 
+/**
+ * The body the rules table's "Let it run again" posts to
+ * /api/rules/alerts/[alertId]. "resume" is the undo of an answer, not a third
+ * answer: it clears the choice, so the rule adjusts those nights again and
+ * MAYA asks about one again if it keeps adjusting it. Answering
+ * keep_adjusting cleared the stop too, but silenced those nights for good.
+ */
+export function letRunAgainBody(nights: string[]): { choice: "resume"; stay_dates: string[] } {
+  return { choice: "resume", stay_dates: nights };
+}
+
 /** The chip on the rules table: "Stopped on 12 nights". */
 export function stoppedChipLabel(nights: number): string {
   return `Stopped on ${nightWord(nights)}`;
@@ -347,7 +358,7 @@ export function stoppedNightsHelp(
         ? "It makes no more changes there. A raise it already made stays, unless enough of the bookings behind it cancel."
         : "It makes no more changes there. What it already cut stays.",
       "Your other rules still work on those nights.",
-      "Let it run again puts the rule back on them, starting from the price it left.",
+      "Let it run again puts the rule back on them, starting from the price it left, and MAYA asks you again if it keeps adjusting one.",
     ],
   };
 }

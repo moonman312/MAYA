@@ -88,6 +88,22 @@ vi.mock("@/utils/supabase/server", () => ({
         }
         return { data: nights.map((n) => ({ ...n })), error: null };
       }
+      if (name === "rule_repeat_alert_resume") {
+        const nights = (state.fake.tables.get("rule_repeat_alert_nights") ?? []).filter(
+          (n) =>
+            n.alert_id === args.p_alert_id &&
+            n.choice != null &&
+            (args.p_stay_dates == null || (args.p_stay_dates as string[]).includes(String(n.stay_date))),
+        );
+        for (const n of nights) {
+          n.choice = null;
+          n.chosen_at = null;
+          n.chosen_by = null;
+          n.closed_at = "2026-09-17T12:00:00Z";
+          n.closed_reason = "resumed";
+        }
+        return { data: nights.map((n) => ({ ...n })), error: null };
+      }
       return { data: null, error: null };
     },
     from: (t: string) => state.fake.from(t),
@@ -274,7 +290,31 @@ describe("POST /api/rules/alerts/[alertId]", () => {
     expect(state.rpcCalls.some((c) => c.name === "rule_repeat_alert_choose")).toBe(false);
   });
 
-  it("refuses an answer that is neither of the two, and a date that is not one", async () => {
+  it("takes an answer back through the resume function, not by answering again", async () => {
+    // "Let it run again" on the rules table. Answering keep_adjusting cleared
+    // the stop but silenced those nights for good, which is not what the
+    // owner asked for.
+    await post({ choice: "stop", stay_dates: ["2026-11-14"] });
+    state.rpcCalls.length = 0;
+    const res = await post({ choice: "resume", stay_dates: ["2026-11-14"] });
+
+    expect(res.status).toBe(200);
+    expect(state.rpcCalls.some((c) => c.name === "rule_repeat_alert_choose")).toBe(false);
+    expect(state.rpcCalls.find((c) => c.name === "rule_repeat_alert_resume")?.args).toEqual({
+      p_alert_id: ALERT,
+      p_stay_dates: ["2026-11-14"],
+    });
+    const night = (state.fake.tables.get("rule_repeat_alert_nights") ?? []).find(
+      (n) => n.stay_date === "2026-11-14",
+    );
+    expect(night).toMatchObject({ choice: null, chosen_at: null, closed_reason: "resumed" });
+    expect(state.events.at(-1)).toMatchObject({
+      event: "rule.repeat_alert_answered",
+      properties: expect.objectContaining({ choice: "resume", nights: 1, all_nights: false }),
+    });
+  });
+
+  it("refuses an answer that is neither of the three, and a date that is not one", async () => {
     expect((await post({ choice: "maybe" })).status).toBe(400);
     expect((await post({ choice: "stop", stay_dates: ["2026-02-30"] })).status).toBe(400);
     expect((await post({ choice: "stop", stay_dates: [] })).status).toBe(400);

@@ -15,7 +15,7 @@ import { RateSimulator } from "@/components/rate-simulator";
 import { RoomCountHelp, RoomTypeSettings, isCountingRoom } from "@/components/room-type-settings";
 import { bookingSpeedHelp, bookingSpeedWaitHelp } from "@/lib/booking-speed-help";
 import { RuleAlertBanner } from "@/components/rule-alert-banner";
-import { stoppedChipLabel, stoppedNightsHelp, type RuleStops } from "@/lib/rule-alerts";
+import { letRunAgainBody, stoppedChipLabel, stoppedNightsHelp, type RuleStops } from "@/lib/rule-alerts";
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { RuleRoomTypesField } from "@/components/rule-room-types-field";
 import { isRuleAlertChoice } from "@/lib/changelog-route-helpers";
@@ -544,7 +544,12 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
     }
   }
 
-  /** Clears the owner's "stop" on a rule's nights, through the alerts they were filed under. */
+  /**
+   * Takes the owner's "stop" off a rule's nights, through the alerts they were
+   * filed under. "resume" clears the answer outright: answering keep_adjusting
+   * instead would silence those nights for good, so a rule that went on to
+   * adjust one of them twenty times would never reach the owner again.
+   */
   async function letRuleRunAgain(stops: RuleStops) {
     setLettingRun(stops.rule_id);
     try {
@@ -552,7 +557,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
         await fetch(`/api/rules/alerts/${alertId}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ choice: "keep_adjusting", stay_dates: stops.nights }),
+          body: JSON.stringify(letRunAgainBody(stops.nights)),
         });
       }
       setRuleStops(await api<RuleStops[]>("/api/rules/stops"));

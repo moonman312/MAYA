@@ -1,14 +1,22 @@
 /**
  * POST /api/rules/alerts/[alertId] — the owner's answer to a rule that keeps
- * adjusting the same nights.
+ * adjusting the same nights, and taking an answer back.
  *
  * Two answers, both per night: keep_adjusting (the rule carries on and MAYA
  * stops asking about that night) or stop (the rule makes no more changes on
  * that night; what it already changed stays). Without `stay_dates` the answer
  * covers every night still waiting.
  *
+ * "resume" is not a third answer but the undo of one, and goes to
+ * rule_repeat_alert_resume instead: it clears the choice outright, so a rule
+ * the owner stopped runs on those nights again and MAYA asks about them again
+ * if it keeps adjusting them. Without `stay_dates` it covers every night of
+ * the alert the owner has answered. The rules table's "Let it run again"
+ * sends this; it used to send keep_adjusting, which silenced those nights for
+ * good, which is not what the owner asked for.
+ *
  * Rules are a Revenue Manager's job, so the route checks that rank before it
- * calls rule_repeat_alert_choose, which checks can_manage_hotel again in the
+ * calls either function, and both check can_manage_hotel again in the
  * database. The answer itself is recorded by the database (chosen_at,
  * chosen_by), shows in the change log, and is counted once here for product
  * analytics. The refreshed list comes back so the banner never re-asks.
@@ -36,7 +44,7 @@ export async function POST(request: Request, { params }: Params) {
   }
   const body = (await request.json().catch(() => null)) as Body | null;
   const choice = body?.choice;
-  if (choice !== "keep_adjusting" && choice !== "stop") {
+  if (choice !== "keep_adjusting" && choice !== "stop" && choice !== "resume") {
     return NextResponse.json({ error: "Choose keep adjusting or stop." }, { status: 400 });
   }
   const raw = body?.stay_dates;
@@ -64,11 +72,17 @@ export async function POST(request: Request, { params }: Params) {
       return NextResponse.json({ error: "Unknown alert." }, { status: 404 });
     }
 
-    const { data: changed, error } = await ctx.supabase.rpc("rule_repeat_alert_choose", {
-      p_alert_id: alertId,
-      p_choice: choice,
-      p_stay_dates: stayDates,
-    });
+    const { data: changed, error } =
+      choice === "resume"
+        ? await ctx.supabase.rpc("rule_repeat_alert_resume", {
+            p_alert_id: alertId,
+            p_stay_dates: stayDates,
+          })
+        : await ctx.supabase.rpc("rule_repeat_alert_choose", {
+            p_alert_id: alertId,
+            p_choice: choice,
+            p_stay_dates: stayDates,
+          });
     if (error) throw error;
     const nights = Array.isArray(changed) ? changed.length : 0;
 
@@ -98,7 +112,7 @@ async function recordAnswer(
   input: {
     hotelId: string;
     ruleId: string;
-    choice: "keep_adjusting" | "stop";
+    choice: "keep_adjusting" | "stop" | "resume";
     nights: number;
     allNights: boolean;
     simulation: boolean;

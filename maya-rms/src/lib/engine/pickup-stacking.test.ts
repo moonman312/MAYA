@@ -831,6 +831,57 @@ describe("a rule that keeps adjusting the same night", () => {
     const alertId = alertFor(start(w))!.alert_id;
     expect(start(w).rule_repeat_alerts.find((a) => a.id === alertId)).toMatchObject({ resolved_at: null });
   }, 120_000);
+  it("asks again three adjustments after the owner lets the rule run on a stopped night", async () => {
+    // "Let it run again" used to answer keep_adjusting, which silenced the
+    // night for good: the rule could go on cutting it twenty more times and
+    // the owner would never hear about it. Resuming clears the answer, and
+    // the night comes back at three more adjustments, counted from where it
+    // was when they let it run.
+    const w = world({ rules: [daily], reservations: [booking(NIGHT, addDays(D0, -30))] });
+    await w.run(T0);
+    await w.run(T0 + DAY);
+    await w.run(T0 + 2 * DAY);
+    const night = alertFor(start(w))!;
+    night.choice = "stop";
+    night.chosen_at = iso(T0 + 2 * DAY + HOUR);
+
+    await w.run(T0 + 3 * DAY);
+    expect(w.fires(NIGHT)).toHaveLength(3);
+    const stoppedPrice = w.price(NIGHT);
+
+    // What rule_repeat_alert_resume writes.
+    const resumedAt = iso(T0 + 3 * DAY + HOUR);
+    night.choice = null;
+    night.chosen_at = null;
+    night.chosen_by = null;
+    night.closed_at = resumedAt;
+    night.closed_reason = "resumed";
+
+    // The rule is adjusting the night again, and says nothing for two of them.
+    await w.run(T0 + 4 * DAY);
+    expect(w.fires(NIGHT)).toHaveLength(4);
+    expect(w.price(NIGHT)).toBeLessThan(stoppedPrice);
+    expect(alertFor(start(w))).toMatchObject({ closed_reason: "resumed", fire_count: 3 });
+    await w.run(T0 + 5 * DAY);
+    expect(alertFor(start(w))).toMatchObject({ closed_reason: "resumed", fire_count: 3 });
+
+    // The third: the night is in front of the owner again, with the count as
+    // it stands now.
+    await w.run(T0 + 6 * DAY);
+    expect(w.fires(NIGHT)).toHaveLength(6);
+    expect(alertFor(start(w))).toMatchObject({
+      choice: null,
+      closed_at: null,
+      closed_reason: null,
+      fire_count: 6,
+      reached_at: iso(T0 + 6 * DAY),
+    });
+    const alertId = alertFor(start(w))!.alert_id;
+    expect(start(w).rule_repeat_alerts.find((a) => a.id === alertId)).toMatchObject({ resolved_at: null });
+    // One row for the night, not a second episode beside the first.
+    expect((start(w).rule_repeat_alert_nights ?? []).filter((n) => n.stay_date === NIGHT)).toHaveLength(1);
+  }, 120_000);
+
   it("reopens a night's own alert when the rule's open one belongs to another version", async () => {
     // A night a price closed comes back at three fires, but the rule's open
     // alert is at a version that is not the night's: the night can't move

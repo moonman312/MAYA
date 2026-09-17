@@ -8,14 +8,16 @@
  * numbers behind its latest fire, and the rule keeps firing. The owner
  * answers per night: keep_adjusting (no more alerts for that rule and night)
  * or stop (no more fires from that rule on that night). Both answers belong
- * to the rule version they were given on: an edit starts the rule fresh.
+ * to the rule version they were given on: an edit starts the rule fresh, and
+ * the owner can take either answer back (rule_repeat_alert_resume).
  *
  * The engine reads the answers before it fires (isStoppedOnNight) and, after
  * prices are published, files and updates nights and closes the ones that no
  * longer need an answer (updateRepeatAlerts). A night closed because a price
  * someone set took its fires off opens again if the rule stacks its way back
- * to three; only a passed night or an edit ends one for good. The alert
- * tables take writes
+ * to three, and a night the owner resumed once the rule has adjusted it three
+ * more times than the count on its row; only a passed night or an edit ends
+ * one for good. The alert tables take writes
  * from the service role only, so a run under a signed-in session (the
  * evaluate button) logs its alert writes as refused and the next scheduled
  * run makes them: filing works from the fire history, not from what one run
@@ -50,11 +52,17 @@ export type RepeatAlertNight = {
   closed_reason: RepeatAlertClosedReason | null;
 };
 
-/** Why an unanswered night stopped needing an answer. */
-export type RepeatAlertClosedReason = "night_passed" | "rule_edited" | "price_set";
+/**
+ * Why a night stopped needing an answer. The first three are unanswered
+ * nights; `resumed` is one the owner had answered and took back, which the
+ * rule adjusts again from the next run (rule_repeat_alert_resume).
+ */
+export type RepeatAlertClosedReason = "night_passed" | "rule_edited" | "price_set" | "resumed";
+
+const CLOSED_REASONS: RepeatAlertClosedReason[] = ["night_passed", "rule_edited", "price_set", "resumed"];
 
 function closedReasonOf(value: unknown): RepeatAlertClosedReason | null {
-  return value === "night_passed" || value === "rule_edited" || value === "price_set" ? value : null;
+  return CLOSED_REASONS.find((r) => r === value) ?? null;
 }
 
 /**
@@ -237,14 +245,20 @@ export async function updateRepeatAlerts(
   // A night closed because a price someone set took its fires off is not done
   // with: once the wait from that price has passed, the rule stacks on the new
   // price just the same, and at 3 counted fires again the owner is asked
-  // again. Only a passed night or an edit ends a night for good.
+  // again. Nor is a night the owner let the rule run on again: the fires
+  // behind their answer are the ones they have already seen, so it takes
+  // REPEAT_ALERT_FIRES more before the question comes back, counted from the
+  // fire_count frozen on the row at the resume. Only a passed night or an
+  // edit ends a night for good.
   const toReopen: RepeatAlertNight[] = [];
   for (const [key, list] of input.nights) {
     const rule = eventRulesById.get(key.split("|")[0]);
-    if (!rule || (counts.get(key)?.count ?? 0) < REPEAT_ALERT_FIRES) continue;
-    if (key.split("|")[1] < input.localDate) continue;
+    if (!rule || key.split("|")[1] < input.localDate) continue;
+    const count = counts.get(key)?.count ?? 0;
     for (const n of list) {
-      if (n.rule_version === rule.version && n.choice === null && n.closed_reason === "price_set") toReopen.push(n);
+      if (n.rule_version !== rule.version || n.choice !== null) continue;
+      const bar = n.closed_reason === "resumed" ? n.fire_count + REPEAT_ALERT_FIRES : REPEAT_ALERT_FIRES;
+      if ((n.closed_reason === "price_set" || n.closed_reason === "resumed") && count >= bar) toReopen.push(n);
     }
   }
 
