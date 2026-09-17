@@ -47,8 +47,8 @@ export function defaultCloudbedsBaseUrl(): string {
  * refuses getReservationsWithRateDetails) checkpoints by index into this list,
  * so putting it anywhere else would resume an import already in flight on the
  * wrong status and skip pages of another one. The rate-details history path
- * mirrors this list through excludeStatuses=CLOUDBEDS_CANCELED_STATUSES and
- * then keeps only these statuses, so a status added here counts there too.
+ * reads every status and keeps only these, so a status added here counts there
+ * too.
  *
  * Verified against the live API 2026-09-10: confirmed, checked_in, checked_out,
  * canceled and no_show are all accepted. ⚠ not_confirmed was added after that

@@ -13,6 +13,14 @@
  * filter the endpoint honours (it silently ignores status and every check-in
  * filter). See cloudbedsHistoryWindowOwns in etl.ts for the rule and
  * historicalWindow in onboarding/worker-core.ts for the dates.
+ *
+ * Page order across separate calls was never verified, and pages here are
+ * minutes apart, so a stored page number only means something while the
+ * result set holds still. Three things keep it still: every status is read
+ * (a cancellation changes a booking, it does not remove it), the booking
+ * created bound is pinned for the whole window (a new booking cannot join),
+ * and the set's total is carried on the cursor: if it moved anyway, the window
+ * is read again from page 1.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -33,9 +41,11 @@ import {
   cloudbedsGetReservationsPage,
   cloudbedsGetReservationsWithRateDetailsPage,
   cloudbedsGetRoomTypes,
+  cloudbedsTimestamp,
   type CloudbedsRateDetailsQuery,
 } from "./client.ts";
 import {
+  cloudbedsStayDates,
   parseCloudbedsHistoryRateDetails,
   parseCloudbedsReservations,
   parseCloudbedsRoomTypes,
@@ -43,7 +53,6 @@ import {
 } from "./etl.ts";
 import {
   CLOUDBEDS_ACTIVE_STATUSES,
-  CLOUDBEDS_CANCELED_STATUSES,
   defaultCloudbedsBaseUrl,
 } from "./constants.ts";
 import { installCloudbedsRequestLogging } from "./request-log.ts";
@@ -56,14 +65,17 @@ import type { CloudbedsResolvedCredentials } from "./types.ts";
  *   null                                   start of a window, the one before it unknown
  *   { after: "checkout" | "checkin" }      start of a window, handed over by the
  *                                          window before it (nextWindowCursor)
- *   { pageNumber, openEnd? }               rate details, the page to read next
- *   { path: "list", statusIndex, pageNumber }
+ *   { pageNumber, createdTo, total, openEnd?, restarts? }
+ *                                          rate details, the page to read next
+ *   { path: "list", statusIndex, pageNumber, closed? }
  *                                          the list fallback, mid-window
  *   { statusIndex, pageNumber }            written by the list-only deploy
  *
- * The page number is the only position. `openEnd` is not a position: it
- * records which query this window is paging through, so page 3 asks the same
- * question pages 1 and 2 did.
+ * The page number is the only position. The rest pins the question: `openEnd`
+ * says which query this window pages through, `createdTo` the booking-created
+ * bound it was first asked with, `total` how many bookings that query matched
+ * on the last page read, and `restarts` how often the window was read again
+ * because that total moved.
  *
  * A window is open-ended (see CloudbedsHistoryWindow) when it is window 0, or
  * when the newer window before it was not owned by check-out: one read by
@@ -76,15 +88,31 @@ import type { CloudbedsResolvedCredentials } from "./types.ts";
  * A legacy mid-window cursor cannot be mapped onto rate-details pages: those
  * listed one status at a time and these list every status at once, in an
  * order nothing relates. So the window restarts at rate-details page 1,
- * open-ended. Upserts are keyed (hotel_id, external_reservation_id,
- * stay_date), so rows the old pages wrote are overwritten in place with real
- * rates; only the job's counters count them a second time. If the property
- * refuses rate details the legacy cursor means exactly what it meant, and the
- * list fallback resumes on that status and page.
+ * open-ended, and says so (restartWindow) so the worker stops counting what
+ * the old pages wrote. Upserts are keyed (hotel_id, external_reservation_id,
+ * stay_date), so those rows are overwritten in place with real rates, and the
+ * nights the list path keyed under a room that is not theirs are deleted
+ * (reconcileIds). If the property refuses rate details the legacy cursor
+ * means exactly what it meant, and the list fallback resumes on that status
+ * and page.
  */
 type CloudbedsCursor =
-  | { kind: "rate_details"; pageNumber: number; openEnd: boolean }
-  | { kind: "list"; statusIndex: number; pageNumber: number; legacy: boolean };
+  | {
+      kind: "rate_details";
+      pageNumber: number;
+      openEnd: boolean;
+      /** No page of this window has been read yet. */
+      start: boolean;
+      /** The window started from a handover by a window owned by check-out. */
+      handedCheckout: boolean;
+      createdTo: string | null;
+      total: number | null;
+      restarts: number;
+    }
+  | { kind: "list"; statusIndex: number; pageNumber: number; legacy: boolean; closed: boolean };
+
+/** Times a window is read again from page 1 because its total moved, before it pages on regardless. */
+export const CLOUDBEDS_HISTORY_MAX_RESTARTS = 3;
 
 function positiveInt(v: unknown): number | null {
   return typeof v === "number" && Number.isInteger(v) && v >= 1 ? v : null;
@@ -94,15 +122,36 @@ export function readCloudbedsHistoryCursor(cursor: AdapterCursor | null): Cloudb
   if (cursor && typeof cursor.statusIndex === "number" && typeof cursor.pageNumber === "number") {
     const statusIndex = Math.max(0, Math.floor(cursor.statusIndex));
     const pageNumber = Math.max(1, Math.floor(cursor.pageNumber));
-    if (cursor.path === "list") return { kind: "list", statusIndex, pageNumber, legacy: false };
-    return { kind: "list", statusIndex, pageNumber, legacy: true };
+    if (cursor.path === "list") {
+      return { kind: "list", statusIndex, pageNumber, legacy: false, closed: cursor.closed === true };
+    }
+    return { kind: "list", statusIndex, pageNumber, legacy: true, closed: false };
   }
   const pageNumber = cursor ? positiveInt(cursor.pageNumber) : null;
-  if (pageNumber !== null) {
-    return { kind: "rate_details", pageNumber, openEnd: cursor?.openEnd === true };
+  if (cursor && pageNumber !== null) {
+    return {
+      kind: "rate_details",
+      pageNumber,
+      openEnd: cursor.openEnd === true,
+      start: false,
+      handedCheckout: false,
+      createdTo: typeof cursor.createdTo === "string" && cursor.createdTo ? cursor.createdTo : null,
+      total: typeof cursor.total === "number" && Number.isFinite(cursor.total) ? cursor.total : null,
+      restarts: typeof cursor.restarts === "number" && cursor.restarts > 0 ? Math.floor(cursor.restarts) : 0,
+    };
   }
   // Window start. Only a handover from a check-out-owned window closes it.
-  return { kind: "rate_details", pageNumber: 1, openEnd: cursor?.after !== "checkout" };
+  const handedCheckout = cursor?.after === "checkout";
+  return {
+    kind: "rate_details",
+    pageNumber: 1,
+    openEnd: !handedCheckout,
+    start: true,
+    handedCheckout,
+    createdTo: null,
+    total: null,
+    restarts: 0,
+  };
 }
 
 function addDaysYmd(ymd: string, days: number): string {
@@ -110,6 +159,18 @@ function addDaysYmd(ymd: string, days: number): string {
   const dt = new Date(Date.UTC(y, m - 1, d));
   dt.setUTCDate(dt.getUTCDate() + days);
   return dt.toISOString().slice(0, 10);
+}
+
+/**
+ * The booking-created bound a window is pinned to, taken when its first page
+ * is read: a day before now. The day covers whatever time zone Cloudbeds reads
+ * the timestamp in, so the bound is in the past however it is read, and no
+ * booking made while the window pages can join it. What it gives up is a
+ * booking entered in the last day for a stay the window owns, which checked
+ * in at least 31 days ago: a stay keyed in a month late.
+ */
+export function cloudbedsHistoryCreatedTo(nowMs: number): string {
+  return cloudbedsTimestamp(new Date(nowMs - 24 * 60 * 60 * 1000));
 }
 
 /**
@@ -122,12 +183,21 @@ function addDaysYmd(ymd: string, days: number): string {
  * windows and stored by one. An open-ended window has no upper bound: it also
  * owns bookings that check in on or before `to` and check out after it,
  * however long they stay.
+ *
+ * No status is left out server-side. excludeStatuses would make a booking
+ * canceled between two page reads drop out of the set and pull every later
+ * booking up a place, so one would fall between pages unread; reading them
+ * also lets a window delete the nights of a booking canceled since an earlier
+ * import stored it. parseCloudbedsHistoryRateDetails keeps only active ones.
  */
-export function cloudbedsHistoryQuery(window: CloudbedsHistoryWindow): CloudbedsRateDetailsQuery {
+export function cloudbedsHistoryQuery(
+  window: CloudbedsHistoryWindow,
+  createdTo?: string,
+): CloudbedsRateDetailsQuery {
   return {
     checkOutFrom: addDaysYmd(window.from, -1),
     checkOutTo: window.openEnd ? undefined : addDaysYmd(window.to, 1),
-    excludeStatuses: CLOUDBEDS_CANCELED_STATUSES,
+    createdTo,
   };
 }
 
@@ -196,19 +266,27 @@ export async function createCloudbedsOnboardingAdapter(
   /** Set once this adapter has been refused rate details, so later windows go straight to the list. */
   let refusal: string | null = null;
 
+  type PageResult = Awaited<ReturnType<OnboardingPmsAdapter["fetchReservationListPage"]>>;
+
   /**
    * The list fallback: one page of getReservations for one status, filtered
    * by check-in over the window as the import always did. Nightly rate is the
    * booking total over (rooms x nights), and a multi-room booking whose list
    * row names no rooms is counted as one room. Kept only for accounts that
    * refuse rate details.
+   *
+   * `closed` is set when the newer window was owned by check-out. That window
+   * already stored every booking checking in here and out after `to`, from
+   * rate details, so the list leaves those alone: its one-room keys would land
+   * on another room's rows.
    */
   async function listPage(
     c: CloudbedsResolvedCredentials,
     window: { from: string; to: string },
     statusIndex: number,
     pageNumber: number,
-  ): Promise<{ rows: AdapterReservationRow[]; nextCursor: AdapterCursor | null; nextWindowCursor?: AdapterCursor }> {
+    closed: boolean,
+  ): Promise<PageResult> {
     if (statusIndex >= CLOUDBEDS_ACTIVE_STATUSES.length) {
       return { rows: [], nextCursor: null, nextWindowCursor: { after: "checkin" } };
     }
@@ -222,9 +300,16 @@ export async function createCloudbedsOnboardingAdapter(
       pageNumber,
     );
 
+    const mine = closed
+      ? reservations.filter((r) => {
+          const { checkOut } = cloudbedsStayDates(r);
+          return checkOut === null || checkOut <= window.to;
+        })
+      : reservations;
+
     // Slim rows keyed the same way the detail sync keys its rows,
     // raw_payload dropped entirely.
-    const parsed = parseCloudbedsReservations(reservations);
+    const parsed = parseCloudbedsReservations(mine);
     const rows: AdapterReservationRow[] = parsed.reservations.map((r) => ({
       external_reservation_id: r.external_reservation_id,
       external_room_type_id: r.external_room_type_id,
@@ -235,10 +320,12 @@ export async function createCloudbedsOnboardingAdapter(
       raw_payload: null,
     }));
 
+    const at = (i: number, n: number): AdapterCursor =>
+      closed ? { path: "list", statusIndex: i, pageNumber: n, closed: true } : { path: "list", statusIndex: i, pageNumber: n };
     const nextCursor: AdapterCursor | null = hasMore
-      ? { path: "list", statusIndex, pageNumber: pageNumber + 1 }
+      ? at(statusIndex, pageNumber + 1)
       : statusIndex + 1 < CLOUDBEDS_ACTIVE_STATUSES.length
-        ? { path: "list", statusIndex: statusIndex + 1, pageNumber: 1 }
+        ? at(statusIndex + 1, 1)
         : null;
 
     // This window was owned by check-in, so the next one has to reach forward.
@@ -272,28 +359,44 @@ export async function createCloudbedsOnboardingAdapter(
     async fetchReservationListPage(
       window: { from: string; to: string; newest?: boolean },
       cursor: AdapterCursor | null,
-    ): Promise<{
-      rows: AdapterReservationRow[];
-      nextCursor: AdapterCursor | null;
-      nextWindowCursor?: AdapterCursor | null;
-    }> {
+    ): Promise<PageResult> {
       const c = await credsWithProperty();
       const at = readCloudbedsHistoryCursor(cursor);
 
-      if (at.kind === "list" && !at.legacy) return listPage(c, window, at.statusIndex, at.pageNumber);
-      if (refusal !== null) {
-        return at.kind === "list" ? listPage(c, window, at.statusIndex, at.pageNumber) : listPage(c, window, 0, 1);
-      }
+      if (at.kind === "list" && !at.legacy) return listPage(c, window, at.statusIndex, at.pageNumber, at.closed);
+
+      // The list may only take over where rate details has written nothing
+      // for this window: at its start, or on a cursor the list-only deploy
+      // left. Past that, the list would re-read by check-in bookings this
+      // window already stored per room, and its one-room keys would land on
+      // another room's rows.
+      const mayFallBack = at.kind === "list" || at.start;
+      const fallBack = () =>
+        at.kind === "list"
+          ? listPage(c, window, at.statusIndex, at.pageNumber, false)
+          : listPage(c, window, 0, 1, at.handedCheckout);
+      if (refusal !== null && mayFallBack) return fallBack();
 
       const pageNumber = at.kind === "rate_details" ? at.pageNumber : 1;
       // A legacy cursor's window was part-read by check-in, like the one before it.
       const openEnd = window.newest === true || at.kind === "list" || at.openEnd;
       const historyWindow: CloudbedsHistoryWindow = { from: window.from, to: window.to, openEnd };
+      const createdTo = (at.kind === "rate_details" ? at.createdTo : null) ?? cloudbedsHistoryCreatedTo(Date.now());
+      const restarts = at.kind === "rate_details" ? at.restarts : 0;
+
       let page: Awaited<ReturnType<typeof cloudbedsGetReservationsWithRateDetailsPage>>;
       try {
-        page = await cloudbedsGetReservationsWithRateDetailsPage(c, cloudbedsHistoryQuery(historyWindow), pageNumber);
+        page = await cloudbedsGetReservationsWithRateDetailsPage(
+          c,
+          cloudbedsHistoryQuery(historyWindow, createdTo),
+          pageNumber,
+        );
       } catch (error) {
-        if (!cloudbedsRateDetailsRefused(error)) throw error;
+        // Refused after rate details already served this window: that says
+        // nothing about the account (any 4xx counts as a refusal, and a
+        // success:false body is a 400), so the step fails and retries on
+        // this same page.
+        if (!cloudbedsRateDetailsRefused(error) || !mayFallBack) throw error;
         refusal = error.message.slice(0, 300);
         // The error text is Cloudbeds' own words about the account, never a booking.
         console.warn(
@@ -305,17 +408,56 @@ export async function createCloudbedsOnboardingAdapter(
             refusal,
           }),
         );
-        // A refusal after some rate-details pages were written restarts the
-        // window on the list, by check-in. That overlaps what was written
-        // (same keys, so upserted, not doubled) and leaves nothing out.
-        return at.kind === "list" ? listPage(c, window, at.statusIndex, at.pageNumber) : listPage(c, window, 0, 1);
+        return fallBack();
       }
 
-      const { rows } = parseCloudbedsHistoryRateDetails(page.reservations, historyWindow);
-      if (page.hasMore) {
-        return { rows, nextCursor: openEnd ? { pageNumber: pageNumber + 1, openEnd: true } : { pageNumber: pageNumber + 1 } };
+      const nextPageCursor = (n: number, fields: { total: number | null; restarts: number }): AdapterCursor => ({
+        pageNumber: n,
+        ...(openEnd ? { openEnd: true } : {}),
+        createdTo,
+        ...(fields.total !== null ? { total: fields.total } : {}),
+        ...(fields.restarts > 0 ? { restarts: fields.restarts } : {}),
+      });
+
+      // The set moved under the pages already read, so this page number no
+      // longer points where it did. Read the window again; upserts make that
+      // safe, and restartWindow keeps the worker from counting it twice.
+      const priorTotal = at.kind === "rate_details" ? at.total : null;
+      if (
+        priorTotal !== null &&
+        page.total !== null &&
+        page.total !== priorTotal &&
+        restarts < CLOUDBEDS_HISTORY_MAX_RESTARTS
+      ) {
+        console.warn(
+          JSON.stringify({
+            fn: "cloudbedsHistoryImport",
+            hotelId,
+            warning: "history window changed while paging; reading it again from page 1",
+            windowFrom: window.from,
+            windowTo: window.to,
+            pageNumber,
+            totalWas: priorTotal,
+            totalNow: page.total,
+          }),
+        );
+        return {
+          rows: [],
+          nextCursor: nextPageCursor(1, { total: null, restarts: restarts + 1 }),
+          restartWindow: true,
+        };
       }
-      return { rows, nextCursor: null, nextWindowCursor: { after: "checkout" } };
+
+      const { rows, reconcileIds } = parseCloudbedsHistoryRateDetails(page.reservations, historyWindow);
+      const restartWindow = at.kind === "list";
+      const nextCursor = page.hasMore ? nextPageCursor(pageNumber + 1, { total: page.total, restarts }) : null;
+      return {
+        rows,
+        reconcileIds,
+        ...(restartWindow ? { restartWindow } : {}),
+        nextCursor,
+        ...(nextCursor ? {} : { nextWindowCursor: { after: "checkout" } }),
+      };
     },
   };
 }

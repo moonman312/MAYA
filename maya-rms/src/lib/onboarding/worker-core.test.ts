@@ -176,6 +176,8 @@ function makeSupabaseStub(
   const connectionRow = world.connection === undefined ? { status: "connected" } : world.connection;
   const claimRow = world.claim ?? null;
   const upserts: Array<{ table: string; rows: unknown[] }> = [];
+  /** reservations as stored, keyed external_reservation_id:stay_date. */
+  const reservations = new Map<string, Record<string, unknown>>();
   const updates: Array<{ table: string; patch: Record<string, unknown> }> = [];
   const sleep = (ms?: number) =>
     ms ? new Promise<void>((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
@@ -183,6 +185,17 @@ function makeSupabaseStub(
   function table(name: string) {
     const filters: Array<[string, string, unknown]> = [];
     let patch: Record<string, unknown> | null = null;
+    let deleting = false;
+
+    /** The reservations rows the eq/in filters so far select. */
+    const matchingReservations = () =>
+      [...reservations.values()].filter((row) =>
+        filters.every(([op, col, val]) => {
+          if (op === "eq") return String(row[col]) === String(val);
+          if (op === "in") return (val as unknown[]).map(String).includes(String(row[col]));
+          return true;
+        }),
+      );
 
     const filtersMatch = () =>
       filters.every(([op, col, val]) => {
@@ -193,6 +206,11 @@ function makeSupabaseStub(
       });
 
     const settle = async () => {
+      if (deleting) {
+        deleting = false;
+        for (const row of matchingReservations()) reservations.delete(`${row.external_reservation_id}:${row.stay_date}`);
+        return { data: null, error: null };
+      }
       if (patch) {
         const p = patch;
         patch = null;
@@ -235,6 +253,17 @@ function makeSupabaseStub(
         return chain;
       },
       limit: () => chain,
+      order: () => chain,
+      range: async (from: number, to: number) => {
+        const rows = matchingReservations()
+          .map((r) => ({ external_reservation_id: r.external_reservation_id, stay_date: r.stay_date }))
+          .sort((x, y) => `${x.external_reservation_id}:${x.stay_date}`.localeCompare(`${y.external_reservation_id}:${y.stay_date}`));
+        return { data: rows.slice(from, to + 1), error: null };
+      },
+      delete: () => {
+        deleting = true;
+        return chain;
+      },
       maybeSingle: async () => {
         if (name === "hotels") return { data: { ...hotelRow }, error: null };
         if (name === "import_jobs") return { data: { ...jobRow }, error: null };
@@ -244,7 +273,11 @@ function makeSupabaseStub(
         return { data: null };
       },
       upsert: async (rows: unknown) => {
-        upserts.push({ table: name, rows: Array.isArray(rows) ? rows : [rows] });
+        const list = (Array.isArray(rows) ? rows : [rows]) as Record<string, unknown>[];
+        upserts.push({ table: name, rows: list });
+        if (name === "reservations") {
+          for (const row of list) reservations.set(`${row.external_reservation_id}:${row.stay_date}`, row);
+        }
         return { error: null };
       },
       update: (p: Record<string, unknown>) => {
@@ -259,7 +292,8 @@ function makeSupabaseStub(
     return chain;
   }
 
-  const stub = { from: table, upserts, updates, jobRow } as unknown as SupabaseClient & {
+  const stub = { from: table, upserts, updates, jobRow, reservations } as unknown as SupabaseClient & {
+    reservations: typeof reservations;
     upserts: typeof upserts;
     updates: typeof updates;
     jobRow: Record<string, unknown>;
@@ -581,6 +615,92 @@ describe("processJob history coverage", () => {
     await processJob(supabase, job, makeDeps(adapter), 60_000);
 
     expect(cursors).toEqual([null, { after: "window-ending-2026-06-25" }, { after: "window-ending-2025-06-25" }]);
+  });
+
+  it("takes a restarted window's earlier pages back off the counters, so they count once and the cap does not bite early", async () => {
+    const supabase = makeSupabaseStub();
+    const w0 = historicalWindow(COVERED_FROM, 0);
+    // Mid-window 0 when a deploy landed: 100 rows written by the old pages.
+    const job = makeJob({
+      phase: "historical",
+      window_index: 0,
+      window_from: w0.from,
+      window_to: w0.to,
+      enum_cursor: { statusIndex: 2, pageNumber: 3 },
+      rows_upserted: 100,
+      reservations_enumerated: 100,
+      row_cap: 150,
+      stats: { currentWindowRows: 100, currentSyncRuns: 0, countingRooms: 0 },
+    });
+    let calls = 0;
+    const base = makeAdapter(new Map());
+    const adapter: OnboardingPmsAdapter = {
+      ...base,
+      fetchReservationListPage: async () => {
+        calls += 1;
+        // Page 1 again, the same 100 rows, then the rest of the window.
+        if (calls === 1) return { rows: pageOfRows(100, "2025-01-10"), nextCursor: { pageNumber: 2 }, restartWindow: true };
+        if (calls === 2) return { rows: pageOfRows(40, "2025-02-10"), nextCursor: null };
+        return { rows: [], nextCursor: null };
+      },
+    };
+
+    await processJob(supabase, job, makeDeps(adapter), 60_000);
+
+    // Not 240, and not stopped at the cap of 150 after the restarted page.
+    expect(calls).toBeGreaterThanOrEqual(2);
+    expect(jobPatches(supabase).some((u) => u.patch.rows_upserted === 100 && (u.patch.stats as Record<string, unknown>)?.currentWindowRows === 100)).toBe(true);
+    expect(job.stats.historyStopReason).not.toBe("row_cap");
+    expect(job.windows_completed).toBeGreaterThanOrEqual(1);
+    const afterWindow0 = jobPatches(supabase).find((u) => u.patch.window_index === 1);
+    expect(afterWindow0?.patch.rows_upserted).toBe(140);
+    expect(afterWindow0?.patch.reservations_enumerated).toBe(140);
+  });
+
+  it("deletes stored nights under the ids a page speaks for that the page no longer has", async () => {
+    const supabase = makeSupabaseStub();
+    const stored = (id: string, stay: string) => ({ hotel_id: "hotel-1", external_reservation_id: id, stay_date: stay, current_rate: 1 });
+    for (const row of [
+      // The list path's whole booking under -1, four nights; the room is two.
+      stored("R1-1", "2026-03-01"), stored("R1-1", "2026-03-02"), stored("R1-1", "2026-03-03"), stored("R1-1", "2026-03-04"),
+      // Rows from before per-room keying.
+      stored("R1", "2026-03-01"),
+      // Canceled since an earlier import stored it.
+      stored("C1-1", "2026-04-01"), stored("C1-1", "2026-04-02"),
+      // Not spoken for: left alone.
+      stored("OTHER-1", "2026-03-01"),
+    ]) {
+      supabase.reservations.set(`${row.external_reservation_id}:${row.stay_date}`, row);
+    }
+    const row = (id: string, stay: string): AdapterReservationRow => ({
+      external_reservation_id: id, external_room_type_id: "RT1", stay_date: stay, booking_date: null, booking_window_days: null, current_rate: 90, raw_payload: null,
+    });
+    const base = makeAdapter(new Map());
+    let calls = 0;
+    const adapter: OnboardingPmsAdapter = {
+      ...base,
+      fetchReservationListPage: async () => {
+        calls += 1;
+        if (calls > 1) return { rows: [], nextCursor: null };
+        return {
+          rows: [row("R1-1", "2026-03-01"), row("R1-1", "2026-03-02"), row("R1-2", "2026-03-01")],
+          reconcileIds: ["R1", "R1-1", "R1-2", "C1", "C1-1"],
+          nextCursor: null,
+        };
+      },
+    };
+    const job = makeJob();
+
+    await processJob(supabase, job, makeDeps(adapter), 60_000);
+
+    expect([...supabase.reservations.keys()].sort()).toEqual([
+      "OTHER-1:2026-03-01",
+      "R1-1:2026-03-01",
+      "R1-1:2026-03-02",
+      "R1-2:2026-03-01",
+    ]);
+    expect(job.stats.historyNightsDeleted).toBe(5);
+    expect(job.rows_upserted).toBe(3);
   });
 
   it("falls back to today when the sync doesn't report its window", async () => {

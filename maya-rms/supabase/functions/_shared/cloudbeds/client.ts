@@ -428,11 +428,12 @@ export type CloudbedsRateDetailsQuery = {
   /** Only bookings touched since this (cloudbedsTimestamp format). */
   modifiedFrom?: string;
   /**
-   * Statuses the server should leave out, sent as one comma list. The only
-   * status filter this endpoint honours; `status` itself is ignored. The live
-   * sync omits it because it reads cancellations off the same pages.
+   * Only bookings created up to this (cloudbedsTimestamp format), sent as
+   * resultsTo, the booking-date bound the sandbox honoured. The history import
+   * pins it for a whole window so a booking made while it pages cannot shift
+   * a page it has already read.
    */
-  excludeStatuses?: readonly string[];
+  createdTo?: string;
 };
 
 /**
@@ -462,7 +463,7 @@ export async function cloudbedsGetReservationsWithRateDetailsPage(
     reservationCheckOutFrom: query.checkOutFrom,
     reservationCheckOutTo: query.checkOutTo,
     modifiedFrom: query.modifiedFrom,
-    excludeStatuses: query.excludeStatuses?.length ? query.excludeStatuses.join(",") : undefined,
+    resultsTo: query.createdTo,
     pageNumber,
     pageSize: CLOUDBEDS_RATE_DETAILS_PAGE_SIZE,
   });

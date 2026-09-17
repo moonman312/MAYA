@@ -84,6 +84,15 @@ export interface OnboardingPmsAdapter {
    * an adapter tells its next window how this one assigned bookings, so a
    * change of rule between windows (a fallback, or a deploy that lands
    * mid-import) leaves no booking between them.
+   *
+   * `reconcileIds` are external_reservation_ids this page speaks for in full:
+   * after upserting `rows`, the worker deletes every stored night under them
+   * that `rows` does not hold (a booking canceled or shortened since an
+   * earlier import, or nights an older import keyed differently).
+   *
+   * `restartWindow` says this page reads the window again from its start, so
+   * the rows its earlier pages wrote are about to be written again: the
+   * worker takes them back off its counters before counting this page.
    */
   fetchReservationListPage(
     window: { from: string; to: string; newest?: boolean },
@@ -92,6 +101,8 @@ export interface OnboardingPmsAdapter {
     rows: AdapterReservationRow[];
     nextCursor: AdapterCursor | null;
     nextWindowCursor?: AdapterCursor | null;
+    reconcileIds?: string[];
+    restartWindow?: boolean;
   }>;
 }
 

@@ -238,7 +238,8 @@ Going back to test mode is the same three variables, the other way.
   calls and nothing more. A claimed property that never pays costs one import:
   for a 42-room property with seven years of history, roughly 390 Cloudbeds
   calls (about 20 for the current window with paged rate details, about 50 per
-  year of history with one page per hundred bookings across every active status,
+  year of history with one page per hundred bookings, canceled and no-show ones
+  included so a page cannot shift while the import reads it,
   about 20 more in the newest year, which also reads the forward book to catch
   guests in house when the current window starts, and one for the empty year
   that stops it), paced at least 220 ms apart, and an estimated 28 MB of rows until

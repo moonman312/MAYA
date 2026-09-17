@@ -32,6 +32,7 @@ const client = vi.hoisted(() => {
     cloudbedsGetRoomTypes: vi.fn(),
     cloudbedsGetReservationsPage: vi.fn(),
     cloudbedsGetReservationsWithRateDetailsPage: vi.fn(),
+    cloudbedsTimestamp: (d: Date) => d.toISOString().slice(0, 19).replace("T", " "),
   };
 });
 
@@ -45,6 +46,8 @@ vi.mock("../../../supabase/functions/_shared/pms/oauth-credentials.ts", () => ({
 }));
 
 import {
+  CLOUDBEDS_HISTORY_MAX_RESTARTS,
+  cloudbedsHistoryCreatedTo,
   cloudbedsHistoryQuery,
   createCloudbedsOnboardingAdapter,
 } from "../../../supabase/functions/_shared/cloudbeds/onboarding-adapter";
@@ -138,16 +141,17 @@ function rdBooking(opts: {
   };
 }
 
-type RdQuery = { checkOutFrom: string; checkOutTo?: string; excludeStatuses?: readonly string[] };
+type RdQuery = { checkOutFrom: string; checkOutTo?: string; createdTo?: string; excludeStatuses?: readonly string[] };
 
 /**
- * The server as the sandbox showed it behaves: filters by check-out and
- * excludeStatuses, ignores status and check-in, pages at 100 with a total.
- * `upper` models the one thing nobody verified: whether checkOutTo is inclusive.
+ * The server as the sandbox showed it behaves: filters by check-out, booking
+ * created date and excludeStatuses, ignores status and check-in, pages at 100
+ * with a total. `upper` models the one thing nobody verified: whether
+ * checkOutTo is inclusive. `book` is read on every call, so a test can change
+ * it between pages the way a live property does.
  */
-function serve(book: Json[], opts: { upper?: "inclusive" | "exclusive"; honourExclude?: boolean } = {}) {
+function serve(book: Json[], opts: { upper?: "inclusive" | "exclusive" } = {}) {
   const upper = opts.upper ?? "inclusive";
-  const honourExclude = opts.honourExclude ?? true;
   client.cloudbedsGetReservationsWithRateDetailsPage.mockImplementation(
     async (_creds: unknown, query: RdQuery, pageNumber: number) => {
       const matched = book.filter((b) => {
@@ -156,7 +160,8 @@ function serve(book: Json[], opts: { upper?: "inclusive" | "exclusive"; honourEx
         if (query.checkOutTo !== undefined) {
           if (upper === "inclusive" ? out > query.checkOutTo : out >= query.checkOutTo) return false;
         }
-        if (honourExclude && query.excludeStatuses?.includes(String(b.status))) return false;
+        if (query.createdTo !== undefined && String(b.dateCreated) > query.createdTo) return false;
+        if (query.excludeStatuses?.includes(String(b.status))) return false;
         return true;
       });
       const start = (pageNumber - 1) * 100;
@@ -256,19 +261,23 @@ describe("history windows by check-out date", () => {
   const w1 = historyWindow(1); // 2024-06-26 .. 2025-06-25
   const w2 = historyWindow(2); // 2023-06-27 .. 2024-06-25
 
-  it("asks for the window widened by a day each side, canceled and no-show left out, open-ended for the newest", () => {
+  it("asks for the window widened by a day each side, every status, open-ended for the newest", () => {
     expect(w0).toEqual({ from: "2025-06-26", to: "2026-06-25", newest: true });
     expect(w1).toEqual({ from: "2024-06-26", to: "2025-06-25", newest: false });
-    expect(cloudbedsHistoryQuery(w1)).toEqual({
+    expect(cloudbedsHistoryQuery(w1, "2026-09-16 10:00:00")).toEqual({
       checkOutFrom: "2024-06-25",
       checkOutTo: "2025-06-26",
-      excludeStatuses: ["canceled", "no_show"],
+      createdTo: "2026-09-16 10:00:00",
     });
-    expect(cloudbedsHistoryQuery({ ...w0, openEnd: true })).toEqual({
+    expect(cloudbedsHistoryQuery({ ...w0, openEnd: true }, "2026-09-16 10:00:00")).toEqual({
       checkOutFrom: "2025-06-25",
       checkOutTo: undefined,
-      excludeStatuses: ["canceled", "no_show"],
+      createdTo: "2026-09-16 10:00:00",
     });
+  });
+
+  it("pins the booking-created bound a day behind now, so any time zone reads it as past", () => {
+    expect(cloudbedsHistoryCreatedTo(Date.parse("2026-09-17T08:30:15Z"))).toBe("2026-09-16 08:30:15");
   });
 
   /**
@@ -450,7 +459,7 @@ describe("history rows from rate details", () => {
     expect(rows.some((r) => r.current_rate === 999 / 6 || r.current_rate === 605)).toBe(false);
   });
 
-  it("asks the server to leave canceled and no-show out, and drops them itself when it does not", async () => {
+  it("reads every status, stores only active ones, and claims a canceled or no-show booking's ids for deletion", async () => {
     const book = [
       rdBooking({ id: "A1", status: "confirmed", checkIn: "2025-01-10", checkOut: "2025-01-11" }),
       rdBooking({ id: "A2", status: "checked_in", checkIn: "2025-01-10", checkOut: "2025-01-11" }),
@@ -460,14 +469,18 @@ describe("history rows from rate details", () => {
       rdBooking({ id: "X2", status: "no_show", checkIn: "2025-01-10", checkOut: "2025-01-11" }),
       rdBooking({ id: "X3", status: "inquiry", checkIn: "2025-01-10", checkOut: "2025-01-11" }),
     ];
-    serve(book, { honourExclude: false });
+    serve(book);
     const a = await adapter();
 
-    const rows = await readWindow(a, historyWindow(1));
+    const page = await a.fetchReservationListPage(historyWindow(1), { after: "checkout" });
 
-    expect(rows.map((r) => r.external_reservation_id).sort()).toEqual(["A1-1", "A2-1", "A3-1", "A4-1"]);
+    expect(page.rows.map((r) => r.external_reservation_id).sort()).toEqual(["A1-1", "A2-1", "A3-1", "A4-1"]);
+    // The canceled and no-show bookings' ids, bare and per room, so the worker
+    // deletes nights an earlier import stored before they were canceled. The
+    // inquiry is not a sale and not a cancellation: left alone.
+    expect([...(page.reconcileIds ?? [])].sort()).toEqual(["A1", "A1-1", "A2", "A2-1", "A3", "A3-1", "A4", "A4-1", "X1", "X1-1", "X2", "X2-1"]);
     const [, query] = client.cloudbedsGetReservationsWithRateDetailsPage.mock.calls[0];
-    expect(query).toMatchObject({ excludeStatuses: ["canceled", "no_show"] });
+    expect(query).not.toHaveProperty("excludeStatuses", expect.anything());
     expect(query).not.toHaveProperty("status");
     expect(client.cloudbedsGetReservationsPage).not.toHaveBeenCalled();
   });
@@ -496,8 +509,8 @@ describe("history rows from rate details", () => {
         }),
       );
     }
-    // Statuses left to the client too, so it is paging and filtering that matched.
-    serve(book, { honourExclude: false });
+    // Statuses are left to the client, so it is paging and filtering that matched.
+    serve(book);
     const a = await adapter();
 
     const history = (await readHistory(a, 2)).flat();
@@ -566,14 +579,18 @@ describe("history cursor", () => {
     const w = historyWindow(1);
 
     const p1 = await a.fetchReservationListPage(w, { after: "checkout" });
-    expect(p1.nextCursor).toEqual({ pageNumber: 2 });
+    const createdTo = client.cloudbedsGetReservationsWithRateDetailsPage.mock.calls[0][1].createdTo;
+    expect(createdTo).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+    expect(p1.nextCursor).toEqual({ pageNumber: 2, createdTo, total: 250 });
     const p2 = await a.fetchReservationListPage(w, p1.nextCursor);
-    expect(p2.nextCursor).toEqual({ pageNumber: 3 });
+    expect(p2.nextCursor).toEqual({ pageNumber: 3, createdTo, total: 250 });
     const p3 = await a.fetchReservationListPage(w, p2.nextCursor);
     expect(p3.nextCursor).toBeNull();
     expect(p3.nextWindowCursor).toEqual({ after: "checkout" });
 
     expect(client.cloudbedsGetReservationsWithRateDetailsPage.mock.calls.map((c) => c[2])).toEqual([1, 2, 3]);
+    // Every page asks the question page 1 asked.
+    expect(client.cloudbedsGetReservationsWithRateDetailsPage.mock.calls.map((c) => c[1].createdTo)).toEqual([createdTo, createdTo, createdTo]);
     expect(p1.rows.length + p2.rows.length + p3.rows.length).toBe(500);
   });
 
@@ -605,13 +622,18 @@ describe("history cursor", () => {
     expect(client.cloudbedsGetReservationsWithRateDetailsPage.mock.calls[0][2]).toBe(1);
     expect(client.cloudbedsGetReservationsPage).not.toHaveBeenCalled();
     expect(page.rows).toHaveLength(200);
+    // The worker takes what the old pages counted back off before counting these.
+    expect(page.restartWindow).toBe(true);
     // Open-ended, like any window whose newer neighbour was read by check-in,
     // and the cursor keeps asking that same question on page 2.
     expect(client.cloudbedsGetReservationsWithRateDetailsPage.mock.calls[0][1]).toMatchObject({ checkOutTo: undefined });
-    expect(page.nextCursor).toEqual({ pageNumber: 2, openEnd: true });
+    expect(page.nextCursor).toEqual({ pageNumber: 2, openEnd: true, createdTo: expect.any(String), total: 250 });
     await a.fetchReservationListPage(historyWindow(1), page.nextCursor);
     expect(client.cloudbedsGetReservationsWithRateDetailsPage.mock.calls[1][1]).toMatchObject({ checkOutTo: undefined });
     expect(client.cloudbedsGetReservationsWithRateDetailsPage.mock.calls[1][2]).toBe(2);
+    expect(client.cloudbedsGetReservationsWithRateDetailsPage.mock.calls[1][1].createdTo).toBe(
+      client.cloudbedsGetReservationsWithRateDetailsPage.mock.calls[0][1].createdTo,
+    );
   });
 
   it("closes a window only on a handover from a window owned by check-out", async () => {
@@ -626,6 +648,129 @@ describe("history cursor", () => {
     await a.fetchReservationListPage(historyWindow(0), { after: "checkout" });
 
     expect(queries.map((q) => (q[1] as RdQuery).checkOutTo)).toEqual(["2024-06-26", undefined, undefined, undefined]);
+  });
+
+  /** 250 bookings for window 0: every one checks out inside it, so every one is owned. */
+  const liveBook = () =>
+    Array.from({ length: 250 }, (_, i) =>
+      rdBooking({ id: String(20000 + i), status: "confirmed", checkIn: addDays("2025-08-01", i), checkOut: addDays("2025-08-03", i) }),
+    );
+
+  it("loses no booking when one on an earlier page is canceled between two page reads", async () => {
+    const book = liveBook();
+    serve(book);
+    const a = await adapter();
+    const w = historyWindow(0);
+
+    const p1 = await a.fetchReservationListPage(w, null);
+    // Canceled on the property before page 2 is asked for. Had the server
+    // been asked to leave canceled bookings out, every later booking would
+    // move up a place and the first one on page 2 would never be read.
+    book[5].status = "canceled";
+    const rest = await readWindow(a, w, p1.nextCursor);
+
+    const stored = new Set([...p1.rows, ...rest].map((r) => r.external_reservation_id));
+    for (let i = 0; i < 250; i += 1) {
+      if (i === 5) continue;
+      expect(stored.has(`${20000 + i}-1`), String(20000 + i)).toBe(true);
+    }
+  });
+
+  it("does not let a booking made while the window pages shift its pages", async () => {
+    const book = liveBook();
+    serve(book);
+    const a = await adapter();
+    const w = historyWindow(0);
+
+    const p1 = await a.fetchReservationListPage(w, null);
+    // A booking made now for a stay the window would own, sorted ahead of
+    // everything a server that orders by stay date would put on page 2.
+    const now = new Date().toISOString().slice(0, 10);
+    book.unshift(rdBooking({ id: "NEW1", status: "confirmed", checkIn: "2025-07-01", checkOut: "2025-07-03", created: now }));
+    const p2 = await a.fetchReservationListPage(w, p1.nextCursor);
+
+    expect(p2.restartWindow).toBeUndefined();
+    const stored = new Set([...p1.rows, ...p2.rows].map((r) => r.external_reservation_id));
+    for (let i = 0; i < 200; i += 1) expect(stored.has(`${20000 + i}-1`), String(20000 + i)).toBe(true);
+    expect(stored.has("NEW1-1")).toBe(false);
+  });
+
+  it("reads the window again from page 1 when its total moves between pages, and stores everything left", async () => {
+    const book = liveBook();
+    serve(book);
+    const a = await adapter();
+    const w = historyWindow(0);
+
+    const p1 = await a.fetchReservationListPage(w, null);
+    // Deleted outright on the property: the one change nothing else pins.
+    book.splice(3, 1);
+    const p2 = await a.fetchReservationListPage(w, JSON.parse(JSON.stringify(p1.nextCursor)) as AdapterCursor);
+
+    expect(p2.rows).toEqual([]);
+    expect(p2.restartWindow).toBe(true);
+    expect(p2.nextCursor).toEqual({
+      pageNumber: 1,
+      openEnd: true,
+      createdTo: (p1.nextCursor as AdapterCursor).createdTo,
+      restarts: 1,
+    });
+
+    const again = await readWindow(a, w, p2.nextCursor);
+    const stored = new Set(again.map((r) => r.external_reservation_id));
+    expect(stored.size).toBe(249);
+    expect(stored.has("20003-1")).toBe(false);
+    expect(client.cloudbedsGetReservationsWithRateDetailsPage.mock.calls.map((c) => c[2])).toEqual([1, 2, 1, 2, 3]);
+  });
+
+  it(`pages on regardless after ${CLOUDBEDS_HISTORY_MAX_RESTARTS} restarts, so a book that never holds still still finishes`, async () => {
+    const book = liveBook();
+    serve(book);
+    const a = await adapter();
+    const w = historyWindow(0);
+
+    let cursor: AdapterCursor | null = null;
+    let restarts = 0;
+    let finished = false;
+    for (let guard = 0; guard < 40; guard += 1) {
+      const page = await a.fetchReservationListPage(w, cursor);
+      if (page.restartWindow && page.rows.length === 0) restarts += 1;
+      // Something changes before every read.
+      book.push(rdBooking({ id: `X${guard}`, checkIn: "2025-09-01", checkOut: "2025-09-02", created: "2025-01-01" }));
+      cursor = page.nextCursor;
+      if (!cursor) {
+        finished = true;
+        break;
+      }
+    }
+    expect(finished).toBe(true);
+    expect(restarts).toBe(CLOUDBEDS_HISTORY_MAX_RESTARTS);
+  });
+
+  it("claims the ids of an owned booking so nights the list path keyed under another room are deleted", async () => {
+    serve([
+      rdBooking({
+        id: "7001",
+        checkIn: "2025-03-01",
+        checkOut: "2025-03-05",
+        rooms: [
+          { sub: "7001", roomTypeID: "RT1", rates: { "2025-03-01": 100, "2025-03-02": 100, "2025-03-03": 100, "2025-03-04": 100 } },
+          { sub: "7001-1", roomTypeID: "RT2", rates: { "2025-03-01": 80, "2025-03-02": 80 } },
+        ],
+      }),
+      rdBooking({ id: "7002", status: "canceled", checkIn: "2025-03-01", checkOut: "2025-03-03" }),
+      // Canceled, but owned by window 2: not this window's to delete.
+      rdBooking({ id: "7003", status: "no_show", checkIn: "2024-03-01", checkOut: "2024-03-03" }),
+    ]);
+    const a = await adapter();
+
+    // A cursor the list-only deploy left, which wrote 7001-1 for all four nights.
+    const page = await a.fetchReservationListPage(historyWindow(1), { statusIndex: 2, pageNumber: 1 });
+
+    expect([...(page.reconcileIds ?? [])].sort()).toEqual(["7001", "7001-1", "7001-2", "7002", "7002-1"]);
+    expect(page.rows.filter((r) => r.external_reservation_id === "7001-1").map((r) => r.stay_date)).toEqual([
+      "2025-03-01",
+      "2025-03-02",
+    ]);
   });
 
   it("treats a garbage cursor as the start of the window", async () => {
@@ -718,6 +863,85 @@ describe("history for a property that refuses rate details", () => {
     expect([from, to, status, pageNumber]).toEqual([WINDOW.from, WINDOW.to, "confirmed", 1]);
   });
 
+  it("does not fall back once rate details has served the window: the step fails and retries on the same page", async () => {
+    const book = Array.from({ length: 150 }, (_, i) =>
+      rdBooking({ id: String(30000 + i), checkIn: addDays("2024-08-01", i), checkOut: addDays("2024-08-03", i) }),
+    );
+    serve(book);
+    const a = await adapter();
+    const w = historyWindow(1);
+    const p1 = await a.fetchReservationListPage(w, { after: "checkout" });
+    expect(p1.nextCursor).toMatchObject({ pageNumber: 2 });
+
+    // A success:false body on page 2 reaches the client as a 400.
+    refuseRateDetails(400, "Cloudbeds getReservationsWithRateDetails failed (400): Something went wrong");
+    await expect(a.fetchReservationListPage(w, p1.nextCursor)).rejects.toThrow("Something went wrong");
+    // A window read again from page 1 after its total moved has been served too.
+    await expect(
+      a.fetchReservationListPage(w, { pageNumber: 1, createdTo: "2026-09-16 10:00:00", restarts: 1 }),
+    ).rejects.toThrow("Something went wrong");
+    // So has one restarted from a list-only cursor that got past its first page.
+    await expect(
+      a.fetchReservationListPage(w, { pageNumber: 2, openEnd: true, createdTo: "2026-09-16 10:00:00", total: 150 }),
+    ).rejects.toThrow("Something went wrong");
+
+    expect(client.cloudbedsGetReservationsPage).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+
+    // The retry, on the page the worker kept, carries on with rate details.
+    serve(book);
+    const p2 = await a.fetchReservationListPage(w, p1.nextCursor);
+    expect(p2.rows.length).toBeGreaterThan(0);
+    expect(p2.nextCursor).toBeNull();
+  });
+
+  it("falls back at the start of a window after a rate-details one, leaving the stays that window already stored", async () => {
+    refuseRateDetails();
+    const w2 = historyWindow(2); // 2023-06-27 .. 2024-06-25
+    client.pages = {
+      checked_out: [
+        [
+          // Checks in here and out inside window 1, which stored it room by room.
+          { reservationID: "L1", status: "checked_out", startDate: "2024-06-20", endDate: "2024-06-30", roomTypeID: "RT1", total: 1000 },
+          // Checks out on window 2's last day: this window's.
+          { reservationID: "L2", status: "checked_out", startDate: "2024-06-23", endDate: "2024-06-25", roomTypeID: "RT1", total: 200 },
+        ],
+        [{ reservationID: "L3", status: "checked_out", startDate: "2024-06-24", endDate: "2024-07-01", roomTypeID: "RT1", total: 700 }],
+      ],
+    };
+    const a = await adapter();
+
+    const cursors: (AdapterCursor | null)[] = [];
+    const ids = new Set<string>();
+    let cursor: AdapterCursor | null = { after: "checkout" };
+    for (let guard = 0; guard < 20; guard += 1) {
+      const page = await a.fetchReservationListPage(w2, cursor);
+      for (const r of page.rows) ids.add(r.external_reservation_id);
+      cursor = page.nextCursor;
+      cursors.push(cursor);
+      if (!cursor) {
+        expect(page.nextWindowCursor).toEqual({ after: "checkin" });
+        break;
+      }
+    }
+
+    expect([...ids]).toEqual(["L2-1"]);
+    expect(cursors).toContainEqual({ path: "list", statusIndex: 2, pageNumber: 2, closed: true });
+    expect(client.cloudbedsGetReservationsWithRateDetailsPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("still falls back at the start of window 0 and on a list-only deploy's cursor", async () => {
+    refuseRateDetails();
+    const a = await adapter();
+    const first = await a.fetchReservationListPage(historyWindow(0), null);
+    expect(first.nextCursor).toEqual({ path: "list", statusIndex: 1, pageNumber: 1 });
+
+    const b = await adapter();
+    const legacy = await b.fetchReservationListPage(historyWindow(1), { statusIndex: 3, pageNumber: 2 });
+    expect(client.cloudbedsGetReservationsPage.mock.calls.at(-1)!.slice(3)).toEqual(["not_confirmed", 2]);
+    expect(legacy.nextCursor).toBeNull();
+  });
+
   it.each([
     [503, "Cloudbeds getReservationsWithRateDetails failed (503): upstream"],
     [429, "Cloudbeds getReservationsWithRateDetails failed (429): slow down"],
@@ -745,6 +969,14 @@ describe("parseCloudbedsHistoryRateDetails", () => {
       w,
     );
     expect(rows.map((r) => r.external_reservation_id)).toEqual(["K1-1"]);
-    expect(stats).toEqual({ bookings: 5, owned: 1, canceled: 1, unknownStatus: 1, outsideWindow: 2, missingReservationId: 0 });
+    expect(stats).toEqual({
+      bookings: 5,
+      owned: 1,
+      canceled: 1,
+      canceledOwned: 1,
+      unknownStatus: 1,
+      outsideWindow: 2,
+      missingReservationId: 0,
+    });
   });
 });

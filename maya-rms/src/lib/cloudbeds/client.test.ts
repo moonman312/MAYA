@@ -111,12 +111,12 @@ describe("getReservationsWithRateDetails paging", () => {
     expect(params).not.toHaveProperty("includeGuestsDetails");
   });
 
-  it("sends excluded statuses as one comma list, the only status filter it honours", async () => {
+  it("sends a booking-created bound as resultsTo, and no status filter", async () => {
     const urls = captureUrls([{ data: [], total: 0 }]);
 
     await cloudbedsGetReservationsWithRateDetailsPage(
       CREDS,
-      { checkOutFrom: "2024-06-25", checkOutTo: "2025-06-26", excludeStatuses: ["canceled", "no_show"] },
+      { checkOutFrom: "2024-06-25", checkOutTo: "2025-06-26", createdTo: "2026-09-16 10:00:00" },
       3,
     );
 
@@ -125,11 +125,12 @@ describe("getReservationsWithRateDetails paging", () => {
       propertyID: "prop-1",
       reservationCheckOutFrom: "2024-06-25",
       reservationCheckOutTo: "2025-06-26",
-      excludeStatuses: "canceled,no_show",
+      resultsTo: "2026-09-16 10:00:00",
       pageNumber: "3",
       pageSize: "100",
     });
     expect(params).not.toHaveProperty("status");
+    expect(params).not.toHaveProperty("excludeStatuses");
     expect(params).not.toHaveProperty("includeGuestsDetails");
   });
 

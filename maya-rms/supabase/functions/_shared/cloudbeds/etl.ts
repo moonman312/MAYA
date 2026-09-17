@@ -564,6 +564,7 @@ export type CloudbedsHistoryParseStats = {
   bookings: number;
   owned: number;
   canceled: number;
+  canceledOwned: number;
   unknownStatus: number;
   outsideWindow: number;
   missingReservationId: number;
@@ -583,33 +584,47 @@ function isActiveReservationStatus(status: string | null): boolean {
  * and its own nightly rate. Only raw_payload differs, null here, so history
  * holds no guest-derived payload at all.
  *
- * Canceled and no-show bookings are asked to be left out server-side, and are
- * dropped here again along with any status MAYA does not count as a sale, the
- * same set the list path used to walk one status at a time. Nothing about a
- * booking is logged or returned beyond these rows and counts.
+ * The page carries every status (the history query does not ask the server to
+ * leave any out, so a cancellation between two page reads cannot shift a
+ * page). Only the statuses MAYA counts as a sale become rows.
+ *
+ * `reconcileIds` are the external_reservation_ids this page speaks for, the
+ * same set the live sync deletes a canceled booking by (the parent id plus one
+ * per room, from the payload's own rooms). Every stored night under them that
+ * is not in `rows` is stale: a canceled or no-show booking the window owns
+ * loses all of them, and a booking that was shortened, or that an older
+ * import keyed differently (the list path put a whole multi-room booking
+ * under `<id>-1`, and rows from before per-room keying sit under the bare
+ * id), loses the nights it no longer has. For an active booking only the bare
+ * id and the room ids that produced rows are claimed, as the live sync's
+ * stale-night pass claims them: a room or a booking whose payload is missing
+ * its rates is no reason to wipe nights already stored.
+ *
+ * Nothing about a booking is logged or returned beyond these ids, rows and
+ * counts.
  */
 export function parseCloudbedsHistoryRateDetails(
   bookings: Json[],
   window: CloudbedsHistoryWindow,
-): { rows: CloudbedsHistoryRow[]; stats: CloudbedsHistoryParseStats } {
+): { rows: CloudbedsHistoryRow[]; reconcileIds: string[]; stats: CloudbedsHistoryParseStats } {
   const stats: CloudbedsHistoryParseStats = {
     bookings: bookings.length,
     owned: 0,
     canceled: 0,
+    canceledOwned: 0,
     unknownStatus: 0,
     outsideWindow: 0,
     missingReservationId: 0,
   };
   const byKey = new Map<string, CloudbedsHistoryRow>();
+  const reconcile = new Set<string>();
   for (const booking of bookings) {
     if (!booking || typeof booking !== "object") continue;
     const detail = cloudbedsRateDetailsToDetail(booking);
     const status = firstString(detail, ["status", "reservationStatus"]);
-    if (isCanceled(status)) {
-      stats.canceled += 1;
-      continue;
-    }
-    if (!isActiveReservationStatus(status)) {
+    const canceled = isCanceled(status);
+    if (canceled) stats.canceled += 1;
+    else if (!isActiveReservationStatus(status)) {
       stats.unknownStatus += 1;
       continue;
     }
@@ -623,8 +638,17 @@ export function parseCloudbedsHistoryRateDetails(
       stats.missingReservationId += 1;
       continue;
     }
+    const rid = parsed.reservationId;
+    if (canceled) {
+      stats.canceledOwned += 1;
+      for (const id of [rid, ...cloudbedsRoomRowIds(rid, cloudbedsRoomSlots(detail))]) reconcile.add(id);
+      continue;
+    }
     stats.owned += 1;
+    if (parsed.rows.length === 0) continue;
+    reconcile.add(rid);
     for (const r of parsed.rows) {
+      reconcile.add(r.external_reservation_id);
       byKey.set(`${r.external_reservation_id}:${r.stay_date}`, {
         external_reservation_id: r.external_reservation_id,
         external_room_type_id: r.external_room_type_id,
@@ -636,5 +660,5 @@ export function parseCloudbedsHistoryRateDetails(
       });
     }
   }
-  return { rows: [...byKey.values()], stats };
+  return { rows: [...byKey.values()], reconcileIds: [...reconcile], stats };
 }

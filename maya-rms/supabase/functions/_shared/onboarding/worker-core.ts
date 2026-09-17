@@ -47,6 +47,7 @@ import type {
 } from "../pms/onboarding-adapter.ts";
 import { proposeCountsAsRoom } from "./analysis.ts";
 import { isPaidLiveHotel } from "../billing/entitlement.ts";
+import { deleteNightsOutside } from "../pms/stale-nights.ts";
 
 export type ImportJobRow = {
   id: string;
@@ -901,13 +902,34 @@ async function runHistoricalStep(
   // Window 0 butts onto the current window, so it also takes the guests in
   // house on the anchor day. job.window_index, not the dates, says which one
   // this is: it is what the row has always stored.
-  const { rows, nextCursor, nextWindowCursor } = await adapter.fetchReservationListPage(
+  const { rows, nextCursor, nextWindowCursor, reconcileIds, restartWindow } = await adapter.fetchReservationListPage(
     { from: job.window_from, to: job.window_to, newest: job.window_index === 0 },
     cursor,
   );
 
+  // The window is being read again from its start: what its earlier pages
+  // wrote is about to be written again, so it comes off the counters first.
+  // Without this the rows count twice and the row cap can stop history early.
+  // Every row a page returns is upserted, so the window's row count is also
+  // what it added to reservations_enumerated.
+  if (restartWindow) {
+    const already = Math.max(0, Number(job.stats.currentWindowRows ?? 0));
+    job.rows_upserted = Math.max(0, job.rows_upserted - already);
+    job.reservations_enumerated = Math.max(0, job.reservations_enumerated - already);
+    job.stats = { ...job.stats, currentWindowRows: 0 };
+  }
+
   const roomTypeMap = await loadRoomTypeMap(supabase, job.hotel_id);
   const upserted = await upsertSlimRows(supabase, job.hotel_id, roomTypeMap, rows);
+  if (reconcileIds && reconcileIds.length > 0) {
+    const keep = new Map<string, Set<string>>(reconcileIds.map((id) => [id, new Set<string>()]));
+    for (const r of rows) keep.get(r.external_reservation_id)?.add(r.stay_date);
+    const { deleted, error } = await deleteNightsOutside(supabase, job.hotel_id, keep);
+    if (error) throw new Error(`stale history nights delete failed: ${error.message}`);
+    if (deleted > 0) {
+      job.stats = { ...job.stats, historyNightsDeleted: Number(job.stats.historyNightsDeleted ?? 0) + deleted };
+    }
+  }
   const rowCap = effectiveRowCap(job.row_cap, await countingRoomsFor(supabase, job), job.max_windows);
 
   const windowRows = Number(job.stats.currentWindowRows ?? 0) + upserted;
