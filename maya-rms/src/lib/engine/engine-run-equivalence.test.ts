@@ -14,7 +14,12 @@
  * MAYA_WRITE_ENGINE_GOLDEN=1. Its ladder_rule_state hashes were rewritten
  * once, leaving out last_evaluated_at, from an engine that still matched the
  * original golden file in full (commit e6c532b), before that column stopped
- * being touched; every other hash is unchanged from 4ef5d65. Setting MAYA_ENGINE_DUMP=<dir> writes the full
+ * being touched. Its ladder_transition_event hashes and sizes were rewritten
+ * a second time when a ladder row that stays unwritten started failing the
+ * run: the injected event-insert failure became one the row-by-row retry
+ * recovers from, which adds exactly that event row to every run, and every
+ * other count, size and hash was checked unchanged before the rewrite. Every
+ * other hash is unchanged from 4ef5d65. Setting MAYA_ENGINE_DUMP=<dir> writes the full
  * normalized tables per run for diffing.
  */
 import { createHash } from "node:crypto";
@@ -233,7 +238,16 @@ function faults(extra: (c: FakeCall) => FakeError | null) {
     if (c.table === "published_price" && c.op === "upsert" && hits(c, (p) => p.stay_date === addDays(LOCAL0, 9) && p.room_type_id === QUEEN)) {
       return { code: "57014", message: "canceling statement due to statement timeout" };
     }
-    if (c.table === "ladder_transition_event" && c.op === "insert" && hits(c, (p) => p.stay_date === addDays(LOCAL0, 11) && p.room_type_id === QUEEN)) {
+    // Fails the chunk it is in, once: the row lands on the row-by-row retry.
+    // A ladder row that stays failed now fails the run before it publishes
+    // (see LadderPassBatch), which engine-guardrails.test.ts covers.
+    if (
+      c.table === "ladder_transition_event" &&
+      c.op === "insert" &&
+      Array.isArray(c.payload) &&
+      c.payload.length > 1 &&
+      hits(c, (p) => p.stay_date === addDays(LOCAL0, 11) && p.room_type_id === QUEEN)
+    ) {
       return { code: "08006", message: "connection failure" };
     }
     if (c.table === "evaluation_audit" && c.op === "insert" && hits(c, (p) => p.stay_date === addDays(LOCAL0, 13) && p.room_type_id === KING)) {

@@ -264,7 +264,14 @@ function deactivationPatch(evalTs: string, supportsSuppression: boolean) {
  * and the writes go out in chunks at the end. Nothing reads ladder state or
  * transition events between the pass and the flush, so the result is the
  * same. A chunk that fails is retried row by row, so one bad row costs that
- * row alone, as it did before; write errors stay unreported, as before.
+ * row alone.
+ *
+ * A row that still fails makes flush throw, once every other write has been
+ * tried. Prices assembled on top of a half-written pass are wrong in a way
+ * nothing downstream can see (a deactivation that did not land keeps its
+ * effect on the price while the change log says the rule let go), so the run
+ * fails before it publishes and the last good prices stay in place. The next
+ * run reads the state that did land and decides the rest again.
  */
 export type LadderPassBatch = {
   state: (ruleId: string, stayDate: string, roomTypeId: string) => { is_active: boolean } | null;
@@ -334,14 +341,31 @@ export async function createLadderPassBatch(
     group.dates.push(stayDate);
   };
 
+  // Row-level failures of the current flush: what failed, and the first message.
+  const failures = { rows: 0, first: "" };
+  const noteFailure = (what: string, error: unknown, rows = 1) => {
+    failures.rows += rows;
+    if (!failures.first) {
+      const message = (error as { message?: unknown } | null)?.message;
+      failures.first = `${what}: ${typeof message === "string" ? message : String(error)}`;
+    }
+  };
+
   // deno-lint-ignore no-explicit-any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const writeRows = async (rows: any[], write: (chunk: any[]) => PromiseLike<{ error: unknown }>) => {
+  const writeRows = async (what: string, rows: any[], write: (chunk: any[]) => PromiseLike<{ error: unknown }>) => {
     for (let i = 0; i < rows.length; i += WRITE_CHUNK) {
       const chunk = rows.slice(i, i + WRITE_CHUNK);
       const { error } = await write(chunk);
-      if (!error || chunk.length === 1) continue;
-      for (const row of chunk) await write([row]);
+      if (!error) continue;
+      if (chunk.length === 1) {
+        noteFailure(what, error);
+        continue;
+      }
+      for (const row of chunk) {
+        const { error: rowError } = await write([row]);
+        if (rowError) noteFailure(what, rowError);
+      }
     }
   };
 
@@ -360,10 +384,12 @@ export async function createLadderPassBatch(
       states.set(`${rule.id}|${stayDate}|${roomTypeId}`, { is_active: false });
     },
     async flush() {
-      await writeRows(events, (chunk) =>
+      failures.rows = 0;
+      failures.first = "";
+      await writeRows("ladder_transition_event", events, (chunk) =>
         supabase.from("ladder_transition_event").insert(chunk),
       );
-      await writeRows(activations, (chunk) =>
+      await writeRows("ladder_rule_state activation", activations, (chunk) =>
         supabase.from("ladder_rule_state").upsert(chunk, { onConflict: "rule_id,stay_date,room_type_id" }),
       );
       for (const group of updates.values()) {
@@ -375,20 +401,30 @@ export async function createLadderPassBatch(
             .eq("rule_id", group.ruleId)
             .eq("room_type_id", group.roomTypeId)
             .in("stay_date", dates);
-          if (!error || dates.length === 1) continue;
+          if (!error) continue;
+          if (dates.length === 1) {
+            noteFailure("ladder_rule_state deactivation", error);
+            continue;
+          }
           for (const d of dates) {
-            await supabase
+            const { error: rowError } = await supabase
               .from("ladder_rule_state")
               .update(group.patch)
               .eq("rule_id", group.ruleId)
               .eq("room_type_id", group.roomTypeId)
               .eq("stay_date", d);
+            if (rowError) noteFailure("ladder_rule_state deactivation", rowError);
           }
         }
       }
       events.length = 0;
       activations.length = 0;
       updates.clear();
+      if (failures.rows > 0) {
+        throw new Error(
+          `Ladder writes failed for ${failures.rows} row${failures.rows === 1 ? "" : "s"}; the run stops before publishing. First: ${failures.first}`.slice(0, 300),
+        );
+      }
     },
   };
 }

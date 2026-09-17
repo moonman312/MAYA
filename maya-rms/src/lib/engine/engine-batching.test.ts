@@ -165,7 +165,8 @@ describe("ladder pass batch", () => {
     for (const x of decisions) {
       batchResults.push(await evaluateLadderTriple(batched.client, rule(x.id), "h1", x.d, x.t, x.m, EVAL, undefined, true, batch));
     }
-    await batch.flush();
+    // Every other write lands first; then the rows that stayed failed fail the run.
+    await expect(batch.flush()).rejects.toThrow(/^Ladder writes failed for \d+ rows; the run stops before publishing\. First: /);
 
     expect(batchResults.map((x) => x.transition)).toEqual(perResults.map((x) => x.transition));
     const norm = (rows: FakeRow[]) =>
