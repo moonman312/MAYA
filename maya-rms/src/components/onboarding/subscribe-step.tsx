@@ -46,7 +46,7 @@ export function SubscribeStep({
   pmsOptions = [],
   title = "Let's get you set up",
   intro = "Pricing is per room, per month. Tell us how big the property is and we'll show you the number before you commit to anything.",
-  footnote = "Card details are handled by Stripe — they never touch MAYA. Next you'll connect your PMS.",
+  footnote = "Card details are handled by Stripe. They never touch MAYA. Next you'll connect your PMS.",
   initialRooms,
   initialInterval,
   lockPms = false,

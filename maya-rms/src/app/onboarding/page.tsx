@@ -68,7 +68,7 @@ export default async function OnboardingPage({
         }
         baseTrialDays={days}
         submitLabel={days > 0 ? "Set up payment" : "Continue to payment"}
-        footnote="Card details are handled by Stripe — they never touch MAYA."
+        footnote="Card details are handled by Stripe. They never touch MAYA."
       />
     );
     if (!reconnect) return subscribe;

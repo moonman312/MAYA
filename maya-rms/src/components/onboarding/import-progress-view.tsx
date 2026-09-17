@@ -59,7 +59,7 @@ export function ImportProgressView() {
           <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-400">
             {moveOn
               ? "Taking you to what we found…"
-              : "This runs on our side — you can close this page, grab a coffee, or head to your dashboard. We'll flag anything worth reviewing as soon as it's ready."}
+              : "This runs on our side, so you can close this page, grab a coffee, or head to your dashboard. We'll flag anything worth reviewing as soon as it's ready."}
           </p>
         )}
       </div>

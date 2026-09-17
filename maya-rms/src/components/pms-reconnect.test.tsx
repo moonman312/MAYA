@@ -24,7 +24,7 @@ const base = {
 describe("PmsReconnect", () => {
   it("keeps its usual promise for a lost connection", () => {
     const view = render(<PmsReconnect {...base} />);
-    expect(view.container.textContent).toContain("your rules, history and settings are all untouched");
+    expect(view.container.textContent).toContain("Your rules, history and settings are all untouched");
   });
 
   it("does not promise the history is untouched once it was removed", () => {

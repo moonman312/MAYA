@@ -115,7 +115,7 @@ export function PmsReconnect({
         ) : (
           <>
             Your prices aren&apos;t updating while this is down. Reconnecting takes one click and
-            sends you to {displayName} to confirm — your rules, history and settings are all
+            sends you to {displayName} to confirm. Your rules, history and settings are all
             untouched.
           </>
         )}
