@@ -26,6 +26,7 @@ import { FakeRpcError, fakeSupabase, missingFunction, type FakeRow } from "./fak
 import { findSnapshotAt, loadReservationCells } from "./snapshots";
 import {
   bookingSpeedHistorySummary,
+  bookingSpeedFirstStayDate,
   bookingSpeedWindows,
   calendarDailyRevenue,
   roomTypeMaxRates,
@@ -167,6 +168,7 @@ async function insertReservations(db: Db, rows: FakeRow[]): Promise<void> {
 const SIGNATURES: Record<string, Record<string, string>> = {
   booking_speed_history_summary: { p_hotel_id: "uuid", p_from: "date", p_to: "date", p_exclude: "uuid[]", p_ranks: "int[]" },
   booking_speed_windows: { p_hotel_id: "uuid", p_dates: "date[]", p_exclude: "uuid[]", p_include: "uuid[]" },
+  booking_speed_first_stay_date: { p_hotel_id: "uuid", p_from: "date", p_include: "uuid[]" },
   audit_last_signatures: { p_hotel_id: "uuid", p_from: "date", p_to: "date" },
   room_type_max_rates: { p_hotel_id: "uuid" },
   rule_fire_counts: { p_hotel_id: "uuid" },
@@ -275,6 +277,17 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
           const { data: got, error: iErr } = await rpc("booking_speed_windows", args).order("stay_date");
           expect(iErr).toBeNull();
           expect(got).toEqual(bookingSpeedWindows(fx.reservations, args));
+        }
+
+        for (const p_include of [[uuidFor("rt-b")], [uuidFor("rt-a"), uuidFor("rt-b")], [uuidFor("rt-never")], []]) {
+          for (const p_from of [summaryArgs.p_from, fx.localDate]) {
+            const args = { p_hotel_id: H1, p_from, p_include };
+            const { data: got, error: fErr } = await rpc("booking_speed_first_stay_date", args);
+            expect(fErr).toBeNull();
+            expect((got as Record<string, unknown>[]).map((r) => ({ first_stay_date: String(r.first_stay_date) }))).toEqual(
+              bookingSpeedFirstStayDate(fx.reservations, args),
+            );
+          }
         }
       }, 120_000);
 
@@ -663,6 +676,8 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
     const allowed = await rpc("booking_speed_windows", { p_hotel_id: H1, p_dates: ["2026-01-01"], p_exclude: [] });
     expect(allowed.error).toBeNull();
     await db.exec("select set_config('test.accessible_hotel', '', false);");
+    const deniedFirst = await rpc("booking_speed_first_stay_date", { p_hotel_id: H1, p_from: "2026-01-01", p_include: [] });
+    expect(deniedFirst.error?.code).toBe("42501");
   });
 
   it("is safe to run twice", async () => {

@@ -73,6 +73,18 @@ export function bookingSpeedWindows(reservations: FakeRow[], a: Record<string, u
   });
 }
 
+/** booking_speed_first_stay_date(p_hotel_id, p_from, p_include) */
+export function bookingSpeedFirstStayDate(reservations: FakeRow[], a: Record<string, unknown>): FakeRow[] {
+  const include = (a.p_include as string[] | null) ?? [];
+  let first: string | null = null;
+  for (const r of reservations) {
+    if (r.hotel_id !== a.p_hotel_id || r.room_type_id == null || !include.includes(String(r.room_type_id))) continue;
+    const d = String(r.stay_date);
+    if (d >= String(a.p_from) && (first === null || d < first)) first = d;
+  }
+  return first === null ? [] : [{ first_stay_date: first }];
+}
+
 /** snapshot_cells_at(p_hotel_id, p_ts, p_from, p_to, p_room_types) */
 export function snapshotCellsAt(snapshots: FakeRow[], a: Record<string, unknown>): FakeRow[] {
   const types = new Set((a.p_room_types as string[]) ?? []);
@@ -214,6 +226,8 @@ export function scaleRpc(fn: string, args: unknown, tables: Record<string, FakeR
       return bookingSpeedHistorySummary(tables.reservations ?? [], a);
     case "booking_speed_windows":
       return bookingSpeedWindows(tables.reservations ?? [], a);
+    case "booking_speed_first_stay_date":
+      return bookingSpeedFirstStayDate(tables.reservations ?? [], a);
     case "audit_last_signatures":
       return auditLastSignatures(tables.evaluation_audit ?? [], a);
     case "room_type_max_rates":
@@ -255,6 +269,22 @@ describe("scale rpc models", () => {
   it("groups windows per requested date, nulls last", () => {
     const out = bookingSpeedWindows(rows, { p_hotel_id: "h1", p_dates: ["2026-01-02"], p_exclude: [] });
     expect(out).toEqual([{ stay_date: "2026-01-02", n: 5, bws: [-2, 5, 9, 32, null], counts: [1, 1, 1, 1, 1] }]);
+  });
+
+  it("finds an include list's earliest stay date from p_from, over every row of the hotel", () => {
+    const more: FakeRow[] = [
+      ...rows,
+      { hotel_id: "h1", stay_date: "2025-06-01", booking_date: null, booking_window_days: 1, room_type_id: "a" },
+      { hotel_id: "h1", stay_date: "2025-05-01", booking_date: null, booking_window_days: 1, room_type_id: null },
+      { hotel_id: "h2", stay_date: "2025-01-01", booking_date: null, booking_window_days: 1, room_type_id: "a" },
+    ];
+    expect(bookingSpeedFirstStayDate(more, { p_hotel_id: "h1", p_from: "2025-01-01", p_include: ["a"] })).toEqual([
+      { first_stay_date: "2025-06-01" },
+    ]);
+    expect(bookingSpeedFirstStayDate(more, { p_hotel_id: "h1", p_from: "2025-07-01", p_include: ["a", "x"] })).toEqual([
+      { first_stay_date: "2026-01-02" },
+    ]);
+    expect(bookingSpeedFirstStayDate(more, { p_hotel_id: "h1", p_from: "2025-01-01", p_include: ["zz"] })).toEqual([]);
   });
 
   it("keeps only the included room types, never a row with none, when given an include list", () => {

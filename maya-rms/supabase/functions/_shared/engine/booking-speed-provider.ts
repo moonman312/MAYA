@@ -110,6 +110,12 @@ export type BookingSpeedContext = {
   setWindows?: Map<string, Map<string, StayDateWindows>>;
   /** The room type ids behind each key in setWindows, sorted. */
   setMeasuredIds?: Map<string, string[]>;
+  /**
+   * Room types that do not count as rooms. They are dropped from a rule's
+   * signal set before it is keyed, the same way the history drops them, so
+   * every read path measures the same rows.
+   */
+  excluded?: ReadonlySet<string>;
 };
 
 /** One key per set of room types, whatever order or repeats the ids come in. */
@@ -263,7 +269,8 @@ async function loadWindowsForDates(
  *
  * `sets` are signal sets (by signalSetKey) folded in the same pass: a row
  * counts toward a set only when its room type is in it, so a row with no
- * room type only ever counts toward the hotel.
+ * room type only ever counts toward the hotel. `firstBySet` is each set's
+ * earliest stay date read (see setIndexFrom).
  */
 async function loadWindowsByRows(
   supabase: SupabaseClient,
@@ -272,10 +279,15 @@ async function loadWindowsByRows(
   upTo: string,
   excludeRoomTypeIds: ReadonlySet<string>,
   sets: ReadonlyMap<string, ReadonlySet<string>> = new Map(),
-): Promise<{ hotel: Map<string, StayDateWindows>; sets: Map<string, Map<string, StayDateWindows>> }> {
+): Promise<{
+  hotel: Map<string, StayDateWindows>;
+  sets: Map<string, Map<string, StayDateWindows>>;
+  firstBySet: Map<string, string | null>;
+}> {
   type Counts = Map<string, Map<number | null, number>>;
   const counts: Counts = new Map();
   const setCounts = new Map<string, Counts>([...sets.keys()].map((k) => [k, new Map()]));
+  const firstBySet = new Map<string, string | null>([...sets.keys()].map((k) => [k, null]));
   const add = (into: Counts, stayDate: string, bw: number | null) => {
     let byWindow = into.get(stayDate);
     if (!byWindow) {
@@ -296,7 +308,10 @@ async function loadWindowsByRows(
     if (r.room_type_id == null) return;
     const roomTypeId = String(r.room_type_id);
     for (const [key, ids] of sets) {
-      if (ids.has(roomTypeId)) add(setCounts.get(key)!, stayDate, bw);
+      if (!ids.has(roomTypeId)) continue;
+      add(setCounts.get(key)!, stayDate, bw);
+      const first = firstBySet.get(key);
+      if (first == null || stayDate < first) firstBySet.set(key, stayDate);
     }
   };
 
@@ -367,6 +382,7 @@ async function loadWindowsByRows(
   return {
     hotel: grouped(counts),
     sets: new Map([...setCounts].map(([key, c]) => [key, grouped(c)])),
+    firstBySet,
   };
 }
 
@@ -379,7 +395,10 @@ async function loadWindowsByRows(
  * they are. But before the Suites had ever sold (a room type added last
  * year), a zero is not evidence either, and counting it would read them as
  * faster. So a date has data for the set when the hotel has rows that day
- * and the date is on or after the set's first row among the consulted dates.
+ * and the date is on or after `first`, the set's earliest stay date in the
+ * whole history from historyStart. It is never taken from the consulted
+ * dates alone: those depend on how far ahead the run prices, and the same
+ * stay date has to read the same way on a 45-day run and a 365-day one.
  * The entry's `n` is the hotel's, marking that presence; its windows are the
  * set's own.
  */
@@ -387,12 +406,8 @@ export function setIndexFrom(
   hotel: ReadonlyMap<string, StayDateWindows>,
   set: ReadonlyMap<string, StayDateWindows>,
   consulted: ReadonlySet<string>,
+  first: string | null,
 ): Map<string, StayDateWindows> {
-  let first: string | null = null;
-  for (const d of consulted) {
-    const entry = set.get(d);
-    if (entry && entry.n > 0 && (first === null || d < first)) first = d;
-  }
   const out = new Map<string, StayDateWindows>();
   if (first === null) return out;
   for (const [d, entry] of hotel) {
@@ -400,6 +415,32 @@ export function setIndexFrom(
     out.set(d, { n: entry.n, windows: set.get(d)?.windows ?? [] });
   }
   return out;
+}
+
+/**
+ * The earliest stay date on or after `from` with a row of one of `include`,
+ * or null when there is none. `undefined` when the migration has not run.
+ */
+async function loadFirstStayDate(
+  supabase: SupabaseClient,
+  hotelId: string,
+  from: string,
+  include: string[],
+): Promise<string | null | undefined> {
+  const { data, error } = await supabase.rpc("booking_speed_first_stay_date", {
+    p_hotel_id: hotelId,
+    p_from: from,
+    p_include: include,
+  });
+  if (error) {
+    if (isMissingFunctionError(error)) {
+      logPreMigrationOnce(hotelId, error);
+      return undefined;
+    }
+    throw new Error(`Failed to load booking history: ${error.message}`);
+  }
+  const row = ((data ?? []) as Record<string, unknown>[])[0];
+  return row?.first_stay_date != null ? String(row.first_stay_date) : null;
 }
 
 /**
@@ -443,7 +484,8 @@ async function hasKeptRowAfter(
  * `countingRoomTypeIds` are the room types that count as rooms, and
  * `signalSets` the signal room types of every Booking Speed rule. A set
  * equal to the counting types is the hotel-wide history; any other set gets
- * its own windows (see setIndexFrom).
+ * its own windows (see setIndexFrom). Ids in `excludeRoomTypeIds` are dropped
+ * from every set first.
  */
 export async function loadBookingSpeedContext(
   supabase: SupabaseClient,
@@ -461,8 +503,9 @@ export async function loadBookingSpeedContext(
   const hotelSetKey = signalSetKey(countingRoomTypeIds);
   const setIds = new Map<string, ReadonlySet<string>>();
   for (const ids of signalSets) {
-    const key = signalSetKey(ids);
-    if (key !== hotelSetKey && key !== "") setIds.set(key, new Set(ids));
+    const kept = ids.filter((id) => !excludeRoomTypeIds.has(id));
+    const key = signalSetKey(kept);
+    if (key !== hotelSetKey && key !== "") setIds.set(key, new Set(kept));
   }
   const targets: string[] = [];
   for (let d = localDate; d <= horizonEnd; d = addDays(d, 1)) targets.push(d);
@@ -474,6 +517,7 @@ export async function loadBookingSpeedContext(
   let pace: DailyDemand[] = [];
   let windowsByDate: Map<string, StayDateWindows> | null = null;
   let setRows: Map<string, Map<string, StayDateWindows>> | null = null;
+  let setFirst: Map<string, string | null> | null = null;
 
   const ranks = totalCapacity > 0 ? milestoneRanks(totalCapacity) : [];
   const summary = await loadHistorySummary(supabase, hotelId, historyStart, exclude, ranks);
@@ -494,6 +538,7 @@ export async function loadBookingSpeedContext(
     const byRows = await loadWindowsByRows(supabase, hotelId, historyStart, upTo, excludeRoomTypeIds, setIds);
     windowsByDate = byRows.hotel;
     setRows = byRows.sets;
+    setFirst = byRows.firstBySet;
     if (windowsByDate.size === 0 && !(await hasKeptRowAfter(supabase, hotelId, upTo, excludeRoomTypeIds))) {
       return null;
     }
@@ -582,6 +627,7 @@ export async function loadBookingSpeedContext(
     hotelSetKey,
     setWindows: new Map(),
     setMeasuredIds: new Map([...setIds.keys()].map((k) => [k, k.split(",")])),
+    excluded: excludeRoomTypeIds,
   };
 
   // Now that the season model exists, each target's comparables are known,
@@ -611,27 +657,42 @@ export async function loadBookingSpeedContext(
     if (loaded) {
       ctx.windowsByDate = loaded;
       const sets = new Map<string, Map<string, StayDateWindows>>();
+      const firsts = new Map<string, string | null>();
       for (const [key, ids] of setIds) {
-        const got = await loadWindowsForDates(supabase, hotelId, dates, exclude, [...ids].sort());
-        if (!got) {
+        const include = [...ids].sort();
+        const got = await loadWindowsForDates(supabase, hotelId, dates, exclude, include);
+        const first = got ? await loadFirstStayDate(supabase, hotelId, historyStart, include) : undefined;
+        if (!got || first === undefined) {
           // The windows function predates include lists: one rows pass
           // answers every set.
           sets.clear();
           break;
         }
         sets.set(key, got);
+        firsts.set(key, first);
       }
-      setRows = sets.size === setIds.size ? sets : (await readByRows()).sets;
+      if (sets.size === setIds.size) {
+        setRows = sets;
+        setFirst = firsts;
+      } else {
+        const byRows = await readByRows();
+        setRows = byRows.sets;
+        setFirst = byRows.firstBySet;
+      }
     } else {
       const byRows = await readByRows();
       ctx.windowsByDate = byRows.hotel;
       setRows = byRows.sets;
+      setFirst = byRows.firstBySet;
     }
   }
 
   if (wanted && setRows) {
     for (const key of setIds.keys()) {
-      ctx.setWindows!.set(key, setIndexFrom(ctx.windowsByDate, setRows.get(key) ?? new Map(), wanted));
+      ctx.setWindows!.set(
+        key,
+        setIndexFrom(ctx.windowsByDate, setRows.get(key) ?? new Map(), wanted, setFirst?.get(key) ?? null),
+      );
     }
   }
 
@@ -657,7 +718,8 @@ function selectionFor(ctx: BookingSpeedContext, stayDate: string): ComparableSel
  * rule's signal room types. Without them, or when they are the hotel's
  * counting types, it is the hotel-wide observation, keyed as it always was.
  * Any other set is keyed by the set too, so rules sharing a set share the
- * work, and the observation names the room types it measured.
+ * work, and the observation names the room types it measured. Room types
+ * that do not count as rooms are dropped from the set first, as the load did.
  */
 export function observeForStayDate(
   ctx: BookingSpeedContext,
@@ -665,7 +727,10 @@ export function observeForStayDate(
   windowDays: number,
   signalIds?: readonly string[],
 ): BookingSpeedObservation {
-  const setKey = signalIds && ctx.hotelSetKey !== undefined ? signalSetKey(signalIds) : null;
+  const setKey =
+    signalIds && ctx.hotelSetKey !== undefined
+      ? signalSetKey(ctx.excluded ? signalIds.filter((id) => !ctx.excluded!.has(id)) : signalIds)
+      : null;
   const measuresSet = setKey !== null && setKey !== ctx.hotelSetKey;
   const key = measuresSet ? `${stayDate}|${windowDays}|${setKey}` : `${stayDate}|${windowDays}`;
   const hit = ctx.observationCache.get(key);

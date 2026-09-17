@@ -125,7 +125,9 @@
 -- The summary only feeds season detection, which is always hotel-wide, so it
 -- has no include list. booking_speed_windows also serves a rule that measures
 -- only some room types: given p_include, it keeps exactly the rows of those
--- types (never a row with no room type) and p_exclude is not read.
+-- types (never a row with no room type) and p_exclude is not read. The engine
+-- drops non-counting types from an include list before it asks.
+-- booking_speed_first_stay_date finds where such a set's history starts.
 -- ----------------------------------------------------------------------------
 
 -- Per stay date from p_from (through p_to, when given): how many kept rows,
@@ -256,6 +258,43 @@ $$;
 
 revoke all on function public.booking_speed_windows(uuid, date[], uuid[], uuid[]) from public, anon;
 grant execute on function public.booking_speed_windows(uuid, date[], uuid[], uuid[])
+  to authenticated, service_role;
+
+-- The earliest stay date on or after p_from with a row of one of p_include,
+-- or no row when there is none. A rule measuring only some room types treats
+-- dates before its types ever sold as no data, and this is where "ever" is
+-- decided: over the whole history, so a 45-day run and a 365-day run read a
+-- stay date the same way.
+create or replace function public.booking_speed_first_stay_date(
+  p_hotel_id uuid,
+  p_from date,
+  p_include uuid[]
+)
+returns table(first_stay_date date)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_hotel_accessible(p_hotel_id) then
+    raise exception 'Not authorized to read booking history for hotel %', p_hotel_id
+      using errcode = '42501';
+  end if;
+
+  return query
+  select min(r.stay_date)
+  from public.reservations r
+  where r.hotel_id = p_hotel_id
+    and r.stay_date >= p_from
+    and r.room_type_id = any (coalesce(p_include, '{}'::uuid[]))
+  having min(r.stay_date) is not null;
+end;
+$$;
+
+revoke all on function public.booking_speed_first_stay_date(uuid, date, uuid[]) from public, anon;
+grant execute on function public.booking_speed_first_stay_date(uuid, date, uuid[])
   to authenticated, service_role;
 
 -- ----------------------------------------------------------------------------

@@ -6,7 +6,7 @@
  * pre-migration (keyset) paths.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { addDays } from "@/lib/observations/calendar";
+import { addDays, daysBetween } from "@/lib/observations/calendar";
 import {
   dailyPaceSeriesFromIndex,
   milestoneRanks,
@@ -18,6 +18,7 @@ import {
   bookingSpeedAuditSnapshots,
   loadBookingSpeedContext,
   observeForStayDate,
+  relevantDates,
   resetBookingSpeedLogOnce,
   signalSetKey,
 } from "./booking-speed-provider";
@@ -115,6 +116,15 @@ const PATHS = [
           : scaleRpc(fn, args, tables),
     },
   ],
+  [
+    "migrated, without the first stay date function",
+    {
+      rpc: (fn: string, args: unknown, tables: Record<string, FakeRow[]>) =>
+        fn === "booking_speed_first_stay_date"
+          ? new FakeRpcError(missingFunction("booking_speed_first_stay_date"))
+          : scaleRpc(fn, args, tables),
+    },
+  ],
 ] as const;
 
 /** Suites that only started selling in March 2025, so older dates are no evidence for them. */
@@ -187,7 +197,9 @@ describe("Booking Speed measured sets", () => {
     const b = observeForStayDate(ctx, targets[3], 7, ["rt-court", "rt-a", "rt-a"]);
     expect(b).toBe(a);
     expect(ctx.observationCache.size).toBe(1);
-    expect(a.measuredRoomTypeIds).toEqual(["rt-a", "rt-court"]);
+    // The court does not count as a room, so it is dropped before keying.
+    expect(a.measuredRoomTypeIds).toEqual(["rt-a"]);
+    expect(observeForStayDate(ctx, targets[3], 7, ["rt-a"])).toBe(a);
     expect(ctx.setWindows!.size).toBe(1);
   });
 
@@ -433,5 +445,108 @@ describe("Booking Speed boundaries", () => {
   it("throws on a real rpc failure instead of reading it as no history", async () => {
     const { client } = fakeSupabase({}, { rpc: () => new FakeRpcError({ code: "57014", message: "canceling statement due to statement timeout" }) });
     await expect(loadBookingSpeedContext(client, "h1", "2026-09-16", 10, new Set(), "2026-09-20")).rejects.toThrow(/Failed to load booking history/);
+  });
+});
+
+describe("Booking Speed measured sets, whatever the horizon", () => {
+  /**
+   * rt-b sold once on a date only a long run consults, then nothing on the
+   * next 20 dates a short run consults, then steadily. Where the set's
+   * history starts must not depend on which run is asking.
+   */
+  async function probeFixture(): Promise<Fixture> {
+    const base = makeFixture(9, 30);
+    const noB = base.reservations.filter((r) => r.room_type_id !== "rt-b");
+    const consultedBy = async (days: number) => {
+      const { client } = fakeSupabase(
+        { reservations: noB, hotel_closed_periods: base.closed, assumption_challenges: base.challenges },
+        { rpc: scaleRpc },
+      );
+      const ctx = (await loadBookingSpeedContext(client, "h1", base.localDate, base.capacity, base.exclude, addDays(base.localDate, days - 1), COUNTING, [["rt-b"]]))!;
+      const out = new Set<string>();
+      for (let i = 0; i < days; i++) {
+        const t = addDays(base.localDate, i);
+        observeForStayDate(ctx, t, 7);
+        for (const d of relevantDates(t, ctx.selectionCache.get(t)!)) if (d >= ctx.historyStart) out.add(d);
+      }
+      return out;
+    };
+    const short = await consultedBy(45);
+    const long = await consultedBy(365);
+    const longOnly = [...long].filter((d) => !short.has(d) && d > "2024-06-01").sort();
+    expect(longOnly.length).toBeGreaterThan(0);
+    const firstSale = longOnly[0];
+    const later = [...short].filter((d) => d > firstSale).sort();
+    const saleDates = new Set([firstSale, ...later.slice(20)]);
+    for (let i = 0; i < 45; i++) saleDates.add(addDays(base.localDate, i));
+    const extra: FakeRow[] = [];
+    let id = 0;
+    const row = (stay: string, bw: number): FakeRow => ({
+      id: `bbbbbbbb-0000-4000-8000-${String(++id).padStart(12, "0")}`,
+      hotel_id: "h1",
+      stay_date: stay,
+      booking_date: addDays(stay, -bw),
+      booking_window_days: bw,
+      room_type_id: "rt-b",
+    });
+    for (const d of [...saleDates].sort()) {
+      if (d >= base.localDate) {
+        const bw = daysBetween(base.localDate, d) + 1;
+        for (let j = 0; j < 3; j++) extra.push(row(d, bw));
+      } else {
+        for (let bw = 0; bw < 60; bw++) extra.push(row(d, bw));
+      }
+    }
+    return { ...base, name: `${base.name}, rt-b first sold on a long-run date`, reservations: [...noB, ...extra] };
+  }
+
+  it.each(PATHS)("%s path: a 45-day run and a 365-day run read every shared stay date the same", async (_label, opts) => {
+    const fx = await probeFixture();
+    const load = async (days: number) => {
+      const { client } = fakeSupabase(
+        { reservations: fx.reservations, hotel_closed_periods: fx.closed, assumption_challenges: fx.challenges },
+        opts,
+      );
+      return (await loadBookingSpeedContext(client, "h1", fx.localDate, fx.capacity, fx.exclude, addDays(fx.localDate, days - 1), COUNTING, [
+        ["rt-b"],
+        ["rt-a", "rt-court"],
+      ]))!;
+    };
+    const short = await load(45);
+    const long = await load(365);
+    const targets = Array.from({ length: 45 }, (_, i) => addDays(fx.localDate, i));
+    const expected = legacySetObservations(fx, ["rt-b"], targets, WINDOWS)!;
+    let fired = 0;
+    for (const t of targets) {
+      for (const w of WINDOWS) {
+        for (const set of [["rt-b"], ["rt-court", "rt-a"]]) {
+          const a = observeForStayDate(short, t, w, set);
+          expect(observeForStayDate(long, t, w, set)).toEqual(a);
+        }
+        const got = observeForStayDate(short, t, w, ["rt-b"]);
+        expect(got).toEqual(expected.get(`${t}|${w}`));
+        if (got.method === "comparable") fired++;
+      }
+    }
+    // The probe has to reach real comparisons, or equality proves little.
+    expect(fired).toBeGreaterThan(0);
+  }, 60_000);
+
+  it.each(PATHS)("%s path: a non-room type in a set is dropped, the same as the row model", async (_label, opts) => {
+    const fx = makeFixture(31, 40);
+    const targets = Array.from({ length: 21 }, (_, i) => addDays(fx.localDate, i));
+    const { client } = fakeSupabase(
+      { reservations: fx.reservations, hotel_closed_periods: fx.closed, assumption_challenges: fx.challenges },
+      opts,
+    );
+    const ctx = (await loadBookingSpeedContext(client, "h1", fx.localDate, fx.capacity, fx.exclude, targets[targets.length - 1], COUNTING, [
+      ["rt-a", "rt-court"],
+    ]))!;
+    const expected = legacySetObservations(fx, ["rt-a", "rt-court"], targets, WINDOWS)!;
+    for (const t of targets) {
+      for (const w of WINDOWS) {
+        expect(observeForStayDate(ctx, t, w, ["rt-a", "rt-court"])).toEqual(expected.get(`${t}|${w}`));
+      }
+    }
   });
 });

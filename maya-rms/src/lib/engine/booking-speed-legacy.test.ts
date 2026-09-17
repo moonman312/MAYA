@@ -352,8 +352,10 @@ describe("legacy booking speed reference", () => {
 /**
  * What a rule measuring only `include` should observe, from the rows. The
  * comparables are the hotel's (legacy.run); the counts are the set's rows.
+ * Room types that do not count as rooms are dropped from `include` first.
  * A consulted date has data for the set when the hotel has a row that day
- * and it is on or after the set's first row among the consulted dates. A
+ * and it is on or after the set's first row from historyStart on, over the
+ * whole history, whatever the horizon. A
  * marker row with no booking window stands for that presence: hasAnyRow sees
  * it, pickupInWindow never counts it.
  */
@@ -378,16 +380,14 @@ export function legacySetObservations(
     }
     return dates;
   };
-  const consulted = new Set<string>();
-  for (const t of targets) for (const d of relevantFor(t)) if (d >= historyStart) consulted.add(d);
   const mine = fx.reservations.filter((r) => r.hotel_id === "h1" && String(r.stay_date) >= historyStart);
   const hotelDates = new Set(
     mine.filter((r) => !(r.room_type_id != null && fx.exclude.has(String(r.room_type_id)))).map((r) => String(r.stay_date)),
   );
-  const setRows = mine.filter((r) => r.room_type_id != null && include.includes(String(r.room_type_id)));
-  const setDates = new Set(setRows.map((r) => String(r.stay_date)));
-  const first = [...consulted].filter((d) => setDates.has(d)).sort()[0];
-  const measured = [...new Set(include)].sort();
+  const kept = include.filter((id) => !fx.exclude.has(id));
+  const setRows = mine.filter((r) => r.room_type_id != null && kept.includes(String(r.room_type_id)));
+  const first = setRows.map((r) => String(r.stay_date)).sort()[0];
+  const measured = [...new Set(kept)].sort();
   const out = new Map<string, unknown>();
   for (const target of targets) {
     const relevant: SlimReservationRow[] = [];
