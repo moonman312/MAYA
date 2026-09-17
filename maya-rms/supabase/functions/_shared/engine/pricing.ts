@@ -165,6 +165,7 @@ export async function loadActiveLadderEffectsForRange(
   const out = new Map<string, AdjustmentSpec[]>();
   if (roomTypeIds.length === 0) return out;
   // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let rows: any[];
   try {
     rows = await fetchAllRows(() => {
@@ -210,6 +211,7 @@ export async function loadActivePickupEffectsForRange(
   const out = new Map<string, (AdjustmentSpec & { event_id: string })[]>();
   if (roomTypeIds.length === 0) return out;
   // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let rows: any[];
   try {
     rows = await fetchAllRows(() =>

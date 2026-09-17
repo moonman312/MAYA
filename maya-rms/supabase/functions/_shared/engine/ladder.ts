@@ -320,8 +320,10 @@ export async function createLadderPassBatch(
   }
 
   // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const events: any[] = [];
   // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const activations: any[] = [];
   // Same patch for every row in a group, so each group is one update per chunk of dates.
   const updates = new Map<string, { ruleId: string; roomTypeId: string; patch: Record<string, unknown>; dates: string[] }>();
@@ -336,6 +338,7 @@ export async function createLadderPassBatch(
   };
 
   // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const writeRows = async (rows: any[], write: (chunk: any[]) => PromiseLike<{ error: unknown }>) => {
     for (let i = 0; i < rows.length; i += WRITE_CHUNK) {
       const chunk = rows.slice(i, i + WRITE_CHUNK);

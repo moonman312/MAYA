@@ -134,6 +134,7 @@ export async function evaluateHotel(
   const RT_COLUMNS = "id, hotel_id, name, is_active, total_rooms, floor_price, ceiling_price";
   // Typed loosely because the fallback select below returns a narrower row.
   // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let rtRes: { data: any[] | null; error: { code?: string; message: string } | null } =
     await supabase
       .from("room_types")
@@ -164,6 +165,7 @@ export async function evaluateHotel(
   }
 
   // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const roomTypes: RoomTypeRow[] = ((rtRes.data ?? []) as any[]).map((r) => ({
     id: String(r.id),
     hotel_id: String(r.hotel_id),
@@ -263,6 +265,7 @@ export async function evaluateHotel(
 
   const rules: EngineRule[] = (rulesData ?? []).map((r) => {
     // deno-lint-ignore no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rc: any = Array.isArray(r.rule_condition)
       ? r.rule_condition[0]
       : r.rule_condition;
@@ -331,9 +334,11 @@ export async function evaluateHotel(
       // change log can explain the number.
       signal_room_type_ids: (r.rule_signal_room_type ?? [])
         // deno-lint-ignore no-explicit-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .map((x: any) => String(x.room_type_id))
         .filter((id: string) => activeRoomTypeIds.has(id) && countingIds.has(id)),
       // deno-lint-ignore no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       affected_room_type_ids: (r.rule_affected_room_type ?? []).map((x: any) =>
         String(x.room_type_id),
       ),
@@ -354,6 +359,7 @@ export async function evaluateHotel(
   for (const r of rulesData ?? []) {
     const activeSignals = (r.rule_signal_room_type ?? [])
       // deno-lint-ignore no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .map((x: any) => String(x.room_type_id))
       .filter((id: string) => activeRoomTypeIds.has(id));
     const dropped = activeSignals.filter((id: string) => !countingIds.has(id));

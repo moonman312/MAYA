@@ -366,6 +366,7 @@ export async function retireUndonePickupEvents(
   // unpaged read silently stopped at PostgREST's cap, so the events past it
   // were never checked. A failed read retires nothing, as before.
   // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let events: any[];
   try {
     events = await fetchAllRows(() =>
