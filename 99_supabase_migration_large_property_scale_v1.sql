@@ -308,4 +308,43 @@ $$;
 revoke all on function public.room_type_max_rates(uuid) from public, anon;
 grant execute on function public.room_type_max_rates(uuid) to authenticated, service_role;
 
+-- ----------------------------------------------------------------------------
+-- 5. How often each rule has fired
+--
+-- Ladder activations plus pickup events per rule, for sorting the rules list.
+-- Counting them in the app pulled one row per fire and stopped at 1,000.
+-- ----------------------------------------------------------------------------
+
+create or replace function public.rule_fire_counts(p_hotel_id uuid)
+returns table(rule_id uuid, fires bigint)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_hotel_accessible(p_hotel_id) then
+    raise exception 'Not authorized to read rule history for hotel %', p_hotel_id
+      using errcode = '42501';
+  end if;
+
+  return query
+  select f.rule_id, count(*)::bigint
+  from (
+    select e.rule_id
+    from public.ladder_transition_event e
+    where e.hotel_id = p_hotel_id and e.transition = 'activate'
+    union all
+    select p.rule_id
+    from public.pickup_event p
+    where p.hotel_id = p_hotel_id
+  ) f
+  group by f.rule_id;
+end;
+$$;
+
+revoke all on function public.rule_fire_counts(uuid) from public, anon;
+grant execute on function public.rule_fire_counts(uuid) to authenticated, service_role;
+
 notify pgrst, 'reload schema';

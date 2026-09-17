@@ -208,7 +208,7 @@ export function fakeSupabase(
         }
       });
 
-    const matched = () => {
+    const matched = (capped = true) => {
       let out = rows.filter(passes);
       if (orders.length > 0) {
         out = [...out].sort((a, b) => {
@@ -221,7 +221,8 @@ export function fakeSupabase(
       }
       if (range) out = out.slice(range[0], range[1] + 1);
       if (limit != null) out = out.slice(0, limit);
-      if (opts.maxRows != null) out = out.slice(0, opts.maxRows);
+      // An exact count is not a read of rows, so the cap does not apply to it.
+      if (capped && opts.maxRows != null) out = out.slice(0, opts.maxRows);
       return out;
     };
 
@@ -233,7 +234,7 @@ export function fakeSupabase(
       if (fault) return { data: null, error: fault };
       switch (call.op) {
         case "select": {
-          if (headCount) return { data: null, error: null, count: matched().length };
+          if (headCount) return { data: null, error: null, count: matched(false).length };
           return { data: project(matched(), call.columns), error: null };
         }
         case "insert": {

@@ -140,6 +140,20 @@ export function roomTypeMaxRates(reservations: FakeRow[], a: Record<string, unkn
   return [...max].map(([room_type_id, max_rate]) => ({ room_type_id, max_rate }));
 }
 
+/** rule_fire_counts(p_hotel_id) */
+export function ruleFireCounts(ladder: FakeRow[], pickup: FakeRow[], a: Record<string, unknown>): FakeRow[] {
+  const counts = new Map<string, number>();
+  for (const e of ladder) {
+    if (e.hotel_id !== a.p_hotel_id || e.transition !== "activate") continue;
+    counts.set(String(e.rule_id), (counts.get(String(e.rule_id)) ?? 0) + 1);
+  }
+  for (const e of pickup) {
+    if (e.hotel_id !== a.p_hotel_id) continue;
+    counts.set(String(e.rule_id), (counts.get(String(e.rule_id)) ?? 0) + 1);
+  }
+  return [...counts].map(([rule_id, fires]) => ({ rule_id, fires }));
+}
+
 /** An rpc handler for fakeSupabase that answers every modeled function from the fake's own tables. */
 export function scaleRpc(fn: string, args: unknown, tables: Record<string, FakeRow[]>): unknown {
   const a = args as Record<string, unknown>;
@@ -152,6 +166,8 @@ export function scaleRpc(fn: string, args: unknown, tables: Record<string, FakeR
       return auditLastSignatures(tables.evaluation_audit ?? [], a);
     case "room_type_max_rates":
       return roomTypeMaxRates(tables.reservations ?? [], a);
+    case "rule_fire_counts":
+      return ruleFireCounts(tables.ladder_transition_event ?? [], tables.pickup_event ?? [], a);
     case "snapshot_cells_at":
       return snapshotCellsAt(tables.stay_date_snapshot ?? [], a);
     default:

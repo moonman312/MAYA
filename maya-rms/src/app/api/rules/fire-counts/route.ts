@@ -1,4 +1,5 @@
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
+import { ruleFireCounts } from "@/lib/rule-fire-counts";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { cookies } from "next/headers";
@@ -25,20 +26,5 @@ export async function GET() {
     return NextResponse.json({});
   }
 
-  const [{ data: ladder }, { data: pickup }] = await Promise.all([
-    supabase
-      .from("ladder_transition_event")
-      .select("rule_id")
-      .eq("hotel_id", hotelId)
-      .eq("transition", "activate"),
-    supabase.from("pickup_event").select("rule_id").eq("hotel_id", hotelId),
-  ]);
-
-  const counts: Record<string, number> = {};
-  for (const row of [...(ladder ?? []), ...(pickup ?? [])]) {
-    const id = String(row.rule_id);
-    counts[id] = (counts[id] ?? 0) + 1;
-  }
-
-  return NextResponse.json(counts);
+  return NextResponse.json(await ruleFireCounts(supabase, hotelId));
 }
