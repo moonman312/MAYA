@@ -26,6 +26,7 @@ import {
   loadBookingSpeedContext,
   loadLastBookingSpeedFires,
   observeForStayDate,
+  signalSetKey,
   type BookingSpeedContext,
 } from "./booking-speed-provider.ts";
 import type { BaseSource } from "./base-price.ts";
@@ -557,7 +558,19 @@ export async function evaluateHotel(
     // both, or pace reads as the hotel filling on court traffic.
     const totalCapacity = countingRoomTypes.reduce((sum, rt) => sum + rt.total_rooms, 0);
     const nonRoomIds = new Set(roomTypes.filter((rt) => !countingIds.has(rt.id)).map((rt) => rt.id));
-    bsCtx = await loadBookingSpeedContext(supabase, hotelId, localDate, totalCapacity, nonRoomIds, lastDate);
+    // Each rule counts bookings on its own signal room types. Comparable
+    // dates stay hotel-wide; rules measuring every counting type (the
+    // default) read exactly the history they always did.
+    bsCtx = await loadBookingSpeedContext(
+      supabase,
+      hotelId,
+      localDate,
+      totalCapacity,
+      nonRoomIds,
+      lastDate,
+      [...countingIds],
+      rules.filter((r) => r.condition.booking_speed_operator).map((r) => r.signal_room_type_ids),
+    );
 
     // Most recent fire per (rule, stay date), for cooldown throttling of
     // event-style booking-speed rules. See loadLastBookingSpeedFires.
@@ -570,12 +583,14 @@ export async function evaluateHotel(
     metrics: Awaited<ReturnType<typeof computeRuleMetrics>>,
   ) => {
     if (!rule.condition.booking_speed_operator) return;
-    if (!bsCtx) {
+    // A rule whose signal types all stopped counting as rooms measures
+    // nothing, so it cannot call a pace, not even the hotel's.
+    if (!bsCtx || rule.signal_room_type_ids.length === 0) {
       metrics.booking_speed_block_reason = "insufficient_data";
       return;
     }
     const windowDays = rule.condition.booking_speed_window_days ?? 7;
-    const observation = observeForStayDate(bsCtx, stayDate, windowDays);
+    const observation = observeForStayDate(bsCtx, stayDate, windowDays, rule.signal_room_type_ids);
     if (observation.method === "insufficient_data") {
       metrics.booking_speed_block_reason = "insufficient_data";
       return;
@@ -921,6 +936,22 @@ export async function evaluateHotel(
   );
   pricesPublished = publishedKeys.size;
 
+  // A Booking Speed rule measuring part of the hotel records its observation
+  // on the cells it changes, and only there. Hotel-wide observations go on
+  // every cell, as they always have.
+  const hotelSetKey = signalSetKey([...countingIds]);
+  const setKeysByRoomType = new Map<string, Set<string>>();
+  for (const rule of rules) {
+    if (!rule.condition.booking_speed_operator || rule.signal_room_type_ids.length === 0) continue;
+    const setKey = signalSetKey(rule.signal_room_type_ids);
+    if (setKey === hotelSetKey) continue;
+    for (const id of rule.affected_room_type_ids) {
+      const keys = setKeysByRoomType.get(id) ?? new Set<string>();
+      keys.add(setKey);
+      setKeysByRoomType.set(id, keys);
+    }
+  }
+
   const auditRows: Record<string, unknown>[] = [];
   for (const { key, assembled } of assembledCells) {
     const stayDate = assembled.stay_date;
@@ -936,7 +967,7 @@ export async function evaluateHotel(
       pickupWriteFailures: allPickupWriteFailures.get(key) ?? [],
       basePrices,
       bookingSpeedObservations: bsCtx
-        ? bookingSpeedAuditSnapshots(bsCtx, stayDate)
+        ? bookingSpeedAuditSnapshots(bsCtx, stayDate, setKeysByRoomType.get(assembled.room_type_id))
         : [],
       previousSignature: lastAuditSignatures.get(key) ?? null,
       manualOverride: manualByCell.get(key) ?? null,

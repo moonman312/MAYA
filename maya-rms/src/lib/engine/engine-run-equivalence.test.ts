@@ -368,3 +368,67 @@ describe("evaluation run equivalence against the pre-batching engine", () => {
     expect(perRun).toEqual((golden as Record<string, unknown>)[variant.name]);
   }, 120_000);
 });
+
+describe("a Booking Speed rule measuring only some room types", () => {
+  // The golden rules share objects with seed(), and run 4 switches one on.
+  // Each run here starts from its own copy with that rule off again.
+  const freshSeed = (extra: FakeRow[]) => {
+    const tables = seed();
+    tables.pricing_rules = structuredClone(RULES).map((r) =>
+      r.id === "b1000000-0000-4000-8000-000000000006" ? { ...r, is_active: false } : r,
+    );
+    tables.pricing_rules.push(...extra);
+    return tables;
+  };
+  const SUITE_ONLY = rule("d1000000-0000-4000-8000-000000000009", {
+    priority: 90,
+    action_value: 7,
+    cond: { booking_speed_operator: "at_least", booking_speed_level: "stalled", booking_speed_window_days: 7 },
+    signals: [SUITE],
+    affected: [SUITE],
+  });
+
+  async function runAll(variant: Variant, extra: FakeRow[]) {
+    const { client, tables } = fakeSupabase(freshSeed(extra), {
+      fault: variant.fault,
+      ...(variant.rpc ? { rpc: variant.rpc } : {}),
+    });
+    const perRun: ReturnType<typeof normalizeTables>[] = [];
+    for (const [i, run] of RUNS.entries()) {
+      vi.setSystemTime(new Date(run.at));
+      if (i > 0) churn(tables, i, run.at);
+      run.before?.(tables);
+      await evaluateHotel(client, "h1", run.at, run.horizon);
+      perRun.push(normalizeTables(tables));
+    }
+    return perRun;
+  }
+
+  const notSuite = (rows: string[], col = "room_type_id") =>
+    rows.filter((r) => (JSON.parse(r) as Record<string, unknown>)[col] !== SUITE);
+
+  it.each(VARIANTS)("$name: every other room type's prices, ladders, events and audits are unchanged", async (variant) => {
+    const before = await runAll(variant, []);
+    const after = await runAll(variant, [SUITE_ONLY]);
+    let suiteObservations = 0;
+    for (const [i, a] of after.entries()) {
+      const b = before[i];
+      expect(notSuite(a.published_price)).toEqual(notSuite(b.published_price));
+      expect(notSuite(a.ladder_rule_state)).toEqual(notSuite(b.ladder_rule_state));
+      expect(notSuite(a.ladder_transition_event)).toEqual(notSuite(b.ladder_transition_event));
+      expect(notSuite(a.pickup_event, "affected_room_type_id")).toEqual(notSuite(b.pickup_event, "affected_room_type_id"));
+      expect(notSuite(a.evaluation_audit)).toEqual(notSuite(b.evaluation_audit));
+      expect(a.stay_date_snapshot).toEqual(b.stay_date_snapshot);
+      for (const row of a.evaluation_audit.map((r) => JSON.parse(r) as FakeRow)) {
+        const observations = ((row.details as FakeRow).booking_speed_observations ?? []) as FakeRow[];
+        const measured = observations.filter((o) => o.measuredRoomTypeIds);
+        if (row.room_type_id !== SUITE) expect(measured).toEqual([]);
+        for (const o of measured) expect(o.measuredRoomTypeIds).toEqual([SUITE]);
+        suiteObservations += measured.length;
+      }
+    }
+    expect(suiteObservations).toBeGreaterThan(0);
+    // It really did something to the Suites.
+    expect(after.some((a, i) => a.ladder_rule_state.length !== before[i].ladder_rule_state.length)).toBe(true);
+  }, 240_000);
+});

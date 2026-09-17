@@ -172,6 +172,31 @@ describe("counts_as_room in the engine", () => {
     expect(metrics.excluded_from_occupancy).toEqual(["Court"]);
   });
 
+  // It used to read the hotel's pace instead, which is not what it was told
+  // to measure.
+  it("a Booking Speed rule whose only signal is a non-room is blocked, not read hotel-wide", async () => {
+    const bsRule = (id: string, signal: string[]) => ({
+      ...ladderRule(id, signal, ["rt1"]),
+      rule_condition: [{ booking_speed_operator: "at_least", booking_speed_level: "stalled", booking_speed_window_days: 7 }],
+    });
+    const metricsOf = (tables: Record<string, FakeRow[]>) => {
+      const audit = tables.evaluation_audit.find((a) => a.room_type_id === "rt1")!;
+      return (audit.details as { matched_ladder_rules: { metrics: Record<string, unknown> }[] }).matched_ladder_rules[0]
+        ?.metrics;
+    };
+
+    const court = fakeSupabase({ ...hotelSeed(), pricing_rules: [bsRule("r5", ["rt2"])] });
+    const blocked = await evaluateHotel(court.client, "h1", EVAL_TS, 1);
+    expect(blocked.ladder_activations).toBe(0);
+    expect(metricsOf(court.tables)?.booking_speed_block_reason).toBe("insufficient_data");
+    expect(metricsOf(court.tables)?.booking_speed ?? null).toBeNull();
+
+    const king = fakeSupabase({ ...hotelSeed(), pricing_rules: [bsRule("r6", ["rt1"])] });
+    const read = await evaluateHotel(king.client, "h1", EVAL_TS, 1);
+    expect(read.ladder_activations).toBe(1);
+    expect(metricsOf(king.tables)?.booking_speed).toBeTruthy();
+  });
+
   it("does not annotate a rule that lost nothing", async () => {
     const { client, tables } = fakeSupabase({
       ...hotelSeed(),
