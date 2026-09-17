@@ -60,13 +60,14 @@ const PAGE = 1000;
 /** Stay dates per booking_speed_windows call; each date comes back as one row. */
 const WINDOW_DATES_CHUNK = 400;
 /**
- * Before the migration, rows are read in stay-date slices, each paged in
- * (stay_date, id) order and folded into the grouped form as it arrives, so
+ * Before the migration, rows are read in stay-date slices, each keyset paged
+ * on (stay_date, id) and folded into the grouped form as it arrives, so
  * memory stays flat. A slice is sized from the rows per day seen so far,
  * aiming at about SLICE_TARGET_ROWS rows, and cut short at a page boundary
  * when it turns out denser: a small hotel reads a few long slices, a 500-room
  * one about a week at a time. Every page is a bounded
- * index range, so a page late in the history costs what the first one did.
+ * index range, so a page late in the history costs what the first one did,
+ * and a row written mid-read can never shift a page onto rows already counted.
  */
 const SLICE_TARGET_ROWS = 4_000;
 const MAX_SLICE_DAYS = 366;
@@ -217,10 +218,13 @@ async function loadWindowsForDates(
  * Pre-migration path: every row from `historyStart` to `upTo`, read in
  * stay-date slices and folded into the grouped form a page at a time.
  *
- * The keyset filter this replaced, `stay_date > X or (stay_date = X and
- * id > Y)`, cannot bound the index, so each page rescanned the history from
- * the start. There is no row budget any more: nothing but the per-date counts
- * is held, and a fixed ceiling failed every run for a full 500-room hotel.
+ * The keyset filter over the whole history, `stay_date > X or (stay_date = X
+ * and id > Y)`, could not bound the index on its own, so each page rescanned
+ * the history from the start. Inside a slice the stay-date range bounds it,
+ * and the cursor only trims the slice, so pages stay cheap and a concurrent
+ * write cannot double count or skip a row the way offset paging could.
+ * There is no row budget any more: nothing but the per-date counts is held,
+ * and a fixed ceiling failed every run for a full 500-room hotel.
  */
 async function loadWindowsByRows(
   supabase: SupabaseClient,
@@ -252,16 +256,22 @@ async function loadWindowsByRows(
     const end = addDays(sliceFrom, sliceDays - 1);
     let sliceTo = end < upTo ? end : upTo;
     let sliceRows = 0;
-    for (let from = 0; ; from += PAGE) {
-      const { data, error } = await supabase
+    // The cursor starts fresh in every slice.
+    let cursor: { stayDate: string; id: string } | null = null;
+    for (;;) {
+      let q = supabase
         .from("reservations")
         .select("id, stay_date, booking_date, booking_window_days, room_type_id")
         .eq("hotel_id", hotelId)
         .gte("stay_date", sliceFrom)
-        .lte("stay_date", sliceTo)
+        .lte("stay_date", sliceTo);
+      if (cursor) {
+        q = q.or(`stay_date.gt.${cursor.stayDate},and(stay_date.eq.${cursor.stayDate},id.gt.${cursor.id})`);
+      }
+      const { data, error } = await q
         .order("stay_date", { ascending: true })
         .order("id", { ascending: true })
-        .range(from, from + PAGE - 1);
+        .limit(PAGE);
       // A mid-run failure is not the end of the history. Treating it as one
       // silently truncated the reservation set, so every stay date past the
       // cut-off measured as having no bookings and read as Stalled.
@@ -269,7 +279,7 @@ async function loadWindowsByRows(
         throw new Error(`Failed to load booking history: ${error.message}`);
       }
       const rows = (data ?? []) as Record<string, unknown>[];
-      if (rows.length === PAGE && from + PAGE >= SLICE_TARGET_ROWS) {
+      if (rows.length === PAGE && sliceRows + rows.length >= SLICE_TARGET_ROWS) {
         // Denser than the slice was sized for. Rows come in date order, so
         // everything read so far is also the start of a slice ending at this
         // page's last date: end it there, finish that date and move on. No
@@ -280,14 +290,16 @@ async function loadWindowsByRows(
       for (const r of rows) fold(r);
       sliceRows += rows.length;
       if (rows.length < PAGE) break;
+      const tail = rows[rows.length - 1];
+      cursor = { stayDate: String(tail.stay_date), id: String(tail.id) };
     }
     const perDay = sliceRows / (daysBetween(sliceFrom, sliceTo) + 1);
     sliceDays = perDay > 0 ? Math.min(MAX_SLICE_DAYS, Math.max(1, Math.floor(SLICE_TARGET_ROWS / perDay))) : MAX_SLICE_DAYS;
     sliceFrom = addDays(sliceTo, 1);
   }
 
-  // Dates arrive in order and rows within a date in id order, exactly as the
-  // keyset read gave them; sorted anyway so the map never depends on paging.
+  // Dates arrive in order and rows within a date in id order; sorted anyway
+  // so the map never depends on paging.
   const out = new Map<string, StayDateWindows>();
   for (const stayDate of [...counts.keys()].sort()) {
     const byWindow = counts.get(stayDate)!;

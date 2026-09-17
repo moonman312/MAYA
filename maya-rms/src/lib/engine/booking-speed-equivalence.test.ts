@@ -182,30 +182,25 @@ describe("Booking Speed boundaries", () => {
     const perDay = (d: string) => (d < denseFrom ? 3 : 520);
     const { client } = fakeSupabase({}, { rpc: () => new FakeRpcError(missingFunction("booking_speed_history_summary")) });
     const realFrom = client.from.bind(client);
-    const reads: { gte: string; lte: string; from: number; ordered: string[]; or: boolean }[] = [];
+    const reads: { gte: string; lte: string; ordered: string[]; cursor: string | null; limit: number; ranged: boolean }[] = [];
     let served = 0;
     (client as unknown as { from: unknown }).from = (table: string) => {
       if (table !== "reservations") return realFrom(table);
-      const q = { gte: "", lte: "", ordered: [] as string[], or: false, gt: "" };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const b: any = {};
-      b.select = () => b;
-      b.eq = () => b;
-      b.gte = (_c: string, v: string) => ((q.gte = v), b);
-      b.lte = (_c: string, v: string) => ((q.lte = v), b);
-      b.gt = (_c: string, v: string) => ((q.gt = v), b);
-      b.or = () => ((q.or = true), b);
-      b.order = (c: string) => (q.ordered.push(c), b);
-      b.limit = () => Promise.resolve({ data: [], error: null }); // hasKeptRowAfter
-      b.range = (from: number, to: number) => {
-        reads.push({ gte: q.gte, lte: q.lte, from, ordered: q.ordered, or: q.or });
+      const q = { gte: "", lte: "", ordered: [] as string[], or: null as string | null, ranged: false };
+      const serve = (limit: number) => {
+        if (q.gte === "") return Promise.resolve({ data: [], error: null }); // hasKeptRowAfter
+        reads.push({ gte: q.gte, lte: q.lte, ordered: q.ordered, cursor: q.or, limit, ranged: q.ranged });
+        // The only cursor shape the reader writes: stay_date.gt.D,and(stay_date.eq.D,id.gt.I)
+        const m = q.or ? /^stay_date\.gt\.([^,]+),and\(stay_date\.eq\.([^,]+),id\.gt\.(.+)\)$/.exec(q.or) : null;
+        if (q.or && !m) throw new Error(`unexpected cursor ${q.or}`);
         const data: FakeRow[] = [];
-        let i = 0;
-        for (let d = q.gte; d <= q.lte && i <= to; d = addDays(d, 1)) {
-          for (let k = 0; k < perDay(d) && i <= to; k++, i++) {
-            if (i < from) continue;
+        const start = m && m[1] > q.gte ? m[1] : q.gte;
+        for (let d = start; d <= q.lte && data.length < limit; d = addDays(d, 1)) {
+          for (let k = 0; k < perDay(d) && data.length < limit; k++) {
+            const id = `${d}-${String(k).padStart(4, "0")}`;
+            if (m && (d < m[1] || (d === m[2] && id <= m[3]))) continue;
             data.push({
-              id: `${d}-${String(k).padStart(4, "0")}`,
+              id,
               stay_date: d,
               booking_date: addDays(d, -(k % 90)),
               booking_window_days: null,
@@ -216,6 +211,17 @@ describe("Booking Speed boundaries", () => {
         served += data.length;
         return Promise.resolve({ data, error: null });
       };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const b: any = {};
+      b.select = () => b;
+      b.eq = () => b;
+      b.gte = (_c: string, v: string) => ((q.gte = v), b);
+      b.lte = (_c: string, v: string) => ((q.lte = v), b);
+      b.gt = () => b;
+      b.or = (expr: string) => ((q.or = expr), b);
+      b.order = (c: string) => (q.ordered.push(c), b);
+      b.limit = (n: number) => serve(n);
+      b.range = (from: number, to: number) => ((q.ranged = true), serve(to - from + 1));
       return b;
     };
     const horizonEnd = addDays(localDate, 44);
@@ -224,17 +230,65 @@ describe("Booking Speed boundaries", () => {
     expect(served).toBeGreaterThan(200_000);
     expect(ctx!.dailyDemand.find((d) => d.stay_date === addDays(localDate, -1))?.value).toBe(520);
     expect(ctx!.dailyDemand.find((d) => d.stay_date === addDays(localDate, -900))?.value).toBe(3);
-    for (const r of reads) {
-      expect(r.or).toBe(false);
+    for (const [i, r] of reads.entries()) {
       expect(r.gte).not.toBe("");
       expect(r.lte).not.toBe("");
       expect(r.ordered).toEqual(["stay_date", "id"]);
-      // No page reaches deep into its range, dense or not.
-      expect(r.from).toBeLessThan(10_000);
+      // Keyset pages, never an offset, and the cursor resets with each slice.
+      expect(r.ranged).toBe(false);
+      expect(r.limit).toBe(1000);
+      if (i === 0 || reads[i - 1].gte !== r.gte) expect(r.cursor).toBeNull();
     }
+    // Slices really are cut: dense years never read in one go.
+    expect(new Set(reads.map((r) => r.gte)).size).toBeGreaterThan(50);
     // About one call per 1,000 rows plus one per slice, not one per date.
     expect(reads.length).toBeLessThan(served / 1000 + 250);
   }, 60_000);
+
+  it("counts every row once when a row lands between pages before the migration", async () => {
+    // One dense night past the page size, so the slice needs a second page.
+    const localDate = "2026-09-16";
+    const stay = addDays(localDate, -30);
+    const reservations: FakeRow[] = [];
+    for (let k = 1; k <= 1500; k++) {
+      reservations.push({
+        id: `00000000-0000-4000-8000-${String(k * 2).padStart(12, "0")}`,
+        hotel_id: "h1",
+        stay_date: stay,
+        booking_date: addDays(stay, -7),
+        booking_window_days: 7,
+        room_type_id: null,
+      });
+    }
+    let pages = 0;
+    const { client, tables } = fakeSupabase(
+      { reservations },
+      {
+        rpc: () => new FakeRpcError(missingFunction("booking_speed_history_summary")),
+        fault: (call) => {
+          if (call.table !== "reservations" || !call.filters.some((f) => f.kind === "gte")) return null;
+          if (call.filters.some((f) => f.col === "stay_date" && f.kind === "lte" && String(f.value) >= stay) && ++pages === 2) {
+            // A new booking sorts ahead of everything already read: under
+            // offset paging it shifts the next page back by one row.
+            tables.reservations.push({
+              id: "00000000-0000-4000-8000-000000000001",
+              hotel_id: "h1",
+              stay_date: stay,
+              booking_date: addDays(stay, -7),
+              booking_window_days: 7,
+              room_type_id: null,
+            });
+          }
+          return null;
+        },
+      },
+    );
+    const ctx = await loadBookingSpeedContext(client, "h1", localDate, 2000, new Set(), addDays(localDate, 3));
+    expect(pages).toBeGreaterThanOrEqual(2);
+    expect(tables.reservations).toHaveLength(1501);
+    // The late row sorts before the cursor, so this read misses it and the next run counts it; nothing twice.
+    expect(ctx!.dailyDemand.find((d) => d.stay_date === stay)?.value).toBe(1500);
+  });
 
   it("logs the pre-migration fallback once", async () => {
     const spy = console.error as unknown as ReturnType<typeof vi.fn>;
