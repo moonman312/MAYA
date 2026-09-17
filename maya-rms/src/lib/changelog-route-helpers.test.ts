@@ -598,7 +598,7 @@ describe("an event rule that fired more than once on one night", () => {
     );
     expect(entry.narrative).toEqual([
       '"Demand-spike catcher" raised this night 12%, from $200.00 to $224.00.',
-      'Then "Demand-spike catcher" raised it again 12%, from $224.00 to $250.88.',
+      'Then "Demand-spike catcher" raised it another 12%, from $224.00 to $250.88.',
     ]);
   });
 });

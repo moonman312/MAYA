@@ -22,8 +22,9 @@
  *     rule's "from" price is what shows it stacked on the first.
  *   - An event rule can hold more than one adjustment on the same night: once
  *     its wait is over and its condition still holds, it fires again. A
- *     repeat says so ("cut it again"), because the same rule name twice in a
- *     row otherwise reads like a bug.
+ *     repeat says so ("lowered it another 15%"), because the same rule name
+ *     twice in a row otherwise reads like a bug. One verb per direction
+ *     throughout, so one rule doing one thing twice never changes words.
  *   - A fire the run took off gets its own sentence first, so a price that
  *     went back up is never unexplained.
  *   - Clamps get their own sentence — hitting a floor/ceiling is exactly the
@@ -334,14 +335,16 @@ export function narrateChange(input: NarrativeInput): string[] {
       app.action.kind === "percent" ? `${app.action.value}%` : money(app.action.value, sym);
     // A later rule's "from" price is the price the earlier one left, which is
     // how the stack shows itself without anyone having to say "stacked".
-    // The same rule twice is one rule that fired again after its wait.
+    // The same rule twice is one rule that fired again after its wait: one
+    // verb per direction throughout, and "another" rather than an adverb
+    // wedged between the verb and the amount.
     const opener =
       i === 0
-        ? `"${app.rule_name}" ${verb} this night`
+        ? `"${app.rule_name}" ${verb} this night ${amount}`
         : app.repeat
-          ? `Then "${app.rule_name}" ${app.action.direction === "increase" ? "raised" : "cut"} it again`
-          : `Then "${app.rule_name}" ${verb} it`;
-    sentences.push(`${opener} ${amount}, from ${money(before, sym)} to ${money(running, sym)}.`);
+          ? `Then "${app.rule_name}" ${verb} it another ${amount}`
+          : `Then "${app.rule_name}" ${verb} it ${amount}`;
+    sentences.push(`${opener}, from ${money(before, sym)} to ${money(running, sym)}.`);
     // A repeat's conditions were read on the run it fired, not this one, so
     // only the fire this run made carries a "why" it can stand behind.
     if (!app.repeat || app.metrics) {

@@ -721,7 +721,7 @@ describe("a rule that fired again", () => {
       ...o,
     });
 
-  it("says the same rule cut it again, instead of naming it twice as if it were two rules", () => {
+  it("says the same rule went again, instead of naming it twice as if it were two rules", () => {
     const lines = narrateChange({
       room_type: "Standard",
       base_price: 200,
@@ -731,11 +731,14 @@ describe("a rule that fired again", () => {
     expect(lines).toEqual([
       '"Slow-date rescue" lowered this night 15%, from $200.00 to $170.00.',
       "Bookings came in much slower than normal this past month.",
-      'Then "Slow-date rescue" cut it again 15%, from $170.00 to $144.50.',
+      'Then "Slow-date rescue" lowered it another 15%, from $170.00 to $144.50.',
     ]);
+    // One verb per direction: one rule doing one thing twice never changes
+    // words halfway through the entry.
+    expect(lines.filter((l) => l.includes("lowered"))).toHaveLength(2);
   });
 
-  it("says raised it again on the way up, and only explains the fire it has numbers for", () => {
+  it("keeps the same verb on the way up, and only explains the fire it has numbers for", () => {
     const raise = (o: Partial<NarrativeApplication> = {}) =>
       app({
         rule_name: "Hot-week surge",
@@ -754,7 +757,7 @@ describe("a rule that fired again", () => {
         raise({ repeat: true, metrics: { booking_speed: { label: "much_faster", recent: 9, expected: 4 } } }),
       ],
     });
-    expect(lines[2]).toBe('Then "Hot-week surge" raised it again 25%, from $125.00 to $156.25.');
+    expect(lines[2]).toBe('Then "Hot-week surge" raised it another 25%, from $125.00 to $156.25.');
     expect(lines[3]).toBe(
       "Bookings came in much faster than normal this past week: 9, against the 4 a night like this usually has by now.",
     );
