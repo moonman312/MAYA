@@ -10,7 +10,11 @@ import { mwsEnv } from "./env.ts";
 import { resolveMewsCredentials } from "./resolve-credentials.ts";
 import type { MewsCredentialsInput } from "./types.ts";
 import { proposeCountsAsRoom } from "../onboarding/analysis.ts";
-import { dropUnchangedReservationRows } from "../pms/row-diff.ts";
+import {
+  dropUnchangedReservationRows,
+  fingerprintDigest,
+  reservationRowFingerprint,
+} from "../pms/row-diff.ts";
 import { decideSyncWindow } from "../pms/sync-mode.ts";
 
 const RECONCILE_IN_CHUNK = 200;
@@ -338,6 +342,8 @@ export async function runMewsSyncForHotel(
     // window re-upserts the same handful, and 107 windows of no-op updates is
     // not free.
     const classifiedExternalIds = new Set<string>();
+    // Content digest of every night written (or confirmed stored) this run.
+    const writtenThisRun = new Map<string, string>();
 
     const walk = await mewsWalkReservationWindows(
       resolved.creds,
@@ -416,9 +422,18 @@ export async function runMewsSyncForHotel(
             current_rate: r.current_rate,
             raw_payload: r.raw_payload,
           }));
+          // A long stay comes back in every window its dates collide with, and
+          // each copy used to be diffed against the table and written again.
+          // A night this run already wrote with the same content is known to
+          // be stored; only a night that differs is diffed and written.
+          const digests = allRes.map((r) => fingerprintDigest(reservationRowFingerprint(r)));
+          const fresh = allRes.filter(
+            (r, i) => writtenThisRun.get(`${r.external_reservation_id}:${r.stay_date}`) !== digests[i],
+          );
+          unchangedRowsSkipped += allRes.length - fresh.length;
           // Most of a full sweep is rows that didn't move; writing them anyway
           // is WAL, realtime messages, and vacuum work for nothing.
-          const diffed = await dropUnchangedReservationRows(supabase, hotelId, allRes);
+          const diffed = await dropUnchangedReservationRows(supabase, hotelId, fresh);
           if (diffed.error) {
             walkError = diffed.error.message;
             return false;
@@ -438,6 +453,7 @@ export async function runMewsSyncForHotel(
               return false;
             }
           }
+          allRes.forEach((r, i) => writtenThisRun.set(`${r.external_reservation_id}:${r.stay_date}`, digests[i]));
           for (const r of parsed.reservations) {
             if (!activeNights.has(r.external_reservation_id)) {
               activeNights.set(r.external_reservation_id, new Set());

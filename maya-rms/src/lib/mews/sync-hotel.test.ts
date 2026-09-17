@@ -464,3 +464,42 @@ describe("runMewsSyncForHotel connection status", () => {
     expect((await syncOnce("disconnected")).status).toBe("disconnected");
   });
 });
+
+describe("a long stay seen in several colliding windows", () => {
+  it("writes its nights once and ends with the same rows and deletes as one window", async () => {
+    const run = async (windows: number) => {
+      client.windowCount.value = windows;
+      const supabase = makeSupabaseStub([], undefined, [
+        // A night the stay no longer holds, to reconcile.
+        { external_reservation_id: "res_1", stay_date: "2026-07-30", current_rate: 10 },
+      ]);
+      let reservationWrites = 0;
+      let readBacks = 0;
+      const realFrom = supabase.from.bind(supabase);
+      (supabase as unknown as { from: unknown }).from = (t: string) => {
+        const b = realFrom(t) as unknown as Record<string, unknown>;
+        if (t !== "reservations") return b;
+        const upsert = b.upsert as (rows: unknown) => Promise<unknown>;
+        const select = b.select as () => unknown;
+        return {
+          ...b,
+          upsert: (rows: unknown) => ((reservationWrites += 1), upsert(rows)),
+          select: () => ((readBacks += 1), select()),
+        };
+      };
+      const res = await runMewsSyncForHotel(supabase, "hotel-1", { daysBack: 30 });
+      expect(res.ok).toBe(true);
+      const rows = (supabase as unknown as { reservations: Row[] }).reservations
+        .map((r) => `${r.external_reservation_id}|${r.stay_date}|${r.room_type_id}|${r.current_rate}`)
+        .sort();
+      return { rows, reservationWrites, readBacks };
+    };
+    const one = await run(1);
+    const many = await run(6);
+    expect(many.rows).toEqual(one.rows);
+    expect(many.rows.some((r) => r.startsWith("res_1|2026-07-30"))).toBe(false);
+    expect(one.rows.length).toBeGreaterThan(0);
+    expect(many.reservationWrites).toBe(one.reservationWrites);
+    expect(many.readBacks).toBe(one.readBacks);
+  });
+});
