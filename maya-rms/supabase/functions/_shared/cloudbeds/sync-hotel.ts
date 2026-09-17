@@ -47,6 +47,7 @@ import { mwsEnv } from "../mews/env.ts";
 import { persistPropertyId, resolveOAuthCredentials } from "../pms/oauth-credentials.ts";
 import { proposeCountsAsRoom } from "../onboarding/analysis.ts";
 import { dropUnchangedReservationRows } from "../pms/row-diff.ts";
+import { deleteNightsOutside } from "../pms/stale-nights.ts";
 import { decideSyncWindow } from "../pms/sync-mode.ts";
 import { installCloudbedsRequestLogging } from "./request-log.ts";
 import { cloudbedsRateDetailsRefused } from "./rate-details-refusal.ts";
@@ -354,62 +355,19 @@ export function sweepIdCompare(a: string, b: string): number {
 }
 
 /**
- * One DELETE per reservation here was most of a sync's round trips, spent on
- * rows that almost never exist — a booking only sheds nights when its dates
- * shrink. So read the stored nights back, diff against the active set, and
- * delete just the leftovers, grouped by night so a date change costs one
- * statement instead of one per booking.
+ * The live sync's stale-night pass: only ids with at least one active night
+ * this run are vouched for. A booking whose payload lost its rates parses to
+ * no nights, and that is no reason to wipe what is stored; cancellations are
+ * deleted by id elsewhere.
  */
 async function deleteStaleStayNights(
   supabase: SupabaseClient,
   hotelId: string,
   activeByExternalId: Map<string, Set<string>>,
 ): Promise<{ error: { message: string } | null }> {
-  const extIds = [...activeByExternalId.keys()].filter(
-    (id) => activeByExternalId.get(id)!.size > 0,
-  );
-
-  const READ_PAGE = 1000;
-  const staleByDate = new Map<string, string[]>();
-  for (let i = 0; i < extIds.length; i += RECONCILE_IN_CHUNK) {
-    const chunk = extIds.slice(i, i + RECONCILE_IN_CHUNK);
-    for (let from = 0; ; from += READ_PAGE) {
-      const { data, error } = await supabase
-        .from("reservations")
-        .select("external_reservation_id, stay_date")
-        .eq("hotel_id", hotelId)
-        .in("external_reservation_id", chunk)
-        // OFFSET pages need a total order: without one, rows written between
-        // two pages can shift a row past the boundary and it is never seen.
-        // This is the reservations unique key's order.
-        .order("external_reservation_id", { ascending: true })
-        .order("stay_date", { ascending: true })
-        .range(from, from + READ_PAGE - 1);
-      if (error) return { error };
-      for (const row of data ?? []) {
-        const extId = String(row.external_reservation_id);
-        const stayDate = String(row.stay_date);
-        if (activeByExternalId.get(extId)?.has(stayDate)) continue;
-        const ids = staleByDate.get(stayDate);
-        if (ids) ids.push(extId);
-        else staleByDate.set(stayDate, [extId]);
-      }
-      if ((data ?? []).length < READ_PAGE) break;
-    }
-  }
-
-  for (const [stayDate, ids] of staleByDate) {
-    for (let i = 0; i < ids.length; i += RECONCILE_IN_CHUNK) {
-      const { error } = await supabase
-        .from("reservations")
-        .delete()
-        .eq("hotel_id", hotelId)
-        .eq("stay_date", stayDate)
-        .in("external_reservation_id", ids.slice(i, i + RECONCILE_IN_CHUNK));
-      if (error) return { error };
-    }
-  }
-  return { error: null };
+  const keep = new Map([...activeByExternalId].filter(([, nights]) => nights.size > 0));
+  const { error } = await deleteNightsOutside(supabase, hotelId, keep);
+  return { error };
 }
 
 /* ── Writing the window ──────────────────────────────────────────────────── */
