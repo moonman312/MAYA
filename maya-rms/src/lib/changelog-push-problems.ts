@@ -25,6 +25,7 @@ import type {
   ChangelogCycle,
   ChangelogItem,
   ChangelogPushProblem,
+  ChangelogRuleAlertChoice,
   PushProblemRetries,
 } from "@/types/domain";
 
@@ -167,13 +168,17 @@ export function buildPushProblems(
 }
 
 /**
- * Pricing runs and push problems in one timeline. Ongoing problems first,
- * newest opened first; then the runs and the resolved problems newest first,
- * each resolved problem where it ended. A resolved problem that ended before
- * the oldest run shown is left out: it belongs to history the log isn't
- * showing.
+ * Pricing runs, push problems and the owner's own answers in one timeline.
+ * Ongoing problems first, newest opened first; then the runs, the resolved
+ * problems and the answers newest first, each where it happened. Anything
+ * that ended before the oldest run shown is left out: it belongs to history
+ * the log isn't showing.
  */
-export function mergeTimeline(cycles: ChangelogCycle[], problems: ChangelogPushProblem[]): ChangelogItem[] {
+export function mergeTimeline(
+  cycles: ChangelogCycle[],
+  problems: ChangelogPushProblem[],
+  answers: ChangelogRuleAlertChoice[] = [],
+): ChangelogItem[] {
   const newestFirst = <T>(list: { item: T; at: number }[]) =>
     list
       .map((x, i) => ({ ...x, i }))
@@ -185,9 +190,16 @@ export function mergeTimeline(cycles: ChangelogCycle[], problems: ChangelogPushP
     .filter((p) => p.status !== "ongoing")
     .map((p) => ({ item: p as ChangelogItem, at: Date.parse(p.resolved_at ?? p.timestamp) }))
     .filter((x) => !(x.at < oldestRun));
+  const answered = answers
+    .map((a) => ({ item: a as ChangelogItem, at: Date.parse(a.timestamp) }))
+    .filter((x) => !(x.at < oldestRun));
   return [
     ...newestFirst(ongoing.map((p) => ({ item: p as ChangelogItem, at: Date.parse(p.timestamp) }))),
-    ...newestFirst([...cycles.map((c) => ({ item: c as ChangelogItem, at: Date.parse(c.timestamp) })), ...ended]),
+    ...newestFirst([
+      ...cycles.map((c) => ({ item: c as ChangelogItem, at: Date.parse(c.timestamp) })),
+      ...ended,
+      ...answered,
+    ]),
   ];
 }
 

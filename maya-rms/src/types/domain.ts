@@ -420,5 +420,27 @@ export type ChangelogPushProblem = {
   retries_not_kept: number;
 };
 
-/** The change log timeline, newest first: pricing runs and push problems. */
-export type ChangelogItem = ChangelogCycle | ChangelogPushProblem;
+/**
+ * An owner's answer to a rule that kept adjusting the same nights, as one
+ * change log item: which rule, which way they answered, and how many nights
+ * it covered. One item per answer, however many nights it settled.
+ */
+export type ChangelogRuleAlertChoice = {
+  kind: "rule_alert_choice";
+  id: string;
+  /** When they answered. */
+  timestamp: string;
+  rule_name: string;
+  choice: "keep_adjusting" | "stop";
+  nights: number;
+  first_night: string;
+  last_night: string;
+  /** What the log says happened, in one sentence. */
+  title: string;
+};
+
+/**
+ * The change log timeline, newest first: pricing runs, push problems and the
+ * answers the owner gave to a rule that kept adjusting.
+ */
+export type ChangelogItem = ChangelogCycle | ChangelogPushProblem | ChangelogRuleAlertChoice;

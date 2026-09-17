@@ -17,6 +17,7 @@ import { bookingSpeedHelp, bookingSpeedWaitHelp } from "@/lib/booking-speed-help
 import { RuleAlertBanner } from "@/components/rule-alert-banner";
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { RuleRoomTypesField } from "@/components/rule-room-types-field";
+import { isRuleAlertChoice } from "@/lib/changelog-route-helpers";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
 import {
@@ -731,7 +732,10 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
 
   const visibleCycles = useMemo(
     // A push problem is always shown: it is never a "nothing changed" run.
-    () => (changesOnly ? changelog.filter((c) => isPushProblem(c) || c.has_changes) : changelog),
+    () =>
+      changesOnly
+        ? changelog.filter((c) => isPushProblem(c) || isRuleAlertChoice(c) || c.has_changes)
+        : changelog,
     [changesOnly, changelog],
   );
 
@@ -1746,6 +1750,27 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                   );
                 }
                 const whenRelative = formatRelativeAge(cycle.timestamp);
+                if (isRuleAlertChoice(cycle)) {
+                  return (
+                    <div key={`alert-${cycle.id}`} className="rounded border border-slate-800 p-3">
+                      <p className="text-xs text-slate-400">
+                        <time
+                          dateTime={cycle.timestamp}
+                          title={formatDisplayTime(cycle.timestamp)}
+                          className="not-italic"
+                        >
+                          <span className="font-medium text-slate-300">Your answer</span>
+                          <span className="text-slate-500"> · </span>
+                          <span>{formatFriendlyDateTime(cycle.timestamp)}</span>
+                          {whenRelative ? (
+                            <span className="text-slate-500"> ({whenRelative})</span>
+                          ) : null}
+                        </time>
+                      </p>
+                      <p className="mt-1 text-[13px] leading-relaxed text-slate-300">{cycle.title}</p>
+                    </div>
+                  );
+                }
                 return (
                   <div
                     key={cycle.cycle}

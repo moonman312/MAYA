@@ -8,13 +8,16 @@
 
 import {
   type NarrativeApplication,
+  type NarrativeRetirement,
   narrateChange,
 } from "@/lib/changelog-narrative";
 import { measuresDifferently } from "@/lib/rule-form";
 import { pmsName } from "../../supabase/functions/_shared/pms/push-failure";
 import type {
   ChangelogCycle,
+  ChangelogItem,
   ChangelogEntry,
+  ChangelogRuleAlertChoice,
   EvaluationAuditDetails,
   RuleCondition,
 } from "@/types/domain";
@@ -232,6 +235,12 @@ function toNarrativeMetrics(
  * the pricing_rules lookup (metrics null) for effects carried over from
  * earlier runs. Pickup entries are keyed by event id and mapped back to their
  * rule via active_pickup_effects.
+ *
+ * An event rule can hold several fires on one night. Only the fire this run
+ * made carries this run's metrics, which is why the winner is matched on its
+ * event id; the older fires it stacked on were judged on their own runs. The
+ * second and later step of one rule is marked as a repeat so the sentence
+ * says the rule fired again rather than naming it twice.
  */
 export function buildApplications(
   details: EvaluationAuditDetails,
@@ -245,11 +254,16 @@ export function buildApplications(
   const pickupRuleByEvent = new Map(
     (details.active_pickup_effects ?? []).map((e) => [e.event_id, e.rule_id]),
   );
-  const wonPickupByRule = new Map(
-    (details.pickup_candidates ?? [])
-      .filter((c) => c.outcome === "won")
-      .map((c) => [c.rule_id, c]),
+  const wonPickup = (details.pickup_candidates ?? []).filter((c) => c.outcome === "won");
+  const wonPickupByEvent = new Map(
+    wonPickup.filter((c) => c.event_id != null).map((c) => [c.event_id as string, c]),
   );
+  // Rows written before stacking name no event, and could only ever have one
+  // fire per rule, so the rule id still identifies the winner there.
+  const wonPickupByRule = new Map(
+    wonPickup.filter((c) => c.event_id == null).map((c) => [c.rule_id, c]),
+  );
+  const timesApplied = new Map<string, number>();
 
   for (const step of details.application_order ?? []) {
     const [kind, id] = step.split(":");
@@ -257,6 +271,8 @@ export function buildApplications(
     const isPickup = kind === "pickup";
     const ruleId = isPickup ? pickupRuleByEvent.get(id) : id;
     if (!ruleId) continue;
+    const seen = timesApplied.get(ruleId) ?? 0;
+    timesApplied.set(ruleId, seen + 1);
 
     const rule = lookups.rules.get(ruleId);
     const matched = matchedByRule.get(ruleId);
@@ -275,7 +291,8 @@ export function buildApplications(
     }
     if (!action) continue;
     if (isPickup && !metrics) {
-      metrics = toNarrativeMetrics(wonPickupByRule.get(ruleId)?.metrics ?? null);
+      const won = wonPickupByEvent.get(id) ?? wonPickupByRule.get(ruleId);
+      metrics = toNarrativeMetrics(won?.metrics ?? null);
     }
 
     const measured = measuredRoomTypeNames(ruleId, lookups);
@@ -286,10 +303,27 @@ export function buildApplications(
       metrics,
       is_pickup: isPickup,
       ...(measured ? { measured_room_types: measured } : {}),
+      ...(seen > 0 ? { repeat: true } : {}),
     });
   }
 
   return applications;
+}
+
+/**
+ * The fires this run took off the night, in the audit's order. A rule that
+ * has since been deleted still has its name read from the audit's own
+ * fallback, so the sentence never says "undefined".
+ */
+export function buildRetirements(
+  details: EvaluationAuditDetails,
+  rules: ChangelogLookups["rules"],
+): NarrativeRetirement[] {
+  return (details.retired_pickup_effects ?? []).map((e) => ({
+    rule_name: rules.get(e.rule_id)?.name ?? "Pricing rule",
+    delta: e.delta,
+    reason: e.reason,
+  }));
 }
 
 function clampedByFor(details: EvaluationAuditDetails): "floor" | "ceiling" | null {
@@ -310,11 +344,13 @@ export function buildEntry(
   const clampedBy = clampedByFor(row.details);
   const override = manualOverrideFor(row.details);
 
+  const retirements = buildRetirements(row.details, lookups.rules);
   let narrative = narrateChange({
     room_type: roomType,
     base_price: basePrice,
     final_price: finalPrice,
     applications,
+    retirements,
     floor_price: Number(row.floor_price),
     ceiling_price: Number(row.ceiling_price),
     clamped_by: clampedBy,
@@ -333,12 +369,16 @@ export function buildEntry(
     // With nothing stacked on the typed number, narrateChange's only sentence
     // is the "moved from X to X" fallback, which the lead already says better.
     narrative =
-      applications.length === 0 && !clampedBy ? [lead] : [lead, ...narrative];
+      applications.length === 0 && !clampedBy && retirements.length === 0
+        ? [lead]
+        : [lead, ...narrative];
   }
 
   return {
     room_type: roomType,
-    rule_name: applications[0]?.rule_name ?? (override ? manualPriceTitle(override) : "Price update"),
+    rule_name:
+      applications[0]?.rule_name ??
+      (override ? manualPriceTitle(override) : retirements[0]?.rule_name ?? "Price update"),
     original_rate: basePrice,
     new_rate: finalPrice,
     change_pct:
@@ -424,4 +464,69 @@ export function buildCyclesFromAudit(
       changes,
     };
   });
+}
+
+/* ── Answers to a rule that kept adjusting ─────────────────────── */
+
+/** Narrows a timeline item to one of the owner's answers. */
+export function isRuleAlertChoice(item: ChangelogItem): item is ChangelogRuleAlertChoice {
+  return "kind" in item && item.kind === "rule_alert_choice";
+}
+
+/** One answered night, as the change log reads it. */
+export type AlertChoiceRow = {
+  rule_id: string;
+  stay_date: string;
+  choice: "keep_adjusting" | "stop";
+  chosen_at: string;
+  chosen_by: string | null;
+};
+
+/** Answers shown at most, newest first. */
+export const MAX_ALERT_CHOICES = 20;
+
+function nightsWord(n: number): string {
+  return n === 1 ? "1 night" : `${n} nights`;
+}
+
+/**
+ * One answer covers every night it settled: rule_repeat_alert_choose stamps
+ * them all with one instant, so (rule, choice, instant) is the action the
+ * owner took. "Stop" says what happens to the changes already made, because
+ * that is the question the word leaves open.
+ */
+export function buildAlertChoices(
+  rows: AlertChoiceRow[],
+  lookups: Pick<ChangelogLookups, "rules"> & Partial<Pick<ChangelogLookups, "setterNames">>,
+): ChangelogRuleAlertChoice[] {
+  const groups = new Map<string, AlertChoiceRow[]>();
+  for (const row of rows) {
+    const key = `${row.rule_id}|${row.choice}|${row.chosen_at}`;
+    const list = groups.get(key) ?? [];
+    list.push(row);
+    groups.set(key, list);
+  }
+  const out: ChangelogRuleAlertChoice[] = [];
+  for (const [key, list] of groups) {
+    const first = list[0];
+    const dates = list.map((r) => r.stay_date).sort();
+    const ruleName = lookups.rules.get(first.rule_id)?.name ?? "A rule";
+    const who = (first.chosen_by ? lookups.setterNames?.get(first.chosen_by) : null) ?? "A manager";
+    const where = list.length === 1 ? dates[0] : nightsWord(list.length);
+    out.push({
+      kind: "rule_alert_choice",
+      id: key,
+      timestamp: first.chosen_at,
+      rule_name: ruleName,
+      choice: first.choice,
+      nights: list.length,
+      first_night: dates[0],
+      last_night: dates[dates.length - 1],
+      title:
+        first.choice === "stop"
+          ? `${who} stopped "${ruleName}" on ${where}. What it already changed stays.`
+          : `${who} told "${ruleName}" to carry on with ${where}.`,
+    });
+  }
+  return out.sort((a, b) => (a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0));
 }

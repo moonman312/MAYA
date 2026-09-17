@@ -20,6 +20,12 @@
  *   - Chained rules replay in application order with running prices, using
  *     the same math as the engine (percent compounds, fixed adds). The second
  *     rule's "from" price is what shows it stacked on the first.
+ *   - An event rule can hold more than one adjustment on the same night: once
+ *     its wait is over and its condition still holds, it fires again. A
+ *     repeat says so ("cut it again"), because the same rule name twice in a
+ *     row otherwise reads like a bug.
+ *   - A fire the run took off gets its own sentence first, so a price that
+ *     went back up is never unexplained.
  *   - Clamps get their own sentence — hitting a floor/ceiling is exactly the
  *     kind of thing an owner wants to notice.
  *   - A rule that watches other room types than the ones it changed names
@@ -69,6 +75,16 @@ export type NarrativeApplication = {
    * the ones it changes. Absent, the sentences read as they always have.
    */
   measured_room_types?: string[] | null;
+  /** This rule already applied earlier in the chain: it fired again on this night. */
+  repeat?: boolean;
+};
+
+/** An adjustment this run took off the night, in the order the audit lists them. */
+export type NarrativeRetirement = {
+  rule_name: string;
+  /** The audit's signed delta, e.g. "+10%" or "-$5.00". */
+  delta: string;
+  reason: "bookings_cancelled" | "manual_price" | "rule_edited";
 };
 
 export type NarrativeInput = {
@@ -76,6 +92,8 @@ export type NarrativeInput = {
   base_price: number;
   final_price: number;
   applications: NarrativeApplication[];
+  /** Fires this run stopped applying, said before what is left. */
+  retirements?: NarrativeRetirement[];
   floor_price?: number | null;
   ceiling_price?: number | null;
   clamped_by?: "floor" | "ceiling" | null;
@@ -280,14 +298,33 @@ function stoppedAt(limit: number, final: number, sym: string): string {
     : `stopped at ${money(final, sym)}`;
 }
 
+/** "10% raise" / "$5.00 cut", from the signed delta the audit stores. */
+function retirementWords(delta: string): string {
+  const raise = !delta.startsWith("-");
+  return `${delta.replace(/^[+-]/, "")} ${raise ? "raise" : "cut"}`;
+}
+
+const RETIREMENT_REASONS: Record<NarrativeRetirement["reason"], string> = {
+  bookings_cancelled: "enough of the bookings behind it cancelled",
+  manual_price: "this night's price was set by hand",
+  rule_edited: "the rule was edited, so MAYA started it fresh",
+};
+
 /**
- * Full story for one (room type, night): the move each rule made, each one
- * followed by why it ran, plus a clamp sentence when a floor/ceiling stepped in.
+ * Full story for one (room type, night): what came off, then the move each
+ * rule made, each one followed by why it ran, plus a clamp sentence when a
+ * floor/ceiling stepped in.
  */
 export function narrateChange(input: NarrativeInput): string[] {
   const sym = input.currencySymbol ?? "$";
   const sentences: string[] = [];
   let running = input.base_price;
+
+  for (const off of input.retirements ?? []) {
+    sentences.push(
+      `"${off.rule_name}" stopped applying an earlier ${retirementWords(off.delta)} here: ${RETIREMENT_REASONS[off.reason]}.`,
+    );
+  }
 
   input.applications.forEach((app, i) => {
     const before = running;
@@ -297,10 +334,19 @@ export function narrateChange(input: NarrativeInput): string[] {
       app.action.kind === "percent" ? `${app.action.value}%` : money(app.action.value, sym);
     // A later rule's "from" price is the price the earlier one left, which is
     // how the stack shows itself without anyone having to say "stacked".
+    // The same rule twice is one rule that fired again after its wait.
     const opener =
-      i === 0 ? `"${app.rule_name}" ${verb} this night` : `Then "${app.rule_name}" ${verb} it`;
+      i === 0
+        ? `"${app.rule_name}" ${verb} this night`
+        : app.repeat
+          ? `Then "${app.rule_name}" ${app.action.direction === "increase" ? "raised" : "cut"} it again`
+          : `Then "${app.rule_name}" ${verb} it`;
     sentences.push(`${opener} ${amount}, from ${money(before, sym)} to ${money(running, sym)}.`);
-    sentences.push(...describeConditions(app.condition, app.metrics, app.measured_room_types));
+    // A repeat's conditions were read on the run it fired, not this one, so
+    // only the fire this run made carries a "why" it can stand behind.
+    if (!app.repeat || app.metrics) {
+      sentences.push(...describeConditions(app.condition, app.metrics, app.measured_room_types));
+    }
   });
 
   // A manual price over the ceiling or under the floor is the limit itself

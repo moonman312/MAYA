@@ -14,12 +14,15 @@
 
 import { dbErrorResponse } from "@/lib/api-guards";
 import {
+  type AlertChoiceRow,
   type AuditChangeRow,
   type ChangelogLookups,
   type RuleLookupEntry,
   type RunHeartbeat,
   type RunSummary,
+  MAX_ALERT_CHOICES,
   MAX_RUNS,
+  buildAlertChoices,
   buildCyclesFromAudit,
   buildCyclesFromRuns,
   currencySymbolFor,
@@ -307,8 +310,77 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
           (r): RunHeartbeat => ({ evaluation_run_id: String(r.evaluation_run_id), evaluated_at: String(r.evaluated_at) }),
         ),
       );
-  const problems = await loadPushProblems(supabase, hotelId, roomTypeNames, oldestShownRun(cycles));
-  return mergeTimeline(cycles, problems);
+  const since = oldestShownRun(cycles);
+  const [problems, answers] = await Promise.all([
+    loadPushProblems(supabase, hotelId, roomTypeNames, since),
+    loadAlertChoices(supabase, hotelId, lookups, since),
+  ]);
+  return mergeTimeline(cycles, problems, answers);
+}
+
+/**
+ * The answers the owner gave to a rule that kept adjusting, within the runs
+ * shown. Names come from the same lookup a manual price uses, so an answer
+ * reads "Jake stopped ..." rather than "A manager". Never fails the change
+ * log: these sit beside the runs, and a read that errors shows none.
+ */
+async function loadAlertChoices(
+  supabase: SupabaseClient,
+  hotelId: string,
+  lookups: ChangelogLookups,
+  since: string | null,
+) {
+  try {
+    const query = supabase
+      .from("rule_repeat_alert_nights")
+      .select("rule_id, stay_date, choice, chosen_at, chosen_by")
+      .eq("hotel_id", hotelId)
+      .not("chosen_at", "is", null)
+      .order("chosen_at", { ascending: false })
+      .limit(MAX_ALERT_CHOICES * 20);
+    const { data, error } = await (since ? query.gte("chosen_at", since) : query);
+    if (error) {
+      if (isMissingRelationError(error)) return [];
+      throw error;
+    }
+    const rows: AlertChoiceRow[] = (data ?? [])
+      .filter((r) => r.choice === "stop" || r.choice === "keep_adjusting")
+      .map((r) => ({
+        rule_id: String(r.rule_id),
+        stay_date: String(r.stay_date).slice(0, 10),
+        choice: r.choice as AlertChoiceRow["choice"],
+        chosen_at: String(r.chosen_at),
+        chosen_by: r.chosen_by != null ? String(r.chosen_by) : null,
+      }));
+    const names = await chooserNamesFor(supabase, rows);
+    return buildAlertChoices(rows, { rules: lookups.rules, setterNames: names }).slice(
+      0,
+      MAX_ALERT_CHOICES,
+    );
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? e);
+    console.error(
+      JSON.stringify({ fn: "api/changelog", step: "alert_choices", hotelId, error: message.slice(0, 300) }),
+    );
+    return [];
+  }
+}
+
+/** Display names for whoever answered, on the same terms as setterNamesFor. */
+async function chooserNamesFor(
+  supabase: SupabaseClient,
+  rows: AlertChoiceRow[],
+): Promise<Map<string, string>> {
+  const ids = new Set(rows.map((r) => r.chosen_by).filter((id): id is string => !!id));
+  const names = new Map<string, string>();
+  if (ids.size === 0) return names;
+  const reader = isAdminConfigured() ? createAdminClient() : supabase;
+  const { data } = await reader.from("profiles").select("id, full_name").in("id", [...ids]);
+  for (const p of data ?? []) {
+    const name = typeof p.full_name === "string" ? p.full_name.trim() : "";
+    if (name) names.set(String(p.id), name);
+  }
+  return names;
 }
 
 /**
