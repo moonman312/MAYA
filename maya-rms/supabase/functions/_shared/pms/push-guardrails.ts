@@ -26,7 +26,10 @@
  *                                  loaded that far out) and nobody typed a
  *                                  manual price for it. The engine leaves
  *                                  such a night unpriced; this catches a row
- *                                  left over from before it did.
+ *                                  left over from before it did. Also filed
+ *                                  for a night already sent at its price:
+ *                                  MAYA's last rate is still in the PMS, and
+ *                                  the engine keeps that row so it shows.
  *   guardrail:invalid_bounds       The room type's floor or ceiling is not a
  *                                  usable number (missing, not above 0, or a
  *                                  ceiling under the floor), so the price
@@ -36,12 +39,14 @@
  *   guardrail:above_ceiling        The price is over the room type's ceiling
  *                                  as it is now ($99,999.99 default included).
  *   guardrail:stale_price          Neither the published row nor any
- *                                  evaluation of the hotel is newer than
- *                                  pushMaxPriceAgeMs(). The engine writes a
- *                                  row only when its price or base moves, so
- *                                  an old computed_at alone is not stale: a
- *                                  recent successful evaluation re-derived
- *                                  every priced night in the window.
+ *                                  evaluation that priced its night is newer
+ *                                  than pushMaxPriceAgeMs(). The engine
+ *                                  writes a row only when its price or base
+ *                                  moves, so an old computed_at alone is not
+ *                                  stale: a recent successful evaluation
+ *                                  re-derived every night it covered. One
+ *                                  that covered fewer nights (a manual price
+ *                                  save) vouches for those nights only.
  *
  * One older skip reason is not a guardrail and keeps its original text:
  *
