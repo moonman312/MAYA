@@ -1213,3 +1213,170 @@ describe("when an account refuses rate details", () => {
     });
   });
 });
+
+/* ── Writing slice by slice ───────────────────────────────────────────── */
+
+describe("a sweep written slice by slice ends where the one-pass sweep did", () => {
+  const GOLDEN = new URL("./__fixtures__/slice-sweep-golden.json", import.meta.url).pathname;
+  const WRITE_GOLDEN = process.env.MAYA_WRITE_SLICE_GOLDEN === "1";
+
+  /**
+   * 2,600 bookings, enough for several check-out slices, plus the awkward
+   * ones: stays that cross slice boundaries, a cancellation of stored rows,
+   * a stay whose dates moved since it was stored, and bookings that change
+   * between the first and a later time the sweep reads them (a cancel, a
+   * reinstatement, new dates, a new room count).
+   */
+  function scenario() {
+    const ymd = (d: Date) => d.toISOString().slice(0, 10);
+    const day = (n: number) => ymd(new Date(Date.UTC(2026, 6, 5 + n)));
+    const book: Json[] = [];
+    for (let i = 0; i < 2600; i++) {
+      const nights = 1 + (i % 4);
+      const start = Math.floor(i / 7);
+      book.push(booking({
+        id: String(200000 + i),
+        status: i % 97 === 0 ? "canceled" : "confirmed",
+        checkIn: day(start),
+        checkOut: day(start + nights),
+        nightly: 90 + (i % 60),
+        rooms: i % 13 === 0
+          ? [
+              { sub: `${200000 + i}-1`, rates: Object.fromEntries(nightsBetween(day(start), day(start + nights)).map((n) => [n, 120])) },
+              { sub: `${200000 + i}-2`, roomTypeID: "RT2", rates: Object.fromEntries(nightsBetween(day(start), day(start + nights)).map((n) => [n, i % 2 ? null : 140])) },
+            ]
+          : undefined,
+      }));
+    }
+    const seed: ResRow[] = [
+      // Stored nights of a booking that is now canceled.
+      ...["2026-08-01", "2026-08-02"].map((d) => ({ external_reservation_id: "200097-1", stay_date: d, room_type_id: "rt-uuid-1", current_rate: 77, booking_date: "2026-06-01", booking_window_days: 5, raw_payload: {} })),
+      // A stay stored on dates it no longer holds.
+      ...["2026-07-06", "2026-07-07", "2026-07-08"].map((d) => ({ external_reservation_id: "200010-1", stay_date: d, room_type_id: "rt-uuid-1", current_rate: 66, booking_date: "2026-06-01", booking_window_days: 5, raw_payload: {} })),
+      // Unrelated rows outside anything the sweep reads.
+      { external_reservation_id: "999999-1", stay_date: "2026-01-01", room_type_id: "rt-uuid-1", current_rate: 50, booking_date: null, booking_window_days: null, raw_payload: {} },
+    ];
+    // Bookings that read differently the second time they come back.
+    const flips: Record<string, (seen: number, b: Json) => Json> = {};
+    for (let i = 3; i < 2600; i += 41) {
+      const id = String(200000 + i);
+      const kind = i % 4;
+      flips[id] = (seen, b) => {
+        if (seen === 0) return b;
+        if (kind === 0) return { ...b, status: "canceled" };
+        if (kind === 1) return { ...b, status: b.status === "canceled" ? "confirmed" : "no_show" };
+        if (kind === 2) {
+          const checkIn = String(b.reservationCheckIn);
+          const moved = ymd(new Date(Date.parse(`${checkIn}T00:00:00Z`) + 86_400_000));
+          return booking({ id, status: "confirmed", checkIn: moved, checkOut: String(b.reservationCheckOut), nightly: 111 });
+        }
+        return booking({ id, status: "confirmed", checkIn: String(b.reservationCheckIn), checkOut: String(b.reservationCheckOut), rooms: [
+          { sub: `${id}-1`, rates: Object.fromEntries(nightsBetween(String(b.reservationCheckIn), String(b.reservationCheckOut)).map((n) => [n, 150])) },
+        ] });
+      };
+    }
+    return { book, seed, flips };
+  }
+
+  function serveWithFlips(book: Json[], flips: Record<string, (seen: number, b: Json) => Json>, pageMs: number) {
+    const seen = new Map<string, number>();
+    const returnedTwice = new Set<string>();
+    serve(book, { onCall: () => vi.advanceTimersByTime(pageMs) });
+    const inner = client.cloudbedsGetReservationsWithRateDetailsPage.getMockImplementation()!;
+    client.cloudbedsGetReservationsWithRateDetailsPage.mockImplementation(async (...args: unknown[]) => {
+      const page = await (inner as (...a: unknown[]) => Promise<{ reservations: Json[]; hasMore: boolean; total: number }>)(...args);
+      return {
+        ...page,
+        reservations: page.reservations.map((b) => {
+          const id = String(b.reservationID);
+          const n = seen.get(id) ?? 0;
+          seen.set(id, n + 1);
+          if (n > 0) returnedTwice.add(id);
+          return flips[id] ? flips[id](n, b) : b;
+        }),
+      };
+    });
+    return { returnedTwice };
+  }
+
+  const tableOf = (rows: ResRow[]) =>
+    rows
+      .map((r) => [r.external_reservation_id, r.stay_date, r.room_type_id, r.current_rate, r.base_rate, r.booking_date, r.booking_window_days].join("|"))
+      .sort();
+
+  it.each([
+    ["in one run", 0],
+    ["resumed over several runs", 30_000],
+  ] as const)("%s", async (label, pageMs) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const { book, seed, flips } = scenario();
+    const supabase = makeSupabaseStub(seed);
+    const flipsSeen = new Set<string>();
+    let runs = 0;
+    for (; runs < 30; runs++) {
+      const { returnedTwice } = serveWithFlips(book, flips, pageMs);
+      const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+      for (const id of returnedTwice) if (flips[id]) flipsSeen.add(id);
+      expect(res.ok).toBe(true);
+      if (!res.ok || res.windowFullyCovered) break;
+      vi.advanceTimersByTime(60_000);
+    }
+    const table = tableOf(supabase.reservations);
+    if (WRITE_GOLDEN) {
+      const { mkdirSync, readFileSync, writeFileSync } = await import("node:fs");
+      mkdirSync(new URL("./__fixtures__/", import.meta.url).pathname, { recursive: true });
+      let golden: Record<string, unknown> = {};
+      try {
+        golden = JSON.parse(readFileSync(GOLDEN, "utf8"));
+      } catch {
+        golden = {};
+      }
+      golden[label] = { runs: runs + 1, table };
+      writeFileSync(GOLDEN, JSON.stringify(golden, null, 1) + "\n");
+      return;
+    }
+    const { readFileSync } = await import("node:fs");
+    const golden = JSON.parse(readFileSync(GOLDEN, "utf8"))[label] as { table: string[] };
+    // The sweep really did read some bookings twice with a change in between.
+    if (pageMs === 0) expect(flipsSeen.size).toBeGreaterThan(0);
+    expect(table.length).toBeGreaterThan(5000);
+    expect(table).toEqual(golden.table);
+  }, 120_000);
+});
+
+describe.skipIf(!process.env.MAYA_HEAP_PROBE)("heap on a 21,000-booking sweep (probe)", () => {
+  it("reports the peak heap seen while the sweep runs", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const ymd = (d: Date) => d.toISOString().slice(0, 10);
+    const book: Json[] = Array.from({ length: 21_000 }, (_, i) => {
+      const start = Math.floor(i / 55);
+      return booking({ id: String(300000 + i), status: "confirmed", checkIn: ymd(new Date(Date.UTC(2026, 6, 5 + start))), checkOut: ymd(new Date(Date.UTC(2026, 6, 8 + start))), nightly: 100 + (i % 40) });
+    });
+    const supabase = makeSupabaseStub();
+    let peak = 0;
+    const gc = (globalThis as { gc?: () => void }).gc;
+    // Live heap, after a collection, at every database call and every page:
+    // the one-pass sweep's high point is while it writes at the end.
+    const sample = () => {
+      for (const r of supabase.reservations) delete r.raw_payload;
+      gc?.();
+      peak = Math.max(peak, process.memoryUsage().heapUsed);
+    };
+    const realFrom = supabase.from.bind(supabase);
+    (supabase as unknown as { from: unknown }).from = (name: string) => {
+      sample();
+      return realFrom(name);
+    };
+    // The stub table lives in this same heap; keep only what the probe needs
+    // from each stored row so it measures the sync, not the fake database.
+    serve(book, { onCall: () => sample() });
+    gc?.();
+    const baseline = process.memoryUsage().heapUsed;
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+    sample();
+    expect(res.ok).toBe(true);
+    process.stdout.write(`HEAP_PROBE rows=${supabase.reservations.length} baselineMB=${(baseline / 1e6).toFixed(0)} gc=${gc ? "yes" : "no"} peakMB=${(peak / 1e6).toFixed(0)} deltaMB=${((peak - baseline) / 1e6).toFixed(0)}\n`);
+  }, 300_000);
+});
