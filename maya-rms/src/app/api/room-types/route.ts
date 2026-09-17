@@ -10,6 +10,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { classifyRoomType } from "./classify";
+import { nearestPublishedRates } from "./seed-rates";
 import { NEEDS_MIGRATION, isPreMigration, scheduleReprice } from "./reprice";
 
 // PATCH schedules a full re-price behind the response; same cap as /api/evaluate.
@@ -69,62 +70,6 @@ async function loadRoomTypes(
 }
 
 /**
- * A rate per room type worth showing someone as a starting point.
- *
- * A manual price someone typed for tonight wins outright — that is the
- * number the property has decided on. Otherwise the nearest upcoming night
- * MAYA has published, preferring the base it remembered over the price it
- * produced — the base is the property's own rate, while the price already has
- * rules baked into it, and seeding a rule preview with a rules-adjusted number
- * compounds the adjustment.
- *
- * Never throws: a property with nothing published yet just gets no seed, and
- * the caller falls back.
- */
-async function nearestPublishedRates(
-  supabase: SupabaseClient,
-  hotelId: string,
-): Promise<Map<string, number>> {
-  const today = new Date().toISOString().slice(0, 10);
-  const seed = new Map<string, number>();
-  try {
-    const [{ data: manualRows }, { data }] = await Promise.all([
-      supabase
-        .from("manual_price")
-        .select("room_type_id, price")
-        .eq("hotel_id", hotelId)
-        .eq("stay_date", today)
-        .is("cleared_at", null),
-      supabase
-        .from("published_price")
-        .select("room_type_id, stay_date, price, base_price")
-        .eq("hotel_id", hotelId)
-        .gte("stay_date", today)
-        .order("stay_date", { ascending: true })
-        .limit(1000),
-    ]);
-
-    for (const row of manualRows ?? []) {
-      const price = row.price != null ? Number(row.price) : null;
-      if (price != null && price > 0) seed.set(String(row.room_type_id), price);
-    }
-
-    for (const row of data ?? []) {
-      const id = String(row.room_type_id);
-      if (seed.has(id)) continue; // rows are date-ascending, so the first is nearest
-      const base = row.base_price != null ? Number(row.base_price) : null;
-      const price = row.price != null ? Number(row.price) : null;
-      const pick = base != null && base > 0 ? base : price;
-      if (pick != null && pick > 0) seed.set(id, pick);
-    }
-  } catch {
-    // A missing table or a permissions change must not take out the room-type
-    // list, which the rules form depends on.
-  }
-  return seed;
-}
-
-/**
  * A sane made-up starting price when nothing has been published yet.
  *
  * The guardrail midpoint only means something when the owner actually set
@@ -180,7 +125,7 @@ export async function GET(req: Request) {
       // hotel's calendar date and not the viewer's. Only ?withRate=1 returns
       // this, so the rules form's plain call keeps the array it expects.
       const [seed, hotelRow] = await Promise.all([
-        nearestPublishedRates(supabase, hotelId),
+        nearestPublishedRates(supabase, hotelId, rows.map((rt) => String(rt.id))),
         supabase.from("hotels").select("timezone").eq("id", hotelId).maybeSingle(),
       ]);
       return NextResponse.json({
