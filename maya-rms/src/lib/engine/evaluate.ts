@@ -20,9 +20,9 @@ import {
   DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS,
   bookingSpeedAuditSnapshots,
   bookingSpeedMetrics,
-  cooldownLookbackDays,
   isWithinCooldown,
   loadBookingSpeedContext,
+  loadLastBookingSpeedFires,
   observeForStayDate,
   type BookingSpeedContext,
 } from "./booking-speed-provider";
@@ -51,6 +51,7 @@ import {
 import { addCalendarDays, evalIsoToHotelDateString } from "./timezone";
 import type { PickupCandidate, RoomTypeRow, RuleMetrics } from "./types";
 import { countsAsRoom } from "./types";
+
 
 export type EvaluationResult = {
   run_id: string;
@@ -486,22 +487,8 @@ export async function evaluateHotel(
     bsCtx = await loadBookingSpeedContext(supabase, hotelId, localDate, totalCapacity, nonRoomIds);
 
     // Most recent fire per (rule, stay date), for cooldown throttling of
-    // event-style booking-speed rules. One query, built into a map. See
-    // cooldownLookbackDays for why this can't be a fixed 31 days.
-    const cooldownHorizon = new Date(
-      Date.parse(now) - cooldownLookbackDays(rules) * 86_400_000,
-    ).toISOString();
-    const { data: fires } = await supabase
-      .from("pickup_event")
-      .select("rule_id, stay_date, applied_at")
-      .eq("hotel_id", hotelId)
-      .gte("applied_at", cooldownHorizon);
-    lastBsFire = new Map();
-    for (const f of fires ?? []) {
-      const key = `${f.rule_id}|${f.stay_date}`;
-      const prev = lastBsFire.get(key);
-      if (!prev || String(f.applied_at) > prev) lastBsFire.set(key, String(f.applied_at));
-    }
+    // event-style booking-speed rules. See loadLastBookingSpeedFires.
+    lastBsFire = await loadLastBookingSpeedFires(supabase, hotelId, rules, localDate, now);
   }
 
   const attachBookingSpeed = (

@@ -45,6 +45,8 @@ import {
   type AssumptionChallenge,
   type ChallengeScope,
 } from "../observations/reinforcement.ts";
+import type { EngineRule } from "./domain.ts";
+import { fetchAllRows } from "./snapshots.ts";
 import type { RuleMetrics } from "./types.ts";
 
 export const HISTORY_YEARS_BACK = 3;
@@ -330,4 +332,44 @@ export function cooldownLookbackDays(
     return Math.max(max, cd);
   }, DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS);
   return Math.max(31, maxCooldown + 1);
+}
+
+/**
+ * Most recent fire per `rule_id|stay_date` for the cooldown check.
+ *
+ * Only event-style booking-speed rules are ever looked up, and only for stay
+ * dates from today on, so the read is narrowed to exactly those keys and
+ * paged. Unpaged, a busy hotel's fires past PostgREST's 1,000-row cap were
+ * invisible and those rules re-fired inside their cooldown. A failed read
+ * throws: an empty map would lift every cooldown at once.
+ */
+export async function loadLastBookingSpeedFires(
+  supabase: SupabaseClient,
+  hotelId: string,
+  rules: EngineRule[],
+  localDate: string,
+  nowIso: string,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const ruleIds = rules
+    .filter((r) => r.is_pickup_rule && r.condition.booking_speed_operator)
+    .map((r) => r.id);
+  if (ruleIds.length === 0) return out;
+  const horizon = new Date(Date.parse(nowIso) - cooldownLookbackDays(rules) * 86_400_000).toISOString();
+  const fires = await fetchAllRows(() =>
+    supabase
+      .from("pickup_event")
+      .select("rule_id, stay_date, applied_at")
+      .eq("hotel_id", hotelId)
+      .in("rule_id", ruleIds)
+      .gte("stay_date", localDate)
+      .gte("applied_at", horizon)
+      .order("id", { ascending: true }),
+  );
+  for (const f of fires) {
+    const key = `${f.rule_id}|${f.stay_date}`;
+    const prev = out.get(key);
+    if (!prev || String(f.applied_at) > prev) out.set(key, String(f.applied_at));
+  }
+  return out;
 }

@@ -5,11 +5,14 @@ import {
   bookingSpeedMetrics,
   cooldownLookbackDays,
   isWithinCooldown,
+  loadLastBookingSpeedFires,
   observeForStayDate,
   type BookingSpeedContext,
 } from "./booking-speed-provider";
 import { detectSeasons } from "@/lib/observations/seasons";
 import type { SlimReservationRow } from "@/lib/observations/expected-bookings";
+import type { EngineRule } from "@/types/domain";
+import { fakeSupabase } from "./fake-supabase.test";
 
 function makeContext(rows: SlimReservationRow[], asOf: string): BookingSpeedContext {
   const rowsByDate = new Map<string, SlimReservationRow[]>();
@@ -109,5 +112,75 @@ describe("observeForStayDate + snapshots", () => {
     expect(m.expected).toBe(obs.expectedBookings);
     expect(typeof m.rank).toBe("number");
     expect(m.label.length).toBeGreaterThan(0);
+  });
+});
+
+describe("loadLastBookingSpeedFires", () => {
+  const NOW = "2026-09-16T12:00:00.000Z";
+  const TODAY = "2026-09-16";
+  const mk = (id: string, pickup: boolean, bs: boolean, cooldown: number | null = null) =>
+    ({
+      id,
+      is_pickup_rule: pickup,
+      condition: { booking_speed_operator: bs ? "at_least" : null, booking_speed_cooldown_days: cooldown },
+    }) as unknown as EngineRule;
+
+  it("sees every fire past PostgREST's 1,000-row cap, same as a full read for every key it is asked about", async () => {
+    const rules = [mk("bs1", true, true), mk("bs2", true, true, 45), mk("plain", true, false), mk("ladder", false, true)];
+    const events: Record<string, unknown>[] = [];
+    let n = 0;
+    const day = (offset: number) => new Date(Date.UTC(2026, 8, 16) + offset * 86_400_000).toISOString().slice(0, 10);
+    // Older fires first (lower ids), so an unpaged read would keep only them.
+    for (let back = 60; back >= 0; back--) {
+      for (const ruleId of ["bs1", "bs2", "plain"]) {
+        for (let d = -5; d < 20; d++) {
+          if ((back + d) % 3 !== 0) continue;
+          events.push({
+            id: `ev${String(n++).padStart(6, "0")}`,
+            hotel_id: "h1",
+            rule_id: ruleId,
+            stay_date: day(d),
+            applied_at: new Date(Date.parse(NOW) - back * 86_400_000).toISOString(),
+          });
+        }
+      }
+    }
+    expect(events.length).toBeGreaterThan(1000);
+
+    const { client } = fakeSupabase({ pickup_event: events }, { maxRows: 1000 });
+    const got = await loadLastBookingSpeedFires(client, "h1", rules, TODAY, NOW);
+
+    // Truth: the old unfiltered read with no cap, then only the keys the
+    // engine ever looks up (booking-speed pickup rules, today onward).
+    const horizon = new Date(Date.parse(NOW) - 46 * 86_400_000).toISOString();
+    const truth = new Map<string, string>();
+    for (const f of events) {
+      if (String(f.applied_at) < horizon) continue;
+      const key = `${f.rule_id}|${f.stay_date}`;
+      const prev = truth.get(key);
+      if (!prev || String(f.applied_at) > prev) truth.set(key, String(f.applied_at));
+    }
+    let looked = 0;
+    for (const ruleId of ["bs1", "bs2"]) {
+      for (let d = 0; d < 20; d++) {
+        const key = `${ruleId}|${day(d)}`;
+        expect(got.get(key)).toBe(truth.get(key));
+        if (truth.has(key)) looked++;
+      }
+    }
+    expect(looked).toBeGreaterThan(20);
+    for (const key of got.keys()) expect(key.startsWith("plain|")).toBe(false);
+  });
+
+  it("skips the read when no pickup rule uses booking speed", async () => {
+    const { client, calls } = fakeSupabase({});
+    const got = await loadLastBookingSpeedFires(client, "h1", [mk("ladder", false, true)], TODAY, NOW);
+    expect(got.size).toBe(0);
+    expect(calls.length).toBe(0);
+  });
+
+  it("throws on a failed read rather than lifting every cooldown", async () => {
+    const { client } = fakeSupabase({}, { fault: () => ({ message: "timeout" }) });
+    await expect(loadLastBookingSpeedFires(client, "h1", [mk("bs1", true, true)], TODAY, NOW)).rejects.toThrow(/timeout/);
   });
 });
