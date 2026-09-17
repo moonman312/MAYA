@@ -297,6 +297,22 @@ describe("planPmsEdits", () => {
       expect(p).toMatchObject({ edits: [], systematic: 30 });
     });
 
+    it("takes rates the hotel raised by one percentage while MAYA only simulated as new bases, not as a ratio of its own", () => {
+      // Every send settled two days ago; the hotel went live again an hour ago.
+      const beforeLive = { confirmed_at: hoursAgo(48), pushed_at: hoursAgo(48) };
+      const simulated = nights(12, sent, taxed).map((r) => ({ ...r, ledger: { ...r.ledger, ...beforeLive } }));
+      const p = plan(simulated, {}, NOW - 3_600_000);
+      expect(p).toMatchObject({ systematic: 0, edits: [] });
+      expect(p.rebased).toHaveLength(12);
+
+      // With the same ratio on the nights live since, it is the PMS's own rule, and neither is taken.
+      // Settled since going live: a ratio the PMS reports through shows on these too.
+      const live = nights(12, sent, taxed).map((r, i) => ({ ...r, stayDate: night(i + 20), ledger: { ...r.ledger, confirmed_at: hoursAgo(0.5) } }));
+      const both = plan([...simulated, ...live], {}, NOW - 3_600_000);
+      expect(both).toMatchObject({ edits: [], rebased: [], systematic: 24 });
+      expect(both.systematicNights).toHaveLength(24);
+    });
+
     it("takes a hotel raising some of its nights by one percentage while the rest still quote MAYA's price", () => {
       const p = plan(nights(42, sent, (i, price) => (i < 12 ? taxed(i, price) : price)));
       expect(p).toMatchObject({ systematic: 0 });
@@ -480,10 +496,10 @@ describe("adoptPmsEdits", () => {
     }
   });
 
-  it("reads nothing but the hotel's settings when every night still has MAYA's price, known there since it went live", async () => {
+  it("reads the hotel's settings and whether a shared-ratio incident is open, and no more, when every night still has MAYA's price known there since it went live", async () => {
     const d = db({ hotel_settings: [{ hotel_id: "h1", simulation_mode: false, live_since: hoursAgo(3) }] });
     await adoptPmsEdits(d.client, "h1", "cloudbeds", [read({ pmsRate: 220 })], TARGETS, WINDOW, AT);
-    expect(d.calls.map((c) => c.table)).toEqual(["hotel_settings"]);
+    expect(d.calls.map((c) => c.table)).toEqual(["hotel_settings", "rate_push_incidents"]);
     // Nothing sent or held: not even that.
     const none = db();
     await adoptPmsEdits(none.client, "h1", "cloudbeds", [read({ ledger: { status: "failed", error: "send in progress" } })], TARGETS, WINDOW, AT);
@@ -501,6 +517,29 @@ describe("adoptPmsEdits", () => {
     const later = new Date(NOW + 3_600_000).toISOString();
     const res = await adoptPmsEdits(d.client, "h1", "cloudbeds", [read({ pmsRate: 250, ledger: { confirmed_at: AT } })], TARGETS, WINDOW, later);
     expect(res).toMatchObject({ adopted: 1, rebased: 0 });
+  });
+
+  it("files the nights a shared ratio explained for admins, and closes that incident once a read finds none", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const d = db({ hotel_settings: [{ hotel_id: "h1", simulation_mode: false, live_since: hoursAgo(72) }] });
+    const taxed = Array.from({ length: 12 }, (_, i) =>
+      read({ stayDate: `2026-10-${String(i + 5).padStart(2, "0")}`, pmsRate: Math.round((200 + i * 10) * 1.1 * 100) / 100, ledger: { price: 200 + i * 10, sent_price: 200 + i * 10 } }),
+    );
+
+    const res = await adoptPmsEdits(d.client, "h1", "cloudbeds", taxed, TARGETS, WINDOW, AT);
+
+    expect(res).toMatchObject({ adopted: 0, rebased: 0 });
+    expect(d.tables.manual_price).toEqual([]);
+    expect(d.tables.rate_push_incidents).toEqual([
+      expect.objectContaining({ cause: "pms_rates_shared_ratio", admin_only: true, severity: "transient", resolved_at: null, customer_visible_at: null }),
+    ]);
+    expect(d.tables.rate_push_incident_cells.filter((c) => c.state === "open")).toHaveLength(12);
+
+    // The hotel's own rates are back to MAYA's prices: the incident closes.
+    const later = new Date(NOW + 2 * 3_600_000).toISOString();
+    const back = taxed.map((r) => ({ ...r, pmsRate: Number(r.ledger.price) }));
+    await adoptPmsEdits(d.client, "h1", "cloudbeds", back, TARGETS, WINDOW, later);
+    expect(d.tables.rate_push_incidents[0]).toMatchObject({ resolved_at: later, resolution: "stopped" });
   });
 
   it("leaves a night outside the window alone", async () => {

@@ -61,6 +61,7 @@ export const PUSH_CAUSES = [
   "guardrail_stale_price",
   "unknown",
   "zero_rate_unsupported",
+  "pms_rates_shared_ratio",
 ] as const;
 
 export type PushCause = (typeof PUSH_CAUSES)[number];
@@ -86,6 +87,19 @@ export const JOB_UNCONFIRMED_MESSAGE = "rate job never confirmed";
  * A contract like the one above.
  */
 export const SEND_IN_PROGRESS_MESSAGE = "send in progress";
+
+/**
+ * The attempt message for nights the base rate refresh did not take as the
+ * hotel's changes because nearly every night read shares one ratio of MAYA's
+ * price (pms-edits.ts). A contract like the ones above.
+ */
+export const SHARED_RATIO_REASON = "pms edits: shared ratio";
+
+/**
+ * Causes the base rate refresh files, not the push. The push never sees
+ * their nights fail, so it leaves their incidents alone (push-incidents.ts).
+ */
+export const REFRESH_CAUSES: readonly PushCause[] = ["pms_rates_shared_ratio"];
 
 /** Sends a failing cell gets at one price before it waits a day. */
 export const MAX_PUSH_ATTEMPTS = 10;
@@ -271,6 +285,17 @@ const CATALOG: Record<PushCause, CatalogEntry> = {
     admin:
       "A manual price of 0 (a comp night) is published, and nobody has checked that this PMS's rate write takes 0 (PmsRatePushAdapter acceptsZeroRate), so it is not sent. Once the PMS itself has the night at the manual price the base rate refresh records that and the night closes as landed.",
   },
+  pms_rates_shared_ratio: {
+    known: true,
+    severity: "transient",
+    retry: "recheck",
+    adminOnly: true,
+    sentence: (w) =>
+      `MAYA didn't take ${w.roomsRates} changed in ${w.pms} as the hotel's own, because they all differ from MAYA's prices by the same ratio`,
+    action: () => null,
+    admin:
+      "The base rate refresh found nearly every night MAYA sent to since the hotel went live quoting one ratio of the price sent: the PMS reporting prices through a rule of its own (tax included, a markup), or the hotel changing most of the window by one percentage. Those nights were not taken as the hotel's changes, and MAYA's next price for any of them writes over what the PMS has. Check the PMS. Filed by the refresh: open while a read finds such nights, closed by the first that finds none.",
+  },
   unknown: {
     known: false,
     severity: "transient",
@@ -422,6 +447,7 @@ function causeOf(input: PushFailureInput): PushCause {
       if (input.targetGap === "catalog_unavailable") return "pms_unavailable";
       return "no_base_rate";
     }
+    if (reason === SHARED_RATIO_REASON) return "pms_rates_shared_ratio";
     return GUARDRAIL_CAUSE[reason] ?? "unknown";
   }
 

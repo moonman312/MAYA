@@ -16,6 +16,7 @@ import {
   type RunFailure,
 } from "../../../supabase/functions/_shared/pms/push-incidents";
 import { GUARDRAIL, NO_RATE_TARGET_REASON } from "../../../supabase/functions/_shared/pms/push-guardrails";
+import { SHARED_RATIO_REASON } from "../../../supabase/functions/_shared/pms/push-failure";
 import { type FakeFault, fakeSupabase, type FakeRow } from "../engine/fake-supabase.test";
 
 const HOTEL = "hotel-1";
@@ -87,6 +88,32 @@ describe("recordPushIncidents", () => {
     const res = await recordPushIncidents(fake.client, tick(0, [], [landed("2026-09-20", "rt-1", 0)], false), deps);
     expect(res).toBeNull();
     expect(fake.calls).toEqual([expect.objectContaining({ table: "rate_push_incidents", op: "select", columns: "id" })]);
+  });
+
+  it("leaves an incident the base rate refresh filed alone, and lets the refresh close it", async () => {
+    const fake = db();
+    const ratio: PushFailureInput = { pms: "cloudbeds", phase: "guardrail", message: SHARED_RATIO_REASON };
+    const refresh = (minutes: number, failures: RunFailure[]): PushRunRecord => ({
+      ...tick(minutes, failures, [], false),
+      recordedBy: "refresh",
+    });
+    await recordPushIncidents(fake.client, refresh(0, [{ ...failure("2026-09-20", "rt-1", 0, ratio, 275), ongoing: true }]), deps);
+    expect(fake.tables.rate_push_incidents).toEqual([
+      expect.objectContaining({ cause: "pms_rates_shared_ratio", admin_only: true, resolved_at: null, customer_visible_at: null }),
+    ]);
+    expect(alerts).toEqual([]);
+
+    // The push sends that night, and another cause fails: neither closes the refresh's incident.
+    expect(await recordPushIncidents(fake.client, tick(5, [], [landed("2026-09-20", "rt-1", 5)], false), deps)).toBeNull();
+    await recordPushIncidents(fake.client, tick(6, [failure("2026-09-21", "rt-1", 6)]), deps);
+    expect(fake.tables.rate_push_incidents.map((i) => [i.cause, i.resolved_at])).toEqual([
+      ["pms_rates_shared_ratio", null],
+      ["pms_unavailable", null],
+    ]);
+
+    // The refresh's next read finds no such night: its own incident closes.
+    expect(await recordPushIncidents(fake.client, refresh(10, []), deps)).toMatchObject({ resolved: 1 });
+    expect(fake.tables.rate_push_incidents[0]).toMatchObject({ resolved_at: at(10), resolution: "stopped" });
   });
 
   it("closes an incident whose last cells landed on a run that could not write it, once the ledger shows nothing failing", async () => {

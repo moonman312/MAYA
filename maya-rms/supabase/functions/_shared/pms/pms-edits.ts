@@ -36,10 +36,17 @@
  *     That is the PMS reporting MAYA's prices through some rule of its own
  *     (tax included, a markup), not a person editing nights, and adopting
  *     would freeze the window at prices the rule has inflated, which rules
- *     stacked on them would inflate again. Those nights are counted and
- *     logged; a night that does not fit the ratio is still a change. A
- *     settled night still quoting MAYA's own price counts against a ratio,
- *     so a hotel raising some of its nights by one percentage is taken.
+ *     stacked on them would inflate again. Those nights are counted, logged
+ *     and filed for admins as an incident of their own (push-incidents.ts,
+ *     pms_rates_shared_ratio), since MAYA's next price there writes over
+ *     them; a night that does not fit the ratio is still a change. A settled
+ *     night still quoting MAYA's own price counts against a ratio, so a hotel
+ *     raising some of its nights by one percentage is taken. The ratio is
+ *     looked for only among nights known in the PMS since the hotel went
+ *     live, where a PMS reporting through one shows it too: a hotel raising
+ *     the whole window by one percentage while MAYA only simulated has those
+ *     rates taken as new bases, as below, unless they fit a ratio the live
+ *     nights share.
  *
  * A rate of 0 is not a price to adopt. Every other read of MAYA's takes a
  * PMS 0 as a night closed or not loaded (zero_base), and a manual price of 0
@@ -99,6 +106,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingColumnError, isMissingRelationError } from "../engine/snapshots.ts";
 import { mwsEnv } from "../mews/env.ts";
 import { hotelRuleIds, setManualPrices } from "./manual-price.ts";
+import { classifyPushFailure, SHARED_RATIO_REASON } from "./push-failure.ts";
+import { recordPushIncidents, type RunCell, type RunFailure } from "./push-incidents.ts";
 import { type RateTargetMap, upsertLedger } from "./rate-push.ts";
 
 const DEFAULT_SETTLE_MINUTES = 60;
@@ -171,6 +180,8 @@ export type PmsEditPlan = {
   typedSinceSend: number;
   /** Differed by the ratio nearly all settled nights share, so were not adopted. */
   systematic: number;
+  /** Those nights. */
+  systematicNights: PushedNightRead[];
 };
 
 /**
@@ -198,12 +209,14 @@ export function planPmsEdits(input: {
     waiting: 0,
     typedSinceSend: 0,
     systematic: 0,
+    systematicNights: [],
   };
   const liveSinceMs = input.liveSinceMs ?? NaN;
   // Settled, old enough, sent to the rate read and not typed over since: the
-  // nights a change can be told on, whether the PMS still quotes MAYA's price.
+  // nights a ratio is judged over, those still quoting MAYA's price and those
+  // differing that are known in the PMS since the hotel went live.
   let comparable = 0;
-  // Of those, the ones it does not.
+  // Settled nights the PMS quotes at another price.
   const differing: { read: PushedNightRead; pmsRate: number; sent: number; whileLive: boolean }[] = [];
 
   for (const r of input.reads) {
@@ -256,51 +269,55 @@ export function planPmsEdits(input: {
       else plan.heldAtZero.push(r);
       continue;
     }
-    // A comp night's 0 over a send not known to have landed: that send may be what the hotel set it back from, or not.
+    // Only a comp night's 0 gets here unsettled: whether a rule MAYA sent on
+    // top of it ever landed can't be told, so it waits.
     if (!settled) {
       plan.waiting += 1;
       continue;
     }
-    comparable += 1;
-    differing.push({ read: r, pmsRate: r.pmsRate, sent: ledgerPrice, whileLive: settledWhileLive || manual?.source === "pms" });
+    const whileLive = settledWhileLive || manual?.source === "pms";
+    if (whileLive) comparable += 1;
+    differing.push({ read: r, pmsRate: r.pmsRate, sent: ledgerPrice, whileLive });
   }
 
-  const fits = sharedRatio(differing);
-  const systematic = fits.size >= SYSTEMATIC_MIN_NIGHTS && fits.size >= SYSTEMATIC_SHARE * comparable;
-  if (systematic) plan.systematic = fits.size;
-  differing.forEach((d, i) => {
-    if (systematic && fits.has(i)) return;
+  // Looked for among the live nights only: see the header.
+  const shared = sharedRatio(differing.filter((d) => d.whileLive));
+  const ratio = shared != null && shared.fits >= SYSTEMATIC_SHARE * comparable ? shared.ratio : null;
+  for (const d of differing) {
+    if (ratio != null && fitsRatio(d, ratio)) {
+      plan.systematicNights.push(d.read);
+      continue;
+    }
     const change = { read: d.read, price: Math.round(d.pmsRate * 100) / 100 };
     if (d.whileLive) plan.edits.push(change);
     else plan.rebased.push(change);
-  });
+  }
+  plan.systematic = plan.systematicNights.length;
   return plan;
 }
 
 /**
- * The nights (by index) that fit the ratio fitting the most of them: PMS
- * rate within SYSTEMATIC_FIT of the price sent times it. Each night's own
+ * The ratio fitting the most nights, and how many it fits. Each night's own
  * ratio is tried, largest prices first, since theirs carries the least
- * rounding. Empty when no ratio away from 1 fits SYSTEMATIC_MIN_NIGHTS.
+ * rounding. Null when no ratio away from 1 fits SYSTEMATIC_MIN_NIGHTS.
  */
-function sharedRatio(nights: { pmsRate: number; sent: number }[]): Set<number> {
-  let best = new Set<number>();
-  if (nights.length < SYSTEMATIC_MIN_NIGHTS) return best;
-  const order = nights
-    .map((_, i) => i)
-    .filter((i) => nights[i].sent > 0 && nights[i].pmsRate > 0)
-    .sort((a, b) => nights[b].sent - nights[a].sent);
-  for (const i of order) {
-    if (best.size === order.length) break;
-    const ratio = nights[i].pmsRate / nights[i].sent;
+function sharedRatio(nights: { pmsRate: number; sent: number }[]): { ratio: number; fits: number } | null {
+  if (nights.length < SYSTEMATIC_MIN_NIGHTS) return null;
+  const order = nights.filter((n) => n.sent > 0 && n.pmsRate > 0).sort((a, b) => b.sent - a.sent);
+  let best: { ratio: number; fits: number } | null = null;
+  for (const n of order) {
+    if (best && best.fits === order.length) break;
+    const ratio = n.pmsRate / n.sent;
     if (Math.abs(ratio - 1) <= SYSTEMATIC_RATIO_SPREAD) continue;
-    const fit = new Set<number>();
-    for (const j of order) {
-      if (Math.abs(nights[j].pmsRate - nights[j].sent * ratio) <= SYSTEMATIC_FIT) fit.add(j);
-    }
-    if (fit.size > best.size) best = fit;
+    const fits = order.filter((m) => fitsRatio(m, ratio)).length;
+    if (!best || fits > best.fits) best = { ratio, fits };
   }
-  return best.size >= SYSTEMATIC_MIN_NIGHTS ? best : new Set();
+  return best && best.fits >= SYSTEMATIC_MIN_NIGHTS ? best : null;
+}
+
+/** A PMS rate within SYSTEMATIC_FIT of the price sent times the ratio. */
+function fitsRatio(night: { pmsRate: number; sent: number }, ratio: number): boolean {
+  return night.sent > 0 && night.pmsRate > 0 && Math.abs(night.pmsRate - night.sent * ratio) <= SYSTEMATIC_FIT;
 }
 
 export type PmsEditsResult = {
@@ -532,7 +549,8 @@ async function closeNights(
 /**
  * The refresh's step: find this hotel's hand edits among the nights MAYA has
  * sent to and adopt them, and stamp the sends it finds in the PMS as settled.
- * Reads the hotel's settings, and nothing more unless some night's PMS rate
+ * Reads the hotel's settings and whether an incident about nights a shared
+ * ratio explained is open, and nothing more unless some night's PMS rate
  * differs from its ledger row, the row is a skip, or its send is not known
  * to be there since the hotel went live. Does nothing for a hotel that is
  * not live or a database without the columns that say where a price came
@@ -586,7 +604,8 @@ export async function adoptPmsEdits(
     const liveSinceMs = settings.live_since != null ? Date.parse(String(settings.live_since)) : NaN;
 
     // Nothing more is read while every sent night still has MAYA's price,
-    // known to be there since the hotel went live, and nothing is held back.
+    // known to be there since the hotel went live, and nothing is held back,
+    // but an incident about nights a ratio explained closes.
     const worthALook = inWindow.some((r) => {
       if (r.ledger.status === "skipped") return true;
       if (r.ledger.price == null) return false;
@@ -594,7 +613,10 @@ export async function adoptPmsEdits(
       return !(confirmedAtMs >= (Number.isFinite(liveSinceMs) ? liveSinceMs : -Infinity)) ||
         !pmsHoldsPrice(r.pmsRate, Number(r.ledger.price));
     });
-    if (!worthALook) return none;
+    if (!worthALook) {
+      await recordSharedRatio(supabase, hotelId, pmsType, [], at);
+      return none;
+    }
 
     const manual = await readOpenManualPrices(supabase, hotelId, window.firstDate, window.lastDate);
     if (!manual) return none;
@@ -607,6 +629,7 @@ export async function adoptPmsEdits(
       liveSinceMs,
       sendsZero: opts.sendsZero,
     });
+    await recordSharedRatio(supabase, hotelId, pmsType, plan.systematicNights, at);
     const found = plan.edits.length + plan.inStep.length + plan.landed.length + plan.closed.length + plan.rebased.length;
     const applied = found > 0 ? await applyPmsEdits(supabase, hotelId, pmsType, plan, at, manual) : none;
     const held = plan.heldAtZero.map((r) => `${r.stayDate}|${r.roomTypeId}`);
@@ -628,6 +651,49 @@ export async function adoptPmsEdits(
     const cells = plan ? movedCells(plan) : differingSends(inWindow, Date.parse(at), settleMs);
     return { ...none, movedCells: cells, holdCells: cells, failed: true };
   }
+}
+
+/**
+ * Files the nights a shared ratio explained for admins, under a cause of
+ * their own (push-incidents.ts, pms_rates_shared_ratio), so a person sees the
+ * rates MAYA did not take; with none, closes that incident if one is open.
+ * One read when there is nothing to file or close. Never throws.
+ */
+async function recordSharedRatio(
+  supabase: SupabaseClient,
+  hotelId: string,
+  pmsType: string,
+  nights: PushedNightRead[],
+  at: string,
+): Promise<void> {
+  const failure = classifyPushFailure({ pms: pmsType, phase: "guardrail", message: SHARED_RATIO_REASON });
+  const cells = new Map<string, RunCell>();
+  const failures: RunFailure[] = [];
+  for (const r of nights) {
+    const cell = { stayDate: r.stayDate, roomTypeId: r.roomTypeId, price: r.pmsRate };
+    cells.set(`${r.stayDate}|${r.roomTypeId}`, { ...cell, state: "failing", failure });
+    failures.push({
+      ...cell,
+      at,
+      phase: "guardrail",
+      outcome: "skipped",
+      httpStatus: null,
+      message: SHARED_RATIO_REASON,
+      jobReference: null,
+      failure,
+      // A night already open under this cause is not a new try.
+      ongoing: true,
+    });
+  }
+  await recordPushIncidents(supabase, {
+    hotelId,
+    pmsType,
+    nowMs: Date.parse(at),
+    cells,
+    failures,
+    mayHaveOpen: false,
+    recordedBy: "refresh",
+  });
 }
 
 /** The window's open manual prices; null on a database that can't say where a price came from yet. */

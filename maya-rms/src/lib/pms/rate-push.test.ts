@@ -30,6 +30,7 @@ type Fixture = {
 type Chain = {
   select: () => Chain;
   eq: () => Chain;
+  neq: () => Chain;
   gte: () => Chain;
   lte: () => Chain;
   is: () => Chain;
@@ -66,6 +67,7 @@ function makeSupabaseStub(fx: Fixture) {
     const chain: Chain = {
       select: () => chain,
       eq: () => chain,
+      neq: () => chain,
       gte: () => chain,
       lte: () => chain,
       is: () => chain,
