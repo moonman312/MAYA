@@ -31,6 +31,8 @@ export type AuditInput = {
   pickupWriteFailures: PickupCandidate[];
   /** Candidates that could not move the price in their direction (limitAllowsFire), so did not fire. */
   pickupNoPriceChange?: PickupCandidate[];
+  /** Raises on a comp night (a manual price of 0), which no rule may raise. */
+  pickupCompNight?: PickupCandidate[];
   /** Fires this run took off the cell. */
   retiredPickupEffects?: RetiredPickupFire[];
   basePrices: Map<string, number>;
@@ -174,6 +176,12 @@ export function buildAuditRow(input: AuditInput): Record<string, unknown> | null
         outcome: "no_price_change" as const,
         metrics: enrichPickupMetrics(c, basePrices),
         tie_break_trace: [c.rule.action_direction === "decrease" ? "price_at_floor" : "price_at_ceiling"],
+      })),
+      ...(input.pickupCompNight ?? []).map((c) => ({
+        rule_id: c.rule.id,
+        outcome: "comp_night" as const,
+        metrics: enrichPickupMetrics(c, basePrices),
+        tie_break_trace: ["manual_price_zero"],
       })),
       ...(input.pickupConcurrentSkips ?? []).map((c) => ({
         rule_id: c.rule.id,

@@ -52,6 +52,7 @@ import {
 import {
   assemblePriceFrom,
   clearUnpricedCells,
+  compNightBlocks,
   firingMovesPrice,
   limitAllowsFire,
   loadActiveLadderEffectsForRange,
@@ -855,13 +856,13 @@ export async function evaluateHotel(
   await preloadSharedBaselines(snapshots, withBaseline(measured));
   for (const rn of measured) await measure(rn);
 
-  // The price each cell would publish before anything fires, for the limit
-  // guard: a cut already at the floor or a raise already at the ceiling
-  // can't move the price, so it doesn't fire and starts no wait, and neither
-  // does an adjustment that leaves the price where it is whatever the limits
-  // say (a percent on a comp night typed as 0). A cell this run leaves
-  // unpriced (no base, a closed night, an inactive room type) gets no fire
-  // at all.
+  // The price each cell would publish before anything fires, for the guards
+  // below: a cut already at the floor or a raise already at the ceiling can't
+  // move the price, so it doesn't fire and starts no wait, and neither does
+  // an adjustment that leaves the price where it is whatever the limits say
+  // (a percent on a price of 0). A raise on a night the owner gave away at 0
+  // is refused outright. A cell this run leaves unpriced (no base, a closed
+  // night, an inactive room type) gets no fire at all.
   const currentByCell = new Map<string, { price: AssembledPrice; bounds: { floor: number; ceiling: number } } | null>();
   const currentPrice = (stayDate: string, rtId: string) => {
     const key = `${stayDate}|${rtId}`;
@@ -891,6 +892,7 @@ export async function evaluateHotel(
 
   const allPickupCandidates: PickupCandidate[] = [];
   const allPickupNoPriceChange = new Map<string, PickupCandidate[]>();
+  const allPickupCompNight = new Map<string, PickupCandidate[]>();
   for (const rn of measured) {
     if (!rn.matched) continue;
     for (const rtId of rn.open) {
@@ -903,6 +905,13 @@ export async function evaluateHotel(
         action_direction: rn.rule.action_direction,
         action_value: rn.rule.action_value,
       };
+      // A night given away at 0 is the owner's number, and no rule raises it
+      // (pricing.ts isCompNight). Its own outcome, because it is not the
+      // limits holding the price: a fixed raise would move it every time.
+      if (compNightBlocks(current.price.base_price, current.price.base_source, rn.rule.action_direction)) {
+        pushTo(allPickupCompNight, `${rn.stayDate}|${rtId}`, c);
+        continue;
+      }
       if (
         !limitAllowsFire(current.price.final_price, current.bounds, rn.rule.action_direction) ||
         !firingMovesPrice(
@@ -1061,6 +1070,7 @@ export async function evaluateHotel(
       pickupConcurrentSkips: allPickupConcurrent.get(key) ?? [],
       pickupWriteFailures: allPickupWriteFailures.get(key) ?? [],
       pickupNoPriceChange: allPickupNoPriceChange.get(key) ?? [],
+      pickupCompNight: allPickupCompNight.get(key) ?? [],
       retiredPickupEffects: retiredByCell.get(key) ?? [],
       basePrices,
       bookingSpeedObservations: bsCtx

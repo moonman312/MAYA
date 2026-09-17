@@ -36,6 +36,37 @@ describe("describeSave", () => {
     ).toContain("Paused 3 rules");
   });
 
+  it("tells the truth about a comp night: nothing raises a 0", () => {
+    const comp = [{ stay_date: "2026-11-14", base: 0, final: 0, clamped_by: "none" }];
+    expect(
+      describeSave({ pushed: "zero_not_sent", suppressedRules: 0, retiredPickups: 0, preview: comp }, "Cloudbeds"),
+    ).toBe(
+      "Saved. MAYA doesn't send a price of 0 to Cloudbeds, so set the night to 0 there yourself. No rule raises a night set to 0.",
+    );
+    expect(
+      describeSave(
+        { pushed: "simulation", suppressedRules: 0, retiredPickups: 0, pausedRules: 2, cells: 1, preview: comp },
+        "Cloudbeds",
+      ),
+    ).toBe(
+      "Saved (simulation: not sent to Cloudbeds). Paused 2 rules on this night for this room; no rule raises a night set to 0.",
+    );
+    // A price that is not 0 reads as it always has.
+    expect(
+      describeSave(
+        {
+          pushed: "nudged",
+          suppressedRules: 0,
+          retiredPickups: 0,
+          pausedRules: 1,
+          cells: 1,
+          preview: [{ stay_date: "2026-11-14", base: 120, final: 120, clamped_by: "none" }],
+        },
+        "Cloudbeds",
+      ),
+    ).toContain("new rules will apply on top.");
+  });
+
   it("splits a range that straddles the 60-day window per night, singular and plural", () => {
     expect(
       describeSave(

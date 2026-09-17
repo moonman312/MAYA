@@ -111,12 +111,42 @@ export function limitAllowsFire(
 }
 
 /**
+ * A manual price of exactly 0 is a comp night: the room is being given away,
+ * and the number is a person's, not a tier MAYA picked. No rule raises it.
+ *
+ * Without this a fixed-amount raise walks a comp night up for ever (0, then
+ * 20, then 40, ...): the price moves every time, so firingMovesPrice lets it
+ * through, and the ceiling is nowhere near, so limitAllowsFire does too. The
+ * owner would read that a night they gave away is being sold at 40. A cut
+ * cannot happen either way: the bounds put the floor at the manual price, so
+ * a comp night is already at its floor.
+ *
+ * Only exactly 0 counts. A manual price of 0.01 is a price, and rules stack
+ * on it as they do on any other.
+ */
+export function isCompNight(basePrice: number, baseSource: BaseSource): boolean {
+  return baseSource === "manual" && Number.isFinite(basePrice) && Math.round(basePrice * 100) === 0;
+}
+
+/** An adjustment a comp night refuses: any raise (see isCompNight). */
+export function compNightBlocks(
+  basePrice: number,
+  baseSource: BaseSource,
+  direction: ActionDirection,
+): boolean {
+  return direction === "increase" && isCompNight(basePrice, baseSource);
+}
+
+/**
  * Whether the adjustment itself would move the cell's price, before any
- * clamp. A percent on a comp night typed as 0 is the case this catches:
- * nothing multiplies 0 into anything else, so the rule would fire on every
- * wait for ever, writing a fire and an audit row each time and telling the
- * owner after three of them that a night published at 0.00 has been raised
- * three times. The limit guard can't see it, because 0 is under no ceiling.
+ * clamp. A percent on a price of 0 is the case this catches: nothing
+ * multiplies 0 into anything else, so the rule would fire on every wait for
+ * ever, writing a fire and an audit row each time and telling the owner after
+ * three of them that a night published at 0.00 has been adjusted three times.
+ * The limit guard can't see it, because 0 is under no ceiling. A comp night
+ * is now answered before this, by compNightBlocks, which also stops the fixed
+ * raise this guard lets through; the shape stays general, for any adjustment
+ * that lands on the number it started from.
  *
  * Deliberately pre-clamp: a raise whose result is still hidden under a floor
  * raised since does move the price it is stacked on, and blocking it would
@@ -345,7 +375,17 @@ export async function assemblePrice(
   return assemblePriceFrom(stayDate, roomType, basePrice, baseSource, ladderEffects, pickupEffects);
 }
 
-/** assemblePrice once the cell's effects are in hand. */
+/**
+ * assemblePrice once the cell's effects are in hand.
+ *
+ * A comp night (a manual price of 0) drops every raise stacked on it, ladder
+ * and event alike, and the assembled price says so: the effects it reports
+ * are the ones that moved the number, which is what the audit row and the
+ * change log are built from. Event rules never get this far on a comp night
+ * (evaluate.ts drops the candidate and audits it), so what this catches is a
+ * ladder rule whose condition started holding after the price was typed, and
+ * a fire left on the cell by older code.
+ */
 export function assemblePriceFrom(
   stayDate: string,
   roomType: RoomTypeRow,
@@ -354,7 +394,13 @@ export function assemblePriceFrom(
   ladderEffects: AdjustmentSpec[],
   pickupEffects: PickupEffect[],
 ): AssembledPrice {
-  const preClamp = applyAdjustments(basePrice, ladderEffects, pickupEffects);
+  const applies = <T extends AdjustmentSpec>(effects: T[]) =>
+    isCompNight(basePrice, baseSource)
+      ? effects.filter((e) => !compNightBlocks(basePrice, baseSource, e.action_direction))
+      : effects;
+  const ladder = applies(ladderEffects);
+  const pickup = applies(pickupEffects);
+  const preClamp = applyAdjustments(basePrice, ladder, pickup);
   const bounds = priceBounds(roomType.floor_price, roomType.ceiling_price, basePrice, baseSource);
   const { final, clamped_by } = clampPrice(preClamp, bounds.floor, bounds.ceiling);
 
@@ -365,8 +411,8 @@ export function assemblePriceFrom(
     base_source: baseSource,
     floor_price: roomType.floor_price,
     ceiling_price: roomType.ceiling_price,
-    ladder_effects: ladderEffects,
-    pickup_effects: pickupEffects,
+    ladder_effects: ladder,
+    pickup_effects: pickup,
     pre_clamp_price: preClamp,
     final_price: final,
     clamped_by,

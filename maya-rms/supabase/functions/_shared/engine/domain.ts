@@ -91,6 +91,8 @@ export type EvaluationAuditDetails = {
      * waiting: that stronger rule.
      * no_price_change: a cut already at the floor, or a raise already at the
      * ceiling, so it did not fire.
+     * comp_night: a raise on a night given away at 0 (a manual price of 0),
+     * which no rule may raise.
      * concurrent_fire: another run recorded the same fire first.
      * write_failed: the fire could not be written.
      * idempotency_skip: rows written before stacking only.
@@ -101,6 +103,7 @@ export type EvaluationAuditDetails = {
       | "held_by_waiting_rule"
       | "waiting"
       | "no_price_change"
+      | "comp_night"
       | "concurrent_fire"
       | "write_failed"
       | "idempotency_skip";

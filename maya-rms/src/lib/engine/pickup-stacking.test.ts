@@ -419,6 +419,39 @@ describe("a fire that can't move the price doesn't happen", () => {
     expect(w.fires(addDays(D0, 8)).length).toBeGreaterThan(1);
   }, 60_000);
 
+  it("a fixed raise never walks a comp night typed as 0 up, and says why in the audit", async () => {
+    // 0 is the owner giving the night away. A fixed amount moves it every
+    // time, so neither the ceiling nor "does this change the price?" stops
+    // it: 0, then 20, then 40, and the owner reads that a night they comped
+    // is being sold. No event rule raises a comp night.
+    const raise = rule(
+      "r-comp-fixed",
+      { pickup_operator: "lt", pickup_threshold: 1, pickup_window_days: 1, pickup_metric: "room_nights" },
+      { action_type: "fixed", action_direction: "increase", action_value: 20 },
+    );
+    const w = world({
+      rules: [raise],
+      reservations: [booking(NIGHT, addDays(D0, -30))],
+      manual: [{ hotel_id: "h1", stay_date: NIGHT, room_type_id: STD, price: 0, set_by: "u1", set_at: iso(T0 - 2 * DAY), cleared_at: null }],
+    });
+    for (let day = 0; day <= 4; day++) await w.run(T0 + day * DAY);
+
+    expect(w.fires(NIGHT)).toHaveLength(0);
+    expect(w.price(NIGHT)).toBe(0);
+    // Nothing about it reached the owner either, though the rule has stacked
+    // its way to an alert on the nights it really is adjusting.
+    expect((w.tables.rule_repeat_alert_nights ?? []).filter((n) => n.stay_date === NIGHT)).toHaveLength(0);
+    // The audit says it was the comp night, not a limit.
+    const candidates = w.audits(NIGHT).flatMap(
+      (a) => (a.details as { pickup_candidates: { rule_id: string; outcome: string; tie_break_trace: string[] }[] }).pickup_candidates,
+    );
+    expect(candidates).toContainEqual(
+      expect.objectContaining({ rule_id: "r-comp-fixed", outcome: "comp_night", tie_break_trace: ["manual_price_zero"] }),
+    );
+    // The rule is doing its job everywhere else.
+    expect(w.fires(addDays(D0, 8)).length).toBeGreaterThan(1);
+  }, 60_000);
+
   it("a night the run leaves unpriced gets no fire", async () => {
     // The hotel has the night at 0 in its own calendar: MAYA does not price it.
     const w = world({

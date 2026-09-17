@@ -69,6 +69,7 @@ function nightsWord(cells: number | undefined): string {
 export function describeSave(
   res: Pick<SaveResponse, "pushed" | "suppressedRules" | "retiredPickups" | "pausedRules" | "pushWindow"> & {
     cells?: number;
+    preview?: SaveResponse["preview"];
   },
   pmsName: string,
 ): string {
@@ -78,8 +79,12 @@ export function describeSave(
   // response from before the count was sent.
   const paused = res.pausedRules ?? (res.suppressedRules ?? 0) + (res.retiredPickups ?? 0);
   const base = pushedCopy(res.pushed, pmsName, res.pushWindow);
-  if (paused <= 0) return base;
-  return `${base} Paused ${paused} rule${paused === 1 ? "" : "s"} on ${nightsWord(res.cells)} for this room; new rules will apply on top.`;
+  // 0 is a comp night: the engine lets no rule raise it, so "new rules will
+  // apply on top" would not be true of the one direction that matters.
+  const comp = res.preview?.[0]?.base === 0;
+  if (paused <= 0) return comp ? `${base} No rule raises a night set to 0.` : base;
+  const after = comp ? "no rule raises a night set to 0." : "new rules will apply on top.";
+  return `${base} Paused ${paused} rule${paused === 1 ? "" : "s"} on ${nightsWord(res.cells)} for this room; ${after}`;
 }
 
 /** An open manual price as the day card and the editor see it. */
@@ -365,6 +370,7 @@ function ManualPriceHelp({ pmsName }: { pmsName: string }) {
               Rules that had already moved this night are paused for this room type. Rules that
               fire later still apply on top of your price.
             </span>
+            <span className="block">A night set to 0 is a comp night, and no rule raises it.</span>
             <span className="block">
               A rate changed in {pmsName} is kept the same way, once MAYA&apos;s own price has been there
               for an hour.
