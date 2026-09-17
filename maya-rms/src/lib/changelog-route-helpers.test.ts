@@ -637,9 +637,9 @@ describe("buildRetirements", () => {
 
 describe("buildAlertChoices", () => {
   const rows = [
-    { rule_id: "rule-2", stay_date: "2026-11-16", choice: "stop" as const, chosen_at: "2026-09-17T12:00:00Z", chosen_by: "u1" },
-    { rule_id: "rule-2", stay_date: "2026-11-14", choice: "stop" as const, chosen_at: "2026-09-17T12:00:00Z", chosen_by: "u1" },
-    { rule_id: "rule-1", stay_date: "2026-11-14", choice: "keep_adjusting" as const, chosen_at: "2026-09-16T09:00:00Z", chosen_by: null },
+    { rule_id: "rule-2", stay_date: "2026-11-16", choice: "stop" as const, at: "2026-09-17T12:00:00Z", by: "u1" },
+    { rule_id: "rule-2", stay_date: "2026-11-14", choice: "stop" as const, at: "2026-09-17T12:00:00Z", by: "u1" },
+    { rule_id: "rule-1", stay_date: "2026-11-14", choice: "keep_adjusting" as const, at: "2026-09-16T09:00:00Z", by: null },
   ];
 
   it("makes one item per answer, however many nights it settled, newest first", () => {
@@ -662,6 +662,27 @@ describe("buildAlertChoices", () => {
     cutter.set("rule-2", { ...cutter.get("rule-2")!, name: "Slow-date rescue", action_direction: "decrease" });
     const items = buildAlertChoices([rows[0]], { rules: cutter });
     expect(items[0].title).toBe('A manager stopped "Slow-date rescue" on Mon, Nov 16 2026. What it already cut stays.');
+  });
+
+  it("says a manager let the rule run again, and what that leaves the rule free to do", () => {
+    // Taking the answer back is its own line: without it, resuming some of
+    // the nights an answer covered would quietly rewrite the entry that
+    // answer left, down to the nights nobody took it off.
+    const resumed = [
+      { rule_id: "rule-2", stay_date: "2026-11-16", choice: "resume" as const, at: "2026-09-18T08:00:00Z", by: "u1" },
+      { rule_id: "rule-2", stay_date: "2026-11-14", choice: "resume" as const, at: "2026-09-18T08:00:00Z", by: "u1" },
+    ];
+    const items = buildAlertChoices([...rows, ...resumed], {
+      rules: lookups().rules,
+      setterNames: new Map([["u1", "Jake"]]),
+    });
+    // Newest first: the resume sits above the answer it took back.
+    expect(items[0]).toMatchObject({ choice: "resume", nights: 2, timestamp: "2026-09-18T08:00:00Z" });
+    expect(items[0].title).toBe(
+      'Jake let "Demand-spike catcher" run again on 2 nights. It can start adjusting again from the next pricing run.',
+    );
+    expect(items[1].choice).toBe("stop");
+    expect(items.every(isRuleAlertChoice)).toBe(true);
   });
 
   it("says nothing it cannot back up when the rule is gone", () => {

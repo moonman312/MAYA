@@ -600,9 +600,14 @@ describe.skipIf(!PGLITE_DIR)("the pickup event stacking migration in PGlite", ()
     await db.exec(`set request.jwt.claim.role = 'authenticated'; set test.manager_hotel = '${H1}'; set test.user_id = '${USER}';`);
     await db.query(`select * from public.rule_repeat_alert_choose('${alert}', 'keep_adjusting')`);
     const back = await db.query(
-      `select fire_count, closed_reason from public.rule_repeat_alert_resume('${alert}')`,
+      `select fire_count, closed_reason, resumed_at is not null as resumed, resumed_by::text as resumed_by
+         from public.rule_repeat_alert_resume('${alert}')`,
     );
-    expect(back.rows).toEqual([{ fire_count: 5, closed_reason: "resumed" }]);
+    // Who took the answer back and when stay on the row: the change log says
+    // a manager let the rule run again from them.
+    expect(back.rows).toEqual([
+      { fire_count: 5, closed_reason: "resumed", resumed: true, resumed_by: USER },
+    ]);
   });
   it("lets a resumed night's count follow its fires down to nothing", async () => {
     // What the engine writes when a typed price takes a resumed night's fires

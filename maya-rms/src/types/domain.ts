@@ -429,15 +429,17 @@ export type ChangelogPushProblem = {
 /**
  * An owner's answer to a rule that kept adjusting the same nights, as one
  * change log item: which rule, which way they answered, and how many nights
- * it covered. One item per answer, however many nights it settled.
+ * it covered. One item per answer, however many nights it settled. "resume"
+ * is the answer taken back again, which the rules table's "Let it run again"
+ * does.
  */
 export type ChangelogRuleAlertChoice = {
   kind: "rule_alert_choice";
   id: string;
-  /** When they answered. */
+  /** When they answered, or took the answer back. */
   timestamp: string;
   rule_name: string;
-  choice: "keep_adjusting" | "stop";
+  choice: "keep_adjusting" | "stop" | "resume";
   nights: number;
   first_night: string;
   last_night: string;

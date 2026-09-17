@@ -319,10 +319,14 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
 }
 
 /**
- * The answers the owner gave to a rule that kept adjusting, within the runs
- * shown. Names come from the same lookup a manual price uses, so an answer
- * reads "Jake stopped ..." rather than "A manager". Never fails the change
- * log: these sit beside the runs, and a read that errors shows none.
+ * What the owner did about a rule that kept adjusting, within the runs shown:
+ * the answers they gave, and the answers they took back again with "Let it
+ * run again". Two reads of the same table, because a night keeps the two on
+ * different columns: an answer on choice and chosen_at, a resume on
+ * resumed_at, which is left there after the answer is cleared. Names come
+ * from the same lookup a manual price uses, so an answer reads "Jake stopped
+ * ..." rather than "A manager". Never fails the change log: these sit beside
+ * the runs, and a read that errors shows none.
  */
 async function loadAlertChoices(
   supabase: SupabaseClient,
@@ -331,27 +335,47 @@ async function loadAlertChoices(
   since: string | null,
 ) {
   try {
-    const query = supabase
+    const answered = supabase
       .from("rule_repeat_alert_nights")
       .select("rule_id, stay_date, choice, chosen_at, chosen_by")
       .eq("hotel_id", hotelId)
       .not("chosen_at", "is", null)
       .order("chosen_at", { ascending: false })
       .limit(MAX_ALERT_CHOICES * 20);
-    const { data, error } = await (since ? query.gte("chosen_at", since) : query);
-    if (error) {
+    const resumed = supabase
+      .from("rule_repeat_alert_nights")
+      .select("rule_id, stay_date, resumed_at, resumed_by")
+      .eq("hotel_id", hotelId)
+      .not("resumed_at", "is", null)
+      .order("resumed_at", { ascending: false })
+      .limit(MAX_ALERT_CHOICES * 20);
+    const [answers, resumes] = await Promise.all([
+      since ? answered.gte("chosen_at", since) : answered,
+      since ? resumed.gte("resumed_at", since) : resumed,
+    ]);
+    for (const { error } of [answers, resumes]) {
+      if (!error) continue;
       if (isMissingRelationError(error)) return [];
       throw error;
     }
-    const rows: AlertChoiceRow[] = (data ?? [])
-      .filter((r) => r.choice === "stop" || r.choice === "keep_adjusting")
-      .map((r) => ({
+    const rows: AlertChoiceRow[] = [
+      ...(answers.data ?? [])
+        .filter((r) => r.choice === "stop" || r.choice === "keep_adjusting")
+        .map((r) => ({
+          rule_id: String(r.rule_id),
+          stay_date: String(r.stay_date).slice(0, 10),
+          choice: r.choice as AlertChoiceRow["choice"],
+          at: String(r.chosen_at),
+          by: r.chosen_by != null ? String(r.chosen_by) : null,
+        })),
+      ...(resumes.data ?? []).map((r) => ({
         rule_id: String(r.rule_id),
         stay_date: String(r.stay_date).slice(0, 10),
-        choice: r.choice as AlertChoiceRow["choice"],
-        chosen_at: String(r.chosen_at),
-        chosen_by: r.chosen_by != null ? String(r.chosen_by) : null,
-      }));
+        choice: "resume" as const,
+        at: String(r.resumed_at),
+        by: r.resumed_by != null ? String(r.resumed_by) : null,
+      })),
+    ];
     const names = await chooserNamesFor(supabase, rows);
     return buildAlertChoices(rows, { rules: lookups.rules, setterNames: names }).slice(
       0,
@@ -371,7 +395,7 @@ async function chooserNamesFor(
   supabase: SupabaseClient,
   rows: AlertChoiceRow[],
 ): Promise<Map<string, string>> {
-  const ids = new Set(rows.map((r) => r.chosen_by).filter((id): id is string => !!id));
+  const ids = new Set(rows.map((r) => r.by).filter((id): id is string => !!id));
   const names = new Map<string, string>();
   if (ids.size === 0) return names;
   const reader = isAdminConfigured() ? createAdminClient() : supabase;

@@ -593,6 +593,13 @@ grant execute on function public.set_manual_prices_from_pms(uuid, public.pms_typ
 --                     Both apply to this rule version only, and
 --                     rule_repeat_alert_resume() takes either one back.
 --   chosen_at, chosen_by
+--   resumed_at, resumed_by
+--                     when rule_repeat_alert_resume() last took an answer off
+--                     this night, and who did it. Left there afterwards: the
+--                     change log reads them to say a manager let the rule run
+--                     again, the way it reads chosen_at for the answer. Only
+--                     the latest resume of a night is kept, so a night stopped
+--                     and let run twice reads as the second one.
 --   closed_at, closed_reason
 --                     set when an unanswered night stops needing an answer:
 --                     night_passed, rule_edited, price_set (a manual price
@@ -665,6 +672,8 @@ create table if not exists public.rule_repeat_alert_nights (
   choice             text check (choice in ('keep_adjusting', 'stop')),
   chosen_at          timestamptz,
   chosen_by          uuid references auth.users(id) on delete set null,
+  resumed_at         timestamptz,
+  resumed_by         uuid references auth.users(id) on delete set null,
   closed_at          timestamptz,
   closed_reason      text,
   updated_at         timestamptz not null default now(),
@@ -673,6 +682,12 @@ create table if not exists public.rule_repeat_alert_nights (
   constraint rule_repeat_alert_nights_closed_chk check ((closed_at is null) = (closed_reason is null)),
   constraint rule_repeat_alert_nights_one_end_chk check (choice is null or closed_at is null)
 );
+
+-- A table an earlier copy of this file made has no record of a resume, which
+-- is what the change log says "let it run again" from.
+alter table public.rule_repeat_alert_nights
+  add column if not exists resumed_at timestamptz,
+  add column if not exists resumed_by uuid references auth.users(id) on delete set null;
 
 -- Swapped rather than left as the create found it: a table an earlier copy of
 -- this file made carries the reasons that copy knew about ('resumed' is new).
@@ -814,6 +829,10 @@ grant execute on function public.rule_repeat_alert_choose(uuid, text, date[]) to
 -- keep_adjusting outgrew while nobody was updating its row, and the engine
 -- brings it down again when a typed price takes those fires off.
 --
+-- Which night it was, when, and who did it stay on the row (resumed_at,
+-- resumed_by) for the change log to read; only the latest resume of a night
+-- is kept.
+--
 -- p_stay_dates null resumes every answered night of the alert. Nights nobody
 -- answered, and nights already closed, never change. A resolved alert stays
 -- resolved, since nothing is waiting; its resolution becomes 'closed',
@@ -855,6 +874,8 @@ begin
          -- type, open or taken off for cancellations). Never down -- a typed
          -- price takes fires off after the resume too, and that is the
          -- engine's to notice.
+         resumed_at = v_now,
+         resumed_by = auth.uid(),
          fire_count = greatest(n.fire_count, (
            select coalesce(max(k.fires), 0)
              from (

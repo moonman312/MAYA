@@ -474,13 +474,19 @@ export function isRuleAlertChoice(item: ChangelogItem): item is ChangelogRuleAle
   return "kind" in item && item.kind === "rule_alert_choice";
 }
 
-/** One answered night, as the change log reads it. */
+/**
+ * One night the owner settled, as the change log reads it. `resume` is the
+ * answer taken back again (rule_repeat_alert_resume), which the night keeps
+ * in resumed_at and resumed_by rather than in choice.
+ */
 export type AlertChoiceRow = {
   rule_id: string;
   stay_date: string;
-  choice: "keep_adjusting" | "stop";
-  chosen_at: string;
-  chosen_by: string | null;
+  choice: "keep_adjusting" | "stop" | "resume";
+  /** When they did it: chosen_at for an answer, resumed_at for taking one back. */
+  at: string;
+  /** Who did it, where the row names them. */
+  by: string | null;
 };
 
 /** Answers shown at most, newest first. */
@@ -493,11 +499,14 @@ function nightsWord(n: number): string {
 /**
  * One answer covers every night it settled: rule_repeat_alert_choose stamps
  * them all with one instant, so (rule, choice, instant) is the action the
- * owner took. "Stop" says what happens to the changes already made, because
- * that is the question the word leaves open, and it says it by direction: a
- * cut is never undone on MAYA's own account, while a raise still comes off if
- * enough of the bookings behind it cancel (pickup.ts firesToRetire runs on
- * every open raise, stop or no stop).
+ * owner took, and rule_repeat_alert_resume stamps a resume the same way.
+ * "Stop" says what happens to the changes already made, because that is the
+ * question the word leaves open, and it says it by direction: a cut is never
+ * undone on MAYA's own account, while a raise still comes off if enough of
+ * the bookings behind it cancel (pickup.ts firesToRetire runs on every open
+ * raise, stop or no stop). A resume says when the rule is free again, and
+ * says "can", because whether it adjusts anything is still up to its
+ * conditions.
  */
 export function buildAlertChoices(
   rows: AlertChoiceRow[],
@@ -505,7 +514,7 @@ export function buildAlertChoices(
 ): ChangelogRuleAlertChoice[] {
   const groups = new Map<string, AlertChoiceRow[]>();
   for (const row of rows) {
-    const key = `${row.rule_id}|${row.choice}|${row.chosen_at}`;
+    const key = `${row.rule_id}|${row.choice}|${row.at}`;
     const list = groups.get(key) ?? [];
     list.push(row);
     groups.set(key, list);
@@ -515,23 +524,25 @@ export function buildAlertChoices(
     const first = list[0];
     const dates = list.map((r) => r.stay_date).sort();
     const ruleName = lookups.rules.get(first.rule_id)?.name ?? "A rule";
-    const who = (first.chosen_by ? lookups.setterNames?.get(first.chosen_by) : null) ?? "A manager";
+    const who = (first.by ? lookups.setterNames?.get(first.by) : null) ?? "A manager";
     const where = list.length === 1 ? humanDate(dates[0]) : nightsWord(list.length);
     out.push({
       kind: "rule_alert_choice",
       id: key,
-      timestamp: first.chosen_at,
+      timestamp: first.at,
       rule_name: ruleName,
       choice: first.choice,
       nights: list.length,
       first_night: dates[0],
       last_night: dates[dates.length - 1],
       title:
-        first.choice === "stop"
-          ? lookups.rules.get(first.rule_id)?.action_direction === "increase"
-            ? `${who} stopped "${ruleName}" on ${where}. The raises it already made stay, unless enough of the bookings behind them cancel.`
-            : `${who} stopped "${ruleName}" on ${where}. What it already cut stays.`
-          : `${who} told "${ruleName}" to carry on with ${where}.`,
+        first.choice === "resume"
+          ? `${who} let "${ruleName}" run again on ${where}. It can start adjusting again from the next pricing run.`
+          : first.choice === "stop"
+            ? lookups.rules.get(first.rule_id)?.action_direction === "increase"
+              ? `${who} stopped "${ruleName}" on ${where}. The raises it already made stay, unless enough of the bookings behind them cancel.`
+              : `${who} stopped "${ruleName}" on ${where}. What it already cut stays.`
+            : `${who} told "${ruleName}" to carry on with ${where}.`,
     });
   }
   return out.sort((a, b) => (a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0));

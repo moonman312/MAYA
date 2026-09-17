@@ -220,30 +220,12 @@ describe("changelog route: failures are errors, never demo data", () => {
     expect(fallback[0].changes[0].description).toBe("A manager set the base rate to $180.00.");
   });
 
-  it("puts the owner's answer to a repeating rule in the timeline, with their name", async () => {
+  /** A hotel with one run in the log and whatever the owner did about a rule. */
+  function seedWithAlertNights(nights: Record<string, unknown>[]) {
     state.hotelId = HOTEL;
     state.configured = true;
     state.admin = fakeSupabase({ profiles: [{ id: "user-2", full_name: "Jake" }] }).client;
-    // Two nights answered in one go, after the run the log shows.
-    const nights = [
-      {
-        hotel_id: HOTEL,
-        rule_id: "rule-1",
-        stay_date: "2026-11-14",
-        choice: "stop",
-        chosen_at: "2026-07-29T09:00:00Z",
-        chosen_by: "user-2",
-      },
-      {
-        hotel_id: HOTEL,
-        rule_id: "rule-1",
-        stay_date: "2026-11-16",
-        choice: "stop",
-        chosen_at: "2026-07-29T09:00:00Z",
-        chosen_by: "user-2",
-      },
-    ];
-    const merged = fakeSupabase({
+    return fakeSupabase({
       evaluation_audit: [
         {
           id: "audit-1",
@@ -287,7 +269,19 @@ describe("changelog route: failures are errors, never demo data", () => {
       ],
       rule_repeat_alert_nights: nights,
     });
-    state.client = merged.client;
+  }
+
+  it("puts the owner's answer to a repeating rule in the timeline, with their name", async () => {
+    // Two nights answered in one go, after the run the log shows.
+    const answered = (stay_date: string) => ({
+      hotel_id: HOTEL,
+      rule_id: "rule-1",
+      stay_date,
+      choice: "stop",
+      chosen_at: "2026-07-29T09:00:00Z",
+      chosen_by: "user-2",
+    });
+    state.client = seedWithAlertNights([answered("2026-11-14"), answered("2026-11-16")]).client;
 
     const body = await (await GET()).json();
     const answer = body.find((i: { kind?: string }) => i.kind === "rule_alert_choice");
@@ -301,6 +295,36 @@ describe("changelog route: failures are errors, never demo data", () => {
     // It sits above the run it happened after, and never replaces it.
     expect(body[0].kind).toBe("rule_alert_choice");
     expect(body.some((i: { has_changes?: boolean }) => i.has_changes === true)).toBe(true);
+  });
+
+  it("says so when a manager lets a stopped rule run again", async () => {
+    // The answer is cleared outright, so nothing is left on choice to read:
+    // without this the log would just lose the line about the stop, and the
+    // owner would have no record of letting the rule go.
+    const resumed = (stay_date: string) => ({
+      hotel_id: HOTEL,
+      rule_id: "rule-1",
+      stay_date,
+      choice: null,
+      chosen_at: null,
+      chosen_by: null,
+      closed_reason: "resumed",
+      resumed_at: "2026-07-29T10:00:00Z",
+      resumed_by: "user-2",
+    });
+    state.client = seedWithAlertNights([resumed("2026-11-14"), resumed("2026-11-16")]).client;
+
+    const body = await (await GET()).json();
+    const item = body.find((i: { kind?: string }) => i.kind === "rule_alert_choice");
+    expect(item).toMatchObject({
+      rule_name: "Slow-date rescue",
+      choice: "resume",
+      nights: 2,
+      timestamp: "2026-07-29T10:00:00Z",
+    });
+    expect(item.title).toBe(
+      'Jake let "Slow-date rescue" run again on 2 nights. It can start adjusting again from the next pricing run.',
+    );
   });
 
   it("shows the runs even when the answers cannot be read", async () => {
