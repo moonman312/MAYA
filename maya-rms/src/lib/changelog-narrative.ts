@@ -303,9 +303,20 @@ export function narrateChange(input: NarrativeInput): string[] {
     sentences.push(...describeConditions(app.condition, app.metrics, app.measured_room_types));
   });
 
-  if (input.clamped_by === "ceiling" && input.ceiling_price != null) {
+  // A manual price over the ceiling or under the floor is the limit itself
+  // for the rules on top of it (priceBounds): they stop at it, not at the
+  // room type's own limit, which the price is already past.
+  if (input.clamped_by === "ceiling" && input.ceiling_price != null && input.final_price > input.ceiling_price) {
+    sentences.push(
+      `That would have gone further past your ${money(input.ceiling_price, sym)} ceiling for ${input.room_type} than the price it started from, so it ${stoppedAt(input.base_price, input.final_price, sym)}.`,
+    );
+  } else if (input.clamped_by === "ceiling" && input.ceiling_price != null) {
     sentences.push(
       `That would have gone past your ${money(input.ceiling_price, sym)} ceiling for ${input.room_type}, so it ${stoppedAt(input.ceiling_price, input.final_price, sym)}.`,
+    );
+  } else if (input.clamped_by === "floor" && input.floor_price != null && input.final_price < input.floor_price) {
+    sentences.push(
+      `That would have gone further under your ${money(input.floor_price, sym)} floor for ${input.room_type} than the price it started from, so it ${stoppedAt(input.base_price, input.final_price, sym)}.`,
     );
   } else if (input.clamped_by === "floor" && input.floor_price != null) {
     sentences.push(

@@ -254,6 +254,27 @@ describe("manual price rows", () => {
     expect(isChangeRow(row({ base_price: 180, final_price: 180, details: fromPms("cloudbeds") }))).toBe(true);
   });
 
+  it("says a rule on a manual price under the floor stopped at that price, not at the floor", () => {
+    const entry = buildEntry(
+      row({
+        base_price: 50,
+        final_price: 50,
+        pre_clamp_price: 45,
+        floor_price: 100,
+        details: withOverride({
+          matched_ladder_rules: row().details.matched_ladder_rules,
+          active_ladder_effects: row().details.active_ladder_effects,
+          application_order: ["ladder:rule-1"],
+          clamped_by: "floor",
+        }),
+      }),
+      lookups(),
+    );
+    expect(entry.narrative?.at(-1)).toBe(
+      "That would have gone further under your $100.00 floor for Deluxe King than the price it started from, so it stopped there.",
+    );
+  });
+
   it("surfaces a manual-only run as a cycle with changes", () => {
     const cycles = buildCyclesFromAudit(
       [row({ base_price: 250, final_price: 250, details: withOverride() })],
