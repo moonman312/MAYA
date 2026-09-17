@@ -16,6 +16,7 @@ import {
   type WalkedAwayRow,
   type WalkedAwaySummaryRow,
 } from "@/lib/admin/product-analytics";
+import type { PushProblemAnalytics } from "@/lib/admin/push-problems";
 import { formatUsd } from "@/lib/billing/tiers";
 import type { ReactNode } from "react";
 
@@ -454,6 +455,89 @@ export function GroupsPanel({ rows }: { rows: GroupRow[] }) {
           r.expired_unclaimed,
         ])}
       />
+    </Panel>
+  );
+}
+
+function RootCause({ known, guardrail, mayaBug }: { known: boolean; guardrail?: boolean; mayaBug?: boolean }) {
+  return (
+    <span className="whitespace-nowrap">
+      <span className={known ? "text-emerald-300" : "text-amber-300"}>{known ? "Known" : "Unknown"}</span>
+      {guardrail ? <span className="text-slate-500"> · guardrail</span> : null}
+      {mayaBug ? <span className="text-rose-300"> · MAYA bug</span> : null}
+    </span>
+  );
+}
+
+const causeLabel = (cause: string) => cause.replaceAll("_", " ");
+
+/**
+ * Why rates did not reach a PMS, per cause, for incidents opened in the
+ * range. "By retry" closed with every cell landing before an owner was shown
+ * anything; "Shown" reached the owner's change log. Unknown causes list what
+ * the PMS actually said, which is what teaches push-failure.ts a new cause.
+ */
+export function PushProblemsPanel({ data }: { data: PushProblemAnalytics }) {
+  if (!data.available) {
+    return (
+      <Panel title="Rate push problems">
+        <p className="text-xs text-slate-400">{data.reason}</p>
+      </Panel>
+    );
+  }
+  const samples = data.causes.filter((c) => c.sampleMessages.length > 0);
+  return (
+    <Panel title="Rate push problems" hint="incidents opened in range; open list is right now">
+      <Table
+        empty="No rate push problems in this range."
+        textColumns={2}
+        head={["Cause", "Root cause", "Incidents", "Tries", "Hotels", "By retry", "Shown", "Open", "Median to land"]}
+        rows={data.causes.map((c) => [
+          <span key="cause" title={c.description}>
+            {causeLabel(c.cause)}
+          </span>,
+          <RootCause key="known" known={c.known} guardrail={c.guardrail} mayaBug={c.mayaBug} />,
+          c.incidents,
+          c.attempts,
+          c.hotels,
+          c.resolvedByRetry,
+          c.escalated,
+          c.open,
+          formatDuration(c.medianHoursToLand),
+        ])}
+      />
+      {samples.length > 0 && (
+        <div className="mt-4 space-y-2">
+          <h4 className="text-xs font-medium text-amber-300">What the PMS said when the cause was unknown</h4>
+          {samples.map((c) => (
+            <ul key={c.cause} className="space-y-1">
+              {c.sampleMessages.map((m) => (
+                <li key={m} className="break-words font-mono text-[11px] text-slate-400">
+                  {m}
+                </li>
+              ))}
+            </ul>
+          ))}
+        </div>
+      )}
+      <div className="mt-4">
+        <h4 className="mb-1.5 text-xs font-medium text-slate-300">Open now ({data.open.length})</h4>
+        <Table
+          empty="Nothing open."
+          textColumns={3}
+          head={["Hotel", "Cause", "Root cause", "Since", "Tries", "Owner sees it"]}
+          rows={data.open.map((o) => [
+            <Link key="hotel" href={`/admin/hotels/${o.hotelId}`} className="text-slate-200 hover:text-sky-300">
+              {o.hotelName}
+            </Link>,
+            `${o.pms} · ${causeLabel(o.cause)}`,
+            <RootCause key="known" known={o.known} />,
+            day(o.openedAt),
+            o.attempts,
+            o.shownToOwner ? "yes" : "no",
+          ])}
+        />
+      </div>
     </Panel>
   );
 }

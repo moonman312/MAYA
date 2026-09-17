@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { WalkedAwayRow, WalkedAwaySummaryRow } from "@/lib/admin/product-analytics";
-import { WalkedAwayCard } from "./product-analytics-panels";
+import { PushProblemsPanel, WalkedAwayCard } from "./product-analytics-panels";
 
 const summary: WalkedAwaySummaryRow[] = [
   { sort: 0, stage: "connected", properties: 4, deferred: 1, in_groups: 0 },
@@ -74,5 +74,75 @@ describe("WalkedAwayCard", () => {
     );
     expect(html).toContain("Seaview Inn");
     expect(html).not.toContain("/admin/hotels/10000000-0000-0000-0000-000000000001");
+  });
+});
+
+describe("PushProblemsPanel", () => {
+  it("flags each cause known or unknown, shows unknown wording, and lists open hotels", () => {
+    const html = renderToStaticMarkup(
+      <PushProblemsPanel
+        data={{
+          available: true,
+          causes: [
+            {
+              cause: "unknown",
+              known: false,
+              guardrail: false,
+              mayaBug: false,
+              description: "Vendor wording the classifier does not recognise.",
+              incidents: 2,
+              attempts: 30,
+              hotels: 1,
+              resolvedByRetry: 1,
+              escalated: 1,
+              open: 1,
+              medianHoursToLand: 0.5,
+              sampleMessages: ["Cloudbeds patchRate failed (400): Odd thing"],
+            },
+            {
+              cause: "guardrail_stale_price",
+              known: true,
+              guardrail: true,
+              mayaBug: true,
+              description: "Guardrail.",
+              incidents: 1,
+              attempts: 60,
+              hotels: 1,
+              resolvedByRetry: 0,
+              escalated: 0,
+              open: 0,
+              medianHoursToLand: null,
+              sampleMessages: [],
+            },
+          ],
+          open: [
+            {
+              incidentId: "inc-1",
+              hotelId: "10000000-0000-0000-0000-000000000001",
+              hotelName: "Seaview Inn",
+              pms: "Cloudbeds",
+              cause: "unknown",
+              known: false,
+              openedAt: "2026-09-14T09:00:00Z",
+              attempts: 30,
+              shownToOwner: true,
+            },
+          ],
+        }}
+      />,
+    );
+    expect(html).toContain("Rate push problems");
+    expect(html).toContain("Unknown");
+    expect(html).toContain("MAYA bug");
+    expect(html).toContain("guardrail stale price");
+    expect(html).toContain("Cloudbeds patchRate failed (400): Odd thing");
+    expect(html).toContain("Open now (1)");
+    expect(html).toContain('href="/admin/hotels/10000000-0000-0000-0000-000000000001"');
+    expect(html).toContain("30m");
+  });
+
+  it("says what is missing when the tables are not there yet", () => {
+    const html = renderToStaticMarkup(<PushProblemsPanel data={{ available: false, reason: "Run the migration." }} />);
+    expect(html).toContain("Run the migration.");
   });
 });

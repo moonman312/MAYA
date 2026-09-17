@@ -11,6 +11,7 @@ import {
   GroupsPanel,
   HealthPanel,
   ProductFunnels,
+  PushProblemsPanel,
   RetentionPanel,
   TimeToValuePanel,
   TrialsPanel,
@@ -24,6 +25,7 @@ import {
   type SubscriptionEvent,
 } from "@/lib/admin/analytics";
 import { loadProductAnalytics, type ProductAnalytics } from "@/lib/admin/product-analytics";
+import { loadPushProblemAnalytics, type PushProblemAnalytics } from "@/lib/admin/push-problems";
 import { requirePlatformAdmin } from "@/lib/admin/require-platform-admin";
 import { formatUsd } from "@/lib/billing/tiers";
 
@@ -79,10 +81,18 @@ export default async function AnalyticsPage({
       return { available: false, reason: "Could not load the product numbers. The server log has the error." };
     },
   );
-  const [now, range, product] = await Promise.all([
+  // Same deal for rate push problems: reported in place, never fatal.
+  const pushPromise: Promise<PushProblemAnalytics> = loadPushProblemAnalytics(ctx.admin, from, to, scope.includeTest).catch(
+    (e: unknown) => {
+      console.error(JSON.stringify({ fn: "analyticsPushProblems", error: e instanceof Error ? e.message : String(e) }));
+      return { available: false, reason: "Could not load rate push problems. The server log has the error." };
+    },
+  );
+  const [now, range, product, pushProblems] = await Promise.all([
     loadAnalyticsNow(ctx.admin, scope),
     loadAnalyticsRange(ctx.admin, from, to, scope),
     productPromise,
+    pushPromise,
   ]);
 
   const attentionCount =
@@ -170,6 +180,8 @@ export default async function AnalyticsPage({
           </div>
         </section>
       </div>
+
+      <PushProblemsPanel data={pushProblems} />
 
       <section className="rounded-lg border border-slate-800 bg-slate-900">
         <h2 className="border-b border-slate-800 px-4 py-3 text-sm font-semibold text-slate-200">
