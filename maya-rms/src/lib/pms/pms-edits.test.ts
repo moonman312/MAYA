@@ -125,8 +125,8 @@ describe("planPmsEdits", () => {
     // Over a manual price from before the send, too; not over one typed since, which still goes out.
     expect(plan([read({ pmsRate: 0 })], { [key]: { price: 180, source: "pms", setAtMs: NOW - 5 * 3_600_000 } }).closed).toHaveLength(1);
     expect(plan([read({ pmsRate: 0 })], { [key]: { price: 180, source: "maya", setAtMs: NOW - 30 * 60_000 } })).toMatchObject({ closed: [], typedSinceSend: 1 });
-    // Not before the send there has settled.
-    expect(plan([read({ pmsRate: 0, ledger: { confirmed_at: null } })])).toMatchObject({ closed: [], waiting: 1 });
+    // Not while the send there is inside the settle window.
+    expect(plan([read({ pmsRate: 0, ledger: { confirmed_at: null, pushed_at: hoursAgo(0.5) } })])).toMatchObject({ closed: [], waiting: 1 });
     // A comp night typed at 0, a fixed rule sent on top, and the hotel set the 0 back: that manual price, taken again.
     const comp = plan([read({ pmsRate: 0, ledger: { price: 20 } })], { [key]: { price: 0, source: "maya", setAtMs: NOW - 5 * 3_600_000 } });
     expect(comp).toMatchObject({ closed: [], edits: [expect.objectContaining({ price: 0 })] });
@@ -135,6 +135,29 @@ describe("planPmsEdits", () => {
       read({ stayDate: `2026-10-${String(i + 1).padStart(2, "0")}`, pmsRate: i < 2 ? 0 : (200 + i * 10) * 1.1, ledger: { price: 200 + i * 10 } }),
     );
     expect(plan(reads)).toMatchObject({ edits: [], systematic: 10, closed: [expect.anything(), expect.anything()] });
+  });
+
+  it("takes a 0 over a send not known to have landed as closed too, since MAYA never sends 0, but leaves a manual price there alone", () => {
+    const key = "2026-10-05|rt-king";
+    const unsettled = { pms_job_reference: "accepted:202", confirmed_at: null };
+    // A Think send never read back, and one from before sends were stamped.
+    const p = plan([read({ pmsRate: 0, ledger: unsettled }), read({ stayDate: "2026-10-06", pmsRate: 0, ledger: { confirmed_at: null, pushed_at: hoursAgo(72) } })]);
+    expect(p).toMatchObject({ edits: [], heldAtZero: [], waiting: 0 });
+    expect(p.closed.map((r) => r.stayDate)).toEqual(["2026-10-05", "2026-10-06"]);
+
+    // An open manual price: it may never have reached the PMS, so the night is held, not closed.
+    const typedBefore = { [key]: { price: 180, source: "maya" as const, setAtMs: NOW - 5 * 3_600_000 } };
+    expect(plan([read({ pmsRate: 0, ledger: unsettled })], typedBefore)).toMatchObject({ closed: [], heldAtZero: [expect.objectContaining({ stayDate: "2026-10-05" })] });
+    // Typed since the send: still on its way, as with any change.
+    const typedSince = { [key]: { price: 180, source: "maya" as const, setAtMs: NOW - 30 * 60_000 } };
+    expect(plan([read({ pmsRate: 0, ledger: unsettled })], typedSince)).toMatchObject({ closed: [], heldAtZero: [], typedSinceSend: 1 });
+    // A comp night's 0 over a send that may not have landed is not taken as an edit either.
+    const comp = { [key]: { price: 0, source: "maya" as const, setAtMs: NOW - 5 * 3_600_000 } };
+    expect(plan([read({ pmsRate: 0, ledger: { ...unsettled, price: 20 } })], comp)).toMatchObject({ edits: [], closed: [], heldAtZero: [], waiting: 1 });
+    // Inside the settle window, or a PMS MAYA can send 0 to: waiting, as before.
+    expect(plan([read({ pmsRate: 0, ledger: { ...unsettled, pushed_at: hoursAgo(0.5) } })])).toMatchObject({ closed: [], waiting: 1 });
+    const zeroSender = planPmsEdits({ reads: [read({ pmsRate: 0, ledger: unsettled })], targets: TARGETS, manual: new Map(), nowMs: NOW, settleMs: 60 * 60_000, sendsZero: true });
+    expect(zeroSender).toMatchObject({ closed: [], waiting: 1 });
   });
 
   it("never takes as an edit anything MAYA's own sending can explain", () => {
@@ -328,7 +351,7 @@ describe("adoptPmsEdits", () => {
       AT,
     );
 
-    expect(res).toEqual({ adopted: 1, inStep: 0, landed: 0, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 1, retiredPickups: 1, movedCells: ["2026-10-05|rt-king"], holdCells: [] });
+    expect(res).toEqual({ adopted: 1, inStep: 0, landed: 0, closed: 0, heldAtZero: 0, clearedManual: 0, rebased: 0, suppressedRules: 1, retiredPickups: 1, movedCells: ["2026-10-05|rt-king"], holdCells: [] });
     expect(d.tables.manual_price).toEqual([
       expect.objectContaining({ hotel_id: "h1", stay_date: "2026-10-05", room_type_id: "rt-king", price: 250, source: "pms", pms_type: "cloudbeds", set_by: null, note: null, set_at: AT, cleared_at: null }),
     ]);
@@ -343,7 +366,7 @@ describe("adoptPmsEdits", () => {
     // One line, counts only.
     const lines = log.mock.calls.map((c) => JSON.parse(String(c[0]))).filter((l) => l.fn === "adoptPmsEdits");
     expect(lines).toEqual([
-      { fn: "adoptPmsEdits", hotelId: "h1", pmsType: "cloudbeds", found: 1, adopted: 1, inStep: 0, landed: 0, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 1, retiredPickups: 1, waiting: 1, typedSinceSend: 0, systematic: 0 },
+      { fn: "adoptPmsEdits", hotelId: "h1", pmsType: "cloudbeds", found: 1, adopted: 1, inStep: 0, landed: 0, closed: 0, heldAtZero: 0, clearedManual: 0, rebased: 0, suppressedRules: 1, retiredPickups: 1, waiting: 1, typedSinceSend: 0, systematic: 0 },
     ]);
   });
 
@@ -360,7 +383,7 @@ describe("adoptPmsEdits", () => {
       WINDOW,
       AT,
     );
-    expect(res).toEqual({ adopted: 0, inStep: 0, landed: 1, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 0, retiredPickups: 0, movedCells: [], holdCells: [] });
+    expect(res).toEqual({ adopted: 0, inStep: 0, landed: 1, closed: 0, heldAtZero: 0, clearedManual: 0, rebased: 0, suppressedRules: 0, retiredPickups: 0, movedCells: [], holdCells: [] });
     expect(d.tables.manual_price).toEqual([]);
     expect(d.tables.rate_updates).toEqual([
       expect.objectContaining({
@@ -395,6 +418,36 @@ describe("adoptPmsEdits", () => {
     expect(d.tables.rate_updates).toEqual([
       expect.objectContaining({ stay_date: "2026-10-05", status: "sent", price: 0, sent_price: 0, pms_edited_at: AT, confirmed_at: AT, pms_job_reference: "job-1" }),
     ]);
+  });
+
+  it("holds a night at 0 over a send not known to have landed with a manual price open: nothing written, the price left, the push told to hold it", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const typedAt = hoursAgo(5);
+    const d = db({
+      base_rate_calendar: [{ hotel_id: "h1", stay_date: "2026-10-05", room_type_id: "rt-king", price: 200, source: "pms", captured_at: hoursAgo(900) }],
+      manual_price: [
+        { hotel_id: "h1", stay_date: "2026-10-05", room_type_id: "rt-king", price: 180, set_by: "u1", set_at: typedAt, cleared_at: null, cleared_by: null, source: "maya", pms_type: null },
+      ],
+    });
+    const unsettled = { price: 180, sent_price: 180, pms_job_reference: "accepted:202", confirmed_at: null };
+    const res = await adoptPmsEdits(
+      d.client,
+      "h1",
+      "think",
+      [read({ pmsRate: 0, ledger: unsettled }), read({ stayDate: "2026-10-06", pmsRate: 0, ledger: unsettled })],
+      TARGETS,
+      WINDOW,
+      AT,
+    );
+    expect(res).toMatchObject({ closed: 1, heldAtZero: 1, clearedManual: 0, holdCells: ["2026-10-05|rt-king"] });
+    expect(res.movedCells.sort()).toEqual(["2026-10-05|rt-king", "2026-10-06|rt-king"]);
+    expect(d.tables.manual_price).toEqual([expect.objectContaining({ stay_date: "2026-10-05", price: 180, cleared_at: null })]);
+    // The night with no manual price is closed; the other keeps its base and its ledger row.
+    expect(d.tables.base_rate_calendar.map((r) => [r.stay_date, r.price])).toEqual([
+      ["2026-10-05", 200],
+      ["2026-10-06", 0],
+    ]);
+    expect(d.tables.rate_updates).toEqual([expect.objectContaining({ stay_date: "2026-10-06", price: 0, confirmed_at: AT })]);
   });
 
   it("writes a rate changed while MAYA only simulated as the night's base, with no manual price, and the ledger read now", async () => {
@@ -805,6 +858,37 @@ describe("a rate changed in the PMS, through the tick", () => {
     await tick(T0 + 10 * 60_000);
     expect(published(d)).toBe(250);
     expect(sent).toEqual([]);
+  });
+
+  it("closes a night the hotel set to 0 before MAYA read its own price back there, so a rule firing later sends nothing", async () => {
+    // A Think send answered 202 and never read back; the hotel then closed the night.
+    const { d, sent, tick, setPmsRate } = setup([settledSend(220, { pms_job_reference: "accepted:202", confirmed_at: null })]);
+    setPmsRate(0);
+    d.tables.pricing_rules.push(busyRule("r2", new Date(T0 - 10 * 60_000).toISOString()));
+
+    await tick(T0);
+
+    expect(d.tables.base_rate_calendar.find((r) => r.stay_date === NIGHT)).toMatchObject({ price: 0 });
+    expect(d.tables.published_price.find((r) => r.stay_date === NIGHT)).toBeUndefined();
+    expect(sent).toEqual([]);
+  });
+
+  it("holds a night at 0 over a send not known to have landed while its manual price is open, and sends nothing over it", async () => {
+    const typedAt = new Date(T0 - 5 * 3_600_000).toISOString();
+    const { d, sent, tick, setPmsRate } = setup([settledSend(220, { pms_job_reference: "accepted:202", confirmed_at: null })]);
+    d.tables.manual_price.push({ hotel_id: HOTEL, stay_date: NIGHT, room_type_id: "rt-king", price: 200, set_by: "user-1", set_at: typedAt, cleared_at: null, source: "maya", pms_type: null });
+    setPmsRate(0);
+    // A rule created a little before this tick fires on the night: MAYA's price moves.
+    d.tables.pricing_rules.push(busyRule("r2", new Date(T0 - 10 * 60_000).toISOString()));
+
+    const first = await tick(T0);
+    expect(first.calendar).toMatchObject({ holdCells: [`${NIGHT}|rt-king`] });
+    expect(first.push).toMatchObject({ sent: 0, changedInPms: 1 });
+    // Five minutes on the refresh is not due: the read before re-sending finds it at 0 still.
+    const second = await tick(T0 + 5 * 60_000);
+    expect(second.push).toMatchObject({ sent: 0, changedInPms: 1 });
+    expect(sent).toEqual([]);
+    expect(d.tables.manual_price).toEqual([expect.objectContaining({ price: 200, cleared_at: null })]);
   });
 
   it("does not adopt a night whose manual price is already the PMS rate", async () => {

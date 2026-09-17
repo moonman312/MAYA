@@ -97,7 +97,9 @@ export type SeedCalendarResult =
       /**
        * Of movedCells, the nights the push must not send a new price to this
        * tick although the PMS was read (pms-edits.ts holdCells): the ones it
-       * could not record when taking the hotel's changes failed.
+       * has at 0 over a send not known to have landed with a manual price
+       * open, or the ones it could not record when taking the hotel's
+       * changes failed.
        */
       holdCells: string[];
       /** Taking the hotel's changes failed; the next refresh tries again. */
@@ -301,7 +303,9 @@ async function seedWithTargets(
   // A database without the settle columns can't tell a settled send, so nothing there is a hand edit.
   const pmsEdits =
     settleKnown && pushedReads.length > 0
-      ? await adoptPmsEdits(supabase, hotelId, adapter.pmsType, pushedReads, read.targets, { firstDate, lastDate }, opts.at ?? capturedAt)
+      ? await adoptPmsEdits(supabase, hotelId, adapter.pmsType, pushedReads, read.targets, { firstDate, lastDate }, opts.at ?? capturedAt, {
+        sendsZero: adapter.acceptsZeroRate === true,
+      })
       : null;
 
   return {
