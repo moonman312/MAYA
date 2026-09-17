@@ -13,6 +13,7 @@ import { findMarketplaceClaimForHotel, hasEntitledSubscription } from "@/lib/pms
 import { queueImportAfterPurge } from "@/lib/pms/purged";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveOnboardingStep } from "@/lib/onboarding/step";
+import { markConnectionReauthorized } from "@/lib/pms/connection-stamps";
 import { pmsCallbackUrl, requireRegistry, type PmsType } from "@/lib/pms/registry";
 import { signOnboardingState, signState, verifyState } from "@/lib/pms/oauth-state";
 import { cookies } from "next/headers";
@@ -340,6 +341,9 @@ export async function handleOAuthCallback(
       { onConflict: "hotel_id,pms_type" },
     );
   if (pcErr) return renderCallbackError(pmsType, `pms_connections upsert: ${pcErr.message}`);
+  // A person re-authorized: rate pushes held for a missing permission or a
+  // refused grant go out on the next tick instead of a day later.
+  await markConnectionReauthorized(admin, hotelId, pmsType, now);
 
   // A property the sweep emptied gets its full history read again; a plain
   // reconnect would only ever sync the recent window. Never fails the connect.

@@ -1,4 +1,5 @@
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
+import { requestBaseRateRefresh } from "@/lib/pms/connection-stamps";
 import { requestIp, requestUserAgent } from "@/lib/legal/acceptance";
 import { PRIVACY_VERSION, TERMS_VERSION } from "@/lib/legal/versions";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
@@ -17,6 +18,9 @@ import { NextResponse } from "next/server";
  * force, who pressed it and from where go into platform_audit_events next to
  * the act. The property.went_live product event (a database trigger) only
  * knows the user.
+ *
+ * It also makes the next scheduled tick re-read the hotel's base rates before
+ * its first live push (requestBaseRateRefresh).
  */
 export async function POST(request: Request) {
   if (!isSupabaseConfigured()) {
@@ -51,6 +55,7 @@ export async function POST(request: Request) {
   }
 
   await recordGoLive(request, hotelId, user.id);
+  if (isAdminConfigured()) await requestBaseRateRefresh(createAdminClient(), hotelId);
   return NextResponse.json({ ok: true });
 }
 

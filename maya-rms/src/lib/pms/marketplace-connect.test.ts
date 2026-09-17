@@ -93,6 +93,12 @@ describe("handleMarketplaceConnect reconnecting a claimed property", () => {
     expect(state.events.some((e) => e.fn === "pms_secret_set")).toBe(true);
   });
 
+  it("stamps the connection as re-authorized, so rates held for a missing permission go out next tick", async () => {
+    claimedProperty({ connection: "connected", subscription: "active" });
+    await handleMarketplaceConnect("cloudbeds", TOKENS);
+    expect(state.db.tables.pms_connections[0].reauthorized_at).toEqual(expect.any(String));
+  });
+
   it("puts back 'pending' on an unpaid property an earlier reconnect marked connected", async () => {
     claimedProperty({ connection: "connected" });
     await handleMarketplaceConnect("cloudbeds", TOKENS);

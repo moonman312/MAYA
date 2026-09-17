@@ -3,6 +3,7 @@ import { isStripeConfigured } from "@/lib/billing/stripe";
 import { ensureAppStateWebhook } from "@/lib/pms/cloudbeds-webhooks";
 import { resumeStoppedImport } from "@/lib/pms/eager-import";
 import { hasEntitledSubscription } from "@/lib/pms/marketplace-activate";
+import { markConnectionReauthorized } from "@/lib/pms/connection-stamps";
 import { queueImportAfterPurge } from "@/lib/pms/purged";
 import { createAdminClient } from "@/utils/supabase/admin";
 import {
@@ -203,6 +204,9 @@ export async function handleMarketplaceConnect(
         },
         { onConflict: "hotel_id,pms_type" },
       );
+      // A person re-authorized: rate pushes held for a missing permission or
+      // a refused grant go out on the next tick instead of a day later.
+      await markConnectionReauthorized(admin, existing.id, pmsType, now);
       // Activation flips 'pending' once, right after the subscription lands,
       // and never looks again. If that happened between our read and the write
       // above, the write just parked a paid property for good — so look again,

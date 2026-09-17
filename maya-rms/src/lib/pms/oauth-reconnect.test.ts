@@ -133,6 +133,8 @@ describe("the reconnect prompt's OAuth callback", () => {
     const db = property({ claimed: false, purged: false, isActive: true });
     await callback();
     expect(db.tables.pms_connections[0].status).toBe("connected");
+    // A new grant: rate pushes held for a missing permission or a refused grant go out next tick.
+    expect(db.tables.pms_connections[0].reauthorized_at).toBe(db.tables.pms_connections[0].updated_at);
     expect(db.tables.import_jobs).toEqual([]);
     expect(storedSecret()).not.toHaveProperty("propertyId");
   });

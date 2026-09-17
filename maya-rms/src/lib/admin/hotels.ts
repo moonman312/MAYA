@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { requestBaseRateRefresh } from "@/lib/pms/connection-stamps";
 import type { AdminHotelRow } from "./types";
 
 export type ListHotelsOptions = { search?: string };
@@ -135,6 +136,7 @@ export async function getHotelSimulationMode(
 /**
  * Flip a hotel between simulation and live pricing. Live means the scheduled
  * job will push computed rates back to the PMS; simulation means it won't.
+ * Going live makes the next tick re-read the hotel's base rates first.
  */
 export async function setHotelSimulationMode(
   admin: SupabaseClient,
@@ -145,6 +147,7 @@ export async function setHotelSimulationMode(
     .from("hotel_settings")
     .upsert({ hotel_id: hotelId, simulation_mode: simulationMode }, { onConflict: "hotel_id" });
   if (error) throw new Error(`Failed to set simulation mode: ${error.message}`);
+  if (!simulationMode) await requestBaseRateRefresh(admin, hotelId);
 
   await admin.rpc("platform_log_event", {
     p_event_type: "hotel.simulation_mode_changed",

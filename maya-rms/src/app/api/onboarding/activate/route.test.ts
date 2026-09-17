@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   adminConfigured: true,
   rpcCalls: [] as { name: string; args: Record<string, unknown> }[],
   rpcError: null as { message: string } | null,
+  connectionUpdates: [] as { patch: Record<string, unknown>; hotelId: unknown }[],
 }));
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
@@ -33,6 +34,14 @@ vi.mock("@/utils/supabase/admin", () => ({
       state.rpcCalls.push({ name, args });
       return { data: null, error: state.rpcError };
     },
+    from: (table: string) => ({
+      update: (patch: Record<string, unknown>) => ({
+        eq: async (col: string, hotelId: unknown) => {
+          if (table === "pms_connections" && col === "hotel_id") state.connectionUpdates.push({ patch, hotelId });
+          return { error: null };
+        },
+      }),
+    }),
   }),
 }));
 
@@ -53,9 +62,16 @@ beforeEach(() => {
   state.adminConfigured = true;
   state.rpcCalls = [];
   state.rpcError = null;
+  state.connectionUpdates = [];
 });
 
 describe("going live", () => {
+  it("makes the next tick re-read the hotel's base rates before its first live push", async () => {
+    const res = await goLive();
+    expect(res.status).toBe(200);
+    expect(state.connectionUpdates).toEqual([{ patch: { base_rates_refreshed_at: null }, hotelId: "hotel-1" }]);
+  });
+
   it("records the Terms in force with the act", async () => {
     const res = await goLive();
     expect(res.status).toBe(200);
