@@ -542,6 +542,39 @@ export async function processJob(
       return "stopped";
     }
 
+    // A current-window pass that was marked started and never marked done
+    // means the invocation running it was killed (a wall-clock limit, an
+    // out-of-memory crash). Nothing ever reaches the catch below in that
+    // case, so without this a sync too big for one invocation retried forever
+    // and never counted toward the no-progress limit.
+    const unfinished = (job.stats.currentSync as { passStartedAt?: unknown } | undefined)?.passStartedAt;
+    if (job.phase === "sync_current" && unfinished) {
+      const streak = Number(job.stats.errorStreak ?? 0) + 1;
+      const failed = streak >= NO_PROGRESS_LIMIT;
+      const { passStartedAt: _dropped, ...rest } = job.stats.currentSync as Record<string, unknown>;
+      void _dropped;
+      job.stats = { ...job.stats, errorStreak: streak, currentSync: rest };
+      console.warn(
+        JSON.stringify({ fn: "processJob", jobId: job.id, hotelId: job.hotel_id, event: "current_sync_killed", passStartedAt: unfinished, streak }),
+      );
+      let q = supabase
+        .from("import_jobs")
+        .update({
+          stats: job.stats,
+          last_error: `the current-window sync started at ${String(unfinished)} never finished`,
+          ...(failed ? { status: "failed", finished_at: new Date().toISOString() } : {}),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", job.id);
+      if (lease.token) q = q.eq("status", "running").lte("lease_expires_at", lease.token);
+      const { error } = await q;
+      if (error) throw new Error(`import_jobs update failed: ${error.message}`);
+      if (failed) {
+        job.status = "failed";
+        return "failed";
+      }
+    }
+
     const adapter = await deps.createAdapter(supabase, job.hotel_id, job.pms_type);
 
     while (withinBudget()) {
@@ -551,6 +584,13 @@ export async function processJob(
         continue;
       }
       if (job.phase === "sync_current") {
+        // Marked before the pass and replaced when it ends either way, so a
+        // marker still here at the next claim can only mean a killed pass.
+        job.stats = {
+          ...job.stats,
+          currentSync: { ...currentSyncProgress(job.stats), passStartedAt: new Date(deps.now()).toISOString() },
+        };
+        await patchJob(supabase, job.id, { stats: job.stats }, lease);
         const res = await withLeaseHeartbeat(supabase, job.id, lease, () =>
           deps.runCurrentSync(supabase, job.hotel_id, job.pms_type),
         );
@@ -677,6 +717,13 @@ export async function processJob(
     const streak = progressed ? 1 : Number(job.stats.errorStreak ?? 0) + 1;
     const failed = streak >= NO_PROGRESS_LIMIT;
     job.stats = { ...job.stats, errorStreak: streak };
+    // This failure is counted here; the next claim must not count it again.
+    const marked = job.stats.currentSync as Record<string, unknown> | undefined;
+    if (marked && "passStartedAt" in marked) {
+      const { passStartedAt: _dropped, ...rest } = marked;
+      void _dropped;
+      job.stats = { ...job.stats, currentSync: rest };
+    }
     let q = supabase
       .from("import_jobs")
       .update({

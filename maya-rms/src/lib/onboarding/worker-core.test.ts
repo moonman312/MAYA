@@ -599,8 +599,8 @@ describe("processJob lease protocol", () => {
       const running = processJob(supabase, job, deps, 600_000);
 
       await vi.advanceTimersByTimeAsync(200_000);
-      // Three heartbeats in, still inside the phase.
-      expect(jobPatches(supabase).length).toBe(3);
+      // The pass marker, then three heartbeats, still inside the phase.
+      expect(jobPatches(supabase).length).toBe(4);
       expect(Date.parse(String(supabase.jobRow.lease_expires_at))).toBeGreaterThan(Date.now());
 
       await vi.advanceTimersByTimeAsync(400_000);
@@ -973,3 +973,49 @@ describe("processJob for a property nobody has paid for yet", () => {
     expect(await processJob(supabase, makeJob(), deps, 60_000)).toBe("completed");
   });
 });
+
+describe("processJob killed current-window passes", () => {
+  it("marks a pass before it runs and clears the mark when it ends", async () => {
+    const supabase = makeSupabaseStub();
+    const deps = makeDeps(makeAdapter(new Map([[0, [[]]]])));
+    const job = makeJob({ phase: "sync_current" });
+    await processJob(supabase, job, deps, 60_000);
+    const marks = jobPatches(supabase).filter(
+      (u) => (u.patch.stats as { currentSync?: { passStartedAt?: string } } | undefined)?.currentSync?.passStartedAt,
+    );
+    expect(marks.length).toBe(1);
+    expect((job.stats.currentSync as Record<string, unknown>).passStartedAt).toBeUndefined();
+  });
+
+  it("counts a pass that never finished toward the no-progress limit at the next claim", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const supabase = makeSupabaseStub();
+    const deps = makeDeps(makeAdapter(new Map([[0, [[]]]])));
+    const killed = makeJob({
+      phase: "sync_current",
+      stats: { errorStreak: 3, currentSync: { covered: false, passes: 2, stalls: 0, resumeFrom: null, rows: 0, passStartedAt: "2026-09-16T00:00:00Z" } },
+    });
+    // The next invocation's pass throws: the killed one and this one are two failures, not three.
+    deps.runCurrentSync = vi.fn(async () => ({ ok: false as const, error: "timeout" }));
+    expect(await processJob(supabase, killed, deps, 60_000)).toBe("budget_exhausted");
+    expect(killed.stats.errorStreak).toBe(5);
+    expect((killed.stats.currentSync as Record<string, unknown>).passStartedAt).toBeUndefined();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("fails the job once killed passes reach the limit", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const supabase = makeSupabaseStub();
+    const deps = makeDeps(makeAdapter(new Map([[0, [[]]]])));
+    const job = makeJob({
+      phase: "sync_current",
+      stats: { errorStreak: 49, currentSync: { passStartedAt: "2026-09-16T00:00:00Z" } },
+    });
+    expect(await processJob(supabase, job, deps, 60_000)).toBe("failed");
+    expect(deps.runCurrentSync).not.toHaveBeenCalled();
+    expect(supabase.jobRow.status).toBe("failed");
+    warn.mockRestore();
+  });
+});
+

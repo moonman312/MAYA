@@ -56,6 +56,24 @@ export function reservationRowFingerprint(row: {
   ].join("|");
 }
 
+/**
+ * A 64-bit digest of a fingerprint: two FNV-1a passes over the string with
+ * different offset bases. Only the digest is kept per stored row, so reading
+ * back a large book holds a few bytes per night instead of a copy of every
+ * raw payload. Two different rows for the same night would have to collide
+ * on all 64 bits to be mistaken for unchanged.
+ */
+export function fingerprintDigest(fingerprint: string): string {
+  let a = 0x811c9dc5;
+  let b = 0x050c5d1f;
+  for (let i = 0; i < fingerprint.length; i++) {
+    const c = fingerprint.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193);
+    b = Math.imul(b ^ c, 0x01000193);
+  }
+  return (a >>> 0).toString(16).padStart(8, "0") + (b >>> 0).toString(16).padStart(8, "0");
+}
+
 export async function dropUnchangedReservationRows(
   supabase: SupabaseClient,
   hotelId: string,
@@ -82,13 +100,13 @@ export async function dropUnchangedReservationRows(
       for (const r of data ?? []) {
         stored.set(
           `${r.external_reservation_id}:${r.stay_date}`,
-          reservationRowFingerprint({
+          fingerprintDigest(reservationRowFingerprint({
             room_type_id: r.room_type_id == null ? null : String(r.room_type_id),
             booking_date: r.booking_date == null ? null : String(r.booking_date),
             booking_window_days: r.booking_window_days == null ? null : Number(r.booking_window_days),
             current_rate: r.current_rate == null ? null : Number(r.current_rate),
             raw_payload: r.raw_payload,
-          }),
+          })),
         );
       }
       if ((data ?? []).length < READ_PAGE) break;
@@ -96,7 +114,7 @@ export async function dropUnchangedReservationRows(
   }
 
   const changed = rows.filter(
-    (r) => stored.get(`${r.external_reservation_id}:${r.stay_date}`) !== reservationRowFingerprint(r),
+    (r) => stored.get(`${r.external_reservation_id}:${r.stay_date}`) !== fingerprintDigest(reservationRowFingerprint(r)),
   );
   return { rows: changed, unchanged: rows.length - changed.length, error: null };
 }

@@ -4,6 +4,7 @@
  */
 export {
   dropUnchangedReservationRows,
+  fingerprintDigest,
   reservationRowFingerprint,
   stableStringify,
   type ReservationWriteRow,

@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   dropUnchangedReservationRows,
+  fingerprintDigest,
   reservationRowFingerprint,
   stableStringify,
   type ReservationWriteRow,
@@ -102,5 +103,50 @@ describe("dropUnchangedReservationRows", () => {
     ]);
     expect(res.error).not.toBeNull();
     expect(res.rows).toHaveLength(1);
+  });
+});
+
+describe("fingerprint digest", () => {
+  it("finds exactly the changed set a full string comparison finds, on random rows", async () => {
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const stored: ReservationWriteRow[] = [];
+    const incoming: ReservationWriteRow[] = [];
+    for (let i = 0; i < 3000; i++) {
+      const base = row({
+        external_reservation_id: `R${i % 400}`,
+        stay_date: `2026-08-${String(1 + (i % 28)).padStart(2, "0")}`,
+        current_rate: Math.round(rnd() * 30000) / 100,
+        booking_window_days: Math.floor(rnd() * 90),
+        raw_payload: { status: rnd() < 0.5 ? "confirmed" : "checked_in", guest: { n: Math.floor(rnd() * 5) }, note: "x".repeat(Math.floor(rnd() * 40)) },
+      });
+      stored.push(base);
+      const roll = rnd();
+      incoming.push(
+        roll < 0.6
+          ? { ...base, raw_payload: JSON.parse(JSON.stringify(base.raw_payload)) }
+          : roll < 0.7
+            ? { ...base, current_rate: (base.current_rate ?? 0) + 0.01 }
+            : roll < 0.8
+              ? { ...base, raw_payload: { ...(base.raw_payload as object), note: "changed" } }
+              : roll < 0.9
+                ? { ...base, room_type_id: null }
+                : { ...base, stay_date: "2026-09-30" },
+      );
+    }
+    // Dedupe on the unique key, as every caller does before diffing.
+    const byKey = new Map(stored.map((r) => [`${r.external_reservation_id}:${r.stay_date}`, r]));
+    const truth = new Map([...byKey].map(([k, r]) => [k, reservationRowFingerprint(r)]));
+    const inc = [...new Map(incoming.map((r) => [`${r.external_reservation_id}:${r.stay_date}`, r])).values()];
+    const expected = inc.filter((r) => truth.get(`${r.external_reservation_id}:${r.stay_date}`) !== reservationRowFingerprint(r));
+    const res = await dropUnchangedReservationRows(fakeSupabase([...byKey.values()]), "hotel-1", inc);
+    expect(res.rows).toEqual(expected);
+    expect(expected.length).toBeGreaterThan(100);
+    expect(res.unchanged).toBeGreaterThan(100);
+  });
+
+  it("is 16 hex characters and separates near misses", () => {
+    expect(fingerprintDigest("abc")).toMatch(/^[0-9a-f]{16}$/);
+    expect(fingerprintDigest("abc|1")).not.toBe(fingerprintDigest("abc|2"));
   });
 });
