@@ -53,6 +53,22 @@ export function resolveBase(
   return undefined;
 }
 
+/**
+ * Whether the engine prices a cell on the base it resolved.
+ *
+ * A base of 0 that did not come from a person is a night the hotel has closed
+ * or not loaded rates for yet. Pricing it clamped the 0 up to the floor, and
+ * the push then opened the night at the floor: $1 with the default, or $89 on
+ * a night the hotel meant to keep shut. So such a cell is left unpriced, and
+ * only a price someone typed for it (a manual 0 included, which is a reset
+ * point like any other) puts MAYA's number on it. A base that is not a number
+ * at all is never priced.
+ */
+export function pricesOnBase(base: { price: number; source: BaseSource }): boolean {
+  if (!Number.isFinite(base.price)) return false;
+  return base.price > 0 || base.source === "manual";
+}
+
 /** The base for a cell, or undefined when nothing is known and it must be skipped. */
 export function resolveBasePrice(src: BasePriceSources): number | undefined {
   return resolveBase(src)?.price;

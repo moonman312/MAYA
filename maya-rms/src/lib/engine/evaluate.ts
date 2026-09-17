@@ -29,7 +29,7 @@ import {
   type BookingSpeedContext,
 } from "./booking-speed-provider";
 import type { BaseSource } from "./base-price";
-import { resolveBase } from "./base-price";
+import { pricesOnBase, resolveBase } from "./base-price";
 import { ruleConditionsMatch } from "./conditions";
 import type { LadderPassResult, OverrideProbe } from "./ladder";
 import { createLadderPassBatch, evaluateLadderTriple, probeSuppressionSupport } from "./ladder";
@@ -44,6 +44,7 @@ import {
 } from "./pickup";
 import {
   assemblePriceFrom,
+  clearUnpricedCells,
   loadActiveLadderEffectsForRange,
   loadActivePickupEffectsForRange,
   publishPrices,
@@ -431,8 +432,11 @@ export async function evaluateHotel(
   );
 
   const rememberedBaseByCell = new Map<string, number>();
+  const publishedCells = new Set<string>();
   for (const p of ppRows) {
-    if (!p.room_type_id || p.base_price == null) continue;
+    if (!p.room_type_id) continue;
+    publishedCells.add(`${p.stay_date}|${p.room_type_id}`);
+    if (p.base_price == null) continue;
     rememberedBaseByCell.set(`${p.stay_date}|${p.room_type_id}`, Number(p.base_price));
   }
 
@@ -517,6 +521,8 @@ export async function evaluateHotel(
 
   const basePrices = new Map<string, number>();
   const baseSourceByCell = new Map<string, BaseSource>();
+  // Cells with a published row this run will not price: see clearUnpricedCells.
+  const unpricedPublished: string[] = [];
   for (const sd of stayDates) {
     for (const rt of roomTypes) {
       const key = `${sd}|${rt.id}`;
@@ -529,9 +535,13 @@ export async function evaluateHotel(
         reservation: latestResByCell.get(key)?.base_rate,
         remembered: rememberedBaseByCell.get(key),
       });
-      if (base !== undefined) {
+      // A night the hotel has at 0 is left alone unless someone typed a
+      // price for it (pricesOnBase).
+      if (base !== undefined && pricesOnBase(base)) {
         basePrices.set(key, base.price);
         baseSourceByCell.set(key, base.source);
+      } else if (publishedCells.has(key)) {
+        unpricedPublished.push(key);
       }
     }
   }
@@ -926,6 +936,9 @@ export async function evaluateHotel(
     now,
   );
   pricesPublished = publishedKeys.size;
+  // Whatever an earlier run published for a night this run left unpriced is
+  // no longer MAYA's price, and must neither show as one nor be pushed.
+  if (unpricedPublished.length > 0) await clearUnpricedCells(supabase, hotelId, unpricedPublished);
 
   // A Booking Speed rule measuring part of the hotel records its observation
   // on the cells it changes, and only there. Hotel-wide observations go on

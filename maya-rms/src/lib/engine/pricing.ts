@@ -460,6 +460,48 @@ export async function publishPrices(
   return published;
 }
 
+/**
+ * Remove the published price of cells this run left unpriced (keys
+ * `stay_date|room_type_id`), so nothing shows or goes out as MAYA's price for
+ * a night MAYA no longer prices: the calendar shows no current price, and the
+ * push has no row to send. Only called for cells that have a row.
+ *
+ * Never throws: the prices this run did publish stand either way. A row that
+ * could not be removed is logged; the push holds back a closed night on its
+ * own check (guardrail:zero_base). Under a signed-in session this matches no
+ * rows (published_price has no delete policy), and the next scheduled run,
+ * which uses the service role, removes it.
+ */
+export async function clearUnpricedCells(
+  supabase: SupabaseClient,
+  hotelId: string,
+  keys: string[],
+): Promise<void> {
+  const byRoomType = new Map<string, string[]>();
+  for (const key of keys) {
+    const [stayDate, roomTypeId] = key.split("|");
+    const list = byRoomType.get(roomTypeId) ?? [];
+    list.push(stayDate);
+    byRoomType.set(roomTypeId, list);
+  }
+  for (const [roomTypeId, dates] of byRoomType) {
+    for (let i = 0; i < dates.length; i += PUBLISH_CHUNK) {
+      const chunk = dates.slice(i, i + PUBLISH_CHUNK);
+      const { error } = await supabase
+        .from("published_price")
+        .delete()
+        .eq("hotel_id", hotelId)
+        .eq("room_type_id", roomTypeId)
+        .in("stay_date", chunk);
+      if (error) {
+        console.error(
+          JSON.stringify({ fn: "clearUnpricedCells", hotelId, roomTypeId, nights: chunk.length, error: error.message }),
+        );
+      }
+    }
+  }
+}
+
 function logPublishError(hotelId: string, cell: PublishCell, message: string): void {
   // Same line maybePublish writes: a failed write never reports as published.
   console.error(
