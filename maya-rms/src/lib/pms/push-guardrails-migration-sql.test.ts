@@ -131,3 +131,130 @@ describe.skipIf(!PGLITE_DIR)("push guardrails migration sections 6 and 7 in PGli
     ]);
   }, 60_000);
 });
+
+/** Section 8's block, begin to commit. */
+function sectionEight(): string {
+  const start = MIGRATION.indexOf("-- 8. Rates changed in the PMS");
+  const end = MIGRATION.indexOf("commit;", start) + "commit;".length;
+  return MIGRATION.slice(start, end);
+}
+
+describe.skipIf(!PGLITE_DIR)("push guardrails migration section 8 in PGlite", () => {
+  let db: Db;
+  const ROOM = rt(1);
+
+  beforeAll(async () => {
+    const mod = await import(
+      /* @vite-ignore */ pathToFileURL(`${PGLITE_DIR}/node_modules/@electric-sql/pglite/dist/index.js`).href
+    );
+    db = new mod.PGlite() as Db;
+    // manual_price as 99_supabase_migration_manual_price_v1.sql makes it, and
+    // the product event plumbing section 8 builds on, reduced to what it calls.
+    await db.exec(`
+      create role anon;
+      create role authenticated;
+      create type public.pms_type as enum ('mews', 'cloudbeds', 'think', 'opera', 'other');
+      create table public.rate_updates (
+        hotel_id uuid not null,
+        room_type_id uuid not null,
+        stay_date date not null,
+        status text not null,
+        price numeric(10,2) not null,
+        unique (hotel_id, room_type_id, stay_date)
+      );
+      create table public.manual_price (
+        hotel_id uuid not null,
+        stay_date date not null,
+        room_type_id uuid not null,
+        price numeric(10,2) not null check (price >= 0),
+        set_by uuid,
+        set_at timestamptz not null default now(),
+        cleared_at timestamptz,
+        cleared_by uuid,
+        note text,
+        primary key (hotel_id, stay_date, room_type_id)
+      );
+      create table public.product_events (
+        event text not null,
+        hotel_id uuid,
+        user_id uuid,
+        properties jsonb not null,
+        dedupe_key text unique
+      );
+      create function public.product_event_emit(
+        p_event text, p_hotel_id uuid default null, p_user_id uuid default null, p_properties jsonb default '{}'::jsonb,
+        p_source text default 'trigger', p_occurred_at timestamptz default null, p_dedupe_key text default null,
+        p_pms_type text default null, p_pms_property_id text default null, p_property_name text default null, p_is_test boolean default null
+      ) returns bigint language plpgsql as $$
+      begin
+        insert into public.product_events (event, hotel_id, user_id, properties, dedupe_key)
+        values (p_event, p_hotel_id, p_user_id, p_properties, p_dedupe_key)
+        on conflict (dedupe_key) do nothing;
+        return 1;
+      end;
+      $$;
+    `);
+  }, 120_000);
+  afterAll(async () => {
+    await db?.close();
+  });
+
+  it("adds the columns and the source rule, and can run again", async () => {
+    await db.exec(sectionEight());
+    await db.exec(sectionEight());
+
+    const columns = await db.query(
+      `select table_name, column_name, is_nullable, column_default from information_schema.columns
+        where (table_name = 'rate_updates' and column_name in ('confirmed_at', 'pms_edited_at'))
+           or (table_name = 'manual_price' and column_name in ('source', 'pms_type'))
+        order by table_name, column_name`,
+    );
+    expect(columns.rows).toEqual([
+      { table_name: "manual_price", column_name: "pms_type", is_nullable: "YES", column_default: null },
+      { table_name: "manual_price", column_name: "source", is_nullable: "NO", column_default: "'maya'::text" },
+      { table_name: "rate_updates", column_name: "confirmed_at", is_nullable: "YES", column_default: null },
+      { table_name: "rate_updates", column_name: "pms_edited_at", is_nullable: "YES", column_default: null },
+    ]);
+
+    const refused = async (values: string) => {
+      try {
+        await db.query(`insert into public.manual_price (hotel_id, stay_date, room_type_id, price, source, pms_type) values ${values}`);
+        return false;
+      } catch {
+        return true;
+      }
+    };
+    expect(await refused(`('${H1}', '2026-12-01', '${ROOM}', 100, 'pms', null)`)).toBe(true);
+    expect(await refused(`('${H1}', '2026-12-01', '${ROOM}', 100, 'maya', 'cloudbeds')`)).toBe(true);
+    expect(await refused(`('${H1}', '2026-12-01', '${ROOM}', 100, 'someone', null)`)).toBe(true);
+  }, 60_000);
+
+  it("records a typed save as manual_price.set and a PMS change as its own event, once per room type and save", async () => {
+    const user = "00000000-0000-4000-8000-00000000aaaa";
+    await db.exec(`
+      insert into public.manual_price (hotel_id, stay_date, room_type_id, price, set_by, set_at)
+      values ('${H1}', '2026-10-01', '${ROOM}', 150, '${user}', '2026-09-20T10:00:00Z'),
+             ('${H1}', '2026-10-02', '${ROOM}', 150, '${user}', '2026-09-20T10:00:00Z');
+    `);
+    // The refresh adopts two nights the hotel changed, one over the typed price.
+    await db.exec(`
+      insert into public.manual_price (hotel_id, stay_date, room_type_id, price, set_by, set_at, source, pms_type)
+      values ('${H1}', '2026-10-02', '${ROOM}', 180, null, '2026-09-21T10:00:00Z', 'pms', 'cloudbeds'),
+             ('${H1}', '2026-10-03', '${ROOM}', 0, null, '2026-09-21T10:00:00Z', 'pms', 'cloudbeds')
+      on conflict (hotel_id, stay_date, room_type_id) do update
+        set price = excluded.price, set_by = excluded.set_by, set_at = excluded.set_at,
+            source = excluded.source, pms_type = excluded.pms_type, cleared_at = null;
+    `);
+    await db.exec(`update public.manual_price set cleared_at = '2026-09-22T10:00:00Z', cleared_by = '${user}' where stay_date = '2026-10-03'`);
+
+    const events = await db.query(
+      `select event, user_id, properties->>'nights' as nights, properties->>'first_night' as first_night
+         from public.product_events order by dedupe_key`,
+    );
+    expect(events.rows).toEqual([
+      { event: "manual_price.changed_in_pms", user_id: null, nights: "2", first_night: "2026-10-02" },
+      { event: "manual_price.cleared", user_id: user, nights: "1", first_night: "2026-10-03" },
+      { event: "manual_price.set", user_id: user, nights: "2", first_night: "2026-10-01" },
+    ]);
+  }, 60_000);
+});

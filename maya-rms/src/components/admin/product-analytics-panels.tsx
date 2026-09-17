@@ -419,6 +419,7 @@ export function EngagementPanel({ events }: { events: EventCountRow[] }) {
           line("Rules deleted", "rule.deleted"),
           line("Manual prices set", "manual_price.set", undefined, "nights"),
           line("Manual prices cleared", "manual_price.cleared", undefined, "nights"),
+          line("Rates changed in the PMS, kept", "manual_price.changed_in_pms", undefined, "nights"),
           line("Change log opened", "dashboard.tab_opened", "changelog"),
           line("Simulator opened", "dashboard.tab_opened", "simulator"),
           line("Simulator used", "simulator.used"),

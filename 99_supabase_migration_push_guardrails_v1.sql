@@ -62,12 +62,30 @@
 --    rows are backfilled; a held-back row written before this has none, and
 --    its night stays frozen.
 --
+-- 8. A rate the hotel changes in its PMS on a night MAYA has sent to becomes a
+--    manual price at that rate (_shared/pms/pms-edits.ts), so MAYA stops
+--    writing over it. rate_updates.confirmed_at says a send is settled: the
+--    push stamps it when the vendor reports the send's job applied. Only a
+--    settled send an hour old lets a different PMS rate count as the hotel's
+--    change; a synchronous vendor's accepted send ("accepted:") needs no
+--    stamp. rate_updates.pms_edited_at says when the ledger was brought in
+--    step with a rate read in the PMS. manual_price.source ('maya' or 'pms')
+--    and manual_price.pms_type say where a manual price came from; a PMS
+--    change has no set_by. The manual_price.set product event stays a price
+--    typed in MAYA, and a PMS change is manual_price.changed_in_pms. Sends
+--    from before this carry no stamp and are not backfilled: nobody knows
+--    which of them applied, so a change on those nights is left alone until
+--    MAYA sends to them again.
+--
 -- Before deploying, run the zero-base check at the end of this file: nights
 -- an earlier push opened at the floor while the PMS had them at 0.
 --
 -- Run AFTER 99_supabase_migration_rate_push_v1.sql,
--- 99_supabase_migration_roles_v2_part2.sql (is_hotel_accessible) and
--- 99_supabase_migration_rls_helpers_lockdown_v1.sql (is_platform_admin).
+-- 99_supabase_migration_roles_v2_part2.sql (is_hotel_accessible),
+-- 99_supabase_migration_rls_helpers_lockdown_v1.sql (is_platform_admin),
+-- 99_supabase_migration_manual_price_v1.sql and
+-- 99_supabase_migration_product_events_v1.sql (section 8 replaces its
+-- manual_price event triggers).
 -- Idempotent. Code deployed ahead of sections 1 and 2 fills calendar gaps
 -- only, as before, and logs that the column is missing. Code deployed ahead
 -- of section 3 still pushes; recording incidents fails and is logged
@@ -77,6 +95,9 @@
 -- section 5, a reconnect's stamp is logged as failed and holds wait their day.
 -- Ahead of section 7, each ledger write is refused once and sent again
 -- without sent_price, and only sent rows count as known to the calendar.
+-- Ahead of section 8, the same retry leaves out confirmed_at and
+-- pms_edited_at, no rate changed in the PMS is adopted, a price typed in MAYA
+-- is saved without a source, and every manual price reads as typed in MAYA.
 --
 -- NOT mirrored into 02_supabase_schema.sql yet — fold it in on the next
 -- schema consolidation pass.
@@ -161,6 +182,171 @@ update public.rate_updates
    set sent_price = price
  where status = 'sent'
    and sent_price is null;
+
+commit;
+
+-- ============================================================================
+-- 8. Rates changed in the PMS
+-- ============================================================================
+
+begin;
+
+alter table public.rate_updates
+  add column if not exists confirmed_at timestamptz,
+  add column if not exists pms_edited_at timestamptz;
+
+comment on column public.rate_updates.confirmed_at is
+  'When the vendor reported this row''s send applied (its job confirmed). A sent row '
+  'with it, or with an "accepted:" reference, is settled: only then can a different '
+  'rate in the PMS be taken as the hotel''s own change. Null on every new send.';
+comment on column public.rate_updates.pms_edited_at is
+  'When the ledger was brought in step with a rate read in the PMS: a change the hotel '
+  'made there (adopted as a manual price), or a manual price the PMS already had. '
+  'price and sent_price are then that rate. Null on every new send.';
+
+alter table public.manual_price
+  add column if not exists source text not null default 'maya',
+  add column if not exists pms_type public.pms_type;
+
+alter table public.manual_price drop constraint if exists manual_price_source_chk;
+alter table public.manual_price
+  add constraint manual_price_source_chk
+  check (source in ('maya', 'pms') and ((source = 'pms') = (pms_type is not null)));
+
+comment on column public.manual_price.source is
+  '''maya'': typed in MAYA (set_by is the person). ''pms'': a rate the hotel changed in '
+  'the PMS on a night MAYA had sent to, kept as a manual price (set_by null, pms_type '
+  'says which PMS).';
+comment on column public.manual_price.pms_type is
+  'The PMS a source ''pms'' price was changed in; null for a price typed in MAYA.';
+
+-- Product events: one save is still one event per (property, room type,
+-- save), and a PMS change is its own event, so "manual prices set" stays
+-- what people typed.
+create or replace function public.product_events_manual_price_set(
+  p_hotel_id uuid, p_room_type_id uuid, p_set_at timestamptz, p_set_by uuid, p_source text
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_nights int;
+  v_first date;
+  v_last date;
+  v_event text := case when p_source = 'pms' then 'manual_price.changed_in_pms' else 'manual_price.set' end;
+begin
+  select count(*), min(mp.stay_date), max(mp.stay_date)
+    into v_nights, v_first, v_last
+    from public.manual_price mp
+   where mp.hotel_id = p_hotel_id
+     and mp.room_type_id = p_room_type_id
+     and mp.set_at = p_set_at
+     and mp.source = p_source
+     and mp.cleared_at is null;
+
+  perform public.product_event_emit(
+    v_event, p_hotel_id, p_set_by,
+    jsonb_build_object(
+      'room_type_id', p_room_type_id, 'nights', v_nights,
+      'first_night', v_first, 'last_night', v_last,
+      'lead_days', v_first - (p_set_at at time zone 'UTC')::date
+    ),
+    'trigger', p_set_at,
+    v_event || ':' || p_hotel_id || ':' || p_room_type_id || ':'
+      || to_char(p_set_at at time zone 'UTC', 'YYYYMMDDHH24MISSUS')
+  );
+end;
+$$;
+
+revoke all on function public.product_events_manual_price_set(uuid, uuid, timestamptz, uuid, text) from public, anon, authenticated;
+
+create or replace function public.product_events_manual_price_insert()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  r record;
+begin
+  begin
+    for r in
+      select n.hotel_id, n.room_type_id, n.set_at, n.source, max(n.set_by::text)::uuid as set_by
+        from new_rows n
+       where n.cleared_at is null
+       group by n.hotel_id, n.room_type_id, n.set_at, n.source
+    loop
+      perform public.product_events_manual_price_set(r.hotel_id, r.room_type_id, r.set_at, r.set_by, r.source);
+    end loop;
+  exception when others then
+    raise warning 'product_events_manual_price_insert: % [%]', sqlerrm, sqlstate;
+  end;
+  return null;
+end;
+$$;
+
+create or replace function public.product_events_manual_price_update()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  r record;
+begin
+  begin
+    for r in
+      select n.hotel_id, n.room_type_id, n.set_at, n.source, max(n.set_by::text)::uuid as set_by
+        from new_rows n
+        join old_rows o using (hotel_id, stay_date, room_type_id)
+       where n.cleared_at is null
+         and (o.cleared_at is not null or n.set_at is distinct from o.set_at)
+       group by n.hotel_id, n.room_type_id, n.set_at, n.source
+    loop
+      perform public.product_events_manual_price_set(r.hotel_id, r.room_type_id, r.set_at, r.set_by, r.source);
+    end loop;
+
+    for r in
+      select n.hotel_id, n.room_type_id, n.cleared_at, max(n.cleared_by::text)::uuid as cleared_by,
+             count(*) as nights, min(n.stay_date) as first_night, max(n.stay_date) as last_night
+        from new_rows n
+        join old_rows o using (hotel_id, stay_date, room_type_id)
+       where o.cleared_at is null and n.cleared_at is not null
+       group by n.hotel_id, n.room_type_id, n.cleared_at
+    loop
+      perform public.product_event_emit(
+        'manual_price.cleared', r.hotel_id, r.cleared_by,
+        jsonb_build_object(
+          'room_type_id', r.room_type_id, 'nights', r.nights,
+          'first_night', r.first_night, 'last_night', r.last_night
+        ),
+        'trigger', r.cleared_at,
+        'manual_price.cleared:' || r.hotel_id || ':' || r.room_type_id || ':'
+          || to_char(r.cleared_at at time zone 'UTC', 'YYYYMMDDHH24MISSUS')
+      );
+    end loop;
+  exception when others then
+    raise warning 'product_events_manual_price_update: % [%]', sqlerrm, sqlstate;
+  end;
+  return null;
+end;
+$$;
+
+-- The triggers now call the five-argument function; the old one has no caller.
+drop function if exists public.product_events_manual_price_set(uuid, uuid, timestamptz, uuid);
+
+drop trigger if exists trg_product_events_manual_price_insert on public.manual_price;
+create trigger trg_product_events_manual_price_insert
+  after insert on public.manual_price
+  referencing new table as new_rows
+  for each statement execute function public.product_events_manual_price_insert();
+
+drop trigger if exists trg_product_events_manual_price_update on public.manual_price;
+create trigger trg_product_events_manual_price_update
+  after update on public.manual_price
+  referencing old table as old_rows new table as new_rows
+  for each statement execute function public.product_events_manual_price_update();
 
 commit;
 
