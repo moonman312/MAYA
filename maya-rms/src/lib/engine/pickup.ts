@@ -56,7 +56,7 @@ import {
 } from "./booking-speed-provider";
 import { conditionCount } from "./conditions";
 import { pickupEffectOf, type PickupEffect } from "./pricing";
-import { fetchAllRows } from "./snapshots";
+import { MIGRATIONS, fetchAllRows } from "./snapshots";
 import { addCalendarDays } from "./timezone";
 import type { PickupCandidate, RuleMetrics } from "./types";
 
@@ -140,7 +140,11 @@ export async function loadPickupFireHeads(
       .order("affected_room_type_id", { ascending: true })
       .order("rule_version", { ascending: true })
       .range(from, from + HEADS_PAGE - 1);
-    if (error) throw new Error(`Failed to load rule fire history: ${error.message}`);
+    if (error) {
+      throw new Error(
+        `Failed to load rule fire history (run ${MIGRATIONS.pickupStacking} before deploying): ${error.message}`,
+      );
+    }
     if (!Array.isArray(data)) throw new Error("Failed to load rule fire history: no rows came back");
     for (const r of data as Record<string, unknown>[]) {
       const key = fireHeadKey(String(r.rule_id), String(r.stay_date), String(r.affected_room_type_id));

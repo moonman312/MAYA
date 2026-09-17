@@ -428,6 +428,12 @@ describe("POST /api/manual-price — the save", () => {
     const res = await post({ ...GOOD, dateFrom: "2026-09-20", dateTo: "2026-09-22" });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ suppressedRules: 2, retiredPickups: 1 });
+    // The fire it retired says a price was set for the night: the rule waits
+    // from that price, not from its own last fire (engine/pickup.ts).
+    expect(tables().get("pickup_event")!.find((r) => r.id === "pe-1")).toMatchObject({
+      retired_at: NOW.toISOString(),
+      retired_reason: "manual_price",
+    });
 
     const ladder = tables().get("ladder_rule_state")!;
     const stamped = ladder.filter((r) => r.suppressed_at === NOW.toISOString());

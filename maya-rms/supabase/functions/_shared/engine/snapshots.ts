@@ -26,6 +26,7 @@ export const MIGRATIONS = {
   countsAsRoom: "99_supabase_migration_room_type_counts_as_room_v1.sql",
   outOfService: "99_supabase_migration_room_type_out_of_service_v1.sql",
   largePropertyScale: "99_supabase_migration_large_property_scale_v1.sql",
+  pickupStacking: "99_supabase_migration_pickup_event_stacking_v1.sql",
 } as const;
 
 type PostgrestLike = { code?: string | null; message?: string | null } | null | undefined;

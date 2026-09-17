@@ -205,7 +205,11 @@ describe("updateRule: validates before mutating, repairs a failed condition writ
     );
     expect(ok).toBe(true);
     expect(tables.get("pricing_rules")?.[0]).toMatchObject({ version: 2 });
-    expect(tables.get("pickup_event")?.[0]).toMatchObject({ retired_at: expect.any(String) });
+    // Retired with the reason, so the fire never holds the edited rule back.
+    expect(tables.get("pickup_event")?.[0]).toMatchObject({
+      retired_at: expect.any(String),
+      retired_reason: "rule_edited",
+    });
     expect(tables.get("rule_condition")).toHaveLength(1);
     expect(tables.get("rule_condition")?.[0]).toMatchObject({ occupancy_operator: "lt", occupancy_threshold: 0.3 });
   });

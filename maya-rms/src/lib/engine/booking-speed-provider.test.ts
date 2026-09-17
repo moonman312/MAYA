@@ -12,8 +12,6 @@ import {
 import { detectSeasons } from "@/lib/observations/seasons";
 import type { SlimReservationRow } from "@/lib/observations/expected-bookings";
 import { indexBookingRows } from "@/lib/observations/booking-rows";
-import type { EngineRule } from "@/types/domain";
-import { fakeSupabase } from "./fake-supabase.test";
 
 function makeContext(rows: SlimReservationRow[], asOf: string): BookingSpeedContext {
   return {
