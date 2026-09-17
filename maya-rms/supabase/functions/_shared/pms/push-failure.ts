@@ -33,8 +33,9 @@ export type PushSeverity = "transient" | "critical";
  *              then once a day
  *   reresolve  the rate target cache is dropped and the cell sent once more;
  *              a second failure is critical
- *   hold       not sent again until its price or its rate target changes, or
- *              a day has passed (a fix made inside the PMS is invisible here)
+ *   hold       not sent again until its price or its rate target changes, a
+ *              day has passed (a fix made inside the PMS is invisible here),
+ *              or, for a grant problem, the connection is re-authorized
  *   recheck    never sent: the guardrail or target lookup runs again next tick
  */
 export type PushRetryPolicy = "quiet" | "reresolve" | "hold" | "recheck";
@@ -63,14 +64,27 @@ export const PUSH_CAUSES = [
 
 export type PushCause = (typeof PUSH_CAUSES)[number];
 
-/** What the last catalog read said about a room type that has no rate target. */
-export type TargetGap = "derived_only" | "no_base_rate" | "not_in_catalog";
+/**
+ * What the last catalog read said about a room type that has no rate target.
+ * `catalog_unavailable`: this run could not read the catalog, or it came back
+ * empty, so nothing is known about the room type. That is a PMS hiccup, not a
+ * missing base rate.
+ */
+export type TargetGap = "derived_only" | "no_base_rate" | "not_in_catalog" | "catalog_unavailable";
 
 /**
  * The ledger text for a job the vendor never reported on. Written by
  * reconcileJobOutcomes and read back here, so it is a contract too.
  */
 export const JOB_UNCONFIRMED_MESSAGE = "rate job never confirmed";
+
+/**
+ * The ledger text written over a cell just before its send, and replaced by
+ * the outcome once the PMS answers. A row still saying this means the run
+ * died or its outcome write failed, so nobody knows whether the rate landed.
+ * A contract like the one above.
+ */
+export const SEND_IN_PROGRESS_MESSAGE = "send in progress";
 
 /** Sends a failing cell gets at one price before it waits a day. */
 export const MAX_PUSH_ATTEMPTS = 10;
@@ -104,6 +118,11 @@ export type PushFailure = {
   mayaBug: boolean;
   /** The target cache may be what is wrong, so the next send re-resolves it. */
   dropTargets: boolean;
+  /**
+   * The fix is a new grant, so a reconnect after the last try ends a hold at
+   * once instead of after a day.
+   */
+  clearedByReconnect: boolean;
   /** The root cause for the owner, with generic wording for the rooms. */
   customerSentence: string;
   /** The root cause for an admin reading the analytics panel or an alert. */
@@ -127,6 +146,7 @@ type CatalogEntry = {
   alertedElsewhere?: boolean;
   mayaBug?: boolean;
   dropTargets?: boolean;
+  clearedByReconnect?: boolean;
   sentence: (w: Words) => string;
   action: (w: Words) => string | null;
   admin: string;
@@ -140,14 +160,17 @@ const CATALOG: Record<PushCause, CatalogEntry> = {
     severity: "critical",
     retry: "hold",
     alertedElsewhere: true,
+    clearedByReconnect: true,
     sentence: (w) => `${w.pms} stopped accepting MAYA's connection, so ${w.roomsRates} can't be changed`,
     action: (w) => `Reconnect ${w.pms} on the PMS tab.`,
-    admin: "The PMS refused the grant (401, or revocation wording). Connection health marks it disconnected and alerts.",
+    admin:
+      "The PMS refused the grant (401 after a credential refresh, or revocation wording). The push marks the connection disconnected, which alerts.",
   },
   missing_write_permission: {
     known: true,
     severity: "critical",
     retry: "hold",
+    clearedByReconnect: true,
     sentence: (w) => `${w.pms} won't let MAYA change ${w.roomsRates} because MAYA doesn't have permission to update rates`,
     action: (w) => `Give MAYA permission to update rates in ${w.pms}, then reconnect on the PMS tab.`,
     admin: "Reads work but the rate write is refused: the grant lacks the rate write scope (403 or scope wording).",
@@ -193,7 +216,8 @@ const CATALOG: Record<PushCause, CatalogEntry> = {
     sentence: (w) =>
       `${w.pms} refused MAYA's price for ${w.rooms} because it breaks a rate rule set in ${w.pms}, such as a minimum or maximum rate`,
     action: (w) => `Check the rate limits for ${thisOrThese(w)} in ${w.pms}.`,
-    admin: "The PMS rejected the value itself (its own min/max or format rules). Held until the price changes.",
+    admin:
+      "The PMS rejected the value against its own min/max rules. Held until the price changes. Format wording is not filed here: that is MAYA's own request, and reads as unknown.",
   },
   throttled: {
     known: true,
@@ -224,8 +248,10 @@ const CATALOG: Record<PushCause, CatalogEntry> = {
   guardrail_invalid_price: guardrail("the published price is not a number above 0", true),
   guardrail_zero_base: guardrail("the PMS has the night at 0 and nobody typed a price", false),
   guardrail_invalid_bounds: guardrail("the room type's floor or ceiling is not usable", true),
-  guardrail_below_floor: guardrail("the published price is under the room type's floor", true),
-  guardrail_above_ceiling: guardrail("the published price is over the room type's ceiling", true),
+  // Not bugs: a floor raised or a ceiling lowered after the night was
+  // published lands here until the re-price that follows the change finishes.
+  guardrail_below_floor: guardrail("the published price is under the room type's floor", false),
+  guardrail_above_ceiling: guardrail("the published price is over the room type's ceiling", false),
   guardrail_stale_price: guardrail("no recent evaluation backs the published price", true),
   unknown: {
     known: false,
@@ -309,8 +335,18 @@ const NOT_FOUND = [
 // Unverified guesses.
 const PAST_DATE = ["in the past", "past date", "date has passed", "before today", "earlier than today"];
 
-// Unverified guesses. Deliberately not a bare "invalid rate", which reads the
-// same for a bad value and a bad rate id.
+// A message about the request's dates rather than its price. Checked before
+// VALUE: "startDate must be greater than or equal to today" is a night that
+// is over, and "endDate must be greater than startDate" is MAYA's own bad
+// request. Neither is the hotel's rate rule. Word boundaries keep "update"
+// from counting as a date.
+const MENTIONS_DATE = /\b(?:start|end)?date\b|\btoday\b/;
+
+// Unverified guesses: the PMS's own min/max rules. Deliberately not a bare
+// "invalid rate", which reads the same for a bad value and a bad rate id, and
+// no format wording ("must be a number", "decimal places"): a malformed value
+// is MAYA's request, not a rule the owner set, so it stays unknown and
+// retries quietly with its text kept for the admin panel.
 const VALUE = [
   "minimum rate",
   "maximum rate",
@@ -321,12 +357,6 @@ const VALUE = [
   "greater than",
   "less than",
   "out of range",
-  "invalid value",
-  "invalid amount",
-  "invalid price",
-  "must be a number",
-  "not a valid number",
-  "decimal places",
 ];
 
 // "too many requests" is what a 429 body usually says; unverified per vendor.
@@ -374,6 +404,8 @@ function causeOf(input: PushFailureInput): PushCause {
     if (reason === NO_RATE_TARGET_REASON) {
       if (input.targetGap === "derived_only") return "rate_plan_not_updatable";
       if (input.targetGap === "not_in_catalog") return "rate_not_found";
+      // Nothing was learned about the room type: the read failed or was empty.
+      if (input.targetGap === "catalog_unavailable") return "pms_unavailable";
       return "no_base_rate";
     }
     return GUARDRAIL_CAUSE[reason] ?? "unknown";
@@ -381,6 +413,8 @@ function causeOf(input: PushFailureInput): PushCause {
 
   const parsed = parseVendorError(input.message);
   if (input.phase === "job" && parsed.text.trim() === JOB_UNCONFIRMED_MESSAGE) return "job_unconfirmed";
+  // Sent or not, nobody heard back: the same question as a job never confirmed.
+  if (parsed.text.trim() === SEND_IN_PROGRESS_MESSAGE) return "job_unconfirmed";
   const status = input.httpStatus ?? parsed.status;
   const text = parsed.text.toLowerCase();
 
@@ -397,7 +431,12 @@ function causeOf(input: PushFailureInput): PushCause {
   if (includesAny(text, DERIVED)) return "rate_plan_not_updatable";
   if (includesAny(text, NOT_FOUND)) return "rate_not_found";
   if (includesAny(text, PAST_DATE)) return "stay_date_past";
-  if (includesAny(text, VALUE)) return "value_rejected";
+  if (MENTIONS_DATE.test(text)) {
+    // "must be greater than or equal to today" and the like.
+    if (text.includes("today")) return "stay_date_past";
+  } else if (includesAny(text, VALUE)) {
+    return "value_rejected";
+  }
   if (includesAny(text, THROTTLED)) return "throttled";
   if (includesAny(text, UNAVAILABLE)) return "pms_unavailable";
 
@@ -456,6 +495,7 @@ export function classifyPushFailure(input: PushFailureInput): PushFailure {
     alertedElsewhere: entry.alertedElsewhere === true,
     mayaBug: entry.mayaBug === true,
     dropTargets: entry.dropTargets === true,
+    clearedByReconnect: entry.clearedByReconnect === true,
     customerSentence: entry.sentence(wordsFor(input.pms)),
     adminDescription: entry.admin,
   };
@@ -500,16 +540,27 @@ export function describePushCause(
  *   exhausted  MAX_PUSH_ATTEMPTS used at this price
  * Both waits end a day after the last try, so a fix nobody told MAYA about
  * (a scope granted, a rate rule loosened) is picked up within a day, and a
- * cell is never given up on for good.
+ * cell is never given up on for good. A hold whose fix is a new grant ends as
+ * soon as the connection was re-authorized after the last try
+ * (`reauthorizedAtMs`, pms_connections.reauthorized_at): the owner did what
+ * the change log asked, so waiting a day would only leave their rates stale.
  */
 export function retryDecision(p: {
-  failure: Pick<PushFailure, "retry">;
+  failure: Pick<PushFailure, "retry"> & { clearedByReconnect?: boolean };
   attempts: number;
   lastAttemptAtMs: number;
   nowMs: number;
+  reauthorizedAtMs?: number;
 }): "retry" | "held" | "exhausted" {
   const rested = !(p.nowMs - p.lastAttemptAtMs < RETRY_AFTER_GIVING_UP_MS);
-  if (p.failure.retry === "hold") return rested ? "retry" : "held";
+  if (p.failure.retry === "hold") {
+    const reconnected =
+      p.failure.clearedByReconnect === true &&
+      p.reauthorizedAtMs != null &&
+      Number.isFinite(p.lastAttemptAtMs) &&
+      p.reauthorizedAtMs > p.lastAttemptAtMs;
+    return rested || reconnected ? "retry" : "held";
+  }
   if (p.attempts >= MAX_PUSH_ATTEMPTS) return rested ? "retry" : "exhausted";
   return "retry";
 }

@@ -16,6 +16,7 @@ import {
   type PushFailureInput,
   RETRY_AFTER_GIVING_UP_MS,
   retryDecision,
+  SEND_IN_PROGRESS_MESSAGE,
 } from "../../../supabase/functions/_shared/pms/push-failure";
 import { GUARDRAIL, NO_RATE_TARGET_REASON } from "../../../supabase/functions/_shared/pms/push-guardrails";
 
@@ -69,6 +70,21 @@ describe("classifyPushFailure", () => {
       "quiet",
     ],
     ["a job never reported on", { pms: "cloudbeds", phase: "job", message: JOB_UNCONFIRMED_MESSAGE }, "job_unconfirmed", true, "transient", "quiet"],
+    ["a send whose outcome was never written", send(SEND_IN_PROGRESS_MESSAGE), "job_unconfirmed", true, "transient", "quiet"],
+    // Dates, checked before the generic comparisons.
+    [
+      "a start date the PMS wants no earlier than today",
+      send("Cloudbeds patchRate failed (400): startDate must be greater than or equal to today"),
+      "stay_date_past",
+      true,
+      "transient",
+      "hold",
+    ],
+    ["an interval MAYA built backwards", send("Cloudbeds patchRate failed (400): endDate must be greater than startDate"), "unknown", false, "transient", "quiet"],
+    // A malformed value is MAYA's request, not the hotel's rate rule.
+    ["a price with too many decimals", send("Cloudbeds patchRate failed (400): rate allows at most 2 decimal places"), "unknown", false, "transient", "quiet"],
+    ["a price that is not a number", send("Cloudbeds patchRate failed (400): rate must be a number"), "unknown", false, "transient", "quiet"],
+    ["an update over the PMS maximum", send("Cloudbeds patchRate failed (400): rate update must be less than 5000"), "value_rejected", true, "critical", "hold"],
   ];
 
   it.each(table)("files %s under its cause", (_label, input, cause, known, severity, retry) => {
@@ -97,7 +113,9 @@ describe("classifyPushFailure", () => {
   });
 
   it("files every guardrail code as an admin-only cause that is re-checked, not retried", () => {
-    const bugs = new Set<string>([GUARDRAIL.invalidPrice, GUARDRAIL.invalidBounds, GUARDRAIL.belowFloor, GUARDRAIL.aboveCeiling, GUARDRAIL.stalePrice]);
+    // A price under a floor raised after it was published, or over a ceiling
+    // lowered since, is expected until the re-price lands: not a bug.
+    const bugs = new Set<string>([GUARDRAIL.invalidPrice, GUARDRAIL.invalidBounds, GUARDRAIL.stalePrice]);
     for (const code of Object.values(GUARDRAIL)) {
       const f = classifyPushFailure({ pms: "cloudbeds", phase: "guardrail", message: code });
       expect(f.cause).toBe(code.replace("guardrail:", "guardrail_"));
@@ -112,6 +130,8 @@ describe("classifyPushFailure", () => {
     expect(gap("derived_only")).toMatchObject({ cause: "rate_plan_not_updatable", severity: "critical", retry: "recheck", adminOnly: false });
     expect(gap("no_base_rate").cause).toBe("no_base_rate");
     expect(gap(null).cause).toBe("no_base_rate");
+    // A catalog read that failed or came back empty says nothing about the room type.
+    expect(gap("catalog_unavailable")).toMatchObject({ cause: "pms_unavailable", severity: "transient", adminOnly: false });
     expect(gap("not_in_catalog")).toMatchObject({ cause: "rate_not_found", severity: "critical" });
     expect(isIncidentSkipReason(NO_RATE_TARGET_REASON)).toBe(true);
     expect(isIncidentSkipReason("something else")).toBe(false);
@@ -171,6 +191,20 @@ describe("retryDecision", () => {
   it("holds a known critical cause from the first failure, for a day", () => {
     expect(retryDecision({ failure: hold, attempts: 1, lastAttemptAtMs: NOW - 5 * 60_000, nowMs: NOW })).toBe("held");
     expect(retryDecision({ failure: hold, attempts: 1, lastAttemptAtMs: NOW - RETRY_AFTER_GIVING_UP_MS - 1, nowMs: NOW })).toBe("retry");
+  });
+
+  it("ends a grant problem's hold once the connection was re-authorized after the last try", () => {
+    const scope = classifyPushFailure(send("Cloudbeds patchRate failed (403): scope required for this call was not granted", 403));
+    const revoked = classifyPushFailure(send("Cloudbeds patchRate failed (400): Application is not available to be connected"));
+    const value = classifyPushFailure(send("Cloudbeds patchRate failed (400): Rate must be greater than 10"));
+    const tried = NOW - 10 * 60_000;
+    for (const failure of [scope, revoked]) {
+      expect(retryDecision({ failure, attempts: 1, lastAttemptAtMs: tried, nowMs: NOW })).toBe("held");
+      expect(retryDecision({ failure, attempts: 1, lastAttemptAtMs: tried, nowMs: NOW, reauthorizedAtMs: tried - 60_000 })).toBe("held");
+      expect(retryDecision({ failure, attempts: 1, lastAttemptAtMs: tried, nowMs: NOW, reauthorizedAtMs: NOW - 5 * 60_000 })).toBe("retry");
+    }
+    // A reconnect says nothing about a rate rule set inside the PMS.
+    expect(retryDecision({ failure: value, attempts: 1, lastAttemptAtMs: tried, nowMs: NOW, reauthorizedAtMs: NOW - 5 * 60_000 })).toBe("held");
   });
 
   it("retries a row with no time on it rather than holding it forever", () => {
