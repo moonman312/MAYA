@@ -49,7 +49,8 @@
  *   • Changes in the PMS — before a new price goes to a night last sent to
  *     over the settle window ago, the tick can read the PMS again
  *     (readBeforeResend); a night whose rate there moved waits for the next
- *     evaluation instead.
+ *     evaluation instead, as does one the tick's own read found moved but
+ *     could not record (movedInPms).
  *   • Ledger — each batch is recorded as in progress before it goes out, and
  *     again as soon as the PMS answers it. A send the ledger does not know
  *     about would be read back by the base rate calendar as the hotel's own
@@ -254,6 +255,12 @@ export type RatePushOptions = {
    * about to get a new price was last sent to that long ago.
    */
   readBeforeResend?: { settleMs: number; read: () => Promise<Set<string> | null> };
+  /**
+   * Nights this tick's own base rate read found moved in the PMS that must
+   * not get a new price yet (the refresh's holdCells): held like the ones
+   * readBeforeResend finds, without reading again.
+   */
+  movedInPms?: Set<string>;
 };
 
 export type RatePushSummary =
@@ -286,7 +293,7 @@ export type RatePushSummary =
       awaitingBaseRead?: number;
       /** Cells whose published price predates the manual price on their night, held until it is priced again. */
       awaitingEvaluation?: number;
-      /** Cells whose rate the PMS had moved on since they were priced (readBeforeResend), held until priced again. */
+      /** Cells whose rate the PMS had moved on since they were priced (readBeforeResend, movedInPms), held until priced again. */
       changedInPms?: number;
       /** How long the read before re-sending took, when one was made. */
       readBeforeResendMs?: number;
@@ -840,7 +847,7 @@ export async function pushRatesForHotel(
   // read costs PMS calls against the vendor's rate limit and the deadline, so
   // it is made only when it can find something: a night last sent to longer
   // ago than a change there can be told from a send still landing.
-  let moved: Set<string> | null = null;
+  let moved = opts.movedInPms ?? null;
   if (opts.readBeforeResend) {
     const settledBefore = Date.now() - opts.readBeforeResend.settleMs;
     const worthReading = withTarget.some((c) => {
@@ -849,8 +856,9 @@ export async function pushRatesForHotel(
     });
     if (worthReading) {
       const startedAt = Date.now();
-      moved = await opts.readBeforeResend.read();
+      const read = await opts.readBeforeResend.read();
       readBeforeResendMs = Date.now() - startedAt;
+      if (read) moved = moved ? new Set([...moved, ...read]) : read;
     }
   }
   if (moved && moved.size > 0) {

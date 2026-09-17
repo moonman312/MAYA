@@ -9,7 +9,9 @@
  * this with each night MAYA has sent to. A tick about to send a new price to
  * a night MAYA has sent to reads it again first, if its refresh did not read
  * the PMS already (pricing-tick.ts), so a rate the hotel changed since the
- * hourly read is not written over before it is seen. The hard part is never
+ * hourly read is not written over before it is seen. When recording what a
+ * read found fails, the push holds those nights that tick (holdCells) and
+ * the next read takes them. The hard part is never
  * taking MAYA's own output for a hotel's change. A night is a hand edit only
  * when all of these hold:
  *
@@ -285,6 +287,18 @@ export type PmsEditsResult = {
    * change, closed, or a new base. Listed even when writing them failed.
    */
   movedCells: string[];
+  /**
+   * The nights a new price must not go to yet, although the PMS was just
+   * read: all of movedCells when this step failed (`failed`), since the
+   * evaluation that follows did not see what it found.
+   */
+  holdCells: string[];
+  /**
+   * Writing what this step found failed part way, or it could not tell what
+   * there was to find. When it could not, movedCells are the nights sent to
+   * over the settle window ago that the PMS quotes at another price.
+   */
+  failed?: true;
 };
 
 /** A night's ledger row as read, with what this step now knows about it. */
@@ -377,6 +391,7 @@ export async function applyPmsEdits(
     suppressedRules: reset.suppressedRules,
     retiredPickups: reset.retiredPickups,
     movedCells: movedCells(plan),
+    holdCells: [],
   };
 }
 
@@ -384,6 +399,21 @@ function movedCells(plan: Pick<PmsEditPlan, "edits" | "closed" | "rebased">): st
   return [...plan.edits.map((e) => e.read), ...plan.closed, ...plan.rebased.map((e) => e.read)].map(
     (r) => `${r.stayDate}|${r.roomTypeId}`,
   );
+}
+
+/**
+ * With no plan to go by, the nights a change in the PMS could be on: sent to
+ * at least the settle window ago, and quoting something other than MAYA's price.
+ */
+function differingSends(reads: PushedNightRead[], nowMs: number, settleMs: number): string[] {
+  return reads
+    .filter((r) => {
+      const l = r.ledger;
+      if (l.status !== "sent" || l.price == null) return false;
+      const pushedAtMs = l.pushed_at != null ? Date.parse(String(l.pushed_at)) : NaN;
+      return pushedAtMs <= nowMs - settleMs && !pmsHoldsPrice(r.pmsRate, Number(l.price));
+    })
+    .map((r) => `${r.stayDate}|${r.roomTypeId}`);
 }
 
 /** Nights' base rates, as the PMS has them. */
@@ -470,7 +500,9 @@ async function closeNights(
  * to be there since the hotel went live. Does nothing for a hotel that is
  * not live or a database without the columns that say where a price came
  * from. Logs one line of counts when there was anything to count. Never
- * throws: a failed write is logged and the next refresh looks again.
+ * throws: a failed write is logged, the result says so (`failed`) with the
+ * nights the push must hold this tick (holdCells), and the next refresh
+ * looks again.
  */
 export async function adoptPmsEdits(
   supabase: SupabaseClient,
@@ -491,6 +523,7 @@ export async function adoptPmsEdits(
     suppressedRules: 0,
     retiredPickups: 0,
     movedCells: [],
+    holdCells: [],
   };
   const inWindow = reads.filter((r) =>
     r.stayDate >= window.firstDate && r.stayDate <= window.lastDate && (r.ledger.status === "sent" || r.ledger.status === "skipped")
@@ -498,6 +531,7 @@ export async function adoptPmsEdits(
   if (inWindow.length === 0) return none;
 
   let plan: PmsEditPlan | null = null;
+  const settleMs = pmsEditSettleMs();
   try {
     const { data: settings, error: settingsError } = await supabase
       .from("hotel_settings")
@@ -530,7 +564,7 @@ export async function adoptPmsEdits(
       targets,
       manual,
       nowMs: Date.parse(at),
-      settleMs: pmsEditSettleMs(),
+      settleMs,
       liveSinceMs,
     });
     const found = plan.edits.length + plan.inStep.length + plan.landed.length + plan.closed.length + plan.rebased.length;
@@ -547,8 +581,10 @@ export async function adoptPmsEdits(
         error: (e instanceof Error ? e.message : String((e as { message?: unknown })?.message ?? e)).slice(0, 300),
       }),
     );
-    // Not recorded, but still not MAYA's to write over.
-    return plan ? { ...none, movedCells: movedCells(plan) } : none;
+    // Not recorded, so the evaluation after this did not see it, but still
+    // not MAYA's to write over.
+    const cells = plan ? movedCells(plan) : differingSends(inWindow, Date.parse(at), settleMs);
+    return { ...none, movedCells: cells, holdCells: cells, failed: true };
   }
 }
 
@@ -602,7 +638,18 @@ function logPreMigration(hotelId: string): PmsEditsResult {
       migration: "99_supabase_migration_push_guardrails_v1.sql",
     }),
   );
-  return { adopted: 0, inStep: 0, landed: 0, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 0, retiredPickups: 0, movedCells: [] };
+  return {
+    adopted: 0,
+    inStep: 0,
+    landed: 0,
+    closed: 0,
+    clearedManual: 0,
+    rebased: 0,
+    suppressedRules: 0,
+    retiredPickups: 0,
+    movedCells: [],
+    holdCells: [],
+  };
 }
 
 /** One line per hotel per refresh, counts only. */

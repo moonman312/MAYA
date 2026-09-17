@@ -94,6 +94,14 @@ export type SeedCalendarResult =
        * (a change, a closed night, a new base).
        */
       movedCells: string[];
+      /**
+       * Of movedCells, the nights the push must not send a new price to this
+       * tick although the PMS was read (pms-edits.ts holdCells): the ones it
+       * could not record when taking the hotel's changes failed.
+       */
+      holdCells: string[];
+      /** Taking the hotel's changes failed; the next refresh tries again. */
+      pmsEditsFailed?: true;
     };
 
 /**
@@ -306,6 +314,8 @@ async function seedWithTargets(
       loadedAfterZeroBase,
       days: horizon,
       movedCells: [...rows.map((r) => `${r.stay_date}|${r.room_type_id}`), ...(pmsEdits?.movedCells ?? [])],
+      holdCells: pmsEdits?.holdCells ?? [],
+      ...(pmsEdits?.failed ? { pmsEditsFailed: true as const } : {}),
     },
     targets: read.targets,
   };

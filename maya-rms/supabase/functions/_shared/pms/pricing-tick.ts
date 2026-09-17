@@ -25,6 +25,9 @@
  * prices them. Not when the refresh's own read of the PMS failed this tick,
  * or found nothing to target: asking again straight away only doubles the
  * calls. The push log says how long the read took (readBeforeResendMs).
+ * When the refresh did read the PMS but could not record the changes it
+ * found there, the evaluation priced those nights without them, so the push
+ * holds them this tick (holdCells) rather than write over them.
  *
  * The base rate refresh has the evaluation cut-off as its deadline: it does
  * not start without a minute to spare, and stops waiting on the PMS past it.
@@ -188,7 +191,9 @@ export async function runPricingTick<E>(
         // or skipped evaluation leaves the push to judge each price's age.
         evaluatedAt,
         holdNeverPushed: !baseReadRecently(calendar),
-        ...(baseReadThisTick(calendar) || pmsAnsweredRead(calendar)
+        ...(baseReadThisTick(calendar)
+          ? calendar.holdCells.length > 0 ? { movedInPms: new Set(calendar.holdCells) } : {}
+          : pmsAnsweredRead(calendar)
           ? {}
           : {
             readBeforeResend: {
@@ -230,7 +235,7 @@ function baseReadRecently(calendar: EnsureCalendarResult | TickSkip): boolean {
 }
 
 /** Whether this tick's refresh read the PMS. */
-function baseReadThisTick(calendar: EnsureCalendarResult | TickSkip): boolean {
+function baseReadThisTick(calendar: EnsureCalendarResult | TickSkip): calendar is Extract<EnsureCalendarResult, { ok: true }> {
   return "ok" in calendar && calendar.ok;
 }
 

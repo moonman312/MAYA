@@ -328,7 +328,7 @@ describe("adoptPmsEdits", () => {
       AT,
     );
 
-    expect(res).toEqual({ adopted: 1, inStep: 0, landed: 0, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 1, retiredPickups: 1, movedCells: ["2026-10-05|rt-king"] });
+    expect(res).toEqual({ adopted: 1, inStep: 0, landed: 0, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 1, retiredPickups: 1, movedCells: ["2026-10-05|rt-king"], holdCells: [] });
     expect(d.tables.manual_price).toEqual([
       expect.objectContaining({ hotel_id: "h1", stay_date: "2026-10-05", room_type_id: "rt-king", price: 250, source: "pms", pms_type: "cloudbeds", set_by: null, note: null, set_at: AT, cleared_at: null }),
     ]);
@@ -360,7 +360,7 @@ describe("adoptPmsEdits", () => {
       WINDOW,
       AT,
     );
-    expect(res).toEqual({ adopted: 0, inStep: 0, landed: 1, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 0, retiredPickups: 0, movedCells: [] });
+    expect(res).toEqual({ adopted: 0, inStep: 0, landed: 1, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 0, retiredPickups: 0, movedCells: [], holdCells: [] });
     expect(d.tables.manual_price).toEqual([]);
     expect(d.tables.rate_updates).toEqual([
       expect.objectContaining({
@@ -492,13 +492,36 @@ describe("adoptPmsEdits", () => {
     expect(d.tables.manual_price).toEqual([]);
   });
 
-  it("logs a failed write and carries on, so the refresh still counts", async () => {
+  it("logs a failed write and carries on, so the refresh still counts, and says which nights the push must hold", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const d = db({}, { rpc: (fn) => (fn === "set_manual_prices_from_pms" ? new FakeRpcError({ code: "57014", message: "canceling statement due to statement timeout" }) : undefined) });
-    expect(await adoptPmsEdits(d.client, "h1", "cloudbeds", [read()], TARGETS, WINDOW, AT)).toMatchObject({ adopted: 0 });
+    const reads = [read(), read({ stayDate: "2026-10-06", pmsRate: 220 })];
+    expect(await adoptPmsEdits(d.client, "h1", "cloudbeds", reads, TARGETS, WINDOW, AT)).toMatchObject({
+      adopted: 0,
+      failed: true,
+      movedCells: ["2026-10-05|rt-king"],
+      holdCells: ["2026-10-05|rt-king"],
+    });
     expect(errors.mock.calls.some((c) => String(c[0]).includes("statement timeout"))).toBe(true);
     expect(d.tables.rate_updates).toEqual([]);
+  });
+
+  it("holds every night sent to over the settle window ago that the PMS quotes at another price when it can't tell what changed", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const d = db({}, { fault: (c) => (c.table === "manual_price" && c.op === "select" ? { message: "canceling statement due to statement timeout" } : null) });
+    const reads = [
+      read(),
+      // Still MAYA's price, sent minutes ago, or never confirmed: only the last could hide a change.
+      read({ stayDate: "2026-10-06", pmsRate: 220 }),
+      read({ stayDate: "2026-10-07", ledger: { pushed_at: hoursAgo(0.2), confirmed_at: null } }),
+      read({ stayDate: "2026-10-08", ledger: { confirmed_at: null } }),
+      read({ stayDate: "2026-10-09", ledger: { status: "failed", error: "send in progress" } }),
+    ];
+    const res = await adoptPmsEdits(d.client, "h1", "cloudbeds", reads, TARGETS, WINDOW, AT);
+    expect(res).toMatchObject({ adopted: 0, failed: true, holdCells: ["2026-10-05|rt-king", "2026-10-08|rt-king"] });
+    expect(res.movedCells).toEqual(res.holdCells);
+    expect(d.tables.manual_price).toEqual([]);
   });
 });
 
@@ -529,7 +552,7 @@ describe("a rate changed in the PMS, through the tick", () => {
     rule_affected_room_type: [{ room_type_id: "rt-king" }],
   });
 
-  function setup(ledger: FakeRow[]) {
+  function setup(ledger: FakeRow[], opts: Parameters<typeof fakeSupabase>[1] = {}) {
     const d = fakeSupabase({
       hotels: [{ id: HOTEL, timezone: "UTC" }],
       hotel_settings: [{ hotel_id: HOTEL, simulation_mode: false }],
@@ -549,7 +572,7 @@ describe("a rate changed in the PMS, through the tick", () => {
       published_price: [{ hotel_id: HOTEL, stay_date: NIGHT, room_type_id: "rt-king", price: 220, base_price: 200, computed_at: new Date(T0 - 3 * 3_600_000).toISOString() }],
       manual_price: [],
       rate_updates: ledger,
-    });
+    }, opts);
     const sent: { price: number; stayDate: string }[] = [];
     let pmsRate = 250;
     const adapter: PmsRatePushAdapter = {
@@ -751,6 +774,35 @@ describe("a rate changed in the PMS, through the tick", () => {
 
     // Next tick prices the night at the hotel's rate, and there is nothing to send.
     await tick(T0 + 5 * 60_000);
+    expect(published(d)).toBe(250);
+    expect(sent).toEqual([]);
+  });
+
+  it("holds a re-price over a rate changed in the PMS that the refresh read but could not record, and takes it on a later read", async () => {
+    let rpcDown = true;
+    const { d, sent, tick } = setup([settledSend(220)], {
+      rpc: (fn) =>
+        rpcDown && fn === "set_manual_prices_from_pms" ? new FakeRpcError({ code: "57014", message: "canceling statement due to statement timeout" }) : undefined,
+    });
+    // The hotel set 250 in Cloudbeds; a rule created a little before this tick fires on the night.
+    d.tables.pricing_rules.push(busyRule("r2", new Date(T0 - 10 * 60_000).toISOString()));
+
+    const first = await tick(T0);
+
+    expect(first.calendar).toMatchObject({ ok: true, pmsEditsFailed: true, holdCells: [`${NIGHT}|rt-king`] });
+    expect(d.tables.manual_price).toEqual([]);
+    // Priced without the hotel's change, and not sent over it.
+    expect(published(d)).toBe(242);
+    expect(first.push).toMatchObject({ sent: 0, changedInPms: 1 });
+    expect(sent).toEqual([]);
+
+    // Five minutes on the write works again: the read before re-sending takes the change and holds the night once more.
+    rpcDown = false;
+    const second = await tick(T0 + 5 * 60_000);
+    expect(second.push).toMatchObject({ sent: 0, changedInPms: 1 });
+    expect(d.tables.manual_price).toEqual([expect.objectContaining({ price: 250, source: "pms" })]);
+
+    await tick(T0 + 10 * 60_000);
     expect(published(d)).toBe(250);
     expect(sent).toEqual([]);
   });
