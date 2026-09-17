@@ -239,7 +239,7 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchSpy);
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://proj.supabase.co");
   vi.stubEnv("CLOUDBEDS_CRON_SECRET", "shh");
-  vi.stubEnv("MAYA_EVAL_HORIZON_DAYS", "");
+  vi.stubEnv("MAYA_PRICING_HORIZON_DAYS", "");
 });
 
 afterEach(() => {
@@ -537,8 +537,8 @@ describe("POST /api/manual-price — pushed", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("uses the same window as the scheduled push when MAYA_EVAL_HORIZON_DAYS moves it", async () => {
-    vi.stubEnv("MAYA_EVAL_HORIZON_DAYS", "30");
+  it("uses the same window as the scheduled push when MAYA_PRICING_HORIZON_DAYS moves it", async () => {
+    vi.stubEnv("MAYA_PRICING_HORIZON_DAYS", "30");
     // today + 29 = 2026-10-14 is now the last pushed night.
     const inside = await (await post({ ...GOOD, dateFrom: "2026-10-14" })).json();
     expect(inside).toMatchObject({ pushed: "nudged", pushWindow: { now: 1, later: 0, days: 30 } });

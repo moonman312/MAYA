@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
 
   const runEvaluate = (getEnv("MAYA_RUN_EVALUATE") ?? "true").toLowerCase() !== "false";
   // Nights evaluated per tick, the same window the Cloudbeds and Think syncs
-  // price and push: 60 by default. Env override: MAYA_EVAL_HORIZON_DAYS.
+  // price and push: 60 by default. Env override: MAYA_PRICING_HORIZON_DAYS.
   const horizonDays = pricingHorizonDays();
 
   // Optional single-hotel dispatch: body { hotel_id }.

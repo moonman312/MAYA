@@ -22,7 +22,7 @@ const running = new Map<string, { again: boolean }>();
  * sequential reads on a busy hotel and this runs under the route's 300s cap,
  * which would kill it half way with the near dates rewritten and the far
  * ones not. The same window the scheduled syncs evaluate and push
- * (MAYA_EVAL_HORIZON_DAYS, default 60); nights past it are not pushed.
+ * (MAYA_PRICING_HORIZON_DAYS, default 60); nights past it are not pushed.
  */
 export function repriceHorizonDays(): number {
   return pricingHorizonDays();

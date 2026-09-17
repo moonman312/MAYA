@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
 
   const runEvaluate = (getEnv("MAYA_RUN_EVALUATE") ?? "true").toLowerCase() !== "false";
   // Nights evaluated, refreshed and pushed per tick: 60 by default, the window
-  // the support page promises. Env override: MAYA_EVAL_HORIZON_DAYS.
+  // the support page promises. Env override: MAYA_PRICING_HORIZON_DAYS.
   const horizonDays = pricingHorizonDays();
   // Outbound rate push is OFF unless explicitly enabled, and even then only
   // fires for hotels in LIVE mode (gated inside pushRatesForHotel).

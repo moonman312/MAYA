@@ -61,7 +61,7 @@ function clock(at: string, timeZone = "UTC", today = at.slice(0, 10)): HotelCloc
 }
 
 beforeEach(() => {
-  vi.stubEnv("MAYA_EVAL_HORIZON_DAYS", "");
+  vi.stubEnv("MAYA_PRICING_HORIZON_DAYS", "");
   vi.stubEnv("MAYA_BASE_RATE_REFRESH_MINUTES", "");
 });
 afterEach(() => {

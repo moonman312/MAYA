@@ -21,8 +21,13 @@ export const DEFAULT_PRICING_HORIZON_DAYS = 60;
 /** evaluateHotel caps its horizon here, so nothing else may reach further. */
 export const MAX_PRICING_HORIZON_DAYS = 365;
 
-/** Nights per tick, from MAYA_EVAL_HORIZON_DAYS; 60 when unset or unusable. */
-export function pricingHorizonDays(raw: string | undefined = mwsEnv("MAYA_EVAL_HORIZON_DAYS")): number {
+/**
+ * Nights per tick, from MAYA_PRICING_HORIZON_DAYS; 60 when unset or unusable.
+ * The old name, MAYA_EVAL_HORIZON_DAYS, is ignored on purpose: production
+ * secrets still hold a 30 from July testing, and reading it would shrink the
+ * 60-night window the support page promises.
+ */
+export function pricingHorizonDays(raw: string | undefined = mwsEnv("MAYA_PRICING_HORIZON_DAYS")): number {
   const n = Math.floor(Number(raw));
   if (!Number.isFinite(n) || n < 1) return DEFAULT_PRICING_HORIZON_DAYS;
   return Math.min(MAX_PRICING_HORIZON_DAYS, n);

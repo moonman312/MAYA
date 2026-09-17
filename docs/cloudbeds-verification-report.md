@@ -56,7 +56,7 @@ Every evaluated cell in the run was adjusted by rules (100%), and the floor/ceil
 **5. Reliability issues found during testing were fixed and confirmed:**
 
 - **Row-cap truncation** — bulk reads were silently capped at Supabase's 1000-row API limit (~19 days of data). Now paginated; the full horizon evaluates (evidence #2).
-- **Bounded per-run horizon** (`MAYA_EVAL_HORIZON_DAYS`) — keeps each 5-minute run comfortably inside the Edge runtime limit.
+- **Bounded per-run horizon** (`MAYA_PRICING_HORIZON_DAYS`) — keeps each 5-minute run comfortably inside the Edge runtime limit.
 - **Hotel-creation constraint** — the enterprise-ID uniqueness rule no longer blocks creating multiple OAuth-based (Cloudbeds/Think) hotels.
 
 ---

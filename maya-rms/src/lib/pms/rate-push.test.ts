@@ -531,7 +531,7 @@ describe("pushRatesForHotel pushes the hotel's own nights", () => {
   // exactly the horizon the tick evaluated. It used to start on the UTC date,
   // which every evening at a property west of Greenwich is already tomorrow.
   beforeEach(() => {
-    vi.stubEnv("MAYA_EVAL_HORIZON_DAYS", "");
+    vi.stubEnv("MAYA_PRICING_HORIZON_DAYS", "");
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -596,8 +596,8 @@ describe("pushRatesForHotel pushes the hotel's own nights", () => {
     expect(db.calls.some((c) => c.table === "hotels")).toBe(false);
   });
 
-  it("reaches as far as MAYA_EVAL_HORIZON_DAYS when no horizon is passed", async () => {
-    vi.stubEnv("MAYA_EVAL_HORIZON_DAYS", "30");
+  it("reaches as far as MAYA_PRICING_HORIZON_DAYS when no horizon is passed", async () => {
+    vi.stubEnv("MAYA_PRICING_HORIZON_DAYS", "30");
     const db = hotelDb("UTC", ["2026-10-30", "2026-10-31"]);
     const { adapter } = makeAdapter({ "CB-KING": "rate-100" });
 

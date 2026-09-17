@@ -1,6 +1,6 @@
 /**
  * One window for evaluation, the base rate calendar and the push: the hotel's
- * today through today + horizon - 1, 60 nights unless MAYA_EVAL_HORIZON_DAYS
+ * today through today + horizon - 1, 60 nights unless MAYA_PRICING_HORIZON_DAYS
  * says otherwise.
  */
 import { readFileSync } from "node:fs";
@@ -20,15 +20,21 @@ afterEach(() => {
 
 describe("pricingHorizonDays", () => {
   it("is 60 by default, the window the support page promises", () => {
-    vi.stubEnv("MAYA_EVAL_HORIZON_DAYS", "");
+    vi.stubEnv("MAYA_PRICING_HORIZON_DAYS", "");
     expect(pricingHorizonDays()).toBe(60);
   });
 
-  it("follows MAYA_EVAL_HORIZON_DAYS, whole nights, capped where the engine caps", () => {
-    vi.stubEnv("MAYA_EVAL_HORIZON_DAYS", "45");
+  it("follows MAYA_PRICING_HORIZON_DAYS, whole nights, capped where the engine caps", () => {
+    vi.stubEnv("MAYA_PRICING_HORIZON_DAYS", "45");
     expect(pricingHorizonDays()).toBe(45);
     expect(pricingHorizonDays("30.9")).toBe(30);
     expect(pricingHorizonDays("400")).toBe(365);
+  });
+
+  it("ignores the old MAYA_EVAL_HORIZON_DAYS, which production still has at 30", () => {
+    vi.stubEnv("MAYA_PRICING_HORIZON_DAYS", "");
+    vi.stubEnv("MAYA_EVAL_HORIZON_DAYS", "30");
+    expect(pricingHorizonDays()).toBe(60);
   });
 
   it("falls back to 60 on a value that is not a positive number", () => {

@@ -330,8 +330,8 @@ describe("PATCH /api/room-types — the flip", () => {
     expect(log.args.p_detail).toMatchObject({ actor_user_id: USER });
   });
 
-  it("honours MAYA_EVAL_HORIZON_DAYS for the re-price", async () => {
-    vi.stubEnv("MAYA_EVAL_HORIZON_DAYS", "30");
+  it("honours MAYA_PRICING_HORIZON_DAYS for the re-price", async () => {
+    vi.stubEnv("MAYA_PRICING_HORIZON_DAYS", "30");
     await patch({ hotelId: HOTEL, roomTypeId: ROOM, countsAsRoom: false });
     await flushAfter();
     expect(evaluateHotel).toHaveBeenCalledWith(fake(), HOTEL, undefined, 30);
