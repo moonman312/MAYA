@@ -1024,10 +1024,14 @@ export async function analyzeImport(
   // only ever SUGGESTS — nothing is written without an explicit accept.
   const refreshMode = job.stats.mode === "refresh";
 
-  const [daily, { data: statsRaw }] = await Promise.all([
+  const [daily, { data: statsRaw, error: statsErr }] = await Promise.all([
     loadDailyRoomNights(supabase, hotelId),
     supabase.rpc("onboarding_room_type_stats", { p_hotel_id: hotelId }),
   ]);
+  // Every read below throws on failure. A timed-out aggregate used to read as
+  // "no data", and the job completed with findings and rules built on nothing;
+  // throwing makes the worker back off and run the analysis again.
+  if (statsErr) throw new Error(`onboarding_room_type_stats failed: ${statsErr.message}`);
 
   const stats: RoomTypeStats[] = (statsRaw ?? []).map(
     (r: Record<string, unknown>) => ({
@@ -1046,7 +1050,11 @@ export async function analyzeImport(
   );
 
   // Simple counts for informational findings.
-  const [{ count: totalRows }, { count: zeroRateRows }, { count: unmappedRows }] =
+  const [
+    { count: totalRows, error: totalErr },
+    { count: zeroRateRows, error: zeroErr },
+    { count: unmappedRows, error: unmappedErr },
+  ] =
     await Promise.all([
       supabase
         .from("reservations")
@@ -1063,6 +1071,8 @@ export async function analyzeImport(
         .eq("hotel_id", hotelId)
         .is("room_type_id", null),
     ]);
+  const countErr = totalErr ?? zeroErr ?? unmappedErr;
+  if (countErr) throw new Error(`reservation counts failed: ${countErr.message}`);
 
   const [existing, recordedClosures] = await Promise.all([
     loadFindings(supabase, hotelId),
@@ -1161,7 +1171,7 @@ export async function analyzeImport(
   }
 
   if (refreshMode) {
-    for (const s of await buildSuggestionDrafts(supabase, hotelId, daily, today)) {
+    for (const s of await buildSuggestionDrafts(supabase, hotelId, daily, stats, today)) {
       if (answeredInThisJob(s.kind, s.payload).length === 0) drafts.push(s);
     }
   }
@@ -1249,9 +1259,15 @@ async function buildSuggestionDrafts(
   supabase: SupabaseClient,
   hotelId: string,
   daily: DailyRoomNights[],
+  /** The stats analyzeImport already read; this used to read them a second time. */
+  parsedStats: RoomTypeStats[],
   today: string,
 ): Promise<FindingDraft[]> {
-  const [{ data: ruleRows }, { data: roomTypes }, { data: settings }, { data: rtStats }] =
+  const [
+    { data: ruleRows, error: rulesErr },
+    { data: roomTypes, error: typesErr },
+    { data: settings, error: settingsErr },
+  ] =
     await Promise.all([
       supabase
         .from("pricing_rules")
@@ -1269,8 +1285,9 @@ async function buildSuggestionDrafts(
         .select("strategy_floor, strategy_ceiling, pricing_confidence")
         .eq("hotel_id", hotelId)
         .maybeSingle(),
-      supabase.rpc("onboarding_room_type_stats", { p_hotel_id: hotelId }),
     ]);
+  const readErr = rulesErr ?? typesErr ?? settingsErr;
+  if (readErr) throw new Error(`suggestion inputs failed: ${readErr.message}`);
 
   const totalRooms = (roomTypes ?? []).reduce(
     (sum, rt) => sum + (Number(rt.total_rooms) || 0),
@@ -1313,25 +1330,10 @@ async function buildSuggestionDrafts(
 
   const p99ByRoomType = new Map<string, number>();
   const rowCountByRoomType = new Map<string, number>();
-  for (const s of rtStats ?? []) {
-    if (s.p99_rate != null) p99ByRoomType.set(String(s.room_type_id), Number(s.p99_rate));
-    rowCountByRoomType.set(String(s.room_type_id), Number(s.row_count ?? 0));
+  for (const s of parsedStats) {
+    if (s.p99_rate != null) p99ByRoomType.set(s.room_type_id, s.p99_rate);
+    rowCountByRoomType.set(s.room_type_id, s.row_count);
   }
-  const parsedStats: RoomTypeStats[] = (rtStats ?? []).map(
-    (r: Record<string, unknown>) => ({
-      room_type_id: String(r.room_type_id),
-      external_room_type_id: String(r.external_room_type_id ?? ""),
-      name: String(r.name ?? ""),
-      is_active: r.is_active === true,
-      row_count: Number(r.row_count ?? 0),
-      median_rate: r.median_rate != null ? Number(r.median_rate) : null,
-      p99_rate: r.p99_rate != null ? Number(r.p99_rate) : null,
-      max_rate: r.max_rate != null ? Number(r.max_rate) : null,
-      reservation_count: Number(r.reservation_count ?? 0),
-      single_night_reservations: Number(r.single_night_reservations ?? 0),
-      median_los: r.median_los != null ? Number(r.median_los) : null,
-    }),
-  );
   const suspectIds = new Set(findSuspectRoomTypes(parsedStats).map((f) => f.room_type_id));
 
   const ruleSuggestions = computeRuleSuggestions(existing, paceSpecs, occupancyRef);

@@ -344,6 +344,9 @@ function makeAnalysisClient(opts: {
   findings?: Row[];
   /** Room types a person has already classified (counts_as_room_set_by stamped). */
   answered?: string[];
+  /** Make one read fail the way a statement timeout does. */
+  failRpc?: string;
+  failCounts?: boolean;
 }) {
   const findings: Row[] = (opts.findings ?? []).map((f) => ({ ...f }));
   const active = new Map(opts.stats.map((s) => [s.room_type_id, s.is_active]));
@@ -395,6 +398,9 @@ function makeAnalysisClient(opts: {
         return { data: [], error: null };
       }
       // reservations / pricing_rules counts, hotel_settings lookup.
+      if (opts.failCounts && name === "reservations") {
+        return { data: null, count: null, error: { message: "canceling statement due to statement timeout" } };
+      }
       return { data: [], count: 0, error: null };
     };
 
@@ -441,10 +447,11 @@ function makeAnalysisClient(opts: {
     from: table,
     // A builder, like supabase-js: set-returning rpcs are ordered and paged.
     rpc: (fn: string) => {
-      const result = Promise.resolve({
-        data: fn === "onboarding_room_type_stats" ? opts.stats : [],
-        error: null,
-      });
+      const result = Promise.resolve(
+        opts.failRpc === fn
+          ? { data: null, error: { message: "canceling statement due to statement timeout" } }
+          : { data: fn === "onboarding_room_type_stats" ? opts.stats : [], error: null },
+      );
       const b = { order: () => b, range: () => result, then: result.then.bind(result) };
       return b;
     },
@@ -548,6 +555,23 @@ describe("proposeCountsAsRoom", () => {
     expect(r.proposedRooms).toBe(0);
     expect(String(warn.mock.calls[0]?.[0])).toContain("99_supabase_migration_room_type_counts_as_room_v1.sql");
     warn.mockRestore();
+  });
+});
+
+describe("analyzeImport read failures", () => {
+  it.each(["onboarding_room_type_stats", "onboarding_daily_room_nights"])(
+    "throws when %s fails, instead of analysing an empty book",
+    async (fn) => {
+      const sb = makeAnalysisClient({ stats: DUPLICATE_PAIR, failRpc: fn });
+      await expect(analyzeImport(sb.client, makeJob())).rejects.toThrow(/statement timeout/);
+      expect(sb.findings).toHaveLength(0);
+      expect(sb.isActive("rt-dead")).toBe(true);
+    },
+  );
+
+  it("throws when a reservation count fails", async () => {
+    const sb = makeAnalysisClient({ stats: DUPLICATE_PAIR, failCounts: true });
+    await expect(analyzeImport(sb.client, makeJob())).rejects.toThrow(/reservation counts failed/);
   });
 });
 
