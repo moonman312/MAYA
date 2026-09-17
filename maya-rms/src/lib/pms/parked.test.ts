@@ -162,6 +162,9 @@ describe("hotelsImportingNow", () => {
   const NOW = "2026-09-16T12:00:00.000Z";
   const jobs: FakeRow[] = [
     { hotel_id: "h-running", status: "running", phase: "sync_current", lease_expires_at: "2026-09-16T12:02:00.000Z" },
+    // Discovering: it goes straight on to the current window in the same
+    // invocation, on the same checkpoint and credential.
+    { hotel_id: "h-discover", status: "running", phase: "discover", lease_expires_at: "2026-09-16T12:02:00.000Z" },
     // Reading old years for hours: nothing keeps its current bookings fresh
     // but the scheduled sync, so it must not be skipped.
     { hotel_id: "h-history", status: "running", phase: "historical", lease_expires_at: "2026-09-16T12:02:00.000Z" },
@@ -177,10 +180,10 @@ describe("hotelsImportingNow", () => {
     const { client } = fakeSupabase({ import_jobs: jobs });
     const got = await hotelsImportingNow(
       client,
-      ["h-running", "h-history", "h-analyze", "h-expired", "h-queued", "h-done", "h-idle"],
+      ["h-running", "h-discover", "h-history", "h-analyze", "h-expired", "h-queued", "h-done", "h-idle"],
       NOW,
     );
-    expect([...got]).toEqual(["h-running"]);
+    expect([...got].sort()).toEqual(["h-discover", "h-running"]);
   });
 
   it("fails open, so a read error never stops a tick from syncing", async () => {

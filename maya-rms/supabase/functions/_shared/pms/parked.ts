@@ -134,13 +134,14 @@ async function purgedAwaitingImport(supabase: SupabaseClient, hotelIds: string[]
  *
  * The import worker and the scheduled sync both call the PMS with the same
  * credential, and their rate limiting is per isolate, so running both at once
- * spends the property's allowance twice as fast. Only the worker's
- * sync_current phase reads the recent window, and it keeps these hotels'
- * reservations fresh while it runs, so the scheduled run skips only its PMS
- * read for them and still evaluates and pushes prices. Every other phase
- * (discover, historical, analyze) can run for hours on a big property and
- * reads nothing current, so those hotels keep syncing: a refresh import must
- * never freeze a live hotel's pricing on stale bookings.
+ * spends the property's allowance twice as fast. The worker's sync_current
+ * phase reads the recent window, and discover flows straight into it in the
+ * same invocation, so both count: they keep these hotels' reservations fresh
+ * while they run, and the scheduled run skips only its PMS read for them and
+ * still evaluates and pushes prices. The other phases (historical, analyze)
+ * can run for hours on a big property and read nothing current, so those
+ * hotels keep syncing: a refresh import must never freeze a live hotel's
+ * pricing on stale bookings.
  *
  * Fails open: on a read error nobody is skipped, which is how every tick ran
  * before this existed.
@@ -156,7 +157,7 @@ export async function hotelsImportingNow(
     .select("hotel_id")
     .in("hotel_id", hotelIds)
     .eq("status", "running")
-    .eq("phase", "sync_current")
+    .in("phase", ["discover", "sync_current"])
     .gt("lease_expires_at", nowIso);
   if (error) {
     console.error(JSON.stringify({ fn: "hotelsImportingNow", error: error.message, failedOpen: hotelIds.length }));
