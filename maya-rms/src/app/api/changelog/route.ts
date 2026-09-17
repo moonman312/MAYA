@@ -110,12 +110,18 @@ async function loadRunSummaries(supabase: SupabaseClient, hotelId: string): Prom
   const summaries: RunSummary[] = [];
   for (const run of runs) {
     const runId = String(run.evaluation_run_id);
+    // A run stamps its heartbeat and every audit row with the same evalTs, so
+    // filtering on it too lets these reads use (hotel_id, evaluated_at desc).
+    // Nothing indexes evaluation_run_id, and on its own it scanned every audit
+    // row the hotel has kept.
+    const runAt = String(run.evaluated_at);
     const changeRows: { id: string; base_price: number; final_price: number }[] = [];
     for (let from = 0; ; from += PAGE) {
       const { data, error } = await supabase
         .from("evaluation_audit")
         .select(RANK_COLUMNS)
         .eq("hotel_id", hotelId)
+        .eq("evaluated_at", runAt)
         .eq("evaluation_run_id", runId)
         .order("id", { ascending: true })
         .range(from, from + PAGE - 1);
@@ -145,6 +151,7 @@ async function loadRunSummaries(supabase: SupabaseClient, hotelId: string): Prom
         .from("evaluation_audit")
         .select(`id, ${AUDIT_COLUMNS}`)
         .eq("hotel_id", hotelId)
+        .eq("evaluated_at", runAt)
         .in("id", top.map((t) => t.id));
       if (fullErr) throw fullErr;
       const byId = new Map(((full ?? []) as Record<string, unknown>[]).map((r) => [String(r.id), r]));

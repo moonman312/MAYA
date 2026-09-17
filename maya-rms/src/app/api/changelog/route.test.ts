@@ -305,6 +305,13 @@ describe("changelog route: a large property's runs", () => {
     expect(current.body).toHaveLength(10);
     expect(current.body.every((c: { has_changes: boolean }) => c.has_changes)).toBe(true);
     expect(current.body[1].changes.length).toBeGreaterThan(0);
+    // Every audit read for a run is pinned to the run's timestamp, so it can
+    // use (hotel_id, evaluated_at) instead of scanning the hotel's history.
+    const runReads = current.calls.filter(
+      (c) => c.table === "evaluation_audit" && c.filters.some((f) => f.col === "evaluation_run_id" || f.col === "id"),
+    );
+    expect(runReads.length).toBeGreaterThan(0);
+    for (const c of runReads) expect(c.filters.some((f) => f.col === "evaluated_at" && f.kind === "eq")).toBe(true);
     // Details were read only for the entries shown.
     const fullReads = current.calls.filter((c) => c.table === "evaluation_audit" && c.columns.includes(" details"));
     for (const c of fullReads) {
