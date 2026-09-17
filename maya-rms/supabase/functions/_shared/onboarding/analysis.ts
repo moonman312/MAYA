@@ -16,6 +16,7 @@ import {
   computeOccupancyReference,
   computeStarterRules,
   generateStarterRules,
+  loadDailyRoomNights,
   MIN_HISTORY_DAYS_FOR_STARTERS,
   type StarterRuleSpec,
 } from "./generate-rules.ts";
@@ -1023,17 +1024,11 @@ export async function analyzeImport(
   // only ever SUGGESTS — nothing is written without an explicit accept.
   const refreshMode = job.stats.mode === "refresh";
 
-  const [{ data: dailyRaw }, { data: statsRaw }] = await Promise.all([
-    supabase.rpc("onboarding_daily_room_nights", { p_hotel_id: hotelId }),
+  const [daily, { data: statsRaw }] = await Promise.all([
+    loadDailyRoomNights(supabase, hotelId),
     supabase.rpc("onboarding_room_type_stats", { p_hotel_id: hotelId }),
   ]);
 
-  const daily: DailyRoomNights[] = (dailyRaw ?? []).map(
-    (r: { stay_date: string; room_nights: number | string }) => ({
-      stay_date: String(r.stay_date),
-      room_nights: Number(r.room_nights),
-    }),
-  );
   const stats: RoomTypeStats[] = (statsRaw ?? []).map(
     (r: Record<string, unknown>) => ({
       room_type_id: String(r.room_type_id),

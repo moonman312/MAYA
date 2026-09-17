@@ -439,10 +439,15 @@ function makeAnalysisClient(opts: {
 
   const client = {
     from: table,
-    rpc: async (fn: string) => ({
-      data: fn === "onboarding_room_type_stats" ? opts.stats : [],
-      error: null,
-    }),
+    // A builder, like supabase-js: set-returning rpcs are ordered and paged.
+    rpc: (fn: string) => {
+      const result = Promise.resolve({
+        data: fn === "onboarding_room_type_stats" ? opts.stats : [],
+        error: null,
+      });
+      const b = { order: () => b, range: () => result, then: result.then.bind(result) };
+      return b;
+    },
   } as unknown as SupabaseClient;
 
   return {

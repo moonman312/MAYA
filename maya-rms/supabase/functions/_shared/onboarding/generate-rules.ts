@@ -28,6 +28,34 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+/**
+ * Room-nights per stay date for the whole book, oldest first.
+ *
+ * Paged: ten years of history is over 3,600 dates, and an unpaged rpc stops
+ * at PostgREST's 1,000 rows, which kept only the OLDEST dates. Closed periods,
+ * the occupancy reference and the days-of-history count were all computed as
+ * if the last years of the book did not exist. A failed page throws, so the
+ * worker retries instead of analysing a fragment.
+ */
+export async function loadDailyRoomNights(
+  supabase: SupabaseClient,
+  hotelId: string,
+): Promise<{ stay_date: string; room_nights: number }[]> {
+  const PAGE = 1000;
+  const out: { stay_date: string; room_nights: number }[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .rpc("onboarding_daily_room_nights", { p_hotel_id: hotelId })
+      .order("stay_date", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`onboarding_daily_room_nights failed: ${error.message}`);
+    const rows = (data ?? []) as { stay_date: string; room_nights: number | string }[];
+    for (const r of rows) out.push({ stay_date: String(r.stay_date), room_nights: Number(r.room_nights) });
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
 export type StarterRuleSpec = {
   name: string;
   priority: number;
@@ -212,8 +240,8 @@ export async function generateStarterRules(
     .eq("hotel_id", hotelId);
   if ((existingRules ?? 0) > 0) return [];
 
-  const [{ data: dailyRaw }, roomTypes] = await Promise.all([
-    supabase.rpc("onboarding_daily_room_nights", { p_hotel_id: hotelId }),
+  const [dailyRaw, roomTypes] = await Promise.all([
+    loadDailyRoomNights(supabase, hotelId),
     loadCountingRoomTypeIds(supabase, hotelId),
   ]);
 
@@ -223,9 +251,7 @@ export async function generateStarterRules(
   if (allRoomTypeIds.length === 0) return [];
 
   const today = new Date().toISOString().slice(0, 10);
-  const daysOfHistory = (dailyRaw ?? []).filter(
-    (r: { stay_date: string }) => String(r.stay_date) < today,
-  ).length;
+  const daysOfHistory = dailyRaw.filter((r) => r.stay_date < today).length;
 
   const specs = computeStarterRules({ daysOfHistory });
   if (specs.length === 0) return [];
