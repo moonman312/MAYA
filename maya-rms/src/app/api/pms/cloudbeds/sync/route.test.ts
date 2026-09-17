@@ -204,3 +204,26 @@ describe("POST /api/pms/cloudbeds/sync in-flight guard", () => {
     expect(rpcCalls("release_pms_sync")).toHaveLength(0);
   });
 });
+
+describe("POST /api/pms/cloudbeds/sync on a large property", () => {
+  beforeEach(() => {
+    state.userClient = fakeUserClient({ userId: "user-1", role: "revenue_manager" });
+  });
+
+  it("gives the sync a deadline inside the route's own limit, and says when the window was not covered", async () => {
+    const route = await import("./route");
+    expect(route.maxDuration).toBe(300);
+    const before = Date.now();
+    runCloudbedsSyncForHotel.mockImplementation(async (_c: unknown, _h: unknown, opts: { deadlineAt: number }) => {
+      // The sync stops at its deadline with a checkpoint.
+      expect(opts.deadlineAt).toBeGreaterThanOrEqual(before + 240_000);
+      expect(opts.deadlineAt).toBeLessThan(before + 300_000);
+      return { ...SYNC_OK, windowFullyCovered: false, sweepCursor: "checkout:2026-10-01" };
+    });
+    const res = await post();
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: true, windowFullyCovered: false, sweepCursor: "checkout:2026-10-01" });
+    expect(rpcCalls("release_pms_sync")).toHaveLength(1);
+    expect(rpcCalls("release_pms_sync")[0][1]).toMatchObject({ p_ok: true });
+  });
+});

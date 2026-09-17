@@ -18,6 +18,14 @@ import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
+/**
+ * A full sync of a large property can run for minutes. Without this the
+ * platform default cut the request off mid-sync, holding the claim until its
+ * 600s lease ran out. The sync itself is told to stop reading well before.
+ */
+export const maxDuration = 300;
+const SYNC_DEADLINE_MS = 240_000;
+
 type Body = { daysBack?: number; daysForward?: number };
 
 export async function POST(req: Request) {
@@ -91,17 +99,17 @@ export async function POST(req: Request) {
       }
     };
 
-    let result: Awaited<ReturnType<typeof runThinkSyncForHotel>>;
+    let result: Awaited<ReturnType<typeof runThinkSyncForHotel>> | null = null;
     try {
       result = await runThinkSyncForHotel(admin, ctx.hotelId, {
         daysBack: body.daysBack,
         daysForward: body.daysForward,
+        deadlineAt: Date.now() + SYNC_DEADLINE_MS,
       });
-    } catch (error) {
-      await releaseClaim(false);
-      throw error;
+    } finally {
+      // Released however the run ends, so a thrown sync never pins the claim.
+      await releaseClaim(result?.ok ?? false);
     }
-    await releaseClaim(result.ok);
 
     if (!result.ok) {
       if (result.thinkStatus != null) {
