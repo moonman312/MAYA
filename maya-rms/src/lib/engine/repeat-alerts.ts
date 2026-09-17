@@ -269,7 +269,8 @@ export async function updateRepeatAlerts(
   }
 
   // Unanswered nights of the current version whose count fell under the bar:
-  // only a manual price takes counted fires off.
+  // only a price someone set takes counted fires off.
+  const settled = new Map<string, string[]>();
   for (const [key, list] of input.nights) {
     const [ruleId, stayDate] = key.split("|");
     const rule = eventRulesById.get(ruleId);
@@ -277,15 +278,20 @@ export async function updateRepeatAlerts(
     const night = list.find((n) => n.rule_version === rule.version && n.choice === null && n.closed_at === null);
     if (!night) continue;
     if ((counts.get(key)?.count ?? 0) >= REPEAT_ALERT_FIRES) continue;
+    const nights = settled.get(night.alert_id) ?? [];
+    nights.push(night.stay_date);
+    settled.set(night.alert_id, nights);
+  }
+  for (const [alertId, nights] of settled) {
     const { data, error } = await supabase
       .from("rule_repeat_alert_nights")
       .update({ closed_at: now, closed_reason: "price_set", updated_at: now })
-      .eq("alert_id", night.alert_id)
-      .eq("stay_date", night.stay_date)
+      .eq("alert_id", alertId)
+      .in("stay_date", nights)
       .is("choice", null)
       .is("closed_at", null)
       .select("alert_id");
-    if (error) logAlertError(hotelId, "close_price_set_night", error.message);
+    if (error) logAlertError(hotelId, "close_price_set_nights", error.message);
     else result.closed += (data ?? []).length;
   }
 

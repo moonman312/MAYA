@@ -83,14 +83,17 @@ export async function GET(req: NextRequest) {
       .limit(1)
       .maybeSingle();
 
-    // Non-retired pickup events.
+    // The fires still adjusting this cell, in the order they apply. A rule
+    // can hold several: each is one time it fired here (pickup_event.fire_seq).
     const { data: pickupEvents } = await supabase
       .from("pickup_event")
       .select("*")
       .eq("hotel_id", hotelId)
       .eq("stay_date", stayDate)
       .eq("affected_room_type_id", roomTypeId)
-      .is("retired_at", null);
+      .is("retired_at", null)
+      .order("applied_at", { ascending: true })
+      .order("fire_seq", { ascending: true });
 
     // 30-day ladder transition history.
     const thirtyDaysAgo = new Date();
@@ -113,7 +116,8 @@ export async function GET(req: NextRequest) {
       .eq("stay_date", stayDate)
       .eq("affected_room_type_id", roomTypeId)
       .gte("applied_at", thirtyDaysAgo.toISOString())
-      .order("applied_at", { ascending: false });
+      .order("applied_at", { ascending: false })
+      .order("fire_seq", { ascending: false });
 
     // Current published price.
     const { data: publishedPrice } = await supabase
