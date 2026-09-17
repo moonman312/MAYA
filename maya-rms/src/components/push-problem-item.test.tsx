@@ -74,6 +74,21 @@ describe("PushProblemItem", () => {
     expect(view.getAllByRole("listitem")[0].getAttribute("title")).toBe("Rate is derived");
   });
 
+  it("counts checks, not tries, when nothing ever reached the PMS, and says how many are not listed", () => {
+    const skips: ChangelogPushProblem = {
+      ...item,
+      attempts: 25,
+      retries: [{ ...item.retries[0], count: 24, outcome: "skipped", label: "Nothing to send to in Cloudbeds", detail: null }],
+      retries_not_kept: 1,
+    };
+    const view = render(<PushProblemItem item={skips} {...formats} />);
+    fireEvent.click(view.getByRole("button", { name: "Show 25 checks" }));
+    const lines = view.getAllByRole("listitem").map((li) => li.textContent);
+    expect(lines[0]).toMatch(/^24 checks, .+, 6 nights: Nothing to send to in Cloudbeds$/);
+    expect(lines[1]).toBe("1 other check not shown");
+    expect(view.container.textContent).not.toContain("held them back");
+  });
+
   it("says when it ended, and offers no advice once it has", () => {
     const view = render(
       <PushProblemItem item={{ ...item, status: "resolved", resolved_at: "2026-09-17T11:00:00Z", resolution: "landed", action: null }} {...formats} />,

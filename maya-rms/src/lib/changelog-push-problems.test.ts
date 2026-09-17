@@ -51,10 +51,16 @@ describe("condenseRetries", () => {
 
   it("never shows a guardrail's reason code as the PMS's words", () => {
     const [line] = condenseRetries(
-      [{ ...refused(0, "2026-09-20"), phase: "guardrail", outcome: "skipped", http_status: null, message: "no rate target for room type" }],
+      [{ ...refused(0, "2026-09-20"), phase: "guardrail", outcome: "skipped", http_status: null, message: "guardrail:stale_price" }],
       "cloudbeds",
     );
     expect(line).toMatchObject({ label: "MAYA held them back", detail: null });
+  });
+
+  it("says a night with no rate to send to had nothing to send to, not that MAYA held it back", () => {
+    const skip = { ...refused(0, "2026-09-20"), phase: "guardrail", outcome: "skipped", http_status: null, message: "no rate target for room type" };
+    expect(condenseRetries([skip], "cloudbeds", "rate_plan_not_updatable")[0]).toMatchObject({ label: "Nothing to send to in Cloudbeds", detail: null });
+    expect(condenseRetries([skip], "cloudbeds", "pms_unavailable")[0]).toMatchObject({ label: "Couldn't read the rates in Cloudbeds" });
   });
 });
 
@@ -95,10 +101,27 @@ describe("buildPushProblems", () => {
       room_types: ["Deluxe King"],
       status: "ongoing",
       attempts: 612,
-      retries_not_kept: 112,
+      // One try was read; the rest are counted, not listed.
+      retries_not_kept: 611,
     });
     expect(item.action).toContain("Cloudbeds");
     expect(JSON.stringify(item)).not.toMatch(/[—–]/);
+  });
+
+  it("counts only what is still failing while it lasts, and everything it touched once over", () => {
+    const incident = { id: "inc-1", pms_type: "cloudbeds", cause: "missing_write_permission", opened_at: at(0), attempt_count: 90, attempts_stored: 90, resolved_at: null, resolution: null };
+    const cells = [
+      { incident_id: "inc-1", room_type_id: "rt-king", stay_date: "2026-09-01", state: "stopped" },
+      { incident_id: "inc-1", room_type_id: "rt-queen", stay_date: "2026-09-02", state: "landed" },
+      { incident_id: "inc-1", room_type_id: "rt-king", stay_date: "2026-09-20", state: "open" },
+      { incident_id: "inc-1", room_type_id: "rt-king", stay_date: "2026-09-21", state: "open" },
+    ];
+    const [ongoing] = buildPushProblems([incident], cells, [], names);
+    expect(ongoing).toMatchObject({ nights: 2, room_types: ["Deluxe King"] });
+    expect(ongoing.title).not.toContain("Queen");
+
+    const [over] = buildPushProblems([{ ...incident, resolved_at: at(60), resolution: "landed" }], cells, [], names);
+    expect(over).toMatchObject({ nights: 4, room_types: ["Deluxe King", "Queen"] });
   });
 
   it("drops the advice once it is over", () => {
@@ -124,15 +147,25 @@ describe("buildPushProblems", () => {
 });
 
 describe("mergeTimeline", () => {
-  it("puts each problem among the pricing runs at the time it started", () => {
-    const run = (minutes: number, cycle: number): ChangelogCycle => ({ cycle, timestamp: at(minutes), has_changes: false, changes: [] });
-    const [problem] = buildPushProblems(
-      [{ id: "inc-1", pms_type: "think", cause: "pms_unavailable", opened_at: at(7), attempt_count: 1, attempts_stored: 1, resolved_at: null, resolution: null }],
+  const run = (minutes: number, cycle: number): ChangelogCycle => ({ cycle, timestamp: at(minutes), has_changes: false, changes: [] });
+  const problem = (id: string, openedAt: string, resolvedAt: string | null) =>
+    buildPushProblems(
+      [{ id, pms_type: "think", cause: "pms_unavailable", opened_at: openedAt, attempt_count: 1, attempts_stored: 1, resolved_at: resolvedAt, resolution: resolvedAt ? "landed" : null }],
       [],
       [],
       new Map(),
+    )[0];
+
+  it("puts an ongoing problem above every run, however long ago it opened", () => {
+    const merged = mergeTimeline([run(130, 3), run(125, 2), run(120, 1)], [problem("inc-old", at(0), null), problem("inc-new", at(60), null)]);
+    expect(merged.map((m) => ("kind" in m ? m.id : m.cycle))).toEqual(["inc-new", "inc-old", 3, 2, 1]);
+  });
+
+  it("puts a resolved problem where it ended, and leaves out one that ended before the oldest run shown", () => {
+    const merged = mergeTimeline(
+      [run(130, 3), run(125, 2), run(120, 1)],
+      [problem("inc-ended", at(0), at(127)), problem("inc-history", at(0), at(30))],
     );
-    const merged = mergeTimeline([run(10, 3), run(5, 2), run(0, 1)], [problem]);
-    expect(merged.map((m) => ("kind" in m ? m.kind : m.cycle))).toEqual([3, "push_problem", 2, 1]);
+    expect(merged.map((m) => ("kind" in m ? m.id : m.cycle))).toEqual([3, "inc-ended", 2, 1]);
   });
 });

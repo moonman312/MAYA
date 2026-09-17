@@ -4,7 +4,8 @@
  * With Supabase configured and a resolvable hotel, cycles are rebuilt from
  * evaluation_audit rows (the 10 most recent runs) and narrated via
  * changelog-narrative. A live hotel's rate push problems that need the owner
- * are merged in by time, one item each (changelog-push-problems.ts).
+ * are merged in, one item each: ongoing ones on top, resolved ones where they
+ * ended (changelog-push-problems.ts).
  * The demo changelog is served only when Supabase is
  * not configured at all; any failure past that point is a real error and
  * must surface as one — this screen is the audit trail of what the system
@@ -31,8 +32,10 @@ import {
   type IncidentCellForLog,
   type IncidentForLog,
   MAX_PUSH_PROBLEMS,
+  MAX_TRIES_READ,
   buildPushProblems,
   mergeTimeline,
+  oldestShownRun,
 } from "@/lib/changelog-push-problems";
 import { buildChangelog } from "@/lib/demo-data";
 import { isMissingRelationError } from "@/lib/engine/snapshots";
@@ -295,31 +298,33 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
     ),
   };
 
-  const problems = await loadPushProblems(supabase, hotelId, roomTypeNames);
-
-  if (runSummaries) return mergeTimeline(buildCyclesFromRuns(runSummaries, lookups), problems);
-
-  const rows: AuditChangeRow[] = auditRows.map(toChangeRow);
-
-  const heartbeats: RunHeartbeat[] = (runLogRows ?? []).map((r) => ({
-    evaluation_run_id: String(r.evaluation_run_id),
-    evaluated_at: String(r.evaluated_at),
-  }));
-
-  return mergeTimeline(buildCyclesFromAudit(rows, lookups, heartbeats), problems);
+  const cycles = runSummaries
+    ? buildCyclesFromRuns(runSummaries, lookups)
+    : buildCyclesFromAudit(
+        auditRows.map(toChangeRow),
+        lookups,
+        (runLogRows ?? []).map(
+          (r): RunHeartbeat => ({ evaluation_run_id: String(r.evaluation_run_id), evaluated_at: String(r.evaluated_at) }),
+        ),
+      );
+  const problems = await loadPushProblems(supabase, hotelId, roomTypeNames, oldestShownRun(cycles));
+  return mergeTimeline(cycles, problems);
 }
 
 /**
  * The hotel's rate push incidents the owner is meant to see, newest first,
- * with their cells and stored tries. Live hotels only: nothing is pushed in
- * simulation. Read under the caller's session; RLS only returns incidents
- * marked customer-visible, and the filters below say the same thing. A
- * database without the incident tables yet has nothing to show.
+ * with their cells and newest tries. Live hotels only: nothing is pushed in
+ * simulation. Ongoing ones always; resolved ones only if they ended within
+ * the runs shown (`since`, the oldest run's instant). Read under the caller's
+ * session; RLS only returns incidents marked customer-visible, and the
+ * filters below say the same thing. A database without the incident tables
+ * yet has nothing to show.
  */
 async function loadPushProblems(
   supabase: SupabaseClient,
   hotelId: string,
   roomTypeNames: Map<string, string>,
+  since: string | null,
 ): Promise<ChangelogPushProblem[]> {
   const { data: settings, error: settingsErr } = await supabase
     .from("hotel_settings")
@@ -329,14 +334,14 @@ async function loadPushProblems(
   if (settingsErr) throw settingsErr;
   if (settings?.simulation_mode !== false) return [];
 
-  const { data: incidents, error } = await supabase
+  let query = supabase
     .from("rate_push_incidents")
     .select("id, pms_type, cause, opened_at, attempt_count, attempts_stored, resolved_at, resolution")
     .eq("hotel_id", hotelId)
     .eq("admin_only", false)
-    .not("customer_visible_at", "is", null)
-    .order("opened_at", { ascending: false })
-    .limit(MAX_PUSH_PROBLEMS);
+    .not("customer_visible_at", "is", null);
+  query = since ? query.or(`resolved_at.is.null,resolved_at.gte.${since}`) : query.is("resolved_at", null);
+  const { data: incidents, error } = await query.order("opened_at", { ascending: false }).limit(MAX_PUSH_PROBLEMS);
   if (error) {
     if (isMissingRelationError(error)) return [];
     throw error;
@@ -348,7 +353,7 @@ async function loadPushProblems(
   for (let from = 0; ; from += PAGE) {
     const { data, error: cellsErr } = await supabase
       .from("rate_push_incident_cells")
-      .select("incident_id, room_type_id, stay_date")
+      .select("incident_id, room_type_id, stay_date, state")
       .in("incident_id", ids)
       .order("incident_id", { ascending: true })
       .order("stay_date", { ascending: true })
@@ -357,22 +362,32 @@ async function loadPushProblems(
     if (cellsErr) throw cellsErr;
     const rows = (data ?? []) as Record<string, unknown>[];
     for (const r of rows) {
-      cells.push({ incident_id: String(r.incident_id), room_type_id: String(r.room_type_id), stay_date: String(r.stay_date) });
+      cells.push({
+        incident_id: String(r.incident_id),
+        room_type_id: String(r.room_type_id),
+        stay_date: String(r.stay_date),
+        state: String(r.state),
+      });
     }
     if (rows.length < PAGE) break;
   }
+  // The newest tries of each, read per incident so each read walks its own
+  // (incident_id, attempted_at) index and stops at the cap. The rest are
+  // counted on the incident, not listed.
   const attempts: IncidentAttemptForLog[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error: attemptsErr } = await supabase
-      .from("rate_push_attempts")
-      .select("id, incident_id, attempted_at, stay_date, room_type_id, phase, outcome, http_status, message")
-      .in("incident_id", ids)
-      .order("attempted_at", { ascending: true })
-      .order("id", { ascending: true })
-      .range(from, from + PAGE - 1);
+  const reads = await Promise.all(
+    ids.map((id) =>
+      supabase
+        .from("rate_push_attempts")
+        .select("incident_id, attempted_at, stay_date, room_type_id, phase, outcome, http_status, message")
+        .eq("incident_id", id)
+        .order("attempted_at", { ascending: false })
+        .limit(MAX_TRIES_READ),
+    ),
+  );
+  for (const { data, error: attemptsErr } of reads) {
     if (attemptsErr) throw attemptsErr;
-    const rows = (data ?? []) as Record<string, unknown>[];
-    for (const r of rows) {
+    for (const r of (data ?? []) as Record<string, unknown>[]) {
       attempts.push({
         incident_id: String(r.incident_id),
         attempted_at: String(r.attempted_at),
@@ -384,7 +399,6 @@ async function loadPushProblems(
         message: r.message != null ? String(r.message) : null,
       });
     }
-    if (rows.length < PAGE) break;
   }
 
   const shaped: IncidentForLog[] = incidents.map((i) => ({

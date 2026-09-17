@@ -349,8 +349,9 @@ export type ChangelogPushProblem = {
   resolved_at: string | null;
   resolution: "landed" | "superseded" | "stopped" | null;
   attempts: number;
+  /** The newest tries, condensed. */
   retries: PushProblemRetries[];
-  /** Tries counted but not kept (past the per-incident cap). */
+  /** Tries counted but not listed in `retries` (older than those read, or past the stored cap). */
   retries_not_kept: number;
 };
 

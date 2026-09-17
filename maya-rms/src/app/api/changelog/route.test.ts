@@ -428,11 +428,11 @@ describe("changelog route: rates not reaching the PMS", () => {
     return res.json();
   }
 
-  it("adds each problem the owner should see as one condensed item, placed by when it started", async () => {
+  it("adds each problem the owner should see as one condensed item, an ongoing one on top", async () => {
     const body = await get(liveHotel().client);
 
-    expect(body.map((item: Row) => item.kind ?? item.timestamp)).toEqual(["2026-07-29T08:05:00Z", "push_problem", "2026-07-29T08:00:00Z"]);
-    const problem = body[1];
+    expect(body.map((item: Row) => item.kind ?? item.timestamp)).toEqual(["push_problem", "2026-07-29T08:05:00Z", "2026-07-29T08:00:00Z"]);
+    const problem = body[0];
     expect(problem).toMatchObject({
       id: "inc-visible",
       pms: "Cloudbeds",
@@ -448,6 +448,53 @@ describe("changelog route: rates not reaching the PMS", () => {
     ]);
     expect(JSON.stringify(body)).not.toContain("inc-hidden");
     expect(JSON.stringify(body)).not.toContain("guardrail_stale_price");
+  });
+
+  it("leaves out problems that ended before the runs shown, reads tries per problem up to a cap, and counts only open nights", async () => {
+    const extra: Row[] = [];
+    for (let n = 0; n < 150; n++) {
+      extra.push({
+        id: `att-many-${String(n).padStart(3, "0")}`,
+        incident_id: "inc-visible",
+        hotel_id: HOTEL,
+        attempted_at: new Date(Date.parse("2026-07-29T09:00:00Z") + n * 60_000).toISOString(),
+        stay_date: "2026-08-02",
+        room_type_id: "rt-1",
+        price: 198,
+        phase: "guardrail",
+        outcome: "skipped",
+        http_status: null,
+        message: "no rate target for room type",
+      });
+    }
+    const client = liveHotel({
+      rate_push_incidents: [
+        { id: "inc-visible", hotel_id: HOTEL, pms_type: "cloudbeds", cause: "rate_plan_not_updatable", known: true, severity: "critical", admin_only: false, opened_at: "2026-07-29T08:02:00Z", attempt_count: 174, attempts_stored: 174, customer_visible_at: "2026-07-29T08:02:00Z", resolved_at: null, resolution: null },
+        // Ended within the runs shown.
+        { id: "inc-ended", hotel_id: HOTEL, pms_type: "cloudbeds", cause: "value_rejected", known: true, severity: "critical", admin_only: false, opened_at: "2026-07-28T08:00:00Z", attempt_count: 2, attempts_stored: 2, customer_visible_at: "2026-07-28T08:00:00Z", resolved_at: "2026-07-29T08:03:00Z", resolution: "superseded" },
+        // Ended months before them.
+        { id: "inc-history", hotel_id: HOTEL, pms_type: "cloudbeds", cause: "value_rejected", known: true, severity: "critical", admin_only: false, opened_at: "2026-03-01T08:00:00Z", attempt_count: 2, attempts_stored: 2, customer_visible_at: "2026-03-01T08:00:00Z", resolved_at: "2026-03-01T09:00:00Z", resolution: "landed" },
+      ],
+      rate_push_incident_cells: [
+        { incident_id: "inc-visible", hotel_id: HOTEL, room_type_id: "rt-1", stay_date: "2026-07-20", state: "stopped" },
+        { incident_id: "inc-visible", hotel_id: HOTEL, room_type_id: "rt-1", stay_date: "2026-08-01", state: "landed" },
+        { incident_id: "inc-visible", hotel_id: HOTEL, room_type_id: "rt-1", stay_date: "2026-08-02", state: "open" },
+      ],
+    });
+    // 24 from liveHotel, and 150 more.
+    await client.client.from("rate_push_attempts").insert(extra);
+
+    const body = await get(client.client);
+
+    expect(body.map((item: Row) => item.id ?? item.timestamp)).toEqual([
+      "inc-visible",
+      "2026-07-29T08:05:00Z",
+      "inc-ended",
+      "2026-07-29T08:00:00Z",
+    ]);
+    expect(body[0]).toMatchObject({ nights: 1, attempts: 174, retries_not_kept: 74 });
+    const triesReads = client.calls.filter((c) => c.table === "rate_push_attempts" && c.op === "select");
+    expect(triesReads.map((c) => c.filters.find((f) => f.col === "incident_id")?.value).sort()).toEqual(["inc-ended", "inc-visible"]);
   });
 
   it("shows none while the hotel is simulating", async () => {

@@ -18,6 +18,12 @@ export function isPushProblem(item: ChangelogItem): item is ChangelogPushProblem
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
+/**
+ * A skip never reached the PMS, so it is a check, not a try. An item whose
+ * every line is a skip (no rate to send to) counts checks throughout.
+ */
+const units = (skipsOnly: boolean): [string, string] => (skipsOnly ? ["check", "checks"] : ["try", "tries"]);
+
 function shortTime(iso: string): string {
   try {
     return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -44,7 +50,7 @@ export function retriesLine(r: PushProblemRetries): string {
     r.first_at === r.last_at
       ? shortTime(r.first_at)
       : `${shortTime(r.first_at)} to ${sameDay(r.first_at, r.last_at) ? clockTime(r.last_at) : shortTime(r.last_at)}`;
-  return `${plural(r.count, "try", "tries")}, ${when}, ${plural(r.nights, "night", "nights")}: ${r.label}`;
+  return `${plural(r.count, ...units(r.outcome === "skipped"))}, ${when}, ${plural(r.nights, "night", "nights")}: ${r.label}`;
 }
 
 export function PushProblemItem({
@@ -61,6 +67,7 @@ export function PushProblemItem({
 }) {
   const [open, setOpen] = useState(false);
   const ongoing = item.status === "ongoing";
+  const [one, many] = units(item.retries.length > 0 && item.retries.every((r) => r.outcome === "skipped"));
   const age = formatAge(item.timestamp);
   const ended = item.resolved_at
     ? `${item.resolution === "landed" ? "Resolved" : "Ended"} ${formatWhen(item.resolved_at)}`
@@ -92,7 +99,7 @@ export function PushProblemItem({
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
         >
-          {open ? "Hide tries" : `Show ${plural(item.attempts, "try", "tries")}`}
+          {open ? `Hide ${many}` : `Show ${plural(item.attempts, one, many)}`}
         </button>
       ) : null}
       {open ? (
@@ -103,7 +110,7 @@ export function PushProblemItem({
             </li>
           ))}
           {item.retries_not_kept > 0 ? (
-            <li className="text-xs text-slate-500">{plural(item.retries_not_kept, "later try", "later tries")} not kept</li>
+            <li className="text-xs text-slate-500">{plural(item.retries_not_kept, `other ${one}`, `other ${many}`)} not shown</li>
           ) : null}
         </ul>
       ) : null}
