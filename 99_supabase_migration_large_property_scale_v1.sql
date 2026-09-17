@@ -24,7 +24,8 @@
 -- outside a transaction (CREATE/DROP INDEX CONCURRENTLY cannot run inside one,
 -- and the SQL editor wraps a multi-statement run in one):
 --
---   (none yet)
+--   create index concurrently if not exists idx_snapshot_cell_ts
+--     on public.stay_date_snapshot (hotel_id, stay_date, room_type_id, snapshot_ts desc);
 --
 -- Nothing here needs folding into 02_supabase_schema.sql for existing
 -- databases; fold the functions in when the base schema is next regenerated.
@@ -155,6 +156,64 @@ $$;
 
 revoke all on function public.booking_speed_windows(uuid, date[], uuid[]) from public, anon;
 grant execute on function public.booking_speed_windows(uuid, date[], uuid[])
+  to authenticated, service_role;
+
+-- ----------------------------------------------------------------------------
+-- 2. Snapshot cells at a timestamp
+--
+-- The engine's pickup rules read, per (stay date, room type), the latest
+-- snapshot at or before a baseline timestamp. Most cells in a run share a few
+-- baselines, so each shared one is read for the whole block of cells at once.
+-- Cells with no snapshot at or before p_ts are simply absent. Pairs with
+-- idx_snapshot_cell_ts (see the header) for one index probe per cell.
+-- ----------------------------------------------------------------------------
+
+create or replace function public.snapshot_cells_at(
+  p_hotel_id uuid,
+  p_ts timestamptz,
+  p_from date,
+  p_to date,
+  p_room_types uuid[]
+)
+returns table(
+  stay_date date,
+  room_type_id uuid,
+  booked_units int,
+  booked_revenue numeric,
+  snapshot_ts timestamptz
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not public.is_hotel_accessible(p_hotel_id) then
+    raise exception 'Not authorized to read snapshots for hotel %', p_hotel_id
+      using errcode = '42501';
+  end if;
+
+  return query
+  select d.day::date, rt.id, s.booked_units, s.booked_revenue, s.snapshot_ts
+  from generate_series(p_from::timestamp, p_to::timestamp, interval '1 day') as d(day)
+  cross join unnest(coalesce(p_room_types, '{}'::uuid[])) as rt(id)
+  cross join lateral (
+    select x.booked_units, x.booked_revenue, x.snapshot_ts
+    from public.stay_date_snapshot x
+    where x.hotel_id = p_hotel_id
+      and x.stay_date = d.day::date
+      and x.room_type_id = rt.id
+      and x.snapshot_ts <= p_ts
+    order by x.snapshot_ts desc
+    limit 1
+  ) s
+  order by 1, 2;
+end;
+$$;
+
+revoke all on function public.snapshot_cells_at(uuid, timestamptz, date, date, uuid[]) from public, anon;
+grant execute on function public.snapshot_cells_at(uuid, timestamptz, date, date, uuid[])
   to authenticated, service_role;
 
 notify pgrst, 'reload schema';

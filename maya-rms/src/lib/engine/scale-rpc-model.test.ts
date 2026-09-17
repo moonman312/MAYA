@@ -72,6 +72,32 @@ export function bookingSpeedWindows(reservations: FakeRow[], a: Record<string, u
   });
 }
 
+/** snapshot_cells_at(p_hotel_id, p_ts, p_from, p_to, p_room_types) */
+export function snapshotCellsAt(snapshots: FakeRow[], a: Record<string, unknown>): FakeRow[] {
+  const types = new Set((a.p_room_types as string[]) ?? []);
+  const ts = Date.parse(String(a.p_ts));
+  const best = new Map<string, FakeRow>();
+  for (const s of snapshots) {
+    if (s.hotel_id !== a.p_hotel_id) continue;
+    const d = String(s.stay_date);
+    if (d < String(a.p_from) || d > String(a.p_to)) continue;
+    if (!types.has(String(s.room_type_id))) continue;
+    if (Date.parse(String(s.snapshot_ts)) > ts) continue;
+    const key = `${d}|${s.room_type_id}`;
+    const prev = best.get(key);
+    if (!prev || Date.parse(String(s.snapshot_ts)) > Date.parse(String(prev.snapshot_ts))) best.set(key, s);
+  }
+  return [...best.entries()]
+    .sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0))
+    .map(([, s]) => ({
+      stay_date: s.stay_date,
+      room_type_id: s.room_type_id,
+      booked_units: s.booked_units,
+      booked_revenue: s.booked_revenue,
+      snapshot_ts: s.snapshot_ts,
+    }));
+}
+
 /** An rpc handler for fakeSupabase that answers every modeled function from the fake's own tables. */
 export function scaleRpc(fn: string, args: unknown, tables: Record<string, FakeRow[]>): unknown {
   const a = args as Record<string, unknown>;
@@ -80,6 +106,8 @@ export function scaleRpc(fn: string, args: unknown, tables: Record<string, FakeR
       return bookingSpeedHistorySummary(tables.reservations ?? [], a);
     case "booking_speed_windows":
       return bookingSpeedWindows(tables.reservations ?? [], a);
+    case "snapshot_cells_at":
+      return snapshotCellsAt(tables.stay_date_snapshot ?? [], a);
     default:
       return null;
   }

@@ -18,11 +18,6 @@ export async function computeBaselineTs(
   stayDate: string,
   evalTs: string,
 ): Promise<string | null> {
-  const windowDays = rule.condition.pickup_window_days ?? 3;
-  const windowStart = new Date(evalTs);
-  windowStart.setDate(windowStart.getDate() - windowDays);
-  const windowStartTs = windowStart.toISOString();
-
   const { data: lastEvent } = await supabase
     .from("pickup_event")
     .select("applied_at")
@@ -33,13 +28,59 @@ export async function computeBaselineTs(
     .limit(1)
     .maybeSingle();
 
-  if (!lastEvent) {
+  return baselineTsFrom(rule, evalTs, lastEvent ? lastEvent.applied_at : null);
+}
+
+/** computeBaselineTs once the last open event's applied_at is known (null = none). */
+export function baselineTsFrom(rule: EngineRule, evalTs: string, lastAppliedAt: string | null): string {
+  const windowDays = rule.condition.pickup_window_days ?? 3;
+  const windowStart = new Date(evalTs);
+  windowStart.setDate(windowStart.getDate() - windowDays);
+  const windowStartTs = windowStart.toISOString();
+
+  if (lastAppliedAt == null) {
     return windowStartTs;
   }
 
-  const lastTs = new Date(lastEvent.applied_at);
+  const lastTs = new Date(lastAppliedAt);
   const windowTs = new Date(windowStartTs);
-  return lastTs > windowTs ? lastEvent.applied_at : windowStartTs;
+  return lastTs > windowTs ? lastAppliedAt : windowStartTs;
+}
+
+/**
+ * The newest applied_at of every open event, per `rule_id|stay_date`, for
+ * the given rules across a date range: what computeBaselineTs reads one cell
+ * at a time. Paged. Throws on a failed read; the caller falls back to the
+ * per-cell reads.
+ */
+export async function loadLastPickupApplied(
+  supabase: SupabaseClient,
+  hotelId: string,
+  ruleIds: string[],
+  firstDate: string,
+  lastDate: string,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (ruleIds.length === 0) return out;
+  const rows = await fetchAllRows(() =>
+    supabase
+      .from("pickup_event")
+      .select("rule_id, stay_date, applied_at")
+      .eq("hotel_id", hotelId)
+      .in("rule_id", ruleIds)
+      .gte("stay_date", firstDate)
+      .lte("stay_date", lastDate)
+      .is("retired_at", null)
+      .order("id", { ascending: true }),
+  );
+  for (const r of rows) {
+    const key = `${r.rule_id}|${r.stay_date}`;
+    const prev = out.get(key);
+    if (prev === undefined || Date.parse(String(r.applied_at)) > Date.parse(prev)) {
+      out.set(key, String(r.applied_at));
+    }
+  }
+  return out;
 }
 
 /**

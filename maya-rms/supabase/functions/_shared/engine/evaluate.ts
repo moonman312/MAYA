@@ -11,11 +11,12 @@ import type { EngineRule } from "./domain.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AuditInput } from "./audit.ts";
 import {
+  buildAuditRow,
+  insertAuditRows,
   loadLastAuditSignatures,
   purgeOldAuditRows,
   purgeOldRunLogRows,
   recordRunHeartbeat,
-  writeAudit,
 } from "./audit.ts";
 import {
   DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS,
@@ -31,18 +32,27 @@ import type { BaseSource } from "./base-price.ts";
 import { resolveBase } from "./base-price.ts";
 import { ruleConditionsMatch } from "./conditions.ts";
 import type { LadderPassResult, OverrideProbe } from "./ladder.ts";
-import { evaluateLadderTriple, probeSuppressionSupport } from "./ladder.ts";
+import { createLadderPassBatch, evaluateLadderTriple, probeSuppressionSupport } from "./ladder.ts";
 import { computeRuleMetrics } from "./metrics.ts";
 import {
+  baselineTsFrom,
   computeBaselineTs,
   floorBaselineToOverride,
+  loadLastPickupApplied,
   retireUndonePickupEvents,
   runPickupPass,
 } from "./pickup.ts";
-import { assemblePrice, maybePublish } from "./pricing.ts";
+import {
+  assemblePriceFrom,
+  loadActiveLadderEffectsForRange,
+  loadActivePickupEffectsForRange,
+  publishPrices,
+  type AssembledPrice,
+} from "./pricing.ts";
 import { ruleScopeMatches } from "./scope.ts";
 import {
   MIGRATIONS,
+  createSnapshotLookup,
   fetchAllRows,
   isMissingColumnError,
   isMissingRelationError,
@@ -53,6 +63,36 @@ import { addCalendarDays, evalIsoToHotelDateString } from "./timezone.ts";
 import type { PickupCandidate, RoomTypeRow, RuleMetrics } from "./types.ts";
 import { countsAsRoom } from "./types.ts";
 
+
+/** Cells sharing one baseline timestamp before a single read serves them all. */
+const SHARED_BASELINE_MIN_CELLS = 40;
+
+/**
+ * Most pickup cells share a handful of baselines (now minus the rule's
+ * window). Each baseline used by enough cells is fetched for the whole block
+ * of dates and signal types in one call; rarer ones stay per cell.
+ */
+async function preloadSharedBaselines(
+  snapshots: ReturnType<typeof createSnapshotLookup>,
+  cells: { rule: EngineRule; stayDate: string; baselineTs: string }[],
+): Promise<void> {
+  const byTs = new Map<string, { count: number; first: string; last: string; types: Set<string> }>();
+  for (const c of cells) {
+    let g = byTs.get(c.baselineTs);
+    if (!g) {
+      g = { count: 0, first: c.stayDate, last: c.stayDate, types: new Set() };
+      byTs.set(c.baselineTs, g);
+    }
+    g.count += c.rule.signal_room_type_ids.length;
+    if (c.stayDate < g.first) g.first = c.stayDate;
+    if (c.stayDate > g.last) g.last = c.stayDate;
+    for (const t of c.rule.signal_room_type_ids) g.types.add(t);
+  }
+  for (const [ts, g] of byTs) {
+    if (g.count < SHARED_BASELINE_MIN_CELLS) continue;
+    await snapshots.preload(ts, g.first, g.last, [...g.types].sort());
+  }
+}
 
 export type EvaluationResult = {
   run_id: string;
@@ -164,7 +204,10 @@ export async function evaluateHotel(
     cursor = addCalendarDays(cursor, 1);
   }
 
-  await snapshotCurrentState(supabase, hotelId, now, stayDates, countingRoomTypes);
+  const writtenSnapshots = await snapshotCurrentState(supabase, hotelId, now, stayDates, countingRoomTypes);
+  // Every snapshot read below goes through this: the rows just written are
+  // answered from memory, older ones are read once per (cell, timestamp).
+  const snapshots = createSnapshotLookup(supabase, hotelId, now, writtenSnapshots);
 
   // Once per run: can ladder_rule_state carry suppressed_at? See
   // probeSuppressionSupport. The answer is threaded to every ladder write
@@ -520,6 +563,15 @@ export async function evaluateHotel(
 
   const allLadderResults: Map<string, LadderPassResult[]> = new Map();
 
+  // Prior state for every ladder rule across the horizon in one paged read;
+  // the pass's writes are queued and flushed once it is done.
+  const ladderBatch = await createLadderPassBatch(
+    supabase,
+    ladderRules.map((r) => r.id),
+    firstDate,
+    lastDate,
+  );
+
   for (const rule of ladderRules) {
     const scopeOpts = { requireSignals: !emptiedByRoomFlag.has(rule.id) };
     for (const stayDate of stayDates) {
@@ -534,6 +586,7 @@ export async function evaluateHotel(
         localDate,
         now,
         null,
+        snapshots,
       );
       attachBookingSpeed(rule, stayDate, metrics);
       noteExcludedSignals(rule, metrics);
@@ -558,6 +611,7 @@ export async function evaluateHotel(
               evalIsoToHotelDateString(setAt, hotelTimeZone),
               setAt,
               null,
+              snapshots,
             );
             attachBookingSpeed(rule, stayDate, then);
             return ruleConditionsMatch(rule, then);
@@ -586,6 +640,7 @@ export async function evaluateHotel(
           now,
           probe,
           supportsSuppression,
+          ladderBatch,
         );
 
         const key = `${stayDate}|${rtId}`;
@@ -599,12 +654,44 @@ export async function evaluateHotel(
     }
   }
 
+  await ladderBatch.flush();
+
   const allPickupCandidates: PickupCandidate[] = [];
   const allPickupWinners: Map<string, PickupCandidate[]> = new Map();
   const allPickupLosers: Map<string, PickupCandidate[]> = new Map();
   const allPickupIdempotent: Map<string, PickupCandidate[]> = new Map();
   const allPickupWriteFailures: Map<string, PickupCandidate[]> = new Map();
 
+  // The newest open event per (pickup rule, stay date), in one paged read.
+  // Nothing inserts or retires an event between here and runPickupPass, so
+  // this is what each cell's own read would have returned. If the read
+  // fails, each cell reads for itself as before.
+  let lastApplied: Map<string, string> | null = null;
+  if (pickupRules.length > 0) {
+    try {
+      lastApplied = await loadLastPickupApplied(
+        supabase,
+        hotelId,
+        pickupRules.map((r) => r.id),
+        firstDate,
+        lastDate,
+      );
+    } catch (e) {
+      console.error(
+        JSON.stringify({
+          fn: "evaluateHotel",
+          step: "pickup_last_applied",
+          hotelId,
+          error: e instanceof Error ? e.message : String(e),
+        }),
+      );
+    }
+  }
+
+  // Which (rule, stay date) cells the pass will measure, and against which
+  // baseline, decided before any metric is read so that baselines shared by
+  // many cells can be fetched in one call.
+  const pickupCells: { rule: EngineRule; stayDate: string; baselineTs: string }[] = [];
   for (const rule of pickupRules) {
     for (const stayDate of stayDates) {
       if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone)) continue;
@@ -620,68 +707,76 @@ export async function evaluateHotel(
         }
       }
 
-      const baselineTs = await computeBaselineTs(supabase, rule, stayDate, now);
+      const baselineTs = lastApplied
+        ? baselineTsFrom(rule, now, lastApplied.get(`${rule.id}|${stayDate}`) ?? null)
+        : await computeBaselineTs(supabase, rule, stayDate, now);
       if (!baselineTs) continue;
+      pickupCells.push({ rule, stayDate, baselineTs });
+    }
+  }
+  await preloadSharedBaselines(snapshots, pickupCells);
 
-      const metrics = await computeRuleMetrics(
-        supabase,
-        rule,
-        hotelId,
-        stayDate,
-        now,
-        localDate,
-        now,
-        baselineTs,
-      );
-      attachBookingSpeed(rule, stayDate, metrics);
-      noteExcludedSignals(rule, metrics);
+  for (const { rule, stayDate, baselineTs } of pickupCells) {
+    const metrics = await computeRuleMetrics(
+      supabase,
+      rule,
+      hotelId,
+      stayDate,
+      now,
+      localDate,
+      now,
+      baselineTs,
+      snapshots,
+    );
+    attachBookingSpeed(rule, stayDate, metrics);
+    noteExcludedSignals(rule, metrics);
 
-      if (!ruleConditionsMatch(rule, metrics)) continue;
+    if (!ruleConditionsMatch(rule, metrics)) continue;
 
-      for (const rtId of rule.affected_room_type_ids) {
-        // Manual price override floor. The baseline above is per (rule,
-        // stay_date); an override is per cell. Bookings that predate the
-        // override on THIS cell are already priced into the typed number, so
-        // this cell's baseline moves up to the override's set_at and the net
-        // pickup is re-read against it. The rule must still have matched on
-        // its own full window (the gate above) — the floor can only withhold
-        // a fire, never manufacture one from a window that is minutes long.
-        // Cells without an open override never enter this branch.
-        let cellBaselineTs: string = baselineTs;
-        let cellMetrics: RuleMetrics = metrics;
-        const override = manualByCell.get(`${stayDate}|${rtId}`);
-        if (override) {
-          cellBaselineTs = floorBaselineToOverride(baselineTs, override.set_at);
-          if (cellBaselineTs !== baselineTs) {
-            cellMetrics = await computeRuleMetrics(
-              supabase,
-              rule,
-              hotelId,
-              stayDate,
-              now,
-              localDate,
-              now,
-              cellBaselineTs,
-            );
-            attachBookingSpeed(rule, stayDate, cellMetrics);
-            noteExcludedSignals(rule, cellMetrics);
-            if (!ruleConditionsMatch(rule, cellMetrics)) continue;
-          }
+    for (const rtId of rule.affected_room_type_ids) {
+      // Manual price override floor. The baseline above is per (rule,
+      // stay_date); an override is per cell. Bookings that predate the
+      // override on THIS cell are already priced into the typed number, so
+      // this cell's baseline moves up to the override's set_at and the net
+      // pickup is re-read against it. The rule must still have matched on
+      // its own full window (the gate above) — the floor can only withhold
+      // a fire, never manufacture one from a window that is minutes long.
+      // Cells without an open override never enter this branch.
+      let cellBaselineTs: string = baselineTs;
+      let cellMetrics: RuleMetrics = metrics;
+      const override = manualByCell.get(`${stayDate}|${rtId}`);
+      if (override) {
+        cellBaselineTs = floorBaselineToOverride(baselineTs, override.set_at);
+        if (cellBaselineTs !== baselineTs) {
+          cellMetrics = await computeRuleMetrics(
+            supabase,
+            rule,
+            hotelId,
+            stayDate,
+            now,
+            localDate,
+            now,
+            cellBaselineTs,
+            snapshots,
+          );
+          attachBookingSpeed(rule, stayDate, cellMetrics);
+          noteExcludedSignals(rule, cellMetrics);
+          if (!ruleConditionsMatch(rule, cellMetrics)) continue;
         }
-
-        allPickupCandidates.push({
-          rule,
-          metrics: cellMetrics,
-          stay_date: stayDate,
-          baseline_ts: cellBaselineTs,
-          affected_room_type_id: rtId,
-          eval_ts: now,
-          signal_booked_units_start: cellMetrics.signal_booked_units_baseline ?? 0,
-          signal_booked_units_end: cellMetrics.signal_booked_units_now ?? 0,
-          signal_booked_revenue_start: cellMetrics.signal_booked_revenue_baseline ?? 0,
-          signal_booked_revenue_end: cellMetrics.signal_booked_revenue_now ?? 0,
-        });
       }
+
+      allPickupCandidates.push({
+        rule,
+        metrics: cellMetrics,
+        stay_date: stayDate,
+        baseline_ts: cellBaselineTs,
+        affected_room_type_id: rtId,
+        eval_ts: now,
+        signal_booked_units_start: cellMetrics.signal_booked_units_baseline ?? 0,
+        signal_booked_units_end: cellMetrics.signal_booked_units_now ?? 0,
+        signal_booked_revenue_start: cellMetrics.signal_booked_revenue_baseline ?? 0,
+        signal_booked_revenue_end: cellMetrics.signal_booked_revenue_now ?? 0,
+      });
     }
   }
 
@@ -747,54 +842,85 @@ export async function evaluateHotel(
   let cellsChecked = 0;
   let cellsChanged = 0;
 
+  // Every active effect for the horizon, read once now that both passes
+  // have written: the same rows, in the same per-cell order, that each
+  // cell's own read returned.
+  const roomTypeIds = roomTypes.map((rt) => rt.id);
+  const ladderEffectsByCell = await loadActiveLadderEffectsForRange(
+    supabase,
+    roomTypeIds,
+    firstDate,
+    lastDate,
+    supportsSuppression,
+  );
+  const pickupEffectsByCell = await loadActivePickupEffectsForRange(
+    supabase,
+    hotelId,
+    roomTypeIds,
+    firstDate,
+    lastDate,
+  );
+
+  const assembledCells: { key: string; basePrice: number; assembled: AssembledPrice }[] = [];
   for (const stayDate of stayDates) {
     for (const rt of roomTypes) {
       const key = `${stayDate}|${rt.id}`;
       const basePrice = basePrices.get(key);
       if (basePrice === undefined) continue;
       cellsChecked++;
-
-      const assembled = await assemblePrice(
-        supabase,
-        hotelId,
+      const assembled = assemblePriceFrom(
         stayDate,
         rt,
         basePrice,
         // Every priced cell has a source: the two maps are filled together.
         baseSourceByCell.get(key) ?? "remembered",
-        supportsSuppression,
+        ladderEffectsByCell.get(key) ?? [],
+        pickupEffectsByCell.get(key) ?? [],
       );
-      const published = await maybePublish(
-        supabase,
-        hotelId,
-        stayDate,
-        rt.id,
-        assembled.final_price,
-        now,
-        basePrice,
-      );
-      if (published) pricesPublished++;
-
-      const auditInput: AuditInput = {
-        runId,
-        hotelId,
-        evalTs: now,
-        assembled,
-        ladderResults: allLadderResults.get(key) ?? [],
-        pickupWinners: allPickupWinners.get(key) ?? [],
-        pickupLosers: allPickupLosers.get(key) ?? [],
-        pickupIdempotentSkips: allPickupIdempotent.get(key) ?? [],
-        pickupWriteFailures: allPickupWriteFailures.get(key) ?? [],
-        basePrices,
-        bookingSpeedObservations: bsCtx
-          ? bookingSpeedAuditSnapshots(bsCtx, stayDate)
-          : [],
-        previousSignature: lastAuditSignatures.get(key) ?? null,
-        manualOverride: manualByCell.get(key) ?? null,
-      };
-      if (await writeAudit(supabase, auditInput)) cellsChanged++;
+      assembledCells.push({ key, basePrice, assembled });
     }
   }
+
+  const publishedKeys = await publishPrices(
+    supabase,
+    hotelId,
+    assembledCells.map((c) => ({
+      stayDate: c.assembled.stay_date,
+      roomTypeId: c.assembled.room_type_id,
+      finalPrice: c.assembled.final_price,
+      basePrice: c.basePrice,
+    })),
+    now,
+  );
+  pricesPublished = publishedKeys.size;
+
+  const auditRows: Record<string, unknown>[] = [];
+  for (const { key, assembled } of assembledCells) {
+    const stayDate = assembled.stay_date;
+    const auditInput: AuditInput = {
+      runId,
+      hotelId,
+      evalTs: now,
+      assembled,
+      ladderResults: allLadderResults.get(key) ?? [],
+      pickupWinners: allPickupWinners.get(key) ?? [],
+      pickupLosers: allPickupLosers.get(key) ?? [],
+      pickupIdempotentSkips: allPickupIdempotent.get(key) ?? [],
+      pickupWriteFailures: allPickupWriteFailures.get(key) ?? [],
+      basePrices,
+      bookingSpeedObservations: bsCtx
+        ? bookingSpeedAuditSnapshots(bsCtx, stayDate)
+        : [],
+      previousSignature: lastAuditSignatures.get(key) ?? null,
+      manualOverride: manualByCell.get(key) ?? null,
+    };
+    const row = buildAuditRow(auditInput);
+    if (row) {
+      auditRows.push(row);
+      cellsChanged++;
+    }
+  }
+  await insertAuditRows(supabase, auditRows);
 
   await supabase
     .from("pickup_event")
@@ -806,7 +932,14 @@ export async function evaluateHotel(
   // An event whose bookings have all cancelled is holding a price on
   // evidence that no longer exists. Retire it; if the date still has real
   // momentum the observation engine sees it and the rule fires again.
-  await retireUndonePickupEvents(supabase, hotelId, rules, now, now);
+  await retireUndonePickupEvents(
+    supabase,
+    hotelId,
+    rules,
+    now,
+    now,
+    new Map(writtenSnapshots.map((s) => [`${s.stay_date}|${s.room_type_id}`, s.booked_units])),
+  );
 
   // Bookkeeping only, past this point — the correct prices are already
   // computed and published above. None of it may be allowed to fail the

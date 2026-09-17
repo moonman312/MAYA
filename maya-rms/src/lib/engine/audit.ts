@@ -94,6 +94,17 @@ export function auditBaseKey(details: {
  * written.
  */
 export async function writeAudit(supabase: SupabaseClient, input: AuditInput): Promise<boolean> {
+  const row = buildAuditRow(input);
+  if (!row) return false;
+  await supabase.from("evaluation_audit").insert(row);
+  return true;
+}
+
+/**
+ * The evaluation_audit row writeAudit would insert, or null when the cell's
+ * signature matches input.previousSignature and nothing is written.
+ */
+export function buildAuditRow(input: AuditInput): Record<string, unknown> | null {
   const { assembled, basePrices } = input;
 
   const ladderDelta =
@@ -178,10 +189,10 @@ export async function writeAudit(supabase: SupabaseClient, input: AuditInput): P
     auditBaseKey(details),
   );
   if (input.previousSignature != null && input.previousSignature === signature) {
-    return false;
+    return null;
   }
 
-  await supabase.from("evaluation_audit").insert({
+  return {
     evaluation_run_id: input.runId,
     hotel_id: input.hotelId,
     stay_date: assembled.stay_date,
@@ -195,8 +206,38 @@ export async function writeAudit(supabase: SupabaseClient, input: AuditInput): P
     pre_clamp_price: assembled.pre_clamp_price,
     final_price: assembled.final_price,
     details,
-  });
-  return true;
+  };
+}
+
+/** Rows per audit insert, and a rough cap on one request's body. */
+const AUDIT_CHUNK_ROWS = 200;
+const AUDIT_CHUNK_BYTES = 1_000_000;
+
+/**
+ * Insert built audit rows in chunks instead of one request per cell. A chunk
+ * that fails is retried row by row so a bad row costs only itself. Insert
+ * errors go unreported, as they always have: the audit trail is bookkeeping
+ * and must never fail a run whose prices are already published.
+ */
+export async function insertAuditRows(supabase: SupabaseClient, rows: Record<string, unknown>[]): Promise<void> {
+  let chunk: Record<string, unknown>[] = [];
+  let bytes = 0;
+  const send = async () => {
+    if (chunk.length === 0) return;
+    const { error } = await supabase.from("evaluation_audit").insert(chunk);
+    if (error && chunk.length > 1) {
+      for (const row of chunk) await supabase.from("evaluation_audit").insert([row]);
+    }
+    chunk = [];
+    bytes = 0;
+  };
+  for (const row of rows) {
+    const size = JSON.stringify(row).length;
+    if (chunk.length > 0 && (chunk.length >= AUDIT_CHUNK_ROWS || bytes + size > AUDIT_CHUNK_BYTES)) await send();
+    chunk.push(row);
+    bytes += size;
+  }
+  await send();
 }
 
 /**

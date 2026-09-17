@@ -9,7 +9,7 @@
 import type { EngineRule } from "./domain.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ruleConditionsMatch } from "./conditions.ts";
-import { MIGRATIONS, isMissingColumnError } from "./snapshots.ts";
+import { MIGRATIONS, fetchAllRows, isMissingColumnError } from "./snapshots.ts";
 import type { LadderTransitionAction, RuleMetrics } from "./types.ts";
 
 export type LadderPassResult = {
@@ -103,16 +103,27 @@ export async function evaluateLadderTriple(
   evalTs: string,
   override?: OverrideProbe,
   supportsSuppression: boolean = true,
+  /**
+   * The whole pass's prior state and write queue (see LadderPassBatch). When
+   * given, nothing is read or written here; the caller flushes once.
+   */
+  batch?: LadderPassBatch,
 ): Promise<LadderPassResult> {
   const matches = ruleConditionsMatch(rule, metrics);
 
-  const { data: priorRow } = await supabase
-    .from("ladder_rule_state")
-    .select("is_active")
-    .eq("rule_id", rule.id)
-    .eq("stay_date", stayDate)
-    .eq("room_type_id", affectedRoomTypeId)
-    .maybeSingle();
+  let priorRow: { is_active: boolean } | null;
+  if (batch) {
+    priorRow = batch.state(rule.id, stayDate, affectedRoomTypeId);
+  } else {
+    const { data } = await supabase
+      .from("ladder_rule_state")
+      .select("is_active")
+      .eq("rule_id", rule.id)
+      .eq("stay_date", stayDate)
+      .eq("room_type_id", affectedRoomTypeId)
+      .maybeSingle();
+    priorRow = data;
+  }
 
   const wasActive = priorRow?.is_active ?? false;
   const rowExists = priorRow != null;
@@ -127,7 +138,9 @@ export async function evaluateLadderTriple(
       supportsSuppression && !rowExists && override && (await override.heldAtOverride())
         ? override.set_at
         : null;
-    await activateLadder(
+    if (batch) {
+      batch.activate(rule, hotelId, stayDate, affectedRoomTypeId, metrics, evalTs, suppressedAt, supportsSuppression);
+    } else await activateLadder(
       supabase,
       rule,
       hotelId,
@@ -139,10 +152,13 @@ export async function evaluateLadderTriple(
       supportsSuppression,
     );
   } else if (matches && wasActive) {
-    await touchLadderState(supabase, rule.id, stayDate, affectedRoomTypeId, evalTs);
+    if (batch) batch.touch(rule.id, stayDate, affectedRoomTypeId, evalTs);
+    else await touchLadderState(supabase, rule.id, stayDate, affectedRoomTypeId, evalTs);
   } else if (!matches && wasActive) {
     transition = "deactivate";
-    await deactivateLadder(
+    if (batch) {
+      batch.deactivate(rule, hotelId, stayDate, affectedRoomTypeId, metrics, evalTs, supportsSuppression);
+    } else await deactivateLadder(
       supabase,
       rule,
       hotelId,
@@ -153,7 +169,8 @@ export async function evaluateLadderTriple(
       supportsSuppression,
     );
   } else if (!matches && !wasActive && rowExists) {
-    await touchLadderState(supabase, rule.id, stayDate, affectedRoomTypeId, evalTs);
+    if (batch) batch.touch(rule.id, stayDate, affectedRoomTypeId, evalTs);
+    else await touchLadderState(supabase, rule.id, stayDate, affectedRoomTypeId, evalTs);
   }
 
   return {
@@ -169,6 +186,216 @@ export async function evaluateLadderTriple(
   };
 }
 
+/* ── Whole-pass batching ────────────────────────────────────────── */
+
+const WRITE_CHUNK = 500;
+const KEY_CHUNK = 200;
+
+function transitionEventRow(
+  rule: EngineRule,
+  hotelId: string,
+  stayDate: string,
+  roomTypeId: string,
+  transition: "activate" | "deactivate",
+  metrics: RuleMetrics,
+  evalTs: string,
+) {
+  return {
+    hotel_id: hotelId,
+    rule_id: rule.id,
+    rule_version: rule.version,
+    stay_date: stayDate,
+    room_type_id: roomTypeId,
+    transition,
+    transitioned_at: evalTs,
+    metrics_snapshot: metrics,
+    action_kind: rule.action_type,
+    action_direction: rule.action_direction,
+    action_value: rule.action_value,
+  };
+}
+
+function activationRow(
+  rule: EngineRule,
+  stayDate: string,
+  roomTypeId: string,
+  evalTs: string,
+  suppressedAt: string | null,
+  supportsSuppression: boolean,
+) {
+  return {
+    rule_id: rule.id,
+    rule_version: rule.version,
+    stay_date: stayDate,
+    room_type_id: roomTypeId,
+    is_active: true,
+    activated_at: evalTs,
+    deactivated_at: null,
+    // A fresh activation is a fresh trigger: if a manual price override
+    // had suppressed this row, the rule is now firing on top of the
+    // manual base, which is exactly what the override promises. The one
+    // exception is a first-ever row whose condition already held when the
+    // price was typed (see OverrideProbe).
+    ...(supportsSuppression ? { suppressed_at: suppressedAt } : {}),
+    last_evaluated_at: evalTs,
+    action_kind: rule.action_type,
+    action_direction: rule.action_direction,
+    action_value: rule.action_value,
+  };
+}
+
+function deactivationPatch(evalTs: string, supportsSuppression: boolean) {
+  return {
+    is_active: false,
+    deactivated_at: evalTs,
+    // Suppression belongs to the trigger that was already holding when
+    // the override landed. Once that trigger ends, the next one is new
+    // and applies on top of the manual base.
+    ...(supportsSuppression ? { suppressed_at: null } : {}),
+    last_evaluated_at: evalTs,
+  };
+}
+
+/**
+ * One ladder pass's prior state, read once, and its writes, sent once.
+ *
+ * The per-triple path made a read and up to two writes for every (rule,
+ * stay date, affected room type): tens of thousands of round trips a run on
+ * a large property. Here the state for every ladder rule across the horizon
+ * is paged in up front, each triple is decided in memory in the same order,
+ * and the writes go out in chunks at the end. Nothing reads ladder state or
+ * transition events between the pass and the flush, so the result is the
+ * same. A chunk that fails is retried row by row, so one bad row costs that
+ * row alone, as it did before; write errors stay unreported, as before.
+ */
+export type LadderPassBatch = {
+  state: (ruleId: string, stayDate: string, roomTypeId: string) => { is_active: boolean } | null;
+  activate: (
+    rule: EngineRule,
+    hotelId: string,
+    stayDate: string,
+    roomTypeId: string,
+    metrics: RuleMetrics,
+    evalTs: string,
+    suppressedAt: string | null,
+    supportsSuppression: boolean,
+  ) => void;
+  deactivate: (
+    rule: EngineRule,
+    hotelId: string,
+    stayDate: string,
+    roomTypeId: string,
+    metrics: RuleMetrics,
+    evalTs: string,
+    supportsSuppression: boolean,
+  ) => void;
+  touch: (ruleId: string, stayDate: string, roomTypeId: string, evalTs: string) => void;
+  flush: () => Promise<void>;
+};
+
+export async function createLadderPassBatch(
+  supabase: SupabaseClient,
+  ruleIds: string[],
+  firstDate: string,
+  lastDate: string,
+): Promise<LadderPassBatch> {
+  const states = new Map<string, { is_active: boolean }>();
+  if (ruleIds.length > 0) {
+    for (let i = 0; i < ruleIds.length; i += KEY_CHUNK) {
+      const rows = await fetchAllRows(() =>
+        supabase
+          .from("ladder_rule_state")
+          .select("rule_id, stay_date, room_type_id, is_active")
+          .in("rule_id", ruleIds.slice(i, i + KEY_CHUNK))
+          .gte("stay_date", firstDate)
+          .lte("stay_date", lastDate)
+          .order("rule_id", { ascending: true })
+          .order("stay_date", { ascending: true })
+          .order("room_type_id", { ascending: true }),
+      );
+      for (const r of rows) {
+        states.set(`${r.rule_id}|${r.stay_date}|${r.room_type_id}`, { is_active: Boolean(r.is_active) });
+      }
+    }
+  }
+
+  // deno-lint-ignore no-explicit-any
+  const events: any[] = [];
+  // deno-lint-ignore no-explicit-any
+  const activations: any[] = [];
+  // Same patch for every row in a group, so each group is one update per chunk of dates.
+  const updates = new Map<string, { ruleId: string; roomTypeId: string; patch: Record<string, unknown>; dates: string[] }>();
+  const queueUpdate = (ruleId: string, roomTypeId: string, patch: Record<string, unknown>, stayDate: string) => {
+    const key = `${ruleId}|${roomTypeId}|${JSON.stringify(patch)}`;
+    let group = updates.get(key);
+    if (!group) {
+      group = { ruleId, roomTypeId, patch, dates: [] };
+      updates.set(key, group);
+    }
+    group.dates.push(stayDate);
+  };
+
+  // deno-lint-ignore no-explicit-any
+  const writeRows = async (rows: any[], write: (chunk: any[]) => PromiseLike<{ error: unknown }>) => {
+    for (let i = 0; i < rows.length; i += WRITE_CHUNK) {
+      const chunk = rows.slice(i, i + WRITE_CHUNK);
+      const { error } = await write(chunk);
+      if (!error || chunk.length === 1) continue;
+      for (const row of chunk) await write([row]);
+    }
+  };
+
+  return {
+    state(ruleId, stayDate, roomTypeId) {
+      return states.get(`${ruleId}|${stayDate}|${roomTypeId}`) ?? null;
+    },
+    activate(rule, hotelId, stayDate, roomTypeId, metrics, evalTs, suppressedAt, supportsSuppression) {
+      events.push(transitionEventRow(rule, hotelId, stayDate, roomTypeId, "activate", metrics, evalTs));
+      activations.push(activationRow(rule, stayDate, roomTypeId, evalTs, suppressedAt, supportsSuppression));
+      states.set(`${rule.id}|${stayDate}|${roomTypeId}`, { is_active: true });
+    },
+    deactivate(rule, hotelId, stayDate, roomTypeId, metrics, evalTs, supportsSuppression) {
+      events.push(transitionEventRow(rule, hotelId, stayDate, roomTypeId, "deactivate", metrics, evalTs));
+      queueUpdate(rule.id, roomTypeId, deactivationPatch(evalTs, supportsSuppression), stayDate);
+      states.set(`${rule.id}|${stayDate}|${roomTypeId}`, { is_active: false });
+    },
+    touch(ruleId, stayDate, roomTypeId, evalTs) {
+      queueUpdate(ruleId, roomTypeId, { last_evaluated_at: evalTs }, stayDate);
+    },
+    async flush() {
+      await writeRows(events, (chunk) =>
+        supabase.from("ladder_transition_event").insert(chunk),
+      );
+      await writeRows(activations, (chunk) =>
+        supabase.from("ladder_rule_state").upsert(chunk, { onConflict: "rule_id,stay_date,room_type_id" }),
+      );
+      for (const group of updates.values()) {
+        for (let i = 0; i < group.dates.length; i += KEY_CHUNK) {
+          const dates = group.dates.slice(i, i + KEY_CHUNK);
+          const { error } = await supabase
+            .from("ladder_rule_state")
+            .update(group.patch)
+            .eq("rule_id", group.ruleId)
+            .eq("room_type_id", group.roomTypeId)
+            .in("stay_date", dates);
+          if (!error || dates.length === 1) continue;
+          for (const d of dates) {
+            await supabase
+              .from("ladder_rule_state")
+              .update(group.patch)
+              .eq("rule_id", group.ruleId)
+              .eq("room_type_id", group.roomTypeId)
+              .eq("stay_date", d);
+          }
+        }
+      }
+      events.length = 0;
+      activations.length = 0;
+      updates.clear();
+    },
+  };
+}
+
 async function activateLadder(
   supabase: SupabaseClient,
   rule: EngineRule,
@@ -180,42 +407,15 @@ async function activateLadder(
   suppressedAt: string | null,
   supportsSuppression: boolean,
 ): Promise<void> {
-  await supabase.from("ladder_transition_event").insert({
-    hotel_id: hotelId,
-    rule_id: rule.id,
-    rule_version: rule.version,
-    stay_date: stayDate,
-    room_type_id: roomTypeId,
-    transition: "activate",
-    transitioned_at: evalTs,
-    metrics_snapshot: metrics,
-    action_kind: rule.action_type,
-    action_direction: rule.action_direction,
-    action_value: rule.action_value,
-  });
+  await supabase
+    .from("ladder_transition_event")
+    .insert(transitionEventRow(rule, hotelId, stayDate, roomTypeId, "activate", metrics, evalTs));
 
-  await supabase.from("ladder_rule_state").upsert(
-    {
-      rule_id: rule.id,
-      rule_version: rule.version,
-      stay_date: stayDate,
-      room_type_id: roomTypeId,
-      is_active: true,
-      activated_at: evalTs,
-      deactivated_at: null,
-      // A fresh activation is a fresh trigger: if a manual price override
-      // had suppressed this row, the rule is now firing on top of the
-      // manual base, which is exactly what the override promises. The one
-      // exception is a first-ever row whose condition already held when the
-      // price was typed (see OverrideProbe).
-      ...(supportsSuppression ? { suppressed_at: suppressedAt } : {}),
-      last_evaluated_at: evalTs,
-      action_kind: rule.action_type,
-      action_direction: rule.action_direction,
-      action_value: rule.action_value,
-    },
-    { onConflict: "rule_id,stay_date,room_type_id" },
-  );
+  await supabase
+    .from("ladder_rule_state")
+    .upsert(activationRow(rule, stayDate, roomTypeId, evalTs, suppressedAt, supportsSuppression), {
+      onConflict: "rule_id,stay_date,room_type_id",
+    });
 }
 
 async function deactivateLadder(
@@ -228,31 +428,13 @@ async function deactivateLadder(
   evalTs: string,
   supportsSuppression: boolean,
 ): Promise<void> {
-  await supabase.from("ladder_transition_event").insert({
-    hotel_id: hotelId,
-    rule_id: rule.id,
-    rule_version: rule.version,
-    stay_date: stayDate,
-    room_type_id: roomTypeId,
-    transition: "deactivate",
-    transitioned_at: evalTs,
-    metrics_snapshot: metrics,
-    action_kind: rule.action_type,
-    action_direction: rule.action_direction,
-    action_value: rule.action_value,
-  });
+  await supabase
+    .from("ladder_transition_event")
+    .insert(transitionEventRow(rule, hotelId, stayDate, roomTypeId, "deactivate", metrics, evalTs));
 
   await supabase
     .from("ladder_rule_state")
-    .update({
-      is_active: false,
-      deactivated_at: evalTs,
-      // Suppression belongs to the trigger that was already holding when
-      // the override landed. Once that trigger ends, the next one is new
-      // and applies on top of the manual base.
-      ...(supportsSuppression ? { suppressed_at: null } : {}),
-      last_evaluated_at: evalTs,
-    })
+    .update(deactivationPatch(evalTs, supportsSuppression))
     .eq("rule_id", rule.id)
     .eq("stay_date", stayDate)
     .eq("room_type_id", roomTypeId);

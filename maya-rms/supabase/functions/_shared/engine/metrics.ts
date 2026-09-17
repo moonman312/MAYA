@@ -5,7 +5,7 @@
 
 import type { EngineRule } from "./domain.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { findSnapshotAt } from "./snapshots.ts";
+import { findSnapshotAt, type SnapshotLookup } from "./snapshots.ts";
 import type { RuleMetrics } from "./types.ts";
 
 /** §16.3 — baseline snapshot must not be “too old” vs target baseline_ts. */
@@ -93,6 +93,13 @@ export async function computeRuleMetrics(
   evalLocalDate: string,
   currentSnapshotTs: string,
   baselineTs: string | null,
+  /**
+   * The run's snapshot reader (see createSnapshotLookup). When given, the
+   * snapshot this run wrote is read from memory and every older snapshot
+   * read is memoized, so the numbers are the ones the table would return
+   * without a round trip per cell.
+   */
+  lookup?: SnapshotLookup,
 ): Promise<RuleMetrics> {
   const dta = computeDta(stayDate, evalLocalDate);
 
@@ -117,28 +124,35 @@ export async function computeRuleMetrics(
     };
   }
 
-  const currentSnapMap = await findSnapshotAt(
-    supabase,
-    hotelId,
-    stayDate,
-    rule.signal_room_type_ids,
-    currentSnapshotTs,
-  );
+  const written = lookup?.written(stayDate, rule.signal_room_type_ids, currentSnapshotTs) ?? null;
+  const currentSnapMap = written
+    ? written.snapshots
+    : lookup
+      ? await lookup.at(stayDate, rule.signal_room_type_ids, currentSnapshotTs)
+      : await findSnapshotAt(supabase, hotelId, stayDate, rule.signal_room_type_ids, currentSnapshotTs);
 
   const occMap = new Map<string, { booked_units: number; sellable_units: number }>();
   for (const rtId of rule.signal_room_type_ids) {
     const snap = currentSnapMap.get(rtId);
-    const { data: snapFull } = await supabase
-      .from("stay_date_snapshot")
-      .select("sellable_units")
-      .eq("hotel_id", hotelId)
-      .eq("stay_date", stayDate)
-      .eq("room_type_id", rtId)
-      .eq("snapshot_ts", currentSnapshotTs)
-      .maybeSingle();
+    let sellable: number;
+    if (written) {
+      sellable = written.sellable.get(rtId) ?? 0;
+    } else if (lookup) {
+      sellable = await lookup.sellableAt(stayDate, rtId, currentSnapshotTs);
+    } else {
+      const { data: snapFull } = await supabase
+        .from("stay_date_snapshot")
+        .select("sellable_units")
+        .eq("hotel_id", hotelId)
+        .eq("stay_date", stayDate)
+        .eq("room_type_id", rtId)
+        .eq("snapshot_ts", currentSnapshotTs)
+        .maybeSingle();
+      sellable = snapFull?.sellable_units ?? 0;
+    }
     occMap.set(rtId, {
       booked_units: snap?.booked_units ?? 0,
-      sellable_units: snapFull?.sellable_units ?? 0,
+      sellable_units: sellable,
     });
   }
 
@@ -159,13 +173,9 @@ export async function computeRuleMetrics(
   let signal_booked_revenue_baseline = 0;
 
   if (baselineTs) {
-    const baselineSnapsFull = await findSnapshotAt(
-      supabase,
-      hotelId,
-      stayDate,
-      rule.signal_room_type_ids,
-      baselineTs,
-    );
+    const baselineSnapsFull = lookup
+      ? await lookup.at(stayDate, rule.signal_room_type_ids, baselineTs)
+      : await findSnapshotAt(supabase, hotelId, stayDate, rule.signal_room_type_ids, baselineTs);
 
     for (const rtId of rule.signal_room_type_ids) {
       if (!baselineSnapsFull.has(rtId)) {

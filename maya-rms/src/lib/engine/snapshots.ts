@@ -206,8 +206,8 @@ export async function snapshotCurrentState(
   snapshotTs: string,
   stayDates: string[],
   roomTypes: RoomTypeRow[],
-): Promise<void> {
-  if (stayDates.length === 0 || roomTypes.length === 0) return;
+): Promise<SnapshotRow[]> {
+  if (stayDates.length === 0 || roomTypes.length === 0) return [];
 
   // §15.8: same snapshot_ts must not duplicate rows on re-run.
   const { error: delErr } = await supabase
@@ -276,6 +276,7 @@ export async function snapshotCurrentState(
     const { error } = await supabase.from("stay_date_snapshot").insert(chunk);
     if (error) throw new Error(`Snapshot insert failed: ${error.message}`);
   }
+  return rows;
 }
 
 export type SnapshotRowAt = {
@@ -319,6 +320,165 @@ export async function findSnapshotAt(
   }
 
   return result;
+}
+
+/**
+ * Every snapshot read one evaluation run makes, without a round trip per cell.
+ *
+ * `written` answers from the rows this run inserted a moment ago. That is
+ * exactly what the table returns for "latest snapshot at or before the run's
+ * own timestamp": the run deleted any row at that timestamp, inserted one for
+ * every (stay date, counting room type), and nothing newer can be at or
+ * before it. It returns null when any asked-for cell was not written, and
+ * the caller reads the table instead.
+ *
+ * `at` is findSnapshotAt with a memo. Snapshots are only inserted at the start
+ * of a run and purged at its end, so a cell's answer for a timestamp cannot
+ * change in between. `preload` fills the memo for a whole block of cells in
+ * one call (snapshot_cells_at, from the large property migration) when many
+ * cells share a baseline timestamp.
+ */
+export type SnapshotLookup = {
+  written: (
+    stayDate: string,
+    roomTypeIds: string[],
+    ts: string,
+  ) => { snapshots: Map<string, SnapshotRowAt>; sellable: Map<string, number> } | null;
+  at: (stayDate: string, roomTypeIds: string[], atOrBefore: string) => Promise<Map<string, SnapshotRowAt>>;
+  sellableAt: (stayDate: string, roomTypeId: string, ts: string) => Promise<number>;
+  preload: (atOrBefore: string, firstDate: string, lastDate: string, roomTypeIds: string[]) => Promise<void>;
+};
+
+let loggedSnapshotCellsMissing = false;
+
+/** Test hook: forget that the pre-migration line was already logged. */
+export function resetSnapshotLookupLogOnce(): void {
+  loggedSnapshotCellsMissing = false;
+}
+
+export function createSnapshotLookup(
+  supabase: SupabaseClient,
+  hotelId: string,
+  writtenTs: string,
+  writtenRows: SnapshotRow[],
+): SnapshotLookup {
+  const writtenByCell = new Map<string, SnapshotRow>();
+  for (const r of writtenRows) writtenByCell.set(`${r.stay_date}|${r.room_type_id}`, r);
+  const memo = new Map<string, SnapshotRowAt | null>();
+  const sellableMemo = new Map<string, number>();
+  let rpcMissing = false;
+
+  const cellKey = (stayDate: string, rtId: string, ts: string) => `${stayDate}|${rtId}|${ts}`;
+
+  return {
+    written(stayDate, roomTypeIds, ts) {
+      if (ts !== writtenTs) return null;
+      const snapshots = new Map<string, SnapshotRowAt>();
+      const sellable = new Map<string, number>();
+      for (const rtId of roomTypeIds) {
+        const row = writtenByCell.get(`${stayDate}|${rtId}`);
+        if (!row) return null;
+        snapshots.set(rtId, { booked_units: row.booked_units, booked_revenue: row.booked_revenue, snapshot_ts: ts });
+        sellable.set(rtId, row.sellable_units);
+      }
+      return { snapshots, sellable };
+    },
+
+    async at(stayDate, roomTypeIds, atOrBefore) {
+      const result = new Map<string, SnapshotRowAt>();
+      for (const rtId of roomTypeIds) {
+        const key = cellKey(stayDate, rtId, atOrBefore);
+        let hit = memo.get(key);
+        if (hit === undefined) {
+          hit = (await findSnapshotAt(supabase, hotelId, stayDate, [rtId], atOrBefore)).get(rtId) ?? null;
+          memo.set(key, hit);
+        }
+        if (hit) result.set(rtId, hit);
+      }
+      return result;
+    },
+
+    async sellableAt(stayDate, roomTypeId, ts) {
+      const key = cellKey(stayDate, roomTypeId, ts);
+      const hit = sellableMemo.get(key);
+      if (hit !== undefined) return hit;
+      const { data } = await supabase
+        .from("stay_date_snapshot")
+        .select("sellable_units")
+        .eq("hotel_id", hotelId)
+        .eq("stay_date", stayDate)
+        .eq("room_type_id", roomTypeId)
+        .eq("snapshot_ts", ts)
+        .maybeSingle();
+      const value = data?.sellable_units ?? 0;
+      sellableMemo.set(key, value);
+      return value;
+    },
+
+    async preload(atOrBefore, firstDate, lastDate, roomTypeIds) {
+      if (rpcMissing || roomTypeIds.length === 0) return;
+      const found = new Map<string, SnapshotRowAt>();
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase
+          .rpc("snapshot_cells_at", {
+            p_hotel_id: hotelId,
+            p_ts: atOrBefore,
+            p_from: firstDate,
+            p_to: lastDate,
+            p_room_types: roomTypeIds,
+          })
+          .order("stay_date", { ascending: true })
+          .order("room_type_id", { ascending: true })
+          .range(from, from + 999);
+        if (error) {
+          // Nothing is memoized from a failed or missing preload; each cell
+          // is read on its own as before.
+          if (isMissingFunctionError(error)) {
+            rpcMissing = true;
+            if (!loggedSnapshotCellsMissing) {
+              loggedSnapshotCellsMissing = true;
+              console.error(
+                JSON.stringify({
+                  fn: "evaluateHotel",
+                  step: "snapshot_cells_at",
+                  hotelId,
+                  schema: "pre-migration",
+                  message: `snapshot_cells_at does not exist yet; baseline snapshots are read one cell at a time. Run ${MIGRATIONS.largePropertyScale}.`,
+                  migration: MIGRATIONS.largePropertyScale,
+                  error: error.message,
+                }),
+              );
+            }
+          } else {
+            console.error(
+              JSON.stringify({ fn: "evaluateHotel", step: "snapshot_cells_at", hotelId, error: error.message }),
+            );
+          }
+          return;
+        }
+        const rows = (data ?? []) as Record<string, unknown>[];
+        for (const r of rows) {
+          found.set(`${r.stay_date}|${r.room_type_id}`, {
+            booked_units: Number(r.booked_units),
+            booked_revenue: Number(r.booked_revenue),
+            snapshot_ts: String(r.snapshot_ts),
+          });
+        }
+        if (rows.length < 1000) break;
+      }
+      const wanted = new Set(roomTypeIds);
+      for (let d = firstDate; d <= lastDate; d = addUtcDays(d, 1)) {
+        for (const rtId of wanted) {
+          memo.set(cellKey(d, rtId, atOrBefore), found.get(`${d}|${rtId}`) ?? null);
+        }
+      }
+    },
+  };
+}
+
+function addUtcDays(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
 /**

@@ -8,6 +8,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BaseSource } from "./base-price.ts";
+import { fetchAllRows } from "./snapshots.ts";
 import type { AdjustmentSpec, RoomTypeRow } from "./types.ts";
 
 export type AssembledPrice = {
@@ -149,6 +150,101 @@ export async function loadActivePickupEffects(
 }
 
 /**
+ * loadActiveLadderEffects for every cell in a date range at once, keyed
+ * `stay_date|room_type_id`. Rows come back ordered by cell and then rule_id,
+ * the per-cell order, and are grouped without re-sorting: Postgres orders
+ * uuids by their bytes, which a JavaScript string sort would not reproduce.
+ */
+export async function loadActiveLadderEffectsForRange(
+  supabase: SupabaseClient,
+  roomTypeIds: string[],
+  firstDate: string,
+  lastDate: string,
+  supportsSuppression: boolean = true,
+): Promise<Map<string, AdjustmentSpec[]>> {
+  const out = new Map<string, AdjustmentSpec[]>();
+  if (roomTypeIds.length === 0) return out;
+  // deno-lint-ignore no-explicit-any
+  let rows: any[];
+  try {
+    rows = await fetchAllRows(() => {
+      let q = supabase
+        .from("ladder_rule_state")
+        .select("rule_id, stay_date, room_type_id, action_kind, action_direction, action_value")
+        .in("room_type_id", roomTypeIds)
+        .gte("stay_date", firstDate)
+        .lte("stay_date", lastDate)
+        .eq("is_active", true);
+      if (supportsSuppression) q = q.is("suppressed_at", null);
+      return q
+        .order("stay_date", { ascending: true })
+        .order("room_type_id", { ascending: true })
+        .order("rule_id", { ascending: true });
+    });
+  } catch (e) {
+    // Loud, not empty — see loadActiveLadderEffects.
+    throw new Error(`Failed to load ladder effects: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  for (const r of rows) {
+    const key = `${r.stay_date}|${r.room_type_id}`;
+    const list = out.get(key) ?? [];
+    list.push({
+      rule_id: String(r.rule_id),
+      action_kind: r.action_kind,
+      action_direction: r.action_direction,
+      action_value: Number(r.action_value),
+    });
+    out.set(key, list);
+  }
+  return out;
+}
+
+/** loadActivePickupEffects for every cell in a date range at once, keyed `stay_date|room_type_id`. */
+export async function loadActivePickupEffectsForRange(
+  supabase: SupabaseClient,
+  hotelId: string,
+  roomTypeIds: string[],
+  firstDate: string,
+  lastDate: string,
+): Promise<Map<string, (AdjustmentSpec & { event_id: string })[]>> {
+  const out = new Map<string, (AdjustmentSpec & { event_id: string })[]>();
+  if (roomTypeIds.length === 0) return out;
+  // deno-lint-ignore no-explicit-any
+  let rows: any[];
+  try {
+    rows = await fetchAllRows(() =>
+      supabase
+        .from("pickup_event")
+        .select("id, rule_id, stay_date, affected_room_type_id, action_kind, action_direction, action_value")
+        .eq("hotel_id", hotelId)
+        .in("affected_room_type_id", roomTypeIds)
+        .gte("stay_date", firstDate)
+        .lte("stay_date", lastDate)
+        .is("retired_at", null)
+        .order("stay_date", { ascending: true })
+        .order("affected_room_type_id", { ascending: true })
+        .order("applied_at", { ascending: true })
+        .order("id", { ascending: true }),
+    );
+  } catch (e) {
+    throw new Error(`Failed to load pickup effects: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  for (const r of rows) {
+    const key = `${r.stay_date}|${r.affected_room_type_id}`;
+    const list = out.get(key) ?? [];
+    list.push({
+      event_id: String(r.id),
+      rule_id: String(r.rule_id),
+      action_kind: r.action_kind,
+      action_direction: r.action_direction,
+      action_value: Number(r.action_value),
+    });
+    out.set(key, list);
+  }
+  return out;
+}
+
+/**
  * Assemble the final price for a single (stay_date, room_type).
  */
 export async function assemblePrice(
@@ -167,7 +263,18 @@ export async function assemblePrice(
     supportsSuppression,
   );
   const pickupEffects = await loadActivePickupEffects(supabase, hotelId, stayDate, roomType.id);
+  return assemblePriceFrom(stayDate, roomType, basePrice, baseSource, ladderEffects, pickupEffects);
+}
 
+/** assemblePrice once the cell's effects are in hand. */
+export function assemblePriceFrom(
+  stayDate: string,
+  roomType: RoomTypeRow,
+  basePrice: number,
+  baseSource: BaseSource,
+  ladderEffects: AdjustmentSpec[],
+  pickupEffects: (AdjustmentSpec & { event_id: string })[],
+): AssembledPrice {
   const preClamp = applyAdjustments(basePrice, ladderEffects, pickupEffects);
   const { final, clamped_by } = clampPrice(preClamp, roomType.floor_price, roomType.ceiling_price);
 
@@ -206,31 +313,16 @@ export async function maybePublish(
     .eq("room_type_id", roomTypeId)
     .maybeSingle();
 
-  const priceUnchanged = current != null && Number(current.price) === finalPrice;
-  // The remembered base has to be written even on a run that does not move
-  // the price, or a cell whose price is stable never records one — and it is
-  // exactly those quiet cells that later lose their last reservation.
-  const baseUnchanged =
-    basePrice === undefined ||
-    (current != null &&
-      current.base_price != null &&
-      Number(current.base_price) === basePrice);
-
-  if (priceUnchanged && baseUnchanged) {
+  const decision = publishDecision(current, finalPrice, basePrice);
+  if (!decision.write) {
     return false;
   }
 
-  const { error } = await supabase.from("published_price").upsert(
-    {
-      hotel_id: hotelId,
-      stay_date: stayDate,
-      room_type_id: roomTypeId,
-      price: finalPrice,
-      ...(basePrice !== undefined ? { base_price: basePrice } : {}),
-      computed_at: computedAt,
-    },
-    { onConflict: "hotel_id,stay_date,room_type_id" },
-  );
+  const { error } = await supabase
+    .from("published_price")
+    .upsert(publishRow(hotelId, stayDate, roomTypeId, finalPrice, computedAt, basePrice), {
+      onConflict: "hotel_id,stay_date,room_type_id",
+    });
   if (error) {
     // A failed write must not report as a successful publish. Every caller
     // of maybePublish treats a `true` return as "the new price is now live":
@@ -248,5 +340,130 @@ export async function maybePublish(
 
   // Only a real price move counts as a publish — a base-only correction is
   // bookkeeping and should not read as a rate change in the change log.
-  return !priceUnchanged;
+  return decision.priceChanged;
+}
+
+/** Whether a cell needs a write, and whether that write moves the price. */
+export function publishDecision(
+  current: { price: unknown; base_price: unknown } | null | undefined,
+  finalPrice: number,
+  basePrice?: number,
+): { write: boolean; priceChanged: boolean } {
+  const priceUnchanged = current != null && Number(current.price) === finalPrice;
+  // The remembered base has to be written even on a run that does not move
+  // the price, or a cell whose price is stable never records one — and it is
+  // exactly those quiet cells that later lose their last reservation.
+  const baseUnchanged =
+    basePrice === undefined ||
+    (current != null &&
+      current.base_price != null &&
+      Number(current.base_price) === basePrice);
+  return { write: !(priceUnchanged && baseUnchanged), priceChanged: !priceUnchanged };
+}
+
+function publishRow(
+  hotelId: string,
+  stayDate: string,
+  roomTypeId: string,
+  finalPrice: number,
+  computedAt: string,
+  basePrice?: number,
+) {
+  return {
+    hotel_id: hotelId,
+    stay_date: stayDate,
+    room_type_id: roomTypeId,
+    price: finalPrice,
+    ...(basePrice !== undefined ? { base_price: basePrice } : {}),
+    computed_at: computedAt,
+  };
+}
+
+export type PublishCell = { stayDate: string; roomTypeId: string; finalPrice: number; basePrice: number };
+
+const PUBLISH_CHUNK = 500;
+
+/**
+ * maybePublish for a whole run: one paged read of what is published now,
+ * the same decision per cell, and the writes upserted in chunks. A chunk
+ * that fails is retried row by row, so only the row that really failed is
+ * logged and left unpublished, exactly as the per-cell path did.
+ *
+ * Returns the `stay_date|room_type_id` keys whose price actually moved.
+ * If the current prices cannot be read at all, it publishes cell by cell.
+ */
+export async function publishPrices(
+  supabase: SupabaseClient,
+  hotelId: string,
+  cells: PublishCell[],
+  computedAt: string,
+): Promise<Set<string>> {
+  const published = new Set<string>();
+  if (cells.length === 0) return published;
+  const dates = cells.map((c) => c.stayDate).sort();
+  const firstDate = dates[0];
+  const lastDate = dates[dates.length - 1];
+
+  const current = new Map<string, { price: unknown; base_price: unknown }>();
+  try {
+    const rows = await fetchAllRows(() =>
+      supabase
+        .from("published_price")
+        .select("stay_date, room_type_id, price, base_price")
+        .eq("hotel_id", hotelId)
+        .gte("stay_date", firstDate)
+        .lte("stay_date", lastDate)
+        .order("stay_date", { ascending: true })
+        .order("room_type_id", { ascending: true }),
+    );
+    for (const r of rows) current.set(`${r.stay_date}|${r.room_type_id}`, r);
+  } catch {
+    for (const c of cells) {
+      if (await maybePublish(supabase, hotelId, c.stayDate, c.roomTypeId, c.finalPrice, computedAt, c.basePrice)) {
+        published.add(`${c.stayDate}|${c.roomTypeId}`);
+      }
+    }
+    return published;
+  }
+
+  const writes: { cell: PublishCell; priceChanged: boolean }[] = [];
+  for (const cell of cells) {
+    const decision = publishDecision(current.get(`${cell.stayDate}|${cell.roomTypeId}`), cell.finalPrice, cell.basePrice);
+    if (decision.write) writes.push({ cell, priceChanged: decision.priceChanged });
+  }
+
+  const upsert = (list: { cell: PublishCell }[]) =>
+    supabase.from("published_price").upsert(
+      list.map(({ cell }) => publishRow(hotelId, cell.stayDate, cell.roomTypeId, cell.finalPrice, computedAt, cell.basePrice)),
+      { onConflict: "hotel_id,stay_date,room_type_id" },
+    );
+
+  for (let i = 0; i < writes.length; i += PUBLISH_CHUNK) {
+    const chunk = writes.slice(i, i + PUBLISH_CHUNK);
+    const { error } = await upsert(chunk);
+    const failed = new Set<(typeof chunk)[number]>();
+    if (error && chunk.length > 1) {
+      for (const w of chunk) {
+        const { error: rowError } = await upsert([w]);
+        if (rowError) {
+          failed.add(w);
+          logPublishError(hotelId, w.cell, rowError.message);
+        }
+      }
+    } else if (error) {
+      failed.add(chunk[0]);
+      logPublishError(hotelId, chunk[0].cell, error.message);
+    }
+    for (const w of chunk) {
+      if (w.priceChanged && !failed.has(w)) published.add(`${w.cell.stayDate}|${w.cell.roomTypeId}`);
+    }
+  }
+  return published;
+}
+
+function logPublishError(hotelId: string, cell: PublishCell, message: string): void {
+  // Same line maybePublish writes: a failed write never reports as published.
+  console.error(
+    JSON.stringify({ fn: "maybePublish", hotelId, stayDate: cell.stayDate, roomTypeId: cell.roomTypeId, error: message }),
+  );
 }

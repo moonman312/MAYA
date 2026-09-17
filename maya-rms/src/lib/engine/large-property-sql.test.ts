@@ -19,9 +19,10 @@ import { pathToFileURL } from "node:url";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { addDays } from "@/lib/observations/calendar";
-import { legacy, makeFixture, type Fixture } from "./booking-speed-legacy.test";
+import { legacy, makeFixture, rng, type Fixture } from "./booking-speed-legacy.test";
 import { loadBookingSpeedContext, observeForStayDate, resetBookingSpeedLogOnce } from "./booking-speed-provider";
 import { fakeSupabase, type FakeRow } from "./fake-supabase.test";
+import { findSnapshotAt } from "./snapshots";
 import { bookingSpeedHistorySummary, bookingSpeedWindows } from "./scale-rpc-model.test";
 
 const PGLITE_DIR = process.env.MAYA_PGLITE_DIR;
@@ -60,6 +61,16 @@ create table if not exists public.reservations (
   created_at timestamptz not null default now()
 );
 create index if not exists idx_reservations_hotel_stay_date on public.reservations(hotel_id, stay_date);
+create table if not exists public.stay_date_snapshot (
+  hotel_id uuid not null,
+  snapshot_ts timestamptz not null,
+  stay_date date not null,
+  room_type_id uuid not null,
+  sellable_units integer not null,
+  booked_units integer not null,
+  booked_revenue numeric(12,2) not null,
+  primary key (hotel_id, snapshot_ts, stay_date, room_type_id)
+);
 `;
 
 /** Fixture ids are readable strings; the tables want uuids. */
@@ -115,6 +126,7 @@ async function insertReservations(db: Db, rows: FakeRow[]): Promise<void> {
 const SIGNATURES: Record<string, Record<string, string>> = {
   booking_speed_history_summary: { p_hotel_id: "uuid", p_from: "date", p_to: "date", p_exclude: "uuid[]", p_ranks: "int[]" },
   booking_speed_windows: { p_hotel_id: "uuid", p_dates: "date[]", p_exclude: "uuid[]" },
+  snapshot_cells_at: { p_hotel_id: "uuid", p_ts: "timestamptz", p_from: "date", p_to: "date", p_room_types: "uuid[]" },
 };
 
 /**
@@ -245,6 +257,65 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
       }, 120_000);
     },
   );
+
+  it("snapshot_cells_at returns what findSnapshotAt reads cell by cell, over a grid with gaps", async () => {
+    const r = rng(77);
+    const types = ["t1", "t2", "t3"].map(uuidFor);
+    const other = uuidFor("h-other");
+    const rows: FakeRow[] = [];
+    const base = Date.parse("2026-06-01T00:00:00Z");
+    for (let run = 0; run < 40; run++) {
+      const ts = new Date(base + run * 3 * 3600_000 + Math.floor(r() * 600) * 1000).toISOString();
+      for (let d = 0; d < 20; d++) {
+        for (const t of types) {
+          if (r() < 0.3) continue; // gaps: not every run wrote every cell
+          rows.push({
+            hotel_id: r() < 0.05 ? other : H1,
+            snapshot_ts: ts,
+            stay_date: addDays("2026-06-10", d),
+            room_type_id: t,
+            sellable_units: 10,
+            booked_units: Math.floor(r() * 10),
+            booked_revenue: Math.round(r() * 200000) / 100,
+          });
+        }
+      }
+    }
+    await db.exec("truncate public.stay_date_snapshot;");
+    for (let i = 0; i < rows.length; i += 1000) {
+      const chunk = rows.slice(i, i + 1000);
+      await db.query(
+        `insert into public.stay_date_snapshot select * from json_populate_recordset(null::public.stay_date_snapshot, $1::json)`,
+        [JSON.stringify(chunk)],
+      );
+    }
+    const { client } = fakeSupabase({ stay_date_snapshot: rows });
+    const rpc = pgliteRpc(db);
+    for (const probe of [base - 1, base + 5 * 3600_000, base + 50 * 3600_000 + 1234, base + 200 * 3600_000]) {
+      const ts = new Date(probe).toISOString();
+      const args = { p_hotel_id: H1, p_ts: ts, p_from: "2026-06-12", p_to: "2026-06-25", p_room_types: types.slice(0, 2) };
+      const { data, error } = await rpc("snapshot_cells_at", args).order("stay_date").order("room_type_id");
+      expect(error).toBeNull();
+      const got = new Map(
+        (data as Record<string, unknown>[]).map((x) => [
+          `${x.stay_date}|${x.room_type_id}`,
+          { booked_units: Number(x.booked_units), booked_revenue: Number(x.booked_revenue), snapshot_ts: Date.parse(String(x.snapshot_ts)) },
+        ]),
+      );
+      let cells = 0;
+      for (let d = "2026-06-12"; d <= "2026-06-25"; d = addDays(d, 1)) {
+        for (const t of types.slice(0, 2)) {
+          const one = (await findSnapshotAt(client, H1, d, [t], ts)).get(t);
+          const want = one
+            ? { booked_units: one.booked_units, booked_revenue: one.booked_revenue, snapshot_ts: Date.parse(one.snapshot_ts) }
+            : undefined;
+          expect(got.get(`${d}|${t}`)).toEqual(want);
+          cells++;
+        }
+      }
+      expect(cells).toBe(28);
+    }
+  }, 120_000);
 
   it("refuses a caller who is neither service_role nor a member of the hotel", async () => {
     const rpc = pgliteRpc(db, "authenticated");

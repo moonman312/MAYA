@@ -276,14 +276,16 @@ function normalizeTables(tables: Record<string, FakeRow[]>) {
         return JSON.stringify(canonical(copy));
       })
       .sort();
+  // Tables keyed by their natural key carry no meaningful id; the fake
+  // numbers every row it writes, in write order.
   return {
-    published_price: rows("published_price"),
-    ladder_rule_state: rows("ladder_rule_state"),
+    published_price: rows("published_price", ["id"]),
+    ladder_rule_state: rows("ladder_rule_state", ["id"]),
     ladder_transition_event: rows("ladder_transition_event", ["id"]),
     pickup_event: rows("pickup_event", ["id"]),
     evaluation_audit: rows("evaluation_audit", ["id", "evaluation_run_id"]),
     evaluation_run_log: rows("evaluation_run_log", ["id", "evaluation_run_id"]),
-    stay_date_snapshot: rows("stay_date_snapshot"),
+    stay_date_snapshot: rows("stay_date_snapshot", ["id"]),
   };
 }
 
@@ -316,7 +318,7 @@ describe("evaluation run equivalence against the pre-batching engine", () => {
   const golden: Record<string, unknown> = WRITE ? {} : JSON.parse(readFileSync(GOLDEN, "utf8"));
 
   it.each(VARIANTS)("$name", async (variant) => {
-    const { client, tables } = fakeSupabase(seed(), {
+    const { client, tables, calls } = fakeSupabase(seed(), {
       fault: variant.fault,
       ...(variant.rpc ? { rpc: variant.rpc } : {}),
     });
@@ -325,7 +327,13 @@ describe("evaluation run equivalence against the pre-batching engine", () => {
       vi.setSystemTime(new Date(run.at));
       if (i > 0) churn(tables, i, run.at);
       run.before?.(tables);
+      const callsBefore = calls.length;
       const result = await evaluateHotel(client, "h1", run.at, run.horizon);
+      if (process.env.MAYA_ENGINE_CALLS) {
+        const byTable: Record<string, number> = {};
+        for (const c of calls.slice(callsBefore)) byTable[`${c.table}:${c.op}`] = (byTable[`${c.table}:${c.op}`] ?? 0) + 1;
+        process.stdout.write(`CALLS ${variant.name} run${i} total=${calls.length - callsBefore} ${JSON.stringify(byTable)}\n`);
+      }
       const normalized = normalizeTables(tables);
       const { run_id: _runId, ...counts } = result;
       void _runId;
