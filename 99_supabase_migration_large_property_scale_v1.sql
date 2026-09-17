@@ -22,23 +22,43 @@
 --
 -- AFTER this file, run each of these on its own, one statement at a time and
 -- outside a transaction (CREATE/DROP INDEX CONCURRENTLY cannot run inside one,
--- and the SQL editor wraps a multi-statement run in one):
+-- and the SQL editor wraps a multi-statement run in one).
+--
+-- Step 1, create. The second is already there on a database that ran
+-- 99_supabase_migration_audit_indexes_v1.sql, and then does nothing:
 --
 --   create index concurrently if not exists idx_snapshot_cell_ts
 --     on public.stay_date_snapshot (hotel_id, stay_date, room_type_id, snapshot_ts desc);
 --
---   drop index concurrently if exists public.idx_eval_audit_hotel_stay;
---
--- Before that drop, check the index it duplicates is there:
---
---   select 1 from pg_indexes
---    where schemaname = 'public' and indexname = 'idx_evaluation_audit_cell';
---
--- No row (a database that never ran 99_supabase_migration_audit_indexes_v1.sql)
--- means create it first, on its own, and only then drop the duplicate:
---
 --   create index concurrently if not exists idx_evaluation_audit_cell
 --     on public.evaluation_audit (hotel_id, stay_date, room_type_id, evaluated_at desc);
+--
+-- Step 2, check both are valid. A CREATE INDEX CONCURRENTLY that fails or is
+-- cancelled leaves an INVALID index behind under the same name. pg_indexes
+-- still lists it and "if not exists" then skips it, but nothing uses it:
+--
+--   select c.relname, i.indisvalid
+--     from pg_index i
+--     join pg_class c on c.oid = i.indexrelid
+--     join pg_namespace n on n.oid = c.relnamespace
+--    where n.nspname = 'public'
+--      and c.relname in ('idx_snapshot_cell_ts', 'idx_evaluation_audit_cell');
+--
+-- Both rows must be there with indisvalid = true. A missing row means its
+-- create in step 1 did not run. For a row with false, drop it and create it
+-- again, each on its own, then check again:
+--
+--   drop index concurrently if exists public.idx_snapshot_cell_ts;
+--   (then the idx_snapshot_cell_ts create from step 1)
+--
+--   drop index concurrently if exists public.idx_evaluation_audit_cell;
+--   (then the idx_evaluation_audit_cell create from step 1)
+--
+-- Step 3, only once idx_evaluation_audit_cell shows indisvalid = true, drop
+-- its duplicate. Dropping it while the other is invalid leaves the audit
+-- table with no working index on those columns:
+--
+--   drop index concurrently if exists public.idx_eval_audit_hotel_stay;
 --
 -- The drop removes an exact duplicate: idx_eval_audit_hotel_stay and
 -- idx_evaluation_audit_cell are both (hotel_id, stay_date, room_type_id,
@@ -47,9 +67,9 @@
 -- 02_supabase_schema.sql still creates both on a fresh database.
 --
 -- Optional, when you want the nightly engine sweep to commit per batch (see
--- section 8). Only after this file has run:
+-- section 8). Only after this file has run. cron.schedule with a job name that
+-- already exists replaces that job, so there is nothing to unschedule first:
 --
---   select cron.unschedule('engine-data-sweep');
 --   select cron.schedule('engine-data-sweep', '50 8 * * *',
 --     $$ call public.engine_data_sweep_proc(); $$);
 --
@@ -59,9 +79,9 @@
 -- 50,000 reservations each) can delete millions of rows in one transaction
 -- once large never-paid properties come due. Optional: one property and
 -- smaller batches, hourly, so one run is at most 400,000 deletes and the rest
--- resumes an hour later (the sweep's advisory lock keeps runs from overlapping):
+-- resumes an hour later (the sweep's advisory lock keeps runs from overlapping).
+-- As above, this replaces the existing job of the same name:
 --
---   select cron.unschedule('never-paid-retention-sweep');
 --   select cron.schedule('never-paid-retention-sweep', '15 * * * *',
 --     $$ select public.never_paid_retention_sweep(p_max_properties => 1, p_batch => 10000); $$);
 --
