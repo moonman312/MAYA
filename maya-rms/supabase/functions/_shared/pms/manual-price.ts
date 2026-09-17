@@ -118,7 +118,13 @@ export async function setManualPrices(
       supabase.from("manual_price").upsert(payload, { onConflict: "hotel_id,stay_date,room_type_id" });
     let { error } = await write(chunk);
     if (error && origin.source === "maya" && isMissingColumnError(error)) {
-      ({ error } = await write(chunk.map(({ source: _source, pms_type: _pmsType, ...rest }) => rest)));
+      const withoutSource = chunk.map((r) => {
+        const copy: Record<string, unknown> = { ...r };
+        delete copy.source;
+        delete copy.pms_type;
+        return copy;
+      });
+      ({ error } = await write(withoutSource));
     }
     if (error) throw error;
   }
