@@ -54,6 +54,35 @@ export type ScheduledLoopConfig = {
 /** How soon a hotel that ran out of time to evaluate is due again. */
 export const OUT_OF_TIME_RETRY_SECONDS = 30;
 
+/**
+ * How late the cron may start an invocation, and how far the edge clock may
+ * sit from the database's, without a healthy hotel missing its next tick.
+ */
+export const DUE_SLACK_SECONDS = 30;
+
+/**
+ * The p_interval_seconds for release_pms_sync after a healthy run: the sync
+ * interval counted from the start of the invocation, less DUE_SLACK_SECONDS,
+ * rather than from the release.
+ *
+ * release_pms_sync makes a hotel due its interval after its own now(). A
+ * hotel released a few seconds into an invocation was then due a few seconds
+ * after the next tick's claim, and waited for the tick after: on a 5-minute
+ * cron every hotel synced every 10 minutes (measured: 35 syncs in 6 hours,
+ * every gap 9.9 to 10.1 minutes). Counted from the invocation's start it is
+ * due by the next tick however late it was released (at once, when the
+ * invocation ran that long). It still can't run twice at once or twice in
+ * one invocation: an invocation claims only when it starts, and a claimed
+ * hotel stays leased until it is released.
+ *
+ * Healthy releases only. A failure's backoff and the out-of-time retry are
+ * still measured from the release.
+ */
+export function healthyReleaseIntervalSeconds(intervalSeconds: number, invocationStartedAt: number, now: number): number {
+  const elapsedSeconds = Math.max(0, now - invocationStartedAt) / 1000;
+  return Math.max(0, Math.floor(intervalSeconds - elapsedSeconds - DUE_SLACK_SECONDS));
+}
+
 function envMs(name: string, fallback: number): number {
   const raw = mwsEnv(name)?.trim();
   const n = raw ? Number(raw) : NaN;

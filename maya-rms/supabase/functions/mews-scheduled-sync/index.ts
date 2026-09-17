@@ -21,6 +21,7 @@ import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
 import { hotelsImportingNow, splitByParked } from "../_shared/pms/parked.ts";
 import {
   claimDispatchedHotelWaiting,
+  healthyReleaseIntervalSeconds,
   OUT_OF_TIME_RETRY_SECONDS,
   runScheduledHotels,
   scheduledLoopConfigFromEnv,
@@ -87,9 +88,10 @@ Deno.serve(async (req) => {
   // entries, as the fleet grows. Both are configuration.
   const batchSize = Math.max(1, Number(getEnv("MAYA_SYNC_BATCH_SIZE") ?? "25") || 25);
   const leaseSeconds = Math.max(60, Number(getEnv("MAYA_SYNC_LEASE_SECONDS") ?? "600") || 600);
-  // How long until a healthy connection is due again. The cron can tick more
-  // often than this without doing extra work — claim_pms_sync_batch only returns
-  // what is actually due, so over-ticking costs one cheap query.
+  // How long until a healthy connection is due again, counted from the start
+  // of the invocation that ran it (healthyReleaseIntervalSeconds). The cron can
+  // tick more often than this without doing extra work — claim_pms_sync_batch
+  // only returns what is actually due, so over-ticking costs one cheap query.
   const syncIntervalSeconds = Math.max(60, Number(getEnv("MAYA_SYNC_INTERVAL_SECONDS") ?? "300") || 300);
   const workerId = crypto.randomUUID();
 
@@ -251,7 +253,11 @@ Deno.serve(async (req) => {
         p_hotel_id: hotelId,
         p_pms_type: "mews",
         p_ok: sync.ok,
-        p_interval_seconds: outOfTime ? OUT_OF_TIME_RETRY_SECONDS : syncIntervalSeconds,
+        p_interval_seconds: outOfTime
+          ? OUT_OF_TIME_RETRY_SECONDS
+          : sync.ok
+            ? healthyReleaseIntervalSeconds(syncIntervalSeconds, invocationStartedAt, Date.now())
+            : syncIntervalSeconds,
       });
       if (releaseErr) {
         // Not fatal: the lease expires on its own and the next tick reclaims it.

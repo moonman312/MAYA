@@ -4,8 +4,10 @@ import {
   DISPATCH_BUSY_RETRY_MS,
   DISPATCH_BUSY_WAIT_MS,
   DISPATCH_LEASE_SECONDS,
+  DUE_SLACK_SECONDS,
   claimDispatchedHotel,
   claimDispatchedHotelWaiting,
+  healthyReleaseIntervalSeconds,
   runScheduledHotels,
   type ScheduledLoopConfig,
 } from "../../../supabase/functions/_shared/pms/scheduled-loop";
@@ -232,5 +234,68 @@ describe("claimDispatchedHotelWaiting", () => {
     const logs: Record<string, unknown>[] = [];
     expect(await claimDispatchedHotelWaiting(down.c, "think", "h1", "w", (l) => logs.push(l), down.startedAt, down.fakeClock)).toBe("busy");
     expect(logs.filter((l) => l.step === "dispatch_busy")).toHaveLength(1);
+  });
+});
+
+describe("healthyReleaseIntervalSeconds", () => {
+  const TICK_MS = 300_000;
+
+  /**
+   * A 5-minute cron over an hour, the way release_pms_sync and
+   * claim_pms_sync_batch treat one hotel: each invocation starts a little
+   * after its tick and claims once, a claimed hotel is leased until its
+   * release, and the release makes it due `interval` seconds after it.
+   */
+  function simulate(intervalFor: (startedAt: number, releasedAt: number) => number, latencyMs: (tick: number) => number, workMs: (tick: number) => number) {
+    let dueAt = 0;
+    let leasedUntil = 0;
+    const runs: { claimedAt: number; releasedAt: number }[] = [];
+    for (let tick = 0; tick < 12; tick++) {
+      const startedAt = tick * TICK_MS + latencyMs(tick);
+      const claimedAt = startedAt + 300;
+      if (dueAt > claimedAt || leasedUntil > claimedAt) continue;
+      const releasedAt = claimedAt + workMs(tick);
+      leasedUntil = releasedAt;
+      dueAt = releasedAt + intervalFor(startedAt, releasedAt) * 1000;
+      runs.push({ claimedAt, releasedAt });
+    }
+    return runs;
+  }
+
+  it("counts the interval from the invocation's start, less the slack", () => {
+    expect(healthyReleaseIntervalSeconds(300, 1_000_000, 1_004_000)).toBe(300 - 4 - DUE_SLACK_SECONDS);
+    expect(healthyReleaseIntervalSeconds(600, 1_000_000, 1_000_000)).toBe(600 - DUE_SLACK_SECONDS);
+  });
+
+  it("is due at once when the invocation ran past the point it would have been due", () => {
+    expect(healthyReleaseIntervalSeconds(300, 1_000_000, 1_000_000 + 320_000)).toBe(0);
+  });
+
+  it("syncs a hotel every tick, where counting from the release synced it every other tick", () => {
+    // Production: released about 4 seconds in, due 5 minutes after that.
+    const latency = () => 1_500;
+    const work = () => 4_000;
+    expect(simulate(() => 300, latency, work)).toHaveLength(6);
+    expect(simulate((startedAt, releasedAt) => healthyReleaseIntervalSeconds(300, startedAt, releasedAt), latency, work)).toHaveLength(12);
+  });
+
+  it("keeps every tick however late in its invocation the hotel was released, or however late the cron started it", () => {
+    const runs = simulate(
+      (startedAt, releasedAt) => healthyReleaseIntervalSeconds(300, startedAt, releasedAt),
+      (tick) => [200, 25_000, 3_000, 800][tick % 4],
+      (tick) => [5_000, 250_000, 60_000, 285_000][tick % 4] - [200, 25_000, 3_000, 800][tick % 4],
+    );
+    expect(runs).toHaveLength(12);
+    // Never claimed while it was still running.
+    for (let i = 1; i < runs.length; i++) expect(runs[i].claimedAt).toBeGreaterThanOrEqual(runs[i - 1].releasedAt);
+  });
+
+  it("waits for the tick after when the run was still going at the next tick's claim", () => {
+    const runs = simulate(
+      (startedAt, releasedAt) => healthyReleaseIntervalSeconds(300, startedAt, releasedAt),
+      () => 1_000,
+      (tick) => (tick === 0 ? 310_000 : 5_000),
+    );
+    expect(runs.map((r) => Math.floor(r.claimedAt / TICK_MS))).toEqual([0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
   });
 });
