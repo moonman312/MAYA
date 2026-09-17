@@ -15,6 +15,36 @@ import type {
 
 const BOOKING_SPEED_WINDOWS: readonly number[] = [1, 7, 30];
 
+/** Waits the builder offers a booking speed rule before it may fire again. */
+export type BookingSpeedWaitDays = 1 | 2 | 3 | 7 | 14;
+
+export const BOOKING_SPEED_WAIT_OPTIONS: { days: BookingSpeedWaitDays; label: string }[] = [
+  { days: 1, label: "1 day" },
+  { days: 2, label: "2 days" },
+  { days: 3, label: "3 days" },
+  { days: 7, label: "1 week" },
+  { days: 14, label: "2 weeks" },
+];
+
+/** What a rule waits when nobody has chosen, and what a stored null means. */
+export const DEFAULT_BOOKING_SPEED_WAIT_DAYS: BookingSpeedWaitDays = 7;
+
+/**
+ * The wait in words. A rule saved before the builder offered the choice has
+ * none stored, and the engine reads that as a week, so that is what it says.
+ * A number that is not on the list still reads correctly.
+ */
+export function bookingSpeedWaitLabel(days: number | null | undefined): string {
+  const value = days == null ? DEFAULT_BOOKING_SPEED_WAIT_DAYS : Math.max(1, Math.round(days));
+  const known = BOOKING_SPEED_WAIT_OPTIONS.find((o) => o.days === value);
+  if (known) return known.label;
+  if (value % 7 === 0) {
+    const weeks = value / 7;
+    return weeks === 1 ? "1 week" : `${weeks} weeks`;
+  }
+  return value === 1 ? "1 day" : `${value} days`;
+}
+
 export type ConditionMetric = "occupancy" | "booking_window" | "pickup" | "booking_speed";
 
 export type ConditionFormRow = {
@@ -30,6 +60,8 @@ export type ConditionFormRow = {
    *  directionalBookingSpeedOperator — so the form never asks for it. */
   booking_speed_level: string;
   booking_speed_window_days: BookingSpeedWindowDays;
+  /** Days the rule waits on a night and room type before it may fire again. */
+  booking_speed_cooldown_days: BookingSpeedWaitDays;
 };
 
 const SYM: Record<"gt" | "lt", string> = { gt: ">", lt: "<" };
@@ -47,6 +79,7 @@ export function newConditionRow(
     pickup_metric: partial?.pickup_metric ?? "room_nights",
     booking_speed_level: partial?.booking_speed_level ?? "faster",
     booking_speed_window_days: partial?.booking_speed_window_days ?? 7,
+    booking_speed_cooldown_days: partial?.booking_speed_cooldown_days ?? DEFAULT_BOOKING_SPEED_WAIT_DAYS,
   };
 }
 
@@ -120,6 +153,7 @@ export function conditionRowsToRuleCondition(rows: ConditionFormRow[]): RuleCond
       c.booking_speed_operator = directionalBookingSpeedOperator(row.booking_speed_level);
       c.booking_speed_level = row.booking_speed_level;
       c.booking_speed_window_days = row.booking_speed_window_days;
+      c.booking_speed_cooldown_days = row.booking_speed_cooldown_days;
     } else {
       const n = parseThreshold(row.value);
       if (n === null) continue;
@@ -172,12 +206,10 @@ export function ruleConditionForInsert(c: RuleCondition): RuleCondition {
     row.booking_speed_operator = c.booking_speed_operator;
     row.booking_speed_level = c.booking_speed_level;
     row.booking_speed_window_days = c.booking_speed_window_days;
-    if (
-      c.booking_speed_cooldown_days != null &&
-      Number.isFinite(c.booking_speed_cooldown_days) &&
-      c.booking_speed_cooldown_days >= 0
-    ) {
-      row.booking_speed_cooldown_days = Math.round(c.booking_speed_cooldown_days);
+    if (c.booking_speed_cooldown_days != null && Number.isFinite(c.booking_speed_cooldown_days)) {
+      // The column refuses anything under a day since stacking landed: a wait
+      // of none would let the rule fire on every five-minute run.
+      row.booking_speed_cooldown_days = Math.max(1, Math.round(c.booking_speed_cooldown_days));
     }
   }
   return row;

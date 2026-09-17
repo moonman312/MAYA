@@ -15,6 +15,7 @@ import { INITIAL_RULES } from "@/lib/demo-data";
 import { bookingSpeedLabel, isBookingSpeed } from "@/lib/observations/booking-speed";
 import {
   RoomTypeSetError,
+  bookingSpeedWaitLabel,
   isRuleConditionEmpty,
   ruleConditionForInsert,
   ruleConditionToLegacyConditions,
@@ -156,14 +157,23 @@ function uiActionToDb(action: RuleAction): {
 
 /* ── DB row converters ─────────────────────────────────────────── */
 
-/** "at least Much Faster Than Normal (past week)" — the rules-table summary text. */
-function formatBookingSpeedCondition(operator: string, levelKey: string, windowDays: number): string {
+/**
+ * "at least Much Faster Than Normal (past week), then waits 2 days" — the
+ * rules-table summary text. The wait is part of what the rule does: once it
+ * is over and the rule is still true, the rule adjusts that night again.
+ */
+function formatBookingSpeedCondition(
+  operator: string,
+  levelKey: string,
+  windowDays: number,
+  cooldownDays: number | null,
+): string {
   const label = isBookingSpeed(levelKey) ? bookingSpeedLabel(levelKey) : levelKey;
   const opWords =
     operator === "at_least" ? "at least " : operator === "at_most" ? "at most " : "";
   const windowWords =
     windowDays === 1 ? "past day" : windowDays === 30 ? "past month" : "past week";
-  return `${opWords}${label} (${windowWords})`;
+  return `${opWords}${label} (${windowWords}), then waits ${bookingSpeedWaitLabel(cooldownDays)}`;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -202,6 +212,7 @@ function dbRowToRuleConfig(row: any): RuleConfig {
         String(rc.booking_speed_operator),
         String(rc.booking_speed_level),
         rc.booking_speed_window_days != null ? Number(rc.booking_speed_window_days) : 7,
+        rc.booking_speed_cooldown_days != null ? Number(rc.booking_speed_cooldown_days) : null,
       );
     }
   } else {

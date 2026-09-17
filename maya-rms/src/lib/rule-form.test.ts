@@ -68,6 +68,7 @@ describe("booking speed condition rows", () => {
       booking_speed_operator: "at_most", // below Normal -> "that slow or slower"
       booking_speed_level: "much_slower",
       booking_speed_window_days: 30,
+      booking_speed_cooldown_days: 7, // the builder's default: a week
     });
     expect(isRuleConditionEmpty(c)).toBe(false);
     expect(ruleConditionForInsert(c)).toEqual(c);

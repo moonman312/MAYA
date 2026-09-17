@@ -13,12 +13,15 @@ import { track } from "@/lib/analytics/track";
 import { PropertySelect } from "@/components/property-select";
 import { RateSimulator } from "@/components/rate-simulator";
 import { RoomCountHelp, RoomTypeSettings, isCountingRoom } from "@/components/room-type-settings";
-import { bookingSpeedHelp } from "@/lib/booking-speed-help";
+import { bookingSpeedHelp, bookingSpeedWaitHelp } from "@/lib/booking-speed-help";
+import { RuleAlertBanner } from "@/components/rule-alert-banner";
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { RuleRoomTypesField } from "@/components/rule-room-types-field";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
 import {
+  BOOKING_SPEED_WAIT_OPTIONS,
+  bookingSpeedWaitLabel,
   conditionRowsToRuleCondition,
   formatRuleConditionsDisplay,
   isRuleActionEmpty,
@@ -28,6 +31,7 @@ import {
   ruleConditionToLegacyConditions,
   ruleRoomTypeSets,
   ruleRoomTypesLabel,
+  type BookingSpeedWaitDays,
   type ConditionFormRow,
   type ConditionMetric,
 } from "@/lib/rule-form";
@@ -894,6 +898,14 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
 
         <OnboardingReviewBanner />
 
+        <RuleAlertBanner
+          activeHotelId={activeHotelId}
+          onAskForLimits={() => {
+            setTab("rules");
+            track("dashboard.tab_opened", { tab: "rules" });
+          }}
+        />
+
         {tab === "calendar" && (
           <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
             <div className="flex items-center gap-3">
@@ -1531,6 +1543,39 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                                   <option value="1">Past day</option>
                                   <option value="7">Past week</option>
                                   <option value="30">Past month</option>
+                                </select>
+                              </div>
+                              <div>
+                                <div className="mb-0.5 flex items-center gap-1.5">
+                                  <label
+                                    htmlFor={`wait-${row.id}`}
+                                    className="block text-[11px] text-slate-500"
+                                  >
+                                    Then waits (advanced)
+                                  </label>
+                                  <RoomCountHelp
+                                    {...bookingSpeedWaitHelp(
+                                      bookingSpeedWaitLabel(row.booking_speed_cooldown_days),
+                                    )}
+                                  />
+                                </div>
+                                <select
+                                  id={`wait-${row.id}`}
+                                  className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
+                                  value={String(row.booking_speed_cooldown_days)}
+                                  onChange={(e) =>
+                                    updateCondRow(row.id, {
+                                      booking_speed_cooldown_days: Number(
+                                        e.target.value,
+                                      ) as BookingSpeedWaitDays,
+                                    })
+                                  }
+                                >
+                                  {BOOKING_SPEED_WAIT_OPTIONS.map((o) => (
+                                    <option key={o.days} value={o.days}>
+                                      {o.label}
+                                    </option>
+                                  ))}
                                 </select>
                               </div>
                             </div>
