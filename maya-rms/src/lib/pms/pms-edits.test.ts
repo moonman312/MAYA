@@ -121,22 +121,28 @@ describe("planPmsEdits", () => {
     expect(p).toMatchObject({ edits: [], waiting: 2 });
   });
 
-  it("leaves a night whose open manual price is the PMS rate already, and brings its ledger in step", () => {
+  it("leaves a night whose open manual price is the PMS rate already, and brings a hold at that price in step", () => {
     const key = "2026-10-05|rt-king";
+    // Typed in MAYA and in the PMS alike: not a change, and the sent row stays as it is.
     const same = plan([read()], { [key]: { price: 250, source: "maya", setAtMs: NOW - 30 * 60_000 } });
-    expect(same.edits).toEqual([]);
-    expect(same.inStep.map((s) => s.price)).toEqual([250]);
-
-    // A comp night MAYA would not send, set to 0 in the PMS by hand: the skip under it goes in step too.
-    const comp = plan([read({ pmsRate: 0, ledger: { status: "skipped", error: "guardrail:zero_rate_unsupported", price: 0 } })], {
-      [key]: { price: 0, source: "pms", setAtMs: NOW - 5 * 3_600_000 },
+    expect(same).toMatchObject({ edits: [], inStep: [] });
+    // A rule stacked on the manual price went out as 275, and the hotel set the manual price back by hand:
+    // rewriting the ledger to 250 would have the push send 275 over it.
+    expect(plan([read({ ledger: { price: 275 } })], { [key]: { price: 250, source: "pms", setAtMs: NOW - 5 * 3_600_000 } })).toMatchObject({
+      edits: [],
+      inStep: [],
     });
+
+    // A comp night MAYA would not send, set to 0 in the PMS by hand: the hold goes in step.
+    const zeroHold = { status: "skipped", error: "guardrail:zero_rate_unsupported", price: 0 };
+    const comp = plan([read({ pmsRate: 0, ledger: zeroHold })], { [key]: { price: 0, source: "pms", setAtMs: NOW - 5 * 3_600_000 } });
     expect(comp).toMatchObject({ edits: [], inStep: [expect.objectContaining({ price: 0 })] });
 
-    // Already in step, or a send that may still change what is there: nothing to do.
-    expect(plan([read({ ledger: { price: 250 } })], { [key]: { price: 250, source: "pms", setAtMs: NOW } }).inStep).toEqual([]);
-    expect(plan([read({ ledger: { confirmed_at: null } })], { [key]: { price: 250, source: "maya", setAtMs: NOW } }).inStep).toEqual([]);
-    expect(plan([read({ ledger: { status: "failed" } })], { [key]: { price: 250, source: "maya", setAtMs: NOW } }).inStep).toEqual([]);
+    // A hold at another price, one written minutes ago, or to another rate: nothing to do.
+    const zeroManual = { [key]: { price: 0, source: "pms" as const, setAtMs: NOW - 5 * 3_600_000 } };
+    expect(plan([read({ pmsRate: 0, ledger: { ...zeroHold, price: 20 } })], zeroManual).inStep).toEqual([]);
+    expect(plan([read({ pmsRate: 0, ledger: { ...zeroHold, pushed_at: hoursAgo(0.2) } })], zeroManual).inStep).toEqual([]);
+    expect(plan([read({ pmsRate: 0, ledger: { ...zeroHold, external_rate_id: "rate-old" } })], zeroManual).inStep).toEqual([]);
   });
 
   it("does not adopt over a price typed in MAYA after the send that is still on its way", () => {
@@ -444,7 +450,7 @@ describe("a rate changed in the PMS, through the tick", () => {
     expect(sent).toEqual([]);
   });
 
-  it("leaves a night whose manual price is already the PMS rate alone", async () => {
+  it("does not adopt a night whose manual price is already the PMS rate", async () => {
     const { d, sent, tick } = setup([settledSend(220)]);
     // Typed in MAYA half an hour ago (the route suppressed the busy rule), and typed into Cloudbeds too.
     const typedAt = new Date(T0 - 30 * 60_000).toISOString();
@@ -458,9 +464,9 @@ describe("a rate changed in the PMS, through the tick", () => {
 
     expect(res.pmsEditsAdopted).toBe(0);
     expect(d.tables.manual_price).toEqual([expect.objectContaining({ price: 250, source: "maya", set_by: "user-1" })]);
-    // Already in Cloudbeds, so it isn't sent again.
+    // The typed price goes out as it would have, the same number Cloudbeds has.
     expect(published(d)).toBe(250);
-    expect(sent).toEqual([]);
+    expect(sent).toEqual([{ price: 250, stayDate: NIGHT }]);
     expect(d.tables.rate_updates[0]).toMatchObject({ price: 250, status: "sent" });
   });
 });

@@ -34,9 +34,12 @@
  *     freeze the whole window. Nothing is adopted and the count is logged.
  *
  * A night whose PMS rate already equals its open manual price is not a change
- * either, but when the ledger says otherwise (a comp night's 0 MAYA would not
- * send and the hotel set by hand, or a price typed in both places) the ledger
- * is brought in step, so the push does not send what is already there.
+ * either. When the push held that very price back (a comp night's 0 MAYA
+ * would not send, which the hotel then set by hand) and the send under the
+ * hold has settled, the ledger is brought in step, so the push stops trying
+ * to send what is already there. A sent row is left as it is: its price may
+ * be a rule stacked on the manual price, and the push would then write that
+ * over the PMS.
  *
  * After adopting, the ledger row says the PMS holds the rate (price and
  * sent_price, pms_edited_at stamped), so the evaluation that follows in the
@@ -94,7 +97,7 @@ export type OpenManualPrice = { price: number; source: "maya" | "pms"; setAtMs: 
 export type PmsEditPlan = {
   /** Hand edits to adopt, at the PMS rate in cents. */
   edits: { read: PushedNightRead; price: number }[];
-  /** Nights whose PMS rate is their open manual price already, with a ledger that says otherwise. */
+  /** Nights the push holds back at their open manual price, which the PMS has already. */
   inStep: { read: PushedNightRead; price: number }[];
   /** Differ from MAYA's last send, which is not settled or not old enough yet. */
   waiting: number;
@@ -134,11 +137,8 @@ export function planPmsEdits(input: {
     const manual = input.manual.get(key);
 
     if (manual && Number.isFinite(manual.price) && pmsHoldsPrice(r.pmsRate, manual.price)) {
-      const ledgerSays = sent && !ratesDiffer(ledgerPrice, manual.price);
-      // A send still settling, or refused, may yet change what is there.
-      if (!ledgerSays && sameTarget && oldEnough && (settled || l.status === "skipped")) {
-        plan.inStep.push({ read: r, price: manual.price });
-      }
+      const heldBackThisPrice = l.status === "skipped" && !ratesDiffer(ledgerPrice, manual.price);
+      if (heldBackThisPrice && sameTarget && oldEnough) plan.inStep.push({ read: r, price: manual.price });
       continue;
     }
 
