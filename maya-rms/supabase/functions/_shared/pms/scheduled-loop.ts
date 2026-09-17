@@ -157,12 +157,14 @@ export const DISPATCH_LEASE_SECONDS = 420;
  * What a single-hotel dispatch may do. "claimed": it holds the lease and must
  * release it. "busy": another invocation or a manual sync holds it, so this one
  * does nothing; that run evaluates and pushes the same hotel. "unleased": there
- * is no connection row to hold, or the claim could not be read, so it runs as
- * dispatches always did.
+ * is no connection row to hold (the RPC says "missing"), so no cron claims the
+ * hotel either and it runs as dispatches always did.
  *
- * Without a lease a dispatch ran the same hotel alongside the cron: two sweeps
- * on one checkpoint, two isolates pacing one PMS credential, and two
- * evaluations writing the same ladder transitions.
+ * A claim that errors, or answers anything else, is "busy". Running unleased on
+ * a claim nobody could read put the dispatch alongside a cron run that did hold
+ * the lease: two sweeps on one checkpoint, two isolates pacing one PMS
+ * credential, two evaluations writing the same ladder transitions, and the
+ * same rates pushed twice with both runs racing on the ledger.
  */
 export async function claimDispatchedHotel(
   supabase: SupabaseClient,
@@ -178,12 +180,13 @@ export async function claimDispatchedHotel(
     p_owner: owner,
   });
   if (error) {
-    log({ step: "dispatch_claim", hotelId, error: error.message });
-    return "unleased";
+    log({ step: "dispatch_claim", hotelId, error: error.message, treatedAs: "busy" });
+    return "busy";
   }
   if (data === "claimed") return "claimed";
-  if (data === "busy") return "busy";
-  return "unleased";
+  if (data === "missing") return "unleased";
+  if (data !== "busy") log({ step: "dispatch_claim", hotelId, answer: String(data), treatedAs: "busy" });
+  return "busy";
 }
 
 /** How long from the invocation's start a busy single-hotel dispatch keeps trying. */
@@ -192,7 +195,8 @@ export const DISPATCH_BUSY_WAIT_MS = 60_000;
 export const DISPATCH_BUSY_RETRY_MS = 3_000;
 
 /**
- * claimDispatchedHotel, waiting a bounded time while the hotel is busy.
+ * claimDispatchedHotel, waiting a bounded time while the hotel is busy. A claim
+ * that errored reads as busy, so a passing blip is simply tried again.
  *
  * Stepping aside at once assumed the holder would price and push the change
  * that prompted the dispatch, but a manual sync only reads the PMS, and a cron

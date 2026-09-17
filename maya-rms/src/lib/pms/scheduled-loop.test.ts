@@ -131,17 +131,27 @@ describe("claimDispatchedHotel", () => {
     expect(await claimDispatchedHotel(client({ data: "busy", error: null }).c, "think", "h1", "w", () => {})).toBe("busy");
   });
 
-  it("runs unleased with no connection row, or when the claim cannot be read", async () => {
-    const logs: Record<string, unknown>[] = [];
+  it("runs unleased only when there is no connection row to hold", async () => {
     expect(await claimDispatchedHotel(client({ data: "missing", error: null }).c, "mews", "h1", "w", () => {})).toBe("unleased");
+  });
+
+  it("steps aside rather than run unleased when the claim errors or answers something unknown", async () => {
+    // The cron may hold this hotel's lease right now; running anyway pushed the
+    // same rates twice.
+    const logs: Record<string, unknown>[] = [];
     expect(
       await claimDispatchedHotel(client({ data: null, error: { message: "timeout" } }).c, "mews", "h1", "w", (l) => logs.push(l)),
-    ).toBe("unleased");
-    expect(logs).toHaveLength(1);
+    ).toBe("busy");
+    expect(await claimDispatchedHotel(client({ data: null, error: null }).c, "cloudbeds", "h1", "w", (l) => logs.push(l))).toBe("busy");
+    expect(logs).toEqual([
+      expect.objectContaining({ step: "dispatch_claim", error: "timeout", treatedAs: "busy" }),
+      expect.objectContaining({ step: "dispatch_claim", answer: "null", treatedAs: "busy" }),
+    ]);
   });
 });
 
 describe("claimDispatchedHotelWaiting", () => {
+  /** An answer of "error" makes that claim fail the way a dropped connection does. */
   function scripted(answers: string[]) {
     let clock = 5_000_000;
     const startedAt = clock;
@@ -153,7 +163,7 @@ describe("claimDispatchedHotelWaiting", () => {
         // Each claim round trip takes a little time too.
         clock += 150;
         const data = answers.length > 1 ? answers.shift() : answers[0];
-        return { data, error: null };
+        return data === "error" ? { data: null, error: { message: "connection reset" } } : { data, error: null };
       },
     } as unknown as SupabaseClient;
     const fakeClock = {
@@ -205,9 +215,22 @@ describe("claimDispatchedHotelWaiting", () => {
     expect(s.sleeps).toEqual([]);
   });
 
-  it("stops waiting and runs unleased when the claim cannot be read", async () => {
+  it("stops waiting and runs unleased once the connection row is gone", async () => {
     const s = scripted(["busy", "missing"]);
     expect(await claimDispatchedHotelWaiting(s.c, "cloudbeds", "h1", "w", () => {}, s.startedAt, s.fakeClock)).toBe("unleased");
     expect(s.sleeps).toHaveLength(1);
+  });
+
+  it("never runs a hotel unleased on a claim that errors: tries again, then steps aside", async () => {
+    const recovers = scripted(["error", "claimed"]);
+    expect(await claimDispatchedHotelWaiting(recovers.c, "cloudbeds", "h1", "w", () => {}, recovers.startedAt, recovers.fakeClock)).toBe(
+      "claimed",
+    );
+    expect(recovers.sleeps).toEqual([DISPATCH_BUSY_RETRY_MS]);
+
+    const down = scripted(["error"]);
+    const logs: Record<string, unknown>[] = [];
+    expect(await claimDispatchedHotelWaiting(down.c, "think", "h1", "w", (l) => logs.push(l), down.startedAt, down.fakeClock)).toBe("busy");
+    expect(logs.filter((l) => l.step === "dispatch_busy")).toHaveLength(1);
   });
 });
