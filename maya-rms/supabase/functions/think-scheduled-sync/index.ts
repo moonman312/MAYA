@@ -224,6 +224,14 @@ Deno.serve(async (req) => {
           adapter = createThinkRateAdapter(
             { accessToken: resolved.accessToken, baseUrl },
             resolved.propertyId,
+            {
+              // A token that expires mid-tick gets one refresh before a
+              // refused write is taken as a revoked grant.
+              refreshCredentials: async () => {
+                const fresh = await resolveOAuthCredentials(supabase, hotelId, "think");
+                return "error" in fresh ? null : { accessToken: fresh.accessToken, baseUrl };
+              },
+            },
           );
         }
       } catch (e) {

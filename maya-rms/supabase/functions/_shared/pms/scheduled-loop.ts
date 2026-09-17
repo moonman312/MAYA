@@ -33,8 +33,11 @@ export type ScheduledLoopConfig = {
    * and push after it. Not raised when the horizon went from 45 nights to 60:
    * the engine pages its reads across the whole horizon, so its round trips
    * barely grow with it, and the refresh is one PMS read at most hourly per
-   * hotel (two small queries otherwise). A refresh that runs long only moves
-   * the evaluation to the next tick, which then finds the refresh throttled.
+   * hotel (two small queries otherwise). The refresh's deadline is the
+   * evaluation cut-off (minEvalMs before the invocation's end): it does not
+   * start with less than a minute to that, and the PMS client stops waiting
+   * out rate limits past it, so a slow refresh moves the evaluation to the
+   * next tick instead of running into the wall clock.
    */
   evalReserveMs: number;
   /** The PMS read's own budget; the deadline passed down is never later than this from its start. */

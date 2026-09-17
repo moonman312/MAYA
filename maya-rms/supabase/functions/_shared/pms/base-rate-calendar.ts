@@ -29,6 +29,15 @@
  * and freezing its base there would price it on a number the hotel has since
  * changed.
  *
+ * The other is a sent-to night whose stored base is 0: closed, or rates not
+ * loaded, when MAYA sent a typed price to it. MAYA never sends 0 or less, so
+ * the 0 is not an echo, and the engine never prices a 0 base on its own: left
+ * frozen, the night was abandoned for good once the typed price was cleared,
+ * even after the hotel loaded its rate. So when the PMS now quotes something
+ * other than the last price MAYA put on the night, and that send is over an
+ * hour old (a job still settling can quote an older MAYA price), the hotel
+ * set it, and it is captured.
+ *
  * Every other cell is re-read, not just captured once. The hotel changes its
  * rates in the PMS while MAYA is simulating, and a base read once, weeks ago,
  * would have the first live push write over those changes.
@@ -64,12 +73,18 @@ export type SeedCalendarResult =
        * only; what to do about them is not decided yet.
        */
       pmsEditedPushedNights: number;
+      /** Of `captured`, sent-to nights stored at 0 that the hotel has since loaded a rate for. */
+      loadedAfterZeroBase: number;
       days: number;
     };
 
+/**
+ * `deferred`: a refresh was due but too little time was left to start it, or
+ * it ran out of time. Not stamped, so the next tick refreshes.
+ */
 export type EnsureCalendarResult =
   | SeedCalendarResult
-  | { ok: false; reason: "throttled" | "covered" | "failed"; captured: 0 };
+  | { ok: false; reason: "throttled" | "covered" | "failed" | "deferred"; captured: 0 };
 
 const CHUNK = 500;
 const PAGE = 1000;
@@ -80,6 +95,13 @@ const PAGE = 1000;
  */
 const HALF_CENT = 0.005 + 1e-9;
 const DEFAULT_REFRESH_MINUTES = 60;
+/**
+ * A refresh starts only with this long left before its deadline. One Cloudbeds
+ * getRatePlans read can wait out a 429 and then take tens of seconds.
+ */
+export const BASE_REFRESH_RESERVE_MS = 60_000;
+/** How old MAYA's last send to a zero-base night must be before a different PMS rate is taken as the hotel's. */
+const ZERO_BASE_SETTLE_MS = 60 * 60_000;
 
 function ratesDiffer(a: number, b: number): boolean {
   return Math.abs(a - b) > HALF_CENT;
@@ -103,10 +125,20 @@ export async function seedBaseRateCalendar(
   supabase: SupabaseClient,
   hotelId: string,
   adapter: PmsRatePushAdapter,
-  opts: { horizonDays?: number; today?: string } = {},
+  opts: { horizonDays?: number; today?: string; deadlineAt?: number } = {},
 ): Promise<SeedCalendarResult> {
+  return (await seedWithTargets(supabase, hotelId, adapter, opts)).result;
+}
+
+/** seedBaseRateCalendar, and the rate targets the read resolved (null when there was no read). */
+async function seedWithTargets(
+  supabase: SupabaseClient,
+  hotelId: string,
+  adapter: PmsRatePushAdapter,
+  opts: { horizonDays?: number; today?: string; deadlineAt?: number },
+): Promise<{ result: SeedCalendarResult; targets: RateTargetMap | null }> {
   if (!adapter.fetchRateCalendar && !adapter.readBaseRateCalendar) {
-    return { ok: false, reason: "unsupported", captured: 0 };
+    return { result: { ok: false, reason: "unsupported", captured: 0 }, targets: null };
   }
 
   const horizon = Math.max(1, Math.min(MAX_PRICING_HORIZON_DAYS, Math.floor(opts.horizonDays ?? pricingHorizonDays())));
@@ -123,16 +155,16 @@ export async function seedBaseRateCalendar(
   for (const r of rtRows ?? []) {
     if (r.external_room_type_id) localByExternal.set(String(r.external_room_type_id), String(r.id));
   }
-  if (localByExternal.size === 0) return { ok: false, reason: "no_room_types", captured: 0 };
+  if (localByExternal.size === 0) return { result: { ok: false, reason: "no_room_types", captured: 0 }, targets: null };
 
-  const read = await readPmsCalendar(adapter, firstDate, lastDate);
-  if (!read) return { ok: false, reason: "no_rate_targets", captured: 0 };
+  const read = await readPmsCalendar(adapter, firstDate, lastDate, opts.deadlineAt);
+  if (!read) return { result: { ok: false, reason: "no_rate_targets", captured: 0 }, targets: null };
 
   // Read after the PMS, so a push that landed in between is seen here.
   const pushed = await readAll(
     supabase,
     "rate_updates",
-    "stay_date, room_type_id, price, status, attempts",
+    "stay_date, room_type_id, price, status, attempts, pushed_at",
     hotelId,
     firstDate,
     lastDate,
@@ -141,11 +173,16 @@ export async function seedBaseRateCalendar(
   );
   const pushedCells = new Set<string>();
   const lastSentPrice = new Map<string, number>();
+  // The price on each pushed cell's row and when it was written, whatever its status.
+  const lastPushed = new Map<string, { price: number; atMs: number }>();
   for (const p of pushed) {
     if (!p.room_type_id || ledgerRowNeverSent(p)) continue;
     const key = `${p.stay_date}|${p.room_type_id}`;
     pushedCells.add(key);
     if (p.status === "sent" && p.price != null) lastSentPrice.set(key, Number(p.price));
+    if (p.price != null) {
+      lastPushed.set(key, { price: Number(p.price), atMs: p.pushed_at != null ? Date.parse(String(p.pushed_at)) : NaN });
+    }
   }
 
   const stored = await readAll(
@@ -167,6 +204,8 @@ export async function seedBaseRateCalendar(
   let unchanged = 0;
   let skippedAlreadyPushed = 0;
   let pmsEditedPushedNights = 0;
+  let loadedAfterZeroBase = 0;
+  const settledBefore = Date.now() - ZERO_BASE_SETTLE_MS;
   for (const e of read.entries) {
     const roomTypeId = localByExternal.get(e.externalRoomTypeId);
     if (!roomTypeId) continue;
@@ -175,13 +214,25 @@ export async function seedBaseRateCalendar(
     // statement ("cannot affect row a second time").
     if (seen.has(key)) continue;
     seen.add(key);
-    if (pushedCells.has(key)) {
-      skippedAlreadyPushed++;
-      const sent = lastSentPrice.get(key);
-      if (sent != null && ratesDiffer(e.price, sent)) pmsEditedPushedNights++;
-      continue;
-    }
     const was = storedPrice.get(key);
+    if (pushedCells.has(key)) {
+      // See the header: a zero base under a send is not MAYA's echo.
+      const last = lastPushed.get(key);
+      const hotelLoadedIt =
+        was != null &&
+        !ratesDiffer(was, 0) &&
+        ratesDiffer(e.price, 0) &&
+        last != null &&
+        ratesDiffer(e.price, last.price) &&
+        !(last.atMs > settledBefore);
+      if (!hotelLoadedIt) {
+        skippedAlreadyPushed++;
+        const sent = lastSentPrice.get(key);
+        if (sent != null && ratesDiffer(e.price, sent)) pmsEditedPushedNights++;
+        continue;
+      }
+      loadedAfterZeroBase++;
+    }
     if (was != null && !ratesDiffer(e.price, was)) {
       unchanged++;
       continue;
@@ -208,7 +259,10 @@ export async function seedBaseRateCalendar(
     }
   }
 
-  return { ok: true, captured: rows.length, unchanged, skippedAlreadyPushed, pmsEditedPushedNights, days: horizon };
+  return {
+    result: { ok: true, captured: rows.length, unchanged, skippedAlreadyPushed, pmsEditedPushedNights, loadedAfterZeroBase, days: horizon },
+    targets: read.targets,
+  };
 }
 
 /** Targets and nightly rates, from one read where the vendor allows it; null when nothing is targetable. */
@@ -216,14 +270,15 @@ async function readPmsCalendar(
   adapter: PmsRatePushAdapter,
   firstDate: string,
   lastDate: string,
+  deadlineAt?: number,
 ): Promise<{ targets: RateTargetMap; entries: RateCalendarEntry[] } | null> {
   if (adapter.readBaseRateCalendar) {
-    const read = await adapter.readBaseRateCalendar(firstDate, lastDate);
+    const read = await adapter.readBaseRateCalendar(firstDate, lastDate, { deadlineAt });
     return Object.keys(read.targets).length > 0 ? read : null;
   }
-  const targets = await adapter.resolveRateTargets({ today: firstDate });
+  const targets = await adapter.resolveRateTargets({ today: firstDate, deadlineAt });
   if (Object.keys(targets).length === 0) return null;
-  return { targets, entries: await adapter.fetchRateCalendar!(firstDate, lastDate, targets) };
+  return { targets, entries: await adapter.fetchRateCalendar!(firstDate, lastDate, targets, { deadlineAt }) };
 }
 
 /**
@@ -276,6 +331,15 @@ async function readAll(
  * push that follow. Cells MAYA has already pushed to are excluded inside
  * seedBaseRateCalendar, so this is safe on a live hotel.
  *
+ * `deadlineAt` bounds the read: a due refresh with less than
+ * BASE_REFRESH_RESERVE_MS left does not start, and the PMS client stops
+ * waiting out rate limits past it. Either way the result is `deferred`, not
+ * stamped, and the tick still evaluates on the stored calendar.
+ *
+ * The rate targets the read resolved are written to the push's cache when
+ * they differ from it, so the push sends to the rate this read priced on
+ * rather than one a stale cache still names.
+ *
  * Failures are swallowed: a hotel with no calendar prices exactly as it did
  * before this table existed, so a PMS hiccup here must never take down a tick.
  * A failed run is not marked as a refresh, so the next tick tries again.
@@ -284,7 +348,7 @@ export async function ensureBaseRateCalendar(
   supabase: SupabaseClient,
   hotelId: string,
   adapter: PmsRatePushAdapter,
-  opts: { horizonDays?: number; clock?: HotelClock; refreshIntervalMs?: number } = {},
+  opts: { horizonDays?: number; clock?: HotelClock; refreshIntervalMs?: number; deadlineAt?: number } = {},
 ): Promise<EnsureCalendarResult> {
   if (!adapter.fetchRateCalendar && !adapter.readBaseRateCalendar) {
     return { ok: false, reason: "unsupported", captured: 0 };
@@ -294,7 +358,8 @@ export async function ensureBaseRateCalendar(
 
   try {
     const clock = opts.clock ?? (await readHotelClock(supabase, hotelId));
-    const last = await lastRefreshedAt(supabase, hotelId, adapter.pmsType);
+    const connection = await lastRefreshedAt(supabase, hotelId, adapter.pmsType);
+    const last = connection === "unknown" ? "unknown" : connection.refreshedAt;
 
     if (last === "unknown") {
       // No record of when it last ran (the column's migration has not run, or
@@ -319,30 +384,54 @@ export async function ensureBaseRateCalendar(
       if (fresh && sameHotelDay) return { ok: false, reason: "throttled", captured: 0 };
     }
 
-    const result = await seedBaseRateCalendar(supabase, hotelId, adapter, { horizonDays: horizon, today: clock.today });
-    if (last !== "unknown") await markRefreshed(supabase, hotelId, adapter.pmsType, clock.at);
+    if (opts.deadlineAt != null && opts.deadlineAt - Date.now() < BASE_REFRESH_RESERVE_MS) {
+      return { ok: false, reason: "deferred", captured: 0 };
+    }
+    const { result, targets } = await seedWithTargets(supabase, hotelId, adapter, {
+      horizonDays: horizon,
+      today: clock.today,
+      deadlineAt: opts.deadlineAt,
+    });
+    if (connection !== "unknown") {
+      const cached = connection.pushRateTargets;
+      const newTargets = targets && Object.keys(targets).length > 0 && !sameTargets(targets, cached) ? targets : null;
+      await markRefreshed(supabase, hotelId, adapter.pmsType, clock.at, newTargets);
+    }
     return result;
   } catch (e) {
+    const outOfTime = opts.deadlineAt != null && Date.now() >= opts.deadlineAt;
     console.error(
       JSON.stringify({
         fn: "ensureBaseRateCalendar",
         hotelId,
+        ...(outOfTime ? { outOfTime: true } : {}),
         error: (e instanceof Error ? e.message : String(e)).slice(0, 300),
       }),
     );
-    return { ok: false, reason: "failed", captured: 0 };
+    return { ok: false, reason: outOfTime ? "deferred" : "failed", captured: 0 };
   }
 }
 
-/** When this hotel's calendar was last read from the PMS; null if never, "unknown" if it can't be told. */
+/** Same room types to the same rates, whatever the key order. */
+function sameTargets(a: RateTargetMap, b: unknown): boolean {
+  if (!b || typeof b !== "object") return false;
+  const other = b as Record<string, unknown>;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(other).length && keys.every((k) => other[k] === a[k]);
+}
+
+/**
+ * When this hotel's calendar was last read from the PMS (null if never) and
+ * the push's cached targets; "unknown" if it can't be told.
+ */
 async function lastRefreshedAt(
   supabase: SupabaseClient,
   hotelId: string,
   pmsType: string,
-): Promise<string | null | "unknown"> {
+): Promise<{ refreshedAt: string | null; pushRateTargets: unknown } | "unknown"> {
   const { data, error } = await supabase
     .from("pms_connections")
-    .select("base_rates_refreshed_at")
+    .select("base_rates_refreshed_at, push_rate_targets")
     .eq("hotel_id", hotelId)
     .eq("pms_type", pmsType)
     .maybeSingle();
@@ -362,18 +451,28 @@ async function lastRefreshedAt(
   }
   // No connection row to stamp: refreshing on every tick would never stop.
   if (!data) return "unknown";
-  return data.base_rates_refreshed_at ? String(data.base_rates_refreshed_at) : null;
+  return {
+    refreshedAt: data.base_rates_refreshed_at ? String(data.base_rates_refreshed_at) : null,
+    pushRateTargets: data.push_rate_targets ?? null,
+  };
 }
 
 /**
  * Stamped with the tick's instant, not the time the read finished: a refresh
  * that starts at 23:59 and ends after midnight covered the earlier day's
- * window, and the next tick has to see that.
+ * window, and the next tick has to see that. `targets`, when given, replaces
+ * the push's cached map in the same write.
  */
-async function markRefreshed(supabase: SupabaseClient, hotelId: string, pmsType: string, at: string): Promise<void> {
+async function markRefreshed(
+  supabase: SupabaseClient,
+  hotelId: string,
+  pmsType: string,
+  at: string,
+  targets: RateTargetMap | null = null,
+): Promise<void> {
   const { error } = await supabase
     .from("pms_connections")
-    .update({ base_rates_refreshed_at: at })
+    .update({ base_rates_refreshed_at: at, ...(targets ? { push_rate_targets: targets } : {}) })
     .eq("hotel_id", hotelId)
     .eq("pms_type", pmsType);
   if (error) {

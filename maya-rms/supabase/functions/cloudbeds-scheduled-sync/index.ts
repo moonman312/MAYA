@@ -248,7 +248,13 @@ Deno.serve(async (req) => {
       hotelId,
       {
         horizonDays,
-        adapter: creds ? createCloudbedsRateAdapter(creds) : null,
+        // A token that expires mid-tick gets one refresh before a refused
+        // write is taken as a revoked grant.
+        adapter: creds
+          ? createCloudbedsRateAdapter(creds, undefined, {
+              refreshCredentials: () => resolveCloudbedsCredentials(supabase, hotelId),
+            })
+          : null,
         runEvaluate,
         pushEnabled: pushRatesEnabled,
         evaluateBy,

@@ -160,7 +160,7 @@ describe("seedBaseRateCalendar", () => {
     const res = await seedBaseRateCalendar(d.client, HOTEL, adapter, { horizonDays: 60, today: "2026-10-01" });
 
     expect(read).toHaveBeenCalledTimes(1);
-    expect(read).toHaveBeenCalledWith("2026-10-01", "2026-11-29");
+    expect(read).toHaveBeenCalledWith("2026-10-01", "2026-11-29", { deadlineAt: undefined });
     expect(calls.resolve).toEqual([]);
     expect(calls.fetch).toEqual([]);
     expect(res).toMatchObject({ ok: true, captured: 1 });
@@ -296,6 +296,90 @@ describe("ensureBaseRateCalendar refresh", () => {
     expect(res).toMatchObject({ ok: true, captured: 0, skippedAlreadyPushed: 3, pmsEditedPushedNights: 1 });
     expect(calendar(d)).toEqual(["2026-10-01|local-1|200", "2026-10-02|local-1|200"]);
     expect(upserts(d)).toHaveLength(0);
+  });
+
+  it("captures a sent-to night stored at 0 once the hotel loads a rate of its own, and nothing that could be MAYA's", async () => {
+    const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+    const zero = (stay_date: string, room_type_id = "local-1") => ({ hotel_id: HOTEL, stay_date, room_type_id, price: 0, source: "pms", captured_at: "2026-09-01T00:00:00Z" });
+    const d = db({
+      base_rate_calendar: [zero("2026-10-01"), zero("2026-10-02"), zero("2026-10-03"), { ...zero("2026-10-01", "local-2"), price: 120 }],
+      rate_updates: [
+        // A typed 140 went out two hours ago, and was cleared since.
+        { id: "1", hotel_id: HOTEL, stay_date: "2026-10-01", room_type_id: "local-1", price: 140, status: "sent", attempts: 1, pushed_at: hoursAgo(2) },
+        // The PMS still has MAYA's 140: its echo.
+        { id: "2", hotel_id: HOTEL, stay_date: "2026-10-02", room_type_id: "local-1", price: 140, status: "sent", attempts: 1, pushed_at: hoursAgo(2) },
+        // Sent minutes ago: the PMS can still quote an older MAYA price.
+        { id: "3", hotel_id: HOTEL, stay_date: "2026-10-03", room_type_id: "local-1", price: 150, status: "sent", attempts: 1, pushed_at: hoursAgo(0.1) },
+        // Not a zero base: frozen as always, only counted.
+        { id: "4", hotel_id: HOTEL, stay_date: "2026-10-01", room_type_id: "local-2", price: 150, status: "sent", attempts: 1, pushed_at: hoursAgo(2) },
+      ],
+    });
+    const { adapter } = makeAdapter([
+      { stayDate: "2026-10-01", externalRoomTypeId: "EXT-1", price: 180 },
+      { stayDate: "2026-10-02", externalRoomTypeId: "EXT-1", price: 140 },
+      { stayDate: "2026-10-03", externalRoomTypeId: "EXT-1", price: 140 },
+      { stayDate: "2026-10-01", externalRoomTypeId: "EXT-2", price: 175 },
+    ]);
+
+    const res = await ensureBaseRateCalendar(d.client, HOTEL, adapter, { horizonDays: 3, clock: clock("2026-10-01T12:00:00.000Z") });
+
+    expect(res).toMatchObject({ ok: true, captured: 1, loadedAfterZeroBase: 1, skippedAlreadyPushed: 3, pmsEditedPushedNights: 2 });
+    expect(calendar(d)).toEqual([
+      "2026-10-01|local-1|180",
+      "2026-10-01|local-2|120",
+      "2026-10-02|local-1|0",
+      "2026-10-03|local-1|0",
+    ]);
+  });
+
+  it("hands the rate targets it read to the push's cache when they differ from it, and leaves a matching cache alone", async () => {
+    const d = db();
+    d.tables.pms_connections[0].push_rate_targets = { "EXT-1": "old-std", "EXT-2": "rate-a" };
+    const { adapter } = makeAdapter([]);
+
+    await ensureBaseRateCalendar(d.client, HOTEL, adapter, { horizonDays: 2, clock: clock("2026-10-01T12:00:00.000Z") });
+    expect(d.tables.pms_connections[0].push_rate_targets).toEqual({ "EXT-1": "rate-a", "EXT-2": "rate-a" });
+
+    await ensureBaseRateCalendar(d.client, HOTEL, adapter, { horizonDays: 2, clock: clock("2026-10-01T14:00:00.000Z") });
+    const updates = d.calls.filter((c) => c.table === "pms_connections" && c.op === "update").map((c) => c.payload);
+    expect(updates).toEqual([
+      { base_rates_refreshed_at: "2026-10-01T12:00:00.000Z", push_rate_targets: { "EXT-1": "rate-a", "EXT-2": "rate-a" } },
+      { base_rates_refreshed_at: "2026-10-01T14:00:00.000Z" },
+    ]);
+  });
+
+  it("does not start a due refresh without a minute before its deadline, and does not stamp it", async () => {
+    const d = db();
+    const { adapter, calls } = makeAdapter([]);
+
+    const res = await ensureBaseRateCalendar(d.client, HOTEL, adapter, {
+      horizonDays: 2,
+      clock: clock("2026-10-01T12:00:00.000Z"),
+      deadlineAt: Date.now() + 30_000,
+    });
+
+    expect(res).toEqual({ ok: false, reason: "deferred", captured: 0 });
+    expect(calls.resolve).toEqual([]);
+    expect(d.tables.pms_connections[0].base_rates_refreshed_at).toBeNull();
+  });
+
+  it("calls a refresh that ran out of time deferred, not failed, and passes the deadline to the PMS read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const d = db();
+    const { adapter, calls } = makeAdapter([]);
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const deadlineAt = now + 90_000;
+    adapter.fetchRateCalendar = async () => {
+      now = deadlineAt + 1;
+      throw new Error("Cloudbeds getRatePlans failed (429): Too many requests");
+    };
+
+    const res = await ensureBaseRateCalendar(d.client, HOTEL, adapter, { horizonDays: 2, clock: clock("2026-10-01T12:00:00.000Z"), deadlineAt });
+
+    expect(res).toEqual({ ok: false, reason: "deferred", captured: 0 });
+    expect(calls.resolve).toEqual([{ today: "2026-10-01", deadlineAt }]);
+    expect(d.tables.pms_connections[0].base_rates_refreshed_at).toBeNull();
   });
 
   it("writes nothing when nothing changed", async () => {

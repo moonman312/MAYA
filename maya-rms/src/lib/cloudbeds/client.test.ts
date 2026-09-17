@@ -35,6 +35,16 @@ afterEach(() => {
 });
 
 describe("cloudbeds 429 handling", () => {
+  it("does not wait out a 429 whose wait ends past the caller's deadline", async () => {
+    const fetchMock = vi.fn(async () => json(429, { message: "Too many requests" }, { "Retry-After": "30" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const err = await cloudbedsGet(CREDS, "getRatePlans", {}, undefined, { deadlineAt: Date.now() + 5_000 }).catch((e) => e);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(err)).toContain("(429)");
+  });
+
   it("caps a runaway Retry-After at the backoff ceiling", async () => {
     // Honouring the header verbatim hands the PMS control of our wall clock: a
     // single Retry-After: 3600 would park the whole invocation for an hour.

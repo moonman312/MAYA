@@ -72,31 +72,49 @@ export function rateIntervalRuns<C extends RateCell>(
 export function createCloudbedsRateAdapter(
   creds: CloudbedsResolvedCredentials,
   mergeIntervals: boolean = CLOUDBEDS_MERGE_RATE_INTERVALS,
+  auth: {
+    /**
+     * Fresh credentials for a write refused with 401. Credentials are resolved
+     * once when the sync starts, and a token that expires during the tick
+     * would otherwise read as a revoked grant.
+     */
+    refreshCredentials?: () => Promise<CloudbedsResolvedCredentials | null>;
+  } = {},
 ): PmsRatePushAdapter {
+  let current = creds;
+  let refreshedOnce = false;
   // ONE call for the whole window. detailedRates returns roomRateDetailed[]
   // — a per-night breakdown — which is both what Cloudbeds requires of an
   // RMS integration and the only way to get per-night numbers: without it a
   // range collapses to a single aggregated roomRate per plan (verified
   // 2026-09-08: a 3-day window returned roomRate 338 and no dates).
   // endDate is exclusive, so ask for one extra day to include it.
-  const ratePlansFor = (startDate: string, endDate: string) =>
-    cloudbedsGetRatePlans(creds, startDate, addOneDay(endDate), { detailedRates: true });
-  // What the last catalog read said about room types it left out.
+  const ratePlansFor = (startDate: string, endDate: string, deadlineAt?: number) =>
+    cloudbedsGetRatePlans(current, startDate, addOneDay(endDate), { detailedRates: true, deadlineAt });
+  // What the last catalog read said about room types it left out. Null until
+  // a read lists something: an empty answer is a hiccup, not a teardown, and
+  // says nothing about any room type.
   let lastGaps: Record<string, TargetGap> | null = null;
+  const noteGaps = (plans: unknown[], withoutBaseRate: Record<string, number>) => {
+    lastGaps = plans.length > 0 ? targetGaps(withoutBaseRate) : null;
+  };
 
   return {
     pmsType: "cloudbeds",
 
-    async resolveRateTargets(opts: { today?: string } = {}): Promise<RateTargetMap> {
+    async resolveRateTargets(opts: { today?: string; deadlineAt?: number } = {}): Promise<RateTargetMap> {
       // getRatePlans requires a date window even for the catalog; a 1-day range
       // from the hotel's today is enough, since the roomTypeID → rateID mapping
       // is date-independent. The UTC date is only a fallback for a caller
       // outside the push path.
       const start = opts.today ?? new Date().toISOString().slice(0, 10);
-      const plans = await cloudbedsGetRatePlans(creds, start, addOneDay(start), { detailedRates: true });
+      const plans = await cloudbedsGetRatePlans(current, start, addOneDay(start), {
+        detailedRates: true,
+        deadlineAt: opts.deadlineAt,
+      });
       const { targets, withoutBaseRate } = chooseBaseRates(plans);
-      logRateTargets(creds.propertyId, targets, withoutBaseRate);
-      lastGaps = targetGaps(withoutBaseRate);
+      logRateTargets(current.propertyId, targets, withoutBaseRate);
+      noteGaps(plans, withoutBaseRate);
       return targets;
     },
 
@@ -134,7 +152,17 @@ export function createCloudbedsRateAdapter(
             continue;
           }
           const intervals: CloudbedsRateInterval[] = chunk.map((run) => run.interval);
-          const res = await cloudbedsPatchRate(creds, rateId, intervals);
+          let res = await cloudbedsPatchRate(current, rateId, intervals);
+          // Once per adapter: an expired token gets one fresh try, a refused
+          // grant still comes back refused.
+          if (!res.ok && res.status === 401 && auth.refreshCredentials && !refreshedOnce) {
+            refreshedOnce = true;
+            const fresh = await auth.refreshCredentials().catch(() => null);
+            if (fresh) {
+              current = fresh;
+              res = await cloudbedsPatchRate(current, rateId, intervals);
+            }
+          }
           for (const run of chunk) {
             for (const c of run.cells) {
               results.push(
@@ -156,7 +184,7 @@ export function createCloudbedsRateAdapter(
       // than asking per job, because Cloudbeds has no per-reference lookup.
       const wanted = new Set(jobReferences.map(String));
       const out: Record<string, { done: boolean; ok: boolean; message?: string }> = {};
-      const jobs = await cloudbedsGetRateJobs(creds);
+      const jobs = await cloudbedsGetRateJobs(current);
       for (const job of jobs) {
         if (!wanted.has(job.jobReferenceID)) continue;
         const status = job.status.toLowerCase();
@@ -183,20 +211,22 @@ export function createCloudbedsRateAdapter(
       startDate: string,
       endDate: string,
       targets: RateTargetMap,
+      opts: { deadlineAt?: number } = {},
     ): Promise<RateCalendarEntry[]> {
-      return calendarEntries(await ratePlansFor(startDate, endDate), startDate, endDate, targets);
+      return calendarEntries(await ratePlansFor(startDate, endDate, opts.deadlineAt), startDate, endDate, targets);
     },
 
     async readBaseRateCalendar(
       startDate: string,
       endDate: string,
+      opts: { deadlineAt?: number } = {},
     ): Promise<{ targets: RateTargetMap; entries: RateCalendarEntry[] }> {
       // The catalog and the nightly rates arrive in the same response, so a
       // whole horizon's refresh is one getRatePlans call.
-      const plans = await ratePlansFor(startDate, endDate);
+      const plans = await ratePlansFor(startDate, endDate, opts.deadlineAt);
       const { targets, withoutBaseRate } = chooseBaseRates(plans);
-      logRateTargets(creds.propertyId, targets, withoutBaseRate);
-      lastGaps = targetGaps(withoutBaseRate);
+      logRateTargets(current.propertyId, targets, withoutBaseRate);
+      noteGaps(plans, withoutBaseRate);
       return { targets, entries: calendarEntries(plans, startDate, endDate, targets) };
     },
   };

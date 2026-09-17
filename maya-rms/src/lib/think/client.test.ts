@@ -94,6 +94,17 @@ describe("think client", () => {
     expect(pageRes).toEqual({ content: [{ id: "r1" }], totalPages: 3, last: false, number: 1 });
   });
 
+  it("does not wait out a 429 whose wait ends past the caller's deadline", async () => {
+    const fetchMock = vi.fn(async () => json(429, { message: "Too many requests" }, { "Retry-After": "30" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const err = await thinkGet(CREDS, "/v1/hotels/9/rate_types", {}, undefined, { deadlineAt: Date.now() + 5_000 }).catch((e) => e);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(err).toBeInstanceOf(ThinkHttpError);
+    expect((err as ThinkHttpError).status).toBe(429);
+  });
+
   it("caps a runaway Retry-After at the backoff ceiling", async () => {
     // Honouring the header verbatim hands the PMS control of our wall clock: a
     // single Retry-After: 3600 would park the whole invocation for an hour.

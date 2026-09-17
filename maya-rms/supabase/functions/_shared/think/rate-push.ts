@@ -36,16 +36,27 @@ const MAX_ROWS_PER_CALL = 500;
 export function createThinkRateAdapter(
   creds: ThinkCredentials,
   thinkHotelId: string,
+  auth: {
+    /**
+     * Fresh credentials for a write refused with 401. Credentials are resolved
+     * once per tick, and a token that expires during it would otherwise read
+     * as a revoked grant.
+     */
+    refreshCredentials?: () => Promise<ThinkCredentials | null>;
+  } = {},
 ): PmsRatePushAdapter {
-  // Room types the last catalog read left out, and why, where Think says.
-  let lastWithoutBase: Record<string, number> | null = null;
+  let current = creds;
+  let refreshedOnce = false;
+  // Whether the last catalog read listed any rate type: null before one, or
+  // after one that came back empty, which says nothing about any room type.
+  let lastReadListed: boolean | null = null;
   return {
     pmsType: "think",
 
-    async resolveRateTargets(): Promise<RateTargetMap> {
-      const rateTypes = await thinkGetRateTypes(creds, thinkHotelId);
+    async resolveRateTargets(readOpts: { deadlineAt?: number } = {}): Promise<RateTargetMap> {
+      const rateTypes = await thinkGetRateTypes(current, thinkHotelId, { deadlineAt: readOpts.deadlineAt });
       const { targets, withoutBaseRate } = chooseThinkBaseRates(rateTypes);
-      lastWithoutBase = withoutBaseRate;
+      lastReadListed = rateTypes.length > 0 ? true : null;
       console.log(
         JSON.stringify({
           fn: "thinkRateTargets",
@@ -57,10 +68,11 @@ export function createThinkRateAdapter(
       return targets;
     },
 
-    // A room type some STANDARD type covers has rates, just no base among
-    // them. Think's catalog does not say more than that about the rest.
-    missingTargetReason(externalRoomTypeId: string): TargetGap | null {
-      return lastWithoutBase && lastWithoutBase[externalRoomTypeId] ? "no_base_rate" : null;
+    // Think marks rate types STANDARD or DERIVED and nothing more, so after a
+    // read that listed rate types, a room type left out has no base rate as
+    // far as MAYA can tell: none, or two standard types tied for it.
+    missingTargetReason(): TargetGap | null {
+      return lastReadListed ? "no_base_rate" : null;
     },
 
     async pushCells(
@@ -89,7 +101,18 @@ export function createThinkRateAdapter(
             price: c.price,
           }));
           try {
-            const res = await thinkPutDailyRates(creds, thinkHotelId, rateTypeId, rows);
+            let res;
+            try {
+              res = await thinkPutDailyRates(current, thinkHotelId, rateTypeId, rows);
+            } catch (e) {
+              // Once per adapter: an expired token gets one fresh try.
+              if (!(e instanceof ThinkHttpError && e.status === 401 && auth.refreshCredentials && !refreshedOnce)) throw e;
+              refreshedOnce = true;
+              const fresh = await auth.refreshCredentials().catch(() => null);
+              if (!fresh) throw e;
+              current = fresh;
+              res = await thinkPutDailyRates(current, thinkHotelId, rateTypeId, rows);
+            }
             for (const c of chunk) {
               results.push({ cell: c, ok: true, jobReference: `accepted:${res.status}` });
             }
@@ -107,6 +130,7 @@ export function createThinkRateAdapter(
       startDate: string,
       endDate: string,
       targets: RateTargetMap,
+      readOpts: { deadlineAt?: number } = {},
     ): Promise<RateCalendarEntry[]> {
       // One call per distinct rate type covers every room-night in the window,
       // so a horizon costs as many requests as the property has base rates.
@@ -118,7 +142,9 @@ export function createThinkRateAdapter(
       }
       const out: RateCalendarEntry[] = [];
       for (const [rateTypeId, roomTypeIds] of wanted) {
-        const rows = await thinkGetDailyRates(creds, thinkHotelId, rateTypeId, startDate, endDate);
+        const rows = await thinkGetDailyRates(current, thinkHotelId, rateTypeId, startDate, endDate, {
+          deadlineAt: readOpts.deadlineAt,
+        });
         for (const r of rows) {
           const roomTypeId = String(r.roomTypeId ?? "");
           // A rate type covers room types we may not price; keep only ours.

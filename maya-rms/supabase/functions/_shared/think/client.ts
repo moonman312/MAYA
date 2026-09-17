@@ -48,12 +48,19 @@ function parseRetryAfterMs(res: Response): number | null {
 
 const MAX_ATTEMPTS = 6;
 
-/** GET a Think endpoint with Bearer auth, pacing, and 429 backoff. */
+/**
+ * GET a Think endpoint with Bearer auth, pacing, and 429 backoff.
+ *
+ * `deadlineAt` (ms) bounds a caller that has to hand its time back: no
+ * attempt waits past it for its answer, and a 429 whose wait would end past
+ * it is thrown instead of slept on.
+ */
 export async function thinkGet(
   creds: ThinkCredentials,
   path: string,
   params: Record<string, string>,
   timeoutMs = 45_000,
+  opts: { deadlineAt?: number } = {},
 ): Promise<unknown> {
   const url = new URL(`${creds.baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`);
   for (const [k, v] of Object.entries(params)) {
@@ -72,7 +79,9 @@ export async function thinkGet(
     // contract. Backing off after a 429 still means the 429 happened.
     await acquire("think", lane);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const attemptMs =
+      opts.deadlineAt != null ? Math.max(1_000, Math.min(timeoutMs, opts.deadlineAt - Date.now())) : timeoutMs;
+    const timer = setTimeout(() => controller.abort(), attemptMs);
     try {
       const res = await fetch(url.toString(), {
         method: "GET",
@@ -95,10 +104,11 @@ export async function thinkGet(
       }
 
       if (res.status === 429) record("think", lane, "throttled");
-      if (res.status === 429 && attempt < MAX_ATTEMPTS - 1) {
-        // Retry-After is honoured but capped: a broken or hostile header must
-        // not park the whole invocation for as long as it likes.
-        const waitMs = Math.min(parseRetryAfterMs(res) ?? backoffMs, 120_000);
+      // Retry-After is honoured but capped: a broken or hostile header must
+      // not park the whole invocation for as long as it likes.
+      const waitMs = Math.min(parseRetryAfterMs(res) ?? backoffMs, 120_000);
+      const outOfTime = opts.deadlineAt != null && Date.now() + waitMs > opts.deadlineAt;
+      if (res.status === 429 && attempt < MAX_ATTEMPTS - 1 && !outOfTime) {
         backoffMs = Math.min(backoffMs * 2, 120_000);
         await sleep(waitMs);
         continue;
@@ -285,11 +295,14 @@ export async function thinkGetRoomTypes(
 export async function thinkGetRateTypes(
   creds: ThinkCredentials,
   hotelId: string,
+  opts: { deadlineAt?: number } = {},
 ): Promise<JsonRecord[]> {
   const data = await thinkGet(
     creds,
     `/v1/hotels/${encodeURIComponent(hotelId)}/rate_types`,
     {},
+    undefined,
+    opts,
   );
   return Array.isArray(data) ? (data as JsonRecord[]) : [];
 }
@@ -314,11 +327,14 @@ export async function thinkGetDailyRates(
   rateTypeId: string,
   startDate: string,
   endDate: string,
+  opts: { deadlineAt?: number } = {},
 ): Promise<ThinkDailyRateRow[]> {
   const data = await thinkGet(
     creds,
     `/v1/hotels/${encodeURIComponent(hotelId)}/rate_types/${encodeURIComponent(rateTypeId)}/daily`,
     { startDate, endDate },
+    undefined,
+    opts,
   );
   const rows = Array.isArray(data) ? data : [];
   return rows as ThinkDailyRateRow[];

@@ -98,12 +98,19 @@ function laneKeyFor(creds: CloudbedsResolvedCredentials): string {
   return creds.propertyId || creds.baseUrl;
 }
 
-/** GET a Cloudbeds classic endpoint with Bearer auth, pacing, and 429 backoff. */
+/**
+ * GET a Cloudbeds classic endpoint with Bearer auth, pacing, and 429 backoff.
+ *
+ * `deadlineAt` (ms) bounds a caller that has to hand its time back: no
+ * attempt waits past it for its answer, and a 429 whose wait would end past
+ * it is thrown instead of slept on.
+ */
 export async function cloudbedsGet(
   creds: CloudbedsResolvedCredentials,
   method: string,
   params: Record<string, string | number | undefined>,
   timeoutMs = 45_000,
+  opts: { deadlineAt?: number } = {},
 ): Promise<JsonRecord> {
   const url = new URL(`${creds.baseUrl.replace(/\/$/, "")}/${method.replace(/^\//, "")}`);
   for (const [k, v] of Object.entries(params)) {
@@ -115,7 +122,9 @@ export async function cloudbedsGet(
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     await acquire("cloudbeds", lane);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const attemptMs =
+      opts.deadlineAt != null ? Math.max(1_000, Math.min(timeoutMs, opts.deadlineAt - Date.now())) : timeoutMs;
+    const timer = setTimeout(() => controller.abort(), attemptMs);
     const startedAt = Date.now();
     let statusCode: number | null = null;
     try {
@@ -141,10 +150,11 @@ export async function cloudbedsGet(
       }
 
       if (res.status === 429) record("cloudbeds", lane, "throttled");
-      if (res.status === 429 && attempt < MAX_ATTEMPTS - 1) {
-        // Retry-After is honoured but capped: a broken or hostile header must
-        // not park the whole invocation for as long as it likes.
-        const retry = Math.min(parseRetryAfterMs(res) ?? backoffMs, 60_000);
+      // Retry-After is honoured but capped: a broken or hostile header must
+      // not park the whole invocation for as long as it likes.
+      const retry = Math.min(parseRetryAfterMs(res) ?? backoffMs, 60_000);
+      const outOfTime = opts.deadlineAt != null && Date.now() + retry > opts.deadlineAt;
+      if (res.status === 429 && attempt < MAX_ATTEMPTS - 1 && !outOfTime) {
         backoffMs = Math.min(backoffMs * 2, 60_000);
         await sleep(retry);
         continue;
@@ -592,19 +602,25 @@ export async function cloudbedsGetRatePlans(
   creds: CloudbedsResolvedCredentials,
   startDate: string,
   endDate: string,
-  opts: { detailedRates?: boolean } = {},
+  opts: { detailedRates?: boolean; deadlineAt?: number } = {},
 ): Promise<JsonRecord[]> {
   // detailedRates adds roomRateDetailed[]: one entry per night with rate,
   // roomsAvailable, minLos/maxLos and the CTA/CTD flags. Cloudbeds requires
   // this parameter for RMS certification, and it is also the only way to read
   // a per-night rate — without it a multi-day window collapses to one
   // aggregated roomRate per plan.
-  const res = await cloudbedsGet(creds, "getRatePlans", {
-    propertyID: creds.propertyId,
-    startDate,
-    endDate,
-    ...(opts.detailedRates ? { detailedRates: "true" } : {}),
-  });
+  const res = await cloudbedsGet(
+    creds,
+    "getRatePlans",
+    {
+      propertyID: creds.propertyId,
+      startDate,
+      endDate,
+      ...(opts.detailedRates ? { detailedRates: "true" } : {}),
+    },
+    undefined,
+    { deadlineAt: opts.deadlineAt },
+  );
   const data = res.data;
   return Array.isArray(data) ? (data as JsonRecord[]) : [];
 }

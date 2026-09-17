@@ -110,6 +110,47 @@ describe("createThinkRateAdapter", () => {
   });
 });
 
+describe("createThinkRateAdapter after a catalog read", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("says a room type left out has no base rate only after a read that listed rate types", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const tie = [
+      { id: "bar", name: "BAR", type: "STANDARD", roomTypeIds: ["rt1", "rt2"] },
+      { id: "nr", name: "Non-Refundable", type: "STANDARD", roomTypeIds: ["rt1", "rt2"] },
+    ];
+    const responses = [res(200, []), res(200, tie)];
+    vi.stubGlobal("fetch", vi.fn(async () => responses.shift()!));
+    const adapter = createThinkRateAdapter(CREDS, "hotel-ext");
+
+    expect(adapter.missingTargetReason!("rt1")).toBeNull();
+    // An empty answer teaches nothing about any room type.
+    expect(await adapter.resolveRateTargets()).toEqual({});
+    expect(adapter.missingTargetReason!("rt1")).toBeNull();
+    // A tie: listed, and no base. So is a room type no standard type covers.
+    expect(await adapter.resolveRateTargets()).toEqual({});
+    expect(adapter.missingTargetReason!("rt1")).toBe("no_base_rate");
+    expect(adapter.missingTargetReason!("rt9")).toBe("no_base_rate");
+  });
+
+  it("refreshes its credentials once when a write is refused with 401, and retries with them", async () => {
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) =>
+      (init.headers as Record<string, string>).Authorization === "Bearer tok-1" ? res(401, { message: "Unauthorized" }) : res(202),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const refreshCredentials = vi.fn(async () => ({ ...CREDS, accessToken: "tok-2" }));
+    const adapter = createThinkRateAdapter(CREDS, "hotel-ext", { refreshCredentials });
+    const cell = { stayDate: "2026-12-01", roomTypeId: "u1", externalRoomTypeId: "rt1", price: 222, externalRateId: "44186" };
+
+    expect(await adapter.pushCells([cell])).toEqual([expect.objectContaining({ ok: true, jobReference: "accepted:202" })]);
+    expect(refreshCredentials).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("chooseThinkBaseRates", () => {
   it("with no rate named Best Available, takes the one STANDARD type covering the most room types", () => {
     expect(

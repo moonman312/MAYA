@@ -15,6 +15,13 @@
  * next tick reads again and prices then. A read that ran out of budget before
  * covering its window is not a failure: the engine still runs on what arrived,
  * but nothing is pushed until a read covers the window.
+ *
+ * The base rate refresh has the evaluation cut-off as its deadline: it does
+ * not start without a minute to spare, and stops waiting on the PMS past it.
+ * When a refresh was due and did not happen (failed, or deferred for time),
+ * the push still sends the nights it has sent to before, but not a night it
+ * never has: that first send writes over the hotel's own rate, which must be
+ * the one this tick just read.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -117,6 +124,7 @@ export async function runPricingTick<E>(
     calendar = await ensureBaseRateCalendar(supabase, hotelId, opts.adapter, {
       horizonDays: opts.horizonDays,
       clock,
+      deadlineAt: opts.evaluateBy,
     });
   }
   const tCalendar = now();
@@ -164,6 +172,7 @@ export async function runPricingTick<E>(
         // Vouches for every price this tick's evaluation re-derived. A failed
         // or skipped evaluation leaves the push to judge each price's age.
         evaluatedAt,
+        holdNeverPushed: "reason" in calendar && (calendar.reason === "failed" || calendar.reason === "deferred"),
       });
     } catch (e) {
       push = { error: errorText(e, "push failed") };

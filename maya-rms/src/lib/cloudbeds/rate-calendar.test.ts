@@ -8,9 +8,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getRatePlans = vi.hoisted(() => vi.fn());
+const patchRate = vi.hoisted(() => vi.fn());
 vi.mock("../../../supabase/functions/_shared/cloudbeds/client", () => ({
   cloudbedsGetRatePlans: getRatePlans,
-  cloudbedsPatchRate: vi.fn(),
+  cloudbedsPatchRate: patchRate,
 }));
 
 const { createCloudbedsRateAdapter } = await import(
@@ -180,5 +181,48 @@ describe("cloudbeds base rate targeting with an independent package plan", () =>
     await adapter.resolveRateTargets({ today: "2026-12-31" });
     const [, start, end] = getRatePlans.mock.calls[0];
     expect([start, end]).toEqual(["2026-12-31", "2027-01-01"]);
+  });
+});
+
+describe("cloudbeds adapter after a catalog read, and on a refused grant", () => {
+  it("knows nothing about any room type after an empty read, and says why one was left out after a real one", async () => {
+    const adapter = createCloudbedsRateAdapter(CREDS);
+    getRatePlans.mockResolvedValueOnce([]);
+    expect(await adapter.resolveRateTargets({ today: "2026-10-01" })).toEqual({});
+    expect(adapter.missingTargetReason!("RT1")).toBeNull();
+
+    getRatePlans.mockResolvedValueOnce([
+      { roomTypeID: "RT1", rateID: "pkg-1", isDerived: false, ratePlanID: "p1", ratePlanNamePublic: "Breakfast" },
+      { roomTypeID: "RT2", rateID: "der-1", isDerived: true },
+    ]);
+    expect(await adapter.resolveRateTargets({ today: "2026-10-01" })).toEqual({});
+    expect(adapter.missingTargetReason!("RT1")).toBe("no_base_rate");
+    expect(adapter.missingTargetReason!("RT2")).toBe("derived_only");
+    expect(adapter.missingTargetReason!("RT9")).toBe("not_in_catalog");
+  });
+
+  it("passes the caller's deadline to the catalog read", async () => {
+    getRatePlans.mockResolvedValue([]);
+    const adapter = createCloudbedsRateAdapter(CREDS);
+    await adapter.readBaseRateCalendar!("2026-10-01", "2026-10-02", { deadlineAt: 12345 });
+    expect(getRatePlans.mock.calls[0][3]).toEqual({ detailedRates: true, deadlineAt: 12345 });
+  });
+
+  it("refreshes its credentials once when patchRate answers 401, and sends the rest with them", async () => {
+    patchRate.mockReset();
+    patchRate.mockImplementation(async (creds: { accessToken: string }) =>
+      creds.accessToken === "t" ? { ok: false, status: 401, error: "Cloudbeds patchRate failed (401): Unauthorized" } : { ok: true, jobReferenceID: "job-2" },
+    );
+    const refreshCredentials = vi.fn(async () => ({ ...(CREDS as object), accessToken: "t2" }) as never);
+    const adapter = createCloudbedsRateAdapter(CREDS, false, { refreshCredentials });
+
+    const results = await adapter.pushCells([
+      { stayDate: "2026-10-01", roomTypeId: "u1", externalRoomTypeId: "RT1", price: 200, externalRateId: "rate-1" },
+      { stayDate: "2026-10-01", roomTypeId: "u2", externalRoomTypeId: "RT2", price: 220, externalRateId: "rate-2" },
+    ]);
+
+    expect(results.map((r) => r.ok)).toEqual([true, true]);
+    expect(refreshCredentials).toHaveBeenCalledTimes(1);
+    expect(patchRate.mock.calls.map((c) => (c[0] as { accessToken: string }).accessToken)).toEqual(["t", "t2", "t2"]);
   });
 });

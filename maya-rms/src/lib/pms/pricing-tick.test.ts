@@ -101,8 +101,9 @@ describe("runPricingTick", () => {
       { evaluate, now: () => T0 },
     );
 
-    // (The push resolves its own targets: nothing is cached on the connection yet.)
-    expect(log).toEqual(["calendar:2026-10-01..2026-11-29", "evaluate", "resolve", "push:2026-10-01,2026-11-29"]);
+    // The push sends to the targets the refresh just read: nothing to resolve again.
+    expect(log).toEqual(["calendar:2026-10-01..2026-11-29", "evaluate", "push:2026-10-01,2026-11-29"]);
+    expect(d.tables.pms_connections[0].push_rate_targets).toEqual({ "CB-KING": "base-1" });
     // The engine got the tick's instant, which is Oct 1 in Los Angeles, and the same horizon.
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ evalTs: "2026-10-02T05:00:00.000Z", horizonDays: 60 });
@@ -125,7 +126,8 @@ describe("runPricingTick", () => {
     vi.setSystemTime(new Date("2026-10-02T07:05:00Z")); // 00:05 Oct 2 in Los Angeles by the time anything reads Date
     const lateTick = Date.parse("2026-10-02T06:50:00Z"); // 23:50 Oct 1 in Los Angeles
 
-    await runPricingTick(d.client, HOTEL, { ...BASE_OPTS, adapter, evaluateBy: lateTick + 60_000 }, { evaluate, now: () => lateTick });
+    const evaluateBy = Date.parse("2026-10-02T07:05:00Z") + 120_000;
+    await runPricingTick(d.client, HOTEL, { ...BASE_OPTS, adapter, evaluateBy }, { evaluate, now: () => lateTick });
 
     expect(sentNights(d)).toEqual(["2026-10-01", "2026-11-29"]);
   });
@@ -192,6 +194,40 @@ describe("runPricingTick", () => {
     expect(log).toEqual([]);
     expect(res).toMatchObject({ calendar: { ok: true }, evaluate: { skipped: "out_of_time" }, push: { skipped: "out_of_time" }, outOfTime: true });
     expect(res.calendarMs).toBe(120_000);
+  });
+
+  it("sends only nights it has sent to before when a due refresh fails, so a first send never writes over a rate it didn't read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const d = db({
+      // Sent before at 240; this tick prices it at 250.
+      rate_updates: [{ hotel_id: HOTEL, stay_date: "2026-11-29", room_type_id: "rt-king", price: 240, status: "sent", attempts: 1 }],
+      pms_connections: [
+        { id: "conn-1", hotel_id: HOTEL, pms_type: "cloudbeds", base_rates_refreshed_at: null, push_rate_targets: { "CB-KING": "base-1" } },
+      ],
+    });
+    const { adapter, log } = makeAdapter();
+    adapter.readBaseRateCalendar = async () => {
+      throw new Error("Cloudbeds getRatePlans failed (500): upstream");
+    };
+    const { evaluate } = makeEvaluate(d, log, ["2026-10-01", "2026-11-29"]);
+
+    const res = await runPricingTick(d.client, HOTEL, { ...BASE_OPTS, adapter, evaluateBy: T0 + 5 * 60_000 }, { evaluate, now: () => T0 });
+
+    expect(res.calendar).toEqual({ ok: false, reason: "failed", captured: 0 });
+    expect(log).toEqual(["evaluate", "push:2026-11-29"]);
+    expect(res.push).toMatchObject({ pushed: true, sent: 1, awaitingBaseRead: 1 });
+  });
+
+  it("defers a due refresh with under a minute to the evaluation cut-off, and still evaluates", async () => {
+    const d = db();
+    const { adapter, log } = makeAdapter();
+    const { evaluate } = makeEvaluate(d, log, ["2026-10-01"]);
+
+    const res = await runPricingTick(d.client, HOTEL, { ...BASE_OPTS, adapter, evaluateBy: T0 + 30_000 }, { evaluate, now: () => T0 });
+
+    expect(res.calendar).toEqual({ ok: false, reason: "deferred", captured: 0 });
+    expect(log).toEqual(["evaluate"]);
+    expect(res.push).toMatchObject({ pushed: true, sent: 0, awaitingBaseRead: 1 });
   });
 
   it("still evaluates without credentials, and says why nothing was refreshed or pushed", async () => {
