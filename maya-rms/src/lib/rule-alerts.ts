@@ -313,6 +313,45 @@ export function alertLimitHelp(currencySymbol: string): { label: string; title: 
   };
 }
 
+/** A rule the owner has stopped on some nights still to come. */
+export type RuleStops = {
+  rule_id: string;
+  /** The alerts those nights were filed under: answering again goes through them. */
+  alert_ids: string[];
+  /** Stay dates, oldest first. */
+  nights: string[];
+};
+
+/** The chip on the rules table: "Stopped on 12 nights". */
+export function stoppedChipLabel(nights: number): string {
+  return `Stopped on ${nightWord(nights)}`;
+}
+
+/** Nights named in the chip's panel before the rest are summed up. */
+const STOPPED_NIGHTS_NAMED = 8;
+
+/** Behind the chip: which nights, and how to let the rule run on them again. */
+export function stoppedNightsHelp(
+  nights: string[],
+  direction: "increase" | "decrease",
+): { label: string; title: string; lines: string[] } {
+  const named = nights.slice(0, STOPPED_NIGHTS_NAMED).map(humanDate);
+  const more = nights.length - named.length;
+  const which = more > 0 ? `${named.join(", ")} and ${more} more ${more === 1 ? "night" : "nights"}` : listWords(named);
+  return {
+    label: "Which nights",
+    title: `Stopped on ${nightWord(nights.length)}`,
+    lines: [
+      `You told this rule to stop on ${which}.`,
+      direction === "increase"
+        ? "It makes no more changes there. A raise it already made stays, unless enough of the bookings behind it cancel."
+        : "It makes no more changes there. What it already cut stays.",
+      "Your other rules still work on those nights.",
+      "Let it run again puts the rule back on them, starting from the price it left.",
+    ],
+  };
+}
+
 /** The button offered beside a default limit. */
 export function limitActionLabel(direction: "increase" | "decrease"): string {
   return direction === "increase" ? "Ask MAYA for a ceiling" : "Ask MAYA for a floor";

@@ -20,6 +20,8 @@ import {
   nightLimit,
   nightLimitLine,
   nightWhy,
+  stoppedChipLabel,
+  stoppedNightsHelp,
   type AlertNightRow,
   type AlertRow,
 } from "@/lib/rule-alerts";
@@ -296,6 +298,31 @@ describe("buildRuleAlerts", () => {
   });
 });
 
+describe("the nights a rule was stopped on", () => {
+  it("names them on the chip and behind it, and says what the stop left in place", () => {
+    expect(stoppedChipLabel(12)).toBe("Stopped on 12 nights");
+    expect(stoppedChipLabel(1)).toBe("Stopped on 1 night");
+
+    const cut = stoppedNightsHelp(["2026-11-14", "2026-11-16"], "decrease");
+    expect(cut.title).toBe("Stopped on 2 nights");
+    expect(cut.lines[0]).toBe("You told this rule to stop on Sat, Nov 14 2026 and Mon, Nov 16 2026.");
+    expect(cut.lines[1]).toContain("What it already cut stays.");
+    expect(cut.lines.join(" ")).toContain("Let it run again");
+    // A stop does not hold a raise against the cancellation check.
+    expect(stoppedNightsHelp(["2026-11-14"], "increase").lines[1]).toContain(
+      "unless enough of the bookings behind it cancel",
+    );
+  });
+
+  it("sums the rest up rather than listing a whole season", () => {
+    const many = Array.from({ length: 30 }, (_, i) => `2026-11-${String(i + 1).padStart(2, "0")}`);
+    const help = stoppedNightsHelp(many, "decrease");
+    expect(help.lines[0]).toContain("and 22 more nights");
+    expect(help.lines[0]).toContain("Sun, Nov 1 2026");
+    expect(help.lines[0]).not.toContain("Nov 30");
+  });
+});
+
 describe("the words themselves", () => {
   it("has no em dashes and no math symbols anywhere", () => {
     const [card] = buildRuleAlerts({
@@ -317,6 +344,9 @@ describe("the words themselves", () => {
       ...alertLimitHelp("$").lines,
       limitActionLabel("decrease"),
       limitActionLabel("increase"),
+      stoppedChipLabel(3),
+      ...stoppedNightsHelp(["2026-11-14"], "decrease").lines,
+      ...stoppedNightsHelp(["2026-11-14"], "increase").lines,
     ].join(" ");
     expect(every).not.toContain("—");
     expect(every).not.toMatch(/[<>≥≤]|[^a-z]=[^a-z]/i);

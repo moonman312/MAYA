@@ -15,6 +15,7 @@ import { RateSimulator } from "@/components/rate-simulator";
 import { RoomCountHelp, RoomTypeSettings, isCountingRoom } from "@/components/room-type-settings";
 import { bookingSpeedHelp, bookingSpeedWaitHelp } from "@/lib/booking-speed-help";
 import { RuleAlertBanner } from "@/components/rule-alert-banner";
+import { stoppedChipLabel, stoppedNightsHelp, type RuleStops } from "@/lib/rule-alerts";
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { RuleRoomTypesField } from "@/components/rule-room-types-field";
 import { isRuleAlertChoice } from "@/lib/changelog-route-helpers";
@@ -294,6 +295,10 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
   /** Rule awaiting the delete-or-disable choice; null when the dialog is closed. */
   const [pendingDelete, setPendingDelete] = useState<RuleConfig | null>(null);
   const [fireCounts, setFireCounts] = useState<Record<string, number>>({});
+  // Nights the owner told a rule to stop adjusting: without this the rules
+  // table shows the rule as On with nothing to say it does nothing there.
+  const [ruleStops, setRuleStops] = useState<RuleStops[]>([]);
+  const [lettingRun, setLettingRun] = useState<string | null>(null);
   const [ruleFilter, setRuleFilter] = useState<"all" | "enabled" | "disabled">("all");
   const [ruleFormOpen, setRuleFormOpen] = useState(false);
   const [roomTypeOptions, setRoomTypeOptions] = useState<
@@ -531,6 +536,30 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
       setFireCounts(counts);
     } catch {
       // fire counts are decoration — never block the rules list on them
+    }
+    try {
+      setRuleStops(await api<RuleStops[]>("/api/rules/stops"));
+    } catch {
+      // same for the stopped-nights chip
+    }
+  }
+
+  /** Clears the owner's "stop" on a rule's nights, through the alerts they were filed under. */
+  async function letRuleRunAgain(stops: RuleStops) {
+    setLettingRun(stops.rule_id);
+    try {
+      for (const alertId of stops.alert_ids) {
+        await fetch(`/api/rules/alerts/${alertId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ choice: "keep_adjusting", stay_dates: stops.nights }),
+        });
+      }
+      setRuleStops(await api<RuleStops[]>("/api/rules/stops"));
+    } catch {
+      // Leave the chip as it is; the next load says what really happened.
+    } finally {
+      setLettingRun(null);
     }
   }
 
@@ -1282,6 +1311,30 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                             {rule.enabled ? "On" : "Off"}
                           </span>
                         </button>
+                        {(() => {
+                          const stops = ruleStops.find((s) => s.rule_id === rule.id);
+                          if (!stops || stops.nights.length === 0) return null;
+                          const direction =
+                            (rule.action.adjust_rate_percent ?? rule.action.adjust_rate_dollars ?? 0) < 0
+                              ? "decrease"
+                              : "increase";
+                          return (
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-200">
+                                {stoppedChipLabel(stops.nights.length)}
+                              </span>
+                              <RoomCountHelp {...stoppedNightsHelp(stops.nights, direction)} />
+                              <button
+                                type="button"
+                                disabled={lettingRun !== null}
+                                onClick={() => void letRuleRunAgain(stops)}
+                                className="cursor-pointer text-[11px] font-medium text-sky-400 underline hover:text-sky-300 disabled:cursor-default disabled:opacity-60"
+                              >
+                                Let it run again
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="py-2 pr-3">
                         <button
