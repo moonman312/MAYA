@@ -49,7 +49,7 @@
  * closed before MAYA ever sent to it, so the engine stops pricing it and the
  * push has nothing to send; the ledger says the PMS holds 0, so the calendar
  * reads a rate the hotel opens it at later as the hotel's own; and an open
- * manual price on it is cleared, as the change log's Clear does, since it
+ * manual price on it is cleared, as Clear in MAYA does, since it
  * would otherwise go on being sent over the closed night. A price typed in
  * MAYA since the send is left to go out, as with any change.
  *
@@ -318,8 +318,9 @@ function ledgerRow(hotelId: string, pmsType: string, read: PushedNightRead, over
  * follows prices at it. Throws the database's error on a failed write.
  *
  * Base rates go first: on their own they only have MAYA price a night on the
- * rate the PMS has. A failure after them leaves the ledger saying MAYA's
- * price is there, so the next refresh finds the night again.
+ * rate the PMS has, or not price a closed one. A failure after them leaves
+ * nothing sent over the hotel's rate: a closed night is held as zero_base,
+ * and a night with a new base goes out priced on it.
  */
 export async function applyPmsEdits(
   supabase: SupabaseClient,
