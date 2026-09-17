@@ -150,9 +150,6 @@ export async function evaluateLadderTriple(
       suppressedAt,
       supportsSuppression,
     );
-  } else if (matches && wasActive) {
-    if (batch) batch.touch(rule.id, stayDate, affectedRoomTypeId, evalTs);
-    else await touchLadderState(supabase, rule.id, stayDate, affectedRoomTypeId, evalTs);
   } else if (!matches && wasActive) {
     transition = "deactivate";
     if (batch) {
@@ -167,10 +164,11 @@ export async function evaluateLadderTriple(
       evalTs,
       supportsSuppression,
     );
-  } else if (!matches && !wasActive && rowExists) {
-    if (batch) batch.touch(rule.id, stayDate, affectedRoomTypeId, evalTs);
-    else await touchLadderState(supabase, rule.id, stayDate, affectedRoomTypeId, evalTs);
   }
+  // A state that did not change is not written. Stamping last_evaluated_at on
+  // every held or idle row rewrote thousands of rows a tick on a large
+  // property (rules x nights x room types, every five minutes) for a column
+  // only the debug endpoint reads; the run log says when the hotel last ran.
 
   return {
     rule_id: rule.id,
@@ -288,7 +286,6 @@ export type LadderPassBatch = {
     evalTs: string,
     supportsSuppression: boolean,
   ) => void;
-  touch: (ruleId: string, stayDate: string, roomTypeId: string, evalTs: string) => void;
   flush: () => Promise<void>;
 };
 
@@ -357,9 +354,6 @@ export async function createLadderPassBatch(
       events.push(transitionEventRow(rule, hotelId, stayDate, roomTypeId, "deactivate", metrics, evalTs));
       queueUpdate(rule.id, roomTypeId, deactivationPatch(evalTs, supportsSuppression), stayDate);
       states.set(`${rule.id}|${stayDate}|${roomTypeId}`, { is_active: false });
-    },
-    touch(ruleId, stayDate, roomTypeId, evalTs) {
-      queueUpdate(ruleId, roomTypeId, { last_evaluated_at: evalTs }, stayDate);
     },
     async flush() {
       await writeRows(events, (chunk) =>
@@ -439,22 +433,3 @@ async function deactivateLadder(
     .eq("room_type_id", roomTypeId);
 }
 
-/**
- * The condition merely keeps holding. Deliberately does NOT touch
- * suppressed_at: an effect that was already applying when a manual price
- * override landed stays suppressed for as long as that same trigger lasts.
- */
-async function touchLadderState(
-  supabase: SupabaseClient,
-  ruleId: string,
-  stayDate: string,
-  roomTypeId: string,
-  evalTs: string,
-): Promise<void> {
-  await supabase
-    .from("ladder_rule_state")
-    .update({ last_evaluated_at: evalTs })
-    .eq("rule_id", ruleId)
-    .eq("stay_date", stayDate)
-    .eq("room_type_id", roomTypeId);
-}

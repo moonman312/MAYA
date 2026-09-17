@@ -18,6 +18,11 @@ describe("GET /api/pricing-debug", () => {
         { rule_id: "r1", stay_date: "2026-10-02", room_type_id: "rt1", is_active: true },
         { rule_id: "x1", stay_date: "2026-10-01", room_type_id: "rt1", is_active: true },
       ],
+      evaluation_run_log: [
+        { hotel_id: "h1", evaluated_at: "2026-09-17T10:00:00Z" },
+        { hotel_id: "h1", evaluated_at: "2026-09-17T10:05:00Z" },
+        { hotel_id: "h2", evaluated_at: "2026-09-17T10:10:00Z" },
+      ],
     });
     state.client = Object.assign(fake.client, { auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) } });
     const res = await GET(new Request("http://localhost/api/pricing-debug?hotel_id=h1&stay_date=2026-10-01&room_type_id=rt1") as never);
@@ -26,6 +31,7 @@ describe("GET /api/pricing-debug", () => {
     expect(JSON.stringify(body)).toContain('"rule_id":"r2"');
     expect(JSON.stringify(body)).not.toContain('"rule_id":"x1"');
     const stateRead = fake.calls.find((c) => c.table === "ladder_rule_state")!;
+    expect(body.last_run_at).toBe("2026-09-17T10:05:00Z");
     expect(stateRead.filters.find((f) => f.col === "rule_id")?.value).toEqual(["r1", "r2"]);
   });
 });

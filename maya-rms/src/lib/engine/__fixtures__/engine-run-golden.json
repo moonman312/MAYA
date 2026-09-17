@@ -20,7 +20,7 @@
       },
       "hashes": {
         "published_price": "7f7df519ceb427e8093e2182479016ba88919e0d7df691af64b53cb55f32bde6",
-        "ladder_rule_state": "ca6a99008bdeff39b51f23ca7c1d8e877ce58ffa1c1258d00d3812662ee7f419",
+        "ladder_rule_state": "ad2558016e622e4c041ee9b4f94d7eeadf67d2d6ce98a17f47abc74ba2c38adf",
         "ladder_transition_event": "a39a35b1e2eb1ed399fc401b5a43e40a593cf64c974fa74a3bb0cb4e2d2149a3",
         "pickup_event": "8311338da5c14a0e3c679507ac16565cea0f9bb0126ac35577297a13e34bb0ba",
         "evaluation_audit": "1cf6ca35e4fb4cc3ff1bcbb6335c7db8fd15e0cace246ed8583d4fe2c619177b",
@@ -48,7 +48,7 @@
       },
       "hashes": {
         "published_price": "b1d198d1f9cd4d1e511c35b8c7271302c3e8cd074a9d39ccb90cebeb06aebc35",
-        "ladder_rule_state": "218a6bfe0d5e9f819a859bf662db5bc55072c001f9b456614dc2a6ab173eee32",
+        "ladder_rule_state": "b39ab6bf8a2cf477d59e16ee83a3335402e85d21b4bd4e0d4e9319fc3035c077",
         "ladder_transition_event": "269f860671e07becad63a9020ce6286ecd0ddd4e64c4a9f1bb947a58dc39dc78",
         "pickup_event": "8311338da5c14a0e3c679507ac16565cea0f9bb0126ac35577297a13e34bb0ba",
         "evaluation_audit": "9d0e95d5f20d104904c5cf7467cb0378b5345041871dbec41a49a83718550927",
@@ -76,7 +76,7 @@
       },
       "hashes": {
         "published_price": "9e095cbdaccff4bfe2e725ef6ac2eb958287baa6a10546df821f331a145b1203",
-        "ladder_rule_state": "997c630f1bca2eab8a13ebacea11b1385c6b8bed3de9aa219abab768ce65fe5e",
+        "ladder_rule_state": "d228e27b84ed6fc227feea0257780d9716df0d62cc5e0c5a3da5f35791e0da62",
         "ladder_transition_event": "7c8eadc83dc29ee2072e4dac5a63931dffeba871a07395511f0727302a85c2a0",
         "pickup_event": "206346f06c0d6041c5e9b20d14ff5df72aa0004f59212e295cb78196891bf2ca",
         "evaluation_audit": "37a6cca59274ff5e8d48759a5811206f23665201b0571ac84b4c7d155ef881a5",
@@ -104,7 +104,7 @@
       },
       "hashes": {
         "published_price": "595007c89e13d7e76b55f85fdc856852438f0e49c15a3adb4a28a409e35ad114",
-        "ladder_rule_state": "cd0f24781833a8a45feb75ac306de63aef5ca1abec62cd2a8dbc52e4af23cfeb",
+        "ladder_rule_state": "4dd3dddce9af7f70e36b68a7d7dc993e75cdfddc9a8cce83cd46bd5ced669d73",
         "ladder_transition_event": "2ab36750feff5b194480821ddd3b7c8a4824808419f3f10446078a887363da69",
         "pickup_event": "b035b594d1be1a18f745bef36774b84fae0d5a780badd904ed87ab58c1439b1f",
         "evaluation_audit": "263c70c5694a2e1e356f07440e804069489e4ffe25e1718721aa2e919220638e",
@@ -132,7 +132,7 @@
       },
       "hashes": {
         "published_price": "2e63dd229c9ea937c7c8d342dd060e942777aff7e42fdd8fca66503eabf9a396",
-        "ladder_rule_state": "01d1f75f77af01d5e0875eb703ae55d4ecc262301105739c4e3c99eebe8706e4",
+        "ladder_rule_state": "b26e1a915c8dc441599c86a0ab1b43b4a70d5335da30ed5d62bd59cef590a1ac",
         "ladder_transition_event": "da8641bde5c1fe7167c675b18b9486d7e89d2ea20c41f044ea413a4ccc5fb45f",
         "pickup_event": "fe13da74de6792267d6615dd7a484875d5f7194a7ef91c531f36599003fb7024",
         "evaluation_audit": "4d55e70c7f8ed4843f6acbabc422a381667904403b31c77f5d15c2c73d1e55ce",
@@ -160,7 +160,7 @@
       },
       "hashes": {
         "published_price": "7a3a9705b0c3d660fadb7f121da79803a4a78076791df9a2ab44aaddd84bf5e5",
-        "ladder_rule_state": "b4cd414c9daaa7a89267383462b4264d36e6236ca37d2d839c5dbdf00c5e1281",
+        "ladder_rule_state": "e9c8f010897b385c42d1edc0f614ffac42627429be3ee531b9afc359b48b7c35",
         "ladder_transition_event": "4f54ffc6aa46013f7823b1eba81aa54c709478ba3ce966e3ec2b329e9283baa0",
         "pickup_event": "f9feba487c103707fd3affd5fc09c1e3861c662457c71f1612224f0d47457108",
         "evaluation_audit": "fd2a366cd4d83bd1615c3bd82b764ad7113ee6a23ea06ae279667b7ee9e10d20",
@@ -188,7 +188,7 @@
       },
       "hashes": {
         "published_price": "a33bc4eb4916d93e030160fd301613fbb889f25e571cfb677afde297c76f9edb",
-        "ladder_rule_state": "8e751c41de6673ab9ef1b9d345a39c4ae455846c1a9bac3804aa7e020d8551b5",
+        "ladder_rule_state": "e4a08143aad01e448656b3a0bcc646355996253735f4c3de2b679b2afc40961b",
         "ladder_transition_event": "92697803149800e28857f5d4398552230f747636fa27bf6459d1af5e8c5c8375",
         "pickup_event": "a07bf8fb0c2b49c7f3cbd27e007a7cf99aafd7413c39d06f45aee30a99cd95cb",
         "evaluation_audit": "5a770831eb541cd7a3286f1c31aed90b26f673cf920e1d02464aa81311a91712",
@@ -216,7 +216,7 @@
       },
       "hashes": {
         "published_price": "689abcccdc188b1c099dc439f189f16446b5c9131c97ac24422a791915065f99",
-        "ladder_rule_state": "94b808749f310c185d78442c649838cbfc97981fa24e554ed2edb503efdc44b5",
+        "ladder_rule_state": "11be0b6b44c5167c3a1c9bfa3be58afc8dcf0eb68d357348726abdaf968097b1",
         "ladder_transition_event": "533e1c3d32859526500cc12c63fcf619b76324e9974a501924c50c6840fba394",
         "pickup_event": "9a285da0d06a581191f6beda74181d2726d4e7c48bea17905bc116b36933ea48",
         "evaluation_audit": "b5d0ace842f23e46620ea4be6f0ad4513d7ad996749b98f1569de8603dae5cc6",
@@ -246,7 +246,7 @@
       },
       "hashes": {
         "published_price": "ed2eaf32176785fd3fe66a2ecc33e3d0bd79633fe6427c12f2ceb101ac6e7cca",
-        "ladder_rule_state": "ab8cd0a13aeac68b77bb412d8de519884934a19e646494593bce1a3c9f0cc64d",
+        "ladder_rule_state": "5fb6ca59e7392587393fc0a49b84fa18df39b53e4185a3273da4a26913f945ab",
         "ladder_transition_event": "a39a35b1e2eb1ed399fc401b5a43e40a593cf64c974fa74a3bb0cb4e2d2149a3",
         "pickup_event": "8311338da5c14a0e3c679507ac16565cea0f9bb0126ac35577297a13e34bb0ba",
         "evaluation_audit": "883296deed03f36dc0091244b97c1765a71fbb3ffe2f600d0c869b7ff6280447",
@@ -274,7 +274,7 @@
       },
       "hashes": {
         "published_price": "f12a7e5e94c13856f48e0bd21170d4c47f525cf1b506d5be3e779f70b2b9ef60",
-        "ladder_rule_state": "f572a0c39a296cfddeceefd7ce5e21a29e580af5638d46328d48fcb177a38d83",
+        "ladder_rule_state": "ca180004b59d76a854307e6513560bb4d7f29a84e0af1d51f17b722d1937d29e",
         "ladder_transition_event": "269f860671e07becad63a9020ce6286ecd0ddd4e64c4a9f1bb947a58dc39dc78",
         "pickup_event": "8311338da5c14a0e3c679507ac16565cea0f9bb0126ac35577297a13e34bb0ba",
         "evaluation_audit": "376d35eaa67ff3e48a2516d371cac31e52ea46bb3df67caaf85f28c4070f9e73",
@@ -302,7 +302,7 @@
       },
       "hashes": {
         "published_price": "b30205f75b365e25e636af100ca52ad6ba2b2152a489b8c585e2f5084cf7b69f",
-        "ladder_rule_state": "2dec4413943f42ae7c991ac1433105579e759d21f8f83c7eff94e93186d0ac52",
+        "ladder_rule_state": "ac6cc7a75cc639f2b65fa48d80269db29de4d02c8a7477a9c197f4a1f599be71",
         "ladder_transition_event": "7c8eadc83dc29ee2072e4dac5a63931dffeba871a07395511f0727302a85c2a0",
         "pickup_event": "206346f06c0d6041c5e9b20d14ff5df72aa0004f59212e295cb78196891bf2ca",
         "evaluation_audit": "b86fa0c80bc34613edfe9955bdc3f4fc13b651edc29a5d893d6747a4abd44f17",
@@ -330,7 +330,7 @@
       },
       "hashes": {
         "published_price": "158551c8eb25bff2dc66be77e1d4492e05b20c701669cab66c9ff2b819cf57bb",
-        "ladder_rule_state": "fddb1d3a292edc4f7fc95cb8cc0622b01e6fea07085514fc37e96c945cdad778",
+        "ladder_rule_state": "e4fbb35c9bd91d47baade34755a6884875f9b89eb68f8500b05de47bb3e10b0d",
         "ladder_transition_event": "2ab36750feff5b194480821ddd3b7c8a4824808419f3f10446078a887363da69",
         "pickup_event": "b035b594d1be1a18f745bef36774b84fae0d5a780badd904ed87ab58c1439b1f",
         "evaluation_audit": "ce26d3dce6e79078a465227c7dd5b5f700903b81fb8f6ce0fcd8ce8068d6a0f7",
@@ -358,7 +358,7 @@
       },
       "hashes": {
         "published_price": "515c28467f4828286ef2cafca03dd65e94d85bf9c29cc9277b359cc7bf1eb237",
-        "ladder_rule_state": "d51859322f4e2249dedbca58a3f4197f17c2ee3b64e3a722f71b9bdf3c14e435",
+        "ladder_rule_state": "71cd123ab4c8bba245a79870b89e4e80e7668d478aea6ca220e98f5854aca764",
         "ladder_transition_event": "da8641bde5c1fe7167c675b18b9486d7e89d2ea20c41f044ea413a4ccc5fb45f",
         "pickup_event": "fe13da74de6792267d6615dd7a484875d5f7194a7ef91c531f36599003fb7024",
         "evaluation_audit": "5306b7c711f2cc2a73b5209d613147bf2a009a3995fa59b838e3f367a37bc126",
@@ -386,7 +386,7 @@
       },
       "hashes": {
         "published_price": "28f92e21e36fdf68dfd4b4c0cca89f9b9a24a5059a93857241035ea4fc285781",
-        "ladder_rule_state": "a3443a40ee28c3103f157a71d2afb11ca4bd46a20819670c9059614f60f36062",
+        "ladder_rule_state": "8cadd3d157eeb0d4d1e2fa83d829e1813e396553239bc5e053568738cf7c1172",
         "ladder_transition_event": "4f54ffc6aa46013f7823b1eba81aa54c709478ba3ce966e3ec2b329e9283baa0",
         "pickup_event": "f9feba487c103707fd3affd5fc09c1e3861c662457c71f1612224f0d47457108",
         "evaluation_audit": "42bfe9976e2d6bbef1f1f6cf8cf51f98e7ee10a9ab4aac18857a50cb60bbf0b8",
@@ -414,7 +414,7 @@
       },
       "hashes": {
         "published_price": "bb90eae1f990f6a6d44d3ff7f1bf716605c8ab8a71e7aeb96d3d6c7dedab9fb4",
-        "ladder_rule_state": "18d204401e042ab93bbdeb6da54fe96e6369a6a21a8b8995befc17782805e5fd",
+        "ladder_rule_state": "51adacbc81c1d790ff571f54cf87ab06f2d1dd8005b37debb42e107909f53607",
         "ladder_transition_event": "92697803149800e28857f5d4398552230f747636fa27bf6459d1af5e8c5c8375",
         "pickup_event": "a07bf8fb0c2b49c7f3cbd27e007a7cf99aafd7413c39d06f45aee30a99cd95cb",
         "evaluation_audit": "a2512c200942463128f607b4122c20abc524ee61241f0a08b28057e80c06eb67",
@@ -442,7 +442,7 @@
       },
       "hashes": {
         "published_price": "7790132eed88df81634275ef164667858a0b1e94cfec759d9a0b6cf1eadb4548",
-        "ladder_rule_state": "4f05767eb0d6938d4a1675c3cbe0dcb7ed76268e9e110f0286c653bba32ea580",
+        "ladder_rule_state": "6aeccbb4acccf98a76b1395258a448aa6eadee386c0db495221355f92ec937f7",
         "ladder_transition_event": "533e1c3d32859526500cc12c63fcf619b76324e9974a501924c50c6840fba394",
         "pickup_event": "9a285da0d06a581191f6beda74181d2726d4e7c48bea17905bc116b36933ea48",
         "evaluation_audit": "45f61b15bb675d3468aecc789bc24bafc0bcc580b23fcf10422e862488e60be5",

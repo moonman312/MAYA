@@ -173,7 +173,7 @@ describe("ladder pass batch", () => {
     expect(norm(batched.tables.ladder_rule_state)).toEqual(norm(perTriple.tables.ladder_rule_state));
     expect(norm(batched.tables.ladder_transition_event)).toEqual(norm(perTriple.tables.ladder_transition_event));
     // Far fewer round trips, even with the failing groups retried row by row.
-    expect(batched.calls.length).toBeLessThan(perTriple.calls.length / 4);
+    expect(batched.calls.length).toBeLessThan(perTriple.calls.length / 3);
   });
 });
 

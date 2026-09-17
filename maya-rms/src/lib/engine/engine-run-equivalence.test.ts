@@ -11,7 +11,10 @@
  * event, an audit row or a run's counts fails here.
  *
  * The golden file was written by this same test at commit 4ef5d65 with
- * MAYA_WRITE_ENGINE_GOLDEN=1. Setting MAYA_ENGINE_DUMP=<dir> writes the full
+ * MAYA_WRITE_ENGINE_GOLDEN=1. Its ladder_rule_state hashes were rewritten
+ * once, leaving out last_evaluated_at, from an engine that still matched the
+ * original golden file in full (commit e6c532b), before that column stopped
+ * being touched; every other hash is unchanged from 4ef5d65. Setting MAYA_ENGINE_DUMP=<dir> writes the full
  * normalized tables per run for diffing.
  */
 import { createHash } from "node:crypto";
@@ -280,7 +283,9 @@ function normalizeTables(tables: Record<string, FakeRow[]>) {
   // numbers every row it writes, in write order.
   return {
     published_price: rows("published_price", ["id"]),
-    ladder_rule_state: rows("ladder_rule_state", ["id"]),
+    // last_evaluated_at is left out: the engine stopped rewriting it on every
+    // tick for rows whose state did not change, and nothing prices off it.
+    ladder_rule_state: rows("ladder_rule_state", ["id", "last_evaluated_at"]),
     ladder_transition_event: rows("ladder_transition_event", ["id"]),
     pickup_event: rows("pickup_event", ["id"]),
     evaluation_audit: rows("evaluation_audit", ["id", "evaluation_run_id"]),

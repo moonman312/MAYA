@@ -3,7 +3,9 @@
  *
  * GET /api/pricing-debug?hotel_id=...&stay_date=2026-07-14&room_type_id=abc
  *
- * Returns the most recent evaluation_audit row, current ladder_rule_state rows,
+ * Returns the most recent evaluation_audit row, current ladder_rule_state rows
+ * (last_evaluated_at there is when that state last changed; last_run_at is when
+ * the engine last ran for the hotel),
  * all non-retired pickup_event rows, and the last 30 days of transition/event history.
  */
 
@@ -70,6 +72,17 @@ export async function GET(req: NextRequest) {
             .eq("stay_date", stayDate)
             .eq("room_type_id", roomTypeId);
 
+    // When the engine last ran for this hotel. A ladder state row's
+    // last_evaluated_at only moves when that state changes, so this is the
+    // answer to "was it checked recently".
+    const { data: lastRun } = await supabase
+      .from("evaluation_run_log")
+      .select("evaluated_at")
+      .eq("hotel_id", hotelId)
+      .order("evaluated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
     // Non-retired pickup events.
     const { data: pickupEvents } = await supabase
       .from("pickup_event")
@@ -114,6 +127,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       audit,
       ladder_states: ladderStates ?? [],
+      last_run_at: lastRun?.evaluated_at ?? null,
       active_pickup_events: pickupEvents ?? [],
       ladder_transition_history: ladderHistory ?? [],
       pickup_event_history: pickupHistory ?? [],
