@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   pushRatesForHotel,
   resetDecidedJobs,
@@ -8,6 +8,7 @@ import {
   type RateTargetMap,
 } from "../../../supabase/functions/_shared/pms/rate-push";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fakeSupabase } from "../engine/fake-supabase.test";
 
 type Row = Record<string, unknown>;
 
@@ -462,5 +463,80 @@ describe("pushRatesForHotel asks again about earlier jobs", () => {
     await pushRatesForHotel(makeSupabaseStub(fixture).supabase, "hotel-1", adapter);
     await pushRatesForHotel(makeSupabaseStub(fixture).supabase, "hotel-1", adapter);
     expect(asked).toEqual([["job-slow"], ["job-slow"]]);
+  });
+});
+
+describe("pushRatesForHotel pushes the hotel's own nights", () => {
+  // The window is the engine's: it starts on the HOTEL's date and covers
+  // exactly the horizon the tick evaluated. It used to start on the UTC date,
+  // which every evening at a property west of Greenwich is already tomorrow.
+  beforeEach(() => {
+    vi.stubEnv("MAYA_EVAL_HORIZON_DAYS", "");
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+
+  function hotelDb(timezone: string, nights: string[]) {
+    return fakeSupabase({
+      hotels: [{ id: "hotel-1", timezone }],
+      hotel_settings: [{ hotel_id: "hotel-1", simulation_mode: false }],
+      room_types: [{ id: "rt-king", hotel_id: "hotel-1", external_room_type_id: "CB-KING" }],
+      published_price: nights.map((stay_date, i) => ({ hotel_id: "hotel-1", stay_date, room_type_id: "rt-king", price: 200 + i })),
+      pms_connections: [{ id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", push_rate_targets: { "CB-KING": "rate-100" } }],
+    });
+  }
+
+  const pushedNights = (db: ReturnType<typeof hotelDb>) =>
+    (db.tables.rate_updates ?? []).filter((r) => r.status === "sent").map((r) => r.stay_date).sort();
+
+  it("starts on tonight at a hotel still on the previous day, and ends 60 nights later", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-02T05:00:00Z")); // 22:00 on Oct 1 in Los Angeles
+    const db = hotelDb("America/Los_Angeles", ["2026-09-30", "2026-10-01", "2026-11-29", "2026-11-30"]);
+    const { adapter } = makeAdapter({ "CB-KING": "rate-100" });
+
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter);
+
+    expect(res).toMatchObject({ pushed: true, cellsConsidered: 2, sent: 2 });
+    expect(pushedNights(db)).toEqual(["2026-10-01", "2026-11-29"]);
+  });
+
+  it("drops a night that is already over at a hotel ahead of UTC", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-01T20:00:00Z")); // 05:00 on Oct 2 in Tokyo
+    const db = hotelDb("Asia/Tokyo", ["2026-10-01", "2026-10-02", "2026-11-30", "2026-12-01"]);
+    const { adapter } = makeAdapter({ "CB-KING": "rate-100" });
+
+    await pushRatesForHotel(db.client, "hotel-1", adapter);
+
+    expect(pushedNights(db)).toEqual(["2026-10-02", "2026-11-30"]);
+  });
+
+  it("uses the tick's date and horizon when given, and asks for targets on that date", async () => {
+    const db = hotelDb("America/Los_Angeles", ["2026-10-01", "2026-10-03", "2026-10-04"]);
+    db.tables.pms_connections[0].push_rate_targets = null;
+    const { adapter } = makeAdapter({ "CB-KING": "rate-100" });
+    const seen: unknown[] = [];
+    const resolve = adapter.resolveRateTargets.bind(adapter);
+    adapter.resolveRateTargets = async (opts) => (seen.push(opts), resolve(opts));
+
+    await pushRatesForHotel(db.client, "hotel-1", adapter, { today: "2026-10-01", pushHorizonDays: 3 });
+
+    expect(pushedNights(db)).toEqual(["2026-10-01", "2026-10-03"]);
+    expect(seen).toEqual([{ today: "2026-10-01" }]);
+    // The tick already knows the date; the timezone is not read again.
+    expect(db.calls.some((c) => c.table === "hotels")).toBe(false);
+  });
+
+  it("reaches as far as MAYA_EVAL_HORIZON_DAYS when no horizon is passed", async () => {
+    vi.stubEnv("MAYA_EVAL_HORIZON_DAYS", "30");
+    const db = hotelDb("UTC", ["2026-10-30", "2026-10-31"]);
+    const { adapter } = makeAdapter({ "CB-KING": "rate-100" });
+
+    await pushRatesForHotel(db.client, "hotel-1", adapter, { today: "2026-10-01" });
+
+    expect(pushedNights(db)).toEqual(["2026-10-30"]);
   });
 });

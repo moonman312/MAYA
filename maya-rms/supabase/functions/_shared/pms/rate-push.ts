@@ -17,11 +17,14 @@
  *   • Target freshness — the cached room-type→rate map is re-resolved whenever a
  *     cell it doesn't cover shows up, and dropped after a push rejection, so a
  *     new room type or a rebuilt rate catalog heals on the next tick.
+ *   • Window — [hotel today, hotel today + horizon - 1], the same nights the
+ *     tick evaluated (pricing-window.ts).
  *
  * Vendor specifics live behind PmsRatePushAdapter (Cloudbeds today; Mews next).
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { lastNightOf, MAX_PRICING_HORIZON_DAYS, pricingHorizonDays, readHotelClock } from "./pricing-window.ts";
 
 /** external_room_type_id -> external rate identifier (Cloudbeds base rateID, etc.). */
 export type RateTargetMap = Record<string, string>;
@@ -49,19 +52,16 @@ export type RateCalendarEntry = {
 
 export interface PmsRatePushAdapter {
   pmsType: "cloudbeds" | "mews" | "think";
-  /** Resolve external_room_type_id -> external rate id (the base BAR rate to update). */
-  resolveRateTargets(): Promise<RateTargetMap>;
+  /**
+   * Resolve external_room_type_id -> external rate id: the room type's BASE
+   * rate, and only that. A room type with no base rate is left out of the map
+   * rather than given some other plan, so its cells are recorded as skipped
+   * instead of landing on a package. `today` is the hotel's date, for a
+   * vendor whose catalog read needs a date window.
+   */
+  resolveRateTargets(opts?: { today?: string }): Promise<RateTargetMap>;
   /** Push cells (already carrying their externalRateId); batch internally per vendor limits. */
   pushCells(cells: Array<RateCell & { externalRateId: string }>): Promise<CellPushResult[]>;
-  /**
-   * Read the property's OWN rate for each room-night in the window — what the
-   * hotel charges before MAYA touches anything. Feeds base_rate_calendar, which
-   * is why it must never be called for a cell we have already pushed to: the
-   * number would be our own output coming back as an input.
-   *
-   * Optional so an adapter can land before its rate read does; callers treat a
-   * missing implementation as "no calendar available" rather than an error.
-   */
   /**
    * Ask the vendor what became of jobs we already submitted. patchRate-style
    * endpoints are asynchronous, so "accepted" is not "applied" — without this
@@ -73,16 +73,45 @@ export interface PmsRatePushAdapter {
     jobReferences: string[],
   ): Promise<Record<string, { done: boolean; ok: boolean; message?: string }>>;
 
+  /**
+   * Read the property's OWN rate for each room-night in the window — what the
+   * hotel charges before MAYA touches anything — from the targeted rate only.
+   * Feeds base_rate_calendar, which is why its result must never be stored for
+   * a cell we have already pushed to: the number would be our own output
+   * coming back as an input.
+   *
+   * Optional so an adapter can land before its rate read does; callers treat a
+   * missing implementation as "no calendar available" rather than an error.
+   */
   fetchRateCalendar?(
     startDate: string,
     endDate: string,
     targets: RateTargetMap,
   ): Promise<RateCalendarEntry[]>;
+
+  /**
+   * resolveRateTargets and fetchRateCalendar from one read, for a vendor whose
+   * catalog and nightly rates come back together (Cloudbeds' getRatePlans).
+   * Optional: without it the calendar makes the two calls.
+   */
+  readBaseRateCalendar?(
+    startDate: string,
+    endDate: string,
+  ): Promise<{ targets: RateTargetMap; entries: RateCalendarEntry[] }>;
 }
 
 export type RatePushOptions = {
-  /** How many days forward to consider pushing (default 60). */
+  /**
+   * How many nights to consider pushing, from the hotel's today. The scheduled
+   * tick passes the horizon it just evaluated, so no night goes out that this
+   * tick did not price. Default: pricingHorizonDays().
+   */
   pushHorizonDays?: number;
+  /**
+   * The hotel's date the window starts on. The tick passes the one it priced
+   * with; without it the hotel's timezone is read here.
+   */
+  today?: string;
   /** Force re-resolve of the cached rate targets. */
   refreshTargets?: boolean;
   /**
@@ -174,15 +203,6 @@ async function fetchAll(makeQuery: () => any): Promise<any[]> {
   return all;
 }
 
-function todayUtcYmd(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function addDaysYmd(ymd: string, days: number): string {
-  const [y, m, d] = ymd.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
-}
-
 export async function pushRatesForHotel(
   supabase: SupabaseClient,
   hotelId: string,
@@ -200,9 +220,10 @@ export async function pushRatesForHotel(
     return { pushed: false, reason: "not_live" };
   }
 
-  const horizon = Math.max(1, Math.min(365, opts.pushHorizonDays ?? 60));
-  const firstDate = todayUtcYmd();
-  const lastDate = addDaysYmd(firstDate, horizon - 1);
+  // The hotel's calendar, not UTC's: see pricing-window.ts.
+  const horizon = Math.max(1, Math.min(MAX_PRICING_HORIZON_DAYS, Math.floor(opts.pushHorizonDays ?? pricingHorizonDays())));
+  const firstDate = opts.today ?? (await readHotelClock(supabase, hotelId)).today;
+  const lastDate = lastNightOf(firstDate, horizon);
 
   // ── Load engine output for the window ─────────────────────────────────────
   const ppRows = await fetchAll(() =>
@@ -333,7 +354,7 @@ export async function pushRatesForHotel(
     // down the cells the cached map still targets.
     let resolved: RateTargetMap = {};
     try {
-      resolved = await adapter.resolveRateTargets();
+      resolved = await adapter.resolveRateTargets({ today: firstDate });
     } catch (e) {
       if (!usingCache) throw e;
       const msg = e instanceof Error ? e.message : String(e);
