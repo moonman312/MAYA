@@ -52,12 +52,23 @@ export async function GET(req: NextRequest) {
       .limit(1)
       .maybeSingle();
 
-    // Current ladder rule states.
-    const { data: ladderStates } = await supabase
-      .from("ladder_rule_state")
-      .select("*")
-      .eq("stay_date", stayDate)
-      .eq("room_type_id", roomTypeId);
+    // Current ladder rule states. ladder_rule_state has no hotel column, so
+    // the read is narrowed to this hotel's rules: its primary key starts with
+    // rule_id, and without it the lookup scanned every hotel's state.
+    const { data: hotelRules } = await supabase
+      .from("pricing_rules")
+      .select("id")
+      .eq("hotel_id", hotelId);
+    const ruleIds = (hotelRules ?? []).map((r) => String(r.id));
+    const { data: ladderStates } =
+      ruleIds.length === 0
+        ? { data: [] }
+        : await supabase
+            .from("ladder_rule_state")
+            .select("*")
+            .in("rule_id", ruleIds)
+            .eq("stay_date", stayDate)
+            .eq("room_type_id", roomTypeId);
 
     // Non-retired pickup events.
     const { data: pickupEvents } = await supabase

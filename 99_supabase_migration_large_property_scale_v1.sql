@@ -27,6 +27,14 @@
 --   create index concurrently if not exists idx_snapshot_cell_ts
 --     on public.stay_date_snapshot (hotel_id, stay_date, room_type_id, snapshot_ts desc);
 --
+--   drop index concurrently if exists public.idx_eval_audit_hotel_stay;
+--
+-- The second one removes an exact duplicate: idx_eval_audit_hotel_stay and
+-- idx_evaluation_audit_cell are both (hotel_id, stay_date, room_type_id,
+-- evaluated_at desc), so every audit insert, and a large property writes
+-- thousands per run, maintained the same index twice.
+-- 02_supabase_schema.sql still creates both on a fresh database.
+--
 -- Optional, when you want the nightly engine sweep to commit per batch (see
 -- section 8). Only after this file has run:
 --
