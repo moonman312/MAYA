@@ -1342,6 +1342,70 @@ describe("pushRatesForHotel when the catalog has nothing to send to", () => {
   });
 });
 
+describe("pushRatesForHotel when the catalog read fails between good ones", () => {
+  afterEach(() => {
+    resetDecidedJobs();
+    vi.restoreAllMocks();
+  });
+
+  function hotel() {
+    return fakeSupabase({
+      hotel_settings: [{ hotel_id: "hotel-1", simulation_mode: false }],
+      room_types: ROOM_TYPES.map((r) => ({ ...r, hotel_id: "hotel-1" })),
+      published_price: PRICES_TWO.map((r) => ({ ...r, hotel_id: "hotel-1" })),
+      pms_connections: [{ id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", push_rate_targets: null }],
+    });
+  }
+  /** Queen has a base rate; king has none, as a good read says, or nothing is known after a failed one. */
+  const goodRead = () => {
+    const made = makeAdapter({ "CB-QUEEN": "rate-200" });
+    made.adapter.missingTargetReason = (ext) => (ext === "CB-KING" ? "no_base_rate" : null);
+    return made.adapter;
+  };
+  const failedRead = () => {
+    const made = makeAdapter(new Error("Cloudbeds getRatePlans failed (503): Service Unavailable"));
+    made.adapter.missingTargetReason = () => null;
+    return made.adapter;
+  };
+  const kingCells = (db: ReturnType<typeof hotel>) =>
+    db.tables.rate_push_incident_cells.filter((c) => c.room_type_id === "rt-king").map((c) => [c.incident_id, c.state]);
+
+  it("keeps a missing base rate open through a tick whose read fails (ok, throw, ok)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = hotel();
+
+    await pushRatesForHotel(db.client, "hotel-1", goodRead(), WIDE);
+    expect(db.tables.rate_push_incidents).toEqual([expect.objectContaining({ cause: "no_base_rate", resolved_at: null })]);
+    const incidentId = db.tables.rate_push_incidents[0].id;
+
+    const unreadable = await pushRatesForHotel(db.client, "hotel-1", failedRead(), WIDE);
+    expect(unreadable).toMatchObject({ skippedNoTarget: 1 });
+    expect(db.tables.rate_push_incidents).toEqual([expect.objectContaining({ cause: "no_base_rate", resolved_at: null })]);
+
+    await pushRatesForHotel(db.client, "hotel-1", goodRead(), WIDE);
+    expect(db.tables.rate_push_incidents).toEqual([
+      expect.objectContaining({ cause: "no_base_rate", resolved_at: null, attempt_count: 1, customer_visible_at: expect.any(String) }),
+    ]);
+    expect(kingCells(db)).toEqual([[incidentId, "open"]]);
+  });
+
+  it("files a room type first seen on a failed read as a missing base rate once a good read says so (throw, ok)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = hotel();
+    db.tables.pms_connections[0].push_rate_targets = { "CB-QUEEN": "rate-200" };
+
+    await pushRatesForHotel(db.client, "hotel-1", failedRead(), WIDE);
+    expect(db.tables.rate_push_incidents).toEqual([expect.objectContaining({ cause: "pms_unavailable", resolved_at: null })]);
+
+    await pushRatesForHotel(db.client, "hotel-1", goodRead(), WIDE);
+    expect(db.tables.rate_push_incidents.map((i) => [i.cause, i.resolution])).toEqual([
+      ["pms_unavailable", "superseded"],
+      ["no_base_rate", null],
+    ]);
+    expect(db.tables.rate_push_incidents[1].customer_visible_at).not.toBeNull();
+  });
+});
+
 describe("pushRatesForHotel checks where an unchanged night went", () => {
   afterEach(() => {
     resetDecidedJobs();

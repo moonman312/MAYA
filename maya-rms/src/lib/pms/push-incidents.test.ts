@@ -263,6 +263,31 @@ describe("recordPushIncidents", () => {
     expect(states).toEqual({ "2026-09-20": "superseded", "2026-09-21": "superseded", "2026-09-22": "stopped" });
   });
 
+  it("files a skip whose row did not change under the cause it fails for now, and counts nothing while it stays open there", async () => {
+    const fake = db();
+    const unreadable: PushFailureInput = { ...DERIVED, targetGap: "catalog_unavailable" };
+    // Filed as an outage on a tick whose catalog read failed.
+    await recordPushIncidents(fake.client, tick(0, [failure("2026-09-20", "rt-1", 0, unreadable)]), deps);
+    expect(fake.tables.rate_push_incidents[0]).toMatchObject({ cause: "pms_unavailable" });
+
+    // The next read says its rates follow another plan. The ledger row reads the same.
+    const ongoing = { ...failure("2026-09-20", "rt-1", 5, DERIVED), ongoing: true };
+    const res = await recordPushIncidents(fake.client, tick(5, [ongoing]), deps);
+    expect(res).toMatchObject({ opened: 1, resolved: 1 });
+    expect(fake.tables.rate_push_incidents.map((i) => [i.cause, i.resolution])).toEqual([
+      ["pms_unavailable", "superseded"],
+      ["rate_plan_not_updatable", null],
+    ]);
+    expect(fake.tables.rate_push_incidents[1].customer_visible_at).toBe(at(5));
+
+    // Still so on later ticks: nothing new is counted or stored.
+    const attempts = fake.tables.rate_push_attempts.length;
+    const later = await recordPushIncidents(fake.client, tick(10, [{ ...failure("2026-09-20", "rt-1", 10, DERIVED), ongoing: true }]), deps);
+    expect(later).toMatchObject({ opened: 0, reopened: 0, resolved: 0, attemptsStored: 0 });
+    expect(fake.tables.rate_push_attempts).toHaveLength(attempts);
+    expect(fake.tables.rate_push_incidents[1]).toMatchObject({ attempt_count: 1, resolved_at: null });
+  });
+
   it("leaves a cell the run could not get to open", async () => {
     const fake = db();
     await recordPushIncidents(fake.client, tick(0, [failure("2026-09-20", "rt-1", 0)]), deps);

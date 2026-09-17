@@ -24,7 +24,8 @@
  *     and nothing on record as failing makes one small read for this. A room
  *     type the catalog lists without a base rate is filed like any other
  *     failure, even when no room type has one; only a catalog read that
- *     taught nothing (failed, or empty) stops the run quietly.
+ *     taught nothing (failed, or empty) stops the run quietly, and it leaves
+ *     a room type an earlier read already filed as it was.
  *   • Target freshness — the cached room-type→rate map is re-resolved whenever a
  *     cell it doesn't cover shows up, or a sent cell went to a rate it doesn't
  *     name, and dropped after a push rejection, so a new room type or a
@@ -533,10 +534,8 @@ export async function pushRatesForHotel(
     const failure = classifyPushFailure({ pms: adapter.pmsType, phase: "guardrail", message: code });
     run.cells.set(key, { ...cellRef(cell), state: "failing", failure });
     const row = skippedLedgerRow(hotelId, adapter.pmsType, cell, code, priorRow.get(key), nowIso);
-    if (row) {
-      rows.push(row);
-      run.failures.push(skipFailure(cell, code, failure, nowIso));
-    }
+    if (row) rows.push(row);
+    run.failures.push(skipFailure(cell, code, failure, nowIso, row == null));
     return true;
   };
 
@@ -721,18 +720,26 @@ export async function pushRatesForHotel(
       continue;
     }
     skippedNoTarget += 1;
+    const gap = targetGap(c.externalRoomTypeId);
+    const prior = priorRow.get(key);
+    if (gap === "catalog_unavailable" && prior?.status === "skipped" && prior.error === NO_RATE_TARGET_REASON) {
+      // This tick's catalog read taught nothing, and an earlier one already
+      // said why the room type has no target. That finding stands, and so
+      // does its incident: filed as an outage, a missing base rate would show
+      // the owner as fixed until the next good read, and nothing reopened it.
+      run.cells.set(key, { ...cellRef(c), state: "waiting" });
+      continue;
+    }
     const failure = classifyPushFailure({
       pms: adapter.pmsType,
       phase: "guardrail",
       message: NO_RATE_TARGET_REASON,
-      targetGap: targetGap(c.externalRoomTypeId),
+      targetGap: gap,
     });
     run.cells.set(key, { ...cellRef(c), state: "failing", failure });
-    const row = skippedLedgerRow(hotelId, adapter.pmsType, c, NO_RATE_TARGET_REASON, priorRow.get(key), nowIso);
-    if (row) {
-      noTargetRows.push(row);
-      run.failures.push(skipFailure(c, NO_RATE_TARGET_REASON, failure, nowIso));
-    }
+    const row = skippedLedgerRow(hotelId, adapter.pmsType, c, NO_RATE_TARGET_REASON, prior, nowIso);
+    if (row) noTargetRows.push(row);
+    run.failures.push(skipFailure(c, NO_RATE_TARGET_REASON, failure, nowIso, row == null));
   }
   summary.skippedNoTarget = skippedNoTarget;
 
@@ -947,7 +954,8 @@ function ledgerFailure(pmsType: string, failed: FailedCell): PushFailure {
   });
 }
 
-function skipFailure(c: RateCell, reason: string, failure: PushFailure, at: string): RunFailure {
+/** A held-back cell as a failure; `ongoing` when its ledger row already said this (see RunFailure). */
+function skipFailure(c: RateCell, reason: string, failure: PushFailure, at: string, ongoing: boolean): RunFailure {
   return {
     ...cellRef(c),
     at,
@@ -957,6 +965,7 @@ function skipFailure(c: RateCell, reason: string, failure: PushFailure, at: stri
     message: reason,
     jobReference: null,
     failure,
+    ...(ongoing ? { ongoing: true } : {}),
   };
 }
 

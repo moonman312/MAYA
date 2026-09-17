@@ -77,7 +77,14 @@ export type RunCell = { stayDate: string; roomTypeId: string; price: number } & 
   | { state: "waiting" }
 );
 
-/** A failure this run produced: a refused send, a rejected or unconfirmed job, or a newly recorded skip. */
+/**
+ * A failure this run produced: a refused send, a rejected or unconfirmed job,
+ * or a skip. `ongoing` marks a skip the ledger already said exactly this
+ * about. It is filed only when its cell is not already open under the same
+ * cause: a skip's row reads the same whichever cause it was filed under (no
+ * rate target is no base rate, derived rates or a catalog nobody could read),
+ * so a row that did not change can still be a cause that did.
+ */
 export type RunFailure = {
   stayDate: string;
   roomTypeId: string;
@@ -89,6 +96,7 @@ export type RunFailure = {
   message: string | null;
   jobReference: string | null;
   failure: PushFailure;
+  ongoing?: boolean;
 };
 
 export type PushRunRecord = {
@@ -403,6 +411,11 @@ async function record(
   for (const f of failures) {
     const key = cellKey(f.stayDate, f.roomTypeId);
     const cause = f.failure.cause;
+    if (f.ongoing && owner.get(key)?.row.cause === cause) {
+      // Already open under this cause: no new try to count.
+      touched.add(key);
+      continue;
+    }
     let w = openByCause.get(cause);
     if (!w) {
       const old = reopenable.get(cause);
