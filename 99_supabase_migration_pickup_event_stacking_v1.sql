@@ -90,15 +90,28 @@
 -- 99_supabase_migration_large_property_scale_v1.sql and
 -- 99_supabase_migration_push_guardrails_v1.sql. Re-running
 -- 99_supabase_migration_push_guardrails_v1.sql afterwards brings back its
--- set_manual_prices_from_pms, whose retirements the new check refuses: run
--- this file again after it.
+-- set_manual_prices_from_pms, which retires fires without a reason. Section 1f
+-- names those retirements 'manual_price' from the cell's own price, so a
+-- replay of the 99_ files in filename order (this file sorts first) leaves a
+-- database that works; running this file again also puts the newer function
+-- back.
 --
 -- Idempotent. There is no pre-migration path in the code: run this, then
--- deploy cloudbeds-scheduled-sync, mews-scheduled-sync and
--- think-scheduled-sync, then push the app straight after. Until the code is
--- deployed, the old engine's inserts fail on fire_seq (no fires, logged as
--- write_failed) and its retirements fail the reason check (nothing is taken
--- off), so nothing stacks unguarded and nothing is wiped in the gap.
+-- deploy cloudbeds-scheduled-sync, mews-scheduled-sync,
+-- think-scheduled-sync and onboarding-import-worker (one command each; loops
+-- are blocked), then push the app straight after. onboarding-import-worker is
+-- on the list because it is the only place that writes a hotel's starter
+-- rules and their explanations (_shared/onboarding/generate-rules.ts through
+-- analysis.ts), and those now say that a rule adjusts again and that MAYA
+-- asks after three times; a hotel onboarded on the old bundle keeps the old
+-- text for good.
+--
+-- Until the code is deployed, the old engine's inserts fail on fire_seq (no
+-- fires, logged as write_failed) and its retirements fail the reason check
+-- (nothing is taken off), so nothing stacks unguarded and nothing is wiped in
+-- the gap. The one path in the gap that does not fail soft is
+-- /api/manual-price, which writes in steps and throws on a failed one: section
+-- 1f names its retirement for it so a typed price still saves.
 --
 -- Checks afterwards are at the end of this file.
 
@@ -247,6 +260,69 @@ alter table public.pickup_event add constraint pickup_event_window_chk
     or (window_from is not null and window_to is not null and window_from <= window_to
         and window_bookings_at_fire is not null and window_expected_at_fire is not null)
   );
+
+-- 1f. The reason on a retirement written by code that predates the column.
+--
+-- Two writers still set retired_at with no reason, and both mean the same
+-- thing: a price was set for the cell.
+--
+--   * /api/manual-price, between this migration and the app deploy. It writes
+--     the manual_price rows, suppresses the ladder rows and only then retires
+--     the fires, so pickup_event_retired_reason_set_chk would fail the save
+--     after two of its three writes had landed: the owner reads "save failed"
+--     however often they retry, the price is set all the same, the cell's
+--     fires are still stacked on it, and the route never reaches its
+--     republish, so nothing is sent or logged for those nights.
+--   * set_manual_prices_from_pms as 99_supabase_migration_push_guardrails_v1.sql
+--     defines it. That file sorts after this one, so replaying the 99_ files
+--     in filename order (a fresh staging rebuild, a new region, or running the
+--     list again) puts its reason-less body back last. Every PMS edit would
+--     then fail to be adopted with a 23514, and MAYA would go on publishing
+--     and sending its own price over the hotel's change.
+--
+-- Both write the price first and stamp retired_at with the same instant they
+-- wrote its set_at, so the reason can be read off the cell. Everything else
+-- that retires without a reason -- above all the old engine's cancellation
+-- check, which would wipe fires it can't judge and block their rules for a
+-- whole wait -- still fails the check, which is what keeps the gap safe.
+--
+-- Once the app is deployed every writer names its own reason, so the trigger
+-- returns on its first line and does nothing.
+
+create or replace function public.pickup_event_manual_price_reason()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.retired_at is null or new.retired_reason is not null then
+    return new;
+  end if;
+  if exists (
+    select 1
+      from public.manual_price m
+     where m.hotel_id = new.hotel_id
+       and m.stay_date = new.stay_date
+       and m.room_type_id = new.affected_room_type_id
+       and m.cleared_at is null
+       and m.set_at = new.retired_at
+  ) then
+    new.retired_reason := 'manual_price';
+  end if;
+  return new;
+end;
+$$;
+
+comment on function public.pickup_event_manual_price_reason() is
+  'Names a reason-less retirement made by a manual price save from code that predates '
+  'pickup_event.retired_reason (the deploy gap, and a replay of '
+  '99_supabase_migration_push_guardrails_v1.sql). Every other reason-less retirement still fails.';
+
+drop trigger if exists trg_pickup_event_manual_price_reason on public.pickup_event;
+create trigger trg_pickup_event_manual_price_reason
+  before update on public.pickup_event
+  for each row execute function public.pickup_event_manual_price_reason();
 
 -- ----------------------------------------------------------------------------
 -- 2. One fire number per (rule, night, room type), several open fires allowed

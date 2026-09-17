@@ -16,6 +16,16 @@ import type { FakeRow } from "./fake-supabase.test";
 
 const PGLITE_DIR = process.env.MAYA_PGLITE_DIR;
 const MIGRATION = resolve(__dirname, "../../../../99_supabase_migration_pickup_event_stacking_v1.sql");
+const GUARDRAILS = resolve(__dirname, "../../../../99_supabase_migration_push_guardrails_v1.sql");
+
+/** One `create or replace function ... $$;` block, lifted straight out of a migration file. */
+function functionSql(file: string, name: string): string {
+  const sql = readFileSync(file, "utf8");
+  const start = sql.indexOf(`create or replace function public.${name}(`);
+  const end = sql.indexOf("\n$$;", start);
+  if (start < 0 || end < start) throw new Error(`${name} not found in ${file}`);
+  return sql.slice(start, end + 4);
+}
 
 type Db = {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
@@ -440,6 +450,32 @@ describe.skipIf(!PGLITE_DIR)("the pickup event stacking migration in PGlite", ()
     ).toEqual([{ retired_reason: "manual_price" }]);
   });
 
+  it("names the reason on a retirement a price save made without one, and still refuses every other", async () => {
+    // What /api/manual-price does between this migration and the app deploy,
+    // and what set_manual_prices_from_pms does if a replay of
+    // 99_supabase_migration_push_guardrails_v1.sql puts its old body back: the
+    // price is written first, then the cell's fires are retired at the same
+    // instant with no reason.
+    const priceSetAt = "2026-09-20T10:00:00Z";
+    await db.exec(`update public.pickup_event set retired_at = '${priceSetAt}' where left(id::text, 8) = '00000004'`);
+    expect(
+      (await db.query(`select retired_reason from public.pickup_event where left(id::text, 8) = '00000004'`)).rows,
+    ).toEqual([{ retired_reason: "manual_price" }]);
+    await db.exec(`update public.pickup_event set retired_at = null, retired_reason = null where left(id::text, 8) = '00000004'`);
+
+    // A retirement at any other moment is the old engine's cancellation check,
+    // which would wipe fires it can't judge: it still fails.
+    await expect(
+      db.exec(`update public.pickup_event set retired_at = '2026-09-21T10:00:00Z' where left(id::text, 8) = '00000004'`),
+    ).rejects.toThrow(/pickup_event_retired_reason_set_chk/);
+    // And so does one on a cell whose price has been cleared.
+    await db.exec(`update public.manual_price set cleared_at = now() where stay_date = '${NIGHT2}'`);
+    await expect(
+      db.exec(`update public.pickup_event set retired_at = '${priceSetAt}' where left(id::text, 8) = '00000004'`),
+    ).rejects.toThrow(/pickup_event_retired_reason_set_chk/);
+    await db.exec(`update public.manual_price set cleared_at = null where stay_date = '${NIGHT2}'`);
+  });
+
   it("only a rule manager answers an alert, and answering it resolves it", async () => {
     const alert = "00000009-0000-4000-8000-000000000000";
     await db.exec(`
@@ -485,6 +521,24 @@ describe.skipIf(!PGLITE_DIR)("the pickup event stacking migration in PGlite", ()
     // that is resolved stays resolved.
     const again = await db.query(`select choice from public.rule_repeat_alert_choose('${alert}', 'keep_adjusting', array['${NIGHT}']::date[])`);
     expect(again.rows).toEqual([{ choice: "keep_adjusting" }]);
+  });
+
+  it("survives a replay of push_guardrails putting its reason-less price function back", async () => {
+    // 99_supabase_migration_push_guardrails_v1.sql sorts after this migration,
+    // so replaying the 99_ files in filename order restores a
+    // set_manual_prices_from_pms that retires fires without a reason. Without
+    // the trigger this raises 23514, no PMS edit is ever adopted, and MAYA
+    // goes on sending its own price over the hotel's change.
+    await db.exec(functionSql(GUARDRAILS, "set_manual_prices_from_pms"));
+    await db.exec(`set request.jwt.claim.role = 'service_role';`);
+    const out = await db.query(
+      `select * from public.set_manual_prices_from_pms('${H1}', 'cloudbeds', '2026-09-28T09:00:00Z',
+        '[{"room_type_id": "${STD}", "stay_date": "${NIGHT2}", "price": 99.00}]'::jsonb)`,
+    );
+    expect(out.rows).toEqual([{ cells: 1, suppressed_rules: 0, retired_pickups: 1 }]);
+    expect(
+      (await db.query(`select retired_reason from public.pickup_event where left(id::text, 8) = '00000004'`)).rows,
+    ).toEqual([{ retired_reason: "manual_price" }]);
   });
 
   it("lets a hotel's members read the alerts and nobody signed in write them", async () => {
