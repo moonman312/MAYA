@@ -21,6 +21,8 @@
  *   guardrail:inactive_room_type   The room type is switched off in MAYA
  *                                  (room_types.is_active is not true).
  *   guardrail:invalid_price        The price is not a finite number above 0.
+ *                                  0 is a price only where the night's open
+ *                                  manual price is 0: a comp night.
  *   guardrail:zero_base            The PMS's own rate for the night is 0 in
  *                                  base_rate_calendar (closed, or rates not
  *                                  loaded that far out) and nobody typed a
@@ -38,6 +40,17 @@
  *                                  as it is now (the $1.00 default included).
  *   guardrail:above_ceiling        The price is over the room type's ceiling
  *                                  as it is now ($99,999.99 default included).
+ *                                  On a night with an open manual price both
+ *                                  bounds widen to take in that price, as the
+ *                                  engine's do (priceBounds in pricing.ts): a
+ *                                  manual price is published as it is, and a
+ *                                  rule on top only as far out as it.
+ *   guardrail:zero_rate_unsupported
+ *                                  The price is 0 (a comp night) and the PMS
+ *                                  is not known to take a rate of 0 from an
+ *                                  integration (PmsRatePushAdapter
+ *                                  acceptsZeroRate). Nothing is sent, so the
+ *                                  PMS keeps whatever it has for the night.
  *   guardrail:stale_price          Neither the published row nor any
  *                                  evaluation that priced its night is newer
  *                                  than pushMaxPriceAgeMs(). The engine
@@ -74,6 +87,7 @@ export const GUARDRAIL = {
   belowFloor: "guardrail:below_floor",
   aboveCeiling: "guardrail:above_ceiling",
   stalePrice: "guardrail:stale_price",
+  zeroRateUnsupported: "guardrail:zero_rate_unsupported",
 } as const;
 
 export type GuardrailCode = (typeof GUARDRAIL)[keyof typeof GUARDRAIL];
@@ -87,6 +101,7 @@ export const GUARDRAIL_ORDER: readonly GuardrailCode[] = [
   GUARDRAIL.invalidBounds,
   GUARDRAIL.belowFloor,
   GUARDRAIL.aboveCeiling,
+  GUARDRAIL.zeroRateUnsupported,
   GUARDRAIL.stalePrice,
 ];
 
@@ -121,6 +136,10 @@ export type GuardrailInput = {
   lastDate: string;
   /** base_rate_calendar holds 0 for the night and no manual price is open. */
   zeroBase: boolean;
+  /** The night's open manual price, typed in MAYA or changed in the PMS; null or absent when there is none. */
+  manualPrice?: number | null;
+  /** The PMS takes a rate of 0 (PmsRatePushAdapter acceptsZeroRate). Absent is no. */
+  acceptsZeroRate?: boolean;
   /** published_price.computed_at of the row, ms; NaN when missing. */
   computedAtMs: number;
   /** The newest evaluation known for the hotel, ms; NaN when unknown. */
@@ -142,15 +161,19 @@ export function checkPushGuardrails(c: GuardrailInput): GuardrailCode | null {
     return GUARDRAIL.outsideWindow;
   }
   if (c.roomType.isActive !== true) return GUARDRAIL.inactiveRoomType;
-  if (typeof c.price !== "number" || !Number.isFinite(c.price) || cents(c.price) <= 0) return GUARDRAIL.invalidPrice;
+  const manual = typeof c.manualPrice === "number" && Number.isFinite(c.manualPrice) ? c.manualPrice : null;
+  if (typeof c.price !== "number" || !Number.isFinite(c.price) || cents(c.price) < 0) return GUARDRAIL.invalidPrice;
+  // The engine publishes 0 only for a manual price of 0.
+  if (cents(c.price) === 0 && !(manual != null && cents(manual) === 0)) return GUARDRAIL.invalidPrice;
   if (c.zeroBase) return GUARDRAIL.zeroBase;
   const floor = c.roomType.floorPrice == null ? NaN : Number(c.roomType.floorPrice);
   const ceiling = c.roomType.ceilingPrice == null ? NaN : Number(c.roomType.ceilingPrice);
   if (!Number.isFinite(floor) || !Number.isFinite(ceiling) || cents(floor) <= 0 || cents(ceiling) < cents(floor)) {
     return GUARDRAIL.invalidBounds;
   }
-  if (cents(c.price) < cents(floor)) return GUARDRAIL.belowFloor;
-  if (cents(c.price) > cents(ceiling)) return GUARDRAIL.aboveCeiling;
+  if (cents(c.price) < Math.min(cents(floor), manual == null ? Infinity : cents(manual))) return GUARDRAIL.belowFloor;
+  if (cents(c.price) > Math.max(cents(ceiling), manual == null ? -Infinity : cents(manual))) return GUARDRAIL.aboveCeiling;
+  if (cents(c.price) === 0 && c.acceptsZeroRate !== true) return GUARDRAIL.zeroRateUnsupported;
   if (!(c.computedAtMs >= c.freshAfterMs) && !(c.evaluatedAtMs >= c.freshAfterMs)) return GUARDRAIL.stalePrice;
   return null;
 }

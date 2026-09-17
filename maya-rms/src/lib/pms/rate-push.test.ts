@@ -1644,3 +1644,185 @@ describe("pushRatesForHotel and what the tick knows", () => {
     errors.mockRestore();
   });
 });
+
+describe("pushRatesForHotel and manual prices", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetDecidedJobs();
+  });
+  const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+  const KING_FLOORED = [{ id: "rt-king", hotel_id: "hotel-1", external_room_type_id: "CB-KING", is_active: true, floor_price: 89, ceiling_price: 500 }];
+
+  function manualDb(published: Row[], manual: Row[], more: Record<string, Row[]> = {}) {
+    return fakeSupabase({
+      hotel_settings: [{ hotel_id: "hotel-1", simulation_mode: false }],
+      room_types: KING_FLOORED,
+      published_price: published.map((r) => ({ hotel_id: "hotel-1", room_type_id: "rt-king", computed_at: JUST_NOW, ...r })),
+      manual_price: manual.map((r) => ({ hotel_id: "hotel-1", room_type_id: "rt-king", cleared_at: null, set_at: minutesAgo(60), ...r })),
+      pms_connections: [{ id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", push_rate_targets: { "CB-KING": "rate-100" } }],
+      ...more,
+    });
+  }
+
+  it("sends a manual price under the floor or over the ceiling as published, and holds a comp night's 0 for a PMS not known to take it", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const db = manualDb(
+      [
+        { stay_date: "2026-08-01", price: 50 },
+        { stay_date: "2026-08-02", price: 750 },
+        { stay_date: "2026-08-03", price: 0 },
+        // Not a manual night: the floor still holds.
+        { stay_date: "2026-08-04", price: 50 },
+      ],
+      [
+        { stay_date: "2026-08-01", price: 50 },
+        { stay_date: "2026-08-02", price: 750 },
+        { stay_date: "2026-08-03", price: 0 },
+      ],
+    );
+    const { adapter, attempts } = makeAdapter({ "CB-KING": "rate-100" });
+    const sentPrices: number[] = [];
+    const push = adapter.pushCells;
+    adapter.pushCells = async (cells) => (sentPrices.push(...cells.map((c) => c.price)), push(cells));
+
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+
+    expect(sentPrices).toEqual([50, 750]);
+    expect(attempts).toHaveLength(2);
+    expect(res).toMatchObject({
+      sent: 2,
+      skippedGuardrail: 2,
+      guardrails: { "guardrail:zero_rate_unsupported": 1, "guardrail:below_floor": 1 },
+    });
+    const row = (d: string) => db.tables.rate_updates.find((r) => r.stay_date === d);
+    expect(row("2026-08-03")).toMatchObject({ status: "skipped", error: "guardrail:zero_rate_unsupported", price: 0, attempts: 0 });
+    // The owner hears about the comp night; the floor hold stays with admins.
+    expect(db.tables.rate_push_incidents.map((i) => [i.cause, i.admin_only, i.customer_visible_at != null]).sort()).toEqual([
+      ["guardrail_below_floor", true, false],
+      ["zero_rate_unsupported", false, true],
+    ]);
+  });
+
+  it("sends a comp night's 0 to a PMS that takes it", async () => {
+    const db = manualDb([{ stay_date: "2026-08-01", price: 0 }], [{ stay_date: "2026-08-01", price: 0 }]);
+    const { adapter } = makeAdapter({ "CB-KING": "rate-100" });
+    adapter.acceptsZeroRate = true;
+    let sent: number[] = [];
+    adapter.pushCells = async (cells) => ((sent = cells.map((c) => c.price)), cells.map((cell) => ({ cell, ok: true, jobReference: "job-1" })));
+
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+
+    expect(sent).toEqual([0]);
+    expect(res).toMatchObject({ sent: 1, skippedGuardrail: 0 });
+    expect(db.tables.rate_updates[0]).toMatchObject({ status: "sent", price: 0, sent_price: 0 });
+  });
+
+  it("holds a price priced before the manual price on its night until an evaluation prices it again", async () => {
+    const setAt = minutesAgo(2);
+    const published = [{ stay_date: "2026-08-01", price: 230, computed_at: minutesAgo(10) }];
+    const manual = [{ stay_date: "2026-08-01", price: 200, set_at: setAt }];
+
+    // The evaluation after the manual price failed: MAYA's old 230 must not go out over it.
+    const stale = manualDb(published, manual);
+    const first = makeAdapter({ "CB-KING": "rate-100" });
+    const held = await pushRatesForHotel(stale.client, "hotel-1", first.adapter, WIDE);
+    expect(first.attempts).toHaveLength(0);
+    expect(held).toMatchObject({ sent: 0, awaitingEvaluation: 1 });
+    expect(stale.tables.rate_updates ?? []).toEqual([]);
+
+    // A logged run that priced the night after the manual price vouches for it.
+    const logged = manualDb(published, manual, {
+      evaluation_run_log: [{ hotel_id: "hotel-1", evaluated_at: minutesAgo(1), first_stay_date: "2026-08-01", last_stay_date: "2026-08-01" }],
+    });
+    const second = makeAdapter({ "CB-KING": "rate-100" });
+    expect(await pushRatesForHotel(logged.client, "hotel-1", second.adapter, WIDE)).toMatchObject({ sent: 1 });
+
+    // So does this tick's own evaluation.
+    const ticked = manualDb(published, manual);
+    const third = makeAdapter({ "CB-KING": "rate-100" });
+    const res = await pushRatesForHotel(ticked.client, "hotel-1", third.adapter, { ...WIDE, evaluatedAt: new Date().toISOString() });
+    expect(res).toMatchObject({ sent: 1 });
+    expect(res).not.toHaveProperty("awaitingEvaluation");
+  });
+
+  it("stamps a confirmed job's sent rows as settled, and a new send starts unsettled", async () => {
+    const db = fakeSupabase({
+      hotel_settings: [{ hotel_id: "hotel-1", simulation_mode: false }],
+      room_types: ROOM_TYPES.map((r) => ({ ...r, hotel_id: "hotel-1" })),
+      published_price: PRICES_TWO.map((r) => ({ ...r, hotel_id: "hotel-1" })),
+      pms_connections: [{ id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", push_rate_targets: CACHED_TWO }],
+      rate_updates: [
+        // Queen went out earlier at another price, was confirmed, and was changed in the PMS since.
+        { hotel_id: "hotel-1", pms_type: "cloudbeds", stay_date: "2026-08-01", room_type_id: "rt-queen", external_room_type_id: "CB-QUEEN", price: 170, sent_price: 170, status: "sent", attempts: 1, pms_job_reference: "job-then", confirmed_at: minutesAgo(80), pms_edited_at: minutesAgo(20), pushed_at: minutesAgo(90) },
+      ],
+    });
+    const { adapter } = makeAdapter(CACHED_TWO, "CB-QUEEN");
+    adapter.pushCells = async (cells) =>
+      cells.map((cell) => ({ cell, ok: true, jobReference: cell.externalRoomTypeId === "CB-KING" ? "job-king" : "job-queen" }));
+    adapter.fetchJobOutcomes = async (refs) =>
+      Object.fromEntries(refs.map((r) => [r, r === "job-king" ? { done: true, ok: true } : { done: true, ok: false, message: "rate closed" }]));
+
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+
+    expect(res).toMatchObject({ sent: 2, jobsConfirmed: 1, jobsRejected: 1 });
+    const row = (room: string) => db.tables.rate_updates.find((r) => r.room_type_id === room)!;
+    expect(row("rt-king")).toMatchObject({ status: "sent", pms_job_reference: "job-king", pms_edited_at: null });
+    expect(typeof row("rt-king").confirmed_at).toBe("string");
+    expect(row("rt-queen")).toMatchObject({ status: "failed", pms_job_reference: "job-queen", confirmed_at: null, pms_edited_at: null });
+  });
+
+  it("asks about a confirmed job again when its rows could not be stamped", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    let failStamp = true;
+    const seed = () => ({
+      hotel_settings: [{ hotel_id: "hotel-1", simulation_mode: false }],
+      room_types: ROOM_TYPES.map((r) => ({ ...r, hotel_id: "hotel-1" })),
+      published_price: [{ ...PRICES_TWO[0], hotel_id: "hotel-1" }],
+      pms_connections: [{ id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", push_rate_targets: CACHED_TWO }],
+      rate_updates: [
+        { hotel_id: "hotel-1", pms_type: "cloudbeds", stay_date: "2026-08-01", room_type_id: "rt-king", external_room_type_id: "CB-KING", price: 210, status: "sent", attempts: 1, pms_job_reference: "job-done", confirmed_at: null, pushed_at: minutesAgo(5) },
+      ],
+    });
+    const asked: string[] = [];
+    const { adapter } = makeAdapter(CACHED_TWO);
+    adapter.fetchJobOutcomes = async (refs) => (asked.push(...refs), Object.fromEntries(refs.map((r) => [r, { done: true, ok: true }])));
+    const fault = (c: { table: string; op: string }) =>
+      failStamp && c.table === "rate_updates" && c.op === "update" ? { message: "canceling statement due to statement timeout" } : null;
+
+    await pushRatesForHotel(fakeSupabase(seed(), { fault }).client, "hotel-1", adapter, WIDE);
+    expect(errors.mock.calls.some((c) => String(c[0]).includes("rate_job_confirm_stamp_failed"))).toBe(true);
+
+    failStamp = false;
+    const db = fakeSupabase(seed(), { fault });
+    await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+    expect(asked).toEqual(["job-done", "job-done"]);
+    expect(typeof db.tables.rate_updates[0].confirmed_at).toBe("string");
+
+    // Stamped: decided, not asked again.
+    await pushRatesForHotel(fakeSupabase(seed()).client, "hotel-1", adapter, WIDE);
+    expect(asked).toHaveLength(2);
+  });
+
+  it("writes its ledger rows without the settle columns on a database that does not have them yet", async () => {
+    const db = fakeSupabase(
+      {
+        hotel_settings: [{ hotel_id: "hotel-1", simulation_mode: false }],
+        room_types: ROOM_TYPES.map((r) => ({ ...r, hotel_id: "hotel-1" })),
+        published_price: PRICES_TWO.map((r) => ({ ...r, hotel_id: "hotel-1" })),
+        pms_connections: [{ id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", push_rate_targets: CACHED_TWO }],
+      },
+      {
+        fault: (c) =>
+          c.table === "rate_updates" && c.op === "upsert" && callTouchesColumn(c, "confirmed_at")
+            ? missingColumn("rate_updates", "confirmed_at")
+            : null,
+      },
+    );
+    const { adapter } = makeAdapter(CACHED_TWO);
+
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+
+    expect(res).toMatchObject({ sent: 2 });
+    expect(db.tables.rate_updates.every((r) => r.status === "sent" && !("confirmed_at" in r) && !("pms_edited_at" in r))).toBe(true);
+  });
+});

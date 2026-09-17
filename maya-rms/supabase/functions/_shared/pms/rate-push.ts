@@ -39,6 +39,13 @@
  *     window and the price's age. A cell that fails is recorded as skipped
  *     with a reason code and never sent. Codes: push-guardrails.ts. A price
  *     only counts as vouched for by an evaluation that priced its night.
+ *     A manual price is sent as the engine published it, under the floor or
+ *     over the ceiling included; a price of 0 only to a PMS known to take it.
+ *   • Manual prices — a published price older than the manual price on its
+ *     night was priced before that manual price existed, and is not sent
+ *     until an evaluation has priced the night again. On a night changed in
+ *     the PMS (base-rate-calendar.ts) that old price is MAYA's, and sending
+ *     it would write over the hotel's change.
  *   • Ledger — each batch is recorded as in progress before it goes out, and
  *     again as soon as the PMS answers it. A send the ledger does not know
  *     about would be read back by the base rate calendar as the hotel's own
@@ -68,7 +75,7 @@ import {
   type TargetGap,
 } from "./push-failure.ts";
 import { markConnectionDisconnected } from "./connection-health.ts";
-import { isMissingColumnError } from "../engine/snapshots.ts";
+import { isMissingColumnError, isMissingRelationError } from "../engine/snapshots.ts";
 import {
   type IncidentRecordSummary,
   recordPushIncidents,
@@ -115,6 +122,14 @@ export type RateCalendarEntry = {
 
 export interface PmsRatePushAdapter {
   pmsType: "cloudbeds" | "mews" | "think";
+  /**
+   * The PMS takes a nightly rate of 0 from this write. Only set once it has
+   * been checked against the vendor: a 0 can mean a closed night, or reach
+   * booking channels as a free room. Neither Cloudbeds' patchRate nor Think's
+   * PUT /daily has been checked, so neither sets it, and a comp night's 0 is
+   * held back as guardrail:zero_rate_unsupported.
+   */
+  acceptsZeroRate?: boolean;
   /**
    * Resolve external_room_type_id -> external rate id: the room type's BASE
    * rate, and only that. A room type with no base rate is left out of the map
@@ -250,6 +265,8 @@ export type RatePushSummary =
       deferred?: number;
       /** Never-sent cells held back until a tick's base rate read succeeds (holdNeverPushed). */
       awaitingBaseRead?: number;
+      /** Cells whose published price predates the manual price on their night, held until it is priced again. */
+      awaitingEvaluation?: number;
       /**
        * A rate_updates write failed and nothing more was sent this run.
        * `unrecorded` cells reached the PMS (or were refused by it) with only
@@ -492,9 +509,13 @@ export async function pushRatesForHotel(
 
   // ── Guardrails: the last check before anything leaves ─────────────────────
   const nowIso = new Date().toISOString();
+  const manualPrices =
+    candidates.length > 0 || unchanged.length > 0
+      ? await loadOpenManualPrices(supabase, hotelId, firstDate, lastDate)
+      : new Map<string, OpenManualPrice>();
   const zeroBase =
     candidates.length > 0 || unchanged.length > 0
-      ? await loadZeroBaseNights(supabase, hotelId, firstDate, lastDate)
+      ? await loadZeroBaseNights(supabase, hotelId, firstDate, lastDate, manualPrices)
       : new Set<string>();
   const freshAfterMs = Date.now() - pushMaxPriceAgeMs();
   const tickEvaluatedAtMs = opts.evaluatedAt ? Date.parse(opts.evaluatedAt) : NaN;
@@ -513,6 +534,15 @@ export async function pushRatesForHotel(
     }
     return best;
   };
+  // Whether a price was priced before the manual price on its night was set:
+  // neither its own row nor any evaluation that priced the night is as new.
+  const pricedBeforeManual = async (c: Candidate, manual: OpenManualPrice): Promise<boolean> => {
+    if (!(manual.setAtMs > Math.max(finiteOr(c.computedAtMs), finiteOr(tickEvaluatedAtMs)))) return false;
+    coverage ??= await loadEvaluationCoverage(supabase, hotelId, freshAfterMs);
+    return !coverage.some(
+      (e) => e.evaluatedAtMs >= manual.setAtMs && c.stayDate >= e.firstStayDate && c.stayDate <= e.lastStayDate,
+    );
+  };
 
   const guardrailRows: Record<string, unknown>[] = [];
   // Retargeted cells a guardrail holds, found after the first write.
@@ -529,6 +559,8 @@ export async function pushRatesForHotel(
       firstDate,
       lastDate,
       zeroBase: zeroBase.has(key),
+      manualPrice: manualPrices.get(key)?.price ?? null,
+      acceptsZeroRate: adapter.acceptsZeroRate === true,
       computedAtMs: c.computedAtMs,
       evaluatedAtMs: await evaluatedAtFor(c),
       freshAfterMs,
@@ -551,10 +583,18 @@ export async function pushRatesForHotel(
   const sittingOut: Array<{ cell: RateCell; failed: FailedCell; verdict: "held" | "exhausted" }> = [];
   // Never sent to, and this tick's base read did not happen: see holdNeverPushed.
   let awaitingBaseRead = 0;
+  // Priced before the manual price on its night was set: see the header.
+  let awaitingEvaluation = 0;
   for (const c of candidates) {
     const key = `${c.stayDate}|${c.roomTypeId}`;
     const cell = cellOf(c);
     if (await holdBack(c, guardrailRows)) continue;
+    const manual = manualPrices.get(key);
+    if (manual && (await pricedBeforeManual(c, manual))) {
+      awaitingEvaluation += 1;
+      run.cells.set(key, { ...cellRef(cell), state: "waiting" });
+      continue;
+    }
     const failed = lastFailed.get(key);
     if (failed && failed.price === c.price) {
       const failure = ledgerFailure(adapter.pmsType, failed);
@@ -599,6 +639,7 @@ export async function pushRatesForHotel(
   const extras = () => ({
     ...(skippedHeld > 0 ? { skippedHeld } : {}),
     ...(awaitingBaseRead > 0 ? { awaitingBaseRead } : {}),
+    ...(awaitingEvaluation > 0 ? { awaitingEvaluation } : {}),
   });
 
   // Held-back cells are recorded before anything is sent. A ledger that
@@ -998,23 +1039,29 @@ async function writeLedgerRows(supabase: SupabaseClient, rows: Record<string, un
   return null;
 }
 
+/** Ledger columns the push guardrails migration adds; a write to a database without them leaves them out. */
+const LEDGER_MIGRATED_COLUMNS = ["sent_price", "confirmed_at", "pms_edited_at"] as const;
+
 /**
  * One rate_updates upsert. Every row in it carries the same columns: PostgREST
  * writes null into a column one row of a chunk leaves out and another has.
- * Before the push guardrails migration there is no sent_price, and the rows
- * go again without it.
+ * Before the push guardrails migration there is no sent_price, confirmed_at
+ * or pms_edited_at, and the rows go again without them.
  */
-async function upsertLedger(supabase: SupabaseClient, rows: Record<string, unknown>[]): Promise<{ message: string } | null> {
+export async function upsertLedger(
+  supabase: SupabaseClient,
+  rows: Record<string, unknown>[],
+): Promise<{ message: string } | null> {
   const write = (chunk: Record<string, unknown>[]) =>
     supabase.from("rate_updates").upsert(chunk, { onConflict: "hotel_id,room_type_id,stay_date" });
   let { error } = await write(rows);
-  if (error && isMissingColumnError(error) && rows.some((r) => "sent_price" in r)) {
-    const withoutSentPrice = rows.map((r) => {
+  if (error && isMissingColumnError(error) && rows.some((r) => LEDGER_MIGRATED_COLUMNS.some((col) => col in r))) {
+    const withoutMigrated = rows.map((r) => {
       const copy = { ...r };
-      delete copy.sent_price;
+      for (const col of LEDGER_MIGRATED_COLUMNS) delete copy[col];
       return copy;
     });
-    ({ error } = await write(withoutSentPrice));
+    ({ error } = await write(withoutMigrated));
   }
   return error ? { message: String(error.message) } : null;
 }
@@ -1049,6 +1096,8 @@ function pendingLedgerRow(
     attempts: prior && prior.price === c.price ? prior.attempts : 0,
     pushed_at: pushedAt,
     sent_price: null,
+    confirmed_at: null,
+    pms_edited_at: null,
   };
 }
 
@@ -1082,6 +1131,9 @@ function attemptLedgerRow(
     attempts: prior && prior.price === r.cell.price ? prior.attempts + 1 : 1,
     pushed_at: pushedAt,
     sent_price: r.ok ? r.cell.price : null,
+    // A new send is settled only once its job is confirmed (reconcileJobOutcomes).
+    confirmed_at: null,
+    pms_edited_at: null,
   };
 }
 
@@ -1128,6 +1180,55 @@ function skippedLedgerRow(
   };
 }
 
+/** An open manual price on a night of the window. */
+type OpenManualPrice = { price: number; setAtMs: number };
+
+/**
+ * The window's open manual prices, by `stay_date|room_type_id`. Throws on a
+ * failed read: a manual price decides what a night may be sent at. A
+ * database without the table has none.
+ */
+async function loadOpenManualPrices(
+  supabase: SupabaseClient,
+  hotelId: string,
+  firstDate: string,
+  lastDate: string,
+): Promise<Map<string, OpenManualPrice>> {
+  const out = new Map<string, OpenManualPrice>();
+  // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let rows: any[];
+  try {
+    rows = await fetchAll(() =>
+      supabase
+        .from("manual_price")
+        .select("stay_date, room_type_id, price, set_at")
+        .eq("hotel_id", hotelId)
+        .gte("stay_date", firstDate)
+        .lte("stay_date", lastDate)
+        .is("cleared_at", null)
+        .order("stay_date", { ascending: true })
+        .order("room_type_id", { ascending: true }),
+    );
+  } catch (e) {
+    if (isMissingRelationError(e)) return out;
+    throw e;
+  }
+  for (const m of rows) {
+    if (!m.room_type_id) continue;
+    out.set(`${m.stay_date}|${m.room_type_id}`, {
+      price: m.price != null ? Number(m.price) : NaN,
+      setAtMs: m.set_at != null ? Date.parse(String(m.set_at)) : NaN,
+    });
+  }
+  return out;
+}
+
+/** A timestamp, or -Infinity when there is none: missing evidence is never newer than anything. */
+function finiteOr(ms: number): number {
+  return Number.isFinite(ms) ? ms : -Infinity;
+}
+
 /**
  * Nights whose PMS base rate is 0 (closed, or rates not loaded that far) and
  * that have no open manual price. Throws on a failed read: without it there
@@ -1138,6 +1239,7 @@ async function loadZeroBaseNights(
   hotelId: string,
   firstDate: string,
   lastDate: string,
+  manualPrices: Map<string, OpenManualPrice>,
 ): Promise<Set<string>> {
   const zero = new Set<string>();
   const calRows = await fetchAll(() =>
@@ -1154,19 +1256,7 @@ async function loadZeroBaseNights(
   for (const r of calRows) {
     if (r.room_type_id && r.price != null && Number(r.price) === 0) zero.add(`${r.stay_date}|${r.room_type_id}`);
   }
-  if (zero.size === 0) return zero;
-  const manualRows = await fetchAll(() =>
-    supabase
-      .from("manual_price")
-      .select("stay_date, room_type_id")
-      .eq("hotel_id", hotelId)
-      .gte("stay_date", firstDate)
-      .lte("stay_date", lastDate)
-      .is("cleared_at", null)
-      .order("stay_date", { ascending: true })
-      .order("room_type_id", { ascending: true }),
-  );
-  for (const m of manualRows) zero.delete(`${m.stay_date}|${m.room_type_id}`);
+  for (const key of manualPrices.keys()) zero.delete(key);
   return zero;
 }
 
@@ -1246,6 +1336,47 @@ function logTargetsWriteFailed(hotelId: string, pmsType: string, step: "cache" |
       event: "rate_targets_write_failed",
     }),
   );
+}
+
+/**
+ * Stamps confirmed_at on the sent rows of jobs the vendor reported as
+ * applied. A send is settled once stamped (or once a synchronous vendor
+ * accepted it, "accepted:"), and only a settled send lets the base rate
+ * refresh take a different rate in the PMS as the hotel's own change. True
+ * when written, or when there is no column to write to yet; false leaves the
+ * jobs undecided so the next tick asks again.
+ */
+async function stampConfirmed(
+  supabase: SupabaseClient,
+  hotelId: string,
+  pmsType: string,
+  refs: string[],
+  at: string,
+): Promise<boolean> {
+  for (let i = 0; i < refs.length; i += 100) {
+    const { error } = await supabase
+      .from("rate_updates")
+      .update({ confirmed_at: at })
+      .eq("hotel_id", hotelId)
+      .eq("pms_type", pmsType)
+      .eq("status", "sent")
+      .in("pms_job_reference", refs.slice(i, i + 100))
+      .is("confirmed_at", null);
+    if (!error) continue;
+    if (isMissingColumnError(error)) return true;
+    console.error(
+      JSON.stringify({
+        fn: "reconcileJobOutcomes",
+        hotelId,
+        pmsType,
+        jobs: refs.length,
+        error: String(error.message).slice(0, 300),
+        event: "rate_job_confirm_stamp_failed",
+      }),
+    );
+    return false;
+  }
+  return true;
 }
 
 /** Earlier runs' sent cells grouped by job, leaving out cells in `resent` and jobs already decided. */
@@ -1335,6 +1466,7 @@ async function reconcileJobOutcomes(
     let ok = 0;
     let rejected = 0;
     let unconfirmed = 0;
+    const confirmedRefs: string[] = [];
     const corrections: Record<string, unknown>[] = [];
     const correctedRefs: string[] = [];
     const failures: Array<{ cell: RateCell; failure: PushFailure; message: string; jobRef: string; outcome: "rejected" | "unconfirmed" }> = [];
@@ -1357,6 +1489,8 @@ async function reconcileJobOutcomes(
           pushed_at: nowIso,
           // The job never applied, and what was in the PMS before it is not on record.
           sent_price: null,
+          confirmed_at: null,
+          pms_edited_at: null,
         });
         failures.push({
           cell: c.cell,
@@ -1395,7 +1529,7 @@ async function reconcileJobOutcomes(
         continue;
       }
       if (outcome.ok) {
-        markDecided(hotelId, adapter.pmsType, jobRef);
+        confirmedRefs.push(jobRef);
         ok += cells.length;
         continue;
       }
@@ -1404,6 +1538,12 @@ async function reconcileJobOutcomes(
       // again next tick is what gets the correction written.
       rejected += cells.length;
       correct(jobRef, cells, (outcome.message ?? "rate job rejected").slice(0, 300), "rejected");
+    }
+
+    // Decided once the ledger says so: a confirmed job whose rows could not be
+    // stamped is asked about again next tick.
+    if (confirmedRefs.length > 0 && (await stampConfirmed(supabase, hotelId, adapter.pmsType, confirmedRefs, nowIso))) {
+      for (const ref of confirmedRefs) markDecided(hotelId, adapter.pmsType, ref);
     }
 
     let dropTargets = false;

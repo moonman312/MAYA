@@ -147,11 +147,27 @@ describe("classifyPushFailure", () => {
     // lowered since, is expected until the re-price lands: not a bug.
     const bugs = new Set<string>([GUARDRAIL.invalidPrice, GUARDRAIL.invalidBounds, GUARDRAIL.stalePrice]);
     for (const code of Object.values(GUARDRAIL)) {
+      // A PMS limit the owner has to hear about, not one of MAYA's own holds: below.
+      if (code === GUARDRAIL.zeroRateUnsupported) continue;
       const f = classifyPushFailure({ pms: "cloudbeds", phase: "guardrail", message: code });
       expect(f.cause).toBe(code.replace("guardrail:", "guardrail_"));
       expect(f).toMatchObject({ known: true, adminOnly: true, retry: "recheck", mayaBug: bugs.has(code) });
       expect(isIncidentSkipReason(code)).toBe(true);
     }
+  });
+
+  it("files a comp night the PMS isn't sent as something the owner hears about at once", () => {
+    const f = classifyPushFailure({ pms: "think", phase: "guardrail", message: GUARDRAIL.zeroRateUnsupported });
+    expect(f).toMatchObject({ cause: "zero_rate_unsupported", known: true, severity: "critical", retry: "recheck", adminOnly: false, mayaBug: false });
+    expect(f.customerSentence).toBe(
+      "MAYA doesn't send a price of 0 to Think Reservations, so some rates set to 0 in MAYA weren't changed there",
+    );
+    expect(describePushCause("zero_rate_unsupported", "cloudbeds", ["Deluxe King"])).toEqual({
+      title: "MAYA doesn't send a price of 0 to Cloudbeds, so Deluxe King rates set to 0 in MAYA weren't changed there",
+      action: "If the night is meant to be free, set it to 0 in Cloudbeds yourself.",
+    });
+    expect(isIncidentSkipReason(GUARDRAIL.zeroRateUnsupported)).toBe(true);
+    expect(causeFacts("zero_rate_unsupported")).toMatchObject({ known: true, adminOnly: false });
   });
 
   it("tells apart the reasons a room type has no rate to send to", () => {

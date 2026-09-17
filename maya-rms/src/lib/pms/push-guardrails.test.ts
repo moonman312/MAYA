@@ -102,8 +102,45 @@ describe("checkPushGuardrails", () => {
       "guardrail:invalid_bounds",
       "guardrail:below_floor",
       "guardrail:above_ceiling",
+      "guardrail:zero_rate_unsupported",
       "guardrail:stale_price",
     ]);
+  });
+
+  it("lets through what the engine publishes for a manual price, under the floor, over the ceiling or a comp night at 0", () => {
+    // Floor 100, ceiling 300.
+    expect(checkPushGuardrails(cell({ price: 50, manualPrice: 50 }))).toBeNull();
+    expect(checkPushGuardrails(cell({ price: 450, manualPrice: 450 }))).toBeNull();
+    // A rule on top, between the manual price and the bounds.
+    expect(checkPushGuardrails(cell({ price: 55, manualPrice: 50 }))).toBeNull();
+    expect(checkPushGuardrails(cell({ price: 405, manualPrice: 450 }))).toBeNull();
+    // Further out than the manual price is not something the engine publishes.
+    expect(checkPushGuardrails(cell({ price: 45, manualPrice: 50 }))).toBe("guardrail:below_floor");
+    expect(checkPushGuardrails(cell({ price: 451, manualPrice: 450 }))).toBe("guardrail:above_ceiling");
+    // An ordinary manual price leaves the bounds as they are.
+    expect(checkPushGuardrails(cell({ price: 99, manualPrice: 150 }))).toBe("guardrail:below_floor");
+    expect(checkPushGuardrails(cell({ price: 301, manualPrice: 150 }))).toBe("guardrail:above_ceiling");
+
+    // 0 is a price only on a comp night, and only goes to a PMS that takes it.
+    expect(checkPushGuardrails(cell({ price: 0, manualPrice: 0, acceptsZeroRate: true }))).toBeNull();
+    expect(checkPushGuardrails(cell({ price: 0, manualPrice: 0 }))).toBe("guardrail:zero_rate_unsupported");
+    expect(checkPushGuardrails(cell({ price: 0, manualPrice: 0, acceptsZeroRate: false }))).toBe("guardrail:zero_rate_unsupported");
+    expect(checkPushGuardrails(cell({ price: 0, manualPrice: 5, acceptsZeroRate: true }))).toBe("guardrail:invalid_price");
+    expect(checkPushGuardrails(cell({ price: 0, acceptsZeroRate: true }))).toBe("guardrail:invalid_price");
+    expect(checkPushGuardrails(cell({ price: -1, manualPrice: 0, acceptsZeroRate: true }))).toBe("guardrail:invalid_price");
+    expect(checkPushGuardrails(cell({ price: 0, manualPrice: NaN, acceptsZeroRate: true }))).toBe("guardrail:invalid_price");
+
+    // What still applies to a manual price: the window, the room type, a broken bound and the price's age.
+    expect(checkPushGuardrails(cell({ price: 0, manualPrice: 0, stayDate: "2026-12-01" }))).toBe("guardrail:outside_window");
+    expect(
+      checkPushGuardrails(cell({ price: 50, manualPrice: 50, roomType: { isActive: false, floorPrice: 100, ceilingPrice: 300 } })),
+    ).toBe("guardrail:inactive_room_type");
+    expect(
+      checkPushGuardrails(cell({ price: 50, manualPrice: 50, roomType: { isActive: true, floorPrice: null, ceilingPrice: 300 } })),
+    ).toBe("guardrail:invalid_bounds");
+    expect(
+      checkPushGuardrails(cell({ price: 0, manualPrice: 0, acceptsZeroRate: true, computedAtMs: NOW - 31 * 60_000 })),
+    ).toBe("guardrail:stale_price");
   });
 
   it("keeps every code and the legacy no-target reason spelled as they are stored", () => {

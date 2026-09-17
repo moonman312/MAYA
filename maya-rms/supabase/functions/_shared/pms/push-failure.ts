@@ -60,6 +60,7 @@ export const PUSH_CAUSES = [
   "guardrail_above_ceiling",
   "guardrail_stale_price",
   "unknown",
+  "zero_rate_unsupported",
 ] as const;
 
 export type PushCause = (typeof PUSH_CAUSES)[number];
@@ -259,6 +260,17 @@ const CATALOG: Record<PushCause, CatalogEntry> = {
   guardrail_below_floor: guardrail("the published price is under the room type's floor", false),
   guardrail_above_ceiling: guardrail("the published price is over the room type's ceiling", false),
   guardrail_stale_price: guardrail("no recent evaluation backs the published price", true),
+  // Not a guardrail hold the owner can ignore: MAYA shows the night at 0 and
+  // the PMS still has its last price. Nothing about it clears on its own.
+  zero_rate_unsupported: {
+    known: true,
+    severity: "critical",
+    retry: "recheck",
+    sentence: (w) => `MAYA doesn't send a price of 0 to ${w.pms}, so ${w.roomsRates} set to 0 in MAYA weren't changed there`,
+    action: (w) => `If the night is meant to be free, set it to 0 in ${w.pms} yourself.`,
+    admin:
+      "A manual price of 0 (a comp night) is published, and nobody has checked that this PMS's rate write takes 0 (PmsRatePushAdapter acceptsZeroRate), so it is not sent. Once the PMS itself has the night at the manual price the base rate refresh records that and the night closes as landed.",
+  },
   unknown: {
     known: false,
     severity: "transient",
@@ -292,6 +304,7 @@ const GUARDRAIL_CAUSE: Record<string, PushCause> = {
   [GUARDRAIL.belowFloor]: "guardrail_below_floor",
   [GUARDRAIL.aboveCeiling]: "guardrail_above_ceiling",
   [GUARDRAIL.stalePrice]: "guardrail_stale_price",
+  [GUARDRAIL.zeroRateUnsupported]: "zero_rate_unsupported",
 };
 
 /** A skip reason that means a cell is not reaching the PMS: a guardrail code or no rate target. */
