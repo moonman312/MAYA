@@ -54,6 +54,7 @@ export function createThinkRateAdapter(
 
     async pushCells(
       cells: Array<RateCell & { externalRateId: string }>,
+      opts: { deadlineAt?: number } = {},
     ): Promise<CellPushResult[]> {
       const byRate = new Map<string, Array<RateCell & { externalRateId: string }>>();
       for (const c of cells) {
@@ -66,6 +67,10 @@ export function createThinkRateAdapter(
       for (const [rateTypeId, group] of byRate) {
         for (let i = 0; i < group.length; i += MAX_ROWS_PER_CALL) {
           const chunk = group.slice(i, i + MAX_ROWS_PER_CALL);
+          if (opts.deadlineAt != null && Date.now() > opts.deadlineAt) {
+            for (const c of chunk) results.push({ cell: c, ok: false, deferred: true });
+            continue;
+          }
           const rows: ThinkDailyRateRow[] = chunk.map((c) => ({
             roomTypeId: c.externalRoomTypeId,
             rateTypeId,

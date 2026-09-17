@@ -98,6 +98,7 @@ export function createCloudbedsRateAdapter(
 
     async pushCells(
       cells: Array<RateCell & { externalRateId: string }>,
+      opts: { deadlineAt?: number } = {},
     ): Promise<CellPushResult[]> {
       // Group cells by rateID.
       const byRate = new Map<string, Array<RateCell & { externalRateId: string }>>();
@@ -114,6 +115,15 @@ export function createCloudbedsRateAdapter(
         const runs = rateIntervalRuns(group, mergeIntervals);
         for (let i = 0; i < runs.length; i += MAX_INTERVALS_PER_CALL) {
           const chunk = runs.slice(i, i + MAX_INTERVALS_PER_CALL);
+          // Checked before every call, not once per batch: one call can spend
+          // minutes in 429 back-off, and ten of them used to run past the
+          // invocation's end with nothing recorded.
+          if (opts.deadlineAt != null && Date.now() > opts.deadlineAt) {
+            for (const run of chunk) {
+              for (const c of run.cells) results.push({ cell: c, ok: false, deferred: true });
+            }
+            continue;
+          }
           const intervals: CloudbedsRateInterval[] = chunk.map((run) => run.interval);
           const res = await cloudbedsPatchRate(creds, rateId, intervals);
           for (const run of chunk) {

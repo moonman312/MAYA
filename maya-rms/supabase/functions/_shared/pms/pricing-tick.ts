@@ -8,6 +8,13 @@
  * derives the same date from the same timezone) and of the push. Reading the
  * clock separately in each step let a tick that crossed the hotel's midnight
  * refresh one window, price the next and push a night with no fresh base.
+ *
+ * Nothing is priced or pushed on a failed PMS read. While reads fail, bookings
+ * stop arriving, so a "pace is slow" rule could fire a decrease on data that
+ * is only stale, and it would go out the moment the connection came back. The
+ * next tick reads again and prices then. A read that ran out of budget before
+ * covering its window is not a failure: the engine still runs on what arrived,
+ * but nothing is pushed until a read covers the window.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -15,13 +22,28 @@ import { ensureBaseRateCalendar, type EnsureCalendarResult } from "./base-rate-c
 import { type HotelClock, readHotelClock } from "./pricing-window.ts";
 import { pushRatesForHotel, type PmsRatePushAdapter, type RatePushSummary } from "./rate-push.ts";
 
-export type TickSkip = { skipped: "no_credentials" | "out_of_time" | "disabled" } | { error: string };
+export type TickSkip =
+  | { skipped: "no_credentials" | "out_of_time" | "disabled" | "sync_failed" | "sync_incomplete" }
+  | { error: string };
+
+/** How this tick's PMS read went, as far as pricing is concerned. */
+export type ReadOutcome = "ok" | "failed" | "incomplete";
+
+/**
+ * A sync result's outcome. `windowFullyCovered` false (the read's budget ran
+ * out part way) is "incomplete"; a result without the field, such as a read
+ * skipped while an import runs, is "ok".
+ */
+export function readOutcome(sync: { ok: boolean; windowFullyCovered?: boolean }): ReadOutcome {
+  if (!sync.ok) return "failed";
+  return sync.windowFullyCovered === false ? "incomplete" : "ok";
+}
 
 export type PricingTickResult<E> = {
   /** The hotel's date this tick priced from; null when it could not be read. */
   today: string | null;
   calendar: EnsureCalendarResult | TickSkip;
-  evaluate: E | { error: string } | { skipped: true | "out_of_time" };
+  evaluate: E | { error: string } | { skipped: true | "out_of_time" | "sync_failed" };
   push: RatePushSummary | TickSkip;
   /** Nights MAYA pushed that the PMS now quotes differently, when the calendar was re-read. */
   pmsEditedPushedNights?: number;
@@ -47,6 +69,8 @@ export async function runPricingTick<E>(
     /** Past this, no evaluation (and so no refresh or push) starts. */
     evaluateBy: number;
     pushDeadlineAt: number;
+    /** This tick's PMS read (readOutcome). Default "ok". */
+    read?: ReadOutcome;
   },
   deps: {
     evaluate: (supabase: SupabaseClient, hotelId: string, evalTs: string | undefined, horizonDays: number) => Promise<E>;
@@ -56,6 +80,20 @@ export async function runPricingTick<E>(
   const now = deps.now ?? Date.now;
   const noAdapter: TickSkip = opts.noAdapter ?? { skipped: "no_credentials" };
   const t0 = now();
+
+  if (opts.read === "failed") {
+    const skipped = { skipped: "sync_failed" as const };
+    return {
+      today: null,
+      calendar: skipped,
+      evaluate: skipped,
+      push: skipped,
+      outOfTime: false,
+      calendarMs: 0,
+      evalMs: 0,
+      pushMs: 0,
+    };
+  }
 
   let clock: HotelClock | null = null;
   let clockError = "";
@@ -85,6 +123,7 @@ export async function runPricingTick<E>(
 
   const outOfTime = tCalendar > opts.evaluateBy;
   let evaluate: PricingTickResult<E>["evaluate"];
+  let evaluatedAt: string | undefined;
   if (outOfTime) {
     evaluate = { skipped: "out_of_time" };
   } else if (opts.runEvaluate) {
@@ -92,6 +131,7 @@ export async function runPricingTick<E>(
       // Without a clock the engine reads the timezone itself, as it always has;
       // the push below does not run on that date.
       evaluate = await deps.evaluate(supabase, hotelId, clock?.at, opts.horizonDays);
+      evaluatedAt = clock?.at;
     } catch (e) {
       evaluate = { error: errorText(e, "evaluate failed") };
     }
@@ -106,6 +146,9 @@ export async function runPricingTick<E>(
     push = { skipped: "disabled" };
   } else if (outOfTime) {
     push = { skipped: "out_of_time" };
+  } else if (opts.read === "incomplete") {
+    // Priced on part of the book; sent once a read covers all of it.
+    push = { skipped: "sync_incomplete" };
   } else if (!opts.adapter) {
     push = noAdapter;
   } else if (!clock) {
@@ -118,6 +161,9 @@ export async function runPricingTick<E>(
         // Never a night this tick did not evaluate.
         pushHorizonDays: opts.horizonDays,
         deadlineAt: opts.pushDeadlineAt,
+        // Vouches for every price this tick's evaluation re-derived. A failed
+        // or skipped evaluation leaves the push to judge each price's age.
+        evaluatedAt,
       });
     } catch (e) {
       push = { error: errorText(e, "push failed") };

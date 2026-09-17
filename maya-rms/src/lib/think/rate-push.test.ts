@@ -79,6 +79,20 @@ describe("createThinkRateAdapter", () => {
     expect(results.every((r) => r.ok && r.jobReference === "accepted:202")).toBe(true);
   });
 
+  it("starts no PUT once the deadline has passed, and hands the cells back as deferred", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const adapter = createThinkRateAdapter(CREDS, "hotel-ext");
+    const results = await adapter.pushCells(
+      [{ stayDate: "2026-12-01", roomTypeId: "u1", externalRoomTypeId: "rt1", price: 222, externalRateId: "44186" }],
+      { deadlineAt: Date.now() - 1 },
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(results).toEqual([expect.objectContaining({ ok: false, deferred: true })]);
+  });
+
   it("marks the whole chunk failed when the PUT is rejected", async () => {
     vi.stubGlobal(
       "fetch",

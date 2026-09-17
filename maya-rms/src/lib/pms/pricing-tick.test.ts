@@ -4,7 +4,7 @@
  * sends a night this tick did not price or a night with no fresh base.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runPricingTick } from "../../../supabase/functions/_shared/pms/pricing-tick";
+import { readOutcome, runPricingTick } from "../../../supabase/functions/_shared/pms/pricing-tick";
 import type {
   CellPushResult,
   PmsRatePushAdapter,
@@ -21,7 +21,9 @@ function db(seed: Record<string, FakeRow[]> = {}, opts: Parameters<typeof fakeSu
     {
       hotels: [{ id: HOTEL, timezone: "America/Los_Angeles" }],
       hotel_settings: [{ hotel_id: HOTEL, simulation_mode: false }],
-      room_types: [{ id: "rt-king", hotel_id: HOTEL, external_room_type_id: "CB-KING", is_active: true }],
+      room_types: [
+        { id: "rt-king", hotel_id: HOTEL, external_room_type_id: "CB-KING", is_active: true, floor_price: 1, ceiling_price: 99999.99 },
+      ],
       pms_connections: [
         { id: "conn-1", hotel_id: HOTEL, pms_type: "cloudbeds", base_rates_refreshed_at: null, push_rate_targets: null },
       ],
@@ -77,6 +79,9 @@ const sentNights = (d: ReturnType<typeof db>) =>
 
 beforeEach(() => {
   vi.spyOn(console, "log").mockImplementation(() => {});
+  // The wall clock at the tick's instant: the push judges a price's age by it.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(T0));
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -117,10 +122,10 @@ describe("runPricingTick", () => {
     const d = db();
     const { adapter, log } = makeAdapter();
     const { evaluate } = makeEvaluate(d, log, ["2026-10-01", "2026-11-29", "2026-11-30"]);
-    vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-02T07:05:00Z")); // 00:05 Oct 2 in Los Angeles by the time anything reads Date
+    const lateTick = Date.parse("2026-10-02T06:50:00Z"); // 23:50 Oct 1 in Los Angeles
 
-    await runPricingTick(d.client, HOTEL, { ...BASE_OPTS, adapter, evaluateBy: T0 + 60_000 }, { evaluate, now: () => T0 });
+    await runPricingTick(d.client, HOTEL, { ...BASE_OPTS, adapter, evaluateBy: lateTick + 60_000 }, { evaluate, now: () => lateTick });
 
     expect(sentNights(d)).toEqual(["2026-10-01", "2026-11-29"]);
   });
@@ -237,5 +242,94 @@ describe("runPricingTick", () => {
     );
     expect(res.evaluate).toEqual({ error: "x".repeat(300) });
     expect(res.push).toEqual({ pushed: false, reason: "no_published_prices" });
+  });
+
+  it("prices and pushes nothing after a failed PMS read", async () => {
+    // Left over from the last good tick: would go out if the push ran.
+    const d = db({
+      published_price: [{ hotel_id: HOTEL, stay_date: "2026-10-01", room_type_id: "rt-king", price: 180, computed_at: new Date().toISOString() }],
+    });
+    const { adapter, log } = makeAdapter();
+    const { evaluate, seen } = makeEvaluate(d, log, ["2026-10-01"]);
+
+    const res = await runPricingTick(
+      d.client,
+      HOTEL,
+      { ...BASE_OPTS, adapter, evaluateBy: T0 + 60_000, read: readOutcome({ ok: false }) },
+      { evaluate, now: () => T0 },
+    );
+
+    expect(seen).toHaveLength(0);
+    expect(log).toEqual([]);
+    expect(d.tables.rate_updates).toEqual([]);
+    expect(res).toMatchObject({
+      calendar: { skipped: "sync_failed" },
+      evaluate: { skipped: "sync_failed" },
+      push: { skipped: "sync_failed" },
+      outOfTime: false,
+    });
+  });
+
+  it("evaluates on a read that ran out of budget, but pushes nothing until one covers the window", async () => {
+    const d = db();
+    const { adapter, log } = makeAdapter();
+    const { evaluate, seen } = makeEvaluate(d, log, ["2026-10-01"]);
+
+    const res = await runPricingTick(
+      d.client,
+      HOTEL,
+      { ...BASE_OPTS, adapter, evaluateBy: T0 + 60_000, read: readOutcome({ ok: true, windowFullyCovered: false }) },
+      { evaluate, now: () => T0 },
+    );
+
+    expect(seen).toHaveLength(1);
+    expect(log).not.toContainEqual(expect.stringMatching(/^push:/));
+    expect(d.tables.rate_updates).toEqual([]);
+    expect(res.push).toEqual({ skipped: "sync_incomplete" });
+  });
+
+  it("vouches for prices its own evaluation left unchanged, and not for them once evaluation fails", async () => {
+    // Written two days ago and unchanged since: the engine writes on change only.
+    const old = { hotel_id: HOTEL, stay_date: "2026-10-01", room_type_id: "rt-king", price: 180, computed_at: "2026-09-30T05:00:00Z" };
+
+    const good = db({ published_price: [{ ...old }] });
+    const ok = await runPricingTick(
+      good.client,
+      HOTEL,
+      { ...BASE_OPTS, adapter: makeAdapter().adapter, evaluateBy: T0 + 60_000 },
+      { evaluate: async () => ({ run_id: "run-1" }), now: () => T0 },
+    );
+    expect(ok.push).toMatchObject({ pushed: true, sent: 1, skippedGuardrail: 0 });
+
+    const bad = db({
+      published_price: [{ ...old }],
+      // The last evaluation that worked was hours ago.
+      evaluation_run_log: [{ hotel_id: HOTEL, evaluation_run_id: "run-0", evaluated_at: "2026-10-01T23:00:00Z" }],
+    });
+    const failed = await runPricingTick(
+      bad.client,
+      HOTEL,
+      { ...BASE_OPTS, adapter: makeAdapter().adapter, evaluateBy: T0 + 60_000 },
+      {
+        evaluate: async () => {
+          throw new Error("ladder writes failed");
+        },
+        now: () => T0,
+      },
+    );
+    expect(failed.push).toMatchObject({ pushed: true, sent: 0, skippedGuardrail: 1, guardrails: { "guardrail:stale_price": 1 } });
+    expect(bad.tables.rate_updates).toEqual([
+      expect.objectContaining({ stay_date: "2026-10-01", status: "skipped", error: "guardrail:stale_price", attempts: 0 }),
+    ]);
+  });
+});
+
+describe("readOutcome", () => {
+  it("is failed for a failed read, incomplete only when the read says so, and ok otherwise", () => {
+    expect(readOutcome({ ok: false })).toBe("failed");
+    expect(readOutcome({ ok: true, windowFullyCovered: false })).toBe("incomplete");
+    expect(readOutcome({ ok: true, windowFullyCovered: true })).toBe("ok");
+    // A read skipped while an import runs carries no coverage at all.
+    expect(readOutcome({ ok: true })).toBe("ok");
   });
 });

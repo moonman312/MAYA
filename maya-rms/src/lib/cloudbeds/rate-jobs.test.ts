@@ -12,10 +12,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 const getRateJobs = vi.hoisted(() => vi.fn());
+const patchRate = vi.hoisted(() => vi.fn());
 vi.mock("../../../supabase/functions/_shared/cloudbeds/client", () => ({
   cloudbedsGetRateJobs: getRateJobs,
   cloudbedsGetRatePlans: vi.fn(),
-  cloudbedsPatchRate: vi.fn(),
+  cloudbedsPatchRate: patchRate,
 }));
 
 const { createCloudbedsRateAdapter, rateIntervalRuns } = await import(
@@ -108,5 +109,48 @@ describe("rateIntervalRuns", () => {
     }
     expect(expanded).toEqual(cells.map((c) => ({ stayDate: c.stayDate, price: c.price })));
     expect(runs.length).toBeLessThan(cells.length);
+  });
+});
+
+describe("cloudbeds pushCells against a deadline", () => {
+  it("checks the deadline before every patchRate call, and hands back the cells it never started as deferred", async () => {
+    // 45 nights on one rate: two calls of up to 30 intervals.
+    const cells = Array.from({ length: 45 }, (_, i) => ({
+      stayDate: new Date(Date.UTC(2026, 9, 1 + i)).toISOString().slice(0, 10),
+      roomTypeId: "rt-1",
+      externalRoomTypeId: "RT1",
+      price: 200 + i,
+      externalRateId: "R1",
+    }));
+    let clock = 1_000;
+    const now = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    patchRate.mockReset();
+    patchRate.mockImplementation(async () => {
+      clock += 5_000; // a slow call, past the deadline once it returns
+      return { ok: true, jobReferenceID: "J1" };
+    });
+
+    const results = await createCloudbedsRateAdapter(CREDS, false).pushCells(cells, { deadlineAt: 3_000 });
+    now.mockRestore();
+
+    expect(patchRate).toHaveBeenCalledTimes(1);
+    expect(results).toHaveLength(45);
+    expect(results.filter((r) => r.ok && r.jobReference === "J1")).toHaveLength(30);
+    const deferred = results.filter((r) => r.deferred);
+    expect(deferred).toHaveLength(15);
+    expect(deferred.every((r) => !r.ok && r.error === undefined)).toBe(true);
+    expect(deferred[0].cell.stayDate).toBe("2026-10-31");
+  });
+
+  it("makes every call when there is no deadline", async () => {
+    patchRate.mockReset();
+    patchRate.mockResolvedValue({ ok: true, jobReferenceID: "J2" });
+    const cells = [
+      { stayDate: "2026-10-01", roomTypeId: "a", externalRoomTypeId: "RT1", price: 100, externalRateId: "R1" },
+      { stayDate: "2026-10-01", roomTypeId: "b", externalRoomTypeId: "RT2", price: 120, externalRateId: "R2" },
+    ];
+    const results = await createCloudbedsRateAdapter(CREDS, false).pushCells(cells);
+    expect(patchRate).toHaveBeenCalledTimes(2);
+    expect(results.every((r) => r.ok && !r.deferred)).toBe(true);
   });
 });

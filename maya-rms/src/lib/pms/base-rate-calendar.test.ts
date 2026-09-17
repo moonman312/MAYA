@@ -107,6 +107,26 @@ describe("seedBaseRateCalendar", () => {
     expect(calendar(d)).toEqual(["2026-10-01|local-2|240"]);
   });
 
+  it("keeps reading a night every push so far has held back, since nothing of MAYA's is in the PMS there", async () => {
+    const d = db({
+      rate_updates: [
+        // Held back by a guardrail before it was ever sent.
+        { hotel_id: HOTEL, stay_date: "2026-10-01", room_type_id: "local-1", price: 89, status: "skipped", attempts: 0, error: "guardrail:zero_base" },
+        // Held back after an earlier send: that send may still be in the PMS.
+        { hotel_id: HOTEL, stay_date: "2026-10-02", room_type_id: "local-1", price: 250, status: "skipped", attempts: 1, error: "guardrail:above_ceiling" },
+      ],
+    });
+    const { adapter } = makeAdapter([
+      { stayDate: "2026-10-01", externalRoomTypeId: "EXT-1", price: 180 }, // the hotel loaded its rate
+      { stayDate: "2026-10-02", externalRoomTypeId: "EXT-1", price: 230 }, // possibly ours
+    ]);
+
+    const res = await seedBaseRateCalendar(d.client, HOTEL, adapter, { horizonDays: 3, today: "2026-10-01" });
+
+    expect(res).toMatchObject({ ok: true, captured: 1, skippedAlreadyPushed: 1 });
+    expect(calendar(d)).toEqual(["2026-10-01|local-1|180"]);
+  });
+
   it("ignores rates for room types this hotel does not track", async () => {
     const d = db();
     const { adapter } = makeAdapter([

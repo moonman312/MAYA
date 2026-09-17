@@ -23,6 +23,11 @@
  * rate_updates is the record of what we have pushed. Any row there counts,
  * whatever its status: the ledger keeps one row per cell, so a later failed or
  * skipped attempt overwrites the row of an earlier send the PMS still holds.
+ * The one exception is a skipped row that says nothing was ever sent to its
+ * night (attempts 0, see push-guardrails.ts): a night held back by a
+ * guardrail since before its first send still quotes the hotel's own rate,
+ * and freezing its base there would price it on a number the hotel has since
+ * changed.
  *
  * Every other cell is re-read, not just captured once. The hotel changes its
  * rates in the PMS while MAYA is simulating, and a base read once, weeks ago,
@@ -31,6 +36,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PmsRatePushAdapter, RateCalendarEntry, RateTargetMap } from "./rate-push.ts";
+import { ledgerRowNeverSent } from "./push-guardrails.ts";
 import { mwsEnv } from "../mews/env.ts";
 import { isMissingColumnError } from "../engine/snapshots.ts";
 import { evalIsoToHotelDateString } from "../engine/timezone.ts";
@@ -126,7 +132,7 @@ export async function seedBaseRateCalendar(
   const pushed = await readAll(
     supabase,
     "rate_updates",
-    "stay_date, room_type_id, price, status",
+    "stay_date, room_type_id, price, status, attempts",
     hotelId,
     firstDate,
     lastDate,
@@ -136,7 +142,7 @@ export async function seedBaseRateCalendar(
   const pushedCells = new Set<string>();
   const lastSentPrice = new Map<string, number>();
   for (const p of pushed) {
-    if (!p.room_type_id) continue;
+    if (!p.room_type_id || ledgerRowNeverSent(p)) continue;
     const key = `${p.stay_date}|${p.room_type_id}`;
     pushedCells.add(key);
     if (p.status === "sent" && p.price != null) lastSentPrice.set(key, Number(p.price));
