@@ -2,6 +2,7 @@ import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import {
   isRuleActionEmpty,
   isRuleConditionEmpty,
+  roomTypeIdListError,
   ruleConditionForInsert,
 } from "@/lib/rule-form";
 import { createRule, listRules } from "@/lib/rules-store";
@@ -55,6 +56,12 @@ export async function POST(req: Request) {
       isRuleActionEmpty(body.action ?? null)
     ) {
       return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
+    }
+    const setError =
+      roomTypeIdListError(body.signal_room_type_ids, "measure") ??
+      roomTypeIdListError(body.affected_room_type_ids, "change");
+    if (setError) {
+      return NextResponse.json({ error: setError }, { status: 400 });
     }
 
     const supabase = isSupabaseConfigured() ? createClient(await cookies()) : undefined;

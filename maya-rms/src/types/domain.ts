@@ -14,6 +14,12 @@ export type RuleConfig = {
   action: RuleAction;
   room_types: string[];
   enabled: boolean;
+  /** The room types the rule changes. Absent in demo data. */
+  affected_room_type_ids?: string[];
+  /** The room types its conditions measure. Absent in demo data. */
+  signal_room_type_ids?: string[];
+  /** Names of signal_room_type_ids, in the same order where known. */
+  signal_room_types?: string[];
 };
 
 /* ── Rules Engine v1 types (Implementation Guide aligned) ──────────── */

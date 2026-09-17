@@ -231,3 +231,68 @@ export function isRuleActionEmpty(a: RuleAction | undefined | null): boolean {
     a.adjust_rate_dollars !== undefined && Number.isFinite(a.adjust_rate_dollars);
   return !hasPct && !hasDolR;
 }
+
+/* ── Measured and changed room types ─────────────────────────── */
+
+/**
+ * The room types a rule measures when the owner picked one list: the ones
+ * among `affected` that count as rooms, or all of them when none do (ticking
+ * only the court is a decision to price it on its own numbers). The same
+ * default createRule applies when no signal set is sent.
+ */
+export function defaultSignalIds(
+  affected: readonly string[],
+  isCounting: (id: string) => boolean,
+): string[] {
+  const counting = affected.filter(isCounting);
+  return counting.length > 0 ? counting : [...affected];
+}
+
+/**
+ * True when a rule measures different room types from the ones it changes.
+ * Only types that count as rooms are compared, so a rule that also changes
+ * the court (which it never measures) still reads as one list.
+ */
+export function measuresDifferently(
+  signal: readonly string[],
+  affected: readonly string[],
+  isCounting: (id: string) => boolean,
+): boolean {
+  const key = (ids: readonly string[]) => [...new Set(ids.filter(isCounting))].sort().join(",");
+  return key(signal) !== key(affected);
+}
+
+/**
+ * The room types column of a rule card: the changed names as they always
+ * read, or "Watches A, B · Changes C" when the rule measures something else.
+ */
+export function ruleRoomTypesLabel(
+  rule: {
+    room_types: string[];
+    signal_room_type_ids?: string[];
+    affected_room_type_ids?: string[];
+    signal_room_types?: string[];
+  },
+  isCounting: (id: string) => boolean,
+): string {
+  const changes = rule.room_types.length ? rule.room_types.join(", ") : "All";
+  const signal = rule.signal_room_type_ids;
+  const affected = rule.affected_room_type_ids;
+  if (!signal || !affected || !rule.signal_room_types?.length) return changes;
+  if (!measuresDifferently(signal, affected, isCounting)) return changes;
+  return `Watches ${rule.signal_room_types.join(", ")} · Changes ${changes}`;
+}
+
+/**
+ * Why a room type id list in a request is unusable, or null when it is fine
+ * (or absent). An empty list would leave a rule with nothing to measure or
+ * nothing to change.
+ */
+export function roomTypeIdListError(value: unknown, what: "measure" | "change"): string | null {
+  if (value === undefined) return null;
+  if (!Array.isArray(value) || value.some((id) => typeof id !== "string" || id.trim() === "")) {
+    return "Invalid room types.";
+  }
+  if (value.length === 0) return `Pick at least one room type to ${what}.`;
+  return null;
+}

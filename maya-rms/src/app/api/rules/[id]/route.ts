@@ -1,3 +1,4 @@
+import { roomTypeIdListError } from "@/lib/rule-form";
 import { deleteRule, updateRule } from "@/lib/rules-store";
 import type { UpdateRuleInput } from "@/lib/rules-store";
 import { createClient } from "@/utils/supabase/server";
@@ -23,6 +24,12 @@ export async function PUT(req: Request, { params }: Params) {
     }
 
     const body = (await req.json()) as Partial<UpdateRuleInput>;
+    const setError =
+      roomTypeIdListError(body.signal_room_type_ids, "measure") ??
+      roomTypeIdListError(body.affected_room_type_ids, "change");
+    if (setError) {
+      return NextResponse.json({ error: setError }, { status: 400 });
+    }
     const ok = await updateRule(id, body, supabase);
     if (!ok) {
       return NextResponse.json({ error: "Rule not found or update failed." }, { status: 404 });

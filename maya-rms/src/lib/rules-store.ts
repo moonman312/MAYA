@@ -230,6 +230,13 @@ function dbRowToRuleConfig(row: any): RuleConfig {
     }
   }
 
+  const signal = row.rule_signal_room_type ?? [];
+  const signal_room_types: string[] = [];
+  for (const rt of signal) {
+    const n = embedRoomTypeName(rt);
+    if (n) signal_room_types.push(n);
+  }
+
   return {
     id: String(row.id),
     rule_name: row.name,
@@ -237,6 +244,11 @@ function dbRowToRuleConfig(row: any): RuleConfig {
     action: dbActionToUi(row.action_type, row.action_direction, Number(row.action_value)),
     room_types,
     enabled: Boolean(row.is_active),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    affected_room_type_ids: affected.map((rt: any) => String(rt.room_type_id)),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    signal_room_type_ids: signal.map((rt: any) => String(rt.room_type_id)),
+    signal_room_types,
   };
 }
 
@@ -426,6 +438,26 @@ export function listEngineRulesFromMemory(allRoomTypeIds: string[]): EngineRule[
  * counts, which is what every rule was built on until now. Logged, not
  * thrown, because deploy order is not something we get to choose.
  */
+/**
+ * The ids among `roomTypeIds` that are this hotel's room types. A rule can
+ * only measure or change its own hotel's rooms, whatever the request says.
+ */
+async function ownRoomTypeIds(
+  supabase: SupabaseClient,
+  hotelId: string,
+  roomTypeIds: string[],
+): Promise<string[]> {
+  if (roomTypeIds.length === 0) return roomTypeIds;
+  const { data, error } = await supabase
+    .from("room_types")
+    .select("id")
+    .eq("hotel_id", hotelId)
+    .in("id", roomTypeIds);
+  if (error) throw new Error(`Could not check room types: ${error.message}`);
+  const own = new Set((data ?? []).map((r) => String(r.id)));
+  return [...new Set(roomTypeIds)].filter((id) => own.has(id));
+}
+
 async function filterCountingRoomTypeIds(
   supabase: SupabaseClient,
   hotelId: string,
@@ -525,6 +557,20 @@ export async function createRule(
   // every stay date in scope.
   if (!structuredCondition && !legacyConditionsHaveUsableFamily(input.conditions)) {
     throw new Error("Rule must include at least one valid condition.");
+  }
+
+  // Explicit sets are checked before anything is written: an empty one, or
+  // one naming no room type of this hotel, would leave a live rule that
+  // measures or changes nothing.
+  let explicitSignal: string[] | undefined;
+  let explicitAffected: string[] | undefined;
+  if (input.signal_room_type_ids) {
+    explicitSignal = await ownRoomTypeIds(supabase, hotelId, input.signal_room_type_ids);
+    if (explicitSignal.length === 0) throw new Error("Pick at least one room type to measure.");
+  }
+  if (input.affected_room_type_ids && input.affected_room_type_ids.length > 0) {
+    explicitAffected = await ownRoomTypeIds(supabase, hotelId, input.affected_room_type_ids);
+    if (explicitAffected.length === 0) throw new Error("Pick at least one room type to change.");
   }
 
   // Booking-speed rules run event-style (fire once, effect persists, then a
@@ -636,8 +682,8 @@ export async function createRule(
   // a default, and defaults skip types that do not count as rooms.
   let roomTypeIds: string[] = [];
   let affectedDefaulted = false;
-  if (input.affected_room_type_ids && input.affected_room_type_ids.length > 0) {
-    roomTypeIds.push(...input.affected_room_type_ids);
+  if (explicitAffected) {
+    roomTypeIds.push(...explicitAffected);
   } else {
     for (const rtName of input.room_types) {
       const { data: rt } = await supabase
@@ -658,8 +704,8 @@ export async function createRule(
   // why. Ticking just the court is a decision to price it on its own
   // occupancy, so the rule measures what it prices.
   let signalIds: string[];
-  if (input.signal_room_type_ids) {
-    signalIds = input.signal_room_type_ids;
+  if (explicitSignal) {
+    signalIds = explicitSignal;
   } else if (affectedDefaulted) {
     signalIds = roomTypeIds;
   } else {
@@ -734,6 +780,25 @@ export async function updateRule(
   if (input.condition) {
     cleanCondition = ruleConditionForInsert(input.condition);
     if (isRuleConditionEmpty(cleanCondition)) return false;
+  }
+
+  // Same for the room type sets: never empty, and only this rule's hotel's
+  // room types.
+  let signalIds: string[] | undefined;
+  let affectedIds: string[] | undefined;
+  if (input.signal_room_type_ids || input.affected_room_type_ids) {
+    if (input.signal_room_type_ids?.length === 0 || input.affected_room_type_ids?.length === 0) return false;
+    const { data: owner } = await supabase.from("pricing_rules").select("hotel_id").eq("id", id).maybeSingle();
+    if (!owner?.hotel_id) return false;
+    const hotelId = String(owner.hotel_id);
+    if (input.signal_room_type_ids) {
+      signalIds = await ownRoomTypeIds(supabase, hotelId, input.signal_room_type_ids);
+      if (signalIds.length === 0) return false;
+    }
+    if (input.affected_room_type_ids) {
+      affectedIds = await ownRoomTypeIds(supabase, hotelId, input.affected_room_type_ids);
+      if (affectedIds.length === 0) return false;
+    }
   }
 
   const isBehavioralEdit = !!(
@@ -819,22 +884,18 @@ export async function updateRule(
   }
 
   // Update room-type mappings.
-  if (input.signal_room_type_ids) {
+  if (signalIds) {
     await supabase.from("rule_signal_room_type").delete().eq("rule_id", id);
-    if (input.signal_room_type_ids.length > 0) {
-      await supabase.from("rule_signal_room_type").insert(
-        input.signal_room_type_ids.map((rtId) => ({ rule_id: id, room_type_id: rtId })),
-      );
-    }
+    await supabase.from("rule_signal_room_type").insert(
+      signalIds.map((rtId) => ({ rule_id: id, room_type_id: rtId })),
+    );
   }
 
-  if (input.affected_room_type_ids) {
+  if (affectedIds) {
     await supabase.from("rule_affected_room_type").delete().eq("rule_id", id);
-    if (input.affected_room_type_ids.length > 0) {
-      await supabase.from("rule_affected_room_type").insert(
-        input.affected_room_type_ids.map((rtId) => ({ rule_id: id, room_type_id: rtId })),
-      );
-    }
+    await supabase.from("rule_affected_room_type").insert(
+      affectedIds.map((rtId) => ({ rule_id: id, room_type_id: rtId })),
+    );
   }
 
   return true;
