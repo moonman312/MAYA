@@ -94,10 +94,6 @@ function dayWord(n: number): string {
   return n === 1 ? "1 day" : `${n} days`;
 }
 
-function bookingWord(n: number): string {
-  return n === 1 ? "1 booking" : `${n} bookings`;
-}
-
 function listWords(items: string[]): string {
   if (items.length < 2) return items.join("");
   return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
