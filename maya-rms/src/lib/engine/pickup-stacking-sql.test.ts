@@ -13,6 +13,7 @@ import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { pickupFireHeads } from "./pickup-stacking-rpc-model.test";
 import type { FakeRow } from "./fake-supabase.test";
+import { buildAlertChoices, type AlertChoiceRow, type RuleLookupEntry } from "@/lib/changelog-route-helpers";
 
 const PGLITE_DIR = process.env.MAYA_PGLITE_DIR;
 const MIGRATION = resolve(__dirname, "../../../../99_supabase_migration_pickup_event_stacking_v1.sql");
@@ -72,7 +73,7 @@ do $$ begin
   end if;
 end $$;
 
-create table public.hotels (id uuid primary key);
+create table public.hotels (id uuid primary key, timezone text not null default 'UTC');
 create table public.room_types (
   id uuid primary key,
   hotel_id uuid not null references public.hotels(id) on delete cascade,
@@ -661,6 +662,102 @@ describe.skipIf(!PGLITE_DIR)("the pickup event stacking migration in PGlite", ()
     await db.exec(
       `update public.rule_repeat_alert_nights set fire_count = 3 where alert_id = '${alert}' and stay_date = '${NIGHT}'`,
     );
+  });
+
+  it("says the rule can adjust again only on nights still to come on the hotel's calendar", async () => {
+    // "Let it run again" takes the answer off passed nights too, so the old
+    // stop doesn't stay behind on a handful of them, but the rule can't adjust
+    // a night that is over: only the nights on or after the hotel's own date
+    // get the stamp the change log reads. Kiritimati is UTC+14 and Pago Pago
+    // UTC-11, so at every hour of the day one of the two disagrees with UTC.
+    const [H_EAST, H_WEST] = ["00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000004"];
+    const [R_EAST, R_WEST] = [rid(5), rid(6)];
+    const [A_EAST, A_EAST_PASSED, A_WEST] = [
+      "0000000e-0000-4000-8000-000000000001",
+      "0000000e-0000-4000-8000-000000000002",
+      "0000000e-0000-4000-8000-000000000003",
+    ];
+    await db.exec(`set request.jwt.claim.role = 'service_role';`);
+    const {
+      rows: [day],
+    } = await db.query(`
+      select ((now() at time zone 'Pacific/Kiritimati')::date)::text as east_today,
+             ((now() at time zone 'Pacific/Kiritimati')::date - 1)::text as east_yesterday,
+             ((now() at time zone 'Pacific/Kiritimati')::date - 3)::text as east_older,
+             ((now() at time zone 'Pacific/Kiritimati')::date - 2)::text as east_old,
+             ((now() at time zone 'Pacific/Pago_Pago')::date)::text as west_today`);
+    const d = day as Record<string, string>;
+    const AHEAD = "2099-01-01";
+    const stopped = (alert: string, hotel: string, rule: string, night: string) =>
+      `('${alert}', '${hotel}', '${rule}', 1, '${night}', 3, now(), now(), 'stop', now())`;
+    await db.exec(`
+      insert into public.hotels (id, timezone) values ('${H_EAST}', 'Pacific/Kiritimati'), ('${H_WEST}', 'Pacific/Pago_Pago');
+      insert into public.pricing_rules (id, hotel_id, is_pickup_rule, action_direction) values
+        ('${R_EAST}', '${H_EAST}', true, 'decrease'), ('${R_WEST}', '${H_WEST}', true, 'decrease');
+      -- An earlier episode of the east rule, every night of it answered.
+      insert into public.rule_repeat_alerts (id, hotel_id, rule_id, rule_version, action_direction, opened_at, resolved_at, resolution) values
+        ('${A_EAST}', '${H_EAST}', '${R_EAST}', 1, 'decrease', now(), null, null),
+        ('${A_EAST_PASSED}', '${H_EAST}', '${R_EAST}', 1, 'decrease', now(), now(), 'chosen'),
+        ('${A_WEST}', '${H_WEST}', '${R_WEST}', 1, 'decrease', now(), null, null);
+      insert into public.rule_repeat_alert_nights
+        (alert_id, hotel_id, rule_id, rule_version, stay_date, fire_count, reached_at, last_fire_at, choice, chosen_at)
+      values
+        ${stopped(A_EAST, H_EAST, R_EAST, d.east_yesterday)},
+        ${stopped(A_EAST, H_EAST, R_EAST, d.east_today)},
+        ${stopped(A_EAST, H_EAST, R_EAST, AHEAD)},
+        ${stopped(A_EAST_PASSED, H_EAST, R_EAST, d.east_older)},
+        ${stopped(A_EAST_PASSED, H_EAST, R_EAST, d.east_old)},
+        ${stopped(A_WEST, H_WEST, R_WEST, d.west_today)};
+    `);
+
+    // What the rules table's "Let it run again" sends: every stopped night.
+    await db.exec(`set request.jwt.claim.role = 'authenticated'; set test.manager_hotel = '${H_EAST}'; set test.user_id = '${USER}';`);
+    const east = [d.east_older, d.east_old, d.east_yesterday, d.east_today, AHEAD];
+    for (const alert of [A_EAST, A_EAST_PASSED]) {
+      await db.query(`select * from public.rule_repeat_alert_resume('${alert}', array[${east.map((n) => `'${n}'`).join(", ")}]::date[])`);
+    }
+    await db.exec(`set test.manager_hotel = '${H_WEST}';`);
+    await db.query(`select * from public.rule_repeat_alert_resume('${A_WEST}', array['${d.west_today}']::date[])`);
+
+    const nights = await db.query(`
+      select hotel_id::text as hotel_id, stay_date::text as stay_date, choice, closed_reason,
+             resumed_at is not null as resumed, resumed_by::text as resumed_by
+        from public.rule_repeat_alert_nights where hotel_id in ('${H_EAST}', '${H_WEST}')
+       order by hotel_id, stay_date`);
+    // Every answer came off; only the nights still to come say who let the
+    // rule run on them.
+    const passed = { choice: null, closed_reason: "resumed", resumed: false, resumed_by: null };
+    const resumed = { choice: null, closed_reason: "resumed", resumed: true, resumed_by: USER };
+    expect(nights.rows).toEqual([
+      { hotel_id: H_EAST, stay_date: d.east_older, ...passed },
+      { hotel_id: H_EAST, stay_date: d.east_old, ...passed },
+      { hotel_id: H_EAST, stay_date: d.east_yesterday, ...passed },
+      { hotel_id: H_EAST, stay_date: d.east_today, ...resumed },
+      { hotel_id: H_EAST, stay_date: AHEAD, ...resumed },
+      { hotel_id: H_WEST, stay_date: d.west_today, ...resumed },
+    ]);
+
+    // The change log reads the stamps (api/changelog loadAlertChoices): the
+    // east hotel's one line names the two nights the rule can adjust again,
+    // and the alert holding only passed nights adds no line of its own.
+    const stamps = await db.query(`
+      select rule_id::text as rule_id, stay_date::text as stay_date, resumed_at, resumed_by::text as resumed_by
+        from public.rule_repeat_alert_nights where hotel_id = '${H_EAST}' and resumed_at is not null`);
+    const rows: AlertChoiceRow[] = stamps.rows.map((r) => ({
+      rule_id: String(r.rule_id),
+      stay_date: String(r.stay_date),
+      choice: "resume",
+      at: String(r.resumed_at),
+      by: String(r.resumed_by),
+    }));
+    const rules = new Map<string, RuleLookupEntry>([
+      [R_EAST, { name: "Slow-date rescue", action_type: "percent", action_direction: "decrease", action_value: 10, is_pickup_rule: true }],
+    ]);
+    const lines = buildAlertChoices(rows, { rules });
+    expect(lines.map((l) => ({ nights: l.nights, first: l.first_night, last: l.last_night }))).toEqual([
+      { nights: 2, first: d.east_today, last: AHEAD },
+    ]);
+    expect(lines[0].title).toBe('A manager let "Slow-date rescue" run again on 2 nights. It can start adjusting again from the next pricing run.');
   });
 
   it("runs over the alert tables an earlier copy of this file left behind", async () => {

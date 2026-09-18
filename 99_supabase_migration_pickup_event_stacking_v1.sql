@@ -595,11 +595,14 @@ grant execute on function public.set_manual_prices_from_pms(uuid, public.pms_typ
 --   chosen_at, chosen_by
 --   resumed_at, resumed_by
 --                     when rule_repeat_alert_resume() last took an answer off
---                     this night, and who did it. Left there afterwards: the
---                     change log reads them to say a manager let the rule run
---                     again, the way it reads chosen_at for the answer. Only
---                     the latest resume of a night is kept, so a night stopped
---                     and let run twice reads as the second one.
+--                     this night while it was still to come, and who did it.
+--                     Left there afterwards: the change log reads them to say
+--                     a manager let the rule run again, the way it reads
+--                     chosen_at for the answer. A night already over when its
+--                     answer comes off is not stamped, since the rule can't
+--                     adjust it again. Only the latest resume of a night is
+--                     kept, so a night stopped and let run twice reads as the
+--                     second one.
 --   closed_at, closed_reason
 --                     set when an unanswered night stops needing an answer:
 --                     night_passed, rule_edited, price_set (a manual price
@@ -832,7 +835,10 @@ grant execute on function public.rule_repeat_alert_choose(uuid, text, date[]) to
 --
 -- Which night it was, when, and who did it stay on the row (resumed_at,
 -- resumed_by) for the change log to read; only the latest resume of a night
--- is kept.
+-- is kept. Those two are written only on nights on or after the hotel's own
+-- date (hotels.timezone, as the engine reads it): a passed night loses its
+-- answer with the rest, so the stop doesn't linger on it, but the rule can't
+-- adjust it again and the change log mustn't say it can.
 --
 -- p_stay_dates null resumes every answered night of the alert. Nights nobody
 -- answered, and nights already closed, never change. A resolved alert stays
@@ -867,8 +873,14 @@ begin
      set choice = null,
          chosen_at = null,
          chosen_by = null,
-         resumed_at = v_now,
-         resumed_by = auth.uid(),
+         -- Only a night still to come, on the hotel's calendar the way the
+         -- engine reads it, is one the rule can adjust again. A passed night
+         -- still loses its answer, so the stop doesn't stay behind on it, but
+         -- keeps whatever resume it had: the change log reads these two.
+         resumed_at = case when n.stay_date >= (v_now at time zone coalesce(h.timezone, 'UTC'))::date
+                           then v_now else n.resumed_at end,
+         resumed_by = case when n.stay_date >= (v_now at time zone coalesce(h.timezone, 'UTC'))::date
+                           then auth.uid() else n.resumed_by end,
          -- The count on the row stands for the fires the owner has already
          -- seen, and the engine asks again 3 above it. That is the fires the
          -- rule has really made on the night right now: the same count the
@@ -894,7 +906,9 @@ begin
          closed_at = v_now,
          closed_reason = 'resumed',
          updated_at = v_now
-   where n.alert_id = p_alert_id
+    from public.hotels h
+   where h.id = n.hotel_id
+     and n.alert_id = p_alert_id
      and n.choice is not null
      and (p_stay_dates is null or n.stay_date = any(p_stay_dates))
   returning n.*;
