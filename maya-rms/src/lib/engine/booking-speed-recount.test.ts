@@ -129,12 +129,15 @@ const QUIET = Array.from({ length: 18 }, (_, i) => 3 + 10 * i);
 
 type Engine = (typeof ENGINES)[number];
 
-function world(engine: Engine, opts: { rules: FakeRow[]; reservations: FakeRow[]; last: string; roomTypes?: FakeRow[]; manual?: FakeRow[] }) {
+function world(
+  engine: Engine,
+  opts: { rules: FakeRow[]; reservations: FakeRow[]; last: string; roomTypes?: FakeRow[]; manual?: FakeRow[]; timezone?: string },
+) {
   const roomTypes = opts.roomTypes ?? [roomType(STD)];
   const nights: string[] = [];
   for (let d = D0; d <= opts.last; d = addDays(d, 1)) nights.push(d);
   const fake = fakeSupabase({
-    hotels: [{ id: "h1", timezone: "UTC" }],
+    hotels: [{ id: "h1", timezone: opts.timezone ?? "UTC" }],
     room_types: roomTypes,
     reservations: opts.reservations,
     base_rate_calendar: nights.flatMap((stay) =>
@@ -237,6 +240,27 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
       await w.run(6);
       expect(w.fires(NIGHT, STD)).toHaveLength(1);
       expect(w.fires(NIGHT, SUITE)).toHaveLength(1);
+    }, 120_000);
+
+    it("a one-day rule doesn't count its own day twice on the 25-hour night the clocks go back", async () => {
+      // New York falls back on 2026-11-01. A fire at 00:30 that morning and a
+      // run a full day later, at 23:30, are on the same hotel day: the day's
+      // wait is over, but there is no new day of bookings to judge yet.
+      const night = "2026-11-20";
+      const last = "2026-11-21";
+      const spike = starterRules().filter((r) => r.name === "Sudden-spike catcher");
+      const w = world(engine, {
+        rules: spike,
+        reservations: [...background(last, QUIET), ...Array.from({ length: 20 }, () => booking(night, "2026-11-01"))],
+        last,
+        timezone: "America/New_York",
+      });
+      const firstRun = Date.parse("2026-11-01T04:30:00.000Z") - T0;
+      await w.run(0, firstRun);
+      expect(w.fires(night)).toHaveLength(1);
+      await w.run(1, firstRun);
+      expect(w.fires(night)).toHaveLength(1);
+      expect(w.price(night)).toBe(125);
     }, 120_000);
   });
 
