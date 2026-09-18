@@ -2,7 +2,7 @@
  * Internal engine types used across the evaluation pipeline.
  */
 
-import type { ActionDirection, ActionKind, EngineRule } from "@/types/domain";
+import type { ActionDirection, ActionKind, EngineRule, PickupCancelCheck } from "@/types/domain";
 
 export type RuleMetrics = {
   /**
@@ -62,10 +62,26 @@ export type PickupCandidate = {
   baseline_ts: string;
   affected_room_type_id: string;
   eval_ts: string;
+  /**
+   * Booked room-nights (and revenue) over the measured room types when the
+   * pickup window opened, and now. A rule with no pickup condition measures
+   * no window, so both are now.
+   */
   signal_booked_units_start: number;
   signal_booked_units_end: number;
   signal_booked_revenue_start: number;
   signal_booked_revenue_end: number;
+  /** One above the highest fire number this rule ever had on the cell. */
+  fire_seq: number;
+  /** Which cancellation test can take this fire off (see cancelCheckFor). */
+  cancel_check: PickupCancelCheck;
+  /** The booking speed window, in hotel dates, when the rule has a booking speed reading. */
+  window_from: string | null;
+  window_to: string | null;
+  window_bookings_at_fire: number | null;
+  window_expected_at_fire: number | null;
+  /** signalSetKey of the room types measured. */
+  signal_set_key: string;
 };
 
 export type LadderTransitionAction = "activate" | "deactivate" | "noop";

@@ -4,14 +4,15 @@
  * and only rules that fire AFTER the override apply on top of it. The API
  * route writes the suppression (suppressed_at on ladder rows, retired pickup
  * events); these tests cover the engine's side of the contract — that it
- * respects those marks and clears them at the right moments.
+ * respects those marks and clears them at the right moments. What an event
+ * rule does after a typed price (it waits its normal wait from set_at, then
+ * judges its full window) is in pickup-stacking.test.ts.
  */
 import { describe, expect, it } from "vitest";
 import type { EngineRule } from "@/types/domain";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { auditSignature, writeAudit } from "./audit";
 import { evaluateLadderTriple } from "./ladder";
-import { floorBaselineToOverride } from "./pickup";
 import { loadActiveLadderEffects, type AssembledPrice } from "./pricing";
 import type { RuleMetrics } from "./types";
 
@@ -211,24 +212,6 @@ describe("ladder suppression", () => {
   });
 });
 
-describe("pickup baseline floor", () => {
-  const baseline = "2026-09-12T12:00:00Z";
-
-  it("leaves the baseline alone for a cell with no override", () => {
-    expect(floorBaselineToOverride(baseline, undefined)).toBe(baseline);
-    expect(floorBaselineToOverride(baseline, null)).toBe(baseline);
-  });
-
-  it("leaves the baseline alone when the override predates it", () => {
-    // Bookings since the baseline all came after the override; nothing to exclude.
-    expect(floorBaselineToOverride(baseline, "2026-09-10T00:00:00Z")).toBe(baseline);
-  });
-
-  it("moves the baseline up to the override so earlier bookings do not count", () => {
-    expect(floorBaselineToOverride(baseline, OVERRIDE_AT)).toBe(OVERRIDE_AT);
-  });
-});
-
 describe("audit attribution", () => {
   function assembled(base_source: AssembledPrice["base_source"]): AssembledPrice {
     return {
@@ -256,7 +239,6 @@ describe("audit attribution", () => {
       ladderResults: [],
       pickupWinners: [],
       pickupLosers: [],
-      pickupIdempotentSkips: [],
       pickupWriteFailures: [],
       basePrices: new Map([[`${STAY}|rt1`, 150]]),
       manualOverride: { set_by: "user-1", set_at: OVERRIDE_AT },
@@ -288,7 +270,6 @@ describe("audit attribution", () => {
       ladderResults: [],
       pickupWinners: [],
       pickupLosers: [],
-      pickupIdempotentSkips: [],
       pickupWriteFailures: [],
       basePrices: new Map([[`${STAY}|rt1`, 150]]),
       manualOverride: { set_by: "user-1", set_at: OVERRIDE_AT },

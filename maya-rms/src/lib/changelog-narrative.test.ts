@@ -709,3 +709,105 @@ describe("a rule that measures other room types than it changes", () => {
     }
   });
 });
+
+describe("a rule that fired again", () => {
+  const cut = (o: Partial<NarrativeApplication> = {}) =>
+    app({
+      rule_name: "Slow-date rescue",
+      condition: { booking_speed_operator: "at_most", booking_speed_level: "much_slower", booking_speed_window_days: 30 },
+      action: { kind: "percent", direction: "decrease", value: 15 },
+      metrics: null,
+      is_pickup: true,
+      ...o,
+    });
+
+  it("says the same rule went again, instead of naming it twice as if it were two rules", () => {
+    const lines = narrateChange({
+      room_type: "Standard",
+      base_price: 200,
+      final_price: 144.5,
+      applications: [cut(), cut({ repeat: true })],
+    });
+    expect(lines).toEqual([
+      '"Slow-date rescue" lowered this night 15%, from $200.00 to $170.00.',
+      "Bookings came in much slower than normal this past month.",
+      'Then "Slow-date rescue" lowered it another 15%, from $170.00 to $144.50.',
+    ]);
+    // One verb per direction: one rule doing one thing twice never changes
+    // words halfway through the entry.
+    expect(lines.filter((l) => l.includes("lowered"))).toHaveLength(2);
+  });
+
+  it("keeps the same verb on the way up, and only explains the fire it has numbers for", () => {
+    const raise = (o: Partial<NarrativeApplication> = {}) =>
+      app({
+        rule_name: "Hot-week surge",
+        condition: { booking_speed_operator: "at_least", booking_speed_level: "much_faster", booking_speed_window_days: 7 },
+        action: { kind: "percent", direction: "increase", value: 25 },
+        metrics: null,
+        is_pickup: true,
+        ...o,
+      });
+    const lines = narrateChange({
+      room_type: "Standard",
+      base_price: 100,
+      final_price: 156.25,
+      applications: [
+        raise(),
+        raise({ repeat: true, metrics: { booking_speed: { label: "much_faster", recent: 9, expected: 4 } } }),
+      ],
+    });
+    expect(lines[2]).toBe('Then "Hot-week surge" raised it another 25%, from $125.00 to $156.25.');
+    expect(lines[3]).toBe(
+      "Bookings came in much faster than normal this past week: 9, against the 4 a night like this usually has by now.",
+    );
+  });
+
+  it("keeps naming a different rule the way it always did", () => {
+    const lines = narrateChange({
+      room_type: "Standard",
+      base_price: 200,
+      final_price: 242,
+      applications: [app({}), app({ rule_name: "Last-minute lift" })],
+    });
+    expect(lines[2]).toBe('Then "Last-minute lift" raised it 10%, from $220.00 to $242.00.');
+  });
+});
+
+describe("a fire that came off", () => {
+  it("says which rule stopped applying what, and why, before what is left", () => {
+    const lines = narrateChange({
+      room_type: "Standard",
+      base_price: 200,
+      final_price: 220,
+      applications: [app({})],
+      retirements: [
+        { rule_name: "Hot-week surge", delta: "+25%", reason: "bookings_cancelled" },
+        { rule_name: "Slow-date rescue", delta: "-$15.00", reason: "manual_price" },
+        { rule_name: "Warm-date bump", delta: "+10%", reason: "rule_edited" },
+      ],
+    });
+    expect(lines.slice(0, 3)).toEqual([
+      '"Hot-week surge" stopped applying an earlier 25% raise here: enough of the bookings behind it cancelled.',
+      `"Slow-date rescue" stopped applying an earlier $15.00 cut here: this night's price was set by hand.`,
+      '"Warm-date bump" stopped applying an earlier 10% raise here: the rule was edited, so MAYA started it fresh.',
+    ]);
+    expect(lines[3]).toBe('"Busy-day bump" raised this night 10%, from $200.00 to $220.00.');
+    for (const line of lines) expect(line).not.toMatch(/—/);
+    for (const line of lines) expect(line).not.toMatch(NO_MATH_SYMBOLS);
+  });
+
+  it("is the whole story when nothing is left applying", () => {
+    expect(
+      narrateChange({
+        room_type: "Standard",
+        base_price: 200,
+        final_price: 200,
+        applications: [],
+        retirements: [{ rule_name: "Hot-week surge", delta: "+25%", reason: "bookings_cancelled" }],
+      }),
+    ).toEqual([
+      '"Hot-week surge" stopped applying an earlier 25% raise here: enough of the bookings behind it cancelled.',
+    ]);
+  });
+});

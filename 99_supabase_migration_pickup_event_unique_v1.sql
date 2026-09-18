@@ -9,6 +9,9 @@
 -- date passes or the rule is edited. Only one non-retired event per (rule,
 -- stay date, room type) should ever exist at a time.
 
-create unique index if not exists uq_pickup_event_active_per_rule_stay_room
-  on pickup_event (rule_id, stay_date, affected_room_type_id)
-  where retired_at is null;
+-- Superseded by 99_supabase_migration_pickup_event_stacking_v1.sql. Event rules
+-- can now hold more than one open fire per (rule, stay date, room type), and
+-- the race above is closed by uq_pickup_event_fire on the fire number instead.
+-- The index this file used to create would block every repeat fire, or fail
+-- on a night that already has two, so it is no longer created here. Running
+-- this file does nothing.

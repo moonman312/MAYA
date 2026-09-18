@@ -388,7 +388,7 @@ create table if not exists rule_condition (
   booking_speed_level         text check (booking_speed_level is null or booking_speed_level in
     ('stalled','much_slower','slower','normal','faster','much_faster','surging')),
   booking_speed_window_days   integer check (booking_speed_window_days is null or booking_speed_window_days in (1, 7, 30)),
-  booking_speed_cooldown_days integer check (booking_speed_cooldown_days is null or booking_speed_cooldown_days >= 0),
+  booking_speed_cooldown_days integer constraint rule_condition_bs_cooldown_chk check (booking_speed_cooldown_days is null or booking_speed_cooldown_days >= 1),
   check (
     (pickup_operator is null and pickup_threshold is null
      and pickup_window_days is null and pickup_metric is null)
@@ -519,7 +519,26 @@ create table if not exists pickup_event (
   retired_at                    timestamptz,
   action_kind                   text not null,
   action_direction              text not null,
-  action_value                  numeric(10,4) not null
+  action_value                  numeric(10,4) not null,
+  -- Stacking (99_supabase_migration_pickup_event_stacking_v1.sql): a rule can
+  -- hold several fires per (rule, stay date, room type), numbered from 1.
+  fire_seq                      integer not null constraint pickup_event_fire_seq_chk check (fire_seq >= 1),
+  retired_reason                text constraint pickup_event_retired_reason_chk check (retired_reason is null or retired_reason in
+    ('night_passed', 'bookings_cancelled', 'manual_price', 'rule_edited', 'self_cancelled', 'legacy')),
+  cancel_check                  text not null default 'none'
+    constraint pickup_event_cancel_check_chk check (cancel_check in ('none', 'net_units', 'window_bookings', 'either')),
+  window_from                   date,
+  window_to                     date,
+  window_bookings_at_fire       integer,
+  window_expected_at_fire       numeric(10,2),
+  signal_set_key                text not null,
+  constraint pickup_event_retired_reason_set_chk check ((retired_at is null) = (retired_reason is null)),
+  constraint pickup_event_cancel_increase_chk check (cancel_check = 'none' or action_direction = 'increase'),
+  constraint pickup_event_window_chk check (
+    cancel_check not in ('window_bookings', 'either')
+    or (window_from is not null and window_to is not null and window_from <= window_to
+        and window_bookings_at_fire is not null and window_expected_at_fire is not null)
+  )
 );
 
 create index if not exists idx_pickup_event_active
@@ -528,12 +547,15 @@ create index if not exists idx_pickup_event_active
 create index if not exists idx_pickup_event_rule_stay
   on pickup_event (rule_id, stay_date, applied_at desc);
 
--- Guards against two overlapping evaluation runs both inserting an active
--- event for the same (rule, stay date, room type) — see
--- 99_supabase_migration_pickup_event_unique_v1.sql for the failure mode.
-create unique index if not exists uq_pickup_event_active_per_rule_stay_room
-  on pickup_event (rule_id, stay_date, affected_room_type_id)
-  where retired_at is null;
+-- Guards against two overlapping evaluation runs both inserting the same fire
+-- for a (rule, stay date, room type): the second gets a unique violation
+-- naming this index. See 99_supabase_migration_pickup_event_stacking_v1.sql,
+-- which also has pickup_fire_heads, the owner alert tables and the trigger
+-- that names a retirement a price save made without a reason (not folded in
+-- here yet).
+create unique index if not exists uq_pickup_event_fire
+  on pickup_event (rule_id, stay_date, affected_room_type_id, fire_seq);
+drop index if exists uq_pickup_event_active_per_rule_stay_room;
 
 -- ============================================================================
 -- PUBLISHED PRICES (Implementation Guide §3.6)

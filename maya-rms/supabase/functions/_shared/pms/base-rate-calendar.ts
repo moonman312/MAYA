@@ -94,15 +94,28 @@ export type SeedCalendarResult =
        * (a change, a closed night, a new base).
        */
       movedCells: string[];
+      /**
+       * Of movedCells, the nights the push must not send a new price to this
+       * tick although the PMS was read (pms-edits.ts holdCells): the ones it
+       * has at 0 over a send not known to have landed with a manual price
+       * open, or the ones it could not record when taking the hotel's
+       * changes failed.
+       */
+      holdCells: string[];
+      /** Taking the hotel's changes failed; the next refresh tries again. */
+      pmsEditsFailed?: true;
     };
 
 /**
  * `deferred`: a refresh was due but too little time was left to start it, or
- * it ran out of time. Not stamped, so the next tick refreshes.
+ * it ran out of time. Not stamped, so the next tick refreshes. `failed` with
+ * `step: "pms_read"`: the read of the PMS itself failed, rather than a read
+ * or write of MAYA's own.
  */
 export type EnsureCalendarResult =
   | SeedCalendarResult
-  | { ok: false; reason: "throttled" | "covered" | "failed" | "deferred"; captured: 0 };
+  | { ok: false; reason: "throttled" | "covered" | "failed" | "deferred"; captured: 0 }
+  | { ok: false; reason: "failed"; captured: 0; step: "pms_read" };
 
 const CHUNK = 500;
 const PAGE = 1000;
@@ -124,6 +137,9 @@ const ZERO_BASE_SETTLE_MS = 60 * 60_000;
 function ratesDiffer(a: number, b: number): boolean {
   return Math.abs(a - b) > HALF_CENT;
 }
+
+/** Errors the PMS read threw, told apart from the database's, as they were thrown. */
+const pmsReadErrors = new WeakSet<object>();
 
 /** How often a hotel's calendar is re-read, from MAYA_BASE_RATE_REFRESH_MINUTES. */
 export function baseRateRefreshIntervalMs(raw: string | undefined = mwsEnv("MAYA_BASE_RATE_REFRESH_MINUTES")): number {
@@ -179,7 +195,13 @@ async function seedWithTargets(
   }
   if (localByExternal.size === 0) return { result: { ok: false, reason: "no_room_types", captured: 0 }, targets: null };
 
-  const read = await readPmsCalendar(adapter, firstDate, lastDate, opts.deadlineAt);
+  let read: Awaited<ReturnType<typeof readPmsCalendar>>;
+  try {
+    read = await readPmsCalendar(adapter, firstDate, lastDate, opts.deadlineAt);
+  } catch (e) {
+    if (e != null && typeof e === "object") pmsReadErrors.add(e);
+    throw e;
+  }
   if (!read) return { result: { ok: false, reason: "no_rate_targets", captured: 0 }, targets: null };
 
   // Read after the PMS, so a push that landed in between is seen here.
@@ -281,7 +303,9 @@ async function seedWithTargets(
   // A database without the settle columns can't tell a settled send, so nothing there is a hand edit.
   const pmsEdits =
     settleKnown && pushedReads.length > 0
-      ? await adoptPmsEdits(supabase, hotelId, adapter.pmsType, pushedReads, read.targets, { firstDate, lastDate }, opts.at ?? capturedAt)
+      ? await adoptPmsEdits(supabase, hotelId, adapter.pmsType, pushedReads, read.targets, { firstDate, lastDate }, opts.at ?? capturedAt, {
+        sendsZero: adapter.acceptsZeroRate === true,
+      })
       : null;
 
   return {
@@ -294,6 +318,8 @@ async function seedWithTargets(
       loadedAfterZeroBase,
       days: horizon,
       movedCells: [...rows.map((r) => `${r.stay_date}|${r.room_type_id}`), ...(pmsEdits?.movedCells ?? [])],
+      holdCells: pmsEdits?.holdCells ?? [],
+      ...(pmsEdits?.failed ? { pmsEditsFailed: true as const } : {}),
     },
     targets: read.targets,
   };
@@ -473,7 +499,10 @@ export async function ensureBaseRateCalendar(
         error: (e instanceof Error ? e.message : String(e)).slice(0, 300),
       }),
     );
-    return { ok: false, reason: outOfTime ? "deferred" : "failed", captured: 0 };
+    if (outOfTime) return { ok: false, reason: "deferred", captured: 0 };
+    return e != null && typeof e === "object" && pmsReadErrors.has(e)
+      ? { ok: false, reason: "failed", captured: 0, step: "pms_read" }
+      : { ok: false, reason: "failed", captured: 0 };
   }
 }
 

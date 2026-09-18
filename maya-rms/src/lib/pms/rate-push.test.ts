@@ -30,6 +30,7 @@ type Fixture = {
 type Chain = {
   select: () => Chain;
   eq: () => Chain;
+  neq: () => Chain;
   gte: () => Chain;
   lte: () => Chain;
   is: () => Chain;
@@ -66,6 +67,7 @@ function makeSupabaseStub(fx: Fixture) {
     const chain: Chain = {
       select: () => chain,
       eq: () => chain,
+      neq: () => chain,
       gte: () => chain,
       lte: () => chain,
       is: () => chain,
@@ -1521,17 +1523,20 @@ describe("pushRatesForHotel and what the tick knows", () => {
       publishedPrice: PRICES,
       roomTypes: ROOM_TYPES,
       ledger: [
-        { stay_date: "2026-08-01", room_type_id: "rt-king", price: 200, status: "sent", attempts: 1 },
-        { stay_date: "2026-08-02", room_type_id: "rt-king", price: 200, status: "sent", attempts: 1 },
+        { stay_date: "2026-08-01", room_type_id: "rt-king", price: 200, status: "sent", attempts: 1, pushed_at: minutesAgo(90) },
+        { stay_date: "2026-08-02", room_type_id: "rt-king", price: 200, status: "sent", attempts: 1, pushed_at: minutesAgo(90) },
       ],
       connection: { id: "conn-1", push_rate_targets: CACHED_TWO },
     });
     const { adapter, attempts } = makeAdapter(CACHED_TWO);
     let reads = 0;
-    const readBeforeResend = async () => {
-      reads += 1;
-      // The hotel changed the King on the 1st since the hourly read.
-      return new Set(["2026-08-01|rt-king"]);
+    const readBeforeResend = {
+      settleMs: 60 * 60_000,
+      read: async () => {
+        reads += 1;
+        // The hotel changed the King on the 1st since the hourly read.
+        return new Set(["2026-08-01|rt-king"]);
+      },
     };
 
     const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter, { ...WIDE, readBeforeResend });
@@ -1546,23 +1551,58 @@ describe("pushRatesForHotel and what the tick knows", () => {
   });
 
   it("sends as before when the read before re-sending could not be made, and reads nothing for nights it never sent to", async () => {
-    const sentBefore = [{ stay_date: "2026-08-01", room_type_id: "rt-king", price: 200, status: "sent", attempts: 1 }];
+    const sentBefore = [{ stay_date: "2026-08-01", room_type_id: "rt-king", price: 200, status: "sent", attempts: 1, pushed_at: minutesAgo(90) }];
     const db = makeSupabaseStub({ publishedPrice: PRICES_TWO, roomTypes: ROOM_TYPES, ledger: sentBefore, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } });
     const { adapter, attempts } = makeAdapter(CACHED_TWO);
-    const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter, { ...WIDE, readBeforeResend: async () => null });
+    const res = await pushRatesForHotel(db.supabase, "hotel-1", adapter, { ...WIDE, readBeforeResend: { settleMs: 60 * 60_000, read: async () => null } });
     expect(attempts).toHaveLength(2);
     expect(res).not.toHaveProperty("changedInPms");
 
     const fresh = makeSupabaseStub({ publishedPrice: PRICES_TWO, roomTypes: ROOM_TYPES, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } });
     let reads = 0;
-    await pushRatesForHotel(fresh.supabase, "hotel-1", makeAdapter(CACHED_TWO).adapter, {
+    const none = await pushRatesForHotel(fresh.supabase, "hotel-1", makeAdapter(CACHED_TWO).adapter, {
       ...WIDE,
-      readBeforeResend: async () => {
-        reads += 1;
-        return new Set();
+      readBeforeResend: {
+        settleMs: 60 * 60_000,
+        read: async () => {
+          reads += 1;
+          return new Set<string>();
+        },
       },
     });
     expect(reads).toBe(0);
+    expect(none).not.toHaveProperty("readBeforeResendMs");
+  });
+
+  it("reads before re-sending only when a night about to get a new price was sent to over the settle window ago, and says how long it took", async () => {
+    let reads = 0;
+    const readBeforeResend = {
+      settleMs: 60 * 60_000,
+      read: async () => {
+        reads += 1;
+        return new Set<string>();
+      },
+    };
+    const sent = (over: Row) => [{ stay_date: "2026-08-01", room_type_id: "rt-king", price: 200, status: "sent", attempts: 1, ...over }];
+    const push = (ledger: Row[]) =>
+      pushRatesForHotel(
+        makeSupabaseStub({ publishedPrice: PRICES_TWO, roomTypes: ROOM_TYPES, ledger, connection: { id: "conn-1", push_rate_targets: CACHED_TWO } }).supabase,
+        "hotel-1",
+        makeAdapter(CACHED_TWO).adapter,
+        { ...WIDE, readBeforeResend },
+      );
+
+    // Sent twenty minutes ago, or with no time on record: no read could take a change there, so none is made.
+    for (const ledger of [sent({ pushed_at: minutesAgo(20) }), sent({ pushed_at: null })]) {
+      const res = await push(ledger);
+      expect(res).toMatchObject({ sent: 2 });
+      expect(res).not.toHaveProperty("readBeforeResendMs");
+    }
+    expect(reads).toBe(0);
+
+    const old = await push(sent({ pushed_at: minutesAgo(61) }));
+    expect(reads).toBe(1);
+    expect(old).toMatchObject({ sent: 2, readBeforeResendMs: expect.any(Number) });
   });
 
   it("sends a cell held for a missing permission again once the connection was re-authorized after the refusal", async () => {
@@ -1754,6 +1794,41 @@ describe("pushRatesForHotel and manual prices", () => {
       ["guardrail_below_floor", true, false],
       ["zero_rate_unsupported", false, true],
     ]);
+  });
+
+  it("counts a comp night the PMS already has at 0 as nothing to send once MAYA never sent to it, and closes what it filed", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const db = manualDb([{ stay_date: "2026-08-03", price: 0 }], [{ stay_date: "2026-08-03", price: 0 }]);
+    const first = await pushRatesForHotel(db.client, "hotel-1", makeAdapter({ "CB-KING": "rate-100" }).adapter, WIDE);
+    expect(first).toMatchObject({ sent: 0, skippedGuardrail: 1, guardrails: { "guardrail:zero_rate_unsupported": 1 } });
+    expect(db.tables.rate_push_incidents).toEqual([expect.objectContaining({ cause: "zero_rate_unsupported", resolved_at: null })]);
+
+    // The owner sets the night to 0 in Cloudbeds, and the base rate read stores that.
+    db.tables.base_rate_calendar = [{ hotel_id: "hotel-1", stay_date: "2026-08-03", room_type_id: "rt-king", price: 0 }];
+    const second = await pushRatesForHotel(db.client, "hotel-1", makeAdapter({ "CB-KING": "rate-100" }).adapter, WIDE);
+
+    expect(second).toMatchObject({ sent: 0, skippedGuardrail: 0, compInPms: 1 });
+    expect(second).not.toHaveProperty("guardrails");
+    expect(db.tables.rate_push_incidents[0]).toMatchObject({ resolution: "landed" });
+    // Nothing was ever sent there, and the ledger still says so.
+    expect(db.tables.rate_updates).toEqual([
+      expect.objectContaining({ stay_date: "2026-08-03", status: "skipped", error: "guardrail:zero_rate_unsupported", attempts: 0 }),
+    ]);
+  });
+
+  it("keeps filing a comp night the PMS has at 0 under a send of MAYA's, whose stored base says nothing about now", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const db = manualDb([{ stay_date: "2026-08-03", price: 0 }], [{ stay_date: "2026-08-03", price: 0 }], {
+      base_rate_calendar: [{ hotel_id: "hotel-1", stay_date: "2026-08-03", room_type_id: "rt-king", price: 0 }],
+      rate_updates: [
+        { hotel_id: "hotel-1", pms_type: "cloudbeds", stay_date: "2026-08-03", room_type_id: "rt-king", external_room_type_id: "CB-KING", price: 180, status: "sent", attempts: 1 },
+      ],
+    });
+
+    const res = await pushRatesForHotel(db.client, "hotel-1", makeAdapter({ "CB-KING": "rate-100" }).adapter, WIDE);
+
+    expect(res).toMatchObject({ skippedGuardrail: 1, guardrails: { "guardrail:zero_rate_unsupported": 1 } });
+    expect(res).not.toHaveProperty("compInPms");
   });
 
   it("sends a comp night's 0 to a PMS that takes it", async () => {

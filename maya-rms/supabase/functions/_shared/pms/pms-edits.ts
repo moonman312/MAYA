@@ -9,9 +9,10 @@
  * this with each night MAYA has sent to. A tick about to send a new price to
  * a night MAYA has sent to reads it again first, if its refresh did not read
  * the PMS already (pricing-tick.ts), so a rate the hotel changed since the
- * hourly read is not written over before it is seen. The hard part is never
- * taking MAYA's own output for a hotel's change. A night is a hand edit only
- * when all of these hold:
+ * hourly read is not written over before it is seen. When recording what a
+ * read found fails, the push holds those nights that tick (holdCells) and
+ * the next read takes them. The hard part is never taking MAYA's own output
+ * for a hotel's change. A night is a hand edit only when all of these hold:
  *
  *   - the hotel is live (a simulating hotel sends nothing);
  *   - its ledger row is 'sent': not a send still marked in progress, a
@@ -35,23 +36,39 @@
  *     That is the PMS reporting MAYA's prices through some rule of its own
  *     (tax included, a markup), not a person editing nights, and adopting
  *     would freeze the window at prices the rule has inflated, which rules
- *     stacked on them would inflate again. Those nights are counted and
- *     logged; a night that does not fit the ratio is still a change. A
- *     settled night still quoting MAYA's own price counts against a ratio,
- *     so a hotel raising some of its nights by one percentage is taken.
+ *     stacked on them would inflate again. Those nights are counted, logged
+ *     and filed for admins as an incident of their own (push-incidents.ts,
+ *     pms_rates_shared_ratio), since MAYA's next price there writes over
+ *     them; a night that does not fit the ratio is still a change. A settled
+ *     night still quoting MAYA's own price counts against a ratio, so a hotel
+ *     raising some of its nights by one percentage is taken. The ratio is
+ *     looked for only among nights known in the PMS since the hotel went
+ *     live, where a PMS reporting through one shows it too: a hotel raising
+ *     the whole window by one percentage while MAYA only simulated has those
+ *     rates taken as new bases, as below, unless they fit a ratio the live
+ *     nights share.
  *
  * A rate of 0 is not a price to adopt. Every other read of MAYA's takes a
  * PMS 0 as a night closed or not loaded (zero_base), and a manual price of 0
  * lets a rule stacked on it through under the floor: a +$20 rule opened a
- * night the hotel had just closed at $20. So a settled night the PMS now has
- * at 0 is the hotel closing it, unless its open manual price is 0 already (a
- * comp night, set back by hand). Its base rate goes to 0, exactly as a night
- * closed before MAYA ever sent to it, so the engine stops pricing it and the
- * push has nothing to send; the ledger says the PMS holds 0, so the calendar
- * reads a rate the hotel opens it at later as the hotel's own; and an open
- * manual price on it is cleared, as Clear in MAYA does, since it
+ * night the hotel had just closed at $20. So a night MAYA sent to that the
+ * PMS now has at 0 is the hotel closing it, unless its open manual price is 0
+ * already (a comp night, set back by hand). Its base rate goes to 0, exactly
+ * as a night closed before MAYA ever sent to it, so the engine stops pricing
+ * it and the push has nothing to send; the ledger says the PMS holds 0, so
+ * the calendar reads a rate the hotel opens it at later as the hotel's own;
+ * and an open manual price on it is cleared, as Clear in MAYA does, since it
  * would otherwise go on being sent over the closed night. A price typed in
  * MAYA since the send is left to go out, as with any change.
+ *
+ * That needs the send to be past the settle window, not settled: MAYA sends
+ * 0 only to a PMS known to take it (acceptsZeroRate), so anywhere else a 0 is
+ * never MAYA's own. A night closed before MAYA read its price back, or over a
+ * send from before sends were stamped, is closed all the same. When that
+ * send is not settled and the night has an open manual price, though, the
+ * night is not closed and the price is left: it may never have reached the
+ * PMS, and the 0 may be the rate from before it. The push sends nothing new
+ * to such a night while the PMS has it at 0 (heldAtZero, holdCells).
  *
  * When the push held a night's manual price back (a comp night's 0 MAYA
  * would not send) and the hotel then set that price by hand, the ledger is
@@ -89,6 +106,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingColumnError, isMissingRelationError } from "../engine/snapshots.ts";
 import { mwsEnv } from "../mews/env.ts";
 import { hotelRuleIds, setManualPrices } from "./manual-price.ts";
+import { classifyPushFailure, SHARED_RATIO_REASON } from "./push-failure.ts";
+import { recordPushIncidents, type RunCell, type RunFailure } from "./push-incidents.ts";
 import { type RateTargetMap, upsertLedger } from "./rate-push.ts";
 
 const DEFAULT_SETTLE_MINUTES = 60;
@@ -145,8 +164,14 @@ export type PmsEditPlan = {
   inStep: { read: PushedNightRead; price: number }[];
   /** Sends not settled yet whose price the PMS has: settled now. */
   landed: PushedNightRead[];
-  /** Settled nights the PMS now has at 0: closed by the hotel. */
+  /** Nights MAYA sent to that the PMS now has at 0: closed by the hotel. */
   closed: PushedNightRead[];
+  /**
+   * Nights the PMS has at 0 over a send not known to have landed, with a
+   * manual price open: not closed, since that price may never have reached
+   * the PMS, and not sent to while the PMS has 0.
+   */
+  heldAtZero: PushedNightRead[];
   /** Nights changed while MAYA only simulated: the PMS rate is the night's base again. */
   rebased: { read: PushedNightRead; price: number }[];
   /** Differ from MAYA's last send, which is not settled or not old enough yet. */
@@ -155,12 +180,15 @@ export type PmsEditPlan = {
   typedSinceSend: number;
   /** Differed by the ratio nearly all settled nights share, so were not adopted. */
   systematic: number;
+  /** Those nights. */
+  systematicNights: PushedNightRead[];
 };
 
 /**
  * Which nights are hand edits, which are in step already, and why the rest
  * are not. `liveSinceMs` is when the hotel last went live, NaN when not
- * known. Reads nothing.
+ * known. `sendsZero`: the PMS takes a rate of 0 from MAYA (acceptsZeroRate),
+ * so a 0 there may be MAYA's own. Reads nothing.
  */
 export function planPmsEdits(input: {
   reads: PushedNightRead[];
@@ -169,13 +197,26 @@ export function planPmsEdits(input: {
   nowMs: number;
   settleMs: number;
   liveSinceMs?: number;
+  sendsZero?: boolean;
 }): PmsEditPlan {
-  const plan: PmsEditPlan = { edits: [], inStep: [], landed: [], closed: [], rebased: [], waiting: 0, typedSinceSend: 0, systematic: 0 };
+  const plan: PmsEditPlan = {
+    edits: [],
+    inStep: [],
+    landed: [],
+    closed: [],
+    heldAtZero: [],
+    rebased: [],
+    waiting: 0,
+    typedSinceSend: 0,
+    systematic: 0,
+    systematicNights: [],
+  };
   const liveSinceMs = input.liveSinceMs ?? NaN;
   // Settled, old enough, sent to the rate read and not typed over since: the
-  // nights a change can be told on, whether the PMS still quotes MAYA's price.
+  // nights a ratio is judged over, those still quoting MAYA's price and those
+  // differing that are known in the PMS since the hotel went live.
   let comparable = 0;
-  // Of those, the ones it does not.
+  // Settled nights the PMS quotes at another price.
   const differing: { read: PushedNightRead; pmsRate: number; sent: number; whileLive: boolean }[] = [];
 
   for (const r of input.reads) {
@@ -206,7 +247,9 @@ export function planPmsEdits(input: {
     if (!sameTarget) continue;
     const holds = pmsHoldsPrice(r.pmsRate, ledgerPrice);
     if (holds && !settledWhileLive) plan.landed.push(r);
-    if (!settled || !oldEnough) {
+    // A 0 MAYA can't have sent: the hotel's, landed send or not (see the header).
+    const zeroNotMaya = !holds && input.sendsZero !== true && !ratesDiffer(r.pmsRate, 0);
+    if (!oldEnough || (!settled && !zeroNotMaya)) {
       if (!holds) plan.waiting += 1;
       continue;
     }
@@ -222,49 +265,59 @@ export function planPmsEdits(input: {
     // A comp night's manual price of 0 set back by hand over a rule MAYA
     // stacked on it is that manual price, as any other.
     if (!ratesDiffer(r.pmsRate, 0) && !(manual && !ratesDiffer(manual.price, 0))) {
-      plan.closed.push(r);
+      if (settled || !manual) plan.closed.push(r);
+      else plan.heldAtZero.push(r);
       continue;
     }
-    comparable += 1;
-    differing.push({ read: r, pmsRate: r.pmsRate, sent: ledgerPrice, whileLive: settledWhileLive || manual?.source === "pms" });
+    // Only a comp night's 0 gets here unsettled: whether a rule MAYA sent on
+    // top of it ever landed can't be told, so it waits.
+    if (!settled) {
+      plan.waiting += 1;
+      continue;
+    }
+    const whileLive = settledWhileLive || manual?.source === "pms";
+    if (whileLive) comparable += 1;
+    differing.push({ read: r, pmsRate: r.pmsRate, sent: ledgerPrice, whileLive });
   }
 
-  const fits = sharedRatio(differing);
-  const systematic = fits.size >= SYSTEMATIC_MIN_NIGHTS && fits.size >= SYSTEMATIC_SHARE * comparable;
-  if (systematic) plan.systematic = fits.size;
-  differing.forEach((d, i) => {
-    if (systematic && fits.has(i)) return;
+  // Looked for among the live nights only: see the header.
+  const shared = sharedRatio(differing.filter((d) => d.whileLive));
+  const ratio = shared != null && shared.fits >= SYSTEMATIC_SHARE * comparable ? shared.ratio : null;
+  for (const d of differing) {
+    if (ratio != null && fitsRatio(d, ratio)) {
+      plan.systematicNights.push(d.read);
+      continue;
+    }
     const change = { read: d.read, price: Math.round(d.pmsRate * 100) / 100 };
     if (d.whileLive) plan.edits.push(change);
     else plan.rebased.push(change);
-  });
+  }
+  plan.systematic = plan.systematicNights.length;
   return plan;
 }
 
 /**
- * The nights (by index) that fit the ratio fitting the most of them: PMS
- * rate within SYSTEMATIC_FIT of the price sent times it. Each night's own
+ * The ratio fitting the most nights, and how many it fits. Each night's own
  * ratio is tried, largest prices first, since theirs carries the least
- * rounding. Empty when no ratio away from 1 fits SYSTEMATIC_MIN_NIGHTS.
+ * rounding. Null when no ratio away from 1 fits SYSTEMATIC_MIN_NIGHTS.
  */
-function sharedRatio(nights: { pmsRate: number; sent: number }[]): Set<number> {
-  let best = new Set<number>();
-  if (nights.length < SYSTEMATIC_MIN_NIGHTS) return best;
-  const order = nights
-    .map((_, i) => i)
-    .filter((i) => nights[i].sent > 0 && nights[i].pmsRate > 0)
-    .sort((a, b) => nights[b].sent - nights[a].sent);
-  for (const i of order) {
-    if (best.size === order.length) break;
-    const ratio = nights[i].pmsRate / nights[i].sent;
+function sharedRatio(nights: { pmsRate: number; sent: number }[]): { ratio: number; fits: number } | null {
+  if (nights.length < SYSTEMATIC_MIN_NIGHTS) return null;
+  const order = nights.filter((n) => n.sent > 0 && n.pmsRate > 0).sort((a, b) => b.sent - a.sent);
+  let best: { ratio: number; fits: number } | null = null;
+  for (const n of order) {
+    if (best && best.fits === order.length) break;
+    const ratio = n.pmsRate / n.sent;
     if (Math.abs(ratio - 1) <= SYSTEMATIC_RATIO_SPREAD) continue;
-    const fit = new Set<number>();
-    for (const j of order) {
-      if (Math.abs(nights[j].pmsRate - nights[j].sent * ratio) <= SYSTEMATIC_FIT) fit.add(j);
-    }
-    if (fit.size > best.size) best = fit;
+    const fits = order.filter((m) => fitsRatio(m, ratio)).length;
+    if (!best || fits > best.fits) best = { ratio, fits };
   }
-  return best.size >= SYSTEMATIC_MIN_NIGHTS ? best : new Set();
+  return best && best.fits >= SYSTEMATIC_MIN_NIGHTS ? best : null;
+}
+
+/** A PMS rate within SYSTEMATIC_FIT of the price sent times the ratio. */
+function fitsRatio(night: { pmsRate: number; sent: number }, ratio: number): boolean {
+  return night.sent > 0 && night.pmsRate > 0 && Math.abs(night.pmsRate - night.sent * ratio) <= SYSTEMATIC_FIT;
 }
 
 export type PmsEditsResult = {
@@ -274,6 +327,8 @@ export type PmsEditsResult = {
   landed: number;
   /** Nights closed in the PMS, now at a base of 0. */
   closed: number;
+  /** Nights the PMS has at 0 over a send not known to have landed, with a manual price open: held, not closed. */
+  heldAtZero: number;
   /** Open manual prices on those nights, cleared. */
   clearedManual: number;
   /** Nights changed while MAYA only simulated, now at that rate as their base. */
@@ -285,6 +340,18 @@ export type PmsEditsResult = {
    * change, closed, or a new base. Listed even when writing them failed.
    */
   movedCells: string[];
+  /**
+   * The nights a new price must not go to yet, although the PMS was just
+   * read: the ones held at 0, or all of movedCells when this step failed
+   * (`failed`), since the evaluation that follows did not see what it found.
+   */
+  holdCells: string[];
+  /**
+   * Writing what this step found failed part way, or it could not tell what
+   * there was to find. When it could not, movedCells are the nights sent to
+   * over the settle window ago that the PMS quotes at another price.
+   */
+  failed?: true;
 };
 
 /** A night's ledger row as read, with what this step now knows about it. */
@@ -372,18 +439,35 @@ export async function applyPmsEdits(
     inStep: plan.inStep.length,
     landed: plan.landed.length,
     closed: plan.closed.length,
+    heldAtZero: 0,
     clearedManual,
     rebased: plan.rebased.length,
     suppressedRules: reset.suppressedRules,
     retiredPickups: reset.retiredPickups,
     movedCells: movedCells(plan),
+    holdCells: [],
   };
 }
 
-function movedCells(plan: Pick<PmsEditPlan, "edits" | "closed" | "rebased">): string[] {
-  return [...plan.edits.map((e) => e.read), ...plan.closed, ...plan.rebased.map((e) => e.read)].map(
+function movedCells(plan: Pick<PmsEditPlan, "edits" | "closed" | "rebased"> & Partial<Pick<PmsEditPlan, "heldAtZero">>): string[] {
+  return [...plan.edits.map((e) => e.read), ...plan.closed, ...plan.rebased.map((e) => e.read), ...(plan.heldAtZero ?? [])].map(
     (r) => `${r.stayDate}|${r.roomTypeId}`,
   );
+}
+
+/**
+ * With no plan to go by, the nights a change in the PMS could be on: sent to
+ * at least the settle window ago, and quoting something other than MAYA's price.
+ */
+function differingSends(reads: PushedNightRead[], nowMs: number, settleMs: number): string[] {
+  return reads
+    .filter((r) => {
+      const l = r.ledger;
+      if (l.status !== "sent" || l.price == null) return false;
+      const pushedAtMs = l.pushed_at != null ? Date.parse(String(l.pushed_at)) : NaN;
+      return pushedAtMs <= nowMs - settleMs && !pmsHoldsPrice(r.pmsRate, Number(l.price));
+    })
+    .map((r) => `${r.stayDate}|${r.roomTypeId}`);
 }
 
 /** Nights' base rates, as the PMS has them. */
@@ -465,12 +549,15 @@ async function closeNights(
 /**
  * The refresh's step: find this hotel's hand edits among the nights MAYA has
  * sent to and adopt them, and stamp the sends it finds in the PMS as settled.
- * Reads the hotel's settings, and nothing more unless some night's PMS rate
+ * Reads the hotel's settings and whether an incident about nights a shared
+ * ratio explained is open, and nothing more unless some night's PMS rate
  * differs from its ledger row, the row is a skip, or its send is not known
  * to be there since the hotel went live. Does nothing for a hotel that is
  * not live or a database without the columns that say where a price came
  * from. Logs one line of counts when there was anything to count. Never
- * throws: a failed write is logged and the next refresh looks again.
+ * throws: a failed write is logged, the result says so (`failed`) with the
+ * nights the push must hold this tick (holdCells), and the next refresh
+ * looks again.
  */
 export async function adoptPmsEdits(
   supabase: SupabaseClient,
@@ -480,17 +567,20 @@ export async function adoptPmsEdits(
   targets: RateTargetMap,
   window: { firstDate: string; lastDate: string },
   at: string,
+  opts: { sendsZero?: boolean } = {},
 ): Promise<PmsEditsResult> {
   const none: PmsEditsResult = {
     adopted: 0,
     inStep: 0,
     landed: 0,
     closed: 0,
+    heldAtZero: 0,
     clearedManual: 0,
     rebased: 0,
     suppressedRules: 0,
     retiredPickups: 0,
     movedCells: [],
+    holdCells: [],
   };
   const inWindow = reads.filter((r) =>
     r.stayDate >= window.firstDate && r.stayDate <= window.lastDate && (r.ledger.status === "sent" || r.ledger.status === "skipped")
@@ -498,6 +588,7 @@ export async function adoptPmsEdits(
   if (inWindow.length === 0) return none;
 
   let plan: PmsEditPlan | null = null;
+  const settleMs = pmsEditSettleMs();
   try {
     const { data: settings, error: settingsError } = await supabase
       .from("hotel_settings")
@@ -513,7 +604,8 @@ export async function adoptPmsEdits(
     const liveSinceMs = settings.live_since != null ? Date.parse(String(settings.live_since)) : NaN;
 
     // Nothing more is read while every sent night still has MAYA's price,
-    // known to be there since the hotel went live, and nothing is held back.
+    // known to be there since the hotel went live, and nothing is held back,
+    // but an incident about nights a ratio explained closes.
     const worthALook = inWindow.some((r) => {
       if (r.ledger.status === "skipped") return true;
       if (r.ledger.price == null) return false;
@@ -521,7 +613,10 @@ export async function adoptPmsEdits(
       return !(confirmedAtMs >= (Number.isFinite(liveSinceMs) ? liveSinceMs : -Infinity)) ||
         !pmsHoldsPrice(r.pmsRate, Number(r.ledger.price));
     });
-    if (!worthALook) return none;
+    if (!worthALook) {
+      await recordSharedRatio(supabase, hotelId, pmsType, [], at);
+      return none;
+    }
 
     const manual = await readOpenManualPrices(supabase, hotelId, window.firstDate, window.lastDate);
     if (!manual) return none;
@@ -530,11 +625,15 @@ export async function adoptPmsEdits(
       targets,
       manual,
       nowMs: Date.parse(at),
-      settleMs: pmsEditSettleMs(),
+      settleMs,
       liveSinceMs,
+      sendsZero: opts.sendsZero,
     });
+    await recordSharedRatio(supabase, hotelId, pmsType, plan.systematicNights, at);
     const found = plan.edits.length + plan.inStep.length + plan.landed.length + plan.closed.length + plan.rebased.length;
-    const result = found > 0 ? await applyPmsEdits(supabase, hotelId, pmsType, plan, at, manual) : none;
+    const applied = found > 0 ? await applyPmsEdits(supabase, hotelId, pmsType, plan, at, manual) : none;
+    const held = plan.heldAtZero.map((r) => `${r.stayDate}|${r.roomTypeId}`);
+    const result = { ...applied, heldAtZero: held.length, movedCells: movedCells(plan), holdCells: held };
     logPlan(hotelId, pmsType, plan, result);
     return result;
   } catch (e) {
@@ -547,9 +646,54 @@ export async function adoptPmsEdits(
         error: (e instanceof Error ? e.message : String((e as { message?: unknown })?.message ?? e)).slice(0, 300),
       }),
     );
-    // Not recorded, but still not MAYA's to write over.
-    return plan ? { ...none, movedCells: movedCells(plan) } : none;
+    // Not recorded, so the evaluation after this did not see it, but still
+    // not MAYA's to write over.
+    const cells = plan ? movedCells(plan) : differingSends(inWindow, Date.parse(at), settleMs);
+    return { ...none, movedCells: cells, holdCells: cells, failed: true };
   }
+}
+
+/**
+ * Files the nights a shared ratio explained for admins, under a cause of
+ * their own (push-incidents.ts, pms_rates_shared_ratio), so a person sees the
+ * rates MAYA did not take; with none, closes that incident if one is open.
+ * One read when there is nothing to file or close. Never throws.
+ */
+async function recordSharedRatio(
+  supabase: SupabaseClient,
+  hotelId: string,
+  pmsType: string,
+  nights: PushedNightRead[],
+  at: string,
+): Promise<void> {
+  const failure = classifyPushFailure({ pms: pmsType, phase: "guardrail", message: SHARED_RATIO_REASON });
+  const cells = new Map<string, RunCell>();
+  const failures: RunFailure[] = [];
+  for (const r of nights) {
+    const cell = { stayDate: r.stayDate, roomTypeId: r.roomTypeId, price: r.pmsRate };
+    cells.set(`${r.stayDate}|${r.roomTypeId}`, { ...cell, state: "failing", failure });
+    failures.push({
+      ...cell,
+      at,
+      phase: "guardrail",
+      outcome: "skipped",
+      httpStatus: null,
+      message: SHARED_RATIO_REASON,
+      jobReference: null,
+      failure,
+      // A night already open under this cause is not a new try.
+      ongoing: true,
+    });
+  }
+  await recordPushIncidents(supabase, {
+    hotelId,
+    pmsType,
+    nowMs: Date.parse(at),
+    cells,
+    failures,
+    mayHaveOpen: false,
+    recordedBy: "refresh",
+  });
 }
 
 /** The window's open manual prices; null on a database that can't say where a price came from yet. */
@@ -602,12 +746,25 @@ function logPreMigration(hotelId: string): PmsEditsResult {
       migration: "99_supabase_migration_push_guardrails_v1.sql",
     }),
   );
-  return { adopted: 0, inStep: 0, landed: 0, closed: 0, clearedManual: 0, rebased: 0, suppressedRules: 0, retiredPickups: 0, movedCells: [] };
+  return {
+    adopted: 0,
+    inStep: 0,
+    landed: 0,
+    closed: 0,
+    heldAtZero: 0,
+    clearedManual: 0,
+    rebased: 0,
+    suppressedRules: 0,
+    retiredPickups: 0,
+    movedCells: [],
+    holdCells: [],
+  };
 }
 
 /** One line per hotel per refresh, counts only. */
 function logPlan(hotelId: string, pmsType: string, plan: PmsEditPlan, result: PmsEditsResult): void {
-  const found = plan.edits.length + plan.inStep.length + plan.landed.length + plan.closed.length + plan.rebased.length;
+  const found =
+    plan.edits.length + plan.inStep.length + plan.landed.length + plan.closed.length + plan.heldAtZero.length + plan.rebased.length;
   if (found + plan.waiting + plan.typedSinceSend + plan.systematic === 0) return;
   console.log(
     JSON.stringify({
@@ -619,6 +776,7 @@ function logPlan(hotelId: string, pmsType: string, plan: PmsEditPlan, result: Pm
       inStep: result.inStep,
       landed: result.landed,
       closed: result.closed,
+      heldAtZero: result.heldAtZero,
       clearedManual: result.clearedManual,
       rebased: result.rebased,
       suppressedRules: result.suppressedRules,

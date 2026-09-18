@@ -194,11 +194,47 @@ describe("computeStarterRules: the booking-speed ladder", () => {
     expect(computeStarterRules({ daysOfHistory: 30 })).toHaveLength(0);
   });
 
-  it("every rule explains itself plainly, without math symbols", () => {
+  it("every rule explains itself plainly, without math symbols or em dashes", () => {
     for (const r of rules) {
       expect(r.explanation.length).toBeGreaterThan(40);
       expect(r.explanation).not.toMatch(NO_MATH_SYMBOLS);
+      expect(r.explanation).not.toMatch(/\u2014/);
     }
+  });
+
+  it("never promises a cut that cannot repeat, because every one of them can", () => {
+    for (const r of rules) {
+      expect(r.explanation).not.toContain("never pile up");
+      expect(r.explanation).not.toContain("cuts never");
+    }
+  });
+
+  it("says the rule acts again after its wait, in each rule's own words", () => {
+    // What the engine does: after the wait, a condition that still holds fires
+    // again (pickup.ts fire numbering, booking_speed_cooldown_days).
+    expect(byName.get("Slow-date rescue")!.explanation).toContain("cuts again");
+    expect(byName.get("Slow-date trim")!.explanation).toContain("trims again");
+    expect(byName.get("Warm-date bump")!.explanation).toContain("raises again");
+    expect(byName.get("Hot-week surge")!.explanation).toContain("steps up again");
+    expect(byName.get("Sudden-spike catcher")!.explanation).toContain("repeated daily");
+  });
+
+  it("tells the owner about the alert on the rules that can run away", () => {
+    // Three fires on one night is where MAYA asks (engine/repeat-alerts.ts).
+    const told = rules.filter((r) => r.explanation.includes("three times"));
+    expect(told.map((r) => r.name)).toEqual([
+      "Slow-date rescue",
+      "Hot-week surge",
+      "Sudden-spike catcher",
+    ]);
+  });
+
+  it("only claims a raise comes back off where the cancellation test can take it off", () => {
+    // Cuts are never undone by cancellations: cancel_check is none for them.
+    for (const r of rules.filter((x) => x.action.action_direction === "decrease")) {
+      expect(r.explanation).not.toContain("comes back off");
+    }
+    expect(byName.get("Warm-date bump")!.explanation).toContain("the raise comes back off");
   });
 });
 

@@ -77,7 +77,9 @@ order by pp.stay_date;
 with h as (select id from public.hotels where name = 'MAYA E2E Test Hotel 4')
 select
   (select count(*) from public.ladder_transition_event where hotel_id = (select id from h)) as ladder_transitions,
-  (select count(*) from public.pickup_event          where hotel_id = (select id from h) and retired_at is null) as active_pickup_events;
+  -- Open fires: a rule can hold several on one night and room type, one per
+  -- time it fired there (pickup_event.fire_seq).
+  (select count(*) from public.pickup_event          where hotel_id = (select id from h) and retired_at is null) as open_pickup_fires;
 
 
 -- ── G. Cloudbeds cron health (HTTP dispatch layer) ──────────────────────────

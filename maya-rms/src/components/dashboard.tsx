@@ -13,12 +13,20 @@ import { track } from "@/lib/analytics/track";
 import { PropertySelect } from "@/components/property-select";
 import { RateSimulator } from "@/components/rate-simulator";
 import { RoomCountHelp, RoomTypeSettings, isCountingRoom } from "@/components/room-type-settings";
-import { bookingSpeedHelp } from "@/lib/booking-speed-help";
+import { bookingSpeedHelp, bookingSpeedWaitHelp } from "@/lib/booking-speed-help";
+import { RuleAlertBanner } from "@/components/rule-alert-banner";
+import { letRunAgainBody, stoppedChipLabel, stoppedNightsHelp, type RuleStops } from "@/lib/rule-alerts";
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { RuleRoomTypesField } from "@/components/rule-room-types-field";
+import { isRuleAlertChoice } from "@/lib/changelog-route-helpers";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
 import {
+  BOOKING_SPEED_WAIT_OPTIONS,
+  RULE_FIRES_HELP,
+  bookingSpeedWaitLabel,
+  eventRuleWaitDays,
+  pickupWindowSetsWait,
   conditionRowsToRuleCondition,
   formatRuleConditionsDisplay,
   isRuleActionEmpty,
@@ -28,6 +36,7 @@ import {
   ruleConditionToLegacyConditions,
   ruleRoomTypeSets,
   ruleRoomTypesLabel,
+  type BookingSpeedWaitDays,
   type ConditionFormRow,
   type ConditionMetric,
 } from "@/lib/rule-form";
@@ -286,6 +295,10 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
   /** Rule awaiting the delete-or-disable choice; null when the dialog is closed. */
   const [pendingDelete, setPendingDelete] = useState<RuleConfig | null>(null);
   const [fireCounts, setFireCounts] = useState<Record<string, number>>({});
+  // Nights the owner told a rule to stop adjusting: without this the rules
+  // table shows the rule as On with nothing to say it does nothing there.
+  const [ruleStops, setRuleStops] = useState<RuleStops[]>([]);
+  const [lettingRun, setLettingRun] = useState<string | null>(null);
   const [ruleFilter, setRuleFilter] = useState<"all" | "enabled" | "disabled">("all");
   const [ruleFormOpen, setRuleFormOpen] = useState(false);
   const [roomTypeOptions, setRoomTypeOptions] = useState<
@@ -524,6 +537,40 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
     } catch {
       // fire counts are decoration — never block the rules list on them
     }
+    try {
+      setRuleStops(await api<RuleStops[]>("/api/rules/stops"));
+    } catch {
+      // same for the stopped-nights chip
+    }
+  }
+
+  /**
+   * Takes the owner's "stop" off a rule's nights, across every alert they were
+   * filed under, in one request: one click is one thing the owner did, and the
+   * change log shows it as one. It clears the answer outright: answering
+   * keep_adjusting instead would silence those nights for good, so a rule that
+   * went on to adjust one of them twenty times would never reach the owner
+   * again.
+   *
+   * Every stopped night, not only the ones still to come: what the owner did
+   * was stop the rule on a run of nights, and taking the answer off some of
+   * them would leave the change log reading as if they had only ever stopped
+   * the rest.
+   */
+  async function letRuleRunAgain(stops: RuleStops) {
+    setLettingRun(stops.rule_id);
+    try {
+      const res = await fetch("/api/rules/stops", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(letRunAgainBody(stops)),
+      });
+      setRuleStops(res.ok ? ((await res.json()) as RuleStops[]) : await api<RuleStops[]>("/api/rules/stops"));
+    } catch {
+      // Leave the chip as it is; the next load says what really happened.
+    } finally {
+      setLettingRun(null);
+    }
   }
 
   async function reloadRoomTypes() {
@@ -727,7 +774,10 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
 
   const visibleCycles = useMemo(
     // A push problem is always shown: it is never a "nothing changed" run.
-    () => (changesOnly ? changelog.filter((c) => isPushProblem(c) || c.has_changes) : changelog),
+    () =>
+      changesOnly
+        ? changelog.filter((c) => isPushProblem(c) || isRuleAlertChoice(c) || c.has_changes)
+        : changelog,
     [changesOnly, changelog],
   );
 
@@ -893,6 +943,14 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
         ) : null}
 
         <OnboardingReviewBanner />
+
+        <RuleAlertBanner
+          activeHotelId={activeHotelId}
+          onAskForLimits={() => {
+            setTab("rules");
+            track("dashboard.tab_opened", { tab: "rules" });
+          }}
+        />
 
         {tab === "calendar" && (
           <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
@@ -1181,7 +1239,12 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                 <thead>
                   <tr className="border-b border-slate-700 text-left text-slate-300">
                     <th className="py-2">Name</th>
-                    <th className="py-2">Fired</th>
+                    <th className="py-2">
+                      <span className="flex items-center gap-1.5">
+                        Fired
+                        <RoomCountHelp {...RULE_FIRES_HELP} />
+                      </span>
+                    </th>
                     <th className="py-2">Conditions</th>
                     <th className="py-2">Room Types</th>
                     <th className="py-2">Price Change</th>
@@ -1258,6 +1321,30 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                             {rule.enabled ? "On" : "Off"}
                           </span>
                         </button>
+                        {(() => {
+                          const stops = ruleStops.find((s) => s.rule_id === rule.id);
+                          if (!stops || stops.nights.length === 0) return null;
+                          const direction =
+                            (rule.action.adjust_rate_percent ?? rule.action.adjust_rate_dollars ?? 0) < 0
+                              ? "decrease"
+                              : "increase";
+                          return (
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-200">
+                                {stoppedChipLabel(stops.nights.length)}
+                              </span>
+                              <RoomCountHelp {...stoppedNightsHelp(stops.nights, direction)} />
+                              <button
+                                type="button"
+                                disabled={lettingRun !== null}
+                                onClick={() => void letRuleRunAgain(stops)}
+                                className="cursor-pointer text-[11px] font-medium text-sky-400 underline hover:text-sky-300 disabled:cursor-default disabled:opacity-60"
+                              >
+                                Let it run again
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="py-2 pr-3">
                         <button
@@ -1326,6 +1413,18 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                           .filter((r) => r.id !== row.id)
                           .map((r) => r.metric),
                       );
+                      // A rule with both conditions waits the longer of the
+                      // stored wait and the pickup lookback (the engine's
+                      // ruleWaitDays), so the wait shown is that one.
+                      const pickupRow = condRows.find((r) => r.metric === "pickup");
+                      const waitInput = {
+                        hasBookingSpeed: true,
+                        cooldownDays: row.booking_speed_cooldown_days,
+                        hasPickup: pickupRow !== undefined,
+                        pickupWindowDays: pickupRow?.pickup_window_days ?? null,
+                      };
+                      const waitLabel = bookingSpeedWaitLabel(eventRuleWaitDays(waitInput));
+                      const pickupSetsWait = pickupWindowSetsWait(waitInput);
                       return (
                         <div
                           key={row.id}
@@ -1533,6 +1632,43 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                                   <option value="30">Past month</option>
                                 </select>
                               </div>
+                              <div>
+                                <div className="mb-0.5 flex items-center gap-1.5">
+                                  <label
+                                    htmlFor={`wait-${row.id}`}
+                                    className="block text-[11px] text-slate-500"
+                                  >
+                                    Then waits (advanced)
+                                  </label>
+                                  <RoomCountHelp
+                                    {...bookingSpeedWaitHelp(
+                                      waitLabel,
+                                      pickupSetsWait ? waitLabel : null,
+                                    )}
+                                  />
+                                </div>
+                                <select
+                                  id={`wait-${row.id}`}
+                                  className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
+                                  value={String(row.booking_speed_cooldown_days)}
+                                  onChange={(e) =>
+                                    updateCondRow(row.id, {
+                                      booking_speed_cooldown_days: Number(
+                                        e.target.value,
+                                      ) as BookingSpeedWaitDays,
+                                    })
+                                  }
+                                >
+                                  {BOOKING_SPEED_WAIT_OPTIONS.map((o) => (
+                                    <option key={o.days} value={o.days}>
+                                      {o.label}
+                                      {pickupSetsWait && o.days < eventRuleWaitDays(waitInput)
+                                        ? ` (pickup holds it to ${waitLabel})`
+                                        : ""}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
                             </div>
                           ) : null}
                         </div>
@@ -1701,6 +1837,27 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                   );
                 }
                 const whenRelative = formatRelativeAge(cycle.timestamp);
+                if (isRuleAlertChoice(cycle)) {
+                  return (
+                    <div key={`alert-${cycle.id}`} className="rounded border border-slate-800 p-3">
+                      <p className="text-xs text-slate-400">
+                        <time
+                          dateTime={cycle.timestamp}
+                          title={formatDisplayTime(cycle.timestamp)}
+                          className="not-italic"
+                        >
+                          <span className="font-medium text-slate-300">Your answer</span>
+                          <span className="text-slate-500"> · </span>
+                          <span>{formatFriendlyDateTime(cycle.timestamp)}</span>
+                          {whenRelative ? (
+                            <span className="text-slate-500"> ({whenRelative})</span>
+                          ) : null}
+                        </time>
+                      </p>
+                      <p className="mt-1 text-[13px] leading-relaxed text-slate-300">{cycle.title}</p>
+                    </div>
+                  );
+                }
                 return (
                   <div
                     key={cycle.cycle}

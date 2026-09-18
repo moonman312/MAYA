@@ -29,9 +29,12 @@ alter table rule_condition drop constraint if exists rule_condition_bs_window_ch
 alter table rule_condition add constraint rule_condition_bs_window_chk
   check (booking_speed_window_days is null or booking_speed_window_days in (1, 7, 30));
 
+-- At least a day: a rule fires again once its wait has passed, and 0 would
+-- let it cut or raise every run (99_supabase_migration_pickup_event_stacking_v1.sql).
+update rule_condition set booking_speed_cooldown_days = 1 where booking_speed_cooldown_days = 0;
 alter table rule_condition drop constraint if exists rule_condition_bs_cooldown_chk;
 alter table rule_condition add constraint rule_condition_bs_cooldown_chk
-  check (booking_speed_cooldown_days is null or booking_speed_cooldown_days >= 0);
+  check (booking_speed_cooldown_days is null or booking_speed_cooldown_days >= 1);
 
 -- Operator, level, and window travel together; cooldown is optional and
 -- only meaningful when the family is present.

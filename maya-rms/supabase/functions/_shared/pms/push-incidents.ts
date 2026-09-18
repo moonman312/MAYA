@@ -36,11 +36,16 @@
  *
  * Never throws. Recording runs after the rates went out; a failure here is
  * logged and the push result stands.
+ *
+ * The base rate refresh files causes of its own the same way (REFRESH_CAUSES
+ * in push-failure.ts: rates in the PMS it did not take as the hotel's). A run
+ * records only its own step's causes, so the push, which never sees those
+ * nights fail, does not close them as landed.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { raiseAlert, type Alert } from "./alerting.ts";
-import { causeFacts, pmsName, type PushFailure, type PushPhase } from "./push-failure.ts";
+import { causeFacts, pmsName, type PushFailure, type PushPhase, REFRESH_CAUSES } from "./push-failure.ts";
 import { isMissingRelationError } from "../engine/snapshots.ts";
 
 export const INCIDENTS_TABLE = "rate_push_incidents";
@@ -110,6 +115,12 @@ export type PushRunRecord = {
   mayHaveOpen: boolean;
   /** No alert starts when it could still be waiting on the webhook past this (ms). */
   deadlineAt?: number;
+  /**
+   * Whose causes this run records: the push's (every cause but
+   * REFRESH_CAUSES, the default) or the base rate refresh's. The other
+   * step's incidents are neither read nor closed.
+   */
+  recordedBy?: "push" | "refresh";
 };
 
 export type IncidentRecordSummary = {
@@ -194,14 +205,26 @@ export async function recordPushIncidents(
   }
 }
 
-/** Whether the hotel has an incident open for this PMS. A database without the table has none. */
+/** Only the causes the run's step records (PushRunRecord recordedBy). */
+// deno-lint-ignore no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ownCauses(query: any, run: PushRunRecord): any {
+  if (run.recordedBy === "refresh") return query.in("cause", REFRESH_CAUSES);
+  for (const cause of REFRESH_CAUSES) query = query.neq("cause", cause);
+  return query;
+}
+
+/** Whether the hotel has an incident of the run's causes open for this PMS. A database without the table has none. */
 async function hasOpenIncident(supabase: SupabaseClient, run: PushRunRecord): Promise<boolean> {
-  const { data, error } = await supabase
-    .from(INCIDENTS_TABLE)
-    .select("id")
-    .eq("hotel_id", run.hotelId)
-    .eq("pms_type", run.pmsType)
-    .is("resolved_at", null)
+  const { data, error } = await ownCauses(
+    supabase
+      .from(INCIDENTS_TABLE)
+      .select("id")
+      .eq("hotel_id", run.hotelId)
+      .eq("pms_type", run.pmsType)
+      .is("resolved_at", null),
+    run,
+  )
     .limit(1)
     .maybeSingle();
   if (error) {
@@ -289,13 +312,15 @@ async function record(
   const openByCause = new Map<string, Working>();
   const openRows = await readAll(
     () =>
-      supabase
-        .from(INCIDENTS_TABLE)
-        .select(INCIDENT_COLUMNS)
-        .eq("hotel_id", run.hotelId)
-        .eq("pms_type", run.pmsType)
-        .is("resolved_at", null)
-        .order("opened_at", { ascending: true }),
+      ownCauses(
+        supabase
+          .from(INCIDENTS_TABLE)
+          .select(INCIDENT_COLUMNS)
+          .eq("hotel_id", run.hotelId)
+          .eq("pms_type", run.pmsType)
+          .is("resolved_at", null),
+        run,
+      ).order("opened_at", { ascending: true }),
     "open incidents",
   );
   for (const r of openRows) {

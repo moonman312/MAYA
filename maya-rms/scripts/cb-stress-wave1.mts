@@ -92,12 +92,15 @@ for (const [rt, name] of [[Q, "queen"], [K, "king"]] as const) {
   ok ? pass++ : fail++;
 }
 
-// S7 pickup event existence
+// S7 pickup event existence. A rule can hold several fires on one night and
+// room type now (each with its own fire number), so this counts the rules
+// still adjusting the night, not the rows.
 const { data: pev } = await admin
-  .from("pickup_event").select("room_type_id, applied_at, action_value")
-  .eq("hotel_id", HOTEL).eq("stay_date", "2026-10-26");
-console.log(`S7 pickup events: ${pev?.length ?? 0} (want 2) ${JSON.stringify(pev)}`);
-(pev?.length === 2) ? pass++ : fail++;
+  .from("pickup_event").select("rule_id, affected_room_type_id, applied_at, fire_seq, action_value")
+  .eq("hotel_id", HOTEL).eq("stay_date", "2026-10-26").is("retired_at", null);
+const pevRules = new Set((pev ?? []).map((e) => `${e.rule_id}|${e.affected_room_type_id}`));
+console.log(`S7 pickup events: ${pevRules.size} rules adjusting, ${pev?.length ?? 0} fires (want 2 rules) ${JSON.stringify(pev)}`);
+(pevRules.size === 2) ? pass++ : fail++;
 
 // ── PUSH ──
 const secretRes = await fetch(`${env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/rpc/pms_secret_get`, {

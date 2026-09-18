@@ -36,6 +36,37 @@ describe("describeSave", () => {
     ).toContain("Paused 3 rules");
   });
 
+  it("tells the truth about a comp night: nothing raises a 0", () => {
+    const comp = [{ stay_date: "2026-11-14", base: 0, final: 0, clamped_by: "none" }];
+    expect(
+      describeSave({ pushed: "zero_not_sent", suppressedRules: 0, retiredPickups: 0, preview: comp }, "Cloudbeds"),
+    ).toBe(
+      "Saved. MAYA doesn't send a price of 0 to Cloudbeds, so set the night to 0 there yourself. No rule raises a night set to 0.",
+    );
+    expect(
+      describeSave(
+        { pushed: "simulation", suppressedRules: 0, retiredPickups: 0, pausedRules: 2, cells: 1, preview: comp },
+        "Cloudbeds",
+      ),
+    ).toBe(
+      "Saved (simulation: not sent to Cloudbeds). Paused 2 rules on this night for this room; no rule raises a night set to 0.",
+    );
+    // A price that is not 0 reads as it always has.
+    expect(
+      describeSave(
+        {
+          pushed: "nudged",
+          suppressedRules: 0,
+          retiredPickups: 0,
+          pausedRules: 1,
+          cells: 1,
+          preview: [{ stay_date: "2026-11-14", base: 120, final: 120, clamped_by: "none" }],
+        },
+        "Cloudbeds",
+      ),
+    ).toContain("new rules will apply on top.");
+  });
+
   it("splits a range that straddles the 60-day window per night, singular and plural", () => {
     expect(
       describeSave(
@@ -106,6 +137,21 @@ describe("describeSave", () => {
     ).toBe(
       "Saved. 2 nights sending to Cloudbeds now; 2 more will be sent as they enter the 60-day window. Paused 2 rules on these 4 nights for this room; new rules will apply on top.",
     );
+  });
+
+  it("counts rules, not fires, when one rule has cut the night several times", () => {
+    // Three stacked cuts of one rule on one night is one rule paused.
+    expect(
+      describeSave({ pushed: "nudged", suppressedRules: 0, retiredPickups: 3, pausedRules: 1, cells: 1 }, "Cloudbeds"),
+    ).toBe("Saved. Sending to Cloudbeds now. Paused 1 rule on this night for this room; new rules will apply on top.");
+    // Five nights with three stacks each, still the one rule.
+    expect(
+      describeSave({ pushed: "nudged", suppressedRules: 0, retiredPickups: 15, pausedRules: 1, cells: 5 }, "Cloudbeds"),
+    ).toContain("Paused 1 rule on these 5 nights");
+    // Nothing paused at all says nothing.
+    expect(
+      describeSave({ pushed: "nudged", suppressedRules: 0, retiredPickups: 0, pausedRules: 0 }, "Cloudbeds"),
+    ).toBe("Saved. Sending to Cloudbeds now.");
   });
 
   it("counts the nights when the save covered a range", () => {

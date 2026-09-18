@@ -874,10 +874,11 @@ export function RateSimulator({
         )}
 
         <p className="mt-4 text-[11px] text-slate-500">
-          Two things this preview simplifies: a ladder rule fires on the way into its condition and
-          holds, so this shows where the night settles rather than each step; and when several event
-          rules match, the engine picks one winner while this adds them all, so treat it as the top
-          of the range.
+          Three things this preview simplifies: a ladder rule fires on the way into its condition
+          and holds, so this shows where the night settles rather than each step; when several event
+          rules match, the engine picks one winner while this adds them all; and an event rule that
+          is still true once its wait is over adjusts the night again, which this shows only once.
+          It is one run, not where a night ends up over a week.
         </p>
       </div>
     </section>

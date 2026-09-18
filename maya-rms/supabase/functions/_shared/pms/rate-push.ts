@@ -40,15 +40,19 @@
  *     with a reason code and never sent. Codes: push-guardrails.ts. A price
  *     only counts as vouched for by an evaluation that priced its night.
  *     A manual price is sent as the engine published it, under the floor or
- *     over the ceiling included; a price of 0 only to a PMS known to take it.
+ *     over the ceiling included; a price of 0 only to a PMS known to take it,
+ *     and a comp night the PMS already has at 0 on a night MAYA never sent to
+ *     is nothing to send rather than a problem to file.
  *   • Manual prices — a published price older than the manual price on its
  *     night was priced before that manual price existed, and is not sent
  *     until an evaluation has priced the night again. On a night changed in
  *     the PMS (base-rate-calendar.ts) that old price is MAYA's, and sending
  *     it would write over the hotel's change.
- *   • Changes in the PMS — before a new price goes to a night already sent
- *     to, the tick can read the PMS again (readBeforeResend); a night whose
- *     rate there moved waits for the next evaluation instead.
+ *   • Changes in the PMS — before a new price goes to a night last sent to
+ *     over the settle window ago, the tick can read the PMS again
+ *     (readBeforeResend); a night whose rate there moved waits for the next
+ *     evaluation instead, as does one the tick's own read found moved but
+ *     could not record (movedInPms).
  *   • Ledger — each batch is recorded as in progress before it goes out, and
  *     again as soon as the PMS answers it. A send the ledger does not know
  *     about would be read back by the base rate calendar as the hotel's own
@@ -62,6 +66,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { lastNightOf, MAX_PRICING_HORIZON_DAYS, pricingHorizonDays, readHotelClock } from "./pricing-window.ts";
 import {
   checkPushGuardrails,
+  GUARDRAIL,
   type GuardrailCode,
   type GuardrailRoomType,
   ledgerRowNeverSent,
@@ -242,12 +247,23 @@ export type RatePushOptions = {
    * Read the PMS again before a new price goes to a night MAYA has sent to,
    * and say which nights' rates there moved since the evaluation priced them
    * (null when the read could not be made). The tick passes it unless its
-   * base rate refresh read the PMS already: that refresh runs hourly, and a
-   * rate the hotel changed in between would otherwise be written over before
-   * it was ever seen. Those nights wait for the next evaluation; with null,
-   * everything goes as it would have.
+   * base rate refresh read the PMS already, or had its read of the PMS fail
+   * this tick: that refresh runs hourly, and a rate the hotel changed in
+   * between would otherwise be written over before it was ever seen. Those
+   * nights wait for the next evaluation; with null, everything goes as it
+   * would have.
+   *
+   * A read finds the hotel's change only on a night whose last send is at
+   * least `settleMs` old (pmsEditSettleMs()), so it is made only when a night
+   * about to get a new price was last sent to that long ago.
    */
-  readBeforeResend?: () => Promise<Set<string> | null>;
+  readBeforeResend?: { settleMs: number; read: () => Promise<Set<string> | null> };
+  /**
+   * Nights this tick's own base rate read found moved in the PMS that must
+   * not get a new price yet (the refresh's holdCells): held like the ones
+   * readBeforeResend finds, without reading again.
+   */
+  movedInPms?: Set<string>;
 };
 
 export type RatePushSummary =
@@ -280,8 +296,12 @@ export type RatePushSummary =
       awaitingBaseRead?: number;
       /** Cells whose published price predates the manual price on their night, held until it is priced again. */
       awaitingEvaluation?: number;
-      /** Cells whose rate the PMS had moved on since they were priced (readBeforeResend), held until priced again. */
+      /** Cells whose rate the PMS had moved on since they were priced (readBeforeResend, movedInPms), held until priced again. */
       changedInPms?: number;
+      /** Comp nights (a manual price of 0) MAYA never sent to that the PMS already has at 0: nothing to send. */
+      compInPms?: number;
+      /** How long the read before re-sending took, when one was made. */
+      readBeforeResendMs?: number;
       /**
        * A rate_updates write failed and nothing more was sent this run.
        * `unrecorded` cells reached the PMS (or were refused by it) with only
@@ -426,7 +446,7 @@ export async function pushRatesForHotel(
   // The rate each sent cell went to, so a cell whose target has since moved is sent again.
   const lastSentRateId = new Map<string, string>();
   const lastFailed = new Map<string, FailedCell>();
-  const priorRow = new Map<string, { status: unknown; price: unknown; attempts: unknown; error: unknown }>();
+  const priorRow = new Map<string, { status: unknown; price: unknown; attempts: unknown; error: unknown; pushedAtMs: number }>();
   // Tries a sent cell took at its price, so a job rejected later carries the count on.
   const sentAttempts = new Map<string, number>();
   // Cells an earlier run sent whose job may not have been confirmed yet.
@@ -438,7 +458,13 @@ export async function pushRatesForHotel(
   const lookbackFrom = nowMs - RECONCILE_LOOKBACK_MS;
   for (const l of ledgerRows) {
     const key = `${l.stay_date}|${String(l.room_type_id)}`;
-    priorRow.set(key, { status: l.status, price: l.price, attempts: l.attempts, error: l.error });
+    priorRow.set(key, {
+      status: l.status,
+      price: l.price,
+      attempts: l.attempts,
+      error: l.error,
+      pushedAtMs: l.pushed_at != null ? Date.parse(String(l.pushed_at)) : NaN,
+    });
     if (l.status === "sent" && l.price != null) {
       lastSent.set(key, Number(l.price));
       if (l.external_rate_id != null && l.external_rate_id !== "") lastSentRateId.set(key, String(l.external_rate_id));
@@ -528,10 +554,12 @@ export async function pushRatesForHotel(
     candidates.length > 0 || unchanged.length > 0
       ? await loadOpenManualPrices(supabase, hotelId, firstDate, lastDate)
       : new Map<string, OpenManualPrice>();
-  const zeroBase =
+  // Nights the PMS has at 0, and of those the ones nobody typed a price for.
+  const pmsZero =
     candidates.length > 0 || unchanged.length > 0
-      ? await loadZeroBaseNights(supabase, hotelId, firstDate, lastDate, manualPrices)
+      ? await loadZeroBaseNights(supabase, hotelId, firstDate, lastDate)
       : new Set<string>();
+  const zeroBase = new Set([...pmsZero].filter((key) => !manualPrices.has(key)));
   const freshAfterMs = Date.now() - pushMaxPriceAgeMs();
   const tickEvaluatedAtMs = opts.evaluatedAt ? Date.parse(opts.evaluatedAt) : NaN;
   // Evaluations on record that may vouch for a price, read once and only when needed.
@@ -564,7 +592,8 @@ export async function pushRatesForHotel(
   const lateGuardrailRows: Record<string, unknown>[] = [];
   const guardrails: Partial<Record<GuardrailCode, number>> = {};
   let skippedGuardrail = 0;
-  /** Held back with a code: recorded, never sent. True when the cell was held. */
+  let compInPms = 0;
+  /** Held back with a code, or already in the PMS: recorded or not, never sent. True when the cell is not going out. */
   const holdBack = async (c: Candidate, rows: Record<string, unknown>[]): Promise<boolean> => {
     const key = `${c.stayDate}|${c.roomTypeId}`;
     const code = checkPushGuardrails({
@@ -582,6 +611,14 @@ export async function pushRatesForHotel(
     });
     if (!code) return false;
     const cell = cellOf(c);
+    // A comp night MAYA never sent to that the PMS already has at 0: the
+    // owner set it there, as the save asked them to. Nothing to send, and
+    // nothing wrong to tell them about.
+    if (code === GUARDRAIL.zeroRateUnsupported && pmsZero.has(key) && ledgerRowNeverSent(priorRow.get(key))) {
+      compInPms += 1;
+      run.cells.set(key, { ...cellRef(cell), state: "landed" });
+      return true;
+    }
     skippedGuardrail += 1;
     guardrails[code] = (guardrails[code] ?? 0) + 1;
     const failure = classifyPushFailure({ pms: adapter.pmsType, phase: "guardrail", message: code });
@@ -652,11 +689,14 @@ export async function pushRatesForHotel(
   };
   let skippedHeld = sittingOut.length - summary.skippedExhausted;
   let changedInPms = 0;
+  let readBeforeResendMs: number | null = null;
   const extras = () => ({
     ...(skippedHeld > 0 ? { skippedHeld } : {}),
     ...(awaitingBaseRead > 0 ? { awaitingBaseRead } : {}),
     ...(awaitingEvaluation > 0 ? { awaitingEvaluation } : {}),
     ...(changedInPms > 0 ? { changedInPms } : {}),
+    ...(compInPms > 0 ? { compInPms } : {}),
+    ...(readBeforeResendMs != null ? { readBeforeResendMs } : {}),
   });
 
   // Held-back cells are recorded before anything is sent. A ledger that
@@ -820,16 +860,31 @@ export async function pushRatesForHotel(
   }
 
   // A new price for a night MAYA has sent to writes over whatever the PMS has
-  // there now, which may be a rate the hotel changed since the last read.
-  if (opts.readBeforeResend && withTarget.some((c) => priorRow.get(`${c.stayDate}|${c.roomTypeId}`)?.status === "sent")) {
-    const moved = await opts.readBeforeResend();
-    if (moved && moved.size > 0) {
-      withTarget = withTarget.filter((c) => {
-        if (!moved.has(`${c.stayDate}|${c.roomTypeId}`)) return true;
-        changedInPms += 1;
-        return false;
-      });
+  // there now, which may be a rate the hotel changed since the last read. The
+  // read costs PMS calls, against the vendor's rate limit and this run's
+  // deadline, and can only find a change on a night whose last send is past
+  // the settle window, so it is made only when one of these nights is.
+  let moved = opts.movedInPms ?? null;
+  if (opts.readBeforeResend) {
+    const settledBefore = Date.now() - opts.readBeforeResend.settleMs;
+    const worthReading = withTarget.some((c) => {
+      const prior = priorRow.get(`${c.stayDate}|${c.roomTypeId}`);
+      return prior?.status === "sent" && prior.pushedAtMs <= settledBefore;
+    });
+    if (worthReading) {
+      const startedAt = Date.now();
+      const read = await opts.readBeforeResend.read();
+      readBeforeResendMs = Date.now() - startedAt;
+      if (read) moved = moved ? new Set([...moved, ...read]) : read;
     }
+  }
+  if (moved && moved.size > 0) {
+    const hold = moved;
+    withTarget = withTarget.filter((c) => {
+      if (!hold.has(`${c.stayDate}|${c.roomTypeId}`)) return true;
+      changedInPms += 1;
+      return false;
+    });
   }
 
   // ── Push, recorded before it goes and again once the PMS answers ──────────
@@ -1260,16 +1315,15 @@ function finiteOr(ms: number): number {
 }
 
 /**
- * Nights whose PMS base rate is 0 (closed, or rates not loaded that far) and
- * that have no open manual price. Throws on a failed read: without it there
- * is no telling a closed night from an open one.
+ * Nights whose PMS base rate is 0: closed, rates not loaded that far, or a
+ * comp night the owner has set to 0 in the PMS themselves. Throws on a failed
+ * read: without it there is no telling a closed night from an open one.
  */
 async function loadZeroBaseNights(
   supabase: SupabaseClient,
   hotelId: string,
   firstDate: string,
   lastDate: string,
-  manualPrices: Map<string, OpenManualPrice>,
 ): Promise<Set<string>> {
   const zero = new Set<string>();
   const calRows = await fetchAll(() =>
@@ -1286,7 +1340,6 @@ async function loadZeroBaseNights(
   for (const r of calRows) {
     if (r.room_type_id && r.price != null && Number(r.price) === 0) zero.add(`${r.stay_date}|${r.room_type_id}`);
   }
-  for (const key of manualPrices.keys()) zero.delete(key);
   return zero;
 }
 

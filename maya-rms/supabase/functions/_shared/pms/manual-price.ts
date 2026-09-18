@@ -13,7 +13,9 @@
  *     The row stays active, so the rule does not fire again on the trigger
  *     the price already answered, and stops contributing until its next
  *     transition;
- *   - every open pickup event on the cell is retired.
+ *   - every open pickup event on the cell is retired. One rule can hold
+ *     several of them on a night since stacking, so the count that goes back
+ *     to the person who typed the price is of rules, not rows.
  *
  * The engine does the rest from the row: the manual price outranks every
  * other base, a rule that fires later stacks on it, and the pickup baseline
@@ -47,6 +49,14 @@ export type ManualPriceResult = {
   suppressedRules: number;
   /** Open pickup events this retired. */
   retiredPickups: number;
+  /**
+   * How many rules that is, counted once each. An event rule can hold several
+   * open fires on one night since stacking, so the row counts above are rows,
+   * not rules, and the line the owner reads is this one. The PMS path goes
+   * through one transaction that returns counts only, so it leaves this
+   * undefined.
+   */
+  pausedRules?: number;
 };
 
 const CHUNK = 500;
@@ -142,6 +152,7 @@ export async function setManualPrices(
   // the same trigger) but stop contributing until their next transition.
   const runs = nightRuns(cells);
   let suppressedRules = 0;
+  const pausedRuleIds = new Set<string>();
   const ruleIds = await hotelRuleIds(supabase, hotelId);
   if (ruleIds.length > 0) {
     for (const run of runs) {
@@ -157,6 +168,7 @@ export async function setManualPrices(
         .select("rule_id");
       if (error) throw error;
       suppressedRules += (data ?? []).length;
+      for (const row of (data ?? []) as { rule_id: unknown }[]) pausedRuleIds.add(String(row.rule_id));
     }
   }
 
@@ -164,18 +176,21 @@ export async function setManualPrices(
   for (const run of runs) {
     const { data, error } = await supabase
       .from("pickup_event")
-      .update({ retired_at: now })
+      // A fire retired for a price someone set never starts the rule's wait:
+      // the wait runs from the price's own set_at instead (pickup.ts).
+      .update({ retired_at: now, retired_reason: "manual_price" })
       .eq("hotel_id", hotelId)
       .eq("affected_room_type_id", run.roomTypeId)
       .gte("stay_date", run.from)
       .lte("stay_date", run.to)
       .is("retired_at", null)
-      .select("id");
+      .select("id, rule_id");
     if (error) throw error;
     retiredPickups += (data ?? []).length;
+    for (const row of (data ?? []) as { rule_id: unknown }[]) pausedRuleIds.add(String(row.rule_id));
   }
 
-  return { cells: rows.length, suppressedRules, retiredPickups };
+  return { cells: rows.length, suppressedRules, retiredPickups, pausedRules: pausedRuleIds.size };
 }
 
 /**

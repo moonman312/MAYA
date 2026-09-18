@@ -63,7 +63,6 @@ function baseInput(overrides: Partial<AuditInput> = {}): AuditInput {
     ladderResults: [],
     pickupWinners: [],
     pickupLosers: [],
-    pickupIdempotentSkips: [],
     pickupWriteFailures: [],
     basePrices: new Map(),
     ...overrides,

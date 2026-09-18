@@ -205,7 +205,11 @@ describe("updateRule: validates before mutating, repairs a failed condition writ
     );
     expect(ok).toBe(true);
     expect(tables.get("pricing_rules")?.[0]).toMatchObject({ version: 2 });
-    expect(tables.get("pickup_event")?.[0]).toMatchObject({ retired_at: expect.any(String) });
+    // Retired with the reason, so the fire never holds the edited rule back.
+    expect(tables.get("pickup_event")?.[0]).toMatchObject({
+      retired_at: expect.any(String),
+      retired_reason: "rule_edited",
+    });
     expect(tables.get("rule_condition")).toHaveLength(1);
     expect(tables.get("rule_condition")?.[0]).toMatchObject({ occupancy_operator: "lt", occupancy_threshold: 0.3 });
   });
@@ -233,5 +237,55 @@ describe("listRules: occupancy percentage display does not show float noise", ()
     });
     const rules = await listRules(client, "h1");
     expect(rules[0].conditions.occupancy_percentage).toBe(`>${pct}`);
+  });
+});
+
+describe("listRules: a booking speed rule's card says how long it waits", () => {
+  const card = async (cooldown: number | null, pickup?: { operator: string; windowDays: number }) => {
+    const { client } = fakeSupabase({
+      pricing_rules: [
+        {
+          id: "r1",
+          hotel_id: "h1",
+          name: "Hot-week surge",
+          is_active: true,
+          version: 1,
+          action_type: "percent",
+          action_direction: "increase",
+          action_value: 25,
+          is_pickup_rule: true,
+          rule_condition: {
+            booking_speed_operator: "at_least",
+            booking_speed_level: "much_faster",
+            booking_speed_window_days: 7,
+            booking_speed_cooldown_days: cooldown,
+            ...(pickup
+              ? { pickup_operator: pickup.operator, pickup_threshold: 5, pickup_window_days: pickup.windowDays }
+              : {}),
+          },
+        },
+      ],
+    });
+    return (await listRules(client, "h1"))[0].conditions.booking_speed;
+  };
+
+  it("names the wait, because the rule acts again once it is over", async () => {
+    expect(await card(2)).toBe("at least Much Faster Than Normal (past week), then waits 2 days");
+    expect(await card(14)).toBe("at least Much Faster Than Normal (past week), then waits 2 weeks");
+  });
+
+  it("reads a rule saved without one as the week the engine gives it", async () => {
+    expect(await card(null)).toBe("at least Much Faster Than Normal (past week), then waits 1 week");
+  });
+
+  it("names the longer wait when the rule also counts pickup, because that is the one the engine keeps", async () => {
+    // ruleWaitDays takes the longer of the stored wait and the pickup window.
+    expect(await card(1, { operator: "gt", windowDays: 7 })).toBe(
+      "at least Much Faster Than Normal (past week), then waits 1 week",
+    );
+    // And the stored wait still wins when it is the longer one.
+    expect(await card(14, { operator: "gt", windowDays: 7 })).toBe(
+      "at least Much Faster Than Normal (past week), then waits 2 weeks",
+    );
   });
 });

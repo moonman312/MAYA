@@ -48,6 +48,7 @@ export function setManualPricesFromPms(tables: Record<string, FakeRow[]>, a: Rec
   for (const e of tables.pickup_event ?? []) {
     if (e.hotel_id !== a.p_hotel_id || !cells.has(`${e.affected_room_type_id}|${e.stay_date}`) || e.retired_at != null) continue;
     e.retired_at = a.p_set_at;
+    e.retired_reason = "manual_price";
     retired += 1;
   }
   return [{ cells: cells.size, suppressed_rules: suppressed, retired_pickups: retired }];
@@ -74,8 +75,8 @@ describe("set_manual_prices_from_pms model", () => {
         { rule_id: "r9", stay_date: "2026-10-01", room_type_id: "rt1", is_active: true, suppressed_at: null },
       ],
       pickup_event: [
-        { id: "p1", hotel_id: "h1", stay_date: "2026-10-02", affected_room_type_id: "rt1", retired_at: null },
-        { id: "p2", hotel_id: "h1", stay_date: "2026-10-03", affected_room_type_id: "rt1", retired_at: null },
+        { id: "p1", hotel_id: "h1", rule_id: "r1", stay_date: "2026-10-02", affected_room_type_id: "rt1", retired_at: null },
+        { id: "p2", hotel_id: "h1", rule_id: "r1", stay_date: "2026-10-03", affected_room_type_id: "rt1", retired_at: null },
       ],
     });
     const at = "2026-09-17T12:00:00.000Z";
@@ -88,7 +89,16 @@ describe("set_manual_prices_from_pms model", () => {
     const pms = fakeSupabase(seed());
     const pmsRes = await setManualPrices(pms.client, "h1", cells, { source: "pms", pmsType: "cloudbeds" }, at);
 
-    expect(pmsRes).toEqual(typedRes);
+    const counts = (r: Awaited<ReturnType<typeof setManualPrices>>) => ({
+      cells: r.cells,
+      suppressedRules: r.suppressedRules,
+      retiredPickups: r.retiredPickups,
+    });
+    expect(counts(pmsRes)).toEqual(counts(typedRes));
+    // Only the typed path counts the rules behind those rows, for the line the
+    // person who typed the price reads. The PMS transaction returns counts.
+    expect(typedRes.pausedRules).toBe(1);
+    expect(pmsRes.pausedRules).toBeUndefined();
     expect(pms.tables.ladder_rule_state).toEqual(typed.tables.ladder_rule_state);
     expect(pms.tables.pickup_event).toEqual(typed.tables.pickup_event);
     const shape = (rows: FakeRow[]) => rows.map((r) => [r.stay_date, r.room_type_id, r.price, r.set_at, r.cleared_at]);

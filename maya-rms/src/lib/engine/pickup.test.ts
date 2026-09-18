@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { basePriceKey, insertPickupEvent, pickupTieBreakTrace, runPickupPass, selectPickupWinner } from "./pickup";
+import {
+  FIRE_UNIQUE_INDEX,
+  basePriceKey,
+  baselineTsFrom,
+  cancelCheckFor,
+  candidateFor,
+  insertPickupEvent,
+  isWaiting,
+  pickupTieBreakTrace,
+  ruleWaitDays,
+  runPickupPass,
+  selectPickupWinner,
+  waitAnchor,
+} from "./pickup";
+import { fakeSupabase } from "./fake-supabase.test";
 import type { EngineRule } from "@/types/domain";
 import type { PickupCandidate, RuleMetrics } from "./types";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -55,6 +69,13 @@ function makeCandidate(rule: EngineRule, rtId: string = "rt1", stayDate: string 
     signal_booked_units_end: 16,
     signal_booked_revenue_start: 2000,
     signal_booked_revenue_end: 3200,
+    fire_seq: 1,
+    cancel_check: "net_units",
+    window_from: null,
+    window_to: null,
+    window_bookings_at_fire: null,
+    window_expected_at_fire: null,
+    signal_set_key: "rt1",
   };
 }
 
@@ -291,85 +312,284 @@ describe("pickup competition (§7.3, §15.5)", () => {
   });
 });
 
-describe("insertPickupEvent: concurrent runs racing the same cell (regression)", () => {
-  // Two overlapping evaluation runs can both read the same stale baseline
-  // and both decide to insert an active event for the same (rule, stay
-  // date, room type) — uq_pickup_event_active_per_rule_stay_room is the DB
-  // guard against that. This pins the tri-state insertPickupEvent must
-  // return: losing that race is "already_active" (the desired state exists
-  // via the other run, not a failure), while any OTHER error is
-  // "write_failed" and must never be confused with either success case —
-  // that confusion is what previously let a genuine write failure get
-  // recorded as a mere idempotency skip.
-  function fakeSupabaseRejectingWith(code: string | null) {
-    return {
-      from: () => ({
-        insert: () =>
-          Promise.resolve(
-            code ? { error: { code, message: "duplicate key value violates unique constraint" } } : { error: null },
-          ),
-      }),
-    } as unknown as SupabaseClient;
-  }
-
-  it("treats a unique-violation (23505) as already_active — a concurrent run already won", async () => {
-    const rule = makeRule();
-    const candidate = makeCandidate(rule);
-    const result = await insertPickupEvent(fakeSupabaseRejectingWith("23505"), candidate, "hotel-1");
-    expect(result).toBe("already_active");
+describe("waits", () => {
+  it("a booking speed rule waits its cooldown, a week by default and never under a day", () => {
+    const bs = (cooldown: number | null) =>
+      makeRule({
+        condition: { booking_speed_operator: "at_most", booking_speed_level: "slower", booking_speed_window_days: 30, booking_speed_cooldown_days: cooldown },
+      });
+    expect(ruleWaitDays(bs(null))).toBe(7);
+    expect(ruleWaitDays(bs(2))).toBe(2);
+    expect(ruleWaitDays(bs(0))).toBe(1);
   });
 
-  it("reports write_failed for any other error", async () => {
-    const rule = makeRule();
-    const candidate = makeCandidate(rule);
-    const result = await insertPickupEvent(fakeSupabaseRejectingWith("42501"), candidate, "hotel-1");
-    expect(result).toBe("write_failed");
+  it("a pickup count rule waits its own window, and a rule with both waits the longer", () => {
+    expect(ruleWaitDays(makeRule())).toBe(3);
+    const mixed = makeRule({
+      condition: {
+        pickup_operator: "gt",
+        pickup_threshold: 5,
+        pickup_window_days: 7,
+        pickup_metric: "room_nights",
+        booking_speed_operator: "at_least",
+        booking_speed_level: "faster",
+        booking_speed_window_days: 30,
+        booking_speed_cooldown_days: 2,
+      },
+    });
+    expect(ruleWaitDays(mixed)).toBe(7);
+    expect(ruleWaitDays(makeRule({ condition: { ...mixed.condition, pickup_window_days: 1 } }))).toBe(2);
   });
 
-  it("reports inserted on a clean insert with no error", async () => {
-    const rule = makeRule();
-    const candidate = makeCandidate(rule);
-    const result = await insertPickupEvent(fakeSupabaseRejectingWith(null), candidate, "hotel-1");
-    expect(result).toBe("inserted");
+  it("the wait runs from the last fire, or from a price typed after the rule was made", () => {
+    const rule = makeRule({ created_at: "2026-01-01T00:00:00Z" });
+    const head = { maxFireSeq: 2, anchorAt: "2026-07-10T00:00:00Z", counted: 2, lastCountedAt: "2026-07-10T00:00:00Z" };
+    expect(waitAnchor(rule, head, undefined)).toBe("2026-07-10T00:00:00Z");
+    expect(waitAnchor(rule, head, { set_at: "2026-07-12T00:00:00Z" })).toBe("2026-07-12T00:00:00Z");
+    expect(waitAnchor(rule, head, { set_at: "2026-07-01T00:00:00Z" })).toBe("2026-07-10T00:00:00Z");
+    expect(waitAnchor(rule, undefined, undefined)).toBeNull();
+    // A rule made after the price was typed is not held by it.
+    const later = makeRule({ created_at: "2026-07-13T00:00:00Z" });
+    expect(waitAnchor(later, undefined, { set_at: "2026-07-12T00:00:00Z" })).toBeNull();
+  });
+
+  it("waiting runs out exactly on the day", () => {
+    expect(isWaiting("2026-07-12T02:30:00Z", "2026-07-15T02:29:59Z", 3)).toBe(true);
+    expect(isWaiting("2026-07-12T02:30:00Z", "2026-07-15T02:30:00Z", 3)).toBe(false);
+    expect(isWaiting(null, "2026-07-15T02:30:00Z", 3)).toBe(false);
+  });
+
+  it("a pickup window opens exactly its length back; a booking speed rule reads no old snapshot", () => {
+    expect(baselineTsFrom(makeRule(), "2026-07-15T02:30:00.000Z")).toBe("2026-07-12T02:30:00.000Z");
+    const bs = makeRule({
+      condition: { booking_speed_operator: "at_most", booking_speed_level: "slower", booking_speed_window_days: 30 },
+    });
+    expect(baselineTsFrom(bs, "2026-07-15T02:30:00.000Z")).toBeNull();
   });
 });
 
-describe("runPickupPass: a genuine write failure is never mislabeled as an idempotency skip (regression)", () => {
+describe("which cancellation test a fire gets", () => {
+  const metrics = (over: Partial<RuleMetrics> = {}): RuleMetrics => ({
+    ...baseMetrics,
+    signal_booked_units_baseline: 10,
+    signal_booked_units_now: 16,
+    ...over,
+  });
+  const faster = { speed: "faster", rank: 1, label: "Faster Than Normal", recent: 9, expected: 5, window_days: 30, method: "comparable" };
+
+  it("a cut never comes off for cancellations", () => {
+    const rule = makeRule({ action_direction: "decrease" });
+    expect(cancelCheckFor(rule, metrics())).toBe("none");
+  });
+
+  it("a raise on bookings growing over its window gets the net test", () => {
+    expect(cancelCheckFor(makeRule(), metrics())).toBe("net_units");
+    // No growth behind it: nothing to take back.
+    expect(cancelCheckFor(makeRule(), metrics({ signal_booked_units_now: 10 }))).toBe("none");
+  });
+
+  it("a raise on a faster pace gets the window test, and one on both gets either", () => {
+    const bs = makeRule({
+      condition: { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 30 },
+    });
+    expect(cancelCheckFor(bs, metrics({ booking_speed: faster }))).toBe("window_bookings");
+    const mixed = makeRule({ condition: { ...makeRule().condition, ...bs.condition } });
+    expect(cancelCheckFor(mixed, metrics({ booking_speed: faster }))).toBe("either");
+  });
+
+  it("a raise whose trigger is slow or thin is never undone by cancellations", () => {
+    const slow = makeRule({
+      condition: { booking_speed_operator: "at_most", booking_speed_level: "slower", booking_speed_window_days: 30 },
+    });
+    const slowNow = { speed: "slower", rank: -1, label: "Slower Than Normal", recent: 1, expected: 5, window_days: 30, method: "comparable" };
+    expect(cancelCheckFor(slow, metrics({ booking_speed: slowNow, signal_booked_units_now: 10 }))).toBe("none");
+    const thin = makeRule({ condition: { ...makeRule().condition, pickup_operator: "lt", pickup_threshold: 1 } });
+    expect(cancelCheckFor(thin, metrics())).toBe("none");
+  });
+});
+
+describe("the fire a rule would make", () => {
+  it("numbers the fire above the cell's highest, and freezes the booking speed window", () => {
+    const rule = makeRule({
+      condition: { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 7 },
+      signal_room_type_ids: ["rt2", "rt1"],
+    });
+    const c = candidateFor({
+      rule,
+      metrics: {
+        ...baseMetrics,
+        signal_booked_units_now: 16,
+        signal_booked_revenue_now: 3200,
+        booking_speed: { speed: "faster", rank: 1, label: "Faster Than Normal", recent: 9, expected: 5.125, window_days: 7, method: "comparable" },
+      },
+      stayDate: "2026-07-15",
+      roomTypeId: "rt1",
+      now: "2026-07-01T12:00:00.000Z",
+      localDate: "2026-07-01",
+      baselineTs: null,
+      head: { maxFireSeq: 2, anchorAt: null, counted: 0, lastCountedAt: null },
+    });
+    expect(c.fire_seq).toBe(3);
+    expect(c.window_from).toBe("2026-06-25");
+    expect(c.window_to).toBe("2026-07-01");
+    expect(c.window_bookings_at_fire).toBe(9);
+    expect(c.window_expected_at_fire).toBe(5.13);
+    expect(c.signal_set_key).toBe("rt1,rt2");
+    // No pickup window: the start numbers are now's, and only informational.
+    expect(c.signal_booked_units_start).toBe(16);
+    expect(c.signal_booked_units_end).toBe(16);
+    expect(c.baseline_ts).toBe("2026-06-24T12:00:00.000Z");
+    expect(c.cancel_check).toBe("window_bookings");
+  });
+
+  it("a pickup rule records what its window opened at", () => {
+    const c = candidateFor({
+      rule: makeRule(),
+      metrics: { ...baseMetrics, signal_booked_units_baseline: 10, signal_booked_units_now: 16, signal_booked_revenue_baseline: 2000, signal_booked_revenue_now: 3200 },
+      stayDate: "2026-07-15",
+      roomTypeId: "rt1",
+      now: "2026-07-01T12:00:00.000Z",
+      localDate: "2026-07-01",
+      baselineTs: "2026-06-28T12:00:00.000Z",
+      head: undefined,
+    });
+    expect(c.fire_seq).toBe(1);
+    expect(c.signal_booked_units_start).toBe(10);
+    expect(c.window_from).toBeNull();
+    expect(c.cancel_check).toBe("net_units");
+  });
+});
+
+describe("insertPickupEvent: two runs recording the same fire (regression)", () => {
+  // Two overlapping runs can both read the same fire history and both try to
+  // write fire number n+1 for a cell. uq_pickup_event_fire admits one: the
+  // other must not count it as its own fire, and must not confuse it with a
+  // write that genuinely failed.
+  function fakeSupabaseRejectingWith(error: { code: string; message: string } | null) {
+    const insert = () => ({
+      select: () => ({ single: () => Promise.resolve(error ? { data: null, error } : { data: { id: "e1", rule_id: "r1", applied_at: "2026-07-15T02:30:00Z", fire_seq: 1, action_kind: "percent", action_direction: "increase", action_value: 10 }, error: null }) }),
+    });
+    return { from: () => ({ insert }) } as unknown as SupabaseClient;
+  }
+
+  it("a unique violation naming the fire index is a concurrent fire, not this run's", async () => {
+    const result = await insertPickupEvent(
+      fakeSupabaseRejectingWith({ code: "23505", message: `duplicate key value violates unique constraint "${FIRE_UNIQUE_INDEX}"` }),
+      makeCandidate(makeRule()),
+      "hotel-1",
+    );
+    expect(result.status).toBe("concurrent_fire");
+  });
+
+  it("a unique violation on another constraint is a write failure", async () => {
+    const result = await insertPickupEvent(
+      fakeSupabaseRejectingWith({ code: "23505", message: 'duplicate key value violates unique constraint "uq_something_else"' }),
+      makeCandidate(makeRule()),
+      "hotel-1",
+    );
+    expect(result.status).toBe("write_failed");
+  });
+
+  it("reports write_failed for any other error", async () => {
+    const result = await insertPickupEvent(
+      fakeSupabaseRejectingWith({ code: "42501", message: "permission denied" }),
+      makeCandidate(makeRule()),
+      "hotel-1",
+    );
+    expect(result.status).toBe("write_failed");
+  });
+
+  it("returns the written fire as the effect it applies", async () => {
+    const result = await insertPickupEvent(fakeSupabaseRejectingWith(null), makeCandidate(makeRule()), "hotel-1");
+    expect(result).toEqual({
+      status: "inserted",
+      effect: { event_id: "e1", rule_id: "r1", applied_at: "2026-07-15T02:30:00Z", fire_seq: 1, action_kind: "percent", action_direction: "increase", action_value: 10 },
+    });
+  });
+
+  it("writes every column the fire is judged by later", async () => {
+    const { client, tables } = fakeSupabase({ pickup_event: [] });
+    const c = makeCandidate(makeRule());
+    const out = await insertPickupEvent(client, { ...c, fire_seq: 4, window_from: "2026-06-25", window_to: "2026-07-01", window_bookings_at_fire: 9, window_expected_at_fire: 5, cancel_check: "either" }, "hotel-1");
+    expect(out.status).toBe("inserted");
+    expect(tables.pickup_event[0]).toMatchObject({
+      fire_seq: 4,
+      cancel_check: "either",
+      window_from: "2026-06-25",
+      window_to: "2026-07-01",
+      window_bookings_at_fire: 9,
+      window_expected_at_fire: 5,
+      signal_set_key: "rt1",
+      retired_at: null,
+    });
+  });
+});
+
+describe("runPickupPass", () => {
+  const basePrices = new Map([[basePriceKey("2026-07-15", "rt1"), 200]]);
+
   function fakeSupabaseAlwaysFailingWith(code: string) {
     return {
       from: () => ({
-        insert: () => Promise.resolve({ error: { code, message: "insert failed" } }),
+        insert: () => ({ select: () => ({ single: () => Promise.resolve({ data: null, error: { code, message: "insert failed" } }) }) }),
       }),
     } as unknown as SupabaseClient;
   }
 
-  it("puts a real insert failure in write_failures, not idempotent_skips", async () => {
+  it("puts a real insert failure in write_failures, never among the winners", async () => {
     const rule = makeRule();
-    const candidate = makeCandidate(rule);
-    const outcome = await runPickupPass(
-      fakeSupabaseAlwaysFailingWith("57014"), // statement timeout — a real failure
-      [candidate],
-      "hotel-1",
-      new Set(),
-      new Map([[basePriceKey(candidate.stay_date, candidate.affected_room_type_id), 200]]),
-    );
+    const outcome = await runPickupPass(fakeSupabaseAlwaysFailingWith("57014"), [makeCandidate(rule)], "hotel-1", basePrices);
     expect(outcome.write_failures).toHaveLength(1);
     expect(outcome.write_failures[0].rule.id).toBe(rule.id);
-    expect(outcome.idempotent_skips).toHaveLength(0);
     expect(outcome.winners).toHaveLength(0);
   });
 
-  it("still counts a concurrent-run conflict as a winner, not a write failure", async () => {
-    const rule = makeRule();
-    const candidate = makeCandidate(rule);
+  it("counts a fire another run recorded as neither a winner nor a failure", async () => {
     const outcome = await runPickupPass(
-      fakeSupabaseAlwaysFailingWith("23505"), // a concurrent run already inserted this exact cell
-      [candidate],
+      { from: () => ({ insert: () => ({ select: () => ({ single: () => Promise.resolve({ data: null, error: { code: "23505", message: `duplicate key value violates unique constraint "${FIRE_UNIQUE_INDEX}"` } }) }) }) }) } as unknown as SupabaseClient,
+      [makeCandidate(makeRule())],
       "hotel-1",
-      new Set(),
-      new Map([[basePriceKey(candidate.stay_date, candidate.affected_room_type_id), 200]]),
+      basePrices,
     );
-    expect(outcome.winners).toHaveLength(1);
+    expect(outcome.concurrent_skips).toHaveLength(1);
+    expect(outcome.winners).toHaveLength(0);
     expect(outcome.write_failures).toHaveLength(0);
+  });
+
+  it("one fire per cell per run: the loser writes nothing and stays a candidate next run", async () => {
+    const { client, tables } = fakeSupabase({ pickup_event: [] });
+    const strong = makeCandidate(makeRule({ id: "strong", priority: 200 }));
+    const weak = makeCandidate(makeRule({ id: "weak", priority: 100 }));
+    const outcome = await runPickupPass(client, [weak, strong], "hotel-1", basePrices);
+    expect(outcome.winners.map((w) => w.candidate.rule.id)).toEqual(["strong"]);
+    expect(outcome.losers.map((l) => l.rule.id)).toEqual(["weak"]);
+    expect(tables.pickup_event).toHaveLength(1);
+  });
+
+  it("a rule still waiting on the cell, whose conditions hold, holds it: nothing fires", async () => {
+    const { client, tables } = fakeSupabase({ pickup_event: [] });
+    const weak = makeCandidate(makeRule({ id: "weak", priority: 100 }));
+    const waiting = makeCandidate(makeRule({ id: "strong", priority: 200 }));
+    const outcome = await runPickupPass(client, [weak], "hotel-1", basePrices, [waiting]);
+    expect(outcome.winners).toHaveLength(0);
+    expect(outcome.held.map((h) => [h.candidate.rule.id, h.holder.rule.id])).toEqual([["weak", "strong"]]);
+    expect(outcome.holding.map((h) => h.rule.id)).toEqual(["strong"]);
+    expect(tables.pickup_event).toHaveLength(0);
+  });
+
+  it("a stronger rule fires while a weaker one waits", async () => {
+    const { client } = fakeSupabase({ pickup_event: [] });
+    const strong = makeCandidate(makeRule({ id: "strong", priority: 200 }));
+    const waiting = makeCandidate(makeRule({ id: "weak", priority: 100 }));
+    const outcome = await runPickupPass(client, [strong], "hotel-1", basePrices, [waiting]);
+    expect(outcome.winners.map((w) => w.candidate.rule.id)).toEqual(["strong"]);
+    expect(outcome.held).toHaveLength(0);
+  });
+
+  it("a cell with only waiting rules is left alone", async () => {
+    const { client, calls } = fakeSupabase({ pickup_event: [] });
+    const outcome = await runPickupPass(client, [], "hotel-1", basePrices, [makeCandidate(makeRule())]);
+    expect(outcome).toMatchObject({ winners: [], held: [], holding: [] });
+    expect(calls).toHaveLength(0);
   });
 });

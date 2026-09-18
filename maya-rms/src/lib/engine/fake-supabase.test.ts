@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { manualPriceRpc } from "./manual-price-rpc-model.test";
 import { scaleRpc } from "./scale-rpc-model.test";
+import { stackingRpc } from "./pickup-stacking-rpc-model.test";
 
 export type FakeRow = Record<string, unknown>;
 
@@ -39,6 +40,40 @@ export function missingFunction(fn: string): FakeError {
 }
 export type FakeFault = (call: FakeCall) => FakeError | null | undefined;
 
+/** A unique index the fake enforces on inserts, the way Postgres reports it. */
+export type FakeUnique = {
+  table: string;
+  name: string;
+  columns: string[];
+  /** Partial index: only rows this returns true for are in it. */
+  where?: (row: FakeRow) => boolean;
+};
+
+/**
+ * The unique indexes the engine's writes rely on, so a fake behaves like a
+ * migrated database: a second run recording the same fire, a second open
+ * repeat alert for a rule, and a night filed twice for one rule version all
+ * come back as 23505 naming the index, as they do in Postgres.
+ */
+export const ENGINE_UNIQUE: FakeUnique[] = [
+  {
+    table: "pickup_event",
+    name: "uq_pickup_event_fire",
+    columns: ["rule_id", "stay_date", "affected_room_type_id", "fire_seq"],
+  },
+  {
+    table: "rule_repeat_alerts",
+    name: "uq_rule_repeat_alerts_open",
+    columns: ["rule_id"],
+    where: (r) => r.resolved_at == null,
+  },
+  {
+    table: "rule_repeat_alert_nights",
+    name: "uq_rule_repeat_alert_nights_rule_night",
+    columns: ["rule_id", "stay_date", "rule_version"],
+  },
+];
+
 export function fakeSupabase(
   seed: Record<string, FakeRow[]> = {},
   opts: {
@@ -46,6 +81,13 @@ export function fakeSupabase(
     rpc?: (fn: string, args: unknown, tables: Record<string, FakeRow[]>) => unknown;
     /** PostgREST's db-max-rows: any read returns at most this many rows, silently. */
     maxRows?: number;
+    /** Unique indexes to enforce on inserts. Defaults to ENGINE_UNIQUE. */
+    unique?: FakeUnique[];
+    /**
+     * Awaited before every call runs, so a test can hold one run between two
+     * of its statements while another run gets ahead of it.
+     */
+    beforeCall?: (call: FakeCall) => void | Promise<void>;
   } = {},
 ) {
   const tables: Record<string, FakeRow[]> = {};
@@ -115,6 +157,8 @@ export function fakeSupabase(
           return raw === "null" ? v == null : String(v) === raw;
         case "in":
           return v != null && list.includes(String(v));
+        case "neq":
+          return v == null || String(v) !== raw;
         default:
           return true;
       }
@@ -240,6 +284,26 @@ export function fakeSupabase(
         }
         case "insert": {
           const list = Array.isArray(call.payload) ? call.payload : [call.payload!];
+          // Postgres refuses the whole statement on a unique violation.
+          for (const index of opts.unique ?? ENGINE_UNIQUE) {
+            if (index.table !== table) continue;
+            const inIndex = (r: FakeRow) => (index.where ? index.where(r) : true);
+            const key = (r: FakeRow) => index.columns.map((c) => String(r[c])).join("\u0000");
+            const existing = new Set(rows.filter(inIndex).map(key));
+            for (const p of list) {
+              if (!inIndex(p)) continue;
+              if (existing.has(key(p))) {
+                return {
+                  data: null,
+                  error: {
+                    code: "23505",
+                    message: `duplicate key value violates unique constraint "${index.name}"`,
+                  },
+                };
+              }
+              existing.add(key(p));
+            }
+          }
           written = list.map(withId);
           rows.push(...written);
           return { data: returnWritten ? written : null, error: null };
@@ -272,6 +336,8 @@ export function fakeSupabase(
         }
       }
     };
+
+    const gated = () => Promise.resolve(opts.beforeCall?.(call));
 
     const filter = (kind: string) => (col: string, value: unknown) => {
       call.filters.push({ col, kind, value });
@@ -312,24 +378,26 @@ export function fakeSupabase(
       ),
       limit: (n: number) => ((limit = n), b),
       range: (a: number, z: number) => ((range = [a, z]), b),
-      maybeSingle: () => {
-        const r = exec();
-        if (r.error) return Promise.resolve({ data: null, error: r.error });
-        const list = (r.data as FakeRow[] | null) ?? written;
-        return Promise.resolve({ data: list[0] ?? null, error: null });
-      },
-      single: () => {
-        const r = exec();
-        if (r.error) return Promise.resolve({ data: null, error: r.error });
-        const list = (r.data as FakeRow[] | null) ?? written;
-        return Promise.resolve(
-          list[0]
+      maybeSingle: () =>
+        gated().then(() => {
+          const r = exec();
+          if (r.error) return { data: null, error: r.error };
+          const list = (r.data as FakeRow[] | null) ?? written;
+          return { data: list[0] ?? null, error: null };
+        }),
+      single: () =>
+        gated().then(() => {
+          const r = exec();
+          if (r.error) return { data: null, error: r.error };
+          const list = (r.data as FakeRow[] | null) ?? written;
+          return list[0]
             ? { data: list[0], error: null }
-            : { data: null, error: { code: "PGRST116", message: "no rows" } },
-        );
-      },
+            : { data: null, error: { code: "PGRST116", message: "no rows" } };
+        }),
       then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
-        Promise.resolve(exec()).then(res, rej),
+        gated()
+          .then(() => exec())
+          .then(res, rej),
     };
     return b;
   }
@@ -342,13 +410,17 @@ export function fakeSupabase(
   function rpc(fn: string, args: unknown) {
     const orders: { col: string; asc: boolean }[] = [];
     let range: [number, number] | null = null;
+    const call: FakeCall = { table: `rpc:${fn}`, op: "select", columns: "", filters: [], payload: args as FakeRow };
     const exec = () => {
-      calls.push({ table: `rpc:${fn}`, op: "select", columns: "", filters: [], payload: args as FakeRow });
+      calls.push(call);
       // Functions from the large-property and push guardrails migrations
       // answer from the fake's own tables unless a test's handler says
       // otherwise, so the fake behaves like a migrated database by default.
       const custom = opts.rpc ? opts.rpc(fn, args, tables) : undefined;
-      const out = custom === undefined ? (scaleRpc(fn, args, tables) ?? manualPriceRpc(fn, args, tables)) : custom;
+      const out =
+        custom === undefined
+          ? (scaleRpc(fn, args, tables) ?? manualPriceRpc(fn, args, tables) ?? stackingRpc(fn, args, tables))
+          : custom;
       if (out instanceof FakeRpcError) return { data: null, error: out.error };
       if (!Array.isArray(out)) return { data: out, error: null };
       let rows = [...out] as FakeRow[];
@@ -364,7 +436,9 @@ export function fakeSupabase(
       order: (col: string, o?: { ascending?: boolean }) => (orders.push({ col, asc: o?.ascending ?? true }), rb),
       range: (a: number, z: number) => ((range = [a, z]), rb),
       then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
-        Promise.resolve(exec()).then(res, rej),
+        Promise.resolve(opts.beforeCall?.(call))
+          .then(() => exec())
+          .then(res, rej),
     };
     return rb;
   }

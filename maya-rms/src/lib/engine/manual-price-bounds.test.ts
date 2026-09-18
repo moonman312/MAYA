@@ -121,13 +121,39 @@ describe("what the engine publishes for an open manual price", () => {
     expect(await run(50, "percent", "decrease", 10)).toBe(50);
     // A comp night less $20 stays at 0, never negative.
     expect(await run(0, "fixed", "decrease", 20)).toBe(0);
-    // A comp night plus $20 is $20, still under the $89 floor and above the manual 0.
-    expect(await run(0, "fixed", "increase", 20)).toBe(20);
+    // And no rule raises a comp night, whatever the limits leave room for:
+    // a fixed amount walks 0 up to 20, then 40, and the owner reads that a
+    // night they gave away is being sold.
+    expect(await run(0, "fixed", "increase", 20)).toBe(0);
     // Over the ceiling, an increase is held at the manual price; a decrease comes back toward it.
     expect(await run(1500, "percent", "increase", 10)).toBe(1500);
     expect(await run(1500, "percent", "decrease", 10)).toBe(1350);
     // An ordinary manual price is clamped exactly as before.
     expect(await run(950, "percent", "increase", 10)).toBe(1000);
+  });
+
+  it("keeps a comp night at 0 under a ladder rule that raises a fixed amount, and the audit says so", async () => {
+    // A ladder rule whose condition starts holding after the price is typed
+    // is a fresh trigger and applies on top, which for a fixed raise walks
+    // a comp night up. It is still the owner's 0: nothing raises it, and the
+    // audit lists only the effects that moved the number.
+    const { client, tables } = fakeSupabase(
+      seed({
+        pricing_rules: [busyRule("fixed", "increase", 20)],
+        reservations: booked(16),
+        manual_price: [manual(D0, 0)],
+        ladder_rule_state: [firedAfter("fixed", "increase", 20)],
+      }),
+    );
+
+    await evaluateHotel(client, "h1", EVAL_TS, 1);
+
+    expect(tables.published_price[0]).toMatchObject({ stay_date: D0, price: 0, base_price: 0 });
+    const details = tables.evaluation_audit[0].details as Record<string, unknown>;
+    expect(details.active_ladder_effects).toEqual([]);
+    expect(details.application_order).toEqual([]);
+    expect(details.pre_clamp_price).toBe("0.00");
+    expect(details.clamped_by).toBe("none");
   });
 
   it("marks a price changed in the PMS in the audit row, and leaves a typed one's row as it was", async () => {

@@ -46,9 +46,24 @@ export type RuleCondition = {
   /** A BookingSpeed level key, e.g. "much_slower" — the Observation Engine's ordered vocabulary. */
   booking_speed_level?: string | null;
   booking_speed_window_days?: BookingSpeedWindowDays | null;
-  /** Days a fired event-style rule waits before it may re-fire on the same stay date. */
+  /**
+   * Days a fired event rule waits before it may fire again on the same night
+   * and room type. Null reads as a week; anything under a day as a day.
+   */
   booking_speed_cooldown_days?: number | null;
 };
+
+/** Which cancellation test can take a raise off. Cuts are always "none". */
+export type PickupCancelCheck = "none" | "net_units" | "window_bookings" | "either";
+
+/** Why a fire stopped applying. "legacy" and "self_cancelled" only mark rows from before stacking. */
+export type PickupRetiredReason =
+  | "night_passed"
+  | "bookings_cancelled"
+  | "manual_price"
+  | "rule_edited"
+  | "self_cancelled"
+  | "legacy";
 
 export type EngineRule = {
   id: string;
@@ -137,6 +152,17 @@ export type PickupEvent = {
   action_kind: ActionKind;
   action_direction: ActionDirection;
   action_value: number;
+  /** 1, 2, 3 ... per (rule, night, room type). */
+  fire_seq: number;
+  retired_reason?: PickupRetiredReason | null;
+  cancel_check: PickupCancelCheck;
+  /** The booking speed window at the fire, in hotel dates, when the rule has a booking speed condition. */
+  window_from?: string | null;
+  window_to?: string | null;
+  window_bookings_at_fire?: number | null;
+  window_expected_at_fire?: number | null;
+  /** The measured room types at the fire (sorted ids, comma separated). */
+  signal_set_key: string;
 };
 
 export type EvaluationAuditDetails = {
@@ -149,12 +175,51 @@ export type EvaluationAuditDetails = {
   }[];
   pickup_candidates: {
     rule_id: string;
-    outcome: "won" | "lost_competition" | "idempotency_skip" | "write_failed";
+    /**
+     * won: fired this run (event_id and fire_seq name the new fire).
+     * lost_competition: another rule fired on the cell.
+     * held_by_waiting_rule: a stronger rule that fired earlier is still
+     * waiting and still matches, so nothing fired on the cell.
+     * waiting: that stronger rule.
+     * no_price_change: a cut already at the floor, or a raise already at the
+     * ceiling, so it did not fire.
+     * comp_night: a raise on a night given away at 0 (a manual price of 0),
+     * which no rule may raise.
+     * concurrent_fire: another run recorded the same fire first.
+     * write_failed: the fire could not be written.
+     * idempotency_skip: rows written before stacking only.
+     *
+     * A rule the owner stopped on that night (rule_repeat_alert_nights.choice
+     * = stop) is not a candidate at all, so it appears nowhere in this list.
+     */
+    outcome:
+      | "won"
+      | "lost_competition"
+      | "held_by_waiting_rule"
+      | "waiting"
+      | "no_price_change"
+      | "comp_night"
+      | "concurrent_fire"
+      | "write_failed"
+      | "idempotency_skip";
     metrics: Record<string, unknown>;
     tie_break_trace: string[];
+    event_id?: string;
+    fire_seq?: number;
   }[];
   active_ladder_effects: { rule_id: string; delta: string }[];
-  active_pickup_effects: { event_id: string; rule_id: string; delta: string }[];
+  /** applied_at and fire_seq are missing on rows written before stacking. */
+  active_pickup_effects: { event_id: string; rule_id: string; delta: string; applied_at?: string; fire_seq?: number }[];
+  /** Fires this run took off the cell, when any. */
+  retired_pickup_effects?: {
+    event_id: string;
+    rule_id: string;
+    delta: string;
+    applied_at: string;
+    fire_seq: number;
+    reason: "bookings_cancelled" | "manual_price" | "rule_edited";
+    cancel_check: PickupCancelCheck;
+  }[];
   application_order: string[];
   pre_clamp_price: string;
   clamped_by: "ceiling" | "floor" | "none";
@@ -361,5 +426,29 @@ export type ChangelogPushProblem = {
   retries_not_kept: number;
 };
 
-/** The change log timeline, newest first: pricing runs and push problems. */
-export type ChangelogItem = ChangelogCycle | ChangelogPushProblem;
+/**
+ * An owner's answer to a rule that kept adjusting the same nights, as one
+ * change log item: which rule, which way they answered, and how many nights
+ * it covered. One item per answer, however many nights it settled. "resume"
+ * is the answer taken back again, which the rules table's "Let it run again"
+ * does.
+ */
+export type ChangelogRuleAlertChoice = {
+  kind: "rule_alert_choice";
+  id: string;
+  /** When they answered, or took the answer back. */
+  timestamp: string;
+  rule_name: string;
+  choice: "keep_adjusting" | "stop" | "resume";
+  nights: number;
+  first_night: string;
+  last_night: string;
+  /** What the log says happened, in one sentence. */
+  title: string;
+};
+
+/**
+ * The change log timeline, newest first: pricing runs, push problems and the
+ * answers the owner gave to a rule that kept adjusting.
+ */
+export type ChangelogItem = ChangelogCycle | ChangelogPushProblem | ChangelogRuleAlertChoice;

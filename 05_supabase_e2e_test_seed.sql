@@ -171,10 +171,14 @@ begin
   get diagnostics v_snap_count = row_count;
 
   -- ── 7. Clear stale engine output from previous runs ──────────────────────
-  -- (pickup_event / ladder_* cascade away with the rules below; these don't.)
+  -- (ladder_* cascade away with the rules below; these don't. pickup_event
+  -- has no cascade either -- pickup_event.rule_id references pricing_rules(id)
+  -- with no ON DELETE -- so it goes here, before section 8 deletes the rules,
+  -- or that delete raises 23503 and the whole block rolls back.)
   delete from public.published_price   where hotel_id = v_hotel_id;
   delete from public.evaluation_audit  where hotel_id = v_hotel_id;
   delete from public.ladder_transition_event where hotel_id = v_hotel_id;
+  delete from public.pickup_event      where hotel_id = v_hotel_id;
 
   -- ── 8. Pricing rules ─────────────────────────────────────────────────────
   delete from public.pricing_rules where hotel_id = v_hotel_id;

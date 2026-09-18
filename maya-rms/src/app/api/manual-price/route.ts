@@ -400,7 +400,7 @@ export async function POST(req: Request) {
 
     // The row, then the reset: every effect already holding on these cells
     // suppressed or retired (setManualPrices).
-    const { suppressedRules, retiredPickups } = await setManualPrices(
+    const { suppressedRules, retiredPickups, pausedRules } = await setManualPrices(
       admin,
       range.hotelId,
       dates.map((stayDate) => ({ roomTypeId: range.roomTypeId, stayDate, price })),
@@ -429,6 +429,8 @@ export async function POST(req: Request) {
       cells: dates.length,
       suppressedRules,
       retiredPickups,
+      // Rules, counted once each: a rule can hold several fires on one night.
+      pausedRules,
       pushed,
       pushWindow,
       preview,
