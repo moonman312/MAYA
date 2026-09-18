@@ -424,6 +424,31 @@ describe("booking speed narration", () => {
     ]);
   });
 
+  it("names the days a rule counted after it had already changed the night", () => {
+    // engine/pickup.ts bookingSpeedCountFrom: after a fire the rule counts
+    // only bookings made from the next day on.
+    const month = { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 30 } as const;
+    expect(
+      describeConditions(month, {
+        booking_speed: { label: "Surging", recent: 12, expected: 0.4, window_days: 3, counted_from: "2026-09-17" },
+      }),
+    ).toEqual([
+      "Bookings came in faster than normal in the 3 days after it last changed this night: 12, where a night like this usually gets almost none in those days.",
+    ]);
+    expect(
+      describeConditions(
+        { booking_speed_operator: "at_most", booking_speed_level: "stalled", booking_speed_window_days: 7 },
+        { booking_speed: { label: "Stalled", recent: 0, expected: 7, window_days: 1, counted_from: "2026-09-17" } },
+      ),
+    ).toEqual([
+      "Bookings all but stopped on the day after it last changed this night: none, against the 7 a night like this usually gets that day.",
+    ]);
+    // A whole window, or a snapshot from before this, reads as it always did.
+    expect(describeConditions(month, { booking_speed: { label: "Faster Than Normal", recent: 11, expected: 6, window_days: 30 } })).toEqual([
+      "Bookings came in faster than normal this past month: 11, against the 6 a night like this usually has by now.",
+    ]);
+  });
+
   it("keeps booking speed as its own sentence beside another condition family", () => {
     const out = describeConditions(
       {

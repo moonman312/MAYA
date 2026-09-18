@@ -58,6 +58,13 @@ export type NarrativeMetrics = {
     label: string;
     recent: number;
     expected: number;
+    /** The days it counted. Only read together with counted_from. */
+    window_days?: number | null;
+    /**
+     * Set when the rule had already changed this night: it counted only
+     * bookings made from this date on (the day after that change).
+     */
+    counted_from?: string | null;
   } | null;
 };
 
@@ -211,6 +218,10 @@ function speedLead(levelKey: string, when: string, subject = "Bookings"): string
 /**
  * The level comes from the rule, not from the snapshot: it is the pace the
  * owner wrote into the condition, and it is the one their rule acted on.
+ *
+ * A rule that had already changed the night counted only the days after
+ * that change (engine/pickup.ts, bookingSpeedCountFrom), so the sentence
+ * names those days instead of its whole window.
  */
 function bookingSpeedSentence(
   condition: RuleCondition,
@@ -218,12 +229,17 @@ function bookingSpeedSentence(
   measured?: string[] | null,
 ): string | null {
   if (!condition.booking_speed_operator || !condition.booking_speed_level) return null;
+  const counted = metrics?.booking_speed?.counted_from ? metrics.booking_speed.window_days : null;
   const when =
-    condition.booking_speed_window_days === 1
-      ? "this past day"
-      : condition.booking_speed_window_days === 30
-        ? "this past month"
-        : "this past week";
+    counted != null && counted >= 1
+      ? counted === 1
+        ? "on the day after it last changed this night"
+        : `in the ${counted} days after it last changed this night`
+      : condition.booking_speed_window_days === 1
+        ? "this past day"
+        : condition.booking_speed_window_days === 30
+          ? "this past month"
+          : "this past week";
   const lead = speedLead(
     condition.booking_speed_level,
     when,
@@ -235,10 +251,15 @@ function bookingSpeedSentence(
   const recent = Math.round(bs.recent);
   const seen =
     recent < 0 ? "more cancelled than booked" : recent === 0 ? "none" : `${recent}`;
+  const then = counted === 1 ? "that day" : "in those days";
   const usual =
-    bs.expected < 1
-      ? "where a night like this usually has almost none by now"
-      : `against the ${Math.round(bs.expected)} a night like this usually has by now`;
+    counted != null && counted >= 1
+      ? bs.expected < 1
+        ? `where a night like this usually gets almost none ${then}`
+        : `against the ${Math.round(bs.expected)} a night like this usually gets ${then}`
+      : bs.expected < 1
+        ? "where a night like this usually has almost none by now"
+        : `against the ${Math.round(bs.expected)} a night like this usually has by now`;
   return `${lead}: ${seen}, ${usual}.`;
 }
 

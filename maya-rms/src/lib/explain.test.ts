@@ -209,6 +209,36 @@ describe("buildExplainView", () => {
   });
 });
 
+describe("an observation a rule's last change cut short", () => {
+  // engine/pickup.ts bookingSpeedCountFrom: a rule that fired on 2026-07-25
+  // counts bookings made from the 26th on, 3 days by 2026-07-28.
+  const cut = { ...comparableSnapshot, windowDays: 3, countedFrom: "2026-07-26", fullWindowDays: 30 };
+
+  it("says which days it counted and why, in plain words", () => {
+    const view = buildExplainView(cut)!;
+    expect(view.observed).toBe(
+      "In the 3 days after a rule last changed this night on Sat, Jul 25 2026, 9 bookings arrived for it, with 17 days still to go before arrival.",
+    );
+    expect(view.expected).toContain("over the same stretch");
+    expect(view.assumptions[0]).toBe(
+      "A rule that has already changed this night counts only the bookings made after that day, and reads the nights it is compared with over the same days.",
+    );
+    expect(view.window_days).toBe(3);
+    for (const line of [view.observed, view.assumptions[0]]) expect(line).not.toMatch(/[<>=≤≥—]/);
+  });
+
+  it("says a single day as a day", () => {
+    const view = buildExplainView({ ...cut, windowDays: 1, countedFrom: "2026-07-28" })!;
+    expect(view.observed).toContain("In the day after a rule last changed this night on Mon, Jul 27 2026,");
+  });
+
+  it("reads a whole-window snapshot as it always did", () => {
+    const view = buildExplainView(comparableSnapshot)!;
+    expect(view.observed.startsWith("In the last 7 days,")).toBe(true);
+    expect(view.assumptions.join(" ")).not.toContain("already changed");
+  });
+});
+
 describe("humanDate", () => {
   it("formats with weekday and year", () => {
     expect(humanDate("2026-08-14")).toBe("Fri, Aug 14 2026");

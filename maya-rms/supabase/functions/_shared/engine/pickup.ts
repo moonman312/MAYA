@@ -38,10 +38,9 @@
  * still match over their full window, so a stronger rule holds the cell
  * through its wait on what it fired on: if one of those ranks first, nothing
  * fires there this run. A stronger rule can always fire while a weaker one
- * waits. A candidate is
- * dropped before the competition when it can't move the price in its own
- * direction (limitAllowsFire), and a cell the run leaves unpriced never gets
- * a fire.
+ * waits. A candidate is dropped before the competition when it can't move
+ * the price in its own direction (limitAllowsFire), and a cell the run
+ * leaves unpriced never gets a fire.
  *
  * WHEN A FIRE COMES OFF. Cuts never come off for cancellations. A raise comes
  * off when the bookings behind it cancel (cancellationCrossed): for a pickup

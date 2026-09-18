@@ -320,6 +320,28 @@ describe("buildApplications", () => {
     expect(apps[0].metrics).toEqual({ occupancy: 0.9, dta: 3, pickup_units: 9, booking_speed: null });
   });
 
+  it("keeps the days a Booking Speed fire counted when its last fire cut them short", () => {
+    const bs = { speed: "surging", rank: 3, label: "Surging", recent: 12, expected: 0.4, method: "comparable" };
+    const fired = (booking_speed: Record<string, unknown>) =>
+      buildApplications(
+        details({
+          active_pickup_effects: [{ event_id: "evt-9", rule_id: "rule-2", delta: "+12%" }],
+          pickup_candidates: [{ rule_id: "rule-2", outcome: "won", metrics: { occupancy: 0.5, dta: 37, booking_speed }, tie_break_trace: ["winner"] }],
+          application_order: ["pickup:evt-9"],
+        }),
+        lookups(),
+      )[0].metrics?.booking_speed;
+    expect(fired({ ...bs, window_days: 3, counted_from: "2026-09-17", full_window_days: 30 })).toEqual({
+      label: "Surging",
+      recent: 12,
+      expected: 0.4,
+      window_days: 3,
+      counted_from: "2026-09-17",
+    });
+    // A whole window, as every fire before this was: nothing more to say.
+    expect(fired({ ...bs, window_days: 30 })).toEqual({ label: "Surging", recent: 12, expected: 0.4 });
+  });
+
   it("falls back to the rule lookup with null metrics for carried-over effects", () => {
     const d = details({
       active_ladder_effects: [{ rule_id: "rule-1", delta: "+10%" }],

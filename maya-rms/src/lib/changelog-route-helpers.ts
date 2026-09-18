@@ -206,7 +206,7 @@ function toNarrativeMetrics(
   const dta = metrics.dta;
   const pickup = metrics.net_pickup_units;
   const bs = metrics.booking_speed as
-    | { label?: unknown; recent?: unknown; expected?: unknown }
+    | { label?: unknown; recent?: unknown; expected?: unknown; window_days?: unknown; counted_from?: unknown }
     | null
     | undefined;
   const bookingSpeed =
@@ -214,7 +214,16 @@ function toNarrativeMetrics(
     typeof bs.label === "string" &&
     typeof bs.recent === "number" &&
     typeof bs.expected === "number"
-      ? { label: bs.label, recent: bs.recent, expected: bs.expected }
+      ? {
+          label: bs.label,
+          recent: bs.recent,
+          expected: bs.expected,
+          // Only a fire that counted from after the rule's last change says
+          // so; every older audit row reads exactly as before.
+          ...(typeof bs.counted_from === "string" && typeof bs.window_days === "number"
+            ? { counted_from: bs.counted_from, window_days: bs.window_days }
+            : {}),
+        }
       : null;
   const excludedRaw = metrics.excluded_from_occupancy;
   const excluded = Array.isArray(excludedRaw)

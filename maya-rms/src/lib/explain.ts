@@ -50,6 +50,13 @@ function dayWord(n: number): string {
   return n === 1 ? "1 day" : `${n} days`;
 }
 
+/** The YYYY-MM-DD before `iso`, or null when it doesn't parse. */
+function dayBefore(iso: string): string | null {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+}
+
 function expectedWord(n: number): string {
   if (n < 1) return "almost none";
   const rounded = Math.round(n);
@@ -131,7 +138,13 @@ export function buildExplainView(
     : measured.length > 0
       ? `${recent} ${listWords(measured)} ${recent === 1 ? "booking" : "bookings"}`
       : `${bookingWord(recent)} for the room types this rule watches`;
-  const observed = `In the last ${windowPhrase}, ${arrived} arrived for this night, with ${dayWord(daysOut)} still to go before arrival.`;
+  // Set when a rule that had already changed this night counted only the
+  // days after that change (engine/pickup.ts, bookingSpeedCountFrom).
+  const countedFrom = str(snap.countedFrom);
+  const changedOn = countedFrom ? dayBefore(countedFrom) : null;
+  const observed = changedOn
+    ? `In the ${windowPhrase} after a rule last changed this night on ${humanDate(changedOn)}, ${arrived} arrived for it, with ${dayWord(daysOut)} still to go before arrival.`
+    : `In the last ${windowPhrase}, ${arrived} arrived for this night, with ${dayWord(daysOut)} still to go before arrival.`;
 
   // The engine persists insufficient_data snapshots with a numeric
   // expectedBookings of 0 and a fully computed classification — but it also
@@ -159,6 +172,9 @@ export function buildExplainView(
   const selection = rec(snap.selection);
   const selAssumptions = rec(selection?.assumptions);
   const assumptions: string[] = [];
+  if (changedOn) {
+    assumptions.push(`A rule that has already changed this night counts only the bookings made after that day, and reads the nights it is compared with over the same days.`);
+  }
   if (methodKey === "comparable" && selAssumptions) {
     const dow = str(selAssumptions.dayOfWeek);
     const seasonLabel = str(selAssumptions.seasonLabel);
