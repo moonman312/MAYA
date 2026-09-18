@@ -994,6 +994,110 @@ describe("a rule that keeps adjusting the same night", () => {
   }, 120_000);
 });
 
+describe("letting a rule run again brings the night back at the third new adjustment, whatever came first", () => {
+  const NIGHT = addDays(D0, 9);
+  const daily = rule("r-daily", { pickup_operator: "lt", pickup_threshold: 1, pickup_window_days: 1, pickup_metric: "room_nights" }, { action_value: 5 });
+  const alertFor = (w: ReturnType<typeof world>) =>
+    (w.tables.rule_repeat_alert_nights ?? []).find((n) => n.stay_date === NIGHT)!;
+  /** The count the engine and rule_repeat_alert_resume both read: open, or off for cancellations. */
+  const counted = (w: ReturnType<typeof world>) =>
+    w.fires(NIGHT).filter((e) => e.retired_at === null || e.retired_reason === "bookings_cancelled").length;
+
+  /** Three cuts, the owner stops the night, and one run honours the stop. */
+  async function stoppedAtThree(opts: Partial<WorldOptions> = {}) {
+    const w = world({ rules: [daily], reservations: [booking(NIGHT, addDays(D0, -30))], ...opts });
+    await w.run(T0);
+    await w.run(T0 + DAY);
+    await w.run(T0 + 2 * DAY);
+    const night = alertFor(w);
+    night.choice = "stop";
+    night.chosen_at = iso(T0 + 2 * DAY + HOUR);
+    await w.run(T0 + 3 * DAY);
+    expect(w.fires(NIGHT)).toHaveLength(3);
+    return w;
+  }
+
+  /** What rule_repeat_alert_resume writes on a night still to come. */
+  function resume(w: ReturnType<typeof world>, at: number) {
+    const night = alertFor(w);
+    night.fire_count = Math.max(Number(night.fire_count), counted(w));
+    night.choice = null;
+    night.chosen_at = null;
+    night.chosen_by = null;
+    night.resumed_at = iso(at);
+    night.resumed_by = "u1";
+    night.closed_at = iso(at);
+    night.closed_reason = "resumed";
+  }
+
+  /** Someone types 150 for the night: every fire on it comes off. */
+  function typePrice(w: ReturnType<typeof world>, at: number) {
+    const setAt = iso(at);
+    w.tables.manual_price.push({ hotel_id: "h1", stay_date: NIGHT, room_type_id: STD, price: 150, set_by: "u1", set_at: setAt, cleared_at: null });
+    for (const e of w.tables.pickup_event.filter((x) => x.stay_date === NIGHT && x.retired_at === null)) {
+      e.retired_at = setAt;
+      e.retired_reason = "manual_price";
+    }
+  }
+
+  /**
+   * Runs a day apart from `fromMs` until the night is waiting on the owner
+   * again, and says how many adjustments past `before` that took.
+   */
+  async function adjustmentsUntilAsked(w: ReturnType<typeof world>, fromMs: number, before: number) {
+    for (let d = 0; d < 4; d++) {
+      await w.run(fromMs + d * DAY);
+      const night = alertFor(w);
+      if (night.choice === null && night.closed_at === null) return counted(w) - before;
+    }
+    return null;
+  }
+
+  it("a price typed while it was stopped, then let run: the third adjustment on the typed price", async () => {
+    // The wait from the price has passed by the time the owner lets the rule
+    // run, so the first run after it adjusts the typed number straight away.
+    // That adjustment is the first of the three, not part of what the owner
+    // had already seen.
+    const w = await stoppedAtThree();
+    typePrice(w, T0 + 3 * DAY + 2 * HOUR);
+    await w.run(T0 + 4 * DAY);
+    await w.run(T0 + 5 * DAY);
+    expect(counted(w)).toBe(0);
+    resume(w, T0 + 5 * DAY + HOUR);
+
+    expect(await adjustmentsUntilAsked(w, T0 + 6 * DAY, 0)).toBe(3);
+    expect(alertFor(w)).toMatchObject({ fire_count: 3, closed_reason: null });
+  }, 120_000);
+
+  it("let run, then a price typed: the third adjustment on the typed price, with no run inside the wait", async () => {
+    const w = await stoppedAtThree();
+    resume(w, T0 + 3 * DAY + HOUR);
+    typePrice(w, T0 + 3 * DAY + 2 * HOUR);
+    // Nothing runs until the wait from the price has passed, so the run that
+    // sees the fires gone is also the one that makes the first new one.
+    expect(await adjustmentsUntilAsked(w, T0 + 4 * DAY + 3 * HOUR, 0)).toBe(3);
+    expect(alertFor(w)).toMatchObject({ fire_count: 3, closed_reason: null });
+  }, 120_000);
+
+  it("told to keep adjusting, then let run: the third adjustment after the resume", async () => {
+    const w = world({ rules: [daily], reservations: [booking(NIGHT, addDays(D0, -30))] });
+    await w.run(T0);
+    await w.run(T0 + DAY);
+    await w.run(T0 + 2 * DAY);
+    const night = alertFor(w);
+    night.choice = "keep_adjusting";
+    night.chosen_at = iso(T0 + 2 * DAY + HOUR);
+    for (let d = 3; d <= 6; d++) await w.run(T0 + d * DAY);
+    // Seven cuts, with the row left at three while nobody was being asked.
+    expect(counted(w)).toBe(7);
+    expect(alertFor(w).fire_count).toBe(3);
+    resume(w, T0 + 6 * DAY + HOUR);
+
+    expect(await adjustmentsUntilAsked(w, T0 + 7 * DAY, 7)).toBe(3);
+    expect(alertFor(w)).toMatchObject({ fire_count: 10, closed_reason: null });
+  }, 120_000);
+});
+
 /* ── Two runs at once ─────────────────────────────────────────── */
 
 describe("two runs recording the same fire", () => {

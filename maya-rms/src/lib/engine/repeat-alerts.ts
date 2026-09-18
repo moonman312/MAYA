@@ -257,19 +257,24 @@ export async function updateRepeatAlerts(
   // wiped fires made good before the rule could ask again. Nothing else takes
   // a counted fire off a night still to come, so the count never falls for
   // any other reason. Only a passed night or an edit ends a night for good.
+  // It comes down to the count from before this run: a fire this run made is
+  // on the price that is there now, so it is the first of the three new
+  // adjustments, not one the owner has already seen.
+  const beforeRun = repeatCounts(input.eventRules, input.heads, [], now);
   const toReopen: RepeatAlertNight[] = [];
   const toRebase: { night: RepeatAlertNight; count: number }[] = [];
   for (const [key, list] of input.nights) {
     const rule = eventRulesById.get(key.split("|")[0]);
     if (!rule || key.split("|")[1] < input.localDate) continue;
     const count = counts.get(key)?.count ?? 0;
+    const prior = beforeRun.get(key)?.count ?? 0;
     for (const n of list) {
       if (n.rule_version !== rule.version || n.choice !== null) continue;
       if (n.closed_reason !== "price_set" && n.closed_reason !== "resumed") continue;
       let seen = n.fire_count;
-      if (n.closed_reason === "resumed" && count < seen) {
-        seen = count;
-        toRebase.push({ night: n, count });
+      if (n.closed_reason === "resumed" && prior < seen) {
+        seen = prior;
+        toRebase.push({ night: n, count: prior });
       }
       const bar = n.closed_reason === "resumed" ? seen + REPEAT_ALERT_FIRES : REPEAT_ALERT_FIRES;
       if (count >= bar) toReopen.push(n);
