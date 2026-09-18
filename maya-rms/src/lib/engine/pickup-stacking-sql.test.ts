@@ -567,7 +567,8 @@ describe.skipIf(!PGLITE_DIR)("the pickup event stacking migration in PGlite", ()
     // put the same question straight back at the next fire, because the
     // engine asks again 3 above the count on the row.
     const alert = "0000000a-0000-4000-8000-000000000000";
-    const NIGHT3 = "2026-10-03";
+    // Far enough ahead that the hotel's real clock cannot pass it.
+    const NIGHT3 = "2099-10-03";
     await db.exec(`set request.jwt.claim.role = 'service_role';`);
     await db.exec(`
       insert into public.pickup_event (
@@ -609,6 +610,38 @@ describe.skipIf(!PGLITE_DIR)("the pickup event stacking migration in PGlite", ()
       { fire_count: 5, closed_reason: "resumed", resumed: true, resumed_by: USER },
     ]);
   });
+
+  it("brings a resumed night's count down to the fires a typed price left, too", async () => {
+    // Stopped at three, then a price typed while it was stopped took all
+    // three off. The owner has seen none of what the rule will do to the
+    // typed price, so the question comes back at its third adjustment there,
+    // counted from nothing. Left at three, the night would lean on the
+    // engine noticing the drop on the very next run, which a run under a
+    // signed-in session can't write.
+    const alert = "0000000d-0000-4000-8000-000000000000";
+    const NIGHT4 = "2099-10-04";
+    await db.exec(`set request.jwt.claim.role = 'service_role';`);
+    await db.exec(`
+      insert into public.pickup_event (
+        id, hotel_id, rule_id, rule_version, stay_date, affected_room_type_id,
+        baseline_start_ts, baseline_end_ts, signal_booked_units_start, signal_booked_units_end,
+        signal_booked_revenue_start, signal_booked_revenue_end, applied_at, retired_at, retired_reason,
+        action_kind, action_direction, action_value, fire_seq, signal_set_key)
+      select ('0000000d-0000-4000-8000-00000000000' || g)::uuid, '${H1}', '${R_CUT}', 1, '${NIGHT4}', '${STD}',
+             now(), now(), 4, 4, 400, 400, now(), now(), 'manual_price', 'percent', 'decrease', 10, g, '${STD}'
+        from generate_series(1, 3) g;
+      insert into public.rule_repeat_alerts (id, hotel_id, rule_id, rule_version, action_direction, opened_at)
+        values ('${alert}', '${H1}', '${R_CUT}', 1, 'decrease', now());
+      insert into public.rule_repeat_alert_nights
+        (alert_id, hotel_id, rule_id, rule_version, stay_date, fire_count, reached_at, last_fire_at, choice, chosen_at)
+      values ('${alert}', '${H1}', '${R_CUT}', 1, '${NIGHT4}', 3, now(), now(), 'stop', now());
+    `);
+
+    await db.exec(`set request.jwt.claim.role = 'authenticated'; set test.manager_hotel = '${H1}'; set test.user_id = '${USER}';`);
+    const back = await db.query(`select fire_count, closed_reason from public.rule_repeat_alert_resume('${alert}')`);
+    expect(back.rows).toEqual([{ fire_count: 0, closed_reason: "resumed" }]);
+  });
+
   it("lets a resumed night's count follow its fires down to nothing", async () => {
     // What the engine writes when a typed price takes a resumed night's fires
     // off (_shared/engine/repeat-alerts.ts): the count on the row becomes the

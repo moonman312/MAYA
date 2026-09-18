@@ -824,10 +824,11 @@ grant execute on function public.rule_repeat_alert_choose(uuid, text, date[]) to
 -- opens it again once the rule has adjusted it 3 more times than the
 -- fire_count on its row (_shared/engine/repeat-alerts.ts). The row's other
 -- numbers are frozen at the resume until then; its fire_count is not, because
--- it stands for the fires the owner has already seen. This function brings it
--- up to the fires the rule has really made, which a night answered
--- keep_adjusting outgrew while nobody was updating its row, and the engine
--- brings it down again when a typed price takes those fires off.
+-- it stands for the fires the owner has already seen. This function sets it to
+-- the fires the rule has really made, which a night answered keep_adjusting
+-- outgrew while nobody was updating its row, and which a price typed while the
+-- night was stopped took down; the engine brings it down again when a typed
+-- price takes fires off after the resume.
 --
 -- Which night it was, when, and who did it stay on the row (resumed_at,
 -- resumed_by) for the change log to read; only the latest resume of a night
@@ -869,14 +870,15 @@ begin
          resumed_at = v_now,
          resumed_by = auth.uid(),
          -- The count on the row stands for the fires the owner has already
-         -- seen, and the engine asks again 3 above it. A night answered
-         -- keep_adjusting went on firing with its row left where the answer
-         -- found it, so bring the count up to the fires the rule has really
-         -- made: the same count the engine reads (the most on any one room
-         -- type, open or taken off for cancellations). Never down -- a typed
-         -- price takes fires off after the resume too, and that is the
-         -- engine's to notice.
-         fire_count = greatest(n.fire_count, (
+         -- seen, and the engine asks again 3 above it. That is the fires the
+         -- rule has really made on the night right now: the same count the
+         -- engine reads (the most on any one room type, open or taken off for
+         -- cancellations). Up, for a night answered keep_adjusting, which went
+         -- on firing with its row left where the answer found it. Down, for a
+         -- night whose fires a typed price took off while it was stopped: the
+         -- owner has seen nothing of what the rule will do to the new price.
+         -- A price typed after the resume is the engine's to notice.
+         fire_count = (
            select coalesce(max(k.fires), 0)
              from (
                select count(*) as fires
@@ -888,7 +890,7 @@ begin
                   and (e.retired_at is null or e.retired_reason = 'bookings_cancelled')
                 group by e.affected_room_type_id
              ) k
-         )),
+         ),
          closed_at = v_now,
          closed_reason = 'resumed',
          updated_at = v_now

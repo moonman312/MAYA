@@ -1017,10 +1017,13 @@ describe("letting a rule run again brings the night back at the third new adjust
     return w;
   }
 
-  /** What rule_repeat_alert_resume writes on a night still to come. */
+  /**
+   * What rule_repeat_alert_resume writes on a night still to come: the count
+   * on the row is the fires the rule has really made, up or down.
+   */
   function resume(w: ReturnType<typeof world>, at: number) {
     const night = alertFor(w);
-    night.fire_count = Math.max(Number(night.fire_count), counted(w));
+    night.fire_count = counted(w);
     night.choice = null;
     night.chosen_at = null;
     night.chosen_by = null;
@@ -1095,6 +1098,30 @@ describe("letting a rule run again brings the night back at the third new adjust
 
     expect(await adjustmentsUntilAsked(w, T0 + 7 * DAY, 7)).toBe(3);
     expect(alertFor(w)).toMatchObject({ fire_count: 10, closed_reason: null });
+  }, 120_000);
+
+  it("a price typed while it was stopped, then let run, and the first run after is the evaluate button", async () => {
+    // A run under a signed-in session writes its fires but not the alert
+    // rows, so nothing it would have written to the night lands. The count on
+    // the row has to be right from the moment the owner lets the rule run.
+    let refused = false;
+    const w = await stoppedAtThree({
+      fault: (c) =>
+        refused && c.table.startsWith("rule_repeat_alert") && c.op !== "select"
+          ? { code: "42501", message: "permission denied for table" }
+          : null,
+    });
+    typePrice(w, T0 + 3 * DAY + 2 * HOUR);
+    await w.run(T0 + 4 * DAY);
+    await w.run(T0 + 5 * DAY);
+    resume(w, T0 + 5 * DAY + HOUR);
+
+    refused = true;
+    await w.run(T0 + 5 * DAY + 2 * HOUR);
+    refused = false;
+    expect(counted(w)).toBe(1);
+
+    expect(await adjustmentsUntilAsked(w, T0 + 6 * DAY + 2 * HOUR, 0)).toBe(3);
   }, 120_000);
 });
 
