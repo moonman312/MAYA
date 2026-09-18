@@ -636,7 +636,8 @@ export async function evaluateHotel(
     }
     const windowDays = rule.condition.booking_speed_window_days ?? 7;
     // No whole day since its last fire: nothing new to judge. The wait (a day
-    // at least) covers this; a fire another run dated later can still land here.
+    // at least) nearly always covers this; the 25-hour day the clocks go back
+    // on, or a fire another run dated later, can still land here.
     if (windowDaysFrom(windowDays, localDate, countFrom) < 1) {
       metrics.booking_speed_block_reason = "since_last_fire";
       return;
