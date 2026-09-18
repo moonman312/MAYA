@@ -21,8 +21,18 @@ describe("bookingSpeedHelp", () => {
 
   it("says in one line that the rule can act again after its wait", () => {
     const line = bookingSpeedHelp(7).lines.at(-1)!;
-    expect(line).toBe("If the rule is still true after its wait, it adjusts that night again.");
+    expect(line).toBe("If those keep the rule true after its wait, it adjusts that night again.");
     expect(line.length).toBeLessThan(80);
+  });
+
+  it("says that after it adjusts a night it only counts what was booked after that", () => {
+    // What the engine does: bookingSpeedCountFrom, and the comparables read
+    // over the same shorter stretch (observeBookingSpeed countFrom).
+    for (const w of [1, 7, 30]) {
+      expect(bookingSpeedHelp(w).lines.at(-2)).toBe(
+        "After it adjusts a night, it only counts rooms booked after that, compared with similar nights over the same days.",
+      );
+    }
   });
 
   it("has no em dashes", () => {
@@ -42,6 +52,11 @@ describe("bookingSpeedWaitHelp", () => {
     expect(h.lines.join(" ")).toContain("Each room type waits on its own");
     expect(h.lines.join(" ")).toContain("stronger rule can still step in");
     expect(h.lines.join(" ")).toContain("three times");
+    // Once it is over, only what came in after its last adjustment counts,
+    // until a typed price starts it over with its whole window.
+    expect(h.lines.join(" ")).toContain("it only counts bookings made after it adjusted");
+    expect(h.lines.join(" ")).toContain("starts it over");
+    expect(h.lines.join(" ")).toContain("whole window");
   });
 
   it("says once when the pickup lookback is what sets the wait", () => {

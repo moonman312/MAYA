@@ -219,6 +219,19 @@ describe("computeStarterRules: the booking-speed ladder", () => {
     expect(byName.get("Sudden-spike catcher")!.explanation).toContain("repeated daily");
   });
 
+  it("says a rule that acts again judges only the bookings since it last did", () => {
+    // engine/pickup.ts bookingSpeedCountFrom: after a fire a rule counts only
+    // bookings made after it.
+    expect(byName.get("Slow-date rescue")!.explanation).toContain("judges only the bookings made since the cut");
+    expect(byName.get("Slow-date trim")!.explanation).toContain("looking only at bookings made since it");
+    expect(byName.get("Warm-date bump")!.explanation).toContain("only if the bookings made since are still ahead");
+    expect(byName.get("Hot-week surge")!.explanation).toContain("while new bookings keep coming");
+    for (const r of rules) {
+      expect(r.explanation).not.toContain("the night is still");
+      expect(r.explanation).not.toContain("while demand holds");
+    }
+  });
+
   it("tells the owner about the alert on the rules that can run away", () => {
     // Three fires on one night is where MAYA asks (engine/repeat-alerts.ts).
     const told = rules.filter((r) => r.explanation.includes("three times"));

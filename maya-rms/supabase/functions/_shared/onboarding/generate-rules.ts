@@ -17,9 +17,12 @@
  *   way ahead       (past week)   -> raise 25%, then waits 2 days
  *   sudden surge    (past day)    -> raise 25%, then waits a day
  *
- * Each wait is per night and room type. Once it is over and the condition
- * still holds, the rule adjusts that night again, so a night that stays far
- * behind keeps getting cut. Once a rule has adjusted one night three times
+ * Each wait is per night and room type. Once it is over the rule judges only
+ * the bookings made since it last adjusted that night (engine/pickup.ts,
+ * bookingSpeedCountFrom), and adjusts again if those still meet its
+ * condition: a night that stays far behind keeps getting cut, real demand
+ * keeps raising, and one burst of bookings raises it once. Once a rule has
+ * adjusted one night three times
  * MAYA puts that night in front of the owner and asks whether to carry on;
  * until they answer, the rule carries on.
  *
@@ -112,8 +115,9 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       is_pickup_rule: true,
       explanation:
         "When a night is booking far behind the pace similar nights set, a real 15% cut " +
-        "restarts interest. MAYA waits a week before judging the result, then cuts again if the " +
-        "night is still that far behind. It tells you once it has cut the same night three times.",
+        "restarts interest. MAYA waits a week, judges only the bookings made since the cut, and " +
+        "cuts again if those are still that far behind. It tells you once it has cut the same " +
+        "night three times.",
     },
     {
       name: "Slow-date trim",
@@ -128,8 +132,8 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       is_pickup_rule: true,
       explanation:
         "A night booking a bit behind the usual pace gets a small 7% trim, enough to stay " +
-        "competitive without giving the room away. MAYA re-checks a week after each trim and " +
-        "trims again if the night is still behind.",
+        "competitive without giving the room away. MAYA re-checks a week after each trim, " +
+        "looking only at bookings made since it, and trims again if those are still behind.",
     },
     {
       name: "Warm-date bump",
@@ -144,8 +148,9 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       is_pickup_rule: true,
       explanation:
         "A night booking ahead of the pace similar nights set can carry 10% more: the demand " +
-        "is already showing up in your own numbers. MAYA waits 3 days, then raises again if the " +
-        "night is still ahead. If enough of those bookings cancel, the raise comes back off.",
+        "is already showing up in your own numbers. MAYA waits 3 days, then raises again only " +
+        "if the bookings made since are still ahead. If enough of the bookings behind a raise " +
+        "cancel, the raise comes back off.",
     },
     {
       name: "Hot-week surge",
@@ -160,8 +165,8 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       is_pickup_rule: true,
       explanation:
         "When the past week runs much faster than similar nights ever did, raise 25% and ride " +
-        "the wave. It steps up again every couple of days while demand holds, and MAYA tells you " +
-        "once it has raised the same night three times.",
+        "the wave. It steps up again every couple of days while new bookings keep coming that " +
+        "fast, and MAYA tells you once it has raised the same night three times.",
     },
     {
       name: "Sudden-spike catcher",
