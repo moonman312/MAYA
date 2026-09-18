@@ -33,6 +33,27 @@
  *     has nothing new to record. The 30-day observation now appears on
  *     nights the rule is no longer waiting on.
  *
+ * Runs 5 to 7 were rewritten a fifth time when a Booking Speed rule stopped
+ * re-counting bookings it had already acted on. Every difference was read
+ * against a dump of the previous engine first, and runs 0 to 4 are
+ * unchanged:
+ *   - The event-style Suite rule (normal or slower over 30 days, 3-day wait)
+ *     fired on every night in run 0 (2026-06-10, New York). From run 5 on it
+ *     counts only bookings made from 2026-06-11: 4 days in run 5 instead of
+ *     30. The churn books every night quickly in those days, so 2026-06-26
+ *     and 2026-06-30 read faster than normal and no longer take a second
+ *     +2%: 2 fewer fires, and both publish 163.20 instead of 166.46 in run 5
+ *     (2026-06-30 in run 6 too). In run 7, 2026-06-30 takes its second raise
+ *     on the 17 days since the first (normal: 7 against 7.67) and publishes
+ *     166.46 instead of taking a third one to the 169.50 ceiling;
+ *     2026-07-01 takes its second on the 13 days since its first; 2026-07-03
+ *     reads faster since its first and takes none (it publishes 150 either
+ *     way).
+ *   - Those fires freeze the window they counted (window_from the day after
+ *     the rule's last fire on the cell), and their audit rows and every
+ *     audit row of those nights carry the shorter observation (windowDays,
+ *     countedFrom and fullWindowDays) in place of the 30-day one.
+ *
  * The golden file was written by this same test at commit 4ef5d65 with
  * MAYA_WRITE_ENGINE_GOLDEN=1. Its ladder_rule_state hashes were rewritten
  * once, leaving out last_evaluated_at, from an engine that still matched the

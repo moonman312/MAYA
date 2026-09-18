@@ -3,6 +3,7 @@ import {
   FIRE_UNIQUE_INDEX,
   basePriceKey,
   baselineTsFrom,
+  bookingSpeedCountFrom,
   cancelCheckFor,
   candidateFor,
   insertPickupEvent,
@@ -368,6 +369,36 @@ describe("waits", () => {
   });
 });
 
+describe("where a Booking Speed rule starts counting on a cell", () => {
+  const bs = makeRule({
+    condition: { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 30, booking_speed_cooldown_days: 3 },
+  });
+  const head = (lastCountedAt: string | null) => ({ maxFireSeq: 2, anchorAt: lastCountedAt, counted: lastCountedAt ? 1 : 0, lastCountedAt });
+
+  it("counts from the hotel day after its last counted fire, never that fire's own day", () => {
+    expect(bookingSpeedCountFrom(bs, head("2026-07-10T15:00:00Z"), undefined, "UTC")).toBe("2026-07-11");
+    // 02:30 UTC on the 10th is still the 9th in New York.
+    expect(bookingSpeedCountFrom(bs, head("2026-07-10T02:30:00Z"), undefined, "America/New_York")).toBe("2026-07-10");
+  });
+
+  it("counts its whole window when it has no counted fire on the cell", () => {
+    // Fires a typed price or an edit took off are not counted (pickup_fire_heads).
+    expect(bookingSpeedCountFrom(bs, head(null), undefined, "UTC")).toBeNull();
+    expect(bookingSpeedCountFrom(bs, undefined, undefined, "UTC")).toBeNull();
+  });
+
+  it("after a typed price, judges its whole window again: a fire from before the price doesn't cut it", () => {
+    // A raise taken off for cancellations still counts, but it came before the price.
+    expect(bookingSpeedCountFrom(bs, head("2026-07-10T15:00:00Z"), { set_at: "2026-07-11T09:00:00Z" }, "UTC")).toBeNull();
+    // A fire after the price does.
+    expect(bookingSpeedCountFrom(bs, head("2026-07-15T15:00:00Z"), { set_at: "2026-07-11T09:00:00Z" }, "UTC")).toBe("2026-07-16");
+  });
+
+  it("means nothing to a rule that only counts pickup", () => {
+    expect(bookingSpeedCountFrom(makeRule(), head("2026-07-10T15:00:00Z"), undefined, "UTC")).toBeNull();
+  });
+});
+
 describe("which cancellation test a fire gets", () => {
   const metrics = (over: Partial<RuleMetrics> = {}): RuleMetrics => ({
     ...baseMetrics,
@@ -440,6 +471,34 @@ describe("the fire a rule would make", () => {
     expect(c.signal_booked_units_end).toBe(16);
     expect(c.baseline_ts).toBe("2026-06-24T12:00:00.000Z");
     expect(c.cancel_check).toBe("window_bookings");
+  });
+
+  it("freezes only the days it counted when its last fire cut the window", () => {
+    const rule = makeRule({
+      condition: { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 30 },
+    });
+    const c = candidateFor({
+      rule,
+      metrics: {
+        ...baseMetrics,
+        booking_speed: {
+          speed: "faster", rank: 1, label: "Faster Than Normal", recent: 6, expected: 1.5, window_days: 3, method: "comparable",
+          counted_from: "2026-06-29", full_window_days: 30,
+        },
+      },
+      stayDate: "2026-07-15",
+      roomTypeId: "rt1",
+      now: "2026-07-01T12:00:00.000Z",
+      localDate: "2026-07-01",
+      baselineTs: null,
+      head: { maxFireSeq: 1, anchorAt: "2026-06-28T12:00:00.000Z", counted: 1, lastCountedAt: "2026-06-28T12:00:00.000Z" },
+    });
+    // The window the cancellation test re-reads is the one it measured.
+    expect(c.window_from).toBe("2026-06-29");
+    expect(c.window_to).toBe("2026-07-01");
+    expect(c.window_bookings_at_fire).toBe(6);
+    expect(c.window_expected_at_fire).toBe(1.5);
+    expect(c.fire_seq).toBe(2);
   });
 
   it("a pickup rule records what its window opened at", () => {

@@ -218,14 +218,16 @@ describe("a Booking Speed rule", () => {
    * Three years of history at a steady pace, and future nights whose last
    * booking was made more than 20 days ago: every one of them reads slower
    * than the nights it is compared with, while still holding bookings.
+   * Nights book a room every `every` days over the month before arrival.
    */
-  function history(opts: { burst?: boolean } = {}) {
+  function history(opts: { burst?: boolean; every?: number } = {}) {
     const reservations: FakeRow[] = [];
+    const every = opts.every ?? 3;
     for (let off = -400; off < HORIZON + 30; off++) {
       const stay = addDays(D0, off);
       for (const lead of [60, 63, 66]) reservations.push(booking(stay, addDays(stay, -lead)));
-      for (let i = 0; i < 10; i++) {
-        const bookedOn = addDays(stay, -i * 3);
+      for (let i = 0; i * every < 30; i++) {
+        const bookedOn = addDays(stay, -i * every);
         if (off >= 0 ? bookedOn > addDays(D0, -20) : bookedOn > D0) continue;
         reservations.push(booking(stay, bookedOn));
       }
@@ -237,13 +239,15 @@ describe("a Booking Speed rule", () => {
     return reservations;
   }
 
-  it("cuts, holds the cut through its wait, then cuts again", async () => {
+  it("cuts, holds the cut through its wait, then cuts again when the week since was slow too", async () => {
     const slow = rule(
       "r-slow",
       { booking_speed_operator: "at_most", booking_speed_level: "slower", booking_speed_window_days: 30 },
       { action_value: 10 },
     );
-    const w = world({ rules: [slow], reservations: history(), horizon: HORIZON, snapshotDays: 3 });
+    // A room a day on nights like it, so a week of nothing is plainly slow on
+    // its own: after the cut the rule only counts the days since it.
+    const w = world({ rules: [slow], reservations: history({ every: 1 }), horizon: HORIZON, snapshotDays: 3 });
     const prices: number[] = [];
     for (let k = 0; k <= 16; k++) {
       await w.run(T0 + k * 12 * HOUR);
@@ -252,9 +256,9 @@ describe("a Booking Speed rule", () => {
     // One cut, held every run for the week, then a second cut on top of it.
     expect(prices.slice(0, 14)).toEqual(Array.from({ length: 14 }, () => 90));
     expect(prices[14]).toBe(81);
-    expect(w.fires(NIGHT).map((e) => [e.fire_seq, e.retired_at, e.cancel_check])).toEqual([
-      [1, null, "none"],
-      [2, null, "none"],
+    expect(w.fires(NIGHT).map((e) => [e.fire_seq, e.retired_at, e.cancel_check, e.window_from, e.window_to])).toEqual([
+      [1, null, "none", addDays(D0, -29), D0],
+      [2, null, "none", addDays(D0, 1), addDays(D0, 7)],
     ]);
     // One row per change, not one per run.
     expect(w.audits(NIGHT)).toHaveLength(2);

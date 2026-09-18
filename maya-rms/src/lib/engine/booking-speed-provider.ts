@@ -47,6 +47,7 @@ import {
 import { MOMENTUM_RADIUS_DAYS, MOMENTUM_YEAR_OFFSET_DAYS } from "@/lib/observations/momentum";
 import {
   observeBookingSpeed,
+  windowDaysFrom,
   type BookingSpeedObservation,
 } from "@/lib/observations/expected-bookings";
 import { bookingWindowOf, pickupInWindowIndexed, type StayDateWindows } from "@/lib/observations/booking-rows";
@@ -717,19 +718,33 @@ function selectionFor(ctx: BookingSpeedContext, stayDate: string): ComparableSel
  * Any other set is keyed by the set too, so rules sharing a set share the
  * work, and the observation names the room types it measured. Room types
  * that do not count as rooms are dropped from the set first, as the load did.
+ *
+ * `countFrom` is the first booking date a rule that already fired on the
+ * night may count (bookingSpeedCountFrom in pickup.ts). When it cuts the
+ * window short, the observation counts only those days, on the target and
+ * its comparables alike, and is keyed by it too: another rule on the same
+ * window, or the same rule on another room type, may count from elsewhere.
+ * A countFrom that leaves no whole day to count throws; the engine checks
+ * windowDaysFrom first.
  */
 export function observeForStayDate(
   ctx: BookingSpeedContext,
   stayDate: string,
   windowDays: number,
   signalIds?: readonly string[],
+  countFrom?: string | null,
 ): BookingSpeedObservation {
   const setKey =
     signalIds && ctx.hotelSetKey !== undefined
       ? signalSetKey(ctx.excluded ? signalIds.filter((id) => !ctx.excluded!.has(id)) : signalIds)
       : null;
   const measuresSet = setKey !== null && setKey !== ctx.hotelSetKey;
-  const key = measuresSet ? `${stayDate}|${windowDays}|${setKey}` : `${stayDate}|${windowDays}`;
+  // A countFrom at or before the window's first day changes nothing, and
+  // shares the plain observation. No "|" in the window part: the audit
+  // snapshot filter reads the set key after the second one.
+  const cutFrom = countFrom && windowDaysFrom(windowDays, ctx.asOf, countFrom) < windowDays ? countFrom : null;
+  const windowKey = cutFrom ? `${windowDays}>${cutFrom}` : `${windowDays}`;
+  const key = measuresSet ? `${stayDate}|${windowKey}|${setKey}` : `${stayDate}|${windowKey}`;
   const hit = ctx.observationCache.get(key);
   if (hit) return hit;
   const index = measuresSet ? ctx.setWindows?.get(setKey) : ctx.windowsByDate;
@@ -754,6 +769,7 @@ export function observeForStayDate(
     asOf: ctx.asOf,
     selection,
     windowDays,
+    countFrom: cutFrom,
     isExcluded: ctx.isExcluded,
   });
   const observation = measuresSet
@@ -775,6 +791,9 @@ export function bookingSpeedMetrics(
     expected: observation.expectedBookings,
     window_days: observation.windowDays,
     method: observation.method,
+    ...(observation.countedFrom
+      ? { counted_from: observation.countedFrom, full_window_days: observation.fullWindowDays }
+      : {}),
   };
 }
 

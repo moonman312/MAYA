@@ -22,6 +22,12 @@
  * when even momentum has nothing to go on does this report
  * `insufficient_data` rather than guess.
  *
+ * A rule that already adjusted a night passes `countFrom`: only bookings
+ * made from that date on count, and the window shrinks to the days from it
+ * to the as-of date. The comparables (and momentum) are then read over that
+ * same shorter stretch of their booking curves, so the expectation stays a
+ * fair one: a rule never re-counts the bookings it already acted on.
+ *
  * Counts reflect currently known reservations from the slim import rows:
  * a canceled booking disappears rather than counting negative. Pure
  * functions; the caller supplies rows and dates.
@@ -85,6 +91,14 @@ export interface BookingSpeedObservation {
    * room), which is also how every snapshot written before this field reads.
    */
   measuredRoomTypeIds?: string[];
+  /**
+   * Set only when `countFrom` cut the window short: the first booking date
+   * counted. windowDays is then the shorter stretch actually measured, on
+   * the target and on every comparable alike.
+   */
+  countedFrom?: string;
+  /** The window the rule asked for, set together with countedFrom. */
+  fullWindowDays?: number;
 }
 
 export interface ObserveBookingSpeedOptions {
@@ -101,8 +115,26 @@ export interface ObserveBookingSpeedOptions {
   asOf: string;
   selection: ComparableSelection;
   windowDays?: number;
+  /**
+   * Count only bookings made on or after this date (YYYY-MM-DD). The window
+   * becomes the days from it to asOf, never longer than windowDays, and must
+   * keep at least one day (see windowDaysFrom). Null or older than the
+   * window's first day: the whole window, exactly as without it.
+   */
+  countFrom?: string | null;
   /** Same exclusion predicate passed to selectComparableDates — reused for momentum's neighbor search. */
   isExcluded?: (date: string) => boolean;
+}
+
+/**
+ * Days of a trailing `windowDays` window ending on `asOf` that fall on or
+ * after `countFrom`: the whole window when countFrom is null or older than
+ * the window's first day, fewer when it starts inside it, 0 when it is after
+ * asOf. Bookings carry a date, not a time, so a whole day is the unit.
+ */
+export function windowDaysFrom(windowDays: number, asOf: string, countFrom?: string | null): number {
+  if (!countFrom) return windowDays;
+  return Math.max(0, Math.min(windowDays, daysBetween(countFrom, asOf) + 1));
 }
 
 /**
@@ -112,11 +144,18 @@ export interface ObserveBookingSpeedOptions {
  * explanations replay what was actually known, not what is known later.
  */
 export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSpeedObservation {
-  const windowDays = opts.windowDays ?? DEFAULT_WINDOW_DAYS;
+  const fullWindowDays = opts.windowDays ?? DEFAULT_WINDOW_DAYS;
   const daysOut = daysBetween(opts.asOf, opts.target);
   if (daysOut < 0) {
     throw new Error("booking speed target must not be in the past");
   }
+  // From here on the window is the stretch actually counted: bookings made
+  // from countFrom on, on the target and on every date it is compared with.
+  const windowDays = windowDaysFrom(fullWindowDays, opts.asOf, opts.countFrom);
+  if (windowDays < 1) {
+    throw new Error("booking speed countFrom must leave at least one day to count");
+  }
+  const cut = windowDays < fullWindowDays ? { countedFrom: opts.countFrom!, fullWindowDays } : {};
 
   const index = opts.index ?? indexBookingRows(opts.rows ?? []);
 
@@ -139,6 +178,7 @@ export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSp
     recentBookings,
     perComparable,
     selection: opts.selection,
+    ...cut,
   };
 
   if (usableComparables.length > 0) {

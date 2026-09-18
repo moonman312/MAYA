@@ -80,10 +80,62 @@ describe("observeForStayDate + snapshots", () => {
   });
 });
 
+describe("observeForStayDate from a date (a rule that already fired on the night)", () => {
+  const rows: SlimReservationRow[] = [];
+  // The night got bookings 14 to 20 days out; so did the day either side.
+  for (const stayDate of ["2026-08-15", "2026-08-14", "2026-08-16"]) {
+    for (const w of [14, 15, 16, 17, 18, 19, 20]) rows.push({ stay_date: stayDate, booking_window_days: w });
+  }
+
+  it("counts only the days from it, keeps that apart from the whole window, and says so in the metrics", () => {
+    const ctx = makeContext(rows, "2026-08-01");
+    const whole = observeForStayDate(ctx, "2026-08-15", 7);
+    const cut = observeForStayDate(ctx, "2026-08-15", 7, undefined, "2026-07-30");
+    expect(whole.recentBookings).toBe(7);
+    expect(cut.recentBookings).toBe(3);
+    expect(cut.windowDays).toBe(3);
+    expect(observeForStayDate(ctx, "2026-08-15", 7, undefined, "2026-07-30")).toBe(cut);
+    expect(ctx.observationCache.size).toBe(2);
+    const m = bookingSpeedMetrics(cut);
+    expect(m).toMatchObject({ recent: 3, window_days: 3, counted_from: "2026-07-30", full_window_days: 7 });
+    expect(bookingSpeedMetrics(whole)).not.toHaveProperty("counted_from");
+    // Both are what the run consulted for the night.
+    expect(bookingSpeedAuditSnapshots(ctx, "2026-08-15")).toHaveLength(2);
+  });
+
+  it("shares the whole window's observation when the date cuts nothing off", () => {
+    const ctx = makeContext(rows, "2026-08-01");
+    const whole = observeForStayDate(ctx, "2026-08-15", 7);
+    expect(observeForStayDate(ctx, "2026-08-15", 7, undefined, "2026-07-26")).toBe(whole);
+    expect(observeForStayDate(ctx, "2026-08-15", 7, undefined, null)).toBe(whole);
+    expect(ctx.observationCache.size).toBe(1);
+  });
+
+  it("keeps a cut observation of part of the hotel on that part's cells only", () => {
+    const ctx = makeContext(rows, "2026-08-01");
+    ctx.hotelSetKey = signalSetKey(["rt1", "rt2"]);
+    const suites = signalSetKey(["rt2"]);
+    ctx.setWindows = new Map([[suites, indexBookingRows(rows.filter((r) => r.booking_window_days! <= 15))]]);
+    const cut = observeForStayDate(ctx, "2026-08-15", 7, ["rt2"], "2026-07-31");
+    expect(cut.recentBookings).toBe(2);
+    expect(cut.measuredRoomTypeIds).toEqual(["rt2"]);
+    expect(bookingSpeedAuditSnapshots(ctx, "2026-08-15")).toHaveLength(0);
+    expect(bookingSpeedAuditSnapshots(ctx, "2026-08-15", new Set([suites]))).toEqual([cut]);
+  });
+});
+
 describe("bookingsInFrozenWindow", () => {
   const rows: SlimReservationRow[] = [];
   // Five bookings for the night, made 14, 15, 16, 20 and 21 days before it.
   for (const w of [14, 15, 16, 20, 21]) rows.push({ stay_date: "2026-08-15", booking_window_days: w });
+
+  it("counts what a cut observation counted, so a fire's frozen window re-reads its own bookings", () => {
+    const ctx = makeContext(rows, "2026-08-01");
+    const cut = observeForStayDate(ctx, "2026-08-15", 30, undefined, "2026-07-31");
+    // The fire records window_from = 2026-07-31 and window_to = 2026-08-01.
+    expect(cut.recentBookings).toBe(2);
+    expect(bookingsInFrozenWindow(ctx, "2026-08-15", "2026-07-31", "2026-08-01")).toBe(cut.recentBookings);
+  });
 
   it("counts the bookings whose booking date is in the window, and no others", () => {
     const ctx = makeContext(rows, "2026-08-01");

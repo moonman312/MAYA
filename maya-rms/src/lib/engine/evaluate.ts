@@ -8,6 +8,7 @@
 
 import type { EngineRule } from "@/types/domain";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { windowDaysFrom } from "@/lib/observations/expected-bookings";
 import type { AuditInput } from "./audit";
 import {
   buildAuditRow,
@@ -33,6 +34,7 @@ import { createLadderPassBatch, evaluateLadderTriple, probeSuppressionSupport } 
 import { computeRuleMetrics } from "./metrics";
 import {
   baselineTsFrom,
+  bookingSpeedCountFrom,
   candidateFor,
   fireHeadKey,
   firesToRetire,
@@ -617,10 +619,13 @@ export async function evaluateHotel(
     );
   }
 
+  // `countFrom`: the first booking date the rule may count on the cell, after
+  // its last fire there (bookingSpeedCountFrom). null counts its whole window.
   const attachBookingSpeed = (
     rule: EngineRule,
     stayDate: string,
     metrics: Awaited<ReturnType<typeof computeRuleMetrics>>,
+    countFrom: string | null = null,
   ) => {
     if (!rule.condition.booking_speed_operator) return;
     // A rule whose signal types all stopped counting as rooms measures
@@ -630,7 +635,13 @@ export async function evaluateHotel(
       return;
     }
     const windowDays = rule.condition.booking_speed_window_days ?? 7;
-    const observation = observeForStayDate(bsCtx, stayDate, windowDays, rule.signal_room_type_ids);
+    // No whole day since its last fire: nothing new to judge. The wait (a day
+    // at least) covers this; a fire another run dated later can still land here.
+    if (windowDaysFrom(windowDays, localDate, countFrom) < 1) {
+      metrics.booking_speed_block_reason = "since_last_fire";
+      return;
+    }
+    const observation = observeForStayDate(bsCtx, stayDate, windowDays, rule.signal_room_type_ids, countFrom);
     if (observation.method === "insufficient_data") {
       metrics.booking_speed_block_reason = "insufficient_data";
       return;
@@ -787,11 +798,16 @@ export async function evaluateHotel(
 
   // Per (rule, night) in scope: which of its room types it may fire on now,
   // and which it is still waiting on. A night the owner stopped the rule on
-  // is left out entirely.
+  // is left out entirely. Room types it may fire on are measured together
+  // when they count bookings from the same date (bookingSpeedCountFrom: each
+  // cell counts only bookings made after the rule's last fire there), so a
+  // (rule, night) can come out as more than one entry. The ones it waits on
+  // are measured over the full window, for holding the cell (runPickupPass).
   type RuleNight = {
     rule: EngineRule;
     stayDate: string;
     baselineTs: string | null;
+    countFrom: string | null;
     open: string[];
     waiting: string[];
     metrics?: RuleMetrics;
@@ -804,17 +820,21 @@ export async function evaluateHotel(
     for (const stayDate of stayDates) {
       if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone)) continue;
       if (isStoppedOnNight(alertNights, rule, stayDate)) continue;
-      const open: string[] = [];
+      const openByFrom = new Map<string, string[]>();
       const waiting: string[] = [];
       for (const rtId of rule.affected_room_type_ids) {
-        const anchor = waitAnchor(
-          rule,
-          fireHeads.get(fireHeadKey(rule.id, stayDate, rtId)),
-          manualByCell.get(`${stayDate}|${rtId}`),
-        );
-        (isWaiting(anchor, now, waitDays) ? waiting : open).push(rtId);
+        const head = fireHeads.get(fireHeadKey(rule.id, stayDate, rtId));
+        const manual = manualByCell.get(`${stayDate}|${rtId}`);
+        if (isWaiting(waitAnchor(rule, head, manual), now, waitDays)) {
+          waiting.push(rtId);
+          continue;
+        }
+        pushTo(openByFrom, bookingSpeedCountFrom(rule, head, manual, hotelTimeZone) ?? "", rtId);
       }
-      ruleNights.push({ rule, stayDate, baselineTs, open, waiting });
+      for (const [from, open] of openByFrom) {
+        ruleNights.push({ rule, stayDate, baselineTs, countFrom: from || null, open, waiting: [] });
+      }
+      if (waiting.length > 0) ruleNights.push({ rule, stayDate, baselineTs, countFrom: null, open: [], waiting });
     }
   }
 
@@ -831,7 +851,7 @@ export async function evaluateHotel(
       rn.baselineTs,
       snapshots,
     );
-    attachBookingSpeed(rn.rule, rn.stayDate, metrics);
+    attachBookingSpeed(rn.rule, rn.stayDate, metrics, rn.countFrom);
     noteExcludedSignals(rn.rule, metrics);
     rn.metrics = metrics;
     rn.matched = ruleConditionsMatch(rn.rule, metrics);

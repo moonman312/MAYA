@@ -17,18 +17,27 @@
  * on the cell, for a rule that existed when the price was set. Fires taken
  * off by a manual price or an edit never start a wait.
  *
- * WHAT A RULE MEASURES. A pickup condition counts net bookings over exactly
- * its window (now minus pickup_window_days). The wait is at least that long,
- * so a window never reaches back past the rule's last fire on the cell, or
- * past a manual price set before the rule's wait began. A Booking Speed
- * condition reads the observation over its own window and needs no old
- * snapshot. After a manual price, a rule judges its full normal window,
- * bookings from before the price included.
+ * WHAT A RULE MEASURES. A rule never re-counts bookings it already acted on.
+ * A pickup condition counts net bookings over exactly its window (now minus
+ * pickup_window_days). The wait is at least that long, so a window never
+ * reaches back past the rule's last fire on the cell, or past a manual price
+ * set before the rule's wait began. A Booking Speed condition reads the
+ * observation over its own window and needs no old snapshot, but its wait
+ * can be shorter than its window, so after a fire it counts only bookings
+ * made from the hotel day after that fire (bookingSpeedCountFrom), and the
+ * nights it is compared with are read over the same shorter stretch of their
+ * booking curves. The fire that cuts the window is the rule version's latest
+ * one that counts toward the owner alert (open, or taken off for
+ * cancellations), per cell. After a manual price, a rule judges its full
+ * normal window, bookings from before the price included: the fires the
+ * price took off never cut it, and neither does one made before it.
  *
  * WHICH RULE FIRES. At most one fire per cell per run. The competition
  * (selectPickupWinner) includes rules waiting on the cell whose conditions
- * still match: if one of those ranks first, nothing fires there this run. A
- * stronger rule can always fire while a weaker one waits. A candidate is
+ * still match over their full window, so a stronger rule holds the cell
+ * through its wait on what it fired on: if one of those ranks first, nothing
+ * fires there this run. A stronger rule can always fire while a weaker one
+ * waits. A candidate is
  * dropped before the competition when it can't move the price in its own
  * direction (limitAllowsFire), and a cell the run leaves unpriced never gets
  * a fire.
@@ -36,8 +45,9 @@
  * WHEN A FIRE COMES OFF. Cuts never come off for cancellations. A raise comes
  * off when the bookings behind it cancel (cancellationCrossed): for a pickup
  * raise, net bookings are back to where its window opened; for a Booking
- * Speed raise, the bookings still on the books from its frozen window are
- * back to what a night like it usually gets. Each stacked raise is tested on
+ * Speed raise, the bookings still on the books from its frozen window (the
+ * days it counted, cut short by an earlier fire or not) are back to what a
+ * night like it usually gets over them. Each stacked raise is tested on
  * its own numbers, and never in the run that made it. Every fire also comes
  * off when its night passes, when a manual price is set on the cell, and
  * when the rule is edited. Pausing a rule changes nothing: its fires keep
@@ -57,7 +67,7 @@ import {
 import { conditionCount } from "./conditions";
 import { pickupEffectOf, type PickupEffect } from "./pricing";
 import { MIGRATIONS, fetchAllRows } from "./snapshots";
-import { addCalendarDays } from "./timezone";
+import { addCalendarDays, evalIsoToHotelDateString } from "./timezone";
 import type { PickupCandidate, RuleMetrics } from "./types";
 
 const DAY_MS = 86_400_000;
@@ -178,6 +188,33 @@ export function waitAnchor(
     if (anchor === null || Date.parse(manualPrice.set_at) > Date.parse(anchor)) anchor = manualPrice.set_at;
   }
   return anchor;
+}
+
+/**
+ * The first booking date (hotel date) a Booking Speed rule may count on a
+ * cell, or null to count its whole window. A rule never re-counts bookings
+ * it already acted on: after its latest fire on the cell that counts toward
+ * the owner alert (this rule version's, open or taken off for
+ * cancellations), it counts only bookings made from the next hotel day on.
+ * Bookings carry a date and not a time, so the fire's own day belongs to
+ * that fire: its frozen window ends there and the next one starts after it.
+ *
+ * Fires taken off by a manual price or an edit are not counted fires, and a
+ * counted fire made before the open manual price on the cell is ignored too:
+ * after a typed price the rule waits its wait from set_at and then judges
+ * its full window. null for a rule with no Booking Speed condition.
+ */
+export function bookingSpeedCountFrom(
+  rule: EngineRule,
+  head: FireHead | undefined,
+  manualPrice: { set_at: string } | undefined,
+  hotelTimeZone: string,
+): string | null {
+  if (!rule.condition.booking_speed_operator) return null;
+  const firedAt = head?.lastCountedAt ?? null;
+  if (firedAt === null) return null;
+  if (manualPrice && Date.parse(firedAt) < Date.parse(manualPrice.set_at)) return null;
+  return addCalendarDays(evalIsoToHotelDateString(firedAt, hotelTimeZone), 1);
 }
 
 /** Still waiting: less than `waitDays` whole days since the anchor. */
