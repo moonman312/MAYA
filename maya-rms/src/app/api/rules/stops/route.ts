@@ -36,64 +36,82 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { recordAlertAnswer } from "../alerts/shared";
 
-/** Stopped nights read at once. A rule stopped on more than this is a story in itself. */
+/**
+ * Stopped nights read at once, still to come and passed each. A rule stopped
+ * on more than this is a story in itself.
+ */
 export const MAX_STOPPED_NIGHTS = 400;
+
+/** Nights one "Let it run again" can name: the upcoming and the passed ones GET hands out. */
+const MAX_RESUME_NIGHTS = 2 * MAX_STOPPED_NIGHTS;
+
+type StoppedNight = { alert_id: string; rule_id: string; rule_version: number; stay_date: string };
 
 /** Every stopped night of the hotel's rules that the chip covers, grouped by rule. */
 async function loadRuleStops(supabase: SupabaseClient, hotelId: string): Promise<RuleStops[]> {
   const { data: hotel } = await supabase.from("hotels").select("timezone").eq("id", hotelId).maybeSingle();
   const today = hotelToday(String(hotel?.timezone ?? "UTC"));
 
-  // Newest night first, so a rule stopped on more nights than are read
-  // keeps the ones still to come rather than filling up with old ones.
-  const { data: rows, error } = await supabase
-    .from("rule_repeat_alert_nights")
-    .select("alert_id, rule_id, rule_version, stay_date")
-    .eq("hotel_id", hotelId)
-    .eq("choice", "stop")
-    .order("stay_date", { ascending: false })
-    .limit(MAX_STOPPED_NIGHTS);
-  if (error) {
+  // Two reads, each capped on its own. The nights still to come are what the
+  // chip counts and names, so they are read from tonight on: a hotel with
+  // more stopped nights than are read keeps the ones about to happen, not the
+  // far end of the season. The passed ones only matter to what "Let it run
+  // again" clears, so they never take a place from a night still to come.
+  const read = (upcoming: boolean) => {
+    const q = supabase
+      .from("rule_repeat_alert_nights")
+      .select("alert_id, rule_id, rule_version, stay_date")
+      .eq("hotel_id", hotelId)
+      .eq("choice", "stop");
+    return (upcoming ? q.gte("stay_date", today) : q.lt("stay_date", today))
+      .order("stay_date", { ascending: upcoming })
+      .order("rule_id", { ascending: true })
+      .limit(MAX_STOPPED_NIGHTS);
+  };
+  const [upcoming, passed] = await Promise.all([read(true), read(false)]);
+  for (const { error } of [upcoming, passed]) {
+    if (!error) continue;
     // A database without the alert tables yet has nothing to show, which is
     // not an error the rules page should carry.
     if (isMissingRelationError(error)) return [];
     throw error;
   }
-  const answered = (rows ?? []) as Record<string, unknown>[];
-  if (answered.length === 0) return [];
+  const toNight = (row: Record<string, unknown>): StoppedNight => ({
+    alert_id: String(row.alert_id),
+    rule_id: String(row.rule_id),
+    rule_version: Number(row.rule_version),
+    stay_date: String(row.stay_date).slice(0, 10),
+  });
+  const ahead = ((upcoming.data ?? []) as Record<string, unknown>[]).map(toNight);
+  const behind = ((passed.data ?? []) as Record<string, unknown>[]).map(toNight);
+  // A rule whose stops have all passed is not stopped on anything: no chip,
+  // and nothing for the owner to take back.
+  if (ahead.length === 0) return [];
 
   const { data: rules } = await supabase
     .from("pricing_rules")
     .select("id, version")
-    .in("id", [...new Set(answered.map((r) => String(r.rule_id)))]);
+    .in("id", [...new Set(ahead.map((r) => r.rule_id))]);
   const versions = new Map((rules ?? []).map((r) => [String(r.id), Number(r.version)]));
+  // An edit starts the rule fresh, so an older version's answer is spent.
+  const current = (row: StoppedNight) => versions.get(row.rule_id) === row.rule_version;
 
   const byRule = new Map<string, RuleStops>();
-  const oldestFirst = answered
-    .map((row) => ({
-      alert_id: String(row.alert_id),
-      rule_id: String(row.rule_id),
-      rule_version: Number(row.rule_version),
-      stay_date: String(row.stay_date).slice(0, 10),
-    }))
-    .sort((a, b) => (a.stay_date < b.stay_date ? -1 : a.stay_date > b.stay_date ? 1 : 0));
-  for (const row of oldestFirst) {
-    // An edit starts the rule fresh, so an older version's answer is spent.
-    if (versions.get(row.rule_id) !== row.rule_version) continue;
-    const entry = byRule.get(row.rule_id) ?? {
-      rule_id: row.rule_id,
-      alert_ids: [],
-      nights: [],
-      resume_nights: [],
-    };
-    if (!entry.alert_ids.includes(row.alert_id)) entry.alert_ids.push(row.alert_id);
-    entry.resume_nights.push(row.stay_date);
-    if (row.stay_date >= today) entry.nights.push(row.stay_date);
+  for (const row of ahead.filter(current)) {
+    const entry = byRule.get(row.rule_id) ?? { rule_id: row.rule_id, alert_ids: [], nights: [], resume_nights: [] };
+    entry.nights.push(row.stay_date);
     byRule.set(row.rule_id, entry);
   }
-  // A rule whose stops have all passed is not stopped on anything: no chip,
-  // and nothing for the owner to take back.
-  return [...byRule.values()].filter((s) => s.nights.length > 0);
+  // Oldest first, passed nights ahead of the rest; a passed night joins only a
+  // rule the chip shows.
+  const oldestFirst = [...behind].reverse().concat(ahead);
+  for (const row of oldestFirst) {
+    const entry = byRule.get(row.rule_id);
+    if (!entry || !current(row)) continue;
+    if (!entry.alert_ids.includes(row.alert_id)) entry.alert_ids.push(row.alert_id);
+    entry.resume_nights.push(row.stay_date);
+  }
+  return [...byRule.values()];
 }
 
 export async function GET() {
@@ -120,12 +138,12 @@ export async function POST(request: Request) {
   if (
     !Array.isArray(rawIds) ||
     rawIds.length === 0 ||
-    rawIds.length > MAX_STOPPED_NIGHTS ||
+    rawIds.length > MAX_RESUME_NIGHTS ||
     rawIds.some((id) => typeof id !== "string" || !isUuid(id))
   ) {
     return NextResponse.json({ error: "Pick the rule to let run again." }, { status: 400 });
   }
-  if (!Array.isArray(rawDates) || rawDates.length === 0 || rawDates.length > MAX_STOPPED_NIGHTS) {
+  if (!Array.isArray(rawDates) || rawDates.length === 0 || rawDates.length > MAX_RESUME_NIGHTS) {
     return NextResponse.json({ error: "Pick the nights to let it run on." }, { status: 400 });
   }
   if (rawDates.some((d) => typeof d !== "string" || !isRealIsoDate(d))) {
