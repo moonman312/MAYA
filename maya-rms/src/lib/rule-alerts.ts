@@ -324,7 +324,8 @@ export type RuleStops = {
    * Every stopped night of the rule's current version, passed ones included,
    * oldest first. "Let it run again" takes the answer off all of them: a
    * passed night can't fire either way, and leaving one answered would leave
-   * the change log saying the owner stopped the rule on just those.
+   * the change log saying the owner stopped the rule on just those. Only the
+   * nights still to come show in the change log as let run again.
    */
   resume_nights: string[];
 };

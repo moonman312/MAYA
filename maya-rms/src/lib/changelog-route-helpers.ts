@@ -499,7 +499,10 @@ function nightsWord(n: number): string {
 /**
  * One answer covers every night it settled: rule_repeat_alert_choose stamps
  * them all with one instant, so (rule, choice, instant) is the action the
- * owner took, and rule_repeat_alert_resume stamps a resume the same way.
+ * owner took, and rule_repeat_alert_resume_many stamps a resume the same way,
+ * one instant over all of a rule's alerts. A resume stamps only the nights
+ * still to come, so a night that was already over never reads as one the
+ * rule can adjust again.
  * "Stop" says what happens to the changes already made, because that is the
  * question the word leaves open, and it says it by direction: a cut is never
  * undone on MAYA's own account, while a raise still comes off if enough of

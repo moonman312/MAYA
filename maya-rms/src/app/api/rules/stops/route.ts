@@ -15,7 +15,8 @@
  * off every stopped night all the same, passed ones included: leaving those
  * behind would leave a change log entry saying the owner stopped the rule on
  * the handful of nights nobody took the answer off, which is not what they
- * did.
+ * did. The change log's line for the resume names only the nights still to
+ * come, the ones the rule can adjust again.
  *
  * POST /api/rules/stops — that "Let it run again": one rule's stopped nights,
  * across every alert they were filed under, in one call to
