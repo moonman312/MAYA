@@ -760,6 +760,87 @@ describe.skipIf(!PGLITE_DIR)("the pickup event stacking migration in PGlite", ()
     expect(lines[0].title).toBe('A manager let "Slow-date rescue" run again on 2 nights. It can start adjusting again from the next pricing run.');
   });
 
+  it("lets a rule run again over all its alerts in one call, at one instant, for a rule manager only", async () => {
+    // One click on "Let it run again" is one thing the owner did. Called once
+    // per alert, each call got its own now(), and the change log showed one
+    // line per alert.
+    const R_TWICE = rid(7);
+    const [A_OLD, A_NEW, A_ELSEWHERE] = [
+      "0000000f-0000-4000-8000-000000000001",
+      "0000000f-0000-4000-8000-000000000002",
+      "0000000f-0000-4000-8000-000000000003",
+    ];
+    const NIGHTS = ["2099-02-01", "2099-02-02", "2099-02-03"];
+    await db.exec(`set request.jwt.claim.role = 'service_role';`);
+    await db.exec(`
+      insert into public.pricing_rules (id, hotel_id, is_pickup_rule, action_direction) values ('${R_TWICE}', '${H1}', true, 'decrease');
+      -- Two episodes of one rule, the older one answered in full, and another
+      -- hotel's alert.
+      insert into public.rule_repeat_alerts (id, hotel_id, rule_id, rule_version, action_direction, opened_at, resolved_at, resolution) values
+        ('${A_OLD}', '${H1}', '${R_TWICE}', 1, 'decrease', now(), now(), 'chosen'),
+        ('${A_NEW}', '${H1}', '${R_TWICE}', 1, 'decrease', now(), null, null),
+        ('${A_ELSEWHERE}', '${H2}', '${R_OTHER}', 1, 'increase', now(), null, null);
+      insert into public.rule_repeat_alert_nights
+        (alert_id, hotel_id, rule_id, rule_version, stay_date, fire_count, reached_at, last_fire_at, choice, chosen_at)
+      values
+        ('${A_OLD}', '${H1}', '${R_TWICE}', 1, '${NIGHTS[0]}', 3, now(), now(), 'stop', now()),
+        ('${A_NEW}', '${H1}', '${R_TWICE}', 1, '${NIGHTS[1]}', 3, now(), now(), 'stop', now()),
+        ('${A_NEW}', '${H1}', '${R_TWICE}', 1, '${NIGHTS[2]}', 3, now(), now(), 'stop', now()),
+        ('${A_ELSEWHERE}', '${H2}', '${R_OTHER}', 1, '${NIGHTS[0]}', 3, now(), now(), 'stop', now());
+    `);
+    const dates = `array[${NIGHTS.map((n) => `'${n}'`).join(", ")}]::date[]`;
+    const call = (ids: string[]) =>
+      db.query(
+        `select stay_date::text as stay_date, resumed_at, resumed_by::text as resumed_by
+           from public.rule_repeat_alert_resume_many(array[${ids.map((i) => `'${i}'`).join(", ")}]::uuid[], ${dates})
+          order by stay_date`,
+      );
+    const stillStopped = async () =>
+      (await db.query(`select count(*)::int as n from public.rule_repeat_alert_nights where alert_id in ('${A_OLD}', '${A_NEW}', '${A_ELSEWHERE}') and choice = 'stop'`)).rows[0].n;
+
+    // The same checks as one alert at a time: a manager of the hotel, and
+    // every alert has to exist. One alert that fails stops the lot.
+    await db.exec(`set request.jwt.claim.role = 'authenticated'; set test.manager_hotel = '${H2}'; set test.user_id = '${USER}';`);
+    await expect(call([A_OLD, A_NEW])).rejects.toThrow(/Not authorized/);
+    await db.exec(`set test.manager_hotel = '${H1}';`);
+    await expect(call([A_OLD, A_NEW, A_ELSEWHERE])).rejects.toThrow(/Not authorized/);
+    await expect(call([A_OLD, "00000000-0000-4000-8000-00000000dead"])).rejects.toThrow(/not found/);
+    expect(await stillStopped()).toBe(4);
+    // Granted as the one-alert function is: to signed-in users and the service role.
+    const grants = await db.query(`
+      select r as role, has_function_privilege(r, 'public.rule_repeat_alert_resume_many(uuid[], date[])', 'execute') as can
+        from unnest(array['anon', 'authenticated', 'service_role']) r order by r`);
+    expect(grants.rows).toEqual([
+      { role: "anon", can: false },
+      { role: "authenticated", can: true },
+      { role: "service_role", can: true },
+    ]);
+
+    const back = await call([A_OLD, A_NEW]);
+    expect(back.rows.map((r) => r.stay_date)).toEqual(NIGHTS);
+    expect(new Set(back.rows.map((r) => String(r.resumed_at))).size).toBe(1);
+    expect(back.rows.every((r) => r.resumed_by === USER)).toBe(true);
+    expect(await stillStopped()).toBe(1);
+    // The answered episode stays resolved, closed now that a night of it
+    // ended without an answer, the same as one alert at a time.
+    expect(
+      (await db.query(`select resolution from public.rule_repeat_alerts where id = '${A_OLD}'`)).rows,
+    ).toEqual([{ resolution: "closed" }]);
+
+    // And the change log reads it as the one thing the owner did.
+    const rows: AlertChoiceRow[] = back.rows.map((r) => ({
+      rule_id: R_TWICE,
+      stay_date: String(r.stay_date),
+      choice: "resume",
+      at: String(r.resumed_at),
+      by: String(r.resumed_by),
+    }));
+    const rules = new Map<string, RuleLookupEntry>([
+      [R_TWICE, { name: "Slow-date rescue", action_type: "percent", action_direction: "decrease", action_value: 10, is_pickup_rule: true }],
+    ]);
+    expect(buildAlertChoices(rows, { rules }).map((l) => l.nights)).toEqual([3]);
+  });
+
   it("runs over the alert tables an earlier copy of this file left behind", async () => {
     // That copy wrote its checks inline in the create, so Postgres named them
     // itself, and it knew nothing about a resume: no 'resumed' reason, no

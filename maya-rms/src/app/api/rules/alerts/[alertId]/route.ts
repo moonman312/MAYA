@@ -12,8 +12,9 @@
  * the owner stopped runs on those nights again and MAYA asks about them again
  * if it keeps adjusting them. Without `stay_dates` it covers every night of
  * the alert the owner has answered. The rules table's "Let it run again"
- * sends this; it used to send keep_adjusting, which silenced those nights for
- * good, which is not what the owner asked for.
+ * does the same over all of a rule's alerts at once, through POST
+ * /api/rules/stops; it used to send keep_adjusting, which silenced those
+ * nights for good, which is not what the owner asked for.
  *
  * Rules are a Revenue Manager's job, so the route checks that rank before it
  * calls either function, and both check can_manage_hotel again in the
@@ -25,11 +26,9 @@
 
 import { dbErrorResponse, isRealIsoDate, isUuid } from "@/lib/api-guards";
 import { requireSupabaseHotelRank } from "@/lib/require-supabase-hotel";
-import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { MAX_ALERT_NIGHTS, loadRuleAlerts } from "../shared";
+import { MAX_ALERT_NIGHTS, loadRuleAlerts, recordAlertAnswer } from "../shared";
 
 type Params = { params: Promise<{ alertId: string }> };
 
@@ -88,7 +87,8 @@ export async function POST(request: Request, { params }: Params) {
     const nights = Array.isArray(changed) ? changed.length : 0;
 
     const view = await loadRuleAlerts(ctx.supabase, ctx.hotelId, true);
-    await recordAnswer(ctx.supabase, {
+    await recordAlertAnswer(ctx.supabase, {
+      route: "api/rules/alerts",
       hotelId: ctx.hotelId,
       ruleId: String(alert.rule_id),
       choice,
@@ -100,51 +100,5 @@ export async function POST(request: Request, { params }: Params) {
   } catch (error) {
     const { status, message } = dbErrorResponse(error);
     return NextResponse.json({ error: message }, { status });
-  }
-}
-
-/**
- * One product event per answer. Analytics never costs an owner their answer:
- * the write has already happened, so a failure here is logged and nothing
- * more (docs/analytics.md).
- */
-async function recordAnswer(
-  supabase: SupabaseClient,
-  input: {
-    hotelId: string;
-    ruleId: string;
-    choice: "keep_adjusting" | "stop" | "resume";
-    nights: number;
-    allNights: boolean;
-    simulation: boolean;
-  },
-): Promise<void> {
-  if (!isAdminConfigured()) return;
-  try {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const { error } = await createAdminClient().rpc("product_event_emit", {
-      p_event: "rule.repeat_alert_answered",
-      p_hotel_id: input.hotelId,
-      p_user_id: session?.user?.id ?? null,
-      p_properties: {
-        rule_id: input.ruleId,
-        choice: input.choice,
-        nights: input.nights,
-        all_nights: input.allNights,
-        simulation: input.simulation,
-      },
-      p_source: "app",
-    });
-    if (error) throw new Error(error.message);
-  } catch (e) {
-    console.error(
-      JSON.stringify({
-        fn: "api/rules/alerts",
-        step: "product_event",
-        error: e instanceof Error ? e.message : String(e),
-      }),
-    );
   }
 }

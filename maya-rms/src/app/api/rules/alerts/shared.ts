@@ -4,7 +4,9 @@
  * Shared by the list route and the answer route, which returns the list
  * again so the banner never shows an answer it has already given. The reads
  * run under the caller's session: RLS lets any member of the hotel see them,
- * and only rule_repeat_alert_choose and rule_repeat_alert_resume can change
+ * and only rule_repeat_alert_choose and rule_repeat_alert_resume(_many) can
+ * change one. The product event for an answer is here too, because the
+ * rules table's "Let it run again" (POST /api/rules/stops) records the same
  * one.
  */
 
@@ -17,6 +19,7 @@ import {
   type AlertRow,
   type RuleAlertsView,
 } from "@/lib/rule-alerts";
+import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** Alerts read at once. More than this on one property is a story in itself. */
@@ -138,4 +141,53 @@ export async function loadRuleAlerts(
     can_manage: canManage,
     simulation,
   };
+}
+
+/**
+ * One product event per answer, and one per "Let it run again" click however
+ * many alerts it covered. Analytics never costs an owner their answer: the
+ * write has already happened, so a failure here is logged and nothing more
+ * (docs/analytics.md).
+ */
+export async function recordAlertAnswer(
+  supabase: SupabaseClient,
+  input: {
+    /** The route recording it, for the log line. */
+    route: string;
+    hotelId: string;
+    ruleId: string;
+    choice: "keep_adjusting" | "stop" | "resume";
+    nights: number;
+    allNights: boolean;
+    simulation: boolean;
+  },
+): Promise<void> {
+  if (!isAdminConfigured()) return;
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const { error } = await createAdminClient().rpc("product_event_emit", {
+      p_event: "rule.repeat_alert_answered",
+      p_hotel_id: input.hotelId,
+      p_user_id: session?.user?.id ?? null,
+      p_properties: {
+        rule_id: input.ruleId,
+        choice: input.choice,
+        nights: input.nights,
+        all_nights: input.allNights,
+        simulation: input.simulation,
+      },
+      p_source: "app",
+    });
+    if (error) throw new Error(error.message);
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: input.route,
+        step: "product_event",
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+  }
 }

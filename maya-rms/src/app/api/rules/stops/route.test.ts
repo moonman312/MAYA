@@ -1,11 +1,14 @@
 /**
- * GET /api/rules/stops — what the rules table reads to show that a rule the
- * owner stopped is doing nothing on some nights.
+ * /api/rules/stops — what the rules table reads to show that a rule the owner
+ * stopped is doing nothing on some nights (GET), and its "Let it run again"
+ * (POST).
  *
  * A "stop" belongs to the rule version it was given on, exactly as the engine
  * reads it (isStoppedOnNight), so an edited rule's old answers drop out here
  * too. A night that has passed is not counted in the chip, but it is still
- * one of the nights "Let it run again" takes the answer off.
+ * one of the nights "Let it run again" takes the answer off. One click is one
+ * call to rule_repeat_alert_resume_many over all the rule's alerts, and one
+ * product event.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -51,20 +54,55 @@ function fakeSupabase(seed: Record<string, Row[]>) {
   return { from: (t: string) => builder(t), tables };
 }
 
-const state = { fake: fakeSupabase({}), hotelId: HOTEL as string | null };
+const state = {
+  fake: fakeSupabase({}),
+  hotelId: HOTEL as string | null,
+  role: "revenue_manager",
+  rpcCalls: [] as { name: string; args: Record<string, unknown> }[],
+  events: [] as { event: string; properties: Record<string, unknown> }[],
+};
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
 vi.mock("@/utils/supabase/shared", () => ({ isSupabaseConfigured: () => true }));
 vi.mock("@/lib/hotel-context", () => ({ resolveAccessibleHotelId: async () => state.hotelId }));
 vi.mock("@/utils/supabase/server", () => ({
   createClient: () => ({
-    auth: { getUser: async () => ({ data: { user: { id: USER } } }) },
-    rpc: async () => ({ data: null, error: null }),
+    auth: {
+      getUser: async () => ({ data: { user: { id: USER } } }),
+      getSession: async () => ({ data: { session: { user: { id: USER } } } }),
+    },
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      state.rpcCalls.push({ name, args });
+      if (name === "rule_repeat_alert_resume_many") {
+        const ids = args.p_alert_ids as string[];
+        const dates = args.p_stay_dates as string[];
+        const nights = (state.fake.tables.get("rule_repeat_alert_nights") ?? []).filter(
+          (n) => ids.includes(String(n.alert_id)) && n.choice != null && dates.includes(String(n.stay_date)),
+        );
+        for (const n of nights) {
+          n.choice = null;
+          n.closed_reason = "resumed";
+        }
+        return { data: nights.map((n) => ({ ...n })), error: null };
+      }
+      return { data: null, error: null };
+    },
     from: (t: string) => state.fake.from(t),
   }),
 }));
+vi.mock("@/utils/supabase/admin", () => ({
+  isAdminConfigured: () => true,
+  createAdminClient: () => ({
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name === "product_event_emit") {
+        state.events.push({ event: String(args.p_event), properties: args.p_properties as Record<string, unknown> });
+      }
+      return { data: null, error: null };
+    },
+  }),
+}));
 
-const { GET } = await import("./route");
+const { GET, POST } = await import("./route");
 
 function night(over: Row = {}): Row {
   return {
@@ -78,16 +116,22 @@ function night(over: Row = {}): Row {
   };
 }
 
-function seed(nights: Row[], rules: Row[] = [{ id: RULE, version: 1 }]) {
+function seed(nights: Row[], rules: Row[] = [{ id: RULE, version: 1 }], alerts: Row[] = []) {
   return fakeSupabase({
     hotels: [{ id: HOTEL, timezone: "UTC" }],
+    hotel_settings: [{ hotel_id: HOTEL, simulation_mode: false }],
+    hotel_memberships: [{ hotel_id: HOTEL, user_id: USER, status: "active", role: state.role }],
     pricing_rules: rules,
+    rule_repeat_alerts: alerts,
     rule_repeat_alert_nights: nights,
   });
 }
 
 beforeEach(() => {
   state.hotelId = HOTEL;
+  state.role = "revenue_manager";
+  state.rpcCalls = [];
+  state.events = [];
   state.fake = seed([night()]);
 });
 afterEach(() => vi.clearAllMocks());
@@ -149,5 +193,82 @@ describe("GET /api/rules/stops", () => {
   it("says nothing at all when no rule is stopped", async () => {
     state.fake = seed([]);
     expect(await (await GET()).json()).toEqual([]);
+  });
+});
+
+describe("POST /api/rules/stops", () => {
+  const alerts = [
+    { id: ALERT, hotel_id: HOTEL, rule_id: RULE },
+    { id: ALERT2, hotel_id: HOTEL, rule_id: RULE },
+  ];
+  const stopped = () =>
+    seed(
+      [
+        night({ stay_date: "2000-01-01", alert_id: ALERT2 }),
+        night(),
+        night({ stay_date: AHEAD("11-16") }),
+      ],
+      [{ id: RULE, version: 1 }],
+      alerts,
+    );
+  const post = (body: unknown) =>
+    POST(new Request("http://localhost/api/rules/stops", { method: "POST", body: JSON.stringify(body) }));
+  const resumes = () => state.rpcCalls.filter((c) => c.name.startsWith("rule_repeat_alert_resume"));
+
+  it("lets the rule run again on every alert it was stopped under, in one call and one event", async () => {
+    state.fake = stopped();
+    const stops = await (await GET()).json();
+    const res = await post({ alert_ids: stops[0].alert_ids, stay_dates: stops[0].resume_nights });
+
+    expect(res.status).toBe(200);
+    expect(resumes()).toEqual([
+      {
+        name: "rule_repeat_alert_resume_many",
+        args: { p_alert_ids: [ALERT2, ALERT], p_stay_dates: ["2000-01-01", AHEAD("11-14"), AHEAD("11-16")] },
+      },
+    ]);
+    expect(state.events).toEqual([
+      {
+        event: "rule.repeat_alert_answered",
+        properties: { rule_id: RULE, choice: "resume", nights: 3, all_nights: false, simulation: false },
+      },
+    ]);
+    // The chip's list, fresh: nothing is stopped any more.
+    expect(await res.json()).toEqual([]);
+  });
+
+  it("refuses anyone who cannot manage rules, before it writes anything", async () => {
+    state.role = "viewer";
+    state.fake = stopped();
+    const res = await post({ alert_ids: [ALERT], stay_dates: [AHEAD("11-14")] });
+    expect(res.status).toBe(403);
+    expect(resumes()).toEqual([]);
+    expect(state.events).toEqual([]);
+  });
+
+  it("will not touch another property's alert, one it can't find, or two rules at once", async () => {
+    state.fake = seed([night()], [{ id: RULE, version: 1 }], [
+      { id: ALERT, hotel_id: HOTEL, rule_id: RULE },
+      { id: ALERT2, hotel_id: "00000000-0000-4000-8000-000000000002", rule_id: RULE },
+    ]);
+    expect((await post({ alert_ids: [ALERT, ALERT2], stay_dates: [AHEAD("11-14")] })).status).toBe(404);
+    expect((await post({ alert_ids: [ALERT, "00000000-0000-4000-8000-000000000099"], stay_dates: [AHEAD("11-14")] })).status).toBe(404);
+
+    state.fake = seed([night()], [{ id: RULE, version: 1 }], [
+      { id: ALERT, hotel_id: HOTEL, rule_id: RULE },
+      { id: ALERT2, hotel_id: HOTEL, rule_id: OTHER_RULE },
+    ]);
+    expect((await post({ alert_ids: [ALERT, ALERT2], stay_dates: [AHEAD("11-14")] })).status).toBe(400);
+    expect(resumes()).toEqual([]);
+  });
+
+  it("refuses a request that names no alerts, no nights or a date that is not one", async () => {
+    state.fake = stopped();
+    expect((await post({ stay_dates: [AHEAD("11-14")] })).status).toBe(400);
+    expect((await post({ alert_ids: [], stay_dates: [AHEAD("11-14")] })).status).toBe(400);
+    expect((await post({ alert_ids: ["not-an-id"], stay_dates: [AHEAD("11-14")] })).status).toBe(400);
+    expect((await post({ alert_ids: [ALERT] })).status).toBe(400);
+    expect((await post({ alert_ids: [ALERT], stay_dates: ["2026-02-30"] })).status).toBe(400);
+    expect(resumes()).toEqual([]);
   });
 });

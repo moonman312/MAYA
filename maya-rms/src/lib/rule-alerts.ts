@@ -330,19 +330,21 @@ export type RuleStops = {
 };
 
 /**
- * The body the rules table's "Let it run again" posts to
- * /api/rules/alerts/[alertId]. "resume" is the undo of an answer, not a third
- * answer: it clears the choice, so the rule adjusts those nights again and
- * MAYA asks about one again if it keeps adjusting it. Answering
- * keep_adjusting cleared the stop too, but silenced those nights for good.
+ * The body the rules table's "Let it run again" posts to /api/rules/stops,
+ * once for the rule: every alert its stopped nights were filed under, so one
+ * click is one call and one line in the change log. It is the undo of an
+ * answer, not a third answer: it clears the choice, so the rule adjusts those
+ * nights again and MAYA asks about one again if it keeps adjusting it.
+ * Answering keep_adjusting cleared the stop too, but silenced those nights for
+ * good.
  *
  * Every stopped night goes in, not only the ones the chip counts: the owner
  * stopped a run of nights in one go, and taking the answer off only the ones
  * still to come would leave the change log saying they had stopped the rule
  * on the handful that had already passed.
  */
-export function letRunAgainBody(stops: RuleStops): { choice: "resume"; stay_dates: string[] } {
-  return { choice: "resume", stay_dates: stops.resume_nights };
+export function letRunAgainBody(stops: RuleStops): { alert_ids: string[]; stay_dates: string[] } {
+  return { alert_ids: stops.alert_ids, stay_dates: stops.resume_nights };
 }
 
 /** The chip on the rules table: "Stopped on 12 nights". */

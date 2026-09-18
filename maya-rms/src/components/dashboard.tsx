@@ -545,10 +545,12 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
   }
 
   /**
-   * Takes the owner's "stop" off a rule's nights, through the alerts they were
-   * filed under. "resume" clears the answer outright: answering keep_adjusting
-   * instead would silence those nights for good, so a rule that went on to
-   * adjust one of them twenty times would never reach the owner again.
+   * Takes the owner's "stop" off a rule's nights, across every alert they were
+   * filed under, in one request: one click is one thing the owner did, and the
+   * change log shows it as one. It clears the answer outright: answering
+   * keep_adjusting instead would silence those nights for good, so a rule that
+   * went on to adjust one of them twenty times would never reach the owner
+   * again.
    *
    * Every stopped night, not only the ones still to come: what the owner did
    * was stop the rule on a run of nights, and taking the answer off some of
@@ -558,14 +560,12 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
   async function letRuleRunAgain(stops: RuleStops) {
     setLettingRun(stops.rule_id);
     try {
-      for (const alertId of stops.alert_ids) {
-        await fetch(`/api/rules/alerts/${alertId}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(letRunAgainBody(stops)),
-        });
-      }
-      setRuleStops(await api<RuleStops[]>("/api/rules/stops"));
+      const res = await fetch("/api/rules/stops", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(letRunAgainBody(stops)),
+      });
+      setRuleStops(res.ok ? ((await res.json()) as RuleStops[]) : await api<RuleStops[]>("/api/rules/stops"));
     } catch {
       // Leave the chip as it is; the next load says what really happened.
     } finally {

@@ -71,7 +71,8 @@
 --                                 reached 3 fires, with the numbers behind the
 --                                 latest fire and the owner's choice.
 --      rule_repeat_alert_choose() how a rule manager answers, and
---      rule_repeat_alert_resume() how they take an answer back.
+--      rule_repeat_alert_resume_many() how they take answers back, over
+--      all of a rule's alerts at once (rule_repeat_alert_resume() for one).
 --    See section 6 for what each column means and what writes it.
 --
 -- RLS: pickup_event keeps its policies. The alert tables are written by the
@@ -81,8 +82,9 @@
 -- them and logs its alert writes as refused; the next scheduled run files
 -- what the fires already show. A choice goes through
 -- rule_repeat_alert_choose and is taken back through
--- rule_repeat_alert_resume; both check can_manage_hotel. Nobody signed in
--- can delete, per 99_supabase_migration_no_customer_deletes_v1.sql.
+-- rule_repeat_alert_resume_many or rule_repeat_alert_resume; all three check
+-- can_manage_hotel. Nobody signed in can delete, per
+-- 99_supabase_migration_no_customer_deletes_v1.sql.
 --
 -- Run AFTER 02_supabase_schema.sql, 99_supabase_migration_rules_engine_v1.sql,
 -- 99_supabase_migration_booking_speed_v1.sql,
@@ -591,18 +593,18 @@ grant execute on function public.set_manual_prices_from_pms(uuid, public.pms_typ
 --                     no more fires on this night; adjustments already made
 --                     stay, and raises can still come off for cancellations).
 --                     Both apply to this rule version only, and
---                     rule_repeat_alert_resume() takes either one back.
+--                     rule_repeat_alert_resume_many() takes either one back.
 --   chosen_at, chosen_by
 --   resumed_at, resumed_by
---                     when rule_repeat_alert_resume() last took an answer off
---                     this night while it was still to come, and who did it.
---                     Left there afterwards: the change log reads them to say
---                     a manager let the rule run again, the way it reads
---                     chosen_at for the answer. A night already over when its
---                     answer comes off is not stamped, since the rule can't
---                     adjust it again. Only the latest resume of a night is
---                     kept, so a night stopped and let run twice reads as the
---                     second one.
+--                     when rule_repeat_alert_resume_many() last took an
+--                     answer off this night while it was still to come, and
+--                     who did it. Left there afterwards: the change log reads
+--                     them to say a manager let the rule run again, the way it
+--                     reads chosen_at for the answer. A night already over
+--                     when its answer comes off is not stamped, since the rule
+--                     can't adjust it again. Only the latest resume of a night
+--                     is kept, so a night stopped and let run twice reads as
+--                     the second one.
 --   closed_at, closed_reason
 --                     set when an unanswered night stops needing an answer:
 --                     night_passed, rule_edited, price_set (a manual price
@@ -840,13 +842,19 @@ grant execute on function public.rule_repeat_alert_choose(uuid, text, date[]) to
 -- answer with the rest, so the stop doesn't linger on it, but the rule can't
 -- adjust it again and the change log mustn't say it can.
 --
--- p_stay_dates null resumes every answered night of the alert. Nights nobody
--- answered, and nights already closed, never change. A resolved alert stays
--- resolved, since nothing is waiting; its resolution becomes 'closed',
--- because a night of it has now ended without an answer. Call it with the
--- signed-in user's session. Returns the nights it changed.
-create or replace function public.rule_repeat_alert_resume(
-  p_alert_id uuid,
+-- p_alert_ids are the alerts to take answers back on. The rules table's "Let
+-- it run again" sends every alert a rule's stopped nights were filed under, in
+-- one call: one click is one thing the owner did, so every night it changes
+-- gets the same instant, which is how the change log tells one action from
+-- another. Every alert has to exist and the caller has to manage the hotel of
+-- every one, or nothing changes. p_stay_dates null resumes every answered
+-- night of those alerts. Nights nobody answered, and nights already closed,
+-- never change. A resolved alert stays resolved, since nothing is waiting;
+-- its resolution becomes 'closed', because a night of it has now ended
+-- without an answer. Call it with the signed-in user's session. Returns the
+-- nights it changed.
+create or replace function public.rule_repeat_alert_resume_many(
+  p_alert_ids uuid[],
   p_stay_dates date[] default null
 )
 returns setof public.rule_repeat_alert_nights
@@ -855,17 +863,27 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
+  v_ids uuid[] := coalesce(p_alert_ids, '{}'::uuid[]);
+  v_missing uuid;
   v_hotel uuid;
   v_now timestamptz := now();
 begin
-  select a.hotel_id into v_hotel from public.rule_repeat_alerts a where a.id = p_alert_id;
-  if v_hotel is null then
-    raise exception 'Alert % not found', p_alert_id using errcode = 'P0002';
+  select u.id into v_missing
+    from unnest(v_ids) as u(id)
+   where not exists (select 1 from public.rule_repeat_alerts a where a.id = u.id)
+   limit 1;
+  if found then
+    raise exception 'Alert % not found', v_missing using errcode = 'P0002';
   end if;
-  if (select auth.role()) is distinct from 'service_role'
-     and not public.can_manage_hotel(v_hotel) then
-    raise exception 'Not authorized to change rules for hotel %', v_hotel
-      using errcode = '42501';
+  if (select auth.role()) is distinct from 'service_role' then
+    for v_hotel in
+      select distinct a.hotel_id from public.rule_repeat_alerts a where a.id = any(v_ids)
+    loop
+      if not public.can_manage_hotel(v_hotel) then
+        raise exception 'Not authorized to change rules for hotel %', v_hotel
+          using errcode = '42501';
+      end if;
+    end loop;
   end if;
 
   return query
@@ -908,7 +926,7 @@ begin
          updated_at = v_now
     from public.hotels h
    where h.id = n.hotel_id
-     and n.alert_id = p_alert_id
+     and n.alert_id = any(v_ids)
      and n.choice is not null
      and (p_stay_dates is null or n.stay_date = any(p_stay_dates))
   returning n.*;
@@ -916,13 +934,32 @@ begin
   update public.rule_repeat_alerts a
      set resolution = 'closed',
          updated_at = v_now
-   where a.id = p_alert_id
+   where a.id = any(v_ids)
      and a.resolved_at is not null
      and a.resolution = 'chosen'
      and exists (
        select 1 from public.rule_repeat_alert_nights n
         where n.alert_id = a.id and n.closed_at is not null
      );
+end;
+$$;
+
+revoke all on function public.rule_repeat_alert_resume_many(uuid[], date[]) from public, anon;
+grant execute on function public.rule_repeat_alert_resume_many(uuid[], date[]) to authenticated, service_role;
+
+-- One alert's answers taken back, for a caller that has just the one: exactly
+-- rule_repeat_alert_resume_many over that alert, checks included.
+create or replace function public.rule_repeat_alert_resume(
+  p_alert_id uuid,
+  p_stay_dates date[] default null
+)
+returns setof public.rule_repeat_alert_nights
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  return query select * from public.rule_repeat_alert_resume_many(array[p_alert_id], p_stay_dates);
 end;
 $$;
 
@@ -954,7 +991,8 @@ commit;
 --   -- one signature each:
 --   select proname, pg_get_function_identity_arguments(oid) from pg_proc
 --    where proname in ('pickup_fire_heads', 'rule_repeat_alert_choose',
---                      'rule_repeat_alert_resume', 'set_manual_prices_from_pms');
+--                      'rule_repeat_alert_resume', 'rule_repeat_alert_resume_many',
+--                      'set_manual_prices_from_pms');
 --
 --   -- only SELECT policies on the alert tables:
 --   select tablename, policyname, cmd from pg_policies
