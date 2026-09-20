@@ -7,6 +7,7 @@
  * the SQL's contract.
  */
 import { describe, expect, it } from "vitest";
+import { bookingKeyOf, earliestBookingWindow } from "@/lib/observations/booking-rows";
 import { daysBetween } from "@/lib/observations/calendar";
 import type { FakeRow } from "./fake-supabase.test";
 
@@ -47,21 +48,35 @@ export function bookingSpeedHistorySummary(reservations: FakeRow[], a: Record<st
   });
 }
 
-/** booking_speed_windows(p_hotel_id, p_dates, p_exclude, p_include) */
+/**
+ * booking_speed_windows(p_hotel_id, p_dates, p_exclude, p_include), as
+ * 99_supabase_migration_booking_speed_counts_bookings_v1.sql defines it: one
+ * count per booking (booking_key over external_reservation_id, a row with
+ * none is its own booking) at its longest known window on the night.
+ */
 export function bookingSpeedWindows(reservations: FakeRow[], a: Record<string, unknown>): FakeRow[] {
   const wanted = new Set((a.p_dates as string[]) ?? []);
-  const byDate = new Map<string, Map<number | null, number>>();
+  const byDate = new Map<string, Map<string, number | null>>();
+  let anonymous = 0;
   for (const r of reservations) {
     if (!kept(r, a.p_hotel_id, a.p_exclude, a.p_include)) continue;
     const d = String(r.stay_date);
     if (!wanted.has(d)) continue;
-    const m = byDate.get(d) ?? new Map();
+    const m = byDate.get(d) ?? new Map<string, number | null>();
+    const key =
+      r.external_reservation_id != null
+        ? bookingKeyOf(String(r.external_reservation_id))
+        : r.id != null
+          ? `id ${String(r.id)}`
+          : `row ${anonymous++}`;
     const w = windowOf(r);
-    m.set(w, (m.get(w) ?? 0) + 1);
+    m.set(key, m.has(key) ? earliestBookingWindow(m.get(key)!, w) : w);
     byDate.set(d, m);
   }
   return [...byDate.keys()].sort().map((d) => {
-    const entries = [...byDate.get(d)!.entries()].sort((x, y) =>
+    const counts = new Map<number | null, number>();
+    for (const w of byDate.get(d)!.values()) counts.set(w, (counts.get(w) ?? 0) + 1);
+    const entries = [...counts.entries()].sort((x, y) =>
       x[0] === null ? 1 : y[0] === null ? -1 : x[0] - y[0],
     );
     return {
@@ -270,6 +285,28 @@ describe("scale rpc models", () => {
   it("groups windows per requested date, nulls last", () => {
     const out = bookingSpeedWindows(rows, { p_hotel_id: "h1", p_dates: ["2026-01-02"], p_exclude: [] });
     expect(out).toEqual([{ stay_date: "2026-01-02", n: 5, bws: [-2, 5, 9, 32, null], counts: [1, 1, 1, 1, 1] }]);
+  });
+
+  it("counts a reservation with several rooms once, at its earliest booking date on the night", () => {
+    // A 20-room Cloudbeds wedding, one row per room, two of them added a
+    // month later; a Think reservation with two rooms; a Mews GUID; and a
+    // row with no id at all (its own booking).
+    const wedding: FakeRow[] = Array.from({ length: 20 }, (_, i) => ({
+      hotel_id: "h1",
+      stay_date: "2026-06-06",
+      room_type_id: "a",
+      external_reservation_id: `6364686337417-${i + 1}`,
+      booking_date: i < 18 ? "2026-01-01" : "2026-02-01",
+      booking_window_days: null,
+    }));
+    const others: FakeRow[] = [
+      { hotel_id: "h1", stay_date: "2026-06-06", room_type_id: "a", external_reservation_id: "res_9:b1", booking_date: "2026-05-01" },
+      { hotel_id: "h1", stay_date: "2026-06-06", room_type_id: "a", external_reservation_id: "res_9:b2", booking_date: "2026-05-01" },
+      { hotel_id: "h1", stay_date: "2026-06-06", room_type_id: "a", external_reservation_id: "0d3a8c2e-1f4b-4c5d-9e6f-7a8b9c0d1e2f", booking_date: "2026-05-01" },
+      { hotel_id: "h1", stay_date: "2026-06-06", room_type_id: "a", booking_date: "2026-05-01" },
+    ];
+    const out = bookingSpeedWindows([...wedding, ...others], { p_hotel_id: "h1", p_dates: ["2026-06-06"], p_exclude: [] });
+    expect(out).toEqual([{ stay_date: "2026-06-06", n: 4, bws: [36, 156], counts: [3, 1] }]);
   });
 
   it("finds an include list's earliest stay date from p_from, over every row of the hotel", () => {

@@ -1,17 +1,22 @@
-import { describe, expect, it } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS,
   bookingSpeedAuditSnapshots,
   bookingSpeedMetrics,
   bookingsInFrozenWindow,
   isWithinCooldown,
+  loadBookingSpeedContext,
   observeForStayDate,
+  resetBookingSpeedLogOnce,
   signalSetKey,
   type BookingSpeedContext,
 } from "./booking-speed-provider";
 import { detectSeasons } from "@/lib/observations/seasons";
 import type { SlimReservationRow } from "@/lib/observations/expected-bookings";
 import { indexBookingRows } from "@/lib/observations/booking-rows";
+import { addDays } from "@/lib/observations/calendar";
+import { FakeRpcError, fakeSupabase, missingFunction, type FakeRow } from "./fake-supabase.test";
 
 function makeContext(rows: SlimReservationRow[], asOf: string): BookingSpeedContext {
   return {
@@ -163,5 +168,83 @@ describe("bookingsInFrozenWindow", () => {
     expect(bookingsInFrozenWindow(ctx, "2026-08-15", "2026-07-26", "2026-08-01", ["rt1", "rt2"])).toBe(4);
     // A set whose history this run never loaded says nothing.
     expect(bookingsInFrozenWindow(ctx, "2026-08-15", "2026-07-26", "2026-08-01", ["rt3"])).toBeNull();
+  });
+});
+
+describe("a reservation with several rooms is one booking", () => {
+  const night = "2026-08-15";
+  // A 20-room wedding booked 14 days out, keyed as Cloudbeds keys its rooms,
+  // and two singles, one of them 20 days out.
+  const rows: SlimReservationRow[] = [
+    ...Array.from({ length: 20 }, (_, i) => ({ stay_date: night, booking_window_days: 14, external_reservation_id: `6364686337417-${i + 1}` })),
+    { stay_date: night, booking_window_days: 14, external_reservation_id: "55" },
+    { stay_date: night, booking_window_days: 20, external_reservation_id: "56" },
+  ];
+
+  it("counts it once in the observation, in the fire's frozen window, and after all but one of its rooms cancel", () => {
+    // Seen 14 days out over a week: the 14 to 20 day band holds all three.
+    const ctx = makeContext(rows, "2026-08-01");
+    expect(observeForStayDate(ctx, night, 7).recentBookings).toBe(3);
+    expect(bookingsInFrozenWindow(ctx, night, "2026-07-26", "2026-08-01")).toBe(3);
+    // Nineteen rooms of the wedding cancel: it is still one booking on the night.
+    const thinner = makeContext(rows.filter((r) => !r.external_reservation_id!.startsWith("6364686337417-") || r.external_reservation_id === "6364686337417-7"), "2026-08-01");
+    expect(bookingsInFrozenWindow(thinner, night, "2026-07-26", "2026-08-01")).toBe(3);
+    // The last room goes: now the booking is gone.
+    const gone = makeContext(rows.filter((r) => !r.external_reservation_id!.startsWith("6364686337417-")), "2026-08-01");
+    expect(bookingsInFrozenWindow(gone, night, "2026-07-26", "2026-08-01")).toBe(2);
+  });
+});
+
+describe("the row fallback, before the migration", () => {
+  const localDate = "2026-09-16";
+  const night = addDays(localDate, 20);
+  let id = 0;
+  const row = (stay: string, lead: number, ext: string, roomType = "rt1"): FakeRow => ({
+    id: `00000000-0000-4000-8000-${String(++id).padStart(12, "0")}`,
+    hotel_id: "h1",
+    stay_date: stay,
+    room_type_id: roomType,
+    booking_date: addDays(stay, -lead),
+    booking_window_days: lead,
+    external_reservation_id: ext,
+  });
+
+  beforeEach(() => {
+    resetBookingSpeedLogOnce();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("counts bookings for the observations and rooms for the season model, per set too", async () => {
+    const rows: FakeRow[] = [];
+    // Three years of history: every night sells 4 rooms, one a 3-room
+    // reservation booked 30 days out and a single 10 days out.
+    for (let d = -(3 * 366); d < 0; d++) {
+      const stay = addDays(localDate, d);
+      for (let k = 1; k <= 3; k++) rows.push(row(stay, 30, `g${-d}-${k}`));
+      rows.push(row(stay, 10, `s${-d}`, "rt2"));
+    }
+    // The night ahead took a 20-room wedding today and one single.
+    for (let k = 1; k <= 20; k++) rows.push(row(night, 20, `6364686337417-${k}`));
+    rows.push(row(night, 20, "55", "rt2"));
+    const { client } = fakeSupabase(
+      { reservations: rows, hotel_closed_periods: [], assumption_challenges: [] },
+      { rpc: (fn) => new FakeRpcError(missingFunction(fn)) },
+    );
+    const ctx = await loadBookingSpeedContext(client as SupabaseClient, "h1", localDate, 40, new Set(), night, ["rt1", "rt2"], [["rt1", "rt2"], ["rt1"]]);
+    expect(ctx).not.toBeNull();
+    // Rooms for the season model: 4 a night, never 2.
+    expect(ctx!.dailyDemand.every((d) => d.value === 4)).toBe(true);
+    expect(ctx!.dailyDemand).toHaveLength(3 * 366);
+    // Bookings for pace: the wedding and the single, against the 2 a night usually gets.
+    const obs = observeForStayDate(ctx!, night, 1);
+    expect(obs.recentBookings).toBe(2);
+    expect(obs.expectedBookings).toBe(0);
+    // A rule measuring rt1 only sees the wedding.
+    const rt1 = observeForStayDate(ctx!, night, 1, ["rt1"]);
+    expect(rt1.recentBookings).toBe(1);
+    expect(rt1.measuredRoomTypeIds).toEqual(["rt1"]);
+    // The history's grouped windows are bookings too: 2 a night, at 30 and 10 days.
+    expect(ctx!.windowsByDate.get(addDays(localDate, -1))).toEqual({ n: 2, windows: [{ bw: 30, n: 1 }, { bw: 10, n: 1 }] });
   });
 });

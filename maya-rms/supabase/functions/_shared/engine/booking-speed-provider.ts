@@ -13,12 +13,19 @@
  * construction.
  *
  * The history never comes into memory row by row. Every consumer only asks,
- * per stay date, how many rows there are and how many sit at each booking
- * window, so the database answers with exactly that (see
- * 99_supabase_migration_large_property_scale_v1.sql): a per-date summary for
- * the season model, then grouped windows for only the dates the horizon's
- * observations can consult. A 500-room property has over a million
+ * per stay date, whether there are rows and how many bookings sit at each
+ * booking window, so the database answers with exactly that (see
+ * 99_supabase_migration_large_property_scale_v1.sql and
+ * 99_supabase_migration_booking_speed_counts_bookings_v1.sql): a per-date
+ * summary for the season model, then grouped windows for only the dates the
+ * horizon's observations can consult. A 500-room property has over a million
  * room-nights in its history; the old row-by-row read threw past 100,000.
+ *
+ * Booking speed counts bookings, not rooms: the rows of one reservation are
+ * one booking at its earliest booking date (observations/booking-rows.ts
+ * bookingKeyOf, the same rule as booking_key() in SQL). The season model's
+ * inputs, how full a night got and how early, keep counting rooms against
+ * room capacity.
  *
  * A rule measures only its own signal room types. Whether two dates are
  * comparable is a property of the calendar, so season detection and
@@ -52,7 +59,7 @@ import {
   windowDaysFrom,
   type BookingSpeedObservation,
 } from "../observations/expected-bookings.ts";
-import { bookingWindowOf, pickupInWindowIndexed, type StayDateWindows } from "../observations/booking-rows.ts";
+import { StayDateWindowsBuilder, pickupInWindowIndexed, type StayDateWindows } from "../observations/booking-rows.ts";
 import {
   buildReinforcementModel,
   isDateReinforcementExcluded,
@@ -85,7 +92,7 @@ const MAX_SLICE_DAYS = 366;
 export type BookingSpeedContext = {
   /** Hotel-local evaluation date (YYYY-MM-DD). */
   asOf: string;
-  /** Grouped rows per stay date: every date any loaded observation can consult. */
+  /** Grouped bookings per stay date: every date any loaded observation can consult. */
   windowsByDate: Map<string, StayDateWindows>;
   /**
    * The stay dates whose observations are fully covered by windowsByDate.
@@ -93,7 +100,7 @@ export type BookingSpeedContext = {
    */
   loadedTargets?: ReadonlySet<string> | null;
   seasonModel: SeasonModel;
-  /** Kept rows per past stay date: the season model's demand input. */
+  /** Kept rows (rooms, not bookings) per past stay date: the season model's demand input. */
   dailyDemand: DailyDemand[];
   historyStart: string;
   historyEnd: string;
@@ -267,6 +274,11 @@ async function loadWindowsForDates(
  * There is no row budget any more: nothing but the per-date counts is held,
  * and a fixed ceiling failed every run for a full 500-room hotel.
  *
+ * Rows arrive in stay-date order, so each night's rows are folded into one
+ * booking per reservation (StayDateWindowsBuilder) and let go of as soon as
+ * the next night starts: at most one night's bookings are held at a time.
+ * `rooms` is the same history counted a row at a time, for the season model.
+ *
  * `sets` are signal sets (by signalSetKey) folded in the same pass: a row
  * counts toward a set only when its room type is in it, so a row with no
  * room type only ever counts toward the hotel. `firstBySet` is each set's
@@ -281,35 +293,39 @@ async function loadWindowsByRows(
   sets: ReadonlyMap<string, ReadonlySet<string>> = new Map(),
 ): Promise<{
   hotel: Map<string, StayDateWindows>;
+  rooms: Map<string, StayDateWindows>;
   sets: Map<string, Map<string, StayDateWindows>>;
   firstBySet: Map<string, string | null>;
 }> {
-  type Counts = Map<string, Map<number | null, number>>;
-  const counts: Counts = new Map();
-  const setCounts = new Map<string, Counts>([...sets.keys()].map((k) => [k, new Map()]));
+  const hotel = new StayDateWindowsBuilder("bookings");
+  const rooms = new StayDateWindowsBuilder("rooms");
+  const setBuilders = new Map<string, StayDateWindowsBuilder>(
+    [...sets.keys()].map((k) => [k, new StayDateWindowsBuilder("bookings")]),
+  );
   const firstBySet = new Map<string, string | null>([...sets.keys()].map((k) => [k, null]));
-  const add = (into: Counts, stayDate: string, bw: number | null) => {
-    let byWindow = into.get(stayDate);
-    if (!byWindow) {
-      byWindow = new Map();
-      into.set(stayDate, byWindow);
-    }
-    byWindow.set(bw, (byWindow.get(bw) ?? 0) + 1);
-  };
+  let openDate: string | null = null;
   const fold = (r: Record<string, unknown>) => {
     if (r.room_type_id != null && excludeRoomTypeIds.has(String(r.room_type_id))) return;
     const stayDate = String(r.stay_date);
-    const bw = bookingWindowOf({
+    if (openDate !== null && stayDate !== openDate) {
+      hotel.seal(openDate);
+      rooms.seal(openDate);
+      for (const b of setBuilders.values()) b.seal(openDate);
+    }
+    openDate = stayDate;
+    const row = {
       stay_date: stayDate,
       booking_date: r.booking_date != null ? String(r.booking_date) : null,
       booking_window_days: r.booking_window_days != null ? Number(r.booking_window_days) : null,
-    });
-    add(counts, stayDate, bw);
+      external_reservation_id: r.external_reservation_id != null ? String(r.external_reservation_id) : null,
+    };
+    hotel.add(row);
+    rooms.add(row);
     if (r.room_type_id == null) return;
     const roomTypeId = String(r.room_type_id);
     for (const [key, ids] of sets) {
       if (!ids.has(roomTypeId)) continue;
-      add(setCounts.get(key)!, stayDate, bw);
+      setBuilders.get(key)!.add(row);
       const first = firstBySet.get(key);
       if (first == null || stayDate < first) firstBySet.set(key, stayDate);
     }
@@ -326,7 +342,7 @@ async function loadWindowsByRows(
     for (;;) {
       let q = supabase
         .from("reservations")
-        .select("id, stay_date, booking_date, booking_window_days, room_type_id")
+        .select("id, stay_date, booking_date, booking_window_days, room_type_id, external_reservation_id")
         .eq("hotel_id", hotelId)
         .gte("stay_date", sliceFrom)
         .lte("stay_date", sliceTo);
@@ -363,25 +379,12 @@ async function loadWindowsByRows(
     sliceFrom = addDays(sliceTo, 1);
   }
 
-  // Dates arrive in order and rows within a date in id order; sorted anyway
-  // so the map never depends on paging.
-  const grouped = (from: Counts) => {
-    const out = new Map<string, StayDateWindows>();
-    for (const stayDate of [...from.keys()].sort()) {
-      const byWindow = from.get(stayDate)!;
-      let n = 0;
-      const windows: { bw: number | null; n: number }[] = [];
-      for (const [bw, c] of byWindow) {
-        n += c;
-        windows.push({ bw, n: c });
-      }
-      out.set(stayDate, { n, windows });
-    }
-    return out;
-  };
+  // build() seals the last night and sorts the dates, so the maps never
+  // depend on paging.
   return {
-    hotel: grouped(counts),
-    sets: new Map([...setCounts].map(([key, c]) => [key, grouped(c)])),
+    hotel: hotel.build(),
+    rooms: rooms.build(),
+    sets: new Map([...setBuilders].map(([key, b]) => [key, b.build()])),
     firstBySet,
   };
 }
@@ -542,8 +545,10 @@ export async function loadBookingSpeedContext(
     if (windowsByDate.size === 0 && !(await hasKeptRowAfter(supabase, hotelId, upTo, excludeRoomTypeIds))) {
       return null;
     }
+    // The season model reads rooms, as the summary function gives it: how
+    // full each past night got, and how early.
     const history = new Map<string, StayDateWindows>();
-    for (const [stayDate, entry] of windowsByDate) {
+    for (const [stayDate, entry] of byRows.rooms) {
       if (stayDate > historyEnd) continue;
       history.set(stayDate, entry);
       daily.push({ stay_date: stayDate, value: entry.n });
@@ -844,10 +849,12 @@ export function isWithinCooldown(
  * Bookings still on the books for `stayDate` whose booking date falls in
  * [windowFrom, windowTo] (hotel dates, both included), over the rule's
  * signal room types: the count observeForStayDate called recentBookings when
- * the window ended on windowTo, re-read from this run's history. A raise
- * fired on that window uses it to see whether the bookings behind it have
- * cancelled (cancellations delete reservation rows); bookings made after the
- * window, and the raise's own effect on pace, can't move it.
+ * the window ended on windowTo, re-read from this run's history, in the same
+ * unit (a reservation with several rooms is one booking, and stays one until
+ * its last room on the night cancels). A raise fired on that window uses it
+ * to see whether the bookings behind it have cancelled (cancellations delete
+ * reservation rows); bookings made after the window, and the raise's own
+ * effect on pace, can't move it.
  *
  * null when this run did not load the night, or the set's history: nothing
  * can be said, so nothing is retired on it.

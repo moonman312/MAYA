@@ -2,7 +2,9 @@
  * Expected bookings — turning a comparable set into a Booking Speed call.
  *
  * For a target stay date T seen from as-of date A, the recent pickup is the
- * count of bookings for T made in the last `windowDays`. Each comparable
+ * count of bookings for T made in the last `windowDays`. A booking is a
+ * reservation, however many rooms it holds: a 20-room wedding counts once,
+ * here and on every comparable (booking-rows.ts bookingKeyOf). Each comparable
  * date is measured over the SAME stretch of its own booking curve (the same
  * days-until-arrival band), so a date 40 days out is compared with how its
  * peers were booking when THEY were 40 days out. The expectation is a

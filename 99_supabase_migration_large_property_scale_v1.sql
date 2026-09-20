@@ -203,58 +203,81 @@ grant execute on function public.booking_speed_history_summary(uuid, date, date,
 --
 -- The three-argument version is dropped first so PostgREST never sees two
 -- overloads it cannot choose between.
+--
+-- SUPERSEDED: 99_supabase_migration_booking_speed_counts_bookings_v1.sql
+-- replaces this function with one that counts bookings instead of rows (a
+-- reservation with several rooms counts once). The body below is the old
+-- row count, kept only so a fresh database that has not run that file yet
+-- gets a working function, and it is created only when no four-argument
+-- booking_speed_windows exists: a replay of this file must never put the
+-- row count back over the newer body.
 drop function if exists public.booking_speed_windows(uuid, date[], uuid[]);
 
-create or replace function public.booking_speed_windows(
-  p_hotel_id uuid,
-  p_dates date[],
-  p_exclude uuid[] default '{}',
-  p_include uuid[] default null
-)
-returns table(stay_date date, n int, bws int[], counts int[])
-language plpgsql
-stable
-security definer
-set search_path = public, pg_temp
-as $$
+do $guard$
 begin
-  if (select auth.role()) is distinct from 'service_role'
-     and not public.is_hotel_accessible(p_hotel_id) then
-    raise exception 'Not authorized to read booking history for hotel %', p_hotel_id
-      using errcode = '42501';
+  if exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'booking_speed_windows'
+      and pg_get_function_identity_arguments(p.oid) = 'p_hotel_id uuid, p_dates date[], p_exclude uuid[], p_include uuid[]'
+  ) then
+    return;
   end if;
 
-  return query
-  with grouped as (
-    select
-      r.stay_date,
-      case
-        when r.booking_date is not null then r.stay_date - r.booking_date
-        else r.booking_window_days
-      end as bw,
-      count(*)::int as cnt
-    from public.reservations r
-    where r.hotel_id = p_hotel_id
-      and r.stay_date = any (coalesce(p_dates, '{}'::date[]))
-      and (
-        case
-          when p_include is null then
-            r.room_type_id is null or not (r.room_type_id = any (coalesce(p_exclude, '{}'::uuid[])))
-          else r.room_type_id = any (p_include)
-        end
-      )
-    group by 1, 2
+  create function public.booking_speed_windows(
+    p_hotel_id uuid,
+    p_dates date[],
+    p_exclude uuid[] default '{}',
+    p_include uuid[] default null
   )
-  select
-    g.stay_date,
-    sum(g.cnt)::int as n,
-    array_agg(g.bw order by g.bw asc nulls last) as bws,
-    array_agg(g.cnt order by g.bw asc nulls last) as counts
-  from grouped g
-  group by g.stay_date
-  order by g.stay_date;
-end;
-$$;
+  returns table(stay_date date, n int, bws int[], counts int[])
+  language plpgsql
+  stable
+  security definer
+  set search_path = public, pg_temp
+  as $$
+  begin
+    if (select auth.role()) is distinct from 'service_role'
+       and not public.is_hotel_accessible(p_hotel_id) then
+      raise exception 'Not authorized to read booking history for hotel %', p_hotel_id
+        using errcode = '42501';
+    end if;
+
+    return query
+    with grouped as (
+      select
+        r.stay_date,
+        case
+          when r.booking_date is not null then r.stay_date - r.booking_date
+          else r.booking_window_days
+        end as bw,
+        count(*)::int as cnt
+      from public.reservations r
+      where r.hotel_id = p_hotel_id
+        and r.stay_date = any (coalesce(p_dates, '{}'::date[]))
+        and (
+          case
+            when p_include is null then
+              r.room_type_id is null or not (r.room_type_id = any (coalesce(p_exclude, '{}'::uuid[])))
+            else r.room_type_id = any (p_include)
+          end
+        )
+      group by 1, 2
+    )
+    select
+      g.stay_date,
+      sum(g.cnt)::int as n,
+      array_agg(g.bw order by g.bw asc nulls last) as bws,
+      array_agg(g.cnt order by g.bw asc nulls last) as counts
+    from grouped g
+    group by g.stay_date
+    order by g.stay_date;
+  end;
+  $$;
+end
+$guard$;
 
 revoke all on function public.booking_speed_windows(uuid, date[], uuid[], uuid[]) from public, anon;
 grant execute on function public.booking_speed_windows(uuid, date[], uuid[], uuid[])

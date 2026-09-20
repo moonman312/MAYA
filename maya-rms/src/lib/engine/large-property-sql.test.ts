@@ -1,7 +1,8 @@
 /**
- * The SQL in 99_supabase_migration_large_property_scale_v1.sql, run for real
- * in PGlite (Postgres compiled to WebAssembly, in memory) against the
- * TypeScript it replaces.
+ * The SQL in 99_supabase_migration_large_property_scale_v1.sql, and the
+ * booking_speed_windows that 99_supabase_migration_booking_speed_counts_bookings_v1.sql
+ * puts over it, run for real in PGlite (Postgres compiled to WebAssembly, in
+ * memory) against the TypeScript it replaces.
  *
  * PGlite is not a dependency of this app, so the suite only runs when
  * MAYA_PGLITE_DIR points at a directory whose node_modules has
@@ -35,8 +36,12 @@ import {
 
 const PGLITE_DIR = process.env.MAYA_PGLITE_DIR;
 const MIGRATION = resolve(__dirname, "../../../../99_supabase_migration_large_property_scale_v1.sql");
+export const COUNTS_BOOKINGS_MIGRATION = resolve(
+  __dirname,
+  "../../../../99_supabase_migration_booking_speed_counts_bookings_v1.sql",
+);
 
-type Db = {
+export type Db = {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
   exec: (sql: string) => Promise<unknown>;
   close: () => Promise<void>;
@@ -135,10 +140,11 @@ export async function openPglite(): Promise<Db> {
   await db.exec("set timezone = 'UTC';");
   await db.exec(STUBS);
   await db.exec(readFileSync(MIGRATION, "utf8"));
+  await db.exec(readFileSync(COUNTS_BOOKINGS_MIGRATION, "utf8"));
   return db;
 }
 
-async function insertReservations(db: Db, rows: FakeRow[]): Promise<void> {
+export async function insertReservations(db: Db, rows: FakeRow[]): Promise<void> {
   await db.exec("truncate public.reservations;");
   const CHUNK = 2000;
   for (let i = 0; i < rows.length; i += CHUNK) {
@@ -147,7 +153,7 @@ async function insertReservations(db: Db, rows: FakeRow[]): Promise<void> {
     const params: unknown[] = [];
     for (const r of chunk) {
       const p = params.length;
-      values.push(`($${p + 1}::uuid, $${p + 2}::uuid, $${p + 3}::uuid, $${p + 4}::date, $${p + 5}::date, $${p + 6}::int, $${p + 7}::numeric, $${p + 8}::numeric, coalesce($${p + 9}::timestamptz, now()))`);
+      values.push(`($${p + 1}::uuid, $${p + 2}::uuid, $${p + 3}::uuid, $${p + 4}::date, $${p + 5}::date, $${p + 6}::int, $${p + 7}::numeric, $${p + 8}::numeric, coalesce($${p + 9}::timestamptz, now()), $${p + 10}::text)`);
       params.push(
         uuidFor(String(r.id)),
         uuidFor(String(r.hotel_id)),
@@ -158,10 +164,11 @@ async function insertReservations(db: Db, rows: FakeRow[]): Promise<void> {
         r.current_rate ?? null,
         r.base_rate ?? null,
         r.created_at ?? null,
+        r.external_reservation_id ?? null,
       );
     }
     await db.query(
-      `insert into public.reservations (id, hotel_id, room_type_id, stay_date, booking_date, booking_window_days, current_rate, base_rate, created_at) values ${values.join(",")}`,
+      `insert into public.reservations (id, hotel_id, room_type_id, stay_date, booking_date, booking_window_days, current_rate, base_rate, created_at, external_reservation_id) values ${values.join(",")}`,
       params,
     );
   }

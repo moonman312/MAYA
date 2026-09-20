@@ -15,12 +15,17 @@
  * fires it took off start nothing, and after its wait the rule judges its
  * whole window again.
  *
- * The first case is the audit's reproduction (groups-audit.json, risks): one
- * 20-room wedding reservation, booked 40 days out on a quiet night, under the
+ * The first case is the audit's reproduction (groups-audit.json, risks):
+ * twenty rooms booked in one day, 40 days out on a quiet night, under the
  * five starter rules. The engine used to stack 12 raises on it, about 5x the
  * price, and file the owner alert twice; then 3, one per raise rule. Now the
  * one-day spike rule catches it the day it lands, and that is the one raise:
- * the week and month rules count only what came after it.
+ * the week and month rules count only what came after it. That case keeps
+ * its rows unkeyed, so they are twenty separate bookings. The audit's real
+ * wedding, one 20-room reservation keyed as the PMS keys it, is the case
+ * after it: booking speed counts bookings (Jake, 2026-09-20), so the wedding
+ * is one booking on a quiet night and no rule raises on pace at all, while
+ * an occupancy rule still sees its twenty rooms.
  *
  * Every case runs whole evaluateHotel runs, on the app's engine and on the
  * edge functions' copy, against the in-memory fake.
@@ -185,9 +190,10 @@ afterEach(() => {
 describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it already acted on", (engine) => {
   /* ── The audit's cascade ─────────────────────────────────────── */
 
-  describe("one 20-room wedding reservation on a quiet night", () => {
+  describe("twenty separate bookings landing on a quiet night in one day", () => {
     const NIGHT = addDays(D0, 40);
     const LAST = addDays(D0, 41);
+    // Unkeyed rows: each one a booking of its own.
     const wedding = () => Array.from({ length: 20 }, () => booking(NIGHT, D0));
 
     it("under the starter rules, one raise, not one per raise rule, and no owner alert", async () => {
@@ -277,6 +283,57 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
       await w.run(1, firstRun);
       expect(w.fires(night)).toHaveLength(1);
       expect(w.price(night)).toBe(125);
+    }, 120_000);
+  });
+
+  /* ── The audit's wedding: one reservation, twenty rooms ───────── */
+
+  describe.each([
+    { pms: "Cloudbeds", key: (k: number) => `6364686337417-${k}` },
+    { pms: "Think", key: (k: number) => `res_77:b${k}` },
+  ])("one 20-room wedding reservation on a quiet night, keyed as $pms keys it", ({ key }) => {
+    const NIGHT = addDays(D0, 40);
+    const LAST = addDays(D0, 41);
+    const wedding = (bookedOn: string, from = 1, to = 20) =>
+      Array.from({ length: to - from + 1 }, (_, i) => ({ ...booking(NIGHT, bookedOn), external_reservation_id: key(from + i) }));
+    /** The one occupancy rule: above half full, raise 10%. */
+    const busy = () =>
+      rule("Busy night", { occupancy_operator: "gt", occupancy_threshold: 0.5 }, { is_pickup_rule: false, priority: 50 });
+
+    it("is one booking for pace: under the starter rules nothing raises, while an occupancy rule sees its twenty rooms", async () => {
+      const w = world(engine, {
+        rules: [...starterRules(), busy()],
+        reservations: [...background(LAST, QUIET), ...wedding(D0)],
+        last: LAST,
+      });
+      for (let day = 0; day <= 32; day++) await w.run(day);
+      // One booking against the none to one a night like it gets: Normal.
+      expect(w.tables.pickup_event).toEqual([]);
+      expect(w.tables.rule_repeat_alert_nights ?? []).toEqual([]);
+      // The 18 background rooms are 45% of 40; the wedding's twenty take it to 95%.
+      expect(w.price(NIGHT)).toBe(110);
+      expect(w.price(addDays(D0, 39))).toBe(100);
+      const audit = w.tables.evaluation_audit.filter((a) => a.stay_date === NIGHT && a.room_type_id === STD).at(-1)!;
+      expect(JSON.stringify(audit.details)).toContain("Busy night");
+    }, 120_000);
+
+    it("counts rooms added to the reservation later at the booking's own date, not as new bookings", async () => {
+      // Ten rooms booked a month ago; ten more join the same reservation on day 3.
+      const w = world(engine, { rules: starterRules(), reservations: [...background(LAST, QUIET), ...wedding(addDays(D0, -30), 1, 10)], last: LAST });
+      for (let day = 0; day <= 2; day++) await w.run(day);
+      expect(w.tables.pickup_event).toEqual([]);
+      w.tables.reservations.push(...wedding(addDays(D0, 3), 11, 20));
+      for (let day = 3; day <= 12; day++) await w.run(day);
+      expect(w.tables.pickup_event).toEqual([]);
+      expect(w.price(NIGHT)).toBe(100);
+      // Where twenty separate bookings on day 3 would have raised.
+      const separate = world(engine, {
+        rules: starterRules(),
+        reservations: [...background(LAST, QUIET), ...Array.from({ length: 10 }, () => booking(NIGHT, addDays(D0, 3)))],
+        last: LAST,
+      });
+      for (let day = 0; day <= 3; day++) await separate.run(day);
+      expect(separate.firedOn(NIGHT)).toEqual([["Sudden-spike catcher", 3]]);
     }, 120_000);
   });
 
