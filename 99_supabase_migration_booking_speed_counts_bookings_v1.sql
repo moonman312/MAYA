@@ -22,12 +22,15 @@
 --      Cloudbeds  <reservationID>-<n>           -> the part before the hyphen
 --                 (one row per room slot), or a bare <reservationID> on rows
 --                 written before rooms were keyed, which stays as it is. A
---                 reservationID is digits with no hyphen, so only a single
---                 hyphen followed by a number is a room suffix.
+--                 reservationID is a number (6364686337417 on the sandbox),
+--                 so only digits, one hyphen, digits is a room suffix.
 --      Mews       one reservation per row, GUIDs (four hyphens): never
 --                 grouped, a Mews reservation is one room.
---    Anything else is its own booking, the e2e seeds' cb-260920-0001234
---    style ids included.
+--    Anything else is its own booking: the e2e seeds' cb-260920-0001234
+--    style ids, and any <word>-<n> id. The rule is deliberately this narrow:
+--    keying RES-1234 to RES would fold every reservation of a hotel into one
+--    booking and its pace would never move, while leaving an unfamiliar id
+--    alone only counts that booking's rooms one by one, as before.
 --
 -- 2. booking_speed_windows(hotel, dates, exclude, include): the same
 --    signature and result shape as in
@@ -110,7 +113,7 @@ as $$
   select case
     when position(':' in p_external_reservation_id) > 0
       then split_part(p_external_reservation_id, ':', 1)
-    when p_external_reservation_id ~ '^[^-]+-[0-9]+$'
+    when p_external_reservation_id ~ '^[0-9]+-[0-9]+$'
       then split_part(p_external_reservation_id, '-', 1)
     else p_external_reservation_id
   end

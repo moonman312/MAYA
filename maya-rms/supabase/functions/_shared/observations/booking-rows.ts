@@ -53,19 +53,22 @@ export function bookingWindowOf(row: SlimReservationRow): number | null {
  *   row per booking (room) of the reservation. The part before the colon.
  * - Cloudbeds: `<reservationID>-<n>` for every room slot the parsers key
  *   (cloudbeds/etl.ts cloudbedsRoomRowIds), or a bare `<reservationID>` on
- *   rows written before rooms were keyed. A reservationID is digits with no
- *   hyphen, so the part before the one hyphen, when what follows it is a
- *   number.
+ *   rows written before rooms were keyed. A reservationID is a number
+ *   (6364686337417 on the sandbox), so the digits before the one hyphen,
+ *   when digits follow it too.
  * - Mews: one reservation per row, ids are GUIDs (four hyphens, never a
  *   plain `-<n>` tail). Never grouped, as decided: a Mews reservation is one
  *   room.
- * Anything else, the seeded `cb-260920-0001234` style ids included, is its
- * own booking.
+ * Anything else is its own booking: the seeded `cb-260920-0001234` style
+ * ids, and any `<word>-<n>` id. The rule is deliberately this narrow. Keying
+ * `RES-1234` to `RES` would fold every reservation of a hotel into one
+ * booking and its pace would never move; leaving an unfamiliar id alone only
+ * counts that booking's rooms one by one, as before.
  */
 export function bookingKeyOf(externalReservationId: string): string {
   const colon = externalReservationId.indexOf(":");
   if (colon !== -1) return externalReservationId.slice(0, colon);
-  const room = /^([^-]+)-[0-9]+$/.exec(externalReservationId);
+  const room = /^([0-9]+)-[0-9]+$/.exec(externalReservationId);
   return room ? room[1] : externalReservationId;
 }
 

@@ -221,8 +221,8 @@ describe("the row fallback, before the migration", () => {
     // reservation booked 30 days out and a single 10 days out.
     for (let d = -(3 * 366); d < 0; d++) {
       const stay = addDays(localDate, d);
-      for (let k = 1; k <= 3; k++) rows.push(row(stay, 30, `g${-d}-${k}`));
-      rows.push(row(stay, 10, `s${-d}`, "rt2"));
+      for (let k = 1; k <= 3; k++) rows.push(row(stay, 30, `${10000 - d}-${k}`));
+      rows.push(row(stay, 10, `${20000 - d}`, "rt2"));
     }
     // The night ahead took a 20-room wedding today and one single.
     for (let k = 1; k <= 20; k++) rows.push(row(night, 20, `6364686337417-${k}`));

@@ -88,13 +88,14 @@ describe("bookingKeyOf", () => {
     expect(bookingKeyOf(digitsTail)).toBe(digitsTail);
   });
 
-  it("leaves every other shape alone, the seeded ids included", () => {
-    for (const id of ["cb-260920-0001234", "think-1001-20260920-001", "e2e-rt-20260920-001", "demo-a-b-20260920-001", "R4", "abc-", "-1", "1234-1a", "1234-x1", "", "res_1"]) {
+  it("leaves every other shape alone: the seeded ids, and any word-<n> id", () => {
+    // Keying RES-1234 to RES would fold a whole hotel into one booking.
+    for (const id of ["cb-260920-0001234", "think-1001-20260920-001", "e2e-rt-20260920-001", "demo-a-b-20260920-001", "R4", "R1-1", "ext-12", "RES-1234", "abc-", "-1", "1234-1a", "1234-x1", "1234-", "", "res_1"]) {
       expect(bookingKeyOf(id)).toBe(id);
     }
-    // Only a number after the one hyphen is a room suffix.
-    expect(bookingKeyOf("R1-1")).toBe("R1");
+    // Digits, one hyphen, digits: a room of a Cloudbeds reservation.
     expect(bookingKeyOf("1234-01")).toBe("1234");
+    expect(bookingKeyOf("6364686337417-20")).toBe("6364686337417");
     // The colon wins over a hyphen: a Think booking id may carry one.
     expect(bookingKeyOf("res_1:b-1")).toBe("res_1");
     expect(bookingKeyOf("a-1:b")).toBe("a-1");
@@ -135,9 +136,9 @@ describe("indexBookingRows", () => {
 
   it("counts a booking at its earliest booking date, so rooms added to it later are not new bookings", () => {
     const rows: SlimReservationRow[] = [
-      ...reservation("W", 10, "2026-04-27"),
+      ...reservation("9001", 10, "2026-04-27"),
       // Ten more rooms added to the same reservation a month on.
-      ...Array.from({ length: 10 }, (_, i) => ({ stay_date: NIGHT, booking_date: "2026-05-27", external_reservation_id: `W-${i + 11}` })),
+      ...Array.from({ length: 10 }, (_, i) => ({ stay_date: NIGHT, booking_date: "2026-05-27", external_reservation_id: `9001-${i + 11}` })),
     ];
     expect(indexBookingRows(rows).get(NIGHT)).toEqual({ n: 1, windows: [{ bw: 40, n: 1 }] });
     // Nothing new in the window the later rooms fell into.
@@ -149,13 +150,13 @@ describe("indexBookingRows", () => {
 
   it("gives a booking the one known lead time among its rooms, and none only when no room has one", () => {
     const known: SlimReservationRow[] = [
-      { stay_date: NIGHT, external_reservation_id: "A-1" },
-      { stay_date: NIGHT, external_reservation_id: "A-2", booking_window_days: 12 },
+      { stay_date: NIGHT, external_reservation_id: "9002-1" },
+      { stay_date: NIGHT, external_reservation_id: "9002-2", booking_window_days: 12 },
     ];
     expect(indexBookingRows(known).get(NIGHT)).toEqual({ n: 1, windows: [{ bw: 12, n: 1 }] });
     const unknown: SlimReservationRow[] = [
-      { stay_date: NIGHT, external_reservation_id: "B-1" },
-      { stay_date: NIGHT, external_reservation_id: "B-2" },
+      { stay_date: NIGHT, external_reservation_id: "9003-1" },
+      { stay_date: NIGHT, external_reservation_id: "9003-2" },
     ];
     expect(indexBookingRows(unknown).get(NIGHT)).toEqual({ n: 1, windows: [{ bw: null, n: 1 }] });
   });
@@ -163,7 +164,7 @@ describe("indexBookingRows", () => {
   it("keeps a booking's nights apart: one booking per stay date", () => {
     const rows: SlimReservationRow[] = [];
     for (const night of [NIGHT, addDays(NIGHT, 1)]) {
-      for (let i = 1; i <= 3; i++) rows.push({ stay_date: night, booking_date: "2026-04-27", external_reservation_id: `C-${i}` });
+      for (let i = 1; i <= 3; i++) rows.push({ stay_date: night, booking_date: "2026-04-27", external_reservation_id: `9004-${i}` });
     }
     const index = indexBookingRows(rows);
     expect(index.get(NIGHT)).toEqual({ n: 1, windows: [{ bw: 40, n: 1 }] });
@@ -184,12 +185,12 @@ describe("indexBookingRows", () => {
     const rows: SlimReservationRow[] = [
       { stay_date: NIGHT, booking_window_days: 5, external_reservation_id: "res_1:b1" },
       { stay_date: NIGHT, booking_window_days: 5, external_reservation_id: "res_1:b2" },
-      { stay_date: NIGHT, booking_window_days: 5, external_reservation_id: "res_1-1" },
+      { stay_date: NIGHT, booking_window_days: 5, external_reservation_id: "77-1" },
       { stay_date: NIGHT, booking_window_days: 5, external_reservation_id: MEWS_GUID },
-      { stay_date: NIGHT, booking_window_days: 5, external_reservation_id: "res_1" },
+      { stay_date: NIGHT, booking_window_days: 5, external_reservation_id: "77" },
     ];
-    // res_1 (Think, twice), res_1 (the -1 row, same key as the bare one), the GUID.
-    expect(indexBookingRows(rows).get(NIGHT)!.n).toBe(2);
+    // res_1 (Think, twice), 77 (the -1 row and the bare one), the GUID.
+    expect(indexBookingRows(rows).get(NIGHT)!.n).toBe(3);
   });
 });
 
@@ -198,8 +199,8 @@ describe("StayDateWindowsBuilder", () => {
     const rows: SlimReservationRow[] = [];
     for (let d = 0; d < 5; d++) {
       const night = addDays(NIGHT, d);
-      for (let i = 1; i <= 4; i++) rows.push({ stay_date: night, booking_date: addDays(night, -10 - i), external_reservation_id: `R${d}-${i}` });
-      rows.push({ stay_date: night, booking_date: addDays(night, -3), external_reservation_id: `S${d}` });
+      for (let i = 1; i <= 4; i++) rows.push({ stay_date: night, booking_date: addDays(night, -10 - i), external_reservation_id: `${500 + d}-${i}` });
+      rows.push({ stay_date: night, booking_date: addDays(night, -3), external_reservation_id: `${600 + d}` });
     }
     const streamed = new StayDateWindowsBuilder("bookings");
     let open: string | null = null;
@@ -276,7 +277,7 @@ describe("a past wedding in the comparables", () => {
       const tag = `${offset < 0 ? "m" : "p"}${Math.abs(offset)}`;
       // This year: a 3-room reservation and a single, in the window. A year
       // ago: two singles.
-      rows.push(...[1, 2, 3].map((i) => ({ stay_date: neighbor, booking_window_days: out + 1, external_reservation_id: `G${tag}-${i}` })));
+      rows.push(...[1, 2, 3].map((i) => ({ stay_date: neighbor, booking_window_days: out + 1, external_reservation_id: `${700 + offset}-${i}` })));
       rows.push({ stay_date: neighbor, booking_window_days: out + 2, external_reservation_id: `S${tag}` });
       const prior = addDays(neighbor, -364);
       rows.push({ stay_date: prior, booking_window_days: out + 1, external_reservation_id: `P${tag}a` });

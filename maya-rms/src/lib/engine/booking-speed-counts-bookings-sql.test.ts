@@ -117,7 +117,7 @@ describe.skipIf(!PGLITE_DIR)("booking speed counts bookings, in PGlite", () => {
       "res_1:book_1", "res_1:3", "res_p:b1", "res_1:b-1", "a-1:b", ":x", "x:",
       MEWS_GUID, "0d3a8c2e-1f4b-4c5d-9e6f-123456789012",
       "cb-260920-0001234", "cb4-260920-0001234", "think-1001-20260920-001", "e2e-think-1001-20260920-001", "demo-a-b-20260920-001",
-      "R4", "abc-", "-1", "1234-1a", "1234-x1", "a-b-1", "res_1", "x",
+      "R4", "ext-12", "RES-1234", "abc-", "-1", "1234-1a", "1234-x1", "1234-", "a-b-1", "res_1", "x",
     ];
     const { rows } = await db.query(
       `select id, public.booking_key(id) as key from unnest($1::text[]) as t(id)`,

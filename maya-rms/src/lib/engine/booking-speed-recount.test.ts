@@ -317,6 +317,36 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
       expect(JSON.stringify(audit.details)).toContain("Busy night");
     }, 120_000);
 
+    it("records a fire's window in bookings, so the cancellation check and the owner alert read the same unit", async () => {
+      // A 6-room reservation and four singles land on day 0: five bookings,
+      // ten rooms. The spike rule fires on five, and writes five.
+      const spike = starterRules().filter((r) => r.name === "Sudden-spike catcher");
+      const w = world(engine, {
+        rules: spike,
+        reservations: [...background(LAST, QUIET), ...wedding(D0, 1, 6), ...Array.from({ length: 4 }, () => booking(NIGHT, D0))],
+        last: LAST,
+      });
+      await w.run(0);
+      expect(w.fires(NIGHT).map((e) => [e.rule_id, e.window_from, e.window_to, e.window_bookings_at_fire, e.cancel_check])).toEqual([
+        ["Sudden-spike catcher", D0, D0, 5, "window_bookings"],
+      ]);
+      // Four of the reservation's six rooms cancel: still five bookings, the raise stays.
+      w.tables.reservations = w.tables.reservations.filter((r) => !["3", "4", "5", "6"].map((k) => key(Number(k))).includes(String(r.external_reservation_id)));
+      await w.run(0, HOUR);
+      expect(w.fires(NIGHT).map((e) => e.retired_reason)).toEqual([null]);
+      // A night like it gets none that day, so the raise only comes off once
+      // the reservation's last rooms and every single are gone.
+      w.tables.reservations = w.tables.reservations.filter((r) => !(r.stay_date === NIGHT && r.booking_date === D0 && String(r.external_reservation_id ?? "").length > 0));
+      w.tables.reservations = w.tables.reservations.filter((r) => !(r.stay_date === NIGHT && r.booking_date === D0)).concat(
+        w.tables.reservations.filter((r) => r.stay_date === NIGHT && r.booking_date === D0).slice(0, 1),
+      );
+      await w.run(0, 2 * HOUR);
+      expect(w.fires(NIGHT).map((e) => e.retired_reason)).toEqual([null]);
+      w.tables.reservations = w.tables.reservations.filter((r) => !(r.stay_date === NIGHT && r.booking_date === D0));
+      await w.run(0, 3 * HOUR);
+      expect(w.fires(NIGHT).map((e) => e.retired_reason)).toEqual(["bookings_cancelled"]);
+    }, 120_000);
+
     it("counts rooms added to the reservation later at the booking's own date, not as new bookings", async () => {
       // Ten rooms booked a month ago; ten more join the same reservation on day 3.
       const w = world(engine, { rules: starterRules(), reservations: [...background(LAST, QUIET), ...wedding(addDays(D0, -30), 1, 10)], last: LAST });
