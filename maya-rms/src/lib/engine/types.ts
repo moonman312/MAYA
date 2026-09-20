@@ -33,8 +33,8 @@ export type RuleMetrics = {
     method: string;
     /**
      * Set only when the cell's last fire in the rule's direction (its last
-     * raise for a raise rule, its last cut for a cut rule, by any Booking
-     * Speed rule: bookingSpeedCountFrom in pickup.ts) cut its window short:
+     * raise for a raise rule, its last cut for a cut rule, by any event
+     * rule: bookingSpeedCountFrom in pickup.ts) cut its window short:
      * the first booking date counted, and the window the rule asks for.
      */
     counted_from?: string;

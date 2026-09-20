@@ -297,8 +297,9 @@ export async function evaluateHotel(
   }
 
   // Every rule of the hotel, paused ones included. Only the active ones are
-  // evaluated (`rules`); a paused Booking Speed rule's fires still apply and
-  // still anchor where the active ones start counting (bookingSpeedAnchors).
+  // evaluated (`rules`); a paused event rule's fires still apply and still
+  // anchor where the active Booking Speed rules start counting
+  // (bookingSpeedAnchors).
   const loadedRules: EngineRule[] = (rulesData ?? []).map((r) => {
     // deno-lint-ignore no-explicit-any
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -608,11 +609,10 @@ export async function evaluateHotel(
 
   const ladderRules = rules.filter((r) => !r.is_pickup_rule);
   const pickupRules = rules.filter((r) => r.is_pickup_rule);
-  // Paused event rules that measure Booking Speed: their fire history is read
-  // for the shared anchors only. Nothing else looks at them.
-  const pausedBookingSpeedRules = loadedRules.filter(
-    (r) => !r.is_active && r.is_pickup_rule && r.condition.booking_speed_operator,
-  );
+  // Paused event rules: their fire history is read for the shared anchors
+  // only, a paused pickup count rule's raise having acted on the same
+  // bookings as a Booking Speed one's. Nothing else looks at them.
+  const pausedEventRules = loadedRules.filter((r) => !r.is_active && r.is_pickup_rule);
 
   // Booking Speed context: loaded once, and only when some active rule
   // actually uses the observation — everyone else pays nothing.
@@ -815,15 +815,15 @@ export async function evaluateHotel(
 
   // Each event rule's fire history on each cell, after the retirements
   // above, and the owner's answers to repeat alerts on these nights. The
-  // paused Booking Speed rules' heads are read for the anchors below only.
+  // paused event rules' heads are read for the anchors below only.
   const fireHeads =
     pickupRules.length > 0
-      ? await loadPickupFireHeads(supabase, hotelId, [...pickupRules, ...pausedBookingSpeedRules], firstDate, lastDate)
+      ? await loadPickupFireHeads(supabase, hotelId, [...pickupRules, ...pausedEventRules], firstDate, lastDate)
       : new Map<string, FireHead>();
   // Where a Booking Speed rule starts counting on each cell: after the cell's
   // newest counted raise for a raise rule, its newest counted cut for a cut
-  // rule, by any Booking Speed rule (bookingSpeedAnchors).
-  const bsAnchors = bookingSpeedAnchors([...pickupRules, ...pausedBookingSpeedRules], stayDates, fireHeads);
+  // rule, by any event rule (bookingSpeedAnchors).
+  const bsAnchors = bookingSpeedAnchors([...pickupRules, ...pausedEventRules], stayDates, fireHeads);
   const alertNights =
     pickupRules.length > 0
       ? await loadRepeatAlertNights(supabase, hotelId, pickupRules.map((r) => r.id), firstDate, lastDate)

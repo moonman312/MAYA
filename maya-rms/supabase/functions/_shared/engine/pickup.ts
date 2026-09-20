@@ -27,19 +27,21 @@
  * its wait can be shorter than its window, so it counts only bookings made
  * from the hotel day after the cell's last fire in its own direction
  * (bookingSpeedCountFrom): a raise rule counts from the last raise on the
- * cell by any Booking Speed rule, a cut rule from the last cut, and the
- * nights it is compared with are read over the same shorter stretch of their
- * booking curves. So one burst of bookings raises a cell once, whichever
- * tier rule caught it, and a stronger tier steps in on top only when the
- * bookings since that raise read faster on their own (Jake, 2026-09-18:
- * tiers climb as pace climbs, not all at once). The fire that cuts the
- * window is the newest one on the cell in that direction that counts toward
- * the owner alert (open, or taken off for cancellations), from the current
- * version of any Booking Speed rule, paused ones included, since their
- * fires still apply (bookingSpeedAnchors). After a manual price, a rule
- * judges its full normal window, bookings from before the price included:
- * the fires the price took off never cut it, and neither does one made
- * before it.
+ * cell by any event rule, a cut rule from the last cut, and the nights it
+ * is compared with are read over the same shorter stretch of their booking
+ * curves. So one burst of bookings raises a cell once, whichever rule
+ * caught it, a pickup count rule included (its raise acted on the same
+ * bookings), and a stronger tier steps in on top only when the bookings
+ * since that raise read faster on their own (Jake, 2026-09-18: tiers climb
+ * as pace climbs, not all at once). The fire that cuts the window is the
+ * newest one on the cell in that direction that counts toward the owner
+ * alert (open, or taken off for cancellations), from the current version of
+ * any event rule, paused ones included, since their fires still apply
+ * (bookingSpeedAnchors). A ladder rule's adjustment is not a fire and never
+ * moves the count: it holds while its condition holds and acts on no
+ * bookings. After a manual price, a rule judges its full normal window,
+ * bookings from before the price included: the fires the price took off
+ * never cut it, and neither does one made before it.
  *
  * WHICH RULE FIRES. At most one fire per cell per run. The competition
  * (selectPickupWinner) includes rules waiting on the cell whose conditions
@@ -209,13 +211,14 @@ export function bookingSpeedAnchorKey(
 
 /**
  * The newest counted fire on each cell in each direction, by
- * bookingSpeedAnchorKey, across every Booking Speed rule given: the fires
- * the heads count for its current version (open, or taken off for
- * cancellations). Raises share one anchor and cuts another, so a raise rule
- * never re-counts a burst another raise rule already acted on, and a cut
- * never moves where a raise starts counting or the other way round. Pass the
- * paused Booking Speed rules too: their fires still apply. A rule with no
- * Booking Speed condition anchors nothing here.
+ * bookingSpeedAnchorKey, across every event rule given: the fires the heads
+ * count for its current version (open, or taken off for cancellations).
+ * Raises share one anchor and cuts another, so a raise rule never re-counts
+ * a burst another raise rule already acted on, whether that rule measured
+ * Booking Speed or pickup count (a pickup raise acted on the same bookings),
+ * and a cut never moves where a raise starts counting or the other way
+ * round. Pass the paused event rules too: their fires still apply. A ladder
+ * rule has no fires and anchors nothing.
  */
 export function bookingSpeedAnchors(
   rules: readonly EngineRule[],
@@ -224,7 +227,7 @@ export function bookingSpeedAnchors(
 ): Map<string, string> {
   const out = new Map<string, string>();
   for (const rule of rules) {
-    if (!rule.condition.booking_speed_operator) continue;
+    if (!rule.is_pickup_rule) continue;
     for (const stayDate of stayDates) {
       for (const rtId of rule.affected_room_type_ids) {
         const at = heads.get(fireHeadKey(rule.id, stayDate, rtId))?.lastCountedAt;

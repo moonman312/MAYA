@@ -10,10 +10,11 @@
  * a straight jump to surging must not fire every tier rule on one burst,
  * tiers climb as pace climbs. The fire that starts the count is the newest
  * one there in that direction that counts toward the owner alert (open, or
- * taken off for cancellations), from the current version of any Booking
- * Speed rule, paused ones included. A typed price is a reset point: the
- * fires it took off start nothing, and after its wait the rule judges its
- * whole window again.
+ * taken off for cancellations), from the current version of any event
+ * rule, paused ones included: a pickup count rule's raise acted on the
+ * same bookings a Booking Speed one's would count. A typed price is a
+ * reset point: the fires it took off start nothing, and after its wait the
+ * rule judges its whole window again.
  *
  * The first case is the audit's reproduction (groups-audit.json, risks):
  * twenty rooms booked in one day, 40 days out on a quiet night, under the
@@ -138,11 +139,41 @@ function background(last: string, leads: number[], roomTypeId = STD): FakeRow[] 
 /** One booking every 10 days of lead time: 0 to 1 a day, about 3 a month. */
 const QUIET = Array.from({ length: 18 }, (_, i) => 3 + 10 * i);
 
+/**
+ * Snapshots every 6 hours over the `days` before T0, counted from the
+ * reservations in rooms, so a pickup count rule has a baseline to read on
+ * day 0 (the engine writes its own from then on).
+ */
+function snapshots(reservations: FakeRow[], nights: string[], roomTypeIds: string[], days: number): FakeRow[] {
+  const out: FakeRow[] = [];
+  for (let h = days * 24; h > 0; h -= 6) {
+    const ts = iso(T0 - h * HOUR);
+    for (const stay of nights) {
+      for (const rt of roomTypeIds) {
+        const n = reservations.filter(
+          (r) => r.stay_date === stay && r.room_type_id === rt && `${r.booking_date}T23:59:59.000Z` <= ts,
+        ).length;
+        out.push({ hotel_id: "h1", snapshot_ts: ts, stay_date: stay, room_type_id: rt, sellable_units: 40, booked_units: n, booked_revenue: n * 100 });
+      }
+    }
+  }
+  return out;
+}
+
 type Engine = (typeof ENGINES)[number];
 
 function world(
   engine: Engine,
-  opts: { rules: FakeRow[]; reservations: FakeRow[]; last: string; roomTypes?: FakeRow[]; manual?: FakeRow[]; timezone?: string },
+  opts: {
+    rules: FakeRow[];
+    reservations: FakeRow[];
+    last: string;
+    roomTypes?: FakeRow[];
+    manual?: FakeRow[];
+    timezone?: string;
+    /** Days of 6-hourly snapshots before T0, for a pickup count rule's baseline. */
+    snapshotDays?: number;
+  },
 ) {
   const roomTypes = opts.roomTypes ?? [roomType(STD)];
   const nights: string[] = [];
@@ -155,7 +186,9 @@ function world(
       roomTypes.map((rt) => ({ hotel_id: "h1", stay_date: stay, room_type_id: rt.id, price: 100 })),
     ),
     pricing_rules: opts.rules,
-    stay_date_snapshot: [],
+    stay_date_snapshot: opts.snapshotDays
+      ? snapshots(opts.reservations, nights, roomTypes.map((rt) => String(rt.id)), opts.snapshotDays)
+      : [],
     manual_price: opts.manual ?? [],
   });
   /** One run on day `day` of the story, at noon, pricing through `last`. */
@@ -228,6 +261,55 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
       for (let day = 1; day <= 6; day++) await w.run(day);
       expect(w.fires(NIGHT)).toHaveLength(1);
       expect(w.price(NIGHT)).toBe(125);
+    }, 120_000);
+
+    it("a raise by a pickup count rule counts too: the month rule doesn't raise again on the bookings it acted on", async () => {
+      // Ten separate bookings land on the quiet night. A pickup count rule
+      // (more than 5 room-nights in 7 days) outranks the starter rules and
+      // raises on them on day 0, then holds the night through its week's
+      // wait. That raise acted on the same ten bookings a Booking Speed
+      // rule would count, so the month rule counts from it like from any
+      // other raise: on day 7 it reads only the days since, nothing new,
+      // and leaves the night alone. "Whichever rule made it" is what the
+      // panels say.
+      const pickup = rule(
+        "Pickup raise",
+        { pickup_operator: "gt", pickup_threshold: 5, pickup_window_days: 7, pickup_metric: "room_nights" },
+        { priority: 200, action_value: 10 },
+      );
+      const w = world(engine, {
+        rules: [pickup, ...starterRules()],
+        reservations: [...background(LAST, QUIET), ...Array.from({ length: 10 }, () => booking(NIGHT, D0))],
+        last: LAST,
+        snapshotDays: 10,
+      });
+      for (let day = 0; day <= 12; day++) await w.run(day);
+      expect(w.firedOn(NIGHT)).toEqual([["Pickup raise", 0]]);
+      expect(w.price(NIGHT)).toBe(110);
+      // Its fire is a pickup one: it carries no frozen window of its own.
+      expect(w.fires(NIGHT).map((e) => [e.cancel_check, e.window_from])).toEqual([["net_units", null]]);
+    }, 120_000);
+
+    it("a paused pickup count rule's raise still counts the same way", async () => {
+      const pickup = rule(
+        "Pickup raise",
+        { pickup_operator: "gt", pickup_threshold: 5, pickup_window_days: 7, pickup_metric: "room_nights" },
+        { priority: 200, action_value: 10 },
+      );
+      const w = world(engine, {
+        rules: [pickup, ...starterRules()],
+        reservations: [...background(LAST, QUIET), ...Array.from({ length: 10 }, () => booking(NIGHT, D0))],
+        last: LAST,
+        snapshotDays: 10,
+      });
+      await w.run(0);
+      expect(w.firedOn(NIGHT)).toEqual([["Pickup raise", 0]]);
+      // Paused that evening: its raise stays on the night, and the month
+      // rule still counts from it.
+      w.tables.pricing_rules.find((r) => r.name === "Pickup raise")!.is_active = false;
+      for (let day = 1; day <= 12; day++) await w.run(day);
+      expect(w.firedOn(NIGHT)).toEqual([["Pickup raise", 0]]);
+      expect(w.price(NIGHT)).toBe(110);
     }, 120_000);
 
     it("a single month-window rule with a 3-day wait raises once, not every 3 days for a month", async () => {
