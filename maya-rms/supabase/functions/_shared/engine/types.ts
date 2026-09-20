@@ -35,15 +35,20 @@ export type RuleMetrics = {
     /**
      * Set only when the cell's last fire in the rule's direction (its last
      * raise for a raise rule, its last cut for a cut rule, by any event
-     * rule: bookingSpeedCountFrom in pickup.ts) cut its window short:
-     * the first booking date counted, and the window the rule asks for.
+     * rule: bookingSpeedCountFrom in pickup.ts) cut its window short or
+     * split its first day: the first booking date counted, the window the
+     * rule asks for, and (counted_since) the fire, when that first day
+     * counted only the bookings first seen after it. An audit row without
+     * counted_since counted from the day after the fire.
      */
     counted_from?: string;
     full_window_days?: number;
+    counted_since?: string;
   } | null;
   /**
    * When set, booking-speed conditions must not match: no usable history, or
-   * no whole day yet since the cell's last fire in the rule's direction.
+   * the cell's last fire in the rule's direction is on a later hotel day
+   * than this run's (a fire recorded by a run whose clock was ahead).
    */
   booking_speed_block_reason?: "insufficient_data" | "since_last_fire" | null;
   /** Summed across signal room types at baseline snapshot (pickup ledger / audit). */
@@ -90,6 +95,13 @@ export type PickupCandidate = {
   cancel_check: PickupCancelCheck;
   /** The booking speed window, in hotel dates, when the rule has a booking speed reading. */
   window_from: string | null;
+  /**
+   * When window_from's day was split at the fire this one counted from
+   * (booking_speed.counted_since): only the bookings first seen after it on
+   * that day were counted, and the frozen window is read back the same way.
+   * null when that day was counted whole.
+   */
+  window_since: string | null;
   window_to: string | null;
   window_bookings_at_fire: number | null;
   window_expected_at_fire: number | null;

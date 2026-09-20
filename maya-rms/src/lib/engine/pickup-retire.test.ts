@@ -53,6 +53,7 @@ function fire(over: Partial<OpenPickupFire> = {}): OpenPickupFire {
     cancel_check: "net_units",
     signal_booked_units_start: 1,
     window_from: null,
+    window_since: null,
     window_to: null,
     window_expected_at_fire: null,
     signal_set_key: "rt1",

@@ -76,6 +76,7 @@ function makeCandidate(rule: EngineRule, rtId: string = "rt1", stayDate: string 
     fire_seq: 1,
     cancel_check: "net_units",
     window_from: null,
+    window_since: null,
     window_to: null,
     window_bookings_at_fire: null,
     window_expected_at_fire: null,
@@ -377,10 +378,13 @@ describe("where a Booking Speed rule starts counting on a cell", () => {
     condition: { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 30, booking_speed_cooldown_days: 3 },
   });
 
-  it("counts from the hotel day after the cell's last counted fire its way, never that fire's own day", () => {
-    expect(bookingSpeedCountFrom(bs, "2026-07-10T15:00:00Z", undefined, "UTC")).toBe("2026-07-11");
+  it("counts from the hotel day of the cell's last counted fire its way, that day split at the fire", () => {
+    expect(bookingSpeedCountFrom(bs, "2026-07-10T15:00:00Z", undefined, "UTC")).toEqual({ from: "2026-07-10", since: "2026-07-10T15:00:00Z" });
     // 02:30 UTC on the 10th is still the 9th in New York.
-    expect(bookingSpeedCountFrom(bs, "2026-07-10T02:30:00Z", undefined, "America/New_York")).toBe("2026-07-10");
+    expect(bookingSpeedCountFrom(bs, "2026-07-10T02:30:00Z", undefined, "America/New_York")).toEqual({
+      from: "2026-07-09",
+      since: "2026-07-10T02:30:00Z",
+    });
   });
 
   it("counts its whole window when the cell has no counted fire its way", () => {
@@ -393,7 +397,10 @@ describe("where a Booking Speed rule starts counting on a cell", () => {
     // A raise taken off for cancellations still counts, but it came before the price.
     expect(bookingSpeedCountFrom(bs, "2026-07-10T15:00:00Z", { set_at: "2026-07-11T09:00:00Z" }, "UTC")).toBeNull();
     // A fire after the price does.
-    expect(bookingSpeedCountFrom(bs, "2026-07-15T15:00:00Z", { set_at: "2026-07-11T09:00:00Z" }, "UTC")).toBe("2026-07-16");
+    expect(bookingSpeedCountFrom(bs, "2026-07-15T15:00:00Z", { set_at: "2026-07-11T09:00:00Z" }, "UTC")).toEqual({
+      from: "2026-07-15",
+      since: "2026-07-15T15:00:00Z",
+    });
   });
 
   it("means nothing to a rule that only counts pickup", () => {
@@ -447,15 +454,22 @@ describe("the anchor Booking Speed rules of one direction share on a cell", () =
     expect(anchors.get(bookingSpeedAnchorKey(NIGHT, "rt1", "decrease"))).toBe("2026-09-08T12:00:00Z");
   });
 
-  it("ignores fires that are not counted, and rules that only count pickup", () => {
+  it("ignores fires that are not counted, and anchors on a pickup count rule's raise like on any other", () => {
     // A head whose fires a typed price or an edit all took off has no
-    // counted fire (pickup_fire_heads); a pickup count rule's fires are its own.
+    // counted fire (pickup_fire_heads). A pickup count rule's raise acted on
+    // the same bookings a Booking Speed rule would count, so it anchors the
+    // raise rules too ("whichever rule made it"); a ladder rule never does.
     const pickup = makeRule({ id: "pickup" });
+    const ladder = makeRule({ id: "ladder", is_pickup_rule: false, condition: { occupancy_operator: "gt", occupancy_threshold: 0.5 } });
     const heads = new Map([
       [fireHeadKey("warm", NIGHT, "rt1"), head(null, 0)],
       [fireHeadKey("pickup", NIGHT, "rt1"), head("2026-09-09T12:00:00Z")],
+      [fireHeadKey("ladder", NIGHT, "rt1"), head("2026-09-10T12:00:00Z")],
     ]);
-    expect(bookingSpeedAnchors([warm, pickup], [NIGHT], heads).size).toBe(0);
+    expect(bookingSpeedAnchors([warm], [NIGHT], heads).size).toBe(0);
+    expect(bookingSpeedAnchors([warm, ladder], [NIGHT], heads).size).toBe(0);
+    const anchors = bookingSpeedAnchors([warm, pickup, ladder], [NIGHT], heads);
+    expect([...anchors]).toEqual([[bookingSpeedAnchorKey(NIGHT, "rt1", "increase"), "2026-09-09T12:00:00Z"]]);
   });
 });
 

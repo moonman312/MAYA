@@ -463,6 +463,39 @@ describe("booking speed narration", () => {
     ]);
   });
 
+  it("says the days ran from the raise itself when the fire counted from it (counted_since), the rest of that day included", () => {
+    const month = { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 30 } as const;
+    const since = "2026-09-17T12:00:00.000Z";
+    expect(
+      describeConditions(
+        month,
+        { booking_speed: { label: "Surging", recent: 30, expected: 0.4, window_days: 2, counted_from: "2026-09-17", counted_since: since } },
+        null,
+        "increase",
+      ),
+    ).toEqual([
+      "Bookings came in faster than normal in the 2 days since this night was last raised: 30, where a night like this usually gets almost none in those days.",
+    ]);
+    expect(
+      describeConditions(
+        { booking_speed_operator: "at_least", booking_speed_level: "much_faster", booking_speed_window_days: 7 },
+        { booking_speed: { label: "Surging", recent: 12, expected: 1, window_days: 1, counted_from: "2026-09-17", counted_since: since } },
+        null,
+        "increase",
+      ),
+    ).toEqual([
+      "Bookings came in much faster than normal later on the day this night was last raised: 12, against the 1 a night like this usually gets in a day.",
+    ]);
+    expect(
+      describeConditions(
+        { booking_speed_operator: "at_most", booking_speed_level: "stalled", booking_speed_window_days: 7 },
+        { booking_speed: { label: "Stalled", recent: 0, expected: 7, window_days: 3, counted_from: "2026-09-17", counted_since: since } },
+        null,
+        "decrease",
+      ),
+    ).toEqual(["Bookings all but stopped in the 3 days since this night was last cut: none, against the 7 a night like this usually gets in those days."]);
+  });
+
   it("keeps booking speed as its own sentence beside another condition family", () => {
     const out = describeConditions(
       {

@@ -49,20 +49,24 @@ export function bookingSpeedHistorySummary(reservations: FakeRow[], a: Record<st
 }
 
 /**
- * booking_speed_windows(p_hotel_id, p_dates, p_exclude, p_include), as
- * 99_supabase_migration_booking_speed_counts_bookings_v1.sql defines it: one
- * count per booking (booking_key over external_reservation_id, a row with
- * none is its own booking) at its longest known window on the night.
+ * booking_speed_windows(p_hotel_id, p_dates, p_exclude, p_include, p_since),
+ * as 99_supabase_migration_booking_speed_counts_bookings_v1.sql defines it:
+ * one count per booking (booking_key over external_reservation_id, a row
+ * with none is its own booking) at its longest known window on the night.
+ * With p_since, only the bookings first seen after it (the earliest
+ * created_at across the booking's rows; a row without one is taken as
+ * already there, as the builder takes it).
  */
 export function bookingSpeedWindows(reservations: FakeRow[], a: Record<string, unknown>): FakeRow[] {
   const wanted = new Set((a.p_dates as string[]) ?? []);
-  const byDate = new Map<string, Map<string, number | null>>();
+  const since = a.p_since != null ? Date.parse(String(a.p_since)) : null;
+  const byDate = new Map<string, Map<string, { bw: number | null; seen: number }>>();
   let anonymous = 0;
   for (const r of reservations) {
     if (!kept(r, a.p_hotel_id, a.p_exclude, a.p_include)) continue;
     const d = String(r.stay_date);
     if (!wanted.has(d)) continue;
-    const m = byDate.get(d) ?? new Map<string, number | null>();
+    const m = byDate.get(d) ?? new Map<string, { bw: number | null; seen: number }>();
     // An empty id is its own row, as in the SQL (nullif) and the builder.
     const key =
       r.external_reservation_id != null && r.external_reservation_id !== ""
@@ -71,21 +75,30 @@ export function bookingSpeedWindows(reservations: FakeRow[], a: Record<string, u
           ? `id ${String(r.id)}`
           : `row ${anonymous++}`;
     const w = windowOf(r);
-    m.set(key, m.has(key) ? earliestBookingWindow(m.get(key)!, w) : w);
+    const seen = r.created_at != null ? Date.parse(String(r.created_at)) : -Infinity;
+    const prev = m.get(key);
+    m.set(key, prev ? { bw: earliestBookingWindow(prev.bw, w), seen: Math.min(prev.seen, seen) } : { bw: w, seen });
     byDate.set(d, m);
   }
-  return [...byDate.keys()].sort().map((d) => {
+  return [...byDate.keys()].sort().flatMap((d) => {
     const counts = new Map<number | null, number>();
-    for (const w of byDate.get(d)!.values()) counts.set(w, (counts.get(w) ?? 0) + 1);
+    for (const b of byDate.get(d)!.values()) {
+      if (since !== null && !(b.seen > since)) continue;
+      counts.set(b.bw, (counts.get(b.bw) ?? 0) + 1);
+    }
+    // A date none of whose bookings are first seen after p_since has no row.
+    if (counts.size === 0) return [];
     const entries = [...counts.entries()].sort((x, y) =>
       x[0] === null ? 1 : y[0] === null ? -1 : x[0] - y[0],
     );
-    return {
-      stay_date: d,
-      n: entries.reduce((s, e) => s + e[1], 0),
-      bws: entries.map((e) => e[0]),
-      counts: entries.map((e) => e[1]),
-    };
+    return [
+      {
+        stay_date: d,
+        n: entries.reduce((s, e) => s + e[1], 0),
+        bws: entries.map((e) => e[0]),
+        counts: entries.map((e) => e[1]),
+      },
+    ];
   });
 }
 

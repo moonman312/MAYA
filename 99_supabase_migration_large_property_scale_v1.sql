@@ -206,11 +206,14 @@ grant execute on function public.booking_speed_history_summary(uuid, date, date,
 --
 -- SUPERSEDED: 99_supabase_migration_booking_speed_counts_bookings_v1.sql
 -- replaces this function with one that counts bookings instead of rows (a
--- reservation with several rooms counts once). The body below is the old
--- row count, kept only so a fresh database that has not run that file yet
--- gets a working function, and it is created only when no four-argument
--- booking_speed_windows exists: a replay of this file must never put the
--- row count back over the newer body.
+-- reservation with several rooms counts once) and takes a fifth argument,
+-- p_since. The body below is the old row count, kept only so a fresh
+-- database that has not run that file yet gets a working function, and it
+-- is created only when no booking_speed_windows with p_include exists, four
+-- arguments or five: a replay of this file must never put the row count
+-- back over the newer body, nor a second overload beside it. Its grants are
+-- inside the guard for the same reason: once the newer file has dropped
+-- this signature, a grant on it would fail the replay.
 drop function if exists public.booking_speed_windows(uuid, date[], uuid[]);
 
 do $guard$
@@ -221,7 +224,7 @@ begin
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public'
       and p.proname = 'booking_speed_windows'
-      and pg_get_function_identity_arguments(p.oid) = 'p_hotel_id uuid, p_dates date[], p_exclude uuid[], p_include uuid[]'
+      and pg_get_function_identity_arguments(p.oid) like 'p_hotel_id uuid, p_dates date[], p_exclude uuid[], p_include uuid[]%'
   ) then
     return;
   end if;
@@ -276,12 +279,12 @@ begin
     order by g.stay_date;
   end;
   $$;
+
+  revoke all on function public.booking_speed_windows(uuid, date[], uuid[], uuid[]) from public, anon;
+  grant execute on function public.booking_speed_windows(uuid, date[], uuid[], uuid[])
+    to authenticated, service_role;
 end
 $guard$;
-
-revoke all on function public.booking_speed_windows(uuid, date[], uuid[], uuid[]) from public, anon;
-grant execute on function public.booking_speed_windows(uuid, date[], uuid[], uuid[])
-  to authenticated, service_role;
 
 -- The earliest stay date on or after p_from with a row of one of p_include,
 -- or no row when there is none. A rule measuring only some room types treats

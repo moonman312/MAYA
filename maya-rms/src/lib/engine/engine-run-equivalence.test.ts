@@ -64,6 +64,22 @@
  * ladder row and run log is unchanged. With one Booking Speed rule per
  * direction the shared anchor is the rule's own, so nothing else moves.
  *
+ * Every pickup_event hash, and the evaluation_audit hashes of runs 5 to 7,
+ * were rewritten a seventh time when a Booking Speed rule started counting
+ * from the day of the night's last fire its way, that day split at the fire
+ * (only the bookings first seen after it), instead of from the day after.
+ * Read against a dump of the previous engine first: every fire row carries
+ * the new window_since (null on every fire here but two, since nothing in
+ * this run's churn reaches a night later on the day it was raised), the
+ * changed audit rows differ in their booking_speed_observations only
+ * (countedFrom is now the fire's day, countedSince the fire, windowDays one
+ * more, the expectation read over that day too), and the Suite rule's
+ * second raises on 2026-06-30 and 2026-07-01 in run 7 freeze a window one
+ * day longer (window_from 2026-06-10 and 2026-06-14, window_since their
+ * first raise) with the same bookings (7 and 6) against 8 and 7.67 instead
+ * of 7.67 and 7.33 expected. No price, count, ladder row, snapshot or run
+ * log moved, and runs 0 to 4 differ by the window_since key alone.
+ *
  * The golden file was written by this same test at commit 4ef5d65 with
  * MAYA_WRITE_ENGINE_GOLDEN=1. Its ladder_rule_state hashes were rewritten
  * once, leaving out last_evaluated_at, from an engine that still matched the

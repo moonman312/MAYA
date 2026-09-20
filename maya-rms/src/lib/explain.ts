@@ -139,15 +139,23 @@ export function buildExplainView(
       ? `${recent} ${listWords(measured)} ${recent === 1 ? "booking" : "bookings"}`
       : `${bookingWord(recent)} for the room types this rule watches`;
   // Set when the night had already been raised (for a rule that raises) or
-  // cut (for one that cuts), by any rule, and this rule counted only the
-  // days after that (engine/pickup.ts, bookingSpeedCountFrom). countedAfter
-  // says which; a snapshot without it reads as a change by a rule.
+  // cut (for one that cuts), by any rule, and this rule counted only from
+  // that (engine/pickup.ts, bookingSpeedCountFrom). countedAfter says which;
+  // a snapshot without it reads as a change by a rule. With countedSince the
+  // count started at the change itself, on its own day (only the bookings
+  // that came after it that day); an older snapshot started the day after.
   const countedFrom = str(snap.countedFrom);
-  const changedOn = countedFrom ? dayBefore(countedFrom) : null;
+  const countedSince = str(snap.countedSince);
+  const changedOn = countedFrom ? (countedSince ? countedFrom : dayBefore(countedFrom)) : null;
   const countedAfter = str(snap.countedAfter);
   const lastChange = countedAfter === "cut" ? "cut" : countedAfter === "raise" ? "raised" : "changed by a rule";
+  const stretch = countedSince
+    ? windowDays === 1
+      ? "Later that day,"
+      : `In the ${windowDays} days from that ${countedAfter === "cut" ? "cut" : countedAfter === "raise" ? "raise" : "change"} on,`
+    : `In the ${windowPhrase} after that,`;
   const observed = changedOn
-    ? `This night was last ${lastChange} on ${humanDate(changedOn)}. In the ${windowPhrase} after that, ${arrived} arrived for it, with ${dayWord(daysOut)} still to go before arrival.`
+    ? `This night was last ${lastChange} on ${humanDate(changedOn)}. ${stretch} ${arrived} arrived for it, with ${dayWord(daysOut)} still to go before arrival.`
     : `In the last ${windowPhrase}, ${arrived} arrived for this night, with ${dayWord(daysOut)} still to go before arrival.`;
 
   // The engine persists insufficient_data snapshots with a numeric
@@ -177,12 +185,17 @@ export function buildExplainView(
   const selAssumptions = rec(selection?.assumptions);
   const assumptions: string[] = [];
   if (changedOn) {
+    // With countedSince the rest of the change's own day counted too; the
+    // older snapshots started the day after, and say so.
+    const rest = countedSince ? "the rest of that day included, " : "";
     assumptions.push(
       countedAfter === "cut"
-        ? `Once a night has been cut, rules that cut count only the bookings made after that cut, whichever rule made it, and read the nights it is compared with over the same days.`
+        ? `Once a night has been cut, rules that cut count only the bookings made after that cut, whichever rule made it, ${rest}and read the nights it is compared with over the same days.`
         : countedAfter === "raise"
-          ? `Once a night has been raised, rules that raise count only the bookings made after that raise, whichever rule made it, and read the nights it is compared with over the same days.`
-          : `A rule that has already changed this night counts only the bookings made after that day, and reads the nights it is compared with over the same days.`,
+          ? `Once a night has been raised, rules that raise count only the bookings made after that raise, whichever rule made it, ${rest}and read the nights it is compared with over the same days.`
+          : countedSince
+            ? `A rule that has already changed this night counts only the bookings made after that change, the rest of that day included, and reads the nights it is compared with over the same days.`
+            : `A rule that has already changed this night counts only the bookings made after that day, and reads the nights it is compared with over the same days.`,
     );
   }
   if (methodKey === "comparable" && selAssumptions) {

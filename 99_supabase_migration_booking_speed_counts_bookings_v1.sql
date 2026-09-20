@@ -9,8 +9,9 @@
 -- booking speed counts BOOKINGS. A reservation counts once for pace on each
 -- of its nights, however many rooms it holds. Occupancy keeps counting rooms,
 -- and so does the season model (how full nights got against room capacity).
--- Nothing else: no new columns, no backfill, no group or block codes, no
--- owner settings.
+-- No backfill, no group or block codes, no owner settings; one nullable
+-- column on pickup_event (4 below), which nothing fills for the fires that
+-- exist.
 --
 -- 1. booking_key(text): the booking a reservation row belongs to, from its
 --    external_reservation_id alone. The one copy of the rule in SQL; the one
@@ -57,17 +58,35 @@
 --    so a replay after the switch leaves the raises made since, whose
 --    numbers are in bookings, exactly as they are.
 --
--- 3. booking_speed_windows(hotel, dates, exclude, include): the same
---    signature and result shape as in
---    99_supabase_migration_large_property_scale_v1.sql, but each count is
---    now distinct bookings per stay date and booking window. A booking's
---    window on a night is its earliest booking date across its rooms that
---    night (the longest known lead time), so rooms added to a booking later
---    never read as new bookings. Grants, security definer and search_path
---    are the originals. The definition in the large property file is now
---    guarded so a replay of that file cannot put the room count back.
+-- 3. booking_speed_windows(hotel, dates, exclude, include, since): the
+--    result shape of 99_supabase_migration_large_property_scale_v1.sql, but
+--    each count is now distinct bookings per stay date and booking window.
+--    A booking's window on a night is its earliest booking date across its
+--    rooms that night (the longest known lead time), so rooms added to a
+--    booking later never read as new bookings. The fifth argument, p_since,
+--    is new: given, only the bookings first seen after that instant count
+--    (the earliest created_at across a booking's rows on the night). The
+--    engine asks for it once per fire it counts from: a Booking Speed rule
+--    counts from the day of the night's last fire its way, and on that day
+--    only the bookings that reached MAYA after the fire, so a burst later
+--    on the day of a raise is not lost with the raise (engine/pickup.ts
+--    bookingSpeedCountFrom, observations/expected-bookings.ts split). The
+--    four-argument function is dropped so PostgREST has one to choose;
+--    calls that name no p_since get the default. Grants, security definer
+--    and search_path are the originals. The definition in the large
+--    property file is guarded so a replay of that file cannot put the row
+--    count back nor a second overload beside this one.
 --
--- 4. booking_speed_history_summary and booking_speed_first_stay_date are
+-- 4. pickup_event.window_since (timestamptz, null): a Booking Speed raise
+--    that counted its first day (window_from) from an earlier fire records
+--    that fire here, and its frozen window is read back the same way when
+--    it is tested for cancellations (bookingsInFrozenWindow): that day
+--    counts only the bookings first seen after the fire, as the raise
+--    counted it. Null when the day was counted whole, which is every fire
+--    from before this file. Nothing is backfilled: those fires counted from
+--    the day after their anchor, and their window_from says so.
+--
+-- 5. booking_speed_history_summary and booking_speed_first_stay_date are
 --    unchanged. The summary only feeds the season model: n is how many rooms
 --    a past night sold, and rank_windows is the lead time at which the night
 --    reached each fraction of its ROOM capacity (milestoneRanks in
@@ -94,6 +113,11 @@
 -- a lookup by key, and the index would be maintained on every sync upsert
 -- for nothing.
 --
+-- The engine reads p_since and window_since as soon as it is deployed, so
+-- this file must be on the database first: without window_since every fire
+-- read fails and the run with it; without p_since the fire's day is read
+-- row by row, which works and is slower.
+--
 -- Run AFTER 99_supabase_migration_large_property_scale_v1.sql. Idempotent,
 -- one transaction, safe to replay. Nothing here needs folding into
 -- 02_supabase_schema.sql for existing databases.
@@ -103,18 +127,25 @@
 -- are blocked), then push the app. Every scheduled sync runs the engine,
 -- which counts bookings on its own row fallback and reads the same unit
 -- from this function; the app carries the "?" panels and the drill-down
--- that now say a booking with several rooms counts once. Between the
--- migration and the deploy, the old engine reads the new counts (one per
--- booking) on every night and comparable, so its pace calls, the fires it
--- makes and the windows it records are in bookings from the first run
--- after this file; the raises it made before are no longer tested on their
--- window (2 above), and nothing else changes. Between the deploy and the
--- migration the new engine would read room counts from the old function,
--- so run the migration first. What an owner may notice: a night raised
--- before this file and holding fewer bookings than rooms in its window is
--- no longer taken back off for cancellations inside that window, and the
--- three-raises alert on a night whose newest fire predates this file shows
--- that fire's window numbers in rooms until a newer fire replaces it.
+-- that now say a booking with several rooms counts once, and that a rule
+-- counts from a night's last raise or cut the rest of that day included.
+-- Between the migration and the deploy, the old engine reads the new
+-- counts (one per booking) on every night and comparable, so its pace
+-- calls, the fires it makes and the windows it records are in bookings
+-- from the first run after this file; the raises it made before are no
+-- longer tested on their window (2 above); it names no p_since and writes
+-- no window_since, so it still counts from the day after a fire; and
+-- nothing else changes. Between the deploy and the migration the new
+-- engine would read room counts from the old function and fail every run
+-- reading fires (no window_since column), so run the migration first. What
+-- an owner may notice: a night raised before this file and holding fewer
+-- bookings than rooms in its window is no longer taken back off for
+-- cancellations inside that window; the three-raises alert on a night
+-- whose newest fire predates this file shows that fire's window numbers in
+-- rooms until a newer fire replaces it; and once the new engine runs, a
+-- rule may raise or cut again on bookings that reached MAYA later on the
+-- day of the night's last raise or cut, which every engine before it
+-- passed over for good.
 --
 -- Checking by hand (the SQL editor carries no JWT, so say you are the
 -- service role for one transaction):
@@ -176,8 +207,10 @@ comment on function public.booking_key(text) is
 -- frozen-window cancellation test off on those and keep the rest of the
 -- row as history (window_from, window_to and both numbers stay). The
 -- stacking checks hold either way: 'net_units' and 'none' need no window,
--- and both are only ever set on a raise. Once the function counts bookings
--- this block does nothing, so a replay never touches raises made since.
+-- and both are only ever set on a raise. Once a booking_speed_windows that
+-- counts bookings is on the database, under either of this file's
+-- signatures (an earlier copy of it had no p_since), this block does
+-- nothing, so a replay never touches raises made since.
 do $rooms$
 begin
   if exists (
@@ -186,7 +219,6 @@ begin
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public'
       and p.proname = 'booking_speed_windows'
-      and pg_get_function_identity_arguments(p.oid) = 'p_hotel_id uuid, p_dates date[], p_exclude uuid[], p_include uuid[]'
       and p.prosrc like '%booking_key%'
   ) then
     return;
@@ -201,7 +233,17 @@ end
 $rooms$;
 
 -- ----------------------------------------------------------------------------
--- 3. Grouped windows, one count per booking
+-- 3. The fire a raise's first day was split at
+-- ----------------------------------------------------------------------------
+
+alter table public.pickup_event
+  add column if not exists window_since timestamptz;
+
+comment on column public.pickup_event.window_since is
+  'For a Booking Speed raise that counted window_from''s day from an earlier fire on the cell: that fire''s applied_at. Only the bookings first seen after it on that day were counted, and the frozen window is read back the same way. Null when the day was counted whole.';
+
+-- ----------------------------------------------------------------------------
+-- 4. Grouped windows, one count per booking
 -- ----------------------------------------------------------------------------
 
 -- Grouped windows for exactly the stay dates asked for: one row per date that
@@ -210,11 +252,23 @@ $rooms$;
 -- given, keeps only rows of those room types instead. A row's window is its
 -- own lead time (bookingWindowOf); a booking's is the longest known one
 -- across its kept rooms that night, and unknown only when none is known.
+-- p_since, when given, keeps only the bookings first seen after that
+-- instant: a booking's first sight is the earliest created_at across its
+-- kept rows on the night, so a room added later to a booking that was
+-- already there never makes it a new one. A date none of whose bookings
+-- are first seen after p_since has no row.
+--
+-- The four-argument function this file used to define is dropped first:
+-- left in place beside this one, PostgREST could not choose between them
+-- for a call that names no p_since, and the engine's calls would fail.
+drop function if exists public.booking_speed_windows(uuid, date[], uuid[], uuid[]);
+
 create or replace function public.booking_speed_windows(
   p_hotel_id uuid,
   p_dates date[],
   p_exclude uuid[] default '{}',
-  p_include uuid[] default null
+  p_include uuid[] default null,
+  p_since timestamptz default null
 )
 returns table(stay_date date, n int, bws int[], counts int[])
 language plpgsql
@@ -241,7 +295,8 @@ begin
       case
         when r.booking_date is not null then r.stay_date - r.booking_date
         else r.booking_window_days
-      end as bw
+      end as bw,
+      r.created_at
     from public.reservations r
     where r.hotel_id = p_hotel_id
       and r.stay_date = any (coalesce(p_dates, '{}'::date[]))
@@ -255,14 +310,16 @@ begin
   ),
   per_booking as (
     -- max ignores nulls: the longest known lead time, null only when no room
-    -- of the booking has one.
-    select k.stay_date, k.booking, max(k.bw) as bw
+    -- of the booking has one. min(created_at): when the booking was first
+    -- seen on the night.
+    select k.stay_date, k.booking, max(k.bw) as bw, min(k.created_at) as first_seen
     from kept k
     group by 1, 2
   ),
   grouped as (
     select b.stay_date, b.bw, count(*)::int as cnt
     from per_booking b
+    where p_since is null or b.first_seen > p_since
     group by 1, 2
   )
   select
@@ -276,8 +333,8 @@ begin
 end;
 $$;
 
-revoke all on function public.booking_speed_windows(uuid, date[], uuid[], uuid[]) from public, anon;
-grant execute on function public.booking_speed_windows(uuid, date[], uuid[], uuid[])
+revoke all on function public.booking_speed_windows(uuid, date[], uuid[], uuid[], timestamptz) from public, anon;
+grant execute on function public.booking_speed_windows(uuid, date[], uuid[], uuid[], timestamptz)
   to authenticated, service_role;
 
 commit;

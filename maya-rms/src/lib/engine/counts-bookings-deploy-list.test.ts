@@ -43,7 +43,9 @@ function importClosure(entry: string): Set<string> {
 
 describe("the booking speed counts bookings migration's deploy list", () => {
   it("names every function whose bundle carries code this build changed", () => {
-    const header = readFileSync(MIGRATION, "utf8").slice(0, 8000);
+    // The header is everything before the transaction opens.
+    const source = readFileSync(MIGRATION, "utf8");
+    const header = source.slice(0, source.indexOf("\nbegin;"));
     const names = readdirSync(FUNCTIONS, { withFileTypes: true })
       .filter((d) => d.isDirectory() && d.name !== "_shared")
       .map((d) => d.name);

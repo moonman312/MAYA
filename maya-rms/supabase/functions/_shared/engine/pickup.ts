@@ -24,24 +24,28 @@
  * window never reaches back past the rule's last fire on the cell, or past a
  * manual price set before the rule's wait began. A Booking Speed condition
  * reads the observation over its own window and needs no old snapshot, but
- * its wait can be shorter than its window, so it counts only bookings made
- * from the hotel day after the cell's last fire in its own direction
- * (bookingSpeedCountFrom): a raise rule counts from the last raise on the
- * cell by any event rule, a cut rule from the last cut, and the nights it
- * is compared with are read over the same shorter stretch of their booking
- * curves. So one burst of bookings raises a cell once, whichever rule
- * caught it, a pickup count rule included (its raise acted on the same
- * bookings), and a stronger tier steps in on top only when the bookings
- * since that raise read faster on their own (Jake, 2026-09-18: tiers climb
- * as pace climbs, not all at once). The fire that cuts the window is the
- * newest one on the cell in that direction that counts toward the owner
- * alert (open, or taken off for cancellations), from the current version of
- * any event rule, paused ones included, since their fires still apply
- * (bookingSpeedAnchors). A ladder rule's adjustment is not a fire and never
- * moves the count: it holds while its condition holds and acts on no
- * bookings. After a manual price, a rule judges its full normal window,
- * bookings from before the price included: the fires the price took off
- * never cut it, and neither does one made before it.
+ * its wait can be shorter than its window, so it counts only bookings that
+ * reached MAYA after the cell's last fire in its own direction
+ * (bookingSpeedCountFrom): from the hotel day of that fire on, and on that
+ * day only the bookings first seen after the fire (reservations.created_at
+ * against its applied_at, the split in observeBookingSpeed), so a burst
+ * later on the day of a raise is not lost with the raise. A raise rule
+ * counts from the last raise on the cell by any event rule, a cut rule from
+ * the last cut, and the nights it is compared with are read over the same
+ * days of their booking curves, the fire's day whole. So one burst of
+ * bookings raises a cell once, whichever rule caught it, a pickup count
+ * rule included (its raise acted on the same bookings), and a stronger tier
+ * steps in on top only when the bookings since that raise read faster on
+ * their own (Jake, 2026-09-18: tiers climb as pace climbs, not all at
+ * once). The fire that cuts the window is the newest one on the cell in
+ * that direction that counts toward the owner alert (open, or taken off for
+ * cancellations), from the current version of any event rule, paused ones
+ * included, since their fires still apply (bookingSpeedAnchors). A ladder
+ * rule's adjustment is not a fire and never moves the count: it holds while
+ * its condition holds and acts on no bookings. After a manual price, a rule
+ * judges its full normal window, bookings from before the price included:
+ * the fires the price took off never cut it, and neither does one made
+ * before it.
  *
  * WHICH RULE FIRES. At most one fire per cell per run. The competition
  * (selectPickupWinner) includes rules waiting on the cell whose conditions
@@ -241,13 +245,24 @@ export function bookingSpeedAnchors(
   return out;
 }
 
+/** Where a Booking Speed rule starts counting on a cell: the fire's hotel day, and the fire. */
+export type BookingSpeedCountFrom = {
+  /** The first booking date (hotel date) counted: the day of the fire. */
+  from: string;
+  /** The fire's applied_at: on `from`, only bookings first seen after it count. */
+  since: string;
+};
+
 /**
- * The first booking date (hotel date) a Booking Speed rule may count on a
- * cell, or null to count its whole window. `lastFireAt` is the cell's newest
- * counted fire in the rule's direction (bookingSpeedAnchors), by this rule
- * or another: the rule counts only bookings made from the next hotel day
- * on. Bookings carry a date and not a time, so the fire's own day belongs to
- * that fire: its frozen window ends there and the next one starts after it.
+ * Where a Booking Speed rule starts counting on a cell, or null to count
+ * its whole window. `lastFireAt` is the cell's newest counted fire in the
+ * rule's direction (bookingSpeedAnchors), by this rule or another: the rule
+ * counts from that fire's hotel day, and on that day only the bookings
+ * first seen after the fire (observeBookingSpeed `split`, keyed by `since`),
+ * so what the fire could have counted is left out and what came after it
+ * is not. A fire made on such a count records the split (window_since) and
+ * its frozen window is read back the same way; its window still ends on its
+ * own day, read whole (bookingsInFrozenWindow).
  *
  * Fires taken off by a manual price or an edit are not counted fires, and a
  * counted fire made before the open manual price on the cell is ignored too:
@@ -259,11 +274,11 @@ export function bookingSpeedCountFrom(
   lastFireAt: string | null | undefined,
   manualPrice: { set_at: string } | undefined,
   hotelTimeZone: string,
-): string | null {
+): BookingSpeedCountFrom | null {
   if (!rule.condition.booking_speed_operator) return null;
   if (!lastFireAt) return null;
   if (manualPrice && Date.parse(lastFireAt) < Date.parse(manualPrice.set_at)) return null;
-  return addCalendarDays(evalIsoToHotelDateString(lastFireAt, hotelTimeZone), 1);
+  return { from: evalIsoToHotelDateString(lastFireAt, hotelTimeZone), since: lastFireAt };
 }
 
 /** Still waiting: less than `waitDays` whole days since the anchor. */
@@ -336,6 +351,7 @@ export function candidateFor(input: {
     fire_seq: (input.head?.maxFireSeq ?? 0) + 1,
     cancel_check: cancelCheckFor(rule, m),
     window_from: bs ? addCalendarDays(input.localDate, -(bs.window_days - 1)) : null,
+    window_since: bs?.counted_since ?? null,
     window_to: bs ? input.localDate : null,
     window_bookings_at_fire: bs ? bs.recent : null,
     window_expected_at_fire: bs ? Math.round(bs.expected * 100) / 100 : null,
@@ -517,6 +533,7 @@ export async function insertPickupEvent(
       fire_seq: candidate.fire_seq,
       cancel_check: candidate.cancel_check,
       window_from: candidate.window_from,
+      window_since: candidate.window_since,
       window_to: candidate.window_to,
       window_bookings_at_fire: candidate.window_bookings_at_fire,
       window_expected_at_fire: candidate.window_expected_at_fire,
@@ -637,6 +654,8 @@ export type OpenPickupFire = {
   cancel_check: PickupCancelCheck;
   signal_booked_units_start: number;
   window_from: string | null;
+  /** The fire window_from's day was split at, or null: see PickupCandidate.window_since. */
+  window_since: string | null;
   window_to: string | null;
   window_expected_at_fire: number | null;
   signal_set_key: string;
@@ -666,7 +685,7 @@ export async function loadOpenPickupFires(
         .select(
           "id, rule_id, rule_version, stay_date, affected_room_type_id, applied_at, fire_seq, " +
             "action_kind, action_direction, action_value, cancel_check, signal_booked_units_start, " +
-            "window_from, window_to, window_expected_at_fire, signal_set_key",
+            "window_from, window_since, window_to, window_expected_at_fire, signal_set_key",
         )
         .eq("hotel_id", hotelId)
         .in("affected_room_type_id", roomTypeIds)
@@ -695,6 +714,7 @@ export async function loadOpenPickupFires(
     cancel_check: (r.cancel_check ?? "none") as PickupCancelCheck,
     signal_booked_units_start: Number(r.signal_booked_units_start ?? 0),
     window_from: r.window_from != null ? String(r.window_from).slice(0, 10) : null,
+    window_since: r.window_since != null ? String(r.window_since) : null,
     window_to: r.window_to != null ? String(r.window_to).slice(0, 10) : null,
     window_expected_at_fire: r.window_expected_at_fire != null ? Number(r.window_expected_at_fire) : null,
     signal_set_key: String(r.signal_set_key ?? ""),
@@ -728,8 +748,9 @@ export type RetiredPickupFire = { fire: OpenPickupFire; reason: PickupRetireReas
  * this run's snapshot, are back to where the fire's window opened. The bar is
  * deliberately high: a cancellation or two out of a real surge is noise.
  * window_bookings: bookings still on the books from the fire's frozen window
- * are back to what a night like it usually gets in that window. either: any
- * test that can be made says so.
+ * (its first day split at the fire it counted from, when it was) are back to
+ * what a night like it usually gets in that window. either: any test that
+ * can be made says so.
  *
  * Never for a cut, a fire with no test, a rule that measures other room
  * types than it did at the fire, or a night this run has no numbers for.
@@ -764,6 +785,7 @@ export function cancellationCrossed(
         fire.window_from,
         fire.window_to,
         rule.signal_room_type_ids,
+        fire.window_since,
       );
       if (stillBooked !== null && stillBooked <= fire.window_expected_at_fire) return true;
     }

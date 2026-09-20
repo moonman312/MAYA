@@ -247,6 +247,31 @@ describe("an observation the night's last raise or cut cut short", () => {
     );
   });
 
+  it("says the count started at the raise itself when the snapshot counted from it, the rest of that day included", () => {
+    // A newer snapshot: countedFrom is the raise's own day and countedSince
+    // the raise. The rest of the 25th counted, then the 26th and 27th.
+    const since = { ...cut, countedFrom: "2026-07-25", countedSince: "2026-07-25T12:00:00.000Z" };
+    const view = buildExplainView(since)!;
+    expect(view.observed).toBe(
+      "This night was last raised on Sat, Jul 25 2026. In the 3 days from that raise on, 9 bookings arrived for it, with 17 days still to go before arrival.",
+    );
+    expect(view.assumptions[0]).toBe(
+      "Once a night has been raised, rules that raise count only the bookings made after that raise, whichever rule made it, the rest of that day included, and read the nights it is compared with over the same days.",
+    );
+    expect(buildExplainView({ ...since, windowDays: 1, countedFrom: "2026-07-28", countedSince: "2026-07-28T09:00:00.000Z" })!.observed).toContain(
+      "This night was last raised on Tue, Jul 28 2026. Later that day, 9 bookings arrived for it,",
+    );
+    const asCut = buildExplainView({ ...since, countedAfter: "cut" })!;
+    expect(asCut.observed).toContain("This night was last cut on Sat, Jul 25 2026. In the 3 days from that cut on,");
+    expect(asCut.assumptions[0]).toContain("the bookings made after that cut, whichever rule made it, the rest of that day included,");
+    const noKind = buildExplainView({ ...since, countedAfter: undefined })!;
+    expect(noKind.observed).toContain("This night was last changed by a rule on Sat, Jul 25 2026. In the 3 days from that change on,");
+    expect(noKind.assumptions[0]).toBe(
+      "A rule that has already changed this night counts only the bookings made after that change, the rest of that day included, and reads the nights it is compared with over the same days.",
+    );
+    for (const line of [view.observed, view.assumptions[0], asCut.observed, noKind.observed]) expect(line).not.toMatch(/[<>=≤≥—]/);
+  });
+
   it("reads a whole-window snapshot as it always did", () => {
     const view = buildExplainView(comparableSnapshot)!;
     expect(view.observed.startsWith("In the last 7 days,")).toBe(true);

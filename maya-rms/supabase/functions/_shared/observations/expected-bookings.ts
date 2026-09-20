@@ -28,7 +28,11 @@
  * made from that date on count, and the window shrinks to the days from it
  * to the as-of date. The comparables (and momentum) are then read over that
  * same shorter stretch of their booking curves, so the expectation stays a
- * fair one: a rule never re-counts the bookings it already acted on.
+ * fair one: a rule never re-counts the bookings it already acted on. With
+ * `split`, countFrom is the day of the fire itself and that day counts only
+ * the bookings first seen after the fire (the rest of it, in effect), so
+ * the bookings the fire could not have counted are not lost with it; the
+ * comparables still read that day whole, which is the safe side.
  *
  * Counts reflect currently known reservations from the slim import rows:
  * a canceled booking disappears rather than counting negative. Pure
@@ -94,13 +98,21 @@ export interface BookingSpeedObservation {
    */
   measuredRoomTypeIds?: string[];
   /**
-   * Set only when `countFrom` cut the window short: the first booking date
-   * counted. windowDays is then the shorter stretch actually measured, on
-   * the target and on every comparable alike.
+   * Set only when `countFrom` cut the window short, or split its first day:
+   * the first booking date counted. windowDays is then the stretch actually
+   * measured, on the target and on every comparable alike.
    */
   countedFrom?: string;
   /** The window the rule asked for, set together with countedFrom. */
   fullWindowDays?: number;
+  /**
+   * With countedFrom, when `split` applied: the fire countedFrom is the day
+   * of. On that day only the target's bookings first seen after this
+   * instant were counted; the comparables read the day whole. A snapshot
+   * without it counted countedFrom's day whole (the engine then passed the
+   * day after the fire).
+   */
+  countedSince?: string;
   /**
    * With countedFrom: whether the fire the count starts after was a raise or
    * a cut. A raise rule counts from the night's last raise and a cut rule
@@ -131,6 +143,17 @@ export interface ObserveBookingSpeedOptions {
    * window's first day: the whole window, exactly as without it.
    */
   countFrom?: string | null;
+  /**
+   * With countFrom, the fire it is the day of: `since` is when the fire was
+   * applied and `index` holds the target's bookings first seen after it,
+   * grouped like `index` (StayDateWindowsBuilder with since). When the
+   * window starts on countFrom (countFromInWindow), that day counts only
+   * those on the target and every later day counts whole from `index`; the
+   * comparables (and momentum) read countFrom's day whole, like the rest.
+   * When the window starts after countFrom the split is not reached and
+   * changes nothing. Without it countFrom's whole day counts.
+   */
+  split?: { since: string; index: BookingWindowIndex } | null;
   /** Same exclusion predicate passed to selectComparableDates — reused for momentum's neighbor search. */
   isExcluded?: (date: string) => boolean;
 }
@@ -144,6 +167,18 @@ export interface ObserveBookingSpeedOptions {
 export function windowDaysFrom(windowDays: number, asOf: string, countFrom?: string | null): number {
   if (!countFrom) return windowDays;
   return Math.max(0, Math.min(windowDays, daysBetween(countFrom, asOf) + 1));
+}
+
+/**
+ * True when `countFrom` is one of the days of a trailing `windowDays`
+ * window ending on `asOf`, so the window's first day is countFrom's day:
+ * the day a split (see ObserveBookingSpeedOptions.split) applies to. False
+ * for null, for a date before the window, and for one after asOf.
+ */
+export function countFromInWindow(windowDays: number, asOf: string, countFrom?: string | null): boolean {
+  if (!countFrom) return false;
+  const days = daysBetween(countFrom, asOf) + 1;
+  return days >= 1 && days <= windowDays;
 }
 
 /**
@@ -164,11 +199,21 @@ export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSp
   if (windowDays < 1) {
     throw new Error("booking speed countFrom must leave at least one day to count");
   }
-  const cut = windowDays < fullWindowDays ? { countedFrom: opts.countFrom!, fullWindowDays } : {};
+  // The split is reached only when the window's first day is countFrom's.
+  const split = opts.split && countFromInWindow(fullWindowDays, opts.asOf, opts.countFrom) ? opts.split : null;
+  const cut =
+    windowDays < fullWindowDays || split
+      ? { countedFrom: opts.countFrom!, fullWindowDays, ...(split ? { countedSince: split.since } : {}) }
+      : {};
 
   const index = opts.index ?? indexBookingRows(opts.rows ?? []);
 
-  const recentBookings = pickupInWindowIndexed(index, opts.target, daysOut, windowDays);
+  // With a split, the first day (the fire's) counts only the bookings first
+  // seen after the fire, from the split's index; the later days count whole.
+  const recentBookings = split
+    ? pickupInWindowIndexed(index, opts.target, daysOut, windowDays - 1) +
+      pickupInWindowIndexed(split.index, opts.target, daysOut + windowDays - 1, 1)
+    : pickupInWindowIndexed(index, opts.target, daysOut, windowDays);
 
   const perComparable: ComparablePickup[] = opts.selection.comparables.map((c) => ({
     date: c.date,

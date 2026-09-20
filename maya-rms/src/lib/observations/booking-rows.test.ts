@@ -214,6 +214,54 @@ describe("StayDateWindowsBuilder", () => {
   });
 });
 
+describe("StayDateWindowsBuilder with since: the bookings first seen after a fire", () => {
+  const night = "2026-10-12";
+  const noon = "2026-09-02T12:00:00.000Z";
+  const row = (ext: string | null, bookedOn: string, createdAt: string | null): SlimReservationRow => ({
+    stay_date: night,
+    booking_date: bookedOn,
+    external_reservation_id: ext,
+    created_at: createdAt,
+  });
+  const rows: SlimReservationRow[] = [
+    row("101", "2026-09-02", "2026-09-02T09:00:00.000Z"),
+    row("102", "2026-09-02", "2026-09-02T12:00:00.000Z"),
+    row("103", "2026-09-02", "2026-09-02T12:00:01.000Z"),
+    row("104", "2026-09-03", "2026-09-03T08:00:00.000Z"),
+    // A second room added after the fire to a booking that was there before it.
+    row("6364686337417-1", "2026-09-02", "2026-09-02T10:00:00.000Z"),
+    row("6364686337417-2", "2026-09-02", "2026-09-02T15:00:00.000Z"),
+    // Both rooms after the fire, the second at a later booking date: one
+    // booking at its earliest booking date.
+    row("6364686337418-1", "2026-09-02", "2026-09-02T14:00:00.000Z"),
+    row("6364686337418-2", "2026-09-03", "2026-09-03T09:00:00.000Z"),
+    // No created_at: taken as already there.
+    row("105", "2026-09-02", null),
+  ];
+
+  it("counts a booking only when its first row came after the instant, at its earliest booking date, and every booking without since", () => {
+    expect(indexBookingRows(rows).get(night)).toEqual({ n: 7, windows: [{ bw: 40, n: 6 }, { bw: 39, n: 1 }] });
+    const since = indexBookingRows(rows, noon).get(night)!;
+    expect(since.n).toBe(3);
+    expect(new Map(since.windows.map((w) => [w.bw, w.n]))).toEqual(new Map([[40, 2], [39, 1]]));
+    // At the fire's own instant a row is not new; a moment later it is.
+    expect(indexBookingRows(rows, "2026-09-02T12:00:01.000Z").get(night)!.n).toBe(2);
+    expect(indexBookingRows(rows, "2026-09-02T11:59:59.000Z").get(night)!.n).toBe(4);
+  });
+
+  it("leaves out a date none of whose bookings are new, as the SQL gives it no row", () => {
+    expect(indexBookingRows(rows, "2026-09-04T00:00:00.000Z").has(night)).toBe(false);
+    expect(indexBookingRows(rows, "2026-09-04T00:00:00.000Z").size).toBe(0);
+  });
+
+  it("reads the same whether nights are sealed as they pass or all at the end", () => {
+    const streaming = new StayDateWindowsBuilder("bookings", noon);
+    for (const r of rows) streaming.add(r);
+    streaming.seal(night);
+    expect(streaming.build()).toEqual(indexBookingRows(rows, noon));
+  });
+});
+
 describe("a past wedding in the comparables", () => {
   const AS_OF = "2026-05-17";
   const TARGET = "2026-06-06";

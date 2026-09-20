@@ -32,6 +32,13 @@ export interface SlimReservationRow {
    * booking of its own.
    */
   external_reservation_id?: string | null;
+  /**
+   * When the row first reached MAYA (reservations.created_at: the syncs
+   * never rewrite it, and a cancelled and rebooked night is a new row). Read
+   * only by a builder given `since`. Absent or null: the row is taken as
+   * already on the books.
+   */
+  created_at?: string | null;
 }
 
 export function bookingWindowOf(row: SlimReservationRow): number | null {
@@ -133,6 +140,17 @@ export type BookingWindowIndex = ReadonlyMap<string, StayDateWindows>;
  * are one booking at their earliest booking date) or one per row (unit
  * "rooms", the season model's fullness input).
  *
+ * With `since` (an instant, ISO), only the bookings first seen after it are
+ * counted: a booking's first sight is the earliest created_at across its
+ * rows on the night, so a room added after `since` to a booking that was
+ * already there never makes it a new one, and a booking with a row that has
+ * no created_at is taken as already there. This is how the day a rule
+ * fired on is split (observeBookingSpeed `split`): the bookings a fire
+ * could not have counted are exactly the ones first seen after it. The
+ * booking's window stays its earliest booking date. booking_speed_windows
+ * does the same with p_since
+ * (99_supabase_migration_booking_speed_counts_bookings_v1.sql).
+ *
  * The rows of a stay date are held until the date is sealed, so a reader
  * that gets rows in stay-date order can seal each date as the next one
  * starts and hold one night at a time (booking-speed-provider.ts
@@ -141,10 +159,18 @@ export type BookingWindowIndex = ReadonlyMap<string, StayDateWindows>;
  */
 export class StayDateWindowsBuilder {
   private readonly open = new Map<string, Map<string, number | null>>();
+  /** First sight per booking, only kept when `since` is set. */
+  private readonly seen = new Map<string, Map<string, number>>();
   private readonly counts = new Map<string, Map<number | null, number>>();
+  private readonly sinceMs: number | null;
   private anonymous = 0;
 
-  constructor(private readonly unit: "bookings" | "rooms" = "bookings") {}
+  constructor(
+    private readonly unit: "bookings" | "rooms" = "bookings",
+    since?: string | null,
+  ) {
+    this.sinceMs = since ? Date.parse(since) : null;
+  }
 
   add(row: SlimReservationRow): void {
     const bw = bookingWindowOf(row);
@@ -161,6 +187,17 @@ export class StayDateWindowsBuilder {
         : `row ${this.anonymous++}`;
     const prev = byBooking.get(key);
     byBooking.set(key, prev === undefined ? bw : earliestBookingWindow(prev, bw));
+    if (this.sinceMs === null) return;
+    let firstSeen = this.seen.get(row.stay_date);
+    if (!firstSeen) {
+      firstSeen = new Map();
+      this.seen.set(row.stay_date, firstSeen);
+    }
+    // No created_at, or one that doesn't parse: already there.
+    const at = row.created_at ? Date.parse(row.created_at) : NaN;
+    const seenAt = Number.isNaN(at) ? -Infinity : at;
+    const before = firstSeen.get(key);
+    if (before === undefined || seenAt < before) firstSeen.set(key, seenAt);
   }
 
   /** Fold a stay date's bookings into its counts and let go of them. */
@@ -168,20 +205,30 @@ export class StayDateWindowsBuilder {
     const byBooking = this.open.get(stayDate);
     if (!byBooking) return;
     this.open.delete(stayDate);
+    const firstSeen = this.seen.get(stayDate);
+    this.seen.delete(stayDate);
     let byWindow = this.counts.get(stayDate);
     if (!byWindow) {
       byWindow = new Map();
       this.counts.set(stayDate, byWindow);
     }
-    for (const bw of byBooking.values()) byWindow.set(bw, (byWindow.get(bw) ?? 0) + 1);
+    for (const [key, bw] of byBooking) {
+      if (this.sinceMs !== null && !((firstSeen?.get(key) ?? -Infinity) > this.sinceMs)) continue;
+      byWindow.set(bw, (byWindow.get(bw) ?? 0) + 1);
+    }
   }
 
-  /** The grouped form, dates in order (so no map ever depends on row order). */
+  /**
+   * The grouped form, dates in order (so no map ever depends on row order).
+   * A date none of whose bookings count (only possible with `since`) has no
+   * entry, as it has no row from booking_speed_windows.
+   */
   build(): Map<string, StayDateWindows> {
     for (const stayDate of [...this.open.keys()]) this.seal(stayDate);
     const out = new Map<string, StayDateWindows>();
     for (const stayDate of [...this.counts.keys()].sort()) {
       const byWindow = this.counts.get(stayDate)!;
+      if (byWindow.size === 0) continue;
       let n = 0;
       const windows: WindowCount[] = [];
       for (const [bw, count] of byWindow) {
@@ -194,9 +241,12 @@ export class StayDateWindowsBuilder {
   }
 }
 
-/** Group slim rows by stay date and booking window, one count per booking. */
-export function indexBookingRows(rows: SlimReservationRow[]): Map<string, StayDateWindows> {
-  const builder = new StayDateWindowsBuilder("bookings");
+/**
+ * Group slim rows by stay date and booking window, one count per booking.
+ * With `since`, only the bookings first seen after it (StayDateWindowsBuilder).
+ */
+export function indexBookingRows(rows: SlimReservationRow[], since?: string | null): Map<string, StayDateWindows> {
+  const builder = new StayDateWindowsBuilder("bookings", since);
   for (const row of rows) builder.add(row);
   return builder.build();
 }

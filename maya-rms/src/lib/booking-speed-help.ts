@@ -9,12 +9,12 @@
  * the nights it is compared with, and the panel says so in one line.
  *
  * Once a night has been raised, a rule that raises counts only bookings
- * made after that raise, whichever rule made it (from the next day on,
- * bookingSpeedCountFrom in engine/pickup.ts), against the similar nights
- * over the same days; a rule that cuts counts from the night's last cut the
- * same way. Both panels say so. A typed price takes the adjustments off,
- * holds the night for the rule's wait from then, and then it judges its
- * whole window again.
+ * made after that raise, whichever rule made it (from the raise on: the
+ * rest of its day, then every day after, bookingSpeedCountFrom in
+ * engine/pickup.ts), against the similar nights over the same days; a rule
+ * that cuts counts from the night's last cut the same way. Both panels say
+ * so. A typed price takes the adjustments off, holds the night for the
+ * rule's wait from then, and then it judges its whole window again.
  */
 
 export const BOOKING_SPEED_HELP_EXAMPLE = {

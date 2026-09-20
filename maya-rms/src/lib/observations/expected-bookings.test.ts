@@ -14,10 +14,12 @@ import {
   observeBookingSpeed,
   pickupInWindow,
   trimmedMean,
+  countFromInWindow,
   windowDaysFrom,
   type SlimReservationRow,
 } from "../../../supabase/functions/_shared/observations/expected-bookings";
 import { estimateMomentumFallback } from "../../../supabase/functions/_shared/observations/momentum";
+import { indexBookingRows } from "../../../supabase/functions/_shared/observations/booking-rows";
 import { classifyBookingSpeed } from "../../../supabase/functions/_shared/observations/booking-speed";
 
 const NO_MATH_SYMBOLS = /[<>]/;
@@ -484,6 +486,62 @@ describe("observeBookingSpeed from a date: a rule counts only what came after it
     }
     expect(plain.countedFrom).toBeUndefined();
     expect(plain.fullWindowDays).toBeUndefined();
+  });
+
+  it("splits the fire's day: only the bookings first seen after the fire count on it, the later days count whole, the comparables read whole days", () => {
+    // A raise at noon on the 30th. The target's week: two before the 30th,
+    // three on the 30th (one before the raise, two after), one on the 31st.
+    const noon = "2026-07-30T12:00:00.000Z";
+    const target: SlimReservationRow[] = [
+      { stay_date: TARGET, booking_window_days: 18, created_at: "2026-07-28T09:00:00.000Z" },
+      { stay_date: TARGET, booking_window_days: 17, created_at: "2026-07-29T09:00:00.000Z" },
+      { stay_date: TARGET, booking_window_days: 16, created_at: "2026-07-30T09:00:00.000Z" },
+      { stay_date: TARGET, booking_window_days: 16, created_at: "2026-07-30T14:00:00.000Z" },
+      { stay_date: TARGET, booking_window_days: 16, created_at: "2026-07-30T18:00:00.000Z" },
+      { stay_date: TARGET, booking_window_days: 15, created_at: "2026-07-31T09:00:00.000Z" },
+    ];
+    const rows = [...usual, ...target];
+    const index = indexBookingRows(rows);
+    const split = { since: noon, index: indexBookingRows(rows, noon) };
+    const obs = observeBookingSpeed({ index, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, countFrom: FROM, split });
+    // The 30th, 31st and 1st: three days; on the 30th only the two after the raise.
+    expect(obs.windowDays).toBe(3);
+    expect(obs.recentBookings).toBe(3);
+    expect(obs.countedFrom).toBe(FROM);
+    expect(obs.countedSince).toBe(noon);
+    expect(obs.fullWindowDays).toBe(7);
+    // The comparables read those three days whole, as before.
+    expect(obs.perComparable.map((c) => c.bookings)).toEqual([3, 3, 3, 3, 3]);
+    expect(obs.expectedBookings).toBe(3);
+    // Without the split the 30th counts whole: the raise's own burst again.
+    const whole = observeBookingSpeed({ index, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, countFrom: FROM });
+    expect(whole.recentBookings).toBe(4);
+    expect(whole.countedSince).toBeUndefined();
+  });
+
+  it("reaches the split only when the window starts on the fire's day, and then even when it cuts nothing off", () => {
+    const noon = "2026-07-30T12:00:00.000Z";
+    const rows = [...usual, ...rowsFor(TARGET, [14, 15, 16, 16, 17, 18, 19, 20]).map((r, i) => ({ ...r, created_at: i === 3 ? "2026-07-30T14:00:00.000Z" : "2026-07-01T00:00:00.000Z" }))];
+    const index = indexBookingRows(rows);
+    const split = { since: noon, index: indexBookingRows(rows, noon) };
+    // A 3-day window ending on the 1st starts on the 30th: split, though the
+    // window is not shorter than the rule's.
+    const exact = observeBookingSpeed({ index, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 3, countFrom: FROM, split });
+    expect(exact.windowDays).toBe(3);
+    expect(exact.recentBookings).toBe(3);
+    expect(exact.countedFrom).toBe(FROM);
+    expect(exact.countedSince).toBe(noon);
+    expect(exact.fullWindowDays).toBe(3);
+    // A 2-day window starts on the 31st: the fire's day is outside it, the
+    // split is not reached, and the observation is the plain one.
+    const after = observeBookingSpeed({ index, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 2, countFrom: FROM, split });
+    expect(after).toEqual(observeBookingSpeed({ index, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 2 }));
+    expect(after.countedSince).toBeUndefined();
+    expect(countFromInWindow(3, AS_OF, FROM)).toBe(true);
+    expect(countFromInWindow(2, AS_OF, FROM)).toBe(false);
+    expect(countFromInWindow(7, AS_OF, AS_OF)).toBe(true);
+    expect(countFromInWindow(7, AS_OF, "2026-08-02")).toBe(false);
+    expect(countFromInWindow(7, AS_OF, null)).toBe(false);
   });
 
   it("counts whole days, and refuses a date that leaves none", () => {

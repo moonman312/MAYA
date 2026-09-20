@@ -4,7 +4,9 @@
  *
  * After a Booking Speed rule fires on a night and room type, the next
  * decision there by any Booking Speed rule of the same direction counts only
- * bookings made from the hotel day after that fire, against how the nights
+ * bookings that reached MAYA after that fire: from the fire's own hotel day
+ * on, that day only the bookings first seen after the fire (the split in
+ * observeBookingSpeed, on reservations.created_at), against how the nights
  * it is compared with did over the same days of their booking curves. Raises
  * share the night's last raise and cuts its last cut (bookingSpeedAnchors):
  * a straight jump to surging must not fire every tier rule on one burst,
@@ -233,8 +235,9 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
       const w = world(engine, { rules: starterRules(), reservations: [...background(LAST, QUIET), ...wedding()], last: LAST });
       await w.run(0);
       expect(w.firedOn(NIGHT)).toEqual([["Sudden-spike catcher", 0]]);
-      // A later run the same day: the week and month rules have no whole day
-      // since that raise to judge yet.
+      // A later run the same day: nothing reached MAYA after that raise, so
+      // the week and month rules have nothing to judge (the twenty rows
+      // were there before it), and the spike rule holds the night.
       await w.run(0, 6 * HOUR);
       expect(w.fires(NIGHT)).toHaveLength(1);
       for (let day = 1; day <= 32; day++) await w.run(day);
@@ -346,16 +349,20 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
       expect(w.fires(NIGHT, SUITE)).toHaveLength(1);
     }, 120_000);
 
-    it("a one-day rule doesn't count its own day twice on the 25-hour night the clocks go back", async () => {
+    it("a one-day rule doesn't count the bookings it raised on twice on the 25-hour night the clocks go back", async () => {
       // New York falls back on 2026-11-01. A fire at 00:30 that morning and a
       // run a full day later, at 23:30, are on the same hotel day: the day's
-      // wait is over, but there is no new day of bookings to judge yet.
+      // wait is over, and the rule reads that day again, but only what
+      // reached MAYA after its raise, which is nothing.
       const night = "2026-11-20";
       const last = "2026-11-21";
       const spike = starterRules().filter((r) => r.name === "Sudden-spike catcher");
       const w = world(engine, {
         rules: spike,
-        reservations: [...background(last, QUIET), ...Array.from({ length: 20 }, () => booking(night, "2026-11-01"))],
+        reservations: [
+          ...background(last, QUIET),
+          ...Array.from({ length: 20 }, () => ({ ...booking(night, "2026-11-01"), created_at: "2026-11-01T03:00:00.000Z" })),
+        ],
         last,
         timezone: "America/New_York",
       });
@@ -365,6 +372,97 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
       await w.run(1, firstRun);
       expect(w.fires(night)).toHaveLength(1);
       expect(w.price(night)).toBe(125);
+    }, 120_000);
+  });
+
+  /* ── Bookings that reach MAYA later on the day of a raise ─────── */
+
+  describe("a bigger wave later on the day of a raise", () => {
+    const NIGHT = addDays(D0, 40);
+    const LAST = addDays(D0, 41);
+    /** Ten separate bookings dated D0, on the books before the noon run. */
+    const morning = () => Array.from({ length: 10 }, () => booking(NIGHT, D0));
+
+    it("is not lost with the raise: the week rule raises again on it the next day, on those bookings alone", async () => {
+      const w = world(engine, { rules: starterRules(), reservations: [...background(LAST, QUIET), ...morning()], last: LAST });
+      await w.run(0);
+      expect(w.firedOn(NIGHT)).toEqual([["Sudden-spike catcher", 0]]);
+      // Thirty more separate bookings, dated D0, reach MAYA that afternoon.
+      for (let k = 0; k < 30; k++) w.tables.reservations.push({ ...booking(NIGHT, D0), created_at: iso(T0 + 2 * HOUR) });
+      // The same day the spike rule is still waiting, and holds the night
+      // (its day still reads surging), so nothing fires yet.
+      for (const extra of [3 * HOUR, 6 * HOUR]) await w.run(0, extra);
+      expect(w.fires(NIGHT)).toHaveLength(1);
+      for (let day = 1; day <= 8; day++) await w.run(day);
+      // On day 1 the spike rule's day is day 1, with nothing on it. The week
+      // rule counts from the spike's raise: the thirty that came after it on
+      // D0, and nothing on day 1, against what a night like it gets over
+      // those two whole days. That is the wave, and it raises once more.
+      expect(w.firedOn(NIGHT)).toEqual([
+        ["Sudden-spike catcher", 0],
+        ["Hot-week surge", 1],
+      ]);
+      expect(w.fires(NIGHT).map((e) => [e.window_from, e.window_to, e.window_bookings_at_fire])).toEqual([
+        [D0, D0, 10],
+        [D0, addDays(D0, 1), 30],
+      ]);
+      expect(w.price(NIGHT)).toBeCloseTo(100 * 1.25 * 1.25, 1);
+      // The fire's own audit says the count started at the raise, on its day.
+      const fired = w.tables.evaluation_audit
+        .filter((a) => a.stay_date === NIGHT)
+        .flatMap((a) => ((a.details as { pickup_candidates?: { rule_id: string; outcome: string; metrics?: { booking_speed?: Record<string, unknown> } }[] }).pickup_candidates ?? []))
+        .find((c) => c.rule_id === "Hot-week surge" && c.outcome === "won");
+      expect(fired?.metrics?.booking_speed).toMatchObject({ recent: 30, window_days: 2, counted_from: D0, counted_since: iso(T0), full_window_days: 7 });
+    }, 120_000);
+
+    it("control: the same thirty dated the next day raise again the same way", async () => {
+      const w = world(engine, { rules: starterRules(), reservations: [...background(LAST, QUIET), ...morning()], last: LAST });
+      await w.run(0);
+      for (let k = 0; k < 30; k++) w.tables.reservations.push(booking(NIGHT, addDays(D0, 1)));
+      for (let day = 1; day <= 8; day++) await w.run(day);
+      expect(w.firedOn(NIGHT)).toEqual([
+        ["Sudden-spike catcher", 0],
+        ["Sudden-spike catcher", 1],
+      ]);
+      expect(w.price(NIGHT)).toBeCloseTo(100 * 1.25 * 1.25, 1);
+    }, 120_000);
+
+    it("a wave that reached MAYA before the raise is that raise's, and never raises again", async () => {
+      // Forty rows on the books before noon: the spike rule raises on all
+      // forty at once, and no rule reads them again.
+      const w = world(engine, {
+        rules: starterRules(),
+        reservations: [...background(LAST, QUIET), ...morning(), ...Array.from({ length: 30 }, () => booking(NIGHT, D0))],
+        last: LAST,
+      });
+      for (let day = 0; day <= 8; day++) await w.run(day);
+      expect(w.firedOn(NIGHT)).toEqual([["Sudden-spike catcher", 0]]);
+      expect(w.fires(NIGHT)[0].window_bookings_at_fire).toBe(40);
+      expect(w.price(NIGHT)).toBe(125);
+    }, 120_000);
+
+    it("with only the week and month rules, the week rule raises again on the afternoon's wave after its wait", async () => {
+      const rules = starterRules().filter((r) => r.name !== "Sudden-spike catcher");
+      const w = world(engine, { rules, reservations: [...background(LAST, QUIET), ...morning()], last: LAST });
+      await w.run(0);
+      expect(w.firedOn(NIGHT)).toEqual([["Hot-week surge", 0]]);
+      for (let k = 0; k < 30; k++) w.tables.reservations.push({ ...booking(NIGHT, D0), created_at: iso(T0 + 2 * HOUR) });
+      await w.run(0, 6 * HOUR);
+      // The month rule sees the wave but the week rule holds the night
+      // through its 2-day wait; then it counts from its own raise and fires
+      // on the thirty.
+      expect(w.fires(NIGHT)).toHaveLength(1);
+      for (let day = 1; day <= 6; day++) await w.run(day);
+      expect(w.firedOn(NIGHT)).toEqual([
+        ["Hot-week surge", 0],
+        ["Hot-week surge", 2],
+      ]);
+      // The first counted its whole week: the ten, and the one a night like
+      // it takes 43 days out. The second starts on the day of its own raise.
+      expect(w.fires(NIGHT).map((e) => [e.window_from, e.window_since, e.window_to, e.window_bookings_at_fire])).toEqual([
+        [addDays(D0, -6), null, D0, 11],
+        [D0, iso(T0), addDays(D0, 2), 30],
+      ]);
     }, 120_000);
   });
 
@@ -501,8 +599,9 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
         await w.run(day);
       }
       // The week rule catches it on day 0 and, after each 2-day wait, fires
-      // again on the days since its last raise; it holds the night against
-      // the month rule in between. The day rule never reads surging on three
+      // again on the days since its last raise (from that raise's day on,
+      // the day itself split at the raise); it holds the night against the
+      // month rule in between. The day rule never reads surging on three
       // rooms in a day (too few to call it), so it stays out.
       expect(w.firedOn(NIGHT)).toEqual([
         ["Hot-week surge", 0],
@@ -513,15 +612,15 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
         ["Hot-week surge", 10],
         ["Hot-week surge", 12],
       ]);
-      const windows = w.fires(NIGHT).map((e) => [e.window_from, e.window_to]);
+      const windows = w.fires(NIGHT).map((e) => [e.window_from, e.window_to, e.window_since]);
       expect(windows).toEqual([
-        [addDays(D0, -6), D0],
-        [addDays(D0, 1), addDays(D0, 2)],
-        [addDays(D0, 3), addDays(D0, 4)],
-        [addDays(D0, 5), addDays(D0, 6)],
-        [addDays(D0, 7), addDays(D0, 8)],
-        [addDays(D0, 9), addDays(D0, 10)],
-        [addDays(D0, 11), addDays(D0, 12)],
+        [addDays(D0, -6), D0, null],
+        [D0, addDays(D0, 2), iso(T0)],
+        [addDays(D0, 2), addDays(D0, 4), iso(T0 + 2 * DAY)],
+        [addDays(D0, 4), addDays(D0, 6), iso(T0 + 4 * DAY)],
+        [addDays(D0, 6), addDays(D0, 8), iso(T0 + 6 * DAY)],
+        [addDays(D0, 8), addDays(D0, 10), iso(T0 + 8 * DAY)],
+        [addDays(D0, 10), addDays(D0, 12), iso(T0 + 10 * DAY)],
       ]);
       expect(w.price(NIGHT)).toBeCloseTo(100 * 1.25 ** 7, 1);
       // Three raises on one night by one rule: MAYA asks, and carries on
@@ -549,11 +648,13 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
       expect(windows).toEqual([
         // The first judges its whole month (the day's 4 plus 3 older ones).
         [addDays(D0, -29), D0, 7],
-        // Every later one only the days since the one before.
-        [addDays(D0, 1), addDays(D0, 3), 12],
-        [addDays(D0, 4), addDays(D0, 6), 12],
+        // Every later one only the days since the one before, from that
+        // raise's own day on: the four that came in that day were there
+        // before the raise, so its split leaves them out.
+        [D0, addDays(D0, 3), 12],
+        [addDays(D0, 3), addDays(D0, 6), 12],
         // Twelve new ones, and the one a night like it gets 33 days out.
-        [addDays(D0, 7), addDays(D0, 9), 13],
+        [addDays(D0, 6), addDays(D0, 9), 13],
       ]);
     }, 120_000);
 
@@ -567,6 +668,8 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
       expect(w.price(NIGHT)).toBe(121);
 
       // Days 1 to 3 cancel: the second raise's own window is back to usual.
+      // Its window starts on day 0, split at the first raise: the four from
+      // that morning are the first raise's and don't keep the second on.
       const second = (r: FakeRow) =>
         r.stay_date === NIGHT && String(r.booking_date) >= addDays(D0, 1) && String(r.booking_date) <= addDays(D0, 3);
       w.tables.reservations = w.tables.reservations.filter((r) => !second(r));
@@ -612,7 +715,7 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
       await w.run(7);
       expect(w.fires(NIGHT).map((e) => [e.fire_seq, e.window_from, e.window_to, e.window_bookings_at_fire])).toEqual([
         [1, addDays(D0, -29), D0, 0],
-        [2, addDays(D0, 1), addDays(D0, 7), 0],
+        [2, D0, addDays(D0, 7), 0],
       ]);
       expect(w.price(NIGHT)).toBe(81);
     }, 120_000);

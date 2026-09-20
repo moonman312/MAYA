@@ -20,11 +20,12 @@
  * Each wait is per night and room type. Once it is over the rule judges only
  * the bookings made since that night was last adjusted its way: a raise rule
  * counts from the night's last raise and a cut rule from its last cut,
- * whichever rule made it (engine/pickup.ts, bookingSpeedCountFrom), and
- * adjusts again if those still meet its condition. So a night that stays far
- * behind keeps getting cut, real demand keeps raising, and one burst of
- * bookings raises it once, by the one rule that caught it, with a stronger
- * tier stepping in only when the bookings since read faster on their own.
+ * whichever rule made it, the rest of that day included (engine/pickup.ts,
+ * bookingSpeedCountFrom), and adjusts again if those still meet its
+ * condition. So a night that stays far behind keeps getting cut, real demand
+ * keeps raising, and one burst of bookings raises it once, by the one rule
+ * that caught it, with a stronger tier stepping in only when the bookings
+ * since read faster on their own.
  * Once a rule has adjusted one night three times MAYA puts that night in
  * front of the owner and asks whether to carry on; until they answer, the
  * rule carries on.

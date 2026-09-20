@@ -7,9 +7,11 @@ import {
   bookingsInFrozenWindow,
   isWithinCooldown,
   loadBookingSpeedContext,
+  loadSplitWindows,
   observeForStayDate,
   resetBookingSpeedLogOnce,
   signalSetKey,
+  splitKey,
   type BookingSpeedContext,
 } from "./booking-speed-provider";
 import { detectSeasons } from "@/lib/observations/seasons";
@@ -160,6 +162,25 @@ describe("bookingsInFrozenWindow", () => {
     expect(bookingsInFrozenWindow(ctx, "2026-08-15", "2026-07-26", "2026-08-01")).toBeNull();
   });
 
+  it("reads a window's first day split at the fire the raise counted from, as the raise counted it", () => {
+    // Two bookings on the 30th (16 days out): one before a noon fire, one
+    // after. A raise that counted from that fire recorded window_since.
+    const noon = "2026-07-30T12:00:00.000Z";
+    const split: SlimReservationRow[] = [
+      ...rows.map((r) => ({ ...r, created_at: "2026-07-01T00:00:00.000Z" })),
+      { stay_date: "2026-08-15", booking_window_days: 16, created_at: "2026-07-30T14:00:00.000Z" },
+    ];
+    const ctx = makeContext(split, "2026-08-01");
+    ctx.splitWindows = new Map([[splitKey(noon, ""), indexBookingRows(split, noon)]]);
+    const cut = observeForStayDate(ctx, "2026-08-15", 30, undefined, "2026-07-30", "increase", noon);
+    expect(cut.recentBookings).toBe(3);
+    expect(bookingsInFrozenWindow(ctx, "2026-08-15", "2026-07-30", "2026-08-01", undefined, noon)).toBe(3);
+    // Read whole, that day's earlier booking would keep the raise on.
+    expect(bookingsInFrozenWindow(ctx, "2026-08-15", "2026-07-30", "2026-08-01")).toBe(4);
+    // A fire this run did not load the split for: nothing can be said.
+    expect(bookingsInFrozenWindow(ctx, "2026-08-15", "2026-07-30", "2026-08-01", undefined, "2026-07-30T09:00:00.000Z")).toBeNull();
+  });
+
   it("reads the rule's own room types when it measures part of the hotel", () => {
     const ctx = makeContext(rows, "2026-08-01");
     ctx.hotelSetKey = signalSetKey(["rt1", "rt2"]);
@@ -192,6 +213,168 @@ describe("a reservation with several rooms is one booking", () => {
     // The last room goes: now the booking is gone.
     const gone = makeContext(rows.filter((r) => !r.external_reservation_id!.startsWith("6364686337417-")), "2026-08-01");
     expect(bookingsInFrozenWindow(gone, night, "2026-07-26", "2026-08-01")).toBe(2);
+  });
+});
+
+describe("observeForStayDate split at a fire: the day of the cell's last fire its way", () => {
+  const noon = "2026-07-30T12:00:00.000Z";
+  const early = "2026-07-01T00:00:00.000Z";
+  // Every night got a booking 14 to 20 days out, all on the books long
+  // before; and one more 16 days out (the 30th, for the 15th) that reached
+  // MAYA after a fire at noon on the 30th.
+  const rows: SlimReservationRow[] = [];
+  for (const stayDate of ["2026-08-15", "2026-08-14", "2026-08-16"]) {
+    for (const w of [14, 15, 16, 17, 18, 19, 20]) rows.push({ stay_date: stayDate, booking_window_days: w, created_at: early });
+    rows.push({ stay_date: stayDate, booking_window_days: 16, created_at: "2026-07-30T14:00:00.000Z" });
+  }
+  const withSplit = (ctx: BookingSpeedContext) => {
+    ctx.splitWindows = new Map([[splitKey(noon, ""), indexBookingRows(rows, noon)]]);
+    return ctx;
+  };
+
+  it("counts the fire's day from the fire on, keys the observation by the fire, and says so in the metrics", () => {
+    const ctx = withSplit(makeContext(rows, "2026-08-01"));
+    const split = observeForStayDate(ctx, "2026-08-15", 7, undefined, "2026-07-30", "increase", noon);
+    // The rest of the 30th (one booking), the 31st and the 1st.
+    expect(split.recentBookings).toBe(3);
+    expect(split.windowDays).toBe(3);
+    expect(split.countedFrom).toBe("2026-07-30");
+    expect(split.countedSince).toBe(noon);
+    expect(split.countedAfter).toBe("raise");
+    expect(observeForStayDate(ctx, "2026-08-15", 7, undefined, "2026-07-30", "increase", noon)).toBe(split);
+    // The day after, with no fire to split by: the older reading, kept apart.
+    const dayAfter = observeForStayDate(ctx, "2026-08-15", 7, undefined, "2026-07-31", "increase");
+    expect(dayAfter.recentBookings).toBe(2);
+    expect(dayAfter.countedSince).toBeUndefined();
+    expect(ctx.observationCache.size).toBe(2);
+    expect(bookingSpeedMetrics(split)).toMatchObject({ recent: 3, window_days: 3, counted_from: "2026-07-30", counted_since: noon, full_window_days: 7 });
+    expect(bookingSpeedMetrics(dayAfter)).not.toHaveProperty("counted_since");
+    expect(bookingSpeedAuditSnapshots(ctx, "2026-08-15")).toHaveLength(2);
+  });
+
+  it("refuses a fire whose day was not loaded rather than counting that day whole, and needs none when the window starts later", () => {
+    const ctx = withSplit(makeContext(rows, "2026-08-01"));
+    const other = "2026-07-30T09:00:00.000Z";
+    expect(() => observeForStayDate(ctx, "2026-08-15", 7, undefined, "2026-07-30", "increase", other)).toThrow(/not loaded for the fire/);
+    const later = observeForStayDate(ctx, "2026-08-15", 2, undefined, "2026-07-30", "increase", other);
+    expect(later.countedSince).toBeUndefined();
+    expect(later).toBe(observeForStayDate(ctx, "2026-08-15", 2));
+  });
+
+  it("reads the split over the rule's own room types when it measures part of the hotel", () => {
+    const ctx = makeContext(rows, "2026-08-01");
+    ctx.hotelSetKey = signalSetKey(["rt1", "rt2"]);
+    const suites = signalSetKey(["rt2"]);
+    const suiteRows = rows.filter((r) => r.booking_window_days! <= 16);
+    ctx.setWindows = new Map([[suites, indexBookingRows(suiteRows)]]);
+    ctx.splitWindows = new Map([[splitKey(noon, suites), indexBookingRows(suiteRows, noon)]]);
+    const cut = observeForStayDate(ctx, "2026-08-15", 7, ["rt2"], "2026-07-30", "increase", noon);
+    expect(cut.recentBookings).toBe(3);
+    expect(cut.countedSince).toBe(noon);
+    expect(cut.measuredRoomTypeIds).toEqual(["rt2"]);
+    // The hotel-wide split was not loaded: a hotel-wide rule cannot read it.
+    expect(() => observeForStayDate(ctx, "2026-08-15", 7, ["rt1", "rt2"], "2026-07-30", "increase", noon)).toThrow(/not loaded for the fire/);
+  });
+});
+
+describe("loadSplitWindows", () => {
+  const localDate = "2026-09-16";
+  const night = addDays(localDate, 20);
+  const noon = `${localDate}T12:00:00.000Z`;
+  let id = 0;
+  const row = (stay: string, lead: number, ext: string, roomType = "rt1", createdAt = "2026-01-01T00:00:00.000Z"): FakeRow => ({
+    id: `00000000-0000-4000-8000-${String(++id).padStart(12, "0")}`,
+    hotel_id: "h1",
+    stay_date: stay,
+    room_type_id: roomType,
+    booking_date: addDays(stay, -lead),
+    booking_window_days: lead,
+    external_reservation_id: ext,
+    created_at: createdAt,
+  });
+  const history = () => {
+    const rows: FakeRow[] = [];
+    for (let d = -(3 * 366); d < 0; d++) {
+      const stay = addDays(localDate, d);
+      rows.push(row(stay, 30, `${10000 - d}`));
+      rows.push(row(stay, 10, `${20000 - d}`, "rt2"));
+    }
+    // The night ahead, today: two singles before noon, and after noon a
+    // single, a two-room reservation, a Suite, and a second room added to
+    // a booking that was there before noon.
+    rows.push(row(night, 20, "301", "rt1", `${localDate}T09:00:00.000Z`));
+    rows.push(row(night, 20, "302", "rt1", `${localDate}T11:00:00.000Z`));
+    rows.push(row(night, 20, "303", "rt1", `${localDate}T13:00:00.000Z`));
+    rows.push(row(night, 20, "6364686337417-1", "rt1", `${localDate}T14:00:00.000Z`));
+    rows.push(row(night, 20, "6364686337417-2", "rt1", `${localDate}T14:00:00.000Z`));
+    rows.push(row(night, 20, "304", "rt2", `${localDate}T15:00:00.000Z`));
+    rows.push(row(night, 20, "6364686337418-1", "rt1", `${localDate}T09:30:00.000Z`));
+    rows.push(row(night, 20, "6364686337418-2", "rt1", `${localDate}T16:00:00.000Z`));
+    // Tomorrow's night: nothing new.
+    rows.push(row(addDays(night, 1), 21, "305", "rt1", `${localDate}T09:00:00.000Z`));
+    return rows;
+  };
+
+  beforeEach(() => {
+    resetBookingSpeedLogOnce();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each([
+    { name: "from booking_speed_windows with p_since", noSplitFunction: false },
+    { name: "row by row when the function predates p_since", noSplitFunction: true },
+  ])("loads the bookings first seen after each fire, per set, once per fire and set: $name", async ({ noSplitFunction }) => {
+    const rows = history();
+    const { client, calls } = fakeSupabase(
+      { reservations: rows, hotel_closed_periods: [], assumption_challenges: [] },
+      noSplitFunction
+        ? { rpc: (fn, args) => (fn === "booking_speed_windows" && (args as { p_since?: unknown }).p_since ? new FakeRpcError(missingFunction(fn)) : undefined) }
+        : {},
+    );
+    const ctx = (await loadBookingSpeedContext(client as SupabaseClient, "h1", localDate, 40, new Set(), addDays(night, 1), ["rt1", "rt2"], [["rt1", "rt2"], ["rt1"]]))!;
+    expect(ctx).not.toBeNull();
+    const before = calls.length;
+    await loadSplitWindows(client as SupabaseClient, "h1", ctx, [
+      { since: noon, stayDate: night, signalIds: ["rt1", "rt2"] },
+      { since: noon, stayDate: addDays(night, 1), signalIds: ["rt1", "rt2"] },
+      { since: noon, stayDate: night, signalIds: ["rt1"] },
+      // A set already read for this fire, and a fire read for no set yet.
+      { since: noon, stayDate: night, signalIds: ["rt2", "rt1"] },
+      { since: `${localDate}T15:30:00.000Z`, stayDate: night, signalIds: ["rt1"] },
+    ]);
+    // Hotel-wide after noon: 303, the two-room reservation once, the Suite.
+    // Over rt1 only: 303 and the reservation. After 15:30: only the room
+    // added to a booking that was already there, which is nothing new.
+    expect(ctx.splitWindows!.get(splitKey(noon, ""))).toEqual(new Map([[night, { n: 3, windows: [{ bw: 20, n: 3 }] }]]));
+    expect(ctx.splitWindows!.get(splitKey(noon, signalSetKey(["rt1"])))).toEqual(new Map([[night, { n: 2, windows: [{ bw: 20, n: 2 }] }]]));
+    expect(ctx.splitWindows!.get(splitKey(`${localDate}T15:30:00.000Z`, signalSetKey(["rt1"])))).toEqual(new Map());
+    expect(ctx.splitWindows!.size).toBe(3);
+    // Three reads: one per fire and set, the repeats folded in.
+    const reads = calls.slice(before).filter((c) => c.table === "rpc:booking_speed_windows" || c.table === "reservations");
+    expect(reads.filter((c) => c.table === "rpc:booking_speed_windows")).toHaveLength(noSplitFunction ? 3 : 3);
+    expect(reads.filter((c) => c.table === "reservations")).toHaveLength(noSplitFunction ? 3 : 0);
+    // Read once: asking again costs nothing.
+    await loadSplitWindows(client as SupabaseClient, "h1", ctx, [{ since: noon, stayDate: night, signalIds: ["rt1", "rt2"] }]);
+    expect(calls.length).toBe(before + reads.length);
+    // And the observation reads the fire's day from it: the three after
+    // noon on the target, against the day whole on its comparables.
+    const obs = observeForStayDate(ctx, night, 7, ["rt1", "rt2"], localDate, "increase", noon);
+    expect(obs.recentBookings).toBe(3);
+    expect(obs.windowDays).toBe(1);
+    expect(obs.countedSince).toBe(noon);
+    expect(observeForStayDate(ctx, night, 7, ["rt1", "rt2"], localDate, "increase").recentBookings).toBe(6);
+  });
+
+  it("throws on a failed read, never counting the fire's day whole", async () => {
+    const { client } = fakeSupabase(
+      { reservations: history(), hotel_closed_periods: [], assumption_challenges: [] },
+      { rpc: (fn, args) => (fn === "booking_speed_windows" && (args as { p_since?: unknown }).p_since ? new FakeRpcError({ code: "57014", message: "canceling statement due to statement timeout" }) : undefined) },
+    );
+    const ctx = (await loadBookingSpeedContext(client as SupabaseClient, "h1", localDate, 40, new Set(), night, ["rt1", "rt2"], [["rt1", "rt2"]]))!;
+    await expect(loadSplitWindows(client as SupabaseClient, "h1", ctx, [{ since: noon, stayDate: night, signalIds: ["rt1", "rt2"] }])).rejects.toThrow(
+      /Failed to load booking history/,
+    );
   });
 });
 

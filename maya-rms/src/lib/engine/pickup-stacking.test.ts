@@ -258,7 +258,8 @@ describe("a Booking Speed rule", () => {
     expect(prices[14]).toBe(81);
     expect(w.fires(NIGHT).map((e) => [e.fire_seq, e.retired_at, e.cancel_check, e.window_from, e.window_to])).toEqual([
       [1, null, "none", addDays(D0, -29), D0],
-      [2, null, "none", addDays(D0, 1), addDays(D0, 7)],
+      // The second counts from the first cut's own day (split at the cut).
+      [2, null, "none", D0, addDays(D0, 7)],
     ]);
     // One row per change, not one per run.
     expect(w.audits(NIGHT)).toHaveLength(2);
