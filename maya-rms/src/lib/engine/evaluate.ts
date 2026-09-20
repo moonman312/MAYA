@@ -34,6 +34,8 @@ import { createLadderPassBatch, evaluateLadderTriple, probeSuppressionSupport } 
 import { computeRuleMetrics } from "./metrics";
 import {
   baselineTsFrom,
+  bookingSpeedAnchorKey,
+  bookingSpeedAnchors,
   bookingSpeedCountFrom,
   candidateFor,
   fireHeadKey,
@@ -277,8 +279,7 @@ export async function evaluateHotel(
       rule_affected_room_type ( room_type_id )
     `,
     )
-    .eq("hotel_id", hotelId)
-    .eq("is_active", true);
+    .eq("hotel_id", hotelId);
 
   // Never proceed on a failed rule load. Discarding this error made the run
   // continue with zero rules, which quietly publishes the base price for
@@ -290,7 +291,10 @@ export async function evaluateHotel(
     throw new Error(`Failed to load pricing rules: ${rulesErr.message}`);
   }
 
-  const rules: EngineRule[] = (rulesData ?? []).map((r) => {
+  // Every rule of the hotel, paused ones included. Only the active ones are
+  // evaluated (`rules`); a paused Booking Speed rule's fires still apply and
+  // still anchor where the active ones start counting (bookingSpeedAnchors).
+  const loadedRules: EngineRule[] = (rulesData ?? []).map((r) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rc: any = Array.isArray(r.rule_condition)
       ? r.rule_condition[0]
@@ -299,7 +303,7 @@ export async function evaluateHotel(
       id: String(r.id),
       hotel_id: String(r.hotel_id),
       name: r.name,
-      is_active: true,
+      is_active: Boolean(r.is_active),
       version: Number(r.version ?? 1),
       start_date: r.start_date ?? null,
       end_date: r.end_date ?? null,
@@ -370,6 +374,7 @@ export async function evaluateHotel(
       updated_at: r.updated_at,
     };
   });
+  const rules = loadedRules.filter((r) => r.is_active);
 
   // Per rule, the names of active signal types that were dropped for not
   // counting as rooms. Recorded on every metrics object the rule produces so
@@ -594,6 +599,11 @@ export async function evaluateHotel(
 
   const ladderRules = rules.filter((r) => !r.is_pickup_rule);
   const pickupRules = rules.filter((r) => r.is_pickup_rule);
+  // Paused event rules that measure Booking Speed: their fire history is read
+  // for the shared anchors only. Nothing else looks at them.
+  const pausedBookingSpeedRules = loadedRules.filter(
+    (r) => !r.is_active && r.is_pickup_rule && r.condition.booking_speed_operator,
+  );
 
   // Booking Speed context: loaded once, and only when some active rule
   // actually uses the observation — everyone else pays nothing.
@@ -620,7 +630,8 @@ export async function evaluateHotel(
   }
 
   // `countFrom`: the first booking date the rule may count on the cell, after
-  // its last fire there (bookingSpeedCountFrom). null counts its whole window.
+  // the cell's last fire in the rule's direction (bookingSpeedCountFrom).
+  // null counts its whole window.
   const attachBookingSpeed = (
     rule: EngineRule,
     stayDate: string,
@@ -635,14 +646,21 @@ export async function evaluateHotel(
       return;
     }
     const windowDays = rule.condition.booking_speed_window_days ?? 7;
-    // No whole day since its last fire: nothing new to judge. The wait (a day
-    // at least) nearly always covers this; the 25-hour day the clocks go back
-    // on, or a fire another run dated later, can still land here.
+    // No whole day since that fire: nothing new to judge. Another rule of the
+    // same direction fired on the cell earlier today, or this one did on the
+    // 25-hour day the clocks go back on (its wait is a day at least).
     if (windowDaysFrom(windowDays, localDate, countFrom) < 1) {
       metrics.booking_speed_block_reason = "since_last_fire";
       return;
     }
-    const observation = observeForStayDate(bsCtx, stayDate, windowDays, rule.signal_room_type_ids, countFrom);
+    const observation = observeForStayDate(
+      bsCtx,
+      stayDate,
+      windowDays,
+      rule.signal_room_type_ids,
+      countFrom,
+      rule.action_direction,
+    );
     if (observation.method === "insufficient_data") {
       metrics.booking_speed_block_reason = "insufficient_data";
       return;
@@ -787,11 +805,16 @@ export async function evaluateHotel(
   );
 
   // Each event rule's fire history on each cell, after the retirements
-  // above, and the owner's answers to repeat alerts on these nights.
+  // above, and the owner's answers to repeat alerts on these nights. The
+  // paused Booking Speed rules' heads are read for the anchors below only.
   const fireHeads =
     pickupRules.length > 0
-      ? await loadPickupFireHeads(supabase, hotelId, pickupRules, firstDate, lastDate)
+      ? await loadPickupFireHeads(supabase, hotelId, [...pickupRules, ...pausedBookingSpeedRules], firstDate, lastDate)
       : new Map<string, FireHead>();
+  // Where a Booking Speed rule starts counting on each cell: after the cell's
+  // newest counted raise for a raise rule, its newest counted cut for a cut
+  // rule, by any Booking Speed rule (bookingSpeedAnchors).
+  const bsAnchors = bookingSpeedAnchors([...pickupRules, ...pausedBookingSpeedRules], stayDates, fireHeads);
   const alertNights =
     pickupRules.length > 0
       ? await loadRepeatAlertNights(supabase, hotelId, pickupRules.map((r) => r.id), firstDate, lastDate)
@@ -801,9 +824,10 @@ export async function evaluateHotel(
   // and which it is still waiting on. A night the owner stopped the rule on
   // is left out entirely. Room types it may fire on are measured together
   // when they count bookings from the same date (bookingSpeedCountFrom: each
-  // cell counts only bookings made after the rule's last fire there), so a
-  // (rule, night) can come out as more than one entry. The ones it waits on
-  // are measured over the full window, for holding the cell (runPickupPass).
+  // cell counts only bookings made after its last fire in the rule's
+  // direction), so a (rule, night) can come out as more than one entry. The
+  // ones it waits on are measured over the full window, for holding the cell
+  // (runPickupPass).
   type RuleNight = {
     rule: EngineRule;
     stayDate: string;
@@ -830,7 +854,8 @@ export async function evaluateHotel(
           waiting.push(rtId);
           continue;
         }
-        pushTo(openByFrom, bookingSpeedCountFrom(rule, head, manual, hotelTimeZone) ?? "", rtId);
+        const lastFireAt = bsAnchors.get(bookingSpeedAnchorKey(stayDate, rtId, rule.action_direction));
+        pushTo(openByFrom, bookingSpeedCountFrom(rule, lastFireAt, manual, hotelTimeZone) ?? "", rtId);
       }
       for (const [from, open] of openByFrom) {
         ruleNights.push({ rule, stayDate, baselineTs, countFrom: from || null, open, waiting: [] });

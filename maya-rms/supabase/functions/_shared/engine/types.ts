@@ -33,16 +33,17 @@ export type RuleMetrics = {
     window_days: number;
     method: string;
     /**
-     * Set only when the rule's last fire on the cell cut its window short
-     * (bookingSpeedCountFrom in pickup.ts): the first booking date counted,
-     * and the window the rule asks for.
+     * Set only when the cell's last fire in the rule's direction (its last
+     * raise for a raise rule, its last cut for a cut rule, by any Booking
+     * Speed rule: bookingSpeedCountFrom in pickup.ts) cut its window short:
+     * the first booking date counted, and the window the rule asks for.
      */
     counted_from?: string;
     full_window_days?: number;
   } | null;
   /**
    * When set, booking-speed conditions must not match: no usable history, or
-   * no whole day yet since the rule's last fire on the cell.
+   * no whole day yet since the cell's last fire in the rule's direction.
    */
   booking_speed_block_reason?: "insufficient_data" | "since_last_fire" | null;
   /** Summed across signal room types at baseline snapshot (pickup ledger / audit). */

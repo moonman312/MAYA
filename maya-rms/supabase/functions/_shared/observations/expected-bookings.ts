@@ -99,6 +99,13 @@ export interface BookingSpeedObservation {
   countedFrom?: string;
   /** The window the rule asked for, set together with countedFrom. */
   fullWindowDays?: number;
+  /**
+   * With countedFrom: whether the fire the count starts after was a raise or
+   * a cut. A raise rule counts from the night's last raise and a cut rule
+   * from its last cut, whichever rule made it (engine/pickup.ts
+   * bookingSpeedAnchors). Stamped by the engine, not here.
+   */
+  countedAfter?: "raise" | "cut";
 }
 
 export interface ObserveBookingSpeedOptions {

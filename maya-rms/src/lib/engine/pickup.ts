@@ -17,20 +17,28 @@
  * on the cell, for a rule that existed when the price was set. Fires taken
  * off by a manual price or an edit never start a wait.
  *
- * WHAT A RULE MEASURES. A rule never re-counts bookings it already acted on.
- * A pickup condition counts net bookings over exactly its window (now minus
- * pickup_window_days). The wait is at least that long, so a window never
- * reaches back past the rule's last fire on the cell, or past a manual price
- * set before the rule's wait began. A Booking Speed condition reads the
- * observation over its own window and needs no old snapshot, but its wait
- * can be shorter than its window, so after a fire it counts only bookings
- * made from the hotel day after that fire (bookingSpeedCountFrom), and the
+ * WHAT A RULE MEASURES. A rule never re-counts bookings that were already
+ * acted on. A pickup condition counts net bookings over exactly its window
+ * (now minus pickup_window_days). The wait is at least that long, so a
+ * window never reaches back past the rule's last fire on the cell, or past a
+ * manual price set before the rule's wait began. A Booking Speed condition
+ * reads the observation over its own window and needs no old snapshot, but
+ * its wait can be shorter than its window, so it counts only bookings made
+ * from the hotel day after the cell's last fire in its own direction
+ * (bookingSpeedCountFrom): a raise rule counts from the last raise on the
+ * cell by any Booking Speed rule, a cut rule from the last cut, and the
  * nights it is compared with are read over the same shorter stretch of their
- * booking curves. The fire that cuts the window is the rule version's latest
- * one that counts toward the owner alert (open, or taken off for
- * cancellations), per cell. After a manual price, a rule judges its full
- * normal window, bookings from before the price included: the fires the
- * price took off never cut it, and neither does one made before it.
+ * booking curves. So one burst of bookings raises a cell once, whichever
+ * tier rule caught it, and a stronger tier steps in on top only when the
+ * bookings since that raise read faster on their own (Jake, 2026-09-18:
+ * tiers climb as pace climbs, not all at once). The fire that cuts the
+ * window is the newest one on the cell in that direction that counts toward
+ * the owner alert (open, or taken off for cancellations), from the current
+ * version of any Booking Speed rule, paused ones included, since their
+ * fires still apply (bookingSpeedAnchors). After a manual price, a rule
+ * judges its full normal window, bookings from before the price included:
+ * the fires the price took off never cut it, and neither does one made
+ * before it.
  *
  * WHICH RULE FIRES. At most one fire per cell per run. The competition
  * (selectPickupWinner) includes rules waiting on the cell whose conditions
@@ -189,13 +197,52 @@ export function waitAnchor(
   return anchor;
 }
 
+/** The cell and direction a Booking Speed anchor is shared by: `stay_date|room_type_id|direction`. */
+export function bookingSpeedAnchorKey(
+  stayDate: string,
+  roomTypeId: string,
+  direction: EngineRule["action_direction"],
+): string {
+  return `${stayDate}|${roomTypeId}|${direction}`;
+}
+
+/**
+ * The newest counted fire on each cell in each direction, by
+ * bookingSpeedAnchorKey, across every Booking Speed rule given: the fires
+ * the heads count for its current version (open, or taken off for
+ * cancellations). Raises share one anchor and cuts another, so a raise rule
+ * never re-counts a burst another raise rule already acted on, and a cut
+ * never moves where a raise starts counting or the other way round. Pass the
+ * paused Booking Speed rules too: their fires still apply. A rule with no
+ * Booking Speed condition anchors nothing here.
+ */
+export function bookingSpeedAnchors(
+  rules: readonly EngineRule[],
+  stayDates: readonly string[],
+  heads: ReadonlyMap<string, FireHead>,
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const rule of rules) {
+    if (!rule.condition.booking_speed_operator) continue;
+    for (const stayDate of stayDates) {
+      for (const rtId of rule.affected_room_type_ids) {
+        const at = heads.get(fireHeadKey(rule.id, stayDate, rtId))?.lastCountedAt;
+        if (!at) continue;
+        const key = bookingSpeedAnchorKey(stayDate, rtId, rule.action_direction);
+        const newest = out.get(key);
+        if (newest === undefined || Date.parse(at) > Date.parse(newest)) out.set(key, at);
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * The first booking date (hotel date) a Booking Speed rule may count on a
- * cell, or null to count its whole window. A rule never re-counts bookings
- * it already acted on: after its latest fire on the cell that counts toward
- * the owner alert (this rule version's, open or taken off for
- * cancellations), it counts only bookings made from the next hotel day on.
- * Bookings carry a date and not a time, so the fire's own day belongs to
+ * cell, or null to count its whole window. `lastFireAt` is the cell's newest
+ * counted fire in the rule's direction (bookingSpeedAnchors), by this rule
+ * or another: the rule counts only bookings made from the next hotel day
+ * on. Bookings carry a date and not a time, so the fire's own day belongs to
  * that fire: its frozen window ends there and the next one starts after it.
  *
  * Fires taken off by a manual price or an edit are not counted fires, and a
@@ -205,15 +252,14 @@ export function waitAnchor(
  */
 export function bookingSpeedCountFrom(
   rule: EngineRule,
-  head: FireHead | undefined,
+  lastFireAt: string | null | undefined,
   manualPrice: { set_at: string } | undefined,
   hotelTimeZone: string,
 ): string | null {
   if (!rule.condition.booking_speed_operator) return null;
-  const firedAt = head?.lastCountedAt ?? null;
-  if (firedAt === null) return null;
-  if (manualPrice && Date.parse(firedAt) < Date.parse(manualPrice.set_at)) return null;
-  return addCalendarDays(evalIsoToHotelDateString(firedAt, hotelTimeZone), 1);
+  if (!lastFireAt) return null;
+  if (manualPrice && Date.parse(lastFireAt) < Date.parse(manualPrice.set_at)) return null;
+  return addCalendarDays(evalIsoToHotelDateString(lastFireAt, hotelTimeZone), 1);
 }
 
 /** Still waiting: less than `waitDays` whole days since the anchor. */

@@ -719,13 +719,15 @@ function selectionFor(ctx: BookingSpeedContext, stayDate: string): ComparableSel
  * work, and the observation names the room types it measured. Room types
  * that do not count as rooms are dropped from the set first, as the load did.
  *
- * `countFrom` is the first booking date a rule that already fired on the
- * night may count (bookingSpeedCountFrom in pickup.ts). When it cuts the
- * window short, the observation counts only those days, on the target and
- * its comparables alike, and is keyed by it too: another rule on the same
- * window, or the same rule on another room type, may count from elsewhere.
- * A countFrom that leaves no whole day to count throws; the engine checks
- * windowDaysFrom first.
+ * `countFrom` is the first booking date a rule may count on a night that
+ * was already raised or cut its way (bookingSpeedCountFrom in pickup.ts).
+ * When it cuts the window short, the observation counts only those days, on
+ * the target and its comparables alike, and is keyed by it too: a rule on
+ * the same window may count from elsewhere on another room type, or in the
+ * other direction. `direction` is that rule's, and the cut observation says
+ * whether a raise or a cut started it (countedAfter), so the drill-down can
+ * say which. A countFrom that leaves no whole day to count throws; the
+ * engine checks windowDaysFrom first.
  */
 export function observeForStayDate(
   ctx: BookingSpeedContext,
@@ -733,6 +735,7 @@ export function observeForStayDate(
   windowDays: number,
   signalIds?: readonly string[],
   countFrom?: string | null,
+  direction?: "increase" | "decrease" | null,
 ): BookingSpeedObservation {
   const setKey =
     signalIds && ctx.hotelSetKey !== undefined
@@ -743,7 +746,12 @@ export function observeForStayDate(
   // shares the plain observation. No "|" in the window part: the audit
   // snapshot filter reads the set key after the second one.
   const cutFrom = countFrom && windowDaysFrom(windowDays, ctx.asOf, countFrom) < windowDays ? countFrom : null;
-  const windowKey = cutFrom ? `${windowDays}>${cutFrom}` : `${windowDays}`;
+  const countedAfter: BookingSpeedObservation["countedAfter"] | null = cutFrom
+    ? direction === "decrease"
+      ? "cut"
+      : "raise"
+    : null;
+  const windowKey = cutFrom ? `${windowDays}>${cutFrom}:${countedAfter}` : `${windowDays}`;
   const key = measuresSet ? `${stayDate}|${windowKey}|${setKey}` : `${stayDate}|${windowKey}`;
   const hit = ctx.observationCache.get(key);
   if (hit) return hit;
@@ -772,9 +780,10 @@ export function observeForStayDate(
     countFrom: cutFrom,
     isExcluded: ctx.isExcluded,
   });
+  const stamped = countedAfter ? { ...observed, countedAfter } : observed;
   const observation = measuresSet
-    ? { ...observed, measuredRoomTypeIds: ctx.setMeasuredIds?.get(setKey) ?? setKey.split(",") }
-    : observed;
+    ? { ...stamped, measuredRoomTypeIds: ctx.setMeasuredIds?.get(setKey) ?? setKey.split(",") }
+    : stamped;
   ctx.observationCache.set(key, observation);
   return observation;
 }
