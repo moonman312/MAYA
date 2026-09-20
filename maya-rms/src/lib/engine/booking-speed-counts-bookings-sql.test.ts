@@ -124,9 +124,30 @@ describe.skipIf(!PGLITE_DIR)("booking speed counts bookings, in PGlite", () => {
       [ids],
     );
     expect(rows.map((x) => [x.id, x.key])).toEqual(ids.map((id) => [id, bookingKeyOf(id)]));
-    // Strict: a null id stays null, and the caller falls back to the row.
+    // A null id stays null (every branch of the CASE does), and the caller
+    // falls back to the row.
     const { rows: nul } = await db.query(`select public.booking_key(null) as key`);
     expect(nul).toEqual([{ key: null }]);
+  });
+
+  it("booking_key is not strict, so the planner inlines it into the windows query instead of calling it per row", async () => {
+    // A strict SQL function is only inlined when every argument is provably
+    // non-null, which a table column never is: declared strict, the function
+    // ran as a real call per row and the windows query cost 2.5x.
+    const { rows: flags } = await db.query(
+      `select proisstrict, provolatile, proparallel from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'booking_key'`,
+    );
+    expect(flags).toEqual([{ proisstrict: false, provolatile: "i", proparallel: "s" }]);
+    const { rows: plan } = await db.query(
+      `explain (verbose, costs off)
+        select coalesce(public.booking_key(r.external_reservation_id), r.id::text) as booking
+          from public.reservations r where r.hotel_id = $1`,
+      [H1],
+    );
+    const text = plan.map((r) => String(r["QUERY PLAN"])).join("\n");
+    expect(text).toContain("CASE WHEN");
+    expect(text).not.toContain("booking_key(");
   });
 
   describe.each([withBookingIds(makeFixture(21, 8), 1), withBookingIds(makeFixture(23, 500), 3), withBookingIds(makeFixture(24, 30, { thin: true }), 4)])(

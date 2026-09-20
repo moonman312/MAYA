@@ -52,13 +52,17 @@
 --
 -- Indexes: none added. The function finds its rows through
 -- idx_reservations_hotel_stay_date (hotel_id, stay_date) exactly as before
--- (checked with EXPLAIN in PGlite on a 500-room, ten-year table of 1.28
--- million rows: the same bitmap index scan, then the grouping). What is new
--- is one more grouping step over the rows already fetched, one row per
--- booking before one per window, plus one string test per row: for 400
--- stay dates of a full 500-room hotel (140,000 rows) that measured about
--- 290 ms in PGlite against about 80 ms before, once per engine run per
--- chunk of 400 dates, and the history summary that scans three years took
+-- (checked with EXPLAIN VERBOSE in PGlite on a 500-room, ten-year table of
+-- 1.24 million rows: the same bitmap index scan, with booking_key expanded
+-- to its CASE in the scan's output, then a HashAggregate per booking and
+-- one per window). What is new is one more grouping step over the rows
+-- already fetched, one row per booking before one per window, plus one
+-- string test per row: for 400 stay dates of a full 500-room hotel
+-- (134,990 rows) that measured a median of 114 ms over 9 runs in PGlite
+-- against about 60 ms for the old row count, once per engine run per chunk
+-- of 400 dates and signal set. With booking_key declared STRICT the same
+-- query measured 282 ms, because the planner would not inline it and
+-- called it once per row; the history summary that scans three years took
 -- 150 ms on the same table. An expression index on
 -- booking_key(external_reservation_id) would not remove either cost: the
 -- grouping is per stay date over rows the date index already narrowed, not
@@ -100,14 +104,20 @@ begin;
 -- ----------------------------------------------------------------------------
 
 -- Plain SQL and immutable so the planner inlines it into the query below.
--- No search_path is pinned on purpose (a pinned one stops the inlining); it
--- only uses built-in string functions and operators, and the callers pin
--- theirs. Execute stays at the default (public): the function reads nothing.
+-- No search_path is pinned on purpose (a pinned one stops the inlining), and
+-- neither is STRICT: the planner only inlines a strict SQL function when it
+-- can prove every argument non-null, which it never can for a table column,
+-- so a strict version ran as a real call per row (EXPLAIN VERBOSE showed
+-- booking_key(external_reservation_id) in the scan's output where the CASE
+-- below now appears) and cost 2.5x on the query below. A null in still gives
+-- null out: every branch of the CASE yields null for a null input. It only
+-- uses built-in string functions and operators, and the callers pin their
+-- search_path. Execute stays at the default (public): the function reads
+-- nothing.
 create or replace function public.booking_key(p_external_reservation_id text)
 returns text
 language sql
 immutable
-strict
 parallel safe
 as $$
   select case
