@@ -54,6 +54,16 @@
  *     audit row of those nights carry the shorter observation (windowDays,
  *     countedFrom and fullWindowDays) in place of the 30-day one.
  *
+ * The evaluation_audit hashes of runs 5 to 7, in both variants, were
+ * rewritten a sixth time when raise rules started sharing one anchor per
+ * cell and cut rules another (bookingSpeedAnchors): every one of those
+ * shorter observations now also says which kind of fire it counts from
+ * (countedAfter: "raise" here, the Suite rule being the only Booking Speed
+ * rule). Checked against a dump of the previous engine: 140 audit rows
+ * differ by that one field and nothing else, and every count, fire, price,
+ * ladder row and run log is unchanged. With one Booking Speed rule per
+ * direction the shared anchor is the rule's own, so nothing else moves.
+ *
  * The golden file was written by this same test at commit 4ef5d65 with
  * MAYA_WRITE_ENGINE_GOLDEN=1. Its ladder_rule_state hashes were rewritten
  * once, leaving out last_evaluated_at, from an engine that still matched the
