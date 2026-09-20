@@ -103,8 +103,25 @@ create table if not exists public.pickup_event (
   hotel_id uuid not null,
   rule_id uuid not null,
   -- From the stacking migration: rule_fire_counts leaves the same-run bug's
-  -- rows out (99_supabase_migration_pickup_event_stacking_v1.sql).
-  retired_reason text
+  -- rows out (99_supabase_migration_pickup_event_stacking_v1.sql), and the
+  -- counts-bookings migration turns the frozen-window test off on the open
+  -- raises it finds, under the stacking checks.
+  retired_at timestamptz,
+  retired_reason text,
+  applied_at timestamptz not null default now(),
+  action_direction text not null default 'increase',
+  cancel_check text not null default 'none',
+  window_from date,
+  window_to date,
+  window_bookings_at_fire integer,
+  window_expected_at_fire numeric(10,2),
+  constraint pickup_event_cancel_check_chk check (cancel_check in ('none', 'net_units', 'window_bookings', 'either')),
+  constraint pickup_event_cancel_increase_chk check (cancel_check = 'none' or action_direction = 'increase'),
+  constraint pickup_event_window_chk check (
+    cancel_check not in ('window_bookings', 'either')
+    or (window_from is not null and window_to is not null and window_from <= window_to
+        and window_bookings_at_fire is not null and window_expected_at_fire is not null)
+  )
 );
 create table if not exists public.room_types (
   id uuid primary key default gen_random_uuid(),
@@ -131,7 +148,13 @@ export function uuidFor(label: string): string {
   return `00000000-0000-4000-a000-${h.toString(16).padStart(12, "0")}`;
 }
 
-export async function openPglite(): Promise<Db> {
+/**
+ * A fresh database with the stubs, the large property migration and, unless
+ * `countsBookings` is false, the counts-bookings migration over it. A test
+ * that wants the database as it stands before that file (fires recorded in
+ * rooms, the old windows function) passes false and runs the file itself.
+ */
+export async function openPglite(opts: { countsBookings?: boolean } = {}): Promise<Db> {
   const mod = await import(
     /* @vite-ignore */ pathToFileURL(`${PGLITE_DIR}/node_modules/@electric-sql/pglite/dist/index.js`).href
   );
@@ -140,7 +163,7 @@ export async function openPglite(): Promise<Db> {
   await db.exec("set timezone = 'UTC';");
   await db.exec(STUBS);
   await db.exec(readFileSync(MIGRATION, "utf8"));
-  await db.exec(readFileSync(COUNTS_BOOKINGS_MIGRATION, "utf8"));
+  if (opts.countsBookings !== false) await db.exec(readFileSync(COUNTS_BOOKINGS_MIGRATION, "utf8"));
   return db;
 }
 

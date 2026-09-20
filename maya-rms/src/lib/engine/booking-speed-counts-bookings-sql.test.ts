@@ -307,3 +307,71 @@ describe.skipIf(!PGLITE_DIR)("booking speed counts bookings, in PGlite", () => {
     await db.exec("select set_config('test.accessible_hotel', '', false);");
   });
 });
+
+describe.skipIf(!PGLITE_DIR)("the raises open when the migration runs, recorded in rooms", () => {
+  const RULE = uuidFor("r1");
+  const fire = (
+    n: number,
+    over: { check: string; dir?: "increase" | "decrease"; retired?: string; window?: boolean },
+  ) =>
+    `('${String(n).padStart(8, "0")}-0000-4000-8000-000000000000', '${H1}', '${RULE}', '2026-09-15T10:00:00Z', ` +
+    `${over.retired ? `'${over.retired}', 'bookings_cancelled'` : "null, null"}, '${over.dir ?? "increase"}', '${over.check}', ` +
+    `${over.window === false ? "null, null, null, null" : "'2026-09-09', '2026-09-15', 20, 2"})`;
+  const COLUMNS =
+    "id, hotel_id, rule_id, applied_at, retired_at, retired_reason, action_direction, cancel_check, " +
+    "window_from, window_to, window_bookings_at_fire, window_expected_at_fire";
+  const seed = `insert into public.pickup_event (${COLUMNS}) values
+    ${fire(1, { check: "window_bookings" })},
+    ${fire(2, { check: "either" })},
+    ${fire(3, { check: "net_units", window: false })},
+    ${fire(4, { check: "none", window: false })},
+    ${fire(5, { check: "window_bookings", retired: "2026-09-18T10:00:00Z" })},
+    ${fire(6, { check: "none", dir: "decrease", window: false })};`;
+  const checks = async (db: Db) =>
+    (
+      await db.query(
+        `select left(id::text, 8) as id, cancel_check, window_from, window_to, window_bookings_at_fire, window_expected_at_fire
+           from public.pickup_event order by id`,
+      )
+    ).rows.map((r) => [r.id, r.cancel_check, r.window_from, r.window_bookings_at_fire, r.window_expected_at_fire]);
+
+  it("turns their frozen-window test off, keeps their window as history, and leaves cuts, retired fires and later raises alone", async () => {
+    const db = await openPglite({ countsBookings: false });
+    try {
+      await db.exec(seed);
+      await db.exec(readFileSync(COUNTS_BOOKINGS_MIGRATION, "utf8"));
+      expect(await checks(db)).toEqual([
+        // The two open raises with a window test lose it and keep the rest.
+        ["00000001", "none", "2026-09-09", 20, "2.00"],
+        ["00000002", "net_units", "2026-09-09", 20, "2.00"],
+        ["00000003", "net_units", null, null, null],
+        ["00000004", "none", null, null, null],
+        // Already off: history is not rewritten.
+        ["00000005", "window_bookings", "2026-09-09", 20, "2.00"],
+        ["00000006", "none", null, null, null],
+      ]);
+      // A raise the engine makes after the switch records its window in
+      // bookings, and a replay of the file must not touch it.
+      await db.exec(`insert into public.pickup_event (${COLUMNS}) values ${fire(7, { check: "window_bookings" })};`);
+      await db.exec(readFileSync(COUNTS_BOOKINGS_MIGRATION, "utf8"));
+      expect((await checks(db))[6]).toEqual(["00000007", "window_bookings", "2026-09-09", 20, "2.00"]);
+    } finally {
+      await db.close();
+    }
+  }, 120_000);
+
+  it("does the same on a database whose engine counted rooms on its row fallback, with no windows function at all", async () => {
+    const db = await openPglite({ countsBookings: false });
+    try {
+      await db.exec("drop function public.booking_speed_windows(uuid, date[], uuid[], uuid[]);");
+      await db.exec(seed);
+      await db.exec(readFileSync(COUNTS_BOOKINGS_MIGRATION, "utf8"));
+      expect((await checks(db)).slice(0, 2)).toEqual([
+        ["00000001", "none", "2026-09-09", 20, "2.00"],
+        ["00000002", "net_units", "2026-09-09", 20, "2.00"],
+      ]);
+    } finally {
+      await db.close();
+    }
+  }, 120_000);
+});

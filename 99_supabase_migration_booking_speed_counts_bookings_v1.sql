@@ -32,7 +32,32 @@
 --    booking and its pace would never move, while leaving an unfamiliar id
 --    alone only counts that booking's rooms one by one, as before.
 --
--- 2. booking_speed_windows(hotel, dates, exclude, include): the same
+-- 2. Open Booking Speed raises from before this file. A raise records the
+--    window it counted (window_from, window_to), what it counted there
+--    (window_bookings_at_fire) and what a night like it usually gets over
+--    those days (window_expected_at_fire), and comes off as
+--    bookings_cancelled once the bookings still on the books from that
+--    window are back to the expected number (cancellationCrossed in
+--    engine/pickup.ts). Every such raise open when this file runs recorded
+--    those two numbers in ROOMS, because that is what the engine counted at
+--    the fire, while every engine reads the window back in BOOKINGS from
+--    here on, which is never more and usually less: a wedding raise frozen
+--    at 20 rooms against the 2 a night like it gets would come off on the
+--    first run after this file with every room still booked, and the change
+--    log would say enough of its bookings cancelled. So this file turns that
+--    test off on the open raises it finds: cancel_check 'either' becomes
+--    'net_units' (the booked-rooms test still applies) and 'window_bookings'
+--    becomes 'none'. Their recorded window and numbers are left as history.
+--    Those raises still come off when their night passes, when a price is
+--    typed on the cell, when their rule is edited, and (net_units) when the
+--    rooms booked on the night are back to where the fire's window opened;
+--    they no longer come off for cancellations inside their window. Only the
+--    raises made before the unit changed are touched: the update runs only
+--    while booking_speed_windows is still the row-counting one (or missing),
+--    so a replay after the switch leaves the raises made since, whose
+--    numbers are in bookings, exactly as they are.
+--
+-- 3. booking_speed_windows(hotel, dates, exclude, include): the same
 --    signature and result shape as in
 --    99_supabase_migration_large_property_scale_v1.sql, but each count is
 --    now distinct bookings per stay date and booking window. A booking's
@@ -42,7 +67,7 @@
 --    are the originals. The definition in the large property file is now
 --    guarded so a replay of that file cannot put the room count back.
 --
--- 3. booking_speed_history_summary and booking_speed_first_stay_date are
+-- 4. booking_speed_history_summary and booking_speed_first_stay_date are
 --    unchanged. The summary only feeds the season model: n is how many rooms
 --    a past night sold, and rank_windows is the lead time at which the night
 --    reached each fraction of its ROOM capacity (milestoneRanks in
@@ -80,9 +105,16 @@
 -- from this function; the app carries the "?" panels and the drill-down
 -- that now say a booking with several rooms counts once. Between the
 -- migration and the deploy, the old engine reads the new counts (one per
--- booking) and nothing else changes; between the deploy and the migration
--- the new engine would read room counts from the old function, so run the
--- migration first.
+-- booking) on every night and comparable, so its pace calls, the fires it
+-- makes and the windows it records are in bookings from the first run
+-- after this file; the raises it made before are no longer tested on their
+-- window (2 above), and nothing else changes. Between the deploy and the
+-- migration the new engine would read room counts from the old function,
+-- so run the migration first. What an owner may notice: a night raised
+-- before this file and holding fewer bookings than rooms in its window is
+-- no longer taken back off for cancellations inside that window, and the
+-- three-raises alert on a night whose newest fire predates this file shows
+-- that fire's window numbers in rooms until a newer fire replaces it.
 --
 -- Checking by hand (the SQL editor carries no JWT, so say you are the
 -- service role for one transaction):
@@ -133,7 +165,43 @@ comment on function public.booking_key(text) is
   'The booking a reservation row belongs to, from its external_reservation_id: Think <reservation>:<booking> keeps the reservation, Cloudbeds <reservation>-<room> keeps the reservation, anything else (Mews GUIDs, bare ids, seeds) is itself. Same rule as bookingKeyOf in observations/booking-rows.ts.';
 
 -- ----------------------------------------------------------------------------
--- 2. Grouped windows, one count per booking
+-- 2. Open raises recorded in rooms
+-- ----------------------------------------------------------------------------
+
+-- Before the windows function below is replaced, so the guard can still tell
+-- whether the raises on the table were counted in rooms: while
+-- booking_speed_windows is the row-counting one from the large property
+-- file, or missing (the engine's row fallback counted rooms too), every
+-- open Booking Speed raise recorded its window in rooms. Turn the
+-- frozen-window cancellation test off on those and keep the rest of the
+-- row as history (window_from, window_to and both numbers stay). The
+-- stacking checks hold either way: 'net_units' and 'none' need no window,
+-- and both are only ever set on a raise. Once the function counts bookings
+-- this block does nothing, so a replay never touches raises made since.
+do $rooms$
+begin
+  if exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'booking_speed_windows'
+      and pg_get_function_identity_arguments(p.oid) = 'p_hotel_id uuid, p_dates date[], p_exclude uuid[], p_include uuid[]'
+      and p.prosrc like '%booking_key%'
+  ) then
+    return;
+  end if;
+
+  update public.pickup_event
+     set cancel_check = case cancel_check when 'either' then 'net_units' else 'none' end
+   where retired_at is null
+     and action_direction = 'increase'
+     and cancel_check in ('window_bookings', 'either');
+end
+$rooms$;
+
+-- ----------------------------------------------------------------------------
+-- 3. Grouped windows, one count per booking
 -- ----------------------------------------------------------------------------
 
 -- Grouped windows for exactly the stay dates asked for: one row per date that
