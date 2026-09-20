@@ -4,6 +4,10 @@
  * The example numbers are what classifyBookingSpeed really says against 5
  * expected (with at least 5 comparable dates), and the test holds them to it.
  *
+ * The unit is a booking, not a room (observations/booking-rows.ts
+ * bookingKeyOf): a reservation with several rooms counts once, live and on
+ * the nights it is compared with, and the panel says so in one line.
+ *
  * Once a night has been raised, a rule that raises counts only bookings
  * made after that raise, whichever rule made it (from the next day on,
  * bookingSpeedCountFrom in engine/pickup.ts), against the similar nights
@@ -27,12 +31,13 @@ export function bookingSpeedHelp(windowDays: number): { label: string; title: st
     label: "How booking speed is measured",
     title: "How booking speed works",
     lines: [
-      `MAYA counts how many rooms were booked for a night during the past ${span}.`,
+      `MAYA counts how many bookings a night received during the past ${span}.`,
+      "A booking with several rooms counts once.",
       `It compares that with similar nights from past years (same day of the week, same time of year) during a ${span} when they were just as far from arrival.`,
-      `Say those nights usually got about ${e.expected} rooms booked in that ${span}. If this night got ${e.muchSlower}, that's much slower than normal. ${e.normal[0]} or ${e.normal[1]} is normal. ${e.muchFaster} is much faster than normal.`,
-      "Only the room types this rule measures are counted.",
-      "Once a night has been raised, rules that raise only count rooms booked after that raise, whichever rule made it. Rules that cut count from the night's last cut the same way.",
-      "Those rooms are compared with similar nights over the same days.",
+      `Say those nights usually got about ${e.expected} bookings in that ${span}. If this night got ${e.muchSlower}, that's much slower than normal. ${e.normal[0]} or ${e.normal[1]} is normal. ${e.muchFaster} is much faster than normal.`,
+      "Only bookings in the room types this rule measures are counted.",
+      "Once a night has been raised, rules that raise only count bookings made after that raise, whichever rule made it. Rules that cut count from the night's last cut the same way.",
+      "Those bookings are compared with similar nights over the same days.",
       "If those keep the rule true after its wait, it adjusts that night again.",
     ],
   };

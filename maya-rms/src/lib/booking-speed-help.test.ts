@@ -19,6 +19,19 @@ describe("bookingSpeedHelp", () => {
     expect(bookingSpeedHelp(30).lines[0]).toContain("past month");
   });
 
+  it("counts bookings, and says in one short line that a booking with several rooms counts once", () => {
+    // What the engine does: a reservation is one booking on each of its
+    // nights however many rooms it holds (booking-rows.ts bookingKeyOf,
+    // booking_key in SQL), while occupancy still counts rooms.
+    for (const w of [1, 7, 30]) {
+      const h = bookingSpeedHelp(w);
+      expect(h.lines[0]).toMatch(/^MAYA counts how many bookings a night received/);
+      expect(h.lines[1]).toBe("A booking with several rooms counts once.");
+      expect(h.lines[1].length).toBeLessThan(50);
+      expect(h.lines.join(" ")).not.toMatch(/rooms (were |are )?booked/);
+    }
+  });
+
   it("says in one line that the rule can act again after its wait", () => {
     const line = bookingSpeedHelp(7).lines.at(-1)!;
     expect(line).toBe("If those keep the rule true after its wait, it adjusts that night again.");
@@ -32,9 +45,9 @@ describe("bookingSpeedHelp", () => {
     // (observeBookingSpeed countFrom).
     for (const w of [1, 7, 30]) {
       expect(bookingSpeedHelp(w).lines.at(-3)).toBe(
-        "Once a night has been raised, rules that raise only count rooms booked after that raise, whichever rule made it. Rules that cut count from the night's last cut the same way.",
+        "Once a night has been raised, rules that raise only count bookings made after that raise, whichever rule made it. Rules that cut count from the night's last cut the same way.",
       );
-      expect(bookingSpeedHelp(w).lines.at(-2)).toBe("Those rooms are compared with similar nights over the same days.");
+      expect(bookingSpeedHelp(w).lines.at(-2)).toBe("Those bookings are compared with similar nights over the same days.");
     }
   });
 
