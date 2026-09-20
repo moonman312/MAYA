@@ -25,13 +25,16 @@ describe("bookingSpeedHelp", () => {
     expect(line.length).toBeLessThan(80);
   });
 
-  it("says that after it adjusts a night it only counts what was booked after that", () => {
-    // What the engine does: bookingSpeedCountFrom, and the comparables read
-    // over the same shorter stretch (observeBookingSpeed countFrom).
+  it("says that once a night was raised or cut, a rule its way only counts what was booked after that", () => {
+    // What the engine does: bookingSpeedAnchors and bookingSpeedCountFrom
+    // (raises share the night's last raise, cuts its last cut, whichever
+    // rule made it), and the comparables read over the same shorter stretch
+    // (observeBookingSpeed countFrom).
     for (const w of [1, 7, 30]) {
-      expect(bookingSpeedHelp(w).lines.at(-2)).toBe(
-        "After it adjusts a night, it only counts rooms booked after that, compared with similar nights over the same days.",
+      expect(bookingSpeedHelp(w).lines.at(-3)).toBe(
+        "Once a night has been raised, rules that raise only count rooms booked after that raise, whichever rule made it. Rules that cut count from the night's last cut the same way.",
       );
+      expect(bookingSpeedHelp(w).lines.at(-2)).toBe("Those rooms are compared with similar nights over the same days.");
     }
   });
 
@@ -52,9 +55,12 @@ describe("bookingSpeedWaitHelp", () => {
     expect(h.lines.join(" ")).toContain("Each room type waits on its own");
     expect(h.lines.join(" ")).toContain("stronger rule can still step in");
     expect(h.lines.join(" ")).toContain("three times");
-    // Once it is over, only what came in after its last adjustment counts,
-    // until a typed price starts it over with its whole window.
-    expect(h.lines.join(" ")).toContain("it only counts bookings made after it adjusted");
+    // Once it is over, only what came in after the night's last raise (or
+    // cut, for a cut rule) counts, by any rule, until a typed price starts
+    // it over with its whole window.
+    expect(h.lines.join(" ")).toContain(
+      "it only counts bookings made since the night was last raised (for a rule that raises) or last cut (for one that cuts), whichever rule did it",
+    );
     expect(h.lines.join(" ")).toContain("starts it over");
     expect(h.lines.join(" ")).toContain("whole window");
   });

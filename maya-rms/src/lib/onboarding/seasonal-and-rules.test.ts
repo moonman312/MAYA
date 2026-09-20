@@ -219,12 +219,13 @@ describe("computeStarterRules: the booking-speed ladder", () => {
     expect(byName.get("Sudden-spike catcher")!.explanation).toContain("repeated daily");
   });
 
-  it("says a rule that acts again judges only the bookings since it last did", () => {
-    // engine/pickup.ts bookingSpeedCountFrom: after a fire a rule counts only
-    // bookings made after it.
-    expect(byName.get("Slow-date rescue")!.explanation).toContain("judges only the bookings made since the cut");
-    expect(byName.get("Slow-date trim")!.explanation).toContain("looking only at bookings made since it");
-    expect(byName.get("Warm-date bump")!.explanation).toContain("only if the bookings made since are still ahead");
+  it("says a rule that acts again judges only the bookings since the night was last raised or cut", () => {
+    // engine/pickup.ts bookingSpeedAnchors and bookingSpeedCountFrom: a raise
+    // rule counts from the night's last raise, a cut rule from its last cut,
+    // whichever rule made it.
+    expect(byName.get("Slow-date rescue")!.explanation).toContain("judges only the bookings made since the night was last cut");
+    expect(byName.get("Slow-date trim")!.explanation).toContain("looking only at bookings made since the night was last cut");
+    expect(byName.get("Warm-date bump")!.explanation).toContain("only if the bookings made since the night was last raised are still ahead");
     expect(byName.get("Hot-week surge")!.explanation).toContain("while new bookings keep coming");
     for (const r of rules) {
       expect(r.explanation).not.toContain("the night is still");

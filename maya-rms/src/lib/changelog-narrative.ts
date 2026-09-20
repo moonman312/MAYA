@@ -61,7 +61,8 @@ export type NarrativeMetrics = {
     /** The days it counted. Only read together with counted_from. */
     window_days?: number | null;
     /**
-     * Set when the rule had already changed this night: it counted only
+     * Set when the night had already been raised (for a rule that raises)
+     * or cut (for one that cuts), by any rule: this rule counted only
      * bookings made from this date on (the day after that change).
      */
     counted_from?: string | null;
@@ -219,22 +220,26 @@ function speedLead(levelKey: string, when: string, subject = "Bookings"): string
  * The level comes from the rule, not from the snapshot: it is the pace the
  * owner wrote into the condition, and it is the one their rule acted on.
  *
- * A rule that had already changed the night counted only the days after
- * that change (engine/pickup.ts, bookingSpeedCountFrom), so the sentence
- * names those days instead of its whole window.
+ * On a night already raised (for a rule that raises) or cut (for one that
+ * cuts), by any rule, the rule counted only the days after that change
+ * (engine/pickup.ts, bookingSpeedCountFrom), so the sentence names those
+ * days instead of its whole window. `direction` is the rule's, and decides
+ * whether that change reads as a raise or a cut.
  */
 function bookingSpeedSentence(
   condition: RuleCondition,
   metrics?: NarrativeMetrics | null,
   measured?: string[] | null,
+  direction?: "increase" | "decrease" | null,
 ): string | null {
   if (!condition.booking_speed_operator || !condition.booking_speed_level) return null;
   const counted = metrics?.booking_speed?.counted_from ? metrics.booking_speed.window_days : null;
+  const change = direction === "decrease" ? "cut" : direction === "increase" ? "raised" : "changed by a rule";
   const when =
     counted != null && counted >= 1
       ? counted === 1
-        ? "on the day after it last changed this night"
-        : `in the ${counted} days after it last changed this night`
+        ? `on the day after this night was last ${change}`
+        : `in the ${counted} days after this night was last ${change}`
       : condition.booking_speed_window_days === 1
         ? "this past day"
         : condition.booking_speed_window_days === 30
@@ -284,12 +289,13 @@ export function describeConditions(
   condition: RuleCondition | null,
   metrics?: NarrativeMetrics | null,
   measured?: string[] | null,
+  direction?: "increase" | "decrease" | null,
 ): string[] {
   if (!condition) return [];
   const sentences = [
     fullnessSentence(condition, metrics, measured),
     pickupSentence(condition, metrics, measured),
-    bookingSpeedSentence(condition, metrics, measured),
+    bookingSpeedSentence(condition, metrics, measured, direction),
     // Last, on purpose: it qualifies the occupancy figure, and a reader
     // shouldn't have to step over it to reach the point.
     exclusionSentence(condition, metrics),
@@ -369,7 +375,7 @@ export function narrateChange(input: NarrativeInput): string[] {
     // A repeat's conditions were read on the run it fired, not this one, so
     // only the fire this run made carries a "why" it can stand behind.
     if (!app.repeat || app.metrics) {
-      sentences.push(...describeConditions(app.condition, app.metrics, app.measured_room_types));
+      sentences.push(...describeConditions(app.condition, app.metrics, app.measured_room_types, app.action.direction));
     }
   });
 

@@ -424,27 +424,41 @@ describe("booking speed narration", () => {
     ]);
   });
 
-  it("names the days a rule counted after it had already changed the night", () => {
-    // engine/pickup.ts bookingSpeedCountFrom: after a fire the rule counts
-    // only bookings made from the next day on.
+  it("names the days a rule counted after the night was last raised or cut", () => {
+    // engine/pickup.ts bookingSpeedAnchors and bookingSpeedCountFrom: a
+    // raise rule counts only bookings made from the day after the night's
+    // last raise, by any rule; a cut rule from the day after its last cut.
     const month = { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 30 } as const;
     expect(
-      describeConditions(month, {
-        booking_speed: { label: "Surging", recent: 12, expected: 0.4, window_days: 3, counted_from: "2026-09-17" },
-      }),
+      describeConditions(
+        month,
+        { booking_speed: { label: "Surging", recent: 12, expected: 0.4, window_days: 3, counted_from: "2026-09-17" } },
+        null,
+        "increase",
+      ),
     ).toEqual([
-      "Bookings came in faster than normal in the 3 days after it last changed this night: 12, where a night like this usually gets almost none in those days.",
+      "Bookings came in faster than normal in the 3 days after this night was last raised: 12, where a night like this usually gets almost none in those days.",
     ]);
     expect(
       describeConditions(
         { booking_speed_operator: "at_most", booking_speed_level: "stalled", booking_speed_window_days: 7 },
         { booking_speed: { label: "Stalled", recent: 0, expected: 7, window_days: 1, counted_from: "2026-09-17" } },
+        null,
+        "decrease",
       ),
     ).toEqual([
-      "Bookings all but stopped on the day after it last changed this night: none, against the 7 a night like this usually gets that day.",
+      "Bookings all but stopped on the day after this night was last cut: none, against the 7 a night like this usually gets that day.",
+    ]);
+    // Without the rule's direction the change is just a rule's.
+    expect(
+      describeConditions(month, {
+        booking_speed: { label: "Surging", recent: 12, expected: 0.4, window_days: 3, counted_from: "2026-09-17" },
+      }),
+    ).toEqual([
+      "Bookings came in faster than normal in the 3 days after this night was last changed by a rule: 12, where a night like this usually gets almost none in those days.",
     ]);
     // A whole window, or a snapshot from before this, reads as it always did.
-    expect(describeConditions(month, { booking_speed: { label: "Faster Than Normal", recent: 11, expected: 6, window_days: 30 } })).toEqual([
+    expect(describeConditions(month, { booking_speed: { label: "Faster Than Normal", recent: 11, expected: 6, window_days: 30 } }, null, "increase")).toEqual([
       "Bookings came in faster than normal this past month: 11, against the 6 a night like this usually has by now.",
     ]);
   });

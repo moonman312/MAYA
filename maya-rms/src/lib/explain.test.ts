@@ -209,27 +209,42 @@ describe("buildExplainView", () => {
   });
 });
 
-describe("an observation a rule's last change cut short", () => {
-  // engine/pickup.ts bookingSpeedCountFrom: a rule that fired on 2026-07-25
-  // counts bookings made from the 26th on, 3 days by 2026-07-28.
-  const cut = { ...comparableSnapshot, windowDays: 3, countedFrom: "2026-07-26", fullWindowDays: 30 };
+describe("an observation the night's last raise or cut cut short", () => {
+  // engine/pickup.ts bookingSpeedAnchors and bookingSpeedCountFrom: after a
+  // raise on 2026-07-25 by any rule, a raise rule counts bookings made from
+  // the 26th on, 3 days by 2026-07-28.
+  const cut = { ...comparableSnapshot, windowDays: 3, countedFrom: "2026-07-26", fullWindowDays: 30, countedAfter: "raise" };
 
   it("says which days it counted and why, in plain words", () => {
     const view = buildExplainView(cut)!;
     expect(view.observed).toBe(
-      "In the 3 days after a rule last changed this night on Sat, Jul 25 2026, 9 bookings arrived for it, with 17 days still to go before arrival.",
+      "This night was last raised on Sat, Jul 25 2026. In the 3 days after that, 9 bookings arrived for it, with 17 days still to go before arrival.",
     );
     expect(view.expected).toContain("over the same stretch");
     expect(view.assumptions[0]).toBe(
-      "A rule that has already changed this night counts only the bookings made after that day, and reads the nights it is compared with over the same days.",
+      "Once a night has been raised, rules that raise count only the bookings made after that raise, whichever rule made it, and read the nights it is compared with over the same days.",
     );
     expect(view.window_days).toBe(3);
     for (const line of [view.observed, view.assumptions[0]]) expect(line).not.toMatch(/[<>=≤≥—]/);
   });
 
+  it("says a cut as a cut", () => {
+    const view = buildExplainView({ ...cut, countedAfter: "cut" })!;
+    expect(view.observed).toContain("This night was last cut on Sat, Jul 25 2026. In the 3 days after that,");
+    expect(view.assumptions[0]).toContain("Once a night has been cut, rules that cut count only the bookings made after that cut");
+  });
+
   it("says a single day as a day", () => {
     const view = buildExplainView({ ...cut, windowDays: 1, countedFrom: "2026-07-28" })!;
-    expect(view.observed).toContain("In the day after a rule last changed this night on Mon, Jul 27 2026,");
+    expect(view.observed).toContain("This night was last raised on Mon, Jul 27 2026. In the day after that,");
+  });
+
+  it("reads a snapshot that doesn't say raise or cut as a change by a rule", () => {
+    const view = buildExplainView({ ...cut, countedAfter: undefined })!;
+    expect(view.observed).toContain("This night was last changed by a rule on Sat, Jul 25 2026.");
+    expect(view.assumptions[0]).toBe(
+      "A rule that has already changed this night counts only the bookings made after that day, and reads the nights it is compared with over the same days.",
+    );
   });
 
   it("reads a whole-window snapshot as it always did", () => {

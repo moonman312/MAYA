@@ -138,12 +138,16 @@ export function buildExplainView(
     : measured.length > 0
       ? `${recent} ${listWords(measured)} ${recent === 1 ? "booking" : "bookings"}`
       : `${bookingWord(recent)} for the room types this rule watches`;
-  // Set when a rule that had already changed this night counted only the
-  // days after that change (engine/pickup.ts, bookingSpeedCountFrom).
+  // Set when the night had already been raised (for a rule that raises) or
+  // cut (for one that cuts), by any rule, and this rule counted only the
+  // days after that (engine/pickup.ts, bookingSpeedCountFrom). countedAfter
+  // says which; a snapshot without it reads as a change by a rule.
   const countedFrom = str(snap.countedFrom);
   const changedOn = countedFrom ? dayBefore(countedFrom) : null;
+  const countedAfter = str(snap.countedAfter);
+  const lastChange = countedAfter === "cut" ? "cut" : countedAfter === "raise" ? "raised" : "changed by a rule";
   const observed = changedOn
-    ? `In the ${windowPhrase} after a rule last changed this night on ${humanDate(changedOn)}, ${arrived} arrived for it, with ${dayWord(daysOut)} still to go before arrival.`
+    ? `This night was last ${lastChange} on ${humanDate(changedOn)}. In the ${windowPhrase} after that, ${arrived} arrived for it, with ${dayWord(daysOut)} still to go before arrival.`
     : `In the last ${windowPhrase}, ${arrived} arrived for this night, with ${dayWord(daysOut)} still to go before arrival.`;
 
   // The engine persists insufficient_data snapshots with a numeric
@@ -173,7 +177,13 @@ export function buildExplainView(
   const selAssumptions = rec(selection?.assumptions);
   const assumptions: string[] = [];
   if (changedOn) {
-    assumptions.push(`A rule that has already changed this night counts only the bookings made after that day, and reads the nights it is compared with over the same days.`);
+    assumptions.push(
+      countedAfter === "cut"
+        ? `Once a night has been cut, rules that cut count only the bookings made after that cut, whichever rule made it, and read the nights it is compared with over the same days.`
+        : countedAfter === "raise"
+          ? `Once a night has been raised, rules that raise count only the bookings made after that raise, whichever rule made it, and read the nights it is compared with over the same days.`
+          : `A rule that has already changed this night counts only the bookings made after that day, and reads the nights it is compared with over the same days.`,
+    );
   }
   if (methodKey === "comparable" && selAssumptions) {
     const dow = str(selAssumptions.dayOfWeek);
