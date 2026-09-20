@@ -63,8 +63,9 @@ export function bookingSpeedWindows(reservations: FakeRow[], a: Record<string, u
     const d = String(r.stay_date);
     if (!wanted.has(d)) continue;
     const m = byDate.get(d) ?? new Map<string, number | null>();
+    // An empty id is its own row, as in the SQL (nullif) and the builder.
     const key =
-      r.external_reservation_id != null
+      r.external_reservation_id != null && r.external_reservation_id !== ""
         ? bookingKeyOf(String(r.external_reservation_id))
         : r.id != null
           ? `id ${String(r.id)}`

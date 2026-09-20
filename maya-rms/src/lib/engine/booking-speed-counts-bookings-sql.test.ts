@@ -250,6 +250,30 @@ describe.skipIf(!PGLITE_DIR)("booking speed counts bookings, in PGlite", () => {
     expect(cells!.booked.get(`${night}|${rt}`)!.units).toBe(21);
   }, 120_000);
 
+  it("rows with an empty id are each their own booking, in SQL as in the builder and the rpc model", async () => {
+    // The schema only says not null and the parsers skip empty ids, so no
+    // row carries one; the one shape where the two paths could drift.
+    const night = "2026-10-11";
+    const rt = uuidFor("rt-a");
+    const row = (i: number, ext: string | null, bookedOn: string): FakeRow => ({
+      id: `b0000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+      hotel_id: H1,
+      stay_date: night,
+      room_type_id: rt,
+      booking_date: bookedOn,
+      external_reservation_id: ext,
+      current_rate: 100,
+      base_rate: 100,
+    });
+    const rows = [row(1, "", "2026-09-01"), row(2, "", "2026-09-05"), row(3, "x", "2026-09-05"), row(4, null, "2026-09-05")];
+    await insertReservations(db, rows);
+    const args = { p_hotel_id: H1, p_dates: [night], p_exclude: [] };
+    const { data } = await pgliteRpc(db)("booking_speed_windows", args);
+    expect(data).toEqual([{ stay_date: night, n: 4, bws: [36, 40], counts: [3, 1] }]);
+    expect(data).toEqual(bookingSpeedWindows(rows, args));
+    expect(data).toEqual(windowsFromIndex(rows, [night], () => true));
+  }, 120_000);
+
   it("a replay of the large property migration leaves the booking count in place", async () => {
     await db.exec(readFileSync(LARGE_PROPERTY, "utf8"));
     const { rows } = await db.query(

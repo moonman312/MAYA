@@ -165,9 +165,11 @@ begin
   with kept as (
     select
       r.stay_date,
-      -- A row with no id (none exist under the schema's not-null, but the
-      -- function must not fold them into one booking) is its own booking.
-      coalesce(public.booking_key(r.external_reservation_id), r.id::text) as booking,
+      -- A row with no id, or an empty one (the schema only says not null,
+      -- and the parsers skip empty ids, so none exist; but the function must
+      -- never fold every such row on a night into one booking) is its own
+      -- booking, as it is in StayDateWindowsBuilder.
+      coalesce(public.booking_key(nullif(r.external_reservation_id, '')), r.id::text) as booking,
       case
         when r.booking_date is not null then r.stay_date - r.booking_date
         else r.booking_window_days
