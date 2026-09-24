@@ -1,11 +1,14 @@
 /**
  * The migration's deploy runbook names every edge function that carries the
  * code this build changed: the booking unit lives in
- * observations/booking-rows.ts and the engine's row fallback in
- * engine/booking-speed-provider.ts, and every scheduled sync runs the engine.
- * A function left on the old bundle would count rooms on its fallback and
- * read bookings from the migrated function, and its nights would read
- * differently from the app's.
+ * observations/booking-rows.ts, the engine's row fallback and split reads in
+ * engine/booking-speed-provider.ts, where each rule counts from in
+ * engine/pickup.ts, and every scheduled sync runs the engine. A function
+ * left on the old bundle would count rooms on its fallback and read
+ * bookings from the migrated function, and its nights would read
+ * differently from the app's. The starter rules' explanations live in
+ * onboarding/generate-rules.ts, which only the import worker bundles: left
+ * on the old bundle, a hotel onboarded in the gap keeps the old text.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, normalize, resolve } from "node:path";
@@ -17,7 +20,10 @@ const MIGRATION = resolve(__dirname, "../../../../99_supabase_migration_booking_
 /** Shared modules this build changed the behaviour of. */
 const CHANGED = [
   "supabase/functions/_shared/observations/booking-rows.ts",
+  "supabase/functions/_shared/observations/expected-bookings.ts",
   "supabase/functions/_shared/engine/booking-speed-provider.ts",
+  "supabase/functions/_shared/engine/pickup.ts",
+  "supabase/functions/_shared/onboarding/generate-rules.ts",
 ];
 
 /** Every file an edge function's bundle pulls in, following relative imports. */
@@ -56,8 +62,13 @@ describe("the booking speed counts bookings migration's deploy list", () => {
       return CHANGED.some((changed) => [...closure].some((f) => f.endsWith(changed)));
     });
     // Every scheduled sync runs the engine. The import worker writes the
-    // starter rules, whose text already said bookings, and reads none of this.
-    expect(carries.sort()).toEqual(["cloudbeds-scheduled-sync", "mews-scheduled-sync", "think-scheduled-sync"]);
+    // starter rules and their explanations, which changed.
+    expect(carries.sort()).toEqual([
+      "cloudbeds-scheduled-sync",
+      "mews-scheduled-sync",
+      "onboarding-import-worker",
+      "think-scheduled-sync",
+    ]);
     for (const name of carries) expect(header).toContain(name);
   });
 });

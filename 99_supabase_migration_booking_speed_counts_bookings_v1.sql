@@ -59,32 +59,38 @@
 --    numbers are in bookings, exactly as they are.
 --
 -- 3. booking_speed_windows(hotel, dates, exclude, include, since): the
---    result shape of 99_supabase_migration_large_property_scale_v1.sql, but
---    each count is now distinct bookings per stay date and booking window.
---    A booking's window on a night is its earliest booking date across its
---    rooms that night (the longest known lead time), so rooms added to a
---    booking later never read as new bookings. The fifth argument, p_since,
---    is new: given, only the bookings first seen after that instant count
---    (the earliest created_at across a booking's rows on the night). The
---    engine asks for it once per fire it counts from: a Booking Speed rule
---    counts from the day of the night's last fire its way, and on that day
---    only the bookings that reached MAYA after the fire, so a burst later
---    on the day of a raise is not lost with the raise (engine/pickup.ts
---    bookingSpeedCountFrom, observations/expected-bookings.ts split). The
---    four-argument function is dropped so PostgREST has one to choose;
---    calls that name no p_since get the default. Grants, security definer
---    and search_path are the originals. The definition in the large
---    property file is guarded so a replay of that file cannot put the row
---    count back nor a second overload beside this one.
+--    result of 99_supabase_migration_large_property_scale_v1.sql plus a
+--    `since` column, and each count is now distinct bookings per stay date
+--    and booking window. A booking's window on a night is its earliest
+--    booking date across its rooms that night (the longest known lead
+--    time), so rooms added to a booking later never read as new bookings.
+--    The fifth argument, p_since, is new: one instant per date, and for each
+--    (date, instant) pair only the bookings first seen after the instant
+--    count (the earliest created_at across a booking's rows on the night),
+--    each pair on its own row with the instant in `since`. A Booking Speed
+--    rule that raised a night counts, when it next decides, only what came
+--    after its own raise: from the raise's day on, and on that day only the
+--    bookings that reached MAYA after the raise, so a burst later on the day
+--    of a raise is not lost with it (engine/pickup.ts bookingSpeedCountFrom,
+--    observations/expected-bookings.ts split). The engine reads every
+--    (night, raise) pair a run needs in one call per set of room types,
+--    however many raises made them. Without p_since, `since` is null and
+--    the query is the plain count. The older four-argument function (and a
+--    five-argument one with a single instant, from an earlier copy of this
+--    file) is dropped so PostgREST has one to choose; calls that name no
+--    p_since get the default. Grants, security definer and search_path are
+--    the originals. The definition in the large property file is guarded so
+--    a replay of that file cannot put the row count back nor a second
+--    overload beside this one.
 --
 -- 4. pickup_event.window_since (timestamptz, null): a Booking Speed raise
---    that counted its first day (window_from) from an earlier fire records
---    that fire here, and its frozen window is read back the same way when
---    it is tested for cancellations (bookingsInFrozenWindow): that day
---    counts only the bookings first seen after the fire, as the raise
---    counted it. Null when the day was counted whole, which is every fire
---    from before this file. Nothing is backfilled: those fires counted from
---    the day after their anchor, and their window_from says so.
+--    that counted its first day (window_from) from its rule's own earlier
+--    raise records that raise here, and its frozen window is read back the
+--    same way when it is tested for cancellations (bookingsInFrozenWindow):
+--    that day counts only the bookings first seen after the earlier raise,
+--    as the raise counted it. Null when the day was counted whole, which is
+--    every fire from before this file and every cut. Nothing is backfilled:
+--    the fires from before this file counted their whole window.
 --
 -- 5. booking_speed_history_summary and booking_speed_first_stay_date are
 --    unchanged. The summary only feeds the season model: n is how many rooms
@@ -115,7 +121,7 @@
 --
 -- The engine reads p_since and window_since as soon as it is deployed, so
 -- this file must be on the database first: without window_since every fire
--- read fails and the run with it; without p_since the fire's day is read
+-- read fails and the run with it; without p_since the raise's day is read
 -- row by row, which works and is slower.
 --
 -- Run AFTER 99_supabase_migration_large_property_scale_v1.sql. Idempotent,
@@ -123,29 +129,40 @@
 -- 02_supabase_schema.sql for existing databases.
 --
 -- Deploy: run this, then deploy cloudbeds-scheduled-sync,
--- mews-scheduled-sync and think-scheduled-sync (one command each; loops
--- are blocked), then push the app. Every scheduled sync runs the engine,
--- which counts bookings on its own row fallback and reads the same unit
--- from this function; the app carries the "?" panels and the drill-down
--- that now say a booking with several rooms counts once, and that a rule
--- counts from a night's last raise or cut the rest of that day included.
+-- mews-scheduled-sync, think-scheduled-sync and onboarding-import-worker
+-- (one command each; loops are blocked), then push the app. Every scheduled
+-- sync runs the engine, which counts bookings on its own row fallback and
+-- reads the same unit from this function. onboarding-import-worker is the
+-- only place that writes a new hotel's starter rules and their
+-- explanations (_shared/onboarding/generate-rules.ts), which now say that
+-- a rule counts only the bookings made since it last adjusted the night
+-- and that the cut rules look at full days only; left on the old bundle,
+-- a hotel onboarded in the gap keeps the old text for good. The app runs
+-- the same engine (the evaluate button, a typed price's republish, a room
+-- type reprice) and carries the "?" panels, the change log and the
+-- drill-down that now say a booking with several rooms counts once, that
+-- each rule counts only the bookings made since it last adjusted the night
+-- (bookings another rule acted on still count toward it), and that a rule
+-- that cuts reads full days up to yesterday.
 -- Between the migration and the deploy, the old engine reads the new
 -- counts (one per booking) on every night and comparable, so its pace
 -- calls, the fires it makes and the windows it records are in bookings
 -- from the first run after this file; the raises it made before are no
--- longer tested on their window (2 above); it names no p_since and writes
--- no window_since, so it still counts from the day after a fire; and
--- nothing else changes. Between the deploy and the migration the new
--- engine would read room counts from the old function and fail every run
--- reading fires (no window_since column), so run the migration first. What
--- an owner may notice: a night raised before this file and holding fewer
--- bookings than rooms in its window is no longer taken back off for
--- cancellations inside that window; the three-raises alert on a night
--- whose newest fire predates this file shows that fire's window numbers in
--- rooms until a newer fire replaces it; and once the new engine runs, a
--- rule may raise or cut again on bookings that reached MAYA later on the
--- day of the night's last raise or cut, which every engine before it
--- passed over for good.
+-- longer tested on their window (2 above); it names no p_since, writes no
+-- window_since and still judges every rule's whole window, today included,
+-- as it always has; and nothing else changes. Between the deploy and the
+-- migration the new engine would read room counts from the old function
+-- and fail every run reading fires (no window_since column), so run the
+-- migration first. What an owner may notice: a night raised before this
+-- file and holding fewer bookings than rooms in its window is no longer
+-- taken back off for cancellations inside that window; the three-raises
+-- alert on a night whose newest fire predates this file shows that fire's
+-- window numbers in rooms until a newer fire replaces it; once the new
+-- engine runs, a rule that has adjusted a night judges only the bookings
+-- made since (so one burst is raised at most once by each raise rule whose
+-- level it reaches, where it used to be raised again every wait), and a
+-- rule that cuts judges full days ending yesterday, and after a cut has
+-- nothing to judge until a full day has passed.
 --
 -- Checking by hand (the SQL editor carries no JWT, so say you are the
 -- service role for one transaction):
@@ -154,10 +171,15 @@
 --   select set_config('request.jwt.claims', '{"role":"service_role"}', true);
 --   select public.booking_key('6364686337417-2'), public.booking_key('res_1:b1');
 --   select * from public.booking_speed_windows('<hotel id>', array[current_date + 30]);
+--   select * from public.booking_speed_windows('<hotel id>',
+--     array[current_date + 30, current_date + 30], '{}', null,
+--     array[now() - interval '7 days', now() - interval '1 day']);
 --   commit;
 --
 -- The first select gives 6364686337417 and res_1. The second's counts on a
--- night with a multi-room reservation are lower than count(*) over its rows.
+-- night with a multi-room reservation are lower than count(*) over its rows,
+-- and its `since` is null. The third gives at most one row per instant, in
+-- order, the later instant's counts never above the earlier one's.
 -- ============================================================================
 
 begin;
