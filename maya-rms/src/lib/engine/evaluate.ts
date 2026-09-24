@@ -8,7 +8,7 @@
 
 import type { EngineRule } from "@/types/domain";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { countFromInWindow, windowDaysFrom } from "@/lib/observations/expected-bookings";
+import { countFromInWindow, lastCountedDay, windowDaysFrom } from "@/lib/observations/expected-bookings";
 import type { AuditInput } from "./audit";
 import {
   buildAuditRow,
@@ -21,6 +21,7 @@ import {
 import {
   bookingSpeedAuditSnapshots,
   bookingSpeedMetrics,
+  countsCompleteDays,
   loadBookingSpeedContext,
   loadSplitWindows,
   observeForStayDate,
@@ -36,12 +37,11 @@ import { createLadderPassBatch, evaluateLadderTriple, probeSuppressionSupport } 
 import { computeRuleMetrics } from "./metrics";
 import {
   baselineTsFrom,
-  bookingSpeedAnchorKey,
-  bookingSpeedAnchors,
   bookingSpeedCountFrom,
   candidateFor,
   fireHeadKey,
-  firesToRetire,
+  firesCancelled,
+  firesToReset,
   isWaiting,
   loadOpenPickupFires,
   loadPickupFireHeads,
@@ -53,6 +53,7 @@ import {
   waitAnchor,
   type BookingSpeedCountFrom,
   type FireHead,
+  type PickupRetireReason,
   type PickupWin,
   type RetiredPickupFire,
 } from "./pickup";
@@ -282,7 +283,8 @@ export async function evaluateHotel(
       rule_affected_room_type ( room_type_id )
     `,
     )
-    .eq("hotel_id", hotelId);
+    .eq("hotel_id", hotelId)
+    .eq("is_active", true);
 
   // Never proceed on a failed rule load. Discarding this error made the run
   // continue with zero rules, which quietly publishes the base price for
@@ -294,11 +296,7 @@ export async function evaluateHotel(
     throw new Error(`Failed to load pricing rules: ${rulesErr.message}`);
   }
 
-  // Every rule of the hotel, paused ones included. Only the active ones are
-  // evaluated (`rules`); a paused event rule's fires still apply and still
-  // anchor where the active Booking Speed rules start counting
-  // (bookingSpeedAnchors).
-  const loadedRules: EngineRule[] = (rulesData ?? []).map((r) => {
+  const rules: EngineRule[] = (rulesData ?? []).map((r) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rc: any = Array.isArray(r.rule_condition)
       ? r.rule_condition[0]
@@ -307,7 +305,7 @@ export async function evaluateHotel(
       id: String(r.id),
       hotel_id: String(r.hotel_id),
       name: r.name,
-      is_active: Boolean(r.is_active),
+      is_active: true,
       version: Number(r.version ?? 1),
       start_date: r.start_date ?? null,
       end_date: r.end_date ?? null,
@@ -378,7 +376,6 @@ export async function evaluateHotel(
       updated_at: r.updated_at,
     };
   });
-  const rules = loadedRules.filter((r) => r.is_active);
 
   // Per rule, the names of active signal types that were dropped for not
   // counting as rooms. Recorded on every metrics object the rule produces so
@@ -603,10 +600,6 @@ export async function evaluateHotel(
 
   const ladderRules = rules.filter((r) => !r.is_pickup_rule);
   const pickupRules = rules.filter((r) => r.is_pickup_rule);
-  // Paused event rules: their fire history is read for the shared anchors
-  // only, a paused pickup count rule's raise having acted on the same
-  // bookings as a Booking Speed one's. Nothing else looks at them.
-  const pausedEventRules = loadedRules.filter((r) => !r.is_active && r.is_pickup_rule);
 
   // Booking Speed context: loaded once, and only when some active rule
   // actually uses the observation — everyone else pays nothing.
@@ -632,9 +625,10 @@ export async function evaluateHotel(
     );
   }
 
-  // `countFrom`: where the rule starts counting on the cell, from the cell's
-  // last fire in the rule's direction (bookingSpeedCountFrom: that fire's
-  // day, split at the fire). null counts its whole window.
+  // `countFrom`: where the rule starts counting on the cell, from its own
+  // last fire there (bookingSpeedCountFrom: a raise's day split at the
+  // raise, or the day after a cut). null counts its whole window. A rule
+  // that cuts reads complete days only, ending yesterday (countsCompleteDays).
   const attachBookingSpeed = (
     rule: EngineRule,
     stayDate: string,
@@ -649,9 +643,11 @@ export async function evaluateHotel(
       return;
     }
     const windowDays = rule.condition.booking_speed_window_days ?? 7;
-    // The fire's day is after this run's: a run whose clock was ahead
-    // recorded it. Nothing to judge until the day comes round.
-    if (windowDaysFrom(windowDays, localDate, countFrom?.from) < 1) {
+    // No complete day since its cut yet (a cut rule reads none of today),
+    // or a fire dated after this run's day by a run whose clock was ahead:
+    // nothing to judge until the day comes round.
+    const last = lastCountedDay(localDate, countsCompleteDays(rule.action_direction));
+    if (windowDaysFrom(windowDays, last, countFrom?.from) < 1) {
       metrics.booking_speed_block_reason = "since_last_fire";
       return;
     }
@@ -784,54 +780,24 @@ export async function evaluateHotel(
   // off here is already out of the prices this run publishes, and one this
   // run makes can never be taken off by the run that made it.
   const openFires = await loadOpenPickupFires(supabase, hotelId, roomTypeIds, firstDate, lastDate);
-  // An open raise that counted its first day from an earlier fire is tested
-  // on that day the same way (window_since): its split is read first.
-  if (bsCtx) {
-    const rulesById = new Map(rules.map((r) => [r.id, r]));
-    const needs: SplitNeed[] = [];
-    for (const fire of openFires) {
-      if (!fire.window_since || fire.action_direction !== "increase") continue;
-      if (fire.cancel_check !== "window_bookings" && fire.cancel_check !== "either") continue;
-      const rule = rulesById.get(fire.rule_id);
-      if (!rule || rule.signal_room_type_ids.length === 0) continue;
-      needs.push({ since: fire.window_since, stayDate: fire.stay_date, signalIds: rule.signal_room_type_ids });
-    }
-    if (needs.length > 0) await loadSplitWindows(supabase, hotelId, bsCtx, needs);
-  }
-  const retireReasons = firesToRetire(openFires, {
-    rules: new Map(rules.map((r) => [r.id, r])),
+  const rulesById = new Map(rules.map((r) => [r.id, r]));
+  // Fires a typed price or an edit takes off go first: they stop counting
+  // for their rule, so the fire history read below must not see them. One
+  // taken off for cancellations still counts, so that test waits for the
+  // day splits it reads with the rules' own (loadSplitWindows below).
+  const resetReasons = firesToReset(openFires, {
+    rules: rulesById,
     manualSetAtByCell: new Map([...manualByCell].map(([key, m]) => [key, m.set_at])),
-    bookedByCell: new Map(writtenSnapshots.map((s) => [`${s.stay_date}|${s.room_type_id}`, s.booked_units])),
-    bsCtx,
     now,
   });
-  const retiredIds = retireReasons.size > 0 ? await retireFires(supabase, hotelId, retireReasons, now) : new Set<string>();
-  const retiredByCell = new Map<string, RetiredPickupFire[]>();
-  for (const fire of openFires) {
-    if (!retiredIds.has(fire.id)) continue;
-    pushTo(retiredByCell, `${fire.stay_date}|${fire.affected_room_type_id}`, { fire, reason: retireReasons.get(fire.id)! });
-  }
-  const pickupEffectsByCell = pickupEffectsFromFires(openFires, retiredIds);
-  // Ladder writes are flushed: these are the rows the pass left active.
-  const ladderEffectsByCell = await loadActiveLadderEffectsForRange(
-    supabase,
-    roomTypeIds,
-    firstDate,
-    lastDate,
-    supportsSuppression,
-  );
+  const resetIds = resetReasons.size > 0 ? await retireFires(supabase, hotelId, resetReasons, now) : new Set<string>();
 
   // Each event rule's fire history on each cell, after the retirements
-  // above, and the owner's answers to repeat alerts on these nights. The
-  // paused event rules' heads are read for the anchors below only.
+  // above, and the owner's answers to repeat alerts on these nights.
   const fireHeads =
     pickupRules.length > 0
-      ? await loadPickupFireHeads(supabase, hotelId, [...pickupRules, ...pausedEventRules], firstDate, lastDate)
+      ? await loadPickupFireHeads(supabase, hotelId, pickupRules, firstDate, lastDate)
       : new Map<string, FireHead>();
-  // Where a Booking Speed rule starts counting on each cell: after the cell's
-  // newest counted raise for a raise rule, its newest counted cut for a cut
-  // rule, by any event rule (bookingSpeedAnchors).
-  const bsAnchors = bookingSpeedAnchors([...pickupRules, ...pausedEventRules], stayDates, fireHeads);
   const alertNights =
     pickupRules.length > 0
       ? await loadRepeatAlertNights(supabase, hotelId, pickupRules.map((r) => r.id), firstDate, lastDate)
@@ -841,10 +807,10 @@ export async function evaluateHotel(
   // and which it is still waiting on. A night the owner stopped the rule on
   // is left out entirely. Room types it may fire on are measured together
   // when they count bookings from the same fire (bookingSpeedCountFrom: each
-  // cell counts only bookings that reached MAYA after its last fire in the
-  // rule's direction), so a (rule, night) can come out as more than one
-  // entry. The ones it waits on are measured over the full window, for
-  // holding the cell (runPickupPass).
+  // cell counts only bookings that reached MAYA after the rule's own last
+  // fire there), so a (rule, night) can come out as more than one entry.
+  // The ones it waits on are measured over the full window, for holding the
+  // cell (runPickupPass).
   type RuleNight = {
     rule: EngineRule;
     stayDate: string;
@@ -862,7 +828,7 @@ export async function evaluateHotel(
     for (const stayDate of stayDates) {
       if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone)) continue;
       if (isStoppedOnNight(alertNights, rule, stayDate)) continue;
-      const openBySince = new Map<string, { countFrom: BookingSpeedCountFrom | null; open: string[] }>();
+      const openByFrom = new Map<string, { countFrom: BookingSpeedCountFrom | null; open: string[] }>();
       const waiting: string[] = [];
       for (const rtId of rule.affected_room_type_ids) {
         const head = fireHeads.get(fireHeadKey(rule.id, stayDate, rtId));
@@ -871,27 +837,37 @@ export async function evaluateHotel(
           waiting.push(rtId);
           continue;
         }
-        const lastFireAt = bsAnchors.get(bookingSpeedAnchorKey(stayDate, rtId, rule.action_direction));
-        const countFrom = bookingSpeedCountFrom(rule, lastFireAt, manual, hotelTimeZone);
-        const entry = openBySince.get(countFrom?.since ?? "") ?? { countFrom, open: [] };
+        const countFrom = bookingSpeedCountFrom(rule, head?.lastCountedAt, manual, hotelTimeZone);
+        const key = countFrom ? `${countFrom.from}|${countFrom.since ?? ""}` : "";
+        const entry = openByFrom.get(key) ?? { countFrom, open: [] };
         entry.open.push(rtId);
-        openBySince.set(countFrom?.since ?? "", entry);
+        openByFrom.set(key, entry);
       }
-      for (const { countFrom, open } of openBySince.values()) {
+      for (const { countFrom, open } of openByFrom.values()) {
         ruleNights.push({ rule, stayDate, baselineTs, countFrom, open, waiting: [] });
       }
       if (waiting.length > 0) ruleNights.push({ rule, stayDate, baselineTs, countFrom: null, open: [], waiting });
     }
   }
 
-  // The day of each fire a rule counts from, split at the fire: the
-  // bookings on the night first seen after it, over the room types the rule
-  // measures, read once per fire and set (loadSplitWindows). Only where the
-  // rule's window reaches that day; an older fire cuts nothing.
+  // The day of each raise a reading counts from, split at the raise: the
+  // bookings on the night first seen after it, over the room types
+  // measured. The rules' own counts need it where their window reaches that
+  // day (an older raise cuts nothing), and so does every open raise that
+  // counted its first day that way (window_since), for its cancellation
+  // test. All of it in one read per set of room types (loadSplitWindows).
   if (bsCtx) {
     const needs: SplitNeed[] = [];
+    for (const fire of openFires) {
+      if (resetReasons.has(fire.id)) continue;
+      if (!fire.window_since || fire.action_direction !== "increase") continue;
+      if (fire.cancel_check !== "window_bookings" && fire.cancel_check !== "either") continue;
+      const rule = rulesById.get(fire.rule_id);
+      if (!rule || rule.signal_room_type_ids.length === 0) continue;
+      needs.push({ since: fire.window_since, stayDate: fire.stay_date, signalIds: rule.signal_room_type_ids });
+    }
     for (const rn of ruleNights) {
-      if (!rn.countFrom || rn.open.length === 0) continue;
+      if (!rn.countFrom?.since || rn.open.length === 0) continue;
       if (!rn.rule.condition.booking_speed_operator || rn.rule.signal_room_type_ids.length === 0) continue;
       const windowDays = rn.rule.condition.booking_speed_window_days ?? 7;
       if (!countFromInWindow(windowDays, localDate, rn.countFrom.from)) continue;
@@ -899,6 +875,34 @@ export async function evaluateHotel(
     }
     if (needs.length > 0) await loadSplitWindows(supabase, hotelId, bsCtx, needs);
   }
+
+  const cancelReasons = firesCancelled(
+    openFires.filter((f) => !resetReasons.has(f.id)),
+    {
+      rules: rulesById,
+      bookedByCell: new Map(writtenSnapshots.map((s) => [`${s.stay_date}|${s.room_type_id}`, s.booked_units])),
+      bsCtx,
+      now,
+    },
+  );
+  const cancelledIds =
+    cancelReasons.size > 0 ? await retireFires(supabase, hotelId, cancelReasons, now) : new Set<string>();
+  const retireReasons = new Map<string, PickupRetireReason>([...resetReasons, ...cancelReasons]);
+  const retiredIds = new Set([...resetIds, ...cancelledIds]);
+  const retiredByCell = new Map<string, RetiredPickupFire[]>();
+  for (const fire of openFires) {
+    if (!retiredIds.has(fire.id)) continue;
+    pushTo(retiredByCell, `${fire.stay_date}|${fire.affected_room_type_id}`, { fire, reason: retireReasons.get(fire.id)! });
+  }
+  const pickupEffectsByCell = pickupEffectsFromFires(openFires, retiredIds);
+  // Ladder writes are flushed: these are the rows the pass left active.
+  const ladderEffectsByCell = await loadActiveLadderEffectsForRange(
+    supabase,
+    roomTypeIds,
+    firstDate,
+    lastDate,
+    supportsSuppression,
+  );
 
   const measure = async (rn: RuleNight) => {
     if (rn.metrics) return;

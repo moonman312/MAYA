@@ -33,22 +33,30 @@ export type RuleMetrics = {
     window_days: number;
     method: string;
     /**
-     * Set only when the cell's last fire in the rule's direction (its last
-     * raise for a raise rule, its last cut for a cut rule, by any event
-     * rule: bookingSpeedCountFrom in pickup.ts) cut its window short or
-     * split its first day: the first booking date counted, the window the
-     * rule asks for, and (counted_since) the fire, when that first day
-     * counted only the bookings first seen after it. An audit row without
-     * counted_since counted from the day after the fire.
+     * Set only when the rule's own last fire on the cell
+     * (bookingSpeedCountFrom in pickup.ts) cut its window short or split its
+     * first day: the first booking date counted, the window the rule asks
+     * for, and (counted_since, a raise rule only) the fire, when that first
+     * day counted only the bookings first seen after it. A cut rule counts
+     * from the day after its cut. An audit row without counted_since counted
+     * counted_from's day whole.
      */
     counted_from?: string;
     full_window_days?: number;
     counted_since?: string;
+    /**
+     * Set for a rule that cuts: the last booking date counted, the day
+     * before the run's. It reads complete days only, on the night and on the
+     * nights it is compared with. Absent for a raise rule, which counts
+     * today so far.
+     */
+    counted_through?: string;
   } | null;
   /**
    * When set, booking-speed conditions must not match: no usable history, or
-   * the cell's last fire in the rule's direction is on a later hotel day
-   * than this run's (a fire recorded by a run whose clock was ahead).
+   * no complete day left to count since the rule's own last fire on the
+   * cell (a cut rule the day after its cut, or a fire recorded by a run
+   * whose clock was ahead).
    */
   booking_speed_block_reason?: "insufficient_data" | "since_last_fire" | null;
   /** Summed across signal room types at baseline snapshot (pickup ledger / audit). */
@@ -93,7 +101,11 @@ export type PickupCandidate = {
   fire_seq: number;
   /** Which cancellation test can take this fire off (see cancelCheckFor). */
   cancel_check: PickupCancelCheck;
-  /** The booking speed window, in hotel dates, when the rule has a booking speed reading. */
+  /**
+   * The booking speed window, in hotel dates, when the rule has a booking
+   * speed reading: the days it counted, ending on the run's day for a raise
+   * rule and on the day before for a cut rule (counted_through).
+   */
   window_from: string | null;
   /**
    * When window_from's day was split at the fire this one counted from

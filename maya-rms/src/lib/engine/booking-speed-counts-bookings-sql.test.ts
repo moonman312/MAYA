@@ -80,6 +80,23 @@ function withBookingIds(fx: Fixture, seed: number): Fixture {
   };
 }
 
+/** A timestamptz as the SQL sends it back (text), as the ISO instant it is; null stays null. */
+function isoSince(rows: unknown): FakeRow[] {
+  return ((rows ?? []) as FakeRow[]).map((r) => ({ ...r, since: r.since == null ? null : new Date(Date.parse(String(r.since))).toISOString() }));
+}
+
+/**
+ * The SQL's rows for (date, instant) pairs, from indexBookingRows over the
+ * same slim rows given each instant: by date, then instant.
+ */
+function windowsFromIndexPairs(rows: FakeRow[], dates: string[], sinces: string[], keep: (r: FakeRow) => boolean): FakeRow[] {
+  const pairs = new Map<string, [string, string]>();
+  dates.forEach((d, i) => pairs.set(`${d}|${Date.parse(sinces[i])}`, [d, sinces[i]]));
+  return [...pairs.values()]
+    .sort((x, y) => x[0].localeCompare(y[0]) || Date.parse(x[1]) - Date.parse(y[1]))
+    .flatMap(([d, since]) => windowsFromIndex(rows, [d], keep, since));
+}
+
 /** The SQL's rows for `dates`, from indexBookingRows over the same slim rows (with `since`, the builder given it). */
 function windowsFromIndex(rows: FakeRow[], dates: string[], keep: (r: FakeRow) => boolean, since?: string): FakeRow[] {
   const slim: SlimReservationRow[] = rows
@@ -97,7 +114,7 @@ function windowsFromIndex(rows: FakeRow[], dates: string[], keep: (r: FakeRow) =
     const entry = index.get(d);
     if (!entry) continue;
     const sorted = [...entry.windows].sort((a, b) => (a.bw === null ? 1 : b.bw === null ? -1 : a.bw - b.bw));
-    out.push({ stay_date: d, n: entry.n, bws: sorted.map((w) => w.bw), counts: sorted.map((w) => w.n) });
+    out.push({ stay_date: d, since: since ?? null, n: entry.n, bws: sorted.map((w) => w.bw), counts: sorted.map((w) => w.n) });
   }
   return out;
 }
@@ -165,22 +182,28 @@ describe.skipIf(!PGLITE_DIR)("booking speed counts bookings, in PGlite", () => {
       it("booking_speed_windows counts bookings the way the rpc model and indexBookingRows do", async () => {
         await insertReservations(db, fx.reservations);
         const rpc = pgliteRpc(db);
-        // A fire at noon 40 days before the run: the bookings first seen after
-        // it are split off inside their booking day, hotel-wide and per set.
-        const since = `${addDays(fx.localDate, -40)}T12:00:00.000Z`;
-        const cases: { p_exclude: string[]; p_include?: string[] | null; p_since?: string }[] = [
+        // Raises at noon 40 and 20 days before the run: the bookings first
+        // seen after each are split off inside their booking day, hotel-wide
+        // and per set. One instant per date, the two taking turns, and every
+        // fifth date asked twice, once with each: one call answers them all.
+        const early = `${addDays(fx.localDate, -40)}T12:00:00.000Z`;
+        const late = `${addDays(fx.localDate, -20)}T12:00:00.000Z`;
+        const pairDates = [...dates, ...dates.filter((_, i) => i % 5 === 0)];
+        const pairSinces = pairDates.map((_, i) => (i < dates.length ? (i % 2 === 0 ? early : late) : (i % 2 === 0 ? late : early)));
+        const cases: { p_exclude: string[]; p_include?: string[] | null; p_since?: string[] }[] = [
           { p_exclude: [...fx.exclude] },
           { p_exclude: [...fx.exclude], p_include: [uuidFor("rt-a")] },
           { p_exclude: [...fx.exclude], p_include: [uuidFor("rt-a"), uuidFor("rt-b")] },
           { p_exclude: [...fx.exclude], p_include: null },
           { p_exclude: [], p_include: [] },
-          { p_exclude: [...fx.exclude], p_since: since },
-          { p_exclude: [...fx.exclude], p_include: [uuidFor("rt-a")], p_since: since },
+          { p_exclude: [...fx.exclude], p_since: pairSinces },
+          { p_exclude: [...fx.exclude], p_include: [uuidFor("rt-a")], p_since: pairSinces },
         ];
         for (const c of cases) {
-          const args = { p_hotel_id: H1, p_dates: dates, ...c };
-          const { data, error } = await rpc("booking_speed_windows", args).order("stay_date");
+          const args = { p_hotel_id: H1, p_dates: c.p_since ? pairDates : dates, ...c };
+          const { data: raw, error } = await rpc("booking_speed_windows", args).order("stay_date").order("since");
           expect(error).toBeNull();
+          const data = isoSince(raw);
           const model = bookingSpeedWindows(fx.reservations, args);
           expect(data).toEqual(model);
           const include = c.p_include === undefined ? null : c.p_include;
@@ -188,15 +211,23 @@ describe.skipIf(!PGLITE_DIR)("booking speed counts bookings, in PGlite", () => {
             include != null
               ? x.room_type_id != null && include.includes(String(x.room_type_id))
               : x.room_type_id == null || !c.p_exclude.includes(String(x.room_type_id));
-          expect(data).toEqual(windowsFromIndex(fx.reservations, dates, keep, c.p_since));
+          expect(data).toEqual(
+            c.p_since ? windowsFromIndexPairs(fx.reservations, pairDates, c.p_since, keep) : windowsFromIndex(fx.reservations, dates, keep),
+          );
           if (c.p_since) {
-            // Fewer than the whole count, and only on dates that have a
-            // booking first seen after the fire.
-            const whole = bookingSpeedWindows(fx.reservations, { ...args, p_since: undefined });
+            // Fewer than the whole count, only on dates that have a booking
+            // first seen after the raise, and each pair exactly what asking
+            // for it alone says.
+            const whole = bookingSpeedWindows(fx.reservations, { ...args, p_dates: dates, p_since: undefined });
             const total = (rows: FakeRow[]) => rows.reduce((sum, x) => sum + Number(x.n), 0);
-            expect(total(data as FakeRow[])).toBeGreaterThan(0);
-            expect(total(data as FakeRow[])).toBeLessThan(total(whole));
-            expect((data as FakeRow[]).length).toBeLessThanOrEqual(whole.length);
+            const afterEarly = data.filter((x) => x.since === early);
+            expect(total(afterEarly)).toBeGreaterThan(0);
+            expect(total(afterEarly)).toBeLessThan(total(whole));
+            for (const since of [early, late]) {
+              const asked = pairDates.filter((_, i) => c.p_since![i] === since);
+              const { data: alone } = await rpc("booking_speed_windows", { ...args, p_dates: asked, p_since: asked.map(() => since) }).order("stay_date");
+              expect(isoSince(alone)).toEqual(data.filter((x) => x.since === since));
+            }
           }
         }
         // Fewer bookings than rows on the nights that have a multi-room reservation.
@@ -236,9 +267,10 @@ describe.skipIf(!PGLITE_DIR)("booking speed counts bookings, in PGlite", () => {
             expect(observeForStayDate(sql!, t, w, set)).toEqual(observeForStayDate(rows!, t, w, set));
           }
         }
-        // And so does the day of a fire, split at the fire: from
+        // And so does the day of a raise, split at the raise: from
         // booking_speed_windows with p_since on one path, row by row on the
         // other (the function there predates p_since, like everything else).
+        // Two raises that day, read together.
         // The fire's day: the newest booking day, in the last week, of a
         // one-room booking for a target night on a counting room type (a
         // booking with an earlier room sits at that room's date instead);
@@ -266,12 +298,15 @@ describe.skipIf(!PGLITE_DIR)("booking speed counts bookings, in PGlite", () => {
           .map((r) => String(r.booking_date));
         const fireDay = recent.length > 0 ? recent.sort().at(-1)! : addDays(fx.localDate, -2);
         const since = `${fireDay}T23:59:59.999Z`;
-        const needs = targets.flatMap((t) => [
+        const noon = `${fireDay}T12:00:00.000Z`;
+        const needs = targets.flatMap((t, i) => [
           { since, stayDate: t, signalIds: counting },
           { since, stayDate: t, signalIds: set },
+          ...(i % 2 === 0 ? [{ since: noon, stayDate: t, signalIds: counting }] : []),
         ]);
         await loadSplitWindows(viaSql as SupabaseClient, H1, sql!, needs);
         await loadSplitWindows(viaRows, H1, rows!, needs);
+        expect(rows!.splitLoaded).toEqual(sql!.splitLoaded);
         // The same bookings at the same windows on both paths; the function
         // orders a date's windows and the builder keeps them as they came,
         // which no reader depends on.
@@ -288,7 +323,7 @@ describe.skipIf(!PGLITE_DIR)("booking speed counts bookings, in PGlite", () => {
             ]),
           );
         expect(sorted(rows!.splitWindows)).toEqual(sorted(sql!.splitWindows));
-        expect(sql!.splitWindows!.size).toBe(2);
+        expect(sql!.splitWindows!.size).toBe(3);
         let splitCount = 0;
         for (const t of targets) {
           for (const w of [7, 30]) {
@@ -300,6 +335,11 @@ describe.skipIf(!PGLITE_DIR)("booking speed counts bookings, in PGlite", () => {
             expect(observeForStayDate(sql!, t, w, set, fireDay, "increase", since)).toEqual(
               observeForStayDate(rows!, t, w, set, fireDay, "increase", since),
             );
+            if (targets.indexOf(t) % 2 === 0) {
+              expect(observeForStayDate(sql!, t, w, counting, fireDay, "increase", noon)).toEqual(
+                observeForStayDate(rows!, t, w, counting, fireDay, "increase", noon),
+              );
+            }
             // The fire's day counts only its afternoon: never more than the
             // whole days, and less than them somewhere.
             const whole = observeForStayDate(sql!, t, w, counting, fireDay, "increase");
@@ -333,7 +373,7 @@ describe.skipIf(!PGLITE_DIR)("booking speed counts bookings, in PGlite", () => {
     await insertReservations(db, rows);
     const rpc = pgliteRpc(db);
     const { data: windows } = await rpc("booking_speed_windows", { p_hotel_id: H1, p_dates: [night], p_exclude: [] });
-    expect(windows).toEqual([{ stay_date: night, n: 2, bws: [131], counts: [2] }]);
+    expect(windows).toEqual([{ stay_date: night, since: null, n: 2, bws: [131], counts: [2] }]);
     const { data: summary } = await rpc("booking_speed_history_summary", { p_hotel_id: H1, p_from: night, p_to: night, p_exclude: [], p_ranks: [1, 19, 21] });
     expect(summary).toEqual([{ stay_date: night, n: 21, usable: 21, rank_windows: [131, 131, 101] }]);
     const { client } = fakeSupabase({});
@@ -361,7 +401,7 @@ describe.skipIf(!PGLITE_DIR)("booking speed counts bookings, in PGlite", () => {
     await insertReservations(db, rows);
     const args = { p_hotel_id: H1, p_dates: [night], p_exclude: [] };
     const { data } = await pgliteRpc(db)("booking_speed_windows", args);
-    expect(data).toEqual([{ stay_date: night, n: 4, bws: [36, 40], counts: [3, 1] }]);
+    expect(data).toEqual([{ stay_date: night, since: null, n: 4, bws: [36, 40], counts: [3, 1] }]);
     expect(data).toEqual(bookingSpeedWindows(rows, args));
     expect(data).toEqual(windowsFromIndex(rows, [night], () => true));
   }, 120_000);
@@ -407,25 +447,36 @@ describe.skipIf(!PGLITE_DIR)("booking speed counts bookings, in PGlite", () => {
     const dates = [night, "2026-10-13"];
     const whole = await rpc("booking_speed_windows", { p_hotel_id: H1, p_dates: dates, p_exclude: [] });
     expect(whole.data).toEqual([
-      { stay_date: night, n: 8, bws: [39, 40], counts: [1, 7] },
-      { stay_date: "2026-10-13", n: 1, bws: [41], counts: [1] },
+      { stay_date: night, since: null, n: 8, bws: [39, 40], counts: [1, 7] },
+      { stay_date: "2026-10-13", since: null, n: 1, bws: [41], counts: [1] },
     ]);
-    const args = { p_hotel_id: H1, p_dates: dates, p_exclude: [], p_since: noon };
-    const { data, error } = await rpc("booking_speed_windows", args);
+    const args = { p_hotel_id: H1, p_dates: dates, p_exclude: [], p_since: [noon, noon] };
+    const { data: raw, error } = await rpc("booking_speed_windows", args);
     expect(error).toBeNull();
+    const data = isoSince(raw);
     // 104 and 105 at noon's booking day, 106 the day after, and the
     // reservation whose rooms both came after the raise, at its earliest
     // booking date (the 2nd): 40 days out three times, 39 days out once.
-    expect(data).toEqual([{ stay_date: night, n: 4, bws: [39, 40], counts: [1, 3] }]);
+    expect(data).toEqual([{ stay_date: night, since: noon, n: 4, bws: [39, 40], counts: [1, 3] }]);
     expect(data).toEqual(bookingSpeedWindows(rows, args));
     expect(data).toEqual(windowsFromIndex(rows, dates, () => true, noon));
-    // At the fire's own instant nothing is new; a moment before it, one booking is.
-    expect((await rpc("booking_speed_windows", { ...args, p_since: "2026-09-02T18:00:00.000Z" })).data).toEqual([
-      { stay_date: night, n: 1, bws: [39], counts: [1] },
+    // At the raise's own instant nothing is new; a moment before it, one
+    // booking is. Asked together, each instant comes back on its own row,
+    // in order, exactly as asked alone.
+    const evening = "2026-09-02T18:00:00.000Z";
+    const before = "2026-09-02T11:59:58.000Z";
+    const together = { p_hotel_id: H1, p_dates: [night, night, night, "2026-10-13"], p_exclude: [], p_since: [evening, before, noon, noon] };
+    const { data: all } = await rpc("booking_speed_windows", together).order("stay_date").order("since");
+    expect(isoSince(all)).toEqual([
+      { stay_date: night, since: before, n: 6, bws: [39, 40], counts: [1, 5] },
+      { stay_date: night, since: noon, n: 4, bws: [39, 40], counts: [1, 3] },
+      { stay_date: night, since: evening, n: 1, bws: [39], counts: [1] },
     ]);
-    expect((await rpc("booking_speed_windows", { ...args, p_since: "2026-09-02T11:59:58.000Z" })).data).toEqual([
-      { stay_date: night, n: 6, bws: [39, 40], counts: [1, 5] },
-    ]);
+    expect(isoSince(all)).toEqual(bookingSpeedWindows(rows, together));
+    // One instant per date, or the call fails.
+    const short = await rpc("booking_speed_windows", { ...args, p_since: [noon] });
+    expect(short.data).toBeNull();
+    expect(short.error?.code).toBe("22023");
   }, 120_000);
 
   it("adds window_since to pickup_event, nullable, and leaves it alone on a replay", async () => {
@@ -449,7 +500,7 @@ describe.skipIf(!PGLITE_DIR)("booking speed counts bookings, in PGlite", () => {
     // And the new file is safe to run again.
     await db.exec(readFileSync(COUNTS_BOOKINGS_MIGRATION, "utf8"));
     // On a database that never had the function, the large property file still creates it.
-    await db.exec("drop function public.booking_speed_windows(uuid, date[], uuid[], uuid[], timestamptz);");
+    await db.exec("drop function public.booking_speed_windows(uuid, date[], uuid[], uuid[], timestamptz[]);");
     await db.exec(readFileSync(LARGE_PROPERTY, "utf8"));
     const { rows: old } = await db.query(
       `select pg_get_functiondef(p.oid) as def from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -467,7 +518,7 @@ describe.skipIf(!PGLITE_DIR)("booking speed counts bookings, in PGlite", () => {
       `select pg_get_function_identity_arguments(p.oid) as args from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'booking_speed_windows'`,
     );
-    expect(signatures).toEqual([{ args: "p_hotel_id uuid, p_dates date[], p_exclude uuid[], p_include uuid[], p_since timestamp with time zone" }]);
+    expect(signatures).toEqual([{ args: "p_hotel_id uuid, p_dates date[], p_exclude uuid[], p_include uuid[], p_since timestamp with time zone[]" }]);
   }, 120_000);
 
   it("refuses a caller who is neither service_role nor a member of the hotel", async () => {

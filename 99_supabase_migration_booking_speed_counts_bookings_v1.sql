@@ -252,25 +252,35 @@ comment on column public.pickup_event.window_since is
 -- given, keeps only rows of those room types instead. A row's window is its
 -- own lead time (bookingWindowOf); a booking's is the longest known one
 -- across its kept rooms that night, and unknown only when none is known.
--- p_since, when given, keeps only the bookings first seen after that
--- instant: a booking's first sight is the earliest created_at across its
--- kept rows on the night, so a room added later to a booking that was
--- already there never makes it a new one. A date none of whose bookings
--- are first seen after p_since has no row.
 --
--- The four-argument function this file used to define is dropped first:
--- left in place beside this one, PostgREST could not choose between them
--- for a call that names no p_since, and the engine's calls would fail.
+-- p_since, when given, is one instant per entry of p_dates (the same
+-- length, or the call fails): for each (date, instant) pair only the
+-- bookings on that date first seen after that instant count, and the pair
+-- comes back as its own row with the instant in `since`. A booking's first
+-- sight is the earliest created_at across its kept rows on the night, so a
+-- room added later to a booking that was already there never makes it a
+-- new one. A pair none of whose bookings are first seen after its instant
+-- has no row. The engine asks for every raise a reading counts from in one
+-- call per set of room types this way, however many raises and nights.
+-- Without p_since, `since` is null on every row and the query is the plain
+-- count, with no join and no created_at read.
+--
+-- The older signatures are dropped first: the four-argument one from the
+-- large property file, and a five-argument one taking a single instant
+-- that an earlier copy of this file defined. Left in place beside this
+-- one, PostgREST could not choose between them for a call that names no
+-- p_since, and the engine's calls would fail.
 drop function if exists public.booking_speed_windows(uuid, date[], uuid[], uuid[]);
+drop function if exists public.booking_speed_windows(uuid, date[], uuid[], uuid[], timestamptz);
 
 create or replace function public.booking_speed_windows(
   p_hotel_id uuid,
   p_dates date[],
   p_exclude uuid[] default '{}',
   p_include uuid[] default null,
-  p_since timestamptz default null
+  p_since timestamptz[] default null
 )
-returns table(stay_date date, n int, bws int[], counts int[])
+returns table(stay_date date, since timestamptz, n int, bws int[], counts int[])
 language plpgsql
 stable
 security definer
@@ -283,14 +293,70 @@ begin
       using errcode = '42501';
   end if;
 
+  if p_since is null then
+    return query
+    with kept as (
+      select
+        r.stay_date,
+        -- A row with no id, or an empty one (the schema only says not null,
+        -- and the parsers skip empty ids, so none exist; but the function
+        -- must never fold every such row on a night into one booking) is
+        -- its own booking, as it is in StayDateWindowsBuilder.
+        coalesce(public.booking_key(nullif(r.external_reservation_id, '')), r.id::text) as booking,
+        case
+          when r.booking_date is not null then r.stay_date - r.booking_date
+          else r.booking_window_days
+        end as bw
+      from public.reservations r
+      where r.hotel_id = p_hotel_id
+        and r.stay_date = any (coalesce(p_dates, '{}'::date[]))
+        and (
+          case
+            when p_include is null then
+              r.room_type_id is null or not (r.room_type_id = any (coalesce(p_exclude, '{}'::uuid[])))
+            else r.room_type_id = any (p_include)
+          end
+        )
+    ),
+    per_booking as (
+      -- max ignores nulls: the longest known lead time, null only when no
+      -- room of the booking has one.
+      select k.stay_date, k.booking, max(k.bw) as bw
+      from kept k
+      group by 1, 2
+    ),
+    grouped as (
+      select b.stay_date, b.bw, count(*)::int as cnt
+      from per_booking b
+      group by 1, 2
+    )
+    select
+      g.stay_date,
+      null::timestamptz,
+      sum(g.cnt)::int,
+      array_agg(g.bw order by g.bw asc nulls last),
+      array_agg(g.cnt order by g.bw asc nulls last)
+    from grouped g
+    group by g.stay_date
+    order by g.stay_date;
+    return;
+  end if;
+
+  if coalesce(array_length(p_since, 1), 0) <> coalesce(array_length(p_dates, 1), 0) then
+    raise exception 'p_since needs one instant per date: % dates, % instants',
+      coalesce(array_length(p_dates, 1), 0), coalesce(array_length(p_since, 1), 0)
+      using errcode = '22023';
+  end if;
+
   return query
-  with kept as (
+  with asked as (
+    select distinct a.d as stay_date, a.s as since
+    from unnest(p_dates, p_since) as a(d, s)
+    where a.d is not null and a.s is not null
+  ),
+  kept as (
     select
       r.stay_date,
-      -- A row with no id, or an empty one (the schema only says not null,
-      -- and the parsers skip empty ids, so none exist; but the function must
-      -- never fold every such row on a night into one booking) is its own
-      -- booking, as it is in StayDateWindowsBuilder.
       coalesce(public.booking_key(nullif(r.external_reservation_id, '')), r.id::text) as booking,
       case
         when r.booking_date is not null then r.stay_date - r.booking_date
@@ -299,7 +365,7 @@ begin
       r.created_at
     from public.reservations r
     where r.hotel_id = p_hotel_id
-      and r.stay_date = any (coalesce(p_dates, '{}'::date[]))
+      and r.stay_date = any (p_dates)
       and (
         case
           when p_include is null then
@@ -309,32 +375,32 @@ begin
       )
   ),
   per_booking as (
-    -- max ignores nulls: the longest known lead time, null only when no room
-    -- of the booking has one. min(created_at): when the booking was first
-    -- seen on the night.
+    -- min(created_at): when the booking was first seen on the night.
     select k.stay_date, k.booking, max(k.bw) as bw, min(k.created_at) as first_seen
     from kept k
     group by 1, 2
   ),
   grouped as (
-    select b.stay_date, b.bw, count(*)::int as cnt
-    from per_booking b
-    where p_since is null or b.first_seen > p_since
-    group by 1, 2
+    select a.stay_date, a.since, b.bw, count(*)::int as cnt
+    from asked a
+    join per_booking b on b.stay_date = a.stay_date
+    where b.first_seen > a.since
+    group by 1, 2, 3
   )
   select
     g.stay_date,
-    sum(g.cnt)::int as n,
-    array_agg(g.bw order by g.bw asc nulls last) as bws,
-    array_agg(g.cnt order by g.bw asc nulls last) as counts
+    g.since,
+    sum(g.cnt)::int,
+    array_agg(g.bw order by g.bw asc nulls last),
+    array_agg(g.cnt order by g.bw asc nulls last)
   from grouped g
-  group by g.stay_date
-  order by g.stay_date;
+  group by g.stay_date, g.since
+  order by g.stay_date, g.since;
 end;
 $$;
 
-revoke all on function public.booking_speed_windows(uuid, date[], uuid[], uuid[], timestamptz) from public, anon;
-grant execute on function public.booking_speed_windows(uuid, date[], uuid[], uuid[], timestamptz)
+revoke all on function public.booking_speed_windows(uuid, date[], uuid[], uuid[], timestamptz[]) from public, anon;
+grant execute on function public.booking_speed_windows(uuid, date[], uuid[], uuid[], timestamptz[])
   to authenticated, service_role;
 
 commit;

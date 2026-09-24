@@ -5,6 +5,7 @@ import {
   bookingSpeedAuditSnapshots,
   bookingSpeedMetrics,
   bookingsInFrozenWindow,
+  countsCompleteDays,
   isWithinCooldown,
   loadBookingSpeedContext,
   loadSplitWindows,
@@ -46,6 +47,45 @@ describe("isWithinCooldown", () => {
 
   it("defaults to a week, per the starter-ladder design", () => {
     expect(DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS).toBe(7);
+  });
+});
+
+describe("observeForStayDate for a rule that cuts: complete days only", () => {
+  // Every night books one a day, 14 to 20 days out; this one also books
+  // three today (14 days out on the 1st), which a cut rule doesn't read yet.
+  const rows: SlimReservationRow[] = [];
+  for (const stayDate of ["2026-08-15", "2026-08-14", "2026-08-16"]) {
+    for (const w of [14, 15, 16, 17, 18, 19, 20, 21]) rows.push({ stay_date: stayDate, booking_window_days: w });
+  }
+  rows.push(...[1, 2, 3].map(() => ({ stay_date: "2026-08-15", booking_window_days: 14 })));
+
+  it("ends the stretch yesterday on the night and its comparables, keyed apart from a raise rule's reading", () => {
+    const ctx = makeContext(rows, "2026-08-01");
+    const raise = observeForStayDate(ctx, "2026-08-15", 7, undefined, null, "increase");
+    const cut = observeForStayDate(ctx, "2026-08-15", 7, undefined, null, "decrease");
+    expect(raise.recentBookings).toBe(10);
+    expect(raise.countedThrough).toBeUndefined();
+    expect(cut.recentBookings).toBe(7);
+    expect(cut.countedThrough).toBe("2026-07-31");
+    expect(cut).not.toBe(raise);
+    expect(observeForStayDate(ctx, "2026-08-15", 7, undefined, null, "decrease")).toBe(cut);
+    expect(bookingSpeedMetrics(cut)).toMatchObject({ recent: 7, window_days: 7, counted_through: "2026-07-31" });
+    expect(bookingSpeedMetrics(raise)).not.toHaveProperty("counted_through");
+    expect(countsCompleteDays("decrease")).toBe(true);
+    expect(countsCompleteDays("increase")).toBe(false);
+    expect(countsCompleteDays(undefined)).toBe(false);
+  });
+
+  it("after a cut counts the complete days from the day after it, and ignores a split it was handed", () => {
+    const ctx = makeContext(rows, "2026-08-01");
+    // A cut on the 28th: the 29th, 30th and 31st.
+    const since = observeForStayDate(ctx, "2026-08-15", 7, undefined, "2026-07-29", "decrease", "2026-07-28T00:05:00.000Z");
+    expect(since.windowDays).toBe(3);
+    expect(since.recentBookings).toBe(3);
+    expect(since.countedFrom).toBe("2026-07-29");
+    expect(since.countedSince).toBeUndefined();
+    expect(since.countedAfter).toBe("cut");
+    expect(since.countedThrough).toBe("2026-07-31");
   });
 });
 
@@ -324,7 +364,7 @@ describe("loadSplitWindows", () => {
   it.each([
     { name: "from booking_speed_windows with p_since", noSplitFunction: false },
     { name: "row by row when the function predates p_since", noSplitFunction: true },
-  ])("loads the bookings first seen after each fire, per set, once per fire and set: $name", async ({ noSplitFunction }) => {
+  ])("loads the bookings first seen after each raise, in one read per set however many raises and nights: $name", async ({ noSplitFunction }) => {
     const rows = history();
     const { client, calls } = fakeSupabase(
       { reservations: rows, hotel_closed_periods: [], assumption_challenges: [] },
@@ -335,35 +375,80 @@ describe("loadSplitWindows", () => {
     const ctx = (await loadBookingSpeedContext(client as SupabaseClient, "h1", localDate, 40, new Set(), addDays(night, 1), ["rt1", "rt2"], [["rt1", "rt2"], ["rt1"]]))!;
     expect(ctx).not.toBeNull();
     const before = calls.length;
+    const late = `${localDate}T15:30:00.000Z`;
     await loadSplitWindows(client as SupabaseClient, "h1", ctx, [
       { since: noon, stayDate: night, signalIds: ["rt1", "rt2"] },
       { since: noon, stayDate: addDays(night, 1), signalIds: ["rt1", "rt2"] },
       { since: noon, stayDate: night, signalIds: ["rt1"] },
-      // A set already read for this fire, and a fire read for no set yet.
+      // A set already asked for this raise, and a later raise on the same set.
       { since: noon, stayDate: night, signalIds: ["rt2", "rt1"] },
-      { since: `${localDate}T15:30:00.000Z`, stayDate: night, signalIds: ["rt1"] },
+      { since: late, stayDate: night, signalIds: ["rt1"] },
     ]);
     // Hotel-wide after noon: 303, the two-room reservation once, the Suite.
     // Over rt1 only: 303 and the reservation. After 15:30: only the room
     // added to a booking that was already there, which is nothing new.
     expect(ctx.splitWindows!.get(splitKey(noon, ""))).toEqual(new Map([[night, { n: 3, windows: [{ bw: 20, n: 3 }] }]]));
     expect(ctx.splitWindows!.get(splitKey(noon, signalSetKey(["rt1"])))).toEqual(new Map([[night, { n: 2, windows: [{ bw: 20, n: 2 }] }]]));
-    expect(ctx.splitWindows!.get(splitKey(`${localDate}T15:30:00.000Z`, signalSetKey(["rt1"])))).toEqual(new Map());
+    expect(ctx.splitWindows!.get(splitKey(late, signalSetKey(["rt1"])))).toEqual(new Map());
     expect(ctx.splitWindows!.size).toBe(3);
-    // Three reads: one per fire and set, the repeats folded in.
+    // Both nights were read for the hotel-wide noon raise, the one with
+    // nothing new included.
+    expect(ctx.splitLoaded!.get(splitKey(noon, ""))).toEqual(new Set([night, addDays(night, 1)]));
+    // Two reads, one per set: every raise and night of a set in one call.
     const reads = calls.slice(before).filter((c) => c.table === "rpc:booking_speed_windows" || c.table === "reservations");
-    expect(reads.filter((c) => c.table === "rpc:booking_speed_windows")).toHaveLength(noSplitFunction ? 3 : 3);
-    expect(reads.filter((c) => c.table === "reservations")).toHaveLength(noSplitFunction ? 3 : 0);
+    const rpcs = reads.filter((c) => c.table === "rpc:booking_speed_windows");
+    expect(rpcs).toHaveLength(2);
+    const args = (c: { payload: unknown }) => c.payload as Record<string, unknown>;
+    expect(rpcs.map((c) => [args(c).p_dates, args(c).p_since, args(c).p_include ?? null])).toEqual([
+      [[night, addDays(night, 1)], [noon, noon], null],
+      [[night, night], [noon, late], ["rt1"]],
+    ]);
+    expect(reads.filter((c) => c.table === "reservations")).toHaveLength(noSplitFunction ? 2 : 0);
     // Read once: asking again costs nothing.
     await loadSplitWindows(client as SupabaseClient, "h1", ctx, [{ since: noon, stayDate: night, signalIds: ["rt1", "rt2"] }]);
     expect(calls.length).toBe(before + reads.length);
-    // And the observation reads the fire's day from it: the three after
+    // And the observation reads the raise's day from it: the three after
     // noon on the target, against the day whole on its comparables.
     const obs = observeForStayDate(ctx, night, 7, ["rt1", "rt2"], localDate, "increase", noon);
     expect(obs.recentBookings).toBe(3);
     expect(obs.windowDays).toBe(1);
     expect(obs.countedSince).toBe(noon);
     expect(observeForStayDate(ctx, night, 7, ["rt1", "rt2"], localDate, "increase").recentBookings).toBe(6);
+  });
+
+  it("reads a raise already read for one night again for another night only, and keeps both", async () => {
+    // A run's raises all share its applied_at. The open raises' tests may
+    // read one night for a raise, and the rules' own counts another night
+    // for the same raise: the second read must not find the first and skip.
+    const rows = history();
+    rows.push(row(addDays(night, 1), 21, "306", "rt1", `${localDate}T13:00:00.000Z`));
+    const { client, calls } = fakeSupabase({ reservations: rows, hotel_closed_periods: [], assumption_challenges: [] });
+    const ctx = (await loadBookingSpeedContext(client as SupabaseClient, "h1", localDate, 40, new Set(), addDays(night, 1), ["rt1", "rt2"], [["rt1", "rt2"]]))!;
+    const before = calls.length;
+    await loadSplitWindows(client as SupabaseClient, "h1", ctx, [{ since: noon, stayDate: night, signalIds: ["rt1", "rt2"] }]);
+    await loadSplitWindows(client as SupabaseClient, "h1", ctx, [
+      { since: noon, stayDate: night, signalIds: ["rt1", "rt2"] },
+      { since: noon, stayDate: addDays(night, 1), signalIds: ["rt1", "rt2"] },
+    ]);
+    expect(ctx.splitWindows!.get(splitKey(noon, ""))).toEqual(
+      new Map([
+        [night, { n: 3, windows: [{ bw: 20, n: 3 }] }],
+        [addDays(night, 1), { n: 1, windows: [{ bw: 21, n: 1 }] }],
+      ]),
+    );
+    const rpcs = calls.slice(before).filter((c) => c.table === "rpc:booking_speed_windows");
+    expect(rpcs.map((c) => (c.payload as Record<string, unknown>).p_dates)).toEqual([[night], [addDays(night, 1)]]);
+    // Both nights read the raise's day from it.
+    expect(observeForStayDate(ctx, addDays(night, 1), 7, ["rt1", "rt2"], localDate, "increase", noon).recentBookings).toBe(1);
+    expect(observeForStayDate(ctx, night, 7, ["rt1", "rt2"], localDate, "increase", noon).recentBookings).toBe(3);
+  });
+
+  it("refuses a night the raise's day was never read for, rather than reading it as nothing new", async () => {
+    const { client } = fakeSupabase({ reservations: history(), hotel_closed_periods: [], assumption_challenges: [] });
+    const ctx = (await loadBookingSpeedContext(client as SupabaseClient, "h1", localDate, 40, new Set(), addDays(night, 1), ["rt1", "rt2"], [["rt1", "rt2"]]))!;
+    await loadSplitWindows(client as SupabaseClient, "h1", ctx, [{ since: noon, stayDate: night, signalIds: ["rt1", "rt2"] }]);
+    expect(() => observeForStayDate(ctx, addDays(night, 1), 7, ["rt1", "rt2"], localDate, "increase", noon)).toThrow(/not loaded for the fire/);
+    expect(bookingsInFrozenWindow(ctx, addDays(night, 1), localDate, localDate, ["rt1", "rt2"], noon)).toBeNull();
   });
 
   it("throws on a failed read, never counting the fire's day whole", async () => {

@@ -52,14 +52,20 @@ export function bookingSpeedHistorySummary(reservations: FakeRow[], a: Record<st
  * booking_speed_windows(p_hotel_id, p_dates, p_exclude, p_include, p_since),
  * as 99_supabase_migration_booking_speed_counts_bookings_v1.sql defines it:
  * one count per booking (booking_key over external_reservation_id, a row
- * with none is its own booking) at its longest known window on the night.
- * With p_since, only the bookings first seen after it (the earliest
- * created_at across the booking's rows; a row without one is taken as
- * already there, as the builder takes it).
+ * with none is its own booking) at its longest known window on the night,
+ * `since` null. With p_since (one instant per date), one row per distinct
+ * (date, instant) pair, counting only the bookings first seen after the
+ * instant (the earliest created_at across the booking's rows; a row without
+ * one is taken as already there, as the builder takes it), `since` the
+ * instant as given. Rows by date, then instant.
  */
 export function bookingSpeedWindows(reservations: FakeRow[], a: Record<string, unknown>): FakeRow[] {
-  const wanted = new Set((a.p_dates as string[]) ?? []);
-  const since = a.p_since != null ? Date.parse(String(a.p_since)) : null;
+  const dates = ((a.p_dates as string[]) ?? []).map(String);
+  const sinces = a.p_since != null ? (a.p_since as unknown[]).map(String) : null;
+  if (sinces && sinces.length !== dates.length) {
+    throw new Error(`p_since needs one instant per date: ${dates.length} dates, ${sinces.length} instants`);
+  }
+  const wanted = new Set(dates);
   const byDate = new Map<string, Map<string, { bw: number | null; seen: number }>>();
   let anonymous = 0;
   for (const r of reservations) {
@@ -80,13 +86,14 @@ export function bookingSpeedWindows(reservations: FakeRow[], a: Record<string, u
     m.set(key, prev ? { bw: earliestBookingWindow(prev.bw, w), seen: Math.min(prev.seen, seen) } : { bw: w, seen });
     byDate.set(d, m);
   }
-  return [...byDate.keys()].sort().flatMap((d) => {
+  const row = (d: string, since: string | null): FakeRow[] => {
+    const after = since === null ? null : Date.parse(since);
     const counts = new Map<number | null, number>();
-    for (const b of byDate.get(d)!.values()) {
-      if (since !== null && !(b.seen > since)) continue;
+    for (const b of byDate.get(d)?.values() ?? []) {
+      if (after !== null && !(b.seen > after)) continue;
       counts.set(b.bw, (counts.get(b.bw) ?? 0) + 1);
     }
-    // A date none of whose bookings are first seen after p_since has no row.
+    // A date (or pair) with no booking to count has no row.
     if (counts.size === 0) return [];
     const entries = [...counts.entries()].sort((x, y) =>
       x[0] === null ? 1 : y[0] === null ? -1 : x[0] - y[0],
@@ -94,12 +101,19 @@ export function bookingSpeedWindows(reservations: FakeRow[], a: Record<string, u
     return [
       {
         stay_date: d,
+        since,
         n: entries.reduce((s, e) => s + e[1], 0),
         bws: entries.map((e) => e[0]),
         counts: entries.map((e) => e[1]),
       },
     ];
-  });
+  };
+  if (!sinces) return [...byDate.keys()].sort().flatMap((d) => row(d, null));
+  const pairs = new Map<string, [string, string]>();
+  dates.forEach((d, i) => pairs.set(`${d}|${Date.parse(sinces[i])}`, [d, sinces[i]]));
+  return [...pairs.values()]
+    .sort((x, y) => x[0].localeCompare(y[0]) || Date.parse(x[1]) - Date.parse(y[1]))
+    .flatMap(([d, since]) => row(d, since));
 }
 
 /** booking_speed_first_stay_date(p_hotel_id, p_from, p_include) */
@@ -298,7 +312,7 @@ describe("scale rpc models", () => {
 
   it("groups windows per requested date, nulls last", () => {
     const out = bookingSpeedWindows(rows, { p_hotel_id: "h1", p_dates: ["2026-01-02"], p_exclude: [] });
-    expect(out).toEqual([{ stay_date: "2026-01-02", n: 5, bws: [-2, 5, 9, 32, null], counts: [1, 1, 1, 1, 1] }]);
+    expect(out).toEqual([{ stay_date: "2026-01-02", since: null, n: 5, bws: [-2, 5, 9, 32, null], counts: [1, 1, 1, 1, 1] }]);
   });
 
   it("counts a reservation with several rooms once, at its earliest booking date on the night", () => {
@@ -320,7 +334,7 @@ describe("scale rpc models", () => {
       { hotel_id: "h1", stay_date: "2026-06-06", room_type_id: "a", booking_date: "2026-05-01" },
     ];
     const out = bookingSpeedWindows([...wedding, ...others], { p_hotel_id: "h1", p_dates: ["2026-06-06"], p_exclude: [] });
-    expect(out).toEqual([{ stay_date: "2026-06-06", n: 4, bws: [36, 156], counts: [3, 1] }]);
+    expect(out).toEqual([{ stay_date: "2026-06-06", since: null, n: 4, bws: [36, 156], counts: [3, 1] }]);
   });
 
   it("finds an include list's earliest stay date from p_from, over every row of the hotel", () => {
@@ -341,11 +355,11 @@ describe("scale rpc models", () => {
 
   it("keeps only the included room types, never a row with none, when given an include list", () => {
     const out = bookingSpeedWindows(rows, { p_hotel_id: "h1", p_dates: ["2026-01-02"], p_exclude: ["a"], p_include: ["a"] });
-    expect(out).toEqual([{ stay_date: "2026-01-02", n: 3, bws: [-2, 32, null], counts: [1, 1, 1] }]);
+    expect(out).toEqual([{ stay_date: "2026-01-02", since: null, n: 3, bws: [-2, 32, null], counts: [1, 1, 1] }]);
     expect(bookingSpeedWindows(rows, { p_hotel_id: "h1", p_dates: ["2026-01-02"], p_include: [] })).toEqual([]);
     // A null include is the exclude filter, as before.
     expect(bookingSpeedWindows(rows, { p_hotel_id: "h1", p_dates: ["2026-01-02"], p_exclude: ["x"], p_include: null })).toEqual([
-      { stay_date: "2026-01-02", n: 4, bws: [-2, 5, 32, null], counts: [1, 1, 1, 1] },
+      { stay_date: "2026-01-02", since: null, n: 4, bws: [-2, 5, 32, null], counts: [1, 1, 1, 1] },
     ]);
   });
 });

@@ -256,10 +256,11 @@ describe("a Booking Speed rule", () => {
     // One cut, held every run for the week, then a second cut on top of it.
     expect(prices.slice(0, 14)).toEqual(Array.from({ length: 14 }, () => 90));
     expect(prices[14]).toBe(81);
+    // A cut rule reads complete days only: its month ends yesterday, and
+    // the second cut counts the complete days after the first cut's day.
     expect(w.fires(NIGHT).map((e) => [e.fire_seq, e.retired_at, e.cancel_check, e.window_from, e.window_to])).toEqual([
-      [1, null, "none", addDays(D0, -29), D0],
-      // The second counts from the first cut's own day (split at the cut).
-      [2, null, "none", D0, addDays(D0, 7)],
+      [1, null, "none", addDays(D0, -30), addDays(D0, -1)],
+      [2, null, "none", addDays(D0, 1), addDays(D0, 6)],
     ]);
     // One row per change, not one per run.
     expect(w.audits(NIGHT)).toHaveLength(2);

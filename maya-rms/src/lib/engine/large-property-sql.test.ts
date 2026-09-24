@@ -200,7 +200,7 @@ export async function insertReservations(db: Db, rows: FakeRow[]): Promise<void>
 /** Argument types per function, for casting the named parameters. */
 const SIGNATURES: Record<string, Record<string, string>> = {
   booking_speed_history_summary: { p_hotel_id: "uuid", p_from: "date", p_to: "date", p_exclude: "uuid[]", p_ranks: "int[]" },
-  booking_speed_windows: { p_hotel_id: "uuid", p_dates: "date[]", p_exclude: "uuid[]", p_include: "uuid[]", p_since: "timestamptz" },
+  booking_speed_windows: { p_hotel_id: "uuid", p_dates: "date[]", p_exclude: "uuid[]", p_include: "uuid[]", p_since: "timestamptz[]" },
   booking_speed_first_stay_date: { p_hotel_id: "uuid", p_from: "date", p_include: "uuid[]" },
   audit_last_signatures: { p_hotel_id: "uuid", p_from: "date", p_to: "date" },
   room_type_max_rates: { p_hotel_id: "uuid" },
@@ -731,6 +731,6 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
       `select pg_get_function_identity_arguments(p.oid) as args from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'booking_speed_windows'`,
     );
-    expect(rows).toEqual([{ args: "p_hotel_id uuid, p_dates date[], p_exclude uuid[], p_include uuid[], p_since timestamp with time zone" }]);
+    expect(rows).toEqual([{ args: "p_hotel_id uuid, p_dates date[], p_exclude uuid[], p_include uuid[], p_since timestamp with time zone[]" }]);
   });
 });

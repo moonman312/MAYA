@@ -56,10 +56,10 @@
  *
  * The evaluation_audit hashes of runs 5 to 7, in both variants, were
  * rewritten a sixth time when raise rules started sharing one anchor per
- * cell and cut rules another (bookingSpeedAnchors): every one of those
- * shorter observations now also says which kind of fire it counts from
- * (countedAfter: "raise" here, the Suite rule being the only Booking Speed
- * rule). Checked against a dump of the previous engine: 140 audit rows
+ * cell and cut rules another (bookingSpeedAnchors, since removed): every
+ * one of those shorter observations now also says which kind of fire it
+ * counts from (countedAfter: "raise" here, the Suite rule being the only
+ * Booking Speed rule). Checked against a dump of the previous engine: 140 audit rows
  * differ by that one field and nothing else, and every count, fire, price,
  * ladder row and run log is unchanged. With one Booking Speed rule per
  * direction the shared anchor is the rule's own, so nothing else moves.
@@ -79,6 +79,15 @@
  * first raise) with the same bookings (7 and 6) against 8 and 7.67 instead
  * of 7.67 and 7.33 expected. No price, count, ladder row, snapshot or run
  * log moved, and runs 0 to 4 differ by the window_since key alone.
+ *
+ * Nothing was rewritten when each Booking Speed rule went back to counting
+ * from its own last fire only (Jake, 2026-09-24: the count carries on
+ * across rules), cut rules started reading complete days ending yesterday,
+ * and a run's split days came to be read in one call per set of room
+ * types: every hash of every run, in both variants, matched as it was. The
+ * Suite rule is the only Booking Speed rule here and it raises, so its own
+ * last raise was already the one it counted from, and no rule cuts on
+ * Booking Speed.
  *
  * The golden file was written by this same test at commit 4ef5d65 with
  * MAYA_WRITE_ENGINE_GOLDEN=1. Its ladder_rule_state hashes were rewritten
