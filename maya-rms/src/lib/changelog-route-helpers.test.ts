@@ -6,6 +6,7 @@ import {
   type RunHeartbeat,
   MAX_CANDIDATE_RUNS,
   MAX_CHANGED_RUNS,
+  MAX_PARALLEL_GAP_COUNTS,
   buildAlertChoices,
   buildApplications,
   buildCyclesFromAudit,
@@ -944,6 +945,25 @@ describe("quiet checks between changes", () => {
     expect(quiet[0].checks).toBe(log.length - oldestRead + 1);
     // Nothing changed above it, so there is no change for it to sit before.
     expect(quiet[0].just_before).toBeUndefined();
+  });
+
+  it("counts at most MAX_PARALLEL_GAP_COUNTS gaps at once, and keeps them in order", async () => {
+    // A log full of answers: one gap either side of each.
+    const splitAt = Array.from({ length: 30 }, (_, i) => at(i * 2 + 1));
+    const gaps = planQuietGaps({ changes: [], splitAt, readBackTo: null });
+    expect(gaps).toHaveLength(31);
+    let inFlight = 0;
+    let most = 0;
+    const quiet = await buildQuietChecks(gaps, async (gap) => {
+      inFlight++;
+      most = Math.max(most, inFlight);
+      await new Promise((r) => setTimeout(r, 1));
+      inFlight--;
+      const end = gap.before ?? at(99);
+      return { checks: 1, first_at: end, last_at: end };
+    });
+    expect(most).toBe(MAX_PARALLEL_GAP_COUNTS);
+    expect(quiet.map((q) => q.timestamp)).toEqual(gaps.map((g) => g.before ?? at(99)));
   });
 
   it("drops answers from before where it stopped reading, and never counts a gap whose ends meet", () => {
