@@ -161,6 +161,8 @@ describe("pickupWaitHelp", () => {
       "When the wait is over it counts pickup over its lookback window, but only what came in since it last adjusted that night, or since a stronger rule that moves the price the same way did, if that was later.",
     );
     expect(words).not.toContain("whichever rule");
+    // openFireHeads: a raise taken off for cancellations opens no pickup count.
+    expect(words).toContain("It skips a raise that came off because its bookings cancelled.");
     expect(words).toContain("three times");
     // A typed price: waitAnchor starts the wait there, and
     // pickupWindowOpensAt ignores the fires before it.

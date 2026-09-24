@@ -51,6 +51,7 @@ import {
   loadOpenPickupFires,
   loadPausedEventRules,
   loadPickupFireHeads,
+  openFireHeads,
   pickupEffectsFromFires,
   retireFires,
   retirePassedNights,
@@ -841,80 +842,47 @@ export async function evaluateHotel(
       ? await loadRepeatAlertNights(supabase, hotelId, pickupRules.map((r) => r.id), firstDate, lastDate)
       : new Map<string, RepeatAlertNight[]>();
 
-  // Per (rule, night) in scope: which of its room types it may fire on now,
-  // and which it is still waiting on. A night the owner stopped the rule on
-  // is left out entirely. Each cell counts only the bookings that reached
+  // Per (rule, night) in scope, first each room type's wait and where its
+  // Booking Speed condition counts from. A night the owner stopped the rule
+  // on is left out entirely. Each cell counts only the bookings that reached
   // MAYA after the fire it counts from (countFromFireAt: the rule's own
   // newest there, or a newer one by a stronger rule that adjusts the same
   // way, paused or not), for a Booking Speed condition from that fire's day
-  // (bookingSpeedCountFrom) and for a pickup condition from the fire itself
-  // (pickupWindowOpensAt). Cells are measured together when they count from
-  // the same place, so a (rule, night) can come out as more than one entry.
-  // A pickup condition that can't be judged on a stretch shorter than its
-  // window (pickupJudgesShortStretch) leaves out a cell whose window such a
-  // fire cut short: nothing to judge there yet. A cell the rule waits on is
-  // measured both ways, for holding it (runPickupPass): from where it counts
-  // itself against weaker rules that move the price its way (waitingOwn),
-  // and over its whole window against rules that move it the other way
-  // (waiting).
-  type RuleNight = {
-    rule: EngineRule;
-    stayDate: string;
-    baselineTs: string | null;
+  // (bookingSpeedCountFrom). Where a pickup condition's window opens waits
+  // for the cancellation test below (see ruleNights).
+  type ScopedCell = {
+    rtId: string;
+    manual: { set_at: string } | undefined;
+    waits: boolean;
     countFrom: BookingSpeedCountFrom | null;
-    /** Where baselineTs opened at a fire rather than a whole window back (pickup_counted_since). */
-    pickupSince: string | null;
-    /** Room types it may fire on now. */
-    open: string[];
-    /** Room types it waits on, where this is its whole window: it holds them against the other way. */
-    waiting: string[];
-    /** Room types it waits on, where this is what it counts itself: it holds them against weaker rules its way. */
-    waitingOwn: string[];
-    metrics?: RuleMetrics;
-    matched?: boolean;
   };
-  const ruleNights: RuleNight[] = [];
+  type ScopedNight = { rule: EngineRule; stayDate: string; cells: ScopedCell[] };
+  const scopedNights: ScopedNight[] = [];
+  // The rules whose fires may move where each one counts from.
+  const sameWayOf = new Map(
+    pickupRules.map((rule) => [
+      rule.id,
+      rankedEventRules.filter((o) => o.id !== rule.id && o.action_direction === rule.action_direction),
+    ]),
+  );
   for (const rule of pickupRules) {
     const waitDays = ruleWaitDays(rule);
-    const baselineTs = baselineTsFrom(rule, now);
-    const shortStretch = pickupJudgesShortStretch(rule);
-    // The rules whose fires may move where this one counts from.
-    const sameWay = rankedEventRules.filter((o) => o.id !== rule.id && o.action_direction === rule.action_direction);
+    const sameWay = sameWayOf.get(rule.id)!;
     for (const stayDate of stayDates) {
       if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone)) continue;
       if (isStoppedOnNight(alertNights, rule, stayDate)) continue;
-      const byFrom = new Map<string, RuleNight>();
-      const entryFor = (countFrom: BookingSpeedCountFrom | null, cellBaselineTs: string | null) => {
-        const key = `${countFrom ? `${countFrom.from}|${countFrom.since ?? ""}` : ""}|${cellBaselineTs ?? ""}`;
-        let entry = byFrom.get(key);
-        if (!entry) {
-          entry = {
-            rule,
-            stayDate,
-            countFrom,
-            baselineTs: cellBaselineTs,
-            pickupSince: cellBaselineTs !== baselineTs ? cellBaselineTs : null,
-            open: [],
-            waiting: [],
-            waitingOwn: [],
-          };
-          byFrom.set(key, entry);
-        }
-        return entry;
-      };
-      for (const rtId of rule.affected_room_type_ids) {
+      const cells = rule.affected_room_type_ids.map((rtId): ScopedCell => {
         const head = fireHeads.get(fireHeadKey(rule.id, stayDate, rtId));
         const manual = manualByCell.get(`${stayDate}|${rtId}`);
-        const waits = isWaiting(waitAnchor(rule, head, manual), now, waitDays);
-        if (waits) entryFor(null, baselineTs).waiting.push(rtId);
         const fireAt = countFromFireAt(rule, sameWay, fireHeads, stayDate, rtId, basePrices.get(basePriceKey(stayDate, rtId)) ?? 100);
-        const countFrom = bookingSpeedCountFrom(rule, fireAt, manual, hotelTimeZone);
-        const cellBaselineTs = pickupWindowOpensAt(baselineTs, fireAt, manual);
-        if (cellBaselineTs !== baselineTs && !shortStretch) continue;
-        const entry = entryFor(countFrom, cellBaselineTs);
-        (waits ? entry.waitingOwn : entry.open).push(rtId);
-      }
-      ruleNights.push(...byFrom.values());
+        return {
+          rtId,
+          manual,
+          waits: isWaiting(waitAnchor(rule, head, manual), now, waitDays),
+          countFrom: bookingSpeedCountFrom(rule, fireAt, manual, hotelTimeZone),
+        };
+      });
+      scopedNights.push({ rule, stayDate, cells });
     }
   }
 
@@ -934,12 +902,16 @@ export async function evaluateHotel(
       if (!rule || rule.signal_room_type_ids.length === 0) continue;
       needs.push({ since: fire.window_since, stayDate: fire.stay_date, signalIds: rule.signal_room_type_ids });
     }
-    for (const rn of ruleNights) {
-      if (!rn.countFrom?.since || (rn.open.length === 0 && rn.waitingOwn.length === 0)) continue;
-      if (!rn.rule.condition.booking_speed_operator || rn.rule.signal_room_type_ids.length === 0) continue;
-      const windowDays = rn.rule.condition.booking_speed_window_days ?? 7;
-      if (!countFromInWindow(windowDays, localDate, rn.countFrom.from)) continue;
-      needs.push({ since: rn.countFrom.since, stayDate: rn.stayDate, signalIds: rn.rule.signal_room_type_ids });
+    for (const { rule, stayDate, cells } of scopedNights) {
+      if (!rule.condition.booking_speed_operator || rule.signal_room_type_ids.length === 0) continue;
+      const windowDays = rule.condition.booking_speed_window_days ?? 7;
+      const splits = new Set<string>();
+      for (const { countFrom } of cells) {
+        if (!countFrom?.since || splits.has(countFrom.since)) continue;
+        if (!countFromInWindow(windowDays, localDate, countFrom.from)) continue;
+        splits.add(countFrom.since);
+        needs.push({ since: countFrom.since, stayDate, signalIds: rule.signal_room_type_ids });
+      }
     }
     if (needs.length > 0) await loadSplitWindows(supabase, hotelId, bsCtx, needs);
   }
@@ -962,6 +934,78 @@ export async function evaluateHotel(
     if (!retiredIds.has(fire.id)) continue;
     pushTo(retiredByCell, `${fire.stay_date}|${fire.affected_room_type_id}`, { fire, reason: retireReasons.get(fire.id)! });
   }
+
+  // Which of its room types each (rule, night) may fire on now, and which it
+  // is still waiting on. A pickup condition's window opens at the fire it
+  // counts from (pickupWindowOpensAt), the newest one still on the night
+  // after this run's retirements (openFireHeads): a raise that came off for
+  // cancellations, this run or before, starts no pickup count. Cells are
+  // measured together when they count from the same place, so a (rule,
+  // night) can come out as more than one entry. A pickup condition that
+  // can't be judged on a stretch shorter than its window
+  // (pickupJudgesShortStretch) leaves out a cell whose window such a fire
+  // cut short: nothing to judge there yet. A cell the rule waits on is
+  // measured both ways, for holding it (runPickupPass): from where it counts
+  // itself against weaker rules that move the price its way (waitingOwn),
+  // and over its whole window against rules that move it the other way
+  // (waiting).
+  type RuleNight = {
+    rule: EngineRule;
+    stayDate: string;
+    baselineTs: string | null;
+    countFrom: BookingSpeedCountFrom | null;
+    /** Where baselineTs opened at a fire rather than a whole window back (pickup_counted_since). */
+    pickupSince: string | null;
+    /** Room types it may fire on now. */
+    open: string[];
+    /** Room types it waits on, where this is its whole window: it holds them against the other way. */
+    waiting: string[];
+    /** Room types it waits on, where this is what it counts itself: it holds them against weaker rules its way. */
+    waitingOwn: string[];
+    metrics?: RuleMetrics;
+    matched?: boolean;
+  };
+  const openHeads = pickupRules.some((r) => r.condition.pickup_operator)
+    ? openFireHeads(rankedEventRules, openFires, retiredIds)
+    : new Map<string, Pick<FireHead, "lastCountedAt">>();
+  const ruleNights: RuleNight[] = [];
+  for (const { rule, stayDate, cells } of scopedNights) {
+    const baselineTs = baselineTsFrom(rule, now);
+    const shortStretch = pickupJudgesShortStretch(rule);
+    const sameWay = sameWayOf.get(rule.id)!;
+    const byFrom = new Map<string, RuleNight>();
+    const entryFor = (countFrom: BookingSpeedCountFrom | null, cellBaselineTs: string | null) => {
+      const key = `${countFrom ? `${countFrom.from}|${countFrom.since ?? ""}` : ""}|${cellBaselineTs ?? ""}`;
+      let entry = byFrom.get(key);
+      if (!entry) {
+        entry = {
+          rule,
+          stayDate,
+          countFrom,
+          baselineTs: cellBaselineTs,
+          pickupSince: cellBaselineTs !== baselineTs ? cellBaselineTs : null,
+          open: [],
+          waiting: [],
+          waitingOwn: [],
+        };
+        byFrom.set(key, entry);
+      }
+      return entry;
+    };
+    for (const { rtId, manual, waits, countFrom } of cells) {
+      if (waits) entryFor(null, baselineTs).waiting.push(rtId);
+      const pickupFireAt =
+        baselineTs === null
+          ? null
+          : countFromFireAt(rule, sameWay, openHeads, stayDate, rtId, basePrices.get(basePriceKey(stayDate, rtId)) ?? 100);
+      const cellBaselineTs = pickupWindowOpensAt(baselineTs, pickupFireAt, manual);
+      if (cellBaselineTs !== baselineTs && !shortStretch) continue;
+      const entry = entryFor(countFrom, cellBaselineTs);
+      (waits ? entry.waitingOwn : entry.open).push(rtId);
+    }
+    ruleNights.push(...byFrom.values());
+  }
+
   const pickupEffectsByCell = pickupEffectsFromFires(openFires, retiredIds);
   // Ladder writes are flushed: these are the rows the pass left active.
   const ladderEffectsByCell = await loadActiveLadderEffectsForRange(

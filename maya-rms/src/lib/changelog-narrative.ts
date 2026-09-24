@@ -56,8 +56,8 @@ export type NarrativeMetrics = {
   /**
    * Set when the pickup count opened at this rule's own last raise or cut,
    * or a newer one by a stronger rule that moves the price the same way,
-   * not a whole window back (engine/pickup.ts, pickupWindowOpensAt): that
-   * change's instant.
+   * still on the night, not a whole window back (engine/pickup.ts,
+   * pickupWindowOpensAt, openFireHeads): that change's instant.
    */
   pickup_counted_since?: string | null;
   /** Booking Speed observation snapshot, from the engine's RuleMetrics. */

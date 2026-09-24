@@ -118,8 +118,11 @@ export function bookingSpeedWaitHelp(
  * fire (waitAnchor). Once it is over, a condition on pickup above a number
  * counts only what came in since its own last adjustment of the night, or a
  * stronger rule's that moves the price the same way when that is later
- * (countFromFireAt, pickupWindowOpensAt), so a wait shorter than the window
- * never counts that change's bookings again. A condition on low pickup
+ * (countFromFireAt over openFireHeads, pickupWindowOpensAt), so a wait
+ * shorter than the window never counts that change's bookings again; a
+ * raise that came off for cancellations starts nothing there, since new
+ * bookings would only be netted against the ones that cancelled. A
+ * condition on low pickup
  * (`lowPickup`: below a number, or above one under zero) is never judged on
  * less than its whole window after such a change (pickupJudgesShortStretch:
  * fewer bookings would only make it truer), so it never adjusts a night
@@ -148,7 +151,7 @@ export function pickupWaitHelp(
         : []),
       lowPickup
         ? "It looks for low pickup, so it only judges a whole lookback window of pickup that came in after it last adjusted that night, or after a stronger rule that moves the price the same way did, if that was later. So it never adjusts a night again sooner than its lookback window, whatever the wait. If that keeps it true, it adjusts again, and MAYA tells you once a night has been adjusted three times."
-        : "When the wait is over it counts pickup over its lookback window, but only what came in since it last adjusted that night, or since a stronger rule that moves the price the same way did, if that was later. If that keeps it true, it adjusts again, and MAYA tells you once a night has been adjusted three times.",
+        : "When the wait is over it counts pickup over its lookback window, but only what came in since it last adjusted that night, or since a stronger rule that moves the price the same way did, if that was later. It skips a raise that came off because its bookings cancelled. If that keeps it true, it adjusts again, and MAYA tells you once a night has been adjusted three times.",
       ...WAIT_HELP_TAIL,
       STRONGER_RULE_LINE,
     ],

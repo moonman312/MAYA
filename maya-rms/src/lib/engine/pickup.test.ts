@@ -11,6 +11,7 @@ import {
   fireHeadKey,
   insertPickupEvent,
   isWaiting,
+  openFireHeads,
   pickupJudgesShortStretch,
   pickupTieBreakTrace,
   pickupWaitDays,
@@ -20,6 +21,7 @@ import {
   selectPickupWinner,
   waitAnchor,
   type FireHead,
+  type OpenPickupFire,
   type RankedRule,
 } from "./pickup";
 import { fakeSupabase } from "./fake-supabase.test";
@@ -688,6 +690,75 @@ describe("the fire a rule counts from on a cell (countFromFireAt)", () => {
     const base = new Map([[basePriceKey(NIGHT, "rt1"), 100]]);
     const winner = selectPickupWinner(rules.map((r) => makeCandidate(r, "rt1", NIGHT)), base)!.rule;
     for (const other of rules) if (other !== winner) expect(comparePickupRules(winner, other, 100, 100)).toBeLessThan(0);
+  });
+});
+
+describe("where a pickup count opens: the fires still on the night (openFireHeads)", () => {
+  const NIGHT = "2026-10-01";
+  const fire = (over: Partial<OpenPickupFire>): OpenPickupFire => ({
+    id: "f1",
+    rule_id: "raise",
+    rule_version: 1,
+    stay_date: NIGHT,
+    affected_room_type_id: "rt1",
+    applied_at: "2026-09-20T12:00:00.000Z",
+    fire_seq: 1,
+    action_kind: "percent",
+    action_direction: "increase",
+    action_value: 10,
+    cancel_check: "net_units",
+    signal_booked_units_start: 0,
+    window_from: null,
+    window_since: null,
+    window_to: null,
+    window_expected_at_fire: null,
+    signal_set_key: "rt1",
+    ...over,
+  });
+  const raise = makeRule({ id: "raise" });
+  const paused = makeRule({ id: "paused", is_active: false });
+  const edited = makeRule({ id: "edited", version: 2 });
+
+  it("takes each rule's newest open fire per night and room type, paused rules' included", () => {
+    const heads = openFireHeads(
+      [raise, paused],
+      [
+        fire({ id: "a", applied_at: "2026-09-20T12:00:00.000Z" }),
+        fire({ id: "b", applied_at: "2026-09-22T12:00:00.000Z" }),
+        fire({ id: "c", rule_id: "paused", applied_at: "2026-09-21T12:00:00.000Z" }),
+        fire({ id: "d", affected_room_type_id: "rt2", applied_at: "2026-09-19T12:00:00.000Z" }),
+      ],
+      new Set(),
+    );
+    expect(heads.get(fireHeadKey("raise", NIGHT, "rt1"))?.lastCountedAt).toBe("2026-09-22T12:00:00.000Z");
+    expect(heads.get(fireHeadKey("paused", NIGHT, "rt1"))?.lastCountedAt).toBe("2026-09-21T12:00:00.000Z");
+    expect(heads.get(fireHeadKey("raise", NIGHT, "rt2"))?.lastCountedAt).toBe("2026-09-19T12:00:00.000Z");
+  });
+
+  it("leaves out a raise this run took off, one from an older version of its rule, and one whose rule it wasn't given", () => {
+    const heads = openFireHeads(
+      [raise, edited],
+      [
+        fire({ id: "open", applied_at: "2026-09-20T12:00:00.000Z" }),
+        fire({ id: "cancelled", applied_at: "2026-09-23T12:00:00.000Z" }),
+        fire({ id: "old", rule_id: "edited", rule_version: 1, applied_at: "2026-09-24T12:00:00.000Z" }),
+        fire({ id: "orphan", rule_id: "deleted", applied_at: "2026-09-25T12:00:00.000Z" }),
+      ],
+      new Set(["cancelled"]),
+    );
+    expect([...heads.entries()]).toEqual([[fireHeadKey("raise", NIGHT, "rt1"), { lastCountedAt: "2026-09-20T12:00:00.000Z" }]]);
+  });
+
+  it("so a stronger rule's cancelled raise starts no weaker rule's pickup count, while its fire history still does", () => {
+    // The fire history (FireHead.lastCountedAt) keeps a raise taken off for
+    // cancellations; the open fires don't.
+    const strong = makeRule({ id: "strong", action_value: 20 });
+    const weak = makeRule({ id: "weak", action_value: 10 });
+    const cancelledAt = "2026-09-23T12:00:00.000Z";
+    const history = new Map([[fireHeadKey("strong", NIGHT, "rt1"), { maxFireSeq: 1, anchorAt: cancelledAt, counted: 1, lastCountedAt: cancelledAt }]]);
+    expect(countFromFireAt(weak, [strong], history, NIGHT, "rt1", 100)).toBe(cancelledAt);
+    const open = openFireHeads([strong, weak], [fire({ id: "x", rule_id: "strong", applied_at: cancelledAt })], new Set(["x"]));
+    expect(countFromFireAt(weak, [strong], open, NIGHT, "rt1", 100)).toBeNull();
   });
 });
 

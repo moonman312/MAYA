@@ -435,6 +435,140 @@ describe.each(ENGINES)("$name: a fire later than the run's clock", (engine) => {
   }, 60_000);
 });
 
+describe.each(ENGINES)("$name: a \"less than\" pickup rule", (engine) => {
+  it("is not set off by a stronger rule's cut: it has nothing to judge until a whole window has passed it", async () => {
+    // A: pickup under 6 over a day, true on a night that had its five
+    // bookings three days ago, and the strongest cut. B and C: under 2 over
+    // the week and under 3 over three days, both false on those five, and
+    // weaker, so they count from A's cut. Counted from there they would read
+    // nothing booked since, and cut one after another every run
+    // (pickupJudgesShortStretch).
+    const a = pickupRule(
+      "r-a",
+      { pickup_operator: "lt", pickup_threshold: 6, pickup_window_days: 1 },
+      { action_direction: "decrease", action_value: 15 },
+    );
+    const b = pickupRule(
+      "r-b",
+      { pickup_operator: "lt", pickup_threshold: 2, pickup_window_days: 7 },
+      { action_direction: "decrease", action_value: 10 },
+    );
+    const c = pickupRule(
+      "r-c",
+      { pickup_operator: "lt", pickup_threshold: 3, pickup_window_days: 3, pickup_cooldown_days: 1 },
+      { action_direction: "decrease", action_value: 5 },
+    );
+    const w = world(engine, { rules: [a, b, c], reservations: bookings(5, addDays(D0, -3)) });
+    await w.run(T0);
+    expect(w.firedOn()).toEqual([["r-a", 0]]);
+    expect(w.price()).toBe(85);
+    for (let n = 1; n <= 3; n++) await w.run(T0 + n * 5 * 60_000);
+    expect(w.firedOn()).toEqual([["r-a", 0]]);
+    expect(w.price()).toBe(85);
+  }, 60_000);
+
+  it("with a wait shorter than its window, never cuts a night again before its whole window has passed its cut", async () => {
+    // Under 2 over the week, waiting a day, on a night nothing books: after
+    // its cut it has a whole week of nothing to judge only on day 7, so the
+    // day's wait changes nothing (the builder says "low pickup holds it to 1
+    // week").
+    const rule = pickupRule(
+      "r-slow",
+      { pickup_operator: "lt", pickup_threshold: 2, pickup_window_days: 7, pickup_cooldown_days: 1 },
+      { action_direction: "decrease", action_value: 5 },
+    );
+    const w = world(engine, { rules: [rule], reservations: [] });
+    for (let day = 0; day <= 8; day++) await w.run(T0 + day * DAY);
+    expect(w.firedOn()).toEqual([
+      ["r-slow", 0],
+      ["r-slow", 7],
+    ]);
+    expect(w.price()).toBe(90.25);
+    // The second cut judged the whole week after the first.
+    expect(w.fires()[1]).toMatchObject({ baseline_start_ts: iso(T0) });
+  }, 60_000);
+});
+
+describe.each(ENGINES)("$name: a raise that came off for cancellations", (engine) => {
+  it("starts no pickup count: new bookings after it are counted over the window, not netted against the ones that cancelled", async () => {
+    // r-quick raises on six bookings (more than 5 in 3 days); they cancel
+    // and the raise comes off.
+    const quick = pickupRule("r-quick", { pickup_window_days: 3, pickup_threshold: 5 });
+    const burst = bookings(6, D0);
+    const w = world(engine, { rules: [quick], reservations: burst });
+    await w.run(T0);
+    expect(w.firedOn()).toEqual([["r-quick", 0]]);
+    const cancelled = new Set(burst.map((r) => r.id));
+    w.tables.reservations = w.tables.reservations.filter((r) => !cancelled.has(r.id));
+    await w.run(T0 + 6 * HOUR);
+    expect(w.fires()[0].retired_reason).toBe("bookings_cancelled");
+    expect(w.price()).toBe(100);
+
+    // A weaker week rule is added, and five new bookings come in the next
+    // day: too few for r-quick, so it holds nothing while it waits. The week
+    // rule counts its whole week: five, over its mark. Counted from that
+    // raise, whose run saw the six that cancelled, it would read one less
+    // than none.
+    w.tables.pricing_rules.push(pickupRule("r-week", { pickup_window_days: 7 }, { action_value: 5 }));
+    w.tables.reservations.push(...bookings(5, addDays(D0, 1)));
+    await w.run(T0 + DAY);
+    expect(w.firedOn()).toEqual([
+      ["r-quick", 0],
+      ["r-week", 1],
+    ]);
+    expect(w.fireMetrics(T0 + DAY)).toMatchObject({ net_pickup_units: 5 });
+    expect(w.fireMetrics(T0 + DAY)).not.toHaveProperty("pickup_counted_since");
+    expect(w.price()).toBe(105);
+  }, 60_000);
+
+  it("starts nothing in the run that takes it off either", async () => {
+    // r-quick counts its 3 days: five bookings from five days ago are
+    // before it, and it raises on five more. r-week (weaker) counts from
+    // that raise. When the five new ones cancel, the run that takes the
+    // raise off already counts r-week's whole week: the five older ones,
+    // which no rule acted on.
+    const quick = pickupRule("r-quick", { pickup_window_days: 3 });
+    const week = pickupRule("r-week", { pickup_window_days: 7, pickup_threshold: 4 }, { action_value: 5 });
+    const burst = bookings(5, D0);
+    const w = world(engine, { rules: [quick, week], reservations: [...bookings(5, addDays(D0, -5)), ...burst] });
+    await w.run(T0);
+    expect(w.firedOn()).toEqual([["r-quick", 0]]);
+    await w.run(T0 + HOUR);
+    expect(w.fires()).toHaveLength(1);
+
+    const cancelled = new Set(burst.map((r) => r.id));
+    w.tables.reservations = w.tables.reservations.filter((r) => !cancelled.has(r.id));
+    await w.run(T0 + 6 * HOUR);
+    expect(w.fires().map((e) => [e.rule_id, e.retired_reason])).toEqual([
+      ["r-quick", "bookings_cancelled"],
+      ["r-week", null],
+    ]);
+    expect(w.fireMetrics(T0 + 6 * HOUR)).toMatchObject({ net_pickup_units: 5 });
+    expect(w.fireMetrics(T0 + 6 * HOUR)).not.toHaveProperty("pickup_counted_since");
+    expect(w.price()).toBe(105);
+  }, 60_000);
+
+  it("a rule's own cancelled raise doesn't hold back its next count either", async () => {
+    // A day's wait and a week's window: five new bookings after the
+    // cancellation raise it again once the day is up, not a week later.
+    const rule = pickupRule("r-daily", { pickup_window_days: 7, pickup_cooldown_days: 1 });
+    const burst = bookings(5, D0);
+    const w = world(engine, { rules: [rule], reservations: burst });
+    await w.run(T0);
+    const cancelled = new Set(burst.map((r) => r.id));
+    w.tables.reservations = w.tables.reservations.filter((r) => !cancelled.has(r.id));
+    await w.run(T0 + 6 * HOUR);
+    expect(w.fires()[0].retired_reason).toBe("bookings_cancelled");
+    w.tables.reservations.push(...bookings(5, addDays(D0, 1)));
+    await w.run(T0 + DAY + HOUR);
+    expect(w.firedOn()).toEqual([
+      ["r-daily", 0],
+      ["r-daily", 1 + 1 / 24],
+    ]);
+    expect(w.price()).toBe(110);
+  }, 60_000);
+});
+
 describe.each(ENGINES)("$name: a rule with a booking speed condition too", (engine) => {
   /** One booking every 10 days of lead time on every night from 400 days back: history for booking speed to compare with. */
   function history(last: string): FakeRow[] {

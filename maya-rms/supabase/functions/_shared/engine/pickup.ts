@@ -41,7 +41,10 @@
  * A pickup condition counts net bookings over its window (now minus
  * pickup_window_days), or from that fire when it is later
  * (pickupWindowOpensAt): the run that made the fire wrote a snapshot at
- * that very instant, so the count starts from exactly what the fire saw. A
+ * that very instant, so the count starts from exactly what the fire saw.
+ * For a pickup count that fire must still be on the night (openFireHeads):
+ * a raise taken off for cancellations starts nothing, or new bookings would
+ * be netted against the ones that cancelled. A
  * wait its owner chose shorter than the window is what lets its own fire
  * open it later; left on the window, only another rule's fire can. A
  * stretch shorter than the window is judged only when counting fewer
@@ -357,12 +360,13 @@ export function bookingSpeedCountFrom(
  * stronger rule's change starts a weaker rule's count over, and a weaker
  * rule's never moves a stronger rule's: a rule for 10 bookings in a week
  * still counts the 5 a rule for 5 raised on. null when none of them has a
- * counted fire there.
+ * counted fire there. A pickup condition reads it off openFireHeads
+ * instead, the fires still on the night.
  */
 export function countFromFireAt(
   rule: RankedRule,
   others: readonly RankedRule[],
-  heads: ReadonlyMap<string, FireHead>,
+  heads: ReadonlyMap<string, Pick<FireHead, "lastCountedAt">>,
   stayDate: string,
   roomTypeId: string,
   basePrice: number,
@@ -375,6 +379,35 @@ export function countFromFireAt(
     if (comparePickupRules(other, rule, basePrice, basePrice) < 0) at = otherAt;
   }
   return at === null ? null : new Date(Date.parse(at)).toISOString();
+}
+
+/**
+ * Per `rule_id|stay_date|room_type_id` (fireHeadKey), the newest fire still
+ * on the night from each given rule's current version, leaving out
+ * `retired` (the fires this run took off): where a pickup condition counts
+ * from (countFromFireAt over these instead of the fire heads). Unlike
+ * FireHead.lastCountedAt, a raise taken off for cancellations is not among
+ * them: what it acted on is gone, and its run's snapshot still holds the
+ * bookings that cancelled, so a pickup count opened there would net every
+ * new booking against them, and a rule whose wait is shorter than its
+ * window would not raise on a new burst until its window had passed that
+ * raise. A Booking Speed count still starts at such a raise: it counts the
+ * bookings made after it, which are new whatever cancelled.
+ */
+export function openFireHeads(
+  rules: readonly Pick<RankedRule, "id" | "version">[],
+  openFires: readonly OpenPickupFire[],
+  retired: ReadonlySet<string>,
+): Map<string, Pick<FireHead, "lastCountedAt">> {
+  const versionOf = new Map(rules.map((r) => [r.id, r.version]));
+  const out = new Map<string, Pick<FireHead, "lastCountedAt">>();
+  for (const fire of openFires) {
+    if (retired.has(fire.id) || versionOf.get(fire.rule_id) !== fire.rule_version) continue;
+    const key = fireHeadKey(fire.rule_id, fire.stay_date, fire.affected_room_type_id);
+    const newest = out.get(key)?.lastCountedAt;
+    if (!newest || Date.parse(fire.applied_at) > Date.parse(newest)) out.set(key, { lastCountedAt: fire.applied_at });
+  }
+  return out;
 }
 
 /**
@@ -393,7 +426,9 @@ export function pickupJudgesShortStretch(rule: RankedRule): boolean {
 /**
  * Where a pickup condition's window opens on a cell: now minus its window
  * (`baselineTs`, baselineTsFrom), or the fire it counts from
- * (countFromFireAt) when that is later, so a pickup rule doesn't count
+ * (countFromFireAt over openFireHeads: its own newest fire still on the
+ * night, or a newer one by a stronger rule that adjusts the same way) when
+ * that is later, so a pickup rule doesn't count
  * again the bookings it or a stronger rule already adjusted the night for:
  * with a wait shorter than its window, its next decision would otherwise
  * read the same burst again. That run wrote a snapshot at the fire's own
