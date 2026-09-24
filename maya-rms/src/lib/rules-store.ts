@@ -21,6 +21,7 @@ import {
   pickupCountsLow,
   ruleConditionForInsert,
   ruleConditionToLegacyConditions,
+  waitDaysLabel,
 } from "@/lib/rule-form";
 import type {
   ActionDirection,
@@ -193,6 +194,35 @@ function formatBookingSpeedCondition(
   return `${opWords}${label} (${windowWords}), then waits ${bookingSpeedWaitLabel(waitDays)}`;
 }
 
+/**
+ * "(past week), then waits 2 days": what follows "Pickup above 5 bookings"
+ * in the rules table, so the wait a pickup count rule keeps can be read back
+ * once it is saved (pickupOwnWait: the one chosen, or its lookback window,
+ * and never less than the window for a rule on low pickup).
+ * A rule that also measures booking speed says its wait once, in that
+ * condition's text, which already takes the longer of the two
+ * (formatBookingSpeedCondition), so here it only names the window.
+ */
+function formatPickupTiming(
+  windowDays: number | null,
+  cooldownDays: number | null,
+  low: boolean,
+  hasBookingSpeed: boolean,
+): string {
+  const window = windowDays ?? 3;
+  const windowWords = window === 1 ? "past day" : window === 7 ? "past week" : `past ${window} days`;
+  if (hasBookingSpeed) return `(${windowWords})`;
+  const waitDays = eventRuleWaitDays({
+    hasBookingSpeed: false,
+    cooldownDays: null,
+    hasPickup: true,
+    pickupWindowDays: windowDays,
+    pickupCooldownDays: cooldownDays,
+    pickupLow: low,
+  });
+  return `(${windowWords}), then waits ${waitDaysLabel(waitDays)}`;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function embedRoomTypeName(rt: any): string | undefined {
   const r = rt?.room_types;
@@ -223,6 +253,12 @@ function dbRowToRuleConfig(row: any): RuleConfig {
     if (rc.pickup_operator && rc.pickup_threshold != null) {
       const sym = OP_TO_SYM[rc.pickup_operator as RuleOperator] ?? ">";
       conditions.pickup_rate = `${sym}${rc.pickup_threshold}`;
+      conditions.pickup_timing = formatPickupTiming(
+        rc.pickup_window_days != null ? Number(rc.pickup_window_days) : null,
+        rc.pickup_cooldown_days != null ? Number(rc.pickup_cooldown_days) : null,
+        pickupCountsLow(String(rc.pickup_operator), Number(rc.pickup_threshold)),
+        rc.booking_speed_operator != null,
+      );
     }
     if (rc.booking_speed_operator && rc.booking_speed_level) {
       conditions.booking_speed = formatBookingSpeedCondition(

@@ -16,6 +16,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { ruleWaitDays } from "./engine/pickup";
+import { formatRuleConditionsDisplay } from "./rule-form";
 import { createRule, listEngineRules, listRules, updateRule, type CreateRuleInput } from "./rules-store";
 
 type Row = Record<string, unknown>;
@@ -342,6 +343,54 @@ describe("a pickup count rule's wait round-trips through the store", () => {
     expect(tables.get("rule_condition")).toHaveLength(1);
     expect(tables.get("rule_condition")![0]).toMatchObject({ rule_id: "r1", ...pickup });
     expect(tables.get("rule_condition")![0]).not.toHaveProperty("pickup_cooldown_days");
+  });
+
+  it("the rules table says a pickup rule's window and the wait it keeps, chosen or not", async () => {
+    const table = async (condition: Record<string, unknown>) => {
+      const { client } = fakeSupabase({
+        pricing_rules: [
+          {
+            id: "r1",
+            hotel_id: "h1",
+            name: "Pickup",
+            is_active: true,
+            version: 1,
+            action_type: "percent",
+            action_direction: "increase",
+            action_value: 10,
+            is_pickup_rule: true,
+            rule_condition: condition,
+          },
+        ],
+      });
+      return formatRuleConditionsDisplay((await listRules(client, "h1"))[0].conditions);
+    };
+    expect(await table({ ...pickup, pickup_cooldown_days: 2 })).toBe("Pickup above 5 bookings (past week), then waits 2 days");
+    // None chosen: it waits its window (ruleWaitDays).
+    expect(await table({ ...pickup, pickup_cooldown_days: null })).toBe("Pickup above 5 bookings (past week), then waits 1 week");
+    expect(await table({ ...pickup, pickup_window_days: 3, pickup_cooldown_days: null })).toBe(
+      "Pickup above 5 bookings (past 3 days), then waits 3 days",
+    );
+    expect(await table({ ...pickup, pickup_operator: "lt", pickup_window_days: 1, pickup_cooldown_days: 14 })).toBe(
+      "Pickup below 5 bookings (past day), then waits 2 weeks",
+    );
+    // A rule on low pickup never adjusts a night again before its whole
+    // window has passed (pickupJudgesShortStretch), so a shorter wait reads
+    // as its window.
+    expect(await table({ ...pickup, pickup_operator: "lt", pickup_cooldown_days: 1 })).toBe(
+      "Pickup below 5 bookings (past week), then waits 1 week",
+    );
+    // With booking speed too, the wait is said once, the longer of the two.
+    expect(
+      await table({
+        ...pickup,
+        pickup_cooldown_days: 2,
+        booking_speed_operator: "at_least",
+        booking_speed_level: "faster",
+        booking_speed_window_days: 7,
+        booking_speed_cooldown_days: 3,
+      }),
+    ).toBe("Pickup above 5 bookings (past week) · booking speed at least Faster Than Normal (past week), then waits 3 days");
   });
 
   it("the card names the pickup wait chosen when it is longer than the booking speed one", async () => {

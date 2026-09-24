@@ -359,9 +359,11 @@ export function formatRuleConditionsDisplay(conditions: Record<string, RuleCondi
   const bw = conditions.booking_window;
   if (bw != null) parts.push(`Booking window ${wordify(bw, " days")}`);
   const pu = conditions.pickup_rate;
-  if (pu != null) parts.push(`Pickup ${wordify(pu, " bookings")}`);
+  // pickup_timing: the window and the wait a saved rule keeps (rules-store.ts).
+  const puTiming = conditions.pickup_timing;
+  if (pu != null) parts.push(`Pickup ${wordify(pu, " bookings")}${puTiming != null ? ` ${puTiming}` : ""}`);
   for (const [k, v] of Object.entries(conditions)) {
-    if (k === "occupancy_percentage" || k === "booking_window" || k === "pickup_rate") continue;
+    if (k === "occupancy_percentage" || k === "booking_window" || k === "pickup_rate" || k === "pickup_timing") continue;
     parts.push(`${k.replace(/_/g, " ")} ${wordify(v)}`);
   }
   return parts.length ? parts.join(" · ") : "—";
