@@ -384,6 +384,9 @@ create table if not exists rule_condition (
   pickup_threshold      numeric(10,2),
   pickup_window_days    integer check (pickup_window_days in (1,3,7)),
   pickup_metric         text check (pickup_metric in ('room_nights','revenue')),
+  -- Days a pickup count rule waits on a night and room type after it fires
+  -- there; null waits its lookback window (99_supabase_migration_pickup_wait_v1.sql).
+  pickup_cooldown_days  integer constraint rule_condition_pickup_cooldown_chk check (pickup_cooldown_days is null or pickup_cooldown_days >= 1),
   booking_speed_operator      text check (booking_speed_operator is null or booking_speed_operator in ('at_least','at_most','is')),
   booking_speed_level         text check (booking_speed_level is null or booking_speed_level in
     ('stalled','much_slower','slower','normal','faster','much_faster','surging')),
@@ -396,6 +399,8 @@ create table if not exists rule_condition (
     (pickup_operator is not null and pickup_threshold is not null
      and pickup_window_days is not null and pickup_metric is not null)
   ),
+  constraint rule_condition_pickup_cooldown_family_chk
+    check (pickup_cooldown_days is null or pickup_operator is not null),
   check (
     (booking_speed_operator is null and booking_speed_level is null
      and booking_speed_window_days is null and booking_speed_cooldown_days is null)
