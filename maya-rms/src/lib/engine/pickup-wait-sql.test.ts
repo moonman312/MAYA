@@ -199,6 +199,7 @@ describe("the pickup wait migration's deploy list", () => {
     const changed = [
       "_shared/engine/pickup.ts",
       "_shared/engine/evaluate.ts",
+      "_shared/engine/snapshots.ts",
       "_shared/engine/repeat-alerts.ts",
       "_shared/engine/types.ts",
       "_shared/engine/domain.ts",

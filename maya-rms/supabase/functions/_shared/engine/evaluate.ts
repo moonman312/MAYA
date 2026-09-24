@@ -112,14 +112,25 @@ function pushTo<T>(map: Map<string, T[]>, key: string, value: T): void {
 /**
  * Most pickup cells share a handful of baselines (now minus the rule's
  * window). Each baseline used by enough cells is fetched for the whole block
- * of dates and signal types in one call; rarer ones stay per cell.
+ * of dates and signal types in one call; rarer ones stay per cell. A count
+ * that opens at a fire (`atFire`) has a baseline of its own per night, the
+ * fire's applied_at, which that fire's run wrote a snapshot at: those are
+ * all read by their exact instants together (preloadAt), however few cells
+ * each covers, rather than one read per night and room type.
  */
 async function preloadSharedBaselines(
   snapshots: ReturnType<typeof createSnapshotLookup>,
-  cells: { rule: EngineRule; stayDate: string; baselineTs: string }[],
+  cells: { rule: EngineRule; stayDate: string; baselineTs: string; atFire: boolean }[],
 ): Promise<void> {
+  const atFires = cells.filter((c) => c.atFire);
+  if (atFires.length > 0) {
+    await snapshots.preloadAt(
+      atFires.map((c) => ({ stayDate: c.stayDate, roomTypeIds: c.rule.signal_room_type_ids, ts: c.baselineTs })),
+    );
+  }
   const byTs = new Map<string, { count: number; first: string; last: string; types: Set<string> }>();
   for (const c of cells) {
+    if (c.atFire) continue;
     let g = byTs.get(c.baselineTs);
     if (!g) {
       g = { count: 0, first: c.stayDate, last: c.stayDate, types: new Set() };
@@ -1046,7 +1057,11 @@ export async function evaluateHotel(
     rn.matched = ruleConditionsMatch(rn.rule, metrics);
   };
   const withBaseline = (list: RuleNight[]) =>
-    list.flatMap((rn) => (rn.baselineTs ? [{ rule: rn.rule, stayDate: rn.stayDate, baselineTs: rn.baselineTs }] : []));
+    list.flatMap((rn) =>
+      rn.baselineTs
+        ? [{ rule: rn.rule, stayDate: rn.stayDate, baselineTs: rn.baselineTs, atFire: rn.pickupSince != null }]
+        : [],
+    );
   const candidate = (rn: RuleNight, rtId: string) =>
     candidateFor({
       rule: rn.rule,

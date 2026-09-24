@@ -380,6 +380,45 @@ describe.each(ENGINES)("$name: no snapshot where the count opens", (engine) => {
   }, 60_000);
 });
 
+/** A fire another rule made on NIGHT, as pickup_event keeps it. */
+function otherFire(
+  id: string,
+  ruleId: string,
+  appliedAt: string,
+  direction: "increase" | "decrease",
+  units: number,
+  actionValue = 20,
+): FakeRow {
+  return {
+    id,
+    hotel_id: "h1",
+    rule_id: ruleId,
+    rule_version: 1,
+    stay_date: NIGHT,
+    affected_room_type_id: STD,
+    baseline_start_ts: iso(Date.parse(appliedAt) - 3 * DAY),
+    baseline_end_ts: appliedAt,
+    signal_booked_units_start: units,
+    signal_booked_units_end: units,
+    signal_booked_revenue_start: units * 100,
+    signal_booked_revenue_end: units * 100,
+    applied_at: appliedAt,
+    retired_at: null,
+    retired_reason: null,
+    action_kind: "percent",
+    action_direction: direction,
+    action_value: actionValue,
+    fire_seq: 1,
+    cancel_check: "none",
+    window_from: null,
+    window_since: null,
+    window_to: null,
+    window_bookings_at_fire: null,
+    window_expected_at_fire: null,
+    signal_set_key: STD,
+  };
+}
+
 describe.each(ENGINES)("$name: a fire later than the run's clock", (engine) => {
   it("a stronger rule's raise recorded ahead of the run's clock leaves nothing to count yet, then the count runs from it", async () => {
     // A stronger raise rule's raise, recorded a minute after this run's clock
@@ -390,38 +429,7 @@ describe.each(ENGINES)("$name: a fire later than the run's clock", (engine) => {
     const w = world(engine, {
       rules: [fast, other],
       reservations: bookings(4, addDays(D0, -1)),
-      extra: {
-        pickup_event: [
-          {
-            id: "e-later",
-            hotel_id: "h1",
-            rule_id: "r-other",
-            rule_version: 1,
-            stay_date: NIGHT,
-            affected_room_type_id: STD,
-            baseline_start_ts: iso(T0 + 60_000 - 3 * DAY),
-            baseline_end_ts: later,
-            signal_booked_units_start: 4,
-            signal_booked_units_end: 4,
-            signal_booked_revenue_start: 400,
-            signal_booked_revenue_end: 400,
-            applied_at: later,
-            retired_at: null,
-            retired_reason: null,
-            action_kind: "percent",
-            action_direction: "increase",
-            action_value: 10,
-            fire_seq: 1,
-            cancel_check: "none",
-            window_from: null,
-            window_since: null,
-            window_to: null,
-            window_bookings_at_fire: null,
-            window_expected_at_fire: null,
-            signal_set_key: STD,
-          },
-        ],
-      },
+      extra: { pickup_event: [otherFire("e-later", "r-other", later, "increase", 4, 10)] },
     });
     // Over its window the four would do, but they came before that raise.
     await w.run(T0);
@@ -638,4 +646,83 @@ describe.each(ENGINES)("$name: the owner alert after three raises", (engine) => 
     const night = (w.tables.rule_repeat_alert_nights ?? []).find((n) => n.stay_date === NIGHT);
     expect(night).toMatchObject({ fire_count: 3, pickup_window_days: 1, pickup_net: 6 });
   }, 60_000);
+});
+
+describe.each(ENGINES)("$name: counts that open at fires, read many nights at a time", (engine) => {
+  it("reads every night's own starting snapshot together, not once per night and room type, and counts the same", async () => {
+    // A stronger raise rule raised each of 30 nights at a different run
+    // within the week rule's window, across 6 room types. The week rule's
+    // count on each night opens at that night's raise: 30 starting instants.
+    const NIGHTS = 30;
+    const TYPES = Array.from({ length: 6 }, (_, i) => `b0000000-0000-4000-8000-00000000000${i}`);
+    const nights = Array.from({ length: NIGHTS }, (_, i) => addDays(D0, i + 1));
+    const firedAt = (i: number) => iso(T0 - (2 + i) * HOUR - i * 60_000);
+    const reservations: FakeRow[] = [];
+    const snapshotRows: FakeRow[] = [];
+    // One booking per night and room type from well before.
+    for (const stay of nights) {
+      for (const rt of TYPES) reservations.push({ ...booking(addDays(D0, -20), stay), room_type_id: rt });
+    }
+    // History for the window starts, and the snapshot each raise's run wrote
+    // at its own instant, for every night and room type as a run does.
+    const stamps = [
+      ...Array.from({ length: 40 }, (_, k) => iso(T0 - (k + 1) * 6 * HOUR)),
+      ...nights.map((_, i) => firedAt(i)),
+    ];
+    for (const ts of stamps) {
+      for (const stay of nights) {
+        for (const rt of TYPES) {
+          snapshotRows.push({ hotel_id: "h1", snapshot_ts: ts, stay_date: stay, room_type_id: rt, sellable_units: 10, booked_units: 1, booked_revenue: 100 });
+        }
+      }
+    }
+    // After each raise, even nights got four more bookings in the first room type.
+    nights.forEach((stay, i) => {
+      if (i % 2 === 0) for (let n = 0; n < 4; n++) reservations.push({ ...booking(D0, stay), room_type_id: TYPES[0] });
+    });
+    const everyType = TYPES.map((room_type_id) => ({ room_type_id }));
+    const week = pickupRule("r-week", { pickup_window_days: 7 }, { rule_signal_room_type: everyType, rule_affected_room_type: everyType });
+    const other = pickupRule(
+      "r-other",
+      { pickup_window_days: 3, pickup_threshold: 1000 },
+      { action_value: 20, rule_signal_room_type: everyType, rule_affected_room_type: everyType },
+    );
+    const raises = nights.flatMap((stay, i) =>
+      TYPES.map((rt) => ({
+        ...otherFire(`e-${i}-${rt.slice(-1)}`, "r-other", firedAt(i), "increase", 1),
+        stay_date: stay,
+        affected_room_type_id: rt,
+        signal_set_key: TYPES.join(","),
+      })),
+    );
+    const fake = fakeSupabase({
+      hotels: [{ id: "h1", timezone: "UTC" }],
+      room_types: TYPES.map((id, i) => ({ id, hotel_id: "h1", name: `Type ${i}`, is_active: true, total_rooms: 10, floor_price: 10, ceiling_price: 5000, counts_as_room: true })),
+      reservations,
+      base_rate_calendar: [...nights, D0].flatMap((stay) => TYPES.map((rt) => ({ hotel_id: "h1", stay_date: stay, room_type_id: rt, price: 100 }))),
+      pricing_rules: [week, other],
+      stay_date_snapshot: snapshotRows,
+      manual_price: [],
+      pickup_event: raises,
+    });
+    vi.setSystemTime(new Date(T0));
+    await engine.evaluateHotel(fake.client, "h1", iso(T0), NIGHTS + 1);
+
+    const reads = fake.calls.filter((c) => c.table === "stay_date_snapshot" && c.op === "select");
+    // One read for all thirty raises' instants; none per night and room type
+    // (180 of them). Tonight's own window starts are a handful of cells,
+    // read one at a time as they always were.
+    const atFires = reads.filter((c) => c.filters.some((f) => f.kind === "or"));
+    expect(atFires).toHaveLength(1);
+    const perCell = reads.filter((c) =>
+      c.filters.some((f) => f.col === "stay_date" && f.kind === "eq" && nights.includes(String(f.value))),
+    );
+    expect(perCell).toHaveLength(0);
+    // The even nights picked up four since their raise, the odd ones none.
+    const weekFires = fake.tables.pickup_event.filter((e) => e.rule_id === "r-week");
+    const firedNights = [...new Set(weekFires.map((e) => String(e.stay_date)))].sort();
+    expect(firedNights).toEqual(nights.filter((_, i) => i % 2 === 0));
+    const first = weekFires.find((e) => e.stay_date === nights[0] && e.affected_room_type_id === TYPES[0])!;
+    expect(first).toMatchObject({ baseline_start_ts: firedAt(0), signal_booked_units_start: 6, signal_booked_units_end: 10 });
+  }, 120_000);
 });

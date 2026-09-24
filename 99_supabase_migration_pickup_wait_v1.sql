@@ -53,7 +53,9 @@
 -- the fire's applied_at, for every counting room type on every night it
 -- priced), so the count finds its starting point there, well inside the
 -- 12-hour staleness guard and the snapshot retention (longest window plus
--- 7 days).
+-- 7 days). The engine reads those snapshots by their exact instants, many
+-- nights to a request (stay_date_snapshot's primary key starts hotel_id,
+-- snapshot_ts), not one read per night and room type.
 --
 -- The engine reads pickup_cooldown_days as soon as it is deployed. Before
 -- this file it re-reads the rules without the column, logs once per run

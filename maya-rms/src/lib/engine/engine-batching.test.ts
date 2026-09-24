@@ -276,6 +276,48 @@ describe("snapshot lookup", () => {
     }
     if ("rpc" in opts) expect(err.mock.calls.filter((c) => String(c[0]).includes("snapshot_cells_at"))).toHaveLength(1);
   });
+
+  it("reads baselines at earlier runs' own instants together, and they equal findSnapshotAt, cells missing at an instant included", async () => {
+    const { client, calls } = fakeSupabase({ stay_date_snapshot: table }, { maxRows: 1000 });
+    const lookup = createSnapshotLookup(client, "h1", nowTs, []);
+    const instants = [0, 2, 5].map((run) => new Date(Date.parse("2026-06-28T00:00:00Z") + run * 7 * 3600_000).toISOString());
+    // A different night per instant, as fires on different nights are.
+    const cells = days.slice(0, 12).map((d, i) => ({ stayDate: d, roomTypeIds: types, ts: instants[i % 3] }));
+    // The same instant spelled the way Postgres hands applied_at back.
+    const spelled = cells.map((c) => ({ ...c, ts: c.ts.replace("Z", "+00:00") }));
+    await lookup.preloadAt([...cells, ...spelled]);
+    const preloadReads = calls.filter((c) => c.table === "stay_date_snapshot").length;
+    expect(preloadReads).toBe(1);
+    for (const c of spelled) {
+      const got = await lookup.at(c.stayDate, c.roomTypeIds, c.ts);
+      const want = await findSnapshotAt(client, "h1", c.stayDate, c.roomTypeIds, c.ts.replace("+00:00", "Z"));
+      expect(got).toEqual(want);
+    }
+    for (const c of cells) {
+      expect(await lookup.at(c.stayDate, c.roomTypeIds, c.ts)).toEqual(await findSnapshotAt(client, "h1", c.stayDate, c.roomTypeIds, c.ts));
+    }
+    // A cell with a row at the instant was answered from the read; the ones
+    // the table skipped were each read on their own.
+    const found = new Set(table.map((t) => `${t.stay_date}|${t.room_type_id}|${t.snapshot_ts}`));
+    const missing = cells.flatMap((c) => c.roomTypeIds.filter((t) => !found.has(`${c.stayDate}|${t}|${c.ts}`)));
+    expect(missing.length).toBeGreaterThan(0);
+    const perCell = calls.filter((c) => c.table === "stay_date_snapshot").length - preloadReads;
+    // findSnapshotAt above reads every cell twice over; the lookup read only the missing ones, once per spelling.
+    expect(perCell).toBe(2 * cells.length * types.length + 2 * missing.length);
+  });
+
+  it("reads each cell on its own when the read at the instants fails", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { client } = fakeSupabase(
+      { stay_date_snapshot: table },
+      { fault: (c) => (c.table === "stay_date_snapshot" && c.filters.some((f) => f.kind === "or") ? { message: "statement timeout" } : null) },
+    );
+    const lookup = createSnapshotLookup(client, "h1", nowTs, []);
+    const ts = new Date(Date.parse("2026-06-28T00:00:00Z") + 7 * 3600_000).toISOString();
+    await lookup.preloadAt([{ stayDate: days[4], roomTypeIds: types, ts }]);
+    expect(await lookup.at(days[4], types, ts)).toEqual(await findSnapshotAt(client, "h1", days[4], types, ts));
+    expect(err.mock.calls.some((c) => String(c[0]).includes("snapshots_at_fires"))).toBe(true);
+  });
 });
 
 describe("reservation cells for the horizon", () => {

@@ -420,7 +420,9 @@ export async function findSnapshotAt(
  * of a run and purged at its end, so a cell's answer for a timestamp cannot
  * change in between. `preload` fills the memo for a whole block of cells in
  * one call (snapshot_cells_at, from the large property migration) when many
- * cells share a baseline timestamp.
+ * cells share a baseline timestamp. `preloadAt` fills it for baselines that
+ * are each some earlier run's own instant, where a row at exactly that time
+ * is exactly what findSnapshotAt would find.
  */
 export type SnapshotLookup = {
   written: (
@@ -431,7 +433,20 @@ export type SnapshotLookup = {
   at: (stayDate: string, roomTypeIds: string[], atOrBefore: string) => Promise<Map<string, SnapshotRowAt>>;
   sellableAt: (stayDate: string, roomTypeId: string, ts: string) => Promise<number>;
   preload: (atOrBefore: string, firstDate: string, lastDate: string, roomTypeIds: string[]) => Promise<void>;
+  /**
+   * Fills the memo for cells whose baseline is a run's own instant (a fire's
+   * applied_at: its run wrote a snapshot for every night and counting room
+   * type at exactly that time), many instants and nights to a request. A
+   * cell with no row at that exact instant is left to `at`, which reads it
+   * the old way.
+   */
+  preloadAt: (cells: { stayDate: string; roomTypeIds: string[]; ts: string }[]) => Promise<void>;
 };
+
+/** Instants per exact-snapshot read, which keeps the request line short. */
+const EXACT_TERMS_PER_READ = 30;
+/** Rows a chunk is expected to return before it is split, so one read is usually one page. */
+const EXACT_ROWS_PER_READ = 1000;
 
 let loggedSnapshotCellsMissing = false;
 
@@ -554,6 +569,83 @@ export function createSnapshotLookup(
       for (let d = firstDate; d <= lastDate; d = addUtcDays(d, 1)) {
         for (const rtId of wanted) {
           memo.set(cellKey(d, rtId, atOrBefore), found.get(`${d}|${rtId}`) ?? null);
+        }
+      }
+    },
+
+    async preloadAt(cells) {
+      // Per instant: the nights and room types asked for, and the spellings
+      // of it the callers use as memo keys. Rows come back in the database's
+      // own spelling, so they are matched on the instant, not the text.
+      type Want = { ms: number; iso: string; keys: Set<string>; nights: Set<string>; types: Set<string>; cells: Set<string> };
+      const byMs = new Map<number, Want>();
+      for (const c of cells) {
+        const ms = Date.parse(c.ts);
+        if (!Number.isFinite(ms) || ms >= Date.parse(writtenTs) || c.roomTypeIds.length === 0) continue;
+        let w = byMs.get(ms);
+        if (!w) {
+          w = { ms, iso: new Date(ms).toISOString(), keys: new Set(), nights: new Set(), types: new Set(), cells: new Set() };
+          byMs.set(ms, w);
+        }
+        w.keys.add(c.ts);
+        w.nights.add(c.stayDate);
+        for (const rtId of c.roomTypeIds) {
+          if (memo.has(cellKey(c.stayDate, rtId, c.ts))) continue;
+          w.types.add(rtId);
+          w.cells.add(`${c.stayDate}|${rtId}`);
+        }
+      }
+      const wants = [...byMs.values()].filter((w) => w.cells.size > 0).sort((a, b) => a.ms - b.ms);
+      const chunks: Want[][] = [];
+      let chunk: Want[] = [];
+      let rows = 0;
+      for (const w of wants) {
+        const expected = w.nights.size * w.types.size;
+        if (chunk.length > 0 && (chunk.length >= EXACT_TERMS_PER_READ || rows + expected > EXACT_ROWS_PER_READ)) {
+          chunks.push(chunk);
+          chunk = [];
+          rows = 0;
+        }
+        chunk.push(w);
+        rows += expected;
+      }
+      if (chunk.length > 0) chunks.push(chunk);
+
+      for (const part of chunks) {
+        const types = [...new Set(part.flatMap((w) => [...w.types]))].sort();
+        const terms = part
+          .map((w) => `and(snapshot_ts.eq.${w.iso},stay_date.in.(${[...w.nights].sort().join(",")}))`)
+          .join(",");
+        const byInstant = new Map(part.map((w) => [w.ms, w]));
+        for (let from = 0; ; from += 1000) {
+          const { data, error } = await supabase
+            .from("stay_date_snapshot")
+            .select("stay_date, room_type_id, booked_units, booked_revenue, snapshot_ts")
+            .eq("hotel_id", hotelId)
+            .in("room_type_id", types)
+            .or(terms)
+            .order("snapshot_ts", { ascending: true })
+            .order("stay_date", { ascending: true })
+            .order("room_type_id", { ascending: true })
+            .range(from, from + 999);
+          if (error) {
+            // Nothing is memoized from a failed read: `at` reads each cell.
+            console.error(JSON.stringify({ fn: "evaluateHotel", step: "snapshots_at_fires", hotelId, error: error.message }));
+            break;
+          }
+          const got = (data ?? []) as Record<string, unknown>[];
+          for (const r of got) {
+            const w = byInstant.get(Date.parse(String(r.snapshot_ts)));
+            const cell = `${r.stay_date}|${r.room_type_id}`;
+            if (!w || !w.cells.has(cell)) continue;
+            const row: SnapshotRowAt = {
+              booked_units: Number(r.booked_units),
+              booked_revenue: Number(r.booked_revenue),
+              snapshot_ts: String(r.snapshot_ts),
+            };
+            for (const key of w.keys) memo.set(cellKey(String(r.stay_date), String(r.room_type_id), key), row);
+          }
+          if (got.length < 1000) break;
         }
       }
     },
