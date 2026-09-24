@@ -323,6 +323,63 @@ describe.each(ENGINES)("$name: a pickup count rule after a typed price", (engine
   }, 60_000);
 });
 
+describe.each(ENGINES)("$name: no snapshot where the count opens", (engine) => {
+  it("leaves the rule unfired, as a window with no history does, rather than counting from an older one", async () => {
+    // Every fire's own run writes a snapshot at the fire's instant, so this
+    // only happens to a fire recorded some other way, or to a room type that
+    // was not measured then. Here: a stronger raise rule's raise a day ago,
+    // and no snapshot within 12 hours before it.
+    const week = pickupRule("r-week", { pickup_window_days: 7 });
+    const other = pickupRule("r-other", { pickup_window_days: 3, pickup_threshold: 100 }, { action_value: 20 });
+    const raisedAt = iso(T0 - DAY);
+    const w = world(engine, {
+      rules: [week, other],
+      reservations: bookings(5, addDays(D0, -2)),
+      extra: {
+        pickup_event: [
+          {
+            id: "e-other",
+            hotel_id: "h1",
+            rule_id: "r-other",
+            rule_version: 1,
+            stay_date: NIGHT,
+            affected_room_type_id: STD,
+            baseline_start_ts: iso(T0 - 4 * DAY),
+            baseline_end_ts: raisedAt,
+            signal_booked_units_start: 0,
+            signal_booked_units_end: 5,
+            signal_booked_revenue_start: 0,
+            signal_booked_revenue_end: 500,
+            applied_at: raisedAt,
+            retired_at: null,
+            retired_reason: null,
+            action_kind: "percent",
+            action_direction: "increase",
+            action_value: 20,
+            fire_seq: 1,
+            cancel_check: "none",
+            window_from: null,
+            window_since: null,
+            window_to: null,
+            window_bookings_at_fire: null,
+            window_expected_at_fire: null,
+            signal_set_key: STD,
+          },
+        ],
+      },
+    });
+    const gapFrom = T0 - 3 * DAY;
+    w.tables.stay_date_snapshot = w.tables.stay_date_snapshot.filter(
+      (s) => Date.parse(String(s.snapshot_ts)) <= gapFrom || Date.parse(String(s.snapshot_ts)) > T0 - DAY,
+    );
+    // Four new bookings since that raise would be enough: the count can't be
+    // read, so the week rule doesn't fire on it.
+    w.tables.reservations.push(...bookings(4, D0));
+    await w.run(T0);
+    expect(w.firedOn()).toEqual([["r-other", -1]]);
+  }, 60_000);
+});
+
 describe.each(ENGINES)("$name: a fire later than the run's clock", (engine) => {
   it("a stronger rule's raise recorded ahead of the run's clock leaves nothing to count yet, then the count runs from it", async () => {
     // A stronger raise rule's raise, recorded a minute after this run's clock
