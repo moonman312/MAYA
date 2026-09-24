@@ -509,10 +509,11 @@ async function chooserNamesFor(
 }
 
 /**
- * The hotel's rate push incidents the owner is meant to see, newest first,
- * with their cells and newest tries. Live hotels only: nothing is pushed in
- * simulation. Ongoing ones always; resolved ones only if they ended within
- * the runs shown (`since`, the oldest run's instant). Read under the caller's
+ * The hotel's rate push incidents the owner is meant to see, with their
+ * cells and newest tries. Live hotels only: nothing is pushed in simulation.
+ * Ongoing ones always, the newest MAX_PUSH_PROBLEMS opened; resolved ones
+ * only if they ended within the history the log covers (`since`), the
+ * newest MAX_PUSH_PROBLEMS to end, capped on their own. Read under the caller's
  * session; RLS only returns incidents marked customer-visible, and the
  * filters below say the same thing. A database without the incident tables
  * yet has nothing to show.
@@ -556,11 +557,13 @@ async function readPushProblems(
       .eq("hotel_id", hotelId)
       .eq("admin_only", false)
       .not("customer_visible_at", "is", null);
-  // Two plain reads rather than one with an or(): a timestamp inside or() needs quoting.
+  // Two reads, each with its own cap, so ended problems can never push a
+  // still-open one out: those are the ones the owner has to act on, and this
+  // log is the only place they see them. Ended ones are the newest to end.
   const [ongoingRead, endedRead] = await Promise.all([
     visible().is("resolved_at", null).order("opened_at", { ascending: false }).limit(MAX_PUSH_PROBLEMS),
     since
-      ? visible().gte("resolved_at", since).order("opened_at", { ascending: false }).limit(MAX_PUSH_PROBLEMS)
+      ? visible().gte("resolved_at", since).order("resolved_at", { ascending: false }).limit(MAX_PUSH_PROBLEMS)
       : Promise.resolve({ data: [], error: null }),
   ]);
   const error = ongoingRead.error ?? endedRead.error;
@@ -568,9 +571,7 @@ async function readPushProblems(
     if (isMissingRelationError(error)) return [];
     throw error;
   }
-  const incidents = [...(ongoingRead.data ?? []), ...(endedRead.data ?? [])]
-    .sort((a, b) => (String(a.opened_at) < String(b.opened_at) ? 1 : String(a.opened_at) > String(b.opened_at) ? -1 : 0))
-    .slice(0, MAX_PUSH_PROBLEMS);
+  const incidents = [...(ongoingRead.data ?? []), ...(endedRead.data ?? [])];
   if (incidents.length === 0) return [];
 
   const ids = incidents.map((i) => String(i.id));

@@ -30,7 +30,10 @@ import type {
   PushProblemRetries,
 } from "@/types/domain";
 
-/** Push problems shown at most, newest first. */
+/**
+ * Push problems shown at most of each kind: the newest ongoing ones, and the
+ * newest to end. Capped apart, so ended ones never crowd out an open one.
+ */
 export const MAX_PUSH_PROBLEMS = 20;
 /** Tries read per problem, newest first. The rest are counted, not listed. */
 export const MAX_TRIES_READ = 100;

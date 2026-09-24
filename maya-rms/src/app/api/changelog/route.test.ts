@@ -629,6 +629,71 @@ describe("changelog route: rates not reaching the PMS", () => {
     expect(triesReads.map((c) => c.filters.find((f) => f.col === "incident_id")?.value).sort()).toEqual(["inc-ended", "inc-visible"]);
   });
 
+  it("keeps a problem that is still happening however many others ended since it began", async () => {
+    // Twenty days of runs with three changes, so the log reads back to the
+    // first run. One problem opened on day 2 and is still open; 21 others
+    // opened later and each ended within the hour.
+    const day = (n: number, h = 0) => new Date(Date.parse("2026-07-01T00:00:00Z") + n * 86_400_000 + h * 3_600_000).toISOString();
+    const runs: Row[] = [];
+    const audit: Row[] = [];
+    for (let n = 0; n < 20 * 24; n++) {
+      const at = new Date(Date.parse(day(0)) + n * 3_600_000).toISOString();
+      const changed = n === 10 || n === 200 || n === 400;
+      runs.push({ hotel_id: HOTEL, evaluation_run_id: `run-${n}`, evaluated_at: at, cells_changed: changed ? 1 : 0 });
+      if (changed) {
+        audit.push({
+          id: `audit-${n}`,
+          hotel_id: HOTEL,
+          evaluation_run_id: `run-${n}`,
+          stay_date: "2026-08-01",
+          room_type_id: "rt-1",
+          evaluated_at: at,
+          base_price: 180,
+          final_price: 198,
+          pre_clamp_price: 198,
+          floor_price: 100,
+          ceiling_price: 400,
+          details: { application_order: ["rule:rule-1"], matched_ladder_rules: [] },
+        });
+      }
+    }
+    const ended = Array.from({ length: 21 }, (_, i) =>
+      incident({
+        id: `inc-ended-${String(i).padStart(2, "0")}`,
+        cause: "value_rejected",
+        // The long one opened first of them and ended last.
+        opened_at: i === 0 ? day(2, 12) : day(3 + (i % 15), 1),
+        customer_visible_at: i === 0 ? day(2, 12) : day(3 + (i % 15), 1),
+        resolved_at: i === 0 ? day(19, 5) : day(3 + (i % 15), 2),
+        resolution: "landed",
+        attempt_count: 2,
+        attempts_stored: 2,
+      }),
+    );
+    const fake = fakeSupabase({
+      evaluation_audit: audit,
+      evaluation_run_log: runs,
+      hotels: [{ id: HOTEL, currency: "USD" }],
+      room_types: [{ id: "rt-1", hotel_id: HOTEL, name: "Garden King" }],
+      pricing_rules: [],
+      hotel_settings: [{ hotel_id: HOTEL, simulation_mode: false }],
+      rate_push_incidents: [incident({ opened_at: day(2), customer_visible_at: day(2) }), ...ended],
+      rate_push_incident_cells: [
+        { incident_id: "inc-visible", hotel_id: HOTEL, room_type_id: "rt-1", stay_date: "2026-08-01", state: "open" },
+      ],
+      rate_push_attempts: [],
+    });
+    const body = await get(fake.client);
+
+    expect(body[0]).toMatchObject({ kind: "push_problem", id: "inc-visible", status: "ongoing" });
+    const problems = body.filter((item: Row) => item.kind === "push_problem");
+    expect(problems.filter((p: Row) => p.status === "ongoing")).toHaveLength(1);
+    // The ended ones are the twenty that ended last, the long one included.
+    const endedIds = problems.filter((p: Row) => p.status === "resolved").map((p: Row) => p.id);
+    expect(endedIds).toHaveLength(20);
+    expect(endedIds).toContain("inc-ended-00");
+  });
+
   it("shows none while the hotel is simulating", async () => {
     const body = await get(liveHotel({ hotel_settings: [{ hotel_id: HOTEL, simulation_mode: true }] }).client);
     expect(body.some((item: Row) => item.kind === "push_problem")).toBe(false);
