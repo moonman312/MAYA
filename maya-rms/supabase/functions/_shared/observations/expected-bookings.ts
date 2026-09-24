@@ -24,22 +24,31 @@
  * when even momentum has nothing to go on does this report
  * `insufficient_data` rather than guess.
  *
+ * The stretch counted ends on the as-of date, today so far, or with
+ * `completeDays` on the day before it: only complete hotel days, on the
+ * target and every comparable (and momentum) alike. A rule that cuts reads
+ * it that way (Jake, 2026-09-17: slowdown checks count full hotel days
+ * ending yesterday, speed-up checks may count today so far, since a partial
+ * day can only undercount and a "faster" reading is then real).
+ *
  * A rule that already adjusted a night passes `countFrom`: only bookings
  * made from that date on count, and the window shrinks to the days from it
- * to the as-of date. The comparables (and momentum) are then read over that
- * same shorter stretch of their booking curves, so the expectation stays a
- * fair one: a rule never re-counts the bookings it already acted on. With
- * `split`, countFrom is the day of the fire itself and that day counts only
- * the bookings first seen after the fire (the rest of it, in effect), so
- * the bookings the fire could not have counted are not lost with it; the
- * comparables still read that day whole, which is the safe side.
+ * to the stretch's last day. The comparables (and momentum) are then read
+ * over that same shorter stretch of their booking curves, so the
+ * expectation stays a fair one: a rule never re-counts the bookings it
+ * already acted on. With `split` (a raise rule), countFrom is the day of
+ * the fire itself and that day counts only the bookings first seen after
+ * the fire (the rest of it, in effect), so the bookings the fire could not
+ * have counted are not lost with it; the comparables still read that day
+ * whole, which undercounts the target and is the safe side for a raise. A
+ * cut rule never splits a day: it counts the complete days after its fire's.
  *
  * Counts reflect currently known reservations from the slim import rows:
  * a canceled booking disappears rather than counting negative. Pure
  * functions; the caller supplies rows and dates.
  */
 
-import { daysBetween } from "./calendar.ts";
+import { addDays, daysBetween } from "./calendar.ts";
 import {
   classifyBookingSpeed,
   describeBookingSpeed,
@@ -115,11 +124,17 @@ export interface BookingSpeedObservation {
   countedSince?: string;
   /**
    * With countedFrom: whether the fire the count starts after was a raise or
-   * a cut. A raise rule counts from the night's last raise and a cut rule
-   * from its last cut, whichever rule made it (engine/pickup.ts
-   * bookingSpeedAnchors). Stamped by the engine, not here.
+   * a cut, the rule's own last one on the night (engine/pickup.ts
+   * bookingSpeedCountFrom). Stamped by the engine, not here.
    */
   countedAfter?: "raise" | "cut";
+  /**
+   * Set only with `completeDays`: the last booking date counted, the day
+   * before asOf. The stretch is windowDays complete days ending there, on
+   * the target and every comparable alike. Absent: it ended on asOf, today
+   * so far.
+   */
+  countedThrough?: string;
 }
 
 export interface ObserveBookingSpeedOptions {
@@ -137,10 +152,17 @@ export interface ObserveBookingSpeedOptions {
   selection: ComparableSelection;
   windowDays?: number;
   /**
+   * Count complete hotel days only: the stretch ends on the day before
+   * asOf instead of on asOf itself, on the target and on every comparable
+   * (and momentum). A rule that cuts reads pace this way.
+   */
+  completeDays?: boolean;
+  /**
    * Count only bookings made on or after this date (YYYY-MM-DD). The window
-   * becomes the days from it to asOf, never longer than windowDays, and must
-   * keep at least one day (see windowDaysFrom). Null or older than the
-   * window's first day: the whole window, exactly as without it.
+   * becomes the days from it to the stretch's last day (lastCountedDay),
+   * never longer than windowDays, and must keep at least one day (see
+   * windowDaysFrom). Null or older than the window's first day: the whole
+   * window, exactly as without it.
    */
   countFrom?: string | null;
   /**
@@ -151,7 +173,8 @@ export interface ObserveBookingSpeedOptions {
    * those on the target and every later day counts whole from `index`; the
    * comparables (and momentum) read countFrom's day whole, like the rest.
    * When the window starts after countFrom the split is not reached and
-   * changes nothing. Without it countFrom's whole day counts.
+   * changes nothing. Without it countFrom's whole day counts. Never with
+   * completeDays: a complete day is never split.
    */
   split?: { since: string; index: BookingWindowIndex } | null;
   /** Same exclusion predicate passed to selectComparableDates — reused for momentum's neighbor search. */
@@ -159,25 +182,34 @@ export interface ObserveBookingSpeedOptions {
 }
 
 /**
- * Days of a trailing `windowDays` window ending on `asOf` that fall on or
- * after `countFrom`: the whole window when countFrom is null or older than
- * the window's first day, fewer when it starts inside it, 0 when it is after
- * asOf. Bookings carry a date, not a time, so a whole day is the unit.
+ * The last booking date a reading counts: `asOf` itself (today so far), or
+ * with `completeDays` the day before it, so only complete hotel days count.
  */
-export function windowDaysFrom(windowDays: number, asOf: string, countFrom?: string | null): number {
+export function lastCountedDay(asOf: string, completeDays = false): string {
+  return completeDays ? addDays(asOf, -1) : asOf;
+}
+
+/**
+ * Days of a trailing `windowDays` window ending on `last` (lastCountedDay)
+ * that fall on or after `countFrom`: the whole window when countFrom is null
+ * or older than the window's first day, fewer when it starts inside it, 0
+ * when it is after `last`. Bookings carry a date, not a time, so a whole day
+ * is the unit.
+ */
+export function windowDaysFrom(windowDays: number, last: string, countFrom?: string | null): number {
   if (!countFrom) return windowDays;
-  return Math.max(0, Math.min(windowDays, daysBetween(countFrom, asOf) + 1));
+  return Math.max(0, Math.min(windowDays, daysBetween(countFrom, last) + 1));
 }
 
 /**
  * True when `countFrom` is one of the days of a trailing `windowDays`
- * window ending on `asOf`, so the window's first day is countFrom's day:
+ * window ending on `last`, so the window's first day is countFrom's day:
  * the day a split (see ObserveBookingSpeedOptions.split) applies to. False
- * for null, for a date before the window, and for one after asOf.
+ * for null, for a date before the window, and for one after `last`.
  */
-export function countFromInWindow(windowDays: number, asOf: string, countFrom?: string | null): boolean {
+export function countFromInWindow(windowDays: number, last: string, countFrom?: string | null): boolean {
   if (!countFrom) return false;
-  const days = daysBetween(countFrom, asOf) + 1;
+  const days = daysBetween(countFrom, last) + 1;
   return days >= 1 && days <= windowDays;
 }
 
@@ -193,31 +225,40 @@ export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSp
   if (daysOut < 0) {
     throw new Error("booking speed target must not be in the past");
   }
+  // The stretch ends on asOf, or on the day before with completeDays: `end`
+  // days before asOf, on the target and on every date it is compared with.
+  const completeDays = opts.completeDays === true;
+  const end = completeDays ? 1 : 0;
+  const last = lastCountedDay(opts.asOf, completeDays);
   // From here on the window is the stretch actually counted: bookings made
   // from countFrom on, on the target and on every date it is compared with.
-  const windowDays = windowDaysFrom(fullWindowDays, opts.asOf, opts.countFrom);
+  const windowDays = windowDaysFrom(fullWindowDays, last, opts.countFrom);
   if (windowDays < 1) {
     throw new Error("booking speed countFrom must leave at least one day to count");
   }
+  if (completeDays && opts.split) {
+    throw new Error("booking speed never splits a complete day");
+  }
   // The split is reached only when the window's first day is countFrom's.
-  const split = opts.split && countFromInWindow(fullWindowDays, opts.asOf, opts.countFrom) ? opts.split : null;
+  const split = opts.split && countFromInWindow(fullWindowDays, last, opts.countFrom) ? opts.split : null;
   const cut =
     windowDays < fullWindowDays || split
       ? { countedFrom: opts.countFrom!, fullWindowDays, ...(split ? { countedSince: split.since } : {}) }
       : {};
+  const through = completeDays ? { countedThrough: last } : {};
 
   const index = opts.index ?? indexBookingRows(opts.rows ?? []);
 
   // With a split, the first day (the fire's) counts only the bookings first
   // seen after the fire, from the split's index; the later days count whole.
   const recentBookings = split
-    ? pickupInWindowIndexed(index, opts.target, daysOut, windowDays - 1) +
-      pickupInWindowIndexed(split.index, opts.target, daysOut + windowDays - 1, 1)
-    : pickupInWindowIndexed(index, opts.target, daysOut, windowDays);
+    ? pickupInWindowIndexed(index, opts.target, daysOut + end, windowDays - 1) +
+      pickupInWindowIndexed(split.index, opts.target, daysOut + end + windowDays - 1, 1)
+    : pickupInWindowIndexed(index, opts.target, daysOut + end, windowDays);
 
   const perComparable: ComparablePickup[] = opts.selection.comparables.map((c) => ({
     date: c.date,
-    bookings: pickupInWindowIndexed(index, c.date, daysOut, windowDays),
+    bookings: pickupInWindowIndexed(index, c.date, daysOut + end, windowDays),
     tier: c.tier,
     reasons: c.reasons,
     hasData: hasAnyRowIndexed(index, c.date),
@@ -233,6 +274,7 @@ export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSp
     perComparable,
     selection: opts.selection,
     ...cut,
+    ...through,
   };
 
   if (usableComparables.length > 0) {
@@ -254,6 +296,7 @@ export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSp
     target: opts.target,
     asOf: opts.asOf,
     windowDays,
+    endOffset: end,
     isExcluded: opts.isExcluded,
   });
 
