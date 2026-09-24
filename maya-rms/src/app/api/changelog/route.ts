@@ -3,7 +3,9 @@
  *
  * With Supabase configured and a resolvable hotel, the 10 most recent runs
  * that changed a price are rebuilt from evaluation_audit rows and narrated
- * via changelog-narrative. The quiet runs between them are counted, not
+ * via changelog-narrative. A night a run put back at its base counts as a
+ * change, told from the price it had (summariseRun, audit_rows_before). The
+ * quiet runs between them are counted, not
  * read: each stretch is one line saying how many checks changed nothing
  * (loadRunHistory, countQuietGap). A live hotel's rate push problems that
  * need the owner are merged in, one item each: ongoing ones on top, resolved
@@ -26,6 +28,7 @@ import {
   type RunSummary,
   MAX_ALERT_CHOICES,
   MAX_CANDIDATE_RUNS,
+  MAX_ENTRIES_PER_CYCLE,
   buildAlertChoices,
   buildCyclesFromAudit,
   buildCyclesFromRuns,
@@ -33,9 +36,11 @@ import {
   currencySymbolFor,
   findShownRuns,
   isChangeRow,
+  isRevertRow,
   manualOverrideFor,
   planQuietGaps,
   topChangeRows,
+  type PriorAuditRow,
 } from "@/lib/changelog-route-helpers";
 import {
   type IncidentAttemptForLog,
@@ -48,6 +53,7 @@ import {
   oldestShownRun,
 } from "@/lib/changelog-push-problems";
 import { buildChangelog } from "@/lib/demo-data";
+import { priorRowsFor } from "@/lib/changelog-prior-rows";
 import { isMissingRelationError } from "@/lib/engine/snapshots";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import type { ChangelogPushProblem, RuleCondition } from "@/types/domain";
@@ -94,8 +100,11 @@ const AUDIT_COLUMNS =
   "evaluation_run_id, stay_date, room_type_id, evaluated_at, base_price, final_price, pre_clamp_price, floor_price, ceiling_price, details";
 /** What deciding and ranking a change needs, without the JSONB behind it. */
 const RANK_COLUMNS =
-  "id, base_price, final_price, application_order:details->application_order, manual_override:details->manual_override";
+  "id, stay_date, room_type_id, base_price, final_price, application_order:details->application_order, " +
+  "manual_override:details->manual_override, retired_pickup_effects:details->retired_pickup_effects";
 const PAGE = 1000;
+/** Nights per audit_rows_before call: one page of answers at most. */
+const PRIOR_CHUNK = 1000;
 
 function toChangeRow(r: Record<string, unknown>): AuditChangeRow {
   return {
@@ -118,8 +127,14 @@ function toChangeRow(r: Record<string, unknown>): AuditChangeRow {
  * One read of the newest 600 audit rows used to be the whole change log. A
  * large property writes thousands of rows in a single run, so the newest run
  * filled the budget and every older one showed as "no changes". Here the run
- * is paged through a narrow select (prices and the two details fields that
+ * is paged through a narrow select (prices and the details fields that
  * decide a change), ranked, and only its top entries are read in full.
+ *
+ * A row at its base with nothing on it is not a change against its base,
+ * yet the engine only wrote it because the night's outcome changed: a rule
+ * or a raise came off, a typed price was cleared. Those nights are checked
+ * against their row before (priorRowsFor), and one that moved (isRevertRow)
+ * is a change, ranked by how far it moved from the price it had.
  */
 async function summariseRun(supabase: SupabaseClient, hotelId: string, run: RunHeartbeat): Promise<RunSummary> {
   const runId = run.evaluation_run_id;
@@ -129,6 +144,14 @@ async function summariseRun(supabase: SupabaseClient, hotelId: string, run: RunH
   // row the hotel has kept.
   const runAt = run.evaluated_at;
   const changeRows: { id: string; base_price: number; final_price: number }[] = [];
+  const atBase: {
+    id: string;
+    cell: string;
+    stay_date: string;
+    room_type_id: string;
+    final_price: number;
+    details: AuditChangeRow["details"];
+  }[] = [];
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase
       .from("evaluation_audit")
@@ -148,13 +171,41 @@ async function summariseRun(supabase: SupabaseClient, hotelId: string, run: RunH
         details: {
           application_order: r.application_order,
           manual_override: r.manual_override,
+          retired_pickup_effects: r.retired_pickup_effects,
         } as unknown as AuditChangeRow["details"],
       };
-      if (isChangeRow(candidate as AuditChangeRow)) {
+      if (isChangeRow(candidate)) {
         changeRows.push({ id: String(r.id), base_price: candidate.base_price, final_price: candidate.final_price });
+      } else {
+        const stayDate = String(r.stay_date).slice(0, 10);
+        const roomTypeId = String(r.room_type_id);
+        atBase.push({
+          id: String(r.id),
+          cell: `${stayDate}|${roomTypeId}`,
+          stay_date: stayDate,
+          room_type_id: roomTypeId,
+          final_price: candidate.final_price,
+          details: candidate.details,
+        });
       }
     }
     if (rows.length < PAGE) break;
+  }
+
+  // The nights put back at base, found against their row before. Read in
+  // chunks, and no further once there are more changes than the run shows.
+  const reverted = new Map<string, PriorAuditRow | null>();
+  for (let i = 0; i < atBase.length; i += PRIOR_CHUNK) {
+    if (changeRows.length >= MAX_ENTRIES_PER_CYCLE) break;
+    const chunk = atBase.slice(i, i + PRIOR_CHUNK);
+    const priors = await priorRowsFor(supabase, hotelId, runAt, chunk);
+    for (const r of chunk) {
+      const prior = priors?.get(r.cell) ?? null;
+      if (!isRevertRow(r, prior)) continue;
+      reverted.set(r.id, prior);
+      // Ranked by the move from the price it had; without one, by nothing.
+      changeRows.push({ id: r.id, base_price: prior?.final_price ?? r.final_price, final_price: r.final_price });
+    }
   }
 
   const top = topChangeRows(changeRows);
@@ -168,7 +219,13 @@ async function summariseRun(supabase: SupabaseClient, hotelId: string, run: RunH
       .in("id", top.map((t) => t.id));
     if (fullErr) throw fullErr;
     const byId = new Map(((full ?? []) as Record<string, unknown>[]).map((r) => [String(r.id), r]));
-    topRows = top.map((t) => byId.get(t.id)).filter((r): r is Record<string, unknown> => !!r).map(toChangeRow);
+    topRows = top.flatMap((t) => {
+      const r = byId.get(t.id);
+      if (!r) return [];
+      const row = toChangeRow(r);
+      const prior = reverted.get(t.id);
+      return [prior ? { ...row, previous: prior } : row];
+    });
   }
   return {
     evaluation_run_id: runId,

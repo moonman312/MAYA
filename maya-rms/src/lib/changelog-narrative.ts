@@ -116,7 +116,11 @@ export type NarrativeRetirement = {
   rule_name: string;
   /** The audit's signed delta, e.g. "+10%" or "-$5.00". */
   delta: string;
-  reason: "bookings_cancelled" | "manual_price" | "rule_edited";
+  /**
+   * Why it came off. no_longer_met: a rule that holds while its conditions
+   * hold (a ladder rule) stopped holding. null: the log can't tell why.
+   */
+  reason: "bookings_cancelled" | "manual_price" | "rule_edited" | "no_longer_met" | null;
 };
 
 export type NarrativeInput = {
@@ -389,11 +393,18 @@ function retirementWords(delta: string): string {
   return `${delta.replace(/^[+-]/, "")} ${raise ? "raise" : "cut"}`;
 }
 
-const RETIREMENT_REASONS: Record<NarrativeRetirement["reason"], string> = {
+const RETIREMENT_REASONS: Record<NonNullable<NarrativeRetirement["reason"]>, string> = {
   bookings_cancelled: "enough of the bookings behind it cancelled",
   manual_price: "this night's price was set by hand",
   rule_edited: "the rule was edited, so MAYA started it fresh",
+  no_longer_met: "this night no longer met its conditions",
 };
+
+/** '"Busy" stopped applying an earlier 10% raise here: this night no longer met its conditions.' */
+function retirementSentence(off: NarrativeRetirement): string {
+  const lead = `"${off.rule_name}" stopped applying an earlier ${retirementWords(off.delta)} here`;
+  return off.reason ? `${lead}: ${RETIREMENT_REASONS[off.reason]}.` : `${lead}.`;
+}
 
 /**
  * Full story for one (room type, night): what came off, then the move each
@@ -405,11 +416,7 @@ export function narrateChange(input: NarrativeInput): string[] {
   const sentences: string[] = [];
   let running = input.base_price;
 
-  for (const off of input.retirements ?? []) {
-    sentences.push(
-      `"${off.rule_name}" stopped applying an earlier ${retirementWords(off.delta)} here: ${RETIREMENT_REASONS[off.reason]}.`,
-    );
-  }
+  for (const off of input.retirements ?? []) sentences.push(retirementSentence(off));
 
   input.applications.forEach((app, i) => {
     const before = running;
@@ -464,6 +471,51 @@ export function narrateChange(input: NarrativeInput): string[] {
   }
 
   return sentences;
+}
+
+/**
+ * A night this run put back at its base with nothing on it, told from the
+ * price it had before (the night's previous audit row), not from the base:
+ * measured from the base such a run changed nothing, which is the one thing
+ * it did not do.
+ */
+export type NarrativeRevertInput = {
+  from_price: number;
+  final_price: number;
+  /** Fires this run took off (the audit's retired_pickup_effects). */
+  retirements: NarrativeRetirement[];
+  /** Rules applied on the row before that apply no more, each once. */
+  rules_off: NarrativeRetirement[];
+  /** The row before was on a price set by hand, and this one is not: where it was set (pms null: typed in MAYA). */
+  manual_cleared: { pms: string | null } | null;
+  /** The base before, when nothing was on the night before either, so the base itself is what moved. */
+  base_from: number | null;
+  currencySymbol?: string;
+};
+
+/**
+ * What came off, then the move: 'X stopped applying an earlier 10% raise
+ * here: ... That took this night from $110.00 to $100.00.' With nothing
+ * named, the base changing or the plain move is the sentence.
+ */
+export function narrateRevert(input: NarrativeRevertInput): string[] {
+  const sym = input.currencySymbol ?? "$";
+  const sentences = [...input.retirements, ...input.rules_off].map(retirementSentence);
+  if (input.manual_cleared) {
+    sentences.push(
+      input.manual_cleared.pms == null
+        ? "The price set by hand was cleared."
+        : `The rate changed in ${input.manual_cleared.pms} was cleared.`,
+    );
+  }
+  const moved = Math.round(Math.abs(input.final_price - input.from_price) * 100) >= 1;
+  const move = `${money(input.from_price, sym)} to ${money(input.final_price, sym)}`;
+  if (sentences.length > 0) {
+    if (moved) sentences.push(`That took this night from ${move}.`);
+    return sentences;
+  }
+  if (input.base_from != null && moved) return [`The base rate for this night changed from ${move}.`];
+  return [`The rate moved from ${move}.`];
 }
 
 /** One-line headline for the entry: room, movement, direction. */

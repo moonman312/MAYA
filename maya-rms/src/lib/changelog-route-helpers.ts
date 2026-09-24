@@ -10,6 +10,7 @@ import {
   type NarrativeApplication,
   type NarrativeRetirement,
   narrateChange,
+  narrateRevert,
 } from "@/lib/changelog-narrative";
 import { humanDate } from "@/lib/explain";
 import { measuresDifferently } from "@/lib/rule-form";
@@ -35,7 +36,42 @@ export type AuditChangeRow = {
   floor_price: number;
   ceiling_price: number;
   details: EvaluationAuditDetails;
+  /**
+   * The night's audit row before this one, when the log read it: set on a
+   * row that put the night back at its base with nothing on it
+   * (isRevertRow), so its entry is told from the price it moved from.
+   */
+  previous?: PriorAuditRow | null;
 };
+
+/** A night's audit row before the one shown, as audit_rows_before returns it. */
+export type PriorAuditRow = {
+  final_price: number;
+  base_price: number;
+  application_order: string[];
+  /** The price set by hand that row was on, or null. */
+  manual: { set_by: string | null; pms: string | null } | null;
+};
+
+/** One audit_rows_before row, read loosely like every other audit read. */
+export function priorAuditRowFrom(r: Record<string, unknown>): PriorAuditRow {
+  const order = Array.isArray(r.application_order)
+    ? (r.application_order as unknown[]).filter((x): x is string => typeof x === "string")
+    : [];
+  const manual =
+    r.base_source === "manual"
+      ? manualOverrideFor({ manual_override: r.manual_override } as unknown as EvaluationAuditDetails) ?? {
+          set_by: null,
+          pms: null,
+        }
+      : null;
+  return {
+    final_price: Number(r.final_price),
+    base_price: r.base_price != null ? Number(r.base_price) : Number(r.final_price),
+    application_order: order,
+    manual,
+  };
+}
 
 export type RuleLookupEntry = {
   name: string;
@@ -115,11 +151,12 @@ export const MAX_CHANGED_RUNS = 10;
 /**
  * Runs the log reads in full, at most, looking for MAX_CHANGED_RUNS that
  * change something. They are the runs with cells_changed > 0 in the run log,
- * newest first: that counts the audit rows a run wrote, and a row can be
- * written for a night whose price shows no change, so a few turn out quiet.
- * Those are counted with the quiet runs around them. Past this many the log
- * stops reading, and says the oldest stretch is the one just before the
- * oldest change it found.
+ * newest first: that counts the audit rows a run wrote. A row put a night
+ * back at its base is a change (isRevertRow), but one can also be a night's
+ * first row, at its base with nothing before it (a night new to the
+ * horizon), so a few runs turn out quiet. Those are counted with the quiet
+ * runs around them. Past this many the log stops reading, and says the
+ * oldest stretch is the one just before the oldest change it found.
  */
 export const MAX_CANDIDATE_RUNS = 3 * MAX_CHANGED_RUNS;
 /** Runs shown when there is no run log, and the change log is rebuilt from audit rows alone. */
@@ -208,11 +245,32 @@ function mergeHeartbeats(auditRuns: AuditRun[], heartbeats: RunHeartbeat[]): Aud
  * price with nothing stacked on it has base == final, and without this the
  * one change the manager made themselves would be the one they can't find.
  */
-export function isChangeRow(row: AuditChangeRow): boolean {
+export function isChangeRow(row: Pick<AuditChangeRow, "base_price" | "final_price" | "details">): boolean {
   // Compare in whole cents to dodge float noise on one-cent moves.
   if (Math.round(Math.abs(row.final_price - row.base_price) * 100) >= 1) return true;
   if ((row.details?.application_order ?? []).length > 0) return true;
   return manualOverrideFor(row.details) !== null;
+}
+
+/**
+ * A row isChangeRow calls quiet (the night at its base, no rule on it, no
+ * price set by hand) that still changed the night. The engine writes an
+ * audit row only when a night's price, rules, clamp or typed price change
+ * (auditSignature), so such a row nearly always put a price back to base: a
+ * fire came off (retired_pickup_effects, which says so on the row itself),
+ * or, against the night's row before it, the price was different, a rule
+ * was on it, or it was on a price set by hand. With no row before (a night
+ * new to the horizon) only a fire coming off counts.
+ */
+export function isRevertRow(
+  row: Pick<AuditChangeRow, "final_price" | "details">,
+  prior: PriorAuditRow | null | undefined,
+): boolean {
+  if ((row.details?.retired_pickup_effects ?? []).length > 0) return true;
+  if (!prior) return false;
+  if (Math.round(Math.abs(row.final_price - prior.final_price) * 100) >= 1) return true;
+  if (prior.application_order.length > 0) return true;
+  return prior.manual !== null && manualOverrideFor(row.details) === null;
 }
 
 function toNarrativeMetrics(
@@ -389,10 +447,81 @@ function clampedByFor(details: EvaluationAuditDetails): "floor" | "ceiling" | nu
   return c === "floor" || c === "ceiling" ? c : null;
 }
 
+/**
+ * The rules applied on the row before that this row no longer applies, each
+ * once, in that row's order. A ladder rule the run switched off says why
+ * (its deactivate transition on this row); one that came off another way
+ * (paused, deleted, out of its dates) is named without a reason. A pickup
+ * fire comes off through retired_pickup_effects instead, which the caller
+ * words, so those are left out here.
+ */
+function rulesOff(row: AuditChangeRow, prior: PriorAuditRow, rules: ChangelogLookups["rules"]): NarrativeRetirement[] {
+  const still = new Set(row.details?.application_order ?? []);
+  const deactivated = new Map(
+    (row.details?.matched_ladder_rules ?? []).filter((m) => m.transition === "deactivate").map((m) => [m.rule_id, m]),
+  );
+  const out: NarrativeRetirement[] = [];
+  const seen = new Set<string>();
+  for (const step of prior.application_order) {
+    if (still.has(step)) continue;
+    const [kind, id] = step.split(":");
+    if (kind === "pickup" || !id || seen.has(id)) continue;
+    seen.add(id);
+    const matched = deactivated.get(id);
+    const rule = rules.get(id);
+    const action = matched?.action ?? (rule ? { kind: rule.action_type, direction: rule.action_direction, value: rule.action_value } : null);
+    if (!action) continue;
+    const sign = action.direction === "decrease" ? "-" : "+";
+    out.push({
+      rule_name: rule?.name ?? "Pricing rule",
+      delta: action.kind === "percent" ? `${sign}${action.value}%` : `${sign}$${Number(action.value).toFixed(2)}`,
+      reason: matched ? "no_longer_met" : null,
+    });
+  }
+  return out;
+}
+
+/**
+ * A row that put the night back at its base (isRevertRow), told from the
+ * price the night had before, which is what moved.
+ */
+function buildRevertEntry(row: AuditChangeRow, prior: PriorAuditRow, lookups: ChangelogLookups): ChangelogEntry {
+  const finalPrice = Number(row.final_price);
+  const fromPrice = Number(prior.final_price);
+  const roomType = lookups.roomTypeNames.get(row.room_type_id) ?? "Unknown room type";
+  const retirements = buildRetirements(row.details, lookups.rules);
+  const off = rulesOff(row, prior, lookups.rules);
+  const manualCleared = prior.manual !== null && manualOverrideFor(row.details) === null;
+  const narrative = narrateRevert({
+    from_price: fromPrice,
+    final_price: finalPrice,
+    retirements,
+    rules_off: off,
+    manual_cleared: manualCleared ? { pms: prior.manual!.pms == null ? null : pmsOf(prior.manual!) } : null,
+    base_from: prior.application_order.length === 0 && prior.manual === null ? Number(prior.base_price) : null,
+    currencySymbol: lookups.currencySymbol,
+  });
+  return {
+    room_type: roomType,
+    rule_name: retirements[0]?.rule_name ?? off[0]?.rule_name ?? (manualCleared ? "Manual price cleared" : "Price update"),
+    original_rate: fromPrice,
+    new_rate: finalPrice,
+    change_pct: changePctOf({ base_price: fromPrice, final_price: finalPrice }),
+    occupancy_pct: 0,
+    stay_date: row.stay_date,
+    narrative,
+    description: narrative.join(" "),
+    evaluation_run_id: row.evaluation_run_id,
+    room_type_id: row.room_type_id,
+    has_booking_speed_details: (row.details?.booking_speed_observations ?? []).length > 0,
+  };
+}
+
 export function buildEntry(
   row: AuditChangeRow,
   lookups: ChangelogLookups,
 ): ChangelogEntry {
+  if (row.previous && !isChangeRow(row)) return buildRevertEntry(row, row.previous, lookups);
   const basePrice = Number(row.base_price);
   const finalPrice = Number(row.final_price);
   const roomType =

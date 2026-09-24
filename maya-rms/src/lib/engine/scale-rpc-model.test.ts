@@ -4,9 +4,12 @@
  * the SQL so engine tests can run the migrated path against fakeSupabase.
  * large-property-sql.test.ts checks the real SQL against the same
  * TypeScript computations in PGlite; these models only have to agree with
- * the SQL's contract.
+ * the SQL's contract. audit_rows_before, from
+ * 99_supabase_migration_pickup_wait_v1.sql, is here too, beside the other
+ * audit read (checked against its SQL in pickup-wait-sql.test.ts).
  */
 import { describe, expect, it } from "vitest";
+import { FakeRpcError } from "./fake-supabase.test";
 import { bookingKeyOf, earliestBookingWindow } from "@/lib/observations/booking-rows";
 import { daysBetween } from "@/lib/observations/calendar";
 import type { FakeRow } from "./fake-supabase.test";
@@ -262,6 +265,43 @@ export function calendarDailyRevenueV2(reservations: FakeRow[], a: Record<string
     .slice(0, limit);
 }
 
+/** audit_rows_before(p_hotel_id, p_before, p_stay_dates, p_room_type_ids) */
+export function auditRowsBefore(audits: FakeRow[], a: Record<string, unknown>): FakeRow[] | FakeRpcError {
+  const dates = (a.p_stay_dates as string[] | null) ?? [];
+  const types = (a.p_room_type_ids as string[] | null) ?? [];
+  if (dates.length !== types.length) {
+    return new FakeRpcError({ code: "22023", message: "p_stay_dates and p_room_type_ids pair up: one room type per night" });
+  }
+  const wanted = new Set(dates.map((d, i) => `${d}|${types[i]}`));
+  const before = Date.parse(String(a.p_before));
+  const best = new Map<string, FakeRow>();
+  for (const r of audits) {
+    if (r.hotel_id !== a.p_hotel_id) continue;
+    const key = `${r.stay_date}|${r.room_type_id}`;
+    if (!wanted.has(key)) continue;
+    const at = Date.parse(String(r.evaluated_at));
+    if (!(at < before)) continue;
+    const prev = best.get(key);
+    const prevAt = prev ? Date.parse(String(prev.evaluated_at)) : -Infinity;
+    if (!prev || at > prevAt || (at === prevAt && String(r.id) > String(prev.id))) best.set(key, r);
+  }
+  return [...best.entries()]
+    .sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0))
+    .map(([, r]) => {
+      const d = (r.details ?? {}) as Record<string, unknown>;
+      return {
+        stay_date: r.stay_date,
+        room_type_id: r.room_type_id,
+        evaluated_at: r.evaluated_at,
+        base_price: r.base_price ?? null,
+        final_price: r.final_price,
+        application_order: d.application_order ?? null,
+        base_source: d.base_source != null ? String(d.base_source) : null,
+        manual_override: d.manual_override ?? null,
+      };
+    });
+}
+
 /** An rpc handler for fakeSupabase that answers every modeled function from the fake's own tables. */
 export function scaleRpc(fn: string, args: unknown, tables: Record<string, FakeRow[]>): unknown {
   const a = args as Record<string, unknown>;
@@ -274,6 +314,8 @@ export function scaleRpc(fn: string, args: unknown, tables: Record<string, FakeR
       return bookingSpeedFirstStayDate(tables.reservations ?? [], a);
     case "audit_last_signatures":
       return auditLastSignatures(tables.evaluation_audit ?? [], a);
+    case "audit_rows_before":
+      return auditRowsBefore(tables.evaluation_audit ?? [], a);
     case "room_type_max_rates":
       return roomTypeMaxRates(tables.reservations ?? [], a);
     case "rule_fire_counts":

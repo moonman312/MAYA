@@ -377,7 +377,9 @@ describe("changelog route: a large property's runs", () => {
           hotel_id: HOTEL,
           evaluation_run_id: `run-${run}`,
           stay_date: `2026-08-${String(1 + (i % 28)).padStart(2, "0")}`,
-          room_type_id: "rt-1",
+          // A row that shows nothing is a night's first: nothing before it
+          // to have moved from (a night that moved back to base is a change).
+          room_type_id: kind === 0 ? `rt-new-${n}` : "rt-1",
           evaluated_at: at,
           base_price: base,
           // Distinct moves so the ranking has no ties to break.
@@ -725,8 +727,8 @@ describe("changelog route: quiet checks between changes", () => {
 
   /**
    * A run every five minutes. `changed` runs raised a night; `hidden` runs
-   * wrote an audit row that shows no change (a night back at its base). The
-   * rest wrote nothing.
+   * wrote an audit row that shows no change (a night new to the horizon, at
+   * its base, with nothing before it). The rest wrote nothing.
    */
   function runHistory(total: number, changed: number[], hidden: number[] = [], extra: Record<string, Row[]> = {}) {
     const runLog: Row[] = [];
@@ -740,7 +742,7 @@ describe("changelog route: quiet checks between changes", () => {
         id: `audit-${String(n).padStart(4, "0")}`,
         hotel_id: HOTEL,
         evaluation_run_id: `run-${n}`,
-        stay_date: "2026-10-01",
+        stay_date: shows ? "2026-10-01" : "2026-10-02",
         room_type_id: "rt-1",
         evaluated_at: t(n),
         base_price: 180,

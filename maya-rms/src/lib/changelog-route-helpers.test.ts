@@ -19,8 +19,11 @@ import {
   inQuietGap,
   isChangeRow,
   isQuietChecks,
+  isRevertRow,
   isRuleAlertChoice,
   planQuietGaps,
+  priorAuditRowFrom,
+  type PriorAuditRow,
 } from "./changelog-route-helpers";
 import type { EvaluationAuditDetails } from "@/types/domain";
 
@@ -976,5 +979,111 @@ describe("quiet checks between changes", () => {
     expect(inQuietGap(gaps[1], at(2))).toBe(false);
     expect(inQuietGap(gaps[1], at(3))).toBe(true);
     expect(inQuietGap(gaps[0], at(5))).toBe(false);
+  });
+});
+
+describe("a night put back at its base", () => {
+  /** The night after the run: at its base, nothing on it. */
+  const atBase = (o: Partial<EvaluationAuditDetails> = {}) =>
+    row({ base_price: 100, final_price: 100, pre_clamp_price: 100, details: details(o) });
+  const prior = (o: Partial<PriorAuditRow> = {}): PriorAuditRow => ({
+    final_price: 110,
+    base_price: 100,
+    application_order: ["ladder:rule-1"],
+    manual: null,
+    ...o,
+  });
+
+  it("is a change when the night's row before had another price, a rule on it or a price set by hand", () => {
+    expect(isChangeRow(atBase())).toBe(false);
+    expect(isRevertRow(atBase(), prior())).toBe(true);
+    // Same price, but a rule was on it (its effect clamped away).
+    expect(isRevertRow(atBase(), prior({ final_price: 100 }))).toBe(true);
+    // Same price, a typed one, now cleared.
+    expect(isRevertRow(atBase(), prior({ final_price: 100, application_order: [], manual: { set_by: null, pms: null } }))).toBe(true);
+    // The base itself moved.
+    expect(isRevertRow(atBase(), prior({ final_price: 90, base_price: 90, application_order: [] }))).toBe(true);
+  });
+
+  it("is not a change when the row before was the same price with nothing on it, or there was none", () => {
+    expect(isRevertRow(atBase(), prior({ final_price: 100, application_order: [] }))).toBe(false);
+    expect(isRevertRow(atBase(), prior({ final_price: 100.004, application_order: [] }))).toBe(false);
+    expect(isRevertRow(atBase(), null)).toBe(false);
+  });
+
+  it("is a change on its own word when a fire came off it, row before or not", () => {
+    const retired = atBase({
+      retired_pickup_effects: [
+        { event_id: "e1", rule_id: "rule-1", delta: "+10%", applied_at: "2026-07-27T10:00:00Z", fire_seq: 1, reason: "bookings_cancelled", cancel_check: "net_units" },
+      ],
+    });
+    expect(isRevertRow(retired, null)).toBe(true);
+  });
+
+  it("reads audit_rows_before's row, a typed price and a PMS one included", () => {
+    expect(priorAuditRowFrom({ final_price: "110.00", base_price: "100.00", application_order: ["ladder:r"], base_source: "reservation", manual_override: null })).toEqual({
+      final_price: 110,
+      base_price: 100,
+      application_order: ["ladder:r"],
+      manual: null,
+    });
+    expect(
+      priorAuditRowFrom({ final_price: 150, base_price: 150, application_order: null, base_source: "manual", manual_override: { set_by: "u1", set_at: "x", source: "pms", pms_type: "cloudbeds" } }),
+    ).toEqual({ final_price: 150, base_price: 150, application_order: [], manual: { set_by: "u1", pms: "cloudbeds" } });
+    // An old manual row without the override still reads as typed.
+    expect(priorAuditRowFrom({ final_price: 150, base_price: null, base_source: "manual" }).manual).toEqual({ set_by: null, pms: null });
+  });
+
+  it("tells a rule the run switched off from the price the night had", () => {
+    const off = atBase({
+      matched_ladder_rules: [
+        { rule_id: "rule-1", rule_version: 1, transition: "deactivate", action: { kind: "percent", direction: "increase", value: 10 }, metrics: { occupancy: 0.4 } },
+      ],
+    });
+    const entry = buildEntry({ ...off, previous: prior() }, lookups());
+    expect(entry).toMatchObject({ rule_name: "Busy-day bump", original_rate: 110, new_rate: 100, change_pct: -9.1 });
+    expect(entry.narrative).toEqual([
+      '"Busy-day bump" stopped applying an earlier 10% raise here: this night no longer met its conditions.',
+      "That took this night from $110.00 to $100.00.",
+    ]);
+  });
+
+  it("names a rule that came off some other way without a reason it can't know", () => {
+    // Paused, deleted or out of its dates: no deactivate on the row.
+    const entry = buildEntry({ ...atBase(), previous: prior() }, lookups());
+    expect(entry.narrative).toEqual(['"Busy-day bump" stopped applying an earlier 10% raise here.', "That took this night from $110.00 to $100.00."]);
+    // A rule gone from the lookup too, and a fire whose rule it can't name: just the move.
+    const gone = buildEntry({ ...atBase(), previous: prior({ application_order: ["ladder:gone", "pickup:e9"] }) }, lookups());
+    expect(gone.narrative).toEqual(["The rate moved from $110.00 to $100.00."]);
+    expect(gone.rule_name).toBe("Price update");
+  });
+
+  it("says a price set by hand was cleared, or one changed in the PMS", () => {
+    const typed = buildEntry({ ...atBase(), previous: prior({ final_price: 150, base_price: 150, application_order: [], manual: { set_by: "u1", pms: null } }) }, lookups());
+    expect(typed).toMatchObject({ rule_name: "Manual price cleared", original_rate: 150, new_rate: 100, change_pct: -33.3 });
+    expect(typed.narrative).toEqual(["The price set by hand was cleared.", "That took this night from $150.00 to $100.00."]);
+    const pms = buildEntry({ ...atBase(), previous: prior({ final_price: 150, application_order: [], manual: { set_by: null, pms: "cloudbeds" } }) }, lookups());
+    expect(pms.narrative).toEqual(["The rate changed in Cloudbeds was cleared.", "That took this night from $150.00 to $100.00."]);
+  });
+
+  it("says the base changed when nothing was on the night before either", () => {
+    const entry = buildEntry({ ...atBase(), previous: prior({ final_price: 90, base_price: 90, application_order: [] }) }, lookups({ currencySymbol: "€" }));
+    expect(entry.narrative).toEqual(["The base rate for this night changed from €90.00 to €100.00."]);
+    expect(entry).toMatchObject({ original_rate: 90, new_rate: 100, change_pct: 11.1 });
+  });
+
+  it("leaves a row with a change against its base as it always read, row before or not", () => {
+    expect(buildEntry({ ...row(), previous: prior({ final_price: 250 }) }, lookups())).toEqual(buildEntry(row(), lookups()));
+  });
+
+  it("has no em dashes, exclamation marks or math symbols", () => {
+    const words = [
+      buildEntry({ ...atBase(), previous: prior() }, lookups()),
+      buildEntry({ ...atBase(), previous: prior({ final_price: 150, application_order: [], manual: { set_by: null, pms: "cloudbeds" } }) }, lookups()),
+      buildEntry({ ...atBase(), previous: prior({ final_price: 90, base_price: 90, application_order: [] }) }, lookups()),
+    ]
+      .flatMap((e) => e.narrative ?? [])
+      .join(" ");
+    expect(words).not.toMatch(/[\u2014!<>=]/);
   });
 });
