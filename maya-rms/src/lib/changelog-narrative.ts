@@ -54,9 +54,10 @@ export type NarrativeMetrics = {
   /** Net pickup units over the rule's window, or since pickup_counted_since when set. */
   pickup_units?: number | null;
   /**
-   * Set when the pickup count opened at a newer raise or cut by a stronger
-   * rule that moves the price the same way, not a whole window back
-   * (engine/pickup.ts, pickupWindowOpensAt): that change's instant.
+   * Set when the pickup count opened at this rule's own last raise or cut,
+   * or a newer one by a stronger rule that moves the price the same way,
+   * not a whole window back (engine/pickup.ts, pickupWindowOpensAt): that
+   * change's instant.
    */
   pickup_counted_since?: string | null;
   /** Booking Speed observation snapshot, from the engine's RuleMetrics. */
@@ -208,9 +209,9 @@ function fullnessSentence(
 
 /**
  * "9 bookings arrived in the last 3 days, past the 4-booking mark you set."
- * When the count opened at a stronger rule's newer raise or cut
- * (pickup_counted_since), it says so instead of naming the window.
- * `direction` is the rule's, as in bookingSpeedSentence.
+ * When the count opened at this rule's own last raise or cut, or a
+ * stronger rule's newer one (pickup_counted_since), it says so instead of
+ * naming the window. `direction` is the rule's, as in bookingSpeedSentence.
  */
 function pickupSentence(
   condition: RuleCondition,

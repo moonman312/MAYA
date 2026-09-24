@@ -44,6 +44,7 @@ export type AlertNightRow = {
   window_expected: number | null;
   pickup_metric: string | null;
   pickup_threshold: number | null;
+  /** null with a threshold: the pickup counted from the rule's own last raise or cut, or a stronger rule's, not over a window of days. */
   pickup_window_days: number | null;
   pickup_net: number | null;
   room_types: AlertNightRoomType[];
@@ -203,15 +204,24 @@ function spanWord(days: number): string {
  * What the rule was looking at when it last fired, one short sentence per
  * signal. A booking speed rule names the bookings it measured against the
  * pace similar nights set; a pickup rule names the pickup against the mark
- * the owner typed. A rule with both says both.
+ * the owner typed, over its window, or since it or a stronger rule last
+ * raised the night (last cut it, for a rule that cuts) when that is where
+ * its count opened (pickupWindowOpensAt in engine/pickup.ts: the fire's
+ * pickup_window_days is then null). A rule with both says both.
  *
  * `wholeWindowDays` is the rule's booking speed window when it raises on a
  * fast pace (engine keepsWholeWindowBar): measured over fewer days than
  * that, it counted only the bookings since it or a stronger rule last
  * raised the night, and those alone had to beat what a night like this
  * gets in the whole window, which is what window_expected then is.
+ * `direction` is the rule's.
  */
-export function nightWhy(night: AlertNightRow, currencySymbol: string, wholeWindowDays?: number | null): string[] {
+export function nightWhy(
+  night: AlertNightRow,
+  currencySymbol: string,
+  wholeWindowDays?: number | null,
+  direction?: "increase" | "decrease",
+): string[] {
   const out: string[] = [];
   if (night.window_days != null && night.window_bookings != null) {
     const sinceRaise = wholeWindowDays != null && night.window_days < wholeWindowDays;
@@ -226,13 +236,16 @@ export function nightWhy(night: AlertNightRow, currencySymbol: string, wholeWind
           : `${measured} A night like this usually has ${expectedPhrase(night.window_expected)} by then.`,
     );
   }
-  if (night.pickup_threshold != null && night.pickup_window_days != null && night.pickup_net != null) {
+  if (night.pickup_threshold != null && night.pickup_net != null) {
     const revenue = night.pickup_metric === "revenue";
     const got = revenue ? money(night.pickup_net, currencySymbol) : unitsPhrase(night.pickup_net);
     const mark = revenue ? money(night.pickup_threshold, currencySymbol) : String(night.pickup_threshold);
-    out.push(
-      `Pickup over the last ${dayWord(night.pickup_window_days)} came to ${got}, against the ${mark} you set.`,
-    );
+    const change = direction === "decrease" ? "cut" : direction === "increase" ? "raised" : "adjusted";
+    const over =
+      night.pickup_window_days != null
+        ? `over the last ${dayWord(night.pickup_window_days)}`
+        : `since it or a stronger rule last ${change} this night`;
+    out.push(`Pickup ${over} came to ${got}, against the ${mark} you set.`);
   }
   return out;
 }
@@ -440,7 +453,12 @@ export function buildRuleAlerts(input: {
         fires: night.fire_count,
         uneven: nightIsUneven(night),
         fires_line: nightFiresLine(night, input.roomTypeNames),
-        why: nightWhy(night, input.currencySymbol, input.wholeWindowDays?.get(alert.rule_id) ?? null),
+        why: nightWhy(
+          night,
+          input.currencySymbol,
+          input.wholeWindowDays?.get(alert.rule_id) ?? null,
+          alert.action_direction,
+        ),
         limit_line: limit
           ? nightLimitLine(limit, alert.action_direction, input.currencySymbol, input.simulation)
           : null,

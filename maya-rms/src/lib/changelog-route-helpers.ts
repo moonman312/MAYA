@@ -222,8 +222,9 @@ function toNarrativeMetrics(
   const occupancy = metrics.occupancy;
   const dta = metrics.dta;
   const pickup = metrics.net_pickup_units;
-  // Set when a pickup count opened at a stronger rule's newer change rather
-  // than a whole window back; older rows never carry it.
+  // Set when a pickup count opened at the rule's own last change or a
+  // stronger rule's newer one rather than a whole window back; older rows
+  // never carry it.
   const pickupSince = metrics.pickup_counted_since;
   const bs = metrics.booking_speed as
     | {
