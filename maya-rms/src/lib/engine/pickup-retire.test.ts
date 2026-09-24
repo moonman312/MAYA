@@ -15,6 +15,8 @@ import { evaluateHotel } from "./evaluate";
 import { fakeSupabase as sharedFake, type FakeRow } from "./fake-supabase.test";
 import {
   cancellationCrossed,
+  firesCancelled,
+  firesToReset,
   firesToRetire,
   loadOpenPickupFires,
   retireFires,
@@ -88,6 +90,43 @@ function context(windows: number[]): BookingSpeedContext {
     observationCache: new Map(),
   };
 }
+
+describe("the engine's two halves: what a price or an edit takes off, then cancellations", () => {
+  // The engine takes the first half off before it reads the fire history
+  // that says where each rule counts from (those fires stop counting), and
+  // tests cancellations after the split days they need are read.
+  const manual = new Map([[`${NIGHT}|rt1`, "2026-07-28T00:00:00Z"]]);
+  const edited = new Map([["r1", rule({ version: 2 })]]);
+
+  it("firesToReset names only the fires a typed price or an edit takes off", () => {
+    expect(firesToReset([fire()], { rules: new Map([["r1", rule()]]), manualSetAtByCell: manual, now: NOW })).toEqual(
+      new Map([["e1", "manual_price"]]),
+    );
+    expect(firesToReset([fire()], { rules: edited, manualSetAtByCell: none, now: NOW })).toEqual(new Map([["e1", "rule_edited"]]));
+    // Bookings that cancelled are the other half's to judge.
+    expect(firesToReset([fire()], { rules: new Map([["r1", rule()]]), manualSetAtByCell: none, now: NOW }).size).toBe(0);
+    // A fire this run made is never taken off.
+    expect(firesToReset([fire({ applied_at: NOW })], { rules: edited, manualSetAtByCell: manual, now: NOW }).size).toBe(0);
+  });
+
+  it("firesCancelled tests only the current version's raises, and together the halves say what firesToRetire says", () => {
+    expect(firesCancelled([fire()], retireInput())).toEqual(new Map([["e1", "bookings_cancelled"]]));
+    expect(firesCancelled([fire()], retireInput({ rules: edited })).size).toBe(0);
+    expect(firesCancelled([fire({ applied_at: NOW })], retireInput()).size).toBe(0);
+    const fires = [fire(), fire({ id: "e2", stay_date: addDays(NIGHT, 1) }), fire({ id: "e3", applied_at: "2026-07-29T00:00:00Z" })];
+    const input = retireInput({ manualSetAtByCell: manual, bookedByCell: new Map([[`${NIGHT}|rt1`, 1], [`${addDays(NIGHT, 1)}|rt1`, 1]]) });
+    const reset = firesToReset(fires, input);
+    const cancelled = firesCancelled(fires.filter((f) => !reset.has(f.id)), input);
+    expect(new Map([...reset, ...cancelled])).toEqual(firesToRetire(fires, input));
+    expect(firesToRetire(fires, input)).toEqual(
+      new Map([
+        ["e1", "manual_price"],
+        ["e2", "bookings_cancelled"],
+        ["e3", "bookings_cancelled"],
+      ]),
+    );
+  });
+});
 
 describe("firesToRetire", () => {
   it("takes a raise off once bookings fall back to where its window opened", () => {
