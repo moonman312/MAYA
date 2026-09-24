@@ -26,16 +26,15 @@ import {
   type RunSummary,
   MAX_ALERT_CHOICES,
   MAX_CANDIDATE_RUNS,
-  MAX_CHANGED_RUNS,
   buildAlertChoices,
   buildCyclesFromAudit,
   buildCyclesFromRuns,
   buildQuietChecks,
   currencySymbolFor,
+  findShownRuns,
   isChangeRow,
   manualOverrideFor,
   planQuietGaps,
-  shownRuns,
   topChangeRows,
 } from "@/lib/changelog-route-helpers";
 import {
@@ -222,12 +221,8 @@ async function loadRunHistory(supabase: SupabaseClient, hotelId: string): Promis
   const candidates = (candidateRead.data ?? []).map(
     (r): RunHeartbeat => ({ evaluation_run_id: String(r.evaluation_run_id), evaluated_at: String(r.evaluated_at) }),
   );
-  const summaries: RunSummary[] = [];
-  for (const run of candidates.slice(0, MAX_CANDIDATE_RUNS)) {
-    if (summaries.filter((r) => r.hasChanges).length >= MAX_CHANGED_RUNS) break;
-    summaries.push(await summariseRun(supabase, hotelId, run));
-  }
-  return { ...shownRuns(candidates, summaries), firstRunAt: String(first.evaluated_at) };
+  const found = await findShownRuns(candidates, (run) => summariseRun(supabase, hotelId, run));
+  return { ...found, firstRunAt: String(first.evaluated_at) };
 }
 
 /**

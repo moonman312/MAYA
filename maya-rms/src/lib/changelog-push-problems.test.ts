@@ -9,7 +9,7 @@ import {
   type IncidentAttemptForLog,
   mergeTimeline,
 } from "./changelog-push-problems";
-import type { ChangelogCycle } from "@/types/domain";
+import type { ChangelogCycle, ChangelogQuietChecks } from "@/types/domain";
 
 const at = (minutes: number) => new Date(Date.parse("2026-09-17T10:00:00Z") + minutes * 60_000).toISOString();
 
@@ -167,5 +167,42 @@ describe("mergeTimeline", () => {
       [problem("inc-ended", at(0), at(127)), problem("inc-history", at(0), at(30))],
     );
     expect(merged.map((m) => ("kind" in m ? m.id : m.cycle))).toEqual([3, "inc-ended", 2, 1]);
+  });
+
+  const quiet = (from: number, to: number, checks: number): ChangelogQuietChecks => ({
+    kind: "quiet_checks",
+    id: `q-${from}`,
+    timestamp: at(to),
+    first_at: at(from),
+    checks,
+  });
+
+  it("sits a quiet line where its latest check ran, and keeps what ended during its checks", () => {
+    const merged = mergeTimeline(
+      [quiet(135, 150, 4), run(130, 2), quiet(100, 125, 6)],
+      // Ended during the older quiet stretch, and long before any check shown.
+      [problem("inc-ended", at(0), at(110)), problem("inc-history", at(0), at(30))],
+    );
+    expect(merged.map((m) => ("kind" in m ? m.id : m.cycle))).toEqual(["q-135", 2, "q-100", "inc-ended"]);
+  });
+
+  it("keeps anything after the newest run it did not read, even below the oldest line", () => {
+    // The log stopped reading at the run at 90; the answer at 95 came before
+    // any check shown but after that run, so it is still history the log covers.
+    const answer = (minutes: number) => ({
+      kind: "rule_alert_choice" as const,
+      id: `a-${minutes}`,
+      timestamp: at(minutes),
+      rule_name: "Busy-day bump",
+      choice: "stop" as const,
+      nights: 1,
+      first_night: "2026-11-14",
+      last_night: "2026-11-14",
+      title: "A manager stopped it.",
+    });
+    const merged = mergeTimeline([run(130, 2), quiet(100, 125, 6)], [], [answer(95), answer(90), answer(80)], {
+      after: at(90),
+    });
+    expect(merged.map((m) => ("kind" in m ? m.id : m.cycle))).toEqual([2, "q-100", "a-95"]);
   });
 });

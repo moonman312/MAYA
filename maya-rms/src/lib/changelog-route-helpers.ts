@@ -630,19 +630,26 @@ export async function buildQuietChecks(
 }
 
 /**
- * Which of the runs that wrote audit rows the log shows in full, and where it
- * stopped reading. `candidates` are those runs newest first, and `summaries`
- * the ones read so far, in the same order. A run that read as no change is
- * left out of `shown`: it is counted with the quiet runs around it.
+ * The runs the log shows in full, and where it stopped reading.
+ * `candidates` are the runs that wrote audit rows, newest first, as many as
+ * MAX_CANDIDATE_RUNS + 1. They are read one at a time until MAX_CHANGED_RUNS
+ * show a change or MAX_CANDIDATE_RUNS have been read. A run that reads as no
+ * change is left out of `shown`: it is counted with the quiet runs around
+ * it. `readBackTo` is the first candidate not read, when there is one.
  */
-export function shownRuns(
+export async function findShownRuns(
   candidates: RunHeartbeat[],
-  summaries: RunSummary[],
-): { shown: RunSummary[]; readBackTo: string | null } {
-  return {
-    shown: summaries.filter((s) => s.hasChanges).slice(0, MAX_CHANGED_RUNS),
-    readBackTo: candidates[summaries.length]?.evaluated_at ?? null,
-  };
+  summarise: (run: RunHeartbeat) => Promise<RunSummary>,
+): Promise<{ shown: RunSummary[]; readBackTo: string | null }> {
+  const shown: RunSummary[] = [];
+  let read = 0;
+  for (const run of candidates.slice(0, MAX_CANDIDATE_RUNS)) {
+    if (shown.length >= MAX_CHANGED_RUNS) break;
+    const summary = await summarise(run);
+    read++;
+    if (summary.hasChanges) shown.push(summary);
+  }
+  return { shown, readBackTo: candidates[read]?.evaluated_at ?? null };
 }
 
 /* ── Answers to a rule that kept adjusting ─────────────────────── */

@@ -19,10 +19,11 @@ import { fakeSupabase as sharedFake } from "@/lib/engine/fake-supabase.test";
 type Row = Record<string, unknown>;
 
 /** The engine's in-memory fake (paging, JSON-path selects) plus a session. */
-function fakeSupabase(seed: Record<string, Row[]> = {}) {
+function fakeSupabase(seed: Record<string, Row[]> = {}, opts: { maxRows?: number } = {}) {
   const failSelectFor = new Map<string, { message: string; code?: string }>();
   const fake = sharedFake(seed, {
     fault: (c) => (c.op === "select" ? (failSelectFor.get(c.table) ?? null) : null),
+    maxRows: opts.maxRows,
   });
   const client = Object.assign(fake.client, {
     auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) },
@@ -644,5 +645,125 @@ describe("changelog route: rates not reaching the PMS", () => {
     });
     const body = await get(fake.client);
     expect(body).toHaveLength(2);
+  });
+});
+
+describe("changelog route: quiet checks between changes", () => {
+  const t = (n: number) => new Date(Date.parse("2026-09-20T00:00:00Z") + n * 300_000).toISOString();
+
+  /**
+   * A run every five minutes. `changed` runs raised a night; `hidden` runs
+   * wrote an audit row that shows no change (a night back at its base). The
+   * rest wrote nothing.
+   */
+  function runHistory(total: number, changed: number[], hidden: number[] = [], extra: Record<string, Row[]> = {}) {
+    const runLog: Row[] = [];
+    const audit: Row[] = [];
+    for (let n = 0; n < total; n++) {
+      const shows = changed.includes(n);
+      const writes = shows || hidden.includes(n);
+      runLog.push({ hotel_id: HOTEL, evaluation_run_id: `run-${n}`, evaluated_at: t(n), cells_changed: writes ? 1 : 0 });
+      if (!writes) continue;
+      audit.push({
+        id: `audit-${String(n).padStart(4, "0")}`,
+        hotel_id: HOTEL,
+        evaluation_run_id: `run-${n}`,
+        stay_date: "2026-10-01",
+        room_type_id: "rt-1",
+        evaluated_at: t(n),
+        base_price: 180,
+        final_price: shows ? 198 : 180,
+        pre_clamp_price: shows ? 198 : 180,
+        floor_price: 100,
+        ceiling_price: 400,
+        details: { application_order: shows ? ["rule:rule-1"] : [], matched_ladder_rules: [] },
+      });
+    }
+    return {
+      evaluation_run_log: runLog,
+      evaluation_audit: audit,
+      hotels: [{ id: HOTEL, currency: "USD" }],
+      room_types: [{ id: "rt-1", hotel_id: HOTEL, name: "Garden King" }],
+      pricing_rules: [
+        { id: "rule-1", hotel_id: HOTEL, name: "Busy week bump", action_type: "percent", action_direction: "increase", action_value: 10, is_pickup_rule: false, rule_condition: null },
+      ],
+      ...extra,
+    };
+  }
+
+  async function get(seed: Record<string, Row[]>) {
+    // PostgREST hands back at most this many rows a read, so a stretch of
+    // hundreds only counts right if it is counted, not read.
+    const fake = fakeSupabase(seed, { maxRows: 50 });
+    state.client = fake.client;
+    state.hotelId = HOTEL;
+    state.configured = true;
+    state.admin = null;
+    const res = await GET();
+    expect(res.status).toBe(200);
+    return { body: (await res.json()) as Row[], calls: fake.calls };
+  }
+
+  const shape = (body: Row[]) =>
+    body.map((i) =>
+      i.kind === "quiet_checks"
+        ? `${i.checks} quiet ${i.first_at} to ${i.timestamp}${i.just_before ? " (just before)" : ""}`
+        : i.kind === "rule_alert_choice"
+          ? `answer ${i.timestamp}`
+          : `change ${i.timestamp}`,
+    );
+
+  it("shows each change in full and every stretch of quiet checks around it as one counted line", async () => {
+    // 300 runs, changes at 40 and 250, and one at 120 that wrote a row showing nothing.
+    const { body, calls } = await get(runHistory(300, [40, 250], [120]));
+    expect(shape(body)).toEqual([
+      `49 quiet ${t(251)} to ${t(299)}`,
+      `change ${t(250)}`,
+      `209 quiet ${t(41)} to ${t(249)}`,
+      `change ${t(40)}`,
+      `40 quiet ${t(0)} to ${t(39)}`,
+    ]);
+    expect(body[1]).toMatchObject({ has_changes: true });
+    // The quiet runs are counted and their two ends read, never listed.
+    const runLogReads = calls.filter((c) => c.table === "evaluation_run_log");
+    expect(runLogReads.length).toBeLessThanOrEqual(2 + 3 * 3);
+    expect(calls.filter((c) => c.table === "evaluation_audit" && c.filters.some((f) => f.col === "evaluation_run_id")).map((c) => c.filters.find((f) => f.col === "evaluation_run_id")?.value)).toEqual(["run-250", "run-120", "run-40"]);
+  });
+
+  it("covers every check since the first with one line when nothing has ever changed", async () => {
+    const { body } = await get(runHistory(120, []));
+    expect(body).toEqual([
+      { kind: "quiet_checks", id: `quiet-${t(0)}-${t(119)}`, timestamp: t(119), first_at: t(0), checks: 120 },
+    ]);
+  });
+
+  it("splits a quiet stretch at an owner's answer, so the answer sits where it happened", async () => {
+    const answeredAt = new Date(Date.parse(t(70)) + 60_000).toISOString();
+    const { body } = await get(
+      runHistory(100, [20], [], {
+        rule_repeat_alert_nights: [
+          { hotel_id: HOTEL, rule_id: "rule-1", stay_date: "2026-10-01", choice: "stop", chosen_at: answeredAt, chosen_by: null },
+        ],
+      }),
+    );
+    expect(shape(body)).toEqual([
+      `29 quiet ${t(71)} to ${t(99)}`,
+      `answer ${answeredAt}`,
+      `50 quiet ${t(21)} to ${t(70)}`,
+      `change ${t(20)}`,
+      `20 quiet ${t(0)} to ${t(19)}`,
+    ]);
+  });
+
+  it("keeps the ten newest changes and says the last line is the stretch just before the oldest", async () => {
+    // Fourteen changes, every tenth run from run 5; the four oldest are left out.
+    const changed = Array.from({ length: 14 }, (_, i) => 5 + i * 10);
+    const { body } = await get(runHistory(150, changed));
+    const lines = shape(body);
+    expect(lines.filter((l) => l.startsWith("change"))).toHaveLength(10);
+    expect(lines.filter((l) => l.startsWith("change"))[9]).toBe(`change ${t(45)}`);
+    // Only back to the next change the log did not read (run 35).
+    expect(lines[lines.length - 1]).toBe(`9 quiet ${t(36)} to ${t(44)} (just before)`);
+    expect(lines.some((l) => l.includes(t(35)) || l.includes(t(5)))).toBe(false);
   });
 });

@@ -2,15 +2,24 @@ import { describe, expect, it } from "vitest";
 import {
   type AuditChangeRow,
   type ChangelogLookups,
+  type QuietGap,
+  type RunHeartbeat,
+  MAX_CANDIDATE_RUNS,
+  MAX_CHANGED_RUNS,
   buildAlertChoices,
   buildApplications,
   buildCyclesFromAudit,
   buildEntry,
+  buildQuietChecks,
   buildRetirements,
   currencySymbolFor,
+  findShownRuns,
   groupAuditRuns,
+  inQuietGap,
   isChangeRow,
+  isQuietChecks,
   isRuleAlertChoice,
+  planQuietGaps,
 } from "./changelog-route-helpers";
 import type { EvaluationAuditDetails } from "@/types/domain";
 
@@ -774,5 +783,150 @@ describe("buildAlertChoices", () => {
       'A manager stopped "A rule" on Mon, Nov 16 2026. What it already cut stays.',
     );
     expect(items[0].title).not.toMatch(/—/);
+  });
+});
+
+describe("quiet checks between changes", () => {
+  /**
+   * A hotel's run log, one run every five minutes from 10:00. `changed` runs
+   * wrote audit rows and show a change; `hidden` runs wrote audit rows that
+   * show none (cells_changed > 0, nothing isChangeRow keeps). The rest wrote
+   * nothing.
+   */
+  type LogRun = { id: string; at: string; cells_changed: number; shows: boolean };
+  const at = (n: number) => new Date(Date.parse("2026-09-24T10:00:00Z") + n * 300_000).toISOString();
+  function runLog(total: number, changed: number[] = [], hidden: number[] = []): LogRun[] {
+    return Array.from({ length: total }, (_, n) => ({
+      id: `run-${n}`,
+      at: at(n),
+      cells_changed: changed.includes(n) || hidden.includes(n) ? 3 : 0,
+      shows: changed.includes(n),
+    }));
+  }
+
+  /** What the route does, with the run log as a list instead of a table. */
+  async function timeline(log: LogRun[], splitAt: string[] = []) {
+    const newestFirst = [...log].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+    const candidates: RunHeartbeat[] = newestFirst
+      .filter((r) => r.cells_changed > 0)
+      .slice(0, MAX_CANDIDATE_RUNS + 1)
+      .map((r) => ({ evaluation_run_id: r.id, evaluated_at: r.at }));
+    const read: string[] = [];
+    const { shown, readBackTo } = await findShownRuns(candidates, async (run) => {
+      read.push(run.evaluation_run_id);
+      const shows = log.find((r) => r.id === run.evaluation_run_id)!.shows;
+      return { evaluation_run_id: run.evaluation_run_id, timestamp: run.evaluated_at, hasChanges: shows, topRows: [] };
+    });
+    const gaps = planQuietGaps({ changes: shown.map((r) => r.timestamp), splitAt, readBackTo });
+    const quiet = await buildQuietChecks(gaps, async (gap: QuietGap) => {
+      const inside = log.filter((r) => inQuietGap(gap, r.at)).map((r) => r.at).sort();
+      return { checks: inside.length, first_at: inside[0] ?? null, last_at: inside[inside.length - 1] ?? null };
+    });
+    return { shown: shown.map((r) => r.evaluation_run_id), quiet, read, readBackTo };
+  }
+
+  it("counts the checks after the newest change into one line above it", async () => {
+    const { shown, quiet } = await timeline(runLog(6, [2]));
+    expect(shown).toEqual(["run-2"]);
+    expect(quiet[0]).toMatchObject({ kind: "quiet_checks", checks: 3, first_at: at(3), timestamp: at(5) });
+    expect(quiet[0].just_before).toBeUndefined();
+    expect(isQuietChecks(quiet[0])).toBe(true);
+  });
+
+  it("counts every check before the only change when the log read back to the first one", async () => {
+    const { quiet } = await timeline(runLog(6, [4]));
+    // Newest first: the one check after the change, then the four before it.
+    expect(quiet.map((q) => [q.checks, q.first_at, q.timestamp])).toEqual([
+      [1, at(5), at(5)],
+      [4, at(0), at(3)],
+    ]);
+    expect(quiet.every((q) => !q.just_before)).toBe(true);
+  });
+
+  it("puts one line between two changes, and none between two in a row", async () => {
+    const { shown, quiet } = await timeline(runLog(8, [1, 2, 7]));
+    expect(shown).toEqual(["run-7", "run-2", "run-1"]);
+    expect(quiet.map((q) => [q.checks, q.first_at, q.timestamp])).toEqual([
+      [4, at(3), at(6)],
+      [1, at(0), at(0)],
+    ]);
+  });
+
+  it("folds a run that wrote audit rows but shows no change into the quiet line around it", async () => {
+    const { shown, quiet, read } = await timeline(runLog(8, [1, 6], [3]));
+    expect(read).toEqual(["run-6", "run-3", "run-1"]);
+    expect(shown).toEqual(["run-6", "run-1"]);
+    // run-2, run-3, run-4 and run-5: the hidden one is one of the four.
+    expect(quiet.find((q) => q.first_at === at(2))).toMatchObject({ checks: 4, timestamp: at(5) });
+  });
+
+  it("splits a quiet stretch where an owner's answer sits, a run at the same instant going above it", async () => {
+    const answer = at(4);
+    const { quiet } = await timeline(runLog(9, [0]), [answer]);
+    expect(quiet.map((q) => [q.checks, q.first_at, q.timestamp])).toEqual([
+      [5, at(4), at(8)],
+      [3, at(1), at(3)],
+    ]);
+    // Between two checks, it splits them the same way.
+    const between = new Date(Date.parse(at(6)) + 60_000).toISOString();
+    const split = await timeline(runLog(9, [0]), [between]);
+    expect(split.quiet.map((q) => q.checks)).toEqual([2, 6]);
+  });
+
+  it("covers every check since the first with one line on a hotel that never changed a price", async () => {
+    const { shown, quiet, readBackTo } = await timeline(runLog(12));
+    expect(shown).toEqual([]);
+    expect(readBackTo).toBeNull();
+    expect(quiet).toEqual([
+      { kind: "quiet_checks", id: `quiet-${at(0)}-${at(11)}`, timestamp: at(11), first_at: at(0), checks: 12 },
+    ]);
+  });
+
+  it("gives a single quiet check a line of its own", async () => {
+    const { quiet } = await timeline(runLog(3, [0, 2]));
+    expect(quiet).toEqual([
+      { kind: "quiet_checks", id: `quiet-${at(1)}-${at(1)}`, timestamp: at(1), first_at: at(1), checks: 1 },
+    ]);
+  });
+
+  it("shows the newest changes in full and says the last line is the stretch just before the oldest of them", async () => {
+    // Twelve changes, every third run: the log reads the newest ten, and the
+    // one after them marks where it stopped.
+    const changed = Array.from({ length: 12 }, (_, i) => 1 + i * 3);
+    const { shown, quiet, readBackTo } = await timeline(runLog(40, changed));
+    expect(shown).toHaveLength(MAX_CHANGED_RUNS);
+    expect(shown[shown.length - 1]).toBe("run-7");
+    expect(readBackTo).toBe(at(4));
+    const last = quiet[quiet.length - 1];
+    // run-5 and run-6: nothing at or before run-4 is counted.
+    expect(last).toMatchObject({ checks: 2, first_at: at(5), timestamp: at(6), just_before: true });
+    expect(quiet.filter((q) => q.just_before)).toHaveLength(1);
+  });
+
+  it("stops reading after MAX_CANDIDATE_RUNS runs that show nothing, and counts only what it read past", async () => {
+    const hidden = Array.from({ length: MAX_CANDIDATE_RUNS + 5 }, (_, i) => i * 2);
+    const log = runLog(hidden.length * 2, [], hidden);
+    const { shown, quiet, read, readBackTo } = await timeline(log);
+    expect(read).toHaveLength(MAX_CANDIDATE_RUNS);
+    expect(shown).toEqual([]);
+    const oldestRead = hidden[hidden.length - MAX_CANDIDATE_RUNS];
+    expect(readBackTo).toBe(at(oldestRead - 2));
+    expect(quiet).toHaveLength(1);
+    expect(quiet[0]).toMatchObject({ first_at: at(oldestRead - 1), timestamp: at(log.length - 1) });
+    expect(quiet[0].checks).toBe(log.length - oldestRead + 1);
+    // Nothing changed above it, so there is no change for it to sit before.
+    expect(quiet[0].just_before).toBeUndefined();
+  });
+
+  it("drops answers from before where it stopped reading, and never counts a gap whose ends meet", () => {
+    const gaps = planQuietGaps({ changes: [at(5)], splitAt: [at(5), at(1), at(1)], readBackTo: at(2) });
+    // The answer at the change's own instant sits below it, with no run between.
+    expect(gaps).toEqual([
+      { before: null, after: { at: at(5), inclusive: false }, just_before: false },
+      { before: at(5), after: { at: at(2), inclusive: false }, just_before: true },
+    ]);
+    expect(inQuietGap(gaps[1], at(2))).toBe(false);
+    expect(inQuietGap(gaps[1], at(3))).toBe(true);
+    expect(inQuietGap(gaps[0], at(5))).toBe(false);
   });
 });
