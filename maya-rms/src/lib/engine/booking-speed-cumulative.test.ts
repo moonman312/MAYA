@@ -352,18 +352,18 @@ describe.each(ENGINES)("$name: a rule's count carries on from its own last fire"
 
   describe("a slow night under the starter rules, with a run 5 minutes after every cut", () => {
     // Every night books 3 a day at every lead from 55 to 10 days out, first
-    // seen through the day; this night gets `per` a day, first seen at
-    // 11:00 and 19:00. Runs: the daily pass at 00:05, and one 5 minutes
-    // after any run that cut.
+    // seen through the day; this night gets `per` a day (or `per(day)` for
+    // the day it was booked on), first seen at 11:00 and 19:00. Runs: the
+    // daily pass at 00:05, and one 5 minutes after any run that cut.
     const NIGHT20 = addDays(D0, 20);
     const LAST20 = addDays(D0, 21);
-    const slowRows = (per: number) => {
+    const slowRows = (per: number | ((bookedOn: string) => number)) => {
       const out: FakeRow[] = [];
       for (let stay = addDays(D0, -400); stay <= LAST20; stay = addDays(stay, 1)) {
-        const n = stay === NIGHT20 ? per : 3;
         const hours = stay === NIGHT20 ? [11, 19] : [3, 11, 19];
         for (let lead = 10; lead <= 55; lead++) {
           const on = addDays(stay, -lead);
+          const n = stay !== NIGHT20 ? 3 : typeof per === "number" ? per : per(on);
           for (let k = 0; k < n; k++) out.push(booking(stay, on, `${on}T${String(hours[k % hours.length]).padStart(2, "0")}:00:00.000Z`));
         }
       }
@@ -405,6 +405,23 @@ describe.each(ENGINES)("$name: a rule's count carries on from its own last fire"
         ["Slow-date rescue", iso(at(14, 0, 5)), addDays(D0, 8), addDays(D0, 13), null, 3],
       ]);
       expect(w.price(NIGHT20)).toBeCloseTo(100 * 0.85 ** 3, 2);
+    }, 120_000);
+
+    it("picking back up after a rescue: the rescue stops, and the trim, which never cut the night, judges its whole month", async () => {
+      // A third of the usual pace until day 0, the usual 3 a day from then
+      // on. Each rule counts from its own last cut only, so the rescue's
+      // cut doesn't move where the trim starts: once the week of usual pace
+      // lifts the month from far behind to a bit behind, the trim cuts on
+      // the whole month, slow stretch included.
+      const w = timeline(engine, { rules: starterRules(), rows: slowRows((on) => (on < D0 ? 1 : 3)), last: LAST20, rooms: 500 });
+      await runDays(w, 12);
+      expect(w.fired(NIGHT20)).toEqual([
+        ["Slow-date rescue", iso(at(0, 0, 5)), addDays(D0, -30), addDays(D0, -1), null, 30],
+        // Day 7: the rescue's week since (18 against 18) is normal, so no
+        // second rescue. Day 8: 46 against 90 over the trim's whole month.
+        ["Slow-date trim", iso(at(8, 0, 5)), addDays(D0, -22), addDays(D0, 7), null, 46],
+      ]);
+      expect(w.price(NIGHT20)).toBeCloseTo(100 * 0.85 * 0.93, 2);
     }, 120_000);
 
     it("a cut rule with a day's wait has nothing to judge until a complete day has passed since its cut's day", async () => {
