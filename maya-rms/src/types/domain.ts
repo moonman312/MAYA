@@ -451,7 +451,35 @@ export type ChangelogRuleAlertChoice = {
 };
 
 /**
- * The change log timeline, newest first: pricing runs, push problems and the
- * answers the owner gave to a rule that kept adjusting.
+ * Pricing runs in a row that changed nothing, as one change log line: how
+ * many, and when the first and last of them ran. Anything else the log shows
+ * in that time (a change, a push problem ending, an owner's answer) splits
+ * the stretch, so every line sits where it happened.
  */
-export type ChangelogItem = ChangelogCycle | ChangelogPushProblem | ChangelogRuleAlertChoice;
+export type ChangelogQuietChecks = {
+  kind: "quiet_checks";
+  id: string;
+  /** The latest check in the stretch; where the line sits in the timeline. */
+  timestamp: string;
+  /** The earliest check in the stretch. */
+  first_at: string;
+  /** How many checks in a row found nothing to change. */
+  checks: number;
+  /**
+   * The line under the oldest change shown, when the log stopped reading
+   * there: these are the checks just before that change, and whatever came
+   * before them is not in the log.
+   */
+  just_before?: boolean;
+};
+
+/**
+ * The change log timeline, newest first: pricing runs that changed prices,
+ * the quiet checks between them, push problems and the answers the owner gave
+ * to a rule that kept adjusting.
+ */
+export type ChangelogItem =
+  | ChangelogCycle
+  | ChangelogQuietChecks
+  | ChangelogPushProblem
+  | ChangelogRuleAlertChoice;

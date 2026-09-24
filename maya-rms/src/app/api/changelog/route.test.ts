@@ -97,7 +97,7 @@ function seedHealthyHotel() {
       },
     ],
     evaluation_run_log: [
-      { hotel_id: HOTEL, evaluation_run_id: "run-1", evaluated_at: "2026-07-29T08:00:00Z" },
+      { hotel_id: HOTEL, evaluation_run_id: "run-1", evaluated_at: "2026-07-29T08:00:00Z", cells_changed: 1 },
     ],
   });
 }
@@ -193,7 +193,7 @@ describe("changelog route: failures are errors, never demo data", () => {
       room_types: [{ id: "rt-1", hotel_id: HOTEL, name: "Garden King" }],
       pricing_rules: [],
       evaluation_run_log: [
-        { hotel_id: HOTEL, evaluation_run_id: "run-2", evaluated_at: "2026-07-30T08:00:00Z" },
+        { hotel_id: HOTEL, evaluation_run_id: "run-2", evaluated_at: "2026-07-30T08:00:00Z", cells_changed: 1 },
       ],
       // What the caller's own client can see of profiles: themselves only.
       profiles: [{ id: "user-1", full_name: "Corey" }],
@@ -265,7 +265,7 @@ describe("changelog route: failures are errors, never demo data", () => {
         },
       ],
       evaluation_run_log: [
-        { hotel_id: HOTEL, evaluation_run_id: "run-1", evaluated_at: "2026-07-29T08:00:00Z" },
+        { hotel_id: HOTEL, evaluation_run_id: "run-1", evaluated_at: "2026-07-29T08:00:00Z", cells_changed: 1 },
       ],
       rule_repeat_alert_nights: nights,
     });
@@ -534,8 +534,8 @@ describe("changelog route: rates not reaching the PMS", () => {
       room_types: [{ id: "rt-1", hotel_id: HOTEL, name: "Garden King" }],
       pricing_rules: [],
       evaluation_run_log: [
-        { hotel_id: HOTEL, evaluation_run_id: "run-1", evaluated_at: "2026-07-29T08:00:00Z" },
-        { hotel_id: HOTEL, evaluation_run_id: "run-2", evaluated_at: "2026-07-29T08:05:00Z" },
+        { hotel_id: HOTEL, evaluation_run_id: "run-1", evaluated_at: "2026-07-29T08:00:00Z", cells_changed: 1 },
+        { hotel_id: HOTEL, evaluation_run_id: "run-2", evaluated_at: "2026-07-29T08:05:00Z", cells_changed: 0 },
       ],
     };
   }
@@ -553,7 +553,9 @@ describe("changelog route: rates not reaching the PMS", () => {
   it("adds each problem the owner should see as one condensed item, an ongoing one on top", async () => {
     const body = await get(liveHotel().client);
 
-    expect(body.map((item: Row) => item.kind ?? item.timestamp)).toEqual(["push_problem", "2026-07-29T08:05:00Z", "2026-07-29T08:00:00Z"]);
+    // The run at 08:05 changed nothing, so it is a quiet line.
+    expect(body.map((item: Row) => item.kind ?? item.timestamp)).toEqual(["push_problem", "quiet_checks", "2026-07-29T08:00:00Z"]);
+    expect(body[1]).toMatchObject({ checks: 1, timestamp: "2026-07-29T08:05:00Z" });
     const problem = body[0];
     expect(problem).toMatchObject({
       id: "inc-visible",
@@ -608,9 +610,9 @@ describe("changelog route: rates not reaching the PMS", () => {
 
     const body = await get(client.client);
 
-    expect(body.map((item: Row) => item.id ?? item.timestamp)).toEqual([
+    expect(body.map((item: Row) => (item.kind === "quiet_checks" ? `quiet ${item.timestamp}` : (item.id ?? item.timestamp)))).toEqual([
       "inc-visible",
-      "2026-07-29T08:05:00Z",
+      "quiet 2026-07-29T08:05:00Z",
       "inc-ended",
       "2026-07-29T08:00:00Z",
     ]);
@@ -629,7 +631,7 @@ describe("changelog route: rates not reaching the PMS", () => {
     const fake = liveHotel();
     fake.failSelectFor.set("rate_push_attempts", { code: "57014", message: "canceling statement due to statement timeout" });
     const body = await get(fake.client);
-    expect(body.map((item: Row) => item.kind ?? item.timestamp)).toEqual(["2026-07-29T08:05:00Z", "2026-07-29T08:00:00Z"]);
+    expect(body.map((item: Row) => item.kind ?? item.timestamp)).toEqual(["quiet_checks", "2026-07-29T08:00:00Z"]);
     expect(errors.mock.calls.some((c) => String(c[0]).includes('"step":"push_problems"') && String(c[0]).includes("statement timeout"))).toBe(true);
     errors.mockRestore();
   });

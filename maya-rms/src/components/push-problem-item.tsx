@@ -24,7 +24,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
  */
 const units = (skipsOnly: boolean): [string, string] => (skipsOnly ? ["check", "checks"] : ["try", "tries"]);
 
-function shortTime(iso: string): string {
+export function shortTime(iso: string): string {
   try {
     return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   } catch {
@@ -32,7 +32,7 @@ function shortTime(iso: string): string {
   }
 }
 
-function clockTime(iso: string): string {
+export function clockTime(iso: string): string {
   try {
     return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   } catch {
@@ -40,7 +40,7 @@ function clockTime(iso: string): string {
   }
 }
 
-function sameDay(a: string, b: string): boolean {
+export function sameDay(a: string, b: string): boolean {
   return new Date(a).toDateString() === new Date(b).toDateString();
 }
 

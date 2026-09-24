@@ -18,7 +18,8 @@ import { RuleAlertBanner } from "@/components/rule-alert-banner";
 import { letRunAgainBody, stoppedChipLabel, stoppedNightsHelp, type RuleStops } from "@/lib/rule-alerts";
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { RuleRoomTypesField } from "@/components/rule-room-types-field";
-import { isRuleAlertChoice } from "@/lib/changelog-route-helpers";
+import { isQuietChecks, isRuleAlertChoice } from "@/lib/changelog-route-helpers";
+import { QuietChecksLine } from "@/components/quiet-checks-line";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
 import {
@@ -776,7 +777,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
     // A push problem is always shown: it is never a "nothing changed" run.
     () =>
       changesOnly
-        ? changelog.filter((c) => isPushProblem(c) || isRuleAlertChoice(c) || c.has_changes)
+        ? changelog.filter((c) => isPushProblem(c) || isRuleAlertChoice(c) || (!isQuietChecks(c) && c.has_changes))
         : changelog,
     [changesOnly, changelog],
   );
@@ -1858,6 +1859,26 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                     </div>
                   );
                 }
+                if (isQuietChecks(cycle) || !cycle.has_changes) {
+                  // A run with nothing to change reads like a stretch of one.
+                  const quiet = isQuietChecks(cycle)
+                    ? cycle
+                    : {
+                        kind: "quiet_checks" as const,
+                        id: `run-${cycle.cycle}`,
+                        timestamp: cycle.timestamp,
+                        first_at: cycle.timestamp,
+                        checks: 1,
+                      };
+                  return (
+                    <QuietChecksLine
+                      key={`quiet-${quiet.id}`}
+                      item={quiet}
+                      formatAge={formatRelativeAge}
+                      formatExact={formatDisplayTime}
+                    />
+                  );
+                }
                 return (
                   <div
                     key={cycle.cycle}
@@ -1882,53 +1903,47 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                         ) : null}
                       </time>
                     </p>
-                    {cycle.has_changes ? (
-                      <ul className="mt-2 space-y-3">
-                        {cycle.changes.map((ch, idx) => (
-                          <li key={`${cycle.cycle}-${idx}`}>
-                            <div className="text-sm font-medium text-slate-200">
-                              {ch.room_type}
-                              {ch.stay_date ? (
-                                <span className="text-slate-400">
-                                  {" "}
-                                  · stay {ch.stay_date}
-                                </span>
-                              ) : null}
-                              : ${ch.original_rate.toFixed(2)}{" "}
-                              {ch.new_rate >= ch.original_rate ? "up" : "down"} to $
-                              {ch.new_rate.toFixed(2)} (
-                              {ch.change_pct >= 0 ? "+" : ""}
-                              {ch.change_pct}%)
-                            </div>
-                            {(ch.narrative && ch.narrative.length > 0
-                              ? ch.narrative
-                              : [ch.description]
-                            ).map((sentence, si) => (
-                              <p
-                                key={si}
-                                className="mt-0.5 text-[13px] leading-relaxed text-slate-400"
-                              >
-                                {sentence}
-                              </p>
-                            ))}
-                            {ch.has_booking_speed_details &&
-                            ch.evaluation_run_id &&
-                            ch.stay_date &&
-                            ch.room_type_id ? (
-                              <ExplainDrilldown
-                                runId={ch.evaluation_run_id}
-                                stayDate={ch.stay_date}
-                                roomTypeId={ch.room_type_id}
-                              />
+                    <ul className="mt-2 space-y-3">
+                      {cycle.changes.map((ch, idx) => (
+                        <li key={`${cycle.cycle}-${idx}`}>
+                          <div className="text-sm font-medium text-slate-200">
+                            {ch.room_type}
+                            {ch.stay_date ? (
+                              <span className="text-slate-400">
+                                {" "}
+                                · stay {ch.stay_date}
+                              </span>
                             ) : null}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="mt-2 text-sm text-slate-300">
-                        Prices checked — nothing needed to change.
-                      </p>
-                    )}
+                            : ${ch.original_rate.toFixed(2)}{" "}
+                            {ch.new_rate >= ch.original_rate ? "up" : "down"} to $
+                            {ch.new_rate.toFixed(2)} (
+                            {ch.change_pct >= 0 ? "+" : ""}
+                            {ch.change_pct}%)
+                          </div>
+                          {(ch.narrative && ch.narrative.length > 0
+                            ? ch.narrative
+                            : [ch.description]
+                          ).map((sentence, si) => (
+                            <p
+                              key={si}
+                              className="mt-0.5 text-[13px] leading-relaxed text-slate-400"
+                            >
+                              {sentence}
+                            </p>
+                          ))}
+                          {ch.has_booking_speed_details &&
+                          ch.evaluation_run_id &&
+                          ch.stay_date &&
+                          ch.room_type_id ? (
+                            <ExplainDrilldown
+                              runId={ch.evaluation_run_id}
+                              stayDate={ch.stay_date}
+                              roomTypeId={ch.room_type_id}
+                            />
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 );
               })}

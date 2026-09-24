@@ -1,11 +1,13 @@
 /**
  * GET /api/changelog — recent evaluation cycles as a human-readable change log.
  *
- * With Supabase configured and a resolvable hotel, cycles are rebuilt from
- * evaluation_audit rows (the 10 most recent runs) and narrated via
- * changelog-narrative. A live hotel's rate push problems that need the owner
- * are merged in, one item each: ongoing ones on top, resolved ones where they
- * ended (changelog-push-problems.ts).
+ * With Supabase configured and a resolvable hotel, the 10 most recent runs
+ * that changed a price are rebuilt from evaluation_audit rows and narrated
+ * via changelog-narrative. The quiet runs between them are counted, not
+ * read: each stretch is one line saying how many checks changed nothing
+ * (loadRunHistory, countQuietGap). A live hotel's rate push problems that
+ * need the owner are merged in, one item each: ongoing ones on top, resolved
+ * ones where they ended (changelog-push-problems.ts).
  * The demo changelog is served only when Supabase is
  * not configured at all; any failure past that point is a real error and
  * must surface as one — this screen is the audit trail of what the system
@@ -17,17 +19,23 @@ import {
   type AlertChoiceRow,
   type AuditChangeRow,
   type ChangelogLookups,
+  type QuietGap,
+  type QuietGapCount,
   type RuleLookupEntry,
   type RunHeartbeat,
   type RunSummary,
   MAX_ALERT_CHOICES,
-  MAX_RUNS,
+  MAX_CANDIDATE_RUNS,
+  MAX_CHANGED_RUNS,
   buildAlertChoices,
   buildCyclesFromAudit,
   buildCyclesFromRuns,
+  buildQuietChecks,
   currencySymbolFor,
   isChangeRow,
   manualOverrideFor,
+  planQuietGaps,
+  shownRuns,
   topChangeRows,
 } from "@/lib/changelog-route-helpers";
 import {
@@ -53,8 +61,8 @@ import { NextResponse } from "next/server";
 
 const AUDIT_ROW_LIMIT = 600;
 // Heartbeat rows are one per run and tiny (no JSONB) — a generous cap still
-// costs nothing and comfortably covers MAX_RUNS worth of history even at a
-// busy property.
+// costs nothing and comfortably covers MAX_AUDIT_RUNS worth of history even
+// at a busy property.
 const RUN_LOG_LIMIT = 200;
 
 export async function GET() {
@@ -106,89 +114,158 @@ function toChangeRow(r: Record<string, unknown>): AuditChangeRow {
 }
 
 /**
- * The newest runs, each read on its own.
+ * One run, read on its own.
  *
  * One read of the newest 600 audit rows used to be the whole change log. A
  * large property writes thousands of rows in a single run, so the newest run
- * filled the budget and every older one showed as "no changes". Here each of
- * the last runs in evaluation_run_log is paged through a narrow select (prices
- * and the two details fields that decide a change), ranked, and only its top
- * entries are read in full. Null when there is no run log to go by.
+ * filled the budget and every older one showed as "no changes". Here the run
+ * is paged through a narrow select (prices and the two details fields that
+ * decide a change), ranked, and only its top entries are read in full.
  */
-async function loadRunSummaries(supabase: SupabaseClient, hotelId: string): Promise<RunSummary[] | null> {
-  const { data: runs, error: runsErr } = await supabase
-    .from("evaluation_run_log")
-    .select("evaluation_run_id, evaluated_at")
-    .eq("hotel_id", hotelId)
-    .order("evaluated_at", { ascending: false })
-    .limit(MAX_RUNS);
-  if (runsErr || !runs || runs.length === 0) return null;
-
-  const summaries: RunSummary[] = [];
-  for (const run of runs) {
-    const runId = String(run.evaluation_run_id);
-    // A run stamps its heartbeat and every audit row with the same evalTs, so
-    // filtering on it too lets these reads use (hotel_id, evaluated_at desc).
-    // Nothing indexes evaluation_run_id, and on its own it scanned every audit
-    // row the hotel has kept.
-    const runAt = String(run.evaluated_at);
-    const changeRows: { id: string; base_price: number; final_price: number }[] = [];
-    for (let from = 0; ; from += PAGE) {
-      const { data, error } = await supabase
-        .from("evaluation_audit")
-        .select(RANK_COLUMNS)
-        .eq("hotel_id", hotelId)
-        .eq("evaluated_at", runAt)
-        .eq("evaluation_run_id", runId)
-        .order("id", { ascending: true })
-        .range(from, from + PAGE - 1);
-      // Thrown as-is so dbErrorResponse can read the pg code (42501 -> 403).
-      if (error) throw error;
-      const rows = (data ?? []) as unknown as Record<string, unknown>[];
-      for (const r of rows) {
-        const candidate = {
-          base_price: Number(r.base_price),
-          final_price: Number(r.final_price),
-          details: {
-            application_order: r.application_order,
-            manual_override: r.manual_override,
-          } as unknown as AuditChangeRow["details"],
-        };
-        if (isChangeRow(candidate as AuditChangeRow)) {
-          changeRows.push({ id: String(r.id), base_price: candidate.base_price, final_price: candidate.final_price });
-        }
+async function summariseRun(supabase: SupabaseClient, hotelId: string, run: RunHeartbeat): Promise<RunSummary> {
+  const runId = run.evaluation_run_id;
+  // A run stamps its heartbeat and every audit row with the same evalTs, so
+  // filtering on it too lets these reads use (hotel_id, evaluated_at desc).
+  // Nothing indexes evaluation_run_id, and on its own it scanned every audit
+  // row the hotel has kept.
+  const runAt = run.evaluated_at;
+  const changeRows: { id: string; base_price: number; final_price: number }[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("evaluation_audit")
+      .select(RANK_COLUMNS)
+      .eq("hotel_id", hotelId)
+      .eq("evaluated_at", runAt)
+      .eq("evaluation_run_id", runId)
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    // Thrown as-is so dbErrorResponse can read the pg code (42501 -> 403).
+    if (error) throw error;
+    const rows = (data ?? []) as unknown as Record<string, unknown>[];
+    for (const r of rows) {
+      const candidate = {
+        base_price: Number(r.base_price),
+        final_price: Number(r.final_price),
+        details: {
+          application_order: r.application_order,
+          manual_override: r.manual_override,
+        } as unknown as AuditChangeRow["details"],
+      };
+      if (isChangeRow(candidate as AuditChangeRow)) {
+        changeRows.push({ id: String(r.id), base_price: candidate.base_price, final_price: candidate.final_price });
       }
-      if (rows.length < PAGE) break;
     }
-
-    const top = topChangeRows(changeRows);
-    let topRows: AuditChangeRow[] = [];
-    if (top.length > 0) {
-      const { data: full, error: fullErr } = await supabase
-        .from("evaluation_audit")
-        .select(`id, ${AUDIT_COLUMNS}`)
-        .eq("hotel_id", hotelId)
-        .eq("evaluated_at", runAt)
-        .in("id", top.map((t) => t.id));
-      if (fullErr) throw fullErr;
-      const byId = new Map(((full ?? []) as Record<string, unknown>[]).map((r) => [String(r.id), r]));
-      topRows = top.map((t) => byId.get(t.id)).filter((r): r is Record<string, unknown> => !!r).map(toChangeRow);
-    }
-    summaries.push({
-      evaluation_run_id: runId,
-      timestamp: String(run.evaluated_at),
-      hasChanges: changeRows.length > 0,
-      topRows,
-    });
+    if (rows.length < PAGE) break;
   }
-  return summaries;
+
+  const top = topChangeRows(changeRows);
+  let topRows: AuditChangeRow[] = [];
+  if (top.length > 0) {
+    const { data: full, error: fullErr } = await supabase
+      .from("evaluation_audit")
+      .select(`id, ${AUDIT_COLUMNS}`)
+      .eq("hotel_id", hotelId)
+      .eq("evaluated_at", runAt)
+      .in("id", top.map((t) => t.id));
+    if (fullErr) throw fullErr;
+    const byId = new Map(((full ?? []) as Record<string, unknown>[]).map((r) => [String(r.id), r]));
+    topRows = top.map((t) => byId.get(t.id)).filter((r): r is Record<string, unknown> => !!r).map(toChangeRow);
+  }
+  return {
+    evaluation_run_id: runId,
+    timestamp: runAt,
+    hasChanges: changeRows.length > 0,
+    topRows,
+  };
+}
+
+/** What the run log says about a hotel's history, as far as the log reads it. */
+type RunHistory = {
+  /** The runs shown in full, newest first: each changed a price. */
+  shown: RunSummary[];
+  /** The newest run not read; null when every run older than those read changed nothing. */
+  readBackTo: string | null;
+  /** The hotel's first run still on record. */
+  firstRunAt: string;
+};
+
+/**
+ * The runs that changed a price, found without reading the quiet ones.
+ *
+ * evaluation_run_log keeps one row per run with how many audit rows it wrote
+ * (cells_changed). A run that wrote none changed nothing, so only the others
+ * can be a change: the newest of those are read in full, one at a time,
+ * until MAX_CHANGED_RUNS of them show a change or MAX_CANDIDATE_RUNS have
+ * been read. One more is fetched than can be read, so the log knows where it
+ * stopped. Null when there is no run log to go by, or no run in it yet.
+ */
+async function loadRunHistory(supabase: SupabaseClient, hotelId: string): Promise<RunHistory | null> {
+  const [candidateRead, firstRead] = await Promise.all([
+    supabase
+      .from("evaluation_run_log")
+      .select("evaluation_run_id, evaluated_at")
+      .eq("hotel_id", hotelId)
+      .gt("cells_changed", 0)
+      .order("evaluated_at", { ascending: false })
+      .limit(MAX_CANDIDATE_RUNS + 1),
+    supabase
+      .from("evaluation_run_log")
+      .select("evaluated_at")
+      .eq("hotel_id", hotelId)
+      .order("evaluated_at", { ascending: true })
+      .limit(1),
+  ]);
+  if (candidateRead.error || firstRead.error) return null;
+  const first = firstRead.data?.[0];
+  if (!first) return null;
+
+  const candidates = (candidateRead.data ?? []).map(
+    (r): RunHeartbeat => ({ evaluation_run_id: String(r.evaluation_run_id), evaluated_at: String(r.evaluated_at) }),
+  );
+  const summaries: RunSummary[] = [];
+  for (const run of candidates.slice(0, MAX_CANDIDATE_RUNS)) {
+    if (summaries.filter((r) => r.hasChanges).length >= MAX_CHANGED_RUNS) break;
+    summaries.push(await summariseRun(supabase, hotelId, run));
+  }
+  return { ...shownRuns(candidates, summaries), firstRunAt: String(first.evaluated_at) };
+}
+
+/**
+ * How many runs a quiet gap holds, and when the first and last of them ran:
+ * an exact count on (hotel_id, evaluated_at), then the two ends, each one
+ * row off the same index. Nothing in between is read.
+ */
+async function countQuietGap(supabase: SupabaseClient, hotelId: string, gap: QuietGap): Promise<QuietGapCount> {
+  const within = (read: ReturnType<ReturnType<SupabaseClient["from"]>["select"]>) => {
+    let q = read.eq("hotel_id", hotelId);
+    if (gap.before != null) q = q.lt("evaluated_at", gap.before);
+    if (gap.after != null) {
+      q = gap.after.inclusive ? q.gte("evaluated_at", gap.after.at) : q.gt("evaluated_at", gap.after.at);
+    }
+    return q;
+  };
+  const runLog = () => supabase.from("evaluation_run_log");
+  const { count, error } = await within(runLog().select("id", { count: "exact", head: true }));
+  if (error) throw error;
+  if (!count) return { checks: 0, first_at: null, last_at: null };
+  const [newest, oldest] = await Promise.all([
+    within(runLog().select("evaluated_at")).order("evaluated_at", { ascending: false }).limit(1),
+    within(runLog().select("evaluated_at")).order("evaluated_at", { ascending: true }).limit(1),
+  ]);
+  if (newest.error) throw newest.error;
+  if (oldest.error) throw oldest.error;
+  const at = (rows: unknown) => {
+    const row = (rows as { evaluated_at?: unknown }[] | null)?.[0];
+    return row?.evaluated_at != null ? String(row.evaluated_at) : null;
+  };
+  return { checks: count, first_at: at(oldest.data), last_at: at(newest.data) };
 }
 
 async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
-  const runSummaries = await loadRunSummaries(supabase, hotelId);
+  const history = await loadRunHistory(supabase, hotelId);
 
   let auditRows: { details: unknown }[] & Record<string, unknown>[] = [];
-  if (!runSummaries) {
+  if (!history) {
     // No run log (a database from before it existed): the newest audit rows.
     const { data, error: auditErr } = await supabase
       .from("evaluation_audit")
@@ -219,12 +296,15 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
            rule_affected_room_type ( room_type_id )`,
         )
         .eq("hotel_id", hotelId),
-      supabase
-        .from("evaluation_run_log")
-        .select("evaluation_run_id, evaluated_at")
-        .eq("hotel_id", hotelId)
-        .order("evaluated_at", { ascending: false })
-        .limit(RUN_LOG_LIMIT),
+      // Heartbeats only matter to the audit-only change log.
+      history
+        ? Promise.resolve({ data: null })
+        : supabase
+            .from("evaluation_run_log")
+            .select("evaluation_run_id, evaluated_at")
+            .eq("hotel_id", hotelId)
+            .order("evaluated_at", { ascending: false })
+            .limit(RUN_LOG_LIMIT),
     ]);
 
   const roomTypeNames = new Map<string, string>(
@@ -297,25 +377,46 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
     currencySymbol: currencySymbolFor(hotel?.currency ? String(hotel.currency) : null),
     setterNames: await setterNamesFor(
       supabase,
-      runSummaries ? runSummaries.flatMap((run) => run.topRows) : auditRows,
+      history ? history.shown.flatMap((run) => run.topRows) : auditRows,
     ),
   };
 
-  const cycles = runSummaries
-    ? buildCyclesFromRuns(runSummaries, lookups)
-    : buildCyclesFromAudit(
-        auditRows.map(toChangeRow),
-        lookups,
-        (runLogRows ?? []).map(
-          (r): RunHeartbeat => ({ evaluation_run_id: String(r.evaluation_run_id), evaluated_at: String(r.evaluated_at) }),
-        ),
-      );
-  const since = oldestShownRun(cycles);
+  if (!history) {
+    const cycles = buildCyclesFromAudit(
+      auditRows.map(toChangeRow),
+      lookups,
+      (runLogRows ?? []).map(
+        (r): RunHeartbeat => ({ evaluation_run_id: String(r.evaluation_run_id), evaluated_at: String(r.evaluated_at) }),
+      ),
+    );
+    const since = oldestShownRun(cycles);
+    const [problems, answers] = await Promise.all([
+      loadPushProblems(supabase, hotelId, roomTypeNames, since),
+      loadAlertChoices(supabase, hotelId, lookups, since),
+    ]);
+    return mergeTimeline(cycles, problems, answers);
+  }
+
+  // The log covers everything after the newest run it did not read, or the
+  // hotel's whole history on record when it read every run that could be a
+  // change. Push problems that ended and answers given in that time sit
+  // where they happened, and split the quiet stretch they fall in.
+  const cycles = buildCyclesFromRuns(history.shown, lookups);
+  const since = history.readBackTo ?? history.firstRunAt;
   const [problems, answers] = await Promise.all([
     loadPushProblems(supabase, hotelId, roomTypeNames, since),
     loadAlertChoices(supabase, hotelId, lookups, since),
   ]);
-  return mergeTimeline(cycles, problems, answers);
+  const gaps = planQuietGaps({
+    changes: cycles.map((c) => c.timestamp),
+    splitAt: [
+      ...problems.filter((p) => p.status !== "ongoing").map((p) => p.resolved_at ?? p.timestamp),
+      ...answers.map((a) => a.timestamp),
+    ],
+    readBackTo: history.readBackTo,
+  });
+  const quiet = await buildQuietChecks(gaps, (gap) => countQuietGap(supabase, hotelId, gap));
+  return mergeTimeline([...cycles, ...quiet], problems, answers, { after: history.readBackTo });
 }
 
 /**

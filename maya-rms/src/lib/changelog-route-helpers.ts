@@ -18,6 +18,7 @@ import type {
   ChangelogCycle,
   ChangelogItem,
   ChangelogEntry,
+  ChangelogQuietChecks,
   ChangelogRuleAlertChoice,
   EvaluationAuditDetails,
   RuleCondition,
@@ -106,7 +107,23 @@ export function manualPriceTitle(override: { pms: string | null }): string {
   return override.pms == null ? "Manual price" : `Changed in ${pmsOf(override)}`;
 }
 
-export const MAX_RUNS = 10;
+/**
+ * Pricing runs that changed a price, shown in full, newest first. The quiet
+ * runs around them are counted into one line per stretch, not listed.
+ */
+export const MAX_CHANGED_RUNS = 10;
+/**
+ * Runs the log reads in full, at most, looking for MAX_CHANGED_RUNS that
+ * change something. They are the runs with cells_changed > 0 in the run log,
+ * newest first: that counts the audit rows a run wrote, and a row can be
+ * written for a night whose price shows no change, so a few turn out quiet.
+ * Those are counted with the quiet runs around them. Past this many the log
+ * stops reading, and says the oldest stretch is the one just before the
+ * oldest change it found.
+ */
+export const MAX_CANDIDATE_RUNS = 3 * MAX_CHANGED_RUNS;
+/** Runs shown when there is no run log, and the change log is rebuilt from audit rows alone. */
+export const MAX_AUDIT_RUNS = 10;
 export const MAX_ENTRIES_PER_CYCLE = 40;
 
 export function currencySymbolFor(code: string | null | undefined): string {
@@ -158,11 +175,11 @@ function groupAuditRunsUncapped(rows: AuditChangeRow[]): AuditRun[] {
 }
 
 /**
- * Group audit rows by evaluation_run_id and keep the MAX_RUNS most recent
- * runs (by max evaluated_at), newest first.
+ * Group audit rows by evaluation_run_id and keep the MAX_AUDIT_RUNS most
+ * recent runs (by max evaluated_at), newest first.
  */
 export function groupAuditRuns(rows: AuditChangeRow[]): AuditRun[] {
-  return groupAuditRunsUncapped(rows).slice(0, MAX_RUNS);
+  return groupAuditRunsUncapped(rows).slice(0, MAX_AUDIT_RUNS);
 }
 
 /**
@@ -467,7 +484,7 @@ export type RunSummary = {
 
 /** buildCyclesFromAudit for runs that were each read on their own (newest first). */
 export function buildCyclesFromRuns(runs: RunSummary[], lookups: ChangelogLookups): ChangelogCycle[] {
-  const capped = runs.slice(0, MAX_RUNS);
+  const capped = runs.slice(0, MAX_CHANGED_RUNS);
   return capped.map((run, index) => ({
     cycle: capped.length - index,
     timestamp: run.timestamp,
@@ -482,15 +499,15 @@ export function buildCyclesFromRuns(runs: RunSummary[], lookups: ChangelogLookup
  * Full transformation: audit rows -> ChangelogCycle[] (newest run first,
  * newest run gets the highest cycle number). Heartbeat-only runs (nothing
  * changed anywhere, so write-on-change left no audit rows) are merged in
- * before the top-MAX_RUNS cut, so a recent quiet run can't be crowded out
- * by older runs that happened to have changes.
+ * before the top-MAX_AUDIT_RUNS cut, so a recent quiet run can't be crowded
+ * out by older runs that happened to have changes.
  */
 export function buildCyclesFromAudit(
   rows: AuditChangeRow[],
   lookups: ChangelogLookups,
   heartbeats: RunHeartbeat[] = [],
 ): ChangelogCycle[] {
-  const runs = mergeHeartbeats(groupAuditRunsUncapped(rows), heartbeats).slice(0, MAX_RUNS);
+  const runs = mergeHeartbeats(groupAuditRunsUncapped(rows), heartbeats).slice(0, MAX_AUDIT_RUNS);
   return runs.map((run, index) => {
     const changeRows = run.rows.filter(isChangeRow);
     const changes = changeRows
@@ -504,6 +521,128 @@ export function buildCyclesFromAudit(
       changes,
     };
   });
+}
+
+/* ── Quiet checks between changes ──────────────────────────────── */
+
+/** Narrows a timeline item to a stretch of checks that changed nothing. */
+export function isQuietChecks(item: ChangelogItem): item is ChangelogQuietChecks {
+  return "kind" in item && item.kind === "quiet_checks";
+}
+
+/**
+ * The runs between two things the log shows, counted into one line. Runs
+ * older than `before` (never at it) and newer than `after` (or at it, when
+ * `inclusive`). A null bound is open: up to now, or back to the first run
+ * on record.
+ *
+ * Where a change bounds the gap its own run is on neither side. Where
+ * another item does (a push problem ending, an owner's answer), a run at
+ * that same instant goes above it, the way mergeTimeline breaks the tie.
+ */
+export type QuietGap = {
+  before: string | null;
+  after: { at: string; inclusive: boolean } | null;
+  /** The gap under the oldest change shown, when the log did not read further back. */
+  just_before: boolean;
+};
+
+/** What the run log holds inside one gap. */
+export type QuietGapCount = { checks: number; first_at: string | null; last_at: string | null };
+
+/** Newest first, by instant; an unparseable or equal instant falls back to the text. */
+function newerFirst(a: string, b: string): number {
+  const d = (Date.parse(b) || 0) - (Date.parse(a) || 0);
+  return d !== 0 ? d : a < b ? 1 : a > b ? -1 : 0;
+}
+
+/** True when a run at `at` belongs to `gap`. The route asks the database the same thing. */
+export function inQuietGap(gap: QuietGap, at: string): boolean {
+  if (gap.before != null && newerFirst(at, gap.before) <= 0) return false;
+  if (gap.after != null) {
+    const c = newerFirst(at, gap.after.at);
+    if (c > 0 || (c === 0 && !gap.after.inclusive)) return false;
+  }
+  return true;
+}
+
+/**
+ * The gaps to count, newest first: above the newest change, between each
+ * change and the next, and under the oldest one. `splitAt` are the instants
+ * of the other items in the timeline, and each one splits the gap it falls
+ * in, so the quiet line above an answer and the one below it stay on their
+ * own sides of it. `readBackTo` is the newest run the log did not read (a
+ * run that may have changed something): nothing at it or before it is
+ * counted, and the gap above it is the stretch just before the oldest
+ * change. Null when every older run is known to be quiet.
+ */
+export function planQuietGaps(input: {
+  changes: string[];
+  splitAt: string[];
+  readBackTo: string | null;
+}): QuietGap[] {
+  const { readBackTo } = input;
+  const bounds = [
+    ...input.changes.map((at) => ({ at, change: true })),
+    ...[...new Set(input.splitAt)]
+      .filter((at) => readBackTo == null || newerFirst(at, readBackTo) < 0)
+      .map((at) => ({ at, change: false })),
+  ].sort((a, b) => newerFirst(a.at, b.at) || (a.change === b.change ? 0 : a.change ? -1 : 1));
+
+  const gaps: QuietGap[] = [];
+  let before: string | null = null;
+  for (const bound of bounds) {
+    gaps.push({ before, after: { at: bound.at, inclusive: !bound.change }, just_before: false });
+    before = bound.at;
+  }
+  gaps.push({
+    before,
+    after: readBackTo != null ? { at: readBackTo, inclusive: false } : null,
+    just_before: readBackTo != null && input.changes.length > 0,
+  });
+  // A gap whose two ends meet holds no run: skip it rather than count it.
+  return gaps.filter((g) => g.before == null || g.after == null || newerFirst(g.after.at, g.before) > 0);
+}
+
+/**
+ * One line per gap that holds any runs, newest first. `count` answers what a
+ * gap holds; the route asks the run log, a test can ask a list. Gaps are
+ * counted together, since each is its own small read.
+ */
+export async function buildQuietChecks(
+  gaps: QuietGap[],
+  count: (gap: QuietGap) => Promise<QuietGapCount>,
+): Promise<ChangelogQuietChecks[]> {
+  const counted = await Promise.all(gaps.map(async (gap) => ({ gap, found: await count(gap) })));
+  const out: ChangelogQuietChecks[] = [];
+  for (const { gap, found } of counted) {
+    if (found.checks <= 0 || !found.first_at || !found.last_at) continue;
+    out.push({
+      kind: "quiet_checks",
+      id: `quiet-${found.first_at}-${found.last_at}`,
+      timestamp: found.last_at,
+      first_at: found.first_at,
+      checks: found.checks,
+      ...(gap.just_before ? { just_before: true } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * Which of the runs that wrote audit rows the log shows in full, and where it
+ * stopped reading. `candidates` are those runs newest first, and `summaries`
+ * the ones read so far, in the same order. A run that read as no change is
+ * left out of `shown`: it is counted with the quiet runs around it.
+ */
+export function shownRuns(
+  candidates: RunHeartbeat[],
+  summaries: RunSummary[],
+): { shown: RunSummary[]; readBackTo: string | null } {
+  return {
+    shown: summaries.filter((s) => s.hasChanges).slice(0, MAX_CHANGED_RUNS),
+    readBackTo: candidates[summaries.length]?.evaluated_at ?? null,
+  };
 }
 
 /* ── Answers to a rule that kept adjusting ─────────────────────── */
