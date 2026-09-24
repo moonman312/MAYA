@@ -804,25 +804,38 @@ describe("quiet checks between changes", () => {
     }));
   }
 
-  /** What the route does, with the run log as a list instead of a table. */
-  async function timeline(log: LogRun[], splitAt: string[] = []) {
+  /**
+   * What the route does, with the run log as a list instead of a table.
+   * `landsLate` runs are in the log by the time the gaps are counted, but
+   * were not when the runs to read were chosen.
+   */
+  async function timeline(log: LogRun[], splitAt: string[] = [], landsLate: LogRun[] = []) {
     const newestFirst = [...log].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
     const candidates: RunHeartbeat[] = newestFirst
       .filter((r) => r.cells_changed > 0)
       .slice(0, MAX_CANDIDATE_RUNS + 1)
       .map((r) => ({ evaluation_run_id: r.id, evaluated_at: r.at }));
     const read: string[] = [];
-    const { shown, readBackTo } = await findShownRuns(candidates, async (run) => {
+    const { shown, folded, readBackTo } = await findShownRuns(candidates, async (run) => {
       read.push(run.evaluation_run_id);
       const shows = log.find((r) => r.id === run.evaluation_run_id)!.shows;
       return { evaluation_run_id: run.evaluation_run_id, timestamp: run.evaluated_at, hasChanges: shows, topRows: [] };
     });
     const gaps = planQuietGaps({ changes: shown.map((r) => r.timestamp), splitAt, readBackTo });
-    const quiet = await buildQuietChecks(gaps, async (gap: QuietGap) => {
-      const inside = log.filter((r) => inQuietGap(gap, r.at)).map((r) => r.at).sort();
-      return { checks: inside.length, first_at: inside[0] ?? null, last_at: inside[inside.length - 1] ?? null };
-    });
-    return { shown: shown.map((r) => r.evaluation_run_id), quiet, read, readBackTo };
+    const counted = [...log, ...landsLate];
+    const quiet = await buildQuietChecks(
+      gaps,
+      async (gap: QuietGap) => {
+        // The route's count: runs that wrote no audit rows.
+        const inside = counted
+          .filter((r) => r.cells_changed === 0 && inQuietGap(gap, r.at))
+          .map((r) => r.at)
+          .sort();
+        return { checks: inside.length, first_at: inside[0] ?? null, last_at: inside[inside.length - 1] ?? null };
+      },
+      folded,
+    );
+    return { shown: shown.map((r) => r.evaluation_run_id), quiet, read, readBackTo, folded };
   }
 
   it("counts the checks after the newest change into one line above it", async () => {
@@ -853,11 +866,26 @@ describe("quiet checks between changes", () => {
   });
 
   it("folds a run that wrote audit rows but shows no change into the quiet line around it", async () => {
-    const { shown, quiet, read } = await timeline(runLog(8, [1, 6], [3]));
+    const { shown, quiet, read, folded } = await timeline(runLog(8, [1, 6], [3]));
     expect(read).toEqual(["run-6", "run-3", "run-1"]);
     expect(shown).toEqual(["run-6", "run-1"]);
+    expect(folded).toEqual([at(3)]);
     // run-2, run-3, run-4 and run-5: the hidden one is one of the four.
     expect(quiet.find((q) => q.first_at === at(2))).toMatchObject({ checks: 4, timestamp: at(5) });
+    // At either end of a stretch, it moves the end too.
+    const edge = await timeline(runLog(6, [0], [5, 1]));
+    expect(edge.quiet.map((q) => [q.checks, q.first_at, q.timestamp])).toEqual([[5, at(1), at(5)]]);
+  });
+
+  it("never calls a run that landed while the log was reading a quiet check", async () => {
+    // Two runs land after the runs to read were chosen: one that changed a
+    // price and one that did not. Only the quiet one is counted.
+    const late = [
+      { id: "run-8", at: at(8), cells_changed: 2, shows: true },
+      { id: "run-9", at: at(9), cells_changed: 0, shows: false },
+    ];
+    const { quiet } = await timeline(runLog(8, [2]), [], late);
+    expect(quiet[0]).toMatchObject({ checks: 6, first_at: at(3), timestamp: at(9) });
   });
 
   it("splits a quiet stretch where an owner's answer sits, a run at the same instant going above it", async () => {

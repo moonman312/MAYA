@@ -19,11 +19,15 @@ import { fakeSupabase as sharedFake } from "@/lib/engine/fake-supabase.test";
 type Row = Record<string, unknown>;
 
 /** The engine's in-memory fake (paging, JSON-path selects) plus a session. */
-function fakeSupabase(seed: Record<string, Row[]> = {}, opts: { maxRows?: number } = {}) {
+function fakeSupabase(
+  seed: Record<string, Row[]> = {},
+  opts: { maxRows?: number; beforeCall?: Parameters<typeof sharedFake>[1] extends infer O ? O extends { beforeCall?: infer B } ? B : never : never } = {},
+) {
   const failSelectFor = new Map<string, { message: string; code?: string }>();
   const fake = sharedFake(seed, {
     fault: (c) => (c.op === "select" ? (failSelectFor.get(c.table) ?? null) : null),
     maxRows: opts.maxRows,
+    beforeCall: opts.beforeCall,
   });
   const client = Object.assign(fake.client, {
     auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) },
@@ -694,10 +698,14 @@ describe("changelog route: quiet checks between changes", () => {
     };
   }
 
-  async function get(seed: Record<string, Row[]>) {
+  async function get(
+    seed: Record<string, Row[]>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    onCall?: (c: { table: string }, client: any) => Promise<void>,
+  ) {
     // PostgREST hands back at most this many rows a read, so a stretch of
     // hundreds only counts right if it is counted, not read.
-    const fake = fakeSupabase(seed, { maxRows: 50 });
+    const fake = fakeSupabase(seed, { maxRows: 50, beforeCall: onCall ? (c) => onCall(c, fake.client) : undefined });
     state.client = fake.client;
     state.hotelId = HOTEL;
     state.configured = true;
@@ -731,6 +739,23 @@ describe("changelog route: quiet checks between changes", () => {
     const runLogReads = calls.filter((c) => c.table === "evaluation_run_log");
     expect(runLogReads.length).toBeLessThanOrEqual(2 + 3 * 3);
     expect(calls.filter((c) => c.table === "evaluation_audit" && c.filters.some((f) => f.col === "evaluation_run_id")).map((c) => c.filters.find((f) => f.col === "evaluation_run_id")?.value)).toEqual(["run-250", "run-120", "run-40"]);
+  });
+
+  it("leaves out a run that changed prices while the log was being read, rather than calling it quiet", async () => {
+    const seed = runHistory(60, [10]);
+    let landed = false;
+    // Once the runs to read have been chosen and read (the push problem read
+    // comes next), a run that changed a price lands.
+    const { body, calls } = await get(seed, async (c, client) => {
+      if (landed || c.table !== "hotel_settings") return;
+      landed = true;
+      const { error } = await client
+        .from("evaluation_run_log")
+        .insert({ hotel_id: HOTEL, evaluation_run_id: "run-late", evaluated_at: t(60), cells_changed: 1 });
+      expect(error).toBeNull();
+    });
+    expect(calls.some((c) => c.op === "insert" && c.table === "evaluation_run_log")).toBe(true);
+    expect(shape(body)[0]).toBe(`49 quiet ${t(11)} to ${t(59)}`);
   });
 
   it("covers every check since the first with one line when nothing has ever changed", async () => {

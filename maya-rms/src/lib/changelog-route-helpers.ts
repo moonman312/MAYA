@@ -534,7 +534,8 @@ export function isQuietChecks(item: ChangelogItem): item is ChangelogQuietChecks
  * The runs between two things the log shows, counted into one line. Runs
  * older than `before` (never at it) and newer than `after` (or at it, when
  * `inclusive`). A null bound is open: up to now, or back to the first run
- * on record.
+ * on record. The line counts the runs there that wrote no audit rows, and the
+ * runs read in full that showed no change (buildQuietChecks).
  *
  * Where a change bounds the gap its own run is on neither side. Where
  * another item does (a push problem ending, an owner's answer), a run at
@@ -547,8 +548,11 @@ export type QuietGap = {
   just_before: boolean;
 };
 
-/** What the run log holds inside one gap. */
+/** The runs inside one gap that wrote no audit rows: how many, and the first and last. */
 export type QuietGapCount = { checks: number; first_at: string | null; last_at: string | null };
+
+/** Gaps counted at once. The usual log has at most 11, so this only paces a log full of answers. */
+export const MAX_PARALLEL_GAP_COUNTS = 12;
 
 /** Newest first, by instant; an unparseable or equal instant falls back to the text. */
 function newerFirst(a: string, b: string): number {
@@ -605,27 +609,45 @@ export function planQuietGaps(input: {
 }
 
 /**
- * One line per gap that holds any runs, newest first. `count` answers what a
- * gap holds; the route asks the run log, a test can ask a list. Gaps are
- * counted together, since each is its own small read.
+ * One line per gap that holds any quiet runs, newest first. `count` answers
+ * for the runs in a gap that wrote no audit rows (cells_changed = 0); the
+ * route asks the run log, a test can ask a list. `folded` are the runs that
+ * wrote audit rows, were read in full and showed no change: each is added to
+ * the gap it falls in. A run that wrote audit rows but was never read (one
+ * that landed while the log was being read) is in no line, rather than
+ * counted as a check that changed nothing. Gaps are counted
+ * MAX_PARALLEL_GAP_COUNTS at a time.
  */
 export async function buildQuietChecks(
   gaps: QuietGap[],
   count: (gap: QuietGap) => Promise<QuietGapCount>,
+  folded: string[] = [],
 ): Promise<ChangelogQuietChecks[]> {
-  const counted = await Promise.all(gaps.map(async (gap) => ({ gap, found: await count(gap) })));
+  const counted: QuietGapCount[] = [];
+  for (let i = 0; i < gaps.length; i += MAX_PARALLEL_GAP_COUNTS) {
+    counted.push(...(await Promise.all(gaps.slice(i, i + MAX_PARALLEL_GAP_COUNTS).map(count))));
+  }
   const out: ChangelogQuietChecks[] = [];
-  for (const { gap, found } of counted) {
-    if (found.checks <= 0 || !found.first_at || !found.last_at) continue;
+  gaps.forEach((gap, i) => {
+    const found = counted[i];
+    const foldedHere = folded.filter((at) => inQuietGap(gap, at));
+    const checks = Math.max(0, found.checks) + foldedHere.length;
+    // Oldest first: the counted runs' two ends and every folded run.
+    const ends = [...foldedHere, ...(found.checks > 0 ? [found.first_at, found.last_at] : [])]
+      .filter((at): at is string => !!at)
+      .sort((a, b) => newerFirst(b, a));
+    if (checks <= 0 || ends.length === 0) return;
+    const firstAt = ends[0];
+    const lastAt = ends[ends.length - 1];
     out.push({
       kind: "quiet_checks",
-      id: `quiet-${found.first_at}-${found.last_at}`,
-      timestamp: found.last_at,
-      first_at: found.first_at,
-      checks: found.checks,
+      id: `quiet-${firstAt}-${lastAt}`,
+      timestamp: lastAt,
+      first_at: firstAt,
+      checks,
       ...(gap.just_before ? { just_before: true } : {}),
     });
-  }
+  });
   return out;
 }
 
@@ -634,22 +656,24 @@ export async function buildQuietChecks(
  * `candidates` are the runs that wrote audit rows, newest first, as many as
  * MAX_CANDIDATE_RUNS + 1. They are read one at a time until MAX_CHANGED_RUNS
  * show a change or MAX_CANDIDATE_RUNS have been read. A run that reads as no
- * change is left out of `shown`: it is counted with the quiet runs around
- * it. `readBackTo` is the first candidate not read, when there is one.
+ * change goes in `folded`, to be counted with the quiet runs around it.
+ * `readBackTo` is the first candidate not read, when there is one.
  */
 export async function findShownRuns(
   candidates: RunHeartbeat[],
   summarise: (run: RunHeartbeat) => Promise<RunSummary>,
-): Promise<{ shown: RunSummary[]; readBackTo: string | null }> {
+): Promise<{ shown: RunSummary[]; folded: string[]; readBackTo: string | null }> {
   const shown: RunSummary[] = [];
+  const folded: string[] = [];
   let read = 0;
   for (const run of candidates.slice(0, MAX_CANDIDATE_RUNS)) {
     if (shown.length >= MAX_CHANGED_RUNS) break;
     const summary = await summarise(run);
     read++;
     if (summary.hasChanges) shown.push(summary);
+    else folded.push(run.evaluated_at);
   }
-  return { shown, readBackTo: candidates[read]?.evaluated_at ?? null };
+  return { shown, folded, readBackTo: candidates[read]?.evaluated_at ?? null };
 }
 
 /* ── Answers to a rule that kept adjusting ─────────────────────── */

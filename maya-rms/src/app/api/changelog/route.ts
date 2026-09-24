@@ -182,6 +182,8 @@ async function summariseRun(supabase: SupabaseClient, hotelId: string, run: RunH
 type RunHistory = {
   /** The runs shown in full, newest first: each changed a price. */
   shown: RunSummary[];
+  /** Runs that wrote audit rows, read in full, that showed no change: quiet checks too. */
+  folded: string[];
   /** The newest run not read; null when every run older than those read changed nothing. */
   readBackTo: string | null;
   /** The hotel's first run still on record. */
@@ -226,13 +228,16 @@ async function loadRunHistory(supabase: SupabaseClient, hotelId: string): Promis
 }
 
 /**
- * How many runs a quiet gap holds, and when the first and last of them ran:
- * an exact count on (hotel_id, evaluated_at), then the two ends, each one
- * row off the same index. Nothing in between is read.
+ * How many runs in a quiet gap wrote no audit rows, and when the first and
+ * last of them ran: an exact count on (hotel_id, evaluated_at), then the two
+ * ends, each one row off the same index. Nothing in between is read. Only
+ * runs with cells_changed = 0: one that wrote rows is either read in full
+ * (and folded in by buildQuietChecks if it showed nothing) or not known yet,
+ * having landed while this request was reading, and is never called quiet.
  */
 async function countQuietGap(supabase: SupabaseClient, hotelId: string, gap: QuietGap): Promise<QuietGapCount> {
   const within = (read: ReturnType<ReturnType<SupabaseClient["from"]>["select"]>) => {
-    let q = read.eq("hotel_id", hotelId);
+    let q = read.eq("hotel_id", hotelId).eq("cells_changed", 0);
     if (gap.before != null) q = q.lt("evaluated_at", gap.before);
     if (gap.after != null) {
       q = gap.after.inclusive ? q.gte("evaluated_at", gap.after.at) : q.gt("evaluated_at", gap.after.at);
@@ -410,7 +415,7 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
     ],
     readBackTo: history.readBackTo,
   });
-  const quiet = await buildQuietChecks(gaps, (gap) => countQuietGap(supabase, hotelId, gap));
+  const quiet = await buildQuietChecks(gaps, (gap) => countQuietGap(supabase, hotelId, gap), history.folded);
   return mergeTimeline([...cycles, ...quiet], problems, answers, { after: history.readBackTo });
 }
 
