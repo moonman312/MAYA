@@ -83,13 +83,14 @@
  *
  * WHEN A FIRE COMES OFF. Cuts never come off for cancellations. A raise comes
  * off when the bookings behind it cancel (cancellationCrossed): for a pickup
- * raise, net bookings are back to where its window opened; for a Booking
- * Speed raise, the bookings still on the books from its frozen window (the
- * days it counted, cut short by the raise it counted from or not) are back
- * to what a night like it usually gets, the bar it beat: over the rule's
- * whole window for a rule on "at least" a pace, even when its count was cut
- * short (keepsWholeWindowBar). Each stacked raise is tested
- * on its own numbers, and never in the run that made it. Every fire also comes
+ * raise, net bookings are back to where its count opened (its window's
+ * start, or the fire it counted from); for a Booking Speed raise, the
+ * bookings still on the books from its frozen window (the days it counted,
+ * cut short by the raise it counted from or not) are back to what a night
+ * like it usually gets, the bar it beat: over the rule's whole window for a
+ * rule on "at least" a pace, even when its count was cut short
+ * (keepsWholeWindowBar). Each stacked raise is tested on its own numbers,
+ * and never in the run that made it. Every fire also comes
  * off when its night passes, when a manual price is set on the cell, and
  * when the rule is edited. Pausing a rule changes nothing: its fires keep
  * applying, still cover the weaker rules, and are not tested while it is
@@ -968,8 +969,10 @@ export type RetiredPickupFire = { fire: OpenPickupFire; reason: PickupRetireReas
  * Whether cancellations have taken a raise's bookings back off the night.
  *
  * net_units: booked room-nights over the rule's measured room types, from
- * this run's snapshot, are back to where the fire's window opened. The bar is
- * deliberately high: a cancellation or two out of a real surge is noise.
+ * this run's snapshot, are back to where the fire's count opened
+ * (signal_booked_units_start: its window's start, or the fire it counted
+ * from, pickupWindowOpensAt). The bar is deliberately high: a cancellation
+ * or two out of a real surge is noise.
  * window_bookings: bookings still on the books from the fire's frozen window
  * (its first day split at the fire it counted from, when it was) are back to
  * what a night like it usually gets (window_expected_at_fire, the bar the
