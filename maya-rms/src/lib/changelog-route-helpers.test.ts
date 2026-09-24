@@ -349,6 +349,22 @@ describe("buildApplications", () => {
     });
     // A whole window, as every fire before this was: nothing more to say.
     expect(fired({ ...bs, window_days: 30 })).toEqual({ label: "Surging", recent: 12, expected: 0.4 });
+    // A cut rule's reading, full days up to yesterday, says so, cut short or not.
+    expect(fired({ ...bs, window_days: 30, counted_through: "2026-09-15" })).toEqual({
+      label: "Surging",
+      recent: 12,
+      expected: 0.4,
+      window_days: 30,
+      counted_through: "2026-09-15",
+    });
+    expect(fired({ ...bs, window_days: 6, counted_from: "2026-09-18", full_window_days: 30, counted_through: "2026-09-23" })).toEqual({
+      label: "Surging",
+      recent: 12,
+      expected: 0.4,
+      window_days: 6,
+      counted_from: "2026-09-18",
+      counted_through: "2026-09-23",
+    });
   });
 
   it("falls back to the rule lookup with null metrics for carried-over effects", () => {

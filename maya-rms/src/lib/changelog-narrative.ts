@@ -58,17 +58,22 @@ export type NarrativeMetrics = {
     label: string;
     recent: number;
     expected: number;
-    /** The days it counted. Only read together with counted_from. */
+    /** The days it counted. Only read together with counted_from or counted_through. */
     window_days?: number | null;
     /**
-     * Set when the night had already been raised (for a rule that raises)
-     * or cut (for one that cuts), by any rule: this rule counted only
-     * bookings made from this date on. With counted_since that is the
-     * change's own day, counted from the change on; without it (older
-     * audit rows) the day after the change.
+     * Set when this rule had already raised (a rule that raises) or cut (one
+     * that cuts) the night: it counted only bookings made from this date on,
+     * after its own last change; another rule's change never moves it. With
+     * counted_since that is the raise's own day, counted from the raise on;
+     * without it the day after the change.
      */
     counted_from?: string | null;
     counted_since?: string | null;
+    /**
+     * Set for a rule that cuts: it counted full days only, up to the day
+     * before the run, on the night and the nights it is compared with.
+     */
+    counted_through?: string | null;
   } | null;
 };
 
@@ -223,12 +228,13 @@ function speedLead(levelKey: string, when: string, subject = "Bookings"): string
  * The level comes from the rule, not from the snapshot: it is the pace the
  * owner wrote into the condition, and it is the one their rule acted on.
  *
- * On a night already raised (for a rule that raises) or cut (for one that
- * cuts), by any rule, the rule counted only from that change
- * (engine/pickup.ts, bookingSpeedCountFrom): from the change itself on its
- * own day (counted_since), or, on older audit rows, from the day after. So
- * the sentence names those days instead of its whole window. `direction`
- * is the rule's, and decides whether that change reads as a raise or a cut.
+ * On a night this rule already raised (a rule that raises) or cut (one that
+ * cuts), it counted only from its own last change there (engine/pickup.ts,
+ * bookingSpeedCountFrom): from the raise itself on its own day
+ * (counted_since), or from the day after a cut. So the sentence names those
+ * days instead of its whole window. A rule that cuts counts full days only,
+ * up to yesterday (counted_through), and the sentence says so. `direction`
+ * is the rule's, and decides whether its change reads as a raise or a cut.
  */
 function bookingSpeedSentence(
   condition: RuleCondition,
@@ -239,21 +245,23 @@ function bookingSpeedSentence(
   if (!condition.booking_speed_operator || !condition.booking_speed_level) return null;
   const counted = metrics?.booking_speed?.counted_from ? metrics.booking_speed.window_days : null;
   const fromChange = !!metrics?.booking_speed?.counted_since;
-  const change = direction === "decrease" ? "cut" : direction === "increase" ? "raised" : "changed by a rule";
+  const fullDays = !!metrics?.booking_speed?.counted_through;
+  const full = fullDays ? "full " : "";
+  const change = direction === "decrease" ? "cut" : direction === "increase" ? "raised" : "changed";
+  const span =
+    condition.booking_speed_window_days === 1 ? "day" : condition.booking_speed_window_days === 30 ? "month" : "week";
   const when =
     counted != null && counted >= 1
       ? fromChange
         ? counted === 1
-          ? `later on the day this night was last ${change}`
-          : `in the ${counted} days since this night was last ${change}`
+          ? `later on the day this rule last ${change} this night`
+          : `in the ${counted} days since this rule last ${change} this night`
         : counted === 1
-          ? `on the day after this night was last ${change}`
-          : `in the ${counted} days after this night was last ${change}`
-      : condition.booking_speed_window_days === 1
-        ? "this past day"
-        : condition.booking_speed_window_days === 30
-          ? "this past month"
-          : "this past week";
+          ? `on the ${full}day after this rule last ${change} this night`
+          : `in the ${counted} ${full}days after this rule last ${change} this night`
+      : fullDays
+        ? `in the ${span} up to yesterday`
+        : `this past ${span}`;
   const lead = speedLead(
     condition.booking_speed_level,
     when,
@@ -267,7 +275,7 @@ function bookingSpeedSentence(
     recent < 0 ? "more cancelled than booked" : recent === 0 ? "none" : `${recent}`;
   const then = counted === 1 ? (fromChange ? "in a day" : "that day") : "in those days";
   const usual =
-    counted != null && counted >= 1
+    (counted != null && counted >= 1) || fullDays
       ? bs.expected < 1
         ? `where a night like this usually gets almost none ${then}`
         : `against the ${Math.round(bs.expected)} a night like this usually gets ${then}`

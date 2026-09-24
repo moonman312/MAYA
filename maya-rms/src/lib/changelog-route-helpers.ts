@@ -206,7 +206,15 @@ function toNarrativeMetrics(
   const dta = metrics.dta;
   const pickup = metrics.net_pickup_units;
   const bs = metrics.booking_speed as
-    | { label?: unknown; recent?: unknown; expected?: unknown; window_days?: unknown; counted_from?: unknown; counted_since?: unknown }
+    | {
+        label?: unknown;
+        recent?: unknown;
+        expected?: unknown;
+        window_days?: unknown;
+        counted_from?: unknown;
+        counted_since?: unknown;
+        counted_through?: unknown;
+      }
     | null
     | undefined;
   const bookingSpeed =
@@ -218,15 +226,20 @@ function toNarrativeMetrics(
           label: bs.label,
           recent: bs.recent,
           expected: bs.expected,
-          // Only a fire that counted from after the rule's last change says
-          // so; every older audit row reads exactly as before. counted_since
-          // says the count started at the change itself, on its day.
+          // Only a fire that counted from after the rule's own last change
+          // says so; every older audit row reads exactly as before.
+          // counted_since says the count started at the raise itself, on its
+          // day; counted_through that a rule that cuts counted full days only,
+          // up to the day before.
           ...(typeof bs.counted_from === "string" && typeof bs.window_days === "number"
             ? {
                 counted_from: bs.counted_from,
                 window_days: bs.window_days,
                 ...(typeof bs.counted_since === "string" ? { counted_since: bs.counted_since } : {}),
               }
+            : {}),
+          ...(typeof bs.counted_through === "string" && typeof bs.window_days === "number"
+            ? { counted_through: bs.counted_through, window_days: bs.window_days }
             : {}),
         }
       : null;

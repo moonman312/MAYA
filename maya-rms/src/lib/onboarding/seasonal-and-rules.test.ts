@@ -219,17 +219,29 @@ describe("computeStarterRules: the booking-speed ladder", () => {
     expect(byName.get("Sudden-spike catcher")!.explanation).toContain("repeated daily");
   });
 
-  it("says a rule that acts again judges only the bookings since the night was last raised or cut", () => {
-    // engine/pickup.ts bookingSpeedAnchors and bookingSpeedCountFrom: a raise
-    // rule counts from the night's last raise, a cut rule from its last cut,
-    // whichever rule made it.
-    expect(byName.get("Slow-date rescue")!.explanation).toContain("judges only the bookings made since the night was last cut");
-    expect(byName.get("Slow-date trim")!.explanation).toContain("looking only at bookings made since the night was last cut");
-    expect(byName.get("Warm-date bump")!.explanation).toContain("only if the bookings made since the night was last raised are still ahead");
+  it("says a rule that acts again judges only the bookings since it last adjusted the night", () => {
+    // engine/pickup.ts bookingSpeedCountFrom: a rule counts from its own last
+    // raise or cut on the night; another rule's never moves it, and bookings
+    // another rule acted on still count toward it (Jake, 2026-09-24).
+    expect(byName.get("Slow-date rescue")!.explanation).toContain("judges only the bookings made since this rule last cut the night");
+    expect(byName.get("Slow-date trim")!.explanation).toContain("looking only at bookings made since this rule last trimmed the night");
+    expect(byName.get("Warm-date bump")!.explanation).toContain("only if the bookings made since this rule last raised the night are still ahead");
+    expect(byName.get("Warm-date bump")!.explanation).toContain("including bookings another rule already raised on");
     expect(byName.get("Hot-week surge")!.explanation).toContain("while new bookings keep coming");
     for (const r of rules) {
       expect(r.explanation).not.toContain("the night is still");
       expect(r.explanation).not.toContain("while demand holds");
+      expect(r.explanation).not.toContain("whichever rule");
+      expect(r.explanation).not.toContain("the night was last");
+    }
+  });
+
+  it("says the cut rules look at full days only", () => {
+    // engine/booking-speed-provider.ts countsCompleteDays.
+    expect(byName.get("Slow-date rescue")!.explanation).toContain("It looks at full days only, up to yesterday.");
+    expect(byName.get("Slow-date trim")!.explanation).toContain("It looks at full days only, up to yesterday.");
+    for (const name of ["Warm-date bump", "Hot-week surge", "Sudden-spike catcher"]) {
+      expect(byName.get(name)!.explanation).not.toContain("full days");
     }
   });
 

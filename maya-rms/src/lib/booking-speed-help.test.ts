@@ -38,16 +38,28 @@ describe("bookingSpeedHelp", () => {
     expect(line.length).toBeLessThan(80);
   });
 
-  it("says that once a night was raised or cut, a rule its way only counts what was booked after that", () => {
-    // What the engine does: bookingSpeedAnchors and bookingSpeedCountFrom
-    // (raises share the night's last raise, cuts its last cut, whichever
-    // rule made it), and the comparables read over the same shorter stretch
+  it("says that once a rule adjusted a night it only counts what was booked since, other rules' bookings included", () => {
+    // What the engine does: bookingSpeedCountFrom from the rule's own last
+    // fire on the night; another rule's fire never moves it (Jake,
+    // 2026-09-24), and the comparables read over the same shorter stretch
     // (observeBookingSpeed countFrom).
     for (const w of [1, 7, 30]) {
-      expect(bookingSpeedHelp(w).lines.at(-3)).toBe(
-        "Once a night has been raised, rules that raise only count bookings made after that raise, whichever rule made it. Rules that cut count from the night's last cut the same way.",
+      const lines = bookingSpeedHelp(w).lines;
+      expect(lines.at(-3)).toBe(
+        "Once this rule has adjusted a night, it only counts bookings made since then. Bookings another rule acted on still count.",
       );
-      expect(bookingSpeedHelp(w).lines.at(-2)).toBe("Those bookings are compared with similar nights over the same days.");
+      expect(lines.at(-2)).toBe("Those bookings are compared with similar nights over the same days.");
+      expect(lines.join(" ")).not.toContain("whichever rule");
+    }
+  });
+
+  it("says that a rule that cuts counts full days only, and one that raises counts today too", () => {
+    // What the engine does: countsCompleteDays, on the night and on the
+    // nights it is compared with alike.
+    for (const w of [1, 7, 30]) {
+      expect(bookingSpeedHelp(w).lines.at(-4)).toBe(
+        "A rule that cuts counts full days only, up to yesterday. A rule that raises counts today so far too.",
+      );
     }
   });
 
@@ -68,12 +80,13 @@ describe("bookingSpeedWaitHelp", () => {
     expect(h.lines.join(" ")).toContain("Each room type waits on its own");
     expect(h.lines.join(" ")).toContain("stronger rule can still step in");
     expect(h.lines.join(" ")).toContain("three times");
-    // Once it is over, only what came in after the night's last raise (or
-    // cut, for a cut rule) counts, by any rule, until a typed price starts
+    // Once it is over, only what came in since this rule's own last
+    // adjustment counts, other rules' included, until a typed price starts
     // it over with its whole window.
     expect(h.lines.join(" ")).toContain(
-      "it only counts bookings made since the night was last raised (for a rule that raises) or last cut (for one that cuts), whichever rule did it",
+      "it only counts bookings made since it last adjusted that night. Bookings another rule acted on still count.",
     );
+    expect(h.lines.join(" ")).not.toContain("whichever rule");
     expect(h.lines.join(" ")).toContain("starts it over");
     expect(h.lines.join(" ")).toContain("whole window");
   });

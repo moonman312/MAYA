@@ -18,14 +18,18 @@
  *   sudden surge    (past day)    -> raise 25%, then waits a day
  *
  * Each wait is per night and room type. Once it is over the rule judges only
- * the bookings made since that night was last adjusted its way: a raise rule
- * counts from the night's last raise and a cut rule from its last cut,
- * whichever rule made it, the rest of that day included (engine/pickup.ts,
- * bookingSpeedCountFrom), and adjusts again if those still meet its
- * condition. So a night that stays far behind keeps getting cut, real demand
- * keeps raising, and one burst of bookings raises it once, by the one rule
- * that caught it, with a stronger tier stepping in only when the bookings
- * since read faster on their own.
+ * the bookings made since it last adjusted that night (engine/pickup.ts,
+ * bookingSpeedCountFrom): a raise rule from its own last raise, the rest of
+ * that day included, a cut rule from the day after its own last cut. It
+ * adjusts again if those still meet its condition. Bookings another rule
+ * acted on still count toward it (Jake, 2026-09-24: the count carries on
+ * across rules), so a rule for a stronger pace sees the whole run of
+ * bookings, not only what came after a weaker rule's raise. The cut rules
+ * read full days only, up to yesterday; the raise rules count today so far
+ * too. So a night that stays far behind keeps getting cut, real demand keeps
+ * raising, one rule never raises twice on the same bookings, and each tier
+ * steps in as the count reaches it (a stronger rule that is waiting and
+ * still matches holds the night meanwhile).
  * Once a rule has adjusted one night three times MAYA puts that night in
  * front of the owner and asks whether to carry on; until they answer, the
  * rule carries on.
@@ -119,9 +123,9 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       is_pickup_rule: true,
       explanation:
         "When a night is booking far behind the pace similar nights set, a real 15% cut " +
-        "restarts interest. MAYA waits a week, judges only the bookings made since the night " +
-        "was last cut, and cuts again if those are still that far behind. It tells you once it " +
-        "has cut the same night three times.",
+        "restarts interest. It looks at full days only, up to yesterday. MAYA waits a week, " +
+        "judges only the bookings made since this rule last cut the night, and cuts again if " +
+        "those are still that far behind. It tells you once it has cut the same night three times.",
     },
     {
       name: "Slow-date trim",
@@ -136,9 +140,9 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       is_pickup_rule: true,
       explanation:
         "A night booking a bit behind the usual pace gets a small 7% trim, enough to stay " +
-        "competitive without giving the room away. MAYA re-checks a week after each trim, " +
-        "looking only at bookings made since the night was last cut, and trims again if those " +
-        "are still behind.",
+        "competitive without giving the room away. It looks at full days only, up to yesterday. " +
+        "MAYA re-checks a week after each trim, looking only at bookings made since this rule " +
+        "last trimmed the night, and trims again if those are still behind.",
     },
     {
       name: "Warm-date bump",
@@ -153,9 +157,10 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       is_pickup_rule: true,
       explanation:
         "A night booking ahead of the pace similar nights set can carry 10% more: the demand " +
-        "is already showing up in your own numbers. MAYA waits 3 days, then raises again only " +
-        "if the bookings made since the night was last raised are still ahead. If enough of " +
-        "the bookings behind a raise cancel, the raise comes back off.",
+        "is already showing up in your own numbers, including bookings another rule already " +
+        "raised on. MAYA waits 3 days, then raises again only if the bookings made since this " +
+        "rule last raised the night are still ahead. If enough of the bookings behind a raise " +
+        "cancel, the raise comes back off.",
     },
     {
       name: "Hot-week surge",
