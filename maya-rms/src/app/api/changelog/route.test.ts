@@ -349,7 +349,10 @@ describe("changelog route: failures are errors, never demo data", () => {
     const res = await GET();
     const body = await res.json();
     expect(res.status).toBe(200);
-    expect(body).toHaveLength(10);
+    // Ten runs that changed a price, the quiet checks between them one line each.
+    expect(body.filter((i: { has_changes?: boolean }) => i.has_changes === true)).toHaveLength(10);
+    expect(body.filter((i: { kind?: string }) => i.kind === "quiet_checks").length).toBeGreaterThan(0);
+    expect(body.some((i: { has_changes?: boolean }) => i.has_changes === false)).toBe(false);
   });
 });
 

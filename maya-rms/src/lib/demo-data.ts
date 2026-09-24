@@ -7,6 +7,7 @@ import { narrateChange } from "@/lib/changelog-narrative";
 import type {
   ChangelogCycle,
   ChangelogEntry,
+  ChangelogQuietChecks,
   RuleCondition,
   RuleConfig,
   SimulationReservation,
@@ -67,75 +68,98 @@ export const INITIAL_RULES: RuleConfig[] = [
 
 /* ── Demo changelog builder ───────────────────────────────────── */
 
-export function buildChangelog(): ChangelogCycle[] {
-  const now = new Date();
-  const cycles: ChangelogCycle[] = [];
+/** Runs in the demo change log, one every five minutes back from now. */
+export const DEMO_RUNS = 64;
+/** The runs (0 is the newest) that changed a price; the rest were quiet checks. */
+export const DEMO_CHANGED_RUNS = [3, 4, 9, 17, 18, 26, 31, 40, 52, 58];
 
-  for (let i = 0; i < 10; i++) {
-    const ts = new Date(now.getTime() - i * 5 * 60_000);
-    const hasChanges = i % 3 !== 2; // roughly 2/3 have changes
+/**
+ * The demo change log, in the shape the real one has: the runs that changed
+ * a price in full, and each stretch of quiet checks between them as one line.
+ */
+export function buildChangelog(): (ChangelogCycle | ChangelogQuietChecks)[] {
+  const now = Date.now();
+  const at = (run: number) => new Date(now - run * 5 * 60_000).toISOString();
+  const items: (ChangelogCycle | ChangelogQuietChecks)[] = [];
+  let quietSince: number | null = null;
+  const endQuiet = (oldest: number) => {
+    if (quietSince == null) return;
+    items.push({
+      kind: "quiet_checks",
+      id: `demo-quiet-${quietSince}`,
+      timestamp: at(quietSince),
+      first_at: at(oldest),
+      checks: oldest - quietSince + 1,
+    });
+    quietSince = null;
+  };
 
-    const changes: ChangelogEntry[] = [];
-    if (hasChanges) {
-      const roomType = ROOM_TYPES[i % ROOM_TYPES.length];
-      const origRate = roomType.base_rate;
-      const pctChange = i % 2 === 0 ? 10 : -5;
-      const newRate = Math.round(origRate * (1 + pctChange / 100) * 100) / 100;
-      const ruleName = INITIAL_RULES[i % INITIAL_RULES.length].rule_name;
-      const occupancyPct = 60 + i * 4;
-      const occupancy = occupancyPct / 100;
-
-      // Plausible trigger: increases fire above a threshold the occupancy
-      // clears, decreases below one it stays under.
-      const condition: RuleCondition =
-        pctChange >= 0
-          ? {
-              occupancy_operator: "gt",
-              occupancy_threshold: Math.round((occupancy - 0.1) * 20) / 20,
-            }
-          : {
-              occupancy_operator: "lt",
-              occupancy_threshold: Math.min(1, Math.round((occupancy + 0.1) * 20) / 20),
-            };
-
-      const narrative = narrateChange({
-        room_type: roomType.name,
-        base_price: origRate,
-        final_price: newRate,
-        applications: [
-          {
-            rule_name: ruleName,
-            condition,
-            action: {
-              kind: "percent",
-              direction: pctChange >= 0 ? "increase" : "decrease",
-              value: Math.abs(pctChange),
-            },
-            metrics: { occupancy },
-            is_pickup: false,
-          },
-        ],
-      });
-
-      changes.push({
-        room_type: roomType.name,
-        rule_name: ruleName,
-        original_rate: origRate,
-        new_rate: newRate,
-        change_pct: pctChange,
-        occupancy_pct: occupancyPct,
-        narrative,
-        description: narrative.join(" "),
-      });
+  for (let run = 0; run < DEMO_RUNS; run++) {
+    const k = DEMO_CHANGED_RUNS.indexOf(run);
+    if (k < 0) {
+      quietSince ??= run;
+      continue;
     }
+    endQuiet(run - 1);
 
-    cycles.push({
-      cycle: 100 - i,
-      timestamp: ts.toISOString(),
-      has_changes: hasChanges,
-      changes,
+    const roomType = ROOM_TYPES[k % ROOM_TYPES.length];
+    const origRate = roomType.base_rate;
+    const pctChange = k % 2 === 0 ? 10 : -5;
+    const newRate = Math.round(origRate * (1 + pctChange / 100) * 100) / 100;
+    const ruleName = INITIAL_RULES[k % INITIAL_RULES.length].rule_name;
+    const occupancyPct = 60 + k * 4;
+    const occupancy = occupancyPct / 100;
+
+    // Plausible trigger: increases fire above a threshold the occupancy
+    // clears, decreases below one it stays under.
+    const condition: RuleCondition =
+      pctChange >= 0
+        ? {
+            occupancy_operator: "gt",
+            occupancy_threshold: Math.round((occupancy - 0.1) * 20) / 20,
+          }
+        : {
+            occupancy_operator: "lt",
+            occupancy_threshold: Math.min(1, Math.round((occupancy + 0.1) * 20) / 20),
+          };
+
+    const narrative = narrateChange({
+      room_type: roomType.name,
+      base_price: origRate,
+      final_price: newRate,
+      applications: [
+        {
+          rule_name: ruleName,
+          condition,
+          action: {
+            kind: "percent",
+            direction: pctChange >= 0 ? "increase" : "decrease",
+            value: Math.abs(pctChange),
+          },
+          metrics: { occupancy },
+          is_pickup: false,
+        },
+      ],
+    });
+
+    const change: ChangelogEntry = {
+      room_type: roomType.name,
+      rule_name: ruleName,
+      original_rate: origRate,
+      new_rate: newRate,
+      change_pct: pctChange,
+      occupancy_pct: occupancyPct,
+      narrative,
+      description: narrative.join(" "),
+    };
+    items.push({
+      cycle: DEMO_CHANGED_RUNS.length - k,
+      timestamp: at(run),
+      has_changes: true,
+      changes: [change],
     });
   }
+  endQuiet(DEMO_RUNS - 1);
 
-  return cycles;
+  return items;
 }

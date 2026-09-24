@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { ChangelogCycle } from "@/types/domain";
+import { isQuietChecks } from "./changelog-route-helpers";
 import {
   buildChangelog,
+  DEMO_RUNS,
   INITIAL_RULES,
   ROOM_TYPES,
   SAMPLE_RESERVATIONS,
@@ -83,44 +86,49 @@ describe("INITIAL_RULES", () => {
 });
 
 describe("buildChangelog", () => {
-  it("returns 10 cycles", () => {
-    const cycles = buildChangelog();
-    expect(cycles.length).toBe(10);
+  const changedRuns = () => buildChangelog().filter((i): i is ChangelogCycle => !isQuietChecks(i));
+
+  it("shows 10 runs that changed a price, and the quiet checks between them as lines", () => {
+    const items = buildChangelog();
+    expect(changedRuns()).toHaveLength(10);
+    expect(changedRuns().every((c) => c.has_changes)).toBe(true);
+    // Never two quiet lines in a row: a stretch is one line.
+    for (let i = 1; i < items.length; i++) {
+      expect(isQuietChecks(items[i]) && isQuietChecks(items[i - 1])).toBe(false);
+    }
+    expect(items.filter(isQuietChecks).map((q) => q.checks)).toEqual([3, 4, 7, 7, 4, 8, 11, 5, 5]);
+  });
+
+  it("accounts for every run, newest first, five minutes apart", () => {
+    const items = buildChangelog();
+    const runs = items.reduce((n, i) => n + (isQuietChecks(i) ? i.checks : 1), 0);
+    expect(runs).toBe(DEMO_RUNS);
+    for (let i = 1; i < items.length; i++) {
+      const newer = items[i - 1];
+      const older = items[i];
+      const gap = Date.parse(isQuietChecks(newer) ? newer.first_at : newer.timestamp) - Date.parse(older.timestamp);
+      expect(gap).toBe(300_000);
+    }
+    for (const q of items.filter(isQuietChecks)) {
+      expect(Date.parse(q.timestamp) - Date.parse(q.first_at)).toBe((q.checks - 1) * 300_000);
+    }
   });
 
   it("cycles have descending cycle numbers", () => {
-    const cycles = buildChangelog();
+    const cycles = changedRuns();
     for (let i = 1; i < cycles.length; i++) {
       expect(cycles[i].cycle).toBeLessThan(cycles[i - 1].cycle);
     }
   });
 
-  it("cycles have valid timestamps", () => {
-    const cycles = buildChangelog();
-    for (const c of cycles) {
+  it("items have valid timestamps", () => {
+    for (const c of buildChangelog()) {
       expect(new Date(c.timestamp).getTime()).not.toBeNaN();
     }
   });
 
-  it("timestamps are roughly 5 minutes apart", () => {
-    const cycles = buildChangelog();
-    for (let i = 1; i < cycles.length; i++) {
-      const diff = new Date(cycles[i - 1].timestamp).getTime() - new Date(cycles[i].timestamp).getTime();
-      // should be ~300000ms (5 minutes)
-      expect(diff).toBeGreaterThan(250_000);
-      expect(diff).toBeLessThan(350_000);
-    }
-  });
-
-  it("roughly 2/3 of cycles have changes", () => {
-    const cycles = buildChangelog();
-    const withChanges = cycles.filter((c) => c.has_changes).length;
-    expect(withChanges).toBeGreaterThanOrEqual(5);
-    expect(withChanges).toBeLessThanOrEqual(8);
-  });
-
   it("cycles with changes have valid entries", () => {
-    const cycles = buildChangelog();
+    const cycles = changedRuns();
     for (const c of cycles) {
       if (c.has_changes) {
         expect(c.changes.length).toBeGreaterThan(0);
@@ -140,7 +148,7 @@ describe("buildChangelog", () => {
 
   it("change entries reference valid room types", () => {
     const validNames = ROOM_TYPES.map((rt) => rt.name);
-    const cycles = buildChangelog();
+    const cycles = changedRuns();
     for (const c of cycles) {
       for (const ch of c.changes) {
         expect(validNames).toContain(ch.room_type);
@@ -149,7 +157,7 @@ describe("buildChangelog", () => {
   });
 
   it("new_rate is correctly computed from original + pct", () => {
-    const cycles = buildChangelog();
+    const cycles = changedRuns();
     for (const c of cycles) {
       for (const ch of c.changes) {
         const expected = Math.round(ch.original_rate * (1 + ch.change_pct / 100) * 100) / 100;
