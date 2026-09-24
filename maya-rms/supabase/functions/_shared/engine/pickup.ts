@@ -11,8 +11,10 @@
  *
  * WAIT (ruleWaitDays, waitAnchor). A Booking Speed rule waits its cooldown
  * (booking_speed_cooldown_days, a week when unset, never under a day); a
- * pickup count rule waits its pickup window; a rule with both waits the
- * longer. The wait runs from the newest of: this rule version's latest fire
+ * pickup count rule waits the wait its owner chose (pickup_cooldown_days,
+ * never under a day), or its lookback window when none was chosen
+ * (pickupWaitDays); a rule with both waits the longer. The wait runs from
+ * the newest of: this rule version's latest fire
  * on the cell that is still open or came off for cancellations, a passed
  * night or before reasons were kept; and the set_at of an open manual price
  * on the cell, for a rule that existed when the price was set. Fires taken
@@ -38,12 +40,15 @@
  *
  * A pickup condition counts net bookings over its window (now minus
  * pickup_window_days), or from that fire when it is later
- * (pickupWindowOpensAt). Its own wait is at least as long as its window, so
- * only another rule's fire can open it later. A stretch shorter than the
- * window is judged only when counting fewer bookings can't be what makes the
- * condition true, "more than" 0 or more (pickupJudgesShortStretch);
- * otherwise the rule has nothing to judge until a whole window has passed
- * since that fire. A Booking Speed condition reads the observation over its
+ * (pickupWindowOpensAt): the run that made the fire wrote a snapshot at
+ * that very instant, so the count starts from exactly what the fire saw. A
+ * wait its owner chose shorter than the window is what lets its own fire
+ * open it later; left on the window, only another rule's fire can. A
+ * stretch shorter than the window is judged only when counting fewer
+ * bookings can't be what makes the condition true, "more than" 0 or more
+ * (pickupJudgesShortStretch); otherwise the rule has nothing to judge until
+ * a whole window has passed since that fire, whatever its wait. A Booking
+ * Speed condition reads the observation over its
  * own window and needs no old snapshot. From that fire
  * (bookingSpeedCountFrom) a raise rule counts from the hotel day of the fire
  * on, and on that day only the bookings first seen after the fire
@@ -115,17 +120,27 @@ const DAY_MS = 86_400_000;
 
 /**
  * Whole days an event rule waits after firing on a cell before it may fire
- * there again. A stored cooldown under a day reads as a day: with stacking, 0
- * would cut or raise every run.
+ * there again: the longer of its Booking Speed wait and its pickup wait
+ * (pickupWaitDays). A stored cooldown under a day reads as a day: with
+ * stacking, 0 would cut or raise every run.
  */
 export function ruleWaitDays(rule: EngineRule): number {
   const c = rule.condition;
   const bookingSpeed = c.booking_speed_operator
     ? Math.max(1, c.booking_speed_cooldown_days ?? DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS)
     : 0;
-  const pickup = c.pickup_operator ? (c.pickup_window_days ?? 3) : 0;
+  const pickup = c.pickup_operator ? pickupWaitDays(c) : 0;
   const days = Math.max(bookingSpeed, pickup);
   return days > 0 ? days : DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS;
+}
+
+/**
+ * A pickup count condition's own wait: the one its owner chose
+ * (pickup_cooldown_days), or its lookback window when none was chosen
+ * (null), never under a day.
+ */
+export function pickupWaitDays(c: EngineRule["condition"]): number {
+  return Math.max(1, c.pickup_cooldown_days ?? c.pickup_window_days ?? 3);
 }
 
 /**
@@ -378,11 +393,12 @@ export function pickupJudgesShortStretch(rule: RankedRule): boolean {
  * Where a pickup condition's window opens on a cell: now minus its window
  * (`baselineTs`, baselineTsFrom), or the fire it counts from
  * (countFromFireAt) when that is later, so a pickup rule doesn't count
- * again the bookings a stronger rule already adjusted the night for. That
- * run wrote a snapshot at the fire's own instant, so the net bookings read
- * from there are the ones after it. A fire made before the open manual
- * price on the cell is ignored, as for a Booking Speed rule. null for a
- * rule with no pickup condition.
+ * again the bookings it or a stronger rule already adjusted the night for:
+ * with a wait shorter than its window, its next decision would otherwise
+ * read the same burst again. That run wrote a snapshot at the fire's own
+ * instant, so the net bookings read from there are the ones after it. A
+ * fire made before the open manual price on the cell is ignored, as for a
+ * Booking Speed rule. null for a rule with no pickup condition.
  */
 export function pickupWindowOpensAt(
   baselineTs: string | null,

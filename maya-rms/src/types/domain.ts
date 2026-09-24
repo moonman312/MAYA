@@ -42,6 +42,12 @@ export type RuleCondition = {
   pickup_threshold?: number | null;
   pickup_window_days?: 1 | 3 | 7 | null;
   pickup_metric?: PickupMetric | null;
+  /**
+   * Days a pickup count rule waits on a night and room type before it may
+   * fire again. Null waits its lookback window (pickup_window_days); anything
+   * under a day reads as a day. Only set with a pickup condition.
+   */
+  pickup_cooldown_days?: number | null;
   booking_speed_operator?: BookingSpeedRuleOperator | null;
   /** A BookingSpeed level key, e.g. "much_slower" — the Observation Engine's ordered vocabulary. */
   booking_speed_level?: string | null;

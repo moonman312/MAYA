@@ -13,6 +13,7 @@ import {
   isWaiting,
   pickupJudgesShortStretch,
   pickupTieBreakTrace,
+  pickupWaitDays,
   pickupWindowOpensAt,
   ruleWaitDays,
   runPickupPass,
@@ -468,6 +469,51 @@ describe("waits", () => {
     });
     expect(ruleWaitDays(mixed)).toBe(7);
     expect(ruleWaitDays(makeRule({ condition: { ...mixed.condition, pickup_window_days: 1 } }))).toBe(2);
+  });
+
+  it("a pickup count rule waits the wait chosen for it, shorter or longer than its window, never under a day", () => {
+    const pickup = (cooldown: number | null | undefined, windowDays: 1 | 3 | 7 = 7) =>
+      makeRule({
+        condition: {
+          pickup_operator: "gt",
+          pickup_threshold: 5,
+          pickup_window_days: windowDays,
+          pickup_metric: "room_nights",
+          pickup_cooldown_days: cooldown,
+        },
+      });
+    expect(ruleWaitDays(pickup(2))).toBe(2);
+    expect(ruleWaitDays(pickup(14, 3))).toBe(14);
+    expect(ruleWaitDays(pickup(0))).toBe(1);
+    // None chosen: its window, as before the choice existed.
+    expect(ruleWaitDays(pickup(null))).toBe(7);
+    expect(ruleWaitDays(pickup(undefined, 1))).toBe(1);
+    expect(pickupWaitDays(pickup(2).condition)).toBe(2);
+    expect(pickupWaitDays(pickup(null, 3).condition)).toBe(3);
+  });
+
+  it("a rule with both conditions waits the longer of its booking speed wait and its chosen pickup wait", () => {
+    const mixed = (pickupCooldown: number | null, bsCooldown: number | null) =>
+      makeRule({
+        condition: {
+          pickup_operator: "gt",
+          pickup_threshold: 5,
+          pickup_window_days: 7,
+          pickup_metric: "room_nights",
+          pickup_cooldown_days: pickupCooldown,
+          booking_speed_operator: "at_least",
+          booking_speed_level: "faster",
+          booking_speed_window_days: 30,
+          booking_speed_cooldown_days: bsCooldown,
+        },
+      });
+    expect(ruleWaitDays(mixed(2, 1))).toBe(2);
+    expect(ruleWaitDays(mixed(2, 3))).toBe(3);
+    expect(ruleWaitDays(mixed(14, 3))).toBe(14);
+    // Booking speed's unset wait is a week.
+    expect(ruleWaitDays(mixed(2, null))).toBe(7);
+    // Pickup's unset wait is its window.
+    expect(ruleWaitDays(mixed(null, 1))).toBe(7);
   });
 
   it("the wait runs from the last fire, or from a price typed after the rule was made", () => {

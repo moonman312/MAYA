@@ -19,6 +19,7 @@ export {
   baselineTsFrom,
   cancelCheckFor,
   pickupTieBreakTrace,
+  pickupWaitDays,
   ruleWaitDays,
   runPickupPass,
   selectPickupWinner,

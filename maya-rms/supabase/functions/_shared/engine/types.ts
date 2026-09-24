@@ -75,8 +75,9 @@ export type RuleMetrics = {
   /**
    * Set when a pickup condition's window opened at the fire the rule counts
    * from rather than a whole window back (pickupWindowOpensAt in pickup.ts:
-   * a stronger rule's newer fire that adjusts the same way): that fire's
-   * instant. The net pickup above counts only what came after it.
+   * its own last fire, inside a window longer than its wait, or a stronger
+   * rule's newer fire that adjusts the same way): that fire's instant. The
+   * net pickup above counts only what came after it.
    */
   pickup_counted_since?: string;
   /** Summed across signal room types at baseline snapshot (pickup ledger / audit). */

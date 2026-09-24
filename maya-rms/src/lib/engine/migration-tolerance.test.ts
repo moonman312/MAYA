@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EngineRule } from "@/types/domain";
 import { evaluateHotel } from "./evaluate";
+import { evaluateHotel as edgeEvaluateHotel } from "../../../supabase/functions/_shared/engine/evaluate";
 import {
   callTouchesColumn,
   fakeSupabase,
@@ -244,6 +245,31 @@ describe("room_type_out_of_service table missing", () => {
     const line = JSON.parse(String(err.mock.calls[0][0]));
     expect(line.step).toBe("room_type_out_of_service");
     expect(line.migration).toBe("99_supabase_migration_room_type_out_of_service_v1.sql");
+  });
+});
+
+describe("rule_condition without pickup_cooldown_days", () => {
+  it.each([
+    ["app engine", evaluateHotel],
+    ["edge engine", edgeEvaluateHotel],
+  ])("%s re-reads the rules without it, says so once, and prices as before", async (_name, evaluate) => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { client, tables } = fakeSupabase(seed(), {
+      fault: (c) =>
+        c.table === "pricing_rules" && callTouchesColumn(c, "pickup_cooldown_days")
+          ? missingColumn("rule_condition", "pickup_cooldown_days")
+          : null,
+    });
+    const result = await evaluate(client, "h1", EVAL_TS, 1);
+    expect(result.ladder_activations).toBe(1);
+    expect(tables.published_price[0].price).toBe(110);
+    expect(err).toHaveBeenCalledTimes(1);
+    const line = JSON.parse(String(err.mock.calls[0][0]));
+    expect(line).toMatchObject({
+      step: "pricing_rules",
+      schema: "pre-migration",
+      migration: "99_supabase_migration_pickup_wait_v1.sql",
+    });
   });
 });
 

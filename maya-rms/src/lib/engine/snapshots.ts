@@ -27,6 +27,7 @@ export const MIGRATIONS = {
   largePropertyScale: "99_supabase_migration_large_property_scale_v1.sql",
   countsBookings: "99_supabase_migration_booking_speed_counts_bookings_v1.sql",
   pickupStacking: "99_supabase_migration_pickup_event_stacking_v1.sql",
+  pickupWait: "99_supabase_migration_pickup_wait_v1.sql",
 } as const;
 
 type PostgrestLike = { code?: string | null; message?: string | null } | null | undefined;

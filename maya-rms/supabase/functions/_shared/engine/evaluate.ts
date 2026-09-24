@@ -276,10 +276,7 @@ export async function evaluateHotel(
   // and every effects read below.
   const supportsSuppression = await probeSuppressionSupport(supabase, hotelId);
 
-  const { data: rulesData, error: rulesErr } = await supabase
-    .from("pricing_rules")
-    .select(
-      `
+  const ruleSelect = (pickupWait: boolean) => `
       id, hotel_id, name, is_active, version, priority,
       start_date, end_date, is_annual, dow_mask,
       action_type, action_direction, action_value,
@@ -287,16 +284,40 @@ export async function evaluateHotel(
       rule_condition (
         occupancy_operator, occupancy_threshold,
         dta_operator, dta_threshold_days,
-        pickup_operator, pickup_threshold, pickup_window_days, pickup_metric,
+        pickup_operator, pickup_threshold, pickup_window_days, pickup_metric,${pickupWait ? " pickup_cooldown_days," : ""}
         booking_speed_operator, booking_speed_level,
         booking_speed_window_days, booking_speed_cooldown_days
       ),
       rule_signal_room_type ( room_type_id ),
       rule_affected_room_type ( room_type_id )
-    `,
-    )
+    `;
+  // Typed loosely because the select string is built.
+  // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let rulesRes: { data: any[] | null; error: { code?: string; message: string } | null } = await supabase
+    .from("pricing_rules")
+    .select(ruleSelect(true))
     .eq("hotel_id", hotelId)
     .eq("is_active", true);
+  // pickup_cooldown_days arrives in a migration. Against the old schema the
+  // select above fails, and no pickup rule has a wait of its own there: each
+  // waits its lookback window, which is how the hotel was priced yesterday.
+  // So re-read without the column and say so once.
+  if (rulesRes.error && isMissingColumnError(rulesRes.error)) {
+    console.error(
+      JSON.stringify({
+        fn: "evaluateHotel",
+        step: "pricing_rules",
+        hotelId,
+        schema: "pre-migration",
+        message: `rule_condition.pickup_cooldown_days does not exist yet; every pickup count rule waits its lookback window this run. Run ${MIGRATIONS.pickupWait}.`,
+        migration: MIGRATIONS.pickupWait,
+        error: rulesRes.error.message,
+      }),
+    );
+    rulesRes = await supabase.from("pricing_rules").select(ruleSelect(false)).eq("hotel_id", hotelId).eq("is_active", true);
+  }
+  const { data: rulesData, error: rulesErr } = rulesRes;
 
   // Never proceed on a failed rule load. Discarding this error made the run
   // continue with zero rules, which quietly publishes the base price for
@@ -346,6 +367,8 @@ export async function evaluateHotel(
             ? (Number(rc.pickup_window_days) as 1 | 3 | 7)
             : null,
         pickup_metric: rc?.pickup_metric ?? null,
+        pickup_cooldown_days:
+          rc?.pickup_cooldown_days != null ? Number(rc.pickup_cooldown_days) : null,
         booking_speed_operator: rc?.booking_speed_operator ?? null,
         booking_speed_level: rc?.booking_speed_level ?? null,
         booking_speed_window_days:

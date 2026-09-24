@@ -1,0 +1,450 @@
+/**
+ * A pickup count rule waits the wait its owner chose (pickup_cooldown_days),
+ * or its lookback window when none was chosen (Jake, 2026-09-24), and counts
+ * only what came after the newest change on the night and room type by
+ * itself or by a stronger rule that adjusts the same way (countFromFireAt;
+ * option A, the same for pickup counts as for booking speed).
+ *
+ * With a wait shorter than its window, its next decision on a night would
+ * otherwise read the burst it raised on again and raise twice on it. So a
+ * "more than" count opens at that change (pickupWindowOpensAt): the snapshot
+ * the change's run wrote at that instant holds the bookings it acted on. A
+ * weaker rule's change never moves where a stronger rule counts from. A
+ * typed price is a reset point, after whose wait the rule judges its whole
+ * window again.
+ *
+ * Every case runs whole evaluateHotel runs, on the app's engine and on the
+ * edge functions' copy, against the in-memory fake.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { addDays } from "@/lib/observations/calendar";
+import { evaluateHotel as edgeEvaluateHotel } from "../../../supabase/functions/_shared/engine/evaluate";
+import { resetBookingSpeedLogOnce as edgeResetLog } from "../../../supabase/functions/_shared/engine/booking-speed-provider";
+import { resetBookingSpeedLogOnce as appResetLog } from "./booking-speed-provider";
+import { evaluateHotel as appEvaluateHotel } from "./evaluate";
+import { fakeSupabase, type FakeRow } from "./fake-supabase.test";
+
+const D0 = "2026-09-16";
+const T0 = Date.parse(`${D0}T12:00:00.000Z`);
+const HOUR = 3_600_000;
+const DAY = 86_400_000;
+const STD = "a0000000-0000-4000-8000-0000000000a1";
+const NIGHT = addDays(D0, 20);
+const HORIZON = 21;
+const iso = (ms: number) => new Date(ms).toISOString();
+
+const ENGINES = [
+  { name: "app engine", evaluateHotel: appEvaluateHotel, resetLog: appResetLog },
+  { name: "edge engine", evaluateHotel: edgeEvaluateHotel, resetLog: edgeResetLog },
+];
+
+function pickupRule(
+  id: string,
+  condition: Partial<FakeRow> & { pickup_window_days: number },
+  over: Partial<FakeRow> = {},
+): FakeRow {
+  return {
+    id,
+    hotel_id: "h1",
+    name: id,
+    is_active: true,
+    version: 1,
+    priority: 100,
+    start_date: null,
+    end_date: null,
+    is_annual: false,
+    dow_mask: 127,
+    action_type: "percent",
+    action_direction: "increase",
+    action_value: 10,
+    is_pickup_rule: true,
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+    rule_condition: [{ pickup_operator: "gt", pickup_threshold: 3, pickup_metric: "room_nights", ...condition }],
+    rule_signal_room_type: [{ room_type_id: STD }],
+    rule_affected_room_type: [{ room_type_id: STD }],
+    ...over,
+  };
+}
+
+let resId = 0;
+function booking(bookedOn: string, stay = NIGHT): FakeRow {
+  return {
+    id: `f0000000-0000-4000-8000-${String(++resId).padStart(12, "0")}`,
+    hotel_id: "h1",
+    stay_date: stay,
+    room_type_id: STD,
+    booking_date: bookedOn,
+    booking_window_days: Math.round((Date.parse(stay) - Date.parse(bookedOn)) / DAY),
+    current_rate: 100,
+    base_rate: 100,
+    created_at: `${bookedOn}T10:00:00.000Z`,
+  };
+}
+const bookings = (n: number, bookedOn: string) => Array.from({ length: n }, () => booking(bookedOn));
+
+/** Snapshots every 6 hours over the 10 days before T0, counted from the reservations, for the first run's baseline. */
+function snapshots(reservations: FakeRow[], nights: string[]): FakeRow[] {
+  const out: FakeRow[] = [];
+  for (let h = 10 * 24; h > 0; h -= 6) {
+    const ts = iso(T0 - h * HOUR);
+    for (const stay of nights) {
+      const n = reservations.filter((r) => r.stay_date === stay && `${r.booking_date}T23:59:59.000Z` <= ts).length;
+      out.push({ hotel_id: "h1", snapshot_ts: ts, stay_date: stay, room_type_id: STD, sellable_units: 40, booked_units: n, booked_revenue: n * 100 });
+    }
+  }
+  return out;
+}
+
+type Engine = (typeof ENGINES)[number];
+
+function world(engine: Engine, opts: { rules: FakeRow[]; reservations: FakeRow[]; extra?: Record<string, FakeRow[]> }) {
+  const nights = Array.from({ length: HORIZON }, (_, i) => addDays(D0, i));
+  const fake = fakeSupabase({
+    hotels: [{ id: "h1", timezone: "UTC" }],
+    room_types: [
+      { id: STD, hotel_id: "h1", name: "Standard", is_active: true, total_rooms: 40, floor_price: 10, ceiling_price: 5000, counts_as_room: true },
+    ],
+    reservations: opts.reservations,
+    base_rate_calendar: Array.from({ length: HORIZON + 20 }, (_, i) => ({
+      hotel_id: "h1",
+      stay_date: addDays(D0, i),
+      room_type_id: STD,
+      price: 100,
+    })),
+    pricing_rules: opts.rules,
+    stay_date_snapshot: snapshots(opts.reservations, nights),
+    manual_price: [],
+    ...(opts.extra ?? {}),
+  });
+  const run = async (atMs: number) => {
+    const at = iso(atMs);
+    vi.setSystemTime(new Date(at));
+    return engine.evaluateHotel(fake.client, "h1", at, HORIZON);
+  };
+  const fires = () =>
+    fake.tables.pickup_event
+      .filter((e) => e.stay_date === NIGHT && e.affected_room_type_id === STD)
+      .sort((a, b) => String(a.applied_at).localeCompare(String(b.applied_at)));
+  const firedOn = () => fires().map((e) => [e.rule_id, (Date.parse(String(e.applied_at)) - T0) / DAY]);
+  const price = () =>
+    Number(fake.tables.published_price.find((p) => p.stay_date === NIGHT && p.room_type_id === STD)?.price);
+  /** The pickup candidate metrics the audit recorded for a fire. */
+  const fireMetrics = (appliedAt: number) => {
+    const row = fake.tables.evaluation_audit.find(
+      (a) => a.stay_date === NIGHT && a.room_type_id === STD && a.evaluated_at === iso(appliedAt),
+    );
+    const details = row?.details as { pickup_candidates?: { outcome: string; metrics: Record<string, unknown> }[] } | undefined;
+    return details?.pickup_candidates?.find((c) => c.outcome === "won")?.metrics;
+  };
+  return { ...fake, run, fires, firedOn, price, fireMetrics };
+}
+
+beforeEach(() => {
+  resId = 0;
+  appResetLog();
+  edgeResetLog();
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.spyOn(console, "error").mockImplementation(() => {});
+});
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+describe.each(ENGINES)("$name: a pickup count rule's wait", (engine) => {
+  it("waits the 2 days chosen, not its 7-day window, and never raises again on the burst it raised on", async () => {
+    const rule = pickupRule("r-wait2", { pickup_window_days: 7, pickup_cooldown_days: 2 });
+    const w = world(engine, { rules: [rule], reservations: [...bookings(2, addDays(D0, -30)), ...bookings(5, D0)] });
+
+    await w.run(T0);
+    expect(w.firedOn()).toEqual([["r-wait2", 0]]);
+    expect(w.price()).toBe(110);
+
+    // Inside its two days: still the one raise.
+    await w.run(T0 + DAY);
+    expect(w.fires()).toHaveLength(1);
+
+    // Its wait is over, and the five bookings it raised on are still inside
+    // its 7-day window. They are not counted again: nothing came in since.
+    await w.run(T0 + 2 * DAY);
+    expect(w.fires()).toHaveLength(1);
+    expect(w.price()).toBe(110);
+
+    // Four new bookings since that raise are enough on their own.
+    w.tables.reservations.push(...bookings(4, addDays(D0, 3)));
+    await w.run(T0 + 3 * DAY);
+    expect(w.firedOn()).toEqual([
+      ["r-wait2", 0],
+      ["r-wait2", 3],
+    ]);
+    expect(w.price()).toBe(121);
+    // The second raise counted from the first: its window opened there, on
+    // the seven bookings the first raise's run saw, and the audit says so.
+    expect(w.fires()[1]).toMatchObject({
+      baseline_start_ts: iso(T0),
+      signal_booked_units_start: 7,
+      signal_booked_units_end: 11,
+      fire_seq: 2,
+    });
+    expect(w.fireMetrics(T0 + 3 * DAY)).toMatchObject({ net_pickup_units: 4, pickup_counted_since: iso(T0) });
+    // The first counted its whole window.
+    expect(w.fires()[0]).toMatchObject({ baseline_start_ts: iso(T0 - 7 * DAY), signal_booked_units_start: 2 });
+    expect(w.fireMetrics(T0)).not.toHaveProperty("pickup_counted_since");
+  }, 60_000);
+
+  it("waits a wait longer than its window, then judges its window again", async () => {
+    const rule = pickupRule("r-wait14", { pickup_window_days: 3, pickup_cooldown_days: 14 });
+    const w = world(engine, { rules: [rule], reservations: bookings(5, D0) });
+    await w.run(T0);
+    expect(w.fires()).toHaveLength(1);
+
+    // A second burst on day 4, past its 3-day window: it is still waiting.
+    w.tables.reservations.push(...bookings(5, addDays(D0, 4)));
+    for (let day = 1; day <= 11; day++) await w.run(T0 + day * DAY);
+    expect(w.fires()).toHaveLength(1);
+
+    // Fourteen days on, its 3-day window no longer reaches that burst, nor
+    // the raise: only what came in during those three days counts.
+    w.tables.reservations.push(...bookings(4, addDays(D0, 12)));
+    for (let day = 12; day <= 13; day++) await w.run(T0 + day * DAY);
+    expect(w.fires()).toHaveLength(1);
+    await w.run(T0 + 14 * DAY);
+    expect(w.firedOn()).toEqual([
+      ["r-wait14", 0],
+      ["r-wait14", 14],
+    ]);
+    expect(w.fires()[1]).toMatchObject({ baseline_start_ts: iso(T0 + 11 * DAY) });
+    expect(w.fireMetrics(T0 + 14 * DAY)).toMatchObject({ net_pickup_units: 4 });
+    expect(w.fireMetrics(T0 + 14 * DAY)).not.toHaveProperty("pickup_counted_since");
+  }, 60_000);
+
+  it("left on the lookback window, waits its window and counts it whole, as before the choice existed", async () => {
+    const rule = pickupRule("r-same", { pickup_window_days: 3, pickup_cooldown_days: null });
+    const w = world(engine, { rules: [rule], reservations: bookings(5, D0) });
+    await w.run(T0);
+    expect(w.fires()).toHaveLength(1);
+
+    // A burst on day 2: still inside its 3-day wait.
+    w.tables.reservations.push(...bookings(4, addDays(D0, 2)));
+    await w.run(T0 + 2 * DAY);
+    expect(w.fires()).toHaveLength(1);
+
+    // Three days on its window opens exactly where its raise was: nothing is
+    // cut, and it raises on the four that came since.
+    await w.run(T0 + 3 * DAY);
+    expect(w.firedOn()).toEqual([
+      ["r-same", 0],
+      ["r-same", 3],
+    ]);
+    expect(w.fires()[1]).toMatchObject({ baseline_start_ts: iso(T0), signal_booked_units_start: 5, signal_booked_units_end: 9 });
+    expect(w.fireMetrics(T0 + 3 * DAY)).not.toHaveProperty("pickup_counted_since");
+  }, 60_000);
+
+  it("a weaker rule doesn't raise again on the burst a stronger rule raised on", async () => {
+    // The 3-day rule changes the price more, so it is the stronger one, and
+    // it raises on the burst. After that the week rule counts from that
+    // raise, not over its whole week, so it doesn't raise on the same five
+    // bookings.
+    const quick = pickupRule("r-quick", { pickup_window_days: 3 }, { priority: 200 });
+    const week = pickupRule("r-week", { pickup_window_days: 7, pickup_threshold: 4 }, { action_value: 5 });
+    const w = world(engine, { rules: [quick, week], reservations: bookings(5, D0) });
+    await w.run(T0);
+    expect(w.firedOn()).toEqual([["r-quick", 0]]);
+
+    // Paused that evening, so it no longer holds the night; its raise stays
+    // on the night, and so the week rule still counts from it.
+    w.tables.pricing_rules.find((r) => r.id === "r-quick")!.is_active = false;
+    for (let day = 1; day <= 4; day++) await w.run(T0 + day * DAY);
+    expect(w.firedOn()).toEqual([["r-quick", 0]]);
+    expect(w.price()).toBe(110);
+
+    // Five more on day 5 are new: the week rule raises on them.
+    w.tables.reservations.push(...bookings(5, addDays(D0, 5)));
+    await w.run(T0 + 5 * DAY);
+    expect(w.firedOn()).toEqual([
+      ["r-quick", 0],
+      ["r-week", 5],
+    ]);
+    expect(w.fires()[1]).toMatchObject({ baseline_start_ts: iso(T0), signal_booked_units_start: 5, signal_booked_units_end: 10 });
+    expect(w.price()).toBe(115.5);
+  }, 60_000);
+});
+
+describe.each(ENGINES)("$name: a pickup count rule after a typed price", (engine) => {
+  it("waits from the price, then judges its whole window, though a raise that came off for cancellations came before it", async () => {
+    const rule = pickupRule("r-wait1", { pickup_window_days: 7, pickup_cooldown_days: 1 });
+    const burst = bookings(5, D0);
+    const w = world(engine, { rules: [rule], reservations: [...bookings(2, addDays(D0, -30)), ...burst] });
+    await w.run(T0);
+    expect(w.fires()).toHaveLength(1);
+
+    // The burst cancels: the raise comes off for it, and still counts.
+    const cancelled = new Set(burst.map((r) => r.id));
+    w.tables.reservations = w.tables.reservations.filter((r) => !cancelled.has(r.id));
+    await w.run(T0 + DAY);
+    expect(w.fires()[0].retired_reason).toBe("bookings_cancelled");
+
+    // A price is typed, and four bookings come in after it.
+    const setAt = T0 + DAY + HOUR;
+    w.tables.manual_price.push({ hotel_id: "h1", stay_date: NIGHT, room_type_id: STD, price: 150, set_by: "u1", set_at: iso(setAt), cleared_at: null });
+    w.tables.reservations.push(...bookings(4, addDays(D0, 1)));
+    await w.run(setAt + HOUR);
+    expect(w.fires()).toHaveLength(1);
+    expect(w.price()).toBe(150);
+
+    // A day after the price it counts its whole week again, not from the
+    // raise before the price (whose run saw the five that cancelled).
+    await w.run(setAt + DAY + HOUR);
+    expect(w.fires()).toHaveLength(2);
+    expect(w.fires()[1]).toMatchObject({ baseline_start_ts: iso(setAt + DAY + HOUR - 7 * DAY), signal_booked_units_start: 2 });
+    expect(w.price()).toBe(165);
+  }, 60_000);
+
+  it("a raise the price took off starts nothing: after the wait it counts its whole window, on top of the price", async () => {
+    const rule = pickupRule("r-wait1", { pickup_window_days: 7, pickup_cooldown_days: 1 });
+    const w = world(engine, { rules: [rule], reservations: bookings(5, D0) });
+    await w.run(T0);
+    const setAt = T0 + HOUR;
+    w.tables.manual_price.push({ hotel_id: "h1", stay_date: NIGHT, room_type_id: STD, price: 150, set_by: "u1", set_at: iso(setAt), cleared_at: null });
+    for (const e of w.fires()) {
+      e.retired_at = iso(setAt);
+      e.retired_reason = "manual_price";
+    }
+    await w.run(setAt + HOUR);
+    expect(w.price()).toBe(150);
+    await w.run(setAt + DAY + HOUR);
+    expect(w.fires().map((e) => [e.fire_seq, e.retired_reason])).toEqual([
+      [1, "manual_price"],
+      [2, null],
+    ]);
+    expect(w.fires()[1]).toMatchObject({ baseline_start_ts: iso(setAt + DAY + HOUR - 7 * DAY) });
+    expect(w.price()).toBe(165);
+  }, 60_000);
+});
+
+describe.each(ENGINES)("$name: a fire later than the run's clock", (engine) => {
+  it("a stronger rule's raise recorded ahead of the run's clock leaves nothing to count yet, then the count runs from it", async () => {
+    // A stronger raise rule's raise, recorded a minute after this run's clock
+    // by an overlapping run. Counting from it there is nothing to count yet.
+    const fast = pickupRule("r-fast", { pickup_window_days: 3 }, { action_value: 5 });
+    const other = pickupRule("r-other", { pickup_window_days: 3, pickup_threshold: 100 }, { action_value: 10 });
+    const later = iso(T0 + 60_000);
+    const w = world(engine, {
+      rules: [fast, other],
+      reservations: bookings(4, addDays(D0, -1)),
+      extra: {
+        pickup_event: [
+          {
+            id: "e-later",
+            hotel_id: "h1",
+            rule_id: "r-other",
+            rule_version: 1,
+            stay_date: NIGHT,
+            affected_room_type_id: STD,
+            baseline_start_ts: iso(T0 + 60_000 - 3 * DAY),
+            baseline_end_ts: later,
+            signal_booked_units_start: 4,
+            signal_booked_units_end: 4,
+            signal_booked_revenue_start: 400,
+            signal_booked_revenue_end: 400,
+            applied_at: later,
+            retired_at: null,
+            retired_reason: null,
+            action_kind: "percent",
+            action_direction: "increase",
+            action_value: 10,
+            fire_seq: 1,
+            cancel_check: "none",
+            window_from: null,
+            window_since: null,
+            window_to: null,
+            window_bookings_at_fire: null,
+            window_expected_at_fire: null,
+            signal_set_key: STD,
+          },
+        ],
+      },
+    });
+    // Over its window the four would do, but they came before that raise.
+    await w.run(T0);
+    await w.run(T0 + HOUR);
+    expect(w.fires().map((e) => e.rule_id)).toEqual(["r-other"]);
+    // Four since that raise do.
+    w.tables.reservations.push(...bookings(4, D0));
+    await w.run(T0 + 2 * HOUR);
+    expect(w.fires().map((e) => e.rule_id)).toEqual(["r-other", "r-fast"]);
+    expect(w.fireMetrics(T0 + 2 * HOUR)).toMatchObject({ net_pickup_units: 4, pickup_counted_since: later });
+  }, 60_000);
+});
+
+describe.each(ENGINES)("$name: a rule with a booking speed condition too", (engine) => {
+  /** One booking every 10 days of lead time on every night from 400 days back: history for booking speed to compare with. */
+  function history(last: string): FakeRow[] {
+    const out: FakeRow[] = [];
+    for (let stay = addDays(D0, -400); stay <= last; stay = addDays(stay, 1)) {
+      for (let lead = 3; lead < 180; lead += 10) out.push(booking(addDays(stay, -lead), stay));
+    }
+    return out;
+  }
+
+  it("waits the longer of its two waits: 3 days of booking speed over the 1 day chosen for pickup", async () => {
+    const rule = pickupRule("r-mixed", {
+      pickup_window_days: 7,
+      pickup_cooldown_days: 1,
+      booking_speed_operator: "at_least",
+      booking_speed_level: "stalled",
+      booking_speed_window_days: 7,
+      booking_speed_cooldown_days: 3,
+    });
+    const w = world(engine, {
+      rules: [rule],
+      reservations: [...history(addDays(D0, HORIZON)).filter((r) => r.booking_date! <= addDays(D0, -1)), ...bookings(5, D0)],
+    });
+    await w.run(T0);
+    expect(w.firedOn()).toEqual([["r-mixed", 0]]);
+
+    // Enough new pickup by day 1 for the pickup condition alone, but the
+    // booking speed wait holds the rule for three days.
+    w.tables.reservations.push(...bookings(4, addDays(D0, 1)));
+    await w.run(T0 + DAY);
+    await w.run(T0 + 2 * DAY);
+    expect(w.fires()).toHaveLength(1);
+
+    await w.run(T0 + 3 * DAY);
+    expect(w.firedOn()).toEqual([
+      ["r-mixed", 0],
+      ["r-mixed", 3],
+    ]);
+    // Counted from its first raise, not over its week.
+    expect(w.fireMetrics(T0 + 3 * DAY)).toMatchObject({ net_pickup_units: 4, pickup_counted_since: iso(T0) });
+  }, 120_000);
+});
+
+describe.each(ENGINES)("$name: the owner alert after three raises", (engine) => {
+  it("files the latest raise's pickup as counted since the raise before it, not over the window", async () => {
+    const rule = pickupRule("r-daily", { pickup_window_days: 7, pickup_cooldown_days: 1 });
+    const w = world(engine, { rules: [rule], reservations: bookings(5, D0) });
+    await w.run(T0);
+    w.tables.reservations.push(...bookings(4, addDays(D0, 1)));
+    await w.run(T0 + DAY);
+    w.tables.reservations.push(...bookings(6, addDays(D0, 2)));
+    await w.run(T0 + 2 * DAY);
+    expect(w.fires()).toHaveLength(3);
+    const night = (w.tables.rule_repeat_alert_nights ?? []).find((n) => n.stay_date === NIGHT);
+    // The six that came in since the second raise, not the fifteen of the week.
+    expect(night).toMatchObject({ fire_count: 3, pickup_threshold: 3, pickup_window_days: null, pickup_net: 6 });
+  }, 60_000);
+
+  it("keeps the window's days when the latest raise counted its whole window", async () => {
+    const rule = pickupRule("r-window", { pickup_window_days: 1 });
+    const w = world(engine, { rules: [rule], reservations: bookings(5, D0) });
+    await w.run(T0);
+    w.tables.reservations.push(...bookings(4, addDays(D0, 1)));
+    await w.run(T0 + DAY);
+    w.tables.reservations.push(...bookings(6, addDays(D0, 2)));
+    await w.run(T0 + 2 * DAY);
+    const night = (w.tables.rule_repeat_alert_nights ?? []).find((n) => n.stay_date === NIGHT);
+    expect(night).toMatchObject({ fire_count: 3, pickup_window_days: 1, pickup_net: 6 });
+  }, 60_000);
+});
