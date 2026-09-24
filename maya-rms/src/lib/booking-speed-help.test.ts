@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { BOOKING_SPEED_HELP_EXAMPLE, STRONGER_RULE_LINE, bookingSpeedHelp, bookingSpeedWaitHelp } from "@/lib/booking-speed-help";
+import {
+  BOOKING_SPEED_HELP_EXAMPLE,
+  STRONGER_RULE_LINE,
+  bookingSpeedHelp,
+  bookingSpeedWaitHelp,
+  pickupWaitHelp,
+} from "@/lib/booking-speed-help";
 import { classifyBookingSpeed } from "@/lib/observations/booking-speed";
 
 describe("bookingSpeedHelp", () => {
@@ -123,10 +129,75 @@ describe("bookingSpeedWaitHelp", () => {
     expect(bookingSpeedWaitHelp("1 week").lines.join(" ")).not.toContain("also counts pickup");
   });
 
+  it("names the pickup wait chosen, not the window, when that is what sets it", () => {
+    const h = bookingSpeedWaitHelp("2 weeks", null, "2 weeks");
+    expect(h.lines[1]).toBe("Its pickup count waits 2 weeks, which is longer, so that is what it waits.");
+    expect(h.lines.join(" ")).not.toContain("counts pickup over");
+  });
+
   it("has no em dashes and no math symbols", () => {
     const h = bookingSpeedWaitHelp("1 week");
     const words = [h.label, h.title, ...h.lines].join(" ");
     expect(words).not.toContain("—");
+    expect(words).not.toMatch(/[<>]/);
+  });
+});
+
+describe("pickupWaitHelp", () => {
+  it("says the wait chosen, and that a rule with none chosen waits its lookback window", () => {
+    const h = pickupWaitHelp("2 days");
+    expect(h.label).toBe("How the wait works");
+    expect(h.lines[0]).toBe("After this rule adjusts a night, it leaves that night alone for 2 days.");
+    // ruleWaitDays: pickup_cooldown_days, else pickup_window_days.
+    expect(h.lines[1]).toBe("Unless you choose a wait, it waits as long as its lookback window.");
+  });
+
+  it("says a count on pickup above a number only counts what came in since its own last change or a stronger rule's", () => {
+    // countFromFireAt and pickupWindowOpensAt: the newest fire on the night
+    // by the rule itself or a stronger rule that adjusts the same way, and a
+    // weaker rule's never (Jake, 2026-09-24, option A).
+    const words = pickupWaitHelp("2 days").lines.join(" ");
+    expect(words).toContain(
+      "When the wait is over it counts pickup over its lookback window, but only what came in since it last adjusted that night, or since a stronger rule that moves the price the same way did, if that was later.",
+    );
+    expect(words).not.toContain("whichever rule");
+    expect(words).toContain("three times");
+    // A typed price: waitAnchor starts the wait there, and
+    // pickupWindowOpensAt ignores the fires before it.
+    expect(words).toContain("starts it over");
+    expect(words).toContain("whole window");
+    expect(words).toContain("Each room type waits on its own");
+    expect(words).toContain("stronger rule can still step in");
+    expect(pickupWaitHelp("2 days").lines.at(-1)).toBe(STRONGER_RULE_LINE);
+    // Pickup is not bookings made since: it is net, and it is room nights or revenue.
+    expect(words).not.toContain("only counts bookings made since");
+  });
+
+  it("says a count on low pickup only judges a whole window after a change, so it never adjusts again sooner, whatever the wait", () => {
+    // pickupJudgesShortStretch: a stretch shorter than the window would only
+    // read as slower, so after its own change or a stronger rule's the rule
+    // has nothing to judge until a whole window has passed.
+    const words = pickupWaitHelp("1 day", null, true).lines.join(" ");
+    expect(words).toContain(
+      "It looks for low pickup, so it only judges a whole lookback window of pickup that came in after it last adjusted that night, or after a stronger rule that moves the price the same way did, if that was later. So it never adjusts a night again sooner than its lookback window, whatever the wait.",
+    );
+    expect(words).not.toContain("When the wait is over it counts pickup");
+    expect(words).toContain("three times");
+    expect(words).toContain("starts it over");
+    expect(pickupWaitHelp("1 day", null, false).lines).toEqual(pickupWaitHelp("1 day").lines);
+  });
+
+  it("says once when the booking speed wait is what sets it", () => {
+    const h = pickupWaitHelp("1 week", "1 week");
+    expect(h.lines[2]).toBe("Its booking speed condition waits 1 week, which is longer, so that is what it waits.");
+    expect(pickupWaitHelp("2 days").lines.join(" ")).not.toContain("Its booking speed condition");
+  });
+
+  it("has no em dashes, no exclamation marks and no math symbols", () => {
+    const h = pickupWaitHelp("1 week", "1 week");
+    const words = [h.label, h.title, ...h.lines].join(" ");
+    expect(words).not.toContain("\u2014");
+    expect(words).not.toContain("!");
     expect(words).not.toMatch(/[<>]/);
   });
 });

@@ -15,7 +15,7 @@ import type {
 
 const BOOKING_SPEED_WINDOWS: readonly number[] = [1, 7, 30];
 
-/** Waits the builder offers a booking speed rule before it may fire again. */
+/** Waits the builder offers an event rule before it may fire again. */
 export type BookingSpeedWaitDays = 1 | 2 | 3 | 7 | 14;
 
 export const BOOKING_SPEED_WAIT_OPTIONS: { days: BookingSpeedWaitDays; label: string }[] = [
@@ -30,38 +30,95 @@ export const BOOKING_SPEED_WAIT_OPTIONS: { days: BookingSpeedWaitDays; label: st
 export const DEFAULT_BOOKING_SPEED_WAIT_DAYS: BookingSpeedWaitDays = 7;
 
 /**
+ * The first choice of a pickup count rule's wait, and the one it starts on:
+ * saved as null, which the engine reads as the lookback window. The other
+ * choices are BOOKING_SPEED_WAIT_OPTIONS.
+ */
+export const PICKUP_WAIT_SAME_AS_WINDOW_LABEL = "Same as the lookback window";
+
+/** Which conditions an event rule has, and the waits they were given. */
+export type EventRuleWaitInput = {
+  hasBookingSpeed: boolean;
+  /** booking_speed_cooldown_days: null reads as a week. */
+  cooldownDays: number | null | undefined;
+  hasPickup: boolean;
+  pickupWindowDays: number | null | undefined;
+  /** pickup_cooldown_days: null (or absent) reads as the lookback window. */
+  pickupCooldownDays?: number | null;
+  /**
+   * The pickup condition looks for low pickup (pickupCountsLow). After a
+   * change on a night such a count is only judged on a whole window
+   * (pickupJudgesShortStretch in engine/pickup.ts), so the rule never
+   * adjusts that night again sooner than its window, whatever wait it has.
+   */
+  pickupLow?: boolean;
+};
+
+/**
+ * Whether a pickup condition looks for low pickup: "less than" a number, or
+ * "more than" one under zero. The engine never judges such a count on less
+ * than its whole window after a change (pickupJudgesShortStretch in
+ * engine/pickup.ts: fewer bookings would only make it truer), and
+ * rule-form.test.ts holds the two together.
+ */
+export function pickupCountsLow(operator: string | null | undefined, threshold: number | null | undefined): boolean {
+  const n = threshold != null && Number.isFinite(threshold) ? threshold : 0;
+  return !(operator === "gt" && n >= 0);
+}
+
+/** The booking speed condition's own wait, at least a day; 0 without one. */
+export function bookingSpeedOwnWait(input: EventRuleWaitInput): number {
+  return input.hasBookingSpeed ? Math.max(1, input.cooldownDays ?? DEFAULT_BOOKING_SPEED_WAIT_DAYS) : 0;
+}
+
+/**
+ * The pickup condition's own wait: its chosen wait, or its lookback window,
+ * and never less than that window for a count on low pickup (pickupLow). 0
+ * without one.
+ */
+export function pickupOwnWait(input: EventRuleWaitInput): number {
+  if (!input.hasPickup) return 0;
+  const window = input.pickupWindowDays ?? 3;
+  return Math.max(1, input.pickupCooldownDays ?? window, input.pickupLow ? window : 0);
+}
+
+/**
  * Whole days an event rule waits on a night and room type before it may fire
  * there again, the same way the engine works it out (ruleWaitDays in
  * engine/pickup.ts): a booking speed rule waits its stored wait, at least a
- * day; a pickup count rule waits its lookback window; a rule with both waits
- * the longer of the two. rule-form.test.ts checks this against the engine's
- * own function, because a card that says a different number is a card that
- * lies about what the rule does.
+ * day; a pickup count rule waits the wait chosen for it, or its lookback
+ * window when none was; a rule with both waits the longer of the two. A
+ * count on low pickup can't adjust a night again before its whole window has
+ * passed either (pickupLow), so its rule keeps at least that.
+ * rule-form.test.ts checks this against the engine's own functions, because
+ * a card that says a different number is a card that lies about what the
+ * rule does.
  */
-export function eventRuleWaitDays(input: {
-  hasBookingSpeed: boolean;
-  cooldownDays: number | null | undefined;
-  hasPickup: boolean;
-  pickupWindowDays: number | null | undefined;
-}): number {
-  const bookingSpeed = input.hasBookingSpeed
-    ? Math.max(1, input.cooldownDays ?? DEFAULT_BOOKING_SPEED_WAIT_DAYS)
-    : 0;
-  const pickup = input.hasPickup ? (input.pickupWindowDays ?? 3) : 0;
-  const days = Math.max(bookingSpeed, pickup);
+export function eventRuleWaitDays(input: EventRuleWaitInput): number {
+  const days = Math.max(bookingSpeedOwnWait(input), pickupOwnWait(input));
   return days > 0 ? days : DEFAULT_BOOKING_SPEED_WAIT_DAYS;
 }
 
-/** True when a pickup condition, not the stored wait, is what sets the wait. */
-export function pickupWindowSetsWait(input: {
-  hasBookingSpeed: boolean;
-  cooldownDays: number | null | undefined;
-  hasPickup: boolean;
-  pickupWindowDays: number | null | undefined;
-}): boolean {
-  if (!input.hasPickup) return false;
-  const cooldown = input.hasBookingSpeed ? Math.max(1, input.cooldownDays ?? DEFAULT_BOOKING_SPEED_WAIT_DAYS) : 0;
-  return (input.pickupWindowDays ?? 3) > cooldown;
+/** True when the pickup condition's wait, not the booking speed one, is what sets the wait. */
+export function pickupSetsWait(input: EventRuleWaitInput): boolean {
+  return input.hasPickup && pickupOwnWait(input) > bookingSpeedOwnWait(input);
+}
+
+/** True when a rule with both conditions waits its booking speed wait, the longer one. */
+export function bookingSpeedSetsWait(input: EventRuleWaitInput): boolean {
+  return input.hasBookingSpeed && input.hasPickup && bookingSpeedOwnWait(input) > pickupOwnWait(input);
+}
+
+/** A number of days in words: "1 day", "3 days", "1 week", "2 weeks". */
+export function waitDaysLabel(days: number): string {
+  const value = Math.max(1, Math.round(days));
+  const known = BOOKING_SPEED_WAIT_OPTIONS.find((o) => o.days === value);
+  if (known) return known.label;
+  if (value % 7 === 0) {
+    const weeks = value / 7;
+    return weeks === 1 ? "1 week" : `${weeks} weeks`;
+  }
+  return value === 1 ? "1 day" : `${value} days`;
 }
 
 /**
@@ -70,14 +127,7 @@ export function pickupWindowSetsWait(input: {
  * A number that is not on the list still reads correctly.
  */
 export function bookingSpeedWaitLabel(days: number | null | undefined): string {
-  const value = days == null ? DEFAULT_BOOKING_SPEED_WAIT_DAYS : Math.max(1, Math.round(days));
-  const known = BOOKING_SPEED_WAIT_OPTIONS.find((o) => o.days === value);
-  if (known) return known.label;
-  if (value % 7 === 0) {
-    const weeks = value / 7;
-    return weeks === 1 ? "1 week" : `${weeks} weeks`;
-  }
-  return value === 1 ? "1 day" : `${value} days`;
+  return waitDaysLabel(days == null ? DEFAULT_BOOKING_SPEED_WAIT_DAYS : days);
 }
 
 export type ConditionMetric = "occupancy" | "booking_window" | "pickup" | "booking_speed";
@@ -97,6 +147,11 @@ export type ConditionFormRow = {
   booking_speed_window_days: BookingSpeedWindowDays;
   /** Days the rule waits on a night and room type before it may fire again. */
   booking_speed_cooldown_days: BookingSpeedWaitDays;
+  /**
+   * The same for a pickup count row. null is "Same as the lookback window",
+   * saved as null.
+   */
+  pickup_cooldown_days: BookingSpeedWaitDays | null;
 };
 
 const SYM: Record<"gt" | "lt", string> = { gt: ">", lt: "<" };
@@ -115,6 +170,7 @@ export function newConditionRow(
     booking_speed_level: partial?.booking_speed_level ?? "faster",
     booking_speed_window_days: partial?.booking_speed_window_days ?? 7,
     booking_speed_cooldown_days: partial?.booking_speed_cooldown_days ?? DEFAULT_BOOKING_SPEED_WAIT_DAYS,
+    pickup_cooldown_days: partial?.pickup_cooldown_days ?? null,
   };
 }
 
@@ -212,6 +268,7 @@ export function conditionRowsToRuleCondition(rows: ConditionFormRow[]): RuleCond
       c.pickup_threshold = n;
       c.pickup_window_days = row.pickup_window_days;
       c.pickup_metric = row.pickup_metric;
+      if (row.pickup_cooldown_days != null) c.pickup_cooldown_days = row.pickup_cooldown_days;
     }
   }
   return c;
@@ -247,6 +304,11 @@ export function ruleConditionForInsert(c: RuleCondition): RuleCondition {
     row.pickup_threshold = c.pickup_threshold;
     row.pickup_window_days = c.pickup_window_days;
     row.pickup_metric = c.pickup_metric;
+    if (c.pickup_cooldown_days != null && Number.isFinite(c.pickup_cooldown_days)) {
+      // At least a day, as the column requires. Left out, it is null: the
+      // rule waits its lookback window.
+      row.pickup_cooldown_days = Math.max(1, Math.round(c.pickup_cooldown_days));
+    }
   }
   if (
     c.booking_speed_operator &&

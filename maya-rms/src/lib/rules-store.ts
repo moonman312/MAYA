@@ -18,6 +18,7 @@ import {
   bookingSpeedWaitLabel,
   eventRuleWaitDays,
   isRuleConditionEmpty,
+  pickupCountsLow,
   ruleConditionForInsert,
   ruleConditionToLegacyConditions,
 } from "@/lib/rule-form";
@@ -163,16 +164,18 @@ function uiActionToDb(action: RuleAction): {
  * rules-table summary text. The wait is part of what the rule does: once it
  * is over and the rule is still true, the rule adjusts that night again.
  *
- * A rule that also counts pickup waits the longer of its stored wait and that
- * lookback window (eventRuleWaitDays, the engine's ruleWaitDays), so the card
- * shows the wait the engine keeps, not the one on the dropdown.
+ * A rule that also counts pickup waits the longer of its stored wait and the
+ * pickup wait (the one chosen for it, or its lookback window when none was:
+ * eventRuleWaitDays, the engine's ruleWaitDays, and at least its window
+ * for a count on low pickup), so the card shows the wait the engine keeps,
+ * not the one on the dropdown.
  */
 function formatBookingSpeedCondition(
   operator: string,
   levelKey: string,
   windowDays: number,
   cooldownDays: number | null,
-  pickup: { hasPickup: boolean; windowDays: number | null },
+  pickup: { hasPickup: boolean; windowDays: number | null; cooldownDays: number | null; low: boolean },
 ): string {
   const label = isBookingSpeed(levelKey) ? bookingSpeedLabel(levelKey) : levelKey;
   const opWords =
@@ -184,6 +187,8 @@ function formatBookingSpeedCondition(
     cooldownDays,
     hasPickup: pickup.hasPickup,
     pickupWindowDays: pickup.windowDays,
+    pickupCooldownDays: pickup.cooldownDays,
+    pickupLow: pickup.low,
   });
   return `${opWords}${label} (${windowWords}), then waits ${bookingSpeedWaitLabel(waitDays)}`;
 }
@@ -228,6 +233,10 @@ function dbRowToRuleConfig(row: any): RuleConfig {
         {
           hasPickup: rc.pickup_operator != null,
           windowDays: rc.pickup_window_days != null ? Number(rc.pickup_window_days) : null,
+          cooldownDays: rc.pickup_cooldown_days != null ? Number(rc.pickup_cooldown_days) : null,
+          low:
+            rc.pickup_operator != null &&
+            pickupCountsLow(String(rc.pickup_operator), rc.pickup_threshold != null ? Number(rc.pickup_threshold) : null),
         },
       );
     }
@@ -293,6 +302,7 @@ function dbRowToEngineRule(row: any): EngineRule {
     condition.pickup_threshold = rc.pickup_threshold != null ? Number(rc.pickup_threshold) : null;
     condition.pickup_window_days = rc.pickup_window_days != null ? (Number(rc.pickup_window_days) as 1 | 3 | 7) : null;
     condition.pickup_metric = (rc.pickup_metric as PickupMetric) ?? null;
+    condition.pickup_cooldown_days = rc.pickup_cooldown_days != null ? Number(rc.pickup_cooldown_days) : null;
     condition.booking_speed_operator = rc.booking_speed_operator ?? null;
     condition.booking_speed_level = rc.booking_speed_level ?? null;
     condition.booking_speed_window_days =
@@ -343,7 +353,7 @@ const RULE_SELECT = `
   rule_condition (
     occupancy_operator, occupancy_threshold,
     dta_operator, dta_threshold_days,
-    pickup_operator, pickup_threshold, pickup_window_days, pickup_metric,
+    pickup_operator, pickup_threshold, pickup_window_days, pickup_metric, pickup_cooldown_days,
     booking_speed_operator, booking_speed_level,
     booking_speed_window_days, booking_speed_cooldown_days
   ),

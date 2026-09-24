@@ -53,6 +53,13 @@ describe("room type sets on the rules routes", () => {
     expect(createRule).not.toHaveBeenCalled();
   });
 
+  it("POST passes a pickup count rule's chosen wait through to the store", async () => {
+    const condition = { pickup_operator: "gt", pickup_threshold: 5, pickup_window_days: 7, pickup_metric: "room_nights", pickup_cooldown_days: 2 };
+    const res = await POST(req({ ...base, condition }));
+    expect(res.status).toBe(201);
+    expect(createRule.mock.calls[0][0]).toMatchObject({ condition });
+  });
+
   it("POST passes both sets through", async () => {
     const res = await POST(req({ ...base, signal_room_type_ids: ["rt1"], affected_room_type_ids: ["rt2"] }));
     expect(res.status).toBe(201);

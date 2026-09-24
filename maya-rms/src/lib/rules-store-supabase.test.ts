@@ -15,7 +15,8 @@
  * chaining to exercise both functions' real control flow.
  */
 import { describe, expect, it } from "vitest";
-import { createRule, listRules, updateRule, type CreateRuleInput } from "./rules-store";
+import { ruleWaitDays } from "./engine/pickup";
+import { createRule, listEngineRules, listRules, updateRule, type CreateRuleInput } from "./rules-store";
 
 type Row = Record<string, unknown>;
 
@@ -31,6 +32,8 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
   // specifically the NEW data, not a blanket table outage (so a compensating
   // re-insert of the untouched OLD row is expected to succeed).
   const failInsertWhen = new Map<string, (row: Row) => boolean>();
+  /** Every column list a read asked for, by table. */
+  const selects: { table: string; columns: string }[] = [];
 
   function matches(row: Row, filters: [string, unknown][]): boolean {
     return filters.every(([col, val]) => row[col] === val);
@@ -43,7 +46,8 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
     let mode: "insert" | "update" | "delete" | "select" = "select";
 
     const api = {
-      select() {
+      select(columns?: string) {
+        if (mode === "select" && columns) selects.push({ table, columns });
         return api;
       },
       eq(col: string, val: unknown) {
@@ -117,7 +121,7 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
 
   const client = { from: (t: string) => builder(t) };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return { client: client as any, tables, failInsertWhen };
+  return { client: client as any, tables, failInsertWhen, selects };
 }
 
 const HOTEL = "hotel-1";
@@ -286,6 +290,86 @@ describe("listRules: a booking speed rule's card says how long it waits", () => 
     // And the stored wait still wins when it is the longer one.
     expect(await card(14, { operator: "gt", windowDays: 7 })).toBe(
       "at least Much Faster Than Normal (past week), then waits 2 weeks",
+    );
+  });
+});
+
+describe("a pickup count rule's wait round-trips through the store", () => {
+  const pickup = { pickup_operator: "gt", pickup_threshold: 5, pickup_window_days: 7, pickup_metric: "room_nights" } as const;
+  /** The rule as PostgREST hands it back: its condition embedded. */
+  const readBack = (tables: Map<string, Row[]>) => {
+    const rule = { ...tables.get("pricing_rules")![0], rule_condition: tables.get("rule_condition")![0] };
+    return fakeSupabase({ pricing_rules: [rule] });
+  };
+
+  it("writes the wait chosen, and the engine reads it back and waits it", async () => {
+    const { client, tables } = fakeSupabase();
+    await createRule(baseCreateInput({ condition: { ...pickup, pickup_cooldown_days: 2 } }), client, HOTEL);
+    expect(tables.get("rule_condition")![0]).toMatchObject({ ...pickup, pickup_cooldown_days: 2 });
+    expect(tables.get("pricing_rules")![0]).toMatchObject({ is_pickup_rule: true });
+    const reader = readBack(tables);
+    const [rule] = await listEngineRules(reader.client, HOTEL);
+    expect(rule.condition.pickup_cooldown_days).toBe(2);
+    expect(ruleWaitDays(rule)).toBe(2);
+    // The read asks for the column: the fake hands back whole rows, PostgREST doesn't.
+    expect(reader.selects.find((s) => s.table === "pricing_rules")?.columns).toMatch(/rule_condition \([^)]*pickup_cooldown_days/);
+  });
+
+  it("left on the lookback window, writes no wait, and reads back as the window", async () => {
+    const { client, tables } = fakeSupabase();
+    await createRule(baseCreateInput({ condition: { ...pickup, pickup_cooldown_days: null } }), client, HOTEL);
+    expect(tables.get("rule_condition")![0]).not.toHaveProperty("pickup_cooldown_days");
+    const [rule] = await listEngineRules(readBack(tables).client, HOTEL);
+    expect(rule.condition.pickup_cooldown_days).toBeNull();
+    expect(ruleWaitDays(rule)).toBe(7);
+  });
+
+  it("changing only the wait is an edit: the version moves on and the rule's fires come off", async () => {
+    const { client, tables } = fakeSupabase({
+      pricing_rules: [{ id: "r1", version: 1, is_active: true, is_pickup_rule: true }],
+      rule_condition: [{ rule_id: "r1", ...pickup }],
+      pickup_event: [{ id: "pe1", rule_id: "r1", retired_at: null }],
+    });
+    expect(await updateRule("r1", { condition: { ...pickup, pickup_cooldown_days: 2 } }, client)).toBe(true);
+    expect(tables.get("pricing_rules")![0]).toMatchObject({ version: 2, is_pickup_rule: true });
+    expect(tables.get("pickup_event")![0]).toMatchObject({ retired_reason: "rule_edited" });
+    expect(tables.get("rule_condition")).toHaveLength(1);
+    expect(tables.get("rule_condition")![0]).toMatchObject({ rule_id: "r1", ...pickup, pickup_cooldown_days: 2 });
+
+    // And back to the window.
+    expect(await updateRule("r1", { condition: { ...pickup, pickup_cooldown_days: null } }, client)).toBe(true);
+    expect(tables.get("pricing_rules")![0]).toMatchObject({ version: 3 });
+    expect(tables.get("rule_condition")).toHaveLength(1);
+    expect(tables.get("rule_condition")![0]).toMatchObject({ rule_id: "r1", ...pickup });
+    expect(tables.get("rule_condition")![0]).not.toHaveProperty("pickup_cooldown_days");
+  });
+
+  it("the card names the pickup wait chosen when it is longer than the booking speed one", async () => {
+    const { client } = fakeSupabase({
+      pricing_rules: [
+        {
+          id: "r1",
+          hotel_id: "h1",
+          name: "Both",
+          is_active: true,
+          version: 1,
+          action_type: "percent",
+          action_direction: "increase",
+          action_value: 10,
+          is_pickup_rule: true,
+          rule_condition: {
+            ...pickup,
+            pickup_cooldown_days: 14,
+            booking_speed_operator: "at_least",
+            booking_speed_level: "faster",
+            booking_speed_window_days: 7,
+            booking_speed_cooldown_days: 3,
+          },
+        },
+      ],
+    });
+    expect((await listRules(client, "h1"))[0].conditions.booking_speed).toBe(
+      "at least Faster Than Normal (past week), then waits 2 weeks",
     );
   });
 });

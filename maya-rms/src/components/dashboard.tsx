@@ -14,6 +14,7 @@ import { PropertySelect } from "@/components/property-select";
 import { RateSimulator } from "@/components/rate-simulator";
 import { RoomCountHelp, RoomTypeSettings, isCountingRoom } from "@/components/room-type-settings";
 import { bookingSpeedHelp, bookingSpeedWaitHelp } from "@/lib/booking-speed-help";
+import { PickupWaitField } from "@/components/pickup-wait-field";
 import { RuleAlertBanner } from "@/components/rule-alert-banner";
 import { letRunAgainBody, stoppedChipLabel, stoppedNightsHelp, type RuleStops } from "@/lib/rule-alerts";
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
@@ -25,9 +26,11 @@ import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
 import {
   BOOKING_SPEED_WAIT_OPTIONS,
   RULE_FIRES_HELP,
-  bookingSpeedWaitLabel,
   eventRuleWaitDays,
-  pickupWindowSetsWait,
+  pickupCountsLow,
+  pickupOwnWait,
+  pickupSetsWait,
+  waitDaysLabel,
   conditionRowsToRuleCondition,
   formatRuleConditionsDisplay,
   isRuleActionEmpty,
@@ -1415,17 +1418,23 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                           .map((r) => r.metric),
                       );
                       // A rule with both conditions waits the longer of the
-                      // stored wait and the pickup lookback (the engine's
+                      // booking speed wait and the pickup wait (the one
+                      // chosen, or the lookback window: the engine's
                       // ruleWaitDays), so the wait shown is that one.
                       const pickupRow = condRows.find((r) => r.metric === "pickup");
+                      const speedRow = condRows.find((r) => r.metric === "booking_speed");
                       const waitInput = {
-                        hasBookingSpeed: true,
-                        cooldownDays: row.booking_speed_cooldown_days,
+                        hasBookingSpeed: speedRow !== undefined,
+                        cooldownDays: speedRow?.booking_speed_cooldown_days ?? null,
                         hasPickup: pickupRow !== undefined,
                         pickupWindowDays: pickupRow?.pickup_window_days ?? null,
+                        pickupCooldownDays: pickupRow?.pickup_cooldown_days ?? null,
+                        pickupLow:
+                          pickupRow !== undefined && pickupCountsLow(pickupRow.operator, Number(pickupRow.value)),
                       };
-                      const waitLabel = bookingSpeedWaitLabel(eventRuleWaitDays(waitInput));
-                      const pickupSetsWait = pickupWindowSetsWait(waitInput);
+                      const waitLabel = waitDaysLabel(eventRuleWaitDays(waitInput));
+                      const pickupDecides = pickupSetsWait(waitInput);
+                      const pickupWait = pickupOwnWait(waitInput);
                       return (
                         <div
                           key={row.id}
@@ -1560,7 +1569,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                             </div>
                           </div>
                           {row.metric === "pickup" ? (
-                            <div className="mt-3 grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-2">
+                            <div className="mt-3 grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-3">
                               <div>
                                 <label className="mb-0.5 block text-[11px] text-slate-500">
                                   Lookback window
@@ -1581,6 +1590,16 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                                   <option value="7">7 days</option>
                                 </select>
                               </div>
+                              <PickupWaitField
+                                id={`pickup-wait-${row.id}`}
+                                value={row.pickup_cooldown_days}
+                                windowDays={row.pickup_window_days}
+                                lowPickup={pickupCountsLow(row.operator, Number(row.value))}
+                                bookingSpeedCooldownDays={speedRow?.booking_speed_cooldown_days}
+                                onChange={(days) =>
+                                  updateCondRow(row.id, { pickup_cooldown_days: days })
+                                }
+                              />
                               <div>
                                 <label className="mb-0.5 block text-[11px] text-slate-500">
                                   Pickup measures
@@ -1644,7 +1663,12 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                                   <RoomCountHelp
                                     {...bookingSpeedWaitHelp(
                                       waitLabel,
-                                      pickupSetsWait ? waitLabel : null,
+                                      pickupDecides && pickupRow?.pickup_cooldown_days == null
+                                        ? waitLabel
+                                        : null,
+                                      pickupDecides && pickupRow?.pickup_cooldown_days != null
+                                        ? waitLabel
+                                        : null,
                                     )}
                                   />
                                 </div>
@@ -1663,8 +1687,8 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                                   {BOOKING_SPEED_WAIT_OPTIONS.map((o) => (
                                     <option key={o.days} value={o.days}>
                                       {o.label}
-                                      {pickupSetsWait && o.days < eventRuleWaitDays(waitInput)
-                                        ? ` (pickup holds it to ${waitLabel})`
+                                      {pickupWait > o.days
+                                        ? ` (pickup holds it to ${waitDaysLabel(pickupWait)})`
                                         : ""}
                                     </option>
                                   ))}
