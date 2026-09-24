@@ -159,10 +159,17 @@
 -- alert on a night whose newest fire predates this file shows that fire's
 -- window numbers in rooms until a newer fire replaces it; once the new
 -- engine runs, a rule that has adjusted a night judges only the bookings
--- made since (so one burst is raised at most once by each raise rule whose
--- level it reaches, where it used to be raised again every wait), and a
--- rule that cuts judges full days ending yesterday, and after a cut has
--- nothing to judge until a full day has passed.
+-- made since its own last adjustment there, so no rule counts the same
+-- booking twice, where it used to adjust again every wait on the same
+-- bookings. Other rules' adjustments don't move where a rule starts, so
+-- one burst can still be raised once by each raise rule whose level it
+-- reaches, a weaker rule included once a stronger one stops matching (a
+-- one-day rule's day has passed), and a burst that reaches MAYA over
+-- several syncs can be raised again by the same rule, on the bookings
+-- that came after its raise. Cuts work the same way: a cut rule that has
+-- not cut a night judges its whole window, whatever another cut rule did
+-- to it. A rule that cuts judges full days ending yesterday, and after a
+-- cut has nothing to judge until a full day has passed.
 --
 -- Checking by hand (the SQL editor carries no JWT, so say you are the
 -- service role for one transaction):
