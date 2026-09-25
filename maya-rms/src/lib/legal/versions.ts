@@ -59,9 +59,17 @@ export function metadataAcceptsCurrent(metadata: unknown): boolean {
 /**
  * Pages where the accept screen must never cover the page: signing in or
  * creating an account already carries its own checkbox, and an invite is
- * accepted on its own form.
+ * accepted on its own form. The docs and support pages are public reading
+ * (they explain the terms themselves), so they never ask either.
  */
 export function isAcceptanceExemptPath(pathname: string | null | undefined): boolean {
   if (!pathname) return true;
-  return pathname === "/login" || pathname.startsWith("/login/") || pathname.startsWith("/auth/");
+  return (
+    pathname === "/login" ||
+    pathname.startsWith("/login/") ||
+    pathname.startsWith("/auth/") ||
+    pathname === "/docs" ||
+    pathname.startsWith("/docs/") ||
+    pathname === "/support"
+  );
 }

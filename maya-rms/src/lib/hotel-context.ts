@@ -9,6 +9,20 @@ import { cookies } from "next/headers";
 
 export const MAYA_ACTIVE_HOTEL_COOKIE = "maya_active_hotel";
 
+/**
+ * How the active-property cookie is written, by the property picker
+ * (POST /api/hotels/active) and by a /go link that names a property.
+ */
+export function activeHotelCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge: 60 * 60 * 24 * 400,
+    secure: process.env.NODE_ENV === "production",
+  };
+}
+
 export type AccessibleHotel = { id: string; name: string };
 
 // The env fallback exists so a fresh clone with seed data works before any

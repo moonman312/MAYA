@@ -61,11 +61,11 @@ describe("signup metadata", () => {
 });
 
 describe("the accept screen stays off the pages that carry their own checkbox", () => {
-  it.each(["/login", "/auth/accept-invite", "/auth/logout", null])("exempts %s", (path) => {
+  it.each(["/login", "/auth/accept-invite", "/auth/logout", "/docs", "/docs/rules/booking-speed", "/support", null])("exempts %s", (path) => {
     expect(isAcceptanceExemptPath(path)).toBe(true);
   });
 
-  it.each(["/", "/onboarding", "/onboarding/review", "/account/billing", "/admin", "/loginx"])(
+  it.each(["/", "/onboarding", "/onboarding/review", "/account/billing", "/admin", "/loginx", "/docsx", "/support/x"])(
     "covers %s",
     (path) => {
       expect(isAcceptanceExemptPath(path)).toBe(false);

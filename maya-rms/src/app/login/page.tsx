@@ -3,6 +3,7 @@
 import { MayaLockup } from "@/components/brand/logo";
 import { TermsConsent } from "@/components/legal/terms-consent";
 import { signupAcceptanceMetadata } from "@/lib/legal/versions";
+import { safeNext } from "@/lib/deep-links";
 import { createClient } from "@/utils/supabase/client";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import Link from "next/link";
@@ -13,6 +14,37 @@ type Mode = "signin" | "signup";
 
 /** Where a Flow A claim ticket waits out an email-confirmation round trip. */
 const CLAIM_KEY = "maya.marketplace.claim";
+
+/**
+ * Where a link into MAYA (/go/...) waits while someone signs in, so it
+ * survives an email confirmation too. Only /go links are ever kept (safeNext),
+ * and only for half an hour.
+ */
+const NEXT_KEY = "maya.go.next";
+const NEXT_TTL_MS = 30 * 60 * 1000;
+
+function readStoredNext(): string | null {
+  try {
+    const raw = sessionStorage.getItem(NEXT_KEY);
+    if (!raw) return null;
+    const { next, at } = JSON.parse(raw) as { next?: unknown; at?: unknown };
+    if (typeof at !== "number" || Date.now() - at > NEXT_TTL_MS) {
+      sessionStorage.removeItem(NEXT_KEY);
+      return null;
+    }
+    return safeNext(next);
+  } catch {
+    return null;
+  }
+}
+
+function forgetNext() {
+  try {
+    sessionStorage.removeItem(NEXT_KEY);
+  } catch {
+    // nothing stored
+  }
+}
 
 /**
  * One card, two doors. Sign-in is the default; the signup mode is its own
@@ -34,6 +66,7 @@ export default function LoginPage() {
 
   const [claim, setClaim] = useState<string | null>(null);
   const [reconnected, setReconnected] = useState(false);
+  const [next, setNext] = useState<string | null>(null);
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
@@ -55,7 +88,48 @@ export default function LoginPage() {
       }
     }
     setReconnected(q.get("reconnected") === "1");
-  }, []);
+
+    // A link into MAYA sent them here to sign in first. Only MAYA's own /go
+    // links are followed; anything else is ignored and the page works as ever.
+    const fromLink = safeNext(q.get("next"));
+    const going = fromLink ?? readStoredNext();
+    if (going) {
+      setNext(going);
+      try {
+        sessionStorage.setItem(NEXT_KEY, JSON.stringify({ next: going, at: Date.now() }));
+      } catch {
+        // Private browsing: the URL parameter still covers the direct path.
+      }
+      // Already signed in (in another tab, say): go straight on.
+      if (fromLink && !c && configured) {
+        void createClient()
+          .auth.getSession()
+          .then(({ data }) => {
+            if (data.session) {
+              forgetNext();
+              window.location.assign(going);
+            }
+          });
+      }
+    }
+  }, [configured]);
+
+  /** Where to go once signed in: a claim still wins, then a link, then home. */
+  function afterSignIn() {
+    if (claim) {
+      router.replace("/onboarding");
+      router.refresh();
+      return;
+    }
+    if (next) {
+      forgetNext();
+      // A full navigation, so /go (a route handler) runs on the server.
+      window.location.assign(next);
+      return;
+    }
+    router.replace("/");
+    router.refresh();
+  }
 
   /** Attach the Marketplace property to the account that just authenticated. */
   async function finishClaim(): Promise<boolean> {
@@ -101,8 +175,7 @@ export default function LoginPage() {
         return;
       }
       if (!(await finishClaim())) return;
-      router.replace(claim ? "/onboarding" : "/");
-      router.refresh();
+      afterSignIn();
     } finally {
       setLoading(false);
     }
@@ -146,8 +219,7 @@ export default function LoginPage() {
         // A property that just arrived from the Marketplace is owned now but
         // not paid for. /onboarding is the router: it lands them on payment,
         // and once the subscription is in, on the import already running.
-        router.replace(claim ? "/onboarding" : "/");
-        router.refresh();
+        afterSignIn();
         return;
       }
       setSentTo(email);

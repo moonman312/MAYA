@@ -587,7 +587,7 @@
     },
     "suggestions": {
       "label": "Open Get suggestions from my data",
-      "opens": "Rules tab scrolled to Get suggestions from my data, highlighted and never pressed. When suggestions are already waiting, the review's recommendations instead.",
+      "opens": "Rules tab scrolled to Get suggestions from my data and highlighted, never pressed. When suggestions are already waiting, the same spot shows the link to them.",
       "target": {
         "path": "/",
         "set": {
@@ -600,14 +600,6 @@
       "belowRole": {
         "to": "rules.list",
         "note": "role-suggestions"
-      },
-      "when": {
-        "suggestions-ready": {
-          "to": "review",
-          "set": {
-            "step": "recommendations"
-          }
-        }
       },
       "flash": "rules.suggestions",
       "docs": "review/getting-suggestions-later",
@@ -911,7 +903,7 @@
     },
     "billing.restart": {
       "label": "Open Restart your subscription",
-      "opens": "Billing page with Restart your subscription highlighted, while the subscription has ended. Otherwise the Billing page. Checkout is never started.",
+      "opens": "Billing page with Restart your subscription highlighted when the subscription has ended; otherwise just the Billing page. Checkout is never started.",
       "target": {
         "path": "/account/billing",
         "set": {
@@ -921,11 +913,6 @@
       "params": [],
       "role": "general_manager",
       "belowRole": "page",
-      "when": {
-        "subscription-live": {
-          "to": "billing"
-        }
-      },
       "flash": "billing.restart",
       "docs": "billing/cancelling-restarting-and-leaving#restarting",
       "docsLinkable": true
