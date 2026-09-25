@@ -642,7 +642,7 @@ async function nightDetails(
       supabase
         .from("pickup_event")
         .select(
-          "id, rule_id, rule_version, stay_date, affected_room_type_id, applied_at, fire_seq, " +
+          "id, rule_id, rule_version, stay_date, affected_room_type_id, applied_at, fire_seq, baseline_start_ts, " +
             "signal_booked_units_start, signal_booked_units_end, signal_booked_revenue_start, signal_booked_revenue_end, " +
             "window_from, window_to, window_bookings_at_fire, window_expected_at_fire",
         )
@@ -691,6 +691,15 @@ async function nightDetails(
         ? Math.round((Number(latest.signal_booked_revenue_end) - Number(latest.signal_booked_revenue_start)) * 100) / 100
         : Number(latest.signal_booked_units_end) - Number(latest.signal_booked_units_start)
       : null;
+    // A pickup count that opened at a stronger rule's newer change covered
+    // less than the rule's window (pickupWindowOpensAt), so no window is
+    // named for it and the owner is never told "over the last 7 days" for a
+    // shorter stretch.
+    const pickupDays = c.pickup_operator ? (c.pickup_window_days ?? null) : null;
+    const wholePickupWindow =
+      pickupDays === null ||
+      latest.baseline_start_ts == null ||
+      Date.parse(String(latest.applied_at)) - Date.parse(String(latest.baseline_start_ts)) >= pickupDays * 86_400_000 - 1000;
     out.set(key, {
       stay_date: stayDate,
       fire_count: Math.max(...perRoomType.values()),
@@ -703,7 +712,7 @@ async function nightDetails(
       window_expected: hasWindow && latest.window_expected_at_fire != null ? Number(latest.window_expected_at_fire) : null,
       pickup_metric: c.pickup_operator ? (c.pickup_metric ?? null) : null,
       pickup_threshold: c.pickup_operator ? (c.pickup_threshold ?? null) : null,
-      pickup_window_days: c.pickup_operator ? (c.pickup_window_days ?? null) : null,
+      pickup_window_days: wholePickupWindow ? pickupDays : null,
       pickup_net: net,
       room_types: rule.affected_room_type_ids
         .filter((id) => perRoomType.has(id))

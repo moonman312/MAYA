@@ -741,6 +741,41 @@ describe("a rule that keeps adjusting the same night", () => {
     expect(alertFor(start(w))).toMatchObject({ fire_count: 3, last_fire_at: iso(T0 - 12 * HOUR) });
   }, 120_000);
 
+  it("names no pickup window for a night whose latest fire counted from a stronger rule's newer change", async () => {
+    // The third fire's count opened 6 hours before it, at a stronger rule's
+    // change, not a whole day back: "over the last 1 day" would not be true.
+    const fires = [1, 2, 3].map((seq) => ({
+      id: `e${seq}`,
+      hotel_id: "h1",
+      rule_id: "r-daily",
+      rule_version: 1,
+      stay_date: NIGHT,
+      affected_room_type_id: STD,
+      baseline_start_ts: seq === 3 ? iso(T0 - 18 * HOUR) : iso(T0 - (4 - seq) * DAY - 12 * HOUR),
+      baseline_end_ts: iso(T0 - (3 - seq) * DAY - 12 * HOUR),
+      signal_booked_units_start: 1,
+      signal_booked_units_end: 1,
+      signal_booked_revenue_start: 100,
+      signal_booked_revenue_end: 100,
+      applied_at: iso(T0 - (3 - seq) * DAY - 12 * HOUR),
+      retired_at: null,
+      retired_reason: null,
+      action_kind: "percent",
+      action_direction: "decrease",
+      action_value: 5,
+      fire_seq: seq,
+      cancel_check: "none",
+      window_from: null,
+      window_to: null,
+      window_bookings_at_fire: null,
+      window_expected_at_fire: null,
+      signal_set_key: STD,
+    }));
+    const w = world({ rules: [daily], reservations: [booking(NIGHT, addDays(D0, -30))], extra: { pickup_event: fires } });
+    await w.run(T0);
+    expect(alertFor(start(w))).toMatchObject({ fire_count: 3, pickup_threshold: 1, pickup_window_days: null, pickup_net: 0 });
+  }, 120_000);
+
   it("stops firing on a night the owner stopped, and keeps going on the others", async () => {
     const w = world({ rules: [daily], reservations: [booking(NIGHT, addDays(D0, -30))] });
     await w.run(T0);

@@ -844,6 +844,8 @@ export async function evaluateHotel(
     stayDate: string;
     baselineTs: string | null;
     countFrom: BookingSpeedCountFrom | null;
+    /** Where baselineTs opened at a fire rather than a whole window back (pickup_counted_since). */
+    pickupSince: string | null;
     open: string[];
     waiting: string[];
     metrics?: RuleMetrics;
@@ -861,7 +863,7 @@ export async function evaluateHotel(
       if (isStoppedOnNight(alertNights, rule, stayDate)) continue;
       const openByFrom = new Map<
         string,
-        { countFrom: BookingSpeedCountFrom | null; baselineTs: string | null; open: string[] }
+        { countFrom: BookingSpeedCountFrom | null; baselineTs: string | null; pickupSince: string | null; open: string[] }
       >();
       const waiting: string[] = [];
       for (const rtId of rule.affected_room_type_ids) {
@@ -876,14 +878,21 @@ export async function evaluateHotel(
         const cellBaselineTs = pickupWindowOpensAt(baselineTs, fireAt, manual);
         if (cellBaselineTs !== baselineTs && !shortStretch) continue;
         const key = `${countFrom ? `${countFrom.from}|${countFrom.since ?? ""}` : ""}|${cellBaselineTs ?? ""}`;
-        const entry = openByFrom.get(key) ?? { countFrom, baselineTs: cellBaselineTs, open: [] };
+        const entry = openByFrom.get(key) ?? {
+          countFrom,
+          baselineTs: cellBaselineTs,
+          pickupSince: cellBaselineTs !== baselineTs ? cellBaselineTs : null,
+          open: [],
+        };
         entry.open.push(rtId);
         openByFrom.set(key, entry);
       }
       for (const entry of openByFrom.values()) {
-        ruleNights.push({ rule, stayDate, baselineTs: entry.baselineTs, countFrom: entry.countFrom, open: entry.open, waiting: [] });
+        ruleNights.push({ rule, stayDate, ...entry, waiting: [] });
       }
-      if (waiting.length > 0) ruleNights.push({ rule, stayDate, baselineTs, countFrom: null, open: [], waiting });
+      if (waiting.length > 0) {
+        ruleNights.push({ rule, stayDate, baselineTs, countFrom: null, pickupSince: null, open: [], waiting });
+      }
     }
   }
 
@@ -956,6 +965,7 @@ export async function evaluateHotel(
     );
     attachBookingSpeed(rn.rule, rn.stayDate, metrics, rn.countFrom);
     noteExcludedSignals(rn.rule, metrics);
+    if (rn.pickupSince) metrics.pickup_counted_since = rn.pickupSince;
     rn.metrics = metrics;
     rn.matched = ruleConditionsMatch(rn.rule, metrics);
   };

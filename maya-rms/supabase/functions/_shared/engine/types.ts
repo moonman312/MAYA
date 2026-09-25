@@ -33,12 +33,14 @@ export type RuleMetrics = {
     window_days: number;
     method: string;
     /**
-     * Set only when the rule's own last fire on the cell
-     * (bookingSpeedCountFrom in pickup.ts) cut its window short or split its
-     * first day: the first booking date counted, the window the rule asks
-     * for, and (counted_since, a raise rule only) the fire, when that first
-     * day counted only the bookings first seen after it. A cut rule counts
-     * from the day after its cut. An audit row without counted_since counted
+     * Set only when the fire the rule counts from on the cell cut its window
+     * short or split its first day (countFromFireAt and
+     * bookingSpeedCountFrom in pickup.ts: its own newest fire there, or a
+     * newer one by a stronger rule that adjusts the same way). The first
+     * booking date counted, the window the rule asks for, and
+     * (counted_since, a raise rule only) that fire, when the first day
+     * counted only the bookings first seen after it. A cut rule counts from
+     * the day after the cut. An audit row without counted_since counted
      * counted_from's day whole.
      */
     counted_from?: string;
@@ -54,11 +56,18 @@ export type RuleMetrics = {
   } | null;
   /**
    * When set, booking-speed conditions must not match: no usable history, or
-   * no complete day left to count since the rule's own last fire on the
-   * cell (a cut rule the day after its cut, or a fire recorded by a run
+   * no complete day left to count since the fire the rule counts from on
+   * the cell (a cut rule the day after that cut, or a fire recorded by a run
    * whose clock was ahead).
    */
   booking_speed_block_reason?: "insufficient_data" | "since_last_fire" | null;
+  /**
+   * Set when a pickup condition's window opened at the fire the rule counts
+   * from rather than a whole window back (pickupWindowOpensAt in pickup.ts:
+   * a stronger rule's newer fire that adjusts the same way): that fire's
+   * instant. The net pickup above counts only what came after it.
+   */
+  pickup_counted_since?: string;
   /** Summed across signal room types at baseline snapshot (pickup ledger / audit). */
   signal_booked_units_baseline?: number;
   signal_booked_revenue_baseline?: number;
