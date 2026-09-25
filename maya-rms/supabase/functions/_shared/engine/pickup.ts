@@ -249,6 +249,51 @@ export function bookingSpeedCountFrom(
     : { from: day, since: lastFireAt };
 }
 
+/**
+ * The fire a rule counts from on a cell: the newest counted fire there
+ * (FireHead.lastCountedAt) of the rule itself or of any event rule in
+ * `others` that adjusts the same way and ranks ahead of it on the cell
+ * (comparePickupRules). So a stronger rule's adjustment starts a weaker
+ * rule's count over, and a weaker rule's never moves a stronger rule's: a
+ * rule for 10 bookings in a day still counts the 5 a rule for 5 raised on.
+ * null when none of them has a counted fire there.
+ */
+export function countFromFireAt(
+  rule: EngineRule,
+  others: EngineRule[],
+  heads: Map<string, FireHead>,
+  stayDate: string,
+  roomTypeId: string,
+  basePrice: number,
+): string | null {
+  let at = heads.get(fireHeadKey(rule.id, stayDate, roomTypeId))?.lastCountedAt ?? null;
+  for (const other of others) {
+    if (other.id === rule.id || other.action_direction !== rule.action_direction) continue;
+    const otherAt = heads.get(fireHeadKey(other.id, stayDate, roomTypeId))?.lastCountedAt ?? null;
+    if (!otherAt || (at !== null && Date.parse(otherAt) <= Date.parse(at))) continue;
+    if (comparePickupRules(other, rule, basePrice, basePrice) < 0) at = otherAt;
+  }
+  return at;
+}
+
+/**
+ * Where a pickup condition's window opens on a cell: now minus its window
+ * (`baselineTs`, baselineTsFrom), or the fire it counts from
+ * (countFromFireAt) when that is later, so a pickup rule doesn't count
+ * again the bookings a stronger rule already adjusted the night for. A fire
+ * made before the open manual price on the cell is ignored, as for a
+ * Booking Speed rule. null for a rule with no pickup condition.
+ */
+export function pickupWindowOpensAt(
+  baselineTs: string | null,
+  fireAt: string | null,
+  manualPrice: { set_at: string } | undefined,
+): string | null {
+  if (baselineTs === null || fireAt === null) return baselineTs;
+  if (manualPrice && Date.parse(fireAt) < Date.parse(manualPrice.set_at)) return baselineTs;
+  return Date.parse(fireAt) > Date.parse(baselineTs) ? fireAt : baselineTs;
+}
+
 /** Still waiting: less than `waitDays` whole days since the anchor. */
 export function isWaiting(anchor: string | null, nowIso: string, waitDays: number): boolean {
   return isWithinCooldown(anchor, nowIso, waitDays);
@@ -343,6 +388,47 @@ function normalizedAdjustment(rule: EngineRule, basePrice: number): number {
 }
 
 /**
+ * Which of two event rules ranks first on a cell, the way selectPickupWinner
+ * picks: negative when `a` does. `baseA` and `baseB` are the cells' base
+ * prices, for comparing a percent against a fixed amount.
+ */
+export function comparePickupRules(a: EngineRule, b: EngineRule, baseA: number, baseB: number): number {
+  const priDiff = b.priority - a.priority;
+  if (priDiff !== 0) return priDiff;
+
+  const specDiff = conditionCount(b) - conditionCount(a);
+  if (specDiff !== 0) return specDiff;
+
+  // Thresholds are only comparable when both sides share the same
+  // operator — "greater than 10" and "less than 2" aren't points on the
+  // same number line, so ranking one against the other isn't well
+  // defined. Branching on `a`'s operator alone made the comparator
+  // asymmetric (compare(P,Q) and compare(Q,P) could both claim to go
+  // first), so the winner — and the sign of the price move — depended on
+  // unspecified DB row order. A booking-speed rule's null pickup_operator
+  // falls through the same way, for the same reason.
+  const aOp = a.condition.pickup_operator;
+  const bOp = b.condition.pickup_operator;
+  if (aOp != null && aOp === bOp) {
+    const aThresh = a.condition.pickup_threshold ?? 0;
+    const bThresh = b.condition.pickup_threshold ?? 0;
+    if (aThresh !== bThresh) {
+      return aOp === "gt" ? bThresh - aThresh : aThresh - bThresh;
+    }
+  }
+
+  const aAdj = normalizedAdjustment(a, baseA);
+  const bAdj = normalizedAdjustment(b, baseB);
+  if (bAdj !== aAdj) return bAdj - aAdj;
+
+  const aCreated = new Date(a.created_at).getTime();
+  const bCreated = new Date(b.created_at).getTime();
+  if (aCreated !== bCreated) return aCreated - bCreated;
+
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/**
  * Select one winner per scope key using the deterministic 6-level ordering.
  */
 export function selectPickupWinner(
@@ -352,43 +438,14 @@ export function selectPickupWinner(
   if (candidates.length === 0) return null;
   if (candidates.length === 1) return candidates[0];
 
-  const sorted = [...candidates].sort((a, b) => {
-    const priDiff = b.rule.priority - a.rule.priority;
-    if (priDiff !== 0) return priDiff;
-
-    const specDiff = conditionCount(b.rule) - conditionCount(a.rule);
-    if (specDiff !== 0) return specDiff;
-
-    // Thresholds are only comparable when both sides share the same
-    // operator — "greater than 10" and "less than 2" aren't points on the
-    // same number line, so ranking one against the other isn't well
-    // defined. Branching on `a`'s operator alone made the comparator
-    // asymmetric (compare(P,Q) and compare(Q,P) could both claim to go
-    // first), so the winner — and the sign of the price move — depended on
-    // unspecified DB row order. A booking-speed rule's null pickup_operator
-    // falls through the same way, for the same reason.
-    const aOp = a.rule.condition.pickup_operator;
-    const bOp = b.rule.condition.pickup_operator;
-    if (aOp != null && aOp === bOp) {
-      const aThresh = a.rule.condition.pickup_threshold ?? 0;
-      const bThresh = b.rule.condition.pickup_threshold ?? 0;
-      if (aThresh !== bThresh) {
-        return aOp === "gt" ? bThresh - aThresh : aThresh - bThresh;
-      }
-    }
-
-    const baseA = basePrices.get(basePriceKey(a.stay_date, a.affected_room_type_id)) ?? 100;
-    const baseB = basePrices.get(basePriceKey(b.stay_date, b.affected_room_type_id)) ?? 100;
-    const aAdj = normalizedAdjustment(a.rule, baseA);
-    const bAdj = normalizedAdjustment(b.rule, baseB);
-    if (bAdj !== aAdj) return bAdj - aAdj;
-
-    const aCreated = new Date(a.rule.created_at).getTime();
-    const bCreated = new Date(b.rule.created_at).getTime();
-    if (aCreated !== bCreated) return aCreated - bCreated;
-
-    return a.rule.id < b.rule.id ? -1 : a.rule.id > b.rule.id ? 1 : 0;
-  });
+  const sorted = [...candidates].sort((a, b) =>
+    comparePickupRules(
+      a.rule,
+      b.rule,
+      basePrices.get(basePriceKey(a.stay_date, a.affected_room_type_id)) ?? 100,
+      basePrices.get(basePriceKey(b.stay_date, b.affected_room_type_id)) ?? 100,
+    ),
+  );
 
   return sorted[0];
 }

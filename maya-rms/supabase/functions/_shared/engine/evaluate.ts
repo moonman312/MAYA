@@ -39,6 +39,8 @@ import { computeRuleMetrics } from "./metrics.ts";
 import {
   baselineTsFrom,
   bookingSpeedCountFrom,
+  countFromFireAt,
+  pickupWindowOpensAt,
   candidateFor,
   fireHeadKey,
   firesCancelled,
@@ -837,7 +839,10 @@ export async function evaluateHotel(
     for (const stayDate of stayDates) {
       if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone)) continue;
       if (isStoppedOnNight(alertNights, rule, stayDate)) continue;
-      const openByFrom = new Map<string, { countFrom: BookingSpeedCountFrom | null; open: string[] }>();
+      const openByFrom = new Map<
+        string,
+        { countFrom: BookingSpeedCountFrom | null; baselineTs: string | null; open: string[] }
+      >();
       const waiting: string[] = [];
       for (const rtId of rule.affected_room_type_ids) {
         const head = fireHeads.get(fireHeadKey(rule.id, stayDate, rtId));
@@ -846,14 +851,23 @@ export async function evaluateHotel(
           waiting.push(rtId);
           continue;
         }
-        const countFrom = bookingSpeedCountFrom(rule, head?.lastCountedAt, manual, hotelTimeZone);
-        const key = countFrom ? `${countFrom.from}|${countFrom.since ?? ""}` : "";
-        const entry = openByFrom.get(key) ?? { countFrom, open: [] };
+        const fireAt = countFromFireAt(
+          rule,
+          pickupRules,
+          fireHeads,
+          stayDate,
+          rtId,
+          basePrices.get(`${stayDate}|${rtId}`) ?? 100,
+        );
+        const countFrom = bookingSpeedCountFrom(rule, fireAt, manual, hotelTimeZone);
+        const cellBaselineTs = pickupWindowOpensAt(baselineTs, fireAt, manual);
+        const key = `${countFrom ? `${countFrom.from}|${countFrom.since ?? ""}` : ""}|${cellBaselineTs ?? ""}`;
+        const entry = openByFrom.get(key) ?? { countFrom, baselineTs: cellBaselineTs, open: [] };
         entry.open.push(rtId);
         openByFrom.set(key, entry);
       }
-      for (const { countFrom, open } of openByFrom.values()) {
-        ruleNights.push({ rule, stayDate, baselineTs, countFrom, open, waiting: [] });
+      for (const entry of openByFrom.values()) {
+        ruleNights.push({ rule, stayDate, baselineTs: entry.baselineTs, countFrom: entry.countFrom, open: entry.open, waiting: [] });
       }
       if (waiting.length > 0) ruleNights.push({ rule, stayDate, baselineTs, countFrom: null, open: [], waiting });
     }
