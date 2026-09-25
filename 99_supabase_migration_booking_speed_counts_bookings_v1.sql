@@ -166,7 +166,13 @@
 -- bookings and then 5 more can still be raised twice, the second time on
 -- all 10, but bookings a stronger rule raised on are never raised on again
 -- by a weaker one, so ten bookings at once under the starter rules end at
--- +25%, not +72%. A burst that reaches MAYA over several syncs can still
+-- +25%, not +72%. The stronger rule is the one that changes the price by
+-- more, then at the same change the one whose condition is harder to meet,
+-- then the starter rules' own order, then the one with more conditions,
+-- then the older rule; the same order picks the rule that adjusts when
+-- several match at once. It used to put the starter rules first and then
+-- the rule with more conditions, so an owner's rule that changes the price
+-- by more than a starter rule now goes ahead of it. A burst that reaches MAYA over several syncs can still
 -- be raised again, on the bookings that came after the newest such raise.
 -- Cuts work the same way: a stronger cut covers the weaker cut rules, so a
 -- night the rescue cut is not trimmed again for the same slow stretch. A

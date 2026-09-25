@@ -91,6 +91,24 @@
  * newer fire that adjusts the same way, paused rules' fires included
  * (Jake, 2026-09-24, option A): every hash matched again.
  *
+ * The pickup_event, published_price and evaluation_audit hashes of runs 3
+ * to 7 in both variants, their pickup_events_created counts and run 5's
+ * prices_published were rewritten an eighth time when the order that says
+ * which event rule is stronger (the competition, and where a rule counts
+ * from) started with the change to the price instead of priority. Read
+ * against a dump of the previous engine first. On the King the 3% one-day
+ * rule (c1, about $5 on these nights) now ranks ahead of the fixed $2
+ * three-day rule (c2, priority 120), and c2 ahead of the 1% revenue rule
+ * (c4, whose 150 used to outrank c1's count of 1 across metrics). c1 raises
+ * 2026-06-17, 06-23, 06-27 and 06-29 in run 2 as before. c2 now counts
+ * only from that raise and raises 06-17 and 06-27 in run 3 and 06-29 in
+ * run 4; c4 counts from c2's raise where there is one and raises 06-17 and
+ * 06-27 in run 4 and 06-23 in run 5. Those six fires are the only new rows
+ * (the nights that pass take theirs off as night_passed), no fire went
+ * away, and the prices and audit rows that moved are those cells' alone:
+ * 06-23 now changes in run 5, the one more price published. Every ladder
+ * row, snapshot and run log is unchanged.
+ *
  * The golden file was written by this same test at commit 4ef5d65 with
  * MAYA_WRITE_ENGINE_GOLDEN=1. Its ladder_rule_state hashes were rewritten
  * once, leaving out last_evaluated_at, from an engine that still matched the

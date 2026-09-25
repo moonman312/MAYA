@@ -95,7 +95,7 @@ describe("pickup competition (§7.3, §15.5)", () => {
     expect(winner).toBe(c);
   });
 
-  it("higher priority wins (step 1)", () => {
+  it("higher priority wins at the same change and bar (step 3)", () => {
     const ruleA = makeRule({ id: "rA", priority: 100 });
     const ruleB = makeRule({ id: "rB", priority: 200 });
     const cA = makeCandidate(ruleA);
@@ -104,7 +104,7 @@ describe("pickup competition (§7.3, §15.5)", () => {
     expect(winner!.rule.id).toBe("rB");
   });
 
-  it("more specific rule wins on priority tie (step 2)", () => {
+  it("more specific rule wins on priority tie (step 4)", () => {
     const ruleA = makeRule({
       id: "rA",
       priority: 100,
@@ -137,21 +137,21 @@ describe("pickup competition (§7.3, §15.5)", () => {
     expect(winner!.rule.id).toBe("rB");
   });
 
-  it("stricter pickup threshold wins on specificity tie (step 3, gt)", () => {
+  it("stricter pickup threshold wins at the same change (step 2, gt)", () => {
     const ruleA = makeRule({ id: "rA", condition: { ...makeRule().condition, pickup_threshold: 5, pickup_operator: "gt" } });
     const ruleB = makeRule({ id: "rB", condition: { ...makeRule().condition, pickup_threshold: 8, pickup_operator: "gt" } });
     const winner = selectPickupWinner([makeCandidate(ruleA), makeCandidate(ruleB)], new Map());
     expect(winner!.rule.id).toBe("rB");
   });
 
-  it("stricter pickup threshold wins on specificity tie (step 3, lt)", () => {
+  it("stricter pickup threshold wins at the same change (step 2, lt)", () => {
     const ruleA = makeRule({ id: "rA", condition: { ...makeRule().condition, pickup_threshold: 5, pickup_operator: "lt" } });
     const ruleB = makeRule({ id: "rB", condition: { ...makeRule().condition, pickup_threshold: 3, pickup_operator: "lt" } });
     const winner = selectPickupWinner([makeCandidate(ruleA), makeCandidate(ruleB)], new Map());
     expect(winner!.rule.id).toBe("rB");
   });
 
-  it("larger adjustment value wins (step 4)", () => {
+  it("larger adjustment value wins (step 1)", () => {
     const ruleA = makeRule({ id: "rA", action_value: 5 });
     const ruleB = makeRule({ id: "rB", action_value: 10 });
     const sd = "2026-07-15";
@@ -311,12 +311,119 @@ describe("pickup competition (§7.3, §15.5)", () => {
       const { fast, slow } = slowFastPair();
       const sd = "2026-07-15";
       const basePrices = new Map([[basePriceKey(sd, "rt1"), 100]]);
-      const winner = makeCandidate(fast, "rt1", sd);
+      // The same change, so the bar is what the trace reaches.
+      const winner = makeCandidate({ ...fast, action_value: 5 }, "rt1", sd);
       const loser = makeCandidate(slow, "rt1", sd);
+      expect(selectPickupWinner([loser, winner], basePrices)).toBe(winner);
       const trace = pickupTieBreakTrace(winner, loser, basePrices);
       const joined = trace.join(" | ");
       expect(joined).not.toMatch(/pickup_threshold\((gt|lt)\):/);
       expect(joined).toContain("not comparable");
+    });
+  });
+
+  describe("the stronger rule is the one that changes the price more, then the one that asks more of the bookings", () => {
+    // Owners can't set priority (every rule they make is 100), so what
+    // ranks their rules must be what they can see: how much a rule changes
+    // the price, and at the same change how demanding its condition is.
+    // One key per rule, so the order never loops and never depends on the
+    // order the rules were read in.
+    const sd = "2026-07-15";
+    const basePrices = new Map([[basePriceKey(sd, "rt1"), 100]]);
+    const speed = (id: string, level: string, value: number, over: Partial<EngineRule> = {}) =>
+      makeRule({
+        id,
+        action_value: value,
+        condition: { booking_speed_operator: "at_least", booking_speed_level: level, booking_speed_window_days: 1, booking_speed_cooldown_days: 1 },
+        ...over,
+      });
+    const pickup = (id: string, threshold: number, value: number) =>
+      makeRule({ id, action_value: value, condition: { pickup_operator: "gt", pickup_threshold: threshold, pickup_window_days: 7, pickup_metric: "room_nights" } });
+    const order = (rules: EngineRule[]) =>
+      [...rules].sort((a, b) => comparePickupRules(a, b, 100, 100)).map((r) => r.id);
+    const permutations = <T,>(xs: T[]): T[][] =>
+      xs.length <= 1 ? [xs] : xs.flatMap((x, i) => permutations([...xs.slice(0, i), ...xs.slice(i + 1)]).map((p) => [x, ...p]));
+
+    it("a bigger change ranks ahead of a rule with more conditions", () => {
+      const five = speed("five", "much_faster", 10, {
+        condition: { booking_speed_operator: "at_least", booking_speed_level: "much_faster", booking_speed_window_days: 1, dta_operator: "lt", dta_threshold_days: 60 },
+      });
+      const ten = speed("ten", "surging", 20);
+      expect(selectPickupWinner([makeCandidate(five, "rt1", sd), makeCandidate(ten, "rt1", sd)], basePrices)!.rule.id).toBe("ten");
+      expect(comparePickupRules(ten, five, 100, 100)).toBeLessThan(0);
+    });
+
+    it("at the same change, the faster Booking Speed level ranks ahead, whichever rule was made first", () => {
+      for (const [fiveMade, tenMade] of [
+        ["2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z"],
+        ["2026-01-02T00:00:00Z", "2026-01-01T00:00:00Z"],
+      ]) {
+        const five = speed("five", "much_faster", 10, { created_at: fiveMade });
+        const ten = speed("ten", "surging", 10, { created_at: tenMade });
+        expect(order([five, ten])).toEqual(["ten", "five"]);
+      }
+      // For cuts the slower level asks more.
+      const cut = (id: string, level: string) =>
+        speed(id, level, 10, {
+          action_direction: "decrease",
+          condition: { booking_speed_operator: "at_most", booking_speed_level: level, booking_speed_window_days: 30 },
+        });
+      expect(order([cut("slower", "slower"), cut("much-slower", "much_slower")])).toEqual(["much-slower", "slower"]);
+    });
+
+    it("never loops: pickup and Booking Speed rules mixed rank the same whatever order they come in", () => {
+      // Under the old order "more than 9" (+10%) beat "more than 4" (+20%)
+      // on the count, a Booking Speed rule (+15%) beat "more than 9" on the
+      // change, and "more than 4" beat it on the change: a loop, so the
+      // winner depended on the order the database returned the rules in.
+      const a = pickup("a", 9, 10);
+      const b = speed("b", "faster", 15);
+      const c = pickup("c", 4, 20);
+      for (const p of permutations([a, b, c])) {
+        expect(order(p)).toEqual(["c", "b", "a"]);
+        expect(selectPickupWinner(p.map((r) => makeCandidate(r, "rt1", sd)), basePrices)!.rule.id).toBe("c");
+      }
+    });
+
+    it("is transitive over every mix of kinds, directions, changes and priorities", () => {
+      const rules: EngineRule[] = [
+        pickup("p9-10", 9, 10),
+        pickup("p4-20", 4, 20),
+        pickup("p4-10", 4, 10),
+        speed("s-surge-10", "surging", 10),
+        speed("s-faster-15", "faster", 15),
+        speed("s-much-10-p150", "much_faster", 10, { priority: 150 }),
+        makeRule({ id: "fixed-10", action_type: "fixed", action_value: 10 }),
+        makeRule({ id: "lt-cut-10", action_direction: "decrease", action_value: 10, condition: { pickup_operator: "lt", pickup_threshold: 2, pickup_window_days: 3 } }),
+        speed("s-cut-10", "slower", 10, { action_direction: "decrease", condition: { booking_speed_operator: "at_most", booking_speed_level: "slower" } }),
+        makeRule({ id: "rev-10", action_value: 10, condition: { pickup_operator: "gt", pickup_threshold: 500, pickup_window_days: 7, pickup_metric: "revenue" } }),
+      ];
+      const cmp = (x: EngineRule, y: EngineRule) => Math.sign(comparePickupRules(x, y, 100, 100));
+      for (const x of rules) {
+        for (const y of rules) {
+          expect(cmp(x, y)).toBe(x === y ? 0 : -cmp(y, x));
+          for (const z of rules) if (cmp(x, y) < 0 && cmp(y, z) < 0) expect(cmp(x, z)).toBeLessThan(0);
+        }
+      }
+    });
+
+    it("keeps the starter rules in their own order, and puts an owner's bigger change ahead of them", () => {
+      const starters = [
+        speed("spike", "surging", 25, { priority: 130 }),
+        speed("week", "much_faster", 25, { priority: 125 }),
+        speed("month", "faster", 10, { priority: 115 }),
+      ];
+      expect(order([...starters].reverse())).toEqual(["spike", "week", "month"]);
+      const cuts = [
+        speed("trim", "slower", 7, { priority: 105, action_direction: "decrease", condition: { booking_speed_operator: "is", booking_speed_level: "slower" } }),
+        speed("rescue", "much_slower", 15, { priority: 110, action_direction: "decrease", condition: { booking_speed_operator: "at_most", booking_speed_level: "much_slower" } }),
+      ];
+      expect(order(cuts)).toEqual(["rescue", "trim"]);
+      // An owner's rule is priority 100: a 20% raise on 10 bookings in a
+      // week ranks ahead of the 10% month rule, and behind the 25% ones.
+      expect(order([...starters, pickup("owner-ten", 9, 20)])).toEqual(["spike", "week", "owner-ten", "month"]);
+      // At the same change and level a starter's priority decides.
+      expect(order([speed("owner-surge", "surging", 25), starters[0]])).toEqual(["spike", "owner-surge"]);
     });
   });
 });
@@ -473,15 +580,22 @@ describe("the fire a rule counts from on a cell (countFromFireAt)", () => {
     expect(at(strongest, [weak, strong], fires)).toBe("2026-07-11T09:00:00.000Z");
   });
 
-  it("ranks the way the competition does: priority, then more conditions, then the higher count, then the bigger change", () => {
+  it("ranks the way the competition does: the bigger change, then the higher count, then priority, then more conditions", () => {
     const fires = { a: "2026-07-11T09:00:00.000Z" };
     const pickup = (id: string, threshold: number, over: Partial<EngineRule> = {}) =>
       makeRule({ id, condition: { pickup_operator: "gt", pickup_threshold: threshold, pickup_window_days: 7, pickup_metric: "room_nights" }, ...over });
-    // Same priority and one condition each: more than 9 ranks ahead of more than 4.
+    // The same change: more than 9 ranks ahead of more than 4.
     expect(at(pickup("b", 4), [pickup("a", 9)], fires)).toBe(fires.a);
     expect(at(pickup("b", 9), [pickup("a", 4)], fires)).toBeNull();
-    // A higher priority wins over the count.
-    expect(at(pickup("b", 9), [pickup("a", 4, { priority: 150 })], fires)).toBe(fires.a);
+    // A bigger change ranks ahead of the higher count, and a higher
+    // priority or an extra condition doesn't outrank a bigger change.
+    expect(at(pickup("b", 9), [pickup("a", 4, { action_value: 20 })], fires)).toBe(fires.a);
+    expect(at(pickup("b", 4, { action_value: 20 }), [pickup("a", 9, { priority: 150 })], fires)).toBeNull();
+    expect(
+      at(pickup("b", 4, { action_value: 20 }), [pickup("a", 4, { condition: { ...makeRule().condition, pickup_threshold: 4 } })], fires),
+    ).toBeNull();
+    // At the same change and count, the higher priority.
+    expect(at(pickup("b", 9), [pickup("a", 9, { priority: 150 })], fires)).toBe(fires.a);
     // A fixed $30 raise outranks 20% of a $100 base.
     expect(at(speed("b", { action_value: 20 }), [speed("a", { action_type: "fixed", action_value: 30 })], fires)).toBe(fires.a);
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BOOKING_SPEED_HELP_EXAMPLE, bookingSpeedHelp, bookingSpeedWaitHelp } from "@/lib/booking-speed-help";
+import { BOOKING_SPEED_HELP_EXAMPLE, STRONGER_RULE_LINE, bookingSpeedHelp, bookingSpeedWaitHelp } from "@/lib/booking-speed-help";
 import { classifyBookingSpeed } from "@/lib/observations/booking-speed";
 
 describe("bookingSpeedHelp", () => {
@@ -33,7 +33,7 @@ describe("bookingSpeedHelp", () => {
   });
 
   it("says in one line that the rule can act again after its wait", () => {
-    const line = bookingSpeedHelp(7).lines.at(-1)!;
+    const line = bookingSpeedHelp(7).lines.at(-2)!;
     expect(line).toBe("If those keep the rule true after its wait, it adjusts that night again.");
     expect(line.length).toBeLessThan(80);
   });
@@ -45,10 +45,10 @@ describe("bookingSpeedHelp", () => {
     // read over the same shorter stretch (observeBookingSpeed countFrom).
     for (const w of [1, 7, 30]) {
       const lines = bookingSpeedHelp(w).lines;
-      expect(lines.at(-3)).toBe(
+      expect(lines.at(-4)).toBe(
         "After a rule changes a night, it only counts bookings made since then. So does every weaker rule that moves the price the same way, so they don't add to that change on the same bookings.",
       );
-      expect(lines.at(-2)).toBe("Those bookings are compared with similar nights over the same days.");
+      expect(lines.at(-3)).toBe("Those bookings are compared with similar nights over the same days.");
       expect(lines.join(" ")).not.toContain("whichever rule");
     }
   });
@@ -57,10 +57,22 @@ describe("bookingSpeedHelp", () => {
     // What the engine does: countsCompleteDays, on the night and on the
     // nights it is compared with alike.
     for (const w of [1, 7, 30]) {
-      expect(bookingSpeedHelp(w).lines.at(-4)).toBe(
+      expect(bookingSpeedHelp(w).lines.at(-5)).toBe(
         "A rule that cuts counts full days only, up to yesterday. A rule that raises counts today so far too.",
       );
     }
+  });
+
+  it("says what makes a rule stronger in terms the owner can see: the bigger change, then the harder condition", () => {
+    // What the engine does: comparePickupRules ranks by the change to the
+    // price first, then how demanding the condition is; priority, which
+    // owners can't set, only after that.
+    expect(STRONGER_RULE_LINE).toBe(
+      "A stronger rule is one that changes the price by more. If two change it by the same amount, the one whose condition is harder to meet is stronger.",
+    );
+    for (const w of [1, 7, 30]) expect(bookingSpeedHelp(w).lines.at(-1)).toBe(STRONGER_RULE_LINE);
+    expect(bookingSpeedWaitHelp("1 week").lines.at(-1)).toBe(STRONGER_RULE_LINE);
+    expect(STRONGER_RULE_LINE).not.toMatch(/priority/i);
   });
 
   it("has no em dashes", () => {

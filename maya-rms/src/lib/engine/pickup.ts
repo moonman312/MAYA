@@ -27,7 +27,10 @@
  * once raise once, and the rule for 5 then counts only what comes after
  * that raise. The same holds for cuts: a stronger cut covers the weaker
  * cut rules. Raises and cuts never move each other. "Ranks ahead" is the
- * order selectPickupWinner picks in (comparePickupRules). A paused rule's
+ * order selectPickupWinner picks in (comparePickupRules): the bigger change
+ * to the price first, then at the same change the more demanding condition
+ * (a faster Booking Speed level, a pickup count harder to meet), then
+ * priority, more conditions and the older rule. A paused rule's
  * fires stay on the price, so they still cover the rules below it. The
  * fire counted from is the newest one that counts toward the owner alert
  * (open, or taken off for cancellations), from its rule's current version.
@@ -240,7 +243,7 @@ export async function loadPausedEventRules(supabase: SupabaseClient, hotelId: st
     .select(
       `
       id, version, priority, action_type, action_direction, action_value, created_at,
-      rule_condition ( occupancy_operator, dta_operator, pickup_operator, pickup_threshold, booking_speed_operator )
+      rule_condition ( occupancy_operator, dta_operator, pickup_operator, pickup_threshold, pickup_metric, booking_speed_operator, booking_speed_level )
     `,
     )
     .eq("hotel_id", hotelId)
@@ -263,7 +266,9 @@ export async function loadPausedEventRules(supabase: SupabaseClient, hotelId: st
         dta_operator: (rc.dta_operator ?? null) as RankedRule["condition"]["dta_operator"],
         pickup_operator: (rc.pickup_operator ?? null) as RankedRule["condition"]["pickup_operator"],
         pickup_threshold: rc.pickup_threshold != null ? Number(rc.pickup_threshold) : null,
+        pickup_metric: (rc.pickup_metric ?? null) as RankedRule["condition"]["pickup_metric"],
         booking_speed_operator: (rc.booking_speed_operator ?? null) as RankedRule["condition"]["booking_speed_operator"],
+        booking_speed_level: rc.booking_speed_level != null ? String(rc.booking_speed_level) : null,
       },
     };
   });
@@ -463,57 +468,104 @@ export function basePriceKey(stayDate: string, roomTypeId: string): string {
   return `${stayDate}|${roomTypeId}`;
 }
 
+/**
+ * How far a rule moves a price, in money, on a cell whose base price is
+ * `basePrice`: a percent of it, or a fixed amount. Rounded to a hundredth of
+ * a cent, so 7% of 100 and a fixed 7 tie.
+ */
 function normalizedAdjustment(rule: Pick<EngineRule, "action_type" | "action_value">, basePrice: number): number {
-  if (rule.action_type === "percent") {
-    return Math.abs((rule.action_value / 100) * basePrice);
-  }
-  return Math.abs(rule.action_value);
+  const money = rule.action_type === "percent" ? (rule.action_value / 100) * basePrice : rule.action_value;
+  return Math.round(Math.abs(money) * 10_000) / 10_000;
 }
 
 /**
- * Which of two event rules ranks first on a cell, the way selectPickupWinner
- * picks: negative when `a` does. `baseA` and `baseB` are the cells' base
- * prices, for comparing a percent against a fixed amount. The ranking
- * countFromFireAt calls stronger.
+ * How demanding a rule's Booking Speed condition is, in the direction it
+ * moves the price: a raise on Surging above one on Much Faster, a cut on
+ * Much Slower above one on Slower. 1 to 7 (4 for a level the engine doesn't
+ * know), 0 without one.
+ */
+function speedBar(rule: RankedRule): number {
+  const c = rule.condition;
+  if (!c.booking_speed_operator) return 0;
+  if (!isBookingSpeed(c.booking_speed_level)) return 4;
+  return 4 + (rule.action_direction === "decrease" ? -1 : 1) * bookingSpeedRank(c.booking_speed_level);
+}
+
+/**
+ * A pickup condition's kind (0 without one), then how demanding its
+ * threshold is within that kind: a higher count for "more than", a lower
+ * one for "less than". Thresholds only compare within one kind, operator
+ * and metric alike: "more than 10" and "less than 2" aren't points on one
+ * number line, and neither are room nights and revenue.
+ */
+function pickupBar(rule: RankedRule): [kind: number, bar: number] {
+  const c = rule.condition;
+  if (!c.pickup_operator) return [0, 0];
+  const kind = (c.pickup_metric === "revenue" ? 0 : 2) + (c.pickup_operator === "gt" ? 2 : 1);
+  const threshold = c.pickup_threshold ?? 0;
+  return [kind, c.pickup_operator === "gt" ? threshold : -threshold];
+}
+
+/** When the rule was made, in milliseconds; 0 for a time that doesn't parse, so the key stays a number. */
+function createdMs(rule: RankedRule): number {
+  const ms = new Date(rule.created_at).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+/**
+ * What ranks one event rule against another on a cell, strongest first:
+ *
+ * 1. the bigger change to the price, in money on the cell's base price;
+ * 2. at the same change, the more demanding condition: a faster Booking
+ *    Speed level for a raise (a slower one for a cut), then a pickup count
+ *    harder to meet (a higher "more than", a lower "less than")
+ *    (a rule with a Booking Speed condition ahead of one without, and one
+ *    kind of pickup condition ahead of another, only so the order is the
+ *    same whatever order the rules come in);
+ * 3. the higher priority (owners can't set it: every rule they make is 100,
+ *    and the starter rules are 105 to 130, in their own order);
+ * 4. more conditions;
+ * 5. the older rule; 6. the lower id.
+ *
+ * Each rule gets one key, compared field by field, so the order is total
+ * and transitive and never depends on the order the rules were read in.
+ * The competition picks by it (selectPickupWinner), and it is what a
+ * stronger rule means when a rule counts from a stronger rule's change
+ * (countFromFireAt). A tier that needs more bookings and changes the price
+ * more is stronger, whatever else it has: Jake's rule for 10 bookings in a
+ * week (+20%) ranks ahead of his rule for 5 (+10%), with or without an
+ * extra condition on either, and two tiers that change the price by the
+ * same amount rank by how fast they need bookings, not by when they were
+ * made.
+ */
+function strengthKey(rule: RankedRule, basePrice: number): number[] {
+  return [
+    normalizedAdjustment(rule, basePrice),
+    speedBar(rule),
+    ...pickupBar(rule),
+    rule.priority,
+    conditionCount(rule),
+    -createdMs(rule),
+  ];
+}
+
+/**
+ * Which of two event rules ranks first on a cell (strengthKey): negative
+ * when `a` does. `baseA` and `baseB` are the cells' base prices, for
+ * comparing a percent against a fixed amount. The ranking countFromFireAt
+ * calls stronger.
  */
 export function comparePickupRules(a: RankedRule, b: RankedRule, baseA: number, baseB: number): number {
-  const priDiff = b.priority - a.priority;
-  if (priDiff !== 0) return priDiff;
-
-  const specDiff = conditionCount(b) - conditionCount(a);
-  if (specDiff !== 0) return specDiff;
-
-  // Thresholds are only comparable when both sides share the same
-  // operator — "greater than 10" and "less than 2" aren't points on the
-  // same number line, so ranking one against the other isn't well
-  // defined. Branching on `a`'s operator alone made the comparator
-  // asymmetric (compare(P,Q) and compare(Q,P) could both claim to go
-  // first), so the winner — and the sign of the price move — depended on
-  // unspecified DB row order. A booking-speed rule's null pickup_operator
-  // falls through the same way, for the same reason.
-  const aOp = a.condition.pickup_operator;
-  const bOp = b.condition.pickup_operator;
-  if (aOp != null && aOp === bOp) {
-    const aThresh = a.condition.pickup_threshold ?? 0;
-    const bThresh = b.condition.pickup_threshold ?? 0;
-    if (aThresh !== bThresh) {
-      return aOp === "gt" ? bThresh - aThresh : aThresh - bThresh;
-    }
+  const ka = strengthKey(a, baseA);
+  const kb = strengthKey(b, baseB);
+  for (let i = 0; i < ka.length; i++) {
+    if (ka[i] !== kb[i]) return kb[i] - ka[i];
   }
-
-  const aAdj = normalizedAdjustment(a, baseA);
-  const bAdj = normalizedAdjustment(b, baseB);
-  if (bAdj !== aAdj) return bAdj - aAdj;
-
-  const aCreated = new Date(a.created_at).getTime();
-  const bCreated = new Date(b.created_at).getTime();
-  if (aCreated !== bCreated) return aCreated - bCreated;
-
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
 /**
- * Select one winner per scope key using the deterministic 6-level ordering.
+ * The strongest candidate on a cell (comparePickupRules).
  */
 export function selectPickupWinner(
   candidates: PickupCandidate[],
@@ -534,11 +586,57 @@ export function selectPickupWinner(
   return sorted[0];
 }
 
+const PICKUP_KIND_WORDS = ["none", "revenue less than", "revenue more than", "room nights less than", "room nights more than"];
+
 /**
- * §14 — deterministic tie-break explanation vs the winning candidate.
+ * §14 — deterministic tie-break explanation vs the winning candidate, step
+ * by step in the order comparePickupRules ranks.
  */
 export function pickupTieBreakTrace(winner: PickupCandidate, other: PickupCandidate, basePrices: Map<string, number>): string[] {
   const trace: string[] = [];
+  const baseW = basePrices.get(basePriceKey(winner.stay_date, winner.affected_room_type_id)) ?? 100;
+  const baseO = basePrices.get(basePriceKey(other.stay_date, other.affected_room_type_id)) ?? 100;
+  const adjW = normalizedAdjustment(winner.rule, baseW);
+  const adjO = normalizedAdjustment(other.rule, baseO);
+  if (adjW !== adjO) {
+    trace.push(`normalized_adjustment: ${adjW.toFixed(2)} beats ${adjO.toFixed(2)}`);
+    return trace;
+  }
+  trace.push(`normalized_adjustment: tie`);
+
+  const wSpeed = speedBar(winner.rule);
+  const oSpeed = speedBar(other.rule);
+  if (wSpeed !== oSpeed) {
+    trace.push(
+      wSpeed > 0 && oSpeed > 0
+        ? `booking_speed: ${winner.rule.condition.booking_speed_level} beats ${other.rule.condition.booking_speed_level}`
+        : `booking_speed: a booking speed condition ranks ahead of none`,
+    );
+    return trace;
+  }
+  trace.push(`booking_speed: tie`);
+
+  const [wKind, wBar] = pickupBar(winner.rule);
+  const [oKind, oBar] = pickupBar(other.rule);
+  // Only claim a threshold win when both sides share the same operator and
+  // metric. Different kinds aren't comparable, so the trace says so and
+  // names the fixed order that decided.
+  if (wKind !== oKind) {
+    trace.push(`pickup_threshold: not comparable (different operators or metrics); ${PICKUP_KIND_WORDS[wKind]} ranks ahead of ${PICKUP_KIND_WORDS[oKind]}`);
+    return trace;
+  }
+  if (wBar !== oBar) {
+    const wTh = winner.rule.condition.pickup_threshold ?? 0;
+    const oTh = other.rule.condition.pickup_threshold ?? 0;
+    trace.push(
+      winner.rule.condition.pickup_operator === "gt"
+        ? `pickup_threshold(gt): ${wTh} beats ${oTh}`
+        : `pickup_threshold(lt): stricter is lower; ${wTh} beats ${oTh}`,
+    );
+    return trace;
+  }
+  trace.push(`pickup_threshold: tie`);
+
   if (winner.rule.priority !== other.rule.priority) {
     trace.push(`priority: ${winner.rule.priority} beats ${other.rule.priority}`);
     return trace;
@@ -553,41 +651,7 @@ export function pickupTieBreakTrace(winner: PickupCandidate, other: PickupCandid
   }
   trace.push(`specificity: tie at ${wSpec}`);
 
-  const wOp = winner.rule.condition.pickup_operator;
-  const oOp = other.rule.condition.pickup_operator;
-  // Only claim a threshold win when both sides share the same operator —
-  // see selectPickupWinner's comment. Different (or null) operators aren't
-  // comparable, so the trace says so honestly instead of ranking numbers
-  // that don't mean the same thing.
-  if (wOp != null && wOp === oOp) {
-    const wTh = winner.rule.condition.pickup_threshold ?? 0;
-    const oTh = other.rule.condition.pickup_threshold ?? 0;
-    if (wTh !== oTh) {
-      trace.push(
-        wOp === "gt"
-          ? `pickup_threshold(gt): ${wTh} beats ${oTh}`
-          : `pickup_threshold(lt): stricter is lower; ${wTh} beats ${oTh}`,
-      );
-      return trace;
-    }
-    trace.push(`pickup_threshold: tie`);
-  } else {
-    trace.push(`pickup_threshold: not comparable (different operators)`);
-  }
-
-  const baseW = basePrices.get(basePriceKey(winner.stay_date, winner.affected_room_type_id)) ?? 100;
-  const baseO = basePrices.get(basePriceKey(other.stay_date, other.affected_room_type_id)) ?? 100;
-  const adjW = normalizedAdjustment(winner.rule, baseW);
-  const adjO = normalizedAdjustment(other.rule, baseO);
-  if (adjW !== adjO) {
-    trace.push(`normalized_adjustment: ${adjW.toFixed(2)} beats ${adjO.toFixed(2)}`);
-    return trace;
-  }
-  trace.push(`normalized_adjustment: tie`);
-
-  const wCr = new Date(winner.rule.created_at).getTime();
-  const oCr = new Date(other.rule.created_at).getTime();
-  if (wCr !== oCr) {
+  if (createdMs(winner.rule) !== createdMs(other.rule)) {
     trace.push(`created_at: older wins (${winner.rule.created_at} vs ${other.rule.created_at})`);
     return trace;
   }

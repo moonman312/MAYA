@@ -278,14 +278,14 @@ describe.each(ENGINES)("$name: a Booking Speed rule never counts bookings it or 
 
     it("a stronger pickup count rule's raise covers the Booking Speed rules below it", async () => {
       // Ten separate bookings land on the quiet night. A pickup count rule
-      // (more than 5 room-nights in 7 days) outranks the starter rules and
-      // raises on them on day 0, then holds the night through its week's
-      // wait. The month rule's month still holds the ten after that, but
-      // they came before a stronger rule's raise, so it doesn't count them.
+      // (more than 5 room-nights in 7 days) raises 30%, more than any
+      // starter rule, so it outranks them and raises on them on day 0. The
+      // starter rules' windows still hold the ten after that, but they came
+      // before a stronger rule's raise, so they don't count them.
       const pickup = rule(
         "Pickup raise",
         { pickup_operator: "gt", pickup_threshold: 5, pickup_window_days: 7, pickup_metric: "room_nights" },
-        { priority: 200, action_value: 10 },
+        { action_value: 30 },
       );
       const w = world(engine, {
         rules: [pickup, ...starterRules()],
@@ -295,7 +295,7 @@ describe.each(ENGINES)("$name: a Booking Speed rule never counts bookings it or 
       });
       for (let day = 0; day <= 12; day++) await w.run(day);
       expect(w.firedOn(NIGHT)).toEqual([["Pickup raise", 0]]);
-      expect(w.price(NIGHT)).toBe(110);
+      expect(w.price(NIGHT)).toBe(130);
       // The pickup fire carries no frozen window of its own.
       expect(w.fires(NIGHT).map((e) => [e.cancel_check, e.window_from, e.window_bookings_at_fire])).toEqual([
         ["net_units", null, null],
@@ -303,7 +303,8 @@ describe.each(ENGINES)("$name: a Booking Speed rule never counts bookings it or 
     }, 120_000);
 
     it("a weaker pickup count rule counts only what came after a stronger Booking Speed rule's raise", async () => {
-      // The other way round: the pickup rule ranks below the starter rules.
+      // The other way round: the pickup rule raises 10%, less than the
+      // spike rule's 25%, so it ranks below it.
       // Its week still holds the twenty once the spike rule stops holding
       // the night, but its count opens at the spike rule's raise, and
       // nothing came after it.

@@ -388,6 +388,89 @@ describe.each(ENGINES)("$name: a rule counts from its own last change or a stron
     }, 120_000);
   });
 
+  describe("which rule is stronger, among rules the owner makes (all priority 100)", () => {
+    // The same nights as the Booking Speed examples above: over one day
+    // "much faster" first reads at 5 bookings and "surging" at 7. Owners
+    // can't set priority, so the stronger rule is the one that changes the
+    // price more, and at the same change the one that needs faster booking,
+    // one order for every mix of rules whatever order they are stored in.
+    const rows = (batches: { n: number; at: number }[]) => [
+      ...background(LAST, Array.from({ length: 21 }, (_, i) => 30 + i), { per: 2, hours: [3], skip: (stay, lead) => stay === NIGHT && lead <= 40 }),
+      ...batches.flatMap((b) => Array.from({ length: b.n }, () => booking(NIGHT, dayOf(b.at), b.at))),
+    ];
+    const RUNS = [...ticks(0, 1, [9, 10, 11, 12, 13]), ...ticks(2, 3, [0, 12])];
+    const speed = (id: string, level: string, value: number, extra: FakeRow = {}, over: Partial<FakeRow> = {}) =>
+      rule(
+        id,
+        { booking_speed_operator: "at_least", booking_speed_level: level, booking_speed_window_days: 1, booking_speed_cooldown_days: 1, ...extra },
+        { action_value: value, ...over },
+      );
+    const story = async (rules: FakeRow[], batches: { n: number; at: number }[]) => {
+      const w = timeline(engine, { rules, rows: rows(batches), last: LAST });
+      await w.runAll(RUNS);
+      return w;
+    };
+    const ids = (w: ReturnType<typeof timeline>) => w.fires(NIGHT).map((e) => [e.rule_id, String(e.applied_at)]);
+
+    it("an extra condition doesn't make the 10% rule the stronger one: 10 at once end at $120, and 5 then 5 at $132", async () => {
+      // "Five" also asks for fewer than 60 days to arrival. Ranked on its two
+      // conditions it went first and restarted Ten's count: $110 both ways.
+      const rules = () => [speed("Five", "much_faster", 10, { dta_operator: "lt", dta_threshold_days: 60 }), speed("Ten", "surging", 20)];
+      const once = await story(rules(), [{ n: 10, at: at(0, 10) }]);
+      expect(ids(once)).toEqual([["Ten", iso(at(0, 10, 5))]]);
+      expect(once.price(NIGHT)).toBe(120);
+      const trickle = await story(rules(), [{ n: 5, at: at(0, 10) }, { n: 5, at: at(0, 11) }]);
+      expect(ids(trickle)).toEqual([
+        ["Five", iso(at(0, 10, 5))],
+        ["Ten", iso(at(0, 11, 5))],
+      ]);
+      expect(trickle.price(NIGHT)).toBeCloseTo(132, 2);
+    }, 120_000);
+
+    it("at the same 10%, the surging rule is the stronger one whichever was made first: 5 then 5 end at $121", async () => {
+      for (const [fiveMade, tenMade] of [
+        ["2026-01-01T00:00:00.000Z", "2026-01-02T00:00:00.000Z"],
+        ["2026-01-02T00:00:00.000Z", "2026-01-01T00:00:00.000Z"],
+      ]) {
+        const w = await story(
+          [speed("Five", "much_faster", 10, {}, { created_at: fiveMade }), speed("Ten", "surging", 10, {}, { created_at: tenMade })],
+          [{ n: 5, at: at(0, 10) }, { n: 5, at: at(0, 11) }],
+        );
+        expect(ids(w)).toEqual([
+          ["Five", iso(at(0, 10, 5))],
+          ["Ten", iso(at(0, 11, 5))],
+        ]);
+        expect(w.price(NIGHT)).toBeCloseTo(121, 2);
+      }
+    }, 120_000);
+
+    it("pickup and Booking Speed rules mixed: the biggest change raises on 10 at once and covers the others, whatever order the rules are stored in", async () => {
+      // A: more than 9 in 7 days, +10%. B: faster over a week, +15%. C: more
+      // than 4 in 7 days, +20%. The old order looped (A ahead of C on the
+      // count, B ahead of A and C ahead of B on the change), so the rule
+      // that raised, and whether a second one raised on the same 10, came
+      // down to the order the database returned them in.
+      const pickup = (id: string, threshold: number, value: number) =>
+        rule(id, { pickup_operator: "gt", pickup_threshold: threshold, pickup_window_days: 7, pickup_metric: "room_nights" }, { action_value: value });
+      const all: Record<string, FakeRow> = {
+        A: pickup("A", 9, 10),
+        B: rule("B", { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 7, booking_speed_cooldown_days: 7 }, { action_value: 15 }),
+        C: pickup("C", 4, 20),
+      };
+      for (const order of ["ABC", "CBA", "BCA"]) {
+        const w = timeline(engine, {
+          rules: [...order].map((k) => ({ ...all[k] })),
+          rows: [...background(LAST, QUIET), ...Array.from({ length: 10 }, () => booking(NIGHT, D0, at(0, 10)))],
+          last: LAST,
+          snapshotDays: 8,
+        });
+        await w.runAll(ticks(0, 9, [0, 12]));
+        expect(ids(w)).toEqual([["C", iso(at(0, 12, 5))]]);
+        expect(w.price(NIGHT)).toBe(120);
+      }
+    }, 240_000);
+  });
+
   describe("the owner's five examples as pickup count rules: more than 4, and more than 9, in 7 days", () => {
     // His numbers exactly: "Five" raises 10% on more than 4 bookings in 7
     // days, "Ten" 20% on more than 9. Same priority, so the higher count

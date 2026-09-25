@@ -20,7 +20,18 @@
  * engine/booking-speed-provider.ts). Both panels say what applies. A typed
  * price takes the adjustments off, holds the night for the rule's wait from
  * then, and then it judges its whole window again.
+ *
+ * "Stronger" is the order comparePickupRules ranks in, and both panels say
+ * what it means in what an owner can see (STRONGER_RULE_LINE): the rule that
+ * changes the price by more, and at the same change the one whose condition
+ * is harder to meet (a faster level for a raise, a slower one for a cut, a
+ * higher "more than", a lower "less than"). Priority, which owners can't
+ * set, only comes after.
  */
+
+/** What makes one rule stronger than another, in both panels. */
+export const STRONGER_RULE_LINE =
+  "A stronger rule is one that changes the price by more. If two change it by the same amount, the one whose condition is harder to meet is stronger.";
 
 export const BOOKING_SPEED_HELP_EXAMPLE = {
   expected: 5,
@@ -45,6 +56,7 @@ export function bookingSpeedHelp(windowDays: number): { label: string; title: st
       "After a rule changes a night, it only counts bookings made since then. So does every weaker rule that moves the price the same way, so they don't add to that change on the same bookings.",
       "Those bookings are compared with similar nights over the same days.",
       "If those keep the rule true after its wait, it adjusts that night again.",
+      STRONGER_RULE_LINE,
     ],
   };
 }
@@ -78,6 +90,7 @@ export function bookingSpeedWaitHelp(
       "When the wait is over it only counts bookings made since it last adjusted that night, or since a stronger rule that moves the price the same way did, if that was later. If those keep it true, it adjusts again, and MAYA tells you once a night has been adjusted three times.",
       "A price you type on a night after it adjusted starts it over: it waits again from that price, then looks at its whole window.",
       "Each room type waits on its own, and a stronger rule can still step in while this one waits.",
+      STRONGER_RULE_LINE,
     ],
   };
 }
