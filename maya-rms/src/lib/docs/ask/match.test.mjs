@@ -285,3 +285,18 @@ test("the matcher builds and answers quickly enough for a browser", () => {
   assert.ok(built < 3000, `built in ${built.toFixed(0)} ms`);
   assert.ok(each < 100, `${each.toFixed(1)} ms a question`);
 });
+
+test("a short question after an unrelated one keeps its own answer, and borrowing is never confident", () => {
+  const m = createMatcher(index);
+  const first = "How do I undo a price change?";
+  const ctx = { lastPage: m.ask(first).answer.page, lastQuestion: first };
+  for (const q of ["is it AI", "any refunds?", "is there forecasting?", "does it learn?", "how much?"]) {
+    const alone = m.ask(q);
+    const after = m.ask(q, ctx);
+    if (alone.confidence === "high") {
+      assert.equal(after.answer?.entry, alone.answer.entry, `${q}: asked after "${first}" it should keep its own answer`);
+    } else {
+      assert.notEqual(after.confidence, "high", `${q}: an answer that borrowed its topic is at most unsure`);
+    }
+  }
+});

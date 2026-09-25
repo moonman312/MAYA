@@ -64,6 +64,8 @@ Click <Ui>Add Rule</Ui>. The rule appears in the list with its switch on <Ui>On<
 </Step>
 </Steps>
 
+<OpenInMaya to="rules.new" name="Busy nights" occupancy="gt80" direction="increase" percent="10" words="Open the rule builder with this rule filled in" />
+
 That is a complete rule. From the next check, about five minutes away, any night in the next 60 with sellable occupancy above 80% has its price raised by 10% for every room type you picked. When a night drops back to 80% or under, the raise comes off again.
 
 <Callout kind="careful">
@@ -125,6 +127,12 @@ Each of these is a short recipe with exact labels.
 <Callout kind="not-yet">
 Rules run every day of the year, for every night in the window. You cannot yet limit a rule to weekends, a date range or a season, and you cannot edit a rule from the builder once it is saved. The only change made in place is accepting a "Tune ... ?" suggestion after <Ui>Get suggestions from my data</Ui>, which moves an occupancy threshold. Read [What rules cannot do yet](/docs/rules/what-rules-cannot-do-yet) for each limit and what to do instead.
 </Callout>
+
+<OpenInMaya to="rules.new" window="lt3" occupancy="lt50" direction="decrease" percent="15" words="Open the rule builder with the last-minute cut filled in" />
+
+<OpenInMaya to="rules.new" speed="faster" over="7" direction="increase" percent="10" words="Open the rule builder with the booking speed raise filled in" />
+
+<OpenInMaya to="rules.new" name="Suites follow Standard" occupancy="gt80" direction="increase" percent="10" split="1" words="Open the rule builder with the suites rule filled in" />
 
 ## What to read next
 

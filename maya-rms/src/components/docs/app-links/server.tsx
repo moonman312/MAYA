@@ -7,9 +7,9 @@ import { AppLinkClient, OpenInMayaClient } from "./app-link";
 // would change or drop; checking again here means a page can never render a
 // link the app would read differently, even if that check were skipped.
 
-type LinkProps = { to?: string; q?: string; children?: ReactNode } & Record<string, unknown>;
+type LinkProps = { to?: string; q?: string; words?: string; children?: ReactNode } & Record<string, unknown>;
 
-const NOT_PARAMS = new Set(["to", "q", "children", "off"]);
+const NOT_PARAMS = new Set(["to", "q", "children", "off", "words"]);
 
 function paramsOf(props: LinkProps): Record<string, string> {
   const out: Record<string, string> = {};
@@ -33,7 +33,11 @@ export function AppLink(props: LinkProps) {
   return <AppLinkClient href={href}>{props.children}</AppLinkClient>;
 }
 
-/** A how-to's "open it in MAYA" button, pre-filled where the page says exactly what to enter. */
+/**
+ * A how-to's "open it in MAYA" button, pre-filled where the page says exactly
+ * what to enter. Written on a line of its own, self-closing, with its words
+ * in `words`: <OpenInMaya to="rules.new" name="Nearly full" words="Open the rule builder with this rule filled in" />
+ */
 export function OpenInMaya(props: LinkProps) {
   const params = paramsOf(props);
   const href = docsAppHref(props.to, params);
@@ -42,7 +46,7 @@ export function OpenInMaya(props: LinkProps) {
   const note = dest.saveButton && links.fills(params) ? `Nothing is saved until you click ${dest.saveButton}.` : null;
   return (
     <OpenInMayaClient href={href} note={note}>
-      {props.children ?? dest.label}
+      {props.words ?? props.children ?? dest.label}
     </OpenInMayaClient>
   );
 }

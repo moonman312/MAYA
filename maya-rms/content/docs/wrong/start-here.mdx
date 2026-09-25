@@ -99,6 +99,8 @@ The wedding was booked as one reservation for 12 rooms. That is 12 rooms for occ
 Priya then keeps full nights safe from this rule. She switches "Slow-date rescue" <Ui>Off</Ui>, so the cuts it already made stay where they are. Then she clicks <Ui>+ Add a rule</Ui> and builds "Slow-date rescue, not full" with the starter rule's settings (<Ui>Much Slower Than Normal</Ui>, <Ui>Past month</Ui>, waits <Ui>1 week</Ui>, <Ui>Decrease the rate</Ui> by 15%) plus a second condition, <Ui>Sellable occupancy (%)</Ui> <Ui>Less than</Ui> 50. It is On at once, and it never cuts a night that is half full or more. Deleting the old rule instead would have undone every cut it made, on every night, and sent all those prices to Cloudbeds.
 </Example>
 
+<OpenInMaya to="rules.new" name="Slow-date rescue, not full" speed="much_slower" over="30" wait="7" occupancy="lt50" direction="decrease" percent="15" words="Open the rule builder with Priya's rule filled in" />
+
 ## The rest of this section
 
 - [A price looks wrong](/docs/wrong/a-price-looks-wrong): jumped 50%, $1, $99,999, stuck at the floor, changed with no rule named, back to the base rate, an unpriced night.

@@ -83,6 +83,8 @@ The button stays greyed out until the draft has a condition, an amount and at le
 The test-rule builder has no <Ui>Measured over</Ui> or <Ui>Then waits (advanced)</Ui> fields. A booking speed test rule is saved with the defaults: <Ui>Past week</Ui> and a wait of <Ui>1 week</Ui>. A pickup test rule is saved with a 3-day lookback measuring room nights. For other settings, build the rule on the <Ui>Rules</Ui> tab instead. [The rule builder, field by field](/docs/rules/the-rule-builder) covers every field.
 </Callout>
 
+<OpenInMaya to="simulator.test-rule" words="Open a test rule in the Rate Simulator" />
+
 ## What would happen
 
 The results table has one row per room type: <Ui>Room type</Ui>, <Ui>Base</Ui>, <Ui>Becomes</Ui>, <Ui>Change</Ui> (the move in money, or a dash for none) and <Ui>Because</Ui>.
@@ -116,6 +118,8 @@ Priya sets the stay date to Friday, November 13, 2026 and booking speed to <Ui>F
 
 She switches booking speed to <Ui>Not enough history</Ui>. "Warm-date bump" moves to <Ui>Didn't fire</Ui> with "Conditions not met", and Standard becomes $165.00.
 </Example>
+
+<OpenInMaya to="simulator.test-rule" name="Last minute" window="lt3" occupancy="lt50" direction="decrease" percent="15" stay_in="1" words="Open the Rate Simulator with this test rule and tomorrow filled in" />
 
 ## What the simulator simplifies
 

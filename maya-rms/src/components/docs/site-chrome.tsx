@@ -36,9 +36,9 @@ export function DocsSiteHeader({ current, wide = false }: { current: "docs" | "s
               </a>
             }
           >
-            <a href="/" className="text-sm font-medium text-primary transition-opacity hover:opacity-80">
+            <Link href="/" className="text-sm font-medium text-primary transition-opacity hover:opacity-80">
               Open MAYA
-            </a>
+            </Link>
           </SignedInOnly>
         </div>
       </div>

@@ -279,6 +279,8 @@ export const IPW_REF = "in-plain-words";
  * paragraph or list item where it can, and links to the page for the rest.
  */
 export const PASSAGE_SHOWN = 900;
+/** A passage holding a table may run this much past the cut and still show whole (900 becomes 1500). */
+export const TABLE_ALLOWANCE = 5 / 3;
 
 const QUESTION_STOP = new Set(
   (
@@ -385,6 +387,9 @@ export function resolveRef(pageEntries, ref, question, weight = () => 1) {
  */
 export function trimPassage(md, max = PASSAGE_SHOWN, asked = [], weight = () => 1) {
   if (md.length <= max) return { md, more: false };
+  // A passage that holds a table is shown whole when it is not much longer:
+  // a price table cut short reads as the wrong price.
+  if (/^\|/m.test(md) && md.length <= Math.round(max * TABLE_ALLOWANCE)) return { md, more: false };
   const parts = md.split(/(\n+)/);
   const units = [];
   for (let i = 0; i < parts.length; i += 2) units.push({ text: parts[i], sep: i ? parts[i - 1] : "" });
@@ -402,15 +407,12 @@ export function trimPassage(md, max = PASSAGE_SHOWN, asked = [], weight = () => 
   const isRow = (i) => i >= 0 && i < units.length && units[i].text.startsWith("|");
   let best = null;
   for (let a = 0; a < units.length; a++) {
-    // A run that starts inside a table keeps the table's header row.
-    let head = "";
-    if (isRow(a) && isRow(a - 1)) {
-      let h = a;
-      while (isRow(h - 1)) h--;
-      if (/^\|?-{3,}/.test(units[a].text) || h + 1 === a) continue;
-      head = `${units[h].text}\n${units[h + 1].text}\n`;
-    }
-    let text = head + (units[a].text.length > max ? cutAtSentence(units[a].text) : units[a].text);
+    // Never start inside a table: a table shows whole from its first row, or
+    // from its first row down as far as fits. Starting on a later row (with
+    // the header stuck on top) dropped the rows between, which read as a
+    // price table that began at "21 to 40".
+    if (isRow(a) && isRow(a - 1)) continue;
+    let text = units[a].text.length > max ? cutAtSentence(units[a].text) : units[a].text;
     if (text.length > max) continue;
     for (let b = a + 1; units[a].text.length <= max && b < units.length; b++) {
       const next = text + units[b].sep + units[b].text;

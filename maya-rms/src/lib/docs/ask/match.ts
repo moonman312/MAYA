@@ -308,22 +308,35 @@ export function createMatcher(index: AskIndex, options: { exclude?: (q: AskQuest
     return Math.max(bank, cover * TUNING.coverWeight);
   }
 
+  const RANK: Record<Confidence, number> = { none: 0, unsure: 1, high: 2 };
+
+  /**
+   * A short question after another may be a follow-up ("what about Mews?").
+   * It is asked on its own first, and keeps that answer when it is a
+   * confident one ("is it AI" after "how do I undo a price change?" is its own
+   * question). Only a weak match borrows the earlier question's words, and an
+   * answer that only borrowed its topic is at most "unsure" unless the
+   * question opens like a follow-up.
+   */
   function ask(question: string, ctx: AskContext = {}): AskResult {
+    if (!ctx.lastQuestion || !isFollowUp(question)) return run(question, ctx, false);
+    const opensLikeFollowUp = FOLLOW_UP.test(question.toLowerCase().trim());
+    const alone = run(question, ctx, false);
+    if (!opensLikeFollowUp && alone.confidence === "high") return alone;
+    const borrowed = run(question, ctx, true);
+    if (opensLikeFollowUp) return borrowed;
+    const capped: AskResult = borrowed.confidence === "high" ? { ...borrowed, confidence: "unsure" } : borrowed;
+    return RANK[capped.confidence] > RANK[alone.confidence] ? capped : alone;
+  }
+
+  function run(question: string, ctx: AskContext, followUp: boolean): AskResult {
     let tokens = tok(question);
     const empty: AskResult = { confidence: "none", score: 0, answer: null, alsoSee: [], pages: [], tokens };
     if (!tokens.length) return empty;
 
-    // A short follow-up borrows the words of the question before it. A short
-    // question that is itself close to one the docs answer ("Is MAYA AI?")
-    // stands on its own, unless it opens like a follow-up ("what about...").
-    let followUp = !!ctx.lastQuestion && isFollowUp(question);
-    if (followUp && !FOLLOW_UP.test(question.toLowerCase().trim())) {
-      const ownTri = trigrams(tokens);
-      const ownWeight = tokens.reduce((n, t) => n + idf(t), 0);
-      if (questions.some((b) => bankSimilarity(tokens, ownTri, ownWeight, b) >= TUNING.strongBank)) followUp = false;
-    }
+    // A follow-up borrows the words of the question before it.
     const own = new Set(tokens);
-    if (followUp) tokens = [...tokens, ...tok(ctx.lastQuestion!).filter((t) => !own.has(t))];
+    if (followUp) tokens = [...tokens, ...tok(ctx.lastQuestion ?? "").filter((t) => !own.has(t))];
     const qTri = trigrams(tokens);
     const qWeight = tokens.reduce((n, t) => n + idf(t), 0);
 

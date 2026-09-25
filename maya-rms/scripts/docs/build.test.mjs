@@ -272,9 +272,11 @@ test("a long passage is cut to what a reader needs, keeping the part that answer
   assert.ok(head.md.startsWith("Where the price starts") && head.md.length <= 150, head.md);
   const answer = trimPassage(md, 150, [roughWords("Does MAYA look at competitor rates?")]);
   assert.match(answer.md, /competitor rates/);
-  const row = trimPassage(md, 80, [roughWords("What does Stalled mean?")]);
-  assert.match(row.md, /^\| Level \| Reads as \|\n\|---\|---\|/, "a run that starts in a table keeps its header");
+  const row = trimPassage(md, 90, [roughWords("What does Stalled mean?")]);
+  assert.match(row.md, /^\| Level \| Reads as \|\n\|---\|---\|\n\| Normal/, "a table shows from its first row, never from the middle");
   assert.match(row.md, /Stalled/);
+  const cut = trimPassage(md, 80, [roughWords("What does Stalled mean?")]);
+  assert.ok(!/^\| Stalled/m.test(cut.md) || /\| Normal/.test(cut.md), "no run skips the rows above the one it wants");
   const long = trimPassage(`${"One sentence here. ".repeat(20)}`, 100);
   assert.ok(long.md.endsWith(".") && long.md.length <= 100, long.md);
 });
@@ -374,4 +376,20 @@ test("the committed generated files match the content", () => {
   );
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "src/lib/docs/generated/ask-manifest.json"), "utf8"));
   assert.ok(fs.existsSync(path.join(ROOT, "public", manifest.file)), "the helper's index file is in public/");
+});
+
+test("the helper shows the price table from its first row", () => {
+  const index = expandIndex(JSON.parse(fs.readFileSync(path.join(ROOT, "public", JSON.parse(fs.readFileSync(path.join(ROOT, "src/lib/docs/generated/ask-manifest.json"), "utf8")).file), "utf8")));
+  const page = index.pages.findIndex((p) => p.u === "/docs/start/what-it-costs");
+  const shown = index.entries.filter((e) => e.p === page && e.a === "the-brackets").map((e) => e.x).join("\n");
+  assert.match(shown, /1 to 20/, shown);
+  for (const e of index.entries) {
+    const lines = e.x.split("\n");
+    const first = lines.findIndex((l) => l.startsWith("|"));
+    if (first < 0) continue;
+    assert.ok(!/^\|?\s*-{3,}/.test(lines[first]), `${index.pages[e.p].u}#${e.a} starts a table on its divider`);
+    if (lines[first + 1] !== undefined && lines[first + 1].startsWith("|")) {
+      assert.match(lines[first + 1], /^\|?\s*-{3,}|^\|-/, `${index.pages[e.p].u}#${e.a} shows a table without its header: ${lines[first]}`);
+    }
+  }
 });

@@ -153,7 +153,7 @@ export function extractPage(body, ctx = {}) {
             void off;
             for (const p of appLinkProblems(to, extra)) problem(n, `<${n.name}> ${p}`);
           }
-          if (n.name === "OpenInMaya") problem(n, "<OpenInMaya> goes on a line of its own, not inside a sentence");
+          if (n.name === "OpenInMaya") problem(n, "<OpenInMaya ... /> goes on a line of its own, self-closing, not inside a sentence");
           if (n.name === "Ui") {
             const inner = inline(n.children);
             md += inner ? `**${inner.replace(/\*\*/g, "")}**` : "";
@@ -371,9 +371,10 @@ export function extractPage(body, ctx = {}) {
       }
       case "OpenInMaya": {
         // A button only signed-in readers see: no words for search or the helper.
-        const { to, ...extra } = attrs(node);
+        const { to, words, ...extra } = attrs(node);
         for (const p of appLinkProblems(to, extra)) problem(node, `<OpenInMaya> ${p}`);
-        if (!toText(node).trim()) problem(node, "<OpenInMaya> needs its button words, the owner doing something");
+        if (typeof words !== "string" || !words.trim()) problem(node, '<OpenInMaya> needs words="...": the owner doing something');
+        if ((node.children || []).length) problem(node, "<OpenInMaya> takes its words in words=\"...\" and closes itself: <OpenInMaya ... />");
         return [];
       }
       default: {

@@ -461,7 +461,7 @@
 {"q":"I renamed or rebuilt my rate plans; what happens?","page":"wrong/prices-not-reaching-your-pms","anchor":"every-rates-not-reaching-sentence-and-what-to-do/the-items-second","bankSection":12},
 {"q":"Why does the first send take longer than five minutes?","page":"live/how-prices-reach-your-pms","bankSection":12},
 {"q":"How does MAYA avoid reading its own price back as my rate?","page":"watch/rates-changed-in-your-pms","anchor":"when-a-change-counts-as-yours/your-change-is","bankSection":12},
-{"q":"Does MAYA respect Cloudbeds' API limits?","page":"live/how-prices-reach-your-pms","bankSection":12},
+{"q":"Does MAYA respect Cloudbeds' API limits?","page":"live/how-prices-reach-your-pms","anchor":"large-properties","bankSection":12},
 {"q":"Did MAYA just cut my price for the wedding weekend?","page":"wrong/start-here","anchor":"did-a-rule-cut-my-price-for-the-wedding-weekend/one-of-your","bankSection":13},
 {"q":"Why did it not change anything today?","page":"wrong/start-here","anchor":"why-did-nothing-change-today/most-pricing-runs","bankSection":13},
 {"q":"Can I undo that?","page":"wrong/start-here","alt":["recipes/undo-a-price-change"],"bankSection":13},
