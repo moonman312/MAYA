@@ -3,6 +3,8 @@
  * PGlite: booking_key() against bookingKeyOf, and the booking-counting
  * booking_speed_windows against the TypeScript that counts the same rows
  * (the rpc model, indexBookingRows, and the engine's own row fallback).
+ * And 99_supabase_migration_pickup_wait_v1.sql, which runs after it, over
+ * what it leaves.
  *
  * Only runs with MAYA_PGLITE_DIR set (see large-property-sql.test.ts).
  *
@@ -30,6 +32,7 @@ import { loadReservationCells } from "./snapshots";
 
 const PGLITE_DIR = process.env.MAYA_PGLITE_DIR;
 const LARGE_PROPERTY = resolve(__dirname, "../../../../99_supabase_migration_large_property_scale_v1.sql");
+const PICKUP_WAIT = resolve(__dirname, "../../../../99_supabase_migration_pickup_wait_v1.sql");
 const H1 = uuidFor("h1");
 const MEWS_GUID = "0d3a8c2e-1f4b-4c5d-9e6f-7a8b9c0d1e2f";
 
@@ -595,6 +598,83 @@ describe.skipIf(!PGLITE_DIR)("the raises open when the migration runs, recorded 
         ["00000001", "none", "2026-09-09", 20, "2.00"],
         ["00000002", "net_units", "2026-09-09", 20, "2.00"],
       ]);
+    } finally {
+      await db.close();
+    }
+  }, 120_000);
+});
+
+describe.skipIf(!PGLITE_DIR)("the pickup wait migration, run after this one", () => {
+  // The two function signatures and the column this file leaves, and the
+  // column, checks and function the pickup wait file adds.
+  const state = async (db: Db) => ({
+    windows: (
+      await db.query(
+        `select pg_get_function_identity_arguments(p.oid) as args, pg_get_functiondef(p.oid) like '%booking_key%' as counts_bookings
+           from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'public' and p.proname = 'booking_speed_windows'`,
+      )
+    ).rows,
+    windowSince: (
+      await db.query(
+        `select data_type from information_schema.columns
+          where table_schema = 'public' and table_name = 'pickup_event' and column_name = 'window_since'`,
+      )
+    ).rows,
+    pickupWait: (
+      await db.query(
+        `select data_type, is_nullable from information_schema.columns
+          where table_schema = 'public' and table_name = 'rule_condition' and column_name = 'pickup_cooldown_days'`,
+      )
+    ).rows,
+    checks: (
+      await db.query(
+        `select conname from pg_constraint
+          where conrelid = 'public.rule_condition'::regclass and conname like 'rule_condition_pickup_cooldown%' order by conname`,
+      )
+    ).rows,
+    auditRowsBefore: (
+      await db.query(
+        `select pg_get_function_identity_arguments(p.oid) as args from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'public' and p.proname = 'audit_rows_before'`,
+      )
+    ).rows,
+  });
+
+  it("applies cleanly over it, replays in either order, and leaves what it made alone", async () => {
+    const db = await openPglite();
+    try {
+      // rule_condition as the migrations before these leave it, pickup part only.
+      await db.exec(`
+        create table public.pricing_rules (id uuid primary key);
+        create table public.rule_condition (
+          rule_id uuid primary key references public.pricing_rules(id) on delete cascade,
+          pickup_operator text check (pickup_operator in ('gt','lt')),
+          pickup_threshold numeric(10,2),
+          pickup_window_days integer check (pickup_window_days in (1,3,7)),
+          pickup_metric text check (pickup_metric in ('room_nights','revenue'))
+        );
+        insert into public.pricing_rules (id) values ('${uuidFor("pw1")}');
+        insert into public.rule_condition values ('${uuidFor("pw1")}', 'gt', 5, 7, 'room_nights');`);
+      await db.exec(readFileSync(PICKUP_WAIT, "utf8"));
+      const want = {
+        windows: [
+          {
+            args: "p_hotel_id uuid, p_dates date[], p_exclude uuid[], p_include uuid[], p_since timestamp with time zone[]",
+            counts_bookings: true,
+          },
+        ],
+        windowSince: [{ data_type: "timestamp with time zone" }],
+        pickupWait: [{ data_type: "integer", is_nullable: "YES" }],
+        checks: [{ conname: "rule_condition_pickup_cooldown_chk" }, { conname: "rule_condition_pickup_cooldown_family_chk" }],
+        auditRowsBefore: [{ args: "p_hotel_id uuid, p_before timestamp with time zone, p_stay_dates date[], p_room_type_ids uuid[]" }],
+      };
+      expect(await state(db)).toEqual(want);
+      await db.exec(readFileSync(PICKUP_WAIT, "utf8"));
+      await db.exec(readFileSync(COUNTS_BOOKINGS_MIGRATION, "utf8"));
+      await db.exec(readFileSync(PICKUP_WAIT, "utf8"));
+      expect(await state(db)).toEqual(want);
+      expect((await db.query(`select pickup_cooldown_days from public.rule_condition`)).rows).toEqual([{ pickup_cooldown_days: null }]);
     } finally {
       await db.close();
     }

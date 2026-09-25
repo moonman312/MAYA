@@ -342,9 +342,9 @@ describe("the pickup wait migration's deploy list", () => {
       "_shared/engine/pickup.ts",
       "_shared/engine/evaluate.ts",
       "_shared/engine/snapshots.ts",
-      "_shared/engine/repeat-alerts.ts",
       "_shared/engine/types.ts",
       "_shared/engine/domain.ts",
+      "_shared/engine/index.ts",
     ];
     const carries = readdirSync(FUNCTIONS, { withFileTypes: true })
       .filter((d) => d.isDirectory() && d.name !== "_shared")
