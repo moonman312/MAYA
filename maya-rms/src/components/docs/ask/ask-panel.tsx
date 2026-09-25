@@ -48,7 +48,7 @@ interface Turn {
   also: Hit[];
   helpful?: "yes" | "no";
   note?: string;
-  sent?: "sending" | "sent" | "error" | "limited";
+  sent?: "sending" | SendResult;
 }
 
 function readStore(): Turn[] {
@@ -69,14 +69,23 @@ function writeStore(turns: Turn[]) {
   }
 }
 
-async function send(body: Record<string, unknown>): Promise<"sent" | "error" | "limited"> {
+/**
+ * "limited": this reader sent a lot. "busy": everybody together used up the
+ * hour, which is nothing this reader did, so the note must not say it was.
+ */
+export type SendResult = "sent" | "error" | "limited" | "busy";
+
+export async function send(body: Record<string, unknown>): Promise<SendResult> {
   try {
     const res = await fetch("/api/docs-ask/feedback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (res.status === 429) return "limited";
+    if (res.status === 429) {
+      const said = (await res.json().catch(() => null)) as { limited?: string } | null;
+      return said?.limited === "everyone" ? "busy" : "limited";
+    }
     return res.ok ? "sent" : "error";
   } catch {
     return "error";
@@ -94,15 +103,18 @@ function linkFor(index: AskIndex, hit: Hit) {
   return { href: e.a ? `${p.u}#${e.a}` : p.u, page: p.t, section: e.a ? e.h : null };
 }
 
-function SentNote({ state }: { state: Turn["sent"] }) {
+const SENT_NOTES: Record<SendResult, string> = {
+  sent: "Sent. Thank you.",
+  limited: "Too many sends from here for now. Email us instead.",
+  busy: "We can't take questions right now. Email us instead.",
+  error: "That did not send. Email us instead.",
+};
+
+export function SentNote({ state }: { state?: "sending" | SendResult }) {
   if (!state || state === "sending") return null;
   return (
     <p className="text-sm text-muted-foreground" role="status">
-      {state === "sent"
-        ? "Sent. Thank you."
-        : state === "limited"
-          ? "Too many sends from here for now. Email us instead."
-          : "That did not send. Email us instead."}
+      {SENT_NOTES[state]}
     </p>
   );
 }

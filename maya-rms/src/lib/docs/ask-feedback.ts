@@ -66,6 +66,18 @@ export function createRateLimiter(opts: { perHour?: number; now?: () => number }
   };
 }
 
+export type SharedBudget = "question" | "vote";
+
+/**
+ * Which limit refused a post, so the reader is told the truth: "you" sent a
+ * lot from one address, or "everyone" together used up the hour.
+ */
+export type LimitedBy = "you" | "everyone";
+
+function limited(by: LimitedBy): Response {
+  return Response.json({ limited: by }, { status: 429, headers: { "Retry-After": "3600" } });
+}
+
 /** One row of docs_questions, as the route writes it. */
 export interface DocsQuestionRow {
   created_at: string;
@@ -79,11 +91,13 @@ export interface DocsQuestionRow {
 export interface FeedbackDeps {
   limiter: RateLimiter;
   /**
-   * The limit for every reader together. Asked only for a post that is valid
-   * and within its own reader's limit, so junk and one busy address never use
-   * up everybody else's share. True when the post may be stored.
+   * The limit for every reader together, one budget for questions and notes
+   * and another for page votes, so votes can never use up the room for
+   * questions. Asked only for a post that is valid and within its own reader's
+   * limit, so junk and one busy address never use up everybody else's share.
+   * True when the post may be stored.
    */
-  shared?: () => Promise<boolean>;
+  shared?: (budget: SharedBudget) => Promise<boolean>;
   /** stores one row; absent when the database is not configured (local dev) */
   write: ((row: DocsQuestionRow) => Promise<void>) | null;
   now?: () => Date;
@@ -167,11 +181,11 @@ export async function handleFeedback(request: Request, deps: FeedbackDeps): Prom
   if ((source === "unanswered" || source === "not-helpful") && !question) return new Response(null, { status: 400 });
   if ((source === "page-useful" || source === "page-not-useful") && !page) return new Response(null, { status: 400 });
 
-  if (!deps.limiter.take(clientIp(request))) return new Response(null, { status: 429 });
-  if (!deps.write) return new Response(null, { status: 204 });
-  if (deps.shared && !(await deps.shared())) return new Response(null, { status: 429 });
-
   const isPageVote = source === "page-useful" || source === "page-not-useful";
+  if (!deps.limiter.take(clientIp(request))) return limited("you");
+  if (!deps.write) return new Response(null, { status: 204 });
+  if (deps.shared && !(await deps.shared(isPageVote ? "vote" : "question"))) return limited("everyone");
+
   try {
     await deps.write({
       created_at: (deps.now ? deps.now() : new Date()).toISOString(),

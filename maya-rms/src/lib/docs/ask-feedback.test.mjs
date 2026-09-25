@@ -90,12 +90,36 @@ test("the shared limit is only counted for a valid post its reader's own limit l
   assert.equal((await handleFeedback(post({ source: "unanswered", question: "" }), deps)).status, 400);
   assert.equal(asked, 0, "junk never reaches the shared limit");
   assert.equal((await handleFeedback(post({ source: "unanswered", question: "first" }), deps)).status, 204);
-  assert.equal((await handleFeedback(post({ source: "unanswered", question: "second" }), deps)).status, 429);
+  const mine = await handleFeedback(post({ source: "unanswered", question: "second" }), deps);
+  assert.equal(mine.status, 429);
+  assert.deepEqual(await mine.json(), { limited: "you" }, "the reader's own limit says so");
   assert.equal(asked, 1, "a reader over their own limit never reaches it either");
   open = false;
-  assert.equal((await handleFeedback(post({ source: "unanswered", question: "someone else" }, "198.51.100.9"), deps)).status, 429);
+  const everyone = await handleFeedback(post({ source: "unanswered", question: "someone else" }, "198.51.100.9"), deps);
+  assert.equal(everyone.status, 429);
+  assert.deepEqual(await everyone.json(), { limited: "everyone" }, "the shared limit never blames the reader");
   assert.equal(asked, 2);
   assert.deepEqual(db.rows.map((r) => r.question), ["first"]);
+});
+
+test("page votes count against their own shared budget, so they never use up the room for questions", async () => {
+  const used = { question: 0, vote: 0 };
+  const cap = { question: 2, vote: 2 };
+  const db = recorder();
+  const deps = {
+    limiter: createRateLimiter({ perHour: 100 }),
+    write: db.write,
+    shared: async (budget) => ++used[budget] <= cap[budget],
+  };
+  for (let i = 0; i < 5; i++) {
+    await handleFeedback(post({ source: "page-useful", page: "/docs" }, `198.51.100.${i}`), deps);
+  }
+  assert.equal(used.vote, 5);
+  assert.equal(used.question, 0);
+  assert.equal((await handleFeedback(post({ source: "unanswered", question: "still room?" }), deps)).status, 204);
+  assert.equal((await handleFeedback(post({ source: "not-helpful", question: "q", note: "n" }), deps)).status, 204);
+  assert.equal((await handleFeedback(post({ source: "unanswered", question: "third" }), deps)).status, 429);
+  assert.deepEqual(db.rows.map((r) => r.source), ["page-useful", "page-useful", "unanswered", "not-helpful"]);
 });
 
 test("with no database configured nothing is written and the route still answers 204", async () => {

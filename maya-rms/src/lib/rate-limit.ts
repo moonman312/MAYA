@@ -59,12 +59,14 @@ export const RATE_LIMITS = {
    */
   productEvent: { limit: 60, windowSeconds: 600 },
   /**
-   * Questions and page votes sent from the public docs, counted for everybody
-   * together (the subject is "all"): readers need no account, so there is no
-   * per-person subject that the caller cannot change. Each reader also has an
-   * in-memory limit in the route.
+   * Questions and "this didn't help" notes sent from the public docs, counted
+   * for everybody together (the subject is "all"): readers need no account, so
+   * there is no per-person subject that the caller cannot change. Each reader
+   * also has an in-memory limit in the route.
    */
   docsQuestion: { limit: 300, windowSeconds: 3600 },
+  /** Page votes from the public docs, counted apart so they never use up docsQuestion. */
+  docsVote: { limit: 300, windowSeconds: 3600 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;
