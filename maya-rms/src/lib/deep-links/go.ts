@@ -54,9 +54,11 @@ export async function resolveGo(req: GoRequest, deps: GoDeps): Promise<GoResult>
 
   const userId = await deps.userId();
   if (!userId) {
-    // The property is only carried through sign-in when MAYA itself made the
-    // click; the hop back after sign-in is same-origin and would launder it.
-    const next = links.goHref(parsed.dest, parsed.params, { hotel: trusted ? parsed.gate.hotel : undefined });
+    // The property never travels through sign-in: the hop back from the
+    // sign-in page is same-origin, so anyone could launder a switch through
+    // it with a hand-made /login?next=. After signing in, the person lands on
+    // the place on their active property.
+    const next = links.goHref(parsed.dest, parsed.params);
     return { location: `/login?next=${encodeURIComponent(next)}`, setHotel: null };
   }
 

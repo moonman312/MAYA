@@ -3,6 +3,7 @@ import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
 import { BOOKING_SPEED_WAIT_OPTIONS, newConditionRow } from "@/lib/rule-form";
 import { HOTEL_ROLES } from "@/lib/roles";
 import { links, registry, safeNext, docsHref } from "@/lib/deep-links";
+import pagesJson from "@/lib/docs/generated/pages.json";
 
 describe("the registry", () => {
   it("runs every destination's own examples through the parser", () => {
@@ -55,6 +56,22 @@ describe("the registry", () => {
       for (const w of Object.values(d.when ?? {})) expect(ids).toContain(w.to);
       if (d.role) expect(registry.roles).toContain(d.role);
       if (d.docsLinkable) for (const r of d.required ?? []) expect(registry.params[r].docs, `${id} needs ${r}`).not.toBe(false);
+    }
+  });
+
+  it("points every Help link, Learn more and destination at a docs page and heading that exist", () => {
+    const pages = new Map((pagesJson as { path: string; headings: { id: string }[] }[]).map((p) => [p.path, p]));
+    const refs = [
+      ...Object.values(registry.destinations).map((d) => d.docs),
+      ...Object.values(registry.help.screens),
+      ...Object.values(registry.help.panels),
+    ].filter((r): r is string => Boolean(r));
+    expect(refs.length).toBeGreaterThan(40);
+    for (const ref of refs) {
+      const [page, anchor] = ref.split("#");
+      const p = pages.get(page);
+      expect(p, ref).toBeDefined();
+      if (anchor) expect(p!.headings.map((h) => h.id), ref).toContain(anchor);
     }
   });
 
@@ -186,7 +203,8 @@ describe("safeNext", () => {
     ["/go/rules.new?name=Nearly+full&percent=10", "/go/rules.new?name=Nearly+full&percent=10"],
     ["/go/rules.new", "/go/rules.new"],
     ["/go/rules.new#frag", "/go/rules.new"],
-    ["/go/rules.new?next=//evil.example", "/go/rules.new?next=//evil.example"],
+    ["/go/rules.new?next=//evil.example", "/go/rules.new?next=%2F%2Fevil.example"],
+    ["/go/calendar?hotel=0b0c8a6e-3c1d-4d8e-9f2a-6a1b2c3d4e5f&month=2026-12", "/go/calendar?month=2026-12"],
     ["//evil.example/go/rules.new", null],
     ["/go//evil.example", null],
     ["/go/\\evil.example", null],

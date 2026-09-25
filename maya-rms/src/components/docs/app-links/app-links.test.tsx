@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const session = vi.hoisted(() => ({ signedIn: false }));
 vi.mock("./session", () => ({ useSignedIn: () => session.signedIn, hasSessionCookie: () => session.signedIn }));
 
-import { AppLinkClient, OpenInMayaClient, SignedInOnly } from "./app-link";
+import { AppLinkClient, SignedInOnly } from "./app-link";
 import { AppLink, OpenInMaya, docsAppHref } from "./server";
 
 afterEach(() => {

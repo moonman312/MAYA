@@ -57,7 +57,10 @@ export function safeNext(raw) {
   }
   if (u.origin !== "https://app.invalid") return null;
   if (!DEST_PATH.test(u.pathname)) return null;
-  return u.pathname + u.search;
+  // The active property is never switched by way of the sign-in page.
+  u.searchParams.delete("hotel");
+  const search = u.searchParams.toString();
+  return u.pathname + (search ? `?${search}` : "");
 }
 
 /** The docs address for a registry docs reference ("section/page#anchor"). */

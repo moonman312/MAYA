@@ -37,11 +37,11 @@ describe("/go", () => {
     expect(r.location).toBe(`/login?next=${encodeURIComponent("/go/rules.new?name=Nearly+full&percent=10")}`);
   });
 
-  it("carries the property through sign-in only when MAYA made the click", async () => {
+  it("never carries the property through sign-in", async () => {
     const out = deps({ userId: async () => null });
     expect((await resolveGo(req("calendar", `hotel=${A}`), out)).location).toBe(`/login?next=${encodeURIComponent("/go/calendar")}`);
     expect((await resolveGo(req("calendar", `hotel=${A}`, { fetchSite: "same-origin" }), out)).location).toBe(
-      `/login?next=${encodeURIComponent(`/go/calendar?hotel=${A}`)}`,
+      `/login?next=${encodeURIComponent("/go/calendar")}`,
     );
   });
 
