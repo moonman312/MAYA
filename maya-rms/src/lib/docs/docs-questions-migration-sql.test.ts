@@ -8,6 +8,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createRateLimiter, handleFeedback, type DocsQuestionRow } from "./ask-feedback";
+import { WORST_CASES } from "./ask-feedback.fixtures.mjs";
 
 const PGLITE_DIR = process.env.MAYA_PGLITE_DIR;
 const MIGRATION = readFileSync(resolve(__dirname, "../../../../99_supabase_migration_docs_questions_v1.sql"), "utf8");
@@ -62,6 +64,32 @@ describe.skipIf(!PGLITE_DIR)("docs_questions migration in PGlite", () => {
     await expect(as("service_role", `insert into public.docs_questions (source) values ('spam')`)).rejects.toThrow();
     await expect(as("service_role", `insert into public.docs_questions (source, question) values ('unanswered', repeat('x', 501))`)).rejects.toThrow();
     await expect(as("service_role", `insert into public.docs_questions (source, page) values ('page-useful', 'https://evil.example')`)).rejects.toThrow();
+  });
+
+  it("accepts every row the route writes, even for the longest, trickiest text", async () => {
+    const rows: DocsQuestionRow[] = [];
+    for (const body of WORST_CASES) {
+      const request = new Request("http://localhost/api/docs-ask/feedback", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const res = await handleFeedback(request, { limiter: createRateLimiter(), write: async (row) => void rows.push(row) });
+      expect(res.status).toBe(204);
+    }
+    await db.exec("begin; set role service_role;");
+    try {
+      for (const r of rows) {
+        await db.query(
+          `insert into public.docs_questions (created_at, source, question, page, sections_shown, note, signed_in)
+           values ($1, $2, $3, $4, $5, $6, false)`,
+          [r.created_at, r.source, r.question, r.page, r.sections_shown, r.note],
+        );
+      }
+    } finally {
+      // rolled back so the next test sees only its own rows
+      await db.exec("rollback; reset role;");
+    }
   });
 
   it("shows the rows to a platform admin only, and lets no reader write", async () => {

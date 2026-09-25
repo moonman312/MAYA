@@ -2,6 +2,7 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import { createRateLimiter, handleFeedback, scrub, LIMITS } from "./ask-feedback.ts";
+import { WORST_CASES } from "./ask-feedback.fixtures.mjs";
 
 const post = (body, ip = "203.0.113.7") =>
   new Request("http://localhost/api/docs-ask/feedback", {
@@ -130,4 +131,32 @@ test("long text is cut to its limit, and a failed write says so", async () => {
   });
   assert.equal(res.status, 502);
   assert.equal(logged.length, 1);
+});
+
+const codePoints = (s) => Array.from(s).length;
+
+test("text is scrubbed before it is cut, so every field fits its limit and no email half survives", async () => {
+  const db = recorder();
+  for (const body of WORST_CASES) {
+    const res = await handleFeedback(post(body), { limiter: createRateLimiter(), write: db.write });
+    assert.equal(res.status, 204);
+  }
+  for (const row of db.rows) {
+    assert.ok(codePoints(row.question) <= LIMITS.question, `question ${codePoints(row.question)}`);
+    assert.ok(codePoints(row.note) <= LIMITS.note, `note ${codePoints(row.note)}`);
+    assert.ok(codePoints(row.page) <= LIMITS.page, `page ${codePoints(row.page)}`);
+    assert.ok(codePoints(row.sections_shown) <= LIMITS.sections, `sections ${codePoints(row.sections_shown)}`);
+    assert.ok(!/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(JSON.stringify(row)), "no half emoji");
+  }
+  const [jo, sam, emoji, pages] = db.rows;
+  assert.ok(!jo.question.includes("jo@"), jo.question.slice(-12));
+  assert.ok(!sam.question.includes("sam"), sam.question.slice(-12));
+  assert.ok(!sam.note.includes("a@b"), "the note's email is scrubbed too");
+  assert.equal(emoji.question, `${"q".repeat(499)}😀`);
+  assert.ok(pages.sections_shown.split(", ").every((p) => p === "/docs/abcd"), "pages are kept whole");
+});
+
+test("scrubbing drops half an emoji a reader's browser sent", () => {
+  assert.equal(scrub("broken \ud83d here"), "broken  here");
+  assert.equal(scrub("fine 😀"), "fine 😀");
 });

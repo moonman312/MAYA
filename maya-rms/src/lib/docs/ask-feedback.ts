@@ -23,6 +23,8 @@ export function scrub(text: string): string {
     .replace(/(?:\d[ -]?){11,18}\d/g, REMOVED)
     .replace(/\+?\(?\d[\d\s().-]{6,}\d/g, (m) => ((m.match(/\d/g) ?? []).length >= 9 ? REMOVED : m))
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "")
+    // half an emoji (a lone surrogate) would make Postgres refuse the whole row
+    .replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, "")
     .trim();
 }
 
@@ -88,8 +90,54 @@ export interface FeedbackDeps {
   log?: (message: string, err?: unknown) => void;
 }
 
+/**
+ * At most `max` characters as Postgres counts them (code points), so the
+ * table's length checks always hold and a cut never splits an emoji.
+ */
+function cut(text: string, max: number): string {
+  // A string's .length is never below its code point count, so this is safe.
+  if (text.length <= max) return text;
+  return Array.from(text).slice(0, max).join("");
+}
+
 function field(value: unknown, max: number): string {
-  return typeof value === "string" ? value.slice(0, max) : "";
+  return typeof value === "string" ? cut(value, max) : "";
+}
+
+/**
+ * Free text as stored: scrubbed first and cut after, because scrubbing can
+ * make text longer (a 7-character email becomes the 9 of "[removed]"). Very
+ * long text is first trimmed to twice the limit at a word break, which bounds
+ * the scrubbing work and never hands the scrub half an email it would miss.
+ */
+function freeText(value: unknown, max: number): string {
+  if (typeof value !== "string") return "";
+  let text = value;
+  if (text.length > max * 2) {
+    text = text.slice(0, max * 2);
+    const lastWord = text.search(/\S*$/);
+    if (lastWord > 0) text = text.slice(0, lastWord);
+  }
+  return cut(scrub(text), max);
+}
+
+/** The docs pages the helper showed, kept whole: only /docs paths, joined within the limit. */
+function pageList(value: unknown): string {
+  if (typeof value !== "string") return "";
+  let raw = value;
+  // Trimmed first to bound the work; a path cut in half by the trim is dropped.
+  if (raw.length > LIMITS.sections * 2) raw = raw.slice(0, LIMITS.sections * 2).replace(/[^,]*$/, "");
+  const kept: string[] = [];
+  let length = 0;
+  for (const item of raw.split(",")) {
+    const path = item.trim();
+    if (!path.startsWith("/docs")) continue;
+    const added = (kept.length ? 2 : 0) + path.length;
+    if (length + added > LIMITS.sections) break;
+    kept.push(path);
+    length += added;
+  }
+  return kept.join(", ");
 }
 
 function clientIp(request: Request): string {
@@ -113,13 +161,9 @@ export async function handleFeedback(request: Request, deps: FeedbackDeps): Prom
   if (!SOURCES.includes(source)) return new Response(null, { status: 400 });
   const page = field(body.page, LIMITS.page);
   if (page && !page.startsWith("/")) return new Response(null, { status: 400 });
-  const question = scrub(field(body.question, LIMITS.question));
-  const note = scrub(field(body.note, LIMITS.note));
-  const sections = field(body.sectionsShown, LIMITS.sections)
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s.startsWith("/docs"))
-    .join(", ");
+  const question = freeText(body.question, LIMITS.question);
+  const note = freeText(body.note, LIMITS.note);
+  const sections = pageList(body.sectionsShown);
   if ((source === "unanswered" || source === "not-helpful") && !question) return new Response(null, { status: 400 });
   if ((source === "page-useful" || source === "page-not-useful") && !page) return new Response(null, { status: 400 });
 
