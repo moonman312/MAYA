@@ -229,9 +229,15 @@ describe("computeStarterRules: the booking-speed ladder", () => {
     // ahead of any of them.
     expect(byName.get("Slow-date rescue")!.explanation).toContain("judges only the bookings made since this rule or a stronger one last cut the night");
     expect(byName.get("Slow-date trim")!.explanation).toContain("looking only at bookings made since this rule or a stronger one last cut the night");
-    expect(byName.get("Warm-date bump")!.explanation).toContain("only if the bookings made since this rule or a stronger one last raised the night are still ahead");
+    expect(byName.get("Warm-date bump")!.explanation).toContain("only if the bookings made since this rule or a stronger one last raised the night are, on their own, ahead of what similar nights get in a whole month");
     expect(byName.get("Warm-date bump")!.explanation).not.toContain("another rule already raised on");
-    expect(byName.get("Hot-week surge")!.explanation).toContain("while new bookings keep coming");
+    // A raise rule on "at least" a pace needs the bookings since the change
+    // alone to beat a whole window's usual (keepsWholeWindowBar), so it
+    // doesn't raise again on bookings that merely keep the pace up.
+    expect(byName.get("Hot-week surge")!.explanation).toContain(
+      "if the bookings made since this rule or a stronger one last raised the night are, on their own, far more than a normal week brings",
+    );
+    expect(byName.get("Hot-week surge")!.explanation).not.toContain("keep coming that fast");
     for (const r of rules) {
       expect(r.explanation).not.toContain("the night is still");
       expect(r.explanation).not.toContain("while demand holds");

@@ -251,6 +251,23 @@ describe("an observation cut short by the newest raise or cut by the rule or a s
     expect(view.assumptions.join(" ")).not.toContain("whichever rule");
   });
 
+  it("says a raise rule on a fast pace needed those bookings alone to beat a whole window of the nights it is compared with", () => {
+    // keepsWholeWindowBar: the comparables were read over the rule's whole
+    // 30 days, not the 4 it counted (expectedOverFullWindow).
+    const view = buildExplainView({ ...raise, expectedOverFullWindow: true })!;
+    expect(view.observed).toBe(buildExplainView(raise)!.observed);
+    expect(view.expected).toBe("By this point on nights like this one, we would expect about 4 bookings over a whole month.");
+    expect(view.expected).not.toContain("same stretch");
+    expect(view.assumptions[0]).toBe(
+      "Once a rule or a stronger one has raised this night, it counts only the bookings made after the newest of those raises, the rest of that day included, and those alone have to beat what the nights it is compared with get in a whole month. A weaker rule's raise, or any cut, doesn't move where it starts.",
+    );
+    expect(view.comparables[0].summary).toBe("4 bookings in a whole month");
+    expect(buildExplainView({ ...raise, expectedOverFullWindow: true, fullWindowDays: 7 })!.expected).toContain("over a whole week.");
+    // Without countedFrom the flag means nothing: the plain reading.
+    expect(buildExplainView({ ...comparableSnapshot, expectedOverFullWindow: true })!.expected).toContain("over the same stretch");
+    for (const line of [view.expected, view.assumptions[0], view.comparables[0].summary]) expect(line).not.toMatch(/[<>=≤≥—]/);
+  });
+
   it("says a cut rule counted full days after the newest cut's day, up to yesterday", () => {
     const view = buildExplainView(cut)!;
     expect(view.observed).toBe(

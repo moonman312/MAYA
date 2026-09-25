@@ -217,6 +217,8 @@ function toNarrativeMetrics(
         counted_from?: unknown;
         counted_since?: unknown;
         counted_through?: unknown;
+        expected_over_full_window?: unknown;
+        full_window_days?: unknown;
       }
     | null
     | undefined;
@@ -233,13 +235,18 @@ function toNarrativeMetrics(
           // rule itself or a stronger rule that moves the price the same way
           // says so; every older audit row reads exactly as before.
           // counted_since says the count started at the raise itself, on its
-          // day; counted_through that a rule that cuts counted full days only,
-          // up to the day before.
+          // day; expected_over_full_window that `expected` is a whole
+          // window's (full_window_days), the bar a rule that raises on a
+          // fast pace had to beat; counted_through that a rule that cuts
+          // counted full days only, up to the day before.
           ...(typeof bs.counted_from === "string" && typeof bs.window_days === "number"
             ? {
                 counted_from: bs.counted_from,
                 window_days: bs.window_days,
                 ...(typeof bs.counted_since === "string" ? { counted_since: bs.counted_since } : {}),
+                ...(bs.expected_over_full_window === true && typeof bs.full_window_days === "number"
+                  ? { expected_over_full_window: true, full_window_days: bs.full_window_days }
+                  : {}),
               }
             : {}),
           ...(typeof bs.counted_through === "string" && typeof bs.window_days === "number"

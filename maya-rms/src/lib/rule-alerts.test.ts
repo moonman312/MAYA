@@ -130,6 +130,22 @@ describe("nightWhy", () => {
     );
   });
 
+  it("says a rule that raises on a fast pace counted only since the last raise, against a whole window", () => {
+    // Engine keepsWholeWindowBar: measured over fewer days than its window,
+    // the rule counted from its own or a stronger rule's raise, and
+    // window_expected is what a night like this gets in the whole window.
+    expect(nightWhy(night({ window_days: 2, window_bookings: 5, window_expected: 2.33 }), "$", 7)).toEqual([
+      "Since it or a stronger rule last raised this night, 5 bookings came in. A night like this usually gets about 2 in a whole week.",
+    ]);
+    expect(nightWhy(night({ window_days: 4, window_bookings: 9, window_expected: 0.4 }), "$", 30)[0]).toBe(
+      "Since it or a stronger rule last raised this night, 9 bookings came in. A night like this usually gets almost none in a whole month.",
+    );
+    // Over its whole window it reads as before.
+    expect(nightWhy(night({ window_days: 7, window_bookings: 9, window_expected: 2.33 }), "$", 7)[0]).toBe(
+      "In the 7 days it measured, 9 bookings came in. A night like this usually has about 2 by then.",
+    );
+  });
+
   it("gives a pickup rule its own sentence, in rooms or in money", () => {
     const rooms = night({
       window_days: null,
@@ -284,6 +300,16 @@ describe("buildRuleAlerts", () => {
     expect(card.nights[0].fires_line).toBe("3 times on Standard and once on Suite");
     expect(card.nights[0].uneven).toBe(true);
     expect(card.headline).toBe('"Slow-date rescue" has cut Sat, Nov 14 2026 up to 3 times.');
+  });
+
+  it("names the whole window for a rule that raises on a fast pace, and only for that rule", () => {
+    const short = [night({ window_days: 2, window_bookings: 5, window_expected: 2.33 })];
+    const [raise] = build({ nights: short, wholeWindowDays: new Map([[RULE, 7]]) });
+    expect(raise.nights[0].why[0]).toBe(
+      "Since it or a stronger rule last raised this night, 5 bookings came in. A night like this usually gets about 2 in a whole week.",
+    );
+    const [other] = build({ nights: short });
+    expect(other.nights[0].why[0]).toBe("In the 2 days it measured, 5 bookings came in. A night like this usually has about 2 by then.");
   });
 
   it("carries the default-limit warning through to the night", () => {

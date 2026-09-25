@@ -35,8 +35,9 @@
 --
 -- 2. Open Booking Speed raises from before this file. A raise records the
 --    window it counted (window_from, window_to), what it counted there
---    (window_bookings_at_fire) and what a night like it usually gets over
---    those days (window_expected_at_fire), and comes off as
+--    (window_bookings_at_fire) and what a night like it usually gets
+--    (window_expected_at_fire: over those days, which before this file was
+--    always the rule's whole window), and comes off as
 --    bookings_cancelled once the bookings still on the books from that
 --    window are back to the expected number (cancellationCrossed in
 --    engine/pickup.ts). Every such raise open when this file runs recorded
@@ -68,8 +69,9 @@
 --    (date, instant) pair only the bookings first seen after the instant
 --    count (the earliest created_at across a booking's rows on the night),
 --    each pair on its own row with the instant in `since`. A Booking Speed
---    rule that raised a night counts, when it next decides, only what came
---    after its own raise: from the raise's day on, and on that day only the
+--    rule on a night raised by itself or a stronger rule counts, when it
+--    next decides, only what came after the newest such raise: from the
+--    raise's day on, and on that day only the
 --    bookings that reached MAYA after the raise, so a burst later on the day
 --    of a raise is not lost with it (engine/pickup.ts bookingSpeedCountFrom,
 --    observations/expected-bookings.ts split). The engine reads every
@@ -140,10 +142,12 @@
 -- on the old bundle, a hotel onboarded in the gap keeps the old text for
 -- good. The app runs the same engine (the evaluate button, a typed price's
 -- republish, a room type reprice) and carries the "?" panels, the change
--- log and the drill-down that now say a booking with several rooms counts
--- once, that a rule counts only the bookings made since it, or a stronger
--- rule that moves the price the same way, last adjusted the night, and
--- that a rule that cuts reads full days up to yesterday.
+-- log, the drill-down and the three-raises alert that now say a booking
+-- with several rooms counts once, that a rule counts only the bookings made
+-- since it, or a stronger rule that moves the price the same way, last
+-- adjusted the night, that a rule that raises on a fast pace needs those
+-- bookings alone to beat what a night like it gets in its whole window,
+-- and that a rule that cuts reads full days up to yesterday.
 -- Between the migration and the deploy, the old engine reads the new
 -- counts (one per booking) on every night and comparable, so its pace
 -- calls, the fires it makes and the windows it records are in bookings
@@ -162,20 +166,30 @@
 -- adjustment of the night by itself or by a stronger rule that moves the
 -- price the same way, a paused one included (its adjustment stays on the
 -- price), where it used to adjust again every wait on the same bookings.
+-- A rule that raises on "at least" a pace (every raise on Faster, Much
+-- Faster or Surging the form builds, and the three starter raises) needs
+-- those bookings alone to beat what a night like it gets in its whole
+-- window, so bookings that only keep the pace up after a raise don't raise
+-- it again: after 10 bookings at once raise the rule for 10 in a week, 3
+-- more don't raise the rule for 5 and 5 more do. Any other rule compares
+-- them with the same days of the nights it is compared with.
 -- A weaker rule's adjustment never moves where a stronger rule starts: 5
 -- bookings and then 5 more can still be raised twice, the second time on
 -- all 10, but bookings a stronger rule raised on are never raised on again
 -- by a weaker one, so ten bookings at once under the starter rules end at
 -- +25%, not +72%. The stronger rule is the one that changes the price by
--- more, then at the same change the one whose condition is harder to meet,
--- then the starter rules' own order, then the one with more conditions,
--- then the older rule; the same order picks the rule that adjusts when
--- several match at once. It used to put the starter rules first and then
--- the rule with more conditions, so an owner's rule that changes the price
--- by more than a starter rule now goes ahead of it. A stronger rule that is
--- still waiting holds the night against a weaker rule that moves the price
--- its way only while the bookings it counts since its change would make it
--- adjust again, where it used to hold it while its whole window matched:
+-- more; at the same change, one with a Booking Speed condition ahead of one
+-- without, then the faster pace for a raise (the slower for a cut), then
+-- the pickup condition (a fixed order across kinds, and within one kind the
+-- count harder to meet), then the starter rules' own order, then the one
+-- with more conditions, then the older rule; the same order picks the rule
+-- that adjusts when several match at once. It used to put the starter
+-- rules first and then the rule with more conditions, so an owner's rule
+-- that changes the price by more than a starter rule now goes ahead of it.
+-- A stronger rule that is still waiting holds the night against a weaker
+-- rule that moves the price its way only while the bookings it counts
+-- since its change would make it adjust again, where it used to hold it
+-- while its whole window matched:
 -- 10 bookings at once and 5 more later raise the rule for 10, then the
 -- rule for 5 on the 5 as they come. Against a rule that moves the price
 -- the other way it still holds the night while its whole window matches.

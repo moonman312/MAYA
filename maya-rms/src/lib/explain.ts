@@ -57,6 +57,11 @@ function dayBefore(iso: string): string | null {
   return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
 }
 
+/** "day", "week", "month" or "N days": a window's length in words. */
+function spanWord(days: number): string {
+  return days === 1 ? "day" : days === 7 ? "week" : days === 30 ? "month" : `${days} days`;
+}
+
 function expectedWord(n: number): string {
   if (n < 1) return "almost none";
   const rounded = Math.round(n);
@@ -66,7 +71,7 @@ function expectedWord(n: number): string {
 export type ExplainComparable = {
   /** The challengeable date — for momentum pairs this is the year-ago side, where "that week was not normal" almost always applies. */
   date: string;
-  /** What this night contributed, in plain words ("4 bookings in the same stretch", "no history for this night"). */
+  /** What this night contributed, in plain words ("4 bookings in the same stretch", "4 bookings in a whole week", "no history for this night"). */
   summary: string;
   /** Why this night was considered a fair comparison, in plain words. */
   reasons: string[];
@@ -151,12 +156,17 @@ export function buildExplainView(
   // without it (a cut) the day after. countedThrough: the reading counted
   // full days only, up to the day before it was taken, as a rule that cuts
   // does (countsCompleteDays), on this night and the nights it is compared
-  // with.
+  // with. expectedOverFullWindow: a rule that raises on a fast pace
+  // (keepsWholeWindowBar) read the nights it is compared with over its
+  // whole window (fullWindowDays), not the days it counted, so the
+  // expectation is a whole window's.
   const countedFrom = str(snap.countedFrom);
   const countedSince = str(snap.countedSince);
   const countedThrough = str(snap.countedThrough);
   const changedOn = countedFrom ? (countedSince ? countedFrom : dayBefore(countedFrom)) : null;
   const countedAfter = str(snap.countedAfter);
+  const fullWindowDays = num(snap.fullWindowDays);
+  const wholeSpan = countedFrom && snap.expectedOverFullWindow === true && fullWindowDays != null ? spanWord(fullWindowDays) : null;
   const lastChange = countedAfter === "cut" ? "cut" : countedAfter === "raise" ? "raised" : "changed";
   const change = countedAfter === "cut" ? "cut" : countedAfter === "raise" ? "raise" : "change";
   const changes = countedAfter === "cut" ? "cuts" : countedAfter === "raise" ? "raises" : "changes";
@@ -184,7 +194,9 @@ export function buildExplainView(
   const expectedSentence = insufficient
     ? `We do not have enough history yet to say what would be normal for this night, so no expectation was formed.`
     : expected != null
-      ? `By this point on nights like this one, we would expect ${expectedWord(expected)} over the same stretch.`
+      ? wholeSpan
+        ? `By this point on nights like this one, we would expect ${expectedWord(expected)} over a whole ${wholeSpan}.`
+        : `By this point on nights like this one, we would expect ${expectedWord(expected)} over the same stretch.`
       : `We could not form an expectation for this night.`;
   const verdict = insufficient
     ? `No booking-speed call was made, and rules that watch booking speed were not allowed to act on this night.`
@@ -221,7 +233,9 @@ export function buildExplainView(
           ? "A weaker rule's raise, or any cut, doesn't move where it starts."
           : "A weaker rule's change doesn't move where it starts.";
     assumptions.push(
-      `Once a rule or a stronger one has ${lastChange} this night, it counts only ${counts} and reads the nights it is compared with over the same days. ${unmoved}`,
+      wholeSpan
+        ? `Once a rule or a stronger one has ${lastChange} this night, it counts only ${counts} and those alone have to beat what the nights it is compared with get in a whole ${wholeSpan}. ${unmoved}`
+        : `Once a rule or a stronger one has ${lastChange} this night, it counts only ${counts} and reads the nights it is compared with over the same days. ${unmoved}`,
     );
   }
   if (methodKey === "comparable" && selAssumptions) {
@@ -261,14 +275,15 @@ export function buildExplainView(
     if (!c || !date) continue;
     const hasData = c.hasData !== false;
     const bookings = num(c.bookings);
+    const over = wholeSpan ? `in a whole ${wholeSpan}` : "in the same stretch";
     comparables.push({
       date,
       summary:
         !hasData || bookings == null
           ? "no history for this night"
           : bookings === 1
-            ? "1 booking in the same stretch"
-            : `${bookings} bookings in the same stretch`,
+            ? `1 booking ${over}`
+            : `${bookings} bookings ${over}`,
       reasons: Array.isArray(c.reasons) ? c.reasons.filter((r): r is string => typeof r === "string") : [],
     });
   }

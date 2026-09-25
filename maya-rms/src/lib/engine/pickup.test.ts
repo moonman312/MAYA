@@ -371,6 +371,19 @@ describe("pickup competition (§7.3, §15.5)", () => {
       expect(order([cut("slower", "slower"), cut("much-slower", "much_slower")])).toEqual(["much-slower", "slower"]);
     });
 
+    it("at the same change, a rule that watches booking speed ranks ahead of a pickup count rule, however high its count", () => {
+      // What the "?" panels say (STRONGER_RULE_LINE): the speed decides
+      // between two Booking Speed rules; against a rule without one, having
+      // one decides, before any pickup count or priority.
+      for (const threshold of [0, 4, 50]) {
+        expect(order([pickup("count", threshold, 10), speed("pace", "faster", 10)])).toEqual(["pace", "count"]);
+        expect(order([makeRule({ ...pickup("count", threshold, 10), priority: 150 }), speed("pace", "faster", 10)])).toEqual(["pace", "count"]);
+      }
+      const cutCount = makeRule({ id: "cut-count", action_direction: "decrease", action_value: 10, condition: { pickup_operator: "lt", pickup_threshold: 1, pickup_window_days: 7 } });
+      const cutPace = speed("cut-pace", "slower", 10, { action_direction: "decrease", condition: { booking_speed_operator: "at_most", booking_speed_level: "slower", booking_speed_window_days: 30 } });
+      expect(order([cutCount, cutPace])).toEqual(["cut-pace", "cut-count"]);
+    });
+
     it("never loops: pickup and Booking Speed rules mixed rank the same whatever order they come in", () => {
       // Under the old order "more than 9" (+10%) beat "more than 4" (+20%)
       // on the count, a Booking Speed rule (+15%) beat "more than 9" on the

@@ -46,6 +46,24 @@ function roomTypesOf(value: unknown): AlertNightRoomType[] {
 }
 
 /**
+ * Per rule that raises on a fast pace ("at least" a speed, engine
+ * keepsWholeWindowBar), its booking speed window in days: after a raise its
+ * alert nights counted only the bookings since then, and those alone had to
+ * beat what a night like it gets in the whole window (nightWhy). The rule as
+ * it is now is the one that fired: an edit closes its open nights.
+ */
+function wholeWindowDaysOf(rules: readonly Record<string, unknown>[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const r of rules) {
+    const raw = Array.isArray(r.rule_condition) ? r.rule_condition[0] : r.rule_condition;
+    const rc = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+    if (r.action_direction !== "increase" || rc?.booking_speed_operator !== "at_least") continue;
+    out.set(String(r.id), rc.booking_speed_window_days != null ? Number(rc.booking_speed_window_days) : 7);
+  }
+  return out;
+}
+
+/**
  * The hotel's open alerts and the nights still waiting on an answer. A
  * database without the alert tables yet has nothing to show, which is not an
  * error the dashboard should carry.
@@ -122,7 +140,10 @@ export async function loadRuleAlerts(
   const roomTypeIds = new Set<string>();
   for (const night of nights) for (const rt of night.room_types) roomTypeIds.add(rt.room_type_id);
   const [{ data: rules }, { data: roomTypes }] = await Promise.all([
-    supabase.from("pricing_rules").select("id, name").in("id", alerts.map((a) => a.rule_id)),
+    supabase
+      .from("pricing_rules")
+      .select("id, name, action_direction, rule_condition ( booking_speed_operator, booking_speed_window_days )")
+      .in("id", alerts.map((a) => a.rule_id)),
     roomTypeIds.size > 0
       ? supabase.from("room_types").select("id, name").in("id", [...roomTypeIds])
       : Promise.resolve({ data: [] as { id: string; name: string }[] }),
@@ -133,6 +154,7 @@ export async function loadRuleAlerts(
       alerts,
       nights,
       ruleNames: new Map((rules ?? []).map((r) => [String(r.id), String(r.name)])),
+      wholeWindowDays: wholeWindowDaysOf(rules ?? []),
       roomTypeNames: new Map((roomTypes ?? []).map((rt) => [String(rt.id), String(rt.name)])),
       currencySymbol,
       simulation,

@@ -216,6 +216,48 @@ describe("GET /api/rules/alerts", () => {
     expect(body.alerts[0].nights[0].limit_is_default).toBe(true);
   });
 
+  it("names the whole window a rule that raises on a fast pace had to beat since its last raise", async () => {
+    // The rule as it is now (an edit closes its nights): it raises on "at
+    // least" Much Faster over a week, and its night counted 2 days.
+    state.fake = seed({
+      pricing_rules: [
+        {
+          id: RULE,
+          name: "Hot-week surge",
+          action_direction: "increase",
+          rule_condition: [{ booking_speed_operator: "at_least", booking_speed_window_days: 7 }],
+        },
+      ],
+      rule_repeat_alerts: [
+        { id: ALERT, hotel_id: HOTEL, rule_id: RULE, rule_version: 1, action_direction: "increase", opened_at: "2026-09-17T10:00:00Z", resolved_at: null },
+      ],
+      rule_repeat_alert_nights: [
+        {
+          alert_id: ALERT,
+          hotel_id: HOTEL,
+          rule_id: RULE,
+          stay_date: "2026-11-14",
+          fire_count: 3,
+          last_fire_at: "2026-09-17T10:00:00Z",
+          window_days: 2,
+          window_bookings: 6,
+          window_expected: 1,
+          pickup_metric: null,
+          pickup_threshold: null,
+          pickup_window_days: null,
+          pickup_net: null,
+          room_types: [{ room_type_id: STD, fires: 3, limit: 300, limit_is_default: false, price: 195 }],
+          choice: null,
+          closed_at: null,
+        },
+      ],
+    });
+    const body = await (await GET()).json();
+    expect(body.alerts[0].nights[0].why).toEqual([
+      "Since it or a stronger rule last raised this night, 6 bookings came in. A night like this usually gets about 1 in a whole week.",
+    ]);
+  });
+
   it("shows a viewer the same alert and tells the banner they cannot answer", async () => {
     state.role = "viewer";
     state.fake = seed();

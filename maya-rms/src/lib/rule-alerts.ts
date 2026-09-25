@@ -194,20 +194,36 @@ function unitsPhrase(n: number): string {
   return Math.abs(n) === 1 ? `${n} room night` : `${n} room nights`;
 }
 
+/** "day", "week", "month" or "N days": a window's length in words. */
+function spanWord(days: number): string {
+  return days === 1 ? "day" : days === 7 ? "week" : days === 30 ? "month" : `${days} days`;
+}
+
 /**
  * What the rule was looking at when it last fired, one short sentence per
  * signal. A booking speed rule names the bookings it measured against the
  * pace similar nights set; a pickup rule names the pickup against the mark
  * the owner typed. A rule with both says both.
+ *
+ * `wholeWindowDays` is the rule's booking speed window when it raises on a
+ * fast pace (engine keepsWholeWindowBar): measured over fewer days than
+ * that, it counted only the bookings since it or a stronger rule last
+ * raised the night, and those alone had to beat what a night like this
+ * gets in the whole window, which is what window_expected then is.
  */
-export function nightWhy(night: AlertNightRow, currencySymbol: string): string[] {
+export function nightWhy(night: AlertNightRow, currencySymbol: string, wholeWindowDays?: number | null): string[] {
   const out: string[] = [];
   if (night.window_days != null && night.window_bookings != null) {
-    const measured = `In the ${dayWord(night.window_days)} it measured, ${bookingsPhrase(night.window_bookings)}.`;
+    const sinceRaise = wholeWindowDays != null && night.window_days < wholeWindowDays;
+    const measured = sinceRaise
+      ? `Since it or a stronger rule last raised this night, ${bookingsPhrase(night.window_bookings)}.`
+      : `In the ${dayWord(night.window_days)} it measured, ${bookingsPhrase(night.window_bookings)}.`;
     out.push(
-      night.window_expected != null
-        ? `${measured} A night like this usually has ${expectedPhrase(night.window_expected)} by then.`
-        : measured,
+      night.window_expected == null
+        ? measured
+        : sinceRaise
+          ? `${measured} A night like this usually gets ${expectedPhrase(night.window_expected)} in a whole ${spanWord(wholeWindowDays)}.`
+          : `${measured} A night like this usually has ${expectedPhrase(night.window_expected)} by then.`,
     );
   }
   if (night.pickup_threshold != null && night.pickup_window_days != null && night.pickup_net != null) {
@@ -395,6 +411,8 @@ export function buildRuleAlerts(input: {
   roomTypeNames: Map<string, string>;
   currencySymbol: string;
   simulation: boolean;
+  /** Per rule that raises on a fast pace, its booking speed window in days (see nightWhy). */
+  wholeWindowDays?: Map<string, number>;
 }): RuleAlert[] {
   const byAlert = new Map<string, AlertNightRow[]>();
   for (const night of input.nights) {
@@ -422,7 +440,7 @@ export function buildRuleAlerts(input: {
         fires: night.fire_count,
         uneven: nightIsUneven(night),
         fires_line: nightFiresLine(night, input.roomTypeNames),
-        why: nightWhy(night, input.currencySymbol),
+        why: nightWhy(night, input.currencySymbol, input.wholeWindowDays?.get(alert.rule_id) ?? null),
         limit_line: limit
           ? nightLimitLine(limit, alert.action_direction, input.currencySymbol, input.simulation)
           : null,

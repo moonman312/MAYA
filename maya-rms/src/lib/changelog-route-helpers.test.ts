@@ -369,6 +369,20 @@ describe("buildApplications", () => {
       counted_from: "2026-09-17",
       counted_since: "2026-09-17T12:00:00.000Z",
     });
+    // A rule that raises on a fast pace read a whole window's usual: it says
+    // so, with that window.
+    expect(
+      fired({ ...bs, window_days: 2, counted_from: "2026-09-17", full_window_days: 7, counted_since: "2026-09-17T12:00:00.000Z", expected_over_full_window: true }),
+    ).toEqual({
+      label: "Surging",
+      recent: 12,
+      expected: 0.4,
+      window_days: 2,
+      counted_from: "2026-09-17",
+      counted_since: "2026-09-17T12:00:00.000Z",
+      expected_over_full_window: true,
+      full_window_days: 7,
+    });
     // A whole window, as every fire before this was: nothing more to say.
     expect(fired({ ...bs, window_days: 30 })).toEqual({ label: "Surging", recent: 12, expected: 0.4 });
     // A cut rule's reading, full days up to yesterday, says so, cut short or not.

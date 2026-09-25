@@ -41,14 +41,22 @@ describe("bookingSpeedHelp", () => {
   it("says that once a rule changed a night it and the weaker rules that move the price the same way only count what was booked since", () => {
     // What the engine does: countFromFireAt, the newest fire on the night by
     // the rule itself or a stronger rule that adjusts the same way, and a
-    // weaker rule's never (Jake, 2026-09-24, option A); the comparables
-    // read over the same shorter stretch (observeBookingSpeed countFrom).
-    for (const w of [1, 7, 30]) {
+    // weaker rule's never (Jake, 2026-09-24, option A); a rule that raises
+    // on "at least" a pace, which is how the form builds a raise on Faster,
+    // Much Faster or Surging, reads the comparables over its whole window,
+    // any other over the same shorter stretch (keepsWholeWindowBar).
+    for (const [w, span] of [
+      [1, "day"],
+      [7, "week"],
+      [30, "month"],
+    ] as const) {
       const lines = bookingSpeedHelp(w).lines;
       expect(lines.at(-4)).toBe(
         "After a rule changes a night, it only counts bookings made since then. So does every weaker rule that moves the price the same way, so they don't add to that change on the same bookings.",
       );
-      expect(lines.at(-3)).toBe("Those bookings are compared with similar nights over the same days.");
+      expect(lines.at(-3)).toBe(
+        `A rule that raises on a fast pace needs those bookings alone to beat what similar nights get in a whole ${span}. Any other rule compares them with similar nights over the same days.`,
+      );
       expect(lines.join(" ")).not.toContain("whichever rule");
     }
   });
@@ -63,12 +71,14 @@ describe("bookingSpeedHelp", () => {
     }
   });
 
-  it("says what makes a rule stronger in terms the owner can see: the bigger change, then the harder condition", () => {
+  it("says what makes a rule stronger in terms the owner can see: the bigger change, then booking speed ahead of none, then the faster speed", () => {
     // What the engine does: comparePickupRules ranks by the change to the
-    // price first, then how demanding the condition is; priority, which
-    // owners can't set, only after that.
+    // price first; at the same change a rule with a Booking Speed condition
+    // ranks ahead of one without whatever its pickup count, then the faster
+    // level for a raise (slower for a cut); priority, which owners can't
+    // set, only after the pickup count.
     expect(STRONGER_RULE_LINE).toBe(
-      "A stronger rule is one that changes the price by more. If two change it by the same amount, the one whose condition is harder to meet is stronger.",
+      "A stronger rule is one that changes the price by more. If two change it by the same amount, a rule that watches booking speed is stronger than one that doesn't, and of two that do, the one set to the faster speed is stronger (the slower speed, for rules that cut).",
     );
     for (const w of [1, 7, 30]) expect(bookingSpeedHelp(w).lines.at(-1)).toBe(STRONGER_RULE_LINE);
     expect(bookingSpeedWaitHelp("1 week").lines.at(-1)).toBe(STRONGER_RULE_LINE);

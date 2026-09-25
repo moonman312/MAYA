@@ -77,6 +77,13 @@ export type NarrativeMetrics = {
     counted_from?: string | null;
     counted_since?: string | null;
     /**
+     * With counted_from, for a rule that raises on a fast pace: `expected`
+     * is what a night like this gets in the rule's whole window
+     * (full_window_days), not in the days it counted.
+     */
+    expected_over_full_window?: boolean | null;
+    full_window_days?: number | null;
+    /**
      * Set for a rule that cuts: it counted full days only, up to the day
      * before the run, on the night and the nights it is compared with.
      */
@@ -249,7 +256,11 @@ function speedLead(levelKey: string, when: string, subject = "Bookings"): string
  * countFromFireAt and bookingSpeedCountFrom): from the raise itself on its
  * own day (counted_since), or from the day after a cut. So the sentence
  * names those days instead of its whole window, and says "this rule or a
- * stronger one" because the audit doesn't record whose change it was. A rule that cuts counts full days only,
+ * stronger one" because the audit doesn't record whose change it was. A
+ * rule that raises on a fast pace needed those bookings alone to beat what a
+ * night like this gets in its whole window (expected_over_full_window,
+ * engine keepsWholeWindowBar), and the sentence names that window; any other
+ * compared them with the same days. A rule that cuts counts full days only,
  * up to yesterday (counted_through), and the sentence says so. `direction`
  * is the rule's, and decides whether its change reads as a raise or a cut.
  */
@@ -290,7 +301,18 @@ function bookingSpeedSentence(
   const recent = Math.round(bs.recent);
   const seen =
     recent < 0 ? "more cancelled than booked" : recent === 0 ? "none" : `${recent}`;
-  const then = counted === 1 ? (fromChange ? "in a day" : "that day") : "in those days";
+  const wholeDays =
+    counted != null && bs.expected_over_full_window
+      ? (bs.full_window_days ?? condition.booking_speed_window_days ?? null)
+      : null;
+  const then =
+    wholeDays != null
+      ? `in a whole ${wholeDays === 1 ? "day" : wholeDays === 7 ? "week" : wholeDays === 30 ? "month" : `${wholeDays} days`}`
+      : counted === 1
+        ? fromChange
+          ? "in a day"
+          : "that day"
+        : "in those days";
   const usual =
     (counted != null && counted >= 1) || fullDays
       ? bs.expected < 1

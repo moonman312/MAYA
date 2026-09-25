@@ -453,6 +453,39 @@ describe("booking speed narration", () => {
     ).toEqual([
       "Bookings came in much faster than normal later on the day this rule or a stronger one last raised this night: 12, against the 1 a night like this usually gets in a day.",
     ]);
+    // A rule that raises on a fast pace: those bookings alone against what a
+    // night like this gets in its whole window (expected_over_full_window).
+    expect(
+      describeConditions(
+        { booking_speed_operator: "at_least", booking_speed_level: "much_faster", booking_speed_window_days: 7 },
+        {
+          booking_speed: {
+            label: "Much Faster Than Normal",
+            recent: 5,
+            expected: 2.33,
+            window_days: 2,
+            counted_from: "2026-09-16",
+            counted_since: since,
+            expected_over_full_window: true,
+            full_window_days: 7,
+          },
+        },
+        null,
+        "increase",
+      ),
+    ).toEqual([
+      "Bookings came in much faster than normal in the 2 days since this rule or a stronger one last raised this night: 5, against the 2 a night like this usually gets in a whole week.",
+    ]);
+    expect(
+      describeConditions(
+        month,
+        { booking_speed: { label: "Faster Than Normal", recent: 9, expected: 0.4, window_days: 1, counted_from: "2026-09-17", counted_since: since, expected_over_full_window: true, full_window_days: 30 } },
+        null,
+        "increase",
+      ),
+    ).toEqual([
+      "Bookings came in faster than normal later on the day this rule or a stronger one last raised this night: 9, where a night like this usually gets almost none in a whole month.",
+    ]);
     // A cut rule: the full days after the cut's day, up to yesterday.
     expect(
       describeConditions(

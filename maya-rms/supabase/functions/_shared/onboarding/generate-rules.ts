@@ -22,7 +22,11 @@
  * by a stronger rule that moves the price the same way (engine/pickup.ts,
  * countFromFireAt and bookingSpeedCountFrom): a raise rule from that raise,
  * the rest of that day included, a cut rule from the day after that cut. It
- * adjusts again if those still meet its condition. A weaker rule's
+ * adjusts again if those still meet its condition: for the three raise
+ * rules, which raise on "at least" a pace, those bookings alone against
+ * what similar nights get in the rule's whole window (keepsWholeWindowBar
+ * in engine/booking-speed-provider.ts), for the cut rules against the same
+ * days of similar nights. A weaker rule's
  * adjustment never moves where a stronger rule counts from (Jake,
  * 2026-09-24, option A), so a rule for a stronger pace sees the whole run
  * of bookings, while a weaker rule never raises again on bookings a
@@ -162,8 +166,9 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       explanation:
         "A night booking ahead of the pace similar nights set can carry 10% more: the demand " +
         "is already showing up in your own numbers. MAYA waits 3 days, then raises again only " +
-        "if the bookings made since this rule or a stronger one last raised the night are still " +
-        "ahead. If enough of the bookings behind a raise cancel, the raise comes back off.",
+        "if the bookings made since this rule or a stronger one last raised the night are, on " +
+        "their own, ahead of what similar nights get in a whole month. If enough of the bookings " +
+        "behind a raise cancel, the raise comes back off.",
     },
     {
       name: "Hot-week surge",
@@ -178,8 +183,9 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       is_pickup_rule: true,
       explanation:
         "When the past week runs much faster than similar nights ever did, raise 25% and ride " +
-        "the wave. It steps up again every couple of days while new bookings keep coming that " +
-        "fast, and MAYA tells you once it has raised the same night three times.",
+        "the wave. Every couple of days it steps up again if the bookings made since this rule " +
+        "or a stronger one last raised the night are, on their own, far more than a normal week " +
+        "brings, and MAYA tells you once it has raised the same night three times.",
     },
     {
       name: "Sudden-spike catcher",

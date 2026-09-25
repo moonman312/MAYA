@@ -12,10 +12,14 @@
  * the newest adjustment there by itself or by a stronger rule that moves
  * the price the same way (countFromFireAt and bookingSpeedCountFrom in
  * engine/pickup.ts: from a raise on, the rest of that day included; from
- * the day after a cut), against the similar nights over the same days. A
- * weaker rule's adjustment never moves where a stronger rule counts from
- * (Jake, 2026-09-24, option A), and a paused rule's adjustments, which stay
- * on the price, still count. A rule that cuts reads full days only, ending
+ * the day after a cut). A rule that raises on a fast pace ("at least"
+ * Faster, Much Faster or Surging, as the form builds it) needs those
+ * bookings alone to beat what similar nights get in its whole window; any
+ * other rule compares them with the similar nights over the same days
+ * (keepsWholeWindowBar in engine/booking-speed-provider.ts). A weaker
+ * rule's adjustment never moves where a stronger rule counts from (Jake,
+ * 2026-09-24, option A), and a paused rule's adjustments, which stay on
+ * the price, still count. A rule that cuts reads full days only, ending
  * yesterday; one that raises counts today so far too (countsCompleteDays in
  * engine/booking-speed-provider.ts). Both panels say what applies. A typed
  * price takes the adjustments off, holds the night for the rule's wait from
@@ -23,15 +27,16 @@
  *
  * "Stronger" is the order comparePickupRules ranks in, and both panels say
  * what it means in what an owner can see (STRONGER_RULE_LINE): the rule that
- * changes the price by more, and at the same change the one whose condition
- * is harder to meet (a faster level for a raise, a slower one for a cut, a
- * higher "more than", a lower "less than"). Priority, which owners can't
- * set, only comes after.
+ * changes the price by more; at the same change, a rule with a booking speed
+ * condition ahead of one without (a pickup count rule), whatever its pickup
+ * count; and between two with one, the faster speed for a raise, the slower
+ * one for a cut. Past that it ranks on the pickup count and then priority,
+ * which owners can't set; the panels don't go that far.
  */
 
 /** What makes one rule stronger than another, in both panels. */
 export const STRONGER_RULE_LINE =
-  "A stronger rule is one that changes the price by more. If two change it by the same amount, the one whose condition is harder to meet is stronger.";
+  "A stronger rule is one that changes the price by more. If two change it by the same amount, a rule that watches booking speed is stronger than one that doesn't, and of two that do, the one set to the faster speed is stronger (the slower speed, for rules that cut).";
 
 export const BOOKING_SPEED_HELP_EXAMPLE = {
   expected: 5,
@@ -54,7 +59,7 @@ export function bookingSpeedHelp(windowDays: number): { label: string; title: st
       "Only bookings in the room types this rule measures are counted.",
       "A rule that cuts counts full days only, up to yesterday. A rule that raises counts today so far too.",
       "After a rule changes a night, it only counts bookings made since then. So does every weaker rule that moves the price the same way, so they don't add to that change on the same bookings.",
-      "Those bookings are compared with similar nights over the same days.",
+      `A rule that raises on a fast pace needs those bookings alone to beat what similar nights get in a whole ${span}. Any other rule compares them with similar nights over the same days.`,
       "If those keep the rule true after its wait, it adjusts that night again.",
       STRONGER_RULE_LINE,
     ],
