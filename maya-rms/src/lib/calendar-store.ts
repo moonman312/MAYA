@@ -596,7 +596,9 @@ async function getCalendarFromDb(
       ? roomTypeRows.map((rt) => ({
           id: String(rt.id),
           name: rt.name,
-          total_rooms: typeof rt.total_rooms === "number" && rt.total_rooms > 0 ? rt.total_rooms : hotelFallbackRooms,
+          // 0 is a real count (a type whose rooms are all inactive), so only
+          // a missing value borrows the hotel default.
+          total_rooms: typeof rt.total_rooms === "number" && rt.total_rooms >= 0 ? rt.total_rooms : hotelFallbackRooms,
           base_rate: defaultBaseRate,
           counts_as_room: rt.counts_as_room,
         }))
