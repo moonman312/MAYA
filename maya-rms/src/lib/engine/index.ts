@@ -9,7 +9,7 @@ export type { EvaluationResult } from "./evaluate";
 
 export { ruleScopeMatches } from "./scope";
 export { computeDta, computeOccupancy, computeNetPickup, computeRuleMetrics } from "./metrics";
-export { ruleConditionsMatch, conditionCount } from "./conditions";
+export { ladderConditionsHold, ruleConditionsMatch, conditionCount } from "./conditions";
 
 export { evaluateLadderTriple } from "./ladder";
 export type { LadderPassResult } from "./ladder";
@@ -17,7 +17,8 @@ export type { LadderPassResult } from "./ladder";
 export {
   basePriceKey,
   baselineTsFrom,
-  cancelCheckFor,
+  cancellableParts,
+  cancellationsUndo,
   pickupTieBreakTrace,
   pickupWaitDays,
   ruleWaitDays,

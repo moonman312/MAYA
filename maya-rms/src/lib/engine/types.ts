@@ -119,8 +119,18 @@ export type PickupCandidate = {
   signal_booked_revenue_end: number;
   /** One above the highest fire number this rule ever had on the cell. */
   fire_seq: number;
-  /** Which cancellation test can take this fire off (see cancelCheckFor). */
+  /** Always "recount": every number a cancellation check reads is stored (PickupCancelCheck). */
   cancel_check: PickupCancelCheck;
+  /**
+   * For a rule with a pickup condition: the room nights (and revenue) on
+   * the measured room types first seen after the count opened (baseline_ts)
+   * and by this run (eval_ts), still booked now, so a later cancellation
+   * check can tell how many of the bookings that came in during the count
+   * have cancelled since (cancellationsUndo in pickup.ts). null without a
+   * pickup condition, or when they could not be read.
+   */
+  pickup_units_arrived: number | null;
+  pickup_revenue_arrived: number | null;
   /**
    * The booking speed window, in hotel dates, when the rule has a booking
    * speed reading: the days it counted, ending on the run's day for a raise

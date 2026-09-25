@@ -296,10 +296,12 @@ describe.each(ENGINES)("$name: a Booking Speed rule never counts bookings it or 
       for (let day = 0; day <= 12; day++) await w.run(day);
       expect(w.firedOn(NIGHT)).toEqual([["Pickup raise", 0]]);
       expect(w.price(NIGHT)).toBe(130);
-      // The pickup fire carries no frozen window of its own.
-      expect(w.fires(NIGHT).map((e) => [e.cancel_check, e.window_from, e.window_bookings_at_fire])).toEqual([
-        ["net_units", null, null],
-      ]);
+      // The pickup fire carries no frozen window of its own, and records
+      // what was first seen during its week: the ten and the one booking
+      // the night usually gets in a week (made 43 days out, 3 days ago).
+      expect(
+        w.fires(NIGHT).map((e) => [e.cancel_check, e.window_from, e.window_bookings_at_fire, e.pickup_units_arrived_at_fire]),
+      ).toEqual([["recount", null, null, 11]]);
     }, 120_000);
 
     it("a weaker pickup count rule counts only what came after a stronger Booking Speed rule's raise", async () => {
@@ -518,21 +520,24 @@ describe.each(ENGINES)("$name: a Booking Speed rule never counts bookings it or 
       });
       await w.run(0);
       expect(w.fires(NIGHT).map((e) => [e.rule_id, e.window_from, e.window_to, e.window_bookings_at_fire, e.cancel_check])).toEqual([
-        ["Sudden-spike catcher", D0, D0, 5, "window_bookings"],
+        ["Sudden-spike catcher", D0, D0, 5, "recount"],
       ]);
-      // Four of the reservation's six rooms cancel: still five bookings, the raise stays.
+      // Four of the reservation's six rooms cancel: rooms went, but it is
+      // still five bookings, still a surge, and the raise stays.
       w.tables.reservations = w.tables.reservations.filter((r) => !["3", "4", "5", "6"].map((k) => key(Number(k))).includes(String(r.external_reservation_id)));
       await w.run(0, HOUR);
       expect(w.fires(NIGHT).map((e) => e.retired_reason)).toEqual([null]);
-      // A night like it gets none that day, so the raise only comes off once
-      // the reservation's last rooms and every single are gone.
-      w.tables.reservations = w.tables.reservations.filter((r) => !(r.stay_date === NIGHT && r.booking_date === D0 && String(r.external_reservation_id ?? "").length > 0));
-      w.tables.reservations = w.tables.reservations.filter((r) => !(r.stay_date === NIGHT && r.booking_date === D0)).concat(
-        w.tables.reservations.filter((r) => r.stay_date === NIGHT && r.booking_date === D0).slice(0, 1),
+      // The whole reservation cancels: four bookings on a day a night like it
+      // gets none is still a surge.
+      w.tables.reservations = w.tables.reservations.filter(
+        (r) => !["1", "2"].map((k) => key(Number(k))).includes(String(r.external_reservation_id)),
       );
       await w.run(0, 2 * HOUR);
       expect(w.fires(NIGHT).map((e) => e.retired_reason)).toEqual([null]);
-      w.tables.reservations = w.tables.reservations.filter((r) => !(r.stay_date === NIGHT && r.booking_date === D0));
+      // Two of the singles cancel too: two bookings is no longer a surge, so
+      // the raise comes off.
+      const singles = w.tables.reservations.filter((r) => r.stay_date === NIGHT && r.booking_date === D0).slice(0, 2);
+      w.tables.reservations = w.tables.reservations.filter((r) => !singles.includes(r));
       await w.run(0, 3 * HOUR);
       expect(w.fires(NIGHT).map((e) => e.retired_reason)).toEqual(["bookings_cancelled"]);
     }, 120_000);

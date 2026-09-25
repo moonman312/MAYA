@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { conditionCount, ruleConditionsMatch } from "./conditions";
+import { conditionCount, ladderConditionsHold, ruleConditionsMatch } from "./conditions";
 import type { EngineRule } from "@/types/domain";
 import type { RuleMetrics } from "./types";
 
@@ -251,5 +251,31 @@ describe("booking speed conditions", () => {
     expect(ruleConditionsMatch(rule, speedMetrics(2, "much_faster"))).toBe(true);
     expect(ruleConditionsMatch(rule, { ...speedMetrics(2, "much_faster"), occupancy: 0.5 })).toBe(false);
     expect(conditionCount(rule)).toBe(2);
+  });
+});
+
+describe("a change already on, from a rule that holds while it is true (ladderConditionsHold)", () => {
+  const busy = (undo: boolean | undefined, extra: EngineRule["condition"] = {}) =>
+    makeRule({ undo_on_cancellation: undo, condition: { occupancy_operator: "gt", occupancy_threshold: 0.7, ...extra } });
+
+  it("ticked (or never said), holds exactly while its conditions match", () => {
+    for (const undo of [true, undefined]) {
+      expect(ladderConditionsHold(busy(undo), { ...baseMetrics, occupancy: 0.75 })).toBe(true);
+      expect(ladderConditionsHold(busy(undo), { ...baseMetrics, occupancy: 0.65 })).toBe(false);
+    }
+  });
+
+  it("unticked, an occupancy drop never switches it off, but days before arrival still run out", () => {
+    const rule = busy(false, { dta_operator: "gt", dta_threshold_days: 20 });
+    expect(ladderConditionsHold(rule, { ...baseMetrics, occupancy: 0.4, dta: 30 })).toBe(true);
+    expect(ladderConditionsHold(rule, { ...baseMetrics, occupancy: 0.4, dta: 20 })).toBe(false);
+    // A night with nothing to sell is not held.
+    expect(ladderConditionsHold(rule, { ...baseMetrics, occupancy: null, dta: 30 })).toBe(false);
+  });
+
+  it("unticked, new bookings still end an \"occupancy less than\" rule", () => {
+    const quiet = makeRule({ undo_on_cancellation: false, action_direction: "decrease", condition: { occupancy_operator: "lt", occupancy_threshold: 0.3 } });
+    expect(ladderConditionsHold(quiet, { ...baseMetrics, occupancy: 0.2 })).toBe(true);
+    expect(ladderConditionsHold(quiet, { ...baseMetrics, occupancy: 0.3 })).toBe(false);
   });
 });

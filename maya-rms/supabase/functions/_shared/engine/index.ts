@@ -8,7 +8,7 @@ export type { EvaluationResult } from "./evaluate.ts";
 
 export { ruleScopeMatches } from "./scope.ts";
 export { computeDta, computeOccupancy, computeNetPickup, computeRuleMetrics } from "./metrics.ts";
-export { ruleConditionsMatch, conditionCount } from "./conditions.ts";
+export { ladderConditionsHold, ruleConditionsMatch, conditionCount } from "./conditions.ts";
 
 export { evaluateLadderTriple } from "./ladder.ts";
 export type { LadderPassResult } from "./ladder.ts";
@@ -16,7 +16,8 @@ export type { LadderPassResult } from "./ladder.ts";
 export {
   basePriceKey,
   baselineTsFrom,
-  cancelCheckFor,
+  cancellableParts,
+  cancellationsUndo,
   pickupTieBreakTrace,
   pickupWaitDays,
   ruleWaitDays,

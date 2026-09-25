@@ -1,21 +1,24 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   FIRE_UNIQUE_INDEX,
+  arrivalReads,
   basePriceKey,
   baselineTsFrom,
   bookingSpeedCountFrom,
-  cancelCheckFor,
+  cancellableParts,
   candidateFor,
   comparePickupRules,
   countFromFireAt,
   fireHeadKey,
   insertPickupEvent,
   isWaiting,
+  resetPickupInsertLogOnce,
   openFireHeads,
   pickupJudgesShortStretch,
   pickupTieBreakTrace,
   pickupWaitDays,
   pickupWindowOpensAt,
+  recordArrivals,
   ruleWaitDays,
   runPickupPass,
   selectPickupWinner,
@@ -25,6 +28,7 @@ import {
   type RankedRule,
 } from "./pickup";
 import { fakeSupabase } from "./fake-supabase.test";
+import { bookedBeforeKey, type BookedCount } from "./snapshots";
 import type { EngineRule } from "@/types/domain";
 import type { PickupCandidate, RuleMetrics } from "./types";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -81,7 +85,9 @@ function makeCandidate(rule: EngineRule, rtId: string = "rt1", stayDate: string 
     signal_booked_revenue_start: 2000,
     signal_booked_revenue_end: 3200,
     fire_seq: 1,
-    cancel_check: "net_units",
+    cancel_check: "recount",
+    pickup_units_arrived: null,
+    pickup_revenue_arrived: null,
     window_from: null,
     window_since: null,
     window_to: null,
@@ -706,11 +712,18 @@ describe("where a pickup count opens: the fires still on the night (openFireHead
     action_kind: "percent",
     action_direction: "increase",
     action_value: 10,
-    cancel_check: "net_units",
+    cancel_check: "recount",
+    baseline_start_ts: "2026-09-13T12:00:00.000Z",
     signal_booked_units_start: 0,
+    signal_booked_units_end: 5,
+    signal_booked_revenue_start: 0,
+    signal_booked_revenue_end: 500,
+    pickup_units_arrived_at_fire: 5,
+    pickup_revenue_arrived_at_fire: 500,
     window_from: null,
     window_since: null,
     window_to: null,
+    window_bookings_at_fire: null,
     window_expected_at_fire: null,
     signal_set_key: "rt1",
     ...over,
@@ -719,7 +732,7 @@ describe("where a pickup count opens: the fires still on the night (openFireHead
   const paused = makeRule({ id: "paused", is_active: false });
   const edited = makeRule({ id: "edited", version: 2 });
 
-  it("takes each rule's newest open fire per night and room type, paused rules' included", () => {
+  it("takes each rule's newest open fire per night and room type, and how many are open, paused rules' included", () => {
     const heads = openFireHeads(
       [raise, paused],
       [
@@ -730,7 +743,7 @@ describe("where a pickup count opens: the fires still on the night (openFireHead
       ],
       new Set(),
     );
-    expect(heads.get(fireHeadKey("raise", NIGHT, "rt1"))?.lastCountedAt).toBe("2026-09-22T12:00:00.000Z");
+    expect(heads.get(fireHeadKey("raise", NIGHT, "rt1"))).toEqual({ lastCountedAt: "2026-09-22T12:00:00.000Z", counted: 2 });
     expect(heads.get(fireHeadKey("paused", NIGHT, "rt1"))?.lastCountedAt).toBe("2026-09-21T12:00:00.000Z");
     expect(heads.get(fireHeadKey("raise", NIGHT, "rt2"))?.lastCountedAt).toBe("2026-09-19T12:00:00.000Z");
   });
@@ -746,12 +759,14 @@ describe("where a pickup count opens: the fires still on the night (openFireHead
       ],
       new Set(["cancelled"]),
     );
-    expect([...heads.entries()]).toEqual([[fireHeadKey("raise", NIGHT, "rt1"), { lastCountedAt: "2026-09-20T12:00:00.000Z" }]]);
+    expect([...heads.entries()]).toEqual([
+      [fireHeadKey("raise", NIGHT, "rt1"), { lastCountedAt: "2026-09-20T12:00:00.000Z", counted: 1 }],
+    ]);
   });
 
-  it("so a stronger rule's cancelled raise starts no weaker rule's pickup count, while its fire history still does", () => {
-    // The fire history (FireHead.lastCountedAt) keeps a raise taken off for
-    // cancellations; the open fires don't.
+  it("so a stronger rule's raise that came off for cancellations covers no weaker rule, where the fire history would", () => {
+    // pickup_fire_heads keeps a raise taken off for cancellations; the fires
+    // still on the night don't, and they are what every rule counts from.
     const strong = makeRule({ id: "strong", action_value: 20 });
     const weak = makeRule({ id: "weak", action_value: 10 });
     const cancelledAt = "2026-09-23T12:00:00.000Z";
@@ -788,43 +803,41 @@ describe("where a pickup condition's window opens on a cell", () => {
   });
 });
 
-describe("which cancellation test a fire gets", () => {
-  const metrics = (over: Partial<RuleMetrics> = {}): RuleMetrics => ({
-    ...baseMetrics,
-    signal_booked_units_baseline: 10,
-    signal_booked_units_now: 16,
-    ...over,
-  });
-  const faster = { speed: "faster", rank: 1, label: "Faster Than Normal", recent: 9, expected: 5, window_days: 30, method: "comparable" };
+describe("which conditions cancellations can make false (cancellableParts)", () => {
+  const parts = (condition: EngineRule["condition"], direction: "increase" | "decrease" = "increase") =>
+    cancellableParts(makeRule({ condition, action_direction: direction }));
 
-  it("a cut never comes off for cancellations", () => {
-    const rule = makeRule({ action_direction: "decrease" });
-    expect(cancelCheckFor(rule, metrics())).toBe("none");
-  });
-
-  it("a raise on bookings growing over its window gets the net test", () => {
-    expect(cancelCheckFor(makeRule(), metrics())).toBe("net_units");
-    // No growth behind it: nothing to take back.
-    expect(cancelCheckFor(makeRule(), metrics({ signal_booked_units_now: 10 }))).toBe("none");
-  });
-
-  it("a raise on a faster pace gets the window test, and one on both gets either", () => {
-    const bs = makeRule({
-      condition: { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 30 },
+  it("judges the bars bookings must stay above: occupancy and pickup more than, a pace of at least", () => {
+    expect(parts({ occupancy_operator: "gt", occupancy_threshold: 0.7 })).toEqual({ occupancy: true, pickup: false, bookingSpeed: false });
+    expect(parts({ pickup_operator: "gt", pickup_threshold: 4, pickup_window_days: 7 })).toEqual({
+      occupancy: false,
+      pickup: true,
+      bookingSpeed: false,
     });
-    expect(cancelCheckFor(bs, metrics({ booking_speed: faster }))).toBe("window_bookings");
-    const mixed = makeRule({ condition: { ...makeRule().condition, ...bs.condition } });
-    expect(cancelCheckFor(mixed, metrics({ booking_speed: faster }))).toBe("either");
+    expect(parts({ booking_speed_operator: "at_least", booking_speed_level: "faster" })).toEqual({
+      occupancy: false,
+      pickup: false,
+      bookingSpeed: true,
+    });
   });
 
-  it("a raise whose trigger is slow or thin is never undone by cancellations", () => {
-    const slow = makeRule({
-      condition: { booking_speed_operator: "at_most", booking_speed_level: "slower", booking_speed_window_days: 30 },
-    });
-    const slowNow = { speed: "slower", rank: -1, label: "Slower Than Normal", recent: 1, expected: 5, window_days: 30, method: "comparable" };
-    expect(cancelCheckFor(slow, metrics({ booking_speed: slowNow, signal_booked_units_now: 10 }))).toBe("none");
-    const thin = makeRule({ condition: { ...makeRule().condition, pickup_operator: "lt", pickup_threshold: 1 } });
-    expect(cancelCheckFor(thin, metrics())).toBe("none");
+  it("leaves what cancellations only make truer: less than, at most, days before arrival", () => {
+    const none = { occupancy: false, pickup: false, bookingSpeed: false };
+    expect(parts({ occupancy_operator: "lt", occupancy_threshold: 0.3 }, "decrease")).toEqual(none);
+    expect(parts({ pickup_operator: "lt", pickup_threshold: 2, pickup_window_days: 7 }, "decrease")).toEqual(none);
+    expect(parts({ booking_speed_operator: "at_most", booking_speed_level: "much_slower" }, "decrease")).toEqual(none);
+    expect(parts({ dta_operator: "lt", dta_threshold_days: 14 })).toEqual(none);
+  });
+
+  it("an exact pace counts for a raise, which slower undoes, but not for a cut, which slower still keeps", () => {
+    expect(parts({ booking_speed_operator: "is", booking_speed_level: "faster" }).bookingSpeed).toBe(true);
+    expect(parts({ booking_speed_operator: "is", booking_speed_level: "slower" }, "decrease").bookingSpeed).toBe(false);
+  });
+
+  it("works the same way for a raise and a cut on the same bars", () => {
+    const mixed = { occupancy_operator: "gt" as const, occupancy_threshold: 0.2, booking_speed_operator: "at_most" as const, booking_speed_level: "slower" };
+    expect(parts(mixed, "decrease")).toEqual({ occupancy: true, pickup: false, bookingSpeed: false });
+    expect(parts(mixed, "increase")).toEqual({ occupancy: true, pickup: false, bookingSpeed: false });
   });
 });
 
@@ -859,7 +872,9 @@ describe("the fire a rule would make", () => {
     expect(c.signal_booked_units_start).toBe(16);
     expect(c.signal_booked_units_end).toBe(16);
     expect(c.baseline_ts).toBe("2026-06-24T12:00:00.000Z");
-    expect(c.cancel_check).toBe("window_bookings");
+    expect(c.cancel_check).toBe("recount");
+    // No pickup condition: no arrivals to record.
+    expect(c.pickup_units_arrived).toBeNull();
   });
 
   it("freezes only the days it counted when its last fire cut the window", () => {
@@ -914,7 +929,8 @@ describe("the fire a rule would make", () => {
     expect(c.window_from).toBe("2026-06-25");
     expect(c.window_to).toBe("2026-06-30");
     expect(c.window_since).toBeNull();
-    expect(c.cancel_check).toBe("none");
+    // Every fire keeps what a cancellation check reads, a cut's too.
+    expect(c.cancel_check).toBe("recount");
   });
 
   it("a pickup rule records what its window opened at", () => {
@@ -931,7 +947,51 @@ describe("the fire a rule would make", () => {
     expect(c.fire_seq).toBe(1);
     expect(c.signal_booked_units_start).toBe(10);
     expect(c.window_from).toBeNull();
-    expect(c.cancel_check).toBe("net_units");
+    expect(c.cancel_check).toBe("recount");
+  });
+});
+
+describe("what a pickup count saw come in (arrivalReads, recordArrivals)", () => {
+  const booked = (counts: Record<string, Record<string, number>>) =>
+    new Map<string, Map<string, BookedCount>>(
+      Object.entries(counts).map(([at, byType]) => [
+        bookedBeforeKey("2026-07-15", at),
+        new Map(Object.entries(byType).map(([rt, units]) => [rt, { units, revenue: units * 150 }])),
+      ]),
+    );
+
+  it("reads the night where the count opened and at the run's own instant, only for a rule with a pickup condition", () => {
+    const pickup = makeCandidate(makeRule());
+    const speed = makeCandidate(
+      makeRule({ condition: { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 7 } }),
+    );
+    expect(arrivalReads([pickup, speed])).toEqual([
+      { stayDate: "2026-07-15", at: "2026-07-12T02:30:00Z" },
+      { stayDate: "2026-07-15", at: "2026-07-15T02:30:00Z" },
+    ]);
+  });
+
+  it("counts what was first seen between the two, on the rule's room types, whatever the snapshot said", () => {
+    const c = makeCandidate(makeRule({ signal_room_type_ids: ["rt1", "rt2"] }));
+    // The snapshot says 10 then 16; by first sight 9 were there when the
+    // count opened (one came in between the snapshot and the instant it
+    // stood for) and 16 now, and rt3 isn't measured.
+    recordArrivals(
+      c,
+      booked({ "2026-07-12T02:30:00Z": { rt1: 6, rt2: 3, rt3: 4 }, "2026-07-15T02:30:00Z": { rt1: 10, rt2: 6, rt3: 9 } }),
+    );
+    expect([c.pickup_units_arrived, c.pickup_revenue_arrived]).toEqual([7, 1050]);
+  });
+
+  it("leaves them null when either instant was not read, or the rule counts no pickup", () => {
+    const c = makeCandidate(makeRule());
+    recordArrivals(c, booked({ "2026-07-12T02:30:00Z": { rt1: 6 } }));
+    expect(c.pickup_units_arrived).toBeNull();
+    const speed = makeCandidate(
+      makeRule({ condition: { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 7 } }),
+    );
+    recordArrivals(speed, booked({ "2026-07-12T02:30:00Z": { rt1: 6 }, "2026-07-15T02:30:00Z": { rt1: 16 } }));
+    expect(speed.pickup_units_arrived).toBeNull();
   });
 });
 
@@ -985,11 +1045,26 @@ describe("insertPickupEvent: two runs recording the same fire (regression)", () 
   it("writes every column the fire is judged by later", async () => {
     const { client, tables } = fakeSupabase({ pickup_event: [] });
     const c = makeCandidate(makeRule());
-    const out = await insertPickupEvent(client, { ...c, fire_seq: 4, window_from: "2026-06-25", window_to: "2026-07-01", window_bookings_at_fire: 9, window_expected_at_fire: 5, cancel_check: "either" }, "hotel-1");
+    const out = await insertPickupEvent(
+      client,
+      {
+        ...c,
+        fire_seq: 4,
+        window_from: "2026-06-25",
+        window_to: "2026-07-01",
+        window_bookings_at_fire: 9,
+        window_expected_at_fire: 5,
+        pickup_units_arrived: 6,
+        pickup_revenue_arrived: 1200,
+      },
+      "hotel-1",
+    );
     expect(out.status).toBe("inserted");
     expect(tables.pickup_event[0]).toMatchObject({
       fire_seq: 4,
-      cancel_check: "either",
+      cancel_check: "recount",
+      pickup_units_arrived_at_fire: 6,
+      pickup_revenue_arrived_at_fire: 1200,
       window_from: "2026-06-25",
       window_to: "2026-07-01",
       window_bookings_at_fire: 9,
@@ -997,6 +1072,31 @@ describe("insertPickupEvent: two runs recording the same fire (regression)", () 
       signal_set_key: "rt1",
       retired_at: null,
     });
+  });
+});
+
+describe("insertPickupEvent before the undo migration", () => {
+  it("writes the fire the way it was written before, and says so once", async () => {
+    resetPickupInsertLogOnce();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { client, tables } = fakeSupabase(
+      { pickup_event: [] },
+      {
+        fault: (call) =>
+          call.table === "pickup_event" &&
+          call.op === "insert" &&
+          (call.payload as Record<string, unknown>).cancel_check === "recount"
+            ? { code: "23514", message: 'new row for relation "pickup_event" violates check constraint "pickup_event_cancel_check_chk"' }
+            : null,
+      },
+    );
+    const c = makeCandidate(makeRule());
+    expect((await insertPickupEvent(client, c, "hotel-1")).status).toBe("inserted");
+    expect((await insertPickupEvent(client, { ...c, fire_seq: 2 }, "hotel-1")).status).toBe("inserted");
+    expect(tables.pickup_event.map((e) => e.cancel_check)).toEqual(["none", "none"]);
+    expect(tables.pickup_event[0]).not.toHaveProperty("pickup_units_arrived_at_fire");
+    expect(logged.mock.calls.filter((call) => String(call[0]).includes("undo_on_cancellation"))).toHaveLength(1);
+    logged.mockRestore();
   });
 });
 

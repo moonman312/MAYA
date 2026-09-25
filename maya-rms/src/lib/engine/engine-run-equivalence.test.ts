@@ -128,6 +128,17 @@
  * the run log differs in run 5's cells_changed alone.
  * Every ladder row and snapshot is unchanged.
  *
+ * Every pickup_event hash, in both variants, was rewritten a tenth time
+ * when one cancellation check replaced the three tests before it, per rule
+ * and ticked by default (Jake, 2026-09-25). Read against a dump of the
+ * previous engine first: every fire now carries cancel_check 'recount', and
+ * a fire of a rule with a pickup condition the room nights and revenue that
+ * came in during its count (pickup_units_arrived_at_fire,
+ * pickup_revenue_arrived_at_fire). With those three fields left out, every
+ * fire row of every run matches the previous engine's. No fire came off, or
+ * stayed on, differently in this churn, and every other hash, size and count
+ * is unchanged.
+ *
  * The golden file was written by this same test at commit 4ef5d65 with
  * MAYA_WRITE_ENGINE_GOLDEN=1. Its ladder_rule_state hashes were rewritten
  * once, leaving out last_evaluated_at, from an engine that still matched the

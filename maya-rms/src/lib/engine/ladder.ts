@@ -3,11 +3,14 @@
  *
  * Stateful, transition-based evaluation. For each (ladder rule, stay_date,
  * affected_room_type), persists is_active state and emits transition events.
+ * A change that is on stays on while the rule's conditions hold; the rule's
+ * "undo on cancellation" box decides whether cancellations can switch it off
+ * (ladderConditionsHold in conditions.ts).
  */
 
 import type { EngineRule } from "@/types/domain";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ruleConditionsMatch } from "./conditions";
+import { ladderConditionsHold, ruleConditionsMatch } from "./conditions";
 import { MIGRATIONS, fetchAllRows, isMissingColumnError } from "./snapshots";
 import type { LadderTransitionAction, RuleMetrics } from "./types";
 
@@ -108,8 +111,6 @@ export async function evaluateLadderTriple(
    */
   batch?: LadderPassBatch,
 ): Promise<LadderPassResult> {
-  const matches = ruleConditionsMatch(rule, metrics);
-
   let priorRow: { is_active: boolean } | null;
   if (batch) {
     priorRow = batch.state(rule.id, stayDate, affectedRoomTypeId);
@@ -126,6 +127,9 @@ export async function evaluateLadderTriple(
 
   const wasActive = priorRow?.is_active ?? false;
   const rowExists = priorRow != null;
+  // A change already on is kept while its conditions hold, except that an
+  // unticked rule is never switched off by cancellations (ladderConditionsHold).
+  const matches = wasActive ? ladderConditionsHold(rule, metrics) : ruleConditionsMatch(rule, metrics);
   let transition: LadderTransitionAction = "noop";
 
   if (matches && !wasActive) {

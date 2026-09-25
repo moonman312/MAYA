@@ -1157,17 +1157,15 @@ export function isWithinCooldown(
  * signal room types: the count observeForStayDate called recentBookings when
  * the window ended on windowTo, re-read from this run's history, in the same
  * unit (a reservation with several rooms is one booking, and stays one until
- * its last room on the night cancels). A raise fired on that window uses it
- * to see whether the bookings behind it have cancelled (cancellations delete
- * reservation rows); bookings made after the window, and the raise's own
- * effect on pace, can't move it. With `since` (the fire's window_since),
- * windowFrom's day is read as the fire counted it: only the bookings first
- * seen after that instant, from ctx.splitWindows (loadSplitWindows must
- * have loaded that fire over this set). windowTo's day is read whole, as
- * the fire's own day belongs to it.
+ * its last room on the night cancels). Bookings made after the window can't
+ * move it. With `since` (the fire's window_since), windowFrom's day is read
+ * as the fire counted it: only the bookings first seen after that instant,
+ * from ctx.splitWindows (loadSplitWindows must have loaded that fire over
+ * this set). windowTo's day is read whole, as the fire's own day belongs to
+ * it; bookingsStillBookedFromFire leaves out what came after the fire.
  *
  * null when this run did not load the night, the set's history or that
- * split: nothing can be said, so nothing is retired on it.
+ * split: nothing can be said, so nothing is taken off on it.
  */
 export function bookingsInFrozenWindow(
   ctx: BookingSpeedContext,
@@ -1177,6 +1175,52 @@ export function bookingsInFrozenWindow(
   signalIds?: readonly string[],
   since?: string | null,
 ): number | null {
+  const frozen = frozenWindowOf(ctx, stayDate, windowFrom, windowTo, signalIds);
+  if (!frozen) return null;
+  const { index, setPart, daysOut, days } = frozen;
+  if (!since) return pickupInWindowIndexed(index, stayDate, daysOut, days);
+  const split = splitRead(ctx, splitKey(since, setPart), stayDate);
+  if (!split) return null;
+  return pickupInWindowIndexed(index, stayDate, daysOut, days - 1) + pickupInWindowIndexed(split, stayDate, daysOut + days - 1, 1);
+}
+
+/**
+ * The bookings a fire counted in its frozen window that are still on the
+ * books: bookingsInFrozenWindow, less the bookings in that window first
+ * seen after the fire itself (`firedAt`, its applied_at; late arrivals with
+ * a booking date inside the window, and later bookings on the fire's own
+ * day), read from ctx.splitWindows at that instant (loadSplitWindows must
+ * have loaded it over this set and night). So it only ever goes down, and
+ * only when bookings the fire counted cancel, however long after: what the
+ * fire saw, minus what has cancelled since. null when anything it needs was
+ * not loaded.
+ */
+export function bookingsStillBookedFromFire(
+  ctx: BookingSpeedContext,
+  stayDate: string,
+  windowFrom: string,
+  windowTo: string,
+  signalIds: readonly string[] | undefined,
+  since: string | null | undefined,
+  firedAt: string,
+): number | null {
+  const counted = bookingsInFrozenWindow(ctx, stayDate, windowFrom, windowTo, signalIds, since);
+  if (counted === null) return null;
+  const frozen = frozenWindowOf(ctx, stayDate, windowFrom, windowTo, signalIds);
+  if (!frozen) return null;
+  const after = splitRead(ctx, splitKey(firedAt, frozen.setPart), stayDate);
+  if (!after) return null;
+  return counted - pickupInWindowIndexed(after, stayDate, frozen.daysOut, frozen.days);
+}
+
+/** Where a frozen window is read from: the set's index, its splitWindows key part, and the window as offsets. */
+function frozenWindowOf(
+  ctx: BookingSpeedContext,
+  stayDate: string,
+  windowFrom: string,
+  windowTo: string,
+  signalIds?: readonly string[],
+): { index: Map<string, StayDateWindows>; setPart: string; daysOut: number; days: number } | null {
   if (ctx.loadedTargets && !ctx.loadedTargets.has(stayDate)) return null;
   const setKey =
     signalIds && ctx.hotelSetKey !== undefined
@@ -1188,8 +1232,5 @@ export function bookingsInFrozenWindow(
   const daysOut = daysBetween(windowTo, stayDate);
   const days = daysBetween(windowFrom, windowTo) + 1;
   if (daysOut < 0 || days < 1) return null;
-  if (!since) return pickupInWindowIndexed(index, stayDate, daysOut, days);
-  const split = splitRead(ctx, splitKey(since, measuresSet ? setKey : ""), stayDate);
-  if (!split) return null;
-  return pickupInWindowIndexed(index, stayDate, daysOut, days - 1) + pickupInWindowIndexed(split, stayDate, daysOut + days - 1, 1);
+  return { index, setPart: measuresSet ? setKey : "", daysOut, days };
 }

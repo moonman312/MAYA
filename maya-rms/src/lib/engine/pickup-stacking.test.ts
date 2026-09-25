@@ -180,7 +180,7 @@ describe("a cut holds until the rule's wait has passed, then cuts again", () => 
       expect(r.pickup_events_created).toBe(k === 0 ? w.nights.length : 0);
     }
     expect(w.fires(NIGHT)).toHaveLength(1);
-    expect(w.fires(NIGHT)[0]).toMatchObject({ fire_seq: 1, retired_at: null, cancel_check: "none" });
+    expect(w.fires(NIGHT)[0]).toMatchObject({ fire_seq: 1, retired_at: null, cancel_check: "recount" });
     expect(w.audits(NIGHT)).toHaveLength(1);
 
     // A day short of its window: still the one cut.
@@ -259,8 +259,8 @@ describe("a Booking Speed rule", () => {
     // A cut rule reads complete days only: its month ends yesterday, and
     // the second cut counts the complete days after the first cut's day.
     expect(w.fires(NIGHT).map((e) => [e.fire_seq, e.retired_at, e.cancel_check, e.window_from, e.window_to])).toEqual([
-      [1, null, "none", addDays(D0, -30), addDays(D0, -1)],
-      [2, null, "none", addDays(D0, 1), addDays(D0, 6)],
+      [1, null, "recount", addDays(D0, -30), addDays(D0, -1)],
+      [2, null, "recount", addDays(D0, 1), addDays(D0, 6)],
     ]);
     // One row per change, not one per run.
     expect(w.audits(NIGHT)).toHaveLength(2);
@@ -276,7 +276,7 @@ describe("a Booking Speed rule", () => {
     await w.run(T0);
     expect(w.price(NIGHT)).toBe(110);
     const fire = w.fires(NIGHT)[0];
-    expect(fire).toMatchObject({ cancel_check: "window_bookings", window_to: D0, window_from: addDays(D0, -29) });
+    expect(fire).toMatchObject({ cancel_check: "recount", window_to: D0, window_from: addDays(D0, -29) });
     expect(Number(fire.window_bookings_at_fire)).toBeGreaterThan(Number(fire.window_expected_at_fire));
 
     // The raise holds: nothing cancelled.
@@ -284,8 +284,8 @@ describe("a Booking Speed rule", () => {
     expect(w.fires(NIGHT)[0].retired_at).toBeNull();
     expect(w.price(NIGHT)).toBe(110);
 
-    // Enough of the window's bookings cancel to bring the night back to the
-    // pace a night like it usually has.
+    // Enough of the window's bookings cancel that what is left no longer
+    // reads faster than the usual frozen at the raise.
     const window = w.tables.reservations.filter(
       (r) => r.stay_date === NIGHT && String(r.booking_date) >= addDays(D0, -29) && String(r.booking_date) <= D0,
     );

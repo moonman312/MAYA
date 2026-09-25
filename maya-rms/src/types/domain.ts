@@ -20,6 +20,11 @@ export type RuleConfig = {
   signal_room_type_ids?: string[];
   /** signal_room_type_ids with their names, where the name is known. */
   signal_room_types?: { id: string; name: string }[];
+  /**
+   * "Undo this change if cancellations mean the rule is no longer true".
+   * Absent in demo data, which reads as ticked like every saved rule.
+   */
+  undo_on_cancellation?: boolean;
 };
 
 /* ── Rules Engine v1 types (Implementation Guide aligned) ──────────── */
@@ -59,8 +64,15 @@ export type RuleCondition = {
   booking_speed_cooldown_days?: number | null;
 };
 
-/** Which cancellation test can take a raise off. Cuts are always "none". */
-export type PickupCancelCheck = "none" | "net_units" | "window_bookings" | "either";
+/**
+ * What a fire's stored numbers are good for when cancellations are checked
+ * (cancellationsUndo in engine/pickup.ts). "recount": every fire made since
+ * 99_supabase_migration_undo_on_cancellation_v1.sql, raise or cut; all of its
+ * numbers can be recounted. The rest mark fires from before it: a booking
+ * speed window is recounted only on "window_bookings" and "either" (the ones
+ * recorded in bookings), and "none" or "net_units" keep that part as it was.
+ */
+export type PickupCancelCheck = "none" | "net_units" | "window_bookings" | "either" | "recount";
 
 /** Why a fire stopped applying. "legacy" and "self_cancelled" only mark rows from before stacking. */
 export type PickupRetiredReason =
@@ -91,6 +103,12 @@ export type EngineRule = {
   affected_room_type_ids: string[];
   created_at: string;
   updated_at: string;
+  /**
+   * The owner's "undo this change if cancellations mean the rule is no
+   * longer true" box. Ticked (true) unless the rule says false; a rule read
+   * before the column existed is ticked, as every rule was migrated.
+   */
+  undo_on_cancellation?: boolean;
 };
 
 export type StayDateSnapshot = {
@@ -162,6 +180,13 @@ export type PickupEvent = {
   fire_seq: number;
   retired_reason?: PickupRetiredReason | null;
   cancel_check: PickupCancelCheck;
+  /**
+   * For a rule with a pickup condition: room nights (and revenue) first seen
+   * inside the count's window and still booked at the fire. Null on fires
+   * from before 99_supabase_migration_undo_on_cancellation_v1.sql.
+   */
+  pickup_units_arrived_at_fire?: number | null;
+  pickup_revenue_arrived_at_fire?: number | null;
   /** The booking speed window at the fire, in hotel dates, when the rule has a booking speed condition. */
   window_from?: string | null;
   window_to?: string | null;
