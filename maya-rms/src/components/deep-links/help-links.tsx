@@ -1,0 +1,38 @@
+"use client";
+
+import { panelDocsHref, screenDocsHref, type HelpPanel } from "@/lib/deep-links";
+import { track } from "@/lib/analytics/track";
+
+// MAYA's way into its docs. Both open a new tab, so whatever is half-filled
+// on the screen stays exactly as it was.
+
+/** "Help" in a header: the docs page about the screen the owner is on. */
+export function HelpLink({ screen, className }: { screen: string; className?: string }) {
+  return (
+    <a
+      href={screenDocsHref(screen)}
+      target="_blank"
+      rel="noopener"
+      onClick={() => track("help.opened", { from: "header" })}
+      className={className}
+    >
+      Help
+    </a>
+  );
+}
+
+/** "Learn more" at the foot of a "?" panel: the passage that explains it in full. */
+export function LearnMore({ panel, onBlurOut }: { panel: HelpPanel; onBlurOut?: (e: React.FocusEvent<HTMLAnchorElement>) => void }) {
+  return (
+    <a
+      href={panelDocsHref(panel)}
+      target="_blank"
+      rel="noopener"
+      onClick={() => track("help.opened", { from: "panel" })}
+      onBlur={onBlurOut}
+      className="mt-2 inline-block text-xs font-medium text-sky-400 underline decoration-sky-400/40 underline-offset-2 hover:text-sky-300"
+    >
+      Learn more
+    </a>
+  );
+}

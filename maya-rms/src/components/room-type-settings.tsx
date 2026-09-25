@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { LearnMore } from "@/components/deep-links/help-links";
+import type { HelpPanel } from "@/lib/deep-links";
 
 /**
  * Room types, as the property wants them counted.
@@ -76,10 +78,13 @@ export function RoomCountHelp({
   label,
   title,
   lines,
+  docs,
 }: {
   label: string;
   title: string;
   lines: string[];
+  /** The docs passage its "Learn more" opens; without one the panel is words only. */
+  docs?: HelpPanel;
 }) {
   const [pinned, setPinned] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -103,6 +108,12 @@ export function RoomCountHelp({
     };
   }, [pinned]);
 
+  // Tabbing from the "?" to its Learn more keeps the panel open; leaving the
+  // two of them closes it.
+  const blurOut = (e: React.FocusEvent) => {
+    if (!wrapRef.current?.contains(e.relatedTarget as Node | null)) setHovered(false);
+  };
+
   return (
     <span
       ref={wrapRef}
@@ -117,7 +128,7 @@ export function RoomCountHelp({
         aria-describedby={open ? panelId : undefined}
         onClick={() => setPinned((p) => !p)}
         onFocus={() => setHovered(true)}
-        onBlur={() => setHovered(false)}
+        onBlur={blurOut}
         className="flex size-4 cursor-pointer items-center justify-center rounded-full border border-slate-600 text-[10px] font-semibold leading-none text-slate-400 transition-colors hover:border-slate-400 hover:text-slate-200 focus-visible:border-sky-400 focus-visible:text-sky-200 focus-visible:outline-none"
       >
         ?
@@ -125,7 +136,9 @@ export function RoomCountHelp({
       {open && (
         <span
           id={panelId}
-          role="tooltip"
+          // A panel holding a link is a labelled group; a tooltip must hold nothing interactive.
+          role={docs ? "group" : "tooltip"}
+          aria-label={docs ? title : undefined}
           className="absolute left-1/2 top-6 z-20 w-72 -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-950 p-3 text-left shadow-xl"
         >
           <span className="block text-xs font-semibold text-slate-200">{title}</span>
@@ -136,6 +149,7 @@ export function RoomCountHelp({
               </span>
             ))}
           </span>
+          {docs ? <LearnMore panel={docs} onBlurOut={blurOut} /> : null}
         </span>
       )}
     </span>
@@ -279,10 +293,10 @@ export function RoomTypeSettings({
   }
 
   return (
-    <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
+    <section data-deeplink="pms.room-types" className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-lg font-semibold">Room types</h2>
-        <RoomCountHelp {...COUNTS_AS_ROOM_HELP} />
+        <RoomCountHelp {...COUNTS_AS_ROOM_HELP} docs="counts-as-room" />
       </div>
 
       {loadFailed ? (
@@ -377,7 +391,7 @@ function RoomTypeRow({
   }
 
   return (
-    <div className="space-y-2 px-4 py-3">
+    <div className="space-y-2 px-4 py-3" data-deeplink={`pms.room-type:${rt.id}`}>
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
           <span className={`text-sm font-medium ${counting ? "text-slate-200" : "text-slate-400"}`}>{rt.name}</span>
@@ -499,7 +513,7 @@ function RoomTypeRow({
               >
                 + Rooms out of service
               </button>
-              <RoomCountHelp {...OUT_OF_SERVICE_HELP} />
+              <RoomCountHelp {...OUT_OF_SERVICE_HELP} docs="out-of-service" />
             </div>
           )}
         </div>

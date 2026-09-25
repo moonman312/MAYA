@@ -11,7 +11,12 @@
  * docs/analytics.md has what each event means and the questions it answers.
  */
 
+import registry from "@/lib/deep-links/registry.json";
+
 type PropSpec = "flag" | "count" | readonly string[];
+
+/** Every place a link can open (src/lib/deep-links/registry.json). */
+const LINK_DESTINATIONS: readonly string[] = Object.keys(registry.destinations);
 
 export const UI_EVENTS = {
   /** The subscribe screen rendered. */
@@ -42,6 +47,14 @@ export const UI_EVENTS = {
   "simulator.used": {},
   /** A dashboard tab was chosen. */
   "dashboard.tab_opened": { tab: ["calendar", "rules", "simulator", "changelog", "pms"] },
+  /**
+   * A link into MAYA (from the docs, an email, /go) landed and was applied:
+   * which place, whether it filled in a form, whether it left a note. Never
+   * the values.
+   */
+  "deeplink.opened": { dest: LINK_DESTINATIONS, filled: "flag", noted: "flag" },
+  /** Help in a header, or Learn more in a "?" panel, was opened. */
+  "help.opened": { from: ["header", "panel"] },
 } as const satisfies Record<string, Record<string, PropSpec>>;
 
 export type UiEventName = keyof typeof UI_EVENTS;

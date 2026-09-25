@@ -13,7 +13,8 @@
  */
 
 import { track } from "@/lib/analytics/track";
-import { useCallback, useState } from "react";
+import { LearnMore } from "@/components/deep-links/help-links";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CHALLENGE_REASONS,
   type ChallengeScope,
@@ -293,12 +294,15 @@ export function ExplainDrilldown({
   runId,
   stayDate,
   roomTypeId,
+  initialOpen = false,
 }: {
   runId: string;
   stayDate: string;
   roomTypeId: string;
+  /** Opened by a link to this one change; loads the details once, reads only. */
+  initialOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const [views, setViews] = useState<ExplainView[] | null>(null);
   const [challenged, setChallenged] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -318,6 +322,13 @@ export function ExplainDrilldown({
       setError(e instanceof Error ? e.message : "Could not load the details");
     }
   }, [runId, stayDate, roomTypeId]);
+
+  const loadedOnArrival = useRef(false);
+  useEffect(() => {
+    if (!initialOpen || loadedOnArrival.current) return;
+    loadedOnArrival.current = true;
+    void Promise.resolve().then(load);
+  }, [initialOpen, load]);
 
   if (!open) {
     return (
@@ -364,20 +375,30 @@ export function ExplainDrilldown({
           />
         ))
       )}
-      <button
-        className="cursor-pointer text-xs text-slate-500 hover:text-slate-300"
-        onClick={() => setOpen(false)}
-      >
-        Close
-      </button>
+      <div className="flex items-center gap-4">
+        <button
+          className="cursor-pointer text-xs text-slate-500 hover:text-slate-300"
+          onClick={() => setOpen(false)}
+        >
+          Close
+        </button>
+        <LearnMore panel="how-did-we-know" />
+      </div>
     </div>
   );
 }
 
 /* ── Corrections panel (changelog tab header) ─────────────────── */
 
-export function CorrectionsPanel() {
-  const [open, setOpen] = useState(false);
+export function CorrectionsPanel({
+  initialOpen = false,
+  onOpenChange,
+}: {
+  /** Opened by a link (the address's panel=corrections). Nothing is undone. */
+  initialOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
+} = {}) {
+  const [open, setOpen] = useState(initialOpen);
   const [summary, setSummary] = useState<ChallengeSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -391,9 +412,17 @@ export function CorrectionsPanel() {
     }
   }, []);
 
+  const loadedOnArrival = useRef(false);
+  useEffect(() => {
+    if (!initialOpen || loadedOnArrival.current) return;
+    loadedOnArrival.current = true;
+    void Promise.resolve().then(load);
+  }, [initialOpen, load]);
+
   const toggle = () => {
     const next = !open;
     setOpen(next);
+    onOpenChange?.(next);
     if (next && summary === null) void load();
   };
 
@@ -421,6 +450,7 @@ export function CorrectionsPanel() {
       </button>
       {open ? (
         <div className="mt-2 space-y-3">
+          <LearnMore panel="corrections" />
           {error ? (
             <p className="text-xs text-rose-300">
               {error}{" "}

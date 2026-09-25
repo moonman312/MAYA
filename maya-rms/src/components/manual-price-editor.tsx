@@ -1,5 +1,6 @@
 "use client";
 
+import { LearnMore } from "@/components/deep-links/help-links";
 import { useEffect, useId, useRef, useState } from "react";
 
 /**
@@ -126,6 +127,7 @@ export function ManualPriceEditor({
   manualPrice,
   pmsName,
   onSaved,
+  initialThrough,
 }: {
   hotelId: string;
   roomTypeId: string;
@@ -139,11 +141,18 @@ export function ManualPriceEditor({
   manualPrice: ManualPriceShown | null;
   /** Fired after a successful save or clear so the calendar can refetch. */
   onSaved: () => void;
+  /**
+   * A link opened this night with "through..." already set to this last
+   * night. Only the range: the price is never filled in or focused, because
+   * Enter in it saves.
+   */
+  initialThrough?: string | null;
 }) {
   const prefill = manualPrice?.price ?? currentPrice;
+  const linkedThrough = initialThrough && /^\d{4}-\d{2}-\d{2}$/.test(initialThrough) && initialThrough > stayDate ? initialThrough : null;
   const [value, setValue] = useState<string>(prefill != null ? String(prefill) : "");
-  const [rangeOpen, setRangeOpen] = useState(false);
-  const [through, setThrough] = useState(stayDate);
+  const [rangeOpen, setRangeOpen] = useState(Boolean(linkedThrough));
+  const [through, setThrough] = useState(linkedThrough ?? stayDate);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
@@ -318,6 +327,10 @@ function ManualPriceHelp({ pmsName }: { pmsName: string }) {
   const wrapRef = useRef<HTMLSpanElement>(null);
   const panelId = useId();
   const open = pinned || hovered;
+  // Tabbing from the "?" to its Learn more keeps the panel open.
+  const blurOut = (e: React.FocusEvent) => {
+    if (!wrapRef.current?.contains(e.relatedTarget as Node | null)) setHovered(false);
+  };
 
   useEffect(() => {
     if (!pinned) return;
@@ -349,7 +362,7 @@ function ManualPriceHelp({ pmsName }: { pmsName: string }) {
         aria-describedby={open ? panelId : undefined}
         onClick={() => setPinned((p) => !p)}
         onFocus={() => setHovered(true)}
-        onBlur={() => setHovered(false)}
+        onBlur={blurOut}
         className="flex size-4 cursor-pointer items-center justify-center rounded-full border border-slate-600 text-[10px] font-semibold leading-none text-slate-400 transition-colors hover:border-slate-400 hover:text-slate-200 focus-visible:border-sky-400 focus-visible:text-sky-200 focus-visible:outline-none"
       >
         ?
@@ -358,7 +371,8 @@ function ManualPriceHelp({ pmsName }: { pmsName: string }) {
       {open && (
         <span
           id={panelId}
-          role="tooltip"
+          role="group"
+          aria-label="Setting a price yourself"
           className="absolute left-1/2 top-6 z-20 w-72 -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-950 p-3 text-left shadow-xl"
         >
           <span className="block text-xs font-semibold text-slate-200">Setting a price yourself</span>
@@ -377,6 +391,7 @@ function ManualPriceHelp({ pmsName }: { pmsName: string }) {
             </span>
             <span className="block">Clear hands the night back to MAYA&apos;s own pricing.</span>
           </span>
+          <LearnMore panel="manual-price" onBlurOut={blurOut} />
         </span>
       )}
     </span>

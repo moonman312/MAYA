@@ -5,7 +5,11 @@ import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-export default async function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   let isPlatformAdmin = false;
 
   if (isSupabaseConfigured()) {
@@ -40,5 +44,14 @@ export default async function Home() {
     }
   }
 
-  return <Dashboard isPlatformAdmin={isPlatformAdmin} />;
+  // The tab and place the address asks for (and anything a link brought),
+  // so the first paint is already the right screen. The dashboard checks
+  // every value itself; this only carries the query across.
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(await searchParams)) {
+    for (const v of Array.isArray(value) ? value : value === undefined ? [] : [value]) query.append(key, v);
+  }
+  const initialSearch = query.size ? `?${query.toString()}` : "";
+
+  return <Dashboard isPlatformAdmin={isPlatformAdmin} initialSearch={initialSearch} />;
 }

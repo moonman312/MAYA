@@ -29,7 +29,7 @@ describe("ManualPriceEditor", () => {
     expect((view.getByLabelText("Manual price for King") as HTMLInputElement).value).toBe("180");
 
     fireEvent.click(view.getByRole("button", { name: "What a manual price does" }));
-    const help = view.getByRole("tooltip").textContent ?? "";
+    const help = view.getByRole("group", { name: "Setting a price yourself" }).textContent ?? "";
     expect(help).toContain("A rate changed in Cloudbeds is kept the same way, once MAYA's own price has been there for an hour.");
     expect(help).not.toContain("—");
   });

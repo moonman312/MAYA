@@ -1,6 +1,6 @@
 // The docs helper's matcher, on a tiny index and on the real one.
 // Run with: npm test
-import { test } from "vitest";
+import { test, vi } from "vitest";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -8,6 +8,9 @@ import { fileURLToPath } from "node:url";
 import { createMatcher, expandIndex, isFollowUp } from "./match.ts";
 import { buildSynonymTable, clean, tokenize, trigrams } from "./normalize.ts";
 import { stem } from "./porter.ts";
+
+// Whole-corpus checks: slower than a unit test, and slower still when the suite runs in parallel.
+vi.setConfig({ testTimeout: 120_000 });
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 

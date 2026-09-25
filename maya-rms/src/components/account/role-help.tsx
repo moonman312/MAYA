@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { HOTEL_ROLES } from "@/lib/roles";
+import { LearnMore } from "@/components/deep-links/help-links";
 
 /**
  * What each role can actually do, next to the control that grants it.
@@ -22,6 +23,10 @@ export function RoleHelp() {
   const wrapRef = useRef<HTMLSpanElement>(null);
   const panelId = useId();
   const open = pinned || hovered;
+  // Tabbing from the "?" to its Learn more keeps the panel open.
+  const blurOut = (e: React.FocusEvent) => {
+    if (!wrapRef.current?.contains(e.relatedTarget as Node | null)) setHovered(false);
+  };
 
   useEffect(() => {
     if (!pinned) return;
@@ -57,7 +62,7 @@ export function RoleHelp() {
         // Focus opens it too, so tabbing to the icon reveals the same thing
         // hovering does rather than requiring a guess that Enter will help.
         onFocus={() => setHovered(true)}
-        onBlur={() => setHovered(false)}
+        onBlur={blurOut}
         className="flex size-4 cursor-pointer items-center justify-center rounded-full border border-slate-600 text-[10px] font-semibold leading-none text-slate-400 transition-colors hover:border-slate-400 hover:text-slate-200 focus-visible:border-sky-400 focus-visible:text-sky-200 focus-visible:outline-none"
       >
         ?
@@ -66,7 +71,8 @@ export function RoleHelp() {
       {open && (
         <span
           id={panelId}
-          role="tooltip"
+          role="group"
+          aria-label="What each role can do"
           className="absolute left-1/2 top-6 z-20 w-80 -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-950 p-3 text-left shadow-xl"
         >
           <span className="block text-xs font-semibold text-slate-200">What each role can do</span>
@@ -78,6 +84,7 @@ export function RoleHelp() {
               </span>
             ))}
           </span>
+          <LearnMore panel="roles" onBlurOut={blurOut} />
         </span>
       )}
     </span>

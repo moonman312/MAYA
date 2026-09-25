@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useOnboardingStatus } from "@/components/onboarding/import-progress";
+import { LearnMore } from "@/components/deep-links/help-links";
 
 /**
  * "Ask Maya for help" from the Rules page — re-runs the guided analysis on a
@@ -100,6 +101,7 @@ export function AskForHelp() {
             </button>
           </div>
           {error ? <p className="mt-2 text-xs text-rose-300">{error}</p> : null}
+          <LearnMore panel="ask-for-help" />
         </div>
       ) : null}
     </div>

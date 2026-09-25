@@ -1,4 +1,5 @@
 import { MayaLockup } from "@/components/brand/logo";
+import { OnboardingHelpLink } from "@/components/deep-links/onboarding-help-link";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { cookies } from "next/headers";
@@ -22,14 +23,17 @@ export default async function OnboardingLayout({
       <header className="px-6 py-5">
         <div className="mx-auto flex max-w-3xl items-center justify-between">
           <MayaLockup height={32} />
-          <form action="/auth/logout" method="post">
-            <button
-              type="submit"
-              className="cursor-pointer text-xs text-slate-500 hover:text-slate-300"
-            >
-              Sign out
-            </button>
-          </form>
+          <div className="flex items-center gap-4">
+            <OnboardingHelpLink className="text-xs text-slate-500 hover:text-slate-300" />
+            <form action="/auth/logout" method="post">
+              <button
+                type="submit"
+                className="cursor-pointer text-xs text-slate-500 hover:text-slate-300"
+              >
+                Sign out
+              </button>
+            </form>
+          </div>
         </div>
       </header>
       <main className="mx-auto w-full max-w-3xl flex-1 px-6 pb-16">

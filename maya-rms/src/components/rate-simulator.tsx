@@ -23,7 +23,10 @@ import {
 } from "@/lib/simulator";
 import type { EngineRule, RuleAction } from "@/types/domain";
 import { trackOnce } from "@/lib/analytics/track";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FilledChip } from "@/components/deep-links/arrival-bits";
+import { LearnMore } from "@/components/deep-links/help-links";
+import type { TestRuleFill } from "@/lib/deep-links/prefill";
 
 /**
  * Rate Simulator — try a rule on a night that hasn't happened yet.
@@ -67,9 +70,18 @@ const microLabel = "mb-0.5 block text-[11px] text-slate-500";
 export function RateSimulator({
   activeHotelId,
   onRuleSaved,
+  draftOpenAtStart = false,
+  onDraftOpenChange,
+  initialDraft,
 }: {
   activeHotelId: string | null;
   onRuleSaved?: () => void;
+  /** The address says the test rule is open (panel=test-rule). */
+  draftOpenAtStart?: boolean;
+  /** Tells the dashboard's address when the test rule opens or closes. */
+  onDraftOpenChange?: (open: boolean) => void;
+  /** What a link filled in. Nothing is saved: Save This Rule stays the owner's click. */
+  initialDraft?: TestRuleFill | null;
 }) {
   const [roomTypes, setRoomTypes] = useState<SeededRoomType[]>([]);
   const [hotelTimeZone, setHotelTimeZone] = useState("UTC");
@@ -78,17 +90,25 @@ export function RateSimulator({
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [stayDate, setStayDate] = useState(() => isoDatePlus(30));
-  const [bookingSpeedLevel, setBookingSpeedLevel] = useState<string>("");
+  const [bookingSpeedLevel, setBookingSpeedLevel] = useState<string>(initialDraft?.nightSpeed ?? "");
   const [inputs, setInputs] = useState<Record<string, SimRoomInput>>({});
   const [selectedRuleIds, setSelectedRuleIds] = useState<Set<string>>(new Set());
 
   // Draft rule — lives only in this tab until "Save This Rule" is pressed.
-  const [draftOpen, setDraftOpen] = useState(false);
-  const [draftName, setDraftName] = useState("");
-  const [draftRows, setDraftRows] = useState<ConditionFormRow[]>(() => [newConditionRow("occupancy")]);
-  const [draftKind, setDraftKind] = useState<ActionKindUi>("percent");
-  const [draftDirection, setDraftDirection] = useState<"increase" | "decrease">("increase");
-  const [draftAmount, setDraftAmount] = useState("10");
+  const [draftOpen, setDraftOpenState] = useState(draftOpenAtStart || Boolean(initialDraft));
+  const setDraftOpen = (u: boolean | ((open: boolean) => boolean)) => {
+    const next = typeof u === "function" ? u(draftOpen) : u;
+    setDraftOpenState(next);
+    if (next !== draftOpen) onDraftOpenChange?.(next);
+  };
+  const [draftName, setDraftName] = useState(initialDraft?.name ?? "");
+  const [draftRows, setDraftRows] = useState<ConditionFormRow[]>(() => initialDraft?.rows ?? [newConditionRow("occupancy")]);
+  const [draftKind, setDraftKind] = useState<ActionKindUi>(initialDraft?.kind ?? "percent");
+  const [draftDirection, setDraftDirection] = useState<"increase" | "decrease">(initialDraft?.direction ?? "increase");
+  const [draftAmount, setDraftAmount] = useState(initialDraft?.amount ?? "10");
+  const [filledFromLink, setFilledFromLink] = useState(Boolean(initialDraft));
+  // The night a link asked for is set once, when the hotel's own "today" is known.
+  const stayInPending = useRef(initialDraft?.stayIn);
   const [draftRoomTypeIds, setDraftRoomTypeIds] = useState<string[]>([]);
   const [draftError, setDraftError] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
@@ -108,6 +128,10 @@ export function RateSimulator({
         const rts = seeded.roomTypes ?? [];
         setRoomTypes(rts);
         setHotelTimeZone(seeded.timezone || "UTC");
+        if (stayInPending.current !== undefined) {
+          setStayDate(isoDatePlus(stayInPending.current, new Date(`${hotelToday(seeded.timezone || "UTC")}T00:00:00Z`)));
+          stayInPending.current = undefined;
+        }
         setRules(engineRules);
         // Open on the property's own nearest published rate. It is a real
         // number the owner recognizes, and it is the one thing that makes the
@@ -272,6 +296,7 @@ export function RateSimulator({
 
       setSavedNotice("Rule Added to Rules Tab and Initialized as Disabled");
       setDraftOpen(false);
+      setFilledFromLink(false);
       // Clear the form. The button goes back to reading "+ Build a test rule",
       // which promises a blank one — leaving it filled invites pressing Save
       // again and creating a second copy of a rule that is already saved.
@@ -349,6 +374,7 @@ export function RateSimulator({
           reaches your PMS. The math is the pricing engine&rsquo;s own, so what you see is what a
           real run would produce for these numbers.
         </p>
+        <LearnMore panel="simulator" />
       </div>
 
       {savedNotice && (
@@ -418,7 +444,7 @@ export function RateSimulator({
                 <th className="py-2 pr-3 font-medium">Base price</th>
                 <th className="py-2 pr-3 font-medium">Occupancy</th>
                 <th className="py-2 pr-3 font-medium">Picked up</th>
-                <th className="py-2 pr-3 font-medium">Guardrails</th>
+                <th className="py-2 pr-3 font-medium" data-deeplink="simulator.guardrails">Guardrails</th>
               </tr>
             </thead>
             <tbody>
@@ -498,6 +524,7 @@ export function RateSimulator({
             type="button"
             onClick={() => {
               setDraftOpen((o) => !o);
+              setFilledFromLink(false);
               setSavedNotice(null);
               setDraftError(null);
             }}
@@ -550,7 +577,12 @@ export function RateSimulator({
         )}
 
         {draftOpen && (
-          <div className="mt-4 space-y-3 rounded border border-slate-800 bg-slate-900 p-3">
+          <div className="mt-4 space-y-3 rounded border border-slate-800 bg-slate-900 p-3" data-deeplink="simulator.test-rule">
+            {filledFromLink ? (
+              <div>
+                <FilledChip show />
+              </div>
+            ) : null}
             <div>
               <label className={microLabel} htmlFor="sim-draft-name">
                 Rule name

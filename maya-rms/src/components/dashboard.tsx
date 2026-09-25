@@ -47,6 +47,13 @@ import type {
   RuleConfig,
 } from "@/types/domain";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useDashboardUrl } from "@/components/deep-links/use-dashboard-url";
+import { ArrivalNote, FilledChip, readArrivalOnce } from "@/components/deep-links/arrival-bits";
+import { flashWhenReady } from "@/components/deep-links/flash";
+import { HelpLink } from "@/components/deep-links/help-links";
+import { links, type Arrival } from "@/lib/deep-links";
+import { builderFill, testRuleFill } from "@/lib/deep-links/prefill";
+import { arrivalFlashTarget } from "@/lib/deep-links/flash-target";
 
 type TabKey = "calendar" | "rules" | "simulator" | "changelog" | "pms";
 
@@ -286,10 +293,42 @@ function PmsStatusBadge({ status }: { status: string | null }) {
   );
 }
 
-export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boolean }) {
-  const [tab, setTab] = useState<TabKey>("calendar");
-  const [year, setYear] = useState(new Date().getUTCFullYear());
-  const [month, setMonth] = useState(new Date().getUTCMonth() + 1);
+export function Dashboard({
+  isPlatformAdmin = false,
+  initialSearch = "",
+}: {
+  isPlatformAdmin?: boolean;
+  /** The query the page was rendered with: the tab and place a link or a refresh asked for. */
+  initialSearch?: string;
+}) {
+  // The tab and the place inside it live in the address (src/lib/deep-links/dashboard-url.ts),
+  // so back and forward work and a link from the docs or an email can open any of them.
+  const {
+    tab,
+    setTab,
+    year,
+    setYear,
+    month,
+    setMonth,
+    selectedDay,
+    setSelectedDay,
+    ruleFilter,
+    setRuleFilter,
+    ruleFormOpen,
+    setRuleFormOpen,
+    changesOnly,
+    setChangesOnly,
+    panel,
+    setPanel,
+  } = useDashboardUrl(initialSearch);
+
+  // What a link brought, read once and taken out of the address (it only
+  // opens and fills in; nothing here ever saves). See applyArrival below.
+  const [arrival, setArrival] = useState<Arrival | null>(null);
+  const [arrivalNote, setArrivalNote] = useState<string | null>(null);
+  const [builderFilled, setBuilderFilled] = useState(false);
+  const [roomTypesReady, setRoomTypesReady] = useState(false);
+  const builderApplied = useRef(false);
 
   const [rules, setRules] = useState<RuleConfig[]>([]);
   /** Rule awaiting the delete-or-disable choice; null when the dialog is closed. */
@@ -299,16 +338,12 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
   // table shows the rule as On with nothing to say it does nothing there.
   const [ruleStops, setRuleStops] = useState<RuleStops[]>([]);
   const [lettingRun, setLettingRun] = useState<string | null>(null);
-  const [ruleFilter, setRuleFilter] = useState<"all" | "enabled" | "disabled">("all");
-  const [ruleFormOpen, setRuleFormOpen] = useState(false);
   const [roomTypeOptions, setRoomTypeOptions] = useState<
     { id: string; name: string; counts_as_room?: boolean | null }[]
   >([]);
   const [calendar, setCalendar] = useState<CalendarResponse | null>(null);
-  const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [changelog, setChangelog] = useState<ChangelogItem[]>([]);
   const [changelogError, setChangelogError] = useState<string | null>(null);
-  const [changesOnly, setChangesOnly] = useState(true);
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
@@ -435,7 +470,8 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
   );
 
   const reloadCalendar = useCallback(async () => {
-    setSelectedDay(null);
+    // The open night lives in the address now; the card only shows once the
+    // month holding it has loaded, so there is nothing to clear here.
     const key = calendarCacheKey(year, month);
     const cached = calendarCacheRef.current.get(key);
     if (cached) {
@@ -582,6 +618,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
     setSelectedRoomTypeIds(data.filter(isCountingRoom).map((item) => item.id));
     setSplitRoomTypeSets(false);
     setChangeRoomTypeIds([]);
+    setRoomTypesReady(true);
   }
 
   async function applyActiveHotel(hotelId: string) {
@@ -769,8 +806,69 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
     setSelectedRoomTypeIds(roomTypeOptions.filter(isCountingRoom).map((r) => r.id));
     setSplitRoomTypeSets(false);
     setChangeRoomTypeIds([]);
+    setBuilderFilled(false);
     await reloadRules();
   }
+
+  // ── Arriving from a link ─────────────────────────────────────────────
+  // Read once, then the address keeps only the place. A refresh, the back
+  // button or a copied address never fills anything in again.
+  useEffect(() => {
+    const a = readArrivalOnce();
+    if (!a.dest) return;
+    setArrival(a);
+    setArrivalNote(a.note);
+    track("deeplink.opened", { dest: a.dest, filled: links.fills(a.params), noted: Boolean(a.note) });
+  }, []);
+
+  // The rule builder, filled in through its own setters once the room types
+  // have loaded (loading them resets the builder's room type lists).
+  // Add Rule is still the owner's click.
+  useEffect(() => {
+    if (arrival?.dest !== "rules.new" || !roomTypesReady || builderApplied.current) return;
+    builderApplied.current = true;
+    const fill = builderFill(arrival.params);
+    if (fill.name !== undefined) setRuleName(fill.name);
+    if (fill.rows) setCondRows(fill.rows);
+    if (fill.direction) setAdjDirection(fill.direction);
+    if (fill.percent) {
+      setAdjPctEnabled(fill.percent.enabled);
+      setAdjPercent(fill.percent.value);
+    }
+    if (fill.dollars) {
+      setAdjDolEnabled(fill.dollars.enabled);
+      setAdjDollars(fill.dollars.value);
+    }
+    if (fill.split) {
+      // exactly what ticking the box does: the Change list starts as a copy
+      setChangeRoomTypeIds(selectedRoomTypeIds.slice());
+      setSplitRoomTypeSets(true);
+    }
+    setBuilderFilled(links.fills(arrival.params));
+  }, [arrival, roomTypesReady, selectedRoomTypeIds]);
+
+  // Scroll to the place and ring it for a moment.
+  useEffect(() => {
+    if (!arrival?.dest) return;
+    if (arrival.dest === "rules.new" && !builderApplied.current) return;
+    const target = arrivalFlashTarget(arrival);
+    if (target) return flashWhenReady(target);
+  }, [arrival, roomTypesReady]);
+
+  // A link to one change that has since left the list says so.
+  useEffect(() => {
+    if (arrival?.dest !== "changelog.entry" || changelog.length === 0) return;
+    const run = arrival.params.run;
+    if (!changelog.some((c) => !isPushProblem(c) && !isRuleAlertChoice(c) && c.changes.some((ch) => ch.evaluation_run_id === run))) {
+      setArrivalNote("entry-gone");
+    }
+  }, [arrival, changelog]);
+
+  const linkedDrilldown = (runId: string | undefined, stayDate: string | undefined, roomTypeId: string | undefined) =>
+    arrival?.dest === "changelog.entry" &&
+    arrival.params.run === runId &&
+    (!arrival.params.date || arrival.params.date === stayDate) &&
+    (!arrival.params.roomType || arrival.params.roomType === roomTypeId);
 
   const visibleCycles = useMemo(
     // A push problem is always shown: it is never a "nothing changed" run.
@@ -869,6 +967,10 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                   Command Center
                 </a>
               ) : null}
+              <HelpLink
+                screen={tab === "rules" && ruleFormOpen ? "rules.builder" : tab}
+                className="w-full cursor-pointer rounded border border-slate-700 px-3 py-2 text-center text-sm text-slate-200 hover:bg-slate-800 sm:w-auto"
+              />
               <a
                 href="/account/billing"
                 className="w-full cursor-pointer rounded border border-slate-700 px-3 py-2 text-center text-sm text-slate-200 hover:bg-slate-800 sm:w-auto"
@@ -950,7 +1052,10 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
             setTab("rules");
             track("dashboard.tab_opened", { tab: "rules" });
           }}
+          openAlertId={arrival?.dest === "adjusting" ? (arrival.params.alert ?? null) : null}
         />
+
+        <ArrivalNote note={arrivalNote} onClose={() => setArrivalNote(null)} />
 
         {tab === "calendar" && (
           <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
@@ -1106,8 +1211,11 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                     </span>
                   </p>
 
-                  {selectedDay ? (
-                    <div className="rounded-md border border-slate-800 bg-slate-950 p-4">
+                  {selectedDay &&
+                  calendar.year === year &&
+                  calendar.month === month &&
+                  calendar.days[String(selectedDay)] ? (
+                    <div className="rounded-md border border-slate-800 bg-slate-950 p-4" data-deeplink="calendar.day">
                       <h3 className="mb-2 text-base font-semibold">
                         {calendar.days[String(selectedDay)].weekday},{" "}
                         {formatUtcLongDate(year, month, selectedDay)}
@@ -1136,6 +1244,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                             <div
                               key={rt.id}
                               className="rounded border border-slate-800 p-3"
+                              data-deeplink={`calendar.room-type:${rt.id}`}
                             >
                               <p className="flex flex-wrap items-center gap-2 font-medium">
                                 {rt.name}
@@ -1171,6 +1280,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                                 Revenue ${rt.revenue.toFixed(2)}
                               </p>
                               {activeHotelId ? (
+                                <div data-deeplink={`calendar.price:${rt.id}`}>
                                 <ManualPriceEditor
                                   key={`${activeHotelId}|${year}-${month}-${selectedDay}|${rt.id}`}
                                   hotelId={activeHotelId}
@@ -1193,7 +1303,15 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                                     calendarCacheRef.current.clear();
                                     void reloadCalendarQuiet();
                                   }}
+                                  initialThrough={
+                                    arrival?.dest === "calendar.manual-price" &&
+                                    arrival.params.roomType === rt.id &&
+                                    arrival.params.date === isoDate(year, month, selectedDay)
+                                      ? (arrival.params.through ?? null)
+                                      : null
+                                  }
                                 />
+                                </div>
                               ) : null}
                             </div>
                           ),
@@ -1212,7 +1330,9 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-4">
                 <h2 className="text-lg font-semibold">Pricing Rules</h2>
-                <AskForHelp />
+                <span data-deeplink="rules.suggestions" className="inline-flex">
+                  <AskForHelp />
+                </span>
               </div>
               <div className="flex items-center gap-1 rounded-full border border-slate-800 bg-slate-950 p-1">
                 {(["all", "enabled", "disabled"] as const).map((f) => (
@@ -1242,7 +1362,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                     <th className="py-2">
                       <span className="flex items-center gap-1.5">
                         Fired
-                        <RoomCountHelp {...RULE_FIRES_HELP} />
+                        <RoomCountHelp {...RULE_FIRES_HELP} docs="rule-fires" />
                       </span>
                     </th>
                     <th className="py-2">Conditions</th>
@@ -1268,7 +1388,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                         a.rule_name.localeCompare(b.rule_name),
                     )
                     .map((rule) => (
-                    <tr key={rule.id} className="border-b border-slate-800">
+                    <tr key={rule.id} className="border-b border-slate-800" data-deeplink={`rules.row:${rule.id}`}>
                       <td className="py-2 pr-3 font-medium text-slate-200">
                         {rule.rule_name}
                       </td>
@@ -1333,7 +1453,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                               <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-200">
                                 {stoppedChipLabel(stops.nights.length)}
                               </span>
-                              <RoomCountHelp {...stoppedNightsHelp(stops.nights, direction)} />
+                              <RoomCountHelp {...stoppedNightsHelp(stops.nights, direction)} docs="stopped-nights" />
                               <button
                                 type="button"
                                 disabled={lettingRun !== null}
@@ -1360,15 +1480,19 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
               </table>
             </div>
 
-            <div className="rounded border border-slate-800 bg-slate-950/40">
+            <div className="rounded border border-slate-800 bg-slate-950/40" data-deeplink="rules.builder">
               <button
                 type="button"
-                onClick={() => setRuleFormOpen((o) => !o)}
+                onClick={() => {
+                  if (ruleFormOpen) setBuilderFilled(false);
+                  setRuleFormOpen((o) => !o);
+                }}
                 aria-expanded={ruleFormOpen}
                 className="flex w-full cursor-pointer items-center justify-between px-4 py-3 text-left"
               >
-                <span className="text-sm font-medium text-slate-300">
+                <span className="flex items-center gap-2 text-sm font-medium text-slate-300">
                   + Add a rule
+                  <FilledChip show={builderFilled && ruleFormOpen} />
                 </span>
                 <span
                   className={`text-slate-500 transition-transform duration-200 ${
@@ -1385,7 +1509,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
               className="space-y-4 border-t border-slate-800 p-4"
             >
               <div className="grid gap-3 md:grid-cols-2">
-                <div className="md:col-span-2">
+                <div className="md:col-span-2" data-deeplink="rules.builder.name">
                   <label className="mb-1 block text-xs font-medium text-slate-400">
                     Rule name
                   </label>
@@ -1398,7 +1522,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                   />
                 </div>
 
-                <div className="md:col-span-2">
+                <div className="md:col-span-2" data-deeplink="rules.builder.conditions">
                   <p className="mb-2 text-xs font-medium text-slate-400">
                     Conditions
                   </p>
@@ -1614,6 +1738,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                                   </label>
                                   <RoomCountHelp
                                     {...bookingSpeedHelp(row.booking_speed_window_days)}
+                                    docs="booking-speed"
                                   />
                                 </div>
                                 <select
@@ -1645,6 +1770,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                                       waitLabel,
                                       pickupSetsWait ? waitLabel : null,
                                     )}
+                                    docs="booking-speed-wait"
                                   />
                                 </div>
                                 <select
@@ -1686,7 +1812,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                   ) : null}
                 </div>
 
-                <div className="md:col-span-2">
+                <div className="md:col-span-2" data-deeplink="rules.builder.adjustment">
                   <p className="mb-2 text-xs font-medium text-slate-400">
                     Rate adjustment
                   </p>
@@ -1767,7 +1893,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                   </div>
                 </div>
 
-                <div className="md:col-span-2">
+                <div className="md:col-span-2" data-deeplink="rules.builder.room-types">
                   <RuleRoomTypesField
                     options={roomTypeOptions}
                     selected={selectedRoomTypeIds}
@@ -1797,7 +1923,15 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
         )}
 
         {tab === "simulator" && (
-          <RateSimulator activeHotelId={activeHotelId} onRuleSaved={reloadRules} />
+          <RateSimulator
+            // a link's test rule arrives after the first paint; remounting takes it in
+            key={arrival?.dest === "simulator.test-rule" ? "linked" : "plain"}
+            activeHotelId={activeHotelId}
+            onRuleSaved={reloadRules}
+            draftOpenAtStart={panel === "test-rule"}
+            onDraftOpenChange={(open) => setPanel(open ? "test-rule" : null)}
+            initialDraft={arrival?.dest === "simulator.test-rule" ? testRuleFill(arrival.params) : null}
+          />
         )}
 
         {tab === "changelog" && (
@@ -1811,7 +1945,12 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                 {changesOnly ? "Show All Cycles" : "Show Changes Only"}
               </button>
             </div>
-            <CorrectionsPanel />
+            <div data-deeplink="changelog.corrections">
+              <CorrectionsPanel
+                initialOpen={panel === "corrections"}
+                onOpenChange={(open) => setPanel(open ? "corrections" : null)}
+              />
+            </div>
             {changelogError ? (
               <p className="text-sm text-rose-300">
                 {changelogError}{" "}
@@ -1862,6 +2001,9 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                   <div
                     key={cycle.cycle}
                     className="rounded border border-slate-800 p-3"
+                    data-deeplink={
+                      cycle.changes[0]?.evaluation_run_id ? `changelog.run:${cycle.changes[0].evaluation_run_id}` : undefined
+                    }
                   >
                     <p className="text-xs text-slate-400">
                       <time
@@ -1885,7 +2027,14 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                     {cycle.has_changes ? (
                       <ul className="mt-2 space-y-3">
                         {cycle.changes.map((ch, idx) => (
-                          <li key={`${cycle.cycle}-${idx}`}>
+                          <li
+                            key={`${cycle.cycle}-${idx}`}
+                            data-deeplink={
+                              ch.evaluation_run_id
+                                ? `changelog.entry:${ch.evaluation_run_id}:${ch.stay_date ?? ""}:${ch.room_type_id ?? ""}`
+                                : undefined
+                            }
+                          >
                             <div className="text-sm font-medium text-slate-200">
                               {ch.room_type}
                               {ch.stay_date ? (
@@ -1919,6 +2068,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                                 runId={ch.evaluation_run_id}
                                 stayDate={ch.stay_date}
                                 roomTypeId={ch.room_type_id}
+                                initialOpen={linkedDrilldown(ch.evaluation_run_id, ch.stay_date, ch.room_type_id)}
                               />
                             ) : null}
                           </li>

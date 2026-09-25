@@ -32,10 +32,13 @@ const PREVIEW_NIGHTS = 3;
 export function RuleAlertBanner({
   activeHotelId,
   onAskForLimits,
+  openAlertId,
 }: {
   activeHotelId?: string | null;
   /** Takes the owner to where MAYA can suggest a floor or a ceiling. */
   onAskForLimits?: () => void;
+  /** A link asked for this alert: its "Answer night by night" starts open. No answer is pressed. */
+  openAlertId?: string | null;
 }) {
   const [view, setView] = useState<RuleAlertsView | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -82,6 +85,7 @@ export function RuleAlertBanner({
   return (
     <section
       aria-label="Rules that keep adjusting"
+      data-deeplink="alerts"
       className="mb-6 space-y-4 rounded-lg border border-amber-500/50 bg-amber-500/10 p-5"
     >
       {view.alerts.map((alert) => {
@@ -103,7 +107,7 @@ export function RuleAlertBanner({
                 <span>{night.limit_line}</span>
                 {night.limit_is_default ? (
                   <>
-                    <RoomCountHelp {...alertLimitHelp(view.currency_symbol)} />
+                    <RoomCountHelp {...alertLimitHelp(view.currency_symbol)} docs="alert-limit" />
                     {onAskForLimits ? (
                       <button
                         type="button"
@@ -141,7 +145,7 @@ export function RuleAlertBanner({
         );
 
         return (
-          <div key={alert.id} className="space-y-3">
+          <div key={alert.id} className="space-y-3" data-deeplink={`alerts:${alert.id}`}>
             <div>
               <h2 className="text-sm font-semibold text-amber-100">{alert.headline}</h2>
               <p className="mt-0.5 text-xs text-amber-200/80">{alert.consequence}</p>
@@ -169,7 +173,7 @@ export function RuleAlertBanner({
                     </button>
                   </>
                 ) : null}
-                <RoomCountHelp {...alertChoiceHelp(alert.direction)} />
+                <RoomCountHelp {...alertChoiceHelp(alert.direction)} docs="alert-choice" />
               </div>
             ) : (
               <p className="text-xs text-amber-200/80">Only a Revenue Manager or above can answer this.</p>
@@ -178,7 +182,7 @@ export function RuleAlertBanner({
             {alert.nights.length === 1 ? (
               <ul className="space-y-3">{alert.nights.map(nightCard)}</ul>
             ) : (
-              <details className="group">
+              <details className="group" open={openAlertId === alert.id ? true : undefined}>
                 <summary className="cursor-pointer list-none text-xs text-amber-200/80 hover:text-amber-100">
                   {shown.map((n) => n.label).join(", ")}
                   {more > 0 ? ` and ${more} more night${more === 1 ? "" : "s"}` : ""}

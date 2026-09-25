@@ -33,14 +33,19 @@ type Finding = {
   created_at: string;
 };
 
-export function ReviewFindings() {
+export function ReviewFindings({
+  initialStep = "assumptions",
+}: {
+  /** A link to the recommendations skips the first step. Nothing is confirmed. */
+  initialStep?: "assumptions" | "recommendations";
+} = {}) {
   const router = useRouter();
   const [findings, setFindings] = useState<Finding[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
-  const [step, setStep] = useState<"assumptions" | "recommendations">("assumptions");
+  const [step, setStep] = useState<"assumptions" | "recommendations">(initialStep);
   // One poll shared by the room-count strip (which needs the hotel id) and the
   // starter rules (which need the job stats and simulation flag).
   const status = useOnboardingStatus(15000);
@@ -332,7 +337,7 @@ export function StarterRules({ status }: { status: OnboardingStatus | null }) {
   }
 
   return (
-    <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-5">
+    <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-5" data-deeplink="review.starter-rules">
       <h2 className="text-base font-semibold text-slate-100">
         While you were here, we built your first pricing rules
       </h2>
@@ -467,7 +472,7 @@ function RoomCountStrip({ hotelId }: { hotelId: string | undefined }) {
     <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-sm text-slate-200">{roomCountQuestion(counting)}</p>
-        <RoomCountHelp {...COUNTS_AS_ROOM_HELP} />
+        <RoomCountHelp {...COUNTS_AS_ROOM_HELP} docs="counts-as-room" />
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         {types.map((rt) => {
@@ -528,7 +533,7 @@ export function FindingCard({
   const valueOk = Number.isFinite(parsed) && parsed > 0;
   const customized = editable && valueOk && parsed !== suggested;
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
+    <div className="rounded-lg border border-slate-800 bg-slate-900 p-5" data-deeplink={`review.${finding.kind}`}>
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-sm font-semibold text-slate-100">{c.title}</div>

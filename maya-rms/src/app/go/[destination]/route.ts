@@ -22,7 +22,7 @@ import {
   MAYA_ACTIVE_HOTEL_COOKIE,
   resolveAccessibleHotelId,
 } from "@/lib/hotel-context";
-import { roleRank } from "@/lib/roles";
+import { memberRole } from "@/lib/deep-links/member-role";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
@@ -59,15 +59,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         return supabase ? resolveAccessibleHotelId(supabase) : null;
       },
       async roleOn(hotelId) {
-        if (!supabase || !userId) return null;
-        const { data } = await supabase
-          .from("hotel_memberships")
-          .select("role")
-          .eq("hotel_id", hotelId)
-          .eq("user_id", userId)
-          .eq("status", "active");
-        const roles = (data ?? []).map((r) => String(r.role));
-        return roles.sort((a, b) => roleRank(b) - roleRank(a))[0] ?? null;
+        return supabase && userId ? memberRole(supabase, userId, hotelId) : null;
       },
       async isPlatformAdmin() {
         if (!supabase) return false;

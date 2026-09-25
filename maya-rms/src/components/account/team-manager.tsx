@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { HOTEL_ROLES } from "@/lib/roles";
 import { RoleHelp } from "@/components/account/role-help";
 import type { TeamView } from "@/lib/account/team";
+import { FilledChip } from "@/components/deep-links/arrival-bits";
 
 /**
  * Adding and removing the people who can see a property's rates.
@@ -16,11 +17,15 @@ import type { TeamView } from "@/lib/account/team";
 
 const ROLE_HELP = Object.fromEntries(HOTEL_ROLES.map((r) => [r.key, r.description]));
 
-export function TeamManager() {
+export function TeamManager({ initialInviteRole = null }: { initialInviteRole?: string | null } = {}) {
   const [team, setTeam] = useState<TeamView | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState("revenue_manager");
+  // A link may pick the role (the page has checked this person can grant it). Never the email.
+  const [role, setRole] = useState(
+    initialInviteRole && HOTEL_ROLES.some((r) => r.key === initialInviteRole) ? initialInviteRole : "revenue_manager",
+  );
+  const [roleFromLink, setRoleFromLink] = useState(Boolean(initialInviteRole));
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
@@ -57,6 +62,7 @@ export function TeamManager() {
       if (!res.ok) throw new Error(body.error ?? "Could not send that invitation.");
       setSent(email.trim());
       setEmail("");
+      setRoleFromLink(false);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not send that invitation.");
@@ -105,9 +111,12 @@ export function TeamManager() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded border border-slate-800 bg-slate-900 p-4">
+      <section className="rounded border border-slate-800 bg-slate-900 p-4" data-deeplink="team.invite">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-sm font-semibold text-slate-200">Add someone</h2>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-200">
+            Add someone
+            <FilledChip show={roleFromLink} />
+          </h2>
           <p className="text-xs text-slate-400">
             {Number.isFinite(seats.limit)
               ? `${seats.used} of ${seats.limit} ${seats.limit === 1 ? "seat" : "seats"} used${team.rooms > 0 ? ` · ${team.rooms} rooms` : ""}`
@@ -146,7 +155,10 @@ export function TeamManager() {
               <select
                 id="invite-role"
                 value={role}
-                onChange={(e) => setRole(e.target.value)}
+                onChange={(e) => {
+                  setRole(e.target.value);
+                  setRoleFromLink(false);
+                }}
                 className="mt-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
               >
                 {HOTEL_ROLES.map((r) => (

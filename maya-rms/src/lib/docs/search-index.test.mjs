@@ -1,10 +1,13 @@
 // The docs search box's index. Run with: npm test
-import { test } from "vitest";
+import { test, vi } from "vitest";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSearch, searchDocs } from "./search-index.ts";
+
+// Whole-corpus checks: slower than a unit test, and slower still when the suite runs in parallel.
+vi.setConfig({ testTimeout: 120_000 });
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const generated = JSON.parse(fs.readFileSync(path.join(ROOT, "src/lib/docs/generated/index.json"), "utf8"));

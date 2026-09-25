@@ -129,7 +129,7 @@ export function RuleRoomTypesField({
           />
           Change prices on different room types
         </label>
-        <RoomCountHelp {...SPLIT_HELP} />
+        <RoomCountHelp {...SPLIT_HELP} docs="split" />
       </div>
     </div>
   );

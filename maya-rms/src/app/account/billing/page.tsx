@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ManageBillingButton, RoomCountForm } from "@/components/billing/billing-actions";
 import { DeferredProperties, type DeferredPropertyItem } from "@/components/billing/deferred-properties";
+import { ArrivalFlash } from "@/components/deep-links/arrival-bits";
+import { HelpLink, LearnMore } from "@/components/deep-links/help-links";
 import { MayaLockup } from "@/components/brand/logo";
 import {
   headlineFor,
@@ -91,6 +93,7 @@ export default async function BillingPage() {
         {!billing.entitled && billing.status !== "unpaid" && (
           <Link
             href="/account/billing/restart"
+            data-deeplink="billing.restart"
             className="mt-3 inline-block rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-500"
           >
             Restart your subscription
@@ -128,7 +131,7 @@ export default async function BillingPage() {
         </section>
       )}
 
-      <section className="rounded border border-slate-800 bg-slate-900 p-4">
+      <section className="rounded border border-slate-800 bg-slate-900 p-4" data-deeplink="billing.card">
         <h2 className="text-sm font-semibold text-slate-200">Manage</h2>
         <div className="mt-3">
           <ManageBillingButton />
@@ -136,8 +139,11 @@ export default async function BillingPage() {
       </section>
 
       {billing.entitled && (
-        <section className="rounded border border-slate-800 bg-slate-900 p-4">
-          <h2 className="text-sm font-semibold text-slate-200">Room count</h2>
+        <section className="rounded border border-slate-800 bg-slate-900 p-4" data-deeplink="billing.room-count">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-200">Room count</h2>
+            <LearnMore panel="room-count" />
+          </div>
           {/* Deliberately no "change it whenever you like" invitation here. The
               count is checked against the PMS on every sync and corrected if it
               is short, so copy that reads as an open dial encourages exactly the
@@ -223,7 +229,7 @@ async function deferredProperties(userId: string): Promise<DeferredPropertyItem[
 function NotSetUpYet({ items }: { items: DeferredPropertyItem[] }) {
   if (items.length === 0) return null;
   return (
-    <section className="rounded border border-slate-800 bg-slate-900">
+    <section className="rounded border border-slate-800 bg-slate-900" data-deeplink="billing.pending">
       <h2 className="border-b border-slate-800 px-4 py-3 text-sm font-semibold text-slate-200">
         Properties not set up yet
       </h2>
@@ -239,6 +245,7 @@ function Shell({ children }: { children: React.ReactNode }) {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Billing</h1>
         <div className="flex items-center gap-4">
+          <HelpLink screen="billing" className="text-sm text-slate-400 hover:text-slate-200" />
           <Link href="/account/team" className="text-sm text-slate-400 hover:text-slate-200">
             Your team
           </Link>
@@ -247,6 +254,8 @@ function Shell({ children }: { children: React.ReactNode }) {
           </Link>
         </div>
       </div>
+      {/* A link to a part of this page highlights it; nothing on it is pressed. */}
+      <ArrivalFlash flashIds={{ card: "billing.card", "room-count": "billing.room-count", pending: "billing.pending", restart: "billing.restart" }} />
       {children}
     </main>
   );
