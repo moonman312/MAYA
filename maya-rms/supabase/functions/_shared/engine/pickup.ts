@@ -14,11 +14,11 @@
  * pickup count rule waits the wait its owner chose (pickup_cooldown_days,
  * never under a day), or its lookback window when none was chosen
  * (pickupWaitDays); a rule with both waits the longer. The wait runs from
- * the newest of: this rule version's latest fire
- * on the cell that is still open or came off for cancellations, a passed
- * night or before reasons were kept; and the set_at of an open manual price
- * on the cell, for a rule that existed when the price was set. Fires taken
- * off by a manual price or an edit never start a wait.
+ * the newest of: this rule version's latest fire on the cell that is still
+ * open or came off for cancellations, a passed night or before reasons were
+ * kept; and the set_at of an open manual price on the cell, for a rule that
+ * existed when the price was set. Fires taken off by a manual price or an
+ * edit never start a wait.
  *
  * WHAT A RULE MEASURES. A rule counts only the bookings made after the
  * newest change on the night and room type by itself or by a rule that
@@ -44,15 +44,14 @@
  * that very instant, so the count starts from exactly what the fire saw.
  * For a pickup count that fire must still be on the night (openFireHeads):
  * a raise taken off for cancellations starts nothing, or new bookings would
- * be netted against the ones that cancelled. A
- * wait its owner chose shorter than the window is what lets its own fire
- * open it later; left on the window, only another rule's fire can. A
- * stretch shorter than the window is judged only when counting fewer
- * bookings can't be what makes the condition true, "more than" 0 or more
- * (pickupJudgesShortStretch); otherwise the rule has nothing to judge until
- * a whole window has passed since that fire, whatever its wait. A Booking
- * Speed condition reads the observation over its
- * own window and needs no old snapshot. From that fire
+ * be netted against the ones that cancelled. A wait its owner chose shorter
+ * than the window is what lets its own fire open it later; left on the
+ * window, only another rule's fire can. A stretch shorter than the window
+ * is judged only when counting fewer bookings can't be what makes the
+ * condition true, "more than" 0 or more (pickupJudgesShortStretch);
+ * otherwise the rule has nothing to judge until a whole window has passed
+ * since that fire, whatever its wait. A Booking Speed condition reads the
+ * observation over its own window and needs no old snapshot. From that fire
  * (bookingSpeedCountFrom) a raise rule counts from the hotel day of the fire
  * on, and on that day only the bookings first seen after the fire
  * (reservations.created_at against its applied_at, the split in
