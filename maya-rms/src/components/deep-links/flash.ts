@@ -6,10 +6,13 @@
 // loads after the page, and gives up quietly. Focus moves to the highlighted
 // box itself, never into a field, so Enter can never save anything.
 
+const SAFE_ID = /^[a-z][a-z0-9._:-]{0,160}$/i;
+
 export function flashWhenReady(id: string, options: { timeoutMs?: number } = {}): () => void {
-  if (typeof window === "undefined" || !id) return () => {};
+  // Registry ids and checked uuids only: letters, digits and . : - _
+  if (typeof window === "undefined" || !SAFE_ID.test(id)) return () => {};
   const timeoutMs = options.timeoutMs ?? 6000;
-  const selector = `[data-deeplink="${CSS.escape(id)}"]`;
+  const selector = `[data-deeplink="${id}"]`;
   let done = false;
   let observer: MutationObserver | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;

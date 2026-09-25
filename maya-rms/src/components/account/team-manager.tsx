@@ -22,10 +22,9 @@ export function TeamManager({ initialInviteRole = null }: { initialInviteRole?: 
   const [loadFailed, setLoadFailed] = useState(false);
   const [email, setEmail] = useState("");
   // A link may pick the role (the page has checked this person can grant it). Never the email.
-  const [role, setRole] = useState(
-    initialInviteRole && HOTEL_ROLES.some((r) => r.key === initialInviteRole) ? initialInviteRole : "revenue_manager",
-  );
-  const [roleFromLink, setRoleFromLink] = useState(Boolean(initialInviteRole));
+  const linkedRole = initialInviteRole && HOTEL_ROLES.some((r) => r.key === initialInviteRole) ? initialInviteRole : null;
+  const [role, setRole] = useState(linkedRole ?? "revenue_manager");
+  const [roleFromLink, setRoleFromLink] = useState(linkedRole !== null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
