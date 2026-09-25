@@ -1,5 +1,6 @@
 "use client";
 
+import { RoomCountHelp } from "@/components/room-type-settings";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { askForTerms, TERMS_ACCEPTED_EVENT } from "@/components/legal/terms-gate";
@@ -490,24 +491,16 @@ export function SubscribeStep({
 
 /**
  * Hover/focus "?" beside the Not now link. One sentence, but it is reassurance
- * rather than instruction, so it stays off the screen until asked for.
+ * rather than instruction, so it stays off the screen until asked for. Its
+ * Learn more opens the docs passage about paying for a group one at a time.
  */
 function NotNowHelp() {
   return (
-    <span className="group relative inline-flex">
-      <button
-        type="button"
-        aria-label="What happens if you set this property up later"
-        className="flex size-4 cursor-help items-center justify-center rounded-full border border-slate-700 text-[10px] font-semibold leading-none text-slate-500 transition-colors hover:border-slate-500 hover:text-slate-300 focus-visible:border-sky-400 focus-visible:text-sky-200 focus-visible:outline-none"
-      >
-        ?
-      </button>
-      <span
-        role="tooltip"
-        className="pointer-events-none absolute left-1/2 top-6 z-20 hidden w-56 -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-950 p-3 text-left text-xs leading-snug text-slate-400 shadow-xl group-focus-within:block group-hover:block"
-      >
-        You can come back to it from Billing any time.
-      </span>
-    </span>
+    <RoomCountHelp
+      label="What happens if you set this property up later"
+      title="Set it up later"
+      lines={["You can come back to it from Billing any time."]}
+      docs="not-now"
+    />
   );
 }
