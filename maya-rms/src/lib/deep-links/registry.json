@@ -1,0 +1,1037 @@
+{
+  "version": 1,
+  "about": "Every place a link may open in MAYA, and every parameter it may carry. Read by /go/<destination>, by the dashboard and account pages when a link lands, and by the docs build, which refuses any docs link this file does not allow. Keys are forever: never rename a destination or a parameter or give one a new meaning; retire it with \"retired\": true instead. See src/lib/deep-links/README.md.",
+  "limits": {
+    "rawQueryChars": 1024,
+    "rawValueChars": 200,
+    "keys": 24,
+    "nextChars": 1536
+  },
+  "roles": [
+    "viewer",
+    "revenue_manager",
+    "general_manager",
+    "hotel_admin"
+  ],
+  "paths": [
+    "/",
+    "/account/team",
+    "/account/billing",
+    "/onboarding/review",
+    "/onboarding/questions"
+  ],
+  "params": {
+    "tab": {
+      "type": "enum",
+      "values": [
+        "calendar",
+        "rules",
+        "simulator",
+        "changelog",
+        "pms"
+      ],
+      "default": "calendar",
+      "use": "place",
+      "go": false
+    },
+    "panel": {
+      "type": "enum",
+      "values": [
+        "builder",
+        "test-rule",
+        "corrections"
+      ],
+      "use": "place",
+      "go": false
+    },
+    "month": {
+      "type": "month",
+      "use": "place"
+    },
+    "date": {
+      "type": "date",
+      "use": "place",
+      "docs": false
+    },
+    "filter": {
+      "type": "enum",
+      "values": [
+        "all",
+        "enabled",
+        "disabled"
+      ],
+      "default": "all",
+      "use": "place"
+    },
+    "view": {
+      "type": "enum",
+      "values": [
+        "changes",
+        "all"
+      ],
+      "default": "changes",
+      "use": "place"
+    },
+    "dl": {
+      "type": "destination",
+      "use": "once",
+      "go": false
+    },
+    "note": {
+      "type": "enum",
+      "values": [
+        "role-rules",
+        "role-price",
+        "role-suggestions",
+        "entry-gone"
+      ],
+      "use": "once",
+      "go": false
+    },
+    "hotel": {
+      "type": "uuid",
+      "use": "gate",
+      "docs": false,
+      "global": true
+    },
+    "focus": {
+      "type": "enum",
+      "values": [
+        "name",
+        "conditions",
+        "adjustment",
+        "room-types",
+        "suggestions",
+        "adjusting",
+        "guardrails",
+        "invite",
+        "card",
+        "room-count",
+        "pending",
+        "restart",
+        "guardrail-suggestion",
+        "rule-suggestion",
+        "starter-rules"
+      ],
+      "use": "once"
+    },
+    "roomType": {
+      "type": "uuid",
+      "use": "once",
+      "docs": false
+    },
+    "rule": {
+      "type": "uuid",
+      "use": "once",
+      "docs": false
+    },
+    "run": {
+      "type": "uuid",
+      "use": "once",
+      "docs": false
+    },
+    "alert": {
+      "type": "uuid",
+      "use": "once",
+      "docs": false
+    },
+    "step": {
+      "type": "enum",
+      "values": [
+        "recommendations"
+      ],
+      "use": "once"
+    },
+    "through": {
+      "type": "date",
+      "use": "once",
+      "fills": true,
+      "docs": false,
+      "requires": [
+        "date"
+      ],
+      "notBefore": "date",
+      "maxDaysAfter": 365
+    },
+    "name": {
+      "type": "text",
+      "max": 60,
+      "chars": "letters, marks, digits, space and - ' ’ , . % & + ( )",
+      "use": "once",
+      "fills": true
+    },
+    "occupancy": {
+      "type": "cmp",
+      "min": 0,
+      "max": 100,
+      "decimals": 0,
+      "use": "once",
+      "fills": true,
+      "row": "occupancy"
+    },
+    "speed": {
+      "type": "enum",
+      "values": [
+        "stalled",
+        "much_slower",
+        "slower",
+        "normal",
+        "faster",
+        "much_faster",
+        "surging"
+      ],
+      "use": "once",
+      "fills": true,
+      "row": "booking_speed",
+      "field": "booking_speed_level"
+    },
+    "over": {
+      "type": "enum",
+      "values": [
+        "1",
+        "7",
+        "30"
+      ],
+      "use": "once",
+      "fills": true,
+      "requires": [
+        "speed"
+      ],
+      "row": "booking_speed",
+      "field": "booking_speed_window_days"
+    },
+    "wait": {
+      "type": "enum",
+      "values": [
+        "1",
+        "2",
+        "3",
+        "7",
+        "14"
+      ],
+      "use": "once",
+      "fills": true,
+      "requires": [
+        "speed"
+      ],
+      "row": "booking_speed",
+      "field": "booking_speed_cooldown_days"
+    },
+    "window": {
+      "type": "cmp",
+      "min": 0,
+      "max": 730,
+      "decimals": 0,
+      "use": "once",
+      "fills": true,
+      "row": "booking_window"
+    },
+    "pickup": {
+      "type": "cmp",
+      "min": 0,
+      "max": 100000,
+      "decimals": 2,
+      "use": "once",
+      "fills": true,
+      "row": "pickup"
+    },
+    "lookback": {
+      "type": "enum",
+      "values": [
+        "1",
+        "3",
+        "7"
+      ],
+      "use": "once",
+      "fills": true,
+      "requires": [
+        "pickup"
+      ],
+      "row": "pickup",
+      "field": "pickup_window_days"
+    },
+    "measures": {
+      "type": "enum",
+      "values": [
+        "room_nights",
+        "revenue"
+      ],
+      "use": "once",
+      "fills": true,
+      "requires": [
+        "pickup"
+      ],
+      "row": "pickup",
+      "field": "pickup_metric"
+    },
+    "direction": {
+      "type": "enum",
+      "values": [
+        "increase",
+        "decrease"
+      ],
+      "use": "once",
+      "fills": true
+    },
+    "percent": {
+      "type": "number",
+      "gt": 0,
+      "max": 50,
+      "decimals": 2,
+      "use": "once",
+      "fills": true
+    },
+    "amount": {
+      "type": "number",
+      "gt": 0,
+      "max": 1000,
+      "decimals": 2,
+      "use": "once",
+      "fills": true,
+      "droppedBy": [
+        "percent"
+      ]
+    },
+    "split": {
+      "type": "flag",
+      "use": "once",
+      "fills": true
+    },
+    "stay_in": {
+      "type": "int",
+      "min": 0,
+      "max": 365,
+      "use": "once",
+      "fills": true
+    },
+    "night_speed": {
+      "type": "enum",
+      "values": [
+        "none",
+        "stalled",
+        "much_slower",
+        "slower",
+        "normal",
+        "faster",
+        "much_faster",
+        "surging"
+      ],
+      "use": "once",
+      "fills": true
+    },
+    "role": {
+      "type": "enum",
+      "values": [
+        "viewer",
+        "revenue_manager",
+        "general_manager",
+        "hotel_admin"
+      ],
+      "use": "once",
+      "fills": true,
+      "check": "assignable"
+    }
+  },
+  "destinations": {
+    "home": {
+      "label": "Open MAYA",
+      "opens": "The dashboard on the Calendar tab.",
+      "target": {
+        "path": "/"
+      },
+      "params": [],
+      "docs": "start/a-tour-of-the-app",
+      "docsLinkable": true
+    },
+    "calendar": {
+      "label": "Open the Calendar",
+      "opens": "Calendar tab on the month given, or this month.",
+      "target": {
+        "path": "/",
+        "set": {
+          "tab": "calendar"
+        }
+      },
+      "params": [
+        "month"
+      ],
+      "docs": "watch/the-calendar",
+      "docsLinkable": true,
+      "examples": [
+        {
+          "q": "month=2026-12",
+          "out": "month=2026-12"
+        },
+        {
+          "q": "month=2026-13",
+          "out": ""
+        }
+      ]
+    },
+    "calendar.day": {
+      "label": "Open this night",
+      "opens": "Calendar on the night's month with its day card open, a room type's card highlighted when given.",
+      "target": {
+        "path": "/",
+        "set": {
+          "tab": "calendar"
+        }
+      },
+      "params": [
+        "date",
+        "roomType"
+      ],
+      "required": [
+        "date"
+      ],
+      "fallback": "calendar",
+      "flash": "calendar.day",
+      "docs": "watch/the-calendar",
+      "docsLinkable": false,
+      "examples": [
+        {
+          "q": "date=2026-10-03",
+          "out": "date=2026-10-03"
+        },
+        {
+          "q": "date=2026-02-30",
+          "out": "",
+          "dest": "calendar"
+        }
+      ]
+    },
+    "calendar.manual-price": {
+      "label": "Set a price for this night",
+      "opens": "The night's day card scrolled to the room type's price box, with through... open on the end date when given. The price itself is never filled in.",
+      "target": {
+        "path": "/",
+        "set": {
+          "tab": "calendar"
+        }
+      },
+      "params": [
+        "date",
+        "roomType",
+        "through"
+      ],
+      "required": [
+        "date"
+      ],
+      "fallback": "calendar",
+      "role": "revenue_manager",
+      "belowRole": {
+        "to": "calendar.day",
+        "note": "role-price"
+      },
+      "flash": "calendar.price",
+      "docs": "watch/setting-a-price-yourself",
+      "docsLinkable": false,
+      "examples": [
+        {
+          "q": "date=2026-10-03&through=2026-10-05",
+          "out": "date=2026-10-03&through=2026-10-05"
+        },
+        {
+          "q": "date=2026-10-03&through=2026-10-01",
+          "out": "date=2026-10-03"
+        },
+        {
+          "q": "through=2026-10-05",
+          "out": "",
+          "dest": "calendar"
+        }
+      ]
+    },
+    "rules.list": {
+      "label": "Open the Rules tab",
+      "opens": "Rules tab with the list filtered as given, a rule's row highlighted when given.",
+      "target": {
+        "path": "/",
+        "set": {
+          "tab": "rules"
+        }
+      },
+      "params": [
+        "filter",
+        "rule"
+      ],
+      "flash": "rules.row",
+      "docs": "rules/off-delete-or-change",
+      "docsLinkable": true,
+      "examples": [
+        {
+          "q": "filter=enabled",
+          "out": "filter=enabled"
+        },
+        {
+          "q": "filter=Enabled",
+          "out": ""
+        }
+      ]
+    },
+    "rules.new": {
+      "label": "Open the rule builder",
+      "opens": "Rules tab with + Add a rule open and filled in with the fields given, scrolled to and highlighted. Nothing is saved.",
+      "target": {
+        "path": "/",
+        "set": {
+          "tab": "rules",
+          "panel": "builder"
+        }
+      },
+      "params": [
+        "name",
+        "occupancy",
+        "speed",
+        "over",
+        "wait",
+        "window",
+        "pickup",
+        "lookback",
+        "measures",
+        "direction",
+        "percent",
+        "amount",
+        "split",
+        "focus"
+      ],
+      "narrow": {
+        "focus": [
+          "name",
+          "conditions",
+          "adjustment",
+          "room-types"
+        ]
+      },
+      "role": "revenue_manager",
+      "belowRole": {
+        "to": "rules.list",
+        "note": "role-rules"
+      },
+      "flash": "rules.builder",
+      "saveButton": "Add Rule",
+      "docs": "rules/the-rule-builder",
+      "docsLinkable": true,
+      "examples": [
+        {
+          "q": "name=Nearly+full&occupancy=gt85&direction=increase&percent=10",
+          "out": "name=Nearly+full&occupancy=gt85&direction=increase&percent=10"
+        },
+        {
+          "q": "percent=10&direction=increase&occupancy=gt85&name=Nearly%20full",
+          "out": "name=Nearly+full&occupancy=gt85&direction=increase&percent=10"
+        },
+        {
+          "q": "speed=slower&over=30&wait=7&direction=decrease&percent=7",
+          "out": "speed=slower&over=30&wait=7&direction=decrease&percent=7"
+        },
+        {
+          "q": "over=30&wait=7&direction=decrease&percent=7",
+          "out": "direction=decrease&percent=7"
+        },
+        {
+          "q": "percent=10&amount=5&direction=increase",
+          "out": "direction=increase&percent=10"
+        },
+        {
+          "q": "amount=5&direction=increase",
+          "out": "direction=increase&amount=5"
+        },
+        {
+          "q": "occupancy=gt150&percent=0&direction=up",
+          "out": ""
+        },
+        {
+          "q": "percent=90&direction=decrease",
+          "out": "direction=decrease"
+        },
+        {
+          "q": "name=%3Cb%3Ehi%3C%2Fb%3E&window=lt3",
+          "out": "window=lt3"
+        },
+        {
+          "q": "name=++Last+++minute++&window=lt3.5",
+          "out": "name=Last+minute"
+        },
+        {
+          "q": "occupancy=gt85&occupancy=lt10",
+          "out": "occupancy=gt85"
+        },
+        {
+          "q": "Occupancy=gt85&split=true",
+          "out": ""
+        },
+        {
+          "q": "pickup=gt4&lookback=3&measures=room_nights&split=1&focus=room-types",
+          "out": "pickup=gt4&lookback=3&measures=room_nights&split=1&focus=room-types"
+        },
+        {
+          "q": "focus=guardrails",
+          "out": ""
+        },
+        {
+          "q": "hotel=0b0c8a6e-3c1d-4d8e-9f2a-6a1b2c3d4e5f&window=lt7",
+          "out": "window=lt7",
+          "docsProblems": [
+            "hotel"
+          ]
+        },
+        {
+          "q": "email=a%40b.example&window=lt7",
+          "out": "window=lt7",
+          "docsProblems": [
+            "email"
+          ]
+        }
+      ]
+    },
+    "suggestions": {
+      "label": "Open Get suggestions from my data",
+      "opens": "Rules tab scrolled to Get suggestions from my data, highlighted and never pressed. When suggestions are already waiting, the review's recommendations instead.",
+      "target": {
+        "path": "/",
+        "set": {
+          "tab": "rules",
+          "focus": "suggestions"
+        }
+      },
+      "params": [],
+      "role": "revenue_manager",
+      "belowRole": {
+        "to": "rules.list",
+        "note": "role-suggestions"
+      },
+      "when": {
+        "suggestions-ready": {
+          "to": "review",
+          "set": {
+            "step": "recommendations"
+          }
+        }
+      },
+      "flash": "rules.suggestions",
+      "docs": "review/getting-suggestions-later",
+      "docsLinkable": true
+    },
+    "adjusting": {
+      "label": "Open Rules that keep adjusting",
+      "opens": "Rules tab scrolled to the Rules that keep adjusting banner when a question is open, an alert opened when given. No answer is pressed.",
+      "target": {
+        "path": "/",
+        "set": {
+          "tab": "rules",
+          "focus": "adjusting"
+        }
+      },
+      "params": [
+        "alert"
+      ],
+      "flash": "alerts",
+      "docs": "rules/rules-that-keep-adjusting",
+      "docsLinkable": true
+    },
+    "simulator": {
+      "label": "Open the Rate Simulator",
+      "opens": "Rate Simulator tab.",
+      "target": {
+        "path": "/",
+        "set": {
+          "tab": "simulator"
+        }
+      },
+      "params": [],
+      "docs": "rules/the-rate-simulator",
+      "docsLinkable": true
+    },
+    "simulator.test-rule": {
+      "label": "Open a test rule in the Rate Simulator",
+      "opens": "Rate Simulator with + Build a test rule open and filled in, the night set when given. Nothing is saved.",
+      "target": {
+        "path": "/",
+        "set": {
+          "tab": "simulator",
+          "panel": "test-rule"
+        }
+      },
+      "params": [
+        "name",
+        "occupancy",
+        "speed",
+        "window",
+        "pickup",
+        "direction",
+        "percent",
+        "amount",
+        "stay_in",
+        "night_speed"
+      ],
+      "flash": "simulator.test-rule",
+      "saveButton": "Save This Rule",
+      "docs": "rules/the-rate-simulator#build-a-test-rule",
+      "docsLinkable": true,
+      "examples": [
+        {
+          "q": "name=Last+minute&window=lt3&occupancy=lt50&direction=decrease&percent=15&stay_in=1",
+          "out": "name=Last+minute&occupancy=lt50&window=lt3&direction=decrease&percent=15&stay_in=1"
+        },
+        {
+          "q": "speed=surging&over=1&wait=1",
+          "out": "speed=surging",
+          "docsProblems": [
+            "over",
+            "wait"
+          ]
+        },
+        {
+          "q": "night_speed=none&stay_in=400",
+          "out": "night_speed=none"
+        }
+      ]
+    },
+    "floors": {
+      "label": "See your floors and ceilings",
+      "opens": "Rate Simulator scrolled to the Guardrails column, highlighted. There is no floor or ceiling editor to open.",
+      "target": {
+        "path": "/",
+        "set": {
+          "tab": "simulator",
+          "focus": "guardrails"
+        }
+      },
+      "params": [],
+      "flash": "simulator.guardrails",
+      "docs": "review/floors-and-ceilings",
+      "docsLinkable": true
+    },
+    "changelog": {
+      "label": "Open the Change Log",
+      "opens": "Change Log tab in the view given.",
+      "target": {
+        "path": "/",
+        "set": {
+          "tab": "changelog"
+        }
+      },
+      "params": [
+        "view"
+      ],
+      "docs": "watch/the-change-log",
+      "docsLinkable": true,
+      "examples": [
+        {
+          "q": "view=all",
+          "out": "view=all"
+        },
+        {
+          "q": "view=quiet",
+          "out": ""
+        }
+      ]
+    },
+    "changelog.corrections": {
+      "label": "Open Your corrections",
+      "opens": "Change Log with Your corrections open and highlighted. Nothing is undone.",
+      "target": {
+        "path": "/",
+        "set": {
+          "tab": "changelog",
+          "panel": "corrections"
+        }
+      },
+      "params": [],
+      "flash": "changelog.corrections",
+      "docs": "watch/not-a-fair-comparison#your-corrections",
+      "docsLinkable": true
+    },
+    "changelog.entry": {
+      "label": "Open this change",
+      "opens": "Change Log scrolled to one change with How did we know? opened, while it is still in the list. Otherwise the Change Log with a short note.",
+      "target": {
+        "path": "/",
+        "set": {
+          "tab": "changelog"
+        }
+      },
+      "params": [
+        "run",
+        "date",
+        "roomType"
+      ],
+      "required": [
+        "run"
+      ],
+      "fallback": "changelog",
+      "flash": "changelog.entry",
+      "docs": "watch/how-did-we-know",
+      "docsLinkable": false
+    },
+    "pms": {
+      "label": "Open the PMS tab",
+      "opens": "PMS tab. Reconnect is never started.",
+      "target": {
+        "path": "/",
+        "set": {
+          "tab": "pms"
+        }
+      },
+      "params": [],
+      "docs": "watch/the-pms-tab",
+      "docsLinkable": true
+    },
+    "room-types": {
+      "label": "Open Room types",
+      "opens": "PMS tab scrolled to Room types and highlighted, a room type's row when given. Nothing is ticked or saved.",
+      "target": {
+        "path": "/",
+        "set": {
+          "tab": "pms",
+          "focus": "room-types"
+        }
+      },
+      "params": [
+        "roomType"
+      ],
+      "flash": "pms.room-types",
+      "docs": "watch/room-types-and-rooms-out-of-service",
+      "docsLinkable": true
+    },
+    "connect": {
+      "label": "Open the PMS tab",
+      "opens": "PMS tab for a connected property. With no property yet, MAYA's own start screen, which leads to connecting.",
+      "target": {
+        "path": "/",
+        "set": {
+          "tab": "pms"
+        }
+      },
+      "params": [],
+      "docs": "connect/which-systems-work",
+      "docsLinkable": true
+    },
+    "team": {
+      "label": "Open the Team page",
+      "opens": "Team page.",
+      "target": {
+        "path": "/account/team"
+      },
+      "params": [],
+      "role": "general_manager",
+      "belowRole": "page",
+      "docs": "team/inviting-and-removing-people",
+      "docsLinkable": true
+    },
+    "team.invite": {
+      "label": "Open Add someone",
+      "opens": "Team page scrolled to Add someone and highlighted, the email box focused and empty, the role picked when given. Nothing is sent.",
+      "target": {
+        "path": "/account/team",
+        "set": {
+          "focus": "invite"
+        }
+      },
+      "params": [
+        "role"
+      ],
+      "role": "general_manager",
+      "belowRole": "page",
+      "flash": "team.invite",
+      "saveButton": "Send invitation",
+      "docs": "team/inviting-and-removing-people#inviting-someone",
+      "docsLinkable": true,
+      "examples": [
+        {
+          "q": "role=viewer",
+          "out": "role=viewer"
+        },
+        {
+          "q": "role=owner",
+          "out": ""
+        }
+      ]
+    },
+    "billing": {
+      "label": "Open Billing",
+      "opens": "Billing page.",
+      "target": {
+        "path": "/account/billing"
+      },
+      "params": [],
+      "role": "general_manager",
+      "belowRole": "page",
+      "docs": "billing/the-billing-page",
+      "docsLinkable": true
+    },
+    "billing.card": {
+      "label": "Open Billing at the card button",
+      "opens": "Billing page with Update card, receipts & cancellation highlighted. Stripe is never opened.",
+      "target": {
+        "path": "/account/billing",
+        "set": {
+          "focus": "card"
+        }
+      },
+      "params": [],
+      "role": "general_manager",
+      "belowRole": "page",
+      "flash": "billing.card",
+      "docs": "billing/cards-payments-and-invoices#updating-your-card",
+      "docsLinkable": true
+    },
+    "billing.room-count": {
+      "label": "Open your room count",
+      "opens": "Billing page scrolled to Room count and highlighted. Nothing is changed.",
+      "target": {
+        "path": "/account/billing",
+        "set": {
+          "focus": "room-count"
+        }
+      },
+      "params": [],
+      "role": "general_manager",
+      "belowRole": "page",
+      "flash": "billing.room-count",
+      "docs": "billing/your-room-count",
+      "docsLinkable": true
+    },
+    "billing.pending": {
+      "label": "Open Properties not set up yet",
+      "opens": "Billing page scrolled to Properties not set up yet and highlighted. Set up is never pressed.",
+      "target": {
+        "path": "/account/billing",
+        "set": {
+          "focus": "pending"
+        }
+      },
+      "params": [],
+      "role": "general_manager",
+      "belowRole": "page",
+      "flash": "billing.pending",
+      "docs": "pay/paying-for-a-group#picking-it-back-up",
+      "docsLinkable": true
+    },
+    "billing.restart": {
+      "label": "Open Restart your subscription",
+      "opens": "Billing page with Restart your subscription highlighted, while the subscription has ended. Otherwise the Billing page. Checkout is never started.",
+      "target": {
+        "path": "/account/billing",
+        "set": {
+          "focus": "restart"
+        }
+      },
+      "params": [],
+      "role": "general_manager",
+      "belowRole": "page",
+      "when": {
+        "subscription-live": {
+          "to": "billing"
+        }
+      },
+      "flash": "billing.restart",
+      "docs": "billing/cancelling-restarting-and-leaving#restarting",
+      "docsLinkable": true
+    },
+    "review": {
+      "label": "Open the review",
+      "opens": "The review screen, on the recommendations step and a kind of card when given. Nothing is confirmed and the go-live dialog is never opened.",
+      "target": {
+        "path": "/onboarding/review"
+      },
+      "params": [
+        "step",
+        "focus"
+      ],
+      "narrow": {
+        "focus": [
+          "guardrail-suggestion",
+          "rule-suggestion",
+          "starter-rules"
+        ]
+      },
+      "docs": "review/checking-what-maya-found",
+      "docsLinkable": true,
+      "examples": [
+        {
+          "q": "step=recommendations&focus=guardrail-suggestion",
+          "out": "step=recommendations&focus=guardrail-suggestion"
+        },
+        {
+          "q": "focus=rate-outlier",
+          "out": ""
+        }
+      ]
+    },
+    "questions": {
+      "label": "Open the five questions",
+      "opens": "The strategy questions for the active property. Nothing is saved until the owner saves.",
+      "target": {
+        "path": "/onboarding/questions"
+      },
+      "params": [],
+      "when": {
+        "unpaid-properties": {
+          "to": "home"
+        }
+      },
+      "docs": "review/the-five-questions",
+      "docsLinkable": true
+    }
+  },
+  "unknownDestinationExamples": [
+    {
+      "dest": "rules.edit",
+      "q": "name=x",
+      "resolves": "home",
+      "out": ""
+    },
+    {
+      "dest": "RULES.NEW",
+      "q": "",
+      "resolves": "home",
+      "out": ""
+    },
+    {
+      "dest": "..%2Fadmin",
+      "q": "",
+      "resolves": "home",
+      "out": ""
+    }
+  ],
+  "help": {
+    "screens": {
+      "calendar": "watch/the-calendar",
+      "rules": "rules/build-your-first-rule",
+      "rules.builder": "rules/the-rule-builder",
+      "simulator": "rules/the-rate-simulator",
+      "changelog": "watch/the-change-log",
+      "pms": "watch/the-pms-tab",
+      "team": "team/inviting-and-removing-people",
+      "billing": "billing/the-billing-page",
+      "review": "review/checking-what-maya-found",
+      "questions": "review/the-five-questions",
+      "onboarding": "start/how-to-get-started",
+      "other": ""
+    },
+    "panels": {
+      "rule-fires": "rules/off-delete-or-change#the-list",
+      "stopped-nights": "rules/rules-that-keep-adjusting#stopped-on-n-nights-and-letting-it-run-again",
+      "booking-speed": "rules/booking-speed#measured-over",
+      "booking-speed-wait": "rules/booking-speed#then-waits",
+      "split": "rules/measure-one-set-change-another#the-checkbox-and-the-two-lists",
+      "rule-behavior": "rules/how-rules-run#two-kinds-of-rule",
+      "ask-for-help": "review/getting-suggestions-later#what-the-read-does",
+      "alert-choice": "rules/rules-that-keep-adjusting#the-two-answers",
+      "alert-limit": "review/floors-and-ceilings#what-they-do",
+      "manual-price": "watch/setting-a-price-yourself#every-confirmation-line-and-what-it-means",
+      "counts-as-room": "watch/room-types-and-rooms-out-of-service#counts-as-a-room",
+      "out-of-service": "watch/room-types-and-rooms-out-of-service#rooms-out-of-service",
+      "roles": "team/roles#the-four-roles-as-the-app-describes-them",
+      "not-now": "pay/paying-for-a-group#not-now",
+      "simulator": "rules/the-rate-simulator",
+      "how-did-we-know": "watch/how-did-we-know",
+      "corrections": "watch/not-a-fair-comparison#your-corrections",
+      "reconnect": "connect/reconnect-and-disconnect",
+      "go-live": "live/going-live",
+      "room-count": "billing/your-room-count"
+    }
+  }
+}
