@@ -9,7 +9,9 @@
 // Everything here is pure: no network, no DOM, no clock. The rules are the
 // ones in registry.json and README.md beside it:
 //
-//   - a destination id that is not in the registry opens "home";
+//   - a destination id that is not in the registry opens the nearest place it
+//     names: its family's main place ("rules" or "rules.edit" opens the Rules
+//     tab), else "home";
 //   - a query over limits.rawQueryChars is ignored whole (the place still opens);
 //   - only the first limits.keys keys are read, and the first of a repeated key wins;
 //   - unknown keys, keys the destination does not take and bad values are
@@ -74,6 +76,14 @@ export function createLinks(registry) {
   const has = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
   const isDestination = (id) => typeof id === "string" && has(registry.destinations, id);
   const destination = (id) => registry.destinations[isDestination(id) ? id : "home"];
+  const FAMILY_ID = /^([a-z][a-z0-9-]*)(?:\.[a-z][a-z0-9-]*)?$/;
+
+  /** A destination id the registry does not have: its family's main place, else home. */
+  function nearest(id) {
+    const m = typeof id === "string" ? FAMILY_ID.exec(id) : null;
+    const fam = m && has(registry.families ?? {}, m[1]) ? registry.families[m[1]] : null;
+    return isDestination(fam) ? fam : "home";
+  }
 
   /** One value against one parameter. The canonical string, or null to drop it. */
   function checkValue(key, raw, narrowed) {
@@ -156,7 +166,7 @@ export function createLinks(registry) {
   function parseLink(destRaw, query, options = {}) {
     const source = options.source ?? "go";
     const problems = [];
-    let destId = isDestination(destRaw) ? destRaw : "home";
+    let destId = isDestination(destRaw) ? destRaw : nearest(destRaw);
     let fellBack = destId !== destRaw;
     if (fellBack && source === "docs") problems.push(`destination "${destRaw}"`);
     const dest = registry.destinations[destId];

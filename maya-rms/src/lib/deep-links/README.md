@@ -14,6 +14,10 @@
 - A link only opens and fills in. Nothing a link carries may save, send, go live, pay, invite or delete. No parameter carries a price, an email, a free-text reason or anything else personal; the only free text is a rule name (60 plain characters).
 - Bump `version` on every change.
 
+## Unknown destinations
+
+A destination id the registry does not have opens the nearest place it names: `families` maps the part before the dot to that family's main place (`/go/rules` and `/go/rules.edit` open the Rules tab, `/go/billing.cancel` the Billing page), keeping only the parameters that place takes. Anything else (`/go/rule`, `/go/admin.users`, upper case, extra dots or slashes) opens `home`. `/go` still checks the role for wherever it lands.
+
 ## Parameter uses
 
 - `place`: stays in the address and drives the screen (`tab`, `panel`, `month`, `date`, `filter`, `view`). Back and forward work, and the address can be shared.

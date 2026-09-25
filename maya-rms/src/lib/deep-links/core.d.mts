@@ -46,6 +46,8 @@ export type Registry = {
   paths: string[];
   params: Record<string, ParamSpec>;
   destinations: Record<string, DestinationSpec>;
+  /** An unknown "family.anything" id opens this destination for its family. */
+  families: Record<string, string>;
   unknownDestinationExamples: { dest: string; q: string; resolves: string; out: string }[];
   help: { screens: Record<string, string>; panels: Record<string, string> };
 };

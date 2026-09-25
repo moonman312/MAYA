@@ -57,6 +57,25 @@ describe("the registry", () => {
       if (d.role) expect(registry.roles).toContain(d.role);
       if (d.docsLinkable) for (const r of d.required ?? []) expect(registry.params[r].docs, `${id} needs ${r}`).not.toBe(false);
     }
+    // An unknown id opens its family's main place: one that exists, is in
+    // that family and needs nothing the link might not carry.
+    for (const [family, to] of Object.entries(registry.families)) {
+      expect(ids, family).toContain(to);
+      expect(to.split(".")[0]).toBe(family);
+      expect(registry.destinations[to].required ?? [], family).toEqual([]);
+    }
+    for (const id of ids) expect(registry.families[id.split(".")[0]], `family of ${id}`).toBeDefined();
+  });
+
+  it("opens the nearest place for an id it does not know, and home for anything odd", () => {
+    expect(links.parseLink("rules.edit", "").dest).toBe("rules.list");
+    expect(links.parseLink("rules", "filter=enabled").query).toBe("filter=enabled");
+    expect(links.parseLink("team.remove", "role=viewer").dest).toBe("team");
+    expect(links.parseLink("team.remove", "role=viewer").query).toBe("");
+    for (const odd of ["rule", "rules.", "Rules.edit", "rules.edit.x", "rules/edit", "../rules.list", "admin.users", "", "constructor.x", "__proto__.x"]) {
+      expect(links.parseLink(odd, "").dest, odd).toBe("home");
+    }
+    expect(links.parseLink("rules.edit", "", { source: "docs" }).problems).toContain('destination "rules.edit"');
   });
 
   it("points every Help link, Learn more and destination at a docs page and heading that exist", () => {

@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "about": "Every place a link may open in MAYA, and every parameter it may carry. Read by /go/<destination>, by the dashboard and account pages when a link lands, and by the docs build, which refuses any docs link this file does not allow. Keys are forever: never rename a destination or a parameter or give one a new meaning; retire it with \"retired\": true instead. See src/lib/deep-links/README.md.",
   "limits": {
     "rawQueryChars": 1024,
@@ -963,10 +963,57 @@
       "docsLinkable": true
     }
   },
+  "families": {
+    "calendar": "calendar",
+    "rules": "rules.list",
+    "suggestions": "suggestions",
+    "adjusting": "adjusting",
+    "simulator": "simulator",
+    "floors": "floors",
+    "changelog": "changelog",
+    "pms": "pms",
+    "room-types": "room-types",
+    "connect": "connect",
+    "team": "team",
+    "billing": "billing",
+    "review": "review",
+    "questions": "questions",
+    "home": "home"
+  },
   "unknownDestinationExamples": [
     {
       "dest": "rules.edit",
       "q": "name=x",
+      "resolves": "rules.list",
+      "out": ""
+    },
+    {
+      "dest": "rules.edit",
+      "q": "filter=disabled&rule=0b0c8a6e-3c1d-4d8e-9f2a-6a1b2c3d4e5f",
+      "resolves": "rules.list",
+      "out": "filter=disabled&rule=0b0c8a6e-3c1d-4d8e-9f2a-6a1b2c3d4e5f"
+    },
+    {
+      "dest": "billing.cancel",
+      "q": "",
+      "resolves": "billing",
+      "out": ""
+    },
+    {
+      "dest": "calendar.week",
+      "q": "month=2026-11",
+      "resolves": "calendar",
+      "out": "month=2026-11"
+    },
+    {
+      "dest": "rule",
+      "q": "",
+      "resolves": "home",
+      "out": ""
+    },
+    {
+      "dest": "admin.users",
+      "q": "",
       "resolves": "home",
       "out": ""
     },
