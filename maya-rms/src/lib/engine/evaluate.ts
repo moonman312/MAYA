@@ -38,7 +38,9 @@ import { computeRuleMetrics } from "./metrics";
 import {
   baselineTsFrom,
   bookingSpeedCountFrom,
+  basePriceKey,
   countFromFireAt,
+  pickupJudgesShortStretch,
   pickupWindowOpensAt,
   candidateFor,
   fireHeadKey,
@@ -46,6 +48,7 @@ import {
   firesToReset,
   isWaiting,
   loadOpenPickupFires,
+  loadPausedEventRules,
   loadPickupFireHeads,
   pickupEffectsFromFires,
   retireFires,
@@ -794,11 +797,19 @@ export async function evaluateHotel(
   });
   const resetIds = resetReasons.size > 0 ? await retireFires(supabase, hotelId, resetReasons, now) : new Set<string>();
 
+  // Paused event rules never run, but pausing leaves their fires on the
+  // price, so each one still covers the weaker rules that adjust the same
+  // way (countFromFireAt). Only needed when some active event rule counts.
+  const pausedEventRules = pickupRules.length > 0 ? await loadPausedEventRules(supabase, hotelId) : [];
+  // Every event rule that can move where another counts from.
+  const rankedEventRules = [...pickupRules, ...pausedEventRules];
+
   // Each event rule's fire history on each cell, after the retirements
-  // above, and the owner's answers to repeat alerts on these nights.
+  // above, paused rules' included, and the owner's answers to repeat
+  // alerts on these nights.
   const fireHeads =
     pickupRules.length > 0
-      ? await loadPickupFireHeads(supabase, hotelId, pickupRules, firstDate, lastDate)
+      ? await loadPickupFireHeads(supabase, hotelId, rankedEventRules, firstDate, lastDate)
       : new Map<string, FireHead>();
   const alertNights =
     pickupRules.length > 0
@@ -807,10 +818,16 @@ export async function evaluateHotel(
 
   // Per (rule, night) in scope: which of its room types it may fire on now,
   // and which it is still waiting on. A night the owner stopped the rule on
-  // is left out entirely. Room types it may fire on are measured together
-  // when they count bookings from the same fire (bookingSpeedCountFrom: each
-  // cell counts only bookings that reached MAYA after the rule's own last
-  // fire there), so a (rule, night) can come out as more than one entry.
+  // is left out entirely. Each cell counts only the bookings that reached
+  // MAYA after the fire it counts from (countFromFireAt: the rule's own
+  // newest there, or a newer one by a stronger rule that adjusts the same
+  // way, paused or not), for a Booking Speed condition from that fire's day
+  // (bookingSpeedCountFrom) and for a pickup condition from the fire itself
+  // (pickupWindowOpensAt). Room types it may fire on are measured together
+  // when they count from the same place, so a (rule, night) can come out as
+  // more than one entry. A pickup condition that can't be judged on a
+  // stretch shorter than its window (pickupJudgesShortStretch) leaves out a
+  // cell whose window such a fire cut short: nothing to judge there yet.
   // The ones it waits on are measured over the full window, for holding the
   // cell (runPickupPass).
   type RuleNight = {
@@ -827,6 +844,9 @@ export async function evaluateHotel(
   for (const rule of pickupRules) {
     const waitDays = ruleWaitDays(rule);
     const baselineTs = baselineTsFrom(rule, now);
+    const shortStretch = pickupJudgesShortStretch(rule);
+    // The rules whose fires may move where this one counts from.
+    const sameWay = rankedEventRules.filter((o) => o.id !== rule.id && o.action_direction === rule.action_direction);
     for (const stayDate of stayDates) {
       if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone)) continue;
       if (isStoppedOnNight(alertNights, rule, stayDate)) continue;
@@ -842,16 +862,10 @@ export async function evaluateHotel(
           waiting.push(rtId);
           continue;
         }
-        const fireAt = countFromFireAt(
-          rule,
-          pickupRules,
-          fireHeads,
-          stayDate,
-          rtId,
-          basePrices.get(`${stayDate}|${rtId}`) ?? 100,
-        );
+        const fireAt = countFromFireAt(rule, sameWay, fireHeads, stayDate, rtId, basePrices.get(basePriceKey(stayDate, rtId)) ?? 100);
         const countFrom = bookingSpeedCountFrom(rule, fireAt, manual, hotelTimeZone);
         const cellBaselineTs = pickupWindowOpensAt(baselineTs, fireAt, manual);
+        if (cellBaselineTs !== baselineTs && !shortStretch) continue;
         const key = `${countFrom ? `${countFrom.from}|${countFrom.since ?? ""}` : ""}|${cellBaselineTs ?? ""}`;
         const entry = openByFrom.get(key) ?? { countFrom, baselineTs: cellBaselineTs, open: [] };
         entry.open.push(rtId);

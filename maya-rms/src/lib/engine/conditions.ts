@@ -57,7 +57,7 @@ function compare(actual: number, op: string, threshold: number): boolean {
  * Count the number of non-null condition families on a rule.
  * Used for specificity tie-breaking in pickup competition.
  */
-export function conditionCount(rule: EngineRule): number {
+export function conditionCount(rule: Pick<EngineRule, "condition">): number {
   let count = 0;
   if (rule.condition.occupancy_operator) count++;
   if (rule.condition.dta_operator) count++;

@@ -17,33 +17,43 @@
  * on the cell, for a rule that existed when the price was set. Fires taken
  * off by a manual price or an edit never start a wait.
  *
- * WHAT A RULE MEASURES. A rule never re-counts bookings it already acted
- * on, and bookings another rule acted on still count toward it (Jake,
- * 2026-09-24: "the clock doesn't reset, the count just continues"). A
- * pickup condition counts net bookings over exactly its window (now minus
- * pickup_window_days). The wait is at least that long, so a window never
- * reaches back past the rule's last fire on the cell, or past a manual
- * price set before the rule's wait began. A Booking Speed condition reads
- * the observation over its own window and needs no old snapshot, but its
- * wait can be shorter than its window, so once it has fired on a cell it
- * counts only the bookings made since its own last fire there
- * (bookingSpeedCountFrom): a raise rule from the hotel day of that fire on,
- * and on that day only the bookings first seen after the fire
+ * WHAT A RULE MEASURES. A rule counts only the bookings made after the
+ * newest change on the night and room type by itself or by a rule that
+ * adjusts the same way and ranks ahead of it (countFromFireAt; Jake,
+ * 2026-09-24, option A). A weaker rule's change never moves where a
+ * stronger rule counts from ("the clock doesn't reset, the count just
+ * continues"). With a rule for 5 bookings in a week (+10%) and one for 10
+ * (+20%): 5 and then 5 more raise twice, the second time on all 10; 10 at
+ * once raise once, and the rule for 5 then counts only what comes after
+ * that raise. The same holds for cuts: a stronger cut covers the weaker
+ * cut rules. Raises and cuts never move each other. "Ranks ahead" is the
+ * order selectPickupWinner picks in (comparePickupRules). A paused rule's
+ * fires stay on the price, so they still cover the rules below it. The
+ * fire counted from is the newest one that counts toward the owner alert
+ * (open, or taken off for cancellations), from its rule's current version.
+ *
+ * A pickup condition counts net bookings over its window (now minus
+ * pickup_window_days), or from that fire when it is later
+ * (pickupWindowOpensAt). Its own wait is at least as long as its window, so
+ * only another rule's fire can open it later. A stretch shorter than the
+ * window is judged only when counting fewer bookings can't be what makes the
+ * condition true, "more than" 0 or more (pickupJudgesShortStretch);
+ * otherwise the rule has nothing to judge until a whole window has passed
+ * since that fire. A Booking Speed condition reads the observation over its
+ * own window and needs no old snapshot. From that fire
+ * (bookingSpeedCountFrom) a raise rule counts from the hotel day of the fire
+ * on, and on that day only the bookings first seen after the fire
  * (reservations.created_at against its applied_at, the split in
  * observeBookingSpeed), so a burst later on the day of a raise is not lost
  * with it. A cut rule reads complete hotel days only, its stretch ending
  * yesterday on the night and on the nights it is compared with alike
- * (countsCompleteDays), first decision or repeat: after its cut it counts
- * the complete days after the cut's day, and until one has passed it has
- * nothing to judge (since_last_fire). The fire it counts from is its own
- * newest one on the cell that counts toward the owner alert (open, or taken
- * off for cancellations), from its current version. Another rule's fire
- * never moves where it starts: a rule for 5 bookings a day that raised on
- * the first 5 leaves a rule for 10 counting all 10, not 10 more. A rule
- * that has not fired on the cell judges its whole window, and so does one
- * after a manual price: the fires the price took off never cut it, and
- * neither does one made before it. A ladder rule's adjustment is not a fire
- * and moves nothing: it holds while its condition holds.
+ * (countsCompleteDays), first decision or repeat: after a cut it counts the
+ * complete days after the cut's day, and until one has passed it has
+ * nothing to judge (since_last_fire). A rule with no such fire on the cell
+ * judges its whole window, and so does one after a manual price: the fires
+ * the price took off never count, and neither does one made before it. A
+ * ladder rule's adjustment is not a fire and moves nothing: it holds while
+ * its condition holds.
  *
  * WHICH RULE FIRES. At most one fire per cell per run. The competition
  * (selectPickupWinner) includes rules waiting on the cell whose conditions
@@ -63,7 +73,8 @@
  * on its own numbers, and never in the run that made it. Every fire also comes
  * off when its night passes, when a manual price is set on the cell, and
  * when the rule is edited. Pausing a rule changes nothing: its fires keep
- * applying and are not tested while it is paused.
+ * applying, still cover the weaker rules, and are not tested while it is
+ * paused.
  */
 
 import type { EngineRule, PickupCancelCheck } from "@/types/domain";
@@ -113,6 +124,17 @@ export function baselineTsFrom(rule: EngineRule, evalTs: string): string | null 
   return new Date(Date.parse(evalTs) - windowDays * DAY_MS).toISOString();
 }
 
+/**
+ * What ranks an event rule against another on a cell (comparePickupRules)
+ * and reads its fire history. Enough of a paused rule to rank it
+ * (loadPausedEventRules): it never fires or holds a night, but its fires
+ * stay on the price and still cover the rules below it (countFromFireAt).
+ */
+export type RankedRule = Pick<
+  EngineRule,
+  "id" | "version" | "priority" | "condition" | "action_type" | "action_direction" | "action_value" | "created_at"
+>;
+
 /** A cell's fire history for one rule, from pickup_fire_heads. */
 export type FireHead = {
   /** Highest fire_seq of any version: the next fire is one above it. */
@@ -135,7 +157,8 @@ const HEADS_PAGE = 1000;
  * FireHead per `rule_id|stay_date|room_type_id` for the given event rules
  * over a range of nights, from pickup_fire_heads
  * (99_supabase_migration_pickup_event_stacking_v1.sql), paged. The anchor and
- * counts are the ones of each rule's current version.
+ * counts are the ones of each rule's current version. Paused rules may be
+ * among them: only countFromFireAt reads theirs.
  *
  * Throws on any failure, a missing function included: with no fire history
  * every rule would look unfired and stack on every run.
@@ -143,7 +166,7 @@ const HEADS_PAGE = 1000;
 export async function loadPickupFireHeads(
   supabase: SupabaseClient,
   hotelId: string,
-  rules: EngineRule[],
+  rules: Pick<EngineRule, "id" | "version">[],
   firstDate: string,
   lastDate: string,
 ): Promise<Map<string, FireHead>> {
@@ -203,7 +226,50 @@ export function waitAnchor(
   return anchor;
 }
 
-/** Where a Booking Speed rule starts counting on a cell, after its own last fire there. */
+/**
+ * Event rules the owner paused, with what ranking them reads. Pausing
+ * leaves a rule's fires on the price (and a paused rule is never loaded to
+ * run), so without these a weaker rule would count again the bookings a
+ * paused stronger rule raised or cut on. Throws on a failed read, as the
+ * active rules' load does: counting them again would move prices the owner
+ * never asked for.
+ */
+export async function loadPausedEventRules(supabase: SupabaseClient, hotelId: string): Promise<RankedRule[]> {
+  const { data, error } = await supabase
+    .from("pricing_rules")
+    .select(
+      `
+      id, version, priority, action_type, action_direction, action_value, created_at,
+      rule_condition ( occupancy_operator, dta_operator, pickup_operator, pickup_threshold, booking_speed_operator )
+    `,
+    )
+    .eq("hotel_id", hotelId)
+    .eq("is_active", false)
+    .eq("is_pickup_rule", true);
+  if (error) throw new Error(`Failed to load paused rules: ${error.message}`);
+  return ((data ?? []) as Record<string, unknown>[]).map((r) => {
+    const raw = Array.isArray(r.rule_condition) ? r.rule_condition[0] : r.rule_condition;
+    const rc = (raw ?? {}) as Record<string, unknown>;
+    return {
+      id: String(r.id),
+      version: Number(r.version ?? 1),
+      priority: Number(r.priority),
+      action_type: r.action_type as RankedRule["action_type"],
+      action_direction: r.action_direction as RankedRule["action_direction"],
+      action_value: Number(r.action_value),
+      created_at: String(r.created_at),
+      condition: {
+        occupancy_operator: (rc.occupancy_operator ?? null) as RankedRule["condition"]["occupancy_operator"],
+        dta_operator: (rc.dta_operator ?? null) as RankedRule["condition"]["dta_operator"],
+        pickup_operator: (rc.pickup_operator ?? null) as RankedRule["condition"]["pickup_operator"],
+        pickup_threshold: rc.pickup_threshold != null ? Number(rc.pickup_threshold) : null,
+        booking_speed_operator: (rc.booking_speed_operator ?? null) as RankedRule["condition"]["booking_speed_operator"],
+      },
+    };
+  });
+}
+
+/** Where a Booking Speed rule starts counting on a cell, after the fire it counts from there. */
 export type BookingSpeedCountFrom = {
   /**
    * The first booking date (hotel date) counted: the day of the fire for a
@@ -216,17 +282,17 @@ export type BookingSpeedCountFrom = {
 
 /**
  * Where a Booking Speed rule starts counting on a cell, or null to count
- * its whole window. `lastFireAt` is the rule's own newest counted fire on
- * the cell (FireHead.lastCountedAt: its current version's fires that are
- * open or came off for cancellations). A raise rule counts from that
+ * its whole window. `lastFireAt` is the fire it counts from there
+ * (countFromFireAt: its own newest counted fire, or a newer one by a
+ * stronger rule that adjusts the same way). A raise rule counts from that
  * fire's hotel day, and on that day only the bookings first seen after the
  * fire (observeBookingSpeed `split`, keyed by `since`), so what the fire
  * could have counted is left out and what came after it is not. A fire
  * made on such a count records the split (window_since) and its frozen
  * window is read back the same way; its window still ends on its own day,
  * read whole (bookingsInFrozenWindow). A cut rule reads complete days only
- * (countsCompleteDays), so it counts from the day after its cut's, and the
- * cut's own day is never split. Other rules' fires never move it.
+ * (countsCompleteDays), so it counts from the day after the cut's, and the
+ * cut's own day is never split.
  *
  * Fires taken off by a manual price or an edit are not counted fires, and a
  * counted fire made before the open manual price on the cell is ignored too:
@@ -249,18 +315,21 @@ export function bookingSpeedCountFrom(
 }
 
 /**
- * The fire a rule counts from on a cell: the newest counted fire there
- * (FireHead.lastCountedAt) of the rule itself or of any event rule in
- * `others` that adjusts the same way and ranks ahead of it on the cell
- * (comparePickupRules). So a stronger rule's adjustment starts a weaker
- * rule's count over, and a weaker rule's never moves a stronger rule's: a
- * rule for 10 bookings in a day still counts the 5 a rule for 5 raised on.
- * null when none of them has a counted fire there.
+ * The fire a rule counts from on a cell, as an ISO instant: the newest
+ * counted fire there (FireHead.lastCountedAt: open, or taken off for
+ * cancellations, from its rule's current version) of the rule itself or of
+ * a rule in `others` that adjusts the same way and ranks ahead of it on the
+ * cell (comparePickupRules, on the cell's base price). `others` may hold
+ * any event rules, paused ones included; the rest are skipped. So a
+ * stronger rule's change starts a weaker rule's count over, and a weaker
+ * rule's never moves a stronger rule's: a rule for 10 bookings in a week
+ * still counts the 5 a rule for 5 raised on. null when none of them has a
+ * counted fire there.
  */
 export function countFromFireAt(
-  rule: EngineRule,
-  others: EngineRule[],
-  heads: Map<string, FireHead>,
+  rule: RankedRule,
+  others: readonly RankedRule[],
+  heads: ReadonlyMap<string, FireHead>,
   stayDate: string,
   roomTypeId: string,
   basePrice: number,
@@ -272,16 +341,31 @@ export function countFromFireAt(
     if (!otherAt || (at !== null && Date.parse(otherAt) <= Date.parse(at))) continue;
     if (comparePickupRules(other, rule, basePrice, basePrice) < 0) at = otherAt;
   }
-  return at;
+  return at === null ? null : new Date(Date.parse(at)).toISOString();
+}
+
+/**
+ * Whether a pickup condition may be judged on a stretch shorter than its
+ * window, from the fire it counts from (pickupWindowOpensAt): only "more
+ * than" a number of 0 or more, which fewer bookings can only make harder
+ * to reach. "Less than" (or "more than" a negative number) would read a
+ * short stretch as slow, so such a rule has nothing to judge until a whole
+ * window has passed since that fire.
+ */
+export function pickupJudgesShortStretch(rule: RankedRule): boolean {
+  const c = rule.condition;
+  return c.pickup_operator === "gt" && (c.pickup_threshold ?? 0) >= 0;
 }
 
 /**
  * Where a pickup condition's window opens on a cell: now minus its window
  * (`baselineTs`, baselineTsFrom), or the fire it counts from
  * (countFromFireAt) when that is later, so a pickup rule doesn't count
- * again the bookings a stronger rule already adjusted the night for. A fire
- * made before the open manual price on the cell is ignored, as for a
- * Booking Speed rule. null for a rule with no pickup condition.
+ * again the bookings a stronger rule already adjusted the night for. That
+ * run wrote a snapshot at the fire's own instant, so the net bookings read
+ * from there are the ones after it. A fire made before the open manual
+ * price on the cell is ignored, as for a Booking Speed rule. null for a
+ * rule with no pickup condition.
  */
 export function pickupWindowOpensAt(
   baselineTs: string | null,
@@ -379,7 +463,7 @@ export function basePriceKey(stayDate: string, roomTypeId: string): string {
   return `${stayDate}|${roomTypeId}`;
 }
 
-function normalizedAdjustment(rule: EngineRule, basePrice: number): number {
+function normalizedAdjustment(rule: Pick<EngineRule, "action_type" | "action_value">, basePrice: number): number {
   if (rule.action_type === "percent") {
     return Math.abs((rule.action_value / 100) * basePrice);
   }
@@ -389,9 +473,10 @@ function normalizedAdjustment(rule: EngineRule, basePrice: number): number {
 /**
  * Which of two event rules ranks first on a cell, the way selectPickupWinner
  * picks: negative when `a` does. `baseA` and `baseB` are the cells' base
- * prices, for comparing a percent against a fixed amount.
+ * prices, for comparing a percent against a fixed amount. The ranking
+ * countFromFireAt calls stronger.
  */
-export function comparePickupRules(a: EngineRule, b: EngineRule, baseA: number, baseB: number): number {
+export function comparePickupRules(a: RankedRule, b: RankedRule, baseA: number, baseB: number): number {
   const priDiff = b.priority - a.priority;
   if (priDiff !== 0) return priDiff;
 
