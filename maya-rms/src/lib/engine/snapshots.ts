@@ -28,6 +28,7 @@ export const MIGRATIONS = {
   countsBookings: "99_supabase_migration_booking_speed_counts_bookings_v1.sql",
   pickupStacking: "99_supabase_migration_pickup_event_stacking_v1.sql",
   pickupWait: "99_supabase_migration_pickup_wait_v1.sql",
+  undoOnCancellation: "99_supabase_migration_undo_on_cancellation_v1.sql",
 } as const;
 
 type PostgrestLike = { code?: string | null; message?: string | null } | null | undefined;
@@ -271,6 +272,179 @@ export async function loadReservationCells(
     if (rows.length < 1000) break;
   }
   return { booked, latestBase };
+}
+
+/** Room nights on one night and room type, and the sum of their current_rate (null as 0). */
+export type BookedCount = { units: number; revenue: number };
+
+/** A night and an instant: the rows on the night first seen at or before it (loadBookedBefore). */
+export type BookedBeforePair = { stayDate: string; at: string };
+
+/** The loadBookedBefore key for a night and an instant, the instant to the millisecond whatever its spelling. */
+export function bookedBeforeKey(stayDate: string, at: string): string {
+  const ms = Date.parse(at);
+  return `${stayDate}|${Number.isNaN(ms) ? at : new Date(ms).toISOString()}`;
+}
+
+let loggedBookedBeforeMissing = false;
+
+/** Test hook: forget that the pre-migration line was already logged. */
+export function resetBookedBeforeLogOnce(): void {
+  loggedBookedBeforeMissing = false;
+}
+
+const BOOKED_BEFORE_CHUNK = 400;
+
+/**
+ * For each (night, instant) pair, the room nights on that night still
+ * booked now whose row was first seen at or before the instant
+ * (reservations.created_at: a cancelled room's row is deleted, a changed one
+ * keeps its created_at), per room type, with their revenue. Keyed by
+ * bookedBeforeKey, then room type id; a pair with no such row has an empty
+ * map. The cancellation check reads this: at a fire's own instant it is what
+ * was booked then minus what has cancelled since, and at the instant a
+ * pickup count opened it is what came in before that.
+ *
+ * engine_booked_before (99_supabase_migration_undo_on_cancellation_v1.sql)
+ * answers every pair in one call per chunk, one index probe on
+ * (hotel_id, stay_date) each. Before that migration the rows of the nights
+ * asked for are read and summed here instead, which gives the same answer.
+ * Throws on any other failure: a check that quietly read nothing would take
+ * changes off nights whose bookings are all still there.
+ */
+export async function loadBookedBefore(
+  supabase: SupabaseClient,
+  hotelId: string,
+  pairs: readonly BookedBeforePair[],
+): Promise<Map<string, Map<string, BookedCount>>> {
+  const out = new Map<string, Map<string, BookedCount>>();
+  const unique = new Map<string, BookedBeforePair>();
+  for (const p of pairs) {
+    const key = bookedBeforeKey(p.stayDate, p.at);
+    if (!unique.has(key)) unique.set(key, { stayDate: p.stayDate, at: key.slice(p.stayDate.length + 1) });
+  }
+  const asked = [...unique.values()].sort(
+    (a, b) => a.stayDate.localeCompare(b.stayDate) || a.at.localeCompare(b.at),
+  );
+  for (const p of asked) out.set(bookedBeforeKey(p.stayDate, p.at), new Map());
+  if (asked.length === 0) return out;
+
+  const add = (key: string, roomTypeId: string, units: number, revenue: number) => {
+    const cell = out.get(key);
+    if (!cell) return;
+    const prev = cell.get(roomTypeId) ?? { units: 0, revenue: 0 };
+    cell.set(roomTypeId, {
+      units: prev.units + units,
+      revenue: Math.round((prev.revenue + revenue) * 100) / 100,
+    });
+  };
+
+  for (let i = 0; i < asked.length; i += BOOKED_BEFORE_CHUNK) {
+    const chunk = asked.slice(i, i + BOOKED_BEFORE_CHUNK);
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supabase
+        .rpc("engine_booked_before", {
+          p_hotel_id: hotelId,
+          p_stay_dates: chunk.map((p) => p.stayDate),
+          p_at: chunk.map((p) => p.at),
+        })
+        .order("stay_date", { ascending: true })
+        .order("as_of", { ascending: true })
+        .order("room_type_id", { ascending: true })
+        .range(from, from + 999);
+      if (error) {
+        if (!isMissingFunctionError(error)) {
+          throw new Error(`Failed to recount bookings for cancellations: ${error.message}`);
+        }
+        if (!loggedBookedBeforeMissing) {
+          loggedBookedBeforeMissing = true;
+          console.error(
+            JSON.stringify({
+              fn: "evaluateHotel",
+              step: "engine_booked_before",
+              hotelId,
+              schema: "pre-migration",
+              message: `engine_booked_before does not exist yet; reading the rows of each night checked for cancellations. Run ${MIGRATIONS.undoOnCancellation}.`,
+              migration: MIGRATIONS.undoOnCancellation,
+              error: error.message,
+            }),
+          );
+        }
+        return loadBookedBeforeByRows(supabase, hotelId, asked, out, add);
+      }
+      const rows = (data ?? []) as Record<string, unknown>[];
+      for (const r of rows) {
+        if (r.room_type_id == null) continue;
+        add(
+          bookedBeforeKey(String(r.stay_date).slice(0, 10), String(r.as_of)),
+          String(r.room_type_id),
+          Number(r.units ?? 0),
+          Number(r.revenue ?? 0),
+        );
+      }
+      if (rows.length < 1000) break;
+    }
+  }
+  return out;
+}
+
+/** loadBookedBefore before its function exists: the nights' rows, summed per pair. */
+async function loadBookedBeforeByRows(
+  supabase: SupabaseClient,
+  hotelId: string,
+  asked: BookedBeforePair[],
+  out: Map<string, Map<string, BookedCount>>,
+  add: (key: string, roomTypeId: string, units: number, revenue: number) => void,
+): Promise<Map<string, Map<string, BookedCount>>> {
+  for (const cell of out.values()) cell.clear();
+  const byDate = new Map<string, string[]>();
+  for (const p of asked) byDate.set(p.stayDate, [...(byDate.get(p.stayDate) ?? []), p.at]);
+  const dates = [...byDate.keys()].sort();
+  for (let i = 0; i < dates.length; i += BOOKED_BEFORE_CHUNK) {
+    let rows: Record<string, unknown>[];
+    try {
+      rows = await fetchAllRows(() =>
+        supabase
+          .from("reservations")
+          .select("id, stay_date, room_type_id, current_rate, created_at")
+          .eq("hotel_id", hotelId)
+          .in("stay_date", dates.slice(i, i + BOOKED_BEFORE_CHUNK))
+          .order("id", { ascending: true }),
+      );
+    } catch (e) {
+      throw new Error(`Failed to recount bookings for cancellations: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    for (const r of rows) {
+      if (r.room_type_id == null) continue;
+      const stayDate = String(r.stay_date).slice(0, 10);
+      const createdMs = Date.parse(String(r.created_at));
+      for (const at of byDate.get(stayDate) ?? []) {
+        if (!(createdMs <= Date.parse(at))) continue;
+        add(bookedBeforeKey(stayDate, at), String(r.room_type_id), 1, Number(r.current_rate ?? 0));
+      }
+    }
+  }
+  return out;
+}
+
+/** The sum over `roomTypeIds` of one pair's counts, or null when the pair was not read. */
+export function bookedBeforeOver(
+  counts: ReadonlyMap<string, ReadonlyMap<string, BookedCount>>,
+  stayDate: string,
+  at: string,
+  roomTypeIds: readonly string[],
+): BookedCount | null {
+  const cell = counts.get(bookedBeforeKey(stayDate, at));
+  if (!cell) return null;
+  let units = 0;
+  let revenue = 0;
+  for (const id of new Set(roomTypeIds)) {
+    const c = cell.get(id);
+    if (!c) continue;
+    units += c.units;
+    revenue += c.revenue;
+  }
+  return { units, revenue: Math.round(revenue * 100) / 100 };
 }
 
 export async function snapshotCurrentState(
