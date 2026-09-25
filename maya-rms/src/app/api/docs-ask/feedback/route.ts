@@ -1,9 +1,7 @@
-import { cookies } from "next/headers";
 import { createRateLimiter, handleFeedback } from "@/lib/docs/ask-feedback";
+import { readerSignedIn } from "@/lib/docs/reader-signed-in";
 import { rateLimit } from "@/lib/rate-limit";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
-import { createClient } from "@/utils/supabase/server";
-import { isSupabaseConfigured } from "@/utils/supabase/shared";
 
 // Records a question the docs could not answer, a "this didn't help" note or
 // a page vote, and only when the reader presses a button that sends it.
@@ -23,16 +21,6 @@ export const runtime = "nodejs";
 
 const limiter = createRateLimiter();
 
-async function signedIn(): Promise<boolean> {
-  if (!isSupabaseConfigured()) return false;
-  try {
-    const { data } = await createClient(await cookies()).auth.getUser();
-    return Boolean(data.user);
-  } catch {
-    return false;
-  }
-}
-
 export async function POST(request: Request) {
   return handleFeedback(request, {
     limiter,
@@ -41,7 +29,7 @@ export async function POST(request: Request) {
       ? async (row) => {
           const { error } = await createAdminClient()
             .from("docs_questions")
-            .insert({ ...row, signed_in: await signedIn() });
+            .insert({ ...row, signed_in: await readerSignedIn() });
           if (error) throw new Error(error.message);
         }
       : null,
