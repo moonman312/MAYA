@@ -36,6 +36,7 @@ const client = vi.hoisted(() => {
     servePage,
     thinkGetHotels: vi.fn(),
     thinkGetRoomTypes: vi.fn(),
+    thinkGetRooms: vi.fn(),
     thinkGetReservationsPage: vi.fn(servePage),
   };
 });
@@ -49,6 +50,7 @@ vi.mock("../../../supabase/functions/_shared/think/client.ts", async (importOrig
     ...actual,
     thinkGetHotels: client.thinkGetHotels,
     thinkGetRoomTypes: client.thinkGetRoomTypes,
+    thinkGetRooms: client.thinkGetRooms,
     thinkGetReservationsPage: client.thinkGetReservationsPage,
   };
 });
@@ -74,6 +76,7 @@ function makeSupabaseStub(
   hotelReadError?: string,
   seedReservations: Row[] = [],
   syncState: Row = {},
+  opts: { refuseZeroRooms?: boolean } = {},
 ) {
   const connUpdates: Row[] = [];
   // The one connection row. Its status matters because the stamp is
@@ -182,6 +185,15 @@ function makeSupabaseStub(
           return { error: null };
         }
         if (name !== "room_types") return { error: null };
+        // The column's original CHECK (total_rooms > 0), before the zero migration.
+        if (opts.refuseZeroRooms && list.some((r) => r.total_rooms === 0)) {
+          return {
+            error: {
+              code: "23514",
+              message: 'new row for relation "room_types" violates check constraint "room_types_total_rooms_check"',
+            },
+          };
+        }
         roomTypeUpserts.push(...list);
         for (const row of list) {
           const existing = roomTypes.find(
@@ -221,6 +233,11 @@ beforeEach(() => {
   client.thinkGetHotels.mockResolvedValue([{ id: "h-1", externalId: "prop-1", name: "Harbor Inn" }]);
   client.thinkGetRoomTypes.mockReset();
   client.thinkGetRoomTypes.mockResolvedValue([{ id: "rt_king", name: "King" }]);
+  client.thinkGetRooms.mockReset();
+  client.thinkGetRooms.mockResolvedValue([
+    { id: "r1", roomTypeId: "rt_king", inactive: false },
+    { id: "r2", roomTypeId: "rt_king", inactive: false },
+  ]);
   client.thinkGetReservationsPage.mockReset();
   client.thinkGetReservationsPage.mockImplementation(client.servePage);
   oauth.resolveOAuthCredentials.mockReset();
@@ -256,8 +273,130 @@ describe("runThinkSyncForHotel room type upsert", () => {
     expect(result.ok).toBe(true);
     expect(supabase.roomTypes).toHaveLength(1);
     expect(supabase.roomTypes[0].is_active).toBe(true);
-    // Think's RoomType carries no inventory count, so the hotel default fills in.
-    expect(supabase.roomTypes[0].total_rooms).toBe(10);
+    // Counted from the rooms list, not the hotel default of 10.
+    expect(supabase.roomTypes[0].total_rooms).toBe(2);
+  });
+});
+
+describe("runThinkSyncForHotel room counts", () => {
+  /** A Room in the spec's shape, trimmed to the fields the count reads. */
+  const room = (id: string, roomTypeId: string, extra: Row = {}) => ({
+    id,
+    roomTypeId,
+    inactive: false,
+    isNotARoom: false,
+    doNotIncludeInOccupancy: false,
+    ...extra,
+  });
+  const countOf = (supabase: { roomTypes: Row[] }, ext: string) =>
+    supabase.roomTypes.find((r) => r.external_room_type_id === ext)?.total_rooms;
+
+  it("writes one room per type for an inn that sells each room as its own type", async () => {
+    const ids = Array.from({ length: 8 }, (_, i) => `rt${i + 1}`);
+    client.thinkGetRoomTypes.mockResolvedValue(ids.map((id, i) => ({ id, name: `Room ${i + 1}` })));
+    client.thinkGetRooms.mockResolvedValue(ids.map((t, i) => room(`r${i + 1}`, t)));
+    // Stored at the old default, which is what every Think hotel has today.
+    const supabase = makeSupabaseStub(ids.map((id) => ({ external_room_type_id: id, name: id, total_rooms: 10 })));
+
+    const result = await runThinkSyncForHotel(supabase, "hotel-1");
+
+    expect(result.ok).toBe(true);
+    expect(ids.map((id) => countOf(supabase, id))).toEqual([1, 1, 1, 1, 1, 1, 1, 1]);
+  });
+
+  it("counts several rooms per type, leaves out inactive rooms and gives an empty type 0", async () => {
+    client.thinkGetRoomTypes.mockResolvedValue([
+      { id: "rt_queen", name: "Queen" },
+      { id: "rt_suite", name: "Suite" },
+      { id: "rt_cottage", name: "Cottage" },
+    ]);
+    client.thinkGetRooms.mockResolvedValue([
+      room("101", "rt_queen"),
+      room("102", "rt_queen"),
+      room("103", "rt_queen"),
+      room("104", "rt_queen", { inactive: true }),
+      room("201", "rt_suite"),
+      room("301", "rt_cottage", { inactive: true }),
+    ]);
+    const supabase = makeSupabaseStub([
+      { external_room_type_id: "rt_queen", name: "Queen", total_rooms: 100 },
+      { external_room_type_id: "rt_cottage", name: "Cottage", total_rooms: 100 },
+    ]);
+
+    const result = await runThinkSyncForHotel(supabase, "hotel-1");
+
+    expect(result.ok).toBe(true);
+    expect(countOf(supabase, "rt_queen")).toBe(3);
+    expect(countOf(supabase, "rt_suite")).toBe(1);
+    expect(countOf(supabase, "rt_cottage")).toBe(0);
+  });
+
+  it("keeps stored counts when the rooms call fails, and still syncs", async () => {
+    client.thinkGetRooms.mockRejectedValue(new Error("Think /rooms failed (403): insufficient scope"));
+    const supabase = makeSupabaseStub([{ external_room_type_id: "rt_king", name: "King", total_rooms: 4 }]);
+
+    const result = await runThinkSyncForHotel(supabase, "hotel-1");
+
+    expect(result.ok).toBe(true);
+    expect(countOf(supabase, "rt_king")).toBe(4);
+    expect(supabase.roomTypeUpserts.some((r) => "total_rooms" in r)).toBe(false);
+    expect(client.thinkGetReservationsPage).toHaveBeenCalled();
+  });
+
+  it("keeps stored counts when the rooms list has nothing usable", async () => {
+    client.thinkGetRooms.mockResolvedValue([]);
+    const supabase = makeSupabaseStub([{ external_room_type_id: "rt_king", name: "King", total_rooms: 4 }]);
+
+    await runThinkSyncForHotel(supabase, "hotel-1");
+
+    expect(countOf(supabase, "rt_king")).toBe(4);
+  });
+
+  it("gives a new type the hotel default only until its first count", async () => {
+    client.thinkGetRoomTypes.mockResolvedValue([
+      { id: "rt_king", name: "King" },
+      { id: "rt_new", name: "Garden Room" },
+    ]);
+    client.thinkGetRooms.mockRejectedValue(new Error("timeout"));
+    const supabase = makeSupabaseStub([{ external_room_type_id: "rt_king", name: "King", total_rooms: 4 }]);
+
+    await runThinkSyncForHotel(supabase, "hotel-1");
+
+    expect(countOf(supabase, "rt_king")).toBe(4);
+    expect(countOf(supabase, "rt_new")).toBe(10);
+
+    client.thinkGetRooms.mockResolvedValue([room("1", "rt_king"), room("2", "rt_new")]);
+    await runThinkSyncForHotel(supabase, "hotel-1");
+
+    expect(countOf(supabase, "rt_king")).toBe(1);
+    expect(countOf(supabase, "rt_new")).toBe(1);
+  });
+
+  it("before the zero migration, keeps a stored count where the rooms say 0", async () => {
+    client.thinkGetRoomTypes.mockResolvedValue([
+      { id: "rt_king", name: "King" },
+      { id: "rt_cottage", name: "Cottage" },
+    ]);
+    client.thinkGetRooms.mockResolvedValue([room("1", "rt_king"), room("2", "rt_king")]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const supabase = makeSupabaseStub(
+      [
+        { external_room_type_id: "rt_king", name: "King", total_rooms: 10 },
+        { external_room_type_id: "rt_cottage", name: "Cottage", total_rooms: 5 },
+      ],
+      undefined,
+      [],
+      {},
+      { refuseZeroRooms: true },
+    );
+
+    const result = await runThinkSyncForHotel(supabase, "hotel-1");
+
+    expect(result.ok).toBe(true);
+    expect(countOf(supabase, "rt_king")).toBe(2);
+    expect(countOf(supabase, "rt_cottage")).toBe(5);
+    expect(warn.mock.calls.some((c) => String(c[0]).includes("room_count_zero_v1"))).toBe(true);
+    warn.mockRestore();
   });
 });
 

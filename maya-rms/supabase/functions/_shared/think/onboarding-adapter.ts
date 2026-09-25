@@ -24,10 +24,11 @@ import {
   buildReservationRangeParams,
   thinkGetHotels,
   thinkGetReservationsPage,
+  thinkGetRooms,
   thinkGetRoomTypes,
   type ThinkHotel,
 } from "./client.ts";
-import { parseThinkReservations, parseThinkRoomTypes } from "./etl.ts";
+import { countThinkRoomsByType, parseThinkReservations, parseThinkRoomTypes } from "./etl.ts";
 import { THINK_API_BASE_URL, THINK_PAGE_SIZE } from "./constants.ts";
 import type { ThinkCredentials } from "./types.ts";
 
@@ -115,16 +116,29 @@ export async function createThinkOnboardingAdapter(
       const c = await creds();
       const hotel = await discover();
       const raw = await thinkGetRoomTypes(c, hotel.externalId);
-      const { data: hotelRow } = await supabase
-        .from("hotels")
-        .select("total_rooms_per_type")
-        .eq("id", hotelId)
-        .maybeSingle();
-      const defaultRooms =
-        typeof hotelRow?.total_rooms_per_type === "number"
-          ? hotelRow.total_rooms_per_type
-          : 100;
-      return parseThinkRoomTypes(raw, defaultRooms);
+      // Rooms per type from GET /rooms. Without a usable answer every type
+      // reads null and the worker keeps what is stored (see
+      // upsertRoomTypesKeepingCounts); a failed count never fails the import.
+      let counts: Map<string, number> | null = null;
+      if (raw.length > 0) {
+        const known = new Set(
+          raw.map((rt) => rt?.id).filter((id) => id != null && id !== "").map(String),
+        );
+        try {
+          counts = countThinkRoomsByType(
+            await thinkGetRooms(c, hotel.externalId, THINK_PAGE_SIZE),
+            known,
+          ).counts;
+        } catch (e) {
+          console.warn(JSON.stringify({
+            fn: "think-onboarding",
+            hotel: hotelId,
+            warning: "rooms read failed; stored room counts kept",
+            error: e instanceof Error ? e.message : String(e),
+          }));
+        }
+      }
+      return parseThinkRoomTypes(raw, counts);
     },
 
     async fetchReservationListPage(

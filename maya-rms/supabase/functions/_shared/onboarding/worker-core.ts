@@ -48,6 +48,7 @@ import type {
 import { proposeCountsAsRoom } from "./analysis.ts";
 import { isPaidLiveHotel } from "../billing/entitlement.ts";
 import { deleteNightsOutside } from "../pms/stale-nights.ts";
+import { upsertRoomTypesKeepingCounts } from "../pms/room-type-upsert.ts";
 
 export type ImportJobRow = {
   id: string;
@@ -778,7 +779,7 @@ async function runDiscover(
   const profile = await adapter.discoverProperty();
   const { data: hotel } = await supabase
     .from("hotels")
-    .select("name, timezone, currency")
+    .select("name, timezone, currency, total_rooms_per_type")
     .eq("id", job.hotel_id)
     .maybeSingle();
   const patch: Record<string, unknown> = {};
@@ -802,10 +803,15 @@ async function runDiscover(
       display_name: rt.display_name,
       total_rooms: rt.total_rooms,
     }));
-    const { error } = await supabase
-      .from("room_types")
-      .upsert(rtRows, { onConflict: "hotel_id,external_room_type_id" });
-    if (error) throw new Error(`room_types upsert failed: ${error.message}`);
+    // A null count (the PMS gave none this run) keeps the stored number
+    // rather than putting the hotel default back over it.
+    const { error } = await upsertRoomTypesKeepingCounts(
+      supabase,
+      job.hotel_id,
+      rtRows,
+      typeof hotel?.total_rooms_per_type === "number" ? hotel.total_rooms_per_type : 100,
+    );
+    if (error) throw new Error(`room_types upsert failed: ${error}`);
     // Default counts_as_room for types nobody has classified yet. Separate
     // from the upsert for the same reason is_active is kept out of it: the
     // review strip shows this guess and the owner's answer has to survive

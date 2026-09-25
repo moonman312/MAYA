@@ -16,6 +16,7 @@ import {
   buildReservationRangeParams,
   thinkGetHotels,
   thinkGetReservationsPage,
+  thinkGetRooms,
   thinkGetRoomTypes,
   ThinkHttpError,
 } from "./client.ts";
@@ -26,12 +27,18 @@ import {
   THINK_PAGE_SIZE,
   THINK_SYNC_BUDGET_MS,
 } from "./constants.ts";
-import { parseThinkReservations, parseThinkRoomTypes, type ThinkParseStats } from "./etl.ts";
+import {
+  countThinkRoomsByType,
+  parseThinkReservations,
+  parseThinkRoomTypes,
+  type ThinkParseStats,
+} from "./etl.ts";
 import type { ThinkCredentials } from "./types.ts";
 import { mwsEnv } from "../mews/env.ts";
 import { persistPropertyId, resolveOAuthCredentials } from "../pms/oauth-credentials.ts";
 import { proposeCountsAsRoom } from "../onboarding/analysis.ts";
 import { dropUnchangedReservationRows } from "../pms/row-diff.ts";
+import { upsertRoomTypesKeepingCounts } from "../pms/room-type-upsert.ts";
 import { decideSyncWindow } from "../pms/sync-mode.ts";
 
 const RECONCILE_IN_CHUNK = 200;
@@ -153,6 +160,45 @@ function dedupeByKey<T>(rows: T[], keyFn: (row: T) => string): { rows: T[]; merg
     map.set(keyFn(row), row);
   }
   return { rows: [...map.values()], merged: rows.length - map.size };
+}
+
+/**
+ * Rooms per type from GET /rooms, or null when this run has no usable count.
+ * Never fatal: the stored counts are right until something says otherwise,
+ * and a sync that stopped over a count would stop pricing too.
+ */
+async function readThinkRoomCounts(
+  creds: ThinkCredentials,
+  thinkHotelId: string,
+  hotelId: string,
+  rtRaw: unknown[],
+): Promise<Map<string, number> | null> {
+  const known = new Set<string>();
+  for (const rt of rtRaw) {
+    const id = (rt as { id?: unknown } | null)?.id;
+    if (typeof id === "string" || typeof id === "number") known.add(String(id));
+  }
+  try {
+    const rooms = await thinkGetRooms(creds, thinkHotelId, THINK_PAGE_SIZE);
+    const { counts, stats } = countThinkRoomsByType(rooms, known);
+    if (!counts) {
+      console.warn(JSON.stringify({
+        fn: "think-sync",
+        hotel: hotelId,
+        warning: "rooms list had no countable room on a known type; stored room counts kept",
+        stats,
+      }));
+    }
+    return counts;
+  } catch (e) {
+    console.warn(JSON.stringify({
+      fn: "think-sync",
+      hotel: hotelId,
+      warning: "rooms read failed; stored room counts kept",
+      error: e instanceof Error ? e.message : String(e),
+    }));
+    return null;
+  }
 }
 
 async function deleteCanceledReservationRows(
@@ -309,7 +355,9 @@ export async function runThinkSyncForHotel(
     //    not resurrected and priced by the next cron. New rows still take the
     //    schema default and come in active.
     const rtRaw = await thinkGetRoomTypes(creds, thinkHotelId);
-    const parsedRoomTypes = parseThinkRoomTypes(rtRaw, defaultRooms);
+    const roomCounts =
+      rtRaw.length > 0 ? await readThinkRoomCounts(creds, thinkHotelId, hotelId, rtRaw) : null;
+    const parsedRoomTypes = parseThinkRoomTypes(rtRaw, roomCounts);
 
     let roomTypesUpserted = 0;
     let duplicateRoomTypeRowsMerged = 0;
@@ -326,10 +374,15 @@ export async function runThinkSyncForHotel(
       );
       duplicateRoomTypeRowsMerged = rtMerged;
       roomTypesUpserted = rtRows.length;
-      const { error: rtErr } = await supabase
-        .from("room_types")
-        .upsert(rtRows, { onConflict: "hotel_id,external_room_type_id" });
-      if (rtErr) return { ok: false, error: rtErr.message };
+      // Counted rooms are written every run; without a count the stored one
+      // stands, and only a type never stored takes the hotel default.
+      const { error: rtErr } = await upsertRoomTypesKeepingCounts(
+        supabase,
+        hotelId,
+        rtRows,
+        defaultRooms,
+      );
+      if (rtErr) return { ok: false, error: rtErr };
       // Default counts_as_room for types nobody has classified yet. Separate
       // from the upsert on purpose: written there it would overwrite the
       // owner's answer every tick. "sync" mode: only ever writes `true` —

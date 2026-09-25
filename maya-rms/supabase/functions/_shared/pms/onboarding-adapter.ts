@@ -30,7 +30,12 @@ export type AdapterRoomType = {
   external_room_type_id: string;
   name: string;
   display_name: string | null;
-  total_rooms: number;
+  /**
+   * Rooms of this type the PMS reports. Null when the adapter has no count
+   * this run: the stored number stands, and a type never stored takes the
+   * hotel default.
+   */
+  total_rooms: number | null;
 };
 
 /** One booked room-night, matching the `reservations` table shape. */
