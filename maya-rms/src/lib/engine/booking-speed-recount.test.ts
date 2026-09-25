@@ -1,36 +1,38 @@
 /**
- * A rule never re-counts bookings it already acted on, and bookings another
- * rule acted on still count toward it (Jake, 2026-09-18 and 2026-09-24:
- * "the clock doesn't reset, the count just continues").
+ * A rule counts only the bookings made after the newest change on the night
+ * and room type by itself or by a rule that adjusts the same way and ranks
+ * ahead of it (Jake, 2026-09-18 and 2026-09-24, option A). A weaker rule's
+ * change never restarts a stronger rule's count: "the clock doesn't reset,
+ * the count just continues".
  *
- * After a Booking Speed rule fires on a night and room type, its next
- * decision there counts only the bookings that reached MAYA after its own
- * fire: a raise rule from the fire's hotel day on, that day only the
- * bookings first seen after the fire (the split in observeBookingSpeed, on
+ * After such a change, a Booking Speed rule's next decision on the night
+ * and room type counts only the bookings that reached MAYA after it: a
+ * raise rule from the change's hotel day on, that day only the bookings
+ * first seen after it (the split in observeBookingSpeed, on
  * reservations.created_at), against how the nights it is compared with did
  * over the same days of their booking curves. A cut rule reads complete
- * days only, ending yesterday, and after its cut counts the complete days
- * after the cut's day. The fire that starts the count is the rule's own
- * newest one there that counts toward the owner alert (open, or taken off
- * for cancellations), from its current version. Another rule's fire, a
- * pickup count rule's included, never moves it: a rule that has not fired
- * on the night judges its whole window. A stronger rule that is waiting and
- * still matches holds the night, so tiers climb as pace climbs. A typed
- * price is a reset point: the fires it took off start nothing, and after
- * its wait the rule judges its whole window again.
+ * days only, ending yesterday, and after a cut counts the complete days
+ * after the cut's day. The change that starts the count is the newest fire
+ * there that counts toward the owner alert (open, or taken off for
+ * cancellations), from its rule's current version, by the rule itself or a
+ * stronger one, paused or not, a pickup count rule included. Raises and
+ * cuts never move each other. A rule with no such change on the night
+ * judges its whole window. A stronger rule that is waiting and still
+ * matches holds the night, so tiers climb as pace climbs. A typed price is
+ * a reset point: the fires it took off start nothing, and after its wait
+ * the rule judges its whole window again.
  *
  * The first case is the audit's reproduction (groups-audit.json, risks):
  * twenty rooms booked in one day, 40 days out on a quiet night, under the
  * five starter rules. The engine used to stack 12 raises on it, about 5x the
- * price, and file the owner alert twice. Now each raise rule acts on it
- * once: the one-day spike rule the day it lands, the week rule once the
- * spike rule stops holding the night, the month rule after the week rule's
- * wait. That case keeps its rows unkeyed, so they are twenty separate
- * bookings. The audit's real wedding, one 20-room reservation keyed as the
+ * price, and file the owner alert twice. Now the one-day spike rule raises
+ * on it the day it lands, and the week and month rules, which rank below
+ * it, never count those twenty again. That case keeps its rows unkeyed, so
+ * they are twenty separate bookings. The audit's real wedding, one 20-room reservation keyed as the
  * PMS keys it, is the case after it: booking speed counts bookings (Jake,
  * 2026-09-20), so the wedding is one booking on a quiet night and no rule
  * raises on pace at all, while an occupancy rule still sees its twenty
- * rooms. booking-speed-cumulative.test.ts runs the owner's own example and
+ * rooms. booking-speed-cumulative.test.ts runs the owner's own examples and
  * the same stories with bookings arriving at their created_at.
  *
  * Every case runs whole evaluateHotel runs, on the app's engine and on the
@@ -225,7 +227,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it already acted on", (engine) => {
+describe.each(ENGINES)("$name: a Booking Speed rule never counts bookings it or a stronger rule already acted on", (engine) => {
   /* ── The audit's cascade ─────────────────────────────────────── */
 
   describe("twenty separate bookings landing on a quiet night in one day", () => {
@@ -234,63 +236,52 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
     // Unkeyed rows: each one a booking of its own.
     const wedding = () => Array.from({ length: 20 }, () => booking(NIGHT, D0));
 
-    it("under the starter rules, each raise rule raises on them once, and no owner alert", async () => {
+    it("under the starter rules, the spike rule raises on them once, the weaker rules never count them again, and no owner alert", async () => {
       const w = world(engine, { rules: starterRules(), reservations: [...background(LAST, QUIET), ...wedding()], last: LAST });
       await w.run(0);
       expect(w.firedOn(NIGHT)).toEqual([["Sudden-spike catcher", 0]]);
       // A later run the same day: the spike rule waits and its day still
       // reads surging, so it holds the night against the week and month
-      // rules, which read the twenty too.
+      // rules, which rank below it.
       await w.run(0, 6 * HOUR);
       expect(w.fires(NIGHT)).toHaveLength(1);
       for (let day = 1; day <= 32; day++) await w.run(day);
 
       // Next day the spike rule's one day has nothing in it, so it holds
-      // no more. The twenty still count toward the week rule, which never
-      // acted on them: it raises on its whole week. The month rule, held
-      // through the week rule's wait, then raises on its whole month. After
-      // that each counts only what came after its own raise, and nothing
-      // did. One raise per rule, not twelve.
-      expect(w.firedOn(NIGHT)).toEqual([
-        ["Sudden-spike catcher", 0],
-        ["Hot-week surge", 1],
-        ["Warm-date bump", 3],
-      ]);
+      // no more. The week and month rules count only what came after its
+      // raise, which is the usual trickle: neither raises. One raise, not
+      // twelve, and not the three it took while each rule counted the
+      // twenty for itself.
+      expect(w.firedOn(NIGHT)).toEqual([["Sudden-spike catcher", 0]]);
       expect(w.fires(NIGHT).map((e) => [e.window_from, e.window_since, e.window_to, e.window_bookings_at_fire, e.retired_at])).toEqual([
         [D0, null, D0, 20, null],
-        [addDays(D0, -5), null, addDays(D0, 1), 21, null],
-        [addDays(D0, -26), null, addDays(D0, 3), 23, null],
       ]);
-      expect(w.price(NIGHT)).toBeCloseTo(100 * 1.25 * 1.25 * 1.1, 1);
+      expect(w.price(NIGHT)).toBe(125);
       // No night was adjusted three times by one rule, so nothing to ask.
       expect(w.tables.rule_repeat_alert_nights ?? []).toEqual([]);
       // Every other night reads Normal throughout.
       expect(w.tables.pickup_event.every((e) => e.stay_date === NIGHT)).toBe(true);
     }, 120_000);
 
-    it("pausing the rule that raised keeps its raise on the night and moves no other rule's count", async () => {
+    it("pausing the rule that raised keeps its raise on the night, and it still covers the weaker rules", async () => {
       const w = world(engine, { rules: starterRules(), reservations: [...background(LAST, QUIET), ...wedding()], last: LAST });
       await w.run(0);
       expect(w.firedOn(NIGHT)).toEqual([["Sudden-spike catcher", 0]]);
-      // The owner pauses the spike rule that evening. Its raise stays; the
-      // week and month rules count the twenty for themselves as before.
+      // The owner pauses the spike rule that evening. Its raise stays on the
+      // price, so the week and month rules still count only what came after
+      // it, as if it were running.
       w.tables.pricing_rules.find((r) => r.name === "Sudden-spike catcher")!.is_active = false;
       for (let day = 1; day <= 6; day++) await w.run(day);
-      expect(w.firedOn(NIGHT)).toEqual([
-        ["Sudden-spike catcher", 0],
-        ["Hot-week surge", 1],
-        ["Warm-date bump", 3],
-      ]);
-      expect(w.price(NIGHT)).toBeCloseTo(100 * 1.25 * 1.25 * 1.1, 1);
+      expect(w.firedOn(NIGHT)).toEqual([["Sudden-spike catcher", 0]]);
+      expect(w.price(NIGHT)).toBe(125);
     }, 120_000);
 
-    it("a pickup count rule's raise leaves a Booking Speed rule counting the same bookings for itself", async () => {
+    it("a stronger pickup count rule's raise covers the Booking Speed rules below it", async () => {
       // Ten separate bookings land on the quiet night. A pickup count rule
       // (more than 5 room-nights in 7 days) outranks the starter rules and
       // raises on them on day 0, then holds the night through its week's
-      // wait. The ten still count toward the month rule, which never acted
-      // on them: once the pickup rule's wait is over it raises on its whole
-      // month. The week and day rules no longer see them by then.
+      // wait. The month rule's month still holds the ten after that, but
+      // they came before a stronger rule's raise, so it doesn't count them.
       const pickup = rule(
         "Pickup raise",
         { pickup_operator: "gt", pickup_threshold: 5, pickup_window_days: 7, pickup_metric: "room_nights" },
@@ -303,23 +294,19 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
         snapshotDays: 10,
       });
       for (let day = 0; day <= 12; day++) await w.run(day);
-      expect(w.firedOn(NIGHT)).toEqual([
-        ["Pickup raise", 0],
-        ["Warm-date bump", 7],
-      ]);
-      expect(w.price(NIGHT)).toBeCloseTo(121, 2);
-      // The pickup fire carries no frozen window of its own; the month
-      // rule's counts the ten and the few a night like it gets.
+      expect(w.firedOn(NIGHT)).toEqual([["Pickup raise", 0]]);
+      expect(w.price(NIGHT)).toBe(110);
+      // The pickup fire carries no frozen window of its own.
       expect(w.fires(NIGHT).map((e) => [e.cancel_check, e.window_from, e.window_bookings_at_fire])).toEqual([
         ["net_units", null, null],
-        ["window_bookings", addDays(D0, -22), 13],
       ]);
     }, 120_000);
 
-    it("a pickup count rule counts the bookings the Booking Speed rules raised on", async () => {
+    it("a weaker pickup count rule counts only what came after a stronger Booking Speed rule's raise", async () => {
       // The other way round: the pickup rule ranks below the starter rules.
-      // It is held while they wait, and then raises on the twenty, which
-      // are still in its week.
+      // Its week still holds the twenty once the spike rule stops holding
+      // the night, but its count opens at the spike rule's raise, and
+      // nothing came after it.
       const pickup = rule(
         "Pickup raise",
         { pickup_operator: "gt", pickup_threshold: 5, pickup_window_days: 7, pickup_metric: "room_nights" },
@@ -332,12 +319,8 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
         snapshotDays: 10,
       });
       for (let day = 0; day <= 8; day++) await w.run(day);
-      expect(w.firedOn(NIGHT)).toEqual([
-        ["Sudden-spike catcher", 0],
-        ["Hot-week surge", 1],
-        ["Warm-date bump", 3],
-        ["Pickup raise", 6],
-      ]);
+      expect(w.firedOn(NIGHT)).toEqual([["Sudden-spike catcher", 0]]);
+      expect(w.price(NIGHT)).toBe(125);
     }, 120_000);
 
     it("a single month-window rule with a 3-day wait raises once, not every 3 days for a month", async () => {
@@ -466,7 +449,7 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
       expect(w.price(NIGHT)).toBe(125);
     }, 120_000);
 
-    it("with the week and month rules, the month rule counts both waves for itself once the week rule stops holding the night", async () => {
+    it("with the week and month rules, the month rule ranks below the week rule and never counts what the week rule raised on", async () => {
       const rules = starterRules().filter((r) => r.name !== "Sudden-spike catcher");
       const w = world(engine, { rules, reservations: [...background(LAST, QUIET), ...morning()], last: LAST });
       await w.run(0);
@@ -476,19 +459,19 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
       // The month rule sees the wave but the week rule holds the night
       // through its 2-day wait; then it counts from its own raise and fires
       // on the thirty, and holds the night again. After that wait the month
-      // rule, which never raised here, counts its whole month: both waves.
+      // rule counts only what came after the week rule's second raise:
+      // nothing. Both waves were the week rule's.
       expect(w.fires(NIGHT)).toHaveLength(1);
       for (let day = 1; day <= 6; day++) await w.run(day);
       expect(w.firedOn(NIGHT)).toEqual([
         ["Hot-week surge", 0],
         ["Hot-week surge", 2],
-        ["Warm-date bump", 4],
       ]);
       expect(w.fires(NIGHT).map((e) => [e.window_from, e.window_since, e.window_to, e.window_bookings_at_fire])).toEqual([
         [addDays(D0, -6), null, D0, 11],
         [D0, iso(T0), addDays(D0, 2), 30],
-        [addDays(D0, -25), null, addDays(D0, 4), 43],
       ]);
+      expect(w.price(NIGHT)).toBeCloseTo(100 * 1.25 * 1.25, 1);
     }, 120_000);
   });
 
@@ -581,7 +564,7 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
     // Nights like it book a room a day over their last 50 days.
     const DAILY = Array.from({ length: 50 }, (_, i) => i);
 
-    it("climbs the tiers as the count grows, each tier counting from its own last raise and no rule counting a booking twice", async () => {
+    it("climbs to the tier the burst reaches, and the weaker tiers count only what came after it", async () => {
       // Five rooms booked 50 days out put the month a bit ahead (15 against
       // the usual 10) while the week and the day read normal: the month rule
       // raises 10% on day 0. On day 1 twenty rooms land in one day.
@@ -594,24 +577,20 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
       expect(w.firedOn(NIGHT)).toEqual([["Warm-date bump", 0]]);
       for (let k = 0; k < 20; k++) w.tables.reservations.push(booking(NIGHT, addDays(D0, 1)));
       for (let day = 1; day <= 10; day++) await w.run(day);
-      // The spike rule fires on the twenty while the month rule waits. The
-      // week rule, which never raised here, raises on its whole week once
-      // the spike rule no longer holds the night. After its wait the month
-      // rule counts only what came after its own raise: the twenty and a
-      // room a day since, still ahead. Nobody counts the twenty twice.
+      // The spike rule fires on the twenty while the month rule waits: the
+      // month rule's raise is weaker, so it doesn't restart the spike rule's
+      // count. The week and month rules rank below the spike rule, so from
+      // then on they count only what came after its raise: a room a day,
+      // the usual pace. Nobody counts the twenty twice.
       expect(w.firedOn(NIGHT)).toEqual([
         ["Warm-date bump", 0],
         ["Sudden-spike catcher", 1],
-        ["Hot-week surge", 2],
-        ["Warm-date bump", 4],
       ]);
       expect(w.fires(NIGHT).map((e) => [e.window_from, e.window_since, e.window_to, e.window_bookings_at_fire])).toEqual([
         [addDays(D0, -29), null, D0, 15],
         [addDays(D0, 1), null, addDays(D0, 1), 21],
-        [addDays(D0, -4), null, addDays(D0, 2), 27],
-        [D0, iso(T0), addDays(D0, 4), 24],
       ]);
-      expect(w.price(NIGHT)).toBeCloseTo(100 * 1.1 * 1.25 * 1.25 * 1.1, 1);
+      expect(w.price(NIGHT)).toBeCloseTo(100 * 1.1 * 1.25, 1);
     }, 120_000);
   });
 
@@ -785,9 +764,9 @@ describe.each(ENGINES)("$name: a Booking Speed rule never re-counts bookings it 
     }, 120_000);
   });
 
-  /* ── Raises and cuts count from their own fires ───────────────── */
+  /* ── Raises and cuts never move each other's count ──────────── */
 
-  describe("raises and cuts count from their own last fire, not each other's", () => {
+  describe("raises and cuts never move where the other counts from", () => {
     // Nights like it book a room every day from 49 days out to arrival.
     const NIGHT = addDays(D0, 20);
     const LAST = addDays(D0, 21);

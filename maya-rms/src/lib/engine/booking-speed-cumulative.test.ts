@@ -1,18 +1,23 @@
 /**
- * Each rule's count carries on from where it last acted, and never resets
- * because another rule acted (Jake, 2026-09-24): "the clock doesn't reset,
- * the count just continues". A rule for 5 bookings in a day that raised on
- * the first 5 leaves a rule for 10 counting all 10, not 10 more. So:
+ * A rule counts only the bookings made after the newest change on the night
+ * and room type by itself or by a rule that adjusts the same way and ranks
+ * ahead of it (Jake, 2026-09-24, option A). A weaker rule's change never
+ * restarts a stronger rule's count: "the clock doesn't reset, the count
+ * just continues". So:
  *
- * - A Booking Speed rule that has fired on a night and room type counts only
- *   the bookings that reached MAYA after its own last fire there. Bookings a
- *   different rule acted on still count toward it.
- * - A rule that raises counts today so far, the day of its last raise split
- *   at the raise (reservations.created_at). A rule that cuts reads complete
- *   hotel days only, ending yesterday, on the night and on the nights it is
- *   compared with alike, first decision or repeat; after a cut it counts the
- *   complete days after the cut's day, and has nothing to judge until one
- *   has passed.
+ * - With a rule for 5 bookings and a stronger one for 10, 5 and then 5 more
+ *   raise twice, the second time on all 10, while 10 at once raise once and
+ *   the rule for 5 then counts only what comes after that raise. The
+ *   owner's five examples run below as Booking Speed rules and as pickup
+ *   count rules. Under the starter rules ten bookings at once end at $125,
+ *   not $172.
+ * - A rule that raises counts today so far, the day of the raise it counts
+ *   from split at the raise (reservations.created_at). A rule that cuts
+ *   reads complete hotel days only, ending yesterday, on the night and on
+ *   the nights it is compared with alike, first decision or repeat; after a
+ *   cut it counts the complete days after the cut's day, and has nothing to
+ *   judge until one has passed. A stronger cut covers the weaker cut rules
+ *   the same way.
  * - A stronger rule that is waiting and still matches holds the night, so
  *   tiers climb as the count climbs.
  *
@@ -131,11 +136,22 @@ const QUIET = Array.from({ length: 18 }, (_, i) => 3 + 10 * i);
 /**
  * A hotel whose bookings reach MAYA at their created_at. `runAt` first puts
  * every booking first seen by then on the books, then runs the engine at
- * that instant, pricing through `last`.
+ * that instant, pricing through `last`. `snapshotDays` writes the 6-hourly
+ * snapshots a pickup count rule reads its window from over that many days
+ * before D0, from the bookings first seen by each (the engine writes its
+ * own from then on).
  */
-function timeline(engine: Engine, o: { rules: FakeRow[]; rows: FakeRow[]; last: string; rooms?: number }) {
+function timeline(engine: Engine, o: { rules: FakeRow[]; rows: FakeRow[]; last: string; rooms?: number; snapshotDays?: number }) {
   const nights: string[] = [];
   for (let d = D0; d <= o.last; d = addDays(d, 1)) nights.push(d);
+  const seeded: FakeRow[] = [];
+  for (let h = (o.snapshotDays ?? 0) * 24; h > 0; h -= 6) {
+    const ts = T00 - h * HOUR;
+    for (const stay of nights) {
+      const n = o.rows.filter((r) => r.stay_date === stay && Date.parse(String(r.created_at)) <= ts).length;
+      seeded.push({ hotel_id: "h1", snapshot_ts: iso(ts), stay_date: stay, room_type_id: STD, sellable_units: o.rooms ?? 40, booked_units: n, booked_revenue: n * 100 });
+    }
+  }
   const fake = fakeSupabase({
     hotels: [{ id: "h1", timezone: "UTC" }],
     room_types: [
@@ -144,7 +160,7 @@ function timeline(engine: Engine, o: { rules: FakeRow[]; rows: FakeRow[]; last: 
     reservations: [],
     base_rate_calendar: nights.map((stay) => ({ hotel_id: "h1", stay_date: stay, room_type_id: STD, price: 100 })),
     pricing_rules: o.rules,
-    stay_date_snapshot: [],
+    stay_date_snapshot: seeded,
     manual_price: [],
     pickup_event: [],
   });
@@ -205,7 +221,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe.each(ENGINES)("$name: a rule's count carries on from its own last fire", (engine) => {
+describe.each(ENGINES)("$name: a rule counts from its own last change or a stronger rule's", (engine) => {
   const NIGHT = addDays(D0, 40);
   const LAST = addDays(D0, 41);
   /** Syncs 2 minutes after every 5-minute mark from before the bookings to well after them, then an evening run. */
@@ -230,7 +246,7 @@ describe.each(ENGINES)("$name: a rule's count carries on from its own last fire"
   describe("ten separate bookings first seen at once", () => {
     const rows = () => [...background(LAST, QUIET), ...Array.from({ length: 10 }, () => booking(NIGHT, D0, at(0, 14)))];
 
-    it("the strongest rule that matches raises, and the weaker tiers are held while it waits and still matches", async () => {
+    it("the strongest rule that matches raises once, and the weaker tiers never count the ten again: $125, not $172", async () => {
       const w = timeline(engine, { rules: starterRules(), rows: rows(), last: LAST });
       await w.runAll(AFTERNOON);
       // All three raise rules read the ten; the spike rule ranks first and
@@ -238,17 +254,13 @@ describe.each(ENGINES)("$name: a rule's count carries on from its own last fire"
       expect(w.fired(NIGHT)).toEqual([["Sudden-spike catcher", iso(at(0, 14, 2)), D0, D0, null, 10]]);
       expect(w.price(NIGHT)).toBe(125);
       // Next day its one-day window has nothing in it, so it no longer
-      // holds, though it still waits. The ten still count toward the week
-      // rule, which has never acted on them: it raises on its whole week.
-      // The month rule is held through the week rule's two-day wait, then
-      // raises once on its whole month. No rule raises twice on the ten.
+      // holds, though it still waits. The week and month rules rank below
+      // it, so they count only what came after its raise: nothing. Counting
+      // the ten again would have added the week rule's 25% and the month
+      // rule's 10%, $172.
       await w.runAll(ticks(1, 5, [0, 12]));
-      expect(w.fired(NIGHT)).toEqual([
-        ["Sudden-spike catcher", iso(at(0, 14, 2)), D0, D0, null, 10],
-        ["Hot-week surge", iso(at(1, 0, 5)), addDays(D0, -5), addDays(D0, 1), null, 11],
-        ["Warm-date bump", iso(at(3, 0, 5)), addDays(D0, -26), addDays(D0, 3), null, 13],
-      ]);
-      expect(w.price(NIGHT)).toBeCloseTo(100 * 1.25 * 1.25 * 1.1, 1);
+      expect(w.fired(NIGHT)).toEqual([["Sudden-spike catcher", iso(at(0, 14, 2)), D0, D0, null, 10]]);
+      expect(w.price(NIGHT)).toBe(125);
     }, 120_000);
 
     it("control: without the spike rule, the week rule raises on them at the first sync", async () => {
@@ -259,59 +271,109 @@ describe.each(ENGINES)("$name: a rule's count carries on from its own last fire"
     }, 120_000);
   });
 
-  it("ten bookings one every 5 minutes, synced every 5 minutes: the tiers climb as the running count reaches each, and no rule counts a booking twice", async () => {
+  it("ten bookings one every 5 minutes, synced every 5 minutes: the tiers climb as the running count reaches each, and a weaker rule counts only what came after a stronger one's raise", async () => {
     const rows = [...background(LAST, QUIET), ...Array.from({ length: 10 }, (_, i) => booking(NIGHT, D0, at(0, 14, 5 * i)))];
     const w = timeline(engine, { rules: starterRules(), rows, last: LAST });
     await w.runAll(AFTERNOON);
     // 14:07: two new and the one a night like it gets in a week read much
     // faster for the week rule. 14:17: four today, surging for the spike
-    // rule, whose count is its own and started at none; the week rule is
-    // waiting and still matches, but the spike rule ranks above it.
+    // rule, whose count the weaker week rule's raise doesn't restart; the
+    // week rule is waiting and still matches, but the spike rule ranks
+    // above it.
     expect(w.fired(NIGHT)).toEqual([
       ["Hot-week surge", iso(at(0, 14, 7)), addDays(D0, -6), D0, null, 3],
       ["Sudden-spike catcher", iso(at(0, 14, 17)), D0, D0, null, 4],
     ]);
     await w.runAll(ticks(1, 5, [0, 18]));
     // After its two-day wait the week rule counts only what reached MAYA
-    // after its own raise: the eight from 14:10 on (window_since is that
-    // raise). The month rule, which has acted on none of them, counts all
-    // ten once the week rule stops holding the night.
+    // after the newest raise by itself or a stronger rule: the spike
+    // rule's at 14:17, so the six from 14:20 on (window_since is that
+    // raise). The month rule ranks below both and never counts any of
+    // them: every one came before a stronger rule's raise.
     expect(w.fired(NIGHT)).toEqual([
       ["Hot-week surge", iso(at(0, 14, 7)), addDays(D0, -6), D0, null, 3],
       ["Sudden-spike catcher", iso(at(0, 14, 17)), D0, D0, null, 4],
-      ["Hot-week surge", iso(at(2, 18, 5)), D0, addDays(D0, 2), iso(at(0, 14, 7)), 8],
-      ["Warm-date bump", iso(at(4, 18, 5)), addDays(D0, -25), addDays(D0, 4), null, 13],
+      ["Hot-week surge", iso(at(2, 18, 5)), D0, addDays(D0, 2), iso(at(0, 14, 17)), 6],
     ]);
-    // No rule's repeat reaches back past its own last fire.
-    const byRule = new Map<string, FakeRow[]>();
-    for (const e of w.fires(NIGHT)) byRule.set(String(e.rule_id), [...(byRule.get(String(e.rule_id)) ?? []), e]);
-    for (const list of byRule.values()) {
-      for (let i = 1; i < list.length; i++) expect(list[i].window_since).toBe(list[i - 1].applied_at);
-    }
+    expect(w.price(NIGHT)).toBeCloseTo(100 * 1.25 ** 3, 2);
+    // Every count starts at the newest earlier raise by the rule itself or
+    // one that ranks ahead of it, and a rule with none judged its whole
+    // window.
+    const rank = new Map(starterRules().map((r) => [String(r.id), Number(r.priority)]));
+    const fires = w.fires(NIGHT);
+    fires.forEach((f, i) => {
+      const covering = fires.slice(0, i).filter((g) => rank.get(String(g.rule_id))! >= rank.get(String(f.rule_id))!);
+      expect(f.window_since).toBe(covering.length > 0 ? covering[covering.length - 1].applied_at : null);
+    });
   }, 120_000);
 
-  describe("the owner's example: a rule for 5 bookings in a day, and a stronger one", () => {
+  /** The hotel date a booking first seen at `ms` was made on (the hotel runs on UTC). */
+  const dayOf = (ms: number) => iso(ms).slice(0, 10);
+
+  describe("the owner's five examples as Booking Speed rules: a rule for a fast day, and a stronger one", () => {
     // Nights like this one book 2 a day at every lead from 50 to 30 days
     // out, so over one day "much faster" first reads at 5 bookings and
     // "surging" at 7; this night has none of its own from 40 days out on.
+    // His rule for 5 bookings (+10%) is "much faster in a day" here, and
+    // his rule for 10 (+20%) "surging in a day", ranked ahead of it. Both
+    // wait a day.
     const rows = (batches: { n: number; at: number }[]) => [
       ...background(LAST, Array.from({ length: 21 }, (_, i) => 30 + i), { per: 2, hours: [3], skip: (stay, lead) => stay === NIGHT && lead <= 40 }),
-      ...batches.flatMap((b) => Array.from({ length: b.n }, () => booking(NIGHT, D0, b.at))),
+      ...batches.flatMap((b) => Array.from({ length: b.n }, () => booking(NIGHT, dayOf(b.at), b.at))),
     ];
     const rules = () => [
       rule("Five in a day", { booking_speed_operator: "at_least", booking_speed_level: "much_faster", booking_speed_window_days: 1, booking_speed_cooldown_days: 1 }, { priority: 100, action_value: 10 }),
       rule("Stronger tier", { booking_speed_operator: "at_least", booking_speed_level: "surging", booking_speed_window_days: 1, booking_speed_cooldown_days: 1 }, { priority: 120, action_value: 20 }),
     ];
+    /** Every hour from 09:05 to 13:05 on days 0 and 1, then twice a day to day 3. */
+    const RUNS = [...ticks(0, 1, [9, 10, 11, 12, 13]), ...ticks(2, 3, [0, 12])];
+    const story = async (batches: { n: number; at: number }[]) => {
+      const w = timeline(engine, { rules: rules(), rows: rows(batches), last: LAST });
+      await w.runAll(RUNS);
+      return w;
+    };
 
-    it("5 bookings fire the first rule; 5 more make 10, and the stronger rule counts all 10, not 5 more after the first rule's raise", async () => {
-      const w = timeline(engine, { rules: rules(), rows: rows([{ n: 5, at: at(0, 10) }, { n: 5, at: at(0, 11) }]), last: LAST });
-      await w.runAll([at(0, 9, 5), at(0, 10, 5), at(0, 11, 5), at(0, 12, 5)]);
+    it("5, then 5 more: the first rule raises on 5 ($110), and the stronger rule on all 10 ($132), not on 5 more after the first rule's raise", async () => {
+      const w = await story([{ n: 5, at: at(0, 10) }, { n: 5, at: at(0, 11) }]);
       expect(w.fired(NIGHT)).toEqual([
         ["Five in a day", iso(at(0, 10, 5)), D0, D0, null, 5],
         ["Stronger tier", iso(at(0, 11, 5)), D0, D0, null, 10],
       ]);
       expect(w.price(NIGHT)).toBeCloseTo(100 * 1.1 * 1.2, 2);
       expect(w.tables.pickup_event.every((e) => e.stay_date === NIGHT)).toBe(true);
+    }, 120_000);
+
+    it("10 at once, then nothing: the stronger rule raises ($120), and the first rule never raises on those same 10", async () => {
+      const w = await story([{ n: 10, at: at(0, 10) }]);
+      expect(w.fired(NIGHT)).toEqual([["Stronger tier", iso(at(0, 10, 5)), D0, D0, null, 10]]);
+      expect(w.price(NIGHT)).toBe(120);
+    }, 120_000);
+
+    it("10 at once, then 3 more the next day: still $120", async () => {
+      const w = await story([{ n: 10, at: at(0, 10) }, { n: 3, at: at(1, 11) }]);
+      expect(w.fired(NIGHT)).toEqual([["Stronger tier", iso(at(0, 10, 5)), D0, D0, null, 10]]);
+      expect(w.price(NIGHT)).toBe(120);
+    }, 120_000);
+
+    it("10 at once, then 5 more the next day: the first rule raises on the 5 new ones ($132)", async () => {
+      const w = await story([{ n: 10, at: at(0, 10) }, { n: 5, at: at(1, 11) }]);
+      expect(w.fired(NIGHT)).toEqual([
+        ["Stronger tier", iso(at(0, 10, 5)), D0, D0, null, 10],
+        ["Five in a day", iso(at(1, 11, 5)), addDays(D0, 1), addDays(D0, 1), null, 5],
+      ]);
+      expect(w.price(NIGHT)).toBeCloseTo(100 * 1.2 * 1.1, 2);
+    }, 120_000);
+
+    it("6 at once, then 4 more: the first rule raises on the 6 ($110), then the stronger rule on all 10 ($132), because the weaker raise doesn't restart its count", async () => {
+      // His example is 7 and then 3. Here "surging" already reads at 7, so
+      // 6 plays his 7: past the first rule, short of the stronger one. The
+      // 4 after it would not reach even the first rule on their own (below).
+      const w = await story([{ n: 6, at: at(0, 10) }, { n: 4, at: at(0, 11) }]);
+      expect(w.fired(NIGHT)).toEqual([
+        ["Five in a day", iso(at(0, 10, 5)), D0, D0, null, 6],
+        ["Stronger tier", iso(at(0, 11, 5)), D0, D0, null, 10],
+      ]);
+      expect(w.price(NIGHT)).toBeCloseTo(100 * 1.1 * 1.2, 2);
     }, 120_000);
 
     it("the 5 after the first raise alone would not reach the stronger rule, and 4 would not reach the first", async () => {
@@ -326,7 +388,108 @@ describe.each(ENGINES)("$name: a rule's count carries on from its own last fire"
     }, 120_000);
   });
 
-  it("a surge of separate bookings over two weeks still stacks raises, each on the bookings since that rule's own last raise", async () => {
+  describe("the owner's five examples as pickup count rules: more than 4, and more than 9, in 7 days", () => {
+    // His numbers exactly: "Five" raises 10% on more than 4 bookings in 7
+    // days, "Ten" 20% on more than 9. Same priority, so the higher count
+    // ranks ahead (selectPickupWinner). Each waits its 7 days. Nothing else
+    // books this night; runs at 00:05 and 12:05 every day.
+    const pickup = (id: string, threshold: number, value: number, windowDays = 7) =>
+      rule(id, { pickup_operator: "gt", pickup_threshold: threshold, pickup_window_days: windowDays, pickup_metric: "room_nights" }, { action_value: value });
+    const story = async (batches: { n: number; at: number }[], rules = [pickup("Five", 4, 10), pickup("Ten", 9, 20)]) => {
+      const rows = batches.flatMap((b) => Array.from({ length: b.n }, () => booking(NIGHT, dayOf(b.at), b.at)));
+      const w = timeline(engine, { rules, rows, last: LAST, snapshotDays: 8 });
+      await w.runAll(ticks(0, 10, [0, 12]));
+      return w;
+    };
+    /** [rule, when, rooms booked where its count started, rooms booked at the fire] per fire. */
+    const counted = (w: ReturnType<typeof timeline>) =>
+      w.fires(NIGHT).map((e) => [e.rule_id, String(e.applied_at), e.signal_booked_units_start, e.signal_booked_units_end]);
+
+    it("5, then 5 more the next day: Five raises on 5 ($110), and Ten on all 10 ($132)", async () => {
+      const w = await story([{ n: 5, at: at(0, 10) }, { n: 5, at: at(1, 10) }]);
+      expect(counted(w)).toEqual([
+        ["Five", iso(at(0, 12, 5)), 0, 5],
+        ["Ten", iso(at(1, 12, 5)), 0, 10],
+      ]);
+      expect(w.price(NIGHT)).toBeCloseTo(132, 2);
+    }, 120_000);
+
+    it("10 at once, then nothing: Ten raises ($120), and Five never raises on those same 10", async () => {
+      const w = await story([{ n: 10, at: at(0, 10) }]);
+      expect(counted(w)).toEqual([["Ten", iso(at(0, 12, 5)), 0, 10]]);
+      expect(w.price(NIGHT)).toBe(120);
+    }, 120_000);
+
+    it("10 at once, then 3 more: still $120", async () => {
+      const w = await story([{ n: 10, at: at(0, 10) }, { n: 3, at: at(2, 10) }]);
+      expect(counted(w)).toEqual([["Ten", iso(at(0, 12, 5)), 0, 10]]);
+      expect(w.price(NIGHT)).toBe(120);
+    }, 120_000);
+
+    it("10 at once, then 5 more: Five raises on the 5 new ones ($132), once Ten stops holding the night", async () => {
+      // Ten waits its week and, with 15 in its window, holds the night
+      // meanwhile. Then it counts from its own raise (5, not enough) and
+      // Five counts from Ten's raise too: the 5.
+      const w = await story([{ n: 10, at: at(0, 10) }, { n: 5, at: at(2, 10) }]);
+      expect(counted(w)).toEqual([
+        ["Ten", iso(at(0, 12, 5)), 0, 10],
+        ["Five", iso(at(7, 12, 5)), 10, 15],
+      ]);
+      expect(w.price(NIGHT)).toBeCloseTo(132, 2);
+    }, 120_000);
+
+    it("7 at once, then 3 more: Five raises on the 7 ($110), then Ten on all 10 ($132), because Five's raise doesn't restart Ten's count", async () => {
+      const w = await story([{ n: 7, at: at(0, 10) }, { n: 3, at: at(1, 10) }]);
+      expect(counted(w)).toEqual([
+        ["Five", iso(at(0, 12, 5)), 0, 7],
+        ["Ten", iso(at(1, 12, 5)), 0, 10],
+      ]);
+      expect(w.price(NIGHT)).toBeCloseTo(132, 2);
+    }, 120_000);
+
+    it("with Ten counting 3 days, Five still never raises on the 10 Ten raised on, once Ten stops holding the night", async () => {
+      // Ten waits 3 days. After that Five's own week still holds the 10,
+      // but they came before a stronger rule's raise, so Five's count
+      // starts at that raise: nothing since.
+      const w = await story([{ n: 10, at: at(0, 10) }], [pickup("Five", 4, 10), pickup("Ten", 9, 20, 3)]);
+      expect(counted(w)).toEqual([["Ten", iso(at(0, 12, 5)), 0, 10]]);
+      expect(w.price(NIGHT)).toBe(120);
+    }, 120_000);
+
+    it("a paused stronger cut still covers a weaker 'fewer than' rule, which then judges a whole window after that cut, not a shorter stretch", async () => {
+      // "Dead" cuts 15% on no bookings in 3 days and ranks ahead of "Slow",
+      // which cuts 7% on fewer than 3 in 7 days. Nothing is booked on this
+      // night yet, so Dead cuts at the first run, and the owner pauses it:
+      // its cut stays on the price and still covers Slow. Slow counts from
+      // that cut, and "fewer than 3 in 7 days" can't be told from a day or
+      // two, so it waits for a whole week after the cut, then cuts on that
+      // week's one booking.
+      const cut = (id: string, threshold: number, windowDays: number, value: number, priority: number) =>
+        rule(
+          id,
+          { pickup_operator: "lt", pickup_threshold: threshold, pickup_window_days: windowDays, pickup_metric: "room_nights" },
+          { action_direction: "decrease", action_value: value, priority },
+        );
+      const w = timeline(engine, {
+        rules: [cut("Dead", 1, 3, 15, 120), cut("Slow", 3, 7, 7, 100)],
+        rows: [booking(NIGHT, addDays(D0, 1), at(1, 10))],
+        last: LAST,
+        snapshotDays: 8,
+      });
+      await w.runAt(at(0, 0, 5));
+      expect(counted(w)).toEqual([["Dead", iso(at(0, 0, 5)), 0, 0]]);
+      w.tables.pricing_rules.find((r) => r.id === "Dead")!.is_active = false;
+      await w.runAll(ticks(0, 10, [0, 12]).filter((t) => t > at(0, 0, 5)));
+      expect(counted(w)).toEqual([
+        ["Dead", iso(at(0, 0, 5)), 0, 0],
+        ["Slow", iso(at(7, 0, 5)), 0, 1],
+      ]);
+      expect(w.fires(NIGHT)[1].baseline_start_ts).toBe(iso(at(0, 0, 5)));
+      expect(w.price(NIGHT)).toBeCloseTo(100 * 0.85 * 0.93, 2);
+    }, 120_000);
+  });
+
+  it("a surge of separate bookings over two weeks still stacks raises, each on the bookings since the week rule's own last raise", async () => {
     // Three a day at 09:00, 13:00 and 17:00 for two weeks, against about
     // one a week usually.
     const wave: FakeRow[] = [];
@@ -341,13 +504,11 @@ describe.each(ENGINES)("$name: a rule's count carries on from its own last fire"
     const week = fires.filter((e) => e.rule_id === "Hot-week surge");
     expect(week.map((e) => String(e.applied_at))).toEqual([0, 2, 4, 6, 8, 10, 12, 14].map((d) => iso(at(d, 13, 5))));
     for (let i = 1; i < week.length; i++) expect(week[i].window_since).toBe(week[i - 1].applied_at);
-    // Once they stop, the week rule has nothing new, and the month rule,
-    // which never acted on any of them, raises once on its whole month.
-    expect(fires.filter((e) => e.rule_id !== "Hot-week surge").map((e) => [e.rule_id, String(e.applied_at), e.window_since])).toEqual([
-      ["Warm-date bump", iso(at(16, 13, 5)), null],
-    ]);
-    expect(fires.every((e) => Date.parse(String(e.applied_at)) <= at(16, 13, 5))).toBe(true);
-    expect(w.price(NIGHT)).toBeCloseTo(100 * 1.25 ** 8 * 1.1, 1);
+    // Once they stop, the week rule has nothing new. The month rule ranks
+    // below it, so it only ever counts what came after the week rule's
+    // latest raise, which is never enough: it never raises on them.
+    expect(fires.filter((e) => e.rule_id !== "Hot-week surge")).toEqual([]);
+    expect(w.price(NIGHT)).toBeCloseTo(100 * 1.25 ** 8, 1);
   }, 120_000);
 
   describe("a slow night under the starter rules, with a run 5 minutes after every cut", () => {
@@ -407,21 +568,21 @@ describe.each(ENGINES)("$name: a rule's count carries on from its own last fire"
       expect(w.price(NIGHT20)).toBeCloseTo(100 * 0.85 ** 3, 2);
     }, 120_000);
 
-    it("picking back up after a rescue: the rescue stops, and the trim, which never cut the night, judges its whole month", async () => {
+    it("picking back up after a rescue: the rescue stops, and the trim, which ranks below it, never cuts on the slow stretch the rescue already cut for", async () => {
       // A third of the usual pace until day 0, the usual 3 a day from then
-      // on. Each rule counts from its own last cut only, so the rescue's
-      // cut doesn't move where the trim starts: once the week of usual pace
-      // lifts the month from far behind to a bit behind, the trim cuts on
-      // the whole month, slow stretch included.
+      // on. The rescue ranks ahead of the trim, so its cut is where the trim
+      // starts counting too: the complete days after the rescue's day, all
+      // at the usual pace. Counting its whole month instead, the trim would
+      // cut again on day 8 (46 against 90) for the slow stretch the rescue
+      // already cut for.
       const w = timeline(engine, { rules: starterRules(), rows: slowRows((on) => (on < D0 ? 1 : 3)), last: LAST20, rooms: 500 });
       await runDays(w, 12);
+      // Day 7: the rescue's week since (18 against 18) is normal, so no
+      // second rescue, and the trim reads the same week the same way.
       expect(w.fired(NIGHT20)).toEqual([
         ["Slow-date rescue", iso(at(0, 0, 5)), addDays(D0, -30), addDays(D0, -1), null, 30],
-        // Day 7: the rescue's week since (18 against 18) is normal, so no
-        // second rescue. Day 8: 46 against 90 over the trim's whole month.
-        ["Slow-date trim", iso(at(8, 0, 5)), addDays(D0, -22), addDays(D0, 7), null, 46],
       ]);
-      expect(w.price(NIGHT20)).toBeCloseTo(100 * 0.85 * 0.93, 2);
+      expect(w.price(NIGHT20)).toBe(85);
     }, 120_000);
 
     it("a cut rule with a day's wait has nothing to judge until a complete day has passed since its cut's day", async () => {
