@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { LearnMore } from "@/components/deep-links/help-links";
+import { HOVER_BRIDGE, LearnMore } from "@/components/deep-links/help-links";
 import type { HelpPanel } from "@/lib/deep-links";
 
 /**
@@ -134,22 +134,26 @@ export function RoomCountHelp({
         ?
       </button>
       {open && (
-        <span
-          id={panelId}
-          // A panel holding a link is a labelled group; a tooltip must hold nothing interactive.
-          role={docs ? "group" : "tooltip"}
-          aria-label={docs ? title : undefined}
-          className="absolute left-1/2 top-6 z-20 w-72 -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-950 p-3 text-left shadow-xl"
-        >
-          <span className="block text-xs font-semibold text-slate-200">{title}</span>
-          <span className="mt-2 block space-y-1.5 text-xs leading-snug text-slate-400">
-            {lines.map((line) => (
-              <span key={line} className="block">
-                {line}
-              </span>
-            ))}
+        // The see-through top padding fills the space between the "?" and the
+        // panel, so the pointer stays inside while it moves down to Learn more.
+        <span className={HOVER_BRIDGE}>
+          <span
+            id={panelId}
+            // A panel holding a link is a labelled group; a tooltip must hold nothing interactive.
+            role={docs ? "group" : "tooltip"}
+            aria-label={docs ? title : undefined}
+            className="block w-72 rounded-lg border border-slate-700 bg-slate-950 p-3 text-left shadow-xl"
+          >
+            <span className="block text-xs font-semibold text-slate-200">{title}</span>
+            <span className="mt-2 block space-y-1.5 text-xs leading-snug text-slate-400">
+              {lines.map((line) => (
+                <span key={line} className="block">
+                  {line}
+                </span>
+              ))}
+            </span>
+            {docs ? <LearnMore panel={docs} onBlurOut={blurOut} /> : null}
           </span>
-          {docs ? <LearnMore panel={docs} onBlurOut={blurOut} /> : null}
         </span>
       )}
     </span>

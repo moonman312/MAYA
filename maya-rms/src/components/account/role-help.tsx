@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { HOTEL_ROLES } from "@/lib/roles";
-import { LearnMore } from "@/components/deep-links/help-links";
+import { HOVER_BRIDGE, LearnMore } from "@/components/deep-links/help-links";
 
 /**
  * What each role can actually do, next to the control that grants it.
@@ -69,22 +69,26 @@ export function RoleHelp() {
       </button>
 
       {open && (
-        <span
-          id={panelId}
-          role="group"
-          aria-label="What each role can do"
-          className="absolute left-1/2 top-6 z-20 w-80 -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-950 p-3 text-left shadow-xl"
-        >
-          <span className="block text-xs font-semibold text-slate-200">What each role can do</span>
-          <span className="mt-2 block space-y-2">
-            {HOTEL_ROLES.map((r) => (
-              <span key={r.key} className="block">
-                <span className="block text-xs font-medium text-slate-100">{r.label}</span>
-                <span className="block text-xs leading-snug text-slate-400">{r.description}</span>
-              </span>
-            ))}
+        // See-through top padding bridges the "?" and the panel, so the pointer
+        // can reach Learn more without the panel closing on the way.
+        <span className={HOVER_BRIDGE}>
+          <span
+            id={panelId}
+            role="group"
+            aria-label="What each role can do"
+            className="block w-80 rounded-lg border border-slate-700 bg-slate-950 p-3 text-left shadow-xl"
+          >
+            <span className="block text-xs font-semibold text-slate-200">What each role can do</span>
+            <span className="mt-2 block space-y-2">
+              {HOTEL_ROLES.map((r) => (
+                <span key={r.key} className="block">
+                  <span className="block text-xs font-medium text-slate-100">{r.label}</span>
+                  <span className="block text-xs leading-snug text-slate-400">{r.description}</span>
+                </span>
+              ))}
+            </span>
+            <LearnMore panel="roles" onBlurOut={blurOut} />
           </span>
-          <LearnMore panel="roles" onBlurOut={blurOut} />
         </span>
       )}
     </span>

@@ -1,6 +1,6 @@
 "use client";
 
-import { LearnMore } from "@/components/deep-links/help-links";
+import { HOVER_BRIDGE, LearnMore } from "@/components/deep-links/help-links";
 import { useEffect, useId, useRef, useState } from "react";
 
 /**
@@ -369,29 +369,33 @@ function ManualPriceHelp({ pmsName }: { pmsName: string }) {
       </button>
 
       {open && (
-        <span
-          id={panelId}
-          role="group"
-          aria-label="Setting a price yourself"
-          className="absolute left-1/2 top-6 z-20 w-72 -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-950 p-3 text-left shadow-xl"
-        >
-          <span className="block text-xs font-semibold text-slate-200">Setting a price yourself</span>
-          <span className="mt-2 block space-y-1.5 text-xs leading-snug text-slate-400">
-            <span className="block">
-              The number you type is what goes to {pmsName}, except 0, which you set there yourself.
+        // See-through top padding bridges the "?" and the panel, so the pointer
+        // can reach Learn more without the panel closing on the way.
+        <span className={HOVER_BRIDGE}>
+          <span
+            id={panelId}
+            role="group"
+            aria-label="Setting a price yourself"
+            className="block w-72 rounded-lg border border-slate-700 bg-slate-950 p-3 text-left shadow-xl"
+          >
+            <span className="block text-xs font-semibold text-slate-200">Setting a price yourself</span>
+            <span className="mt-2 block space-y-1.5 text-xs leading-snug text-slate-400">
+              <span className="block">
+                The number you type is what goes to {pmsName}, except 0, which you set there yourself.
+              </span>
+              <span className="block">
+                Rules that had already moved this night are paused for this room type. Rules that
+                fire later still apply on top of your price.
+              </span>
+              <span className="block">A night set to 0 is a comp night, and no rule raises it.</span>
+              <span className="block">
+                A rate changed in {pmsName} is kept the same way, once MAYA&apos;s own price has been there
+                for an hour.
+              </span>
+              <span className="block">Clear hands the night back to MAYA&apos;s own pricing.</span>
             </span>
-            <span className="block">
-              Rules that had already moved this night are paused for this room type. Rules that
-              fire later still apply on top of your price.
-            </span>
-            <span className="block">A night set to 0 is a comp night, and no rule raises it.</span>
-            <span className="block">
-              A rate changed in {pmsName} is kept the same way, once MAYA&apos;s own price has been there
-              for an hour.
-            </span>
-            <span className="block">Clear hands the night back to MAYA&apos;s own pricing.</span>
+            <LearnMore panel="manual-price" onBlurOut={blurOut} />
           </span>
-          <LearnMore panel="manual-price" onBlurOut={blurOut} />
         </span>
       )}
     </span>

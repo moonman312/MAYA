@@ -21,6 +21,13 @@ export function HelpLink({ screen, className }: { screen: string; className?: st
   );
 }
 
+/**
+ * Where a hover "?" panel sits: flush under the "?" with a see-through 8px
+ * top padding, so the pointer moving down to Learn more never crosses a gap
+ * that belongs to neither and closes the panel.
+ */
+export const HOVER_BRIDGE = "absolute left-1/2 top-full z-20 -translate-x-1/2 pt-2";
+
 /** "Learn more" at the foot of a "?" panel: the passage that explains it in full. */
 export function LearnMore({ panel, onBlurOut }: { panel: HelpPanel; onBlurOut?: (e: React.FocusEvent<HTMLAnchorElement>) => void }) {
   return (
