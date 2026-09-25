@@ -135,15 +135,15 @@
 -- reads the same unit from this function. onboarding-import-worker is the
 -- only place that writes a new hotel's starter rules and their
 -- explanations (_shared/onboarding/generate-rules.ts), which now say that
--- a rule counts only the bookings made since it last adjusted the night
--- and that the cut rules look at full days only; left on the old bundle,
--- a hotel onboarded in the gap keeps the old text for good. The app runs
--- the same engine (the evaluate button, a typed price's republish, a room
--- type reprice) and carries the "?" panels, the change log and the
--- drill-down that now say a booking with several rooms counts once, that
--- each rule counts only the bookings made since it last adjusted the night
--- (bookings another rule acted on still count toward it), and that a rule
--- that cuts reads full days up to yesterday.
+-- a rule counts only the bookings made since it or a stronger rule last
+-- adjusted the night and that the cut rules look at full days only; left
+-- on the old bundle, a hotel onboarded in the gap keeps the old text for
+-- good. The app runs the same engine (the evaluate button, a typed price's
+-- republish, a room type reprice) and carries the "?" panels, the change
+-- log and the drill-down that now say a booking with several rooms counts
+-- once, that a rule counts only the bookings made since it, or a stronger
+-- rule that moves the price the same way, last adjusted the night, and
+-- that a rule that cuts reads full days up to yesterday.
 -- Between the migration and the deploy, the old engine reads the new
 -- counts (one per booking) on every night and comparable, so its pace
 -- calls, the fires it makes and the windows it records are in bookings
@@ -158,18 +158,25 @@
 -- taken back off for cancellations inside that window; the three-raises
 -- alert on a night whose newest fire predates this file shows that fire's
 -- window numbers in rooms until a newer fire replaces it; once the new
--- engine runs, a rule that has adjusted a night judges only the bookings
--- made since its own last adjustment there, so no rule counts the same
--- booking twice, where it used to adjust again every wait on the same
--- bookings. Other rules' adjustments don't move where a rule starts, so
--- one burst can still be raised once by each raise rule whose level it
--- reaches, a weaker rule included once a stronger one stops matching (a
--- one-day rule's day has passed), and a burst that reaches MAYA over
--- several syncs can be raised again by the same rule, on the bookings
--- that came after its raise. Cuts work the same way: a cut rule that has
--- not cut a night judges its whole window, whatever another cut rule did
--- to it. A rule that cuts judges full days ending yesterday, and after a
--- cut has nothing to judge until a full day has passed.
+-- engine runs, a rule judges only the bookings made since the newest
+-- adjustment of the night by itself or by a stronger rule that moves the
+-- price the same way, a paused one included (its adjustment stays on the
+-- price), where it used to adjust again every wait on the same bookings.
+-- A weaker rule's adjustment never moves where a stronger rule starts: 5
+-- bookings and then 5 more can still be raised twice, the second time on
+-- all 10, but bookings a stronger rule raised on are never raised on again
+-- by a weaker one, so ten bookings at once under the starter rules end at
+-- +25%, not +72%. A burst that reaches MAYA over several syncs can still
+-- be raised again, on the bookings that came after the newest such raise.
+-- Cuts work the same way: a stronger cut covers the weaker cut rules, so a
+-- night the rescue cut is not trimmed again for the same slow stretch. A
+-- pickup count rule's window opens at such an adjustment when that is
+-- later than a whole window back, and one that fires on "less than" (or
+-- "more than" a number under 0) waits for a whole window after it
+-- instead; the three-raises alert then names no pickup window for that
+-- fire. A rule that cuts judges full days ending
+-- yesterday, and after a cut has nothing to judge until a full day has
+-- passed.
 --
 -- Checking by hand (the SQL editor carries no JWT, so say you are the
 -- service role for one transaction):

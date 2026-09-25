@@ -256,7 +256,7 @@ describe("a reservation with several rooms is one booking", () => {
   });
 });
 
-describe("observeForStayDate split at a raise: the day of the rule's own last raise", () => {
+describe("observeForStayDate split at a raise: the day of the raise the rule counts from", () => {
   const noon = "2026-07-30T12:00:00.000Z";
   const early = "2026-07-01T00:00:00.000Z";
   // Every night got a booking 14 to 20 days out, all on the books long

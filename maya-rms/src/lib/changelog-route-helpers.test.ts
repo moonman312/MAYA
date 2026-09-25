@@ -320,7 +320,29 @@ describe("buildApplications", () => {
     expect(apps[0].metrics).toEqual({ occupancy: 0.9, dta: 3, pickup_units: 9, booking_speed: null });
   });
 
-  it("keeps the days a Booking Speed fire counted when its last fire cut them short", () => {
+  it("keeps where a pickup count started when a stronger rule's newer change opened it", () => {
+    const d = details({
+      active_pickup_effects: [{ event_id: "evt-9", rule_id: "rule-2", delta: "+12%" }],
+      pickup_candidates: [
+        {
+          rule_id: "rule-2",
+          outcome: "won",
+          metrics: { occupancy: 0.9, dta: 3, net_pickup_units: 5, pickup_counted_since: "2026-09-18T12:05:00.000Z" },
+          tie_break_trace: ["winner"],
+        },
+      ],
+      application_order: ["pickup:evt-9"],
+    });
+    expect(buildApplications(d, lookups())[0].metrics).toEqual({
+      occupancy: 0.9,
+      dta: 3,
+      pickup_units: 5,
+      pickup_counted_since: "2026-09-18T12:05:00.000Z",
+      booking_speed: null,
+    });
+  });
+
+  it("keeps the days a Booking Speed fire counted when the fire it counted from cut them short", () => {
     const bs = { speed: "surging", rank: 3, label: "Surging", recent: 12, expected: 0.4, method: "comparable" };
     const fired = (booking_speed: Record<string, unknown>) =>
       buildApplications(

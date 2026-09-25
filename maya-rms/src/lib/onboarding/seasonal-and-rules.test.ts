@@ -219,14 +219,18 @@ describe("computeStarterRules: the booking-speed ladder", () => {
     expect(byName.get("Sudden-spike catcher")!.explanation).toContain("repeated daily");
   });
 
-  it("says a rule that acts again judges only the bookings since it last adjusted the night", () => {
-    // engine/pickup.ts bookingSpeedCountFrom: a rule counts from its own last
-    // raise or cut on the night; another rule's never moves it, and bookings
-    // another rule acted on still count toward it (Jake, 2026-09-24).
-    expect(byName.get("Slow-date rescue")!.explanation).toContain("judges only the bookings made since this rule last cut the night");
-    expect(byName.get("Slow-date trim")!.explanation).toContain("looking only at bookings made since this rule last trimmed the night");
-    expect(byName.get("Warm-date bump")!.explanation).toContain("only if the bookings made since this rule last raised the night are still ahead");
-    expect(byName.get("Warm-date bump")!.explanation).toContain("including bookings another rule already raised on");
+  it("says a rule that acts again judges only the bookings since it or a stronger rule last adjusted the night", () => {
+    // engine/pickup.ts countFromFireAt: a rule counts from the newest raise
+    // or cut on the night by itself or a stronger rule that moves the price
+    // the same way; a weaker rule's never moves it (Jake, 2026-09-24,
+    // option A). Among the starters the rescue ranks ahead of the trim, and
+    // the spike rule ahead of the week rule, both ahead of the month rule,
+    // so their changes cover the weaker ones; an owner's own rule can rank
+    // ahead of any of them.
+    expect(byName.get("Slow-date rescue")!.explanation).toContain("judges only the bookings made since this rule or a stronger one last cut the night");
+    expect(byName.get("Slow-date trim")!.explanation).toContain("looking only at bookings made since this rule or a stronger one last cut the night");
+    expect(byName.get("Warm-date bump")!.explanation).toContain("only if the bookings made since this rule or a stronger one last raised the night are still ahead");
+    expect(byName.get("Warm-date bump")!.explanation).not.toContain("another rule already raised on");
     expect(byName.get("Hot-week surge")!.explanation).toContain("while new bookings keep coming");
     for (const r of rules) {
       expect(r.explanation).not.toContain("the night is still");

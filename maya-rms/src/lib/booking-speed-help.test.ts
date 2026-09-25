@@ -38,15 +38,15 @@ describe("bookingSpeedHelp", () => {
     expect(line.length).toBeLessThan(80);
   });
 
-  it("says that once a rule adjusted a night it only counts what was booked since, other rules' bookings included", () => {
-    // What the engine does: bookingSpeedCountFrom from the rule's own last
-    // fire on the night; another rule's fire never moves it (Jake,
-    // 2026-09-24), and the comparables read over the same shorter stretch
-    // (observeBookingSpeed countFrom).
+  it("says that once a rule changed a night it and the weaker rules that move the price the same way only count what was booked since", () => {
+    // What the engine does: countFromFireAt, the newest fire on the night by
+    // the rule itself or a stronger rule that adjusts the same way, and a
+    // weaker rule's never (Jake, 2026-09-24, option A); the comparables
+    // read over the same shorter stretch (observeBookingSpeed countFrom).
     for (const w of [1, 7, 30]) {
       const lines = bookingSpeedHelp(w).lines;
       expect(lines.at(-3)).toBe(
-        "Once this rule has adjusted a night, it only counts bookings made since then. Bookings another rule acted on still count.",
+        "After a rule changes a night, it only counts bookings made since then. So does every weaker rule that moves the price the same way, so they don't add to that change on the same bookings.",
       );
       expect(lines.at(-2)).toBe("Those bookings are compared with similar nights over the same days.");
       expect(lines.join(" ")).not.toContain("whichever rule");
@@ -80,11 +80,12 @@ describe("bookingSpeedWaitHelp", () => {
     expect(h.lines.join(" ")).toContain("Each room type waits on its own");
     expect(h.lines.join(" ")).toContain("stronger rule can still step in");
     expect(h.lines.join(" ")).toContain("three times");
-    // Once it is over, only what came in since this rule's own last
-    // adjustment counts, other rules' included, until a typed price starts
-    // it over with its whole window.
+    // Once it is over, only what came in since its own last adjustment
+    // counts, or since a stronger rule's that moves the price the same way
+    // when that is later, until a typed price starts it over with its
+    // whole window.
     expect(h.lines.join(" ")).toContain(
-      "it only counts bookings made since it last adjusted that night. Bookings another rule acted on still count.",
+      "it only counts bookings made since it last adjusted that night, or since a stronger rule that moves the price the same way did, if that was later.",
     );
     expect(h.lines.join(" ")).not.toContain("whichever rule");
     expect(h.lines.join(" ")).toContain("starts it over");

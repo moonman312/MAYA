@@ -87,7 +87,9 @@
  * types: every hash of every run, in both variants, matched as it was. The
  * Suite rule is the only Booking Speed rule here and it raises, so its own
  * last raise was already the one it counted from, and no rule cuts on
- * Booking Speed.
+ * Booking Speed. Nor when a rule began counting from a stronger rule's
+ * newer fire that adjusts the same way, paused rules' fires included
+ * (Jake, 2026-09-24, option A): every hash matched again.
  *
  * The golden file was written by this same test at commit 4ef5d65 with
  * MAYA_WRITE_ENGINE_GOLDEN=1. Its ladder_rule_state hashes were rewritten

@@ -205,6 +205,9 @@ function toNarrativeMetrics(
   const occupancy = metrics.occupancy;
   const dta = metrics.dta;
   const pickup = metrics.net_pickup_units;
+  // Set when a pickup count opened at a stronger rule's newer change rather
+  // than a whole window back; older rows never carry it.
+  const pickupSince = metrics.pickup_counted_since;
   const bs = metrics.booking_speed as
     | {
         label?: unknown;
@@ -226,7 +229,8 @@ function toNarrativeMetrics(
           label: bs.label,
           recent: bs.recent,
           expected: bs.expected,
-          // Only a fire that counted from after the rule's own last change
+          // Only a fire that counted from after the newest change by the
+          // rule itself or a stronger rule that moves the price the same way
           // says so; every older audit row reads exactly as before.
           // counted_since says the count started at the raise itself, on its
           // day; counted_through that a rule that cuts counted full days only,
@@ -252,6 +256,7 @@ function toNarrativeMetrics(
     ...(excluded.length ? { excluded_from_occupancy: excluded } : {}),
     dta: typeof dta === "number" ? dta : null,
     pickup_units: typeof pickup === "number" ? pickup : null,
+    ...(typeof pickupSince === "string" ? { pickup_counted_since: pickupSince } : {}),
     booking_speed: bookingSpeed,
   };
 }

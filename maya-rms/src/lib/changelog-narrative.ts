@@ -51,8 +51,14 @@ export type NarrativeMetrics = {
   excluded_from_occupancy?: string[] | null;
   /** Days until arrival. */
   dta?: number | null;
-  /** Net pickup units over the rule's window. */
+  /** Net pickup units over the rule's window, or since pickup_counted_since when set. */
   pickup_units?: number | null;
+  /**
+   * Set when the pickup count opened at a newer raise or cut by a stronger
+   * rule that moves the price the same way, not a whole window back
+   * (engine/pickup.ts, pickupWindowOpensAt): that change's instant.
+   */
+  pickup_counted_since?: string | null;
   /** Booking Speed observation snapshot, from the engine's RuleMetrics. */
   booking_speed?: {
     label: string;
@@ -61,9 +67,10 @@ export type NarrativeMetrics = {
     /** The days it counted. Only read together with counted_from or counted_through. */
     window_days?: number | null;
     /**
-     * Set when this rule had already raised (a rule that raises) or cut (one
-     * that cuts) the night: it counted only bookings made from this date on,
-     * after its own last change; another rule's change never moves it. With
+     * Set when this rule, or a stronger rule that moves the price the same
+     * way, had already raised (a rule that raises) or cut (one that cuts) the
+     * night: it counted only bookings made from this date on, after the
+     * newest of those changes; a weaker rule's change never moves it. With
      * counted_since that is the raise's own day, counted from the raise on;
      * without it the day after the change.
      */
@@ -192,11 +199,17 @@ function fullnessSentence(
   return `This night was ${limits}.`;
 }
 
-/** "9 bookings arrived in the last 3 days, past the 4-booking mark you set." */
+/**
+ * "9 bookings arrived in the last 3 days, past the 4-booking mark you set."
+ * When the count opened at a stronger rule's newer raise or cut
+ * (pickup_counted_since), it says so instead of naming the window.
+ * `direction` is the rule's, as in bookingSpeedSentence.
+ */
 function pickupSentence(
   condition: RuleCondition,
   metrics?: NarrativeMetrics | null,
   measured?: string[] | null,
+  direction?: "increase" | "decrease" | null,
 ): string | null {
   if (!condition.pickup_operator || condition.pickup_threshold == null) return null;
   const windowDays = condition.pickup_window_days ?? 3;
@@ -204,12 +217,14 @@ function pickupSentence(
   const limit = `${dir} the ${Number(condition.pickup_threshold)}-booking mark you set`;
   const seen = metrics?.pickup_units;
   const kind = measured?.length ? `${listWords(measured)} ` : "";
+  const change = direction === "decrease" ? "cut" : direction === "increase" ? "raised" : "changed";
+  const when = metrics?.pickup_counted_since
+    ? `since this rule or a stronger one last ${change} this night`
+    : `in the last ${dayWord(windowDays)}`;
   if (seen != null) {
-    return `${seen} ${kind}${seen === 1 ? "booking" : "bookings"} arrived in the last ${dayWord(windowDays)}, ${limit}.`;
+    return `${seen} ${kind}${seen === 1 ? "booking" : "bookings"} arrived ${when}, ${limit}.`;
   }
-  return kind
-    ? `${kind}bookings in the last ${dayWord(windowDays)} came in ${limit}.`
-    : `Bookings in the last ${dayWord(windowDays)} came in ${limit}.`;
+  return kind ? `${kind}bookings ${when} came in ${limit}.` : `Bookings ${when} came in ${limit}.`;
 }
 
 /**
@@ -228,11 +243,13 @@ function speedLead(levelKey: string, when: string, subject = "Bookings"): string
  * The level comes from the rule, not from the snapshot: it is the pace the
  * owner wrote into the condition, and it is the one their rule acted on.
  *
- * On a night this rule already raised (a rule that raises) or cut (one that
- * cuts), it counted only from its own last change there (engine/pickup.ts,
- * bookingSpeedCountFrom): from the raise itself on its own day
- * (counted_since), or from the day after a cut. So the sentence names those
- * days instead of its whole window. A rule that cuts counts full days only,
+ * On a night this rule, or a stronger rule that moves the price the same
+ * way, already raised (a rule that raises) or cut (one that cuts), it
+ * counted only from the newest of those changes (engine/pickup.ts,
+ * countFromFireAt and bookingSpeedCountFrom): from the raise itself on its
+ * own day (counted_since), or from the day after a cut. So the sentence
+ * names those days instead of its whole window, and says "this rule or a
+ * stronger one" because the audit doesn't record whose change it was. A rule that cuts counts full days only,
  * up to yesterday (counted_through), and the sentence says so. `direction`
  * is the rule's, and decides whether its change reads as a raise or a cut.
  */
@@ -254,11 +271,11 @@ function bookingSpeedSentence(
     counted != null && counted >= 1
       ? fromChange
         ? counted === 1
-          ? `later on the day this rule last ${change} this night`
-          : `in the ${counted} days since this rule last ${change} this night`
+          ? `later on the day this rule or a stronger one last ${change} this night`
+          : `in the ${counted} days since this rule or a stronger one last ${change} this night`
         : counted === 1
-          ? `on the ${full}day after this rule last ${change} this night`
-          : `in the ${counted} ${full}days after this rule last ${change} this night`
+          ? `on the ${full}day after this rule or a stronger one last ${change} this night`
+          : `in the ${counted} ${full}days after this rule or a stronger one last ${change} this night`
       : fullDays
         ? `in the ${span} up to yesterday`
         : `this past ${span}`;
@@ -311,7 +328,7 @@ export function describeConditions(
   if (!condition) return [];
   const sentences = [
     fullnessSentence(condition, metrics, measured),
-    pickupSentence(condition, metrics, measured),
+    pickupSentence(condition, metrics, measured, direction),
     bookingSpeedSentence(condition, metrics, measured, direction),
     // Last, on purpose: it qualifies the occupancy figure, and a reader
     // shouldn't have to step over it to reach the point.
