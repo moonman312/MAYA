@@ -31,6 +31,7 @@ const cases: { name: string; ui: ReactElement; button: string; panel: string }[]
         roomTypeName="King"
         stayDate="2026-10-05"
         currentPrice={180}
+        manualPrice={null}
         pmsName="Cloudbeds"
         onSaved={() => {}}
       />
