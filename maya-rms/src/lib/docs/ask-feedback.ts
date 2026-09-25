@@ -76,6 +76,12 @@ export interface DocsQuestionRow {
 
 export interface FeedbackDeps {
   limiter: RateLimiter;
+  /**
+   * The limit for every reader together. Asked only for a post that is valid
+   * and within its own reader's limit, so junk and one busy address never use
+   * up everybody else's share. True when the post may be stored.
+   */
+  shared?: () => Promise<boolean>;
   /** stores one row; absent when the database is not configured (local dev) */
   write: ((row: DocsQuestionRow) => Promise<void>) | null;
   now?: () => Date;
@@ -119,6 +125,7 @@ export async function handleFeedback(request: Request, deps: FeedbackDeps): Prom
 
   if (!deps.limiter.take(clientIp(request))) return new Response(null, { status: 429 });
   if (!deps.write) return new Response(null, { status: 204 });
+  if (deps.shared && !(await deps.shared())) return new Response(null, { status: 429 });
 
   const isPageVote = source === "page-useful" || source === "page-not-useful";
   try {

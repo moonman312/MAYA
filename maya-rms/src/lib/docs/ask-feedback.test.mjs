@@ -73,6 +73,30 @@ test("the 21st post in an hour from one address gets a 429, others are unaffecte
   assert.equal(db.rows.length, 22);
 });
 
+test("the shared limit is only counted for a valid post its reader's own limit let through", async () => {
+  let asked = 0;
+  let open = true;
+  const db = recorder();
+  const deps = {
+    limiter: createRateLimiter({ perHour: 1 }),
+    write: db.write,
+    shared: async () => {
+      asked++;
+      return open;
+    },
+  };
+  assert.equal((await handleFeedback(post({ source: "nope", question: "x" }), deps)).status, 400);
+  assert.equal((await handleFeedback(post({ source: "unanswered", question: "" }), deps)).status, 400);
+  assert.equal(asked, 0, "junk never reaches the shared limit");
+  assert.equal((await handleFeedback(post({ source: "unanswered", question: "first" }), deps)).status, 204);
+  assert.equal((await handleFeedback(post({ source: "unanswered", question: "second" }), deps)).status, 429);
+  assert.equal(asked, 1, "a reader over their own limit never reaches it either");
+  open = false;
+  assert.equal((await handleFeedback(post({ source: "unanswered", question: "someone else" }, "198.51.100.9"), deps)).status, 429);
+  assert.equal(asked, 2);
+  assert.deepEqual(db.rows.map((r) => r.question), ["first"]);
+});
+
 test("with no database configured nothing is written and the route still answers 204", async () => {
   const res = await handleFeedback(post({ source: "unanswered", question: "anything" }), { limiter: createRateLimiter(), write: null });
   assert.equal(res.status, 204);

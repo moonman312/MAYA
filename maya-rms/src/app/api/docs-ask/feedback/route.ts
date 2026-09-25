@@ -13,7 +13,8 @@ import { isSupabaseConfigured } from "@/utils/supabase/shared";
 // show on /admin/docs-questions. Anyone can send, signed in or not, so there
 // are two limits: one per reader (in memory, keyed on a daily-salted hash of
 // the address, which is never stored) and one for everybody together, so a
-// loop cannot fill the table.
+// loop cannot fill the table. The shared one is counted only for a valid post
+// its reader's own limit let through, so one busy address cannot use it up.
 
 export const runtime = "nodejs";
 
@@ -30,11 +31,9 @@ async function signedIn(): Promise<boolean> {
 }
 
 export async function POST(request: Request) {
-  const everyone = await rateLimit("docsQuestion", "all");
-  if (!everyone.allowed) return new Response(null, { status: 429 });
-
   return handleFeedback(request, {
     limiter,
+    shared: async () => (await rateLimit("docsQuestion", "all")).allowed,
     write: isAdminConfigured()
       ? async (row) => {
           const { error } = await createAdminClient()
