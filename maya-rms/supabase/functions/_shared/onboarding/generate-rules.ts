@@ -31,8 +31,8 @@
  * today so far too. So a night that stays far behind keeps getting cut, real
  * demand keeps raising, no rule acts twice on the same bookings or on
  * bookings a stronger rule already acted on, and each tier steps in as the
- * count reaches it (a stronger rule that is waiting and still matches holds
- * the night meanwhile).
+ * count reaches it (a stronger rule that is waiting holds the night
+ * meanwhile only while the bookings it counts would make it adjust again).
  * Once a rule has adjusted one night three times MAYA puts that night in
  * front of the owner and asks whether to carry on; until they answer, the
  * rule carries on.

@@ -58,14 +58,23 @@
  * ladder rule's adjustment is not a fire and moves nothing: it holds while
  * its condition holds.
  *
- * WHICH RULE FIRES. At most one fire per cell per run. The competition
- * (selectPickupWinner) includes rules waiting on the cell whose conditions
- * still match over their full window, so a stronger rule holds the cell
- * through its wait on what it fired on: if one of those ranks first, nothing
- * fires there this run. A stronger rule can always fire while a weaker one
- * waits. A candidate is dropped before the competition when it can't move
- * the price in its own direction (limitAllowsFire), and a cell the run
- * leaves unpriced never gets a fire.
+ * WHICH RULE FIRES. At most one fire per cell per run: the strongest
+ * candidate (selectPickupWinner), unless a stronger rule still waiting on
+ * the cell holds it (runPickupPass), and then nothing fires there this run.
+ * A waiting rule holds a rule that moves the price the same way only when
+ * what it would count itself matches its condition again: the bookings
+ * since the newest change on the cell by itself or a stronger rule, where
+ * the weaker rule counts from too (Jake, 2026-09-24: 10 bookings at once
+ * raise the rule for 10, and 5 more raise the rule for 5 on those 5 while
+ * the rule for 10 waits). So the stronger rule keeps what would be its own
+ * next raise or cut, and a weaker one still steps in on what is too little
+ * for it. A waiting rule holds a rule that moves the price the other way
+ * while its whole window still matches, as it always has: raises and cuts
+ * never move each other's counts, so a raise that just fired isn't undone
+ * the next run by a cut it outranked. A stronger rule can always fire
+ * while a weaker one waits. A candidate is dropped before the competition
+ * when it can't move the price in its own direction (limitAllowsFire), and
+ * a cell the run leaves unpriced never gets a fire.
  *
  * WHEN A FIRE COMES OFF. Cuts never come off for cancellations. A raise comes
  * off when the bookings behind it cancel (cancellationCrossed): for a pickup
@@ -738,6 +747,15 @@ export async function insertPickupEvent(
 
 export type PickupWin = { candidate: PickupCandidate; effect: PickupEffect };
 
+/**
+ * A rule waiting on a cell whose condition still matches, measured one of
+ * two ways. "same_way": from where it counts itself (countFromFireAt), so
+ * it holds only the weaker rules that move the price its way, which count
+ * from there too. "other_way": over its whole window, so it holds the rules
+ * that move the price the other way. A rule can hold a cell both ways.
+ */
+export type WaitingHolder = { candidate: PickupCandidate; against: "same_way" | "other_way" };
+
 export type PickupPassOutcome = {
   winners: PickupWin[];
   /** Outranked by the rule that fired, or by one whose write failed or was recorded by another run. */
@@ -755,15 +773,18 @@ export type PickupPassOutcome = {
 /**
  * Run the full pickup pass: group by (hotel, stay_date, affected_room_type),
  * compete, insert winners. `holders` are rules waiting on a cell whose
- * conditions still match; they compete but never write, and a cell one of
- * them wins gets no fire. A cell with only holders is left alone.
+ * conditions still match (WaitingHolder); they never write. The strongest
+ * candidate on a cell fires unless a holder that ranks ahead of it holds it
+ * (one measured "same_way" for a candidate moving the price its way,
+ * "other_way" for one moving it the other way), and then the cell gets no
+ * fire. A cell with only holders is left alone.
  */
 export async function runPickupPass(
   supabase: SupabaseClient,
   candidates: PickupCandidate[],
   hotelId: string,
   basePrices: Map<string, number>,
-  holders: PickupCandidate[] = [],
+  holders: WaitingHolder[] = [],
 ): Promise<PickupPassOutcome> {
   const groups = new Map<string, PickupCandidate[]>();
   for (const c of candidates) {
@@ -772,9 +793,9 @@ export async function runPickupPass(
     group.push(c);
     groups.set(key, group);
   }
-  const holdersByCell = new Map<string, PickupCandidate[]>();
+  const holdersByCell = new Map<string, WaitingHolder[]>();
   for (const h of holders) {
-    const key = `${hotelId}|${h.stay_date}|${h.affected_room_type_id}`;
+    const key = `${hotelId}|${h.candidate.stay_date}|${h.candidate.affected_room_type_id}`;
     const list = holdersByCell.get(key) ?? [];
     list.push(h);
     holdersByCell.set(key, list);
@@ -790,13 +811,23 @@ export async function runPickupPass(
   };
 
   for (const [key, group] of groups) {
-    const waiting = holdersByCell.get(key) ?? [];
-    const winner = selectPickupWinner([...group, ...waiting], basePrices);
+    const winner = selectPickupWinner(group, basePrices);
     if (!winner) continue;
 
-    if (waiting.includes(winner)) {
-      outcome.holding.push(winner);
-      for (const c of group) outcome.held.push({ candidate: c, holder: winner });
+    // The waiting rules that rank ahead of the winner and hold it: the
+    // strongest of them is the one recorded as holding the cell.
+    const base = basePrices.get(basePriceKey(winner.stay_date, winner.affected_room_type_id)) ?? 100;
+    const holding = (holdersByCell.get(key) ?? [])
+      .filter(
+        (h) =>
+          (h.against === "same_way") === (h.candidate.rule.action_direction === winner.rule.action_direction) &&
+          comparePickupRules(h.candidate.rule, winner.rule, base, base) < 0,
+      )
+      .map((h) => h.candidate);
+    const holder = selectPickupWinner(holding, basePrices);
+    if (holder) {
+      outcome.holding.push(holder);
+      for (const c of group) outcome.held.push({ candidate: c, holder });
       continue;
     }
 

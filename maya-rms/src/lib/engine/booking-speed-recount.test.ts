@@ -17,8 +17,9 @@
  * cancellations), from its rule's current version, by the rule itself or a
  * stronger one, paused or not, a pickup count rule included. Raises and
  * cuts never move each other. A rule with no such change on the night
- * judges its whole window. A stronger rule that is waiting and still
- * matches holds the night, so tiers climb as pace climbs. A typed price is
+ * judges its whole window. A stronger rule that is waiting holds the night
+ * against the weaker rules its way only while what it counts itself meets
+ * its bar again; tiers climb as pace climbs. A typed price is
  * a reset point: the fires it took off start nothing, and after its wait
  * the rule judges its whole window again.
  *
@@ -240,16 +241,15 @@ describe.each(ENGINES)("$name: a Booking Speed rule never counts bookings it or 
       const w = world(engine, { rules: starterRules(), reservations: [...background(LAST, QUIET), ...wedding()], last: LAST });
       await w.run(0);
       expect(w.firedOn(NIGHT)).toEqual([["Sudden-spike catcher", 0]]);
-      // A later run the same day: the spike rule waits and its day still
-      // reads surging, so it holds the night against the week and month
-      // rules, which rank below it.
+      // A later run the same day: the spike rule waits, and the week and
+      // month rules, which rank below it, count only what came after its
+      // raise: nothing.
       await w.run(0, 6 * HOUR);
       expect(w.fires(NIGHT)).toHaveLength(1);
       for (let day = 1; day <= 32; day++) await w.run(day);
 
-      // Next day the spike rule's one day has nothing in it, so it holds
-      // no more. The week and month rules count only what came after its
-      // raise, which is the usual trickle: neither raises. One raise, not
+      // The days after, the week and month rules still count only what came
+      // after its raise, which is the usual trickle: neither raises. One raise, not
       // twelve, and not the three it took while each rule counted the
       // twenty for itself.
       expect(w.firedOn(NIGHT)).toEqual([["Sudden-spike catcher", 0]]);
@@ -305,9 +305,8 @@ describe.each(ENGINES)("$name: a Booking Speed rule never counts bookings it or 
     it("a weaker pickup count rule counts only what came after a stronger Booking Speed rule's raise", async () => {
       // The other way round: the pickup rule raises 10%, less than the
       // spike rule's 25%, so it ranks below it.
-      // Its week still holds the twenty once the spike rule stops holding
-      // the night, but its count opens at the spike rule's raise, and
-      // nothing came after it.
+      // Its week holds the twenty, but its count opens at the spike rule's
+      // raise, and nothing came after it.
       const pickup = rule(
         "Pickup raise",
         { pickup_operator: "gt", pickup_threshold: 5, pickup_window_days: 7, pickup_metric: "room_nights" },
@@ -457,11 +456,12 @@ describe.each(ENGINES)("$name: a Booking Speed rule never counts bookings it or 
       expect(w.firedOn(NIGHT)).toEqual([["Hot-week surge", 0]]);
       for (let k = 0; k < 30; k++) w.tables.reservations.push({ ...booking(NIGHT, D0), created_at: iso(T0 + 2 * HOUR) });
       await w.run(0, 6 * HOUR);
-      // The month rule sees the wave but the week rule holds the night
-      // through its 2-day wait; then it counts from its own raise and fires
-      // on the thirty, and holds the night again. After that wait the month
-      // rule counts only what came after the week rule's second raise:
-      // nothing. Both waves were the week rule's.
+      // The month rule counts the wave from the week rule's raise, but the
+      // week rule counts the thirty since its own raise too, reads much
+      // faster again and holds the night through its 2-day wait: they are
+      // its own next raise. Then it fires on the thirty. After that the
+      // month rule counts only what came after the week rule's second
+      // raise: nothing. Both waves were the week rule's.
       expect(w.fires(NIGHT)).toHaveLength(1);
       for (let day = 1; day <= 6; day++) await w.run(day);
       expect(w.firedOn(NIGHT)).toEqual([
@@ -611,8 +611,10 @@ describe.each(ENGINES)("$name: a Booking Speed rule never counts bookings it or 
       }
       // The week rule catches it on day 0 and, after each 2-day wait, fires
       // again on the days since its own last raise (from that raise's day
-      // on, the day itself split at the raise); it holds the night against
-      // the month rule in between. The day rule never reads surging on
+      // on, the day itself split at the raise). The month rule counts from
+      // those raises too, and in between the week rule holds the night
+      // against it while those bookings read much faster again. The day
+      // rule never reads surging on
       // three rooms in a day (too few to call it), so it stays out.
       expect(w.firedOn(NIGHT)).toEqual([
         ["Hot-week surge", 0],

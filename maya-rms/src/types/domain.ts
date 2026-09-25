@@ -179,7 +179,10 @@ export type EvaluationAuditDetails = {
      * won: fired this run (event_id and fire_seq name the new fire).
      * lost_competition: another rule fired on the cell.
      * held_by_waiting_rule: a stronger rule that fired earlier is still
-     * waiting and still matches, so nothing fired on the cell.
+     * waiting and matches again, so nothing fired on the cell: for a rule
+     * moving the price its way, on what it counts itself since the newest
+     * change by itself or a stronger rule; for one moving it the other way,
+     * over its whole window.
      * waiting: that stronger rule.
      * no_price_change: a cut already at the floor, or a raise already at the
      * ceiling, so it did not fire.

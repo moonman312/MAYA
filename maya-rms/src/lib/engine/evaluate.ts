@@ -61,6 +61,7 @@ import {
   type PickupRetireReason,
   type PickupWin,
   type RetiredPickupFire,
+  type WaitingHolder,
 } from "./pickup";
 import {
   assemblePriceFrom,
@@ -823,13 +824,15 @@ export async function evaluateHotel(
   // newest there, or a newer one by a stronger rule that adjusts the same
   // way, paused or not), for a Booking Speed condition from that fire's day
   // (bookingSpeedCountFrom) and for a pickup condition from the fire itself
-  // (pickupWindowOpensAt). Room types it may fire on are measured together
-  // when they count from the same place, so a (rule, night) can come out as
-  // more than one entry. A pickup condition that can't be judged on a
-  // stretch shorter than its window (pickupJudgesShortStretch) leaves out a
-  // cell whose window such a fire cut short: nothing to judge there yet.
-  // The ones it waits on are measured over the full window, for holding the
-  // cell (runPickupPass).
+  // (pickupWindowOpensAt). Cells are measured together when they count from
+  // the same place, so a (rule, night) can come out as more than one entry.
+  // A pickup condition that can't be judged on a stretch shorter than its
+  // window (pickupJudgesShortStretch) leaves out a cell whose window such a
+  // fire cut short: nothing to judge there yet. A cell the rule waits on is
+  // measured both ways, for holding it (runPickupPass): from where it counts
+  // itself against weaker rules that move the price its way (waitingOwn),
+  // and over its whole window against rules that move it the other way
+  // (waiting).
   type RuleNight = {
     rule: EngineRule;
     stayDate: string;
@@ -837,8 +840,12 @@ export async function evaluateHotel(
     countFrom: BookingSpeedCountFrom | null;
     /** Where baselineTs opened at a fire rather than a whole window back (pickup_counted_since). */
     pickupSince: string | null;
+    /** Room types it may fire on now. */
     open: string[];
+    /** Room types it waits on, where this is its whole window: it holds them against the other way. */
     waiting: string[];
+    /** Room types it waits on, where this is what it counts itself: it holds them against weaker rules its way. */
+    waitingOwn: string[];
     metrics?: RuleMetrics;
     matched?: boolean;
   };
@@ -852,38 +859,38 @@ export async function evaluateHotel(
     for (const stayDate of stayDates) {
       if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone)) continue;
       if (isStoppedOnNight(alertNights, rule, stayDate)) continue;
-      const openByFrom = new Map<
-        string,
-        { countFrom: BookingSpeedCountFrom | null; baselineTs: string | null; pickupSince: string | null; open: string[] }
-      >();
-      const waiting: string[] = [];
+      const byFrom = new Map<string, RuleNight>();
+      const entryFor = (countFrom: BookingSpeedCountFrom | null, cellBaselineTs: string | null) => {
+        const key = `${countFrom ? `${countFrom.from}|${countFrom.since ?? ""}` : ""}|${cellBaselineTs ?? ""}`;
+        let entry = byFrom.get(key);
+        if (!entry) {
+          entry = {
+            rule,
+            stayDate,
+            countFrom,
+            baselineTs: cellBaselineTs,
+            pickupSince: cellBaselineTs !== baselineTs ? cellBaselineTs : null,
+            open: [],
+            waiting: [],
+            waitingOwn: [],
+          };
+          byFrom.set(key, entry);
+        }
+        return entry;
+      };
       for (const rtId of rule.affected_room_type_ids) {
         const head = fireHeads.get(fireHeadKey(rule.id, stayDate, rtId));
         const manual = manualByCell.get(`${stayDate}|${rtId}`);
-        if (isWaiting(waitAnchor(rule, head, manual), now, waitDays)) {
-          waiting.push(rtId);
-          continue;
-        }
+        const waits = isWaiting(waitAnchor(rule, head, manual), now, waitDays);
+        if (waits) entryFor(null, baselineTs).waiting.push(rtId);
         const fireAt = countFromFireAt(rule, sameWay, fireHeads, stayDate, rtId, basePrices.get(basePriceKey(stayDate, rtId)) ?? 100);
         const countFrom = bookingSpeedCountFrom(rule, fireAt, manual, hotelTimeZone);
         const cellBaselineTs = pickupWindowOpensAt(baselineTs, fireAt, manual);
         if (cellBaselineTs !== baselineTs && !shortStretch) continue;
-        const key = `${countFrom ? `${countFrom.from}|${countFrom.since ?? ""}` : ""}|${cellBaselineTs ?? ""}`;
-        const entry = openByFrom.get(key) ?? {
-          countFrom,
-          baselineTs: cellBaselineTs,
-          pickupSince: cellBaselineTs !== baselineTs ? cellBaselineTs : null,
-          open: [],
-        };
-        entry.open.push(rtId);
-        openByFrom.set(key, entry);
+        const entry = entryFor(countFrom, cellBaselineTs);
+        (waits ? entry.waitingOwn : entry.open).push(rtId);
       }
-      for (const entry of openByFrom.values()) {
-        ruleNights.push({ rule, stayDate, ...entry, waiting: [] });
-      }
-      if (waiting.length > 0) {
-        ruleNights.push({ rule, stayDate, baselineTs, countFrom: null, pickupSince: null, open: [], waiting });
-      }
+      ruleNights.push(...byFrom.values());
     }
   }
 
@@ -904,7 +911,7 @@ export async function evaluateHotel(
       needs.push({ since: fire.window_since, stayDate: fire.stay_date, signalIds: rule.signal_room_type_ids });
     }
     for (const rn of ruleNights) {
-      if (!rn.countFrom?.since || rn.open.length === 0) continue;
+      if (!rn.countFrom?.since || (rn.open.length === 0 && rn.waitingOwn.length === 0)) continue;
       if (!rn.rule.condition.booking_speed_operator || rn.rule.signal_room_type_ids.length === 0) continue;
       const windowDays = rn.rule.condition.booking_speed_window_days ?? 7;
       if (!countFromInWindow(windowDays, localDate, rn.countFrom.from)) continue;
@@ -1052,20 +1059,21 @@ export async function evaluateHotel(
     }
   }
 
-  // Rules still waiting on a cell that has a live candidate stay in its
-  // competition when their conditions still match: a stronger rule that
-  // fired recently holds the cell, and a weaker one can't fire under it.
+  // Rules still waiting on a cell that has a live candidate hold it when
+  // their conditions still match (runPickupPass): against weaker rules that
+  // move the price their way on what they would count themselves, against
+  // the other way on their whole window.
   const liveCells = new Set(allPickupCandidates.map((c) => `${c.stay_date}|${c.affected_room_type_id}`));
-  const holders: PickupCandidate[] = [];
+  const holders: WaitingHolder[] = [];
   if (liveCells.size > 0) {
-    const holding = ruleNights.filter((rn) => rn.waiting.some((rtId) => liveCells.has(`${rn.stayDate}|${rtId}`)));
+    const live = (rn: RuleNight, list: string[]) => list.filter((rtId) => liveCells.has(`${rn.stayDate}|${rtId}`));
+    const holding = ruleNights.filter((rn) => live(rn, rn.waiting).length > 0 || live(rn, rn.waitingOwn).length > 0);
     await preloadSharedBaselines(snapshots, withBaseline(holding.filter((rn) => !rn.metrics)));
     for (const rn of holding) {
       await measure(rn);
       if (!rn.matched) continue;
-      for (const rtId of rn.waiting) {
-        if (liveCells.has(`${rn.stayDate}|${rtId}`)) holders.push(candidate(rn, rtId));
-      }
+      for (const rtId of live(rn, rn.waiting)) holders.push({ candidate: candidate(rn, rtId), against: "other_way" });
+      for (const rtId of live(rn, rn.waitingOwn)) holders.push({ candidate: candidate(rn, rtId), against: "same_way" });
     }
   }
 

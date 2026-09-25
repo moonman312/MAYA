@@ -479,27 +479,90 @@ describe("a rule waiting on a cell holds it", () => {
   const strong = rule("r-strong", { ...cond }, { priority: 200, action_value: 15 });
   const weak = rule("r-weak", { ...cond, pickup_window_days: 1 }, { priority: 100, action_value: 5 });
 
-  it("nothing fires under it, and it fires again itself once its wait has passed", async () => {
+  it("while what it counts since its raise meets its bar again: nothing fires under it, and it raises on that itself once its wait has passed", async () => {
+    // More than 0 new bookings: +15% over 3 days, and +5% over 1 day.
+    const more = { pickup_operator: "gt", pickup_threshold: 0, pickup_metric: "room_nights" };
+    const up = rule("r-up", { ...more, pickup_window_days: 3 }, { action_direction: "increase", action_value: 15 });
+    const upWeak = rule("r-up-weak", { ...more, pickup_window_days: 1 }, { action_direction: "increase", action_value: 5 });
+    const w = world({ rules: [up, upWeak], reservations: [booking(NIGHT, addDays(D0, -1))] });
+    await w.run(T0);
+    expect(w.fires(NIGHT).map((e) => e.rule_id)).toEqual(["r-up"]);
+    expect(w.price(NIGHT)).toBe(115);
+
+    // A booking after the raise. The weak rule counts from the strong
+    // rule's raise and would raise on it, but the strong rule, still
+    // waiting, counts it too and matches again: it holds the night.
+    w.tables.reservations.push(booking(NIGHT, D0));
+    await w.run(T0 + DAY);
+    expect(w.fires(NIGHT)).toHaveLength(1);
+    expect(w.price(NIGHT)).toBe(115);
+
+    // Control: paused after its raise, the strong rule still covers the weak
+    // one (its raise stays on the price) but never holds a night, and the
+    // weak rule raises on that booking.
+    const paused = world({ rules: [{ ...up }, upWeak], reservations: [booking(NIGHT, addDays(D0, -1))] });
+    await paused.run(T0);
+    paused.tables.pricing_rules.find((r) => r.id === "r-up")!.is_active = false;
+    paused.tables.reservations.push(booking(NIGHT, D0));
+    await paused.run(T0 + DAY);
+    expect(paused.fires(NIGHT).map((e) => [e.rule_id, e.signal_booked_units_start, e.signal_booked_units_end])).toEqual([
+      ["r-up", 0, 1],
+      ["r-up-weak", 1, 2],
+    ]);
+
+    // Three days on, the strong rule raises again on it.
+    await w.run(T0 + 3 * DAY);
+    expect(w.fires(NIGHT).map((e) => [e.rule_id, e.fire_seq])).toEqual([
+      ["r-up", 1],
+      ["r-up", 2],
+    ]);
+    expect(w.price(NIGHT)).toBe(132.25);
+  }, 60_000);
+
+  it("a stronger cut that can't judge the stretch since its cut yet doesn't hold the night: a weaker cut counting from it cuts on the new day", async () => {
+    // Jake, 2026-09-24: the weaker rule counts only from the stronger
+    // rule's change, so what it cuts on is new. "Fewer than 1 in 3 days"
+    // can't be told from the day since the strong rule's cut, so the strong
+    // rule has nothing of its own to hold the night on.
     const w = world({ rules: [strong, weak], reservations: [booking(NIGHT, addDays(D0, -30))] });
     await w.run(T0);
     expect(w.fires(NIGHT).map((e) => e.rule_id)).toEqual(["r-strong"]);
     expect(w.price(NIGHT)).toBe(85);
 
-    // A day on, the weak rule's own wait has passed but the strong rule is
-    // still waiting and still matches: nothing fires.
+    // A day on, a whole day with no booking since the strong rule's cut.
     await w.run(T0 + DAY);
-    expect(w.fires(NIGHT)).toHaveLength(1);
-    expect(w.price(NIGHT)).toBe(85);
-    // Nothing changed on the cell, so there is nothing new to record either.
-    expect(w.audits(NIGHT)).toHaveLength(1);
+    expect(w.fires(NIGHT).map((e) => e.rule_id)).toEqual(["r-strong", "r-weak"]);
+    expect(w.fires(NIGHT)[1].baseline_start_ts).toBe(iso(T0));
+    expect(w.price(NIGHT)).toBe(80.75);
 
-    // Three days on, the strong rule cuts again.
+    // Three days on, the strong rule cuts again on its own three days: the
+    // weaker rule's cut doesn't move where it counts from.
     await w.run(T0 + 3 * DAY);
     expect(w.fires(NIGHT).map((e) => [e.rule_id, e.fire_seq])).toEqual([
       ["r-strong", 1],
+      ["r-weak", 1],
       ["r-strong", 2],
     ]);
-    expect(w.price(NIGHT)).toBe(72.25);
+    expect(w.fires(NIGHT)[2].baseline_start_ts).toBe(iso(T0));
+    expect(w.price(NIGHT)).toBeCloseTo(80.75 * 0.85, 2);
+  }, 60_000);
+
+  it("a stronger raise that is waiting holds a cut on its whole window, so it isn't undone the next run by the cut it outranked", async () => {
+    const raise = rule(
+      "r-raise",
+      { pickup_operator: "gt", pickup_threshold: 0, pickup_window_days: 3, pickup_metric: "room_nights" },
+      { action_direction: "increase", action_value: 20 },
+    );
+    const cut = rule("r-cut", { pickup_operator: "lt", pickup_threshold: 5, pickup_window_days: 3, pickup_metric: "room_nights" }, { action_value: 5 });
+    const w = world({ rules: [raise, cut], reservations: [booking(NIGHT, addDays(D0, -1))] });
+    await w.run(T0);
+    expect(w.fires(NIGHT).map((e) => e.rule_id)).toEqual(["r-raise"]);
+    // Nothing booked since the raise, but its three days still hold the
+    // booking it raised on: the cut, which still matches, can't fire.
+    await w.run(T0 + DAY);
+    await w.run(T0 + 2 * DAY);
+    expect(w.fires(NIGHT).map((e) => e.rule_id)).toEqual(["r-raise"]);
+    expect(w.price(NIGHT)).toBe(120);
   }, 60_000);
 
   it("a stronger rule fires while a weaker one waits", async () => {

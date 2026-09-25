@@ -172,7 +172,14 @@
 -- then the older rule; the same order picks the rule that adjusts when
 -- several match at once. It used to put the starter rules first and then
 -- the rule with more conditions, so an owner's rule that changes the price
--- by more than a starter rule now goes ahead of it. A burst that reaches MAYA over several syncs can still
+-- by more than a starter rule now goes ahead of it. A stronger rule that is
+-- still waiting holds the night against a weaker rule that moves the price
+-- its way only while the bookings it counts since its change would make it
+-- adjust again, where it used to hold it while its whole window matched:
+-- 10 bookings at once and 5 more later raise the rule for 10, then the
+-- rule for 5 on the 5 as they come. Against a rule that moves the price
+-- the other way it still holds the night while its whole window matches.
+-- A burst that reaches MAYA over several syncs can still
 -- be raised again, on the bookings that came after the newest such raise.
 -- Cuts work the same way: a stronger cut covers the weaker cut rules, so a
 -- night the rescue cut is not trimmed again for the same slow stretch. A

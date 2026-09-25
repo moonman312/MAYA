@@ -109,6 +109,25 @@
  * 06-23 now changes in run 5, the one more price published. Every ladder
  * row, snapshot and run log is unchanged.
  *
+ * The same hashes, run 5's prices_published and the pickup_events_created
+ * counts of runs 3 to 5 in both variants, and the evaluation_run_log
+ * hashes of runs 5 to 7, were rewritten a ninth time when a rule still
+ * waiting on a cell began holding a weaker rule that moves the price its
+ * way only when what it would count itself (from the newest change there
+ * by itself or a stronger rule) matches again, not whenever its whole
+ * window does. Read against a dump of the previous engine first. c1,
+ * waiting a day from its run 2 raises, has more than one new King booking
+ * since them on 06-27 and 06-29, so it holds those nights (its audit rows
+ * there show c2 and c4 held_by_waiting_rule and c1 waiting) in runs 3 and
+ * 4, and c2 raises them in run 5 instead, on everything since c1's raise
+ * (13 to 22 and 7 to 11 rooms), not 06-27 in run 3 nor 06-29 in run 4.
+ * c2, waiting from its run 3 raise on 06-17, holds c4 there the same way,
+ * so c4 no longer raises 06-17 or 06-27 in run 4. No other fire moved; the
+ * prices and audit rows that changed are those cells', run 5 publishes one
+ * more price and writes one more audit row (06-29, where c2 now raises), and
+ * the run log differs in run 5's cells_changed alone.
+ * Every ladder row and snapshot is unchanged.
+ *
  * The golden file was written by this same test at commit 4ef5d65 with
  * MAYA_WRITE_ENGINE_GOLDEN=1. Its ladder_rule_state hashes were rewritten
  * once, leaving out last_evaluated_at, from an engine that still matched the

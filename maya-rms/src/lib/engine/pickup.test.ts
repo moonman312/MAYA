@@ -911,29 +911,68 @@ describe("runPickupPass", () => {
     expect(tables.pickup_event).toHaveLength(1);
   });
 
-  it("a rule still waiting on the cell, whose conditions hold, holds it: nothing fires", async () => {
+  it("a stronger rule still waiting on the cell, matching again on what it counts itself, holds a weaker rule its way: nothing fires", async () => {
     const { client, tables } = fakeSupabase({ pickup_event: [] });
     const weak = makeCandidate(makeRule({ id: "weak", priority: 100 }));
     const waiting = makeCandidate(makeRule({ id: "strong", priority: 200 }));
-    const outcome = await runPickupPass(client, [weak], "hotel-1", basePrices, [waiting]);
+    const outcome = await runPickupPass(client, [weak], "hotel-1", basePrices, [{ candidate: waiting, against: "same_way" }]);
     expect(outcome.winners).toHaveLength(0);
     expect(outcome.held.map((h) => [h.candidate.rule.id, h.holder.rule.id])).toEqual([["weak", "strong"]]);
     expect(outcome.holding.map((h) => h.rule.id)).toEqual(["strong"]);
     expect(tables.pickup_event).toHaveLength(0);
   });
 
+  it("a stronger waiting rule matching only over its whole window doesn't hold a weaker rule its way, which counts from its change anyway", async () => {
+    // Jake, 2026-09-24: 10 at once raise the rule for 10; 5 more raise the
+    // rule for 5 on those 5, though the rule for 10 still waits and its own
+    // window still holds all 15.
+    const { client } = fakeSupabase({ pickup_event: [] });
+    const weak = makeCandidate(makeRule({ id: "weak", priority: 100 }));
+    const waiting = makeCandidate(makeRule({ id: "strong", priority: 200 }));
+    const outcome = await runPickupPass(client, [weak], "hotel-1", basePrices, [{ candidate: waiting, against: "other_way" }]);
+    expect(outcome.winners.map((w) => w.candidate.rule.id)).toEqual(["weak"]);
+    expect(outcome.held).toHaveLength(0);
+  });
+
+  it("a stronger waiting rule holds a rule moving the price the other way on its whole window, and never on what it counts itself", async () => {
+    const cut = makeCandidate(makeRule({ id: "cut", action_direction: "decrease", action_value: 5 }));
+    const raise = makeCandidate(makeRule({ id: "raise", action_value: 20 }));
+    const whole = await runPickupPass(fakeSupabase({ pickup_event: [] }).client, [cut], "hotel-1", basePrices, [
+      { candidate: raise, against: "other_way" },
+    ]);
+    expect(whole.winners).toHaveLength(0);
+    expect(whole.held.map((h) => [h.candidate.rule.id, h.holder.rule.id])).toEqual([["cut", "raise"]]);
+    const own = await runPickupPass(fakeSupabase({ pickup_event: [] }).client, [cut], "hotel-1", basePrices, [
+      { candidate: raise, against: "same_way" },
+    ]);
+    expect(own.winners.map((w) => w.candidate.rule.id)).toEqual(["cut"]);
+  });
+
   it("a stronger rule fires while a weaker one waits", async () => {
     const { client } = fakeSupabase({ pickup_event: [] });
     const strong = makeCandidate(makeRule({ id: "strong", priority: 200 }));
     const waiting = makeCandidate(makeRule({ id: "weak", priority: 100 }));
-    const outcome = await runPickupPass(client, [strong], "hotel-1", basePrices, [waiting]);
+    const outcome = await runPickupPass(client, [strong], "hotel-1", basePrices, [
+      { candidate: waiting, against: "same_way" },
+      { candidate: waiting, against: "other_way" },
+    ]);
     expect(outcome.winners.map((w) => w.candidate.rule.id)).toEqual(["strong"]);
     expect(outcome.held).toHaveLength(0);
   });
 
+  it("names the strongest of several waiting rules that hold the cell", async () => {
+    const { client } = fakeSupabase({ pickup_event: [] });
+    const weak = makeCandidate(makeRule({ id: "weak", action_value: 5 }));
+    const outcome = await runPickupPass(client, [weak], "hotel-1", basePrices, [
+      { candidate: makeCandidate(makeRule({ id: "mid", action_value: 10 })), against: "same_way" },
+      { candidate: makeCandidate(makeRule({ id: "top", action_value: 20 })), against: "same_way" },
+    ]);
+    expect(outcome.holding.map((h) => h.rule.id)).toEqual(["top"]);
+  });
+
   it("a cell with only waiting rules is left alone", async () => {
     const { client, calls } = fakeSupabase({ pickup_event: [] });
-    const outcome = await runPickupPass(client, [], "hotel-1", basePrices, [makeCandidate(makeRule())]);
+    const outcome = await runPickupPass(client, [], "hotel-1", basePrices, [{ candidate: makeCandidate(makeRule()), against: "same_way" }]);
     expect(outcome).toMatchObject({ winners: [], held: [], holding: [] });
     expect(calls).toHaveLength(0);
   });
