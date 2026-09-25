@@ -102,3 +102,72 @@ export function trigrams(tokens: string[]): Set<string> {
   for (let i = 0; i + 3 <= s.length; i++) out.add(s.slice(i, i + 3));
   return out;
 }
+
+/** The edit distance between a and b (letters added, dropped, changed, or two side by side swapped), or max + 1 once it is over max. */
+export function editDistance(a: string, b: string, max: number): number {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  const rows: number[][] = [];
+  for (let i = 0; i <= a.length; i++) {
+    rows.push([i]);
+    let low = i;
+    for (let j = 1; j <= b.length; j++) {
+      if (i === 0) {
+        rows[0].push(j);
+        continue;
+      }
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      let v = Math.min(rows[i - 1][j] + 1, rows[i][j - 1] + 1, rows[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, rows[i - 2][j - 2] + 1);
+      rows[i].push(v);
+      if (v < low) low = v;
+    }
+    if (i > 0 && low > max) return max + 1;
+  }
+  return Math.min(rows[a.length][b.length], max + 1);
+}
+
+/**
+ * Spelling for the docs' own words. A question word of five letters or more
+ * that the docs never use, one letter off a word they do use (two for nine
+ * letters or more) and starting with the same letter, reads as that word:
+ * "boking" is "booking", "calender" is "calendar". The first letter and the
+ * length keep ordinary words from turning into docs words ("cook" stays).
+ * Ties go to the word the docs use most.
+ */
+export function createSpeller(counts: Map<string, number>): (text: string) => string {
+  const byStart = new Map<string, string[]>();
+  for (const w of counts.keys()) {
+    if (w.length < 4 || STOP_WORDS.has(w)) continue;
+    const list = byStart.get(w[0]) ?? [];
+    list.push(w);
+    byStart.set(w[0], list);
+  }
+  const cache = new Map<string, string>();
+  const fix = (w: string): string => {
+    if (w.length < 5 || counts.has(w) || STOP_WORDS.has(w) || !/^[a-z]+$/.test(w)) return w;
+    const hit = cache.get(w);
+    if (hit !== undefined) return hit;
+    const max = w.length >= 9 ? 2 : 1;
+    let best = w;
+    let bestD = max + 1;
+    let bestN = 0;
+    for (const c of byStart.get(w[0]) ?? []) {
+      if (Math.abs(c.length - w.length) > max) continue;
+      const d = editDistance(w, c, max);
+      if (d > max) continue;
+      const n = counts.get(c) ?? 0;
+      if (d < bestD || (d === bestD && n > bestN)) {
+        best = c;
+        bestD = d;
+        bestN = n;
+      }
+    }
+    if (cache.size < 5000) cache.set(w, best);
+    return best;
+  };
+  return (text: string) =>
+    clean(text)
+      .split(" ")
+      .map((w) => (w ? fix(w) : w))
+      .join(" ");
+}
