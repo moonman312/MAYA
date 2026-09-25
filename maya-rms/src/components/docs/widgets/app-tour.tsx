@@ -6,11 +6,11 @@ import { cn } from "@/lib/utils";
 // A drawing of the MAYA dashboard, not a screenshot: made-up property, no
 // real data. Each numbered spot explains one part.
 export const TOUR_PARTS = [
-  { id: "logo", label: "The header", note: "The MAYA logo, top left. Billing, Team and Sign Out sit top right." },
-  { id: "buttons", label: "Billing, Team, Sign Out", note: "Billing and Team are for a General Manager or Hotel Admin. Sign Out ends your session." },
+  { id: "logo", label: "The header", note: "The MAYA logo, top left. Help, Billing, Team and Sign Out sit top right." },
+  { id: "buttons", label: "Help, Billing, Team, Sign Out", note: "Help opens the docs page about the screen you are on. Billing and Team are for a General Manager or Hotel Admin. Sign Out ends your session." },
   { id: "banners", label: "Banners", note: "They appear only when something needs you: billing, a lost connection, the review, or rules that keep adjusting." },
-  { id: "tabs", label: "The five tabs", note: "Calendar, Rules, Rate Simulator, Change Log and PMS. Calendar opens first every time." },
-  { id: "property", label: "The Property dropdown", note: "Every property you belong to, in alphabetical order. Your choice is remembered." },
+  { id: "tabs", label: "The five tabs", note: "Calendar, Rules, Rate Simulator, Change Log and PMS. Calendar opens first; the tab you are on stays in the address." },
+  { id: "property", label: "The Property dropdown", note: "Every property you belong to, in alphabetical order. Your choice is kept." },
   { id: "day", label: "A day card", note: "The night's sellable occupancy, rooms booked out of rooms you can sell, the revenue on the books and a thin colour bar. Click it to open the day." },
 ] as const;
 
@@ -57,7 +57,7 @@ export function AppTourLive() {
             </div>
             <div className="flex items-center gap-1.5">
               <Spot n={at("buttons")} id="buttons" active={active} onShow={setActive} />
-              {["Billing", "Team", "Sign Out"].map((b) => (
+              {["Help", "Billing", "Team", "Sign Out"].map((b) => (
                 <span key={b} className="rounded-md border border-border px-2 py-0.5 text-muted-foreground">
                   {b}
                 </span>
