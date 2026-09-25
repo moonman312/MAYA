@@ -234,7 +234,7 @@ create table if not exists room_types (
   name text not null,
   display_name text,
   is_active boolean not null default true,
-  total_rooms integer not null default 100 check (total_rooms > 0),
+  total_rooms integer not null default 100 check (total_rooms >= 0),
   floor_price numeric(10,2) not null default 1.00,
   ceiling_price numeric(10,2) not null default 99999.99,
   created_at timestamptz not null default now(),
