@@ -62,6 +62,29 @@ test("listed phrases in plain text link, whole words only, and not inside a <Ui>
   assert.deepEqual(phrases.map((p) => [p.text, p.to]), [["change log", "changelog"]]);
 });
 
+test("a phrase's leading \"the\" stays outside the link, and a null phrase shields a longer one", () => {
+  const out = link("Open the calendar. The review screen asks, and the calendar date stays words.\n\nThe dashboard shows it.");
+  assert.deepEqual(
+    out.filter((x) => x.name === "AppLink").map((x) => [x.text, x.to]),
+    [
+      ["calendar", "calendar"],
+      ["review screen", "review"],
+      ["dashboard", "home"],
+    ],
+  );
+});
+
+test("a label set by hand for its other place wins over the dictionary", () => {
+  const out = link('Under <Ui to="rules.new" q="focus=conditions">Conditions</Ui>, one row. The <Ui>Conditions</Ui> column lists it.');
+  assert.deepEqual(
+    out.map((x) => [x.text, x.to ?? null, x.q ?? null]),
+    [
+      ["Conditions", "rules.new", "focus=conditions"],
+      ["Conditions", "rules.list", null],
+    ],
+  );
+});
+
 test("one link per place per paragraph, and a pre-selected view counts as its own place", () => {
   const out = link("Open <Ui>Rules</Ui>, then <Ui>Rules</Ui> again, then <Ui>Enabled</Ui>.\n\nA new paragraph: <Ui>Rules</Ui>.");
   assert.deepEqual(
@@ -99,7 +122,7 @@ test("every dictionary entry is a place the docs may open, with values the app r
     assert.deepEqual(links.parseLink(e.to, params, { source: "docs" }).problems, [], `${where}: ${e.to}?${e.q ?? ""}`);
   };
   for (const [label, e] of Object.entries(dict.labels)) check(label, e);
-  for (const [phrase, e] of Object.entries(dict.phrases)) check(phrase, e);
+  for (const [phrase, e] of Object.entries(dict.phrases)) if (e) check(phrase, e);
   for (const [page, overrides] of Object.entries(dict.pages)) {
     assert.ok(page.endsWith("/*") ? sections.some((s) => `${s.slug}/*` === page) : pages.has(page), `override for unknown page ${page}`);
     for (const [label, e] of Object.entries(overrides)) if (e) check(`${page} ${label}`, e);
@@ -141,4 +164,93 @@ test("the pages' own buttons and links into MAYA are all valid, and none is in t
     for (const s of ex.sections) for (const b of s.blocks) assert.ok(!/\]\((https?:\/\/(www\.)?maya-rms\.com|\/go\/|\/\?)/.test(b.md), `${p.path}: ${b.md}`);
   }
   assert.ok(buttons >= 30, `${buttons} buttons`);
+});
+
+// Every page, as it renders: each place a page names is linked (the first
+// time in its paragraph or table cell), and nothing that should stay words is.
+// Checked from the rendered tree, not from the linker's own bookkeeping.
+const SKIP_TYPES = new Set(["heading", "link", "linkReference", "inlineCode", "code", "definition", "html"]);
+const SKIP_ELEMENTS = new Set(["Related", "OpenInMaya", "AppLink", "Ui"]);
+const phraseKeys = Object.keys(dict.phrases).sort((a, b) => b.length - a.length);
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const phraseRe = new RegExp(`(?<![\\p{L}\\p{N}])(${phraseKeys.map(escapeRe).join("|")})(?![\\p{L}\\p{N}])`, "gu");
+
+function linkedPage(p) {
+  const body = fs.readFileSync(path.join(ROOT, "content/docs", `${p.path}.mdx`), "utf8").replace(/^---[\s\S]*?\n---\n/, "");
+  const tree = parseMdx(body);
+  // What the page itself wrote: a hand-set to, or <Ui off>.
+  (function mark(n) {
+    if (n.name === "Ui") n.handSet = (n.attributes || []).some((a) => a.name === "to");
+    (n.children || []).forEach(mark);
+  })(tree);
+  createAppLinker(dict)({ page: p.path })(tree);
+  return tree;
+}
+
+function auditPage(p) {
+  const tree = linkedPage(p);
+  const problems = [];
+  const stats = { ui: 0, phrases: 0, handSet: 0 };
+  const where = (n) => `${p.path}:${n.position?.start?.line ?? "?"}`;
+  const text = (n) => (n.type === "text" ? n.value : (n.children || []).map(text).join(""));
+
+  (function visit(n, ctx) {
+    const isLink = n.type === "mdxJsxTextElement" && (n.name === "AppLink" || (n.name === "Ui" && attrsOf(n).to));
+    if (isLink) {
+      if (ctx.heading) problems.push(`${where(n)} a link in a heading: ${text(n)}`);
+      if (ctx.link) problems.push(`${where(n)} a link inside a link: ${text(n)}`);
+      if (ctx.header) problems.push(`${where(n)} a link in a table header: ${text(n)}`);
+    }
+    if (n.type === "paragraph" || n.type === "tableCell") ctx = { ...ctx, used: new Set() };
+    if (n.name === "Ui" && !ctx.skip) {
+      const a = attrsOf(n);
+      const label = text(n).replace(/\s+/g, " ").trim();
+      const entry = "off" in a || n.handSet ? null : entryFor(dict, p.path, label);
+      if (n.handSet) stats.handSet++;
+      else if (a.to) {
+        const key = `${a.to}?${a.q ?? ""}`;
+        if (!entry || key !== `${entry.to}?${entry.q ?? ""}`) problems.push(`${where(n)} "${label}" linked to ${key}, not its entry`);
+        if (ctx.used.has(key)) problems.push(`${where(n)} "${label}" linked twice in one paragraph`);
+        ctx.used.add(key);
+        stats.ui++;
+      } else if (entry && !ctx.used.has(`${entry.to}?${entry.q ?? ""}`)) {
+        problems.push(`${where(n)} "${label}" names ${entry.to} but is not linked`);
+      }
+    }
+    if (n.name === "AppLink" && !n.position) {
+      // made by the linker from a phrase
+      const key = `${attrsOf(n).to}?${attrsOf(n).q ?? ""}`;
+      if (ctx.skip) problems.push(`${where(n)} a phrase linked where nothing should be`);
+      if (ctx.used.has(key)) problems.push(`${where(n)} "${text(n)}" linked twice in one paragraph`);
+      ctx.used.add(key);
+      stats.phrases++;
+    }
+    if (n.type === "text" && !ctx.skip) {
+      for (const m of n.value.matchAll(phraseRe)) {
+        const e = dict.phrases[m[1]];
+        if (e && !ctx.used.has(`${e.to}?${e.q ?? ""}`)) problems.push(`${where(n)} "${m[1]}" names ${e.to} but is not linked`);
+      }
+    }
+    const heading = ctx.heading || n.type === "heading";
+    const link = ctx.link || isLink || n.type === "link" || n.type === "linkReference";
+    const skip = ctx.skip || SKIP_TYPES.has(n.type) || SKIP_ELEMENTS.has(n.name);
+    if (n.type === "table") {
+      (n.children || []).forEach((row, i) => visit(row, { ...ctx, heading, link, skip: skip || i === 0, header: ctx.header || i === 0 }));
+      return;
+    }
+    for (const c of n.children || []) visit(c, { ...ctx, heading, link, skip });
+  })(tree, { used: new Set(), skip: false, heading: false, link: false, header: false });
+  return { problems, stats };
+}
+
+test("every page: each place it names links once per paragraph, never in a heading, a link or a table header", () => {
+  let problems = [];
+  const total = { ui: 0, phrases: 0, handSet: 0 };
+  for (const p of pagesMeta) {
+    const r = auditPage(p);
+    problems = problems.concat(r.problems);
+    for (const k of Object.keys(total)) total[k] += r.stats[k];
+  }
+  assert.deepEqual(problems, []);
+  assert.ok(total.ui > 900 && total.phrases > 600 && total.handSet >= 3, JSON.stringify(total));
 });

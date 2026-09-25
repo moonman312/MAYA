@@ -1,7 +1,7 @@
 export type AppLabelEntry = { to: string; q?: string };
 export type AppLabels = {
   labels: Record<string, AppLabelEntry>;
-  phrases: Record<string, AppLabelEntry>;
+  phrases: Record<string, AppLabelEntry | null>;
   pages: Record<string, Record<string, AppLabelEntry | null>>;
 };
 export const PER_BLOCK: number;

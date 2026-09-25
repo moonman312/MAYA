@@ -7,6 +7,11 @@
 // <AppLink> the same way. The words themselves never change, so a visitor
 // reads exactly the page they always did.
 //
+// Two phrase conventions: a phrase that starts with "the " or "The " needs
+// the article to match ("the calendar", not "a calendar"), but the article
+// stays outside the link; and a phrase set to null is never linked, which
+// shields a longer phrase from a shorter one ("the calendar date").
+//
 // Never linked: headings (the title, the table of contents and breadcrumbs
 // repeat them), anything already a link, code, <Related>, <OpenInMaya>, an
 // existing <AppLink>, a <Ui off>, a <Ui> that already names its own `to`, a
@@ -83,10 +88,13 @@ export function createAppLinker(dict) {
         for (const m of value.matchAll(phraseRe)) {
           const entry = dict.phrases[m[1]];
           if (!entry || !take(entry)) continue;
-          if (m.index > last) out.push({ type: "text", value: value.slice(last, m.index) });
+          // "the calendar": the article is needed to match but stays outside the link.
+          const lead = /^(?:the|The) /.exec(m[1])?.[0].length ?? 0;
+          const start = m.index + lead;
+          if (start > last) out.push({ type: "text", value: value.slice(last, start) });
           const attributes = [jsxAttr("to", entry.to)];
           if (entry.q) attributes.push(jsxAttr("q", entry.q));
-          out.push({ type: "mdxJsxTextElement", name: "AppLink", attributes, children: [{ type: "text", value: m[1] }] });
+          out.push({ type: "mdxJsxTextElement", name: "AppLink", attributes, children: [{ type: "text", value: m[1].slice(lead) }] });
           last = m.index + m[1].length;
         }
         if (!out.length) return [textNode];
