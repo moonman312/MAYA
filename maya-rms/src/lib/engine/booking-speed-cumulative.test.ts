@@ -632,46 +632,107 @@ describe.each(ENGINES)("$name: a rule counts from its own last change or a stron
   });
 
   describe("the owner's rules as week-long Booking Speed rules on the form's default 7-day wait", () => {
-    // Nights like this one book 1 every 3 days of lead time from 90 to 30
-    // days out, so over a week "much faster" first reads at 3 bookings and
-    // "surging" at 5. Five raises 10% on much faster, Ten 20% on surging;
-    // both wait a week. Six bookings at 10:00 read surging with the week's
-    // two others, and Ten raises.
-    const rows = (second: number) => [
-      ...background(LAST, Array.from({ length: 21 }, (_, i) => 30 + 3 * i).filter((l) => l <= 90), {
+    // Nights like this one book 1 every 3 days of lead time from about 90
+    // to 30 days out, each night a day later in that cycle than the night
+    // before, so the nights it is compared with get about 2 or 3 in any
+    // week of their booking curves, the same at every lead time. So over a
+    // week "much faster" first reads at 5 bookings and "surging" at 9: his
+    // 5, and near enough his 10. This night has none of its own from 50
+    // days out on. Five raises 10% on much faster, Ten 20% on surging; both
+    // measure a week and wait a week. Runs: a sync just before and after
+    // each batch, an evening one, and twice a day for nine days after, well
+    // past the waits.
+    const rows = (batches: { n: number; at: number }[]) => [
+      ...background(LAST, Array.from({ length: 63 }, (_, i) => 30 + i), {
         hours: [3],
-        skip: (stay, lead) => stay === NIGHT && lead <= 40,
+        skip: (stay, lead) =>
+          (stay === NIGHT && lead <= 50) || (((lead - daysBetween(D0, stay)) % 3) + 3) % 3 !== 0,
       }),
-      ...Array.from({ length: 6 }, () => booking(NIGHT, D0, at(0, 10))),
-      ...Array.from({ length: 4 }, () => booking(NIGHT, dayOf(second), second)),
+      ...batches.flatMap((b) => Array.from({ length: b.n }, () => booking(NIGHT, dayOf(b.at), b.at))),
     ];
     const rules = () => [
       rule("Five", { booking_speed_operator: "at_least", booking_speed_level: "much_faster", booking_speed_window_days: 7, booking_speed_cooldown_days: 7 }, { action_value: 10 }),
       rule("Ten", { booking_speed_operator: "at_least", booking_speed_level: "surging", booking_speed_window_days: 7, booking_speed_cooldown_days: 7 }, { action_value: 20 }),
     ];
-    const RUNS = [at(0, 9, 57), at(0, 10, 2), at(0, 12, 2), at(0, 18, 5), at(1, 0, 5), at(1, 12, 2), at(1, 18, 5), ...ticks(2, 9, [0, 12])];
-    const TEN = ["Ten", iso(at(0, 10, 2)), addDays(D0, -6), D0, null, 8];
-
-    it("4 more later the same day: Five raises on them once a second day counts ($132), though Ten waits a week", async () => {
-      // Four bookings in the two hours after the raise read as surging on
-      // their own that afternoon (a night like this gets none in part of a
-      // day), so Ten, counting from its raise, matches again and holds the
-      // night: they would be its own next raise. Over two days the same four
-      // read much faster, not surging: Ten lets go, and Five, counting from
-      // Ten's raise too, raises on them. Held on Ten's whole week instead,
-      // the four would have left Five's week before Ten let go: $120.
-      const w = timeline(engine, { rules: rules(), rows: rows(at(0, 12)), last: LAST });
+    const RUNS = [at(0, 9, 57), at(0, 10, 2), at(0, 11, 57), at(0, 12, 2), at(0, 18, 5), at(1, 0, 5), at(1, 11, 57), at(1, 12, 2), at(1, 18, 5), ...ticks(2, 9, [0, 12])];
+    const story = async (batches: { n: number; at: number }[]) => {
+      const w = timeline(engine, { rules: rules(), rows: rows(batches), last: LAST });
       await w.runAll(RUNS);
-      expect(w.fired(NIGHT)).toEqual([TEN, ["Five", iso(at(1, 0, 5)), D0, addDays(D0, 1), iso(at(0, 10, 2)), 4]]);
-      expect(w.price(NIGHT)).toBeCloseTo(132, 2);
+      return w;
+    };
+    /** [rule, when, days counted from..to, day split at, bookings counted, what a night like it gets in a week] per fire. */
+    const fired = (w: ReturnType<typeof timeline>) =>
+      w.fires(NIGHT).map((e) => [e.rule_id, String(e.applied_at), e.window_from, e.window_to, e.window_since, e.window_bookings_at_fire, e.window_expected_at_fire]);
+    const TEN = ["Ten", iso(at(0, 10, 2)), addDays(D0, -6), D0, null, 10, 2.33];
+
+    it("the bars: 4 at once reach neither rule, 5 to 8 reach Five, and 9 reach Ten", async () => {
+      for (const [n, want] of [
+        [4, []],
+        [5, ["Five"]],
+        [8, ["Five"]],
+        [9, ["Ten"]],
+      ] as const) {
+        const w = timeline(engine, { rules: rules(), rows: rows([{ n, at: at(0, 10) }]), last: LAST });
+        await w.runAll([at(0, 10, 2)]);
+        expect(w.fires(NIGHT).map((e) => e.rule_id)).toEqual(want);
+      }
     }, 120_000);
 
-    it("4 more the next day: Five raises on them at the next sync ($132)", async () => {
-      const w = timeline(engine, { rules: rules(), rows: rows(at(1, 12)), last: LAST });
-      await w.runAll(RUNS);
-      expect(w.fired(NIGHT)).toEqual([TEN, ["Five", iso(at(1, 12, 2)), D0, addDays(D0, 1), iso(at(0, 10, 2)), 4]]);
-      expect(w.price(NIGHT)).toBeCloseTo(132, 2);
+    it("10 at once, then nothing: Ten raises ($120), and Five never raises on those same 10", async () => {
+      const w = await story([{ n: 10, at: at(0, 10) }]);
+      expect(fired(w)).toEqual([TEN]);
+      expect(w.price(NIGHT)).toBe(120);
     }, 120_000);
+
+    for (const [when, second] of [
+      ["later the same day", at(0, 12)],
+      ["the next day", at(1, 12)],
+    ] as const) {
+      it(`5, then 5 more ${when}: Five raises on 5 ($110), and Ten on all 10 ($132), as Five's raise doesn't restart Ten's count`, async () => {
+        const w = await story([{ n: 5, at: at(0, 10) }, { n: 5, at: second }]);
+        expect(w.fires(NIGHT).map((e) => [e.rule_id, String(e.applied_at), e.window_since, e.window_bookings_at_fire])).toEqual([
+          ["Five", iso(at(0, 10, 2)), null, 5],
+          ["Ten", iso(second + 2 * MIN), null, 10],
+        ]);
+        expect(w.price(NIGHT)).toBeCloseTo(132, 2);
+      }, 120_000);
+
+      it(`7, then 3 more ${when}: Five raises on 7 ($110), and Ten on all 10 ($132)`, async () => {
+        const w = await story([{ n: 7, at: at(0, 10) }, { n: 3, at: second }]);
+        expect(w.fires(NIGHT).map((e) => [e.rule_id, String(e.applied_at), e.window_since, e.window_bookings_at_fire])).toEqual([
+          ["Five", iso(at(0, 10, 2)), null, 7],
+          ["Ten", iso(second + 2 * MIN), null, 10],
+        ]);
+        expect(w.price(NIGHT)).toBeCloseTo(132, 2);
+      }, 120_000);
+    }
+
+    // The week a night like this usually gets, 39 and 40 days out.
+    for (const [when, second, usual] of [
+      ["later the same day", at(0, 12), 2.33],
+      ["the next day", at(1, 12), 2.17],
+    ] as const) {
+      it(`10 at once, then 3 more ${when}: Ten raises once ($120), and Five never raises on the 3`, async () => {
+        // Five counts from Ten's raise: 3 bookings, against the 2 or 3 a
+        // night like this gets in a whole week, is not much faster. Read
+        // against what such a night gets in the hours or the day since the
+        // raise (about none), the same 3 read much faster: $132.
+        const w = await story([{ n: 10, at: at(0, 10) }, { n: 3, at: second }]);
+        expect(fired(w)).toEqual([TEN]);
+        expect(w.price(NIGHT)).toBe(120);
+      }, 120_000);
+
+      it(`10 at once, then 5 more ${when}: Five raises on the 5 at the next sync ($132), while Ten still waits`, async () => {
+        // 5 since Ten's raise are much faster than a whole week's usual, so
+        // Five raises on them right away. Ten counts only those 5 too, not
+        // surging, so it doesn't hold the night; held until its week was
+        // over, the 5 would have left Five's week by then: $120.
+        const w = await story([{ n: 10, at: at(0, 10) }, { n: 5, at: second }]);
+        // Its count starts at Ten's raise, the rest of that day included.
+        expect(fired(w)).toEqual([TEN, ["Five", iso(second + 2 * MIN), D0, dayOf(second), iso(at(0, 10, 2)), 5, usual]]);
+        expect(w.price(NIGHT)).toBeCloseTo(132, 2);
+      }, 120_000);
+    }
   });
 
   it("a surge of separate bookings over two weeks still stacks raises, each on the bookings since the week rule's own last raise", async () => {

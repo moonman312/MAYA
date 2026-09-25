@@ -32,16 +32,32 @@
  * day can only undercount and a "faster" reading is then real).
  *
  * A rule that already adjusted a night passes `countFrom`: only bookings
- * made from that date on count, and the window shrinks to the days from it
- * to the stretch's last day. The comparables (and momentum) are then read
- * over that same shorter stretch of their booking curves, so the
- * expectation stays a fair one: a rule never re-counts the bookings it
- * already acted on. With `split` (a raise rule), countFrom is the day of
- * the fire itself and that day counts only the bookings first seen after
- * the fire (the rest of it, in effect), so the bookings the fire could not
- * have counted are not lost with it; the comparables still read that day
- * whole, which undercounts the target and is the safe side for a raise. A
- * cut rule never splits a day: it counts the complete days after its fire's.
+ * made from that date on count on the target, and the stretch counted
+ * shrinks to the days from it to the stretch's last day, so a rule never
+ * re-counts the bookings it already acted on. With `split` (a raise rule),
+ * countFrom is the day of the fire itself and that day counts only the
+ * bookings first seen after the fire (the rest of it, in effect), so the
+ * bookings the fire could not have counted are not lost with it. A cut
+ * rule never splits a day: it counts the complete days after its fire's.
+ *
+ * What those bookings are compared with, the bar, is one of two:
+ *
+ * - With `wholeWindowBar` (a rule that raises on "at least" a pace, engine
+ *   booking-speed-provider.ts keepsWholeWindowBar), the whole window: the
+ *   comparables (and momentum) are read over the full `windowDays`, so
+ *   "much faster in a week" still needs about twice what a night like it
+ *   gets in a whole week, from the bookings since the change alone (Jake's
+ *   examples, 2026-09-24: 10 bookings at once raise the rule for 10, 3 more
+ *   after that don't raise the rule for 5, and 5 more do). Read over the
+ *   few hours or days since the change, where the comparables expect
+ *   about 0 or 1, those 3 would read much faster. A shorter stretch can
+ *   only count fewer bookings against the same bar, so it can only make
+ *   "at least" a pace harder to reach.
+ * - Otherwise the same days: the comparables (and momentum) are read over
+ *   the stretch counted, on their own booking curves. A cut rule reads it
+ *   so, and so does a raise rule on "at most" or "exactly" a pace: against
+ *   a whole window's usual, a few days would read slow, which would make
+ *   those conditions easier to meet, not harder.
  *
  * Counts reflect currently known reservations from the slim import rows:
  * a canceled booking disappears rather than counting negative. Pure
@@ -108,12 +124,20 @@ export interface BookingSpeedObservation {
   measuredRoomTypeIds?: string[];
   /**
    * Set only when `countFrom` cut the window short, or split its first day:
-   * the first booking date counted. windowDays is then the stretch actually
-   * measured, on the target and on every comparable alike.
+   * the first booking date counted. windowDays is then the stretch counted
+   * on the target, and on the comparables too unless expectedOverFullWindow.
    */
   countedFrom?: string;
   /** The window the rule asked for, set together with countedFrom. */
   fullWindowDays?: number;
+  /**
+   * With countedFrom, when `wholeWindowBar` applied: the comparables and
+   * momentum were read over fullWindowDays, so expectedBookings is what a
+   * night like it gets in the whole window, the bar the bookings since
+   * countedFrom had to beat on their own. Absent: they were read over
+   * windowDays, the same days as the target.
+   */
+  expectedOverFullWindow?: true;
   /**
    * With countedFrom, when `split` applied: the fire countedFrom is the day
    * of. On that day only the target's bookings first seen after this
@@ -158,11 +182,12 @@ export interface ObserveBookingSpeedOptions {
    */
   completeDays?: boolean;
   /**
-   * Count only bookings made on or after this date (YYYY-MM-DD). The window
-   * becomes the days from it to the stretch's last day (lastCountedDay),
-   * never longer than windowDays, and must keep at least one day (see
-   * windowDaysFrom). Null or older than the window's first day: the whole
-   * window, exactly as without it.
+   * Count only bookings made on or after this date (YYYY-MM-DD) on the
+   * target: the days from it to the stretch's last day (lastCountedDay),
+   * never longer than windowDays, and at least one day (see
+   * windowDaysFrom). The comparables and momentum read the same days, or
+   * with wholeWindowBar the whole window. Null or older than the window's
+   * first day: the whole window, exactly as without it.
    */
   countFrom?: string | null;
   /**
@@ -177,6 +202,15 @@ export interface ObserveBookingSpeedOptions {
    * completeDays: a complete day is never split.
    */
   split?: { since: string; index: BookingWindowIndex } | null;
+  /**
+   * With countFrom inside the window: read the comparables (and momentum)
+   * over the whole windowDays instead of the stretch counted on the
+   * target, so the bookings since countFrom must beat what a night like it
+   * gets in a whole window on their own. For a rule that raises on "at
+   * least" a pace, which fewer bookings can only make harder to reach.
+   * Never with completeDays: a cut compares the same days on both sides.
+   */
+  wholeWindowBar?: boolean;
   /** Same exclusion predicate passed to selectComparableDates — reused for momentum's neighbor search. */
   isExcluded?: (date: string) => boolean;
 }
@@ -230,8 +264,7 @@ export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSp
   const completeDays = opts.completeDays === true;
   const end = completeDays ? 1 : 0;
   const last = lastCountedDay(opts.asOf, completeDays);
-  // From here on the window is the stretch actually counted: bookings made
-  // from countFrom on, on the target and on every date it is compared with.
+  // The stretch counted on the target: bookings made from countFrom on.
   const windowDays = windowDaysFrom(fullWindowDays, last, opts.countFrom);
   if (windowDays < 1) {
     throw new Error("booking speed countFrom must leave at least one day to count");
@@ -239,12 +272,25 @@ export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSp
   if (completeDays && opts.split) {
     throw new Error("booking speed never splits a complete day");
   }
+  if (completeDays && opts.wholeWindowBar) {
+    throw new Error("booking speed reads complete days against the same days");
+  }
   // The split is reached only when the window's first day is countFrom's.
   const split = opts.split && countFromInWindow(fullWindowDays, last, opts.countFrom) ? opts.split : null;
-  const cut =
-    windowDays < fullWindowDays || split
-      ? { countedFrom: opts.countFrom!, fullWindowDays, ...(split ? { countedSince: split.since } : {}) }
-      : {};
+  const counted = windowDays < fullWindowDays || split !== null;
+  // What a night like it usually gets, the bar: over the same days as the
+  // target, or with wholeWindowBar over the whole window, so the bookings
+  // since countFrom must beat a whole window's usual on their own.
+  const whole = counted && opts.wholeWindowBar === true;
+  const expectedDays = whole ? fullWindowDays : windowDays;
+  const cut = counted
+    ? {
+        countedFrom: opts.countFrom!,
+        fullWindowDays,
+        ...(split ? { countedSince: split.since } : {}),
+        ...(whole ? { expectedOverFullWindow: true as const } : {}),
+      }
+    : {};
   const through = completeDays ? { countedThrough: last } : {};
 
   const index = opts.index ?? indexBookingRows(opts.rows ?? []);
@@ -258,7 +304,7 @@ export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSp
 
   const perComparable: ComparablePickup[] = opts.selection.comparables.map((c) => ({
     date: c.date,
-    bookings: pickupInWindowIndexed(index, c.date, daysOut + end, windowDays),
+    bookings: pickupInWindowIndexed(index, c.date, daysOut + end, expectedDays),
     tier: c.tier,
     reasons: c.reasons,
     hasData: hasAnyRowIndexed(index, c.date),
@@ -295,7 +341,7 @@ export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSp
     index,
     target: opts.target,
     asOf: opts.asOf,
-    windowDays,
+    windowDays: expectedDays,
     endOffset: end,
     isExcluded: opts.isExcluded,
   });
@@ -325,8 +371,22 @@ export function observeBookingSpeed(opts: ObserveBookingSpeedOptions): BookingSp
 
 /* ── Explainability ──────────────────────────────────────────── */
 
-/** Level 1: the classification sentence for this observation's window. */
+/** "day", "week", "month" or "N days": a window's length in words. */
+function spanWords(days: number): string {
+  return days === 1 ? "day" : days === 7 ? "week" : days === 30 ? "month" : `${days} days`;
+}
+
+/**
+ * Level 1: the classification sentence for this observation's window. A
+ * reading that counted from a change says so, and says the expectation
+ * covers the whole window when it does (expectedOverFullWindow).
+ */
 export function describeObservation(obs: BookingSpeedObservation): string {
+  const counted = obs.countedFrom
+    ? obs.countedThrough
+      ? `in the ${obs.windowDays === 1 ? "full day" : `${obs.windowDays} full days`} since the last cut`
+      : "since the last raise"
+    : null;
   if (obs.method === "insufficient_data") {
     const seen =
       obs.recentBookings === 0
@@ -334,9 +394,15 @@ export function describeObservation(obs: BookingSpeedObservation): string {
         : obs.recentBookings === 1
           ? "has received 1 booking"
           : `has received ${obs.recentBookings} bookings`;
-    return `This stay date ${seen} in the last ${obs.windowDays} days. We do not have enough history yet to say whether that pace is unusual.`;
+    return `This stay date ${seen} ${counted ?? `in the last ${obs.windowDays} days`}. We do not have enough history yet to say whether that pace is unusual.`;
   }
-  return describeBookingSpeed(obs.classification, { windowDays: obs.windowDays });
+  const expectedOver =
+    obs.expectedOverFullWindow && obs.fullWindowDays ? `in a whole ${spanWords(obs.fullWindowDays)}` : undefined;
+  return describeBookingSpeed(obs.classification, {
+    windowDays: obs.windowDays,
+    ...(counted ? { windowPhrase: counted } : {}),
+    ...(expectedOver ? { expectedOver } : {}),
+  });
 }
 
 /** Level 2: where the expectation came from, in plain words. */

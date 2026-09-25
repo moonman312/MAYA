@@ -7,6 +7,7 @@ import {
   bookingsInFrozenWindow,
   countsCompleteDays,
   isWithinCooldown,
+  keepsWholeWindowBar,
   loadBookingSpeedContext,
   loadSplitWindows,
   observeForStayDate,
@@ -19,6 +20,7 @@ import { detectSeasons } from "@/lib/observations/seasons";
 import type { SlimReservationRow } from "@/lib/observations/expected-bookings";
 import { indexBookingRows } from "@/lib/observations/booking-rows";
 import { addDays } from "@/lib/observations/calendar";
+import { estimateMomentumFallback } from "@/lib/observations/momentum";
 import { FakeRpcError, fakeSupabase, missingFunction, type FakeRow } from "./fake-supabase.test";
 
 function makeContext(rows: SlimReservationRow[], asOf: string): BookingSpeedContext {
@@ -148,6 +150,41 @@ describe("observeForStayDate from a date (a rule that already fired on the night
     expect(bookingSpeedMetrics(whole)).not.toHaveProperty("counted_from");
     // Both are what the run consulted for the night.
     expect(bookingSpeedAuditSnapshots(ctx, "2026-08-15")).toHaveLength(2);
+  });
+
+  it("with the whole-window bar reads the comparables over the rule's whole window, keyed apart, and says so in the metrics; never for a cut", () => {
+    const ctx = makeContext(rows, "2026-08-01");
+    const same = observeForStayDate(ctx, "2026-08-15", 7, undefined, "2026-07-30", "increase");
+    const whole = observeForStayDate(ctx, "2026-08-15", 7, undefined, "2026-07-30", "increase", null, true);
+    expect(whole).not.toBe(same);
+    expect(whole.recentBookings).toBe(same.recentBookings);
+    expect(whole.windowDays).toBe(3);
+    // No comparable here has history, so momentum sets the bar: nearby
+    // nights' pace over the same 3 days, or over the whole week.
+    const read = (windowDays: number) =>
+      estimateMomentumFallback({ index: ctx.windowsByDate, target: "2026-08-15", asOf: "2026-08-01", windowDays, isExcluded: ctx.isExcluded });
+    expect(same.momentum).toEqual(read(3));
+    expect(whole.momentum).toEqual(read(7));
+    expect(whole.expectedBookings).toBeGreaterThan(same.expectedBookings);
+    expect(whole.expectedOverFullWindow).toBe(true);
+    expect(observeForStayDate(ctx, "2026-08-15", 7, undefined, "2026-07-30", "increase", null, true)).toBe(whole);
+    expect(bookingSpeedMetrics(whole)).toMatchObject({ counted_from: "2026-07-30", full_window_days: 7, expected_over_full_window: true });
+    expect(bookingSpeedMetrics(same)).not.toHaveProperty("expected_over_full_window");
+    // Nothing counted from: the plain reading, whatever the bar.
+    expect(observeForStayDate(ctx, "2026-08-15", 7, undefined, null, "increase", null, true)).toBe(observeForStayDate(ctx, "2026-08-15", 7));
+    // A cut reads complete days against the same days, handed the bar or not.
+    const cut = observeForStayDate(ctx, "2026-08-15", 7, undefined, "2026-07-30", "decrease", null, true);
+    expect(cut.expectedOverFullWindow).toBeUndefined();
+    expect(cut).toBe(observeForStayDate(ctx, "2026-08-15", 7, undefined, "2026-07-30", "decrease"));
+  });
+
+  it("keeps the whole-window bar for a rule that raises on at least a pace, and only that", () => {
+    expect(keepsWholeWindowBar("increase", "at_least")).toBe(true);
+    expect(keepsWholeWindowBar("increase", "at_most")).toBe(false);
+    expect(keepsWholeWindowBar("increase", "is")).toBe(false);
+    expect(keepsWholeWindowBar("decrease", "at_least")).toBe(false);
+    expect(keepsWholeWindowBar("decrease", "at_most")).toBe(false);
+    expect(keepsWholeWindowBar("increase", null)).toBe(false);
   });
 
   it("shares the whole window's observation when the date cuts nothing off", () => {

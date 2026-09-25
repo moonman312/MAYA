@@ -81,8 +81,10 @@
  * off when the bookings behind it cancel (cancellationCrossed): for a pickup
  * raise, net bookings are back to where its window opened; for a Booking
  * Speed raise, the bookings still on the books from its frozen window (the
- * days it counted, cut short by its own earlier raise or not) are back to
- * what a night like it usually gets over them. Each stacked raise is tested
+ * days it counted, cut short by the raise it counted from or not) are back
+ * to what a night like it usually gets, the bar it beat: over the rule's
+ * whole window for a rule on "at least" a pace, even when its count was cut
+ * short (keepsWholeWindowBar). Each stacked raise is tested
  * on its own numbers, and never in the run that made it. Every fire also comes
  * off when its night passes, when a manual price is set on the cell, and
  * when the rule is edited. Pausing a rule changes nothing: its fires keep
@@ -956,8 +958,10 @@ export type RetiredPickupFire = { fire: OpenPickupFire; reason: PickupRetireReas
  * deliberately high: a cancellation or two out of a real surge is noise.
  * window_bookings: bookings still on the books from the fire's frozen window
  * (its first day split at the fire it counted from, when it was) are back to
- * what a night like it usually gets in that window. either: any test that
- * can be made says so.
+ * what a night like it usually gets (window_expected_at_fire, the bar the
+ * raise beat: over the rule's whole window for a rule on "at least" a pace,
+ * even when the window was cut short). either: any test that can be made
+ * says so.
  *
  * Never for a cut, a fire with no test, a rule that measures other room
  * types than it did at the fire, or a night this run has no numbers for.

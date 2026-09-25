@@ -24,6 +24,7 @@ import {
   countsCompleteDays,
   loadBookingSpeedContext,
   loadSplitWindows,
+  keepsWholeWindowBar,
   observeForStayDate,
   signalSetKey,
   type BookingSpeedContext,
@@ -665,6 +666,7 @@ export async function evaluateHotel(
       countFrom?.from,
       rule.action_direction,
       countFrom?.since,
+      keepsWholeWindowBar(rule.action_direction, rule.condition.booking_speed_operator),
     );
     if (observation.method === "insufficient_data") {
       metrics.booking_speed_block_reason = "insufficient_data";

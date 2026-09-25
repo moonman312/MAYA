@@ -968,6 +968,26 @@ export function countsCompleteDays(direction?: "increase" | "decrease" | null): 
 }
 
 /**
+ * Whether a rule that counts from a change inside its window still needs
+ * the bookings since then to beat what a night like it gets in its whole
+ * window (observeBookingSpeed wholeWindowBar): a rule that raises on "at
+ * least" a pace, which fewer bookings can only make harder to reach. So
+ * after 10 bookings at once raise the rule for 10 in a week, 3 more don't
+ * raise the rule for 5 and 5 more do (Jake's examples, 2026-09-24): read
+ * against what a night like it gets in the hours since the raise, about
+ * none, the 3 would read much faster. A rule that cuts, or raises on "at
+ * most" or "exactly" a pace, compares the same days on both sides, since
+ * a few days against a whole window's usual would read slow and make
+ * those conditions easier to meet.
+ */
+export function keepsWholeWindowBar(
+  direction?: "increase" | "decrease" | null,
+  operator?: string | null,
+): boolean {
+  return !countsCompleteDays(direction) && operator === "at_least";
+}
+
+/**
  * Memoized Layer 1 observation for one (stay date, trailing window) over the
  * rule's signal room types. Without them, or when they are the hotel's
  * counting types, it is the hotel-wide observation, keyed as it always was.
@@ -986,13 +1006,15 @@ export function countsCompleteDays(direction?: "increase" | "decrease" | null): 
  * that fire over this set and night first, or this throws). Without
  * `since`, countFrom's day counts whole; a cut rule never passes one, and
  * one passed with a cut is ignored. When countFrom cuts the window short or
- * splits its first day, the observation counts only those days, on the
- * target and its comparables alike, and is keyed by them too: a rule on the
- * same window may count from elsewhere on another room type, or in the
- * other direction. The cut observation says whether a raise or a cut
- * started it (countedAfter), so the drill-down can say which. A countFrom
- * that leaves no whole day to count throws; the engine checks
- * windowDaysFrom first.
+ * splits its first day, the observation counts only those days on the
+ * target, and is keyed by them too: a rule on the same window may count
+ * from elsewhere on another room type, or in the other direction. Its
+ * comparables are read over those same days, or with `wholeWindowBar`
+ * (keepsWholeWindowBar: a rule that raises on "at least" a pace) over the
+ * rule's whole window, keyed apart; one passed with a cut is ignored. The
+ * cut observation says whether a raise or a cut started it (countedAfter),
+ * so the drill-down can say which. A countFrom that leaves no whole day to
+ * count throws; the engine checks windowDaysFrom first.
  */
 export function observeForStayDate(
   ctx: BookingSpeedContext,
@@ -1002,6 +1024,7 @@ export function observeForStayDate(
   countFrom?: string | null,
   direction?: "increase" | "decrease" | null,
   since?: string | null,
+  wholeWindowBar?: boolean,
 ): BookingSpeedObservation {
   const setKey =
     signalIds && ctx.hotelSetKey !== undefined
@@ -1018,6 +1041,7 @@ export function observeForStayDate(
   const inWindow = countFromInWindow(windowDays, last, countFrom);
   const cutFrom = countFrom && inWindow && (splits || windowDaysFrom(windowDays, last, countFrom) < windowDays) ? countFrom : null;
   const cutSince = cutFrom && splits ? splits : null;
+  const whole = cutFrom !== null && wholeWindowBar === true && !completeDays;
   const countedAfter: BookingSpeedObservation["countedAfter"] | null = cutFrom
     ? direction === "decrease"
       ? "cut"
@@ -1025,7 +1049,9 @@ export function observeForStayDate(
     : null;
   // Complete days ("c") end yesterday: never the same reading as today's.
   const stretchKey = `${windowDays}${completeDays ? "c" : ""}`;
-  const windowKey = cutFrom ? `${stretchKey}>${cutFrom}${cutSince ? `@${cutSince}` : ""}:${countedAfter}` : stretchKey;
+  const windowKey = cutFrom
+    ? `${stretchKey}>${cutFrom}${cutSince ? `@${cutSince}` : ""}:${countedAfter}${whole ? ":whole" : ""}`
+    : stretchKey;
   const key = measuresSet ? `${stayDate}|${windowKey}|${setKey}` : `${stayDate}|${windowKey}`;
   const hit = ctx.observationCache.get(key);
   if (hit) return hit;
@@ -1058,6 +1084,7 @@ export function observeForStayDate(
     completeDays,
     countFrom: cutFrom,
     split: cutSince && splitIndex ? { since: cutSince, index: splitIndex } : null,
+    wholeWindowBar: whole,
     isExcluded: ctx.isExcluded,
   });
   const stamped = countedAfter ? { ...observed, countedAfter } : observed;
@@ -1085,6 +1112,7 @@ export function bookingSpeedMetrics(
           counted_from: observation.countedFrom,
           full_window_days: observation.fullWindowDays,
           ...(observation.countedSince ? { counted_since: observation.countedSince } : {}),
+          ...(observation.expectedOverFullWindow ? { expected_over_full_window: true as const } : {}),
         }
       : {}),
     ...(observation.countedThrough ? { counted_through: observation.countedThrough } : {}),

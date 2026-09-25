@@ -27,6 +27,11 @@ export type RuleMetrics = {
     rank: number;
     label: string;
     recent: number;
+    /**
+     * What a night like it usually gets: over window_days, or with
+     * expected_over_full_window over the rule's whole window
+     * (full_window_days).
+     */
     expected: number;
     /** The days actually counted: the rule's window, or fewer when counted_from cut it. */
     window_days: number;
@@ -45,6 +50,12 @@ export type RuleMetrics = {
     counted_from?: string;
     full_window_days?: number;
     counted_since?: string;
+    /**
+     * With counted_from, for a rule that raises on "at least" a pace
+     * (keepsWholeWindowBar): `expected` is over the rule's whole window, the
+     * bar the bookings since that change had to beat on their own.
+     */
+    expected_over_full_window?: true;
     /**
      * Set for a rule that cuts: the last booking date counted, the day
      * before the run's. It reads complete days only, on the night and on the
