@@ -6,13 +6,20 @@ import {
   bookingSpeedCountFrom,
   cancelCheckFor,
   candidateFor,
+  comparePickupRules,
+  countFromFireAt,
+  fireHeadKey,
   insertPickupEvent,
   isWaiting,
+  pickupJudgesShortStretch,
   pickupTieBreakTrace,
+  pickupWindowOpensAt,
   ruleWaitDays,
   runPickupPass,
   selectPickupWinner,
   waitAnchor,
+  type FireHead,
+  type RankedRule,
 } from "./pickup";
 import { fakeSupabase } from "./fake-supabase.test";
 import type { EngineRule } from "@/types/domain";
@@ -414,6 +421,126 @@ describe("where a Booking Speed rule starts counting on a cell", () => {
     expect(bookingSpeedCountFrom(cut, "2026-07-10T02:30:00Z", undefined, "America/New_York")).toEqual({ from: "2026-07-10", since: null });
     expect(bookingSpeedCountFrom(cut, null, undefined, "UTC")).toBeNull();
     expect(bookingSpeedCountFrom(cut, "2026-07-10T15:00:00Z", { set_at: "2026-07-11T09:00:00Z" }, "UTC")).toBeNull();
+  });
+});
+
+describe("the fire a rule counts from on a cell (countFromFireAt)", () => {
+  // Jake, 2026-09-24, option A: the newest change on the night and room
+  // type by the rule itself or by a rule that adjusts the same way and
+  // ranks ahead of it. A weaker rule's change never moves it.
+  const NIGHT = "2026-07-20";
+  const speed = (id: string, over: Partial<EngineRule> = {}) =>
+    makeRule({
+      id,
+      condition: { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 7, booking_speed_cooldown_days: 1 },
+      ...over,
+    });
+  const heads = (fires: Record<string, string>) =>
+    new Map<string, FireHead>(
+      Object.entries(fires).map(([ruleId, at]) => [
+        fireHeadKey(ruleId, NIGHT, "rt1"),
+        { maxFireSeq: 1, anchorAt: at, counted: 1, lastCountedAt: at },
+      ]),
+    );
+  const weak = speed("weak", { priority: 100, action_value: 10 });
+  const strong = speed("strong", { priority: 120, action_value: 20 });
+  const at = (rule: RankedRule, others: RankedRule[], fires: Record<string, string>) =>
+    countFromFireAt(rule, others, heads(fires), NIGHT, "rt1", 100);
+
+  it("is the rule's own newest counted fire when nothing stronger fired later", () => {
+    expect(at(weak, [strong], { weak: "2026-07-10T15:00:00.000Z" })).toBe("2026-07-10T15:00:00.000Z");
+    expect(at(weak, [strong], { weak: "2026-07-10T15:00:00.000Z", strong: "2026-07-09T15:00:00.000Z" })).toBe("2026-07-10T15:00:00.000Z");
+    expect(at(weak, [strong], {})).toBeNull();
+  });
+
+  it("is a stronger rule's newer fire, even where the rule itself never fired", () => {
+    expect(at(weak, [strong], { strong: "2026-07-11T09:00:00.000Z" })).toBe("2026-07-11T09:00:00.000Z");
+    expect(at(weak, [strong], { weak: "2026-07-10T15:00:00.000Z", strong: "2026-07-11T09:00:00.000Z" })).toBe("2026-07-11T09:00:00.000Z");
+  });
+
+  it("never moves for a weaker rule's fire, or for a fire the other way", () => {
+    expect(at(strong, [weak], { weak: "2026-07-11T09:00:00.000Z" })).toBeNull();
+    expect(at(strong, [weak], { strong: "2026-07-10T15:00:00.000Z", weak: "2026-07-11T09:00:00.000Z" })).toBe("2026-07-10T15:00:00.000Z");
+    const bigCut = speed("big-cut", { priority: 200, action_direction: "decrease", action_value: 30 });
+    expect(at(weak, [bigCut], { "big-cut": "2026-07-11T09:00:00.000Z" })).toBeNull();
+  });
+
+  it("takes the newest of several stronger rules' fires, and skips the rule itself among the others", () => {
+    const strongest = speed("strongest", { priority: 130, action_value: 25 });
+    const fires = { weak: "2026-07-09T00:00:00.000Z", strong: "2026-07-12T09:00:00.000Z", strongest: "2026-07-11T09:00:00.000Z" };
+    expect(at(weak, [weak, strongest, strong], fires)).toBe("2026-07-12T09:00:00.000Z");
+    expect(at(strong, [weak, strong, strongest], fires)).toBe("2026-07-12T09:00:00.000Z");
+    expect(at(strongest, [weak, strong], fires)).toBe("2026-07-11T09:00:00.000Z");
+  });
+
+  it("ranks the way the competition does: priority, then more conditions, then the higher count, then the bigger change", () => {
+    const fires = { a: "2026-07-11T09:00:00.000Z" };
+    const pickup = (id: string, threshold: number, over: Partial<EngineRule> = {}) =>
+      makeRule({ id, condition: { pickup_operator: "gt", pickup_threshold: threshold, pickup_window_days: 7, pickup_metric: "room_nights" }, ...over });
+    // Same priority and one condition each: more than 9 ranks ahead of more than 4.
+    expect(at(pickup("b", 4), [pickup("a", 9)], fires)).toBe(fires.a);
+    expect(at(pickup("b", 9), [pickup("a", 4)], fires)).toBeNull();
+    // A higher priority wins over the count.
+    expect(at(pickup("b", 9), [pickup("a", 4, { priority: 150 })], fires)).toBe(fires.a);
+    // A fixed $30 raise outranks 20% of a $100 base.
+    expect(at(speed("b", { action_value: 20 }), [speed("a", { action_type: "fixed", action_value: 30 })], fires)).toBe(fires.a);
+  });
+
+  it("counts a paused rule's fire, which stays on the price, from what ranking reads alone", () => {
+    const paused: RankedRule = {
+      id: "paused",
+      version: 2,
+      priority: 150,
+      condition: { booking_speed_operator: "at_least" },
+      action_type: "percent",
+      action_direction: "increase",
+      action_value: 25,
+      created_at: "2026-01-01T00:00:00Z",
+    };
+    expect(at(weak, [paused], { paused: "2026-07-11T09:00:00.000Z" })).toBe("2026-07-11T09:00:00.000Z");
+  });
+
+  it("gives an ISO instant however the database wrote the fire's time", () => {
+    expect(at(weak, [strong], { strong: "2026-07-11 09:00:00+00" })).toBe("2026-07-11T09:00:00.000Z");
+  });
+
+  it("agrees with the competition on who goes first", () => {
+    const rules = [
+      speed("s1", { priority: 100, action_value: 10 }),
+      speed("s2", { priority: 100, action_value: 20 }),
+      speed("s3", { priority: 90, action_value: 50 }),
+      makeRule({ id: "p1", priority: 100 }),
+      makeRule({ id: "p2", priority: 100, condition: { pickup_operator: "gt", pickup_threshold: 9, pickup_window_days: 7 } }),
+    ];
+    const base = new Map([[basePriceKey(NIGHT, "rt1"), 100]]);
+    const winner = selectPickupWinner(rules.map((r) => makeCandidate(r, "rt1", NIGHT)), base)!.rule;
+    for (const other of rules) if (other !== winner) expect(comparePickupRules(winner, other, 100, 100)).toBeLessThan(0);
+  });
+});
+
+describe("where a pickup condition's window opens on a cell", () => {
+  const baseline = "2026-07-13T12:00:00.000Z";
+
+  it("is a whole window back, or the fire counted from when that is later", () => {
+    expect(pickupWindowOpensAt(baseline, null, undefined)).toBe(baseline);
+    expect(pickupWindowOpensAt(baseline, "2026-07-12T12:00:00.000Z", undefined)).toBe(baseline);
+    expect(pickupWindowOpensAt(baseline, "2026-07-15T08:00:00.000Z", undefined)).toBe("2026-07-15T08:00:00.000Z");
+  });
+
+  it("ignores a fire made before the open manual price, and means nothing without a pickup condition", () => {
+    expect(pickupWindowOpensAt(baseline, "2026-07-15T08:00:00.000Z", { set_at: "2026-07-16T09:00:00.000Z" })).toBe(baseline);
+    expect(pickupWindowOpensAt(baseline, "2026-07-17T08:00:00.000Z", { set_at: "2026-07-16T09:00:00.000Z" })).toBe("2026-07-17T08:00:00.000Z");
+    expect(pickupWindowOpensAt(null, "2026-07-15T08:00:00.000Z", undefined)).toBeNull();
+  });
+
+  it("is judged on a shorter stretch only for \"more than\" 0 or more", () => {
+    const pickup = (op: "gt" | "lt", threshold: number) =>
+      makeRule({ condition: { pickup_operator: op, pickup_threshold: threshold, pickup_window_days: 7 } });
+    expect(pickupJudgesShortStretch(pickup("gt", 4))).toBe(true);
+    expect(pickupJudgesShortStretch(pickup("gt", 0))).toBe(true);
+    expect(pickupJudgesShortStretch(pickup("gt", -2))).toBe(false);
+    expect(pickupJudgesShortStretch(pickup("lt", 3))).toBe(false);
+    expect(pickupJudgesShortStretch(makeRule({ condition: { booking_speed_operator: "at_least" } }))).toBe(false);
   });
 });
 
