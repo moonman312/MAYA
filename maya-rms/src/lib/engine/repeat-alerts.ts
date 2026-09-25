@@ -2,10 +2,12 @@
  * Owner alerts when an event rule keeps adjusting the same night.
  *
  * Tables and their meaning: 99_supabase_migration_pickup_event_stacking_v1.sql
- * section 6. In short: once a rule's current version has 3 or more counted
- * fires on one of its room types on a night (open, or taken off for
- * cancellations), the night is filed under the rule's open alert with the
- * numbers behind its latest fire, and the rule keeps firing. The owner
+ * section 6. In short: once a rule's current version has 3 or more fires
+ * still on one of its room types' price on a night, the night is filed
+ * under the rule's open alert with the numbers behind its latest fire, and
+ * the rule keeps firing. The alert warns how high (or low) the price may
+ * go, so a change that came off, for cancellations or anything else, is
+ * not counted (Jake, 2026-09-25). The owner
  * answers per night: keep_adjusting (no more alerts for that rule and night)
  * or stop (no more fires from that rule on that night). Both answers belong
  * to the rule version they were given on: an edit starts the rule fresh, and
@@ -14,11 +16,11 @@
  * The engine reads the answers before it fires (isStoppedOnNight) and, after
  * prices are published, files and updates nights and closes the ones that no
  * longer need an answer (updateRepeatAlerts). A night closed because a price
- * someone set took its fires off opens again if the rule stacks its way back
- * to three, and a night the owner resumed once the rule has adjusted it three
- * more times than the count on its row, a count that comes down again with
- * any fires a typed price takes off; only a passed night or an edit ends one
- * for good. The alert tables take writes
+ * someone set, or cancellations, took its fires off opens again if the rule
+ * stacks its way back to three, and a night the owner resumed once the rule
+ * has adjusted it three more times than the count on its row, a count that
+ * comes down again with any fires that come off; only a passed night or an
+ * edit ends one for good. The alert tables take writes
  * from the service role only, so a run under a signed-in session (the
  * evaluate button) logs its alert writes as refused and the next scheduled
  * run makes them: filing works from the fire history, not from what one run
@@ -54,13 +56,26 @@ export type RepeatAlertNight = {
 };
 
 /**
- * Why a night stopped needing an answer. The first three are unanswered
- * nights; `resumed` is one the owner had answered and took back, which the
- * rule adjusts again from the next run (rule_repeat_alert_resume).
+ * Why a night stopped needing an answer. All but `resumed` are unanswered
+ * nights: price_set and bookings_cancelled when a typed price or
+ * cancellations took fires off and its count fell under three. `resumed` is
+ * one the owner had answered and took back, which the rule adjusts again
+ * from the next run (rule_repeat_alert_resume).
  */
-export type RepeatAlertClosedReason = "night_passed" | "rule_edited" | "price_set" | "resumed";
+export type RepeatAlertClosedReason = "night_passed" | "rule_edited" | "price_set" | "bookings_cancelled" | "resumed";
 
-const CLOSED_REASONS: RepeatAlertClosedReason[] = ["night_passed", "rule_edited", "price_set", "resumed"];
+const CLOSED_REASONS: RepeatAlertClosedReason[] = [
+  "night_passed",
+  "rule_edited",
+  "price_set",
+  "bookings_cancelled",
+  "resumed",
+];
+
+/** A night closed because fires came off, which opens again once the rule is back at three. */
+function closedByFiresOff(reason: RepeatAlertClosedReason | null): boolean {
+  return reason === "price_set" || reason === "bookings_cancelled";
+}
 
 function closedReasonOf(value: unknown): RepeatAlertClosedReason | null {
   return CLOSED_REASONS.find((r) => r === value) ?? null;
@@ -144,12 +159,17 @@ export type RepeatAlertInput = {
   eventRules: EngineRule[];
   /** Every rule this run loaded, for noticing an edit on an alert's rule. */
   allRules: EngineRule[];
-  /** The fire history read before this run fired (loadPickupFireHeads). */
+  /**
+   * The fire history read before this run fired (loadPickupFireHeads), with
+   * counted and lastCountedAt the fires still on the price (openFireHeads).
+   */
   heads: ReadonlyMap<string, FireHead>;
   /** The fires this run inserted. */
   wins: { rule_id: string; stay_date: string; affected_room_type_id: string }[];
   /** The filed nights read before this run fired (loadRepeatAlertNights). */
   nights: ReadonlyMap<string, RepeatAlertNight[]>;
+  /** `rule_id|stay_date` of the nights this run took fires off for cancellations. */
+  cancelledNights?: ReadonlySet<string>;
   roomTypes: RoomTypeRow[];
   /** What this run published, per `stay_date|room_type_id`. */
   finalPriceByCell: ReadonlyMap<string, number>;
@@ -160,8 +180,9 @@ export type RepeatAlertResult = { opened: number; filed: number; updated: number
 type NightCount = { rule: EngineRule; stayDate: string; count: number; lastAt: string | null };
 
 /**
- * Counted fires per rule and night after this run: the most on any one room
- * type, from the history read before the run plus this run's fires.
+ * Fires still on the price per rule and night after this run: the most on
+ * any one room type, from the history read before the run (after its
+ * retirements) plus this run's fires.
  */
 export function repeatCounts(
   eventRules: EngineRule[],
@@ -243,20 +264,20 @@ export async function updateRepeatAlerts(
   const loaded = new Map(input.allRules.map((r) => [r.id, r]));
   const eventRulesById = new Map(input.eventRules.map((r) => [r.id, r]));
 
-  // A night closed because a price someone set took its fires off is not done
-  // with: once the wait from that price has passed, the rule stacks on the new
-  // price just the same, and at 3 counted fires again the owner is asked
-  // again. Nor is a night the owner let the rule run on again: the fires
-  // behind their answer are the ones they have already seen, so it takes
-  // REPEAT_ALERT_FIRES more before the question comes back, counted from the
-  // fire_count on the row.
+  // A night closed because a price someone set, or cancellations, took its
+  // fires off is not done with: once the wait has passed, the rule stacks on
+  // the price just the same, and at 3 fires on the price again the owner is
+  // asked again. Nor is a night the owner let the rule run on again: the
+  // fires behind their answer are the ones they have already seen, so it
+  // takes REPEAT_ALERT_FIRES more before the question comes back, counted
+  // from the fire_count on the row.
   //
-  // That count follows the fires down. A price someone types takes fires off
-  // the record (retired_reason 'manual_price'), and what the owner has seen
-  // goes off with them: held at the old number, the night would need the
-  // wiped fires made good before the rule could ask again. Nothing else takes
-  // a counted fire off a night still to come, so the count never falls for
-  // any other reason. Only a passed night or an edit ends a night for good.
+  // That count follows the fires down. A price someone types, or
+  // cancellations that make the rule no longer true, take fires off the
+  // price, and what the owner has seen goes off with them: held at the old
+  // number, the night would need the fires that came off made good before
+  // the rule could ask again. Only a passed night or an edit ends a night
+  // for good.
   // It comes down to the count from before this run: a fire this run made is
   // on the price that is there now, so it is the first of the three new
   // adjustments, not one the owner has already seen.
@@ -270,7 +291,7 @@ export async function updateRepeatAlerts(
     const prior = beforeRun.get(key)?.count ?? 0;
     for (const n of list) {
       if (n.rule_version !== rule.version || n.choice !== null) continue;
-      if (n.closed_reason !== "price_set" && n.closed_reason !== "resumed") continue;
+      if (!closedByFiresOff(n.closed_reason) && n.closed_reason !== "resumed") continue;
       let seen = n.fire_count;
       if (n.closed_reason === "resumed" && prior < seen) {
         seen = prior;
@@ -343,9 +364,11 @@ export async function updateRepeatAlerts(
     else result.closed += (data ?? []).length;
   }
 
-  // Unanswered nights of the current version whose count fell under the bar:
-  // only a price someone set takes counted fires off.
-  const settled = new Map<string, string[]>();
+  // Unanswered nights of the current version whose count fell under the bar,
+  // because a price someone set or cancellations took fires off: closed as
+  // bookings_cancelled when this run took some off for cancellations, else
+  // as price_set.
+  const settled = new Map<string, { alertId: string; reason: "price_set" | "bookings_cancelled"; nights: string[] }>();
   for (const [key, list] of input.nights) {
     const [ruleId, stayDate] = key.split("|");
     const rule = eventRulesById.get(ruleId);
@@ -353,14 +376,15 @@ export async function updateRepeatAlerts(
     const night = list.find((n) => n.rule_version === rule.version && n.choice === null && n.closed_at === null);
     if (!night) continue;
     if ((counts.get(key)?.count ?? 0) >= REPEAT_ALERT_FIRES) continue;
-    const nights = settled.get(night.alert_id) ?? [];
-    nights.push(night.stay_date);
-    settled.set(night.alert_id, nights);
+    const reason = input.cancelledNights?.has(key) ? "bookings_cancelled" : "price_set";
+    const group = settled.get(`${night.alert_id}|${reason}`) ?? { alertId: night.alert_id, reason, nights: [] };
+    group.nights.push(night.stay_date);
+    settled.set(`${night.alert_id}|${reason}`, group);
   }
-  for (const [alertId, nights] of settled) {
+  for (const { alertId, reason, nights } of settled.values()) {
     const { data, error } = await supabase
       .from("rule_repeat_alert_nights")
-      .update({ closed_at: now, closed_reason: "price_set", updated_at: now })
+      .update({ closed_at: now, closed_reason: reason, updated_at: now })
       .eq("alert_id", alertId)
       .in("stay_date", nights)
       .is("choice", null)
@@ -370,7 +394,7 @@ export async function updateRepeatAlerts(
     else result.closed += (data ?? []).length;
   }
 
-  // Resumed nights whose count a typed price took down: the row keeps the
+  // Resumed nights whose count fires coming off took down: the row keeps the
   // fires that are left, so the next three bring the question back. Not
   // counted as an update: the night is closed and nobody is waiting on it.
   for (const { night, count } of toRebase) {
@@ -384,7 +408,7 @@ export async function updateRepeatAlerts(
     if (error) logAlertError(hotelId, "rebase_resumed_night", error.message);
   }
 
-  // Nights back at the bar after a price closed them: open the row again, on
+  // Nights back at the bar after fires coming off closed them: open the row again, on
   // the rule's open alert when it has one. This runs before alerts are
   // resolved, so the run that reopens a night can't resolve its alert in the
   // same breath. The numbers on the row are refreshed by the update below.
@@ -624,8 +648,8 @@ export type NightDetail = {
 };
 
 /**
- * The counted fires behind each night, read in one paged query, as the
- * columns a filed night keeps. null when the read fails (logged).
+ * The fires still on the price behind each night, read in one paged query,
+ * as the columns a filed night keeps. null when the read fails (logged).
  */
 async function nightDetails(
   supabase: SupabaseClient,
@@ -648,7 +672,7 @@ async function nightDetails(
         .in("rule_id", ruleIds)
         .gte("stay_date", dates[0])
         .lte("stay_date", dates[dates.length - 1])
-        .or("retired_at.is.null,retired_reason.eq.bookings_cancelled")
+        .is("retired_at", null)
         .order("id", { ascending: true }),
     );
   } catch (e) {
