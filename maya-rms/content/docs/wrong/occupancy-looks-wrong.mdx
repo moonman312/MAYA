@@ -1,0 +1,96 @@
+---
+title: Occupancy looks wrong
+summary: Why MAYA's occupancy differs from Cloudbeds', what rooms out of order do to it, how it can read over 100%, why it is tiny on ThinkReservations or Mews, why a room type shows 100 rooms, why the day card and the change log disagree, and how groups and the meeting room count.
+section: wrong
+order: 50
+readingTime: 6
+keywords: [occupancy, occupancy wrong, occupancy different, differs from cloudbeds, cloudbeds occupancy, blocked rooms, out of order, out of service, rooms out of service, over 100, 111%, overbooked, tiny occupancy, think occupancy, thinkreservations occupancy, mews occupancy, mews room count, room category, 100 rooms, 100 units, unit count, day card, log says 92, 85% vs 92%, group of 10, 10 rooms, meeting room revenue, revenue includes, day revenue, booked revenue, revenue differs, sellable]
+questions:
+  - Why does MAYA's occupancy differ from Cloudbeds'? {#why-does-mayas-occupancy-differ-from-cloudbeds/blocked-rooms}
+  - Why is my occupancy wrong when rooms are out of order? {#why-is-my-occupancy-wrong-when-rooms-are-out-of-order}
+  - Why is occupancy over 100%? {#why-is-occupancy-over-100}
+  - Why is my occupancy tiny on ThinkReservations or Mews? {#why-is-my-occupancy-tiny-on-thinkreservations-or-mews}
+  - Why is my occupancy tiny on Mews? {#why-is-my-occupancy-tiny-on-thinkreservations-or-mews}
+  - Why does a room type show 100 rooms? {#why-does-a-room-type-show-100-rooms}
+  - The day card says 85% but the log says 92% {#the-day-card-says-85-but-the-log-says-92}
+  - Does a group of 10 count as 10 rooms? {#does-a-group-of-10-count-as-10-rooms}
+  - Why does day revenue include my meeting room? {#why-does-day-revenue-include-my-meeting-room}
+  - Why does day revenue differ from a revenue pickup rule? {#why-does-day-revenue-differ-from-a-revenue-pickup-rule}
+  - Why does day revenue not match my property system's revenue report? Is it with or without tax? {#why-does-day-revenue-not-match-my-property-systems-revenue-report}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Sellable occupancy is rooms booked divided by rooms you can sell that night, counting only room types ticked as rooms and taking rooms out of service off first. It differs from Cloudbeds' headline number because Cloudbeds keeps blocked rooms in its count while MAYA removes only rooms you enter as out of service. It can read over 100%. On ThinkReservations, and on Mews where Mews gives no count, a room type is counted as 100 rooms until we change that number, so email us your counts.
+</InPlainWords>
+
+## Why does MAYA's occupancy differ from Cloudbeds'?
+
+Two reasons. Both can make MAYA's number higher than Cloudbeds', and the second can also make it lower.
+
+**Blocked rooms.** Cloudbeds' own headline occupancy keeps blocked rooms in the count it divides by. MAYA does not read room blocks, allotments or out-of-order rooms from Cloudbeds. It divides by the room type's room count minus any rooms you have entered as out of service in MAYA. So a block you enter in MAYA can only make MAYA's number higher than Cloudbeds', and a block you hold only in Cloudbeds does not make them differ.
+
+**Which room types count.** MAYA counts only room types ticked as <Ui>Counts as a room</Ui> on the <Ui>PMS</Ui> tab. If Cloudbeds lists a meeting room or a parking space as a room type and MAYA has it unticked, the two numbers divide by different room counts. MAYA's number reads higher when those types are emptier than your rooms, and lower when they are fuller.
+
+Which bookings count is the same in both: bookings with the status confirmed, checked in, checked out or Confirmation Pending count as booked. Cancelled bookings and no-shows do not.
+
+Read [Sellable occupancy](/docs/rules/sellable-occupancy) for the definition.
+
+## Why is my occupancy wrong when rooms are out of order?
+
+Because nobody has told MAYA. Rooms out of order in your property system are not read. Enter them in MAYA: on the <Ui>PMS</Ui> tab, under the room type, press <Ui>+ Rooms out of service</Ui>, fill in <Ui>From</Ui>, <Ui>To</Ui>, <Ui>Units</Ui> and an optional <Ui>Reason (optional)</Ui>, and press <Ui>Save</Ui>. Those rooms come off the sellable count for those nights only, and your rules run on those nights again straight away if they fall within the next 60 nights. Nothing is sent to your property system about the block.
+
+Standard has 12 rooms, 3 are out of service, 8 are booked: 8 of 9, which is 89%. Without the block it reads 8 of 12, which is 67%.
+
+Read [Tell MAYA rooms are out of service](/docs/recipes/rooms-under-renovation).
+
+## Why is occupancy over 100%?
+
+Because more rooms are booked than MAYA reads as sellable. It happens when you mark rooms out of service after they were already sold (12 rooms, 3 out of service, 10 booked reads 111%), or when your property system has overbooked the night. MAYA does not cap the number.
+
+A rule's threshold cannot go above 100, so a rule set to <Ui>Greater than</Ui> 100 fires on any overbooked night.
+
+## Why is my occupancy tiny on ThinkReservations or Mews?
+
+ThinkReservations does not report how many rooms a room type has. On Mews, the same goes for any room category Mews sends no room count for. Every room type without a count gets the same number of rooms, one number for your whole property, 100 until we change it. A room type with 6 rooms and 5 booked reads 5% instead of 83%, and occupancy rules that need a full night never fire.
+
+[Email us](mailto:info@modern-hospitality-solutions.com?subject=Room%20counts) your room types and their room counts. We can change that one number for you, not set a count for each type. Once we have set it, occupancy is right from the next run if the room types without a count are all the same size. If they differ, it reads wrong for at least one of them. Read [ThinkReservations](/docs/connect/thinkreservations) or [Mews](/docs/connect/mews).
+
+Booking window rules are not affected. Booking speed counts bookings, not rooms, but it compares within seasons read from how full past nights were. Send us your counts before relying on booking speed too.
+
+## Why does a room type show 100 rooms?
+
+The <Ui>PMS</Ui> tab's <Ui>Room types</Ui> list shows "100 units" for a room type whose room count MAYA does not have. On Cloudbeds the count is read from your system on every cycle, so this is rare and means Cloudbeds reported none. On ThinkReservations it is every room type, and on Mews every room category Mews sends no room count for, until we set the one number for your property. Either way, email us the real count.
+
+## The day card says 85% but the log says 92%
+
+They are reading different room types. The day card's percentage is the whole property: every room type ticked as a room. A change log sentence such as "It was 92% full, past the 80% mark you set." is the occupancy over the room types that rule measures. A rule measuring only Standard reports Standard's occupancy.
+
+When a rule's measured list includes a type that is not a room, MAYA leaves it out of the figure and says so: "That 92% leaves out Meeting Room." Read [A rule did not fire](/docs/wrong/a-rule-did-not-fire) for how a rule reads its own room types.
+
+## Does a group of 10 count as 10 rooms?
+
+Yes, for occupancy. A booking that holds 10 rooms is 10 booked rooms on each of its nights. That is different from booking speed, where a booking counts once however many rooms it holds. Read [Booking speed reads oddly](/docs/wrong/booking-speed-reads-oddly).
+
+## Why does day revenue include my meeting room?
+
+The day card's revenue figure sums every room type, including ones you have unticked as rooms. Occupancy and the "12/20 rooms" line use only the ticked ones. So a meeting room booking adds to revenue and not to occupancy.
+
+## Why does day revenue differ from a revenue pickup rule?
+
+They value a booked night differently. The day card values each booked night at the booking's rate as it was imported, falling back to its current rate, and to a placeholder of $150 when neither is on file (which is also why an empty room type shows "ADR $150.00"). A pickup count rule set to <Ui>Revenue (currency)</Ui> sums each booked night's current rate as your system reports it. The two can differ for the same night. Neither figure is sent anywhere.
+
+## Why does day revenue not match my property system's revenue report?
+
+MAYA adds up the nightly rates your system reports for booked nights. It never adds tax or takes off a booking site's commission, and what the rate includes depends on your system: in Cloudbeds and ThinkReservations it is the room rate on the same basis as your own rates, and in Mews it is the booking total, taxes included, split across its nights. A report that adds taxes, fees or extras, or takes off commission, will differ. [The calendar](/docs/watch/the-calendar#one-day-line-by-line) has the detail for each system.
+
+<Callout kind="not-yet">
+Booked revenue is shown per night on the calendar and used by revenue pickup rules. There is no revenue report and no export. The day card shows occupancy and room revenue for each night, not the bookings behind them.
+</Callout>
+
+<Related>
+- [Sellable occupancy](/docs/rules/sellable-occupancy)
+- [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service)
+- [The calendar](/docs/watch/the-calendar)
+</Related>

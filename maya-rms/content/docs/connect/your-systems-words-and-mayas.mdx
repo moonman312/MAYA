@@ -1,0 +1,148 @@
+---
+title: Your system's words and MAYA's
+summary: What Cloudbeds, ThinkReservations and Mews call things, what MAYA calls the same things, and what each one means once it is inside MAYA. Rate plans and rate types, reservations and bookings, room categories and room types, statuses and states.
+section: connect
+order: 120
+readingTime: 9
+keywords: [words, terms, vocabulary, glossary, what does MAYA call, translation, rate plan, rate type, base rate, derived, Best Available, standard, package, non-refundable, reservation, booking, room type, room category, space category, resource category, units, rooms, Confirmation Pending, not confirmed, unassigned, virtual room type, scheduled, checked in, checked out, no show, Optional, Enquired, Requested, Confirmed, Started, Processed, Canceled, cancelled, Marketplace, My Apps, Connect App, enterprise, client token, access token, cycle, window, sellable occupancy, manual price, Changed in Cloudbeds, comp, complimentary, house use, house-use, owner stay, $0 booking, zero rate, free room, ADR, day use, day-use, same-day check-out, same day in and out, hourly, reservation group, group booking, several rooms, multi-room, reservation history, rates not reaching]
+questions:
+  - What does MAYA call a Cloudbeds rate plan? {#the-words-that-matter-most/maya-says-cloudbeds}
+  - Is a Mews space category the same as a room type in MAYA? {#the-words-that-matter-most/maya-says-cloudbeds}
+  - What is the difference between a reservation and a booking in MAYA? {#in-plain-words}
+  - What does MAYA mean by base rate? {#in-plain-words}
+  - What does Confirmation Pending mean for MAYA? {#booking-statuses-and-states/your-system-marks}
+  - What does MAYA do with a Mews Optional reservation? {#booking-statuses-and-states/mews-state-in}
+  - What is a ThinkReservations rate type in MAYA's words? {#the-words-that-matter-most/on-thinkreservations-each}
+  - Will MAYA ever write to a ThinkReservations package? {#the-words-that-matter-most/on-thinkreservations-each}
+  - What does MAYA call the rooms in a room type? {#the-words-that-matter-most/maya-says-cloudbeds}
+  - What does "Changed in Cloudbeds" mean? {#mayas-own-words/these-have-no}
+  - What is a cycle in MAYA? {#mayas-own-words/these-have-no}
+  - Do complimentary, house-use or owner-stay bookings at a $0 rate count as booked rooms? Do they drag down ADR and revenue? {#comp-house-use-and-day-use-bookings/complimentary-house-use}
+  - Do day-use (same-day in and out) bookings count in MAYA? {#comp-house-use-and-day-use-bookings/day-use-bookings}
+  - Does a Mews booking with several rooms count once for booking speed? {#booking-statuses-and-states/mews-state-in}
+  - Why does the change log say rates when MAYA sends prices? {#mayas-own-words/these-have-no}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Your system and MAYA use different words for the same things. MAYA's base rate is one of your rate plans (Cloudbeds) or rate types (ThinkReservations): the one per room type that MAYA writes to. A Cloudbeds reservation, a ThinkReservations reservation and a Mews reservation are all bookings in MAYA. A Cloudbeds room type, a ThinkReservations room type and a Mews room category are all room types in MAYA. This page is the translation table.
+</InPlainWords>
+
+MAYA's screens mostly use MAYA's words: booking, night, room type, base rate, price. Your system uses its own. A few screens borrow your system's words. The connect screen, headed <Ui>Connect your property system</Ui>, talks about your "reservation history". The change log says "rates" for the prices MAYA sends, as in "Rates not reaching Cloudbeds". When a screen, a change log sentence or a docs page uses a word you do not use at the desk, this page says what it maps to.
+
+## The words that matter most
+
+| MAYA says | Cloudbeds says | ThinkReservations says | Mews says | What it means in MAYA |
+|---|---|---|---|---|
+| Booking | Reservation | Reservation, holding one booking per room | Reservation, one room each | A stay. For occupancy each room counts. For booking speed a booking counts once however many rooms it holds. On Mews every room is its own reservation, so rooms booked together count once per room |
+| Room type | Room type | Room type | Room category, space category or resource category | The kind of room a price is set for. Your rules set one price per room type per night |
+| Units | Units | none (not reported) | none (not reported) | How many rooms a room type has. MAYA divides by it for sellable occupancy. On ThinkReservations and Mews it is one number for every room type, 100 until we set it with you |
+| Base rate | The rate plan that follows nothing and has no public name (not derived) | The standard rate type called Best Available | none (not read) | The one rate per room type MAYA writes to and reads your own rate from |
+| Derived rate | Derived rate plan | Derived rate type | none | A rate that follows the base rate by your system's own rules. MAYA never writes to it. It moves when the base moves |
+| Package | Package, or any plan with a public name | Package, a standard rate type. MAYA leaves it alone as long as you have a rate type named Best Available | none | Left alone by MAYA (on ThinkReservations, read the note below) |
+| Night | Stay date, from check-in up to, but not including, check-out | Stay date, from start to end | Stay night, from arrival to departure | One night of a stay. A same-day booking is one night (on Cloudbeds, when Cloudbeds lists a room rate for that date) |
+| Booking date | Date created | Created at | Created (UTC), read on your calendar | The date the booking was made, on your property's own calendar (on Cloudbeds, the date Cloudbeds records) |
+| Rate (yours) | Rate | Price | none (not read) | The number in your system that MAYA reads as a night's starting point |
+| Price (MAYA's) | Rate, once sent | Price, once sent | Shown only | The price your rules produce, which MAYA sends on Cloudbeds and ThinkReservations |
+
+On ThinkReservations, each rate type is standard or derived (it follows another). A package or a non-refundable rate can be standard too. MAYA writes to the standard rate type whose name contains Best Available. If none has that name, MAYA writes to the one standard rate type that covers the most room types, even if it is a package. If two tie, MAYA writes to neither. Name your main rate type Best Available and MAYA leaves your packages alone.
+
+## Booking statuses and states
+
+Your system marks each booking with a status. MAYA keeps some and removes others.
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+| Cloudbeds status | In MAYA |
+|---|---|
+| Confirmed | Counts as booked |
+| Checked In | Counts as booked |
+| Checked Out | Counts as booked (a past night) |
+| Confirmation Pending | Counts as booked. It holds a room, and Cloudbeds' own occupancy counts it |
+| Cancelled (Cloudbeds spells it "canceled") | Removed on the next read |
+| No Show | Removed on the next read |
+
+Two more Cloudbeds words: a booking in the **unassigned** list (not yet placed on a physical room) counts as a booked room, and a **virtual room type** (one that sells rooms from another type) is treated like any other room type.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+| ThinkReservations status | In MAYA |
+|---|---|
+| Scheduled | Counts as booked |
+| Checked in | Counts as booked |
+| Checked out | Counts as booked (a past night) |
+| Cancelled | Removed on the next read |
+| No show | Removed on the next read |
+
+ThinkReservations holds one **booking** per room inside a **reservation**. MAYA keeps each room's nights and room charge, and for booking speed the reservation counts once.
+</PmsTab>
+<PmsTab pms="mews">
+| Mews state | In MAYA |
+|---|---|
+| Confirmed | Counts as booked |
+| Started | Counts as booked (the guest is in the house) |
+| Processed | Counts as booked (a past night) |
+| Optional | Counts as booked |
+| Enquired | Counts as booked |
+| Requested | Counts as booked |
+| Canceled | Removed on the next read |
+
+Only Canceled removes a booking. An option, an enquiry or a request counts like a confirmed booking until it is cancelled in Mews.
+
+Each Mews reservation holds one room. A guest who books three rooms has three reservations in Mews, so for booking speed that stay counts as three bookings. On Cloudbeds and ThinkReservations the same stay counts once. MAYA does not read Mews reservation groups.
+</PmsTab>
+</PmsTabs>
+
+## Comp, house-use and day-use bookings
+
+**Complimentary, house-use and owner stays.** A booking counts by its status, not its rate. A comp or house-use booking at $0 counts as a booked room for [sellable occupancy](/docs/rules/sellable-occupancy) and pickup count, and as one booking for booking speed, like any other. On the calendar it adds $0 to the night's revenue, so it lowers the ADR. There is no setting to leave $0 bookings out.
+
+It can also touch a night's starting price. When your system gives no rate of its own for a night, MAYA starts from the rate of the newest booking for that night and room type. If that booking is at $0, the night is left unpriced rather than priced at $0, until a rate or a typed price gives it a number. On Cloudbeds and ThinkReservations your own rate comes first, so this is rare. On Mews your rates are not read, so a $0 booking made last on a night leaves that night unpriced. Read [How rules run](/docs/rules/how-rules-run#what-a-rule-starts-from).
+
+**Day-use bookings (in and out the same day).** They are not skipped. In ThinkReservations and Mews, a booking with check-out on its check-in date counts as one night on that date: a booked room for occupancy, and a booking for booking speed. In Cloudbeds, a booking counts on each date Cloudbeds lists a room rate for, so a same-day booking counts on its date when Cloudbeds lists a rate for it. Either way, a day-use room reads as booked that night, even though it can still be sold for the night.
+
+## Connecting words
+
+| Word | Whose | What it means |
+|---|---|---|
+| Marketplace, <Ui>Connect App</Ui>, <Ui>My Apps</Ui> | Cloudbeds | Where you install MAYA and where you disconnect it. MAYA has no disconnect button of its own |
+| <Ui>Sign in with your Cloudbeds account</Ui>, <Ui>Sign in with your Think Reservations account</Ui> | MAYA | The other way in: from the <Ui>Connect your property system</Ui> screen after paying |
+| Access code | MAYA | A code that may be needed at checkout for some systems. Marketplace installs never need one |
+| Client token, Access token, Enterprise ID | Mews | The keys MAYA uses to read Mews. We set them up with you |
+| Group login | Cloudbeds, ThinkReservations | A login that reaches several properties. Through the Cloudbeds Marketplace it connects all of them. From inside MAYA it is refused |
+| <Ui>PMS</Ui> tab | MAYA | The tab that shows the connection, its health, the last sync and your room type settings. "PMS" is the label. These docs say "property system" |
+| <Ui>Connected</Ui>, <Ui>Pending</Ui>, <Ui>Degraded</Ui>, <Ui>Error</Ui>, <Ui>Disconnected</Ui> | MAYA | The connection words on the <Ui>PMS</Ui> tab. Read [reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect) |
+
+## MAYA's own words
+
+These have no equivalent in your system.
+
+| MAYA says | What it means |
+|---|---|
+| Cycle | One run for your property, about every five minutes: read bookings, refresh your rates if due, run rules, send changed prices |
+| Window | Tonight and the next 59 nights. The nights your rules price and, once you are live, MAYA sends (Cloudbeds and ThinkReservations) |
+| Sellable occupancy | Rooms booked divided by rooms you can sell that night, counting only room types ticked as rooms and subtracting rooms out of service |
+| <Ui>Counts as a room</Ui> | The checkbox that says a room type is somewhere guests sleep |
+| <Ui>Rooms out of service</Ui> | Units you take off sale for a stretch in MAYA. Your system's blocks are not read |
+| Manual price, "Manual · $175.00" | A price you typed for a room type on a night |
+| "Changed in Cloudbeds · $175.00" | A rate you changed in your system on a night MAYA had sent to, kept as a manual price. Also "Changed in Think Reservations" |
+| Simulation | The starting state. Everything runs and is written down. Nothing is sent |
+| Live | After going live. Changed prices are sent every cycle (Cloudbeds and ThinkReservations) |
+| "Rates not reaching Cloudbeds" | A change log item that says your system did not accept a price, and why |
+| "Still happening", "Resolved", "Ended" | The state shown on a "Rates not reaching" item. Resolved: your system took the prices (on ThinkReservations, accepted them). Ended: something else closed it, such as a newer price replacing the failing one. Read [when your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price#resolved-and-ended) |
+
+For every other product word, read the [glossary](/docs/reference/glossary).
+
+<Example title="One sentence, three vocabularies">
+The change log at The Harbour Inn says: "Cloudbeds won't let MAYA change Deluxe rates because that rate follows another rate plan". In Cloudbeds' words: the Deluxe room type's only rate plan is derived. In MAYA's words: Deluxe has no base rate. The fix is the same in both: in Cloudbeds, give Deluxe a rate plan that follows nothing and has no public name. On ThinkReservations the change log shows a different sentence for a room type with no base rate: "MAYA can't find a base rate for Deluxe in Think Reservations, so its rates can't be changed". The fix there is adding Deluxe to your Best Available rate type.
+</Example>
+
+<Callout kind="not-yet" title="Not yet">
+MAYA does not show your system's own status words on screen. A booking is booked or gone. There is no setting to leave Mews options and enquiries, or Cloudbeds Confirmation Pending bookings, out of the count.
+</Callout>
+
+<Related>
+- [Glossary](/docs/reference/glossary)
+- [What MAYA reads and writes](/docs/connect/what-maya-reads-and-writes)
+- [Which systems MAYA works with](/docs/connect/which-systems-work)
+</Related>

@@ -1,0 +1,171 @@
+---
+title: Cards, payments and invoices
+summary: The two zero-amount card checks, what happens when a payment fails and when the retries run out, what "stopped" means, updating your card, keeping a second card on file, where invoices and receipts live, the name on your card statement, tax, switching monthly and yearly, refunds and disputes.
+section: billing
+order: 30
+readingTime: 12
+keywords: [card, credit card, retrying payment until, retry date, group card, card fails, card failed, declined, card stopped working, your saved card stopped working, card check, 48 hours, two days later, checked my card, zero-amount, charged twice, payment failed, payment overdue, past due, retrying, bank retries, unpaid, stopped, paused work, restart MAYA, update my card, update card, invoices, receipts, invoice, accountant, tax, VAT, sales tax, tax ID, monthly to yearly, yearly to monthly, switch plan, charged for a year, whole year, credit balance, another card, move card, new card, old card, old card still charged, refund, dispute, chargeback, interest, late payment, bank transfer, ACH, cards only, card statement, bank statement, statement name, statement descriptor, what the charge says, name on statement, unrecognised charge, MAYA AUTOMATION, trial over, backup card, second card, spare card, default card, two cards, in advance, in arrears, start of the month, billing date, renewal date, change billing date, charge day, accrue, W-9, W9, supplier form, vendor form, tax ID, company details, quote, pro-forma, purchase order, shared card, whole group stops, sending to Cloudbeds, price typed while unpaid]
+questions:
+  - What happens if my card fails? {#when-a-payment-fails/1-the-bank}
+  - Will MAYA stop pricing if a payment is late? {#when-a-payment-fails/1-the-bank}
+  - 'What does "Your saved card stopped working" mean?' {#the-two-card-checks/your-card-is}
+  - Why did you check my card again two days later? {#the-two-card-checks/your-card-is}
+  - Was I charged twice? {#the-two-card-checks/your-card-is}
+  - How do I update my card? {#updating-your-card/1-open-billing}
+  - Where are my invoices and receipts? {#invoices-and-receipts}
+  - What name will the charge show on my card statement? {#the-name-on-your-card-statement}
+  - Can I switch from monthly to yearly later? {#switching-between-monthly-and-yearly}
+  - Is tax added, and can I add my VAT or tax ID? {#tax}
+  - Can I get a refund? {#refunds}
+  - Can I dispute a charge? {#disputes/if-a-charge}
+  - 'What does "Payment overdue" mean?' {#when-a-payment-fails/1-the-bank}
+  - 'What does "Unpaid" with "stopped" mean?' {#when-a-payment-fails/the-status-becomes}
+  - 'What does "MAYA has paused work on this property" mean?' {#when-a-payment-fails/the-status-becomes}
+  - Can I move the subscription to another card? {#moving-to-another-card}
+  - Why is my old card still being charged? {#moving-to-another-card}
+  - Why was I charged for a whole year when I switched to yearly? {#switching-between-monthly-and-yearly}
+  - Can I keep a backup card on file? {#keeping-a-second-card-on-file}
+  - Can I pay by bank transfer, ACH or invoice? {#paying-by-card}
+  - Can my accountant have a login for invoices? {#invoices-and-receipts}
+  - Are we billed at the start of each month or at the end? Is it in advance? {#when-you-are-charged}
+  - Can I change the day of the month we are charged, or line up all my properties on one billing date? {#when-you-are-charged}
+  - Our accounts team needs a W-9 (or supplier form), your tax ID and a formal quote before we can pay. Where do we get them? {#supplier-paperwork}
+  - All our properties are on one card. If that card fails, do all of them stop? {#when-a-payment-fails/in-a-group}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+You pay by card, and Stripe holds it. MAYA checks the card with a zero-amount check right after checkout and again 48 hours later. No money moves. If a payment fails, your rules keep running while your bank retries, and a live Cloudbeds or ThinkReservations property keeps sending prices as normal. Nothing is sent to Mews yet, or while a property is in simulation. If the retries run out, work stops until the card is updated, and your rates, rules and history stay as they are. Invoices and receipts live in Stripe's billing portal, which opens from the <Ui>Billing</Ui> page.
+</InPlainWords>
+
+## Paying by card
+
+You pay by card. Stripe hosts the payment page and holds the card, and MAYA never sees the card number. Paying from a US bank account (ACH) is switched off, because the two card checks below are made for a card. Every payment is taken automatically, so there is no bank transfer and no invoice to pay by hand. Prices are in US dollars whatever your property's currency.
+
+## The two card checks
+
+Your card is checked twice with a zero-amount check: once right after checkout, and again 48 hours after the subscription started. The check asks your bank whether it would still honour the card. No money moves. Some banks briefly show a pending line that then disappears. It is never charged. The second check exists because a card cancelled the day after signing up would otherwise go unnoticed until the first real charge failed.
+
+If the bank's answer is inconclusive (it wants the cardholder present, say), MAYA asks again. It asks up to 4 times in all for each check, about 6 hours apart, and then records that check as failed. A card removed from the billing account after checkout counts as failed too.
+
+A failed check never stops MAYA working. It raises two things: the top card on the <Ui>Billing</Ui> page reads "Your saved card stopped working" with "Nothing has failed yet, but the next charge will. Update it before your renewal to keep pricing running.", and an amber section headed "Your card needs attention" says "We checked it on" the date "and your bank declined it", with the bank's short reason in brackets. The dashboard shows the amber <Ui>Fix it</Ui> banner to everyone on the property.
+
+The warning clears by itself the next time a payment goes through. Saving a new card does not clear it on the spot. The next successful charge does.
+
+## When a payment fails
+
+<Steps>
+<Step title="The bank retries and MAYA keeps working">
+Stripe retries the card over a period (about two weeks). During the retries the status on the <Ui>Billing</Ui> page reads "Payment overdue" and the date row is renamed <Ui>Retrying payment until</Ui>. The top card reads "Your last payment did not go through", and says your rules keep running while the bank retries and that updating your card now avoids an interruption. The date on it is the end of the current billing period, not the last retry: the retries usually stop well before it (about two weeks). The dashboard shows the amber <Ui>Fix it</Ui> banner. Your rules keep running as normal, and a live Cloudbeds or ThinkReservations property keeps sending prices. Nothing is sent to Mews yet, or while a property is in simulation, whether or not a payment has failed.
+</Step>
+<Step title="If the retries run out, work stops">
+The status becomes "Unpaid" (the row goes on to say stopped). The top card turns red: "MAYA has paused work on this property" with "Prices are no longer being calculated or sent to your PMS. Update your card and the subscription restarts where it left off." The dashboard shows the red <Ui>Restart MAYA</Ui> banner. There is no <Ui>Restart your subscription</Ui> button in this state, because the subscription is still alive in Stripe. Update the card in the portal, and read [Moving to another card](#moving-to-another-card) to be sure the subscription is charged on it. Once the payment goes through, work picks up again.
+</Step>
+<Step title="If Stripe cancels the subscription instead">
+Whether an unpaid subscription is cancelled outright after the retries is a Stripe setting. If it is, the status reads "Cancelled" and a <Ui>Restart your subscription</Ui> button appears. [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving) has that path.
+</Step>
+</Steps>
+
+In a group of properties on one card, each property is charged on its own renewal date, so each one fails and retries on its own. The owner fixes them by moving them onto a working card. Read [If the shared card fails](/docs/pay/paying-for-a-group#if-the-shared-card-fails).
+
+## What "stopped" means
+
+When work has stopped, for a lapsed payment or a cancellation:
+
+- The scheduled reads of your bookings and the scheduled runs of your rules stop, and nothing is sent to your system. This is the same for Cloudbeds, ThinkReservations and Mews.
+- If you type or clear a manual price, or change <Ui>Counts as a room</Ui> or <Ui>Rooms out of service</Ui>, MAYA still runs your rules again, and the new prices show on the calendar. Nothing is sent. The line after a save, such as "Saved. Sending to Cloudbeds now.", does not apply while work is stopped.
+- Running <Ui>Get suggestions from my data</Ui> and changing the billed room count are refused with "This property's subscription is not active, so MAYA has paused work on it."
+- The rates already in your property system stay exactly as they were last sent. Nothing is reverted, and nothing new goes out. [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) has what to do with them.
+- Your rules, floors and ceilings, history, manual prices, team and settings all stay.
+- You can still sign in and read the calendar, the change log and the team page.
+
+## Updating your card
+
+<Steps>
+<Step title="Open Billing">
+Click <Ui>Billing</Ui> at the top right of the dashboard. General Manager or Hotel Admin only.
+</Step>
+<Step title="Click Update card, receipts & cancellation">
+Stripe's billing portal opens. Choose the option to update the payment method, enter the new card, and save it as your default.
+</Step>
+<Step title="Come back">
+Stripe returns you to the <Ui>Billing</Ui> page. Your subscription may keep charging the card it started with, including when Stripe retries an overdue payment. To be sure the new card is used, [email us](mailto:info@modern-hospitality-solutions.com?subject=Move%20to%20a%20new%20card) and we move the subscription onto it. A card warning clears after the next successful payment, not the moment you save.
+</Step>
+</Steps>
+
+[Update your card](/docs/recipes/update-your-card) is the one-screen version.
+
+In a group of properties from the Cloudbeds Marketplace, the card belongs to the owner's billing account. A General Manager or Hotel Admin of one property who does not also manage the others cannot reach the card from their <Ui>Billing</Ui> page. The owner updates it, or [email us](mailto:info@modern-hospitality-solutions.com?subject=Group%20card). [Paying for a group of properties](/docs/pay/paying-for-a-group) explains.
+
+## When you are charged
+
+Each billing period is charged at its start, in advance, on its renewal date: a monthly plan pays for the month ahead, a yearly plan for the year ahead. After a free trial, the first charge falls on the day the trial ends. The <Ui>Billing</Ui> page shows the date under <Ui>Next charge</Ui>. A change to your room count is not charged on the day: the difference for the rest of the period goes on your next invoice, as a charge or a credit.
+
+Your renewal date comes from the day the subscription started, or the day its trial ended. There is no setting in MAYA to move it, and Stripe's portal cannot move it either. In a group, each property keeps its own renewal date, so the properties are charged on different days. If you need them lined up, [email us](mailto:info@modern-hospitality-solutions.com?subject=Renewal%20date).
+
+## Invoices and receipts
+
+Every invoice and receipt lives in Stripe's billing portal, under the same button. There is no invoice list inside MAYA. They stay in the portal after you cancel, as [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving#your-invoices-after-you-cancel) explains. Stripe, not MAYA, sends any receipt or failed-payment email, to the email address on the billing account.
+
+An accountant who only needs invoices does not need a MAYA login: forward the receipts, or change the billing email in the portal to an address they read. A login for the <Ui>Billing</Ui> page itself needs General Manager or Hotel Admin, which also grants the power to go live and change the team, so it is rarely the right fit.
+
+## Supplier paperwork
+
+Before you commit, two screens show the price: the calculator on the get-maya.com home page, and the price panel on the payment screen, which re-prices the moment you type a code. MAYA does not produce a formal quote, a pro-forma invoice or supplier forms such as a W-9. If your accounts team needs any of these, or our company details for supplier set-up, [email us](mailto:info@modern-hospitality-solutions.com?subject=Supplier%20paperwork) and say what they need. A vendor form or purchase order you send does not change the Terms. Read [Terms and legal](/docs/reference/terms-and-legal).
+
+## The name on your card statement
+
+A charge for MAYA shows under MAYA's business name, as your bank prints it. Banks often shorten the name. The first charge after a free trial ends is marked once so you can spot it: it begins "MAYA" and ends "TRIAL OVER".
+
+The charge is in US dollars, so a card in another currency shows the amount your bank converted. The card checks above are not charges. To match a statement line to an invoice, compare its date and amount with the invoices in the billing portal.
+
+## Tax
+
+Prices exclude tax, and under the Terms (clause 7.7) any tax is yours to pay. Whether tax is added at checkout, with a full billing address and a business tax ID asked for, depends on how billing is set up at the time, not on anything you choose. Each invoice in the billing portal shows whether tax was added. The portal also lets you add or change a billing address and a business tax ID.
+
+## Switching between monthly and yearly
+
+In the portal. A switch starts a new billing period on the day you make it, and Stripe charges for that period straight away, less a credit for the unused part of the old one.
+
+From monthly to yearly, a full year is charged that day, less the unused days of your month. From yearly to monthly, the credit for the unused year is usually more than a month costs, so the rest stays as a credit on your billing account and comes off later invoices. A switch during a free trial ends the trial that day and charges the new plan at once.
+
+Yearly is 10% cheaper from 21 rooms up, and the same price as twelve monthly payments for 1 to 20 rooms. [What it costs](/docs/start/what-it-costs) has the brackets.
+
+## Moving to another card
+
+Add the new card in the portal and save it as your default, as in the steps above. A subscription can keep the card it was set up with at checkout, so the old card may still be charged. To be sure it is not, [email us](mailto:info@modern-hospitality-solutions.com?subject=Move%20to%20a%20new%20card) and we move your subscription onto the new card.
+
+In a group of properties from the Cloudbeds Marketplace, every property bills on the owner's one billing account, each with its own subscription. The owner adds the new card. In your email, say which properties should move to it, or all of them. To put one property of a group on a card of its own, or bill it to a different company, read [Paying for a group of properties](/docs/pay/paying-for-a-group).
+
+## Keeping a second card on file
+
+You can, in Stripe's billing portal. Open it with <Ui>Update card, receipts & cancellation</Ui> on the <Ui>Billing</Ui> page, add the second card, and choose which card is the default.
+
+Each payment comes from one card: the card on your subscription (the one from checkout), or your default card if the subscription has none. If a payment fails, Stripe retries that same card and does not switch to the spare by itself. Making the spare your default may not move a subscription that has its own card, so to switch to the spare, [email us](mailto:info@modern-hospitality-solutions.com?subject=Move%20to%20a%20new%20card) and we move it. MAYA's two card checks look at the same card a payment comes from, so a card warning on the <Ui>Billing</Ui> page is about that card.
+
+In a group of properties from the Cloudbeds Marketplace, the cards belong to the owner's billing account, so the owner adds them.
+
+## Refunds
+
+Under the Terms there are no refunds for part of a billing period, unused rooms, downgrades, suspensions or time when the Service or your property system was unavailable. Apart from any refund the law requires, there are two exceptions: if we discontinue the Service entirely, or end your agreement for our own reasons on 30 days' warning, we refund the unused part of the current paid period. Lowering your room count gives a credit against future invoices, never cash. Any other credit is a one-off courtesy.
+
+## Disputes
+
+If a charge looks wrong, [email us](mailto:info@modern-hospitality-solutions.com?subject=Disputed%20charge) with the invoice number within 60 days of the charge, and we look into it. Under the Terms, a charge you have not raised with us in writing within 60 days is final.
+
+Please [email us](mailto:info@modern-hospitality-solutions.com?subject=Disputed%20charge) before you ask your bank to reverse a charge. We can usually sort it out faster. Under the Terms, reversing a correct charge makes you liable for the fees it causes. [Terms and legal](/docs/reference/terms-and-legal) has the clauses on disputes and overdue amounts.
+
+<Example title="The card on file expires at The Harbour Inn">
+The card on file expires in June. The 48-hour check passed months ago, so nothing warns in advance. On the June renewal the charge fails: the status reads "Payment overdue" and the <Ui>Fix it</Ui> banner appears for everyone, Priya included. Sam, the Hotel Admin, opens <Ui>Billing</Ui>, clicks <Ui>Update card, receipts & cancellation</Ui>, saves the new card as the default and returns, then emails us to move the subscription onto it. Stripe's next retry succeeds, the status goes back to "Active", and prices never stopped.
+</Example>
+
+<Callout kind="not-yet">
+No bank transfer, ACH or invoicing. No invoices inside the app. No pause. MAYA sends no failed-payment or card-expiry emails of its own. Those come from Stripe, and MAYA cannot resend them. Whether a card warning or a retry email arrives depends on Stripe's settings, so the <Ui>Billing</Ui> page is the place that is always right.
+</Callout>
+
+<Related>
+- [The billing page](/docs/billing/the-billing-page)
+- [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving)
+- [Emails MAYA sends](/docs/billing/emails-maya-sends)
+</Related>

@@ -1,0 +1,204 @@
+---
+title: ThinkReservations
+summary: How to connect ThinkReservations from inside MAYA, what MAYA reads there, which rate type it sends prices to, how a send is checked, and what is different about room counts and disconnects.
+section: connect
+order: 30
+readingTime: 17
+keywords: [ThinkReservations, Think Reservations, Think, connect, access code, paid without a code, any code, reconnect, which login, wrong hotel, other hotel, another hotel, Last sync stopped, booking speed, seasons, Best Available, BAR, rate type, standard, derived, non-refundable, package, 100 rooms, 100 units, occupancy tiny, occupancy wrong, unit count, room count, one number, same size, different sizes, room types different sizes, occupancy still wrong, bill, billing room count, accepted, applied, read back, an hour, group, several hotels, covers properties, one property per login, permission to update rates, write permission, disconnect, banner, Error, request log, No recent activity, password, connection failed, marketplace-initiated, link expired, 15 minutes, Return to Command Center, average]
+questions:
+  - How do I connect ThinkReservations to MAYA? {#connecting/there-is-one}
+  - Which rate does MAYA change in ThinkReservations? {#which-rate-type-maya-sends-prices-to/thinkreservations-marks-each}
+  - How does ThinkReservations apply the prices MAYA sends? {#how-a-send-is-checked/thinkreservations-does-not}
+  - Do my derived rate types in ThinkReservations follow MAYA's price? {#which-rate-type-maya-sends-prices-to/derived-rate-types}
+  - Why does every room type show 100 rooms on ThinkReservations? {#how-many-rooms-each-room-type-has/maya-does-not}
+  - Why is my occupancy tiny on ThinkReservations? {#how-many-rooms-each-room-type-has/maya-does-not}
+  - Can I set how many rooms a ThinkReservations room type has? {#how-many-rooms-each-room-type-has/we-can-change}
+  - Can each ThinkReservations room type have its own room count? {#how-many-rooms-each-room-type-has/careful-expect-a}
+  - Why is my ThinkReservations occupancy still wrong after you set the room count? {#how-many-rooms-each-room-type-has/if-we-set}
+  - Does the ThinkReservations room count change my bill? {#how-many-rooms-each-room-type-has/we-can-change}
+  - My ThinkReservations login covers several hotels, what now? {#one-property-per-login}
+  - Can support set up a group of ThinkReservations properties? {#one-property-per-login}
+  - How would I know if ThinkReservations lost its connection? {#disconnecting-and-reconnecting/thinkreservations-does-not}
+  - Which ThinkReservations login should I reconnect with? {#disconnecting-and-reconnecting/thinkreservations-does-not}
+  - Why does the PMS tab say No recent activity for ThinkReservations? {#the-pms-tab-for-a-thinkreservations-property/the-connection-card}
+  - Does MAYA need a code to connect ThinkReservations? {#messages-you-can-meet-on-the-way-in/think-reservations-needs}
+  - What changes in ThinkReservations once I go live? {#which-rate-type-maya-sends-prices-to/thinkreservations-marks-each}
+  - What stays mine in ThinkReservations after I go live? {#which-rate-type-maya-sends-prices-to/derived-rate-types}
+  - Which ThinkReservations bookings does MAYA count? {#which-bookings-count}
+  - Will my ThinkReservations non-refundable rate follow MAYA's price? {#the-pms-tab-for-a-thinkreservations-property/the-harbour-inns}
+  - How long until a price MAYA sends shows in ThinkReservations? {#how-a-send-is-checked/thinkreservations-does-not}
+  - How do I stop using MAYA with ThinkReservations? {#disconnecting-and-reconnecting/thinkreservations-does-not}
+  - It says Think Reservations connection failed, what now? {#connecting/3-sign-in}
+pms: [thinkreservations]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Connect from inside MAYA after paying: pick <Ui>Think Reservations</Ui>, sign in on their site, and you are brought back. MAYA reads your bookings, room types and rate types, and sends nightly prices to your Best Available rate type. ThinkReservations accepts each price and applies it shortly after. MAYA reads your rates back within about an hour to check the price landed.
+</InPlainWords>
+
+ThinkReservations connects from inside MAYA and receives prices, so a ThinkReservations property gets the full path: the history import, starter rules, the calendar, going live and sending. This page covers how to connect, what MAYA reads, which rate type it writes to, and what works differently from Cloudbeds, including how you connect, room counts, how a send is checked, and how a disconnect or a reconnect shows up.
+
+## Connecting
+
+There is one way in. You create your MAYA account, pay, and then connect. ThinkReservations has no marketplace listing for MAYA, so there is no free trial without a code, and a code may be needed at checkout. Read [codes and the free trial](/docs/pay/codes-and-the-free-trial).
+
+<Steps>
+<Step>
+**Create your account and pay.** At checkout, choose <Ui>Think Reservations</Ui> as your system. If the code field is required, enter the code we gave you.
+</Step>
+<Step>
+**On the screen titled <Ui>Connect your property system</Ui>, click <Ui>Connect →</Ui> beside Think Reservations.** The card says <Ui>Sign in with your Think Reservations account</Ui>. There is nothing to copy and nothing to set up on the ThinkReservations side.
+</Step>
+<Step>
+**Sign in on ThinkReservations' website and approve.** MAYA asks ThinkReservations for permission to read your bookings, rooms, rates and availability, to write rates, and to stay connected without asking you to sign in again. It does not ask for guest details. Finish within 15 minutes. If it takes longer, you land on a page headed "Think Reservations connection failed" that says "think does not support marketplace-initiated connections." Nothing is wrong: the sign-in link had run out. Go back to the connect screen and start again.
+</Step>
+<Step>
+**You are brought back to MAYA.** MAYA names the property from ThinkReservations, reads its time zone and currency, and starts the history import. If a property with that name already exists on MAYA, a "(2)" is added. You can rename it in the questions step. Read [the history import](/docs/review/the-history-import).
+</Step>
+</Steps>
+
+Every property starts in simulation. Nothing is sent to ThinkReservations until you go live. Read [simulation mode](/docs/live/simulation-mode).
+
+<Callout kind="good-to-know" title="One permission MAYA asks for but does not use">
+The list ThinkReservations shows you includes reading availability. MAYA asks for it but makes no availability call today. It never reads how many rooms are free on a night, and it never changes availability. Read [what MAYA reads and writes](/docs/connect/what-maya-reads-and-writes).
+</Callout>
+
+### Messages you can meet on the way in
+
+- **"Think Reservations needs an access code to connect. Use the system you signed up with, or get in touch and we'll sort you out."** You paid without a code, because the system you chose at checkout did not need one, and ThinkReservations does. Any code used at checkout counts, whichever system you chose there. A code can only be entered at checkout, so [email us](mailto:info@modern-hospitality-solutions.com?subject=Access%20code%20for%20ThinkReservations) and we sort you out.
+- **"Payment is needed before connecting a PMS."** The subscription has not gone through yet. Go back to the payment screen and finish it.
+- **A page headed "We hit a snag connecting your property"** with the reason and a <Ui>Try again</Ui> link. Most reasons end in "Try again in a moment." and mean exactly that. Read [messages you might see, explained](/docs/wrong/messages-explained).
+
+### One property per login
+
+If your ThinkReservations login can reach several hotels, the connect step stops with "This Think Reservations login covers 3 properties. MAYA signs one property up at a time right now" (with your own number) and no <Ui>Try again</Ui> link. MAYA cannot tell which of them you paid for, and picking one could price the wrong hotel. Reply to your receipt or [email us](mailto:info@modern-hospitality-solutions.com?subject=ThinkReservations%20group) and we set the properties up by hand, each as its own property in MAYA. There is no group flow for ThinkReservations yet.
+
+## What MAYA reads from ThinkReservations
+
+On every cycle, about every five minutes, MAYA reads from ThinkReservations:
+
+- **Bookings** made or changed since the last read. A booking that holds several rooms arrives with one entry per room. MAYA keeps each room's room type, its nights, and its nightly room charge.
+- **Room types**, by name. MAYA does not read how many rooms each type has yet (see below).
+
+About once an hour, MAYA reads your **rate types** (their names, whether each is standard or follows another, and which room types each covers) and your **own nightly rates** for the next 60 nights from the rate type it sends to. Once a day it re-reads the whole booking window, so a booking missed in between is picked up within the day.
+
+At connect, MAYA reads the property's **name, time zone and currency** once. They are not refreshed afterwards. If you change your time zone or currency in ThinkReservations later, [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone%20or%20currency) and we change it in MAYA.
+
+The **nightly rate** MAYA stores is the room charge on the booking, after any discount, placed on the night it was billed for. Pet fees, packages and other items are never read as a room rate. If a booking's room charges are not dated night by night, the room total is split evenly across its nights.
+
+The **booking date** is the moment ThinkReservations recorded the booking, read on your property's own calendar. A booking made at 11 pm at a property in California is dated that day, not the next.
+
+ThinkReservations sends guest details with every booking even though MAYA does not ask for them. MAYA drops them before anything is stored: names, emails, phone numbers, addresses, dietary notes, arrival times and special requests never reach MAYA's database. Read [what MAYA reads and writes](/docs/connect/what-maya-reads-and-writes).
+
+## Which bookings count
+
+MAYA keeps a booking when ThinkReservations lists it as **scheduled**, **checked in** or **checked out**. A booking marked **cancelled** or **no show** is removed on the next read, and its nights come off the count. Cancelling changes the booking, so the cancellation arrives in the same five-minute read as everything else.
+
+Nights run from check-in up to, but not including, check-out. A same-day booking is one night. Each room in a booking is one booked room on each of its nights.
+
+For occupancy, each room counts. For booking speed, a booking counts once however many rooms it holds. A 4-room booking for one night is 4 booked rooms and 1 booking. Read [booking speed](/docs/rules/booking-speed).
+
+## How many rooms each room type has
+
+MAYA does not read your room counts from ThinkReservations yet, so it uses one number for every ThinkReservations room type at your property, and that number starts at 100. The <Ui>Room types</Ui> block on the <Ui>PMS</Ui> tab shows "100 units" beside each one.
+
+That changes what occupancy reads. Sellable occupancy is rooms booked divided by rooms you can sell, so with 100 in the bottom half of the fraction, a full house reads as a fraction of full. Occupancy rules will not fire the way you expect, and booking window rules that also check occupancy will not either.
+
+Booking speed counts bookings, not rooms. But the similar past nights it compares with come from your seasons, and your seasons are read partly from how early past nights filled, measured against the room count. So while the count is wrong, your seasons can be off, and booking speed can compare a night with the wrong past nights.
+
+We can change that number for you. It stays one number for the whole property, and it goes to every ThinkReservations room type alike. [Email us](mailto:info@modern-hospitality-solutions.com?subject=ThinkReservations%20room%20count) your counts whatever they are. If every room type has the same number of rooms, we set that number and occupancy is right from the next run. If they differ, we set the average: occupancy over the whole property then reads close, but one room type on its own reads wrong. So write occupancy rules that measure every room type, and lean on booking speed and booking window rules.
+
+MAYA's room count for your bill uses the same number, once for each room type ticked as a room. Read [your room count and what you pay](/docs/billing/your-room-count).
+
+<Callout kind="careful" title="Expect a room count email">
+Until we set your room count, MAYA measures 100 rooms for every room type, so a property with three room types is measured at 300 rooms, and you will likely get a room count email. [Email us](mailto:info@modern-hospitality-solutions.com?subject=ThinkReservations%20room%20counts) your counts on day one, and reply to that email, so we can sort out your billed count before the 7 days pass.
+</Callout>
+
+A separate count for each room type is not possible for ThinkReservations yet, and there is no field in MAYA for you to set the number yourself.
+
+<Example title="One number for three sizes of room at The Harbour Inn">
+The Harbour Inn has 12 Standard rooms, 6 Deluxe and 2 Suites. On Fri, Nov 13 2026, 9 Standard and 5 Deluxe rooms are booked. With the real counts, Standard reads 75% full and Deluxe 83%.
+
+With 100 as the number, Standard reads 9% and Deluxe 5%. "Busy nights" (occupancy Greater than 80) cannot fire. "Last minute" (booking window Less than 3 and occupancy Less than 50) lowers the price of nights that are in fact full, once they are less than 3 days away.
+
+If we set the number to 12, Standard reads 75%, which is right. Deluxe gets 12 as well and reads 42%, and Suite, with 2 rooms, is read as 12. No single number is right for 12, 6 and 2. So we set the average, 7: the three add up to 21 rooms, close to the real 20, and a rule that measures all three reads close to the truth. A property whose room types all have 8 rooms reads right with 8.
+
+<Ui>Rooms out of service</Ui> still works the same way: 3 rooms out of service come off whatever the count is.
+</Example>
+
+## Which rate type MAYA sends prices to
+
+ThinkReservations marks each rate type as standard or as following another rate type (derived). MAYA sends its prices to your **Best Available** rate type: the standard rate type whose name contains "Best Available". A rate type called "Best Available Non-Refundable" has those words too, and MAYA may write to it instead, so give exactly one standard rate type a name with "Best Available" in it.
+
+If no rate type is called Best Available, MAYA uses the one standard rate type that covers the most room types. That could be a non-refundable or a package rate type, because ThinkReservations marks those standard too. If two standard rate types tie for that, neither is used, and nothing is sent until one of them is named Best Available. A room type the chosen rate type does not cover is not sent to. MAYA never hands a room type's price to a non-refundable or package rate type instead.
+
+Derived rate types reprice themselves from their parent by ThinkReservations' own rules, so writing the Best Available rate is the whole job. A non-refundable rate that follows Best Available at 10% off moves when MAYA moves Best Available. MAYA never writes to a derived rate type and never creates a rate type. A non-refundable or package rate type is written to only when it is the one chosen above, so name your main rate type Best Available.
+
+<Example title="Which of my ThinkReservations rate types will MAYA change?">
+For your property, ask in this order:
+
+1. **Is there a standard rate type called Best Available?** If yes, that is the one MAYA changes, for every room type it covers.
+2. **If not, which standard rate type covers the most room types?** If exactly one does, MAYA changes that one.
+3. **Is a room type left out?** A room type not covered by the chosen rate type is priced on the calendar but not sent. Add it to that rate type in ThinkReservations.
+
+At The Harbour Inn, "Best Available" covers Standard, Deluxe and Suite. "Non-Refundable" follows Best Available at 10% off. "Romance Package" is a package. MAYA writes each room type's price to Best Available. Non-Refundable follows on its own. Romance Package is untouched.
+</Example>
+
+### When a room type has no base rate
+
+If no rate type MAYA can send to covers a room type, that room type is priced on the calendar but not sent, and the change log shows a "Rates not reaching Think Reservations" entry: "MAYA can't find a base rate for Deluxe in Think Reservations, so its rates can't be changed", with the action "Add a base rate for this room type in Think Reservations." Add the room type to your Best Available rate type in ThinkReservations. MAYA re-reads your rate types and sends the held prices on a later cycle. Read [when your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price).
+
+## How a send is checked
+
+ThinkReservations does not apply a price the instant it receives it. It answers "accepted" and applies the price shortly after, and there is no job for MAYA to ask about afterwards, as there is with Cloudbeds. So MAYA checks by reading. About once an hour it reads your rates from ThinkReservations, and a send counts as landed when that read finds MAYA's price there.
+
+Until a send has been read back, a rate you change in ThinkReservations on that night is not kept as a manual price, because MAYA cannot yet tell your change from a price of its own that has not landed. Once the send has been read back and is at least 60 minutes old, a rate you change there is kept, exactly as on Cloudbeds. Read [rates you change in your property system](/docs/watch/rates-changed-in-your-pms).
+
+If ThinkReservations accepts a batch and then never applies it, MAYA's calendar shows MAYA's price while ThinkReservations still holds the old one. The next time that night's price changes, MAYA sends it again. Nothing is sent again at the same price on its own. If a night in ThinkReservations still shows the old rate an hour after MAYA's calendar changed, [email us](mailto:info@modern-hospitality-solutions.com?subject=ThinkReservations%20rate%20not%20applied) the night and room type and we check it.
+
+<Callout kind="careful" title="A price of 0 is never sent">
+MAYA does not send a price of 0 to ThinkReservations. A night you set to 0 in MAYA is a comp night that you set to 0 in ThinkReservations yourself. The save says so: "Saved. MAYA doesn't send a price of 0 to Think Reservations, so set the night to 0 there yourself."
+</Callout>
+
+## Permission problems
+
+If ThinkReservations lets MAYA read but refuses the write, the change log shows "Think Reservations won't let MAYA change Standard rates because MAYA doesn't have permission to update rates", with the action "Give MAYA permission to update rates in Think Reservations, then reconnect on the PMS tab." Reads, pricing and the calendar carry on. The held prices go out on the cycle after you reconnect.
+
+A refused write never disconnects a ThinkReservations property. The connection stays up, and only the sending waits.
+
+## Disconnecting and reconnecting
+
+ThinkReservations does not tell MAYA when access has been removed. MAYA reads the refusal when its next call fails. A failed read is tried again with a growing wait, up to an hour between tries, and nothing is priced or sent while reads fail. When ThinkReservations refuses to renew MAYA's access, the <Ui>Connection</Ui> card on the <Ui>PMS</Ui> tab reads <Ui>Error</Ui> and the banner "MAYA has lost its connection to Think Reservations" appears for a General Manager or Hotel Admin, with a <Ui>Reconnect Think Reservations</Ui> button. Until the status changes, the tab can still read <Ui>Connected</Ui> while calls are failing. If prices have stopped and the tab still reads <Ui>Connected</Ui>, a General Manager or Hotel Admin can click the quiet <Ui>Reconnect Think Reservations</Ui> link on the <Ui>PMS</Ui> tab anyway. Which ThinkReservations login you sign in with matters, so read the next paragraph first.
+
+To reconnect, click <Ui>Reconnect Think Reservations</Ui> on the banner or on the <Ui>PMS</Ui> tab, sign in on ThinkReservations' site with a login that reaches this hotel and no other, and you are back on the dashboard. Your rules, history and settings are untouched. Finish signing in within 15 minutes. If it takes longer, you see the "Think Reservations connection failed" page described under Connecting. Nothing has changed: start again from the <Ui>PMS</Ui> tab. Syncing resumes within about five minutes, or up to an hour if reads had been failing for a while. Read [reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect).
+
+<Callout kind="careful" title="Reconnect with a login for this hotel only">
+A reconnect clears which hotel MAYA reads, and the next read uses the hotel the new login reaches. A login to one other hotel moves this property onto that hotel: MAYA reads its bookings and, once you are live, sends prices to it. A login that reaches several hotels makes every read fail, while the tab still reads <Ui>Connected</Ui> and <Ui>Last sync</Ui> stops moving.
+</Callout>
+
+If <Ui>Last sync</Ui> stops moving after a reconnect, reconnect again with a login that reaches only this hotel. If your only login reaches several hotels (we set those properties up by hand), or you signed in to another hotel by mistake, [email us](mailto:info@modern-hospitality-solutions.com?subject=ThinkReservations%20reconnect) and we sort it out.
+
+MAYA has no disconnect button of its own. To remove MAYA's access in ThinkReservations, cancel your subscription first, then [email us](mailto:info@modern-hospitality-solutions.com?subject=Disconnect%20ThinkReservations) and we walk you through it.
+
+MAYA never sees your ThinkReservations password. ThinkReservations gives MAYA its own access to work with. If prices stop updating after you change your password, a General Manager or Hotel Admin can click <Ui>Reconnect Think Reservations</Ui> on the <Ui>PMS</Ui> tab, even while the tab still reads <Ui>Connected</Ui>.
+
+## The PMS tab for a ThinkReservations property
+
+The <Ui>Connection</Ui> card and <Ui>Last sync</Ui> are right for ThinkReservations. The <Ui>Recent requests to Think Reservations</Ui> table stays empty today, and the <Ui>Health (last 24 hours)</Ui> card reads <Ui>No recent activity</Ui>, because only calls to Cloudbeds are written to that log. It does not mean syncing has stopped. <Ui>Last sync</Ui> is the number to look at. Read [the PMS tab](/docs/watch/the-pms-tab).
+
+<Callout kind="not-yet" title="Not yet">
+There is no Marketplace install for ThinkReservations, so no free trial without a code. Room counts are not read from ThinkReservations, and a count for each room type is not possible yet. The one number we can set is exact only when your room types are the same size (otherwise we set the average). ThinkReservations does not tell MAYA about a disconnect (MAYA finds the refusal on its next call). A login covering several hotels cannot connect on its own (we set them up by hand). The request log on the PMS tab does not fill for ThinkReservations.
+</Callout>
+
+<Example title="The Harbour Inn goes live on ThinkReservations">
+The Harbour Inn's Best Available rate for Standard is $150 on Fri, Nov 13 2026. That night is booking faster than similar nights did, so the starter rule "Warm-date bump" raises Standard 10%, from $150 to $165. (It is a booking speed rule, which counts bookings rather than rooms, so it can fire whatever the room count is.) On the next cycle, MAYA sends $165 to Best Available for that night. ThinkReservations answers "accepted" and applies it a moment later. The Non-Refundable rate, which follows Best Available at 10% off, now shows $148.50 in ThinkReservations without MAYA touching it.
+
+Within the hour, MAYA reads its rates back from ThinkReservations, finds $165 on that night, and marks the send as landed. Two hours later, Sam changes the night to $175 in ThinkReservations by hand. On MAYA's next hourly read, the night shows "Changed in Think Reservations · $175.00" in MAYA and is kept as a manual price.
+</Example>
+
+<Related>
+- [What MAYA reads and writes](/docs/connect/what-maya-reads-and-writes)
+- [Reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect)
+- [How prices reach your property system](/docs/live/how-prices-reach-your-pms)
+</Related>

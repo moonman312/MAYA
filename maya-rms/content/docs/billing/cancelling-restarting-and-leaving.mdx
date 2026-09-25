@@ -1,0 +1,199 @@
+---
+title: Cancelling, restarting and leaving
+summary: How to cancel and when it takes effect, what stops and what stays, your invoices after cancelling, restarting later, pausing instead, cancel versus disconnect, prices after you leave, starting again from scratch, deleting your data, and what happens to a property that never pays.
+section: billing
+order: 40
+readingTime: 12
+keywords: [cancel, cancelling, cancellation, end of period, access ends, set to cancel, restart, restart your subscription, come back, pause, pausing, take a break, leave, leaving, close my account, delete my data, delete account, deletion, 90 days, what you keep, disconnect, cancel versus disconnect, prices after cancelling, reset rates, rules survive, never paid, trial lapsed, 180 days, export rules, export data, charged after cancelling, cancel a property never connected, reuse my code, cancel one property in a group, restart asks for a code, new trial on restart, left restart checkout, invoices after cancelling, receipts after cancelling, download invoices, old invoices, billing page after cancelling, reset, reset my property, start again, start over, from scratch, fresh start, clean slate, wipe, delete all rules, clear history, lost its connection, paused work, reconnect after trial, history removed, reconnect first, restart before reconnecting, type a price after cancelling, still says sending, room types after cancelling]
+questions:
+  - How do I cancel MAYA? {#how-to-cancel}
+  - When does a cancellation take effect? {#when-it-takes-effect-and-what-you-pay}
+  - Will I be charged after cancelling? {#when-it-takes-effect-and-what-you-pay}
+  - Can I still download my invoices after I cancel? {#your-invoices-after-you-cancel}
+  - Can I pause instead of cancelling? {#pausing-instead/turn-your-rules}
+  - What happens to my prices when I cancel? {#your-prices-after-you-leave}
+  - Do I need to reset rates in my property system after leaving? {#your-prices-after-you-leave}
+  - Does cancelling disconnect my property system? {#cancel-versus-disconnect/cancelling}
+  - Do my rules survive a cancellation? {#what-stops-and-what-stays/stays}
+  - How do I restart after cancelling? {#restarting/1-open-billing}
+  - Why can I not reuse my code when restarting? {#restarting/the-screen-may}
+  - Can I come back later, even after a year? {#coming-back-after-a-long-time/your-rules-limits}
+  - Can I cancel a property I paid for but never connected? {#cancelling-a-property-you-paid-for-but-never-connected}
+  - How do I cancel one property in a group? {#cancelling-one-property-in-a-group}
+  - Why does the restart screen ask for a code for my Marketplace property? {#restarting/the-screen-may}
+  - Can I reset my property and start again from scratch? {#starting-again-from-scratch/rules}
+  - Can I delete my data or my account myself? {#deleting-your-data}
+  - What happens to my data if I never pay or the trial lapses? {#properties-that-never-pay/if-a-property}
+  - Can I export my rules before leaving? {#properties-that-never-pay/not-yet-no}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Cancel from Stripe's billing portal (opened from the <Ui>Billing</Ui> page) or by emailing us. It takes effect at the end of the paid period, and MAYA keeps working until then. Your rules, floors and ceilings, history and settings stay, and <Ui>Restart your subscription</Ui> brings MAYA back. Cancelling does not disconnect your property system, and disconnecting does not cancel. MAYA never reverts the prices it sent.
+</InPlainWords>
+
+## How to cancel
+
+<Steps>
+<Step title="Open Billing and click Update card, receipts & cancellation">
+General Manager or Hotel Admin only. Stripe's billing portal opens. For one property in a group, see [Cancelling one property in a group](#cancelling-one-property-in-a-group) below.
+</Step>
+<Step title="Cancel the subscription">
+Choose to cancel, pick a reason from Stripe's list, and confirm. MAYA keeps the reason category for its own records and never any comment you type. Stripe returns you to the <Ui>Billing</Ui> page.
+</Step>
+<Step title="Check the page">
+The top card now reads "This subscription is set to cancel" with "MAYA keeps working until" the date "then stops." The <Ui>Next charge</Ui> row is renamed <Ui>Access ends</Ui>. Nothing else changes yet.
+</Step>
+</Steps>
+
+You can also cancel by [emailing us](mailto:info@modern-hospitality-solutions.com?subject=Cancel%20MAYA) from a General Manager's or Hotel Admin's address. [Cancel MAYA](/docs/recipes/cancel-maya) is the one-screen version.
+
+## When it takes effect, and what you pay
+
+Cancellation takes effect at the end of the billing period you have already paid for. On a monthly plan that is the next renewal date. On a yearly plan it is the end of the year you paid for. Nothing is charged after that, and there is no refund for the unused part of the period. MAYA works as normal until the date on the <Ui>Access ends</Ui> row.
+
+<Example title="Sam cancels in November">
+The Harbour Inn renews on the 20th of each month. Sam cancels on November 3. The <Ui>Billing</Ui> page shows "Access ends" November 20. Rules keep running and prices keep going to Cloudbeds until then. No charge is taken on November 20, and from that day the status reads "Cancelled".
+</Example>
+
+## What stops and what stays
+
+Once the period ends:
+
+- **Stops:** the scheduled reads of your bookings and the scheduled runs of your rules. Nothing is sent to your property system. The dashboard shows a red <Ui>Restart MAYA</Ui> banner, the <Ui>Billing</Ui> status reads "Cancelled", the price row is relabelled <Ui>Was</Ui> and the date row <Ui>Ended</Ui>.
+- **Still updates the calendar, but is not sent:** you can still type or clear a price on the <Ui>Calendar</Ui> tab, and change your room types on the <Ui>PMS</Ui> tab (<Ui>Counts as a room</Ui> or <Ui>Rooms out of service</Ui>). MAYA runs your rules again and the calendar shows the new prices, but none of them reach your property system while the subscription is cancelled. The message after you save a price may still say it is sending. Nothing goes out.
+- **Stays:** every rule, floor and ceiling, your manual prices, your booking history, your team, your settings and your property system connection. You can still sign in and read the calendar, the change log and the team page.
+
+## Your invoices after you cancel
+
+Cancelling does not close the <Ui>Billing</Ui> page. A General Manager or Hotel Admin can still open it from <Ui>Billing</Ui> at the top right of the dashboard, and <Ui>Update card, receipts & cancellation</Ui> still opens Stripe's billing portal. Every past invoice and receipt stays there to view and download. If you restart later, the new subscription goes on the same billing account, so old and new invoices sit together.
+
+In a group of properties from the Cloudbeds Marketplace, the invoices are on the owner's billing account. A General Manager or Hotel Admin of one property who does not also manage the others asks the owner, or [emails us](mailto:info@modern-hospitality-solutions.com?subject=Invoice%20copies).
+
+Before you ask us to delete a property's data, download the invoices you want to keep. We keep billing records after a deletion, so you can still email us to ask for a copy.
+
+## Your prices after you leave
+
+MAYA reverts nothing. The last prices it sent stay in your property system as they are, and no new ones go out. If you want different rates, set them in your system yourself. [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) explains what MAYA does with them if you come back.
+
+## Cancel versus disconnect
+
+They are two different things, and one does not cause the other.
+
+- **Cancelling** ends billing at the end of the period. Your property system stays connected, and MAYA stops reading it when the period ends.
+- **Disconnecting** (removing MAYA in your property system, or a connection that stops working) stops MAYA reading and sending. Billing carries on until you cancel.
+
+To stop completely, cancel first, then disconnect. [Reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect) covers the disconnect side for each system.
+
+## Restarting
+
+<Steps>
+<Step title="Open Billing and click Restart your subscription">
+The green button sits under the top card once the status is "Cancelled" (or "Never completed"). General Manager or Hotel Admin only.
+</Step>
+<Step title="Confirm the room count and period">
+The screen is headed "Restart your subscription" and reads like the first payment screen, with your previous room count and <Ui>Monthly</Ui> or <Ui>Yearly</Ui> already filled in. Your property system is already chosen. Under the button: "Card details are handled by Stripe. They never touch MAYA. Your PMS connection is still in place, so there's nothing to set up again."
+</Step>
+<Step title="Pay">
+Stripe's page takes the card. The moment checkout completes, work picks up on the next cycle: same rules, same limits, same history. If you leave Stripe's page before finishing, you land on the dashboard, not back on this screen: open <Ui>Billing</Ui> and click <Ui>Restart your subscription</Ui> again.
+</Step>
+</Steps>
+
+A restart is a new subscription at the same brackets. Two things to expect: the code you used the first time cannot be used again, because a code is redeemed once per property, and the screen asks for a code only if your property system still needs one. A restart also gets the two card checks again.
+
+A property that first came from the Cloudbeds Marketplace differs in two ways:
+
+- **The screen may ask for a code.** Marketplace properties never need one, but the screen follows the rule for Cloudbeds sign-ups made directly at maya-rms.com. While those need a code, <Ui>Continue to payment</Ui> stays greyed out until you type one. If your Cloudbeds connection has been removed ([Coming back after a long time](#coming-back-after-a-long-time) explains when), the screen always asks for a code, so reconnect first. If it asks, [email us](mailto:info@modern-hospitality-solutions.com?subject=Restart%20code) and we send you one.
+- **Stripe's page starts a new free trial.** The restart screen says "Billed when you finish checkout", but Stripe's page gives the property a new 7-day trial, and nothing is charged until it ends.
+
+If the status is "Unpaid" rather than "Cancelled", there is no restart button: the subscription is still alive and comes back when you update the card. [Cards, payments and invoices](/docs/billing/cards-payments-and-invoices) has that path.
+
+## Pausing instead
+
+There is no pause. Three ways to take a break:
+
+- **Turn your rules off.** Each rule has an <Ui>On/Off</Ui> switch on the <Ui>Rules</Ui> tab. Off holds the changes a rule has already made and stops it making new ones. Billing continues. [Pausing, or going back to simulation](/docs/live/pausing-or-going-back) explains what a switched-off rule does and does not undo.
+- **Ask us to put the property back in simulation.** MAYA keeps running your rules and writing the change log, and sends nothing. There is no button for this, so [email us](mailto:info@modern-hospitality-solutions.com?subject=Back%20to%20simulation).
+- **Cancel and restart later.** Nothing is lost in between.
+
+## Cancelling a property you paid for but never connected
+
+The <Ui>Billing</Ui> page cannot show a property until its system is connected. Instead, the payment or connect screen shows a link, <Ui>Manage billing or cancel</Ui> (with the property's name in a group), which opens Stripe straight onto cancelling that subscription and brings you back. Once done the link reads "Cancels at the end of the period". Cancelling one property in a group leaves the others as they are.
+
+## Cancelling one property in a group
+
+A group of properties from the Cloudbeds Marketplace bills on the owner's one account in Stripe, and each property is its own subscription. The owner, who manages every property, cancels any one of them from the billing portal on their own <Ui>Billing</Ui> page, and the others keep running.
+
+A General Manager or Hotel Admin of one property who does not also manage the others cannot cancel from their <Ui>Billing</Ui> page: their button opens only Stripe's screen for changing that property's plan. Ask the owner to cancel it, or [email us](mailto:info@modern-hospitality-solutions.com?subject=Cancel%20one%20property) from your own address. [Paying for a group of properties](/docs/pay/paying-for-a-group) explains why.
+
+## Coming back after a long time
+
+Your rules, limits, settings and team are still there, however long you were away. If the property was paying when you left, its booking history is there too.
+
+If the property came from the Cloudbeds Marketplace and never paid, and nobody used MAYA for it for 180 days, its imported booking history and its Cloudbeds connection may have been removed ([Properties that never pay](#properties-that-never-pay) explains). Where you land when you sign in depends on how far you got.
+
+**After a trial that lapsed**, you land on the dashboard. The red "MAYA has paused work on this property" banner comes first, and under it a banner headed "MAYA has lost its connection to Cloudbeds". Reconnect first, then restart:
+
+<Steps>
+<Step title="Click Reconnect Cloudbeds">
+The button is in the lower banner. Cloudbeds asks you to confirm.
+</Step>
+<Step title="Restart from Billing">
+Click <Ui>Restart MAYA</Ui> in the red banner (it opens <Ui>Billing</Ui>), then <Ui>Restart your subscription</Ui>. [Restarting](#restarting) walks through that screen, and what to do if the status reads "Unpaid" instead.
+</Step>
+</Steps>
+
+Your booking history is read again once both are done. Reconnecting on its own does not bring it back.
+
+If you restart before you reconnect, the restart screen always asks for a code, because your Cloudbeds connection has been removed. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Restart%20code) and we send you one, then reconnect from the lower banner.
+
+**If you never reached checkout**, you land on the payment screen, with the same "MAYA has lost its connection to Cloudbeds" banner above it. The banner says "Your rules and settings are still here, and your booking history comes back once you reconnect." Reconnecting reads the history again, and you then set up payment on the same screen.
+
+On the dashboard, only a General Manager or Hotel Admin gets the reconnect button and can restart. Anyone else sees both banners, and the lower one asks them to pass it on to a General Manager or Hotel Admin.
+
+## Starting again from scratch
+
+There is no reset button. Nothing in MAYA takes a property back to the day you connected it. What you can change yourself:
+
+- **Rules:** delete them one at a time with <Ui>Delete</Ui> on the <Ui>Rules</Ui> tab. Deleting a rule also undoes every price change it made. [Turning a rule off, deleting it, or changing it](/docs/rules/off-delete-or-change) has the detail.
+- **Prices you typed:** <Ui>Clear</Ui> on the <Ui>Calendar</Ui> tab hands a night, or a run of nights, back to your rules.
+- **Your booking history:** you cannot clear it. <Ui>Get suggestions from my data</Ui> on the <Ui>Rules</Ui> tab reads it again from your property system and offers cards you accept or reject one by one. It changes nothing by itself and leaves your rules and limits as they are. On Mews this read cannot finish yet.
+- **The change log:** you cannot clear it. Old entries stay, with a deleted rule named "Pricing rule".
+- **Sending:** to stop prices going out while you rebuild, [email us](mailto:info@modern-hospitality-solutions.com?subject=Back%20to%20simulation) to put the property back in simulation. There is no button for this.
+
+For a true fresh start, a General Manager or Hotel Admin asks us to delete the property's data (next section). That is permanent and ends MAYA for that property with no refund. Connecting the property again afterwards starts from scratch.
+
+## Deleting your data
+
+You cannot delete a property, its imported bookings, its published prices or its change log from inside MAYA, whatever your role. You can delete rules, manual prices, set-aside dates and team members, because those are features you use.
+
+To have a property's data deleted, a Hotel Admin or General Manager [emails us](mailto:info@modern-hospitality-solutions.com?subject=Close%20my%20account) from their own address with the subject "Close my account". Once we have verified the request, we delete or de-identify the property's data within 90 days. Deletion is permanent, ends the Service for that property without a refund, and a later reconnection starts from scratch.
+
+What we keep after deletion, under the Terms and the Privacy Policy:
+
+- Backups, until they expire in their normal cycle.
+- Billing, tax and transaction records.
+- Records of your Terms acceptance, audit logs and correspondence.
+- Anything needed for a legal claim or required by law.
+- Aggregated data that identifies nobody.
+
+[Privacy, security and your data](/docs/reference/privacy-security-and-your-data) has the fuller list.
+
+## Properties that never pay
+
+If a property that came from the Cloudbeds Marketplace has never been paid for (a trial that ended unpaid, say), and nobody has used MAYA for it for 180 days, its imported booking history may be deleted, along with the prices and readings worked out from it, its import runs, any review cards you never answered, its property system connection and stored credential, and invitations nobody accepted.
+
+"Used" means something a person did: signing in and claiming, a rule change, a typed price, a room type answer, an invitation, a checkout, accepting the Terms, or connecting or reconnecting the system. Reads and runs that MAYA does on its own do not count, or the clock would never run out.
+
+Kept, so you never set up again: the property record with its name, time zone and currency, your team, your rules and their conditions, your floors and ceilings, your room types and answers, and your settings. A property that is paying, on a trial, or has ever paid is never touched, however long it has been quiet, and neither is any property you signed up for at maya-rms.com rather than from the Marketplace.
+
+<Callout kind="not-yet">
+No pause. No reset button. No self-serve deletion of a property or its data. No export of rules or data. You can email us to ask for a copy, but one is promised only where the law requires it ([Terms and legal](/docs/reference/terms-and-legal) explains). A restart cannot reuse the first code. There is no button to return a live property to simulation. Email us instead.
+</Callout>
+
+<Related>
+- [The billing page](/docs/billing/the-billing-page)
+- [Pausing, or going back to simulation](/docs/live/pausing-or-going-back)
+- [Privacy, security and your data](/docs/reference/privacy-security-and-your-data)
+</Related>

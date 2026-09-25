@@ -1,0 +1,94 @@
+---
+title: Undo a price change
+summary: Three ways to put a price back, from the quickest (type the price you want) to the widest (delete the rule), and why switching a rule off does not undo anything.
+section: recipes
+order: 20
+readingTime: 5
+keywords: [undo, revert, put back, reverse, roll back, wrong price, wrong rate went out, fix fast, price went out, restore, go back to the old price, delete rule undo, switch off, turn off, stop for this night, manual price, mews, change it in mews, not sent to mews, sending to mews now, 60 nights, window, far ahead]
+pms: [cloudbeds, thinkreservations, mews]
+questions:
+  - Can I undo that? {#in-plain-words}
+  - How do I undo a price change? {#in-plain-words}
+  - A wrong rate went out, how do I fix it fast? {#type-the-price-you-want-one-night-right-now/1-open-the}
+  - How do I put a price back to what it was? {#type-the-price-you-want-one-night-right-now/1-open-the}
+  - Does switching a rule off undo its changes? {#in-plain-words}
+  - Will deleting a rule undo the prices it set? {#delete-the-rule-every-night-it-touched}
+  - I use Mews, does the price I type reach Mews? {#type-the-price-you-want-one-night-right-now/cloudbeds-when-you}
+  - When does the price I type reach my system? {#type-the-price-you-want-one-night-right-now/cloudbeds-when-you}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Type the price you want for the night on the <Ui>Calendar</Ui> tab, or delete the rule to undo everything it did on every night. Switching a rule off undoes nothing. On Mews, change the rate in Mews itself, because MAYA does not send prices to Mews yet.
+</InPlainWords>
+
+## Type the price you want (one night, right now)
+
+<Steps>
+<Step title="Open the night">
+Go to the <Ui>Calendar</Ui> tab and click the night. One card per room type appears under the grid.
+</Step>
+<Step title="Type the price">
+In the room type's box, type the price you want. To cover several nights, click <Ui>through…</Ui> and pick the last night.
+</Step>
+<Step title="Save">
+Press Enter or click <Ui>Save</Ui>. The line under the box says what happens next, for example "Saved. Sending to Cloudbeds now." (with your system's name). Rules that had already moved that night are paused for that room type.
+</Step>
+</Steps>
+
+Your number becomes that night's starting point. Rules that fire later still stack on top of it, so this is a correction, not a lock. If a rule keeps adjusting the night, the amber banner asks you after three adjustments and you can answer <Ui>Stop for this night</Ui>. To hand the night back to MAYA afterwards, click <Ui>Clear</Ui>.
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+When you are live, your price is sent to Cloudbeds straight away, or with the next run about five minutes later. A night more than 59 nights ahead is sent when it enters the 60-night window (tonight and the next 59). When every night you saved is that far out, the line reads "Saved. It will be sent when the date enters the 60-day push window." In simulation nothing is sent.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+When you are live, your price is sent to ThinkReservations straight away, or with the next run about five minutes later. A night more than 59 nights ahead is sent when it enters the 60-night window (tonight and the next 59). When every night you saved is that far out, the line reads "Saved. It will be sent when the date enters the 60-day push window." In simulation nothing is sent.
+</PmsTab>
+<PmsTab pms="mews">
+MAYA does not send prices to Mews yet, live or not. Your typed price shows in MAYA, on the calendar and in the change log, and nothing reaches Mews. The line under the box may still read "Saved. Sending to Mews now." That line is wrong for Mews. To change the rate guests see, change it in Mews itself.
+</PmsTab>
+</PmsTabs>
+
+Setting a price needs Revenue Manager access or higher. A price under the room type's floor or over its ceiling is refused, except 0, which makes the night a comp night. A 0 is never sent to your system, so set that night to 0 there yourself.
+
+## Delete the rule (every night it touched)
+
+<Steps>
+<Step title="Find the rule">
+On the <Ui>Rules</Ui> tab, find the rule in the list and click <Ui>Delete</Ui> at the end of its row.
+</Step>
+<Step title="Confirm">
+A dialog asks "Delete "Busy nights"?" and explains that deleting also undoes the price changes it has already made. Click <Ui>Delete Rule and Undo Its Changes</Ui>.
+</Step>
+</Steps>
+
+From the next run, about five minutes away, every night the rule adjusted goes back to what its price would be if the rule had never run. If you are live on Cloudbeds or ThinkReservations, the changed prices are sent, and a night more than 59 nights ahead goes when it enters the window. Nothing is sent to Mews. The rule's old entries stay in the change log, where it now reads as "Pricing rule".
+
+<Callout kind="careful">
+Deleting cannot be undone, and it takes the rule's changes off every night, not only the one you are looking at. If you only want the rule to stop from now on, choose <Ui>Turn It Off and Keep Its Changes</Ui> in the same dialog instead.
+</Callout>
+
+## Stop the rule on that night
+
+When a booking speed or pickup rule has adjusted the same night three times, an amber banner at the top of the app asks what to do. <Ui>Stop for this night</Ui> means the rule makes no more changes there. It does not put the price back: what the rule already did stays, unless it was a raise and enough of the bookings behind it cancel. Pair it with a typed price if you want a particular number.
+
+The banner only appears after three adjustments. Before that, a typed price resets the night to your number, but it does not hold it there. Your price starts the rule's wait again (the days it leaves a night alone). Once the wait is over, the rule can move the price again. To keep your number, switch the rule <Ui>Off</Ui> on the <Ui>Rules</Ui> tab, which stops it on every night, not only this one.
+
+## What comes off by itself
+
+Some changes undo themselves, so check the change log before you act.
+
+- A standard rule (occupancy or booking window) takes its change off the moment its condition stops holding. A cancellation that drops a night under the mark reverts the raise.
+- A raise from a booking speed or pickup rule comes off when enough of the bookings behind it cancel.
+- A cut from a booking speed or pickup rule never comes off by itself.
+
+<Callout kind="good-to-know">
+The <Ui>On</Ui> / <Ui>Off</Ui> switch freezes a rule. Off means the rule makes no new changes and its existing changes stay exactly where they are. It is a pause, not an undo.
+</Callout>
+
+<Related>
+- [When a price change comes off](/docs/rules/when-a-change-comes-off)
+- [Setting a price yourself](/docs/watch/setting-a-price-yourself)
+- [Off, delete or change](/docs/rules/off-delete-or-change)
+</Related>

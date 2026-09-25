@@ -1,0 +1,126 @@
+---
+title: Setting a date aside
+summary: How to tell MAYA that a past night it compared with was not a normal night, so it drops out of every comparison from the next run, and how a pattern that repeats every year is handled.
+section: watch
+order: 40
+readingTime: 9
+keywords: [not a fair comparison, set aside, set this date aside, flag a date, correction, your corrections, undo, festival, renovation, buyout, road closure, weather, holiday we do not have, every year, seasons, pattern, two different years, three different years, wrong comparison, left out of comparisons, older change, change gone, gone from the log, last 50 minutes, 10 runs, cannot find not a fair comparison, email us]
+questions:
+  - 'What does "Not a fair comparison?" do?' {#in-plain-words}
+  - 'How do I tell MAYA that a past night was not a normal night?' {#in-plain-words}
+  - 'What happens when I set a date aside?' {#what-changes-and-when/from-the-next}
+  - 'What do "every year" and "seasons" mean on the set aside form?' {#the-three-choices/just-set-aside}
+  - 'Can I undo a correction?' {#undo}
+  - 'Who can set a date aside?' {#who-can-set-a-date-aside}
+  - 'What is "Your corrections" on the change log?' {#your-corrections/on-the-change}
+  - 'Our local holiday is not one MAYA has, what do I do?' {#holidays-maya-does-not-have}
+  - 'The change has gone from the change log. How do I set its night aside?' {#where-you-do-it}
+  - 'What does "Set aside, not used from the next run onward" mean?' {#what-changes-and-when/the-row-now}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+If a past night MAYA compared with was not a normal night (a festival, a buyout, a renovation), set it aside. From the next pricing run it is left out of every comparison. Say it happens every year and, once reports from two different years agree, the whole window around it is skipped every year.
+</InPlainWords>
+
+## Where you do it
+
+Open the change log, find a change with <Ui>How did we know?</Ui> under it, and click it. Open <Ui>Why did you expect that?</Ui>, then <Ui>Show me the nights you compared</Ui>. Each past night in that list has <Ui>Not a fair comparison?</Ui> on its right. Click it and a short form opens under that night.
+
+There is no page where you type a date in by hand. You set a night aside from the list of nights MAYA compared with, one night at a time. The change log keeps only the 10 most recent runs, so this works only while the change is still listed there. [The numbers behind a change](/docs/watch/how-did-we-know) walks through the three layers.
+
+## The form
+
+The form asks "What made Fri, Nov 14 2025 not a fair comparison?" and offers a dropdown, <Ui>Choose a reason…</Ui>, with twelve reasons. Pick one, choose how far it should reach where that choice is offered, and click <Ui>Set this date aside</Ui>. <Ui>Never mind</Ui> closes the form without saving. While it saves the button reads <Ui>Saving…</Ui>.
+
+| Reason | Choices it offers |
+|---|---|
+| The holiday reason (first in the list) | this date, every year, seasons |
+| Local Event or Festival | this date, every year, seasons |
+| Sporting Event or Tournament | this date, every year, seasons |
+| Conference or Convention | this date, every year, seasons |
+| Renovation or Rooms Out of Service | this date, seasons |
+| Utility or Amenity Outage | this date, seasons |
+| Group Buyout | this date only |
+| Nearby Competitor Closed or Sold Out | this date, seasons |
+| Severe Weather | this date, every year |
+| Road, Transit, or Flight Disruption | this date only |
+| Booking Data Looks Wrong | this date only |
+| Other | this date, every year, seasons |
+
+<Ui>Other</Ui> needs a few words in the box that appears ("Tell us in a few words what happened"), up to 300 characters. When a reason offers only "this date", no choices are shown and the date is set aside on its own.
+
+## The three choices
+
+When a reason allows more than one, its choices appear (two or three, as the table shows). The first is selected, and each one does everything the one above it does.
+
+**Just set aside this one date (recommended).** This night stops being used in comparisons, and in the reading of your seasons, from the next pricing run. It is never treated as a pattern that repeats.
+
+**This happens every year around this time.** The night is set aside now, the same as above. On top of that, MAYA counts it as one report of a yearly pattern. Once it holds reports of the same reason, at about the same time of year, from 2 different years, it leaves a window of 5 days either side of that point out of comparisons every year.
+
+**This should also change how our seasons are read (advanced).** The night is set aside now, and it counts toward the yearly pattern too. On top of that, once it holds reports at this level from 3 different years, the same window is also left out when MAYA reads your seasons (the stretches of your year that book differently). One correction can never change how your seasons are read on its own.
+
+Two things about counting years. A report counts as one year however many nights it covers, so a renovation you flag on three nights is one year of evidence, not three. And reports older than 3 years stop counting.
+
+<Callout kind="good-to-know">
+Weekends are Friday and Saturday nights. A night you set aside is skipped whatever weekday it falls on, and the yearly window is a stretch of dates, not of weekdays.
+</Callout>
+
+## What changes, and when
+
+From the next pricing run (about every five minutes) the night is left out of every comparison and out of the reading of your seasons. Any booking speed rule that fires from then on compares against the nights that remain, so the "usual" number for a night can move.
+
+If setting a night aside leaves fewer than 5 compared nights, the reading is held within one step of Normal, so a rule waiting for Much Faster Than Normal, Surging, Much Slower Than Normal or Stalled will not fire on it. A compared night that shows "no history for this night" does not count toward the 5.
+
+MAYA does not go back and redo prices. A price a rule already set stays until that rule next acts, or its change comes off in the usual way.
+
+Once you have set a night aside, its row in the evidence list reads "Set aside" with a note that it is not used from the next run onward. A night you have already set aside shows "Set aside" instead of the <Ui>Not a fair comparison?</Ui> link, so there is nothing to do twice.
+
+For a reading built from momentum (nearby nights compared with the same nights a year earlier), the night you set aside is the year-ago night of each pair, and the starting point night. That is where a night that was not normal usually sits.
+
+<Example title="The Harbour Inn sets a Saturday aside">
+Sam opens <Ui>How did we know?</Ui> under a 25% raise to Deluxe on Saturday, November 14, 2026. In the block for the past week, 10 bookings arrived against about 5 usual: Much Faster Than Normal, the level "Hot-week surge" waits for. The compared nights include Sat, Nov 15 2025 with "1 booking in the same stretch". That was the weekend the coast road was closed. Sam clicks <Ui>Not a fair comparison?</Ui>, picks <Ui>Road, Transit, or Flight Disruption</Ui> (this date only), and clicks <Ui>Set this date aside</Ui>.
+
+The row now reads "Set aside". From the next run, that Saturday is left out. The usual number for Saturday, November 14, 2026 stays about 5: the five Saturdays had 1, 4, 5, 5 and 6 bookings, and with five nights the highest and lowest were already left off the average. But only four compared Saturdays remain, so the reading is now held within one step of Normal. The same 10 bookings now read Faster Than Normal, and "Hot-week surge" will not fire on them. The raise it already made stays.
+</Example>
+
+## Your corrections
+
+On the <Ui>Change Log</Ui> tab, under the heading, sits a panel titled <Ui>Your corrections</Ui>. Click <Ui>Show</Ui> to open it and <Ui>Hide</Ui> to close it. Everyone on the property can read it.
+
+Each night you have set aside is one line: the night, then "You told us this date was affected by road, transit, or flight disruption, so we leave it out of comparisons." For <Ui>Other</Ui>, your own words appear instead of the reason.
+
+Under those, two kinds of note can appear:
+
+- **Still counting.** "We have seen this reported in 1 year of the 2 different years we would want before treating "Local Event or Festival" near June 10 as a pattern that repeats every year." The same shape appears for the seasons choice, ending "as a change to how we read the season around here."
+- **Now applied every year**, in amber. "Reports across 2 different years flagged "Local Event or Festival" near June 10, so we now leave it out of comparisons every year." For the seasons choice it ends "out of comparisons and out of our seasonal calculations, every year."
+
+When the panel has nothing in it, a short note explains what it is for.
+
+## Undo
+
+Each line in <Ui>Your corrections</Ui> has <Ui>Undo</Ui>. Click it and the night is compared with again from the next run. Any yearly pattern it counted toward is counted again from the reports that remain, so a window applied every year can go back to "still counting".
+
+If nothing is removed, the panel says "Nothing was removed" and adds that it may already be gone, or that removing it needs manager access.
+
+## Who can set a date aside
+
+Setting a night aside, and undoing it, needs Revenue Manager access or higher. Everyone on the property, Viewers included, can open the evidence and read <Ui>Your corrections</Ui>.
+
+## Holidays MAYA does not have
+
+MAYA matches nights around 17 US holidays by their position relative to the holiday rather than by date. It has no other countries' holidays and no local events. When a past night was a holiday or an event MAYA does not have, set it aside with the holiday reason (first in the <Ui>Choose a reason…</Ui> list) or <Ui>Local Event or Festival</Ui>, and choose <Ui>This happens every year around this time</Ui>. After reports from 2 different years, the window is skipped every year. [Which past nights your rules compare with](/docs/rules/similar-nights) lists the 17 holidays MAYA has.
+
+## Closed periods are different
+
+A closed period is a stretch you confirmed as closed on the review screen. A card there asks whether you were closed between two dates, or whether your property is normally closed at that time of year. Those nights are left out of comparisons too, and out of the reading of your seasons, without any setting aside. There is no screen to add a closed period by hand, and MAYA does not treat a future closure as closed, so those nights are still priced. [Checking what MAYA found](/docs/review/checking-what-maya-found) covers the closure findings.
+
+<Callout kind="not-yet">
+You cannot type an expected number of bookings, change a level by hand, or add your own holidays or events as a list. You can set aside only a night listed among a change's compared nights, and only while that change is on the change log (about the last 50 minutes). If the change has gone, wait until a new change lists that night again. You can also [email us](mailto:info@modern-hospitality-solutions.com?subject=Set%20a%20date%20aside) the night and what happened, and we can set it aside for you.
+</Callout>
+
+<Related>
+- [The numbers behind a change](/docs/watch/how-did-we-know)
+- [Which past nights your rules compare with](/docs/rules/similar-nights)
+- [Booking speed reads oddly](/docs/wrong/booking-speed-reads-oddly)
+</Related>

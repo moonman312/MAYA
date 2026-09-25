@@ -1,0 +1,113 @@
+---
+title: Measure one set of room types, change another
+summary: The Change prices on different room types checkbox, the Measure and Change lists, what the rule card shows, and what happens when a rule measures a type that is not a room.
+section: rules
+order: 80
+readingTime: 7
+keywords: [change prices on different room types, measure, change, watches, suites follow standard, whole hotel, wrong room type, not a room, pickleball court, leaves out, meeting room rule never fires, court rule never fires, price a court on its own bookings, tick as a room, every measured type unticked, measure and change, apply to room types, signal room types, select at least one room type, pick at least one room type to measure, occupancy on one set booking speed on another, meeting room priced from the hotel, removed room type, different reading per room type, suite and deluxe read differently]
+questions:
+  - What is "Change prices on different room types"? {#in-plain-words}
+  - Can a rule watch the whole hotel but only change suites? {#the-checkbox-and-the-two-lists}
+  - Why did the rule change the wrong room type? {#defaults-and-messages}
+  - Why does a rule measuring only my pickleball court never fire? {#defaults-and-messages}
+  - What happens to a rule when every room type it measures is unticked as a room? {#a-rule-that-measures-only-non-rooms/a-rule-whose-measured-types-have-all-been-unticked}
+  - What does "That 95% leaves out Pickleball Court" mean? {#a-rule-that-measures-only-non-rooms/a-rule-saved}
+  - What does "Watches Standard, Deluxe · Changes Suite" mean on the rule card? {#what-the-rule-card-shows}
+  - What does each condition measure when the lists differ? {#what-each-condition-measures/sellable-occupancy}
+  - Can a rule measure one set of room types for occupancy and another for booking speed? {#a-rule-that-measures-only-non-rooms/good-to-know}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Tick <Ui>Change prices on different room types</Ui> and the rule watches one list of room types (<Ui>Measure</Ui>) and prices another (<Ui>Change</Ui>). Only room types that count as rooms can be measured. Anything can be changed. Unticked, one list does both.
+</InPlainWords>
+
+## The checkbox and the two lists
+
+In the rule builder, the room types field starts as one list, <Ui>Apply to room types</Ui>, with every type that counts as a room ticked. Under it is a checkbox, <Ui>Change prices on different room types</Ui>, with a "?" beside it that opens a panel titled <Ui>Measure and change</Ui>:
+
+- "You watch occupancy, pickup and booking speed on the Measure room types."
+- "When the rule fires, you change prices on the Change room types."
+- "Unticked, one list does both."
+
+Tick it and the field splits in two:
+
+- <Ui>Measure</Ui>: the room types the rule reads its numbers from. Only room types that count as rooms are offered here, because occupancy and booking speed are only ever counted over rooms.
+- <Ui>Change</Ui>: the room types whose prices the rule changes. Every active room type is offered, including ones tagged "not a room".
+
+<Ui>Change</Ui> starts as a copy of whatever you had selected, so you usually only need to adjust one of the two. Each list has <Ui>Select all</Ui> and <Ui>Clear</Ui>.
+
+## Defaults and messages
+
+- With the checkbox unticked, the rule changes every selected type and measures the selected types that count as rooms.
+- A room type that does not count as a room is never measured, on its own or alongside rooms. If you select only the Meeting Room, the rule still prices it but measures nothing. Any sellable occupancy, booking speed or pickup count condition on it can never be true, so the rule never fires. Only a booking window condition, which reads no room types, still works.
+- To price a type on its own bookings, tick it as a room on the <Ui>PMS</Ui> tab (which also counts it in your occupancy and in the rooms you are billed for), then build the rule. There is no other way to measure it.
+- With the checkbox unticked and nothing selected: "Select at least one room type."
+- With the checkbox ticked and <Ui>Measure</Ui> empty: "Pick at least one room type to measure."
+- With the checkbox ticked and <Ui>Change</Ui> empty: "Pick at least one room type to change."
+
+## What each condition measures
+
+- **Sellable occupancy** is rooms booked divided by rooms you can sell, over the measured types only. A rule measuring Standard reads Standard's occupancy, which can differ from the day card's whole-hotel figure. Read [Sellable occupancy](/docs/rules/sellable-occupancy).
+- **Booking speed** counts bookings in the measured types only, on the night being priced and on every similar past night. A measured set smaller than the whole hotel gets its own counts, shared by every rule that measures the same set. Read [Booking speed on part of the hotel](/docs/rules/booking-speed-in-detail#booking-speed-on-part-of-the-hotel).
+- **Pickup count** adds up room nights (or revenue) gained over the measured types. Read [Pickup count (advanced)](/docs/rules/pickup-count).
+- **Booking window** reads no room types. It is the same number of days for every type.
+
+For occupancy and pickup, one reading serves every room type the rule changes. A booking speed rule can read each changed room type separately, because each one counts from its own last raise or cut. Either way, the rule fires and waits separately for each changed room type, so Suite and Deluxe can each be on a different step of the same rule. Read [How rules run](/docs/rules/how-rules-run).
+
+## What the rule card shows
+
+On the <Ui>Rules</Ui> tab, the <Ui>Room Types</Ui> column normally lists the types the rule changes. When the rule measures something different, it reads "Watches Standard, Deluxe · Changes Suite". Only measured types that count as rooms are named there, because those are all the rule measures.
+
+The <Ui>Rate Simulator</Ui> shows the same thing beside the rule under <Ui>Rules in play</Ui>.
+
+## The change log names the measured types
+
+When a rule measures different room types from the ones it changes, its change log sentences say so:
+
+- "Standard and Deluxe were 92% full, past the 90% mark you set."
+- "Standard and Deluxe bookings came in faster than normal this past week: 9, against the 5 a night like this usually has by now."
+
+<Example title="Suites that follow your standard rooms">
+The Harbour Inn has 12 Standard rooms, 6 Deluxe and 2 Suites. Two Suites are too few to read on their own, so Priya builds "Suites follow": <Ui>Sellable occupancy (%)</Ui> <Ui>Greater than</Ui> 80, <Ui>Increase the rate</Ui> 10%, checkbox ticked, <Ui>Measure</Ui> Standard and Deluxe, <Ui>Change</Ui> Suite.
+
+On a Friday with 11 of 12 Standard and 5 of 6 Deluxe booked, the measured occupancy is 16 of 18, which is 89%. The rule fires and raises the Suite from $300 to $330. The Suites' own bookings play no part.
+
+The change log reads: "Suites follow" raised this night 10%, from $300.00 to $330.00. Standard and Deluxe were 89% full, past the 80% mark you set.
+
+Read [Let suites follow your standard rooms](/docs/recipes/let-suites-follow-standard-rooms) for the click-by-click recipe.
+</Example>
+
+<Example title="The whole hotel drives one room type">
+"Busy nights, Deluxe only" measures Standard, Deluxe and Suite and changes only Deluxe. Whole-property occupancy above 80% raises Deluxe alone. Standard and Suite keep their prices.
+</Example>
+
+<Example title="A meeting room priced from the rooms">
+"Busy nights, Meeting Room" measures Standard, Deluxe and Suite and changes only the Meeting Room. The Meeting Room's price follows how full the hotel is, and its own bookings never count towards occupancy.
+</Example>
+
+## A rule that measures only non-rooms
+
+A rule reads its numbers only from room types that count as rooms. What happens with the rest:
+
+- **A rule saved with a mixed list** (Standard and the Meeting Room, say, before you unticked the Meeting Room on the <Ui>PMS</Ui> tab) keeps pricing every type in its <Ui>Change</Ui> list, but the Meeting Room drops out of what it measures. The change log tells you: "That 95% leaves out Meeting Room."
+- **A rule whose measured types have all been unticked** measures nothing. Any sellable occupancy, booking speed or pickup count condition on it can never be true, so it stops firing. It stays <Ui>On</Ui> on the <Ui>Rules</Ui> tab, with no warning. A standard rule's change comes off. A booking speed or pickup rule's earlier changes stay where they are.
+- **A rule whose measured types have all been switched off in MAYA** (during the review) stops running. Any price change it had already made on the types it changes stays in place, as if the rule were switched off. To clear it, delete the rule or type a price for those nights. Removing a room type in your property system does not switch it off in MAYA, so the rule keeps measuring it. [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service) says what happens to a removed room type in each system, and [Contact support](/docs/help/contact-support#your-property-system) lists what you can ask us to change.
+
+A booking window reads no room types, so a rule whose only condition is a booking window keeps working when every type it measures has been unticked as a room.
+
+To have a rule measure a type again, tick it as a room on the <Ui>PMS</Ui> tab. The saved rule still lists it, so you do not need to add the rule again. There is no other way to measure a type that does not count as a room, such as a meeting room or a court.
+
+<Callout kind="good-to-know">
+Whether a room type counts as a room is set on the <Ui>PMS</Ui> tab with the <Ui>Counts as a room</Ui> checkbox. Unticking a type takes it out of occupancy, booking speed, the revenue per room behind the calendar colours and the room count you are billed for. It can still be priced. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
+</Callout>
+
+<Callout kind="not-yet">
+A rule cannot measure a room type that does not count as a room, on its own or alongside rooms. To price a meeting room or a court on its own bookings, tick it as a room on the <Ui>PMS</Ui> tab. To price it from how full the hotel is, <Ui>Measure</Ui> your rooms and <Ui>Change</Ui> it. A rule also cannot measure one set of room types for occupancy and a different set for booking speed. Two rules, one for each, act separately, and their changes stack.
+</Callout>
+
+<Related>
+- [The rule builder, field by field](/docs/rules/the-rule-builder)
+- [Sellable occupancy](/docs/rules/sellable-occupancy)
+- [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service)
+</Related>

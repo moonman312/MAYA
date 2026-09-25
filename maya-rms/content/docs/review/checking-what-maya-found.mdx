@@ -1,0 +1,171 @@
+---
+title: Checking what MAYA found
+summary: The two review screens after the import, every card you can see (closures, room types, duplicates, typos, $0 rates, deleted room types), what confirming and dismissing do, the room count strip, and how to come back later.
+section: review
+order: 40
+readingTime: 12
+keywords: [review, finding was already resolved, can't answer card, card won't answer, viewer, staff, finish didn't work, banner won't go away, what was done without asking, does this match reality, were you closed, normally closed, closure, seasonal closure, years running, closed for renovation, is x actually a room, not a room, exclude it, real room, hid duplicate room type, bring it back, rates look like typos, probably a typo, those are real, $0 rate, zero rate, deleted room types, got it, room count strip, we're counting, counts as a room, meeting room, spa, court, parking, continue to recommendations, no new recommendations, nothing left to review, already handled, finish, take me to my dashboard, review banner, booking history ready, blue banner, worth a quick look, worth a quick look, dismissed by mistake, answered wrong, card came back, asked again, that didn't save, needs revenue manager access, ceiling not applied, ceiling missing, typo ceiling, "9999", lot of room-type changes at once, rate limit]
+questions:
+  - What does "Is X actually a room?" mean? {#is-x-actually-a-room/property-systems-list}
+  - What does "Were you closed" do if I confirm it? {#were-you-closed-/confirm}
+  - I dismissed a closure by mistake. Can I add it back? {#were-you-closed-/dismiss}
+  - What is "Hid duplicate room type"? {#hid-duplicate-room-type}
+  - What does "Some rates look like typos" mean? {#some-x-rates-look-like-typos/for-a-room}
+  - Can a typo rate stop my ceiling from applying? {#some-x-rates-look-like-typos/a-mistyped-high}
+  - What does "Some stays have a $0 rate" mean? {#some-stays-have-a-0-rate}
+  - What does "Some old stays reference deleted room types" mean? {#some-old-stays-reference-deleted-room-types}
+  - What is the room count strip? {#the-room-count-strip/the-strip-reads}
+  - Can I skip the review and come back later? {#coming-back-and-changing-an-answer/you-can-leave}
+  - What is the blue banner on my dashboard that links to the review? {#the-banner-on-your-dashboard}
+  - I answered a review card wrong. Can I change it? {#coming-back-and-changing-an-answer/you-can-leave}
+  - Where is the "?" help on the review? {#how-you-get-here}
+  - Who can answer the review cards? {#how-you-get-here}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+The review is two short screens, and the first checks your data: closures, room types that may not be rooms, duplicate room types, rates that look like typos, stays with no rate, and stays that point at deleted room types. Answer a card to confirm or dismiss it, or skip it and come back later. Only one card reports something already done for you: hiding an empty duplicate room type. You can undo it on the card. The second screen has the room count strip (where room types that are certainly not bedrooms arrive unticked), your starter rules and the go-live button.
+</InPlainWords>
+
+## How you get here
+
+The review opens on its own at the end of [the five questions](/docs/review/the-five-questions), or from the progress page once there is something to look at. It also opens from the dashboard banner (below), and after <Ui>Get suggestions from my data</Ui> on the <Ui>Rules</Ui> tab. You can open it directly at <AppLink to="review">maya-rms.com/onboarding/review</AppLink>.
+
+The cards come from the history import. MAYA reads your history twice on a first import: once after the first three years are in, and again once every year is in. If the review is open when the second read finishes, the cards refresh: one can be sharpened, added or taken away.
+
+Anyone on the property can open the review and read it. Answering a card needs a Revenue Manager, General Manager or Hotel Admin. Below that, pressing any card button shows "Finding was already resolved", and the card stays.
+
+## Screen one: does this match reality?
+
+The first screen is headed "First: does this match reality?". It appears only when there are data-check cards waiting. Each card is a question with two buttons, or a single <Ui>Got it</Ui> when there is nothing to answer.
+
+At the bottom, <Ui>Continue to recommendations</Ui>. The small print under it says that anything you skip stays available later. That is true: an unanswered card waits for you.
+
+### "Were you closed …?"
+
+MAYA found at least 14 days in a row with no rooms booked, with the property clearly open in the 30 days before and the 30 days after. Up to three short interruptions (a stray booking, a brief reopening of 14 days or fewer) are bridged into one closure. The stretch before your first ever booking is not a closure, and neither is a gap that runs up to today.
+
+The card shows the two dates and how many straight days it found. Buttons: <Ui>Yes, we were closed</Ui> and <Ui>No, we were open</Ui>.
+
+- **Confirm**: those dates are recorded as a closed period for the whole property. From then on they are left out of every comparison MAYA makes: they are never one of a night's similar past nights, and they play no part in how your seasons are read.
+- **Dismiss**: MAYA never asks about those dates again.
+
+A closure changes nothing about future nights. Your rules still run on every night in the window, closed or not. To keep a future night off sale, close it in your property system.
+
+### "Is your property normally closed …?"
+
+The same closure at the same time of year in at least two different years (starts within 21 days of each other) becomes one seasonal card, labelled like "mid-December to mid-February" or "all of August". The card says in how many different years the closure appears. The years need not be back to back. Buttons: <Ui>Yes, that's our season</Ui> and <Ui>No, we were open</Ui>.
+
+Confirming records every instance it found. When older years reveal more instances of a confirmed season, they are added without asking again. After a <Ui>Get suggestions from my data</Ui> run, new instances are proposed as a card instead. Dismissing a season means none of its years is asked about again.
+
+<Callout kind="not-yet">
+There is no screen to add a closed period by hand, and a dismissed closure cannot be asked again. If you dismissed one by mistake, or your system holds a closure MAYA did not find, email us with the dates and we will record it for you.
+</Callout>
+
+### "Is X actually a room?"
+
+Property systems list every bookable space as a room type: event rooms, spa slots, courts, parking. MAYA asks about a type when one of two things is true:
+
+- its name does not read like a bedroom (words like parking, boardroom, meeting, treatment, or a word like spa, court or hall with no bedroom word beside it), or
+- it has at least 20 bookings, every one exactly one night, while your property's typical stay is two nights or longer.
+
+A type that is a tiny share of your bookings (under half a percent) at an unusual rate is mentioned as extra weight, never as the reason on its own.
+
+Buttons: <Ui>Not a room</Ui>, which takes the type out of your counts, and <Ui>It's a real room</Ui>.
+
+- **Not a room**: the type leaves your sellable occupancy, your RevPAR (revenue per available room: a night's room revenue divided by your rooms, which sets the calendar's colours) and the room count you are billed for. A rule that changes it still prices it.
+- **It's a real room**: the type is recorded as a room, in your name, and MAYA does not ask again.
+
+Either answer needs a Revenue Manager or higher. Below that, the button shows "Finding was already resolved" and the card stays. You can change the answer any time on the <Ui>PMS</Ui> tab under <Ui>Room types</Ui>. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
+
+### "Hid duplicate room type"
+
+Two active room types shared the same name once punctuation and capitals are ignored, and one of them had no bookings at all. On a first import MAYA hides the empty one straight away, so it does not sit in your occupancy as rooms you cannot sell. The card records this and adds a line beginning "We already did this for you".
+
+Buttons: <Ui>Good call</Ui> keeps it hidden. <Ui>Undo</Ui> makes the type active again.
+
+After a <Ui>Get suggestions from my data</Ui> run the empty duplicate is only proposed, and nothing is hidden until you confirm.
+
+<Callout kind="careful">
+Once you have pressed <Ui>Good call</Ui> there is no button to bring the type back, and a later read of your system does not reactivate it. If you need it back, email us.
+</Callout>
+
+### "Some X rates look like typos"
+
+For a room type with at least 30 nights on record, its single highest rate is far above what the room type normally sells for: about ten times its usual rate or more. The card names the highest rate and the usual (median) rate. Usually it is a test booking or a mistyped rate.
+
+<Example title="The exact test, for the curious">
+The highest rate must be above 10 times the room type's median rate. Once the type has 200 nights or more, it must be above the larger of 10 times the median and 3 times the rate that 99 in 100 of its stays sold under.
+</Example>
+
+Buttons: <Ui>Probably a typo</Ui> and <Ui>Those are real</Ui>. Either answer is recorded and changes nothing else. MAYA never builds a ceiling from a room type's single highest rate.
+
+A mistyped high rate can still matter in one way. The ceiling you gave in the five questions only goes on a room type whose highest rate read so far fits under it. If Suite's $9,999 typo had already been read when you saved a $600 ceiling, your $600 does not go on Suite, whichever button you press here. (If the typo was read only after you saved, Suite got your ceiling like the others.) The <Ui>Guardrails</Ui> column on the <Ui>Rate Simulator</Ui> tab shows the ceiling each room type has. Email us with the room type and the ceiling you want. Read [Floors and ceilings](/docs/review/floors-and-ceilings).
+
+### "Some stays have a $0 rate"
+
+More than 2% of the stay nights MAYA imported came through with no rate. Usually comps or gaps in the data. The card says how many. One button, <Ui>Got it</Ui>. There is nothing to fix, and the card shows "$" whatever your currency.
+
+### "Some old stays reference deleted room types"
+
+Some stay nights point at room types your property system no longer has. They still count in your history totals but cannot be priced. The card says how many. One button, <Ui>Got it</Ui>.
+
+## Screen two: recommendations and the finish
+
+The second screen is headed "Recommendations from your data". The heading's small print promises rules and guardrails your history supports. On a first import there are no cards here: the starter rules and your floors and ceilings are built for you (below), and the box reads "No new recommendations this time." Suggestion cards appear on this screen only after <Ui>Get suggestions from my data</Ui>. Read [Getting suggestions later](/docs/review/getting-suggestions-later).
+
+When nothing at all is waiting, the box reads "Nothing left to review" and says your data looks clean. Under it, in small text, "N items already handled" counts the cards you have answered.
+
+Then, in order:
+
+1. **The room count strip** (next section).
+2. **Your starter rules**, in a box headed "While you were here, we built your first pricing rules", with the <Ui>Turn them on for real</Ui> button. The box goes once anyone on your team runs <Ui>Get suggestions from my data</Ui>, so go live before anyone presses it. Read [Your starter rules](/docs/review/your-starter-rules) and [Going live](/docs/live/going-live).
+3. <Ui>Finish</Ui>, to go to your dashboard. It marks the review as done and opens the dashboard. It reads "Finishing up…" while it works. Marking it done needs a Revenue Manager or higher. Below that, the dashboard still opens, but the review is not marked done and the banner stays.
+
+You do not have to press <Ui>Finish</Ui>. Close the page whenever you like and everything you answered is kept.
+
+## The room count strip
+
+The strip reads "We're counting 4 room types as rooms" and asks whether anything there is not one. One chip per active room type, with its name and how many units it has. A chip is ticked unless the type has been marked as not a room.
+
+Ticked types are what MAYA divides by for sellable occupancy, and what it counts for the revenue per room behind the calendar colours and for the room count you are billed for. Untick anything nobody sleeps in. An unticked type is still priced if a rule changes it.
+
+- Room types whose name is certainly not a bedroom (parking, boardroom, meeting, treatment and the like) arrive unticked, as MAYA's proposal. Tick one to say it is a room.
+- A tick saves at once. There is no confirm, and nothing here holds up <Ui>Finish</Ui>.
+- Ticking or unticking needs a Revenue Manager or higher. Below that you see "This needs Revenue Manager access or higher on this property." On a live property a change re-prices the next 60 nights.
+- Thirty changes in ten minutes is the limit, per person. The same thirty also cover prices you type or clear by hand and rooms you take out of service in those ten minutes. Past it you see "That's a lot of room-type changes at once. Give it a minute and try again."
+- If a tick fails to save it snaps back and you see "That didn't save" with an invitation to try again.
+
+The "?" beside the strip is the only "?" on the review. Its panel is titled "What counts as a room" and says the same as this section, ending "You can change this any time from the PMS tab."
+
+## The banner on your dashboard
+
+A blue banner appears at the top of the dashboard when your property is connected, the first results are in, there are cards waiting, and you have not finished the review since the newest card arrived. Its heading says your booking history has been read, the line under it says how many things are worth a quick look, and it ends with the link <Ui>Review →</Ui>. It shows once per page load. Pressing <Ui>Finish</Ui> (as a Revenue Manager or higher) clears it until a newer card arrives, for example from the second read of your history.
+
+## Coming back, and changing an answer
+
+You can leave the review at any point and come back through the banner or the review's own address.
+
+Answered closure cards, "Is X actually a room?" cards and duplicate cards are not asked again. Cards about typos, $0 rates and deleted room types can come back after <Ui>Get suggestions from my data</Ui>, because each read is a fresh look. A typo card can also come back at the second read of your first import, if the older years hold an even higher rate for that room type.
+
+What you can still change:
+
+| Card | Change it later? |
+|---|---|
+| Is X actually a room? | Yes, on the <Ui>PMS</Ui> tab under <Ui>Room types</Ui> |
+| Were you closed / normally closed | Not yet. Email us |
+| Hid duplicate room type | Only before you press <Ui>Good call</Ui>. After that, email us |
+| Rates look like typos | Nothing to change. The answer only records your view |
+| $0 rates, deleted room types | Nothing to change |
+
+If a card answers itself with "Finding was already resolved", either a colleague or another tab got there first, or your role is below Revenue Manager, so the card cannot be answered from your login. The list refreshes, and a card you could not answer stays. Read [Messages explained](/docs/wrong/messages-explained).
+
+<Example title="The Harbour Inn's review">
+Sam opens the review with three cards waiting. The first asks about a closure two winters ago: 19 straight days with no rooms booked. The inn was shut for a refit, so Sam presses <Ui>Yes, we were closed</Ui>. The second asks "Is your property normally closed early-January to late-January?" and counts the closure in 3 different years. Sam presses <Ui>Yes, that's our season</Ui>. The third asks "Is "Meeting Room" actually a room?" because the name does not read like a bedroom. Sam presses <Ui>Not a room</Ui>. On the second screen the strip now reads "We're counting 3 room types as rooms", with Standard 12, Deluxe 6 and Suite 2 ticked and Meeting Room unticked. The five starter rules sit below, and Sam presses <Ui>Finish</Ui>.
+</Example>
+
+<Related>
+- [The history import](/docs/review/the-history-import)
+- [Your starter rules](/docs/review/your-starter-rules)
+- [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service)
+</Related>

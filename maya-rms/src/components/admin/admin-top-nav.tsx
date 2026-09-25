@@ -13,6 +13,7 @@ const links = [
   { href: "/admin/signup-codes", label: "Signup Codes" },
   { href: "/admin/pms-access", label: "PMS Access" },
   { href: "/admin/stalled-signups", label: "Stalled Signups" },
+  { href: "/admin/docs-questions", label: "Docs Questions" },
 ];
 
 export function AdminTopNav({ userEmail }: { userEmail: string }) {

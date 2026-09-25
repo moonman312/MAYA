@@ -1,0 +1,66 @@
+---
+title: Tell whether you are live or in simulation
+summary: The dashboard has no live or simulation badge yet. The review page's go-live control tells you when it is showing, and so does the wording of the amber banner. Then compare one night in MAYA and in your property system, or email us and we check.
+section: recipes
+order: 210
+readingTime: 4
+keywords: [am I live, live or simulation, starter rules box gone, no go-live button, turn them on for real missing, get suggestions, how can I tell, is it sending, sending right now, simulation mode, no badge, turn them on for real, live your rules are now managing prices, saved simulation not sent, would have raised, Sending to Mews now, nothing sent to Mews, Mews live]
+questions:
+  - Am I in simulation or live? How can I tell? {#two-clues/1-open-the}
+  - Is MAYA sending prices right now? {#two-clues/1-open-the}
+  - Where does it say whether I am live? {#in-plain-words}
+  - Why is there no live or simulation badge? {#in-plain-words}
+  - How do I check that a price reached my property system? {#then-compare-a-night-with-your-system/pick-a-night}
+  - It says Sending to Mews now. Did a price reach Mews? {#then-compare-a-night-with-your-system/a-typed-prices}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+There is no badge on the dashboard yet. Open the review page: where it shows your starter rules, the green pill "✓ Live: your rules are now managing prices" means you are live, and the button <Ui>Turn them on for real</Ui> means you are in simulation. Then compare one night's price in MAYA with the same night in your property system. If you are still unsure, email us and we check.
+</InPlainWords>
+
+## Two clues
+
+<Steps>
+<Step title="Open the review page">
+Open <AppLink to="review">maya-rms.com/onboarding/review</AppLink>, or click <Ui>Review →</Ui> on the blue banner when it is showing. Under "While you were here, we built your first pricing rules", a simulating property shows the button <Ui>Turn them on for real</Ui> and the line "Or leave them in simulation and watch for a while. That works too." A live property shows the green pill "✓ Live: your rules are now managing prices" instead. This box only appears when MAYA built starter rules for you during setup, which needs about 60 days of history. It also disappears once someone runs <Ui>Get suggestions from my data</Ui> on the <Ui>Rules</Ui> tab. If it is missing, use the clues below or [email us](mailto:info@modern-hospitality-solutions.com?subject=Am%20I%20live) and we check.
+</Step>
+<Step title="Read the amber banner, if one is showing">
+When a rule has adjusted a night three times, the banner's headline reads "Hot-week surge" has raised Sat, Nov 14 2026 3 times. when you are live, and "Hot-week surge" would have raised Sat, Nov 14 2026 3 times. in simulation.
+</Step>
+</Steps>
+
+If you have typed a price for a real reason lately, its confirmation said which mode you were in: "Saved (simulation: not sent to Cloudbeds)." in simulation, "Saved. Sending to Cloudbeds now." or "Saved. Sending to Cloudbeds on the next cycle (about 5 min)." when live. Do not type a price only to test this. On a live property it sends the price, and it takes any booking speed or pickup change off that night for good.
+
+## Then compare a night with your system
+
+Pick a night in the next 60 with a price on the <Ui>Calendar</Ui> tab (the room type card's <Ui>Current price</Ui>). Open the same night and room type in your property system.
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+Look at the room type's base rate in Cloudbeds. On a live property it matches MAYA's current price within a few minutes of a change, unless you have changed it yourself in Cloudbeds since. Derived rate plans follow it by Cloudbeds' own rules. The <Ui>Change Log</Ui> tab shows a "Rates not reaching Cloudbeds" item if sends are failing. A simulating property never has one, because nothing is sent.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+Look at the Best Available rate for the room type in ThinkReservations. ThinkReservations accepts MAYA's prices and applies them shortly after, so allow a little longer than with Cloudbeds. MAYA reads the rate back within about an hour.
+</PmsTab>
+<PmsTab pms="mews">
+MAYA does not send prices to Mews yet, so the rate in Mews never changes because of MAYA, live or not. The go-live dialog says so: "MAYA doesn't send rates to Mews yet, so nothing is sent. The hotel only shows as live."
+
+A typed price's confirmation still talks about sending. On a live Mews property it reads "Saved. Sending to Mews now." or "Saved. Sending to Mews on the next cycle (about 5 min)." Nothing is sent to Mews. Read that line as a sign you are live, not as proof a price went out.
+</PmsTab>
+</PmsTabs>
+
+<Callout kind="good-to-know">
+Everything except sending runs in both modes: bookings are read about every five minutes, rules run over the next 60 nights, the calendar shows the prices and the change log fills with what MAYA did or would have done. A General Manager or Hotel Admin goes live from the review page, or [asks us to](mailto:info@modern-hospitality-solutions.com?subject=Go%20live) when its <Ui>Turn them on for real</Ui> button is not there. Only we can put a property back into simulation.
+</Callout>
+
+<Callout kind="not-yet">
+No live or simulation badge on the dashboard, and no "last price sent" figure on the <Ui>PMS</Ui> tab (its <Ui>Last sync</Ui> card is the last booking read). If the clues disagree or you are still unsure, [email us](mailto:info@modern-hospitality-solutions.com?subject=Am%20I%20live) and we check.
+</Callout>
+
+<Related>
+- [Simulation mode](/docs/live/simulation-mode)
+- [Going live](/docs/live/going-live)
+- [Pausing or going back to simulation](/docs/live/pausing-or-going-back)
+</Related>

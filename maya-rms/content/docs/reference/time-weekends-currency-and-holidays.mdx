@@ -1,0 +1,181 @@
+---
+title: Time, weekends, currency and holidays
+summary: Which day MAYA counts as today, the time zone it uses and whose clock each screen shows, what past day, week and month mean, waits and daylight saving, weekends, the 17 holidays, seasons, your currency and how prices are rounded, including currencies without cents, and how far ahead MAYA looks.
+section: reference
+order: 20
+readingTime: 10
+keywords: [time zone, timezone, hotel day, today, tonight, midnight, which day, UTC, clock, browser time, change the time zone, wrong time zone, past day, past week, past month, last 24 hours, 7 days, 30 days, booking date, a day off, wait, 24 hours, lookback, daylight saving, DST, clocks change, weekend, Friday, Saturday, Sunday, weekday, holiday, holidays, US holidays, Thanksgiving, Christmas, bank holiday, national holiday, outside the US, season, currency, euro, pound, yen, JPY, no cents, whole numbers, rounding, decimals, two decimal places, dollar sign, $, change the currency, US dollars, billing currency, how far ahead, 13 months, 364 days, won, rupiah, dong, over 99999, default ceiling, decimal comma, comma or point, 180,50, decimal separator, thousands separator]
+questions:
+  - What is a hotel day? {#your-propertys-day/maya-counts-days}
+  - Which time zone does MAYA use? {#which-time-zone}
+  - Can I change the time zone? {#which-time-zone}
+  - Whose clock are the times on screen in? {#whose-clock-you-see/times-on-screen}
+  - Is "Past day" the last 24 hours? {#past-day-past-week-and-past-month}
+  - Do "Past week" and "Past month" mean 7 and 30 days? {#past-day-past-week-and-past-month}
+  - Is a rule's wait counted in hotel days or 24-hour periods? {#waits-and-pickup-lookbacks-24-hour-periods/a-rules-wait}
+  - Does daylight saving affect anything? {#daylight-saving}
+  - Why is a booking's date a day off from my property system? {#past-day-past-week-and-past-month}
+  - What counts as a weekend? {#weekends}
+  - Which holidays does MAYA use? {#holidays}
+  - Which currency symbol will I see? {#currency/your-currencys-symbol}
+  - Can I change the currency? {#currency/your-propertys-currency}
+  - My currency has no cents (JPY). How are prices rounded and sent? {#rounding-and-currencies-without-cents/maya-works-out}
+  - My rates are over 99,999 in my currency (yen, won, rupiah, dong). Will MAYA's default ceiling cap them? {#currency/the-default-floor}
+  - We write prices as 180,50. Do I type a comma or a point in the price box? {#currency/typing-amounts}
+  - How far ahead does MAYA see bookings? {#how-far-ahead-maya-looks/bookings}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+MAYA works on your property's own calendar, using the time zone read from your system when you connected. Tonight is today's date there, and weekends are Friday and Saturday nights. The holidays MAYA uses are 17 US holidays, and any other can be set aside. Prices are in your property's currency, worked out to two decimal places, while billing is in US dollars.
+</InPlainWords>
+
+## Your property's day
+
+MAYA counts days on your property's calendar. "Today" is the date at your property, in its time zone, at the moment MAYA checks. The docs call that a hotel day.
+
+Everything that counts nights starts from it:
+
+- **Tonight** is night 0 of the booking window, and tomorrow night is night 1. [Booking window](/docs/rules/booking-window)
+- **The 60-night window** your rules price every cycle is tonight and the next 59 nights. [How rules run](/docs/rules/how-rules-run)
+- **A typed price** can be set from tonight onwards, never on a night that has passed. [Setting a price yourself](/docs/watch/setting-a-price-yourself)
+- **Past day, past week and past month** in booking speed are counted in hotel days. [See how they are counted](#past-day-past-week-and-past-month).
+
+<Example title="Midnight at The Harbour Inn">
+The Harbour Inn is on US Pacific time. A check at 11 pm on Friday still treats Friday night as tonight, night 0. A check at 12:30 am on Saturday treats Saturday night as tonight and Friday as past, so Friday leaves the window and a price can no longer be typed for it.
+
+An illustration with made-up numbers, not your property.
+</Example>
+
+## Which time zone
+
+MAYA reads your property's time zone once, when you connect, and keeps it.
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+The time zone set on your property in Cloudbeds.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+The time zone set on your hotel in ThinkReservations.
+</PmsTab>
+<PmsTab pms="mews">
+MAYA does not read it from Mews. We set it with you when we connect the property.
+</PmsTab>
+</PmsTabs>
+
+If your system gave none, MAYA uses universal time (UTC) until we set yours. No screen in MAYA shows the time zone, and it cannot be changed from the app. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone) to check or change it. Changing it in your system later does not change it in MAYA.
+
+It matters for sending. If your system and MAYA disagree about when tonight ends, your system can refuse tonight's price in the hours between the two midnights. [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price) has the signs to look for.
+
+## Whose clock you see
+
+- **Pricing** always uses your property's date.
+- **Times on screen** use your own browser's clock: the time of each run in the <Ui>Change Log</Ui> (with its zone, such as PDT), the "Updated" time on the calendar, and <Ui>Last sync</Ui> on the <Ui>PMS</Ui> tab. Two people in different places see different clock times for the same run.
+- **One label** follows universal time (UTC): the day detail's "revenue on the books", which switches to "revenue" at midnight UTC. At a property in the Americas that happens in the evening. It changes no number. [Calendar and change log questions](/docs/wrong/calendar-and-log-questions)
+
+## Past day, past week and past month
+
+These are the choices under <Ui>Measured over</Ui> in a booking speed rule. They count booking dates, today included:
+
+| Choice | Counts bookings dated |
+|---|---|
+| <Ui>Past day</Ui> | today only |
+| <Ui>Past week</Ui> | today and the 6 days before it (7 dates) |
+| <Ui>Past month</Ui> | today and the 29 days before it (30 dates) |
+
+So <Ui>Past day</Ui> is not the last 24 hours. Shortly after midnight at your property it has almost nothing in it yet, and it fills up through the day. [Booking speed](/docs/rules/booking-speed)
+
+**Booking dates.** A booking counts on the date it was made:
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+The creation date exactly as Cloudbeds records it. MAYA does not convert it to another time zone.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+The moment ThinkReservations recorded the booking, put on your property's own calendar. An 11 pm booking in California is dated that day.
+</PmsTab>
+<PmsTab pms="mews">
+The moment Mews recorded the booking, put on your property's own calendar.
+</PmsTab>
+</PmsTabs>
+
+If a booking's date looks a day off from what your system shows, [email us](mailto:info@modern-hospitality-solutions.com?subject=Booking%20date) with the booking and we check it.
+
+## Waits and pickup lookbacks: 24-hour periods
+
+Two things are counted in hours rather than hotel days:
+
+- **A rule's wait.** After a booking speed or pickup rule changes a night, it leaves that night alone for its wait: 1 day to 2 weeks for a booking speed rule, the lookback for a pickup rule. The wait is counted in 24-hour periods from the moment the rule acted. [How rules run](/docs/rules/how-rules-run)
+- **A pickup lookback.** "The last 3 days" means from exactly 3 times 24 hours before the check. A check at 3:05 PM reaches back to 3:05 PM three days earlier. [Pickup count](/docs/rules/pickup-count)
+
+## Daylight saving
+
+Hotel days follow your property's local calendar, so the change to or from daylight saving time moves no night: tonight is still tonight. Waits and pickup lookbacks are 24-hour periods, so across the change they end an hour earlier or later by the clock on the wall.
+
+## Weekends
+
+Weekends are Friday and Saturday nights, and Sunday night counts as a weeknight. That is how MAYA reads them when it picks similar past nights: a Friday is compared with other Fridays and, if too few are found, with Saturdays, but never with a weeknight. (Near a holiday, nights are matched by their place around the holiday instead.) It is also how MAYA reads the weekly shape of your seasons. [Similar nights](/docs/rules/similar-nights)
+
+Rules have no weekday setting: every rule runs every night. For a weekend price, type it on those nights. [What rules cannot do yet](/docs/rules/what-rules-cannot-do-yet)
+
+## Holidays
+
+MAYA uses 17 US holidays: New Year's Day, Martin Luther King Jr. Day, Valentine's Day, Presidents' Day, St. Patrick's Day, Easter, Mother's Day, Memorial Day, Father's Day, Juneteenth, Independence Day, Labor Day, Indigenous Peoples' Day, Halloween, Veterans Day, Thanksgiving and Christmas. Each has a stretch of days around it.
+
+A holiday never changes a price by itself, and there is no holiday rule. It changes which past nights a night is compared with: the Saturday after Thanksgiving is compared with the Saturday after Thanksgiving in earlier years, not with the same date. [Similar nights](/docs/rules/similar-nights) has each holiday's stretch.
+
+**Outside the US**, or for a local festival, set the past night aside with the reason for a holiday and say it happens every year. Once you have reported it from 2 different years, that stretch is left out of comparisons every year. [Handle a holiday MAYA does not have](/docs/recipes/handle-a-holiday-maya-does-not-have)
+
+## Seasons
+
+Seasons are stretches of your year that book differently, found from your own history, never set by hand. They only ever show inside an explanation under <Ui>How did we know?</Ui>. [Similar nights](/docs/rules/similar-nights)
+
+## Currency
+
+Your property's currency is read once, when you connect: from Cloudbeds or ThinkReservations, and set with you for Mews. MAYA never converts anything. Every price is a number in your own currency.
+
+The symbol depends on the screen:
+
+- **Your currency's symbol** in the change log's sentences, the <Ui>Rules that keep adjusting</Ui> banner and the typed-price messages. That is $ for US dollars, € for euros and £ for pounds, and the three-letter code in front of the amount for any other.
+- **Always $**, whatever your currency, on the calendar's day cards and day detail, the room type cards, the typed-price box and the Rate Simulator. The first line of each change in the change log also shows $. The numbers are still yours. [Calendar and change log questions](/docs/wrong/calendar-and-log-questions)
+
+Your MAYA subscription is billed in US dollars, whatever your property's currency. [What it costs](/docs/start/what-it-costs)
+
+To check which currency MAYA has for your property, read the sign in the sentences under any change in the <Ui>Change Log</Ui>, not the bold line above them. The currency cannot be changed from the app. If MAYA has the wrong one, [email us](mailto:info@modern-hospitality-solutions.com?subject=Currency).
+
+**The default floor and ceiling are numbers in your currency.** Every room type starts with a floor of 1.00 and a ceiling of 99,999.99, whatever the currency. In most currencies they stop nothing. Where a room type sells above 99,999.99 (yen, won, rupiah or dong, for example), the default ceiling holds its prices down to 99,999.99, and a price you type above it is refused, until a real ceiling is set. Set ceilings before you go live: through the five questions, a suggestion card, or by email. Read [Floors and ceilings](/docs/review/floors-and-ceilings#when-your-rates-are-above-the-default-ceiling).
+
+**Typing amounts.** The price box on the calendar and the amount and threshold boxes in the rule builder are your browser's number boxes. Type a point for decimals, as in 180.50, and no thousands separator, as in 1250. Whether a box also takes a comma (180,50) depends on your browser and its language. If it cannot read what you typed, the box counts as empty: <Ui>Save</Ui> stays greyed out, or the rule is not added, so nothing wrong is saved.
+
+## Rounding, and currencies without cents
+
+MAYA works out every price to two decimal places, whatever the currency, and sends it that way. A price you type, a floor and a ceiling are rounded to two decimal places too. There is no setting to round to whole units.
+
+For a currency with no cents, such as Japanese yen, that means a percentage rule can produce a price with decimals. MAYA sends that number as it is. If your system keeps whole units, it rounds the price its own way. When MAYA reads the rate back, a whole number less than 1 away from the price MAYA sent counts as MAYA's own price, rounded, and not as a rate you changed. So the rounding never turns into a manual price, and MAYA does not keep sending the price again.
+
+<Example title="A yen price">
+Standard is ¥15,125. A rule raises it 10%, to ¥16,637.50. MAYA sends ¥16,637.50 to your system. Your system keeps whole yen and stores ¥16,638. About an hour later MAYA reads ¥16,638. It is a whole number less than 1 away from the price MAYA sent, so it counts as MAYA's own price, rounded, and nothing changes.
+
+An illustration with made-up numbers, not your property.
+</Example>
+
+To keep prices whole, set rules to change by a fixed amount rather than a percentage, and use whole numbers for floors, ceilings and typed prices. As long as your own rates are whole, prices then stay whole. The starter rules change prices by percentages, so they can produce decimals.
+
+This applies to Cloudbeds and ThinkReservations. Nothing is sent to Mews yet.
+
+## How far ahead MAYA looks
+
+- **Bookings:** each read covers 30 days back to about 13 months ahead. A booking for a stay further out is picked up once its night comes into that range.
+- **Rules:** tonight and the next 59 nights.
+- **Typed prices:** up to 364 days ahead. One 60 or more nights ahead is sent when its night enters the window. [Setting a price yourself](/docs/watch/setting-a-price-yourself)
+
+<Callout kind="not-yet">
+No screen shows or changes the time zone or the currency (email us). The calendar cannot show your currency's symbol. Rules have no weekday setting. There is no holiday list to edit and no holidays outside the US. Prices cannot be rounded to whole units.
+</Callout>
+
+<Related>
+- [Similar nights](/docs/rules/similar-nights)
+- [Booking window](/docs/rules/booking-window)
+- [Handle a holiday MAYA does not have](/docs/recipes/handle-a-holiday-maya-does-not-have)
+</Related>

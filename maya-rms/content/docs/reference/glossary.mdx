@@ -1,0 +1,216 @@
+---
+title: Glossary
+summary: Every product word the docs use, in a few plain sentences each, with a link to the page that explains it fully. Words in bold with (screen) after them are labels you see in the app.
+section: reference
+order: 10
+readingTime: 19
+keywords: [glossary, paused, pause, switched off, held rules, what does it mean, definition, terms, words, jargon, meaning of, vocabulary, ADR, average daily rate, RevPAR, revenue per available room, revenue per room, derived rate, derived rate plan, package, Hotel Admin, General Manager, Revenue Manager, Viewer, roles, Connected, Pending, Degraded, Error, Disconnected, connection status, sellable occupancy, booking speed, booking window, pickup, cycle, run, window, floor, ceiling, comp night, manual price, simulation, live, hotel day, expected, similar nights, momentum, standard rule, event rule, fired, wait, group block, Mews, no go live button, $1.00 floor, "$99,999.99 ceiling", lead time, STLY, same time last year, comp set, competitive set, pace, pacing, yield rules, yield, length of stay, LOS, minimum stay, revenue management terms]
+questions:
+  - What does this word mean? {#in-plain-words}
+  - What is a cycle? {#a-to-c/cycle}
+  - What is a pricing run? {#l-to-p/pricing-run}
+  - What is the 60-night window? {#t-to-y/window-60-nights}
+  - What is a hotel day? {#d-to-h/hotel-day}
+  - What is a comp night? {#a-to-c/comp-night}
+  - What is a standard rule? {#r-to-s/standard-rule}
+  - What are booking speed and pickup rules? {#a-to-c/booking-speed-and}
+  - What is a room night? {#r-to-s/room-night}
+  - What does Last sync mean? {#l-to-p/last-sync}
+  - What does "expected" mean in an explanation? {#d-to-h/expected}
+  - What is a manual price? {#l-to-p/manual-price}
+  - What does paused mean? {#l-to-p/paused}
+  - What is a fire? {#d-to-h/fired}
+  - What do RevPAR and ADR mean? {#a-to-c/adr}
+  - What is a derived rate plan, and what is a package? {#d-to-h/derived-rate-plan}
+  - What are Hotel Admin, General Manager, Revenue Manager and Viewer? {#d-to-h/hotel-admin}
+  - What do Connected, Pending, Degraded, Error and Disconnected mean? {#a-to-c/connected}
+  - What does MAYA call lead time, STLY (same time last year), comp set, pace and yield rules? {#words-from-other-revenue-tools/comp-set}
+  - Does MAYA use length of stay (LOS)? {#words-from-other-revenue-tools/length-of-stay}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+MAYA uses a small set of words on screen and in these docs. Each is defined here in a few plain sentences, in alphabetical order, with a link to the page that explains it fully. A word marked (screen) is a label you will see in the app, written here exactly as it appears there.
+</InPlainWords>
+
+## A to C
+
+**ADR** (screen: ADR $150.00). Average daily rate: a room type's room revenue for a night divided by the rooms of that type booked that night. It is on the room type cards in the calendar's day detail. With nothing booked it shows $150.00, which is a placeholder, not a price. Read [The calendar](/docs/watch/the-calendar).
+
+**Base price.** The price a rule starts from on a night and room type. It is your typed price if you set one, else your own rate as read from your property system, else the newest booking's rate for that night, else the last base price MAYA recorded for that night. Read [How prices reach your property system](/docs/live/how-prices-reach-your-pms).
+
+**Base rate** (screen, Cloudbeds). The one rate plan per room type that MAYA writes to in Cloudbeds: the plan that does not follow another plan and has no public name. Derived plans follow it by Cloudbeds' own rules. In ThinkReservations, the Best Available rate type. The change log also says "set the base rate" for a price someone typed. There it means the night's starting price. Read [What MAYA reads and writes](/docs/connect/what-maya-reads-and-writes).
+
+**Best Available** (ThinkReservations). The standard rate type whose name contains "Best Available". It is the rate type MAYA sends its prices to in ThinkReservations. If no rate type has that name, MAYA uses the one standard rate type that covers the most room types. If two tie, neither is used and nothing is sent until you name one Best Available. Read [ThinkReservations](/docs/connect/thinkreservations).
+
+**Booking.** For booking speed, one reservation for one night, however many rooms it holds: a 20-room wedding booked as one reservation in Cloudbeds or ThinkReservations is one booking. In Mews each room is its own reservation, so each room counts as a booking, and so does each separate reservation made from a group block. For sellable occupancy and pickup count, each room counts, so the same wedding is 20 booked rooms. Read [Booking speed](/docs/rules/booking-speed).
+
+**Booking speed** (screen). How many bookings a night received in the past day, week or month, compared with how many similar past nights had received by the same point before arrival. Seven levels, from Stalled to Surging. Read [Booking speed](/docs/rules/booking-speed).
+
+**Booking speed and pickup rules.** Any rule with a Booking speed or Pickup count condition. It fires, the change stays on the price, and after its wait it can fire again on the same night, so raises stack on raises and cuts on cuts. At most one of them fires on a night and room type per run. Read [How rules run](/docs/rules/how-rules-run).
+
+**Booking window** (screen: Booking window (days to stay)). The number of days until the stay, on your property's own calendar. Tonight is 0, tomorrow night is 1. Read [Booking window](/docs/rules/booking-window).
+
+**Ceiling** (screen). The highest price MAYA will publish for a room type. Setup fills it from your answer to the five questions where it fits, or else from your own rates if the room type has at least 200 room nights sold. Otherwise it stays at $99,999.99 (a number in your own currency), which stops nothing in most currencies, until you set one. Where rooms sell above 99,999.99, as they can in yen or rupiah, the default ceiling holds prices down, so set one before you go live. Read [Floors and ceilings](/docs/review/floors-and-ceilings).
+
+**Change Log** (screen). The tab that shows the 10 most recent pricing runs and, for each change, which rule acted and why. A run happens about every five minutes and quiet runs count toward the 10, so it covers about the last 50 minutes. By default it lists only the runs among them that changed a price. Read [The change log](/docs/watch/the-change-log).
+
+**Changed in Cloudbeds** (screen: Changed in Cloudbeds · $123.00). The badge on a room type card for a rate you changed in your property system on a night MAYA had already sent to. MAYA keeps it like a manual price. Read [Rates changed in your property system](/docs/watch/rates-changed-in-your-pms).
+
+**Closed period.** A stretch when the whole property was shut, confirmed on the setup review. Its nights are left out of every comparison. Read [Checking what MAYA found](/docs/review/checking-what-maya-found).
+
+**Code.** A signup code we give you that opens self-serve signup for a property system, or grants a trial or a discount. One code per property. A code's own free days replace the Marketplace trial rather than adding to it, while a discount code with no free days keeps the trial and discounts the invoices after it. Read [Codes and the free trial](/docs/pay/codes-and-the-free-trial).
+
+**Comp night.** A night with a manual price of 0. No rule raises it. MAYA does not send 0 to any property system, so you set it there yourself. Read [Make a night free](/docs/recipes/make-a-night-free).
+
+**Connected** (screen, on the PMS tab). The connection to your property system is working: MAYA reads your bookings and, once you are live, sends prices. The other words the <Ui>Connection</Ui> card can show are Pending, Degraded, Error and Disconnected, each defined here. Read [The PMS tab](/docs/watch/the-pms-tab).
+
+**Counts as a room** (screen). The checkbox on the PMS tab that says a room type is somewhere guests sleep. Ticked types are what MAYA divides by for sellable occupancy, and what you are billed for. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
+
+**Current price** (screen). The price MAYA has worked out for a room type on a night, after rules and limits. It is what the calendar shows and what is sent. Read [The calendar](/docs/watch/the-calendar).
+
+**Cycle.** One run of MAYA for your property, about every five minutes: read bookings, refresh your rates if due, run every rule over the next 60 nights and, once you are live, send the prices that changed. For Mews, MAYA does not read rates or send prices yet. Cycles run on MAYA's side, day and night, whether or not anyone has MAYA open, and your own internet being down does not stop them. Only MAYA being unable to reach your property system's service does, or a stopped subscription. Read [How rules run](/docs/rules/how-rules-run).
+
+## D to H
+
+**Degraded** (screen, on the PMS tab). Two meanings. On the <Ui>Connection</Ui> card (Cloudbeds and ThinkReservations only): MAYA is still reading and sending, and the lost-connection banner may show. It usually clears by itself on the next read. If it is still there in an hour, a General Manager or Hotel Admin reconnects, which does no harm. On the <Ui>Health (last 24 hours)</Ui> card: 80% to under 98% of MAYA's requests to your system succeeded. Read [Reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect).
+
+**Derived rate plan.** A rate plan in your property system that follows another plan by a rule of its own, such as 10% off the base rate. MAYA never writes to one. It moves when the base rate moves, by your system's own rules. ThinkReservations calls it a derived rate type. Read [How prices reach your property system](/docs/live/how-prices-reach-your-pms).
+
+**Disconnected** (screen, on the PMS tab). MAYA's access to your property system is gone: the app was uninstalled, its permission was removed, or your system refused it. Nothing is read or sent until a General Manager or Hotel Admin reconnects. Nothing is deleted. Read [Reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect).
+
+**Error** (screen, on the PMS tab). Your property system refused MAYA's saved access, so reading has stopped. A General Manager or Hotel Admin reconnects. Read [Connection lost](/docs/wrong/connection-lost).
+
+**Expected** (in explanations). What similar past nights had received over the same stretch of their own run-up, averaged with the highest and lowest dropped once there are five or more. It can be a fraction, such as 0.4. On screen it reads "almost none" under 1 and is rounded to a whole number otherwise. Read [Similar nights](/docs/rules/similar-nights).
+
+**Fired** (screen). The number of times a rule acted, counted once per night and room type, including changes that later came off. A booking speed or pickup rule can act on the same night more than once. Read [The rule builder](/docs/rules/the-rule-builder).
+
+**Floor** (screen). The lowest price MAYA will publish for a room type. Setup fills it from your answer to the five questions, or else from your own rates if the room type has at least 30 room nights sold. Otherwise it stays at $1.00, which stops nothing, until you set one (a floor cannot be 0). Read [Floors and ceilings](/docs/review/floors-and-ceilings).
+
+**General Manager** (screen, a role). Everything except managing Hotel Admins: pricing, going live, the property system connection, billing and the team. Read [Roles](/docs/team/roles).
+
+**Go live.** Switching a property from simulation to live, so its changed prices are sent to Cloudbeds or ThinkReservations every cycle (nothing is sent to Mews yet). A General Manager or Hotel Admin does it with <Ui>Turn them on for real</Ui>, in the starter rules box on the review screen. The box is there only if setup added starter rules, and it is gone once someone uses <Ui>Get suggestions from my data</Ui> on the <Ui>Rules</Ui> tab. Without it, [email us](mailto:info@modern-hospitality-solutions.com?subject=Go%20live) and we switch the property live. One way in the app: only we can switch a property back. Read [Going live](/docs/live/going-live).
+
+**Guardrails** (screen, in the Rate Simulator). A room type's floor and ceiling, shown together as a range.
+
+**Hold My Hand / Let Me Drive** (screen). The two setup paths. <Ui>Hold My Hand</Ui> asks five optional questions and walks you through the review. <Ui>Let Me Drive</Ui> goes straight to the dashboard, and the review stays available. Read [Hold my hand or let me drive](/docs/review/hold-my-hand-or-let-me-drive).
+
+**Holiday.** One of 17 US holidays MAYA uses to pick similar nights: a night near Thanksgiving is compared with the same position around Thanksgiving in earlier years. No other holidays exist yet. Read [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays).
+
+**Hotel Admin** (screen, a role). Everything, including managing General Managers. The person who creates the account and pays is a property's first Hotel Admin. Read [Roles](/docs/team/roles).
+
+**Hotel day.** A calendar date in your property's own time zone. The window, booking windows and "past week" all count in hotel days. Read [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays).
+
+**How did we know?** (screen). The link under a booking speed change in the change log. It opens the counts behind the change, the nights MAYA compared with, and the way to set one aside. Read [How did we know?](/docs/watch/how-did-we-know).
+
+## L to P
+
+**Last sync** (screen, on the PMS tab). The last time MAYA read your bookings from your property system successfully, about every five minutes on a healthy connection. It says nothing about sending prices. Read [The PMS tab](/docs/watch/the-pms-tab).
+
+**Level.** One of the seven booking speed readings: Stalled, Much Slower Than Normal, Slower Than Normal, Normal, Faster Than Normal, Much Faster Than Normal, Surging. Read [Booking speed](/docs/rules/booking-speed).
+
+**Live.** The state after going live. Every cycle, prices that changed are sent to Cloudbeds or ThinkReservations. Nothing is sent to Mews yet, so a Mews property only shows as live. Read [Simulation mode](/docs/live/simulation-mode).
+
+**Manual price** (screen: Manual · $123.00). A price you typed for a room type on a night on the Calendar tab. It becomes the night's base price. Once you are live, it is sent as typed to Cloudbeds or ThinkReservations (a night beyond the 60-night window goes when it enters the window). Nothing is sent to Mews yet, and a price of 0 is never sent. Rules already on that night pause for that room type, and rules that fire later stack on top. Read [Setting a price yourself](/docs/watch/setting-a-price-yourself).
+
+**Marketplace.** The Cloudbeds Marketplace, where a Cloudbeds property installs MAYA with <Ui>Connect App</Ui>. Properties that arrive this way get the free trial and can come in as a group. Read [Cloudbeds](/docs/connect/cloudbeds).
+
+**Measure / Change** (screen). The two room type lists of a rule that watches one set of room types and prices another, shown when <Ui>Change prices on different room types</Ui> is ticked. Read [Measure one set, change another](/docs/rules/measure-one-set-change-another).
+
+**Measured over** (screen). The booking speed window: <Ui>Past day</Ui>, <Ui>Past week</Ui> or <Ui>Past month</Ui>, counted in booking dates on your property's calendar, today included. Read [Booking speed](/docs/rules/booking-speed).
+
+**Momentum** (in explanations). The fallback reading when a night has no similar past nights: how nearby dates are filling now compared with the same dates a year earlier. Always treated as thin evidence. Read [Similar nights](/docs/rules/similar-nights).
+
+**Not a fair comparison?** (screen). The link on a compared night that lets you set it aside with a reason. Read [Not a fair comparison](/docs/watch/not-a-fair-comparison).
+
+**Package.** A rate plan that sells the room together with something else, such as breakfast or parking. MAYA never writes to a package. A package built on the base rate moves when the base rate does, by your system's own rules. Read [What MAYA reads and writes](/docs/connect/what-maya-reads-and-writes).
+
+**Paused.** A word with four meanings, so these docs keep them apart. A rule you set to <Ui>Off</Ui> on the <Ui>Rules</Ui> tab is "switched off": it stops acting and its changes stay on the price (the switch says On and Off, and the list's filter says Enabled and Disabled). Rules on a night where you typed a price are "held": their changes come off that night, and the save's confirmation counts them, as in "Paused 2 rules on this night for this room". "MAYA has paused work on this property" is the banner shown while the subscription is not active, and "Paused" as a status on the Billing page means the subscription is on hold in Stripe. Read [Turning a rule off, deleting it, or changing it](/docs/rules/off-delete-or-change), [Setting a price yourself](/docs/watch/setting-a-price-yourself) and [The billing page](/docs/billing/the-billing-page).
+
+**Pending** (screen, on the PMS tab). Connected but not paid for yet, or set up and not switched on yet. Nothing runs until then. Finish payment, or wait for us. Read [The PMS tab](/docs/watch/the-pms-tab).
+
+**Pickup count** (screen: Pickup count (advanced)). How many room nights, or how much revenue, a night gained over the last 1, 3 or 7 days, cancellations subtracted. Read [Pickup count](/docs/rules/pickup-count).
+
+**PMS** (screen). Your property management system: Cloudbeds, ThinkReservations or Mews, where your bookings and rates live. In these docs, "property system". Read [Which systems work](/docs/connect/which-systems-work).
+
+**Price and rate.** In these docs, a price is what MAYA works out and sends. A rate is what lives in your property system, such as your base rate or a rate you changed there.
+
+**Pricing run** (screen). One evaluation of every night and every rule for your property. The change log shows the 10 most recent, one entry per run. Read [The change log](/docs/watch/the-change-log).
+
+## R to S
+
+**Rate Simulator** (screen). The tab where you make up a night and see what your rules would do to it. Nothing there is saved or sent unless you click <Ui>Save This Rule</Ui>, and a rule saved from there arrives switched Off. Read [The Rate Simulator](/docs/rules/the-rate-simulator).
+
+**Revenue Manager** (screen, a role). Day-to-day pricing: rules, typed prices, floors and ceilings, room types and rooms out of service, answering the Rules that keep adjusting banner, and setting dates aside. A Revenue Manager cannot go live, reconnect the property system, see billing or change the team. Read [Roles](/docs/team/roles).
+
+**Revenue on the books** (screen). Room revenue from bookings already made for that night, shown on the calendar day card. Read [The calendar](/docs/watch/the-calendar).
+
+**RevPAR** (screen). Revenue per available room: the whole property's room revenue for a night divided by the number of rooms in room types ticked <Ui>Counts as a room</Ui>. The calendar's colours rank your nights by it (the legend says "revenue per room"). Unticking a room type takes its rooms out of it. Read [The calendar](/docs/watch/the-calendar).
+
+**Room count.** The number of rooms you are billed for. MAYA measures it from your property system every cycle, counting only room types ticked as rooms. Read [Your room count](/docs/billing/your-room-count).
+
+**Room night.** One room for one night. A booking of 2 rooms for 3 nights is 6 room nights. Pickup count and the import's progress bar count room nights. For a single night, room nights are the rooms booked.
+
+**Rooms out of service** (screen). Rooms you take off sale for a stretch, entered on the PMS tab. They come off the sellable count for those nights only. Nothing is sent to your system. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
+
+**Rule.** One sentence you write once: when a night looks like this, change its price by that much. MAYA checks every rule against your bookings about every five minutes. Read [Build your first rule](/docs/rules/build-your-first-rule).
+
+**Rules that keep adjusting** (screen). The amber banner that asks you what to do once a booking speed or pickup rule has adjusted the same night three times. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
+
+**Season.** A stretch of your year that books differently, found from your own history and never set by hand. It only ever appears inside an explanation. Read [Similar nights](/docs/rules/similar-nights).
+
+**Seats.** How many people can be on a property's team, members plus pending invitations: 2, 4, 5, 6 or 8, following your room count. Read [Inviting and removing people](/docs/team/inviting-and-removing-people).
+
+**Sellable occupancy** (screen). Rooms booked divided by rooms you can sell that night, counting only room types ticked as rooms, with rooms out of service taken off first. Twelve rooms, three out of service, eight booked: 89%. Read [Sellable occupancy](/docs/rules/sellable-occupancy).
+
+**Set aside** (screen: Set this date aside). Marking a past night as not a fair comparison so it is left out of comparisons from the next run. Read [Not a fair comparison](/docs/watch/not-a-fair-comparison).
+
+**Similar nights.** The up to eight past nights MAYA compares a night with, from the last three years: same weekday (or, near a holiday, the same position around it) and same time of year. A night near a holiday has at most three, one a year. Read [Similar nights](/docs/rules/similar-nights).
+
+**Simulation mode.** The starting state of every property. Everything runs and is written to the change log, and nothing is sent to your property system. Read [Simulation mode](/docs/live/simulation-mode).
+
+**Standard rule** (screen, in the How rules behave panel). A rule with only occupancy and booking window conditions. It holds one change while its condition holds and takes it off when the condition stops. It never stacks on itself. Read [How rules run](/docs/rules/how-rules-run).
+
+**Starter rules.** The five booking speed rules MAYA adds at setup when your property has about two months of history and no rules yet: Slow-date rescue, Slow-date trim, Warm-date bump, Hot-week surge and Sudden-spike catcher. Every property gets the same settings, and each rule compares a night's bookings with your own similar past nights. Read [Your starter rules](/docs/review/your-starter-rules).
+
+**Stopped on N nights** (screen). The chip under a rule's switch that counts the nights still to come on which you told it to stop, with <Ui>Let it run again</Ui> beside it. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
+
+## T to Y
+
+**Then waits** (screen: Then waits (advanced)). How long a booking speed rule leaves a night alone after acting on it: 1 day to 2 weeks, 1 week when unset. A rule with a pickup count condition waits at least its lookback. Read [Booking speed](/docs/rules/booking-speed).
+
+**Three-times question.** Another name for the Rules that keep adjusting banner.
+
+**Trial.** Free days before your first charge. Properties that arrive from the Cloudbeds Marketplace get a 7-day free trial. A code can carry its own trial, which replaces the Marketplace one rather than adding to it. A card is taken and nothing is charged until the trial ends. Read [Codes and the free trial](/docs/pay/codes-and-the-free-trial).
+
+**Viewer** (screen, a role). Can look at everything and change nothing. Read [Roles](/docs/team/roles).
+
+**Wait.** See Then waits. The wait is counted per rule, night and room type, from that night's last counted change, or from a price you typed if it came later.
+
+**Weekend.** Friday and Saturday nights. Used when similar nights are chosen and seasons are read. Rules have no weekday control yet. Read [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays).
+
+**Window (60 nights).** Tonight and the next 59 nights on your property's calendar: the nights your rules price every cycle and, once you are live, the nights whose prices are sent to Cloudbeds or ThinkReservations. A price you type further ahead is sent when its night enters the window. Read [How prices reach your property system](/docs/live/how-prices-reach-your-pms).
+
+**Your corrections** (screen). The panel at the top of the change log that lists every date you have set aside, each with <Ui>Undo</Ui>. Read [Not a fair comparison](/docs/watch/not-a-fair-comparison).
+
+## Words from other revenue tools
+
+If you have used another revenue tool, these are the words you may be looking for, and what MAYA calls them.
+
+**Comp set** (competitive set). Not used. MAYA reads no competitor rates and no data from other hotels, only your own bookings and rates. Read [What MAYA does](/docs/start/what-maya-does).
+
+**Lead time.** MAYA calls it the booking window: the number of days from today until the night. A rule uses it through the <Ui>Booking window (days to stay)</Ui> condition. Read [Booking window](/docs/rules/booking-window).
+
+**Length of stay (LOS).** Not used by rules. There is no condition for how long a guest stays, and MAYA writes one nightly rate per room type. Keep length-of-stay prices and minimum stays in your property system. Read [What rules cannot do yet](/docs/rules/what-rules-cannot-do-yet).
+
+**Pace.** MAYA calls it booking speed: how many bookings a night received in the past day, week or month, compared with what similar past nights had received at the same point before arrival. Read [Booking speed](/docs/rules/booking-speed).
+
+**STLY** (same time last year). There is no STLY report. The nearest thing is similar nights: each night is compared with similar past nights from the last three years, read at the same distance before arrival. When none can be found, momentum compares nearby nights now with the same nights a year ago. Read [Similar nights](/docs/rules/similar-nights).
+
+**Yield rules.** MAYA calls them rules: one sentence you write once, such as "when a night is more than 80% full, raise every room type by 10%". If your property system has yield rules of its own that change the base rate, switch them off before you go live. Read [Build your first rule](/docs/rules/build-your-first-rule).
+
+<Related>
+- [What MAYA does](/docs/start/what-maya-does)
+- [Limits and numbers](/docs/reference/limits-and-numbers)
+- [About these docs and the docs helper](/docs/help/about-these-docs)
+</Related>

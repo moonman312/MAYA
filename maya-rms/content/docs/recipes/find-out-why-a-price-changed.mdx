@@ -1,0 +1,85 @@
+---
+title: Find out why a price changed
+summary: Open the Change Log tab, find the night and room type, read the sentence that names the rule and its reason, and open "How did we know?" when a booking speed rule acted.
+section: recipes
+order: 10
+readingTime: 6
+keywords: [why did the price change, why did my price change, change log, which rule, who changed the price, reason, explanation, how did we know, pricing run, dropped, jumped, cut, raised, base rate changed, pricing rule, show all cycles, prices checked, stay, up to, down to, days since this night was last raised, later on the day this night was last raised, last cut, how far back, older change, change is gone, disappeared, last hour, 50 minutes, 10 runs, 40 changes, empty log, yesterday, this morning, 90 days, manual badge, current price]
+questions:
+  - Why did the price change on a night? {#in-plain-words}
+  - How do I find out which rule changed a price? {#open-the-change-log/1-go-to}
+  - Where do I see why MAYA changed a price? {#in-plain-words}
+  - What does "Pricing rule" mean in the change log? {#what-the-sentences-mean}
+  - Why does the change log say "Prices checked" so often? {#if-nothing-is-listed-for-the-night/which-of-your}
+  - Why did a price change with no rule named? {#what-the-sentences-mean}
+  - How far back does the change log go? {#how-far-back-the-log-goes}
+  - The price changed more than an hour ago. How do I find out why? {#if-nothing-is-listed-for-the-night/if-the-price}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Open the <Ui>Change Log</Ui> tab. Each pricing run lists the nights whose price moved, one bold line per room type and night, followed by a sentence that names the rule and the reason. For a booking speed change, click <Ui>How did we know?</Ui> under the entry to see the counts behind it. The change log covers about the last 50 minutes. For an older change, check the night on the <Ui>Calendar</Ui> tab first: a badge means the price was typed in MAYA or changed in your system, and <Ui>Current price</Ui> shows where your rules have taken your rate. For the exact reason, email us the night and room type within 90 days.
+</InPlainWords>
+
+## Open the change log
+
+<Steps>
+<Step title="Go to the Change Log tab">
+It opens on changes only. Each entry is headed <Ui>Pricing run</Ui> with the time of the run in your browser's local time, such as "Sat, Nov 14, 2026, 3:05 PM PST", and how long ago it was, such as "(12 min ago)". Ongoing problems, headed <Ui>Rates not reaching Cloudbeds</Ui> (or your system's name), sit above every run.
+</Step>
+<Step title="Find the night">
+Inside a run, each change starts with a bold line in the shape "Standard · stay 2026-11-14: $150.00 up to $165.00 (+10%)". Look for the stay date. Down moves read "down to" with a minus percentage.
+</Step>
+<Step title="Read the sentence under it">
+The first sentence names the rule and the move: "Busy nights" raised this night 10%, from $150.00 to $165.00. The next sentence gives the reason in your own numbers: It was 85% full, past the 80% mark you set.
+</Step>
+<Step title="Open How did we know? for a booking speed change">
+When a booking speed rule acted, a <Ui>How did we know?</Ui> link sits under the entry. It shows how many bookings the night received, how many a night like it usually has by that point, and the level that reads as. <Ui>Why did you expect that?</Ui> lists which past nights were compared and why, and <Ui>Show me the nights you compared</Ui> lists them one by one.
+</Step>
+</Steps>
+
+## What the sentences mean
+
+| You read | It means |
+|---|---|
+| "Busy nights" raised this night 10%, from $150.00 to $165.00. | That rule acted on this night and room type. |
+| Then "Hot-week surge" raised it 25%, from $165.00 to $206.25. | A second rule acted on top. Percentages compound, so the 25% is applied to $165.00. When the same rule acts again after its wait, the sentence says "another". |
+| It was 85% full, past the 80% mark you set. | The condition that made an occupancy rule true. |
+| Bookings came in faster than normal this past week: 9, against the 5 a night like this usually has by now. | The count behind a booking speed rule. Once a booking speed or pickup rule has raised the night, a booking speed rule that raises counts only the bookings since then. A raise from an occupancy or booking window rule does not change what it counts. When the count is shortened like this, the sentence reads "in the 3 days since this night was last raised", or "later on the day this night was last raised" when that raise was earlier the same day. A booking speed rule that cuts counts from the last cut by a booking speed or pickup rule, and says "last cut". |
+| That would have gone past your $300.00 ceiling for Standard, so it stopped there. | The rules asked for more, and the ceiling held the price. |
+| "Warm-date bump" stopped applying an earlier 10% raise here: enough of the bookings behind it cancelled. | A raise came off because the bookings that caused it were cancelled. |
+| Sam set the base rate to $180.00. | A person typed a price on the Calendar tab. No rule is named because no rule acted. |
+| The base rate was changed in Cloudbeds to $180.00. | The rate was changed in your property system on a night MAYA had already sent to, and MAYA kept that rate. |
+| "Pricing rule" raised this night 10%. | The rule that acted has since been deleted, so its name is gone. |
+
+## How far back the log goes
+
+The tab covers the 10 most recent runs, and quiet runs count toward the 10. A run happens about every five minutes, so the tab covers about the last 50 minutes. A change older than that is no longer listed.
+
+Setting or clearing a typed price, or changing your room types, starts an extra run, so the span can be shorter. While MAYA cannot read your bookings from your property system, the regular runs stop, so older runs stay on screen for longer.
+
+The default view shows only the runs among those 10 that changed a price. If none of them did, no runs are listed. Within a run you see the 40 biggest moves, and nothing on screen says when a run had more.
+
+## If nothing is listed for the night
+
+If the price moved more than about 50 minutes ago, its run has dropped off the list (see above). You can still narrow it down yourself. Open the night on the <Ui>Calendar</Ui> tab and check three things:
+
+- **A badge on the room type's card.** "Manual · $180.00" means someone typed that price in MAYA. "Changed in Cloudbeds · $180.00" (or your system's name) means the rate was changed in your property system and MAYA kept it. Either way, the starting price did not come from your rules. Hover the badge for the time it was set (or, for a rate changed in your system, when MAYA read it).
+- **<Ui>Current price</Ui> against your own rate.** Current price is your rate for that night after your rules and your floor and ceiling. A gap between the two is what they added or took off. (MAYA reads no Mews rates, so on Mews it starts from the newest booking's rate for that night, or the last starting point it remembered.)
+- **Which of your rules could apply.** On the <Ui>Rules</Ui> tab, hold each rule that is <Ui>On</Ui> up against the night: how full it is, how many days away it is, and whether the rule changes that room type.
+
+For the exact reason, [email us](mailto:info@modern-hospitality-solutions.com?subject=Why%20did%20a%20price%20change) the night and room type within 90 days. The detail behind every change is kept for 90 days, and we can read it for you.
+
+If the price did not move, most runs change nothing. Click <Ui>Show All Cycles</Ui> to include the quiet runs, each reading "Prices checked" with a note that nothing needed to change. That is normal: about every five minutes MAYA reads your bookings and runs your rules, and a price only moves when a rule's condition changes.
+
+A night 60 or more nights away, past tonight and the next 59, is not priced yet, so it has no entries. A night before today is never priced.
+
+<Callout kind="not-yet">
+There is no search box, no filter by night or room type, no way to page back to older runs, and no export. For a change older than about 50 minutes, check the calendar as above, then email us the night and room type within 90 days and we read the detail for you.
+</Callout>
+
+<Related>
+- [The change log](/docs/watch/the-change-log)
+- [How did we know?](/docs/watch/how-did-we-know)
+- [A price looks wrong](/docs/wrong/a-price-looks-wrong)
+</Related>

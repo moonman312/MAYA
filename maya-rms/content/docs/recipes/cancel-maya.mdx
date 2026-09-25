@@ -1,0 +1,80 @@
+---
+title: Cancel MAYA
+summary: Cancel from Stripe's portal via the Billing page. MAYA keeps working until the end of the paid period, then stops. Then disconnect in your property system if you want to, and ask us to delete your data if you want that too.
+section: recipes
+order: 250
+readingTime: 4
+keywords: [cancel, cancel my subscription, leave, close my account, stop paying, end of period, access ends, set to cancel, disconnect, delete my data, refund, restart, restart code, new code, reconnect after restart, cancelled during trial, trial, never paid, 180 days, history removed, my own rates back, revert prices, old rates, Mews]
+questions:
+  - How do I cancel MAYA? {#cancel-the-subscription}
+  - When does a cancellation take effect? {#cancel-the-subscription}
+  - What happens to my prices when I cancel? {#what-happens-at-the-end-of-the-period/prices-in-your}
+  - How do I get my own rates back after cancelling? {#what-happens-at-the-end-of-the-period/prices-in-your}
+  - Does cancelling delete my data? {#delete-your-data-if-you-want-that/nothing-is-deleted}
+  - Does disconnecting my property system cancel my subscription? {#disconnect-your-system-if-you-want-to}
+  - Can I get a refund for the rest of the month? {#what-happens-at-the-end-of-the-period/no-refund-for}
+  - Do I need a new code to restart? {#delete-your-data-if-you-want-that/good-to-know}
+  - Is my data kept if I cancel during the free trial? {#delete-your-data-if-you-want-that/nothing-is-deleted}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Click <Ui>Billing</Ui> at the top right, then <Ui>Update card, receipts & cancellation</Ui>, and cancel in Stripe's portal. MAYA keeps working until the end of the period you have paid for, then stops reading, pricing and sending. The prices already in your property system stay as they are. Cancelling deletes nothing: disconnect in your system if you want to, and email us if you want your data removed.
+</InPlainWords>
+
+## Cancel the subscription
+
+<Steps>
+<Step title="Open the Billing page">
+Click <Ui>Billing</Ui> in the dashboard header. You need General Manager or Hotel Admin access.
+</Step>
+<Step title="Open Stripe and cancel">
+Under <Ui>Manage</Ui>, click <Ui>Update card, receipts & cancellation</Ui>. In the portal, choose to cancel and give a reason if asked. Stripe returns you to the Billing page.
+</Step>
+<Step title="Check the page">
+The headline reads "This subscription is set to cancel" with "MAYA keeps working until November 30, 2026, then stops." and the period row is labelled <Ui>Access ends</Ui>.
+</Step>
+</Steps>
+
+You can also cancel in writing: [email us](mailto:info@modern-hospitality-solutions.com?subject=Cancel%20my%20subscription) from a General Manager's or Hotel Admin's address. A property that has paid but is not connected yet has no Billing page: use the <Ui>Manage billing or cancel</Ui> link on the setup screen instead.
+
+## What happens at the end of the period
+
+MAYA stops reading your bookings, running your rules and sending prices. The status row reads "Cancelled" and the dashboard shows the red banner "MAYA has paused work on this property". You can still sign in and read the calendar, the change log and the team page.
+
+- **Prices in your system stay as they are.** MAYA never reverts them. On Cloudbeds or ThinkReservations, if you want your own rates back, set them in your system, or before the period ends delete your rules in MAYA so the reverted prices are sent. On Mews, MAYA never sent prices, so your rates are already your own.
+- **Rules, settings and history stay** in MAYA, so a restart picks up where you left off. (One exception, for a Cloudbeds Marketplace property that never paid, is under [Delete your data](#delete-your-data-if-you-want-that).)
+- **No refund for the rest of the period**, and no pause instead of cancelling.
+
+## Disconnect your system, if you want to
+
+Cancelling does not disconnect your property system, and disconnecting does not cancel billing. To stop completely, cancel first, then disconnect.
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+In Cloudbeds, open <Ui>Marketplace</Ui>, then <Ui>My Apps</Ui>, and disconnect MAYA there. Cloudbeds tells MAYA, and the <Ui>PMS</Ui> tab reads <Ui>Disconnected</Ui>. There is no disconnect button inside MAYA.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+There is no disconnect button inside MAYA. Once the subscription has ended MAYA no longer reads ThinkReservations. To remove MAYA's access on the ThinkReservations side, [email us](mailto:info@modern-hospitality-solutions.com?subject=Disconnect%20ThinkReservations) and we walk through it with you.
+</PmsTab>
+<PmsTab pms="mews">
+Mews is connected by us with keys from your Mews dashboard. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Disconnect%20Mews) and we remove the keys.
+</PmsTab>
+</PmsTabs>
+
+## Delete your data, if you want that
+
+Nothing is deleted when you cancel or disconnect, and there is no delete button in MAYA. A Hotel Admin or General Manager emails [info@modern-hospitality-solutions.com](mailto:info@modern-hospitality-solutions.com?subject=Close%20my%20account) with the subject "Close my account". We delete or de-identify the property's data within 90 days, keeping only what the Terms and Privacy Policy list, such as billing records. It is permanent, and a later reconnection starts from scratch.
+
+One exception applies to a property that came from the Cloudbeds Marketplace and never paid (cancelled during the free trial, say). After 180 days with nobody using MAYA for it, its booking history and its connection to Cloudbeds can be removed. Your rules and settings stay, and reconnecting imports the history again. A property that has ever paid is never touched this way.
+
+<Callout kind="good-to-know">
+To come back, click <Ui>Restart your subscription</Ui> on the <Ui>Billing</Ui> page: a new subscription at the same prices, with your rules and settings in place. While sign-up for your system is still invite-only, you need a new code from us (the first cannot be used again), so [email us](mailto:info@modern-hospitality-solutions.com?subject=Restart%20code) for one. A connection you removed stays removed until you [reconnect your property system](/docs/recipes/reconnect-your-property-system).
+</Callout>
+
+<Related>
+- [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving)
+- [Reconnect and disconnect](/docs/connect/reconnect-and-disconnect)
+- [Privacy, security and your data](/docs/reference/privacy-security-and-your-data)
+</Related>

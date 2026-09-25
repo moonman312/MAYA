@@ -1,0 +1,95 @@
+---
+title: Booking window
+summary: What the Booking window condition counts, which nights Less than 7 covers, and how to pair it with occupancy for a last-minute rule.
+section: rules
+order: 40
+readingTime: 5
+keywords: [booking window, days to stay, days to arrival, days out, lead time, last minute, less than 7, tonight, today is 0, close-in, far out, days until arrival, last-minute rule, booking window rule, past the 7-day mark, night audit, business date, end of day, day end, midnight, when does the day change, rollover, time zone]
+questions:
+  - What is booking window? {#in-plain-words}
+  - What is "days to arrival"? {#in-plain-words}
+  - Do rules act on tonight? {#tonight-is-priced}
+  - Which nights does "Booking window Less than 7" cover? {#less-than-7-means-0-to-6}
+  - Why does the log say "past the 7-day mark" for a night 5 days out? {#the-change-log-sentence}
+  - How do I price last-minute nights differently? {#combining-with-occupancy}
+  - Does MAYA's day change at midnight or when we run the night audit? {#the-hotel-day}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Booking window is the number of days until the stay, on your property's own calendar. Tonight is 0, tomorrow night is 1. <Ui>Booking window (days to stay)</Ui> <Ui>Less than</Ui> 7 covers tonight and the next six nights. The count moves every day, so a night slides into a rule's range as it gets closer.
+</InPlainWords>
+
+## The definition
+
+For each night your rules run on, booking window is the stay date minus today's date, in whole days. "Today" is the calendar date at your property, in your property's time zone, at the moment of the check. A night 30 days away has a booking window of 30. Tonight has a booking window of 0.
+
+The condition has nothing to do with when a guest booked. It is about how far away the night is right now.
+
+The rule builder's label is <Ui>Booking window (days to stay)</Ui>. Its fields are <Ui>Compare</Ui> (<Ui>Greater than</Ui> or <Ui>Less than</Ui>) and <Ui>Threshold</Ui>, which starts at 7. A threshold with a decimal is rounded to whole days when you save.
+
+<DateStrip />
+
+## Less than 7 means 0 to 6
+
+Comparisons are strict, so:
+
+| You set | Nights covered |
+|---|---|
+| <Ui>Less than</Ui> 7 | Tonight and the next six nights (0 to 6) |
+| <Ui>Less than</Ui> 3 | Tonight, tomorrow and the night after (0 to 2) |
+| <Ui>Less than</Ui> 1 | Tonight only (0) |
+| <Ui>Greater than</Ui> 45 | Nights 46 days away and further, up to the edge of the 60-night window |
+| <Ui>Greater than</Ui> 0 | Every night except tonight |
+
+Your rules run on tonight and the next 59 nights, so a <Ui>Greater than</Ui> rule reaches at most night 59. The one exception is a price you type further out: saving it runs your rules once on every night up to it. Read [How rules run](/docs/rules/how-rules-run#the-window).
+
+## Tonight is priced
+
+Tonight is night 0 and is inside every check. A rule set to <Ui>Less than</Ui> 1 acts on tonight alone. Past nights are never priced and never re-priced, so a night stops being touched the moment your property's date moves past it.
+
+## Combining with occupancy
+
+On its own, a booking window rule fires on every night in its range, busy or quiet. That is rarely what you want. The usual shape is a booking window row plus an occupancy row, and both must be true.
+
+<Example title="'Last minute' at The Harbour Inn">
+"Last minute" has two rows: <Ui>Booking window (days to stay)</Ui> <Ui>Less than</Ui> 3, and <Ui>Sellable occupancy (%)</Ui> <Ui>Less than</Ui> 50. It lowers the price by 15%.
+
+- Tomorrow night, 7 of 20 rooms booked (35%): 1 day away and under half full, so the rule fires. Standard drops from $150 to $127.50.
+- Tomorrow night, 14 of 20 booked (70%): 1 day away but not under half, so nothing happens.
+- Five nights away, 4 of 20 booked (20%): quiet, but 5 is not less than 3, so nothing happens yet. In three days, if it is still quiet, it will.
+
+A booking window rule is a standard rule: it holds its change while both conditions are true and takes it off when either stops. If a late booking lifts tomorrow night to 55%, the 15% cut comes off on the next check.
+</Example>
+
+Read [Price last-minute nights differently](/docs/recipes/price-last-minute-nights) for the click-by-click recipe.
+
+## The change log sentence
+
+When a booking window rule acts, the change log says how far away the night was and which mark it crossed:
+
+- <Ui>Less than</Ui> 7: "It had 5 days to go, past the 7-day mark you set."
+- <Ui>Greater than</Ui> 21: "It had 30 days to go, beyond the 21-day mark you set."
+- With occupancy on the same rule: "It was 95% full with 17 days to go, past the 90% and 21-day marks you set."
+
+"Past" for a less-than rule means the night has come inside your mark. "Beyond" for a greater-than rule means it is still further out than your mark.
+
+## In the Rate Simulator
+
+The note under the <Ui>Rate Simulator</Ui> tab's <Ui>Stay date</Ui> field says that the date sets the days to arrival. The days are counted from your property's date, not from your computer's, so a property in the United States sees the same number the real run would see, even late in the evening.
+
+## The hotel day
+
+Days are counted on your property's calendar. A check that runs at 11 pm on Friday at the property still treats Friday night as night 0. A check that runs at 12:30 am on Saturday treats Saturday night as night 0 and Friday as past.
+
+MAYA's day changes at midnight in your property's time zone, whatever time your night audit runs. MAYA does not read your property system's business date. After midnight, the night before is in the past: MAYA no longer prices it or sends a price for it, and you cannot type a price for it either. Read [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays).
+
+<Callout kind="not-yet">
+Booking window counts days until the stay. There is no condition for when a booking was made, how long a guest is staying, or the weekday of the night. For a weekend price, type a manual price on those nights. Read [What rules cannot do yet](/docs/rules/what-rules-cannot-do-yet).
+</Callout>
+
+<Related>
+- [Sellable occupancy](/docs/rules/sellable-occupancy)
+- [How rules run](/docs/rules/how-rules-run)
+- [Price last-minute nights differently](/docs/recipes/price-last-minute-nights)
+</Related>

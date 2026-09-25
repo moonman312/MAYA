@@ -1,0 +1,61 @@
+---
+title: Hand a night back to MAYA
+summary: Click Clear on the room type card to remove a typed price (or a rate you changed in your system) so your rules price the night again, and what Clear does to the rules that were paused.
+section: recipes
+order: 50
+readingTime: 3
+keywords: [clear, hand back, hand it back, remove a manual price, remove my price, cancel a manual price, let rules run again, changed in cloudbeds, badge, manual, pricing this night again, clear a range, wait, still waiting, booking speed after clear, mews, not sent to mews, when is it sent, 60 nights, window]
+questions:
+  - How do I hand a night back to MAYA? {#in-plain-words}
+  - How do I remove a price I typed? {#clear-the-night}
+  - How do I clear a manual price? {#clear-the-night}
+  - What does Clear do to the rules that were paused? {#what-clear-does-to-the-rules-that-were-paused/when-you-typed}
+  - After I clear a price, does a booking speed rule still wait? {#what-clear-does-to-the-rules-that-were-paused/when-you-typed}
+  - Can I clear a whole range of nights at once? {#clear-the-night}
+  - How do I undo a rate I changed in Cloudbeds? {#what-clear-does-to-the-rules-that-were-paused/good-to-know}
+  - I use Mews, does clearing a price change anything in Mews? {#clear-the-night}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Open the night on the <Ui>Calendar</Ui> tab and click <Ui>Clear</Ui> on the room type card. The line reads "Cleared. MAYA is pricing this night again." From the next run your rules price the night again. Occupancy and booking window rules pick up where they were. Booking speed and pickup raises or cuts that your price took off stay off. Clear also ends the wait your price started for those rules, so they can act again as soon as their condition holds. It works the same for a price you typed and for a rate you changed in your property system that MAYA kept.
+</InPlainWords>
+
+## Clear the night
+
+<Steps>
+<Step title="Open the night">
+Go to the <Ui>Calendar</Ui> tab and click the night. A room type with a price you set shows a badge on its card: "Manual · $250.00" for a price typed in MAYA, or "Changed in Cloudbeds · $250.00" for a rate you changed in your system. On ThinkReservations that badge reads "Changed in Think Reservations". On Mews you only see "Manual", because nothing is sent to Mews.
+</Step>
+<Step title="Cover a range if you set one">
+<Ui>Clear</Ui> acts on the night you opened. To clear the run of nights you saved with <Ui>through…</Ui>, click <Ui>through…</Ui> again, pick the same last night, then <Ui>Clear</Ui>. The line reads "Cleared 3 nights. MAYA is pricing them again."
+</Step>
+<Step title="Click Clear">
+<Ui>Clear</Ui> only appears while a price is open on that night. Click it. MAYA re-prices the night at once. When you are live, a changed price goes to Cloudbeds or ThinkReservations on the next cycle, within about five minutes. A night more than 59 nights ahead goes when it enters the 60-night window. Nothing is sent to Mews yet.
+</Step>
+</Steps>
+
+Clearing needs Revenue Manager access or higher.
+
+## What Clear does to the rules that were paused
+
+When you typed the price, rules already on the night were paused for that room type. Clear lets them back in, with one difference between the two kinds of rule.
+
+- An occupancy or booking window rule that was holding a change keeps its place and moves the price again straight away, if its condition still holds.
+- A booking speed or pickup rule's earlier change stays off. While your price was on, the rule waited from the moment you typed it. Clear ends that wait, and the changes your price took off never shorten what the rule counts. So the rule can act again as soon as its condition holds, on the price MAYA now works out. A booking speed or pickup change made after you typed stays on, and the rules wait and count from it as usual.
+
+MAYA's own starting point for the night comes back: the rate it read from Cloudbeds or ThinkReservations (on a night MAYA has already sent to, the rate it read there before its first send). MAYA does not read rates from Mews. On Mews it starts from the rate of the newest booking for that room type on that night, otherwise from the last starting point it remembered.
+
+<Callout kind="good-to-know">
+Clearing a "Changed in Cloudbeds" price hands the night back too. MAYA's next price then writes over the rate in Cloudbeds. If you change it again in Cloudbeds an hour or more after that send, MAYA keeps your new rate again.
+</Callout>
+
+<Callout kind="not-yet">
+There is no button that clears every typed price on the property at once. Clear works per room type, one night or one run of nights at a time.
+</Callout>
+
+<Related>
+- [Setting a price yourself](/docs/watch/setting-a-price-yourself)
+- [Rates changed in your property system](/docs/watch/rates-changed-in-your-pms)
+- [How rules run](/docs/rules/how-rules-run)
+</Related>

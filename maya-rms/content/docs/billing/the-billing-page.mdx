@@ -1,0 +1,135 @@
+---
+title: The billing page
+summary: Where the Billing page is, who can open it, every sentence the top card can say, the Your plan rows, what the numbers on it include, what the Stripe billing portal can and cannot do, the dashboard banner, and what a group member sees.
+section: billing
+order: 10
+readingTime: 10
+keywords: [billing, billing page, subscription, your plan, status, on trial, active, payment overdue, unpaid, stopped, cancelled, never completed, paused, paused subscription, on hold, bank retries, while the bank retries, price, was, next charge, access ends, retrying payment until, ended, signup code, which code did I use, with your code applied, price looks wrong, next charge higher, update card receipts & cancellation, stripe, stripe portal, billing portal, manage, fix it, restart MAYA, banner, restart your subscription, properties not set up yet, who can see billing, general manager, hotel admin, revenue manager, billing email, change billing email, invoices, receipts]
+questions:
+  - Where is the billing page and who can see it? {#where-it-is-and-who-can-open-it}
+  - Can a Revenue Manager see the billing page? {#where-it-is-and-who-can-open-it}
+  - 'What does "Fix it" or "Restart MAYA" on my dashboard mean?' {#the-dashboard-banner}
+  - 'What does "Retrying payment until" mean?' {#your-plan/next-charge}
+  - 'What does "Access ends" mean on the billing page?' {#your-plan/next-charge}
+  - Where can I see the code I used at checkout? {#manage-the-stripe-billing-portal/the-code-you}
+  - Why does the price say "with your code applied" when I used no code? {#your-plan/price}
+  - What can I do in the Stripe billing portal? {#manage-the-stripe-billing-portal/the-button-update}
+  - How do I change the billing email address? {#manage-the-stripe-billing-portal/the-button-update}
+  - Why is my next charge different from the calculator? {#the-top-card/the-amount-in}
+  - Can the General Manager of one property see the whole group's billing? {#what-a-group-member-sees/each-property-has}
+  - 'What does "Manage billing or cancel" on the payment screen do?' {#manage-billing-or-cancel-before-the-property-is-connected/a-property-that}
+  - Why does the billing page say MAYA has paused work on this property? {#the-top-card/title-colour-what}
+  - 'What does the "Paused" status mean?' {#your-plan/what-paused-means}
+  - 'Why does my billing page say "Ended" when my status is Unpaid?' {#the-top-card/title-colour-what}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Click <Ui>Billing</Ui> at the top right of the dashboard. General Managers and Hotel Admins see it. Everyone else sees a line saying who to ask. The top card says where you stand in one sentence. <Ui>Your plan</Ui> lists status, price and next charge. <Ui>Update card, receipts & cancellation</Ui> opens Stripe's billing portal, where your card, invoices and cancellation live. Your room count is changed on this page, never in Stripe.
+</InPlainWords>
+
+## Where it is, and who can open it
+
+<Ui>Billing</Ui> is a button at the top right of the dashboard, beside <Ui>Team</Ui> and <Ui>Sign Out</Ui>. The page is headed "Billing" with two links: <Ui>Your team</Ui> and <Ui>← Back to MAYA</Ui>.
+
+Only a General Manager or Hotel Admin can see the plan and act on it. A Revenue Manager or Viewer who opens the page sees one line instead: "Billing is handled by this property's General Manager or Hotel Admin. Ask one of them for access if you need to change it." Everyone on the property, Viewers included, still sees the dashboard banner when something needs attention, so nobody is left wondering why prices stopped. [Roles: who can do what](/docs/team/roles) has the full table.
+
+The page shows one property, the one open in the <Ui>Property</Ui> selector. It cannot show a property until its system is connected. Until then the payment or connect screen carries a <Ui>Manage billing or cancel</Ui> link instead (last section).
+
+## The top card
+
+One sentence at the top of the page says where you stand. MAYA shows the sentence that matters most, in this order, and colours the card to match: plain, amber for a warning, red when work has stopped.
+
+| Title | Colour | What it means and what to do |
+|---|---|---|
+| "MAYA has paused work on this property" | red | Prices are no longer worked out or sent. If the status is "Unpaid", the card says to update your card and the subscription restarts where it left off. For any other status it says the subscription was cancelled and starting again means a new one, and a green <Ui>Restart your subscription</Ui> button sits under it. If the status is "Paused", email us before you restart ([Your plan](#your-plan) explains). |
+| "Your last payment did not go through" | amber | The bank is retrying the payment, and your rules keep running while it does. Update your card to avoid an interruption. |
+| "Your saved card stopped working" | amber | A card check failed. "Nothing has failed yet, but the next charge will. Update it before your renewal to keep pricing running." |
+| "You're billed for 20 rooms but running 24" | amber | Your system shows more rooms than you pay for. The card says how many are not paid for and how many days you have to set the count yourself. [Your room count and what you pay](/docs/billing/your-room-count) explains. |
+| "This subscription is set to cancel" | amber | "MAYA keeps working until" the date "then stops." |
+| "Your trial ends in 5 days" (or "today") | plain | "Your first charge of $110 lands on" the date. Days are whole days, rounded down. |
+| "Your subscription is active" | plain | "Next charge of $110 on" the date. |
+
+The amount in the last two rows is Stripe's own total for your whole next invoice. It includes any code. After a room count change it also includes the part-period difference: more after a raise, less (down to nothing) after a credit from lowering the count. So for one invoice it can differ from your usual price. If Stripe cannot be reached within a moment, the bracket price for your room count shows instead, which can be higher or lower than the invoice. That is also why the number can differ from the calculator on get-maya.com.
+
+## Your plan
+
+Four rows at most.
+
+- **Status.** One of "On trial", "Active", "Payment overdue", "Unpaid" (the row goes on to say stopped), "Cancelled", "Never completed" (a checkout that was never finished) or "Paused" (explained under this list).
+- **Price**, or **Was** whenever work has stopped (the status reads "Unpaid", "Cancelled", "Never completed" or "Paused"). Under **Price** it is the same number as the top card, Stripe's total for your next invoice, followed by "per month" or "per year". After a room count change that total includes the part-period difference, so it may not be your monthly (or yearly) price. The hint reads, for example, "20 rooms at MAYA's monthly rate." and adds "with your code applied" whenever that total differs from the bracket price, whether or not you used a code. Under **Was** the row shows the bracket price for your room count.
+- **Trial ends.** The date, only during a trial.
+- **Next charge**, or one of its three other names: **Access ends** (set to cancel: MAYA works until this date, then stops), **Retrying payment until** (a payment failed and the bank is retrying) or **Ended** (work has stopped: "Unpaid", "Cancelled", "Never completed" or "Paused"). Under every name the date is the end of the current billing period. So while a payment is being retried, the date is not when the retries stop: they usually stop well before it, after about two weeks. An "Unpaid" subscription reads **Ended** too, but it is not over. Update your card in the portal and it restarts where it left off. Its **Ended** date can even be one still to come.
+
+**What "Paused" means.** The subscription is on hold in Stripe. No invoices are made, and work on the property stops, as it does for "Unpaid". You cannot pause a subscription from MAYA or from the billing portal, so this status is rare. If you see it, [email us](mailto:info@modern-hospitality-solutions.com?subject=Paused%20subscription) and we sort it out with you. The top card will say the subscription was cancelled and offer <Ui>Restart your subscription</Ui>, but a paused subscription still exists in Stripe. Email us before you restart, or you may end up with two subscriptions.
+
+## Your card needs attention
+
+This amber section appears only after a card check has failed: "We checked it on" the date "and your bank declined it", with the bank's short reason in brackets, then "Nothing has failed yet" and a note that updating the card now avoids an interruption. Nothing has been charged and nothing has stopped. [Cards, payments and invoices](/docs/billing/cards-payments-and-invoices) explains the check and how the warning clears.
+
+## Manage: the Stripe billing portal
+
+The button <Ui>Update card, receipts & cancellation</Ui> (it reads "Opening…" while the link is made) opens Stripe's billing portal, and the line under it says why: "Opens Stripe, where your card, invoices and cancellation all live." When you are done, Stripe returns you to this page.
+
+What you can do there:
+
+- See and download every invoice and receipt.
+- Change the billing email address, the billing address and a business tax ID.
+- Update the card.
+- Cancel, giving a reason (MAYA keeps the reason category, never any comment you type).
+- Switch between monthly and yearly. A switch starts a new billing period that day and is charged at once, less a credit for the unused part of the old period. [Switching between monthly and yearly](/docs/billing/cards-payments-and-invoices#switching-between-monthly-and-yearly) has the details, including what happens during a free trial.
+
+What you cannot do there: change the room count (that is done on this page, in the <Ui>Room count</Ui> section), pause the subscription, or enter a promotion code.
+
+In a group of properties billed on the owner's account, the button can open a much narrower screen. The last section explains.
+
+The code you used at checkout does not show on this page today. If you need to check which one was applied, [email us](mailto:info@modern-hospitality-solutions.com?subject=Which%20code).
+
+If the portal does not open: "Could not open the billing portal." or "Could not reach the billing portal." Try again in a moment. "Billing for a shared group is still being set up. Ask the account owner, or try again later." appears when you manage one property of a group whose billing account you do not own. The owner can act from their own <Ui>Billing</Ui> page.
+
+<Callout kind="careful" title="The billing email is separate from your login">
+Receipts and Stripe's own emails go to the email address on the billing account, which you change in the portal. Changing it does not change the address you sign in with, and changing your login is not possible in the app yet.
+</Callout>
+
+## Room count
+
+This section appears while the subscription is running: "Your plan covers 20 rooms. We check this against your property management system.", then what MAYA measured, then a <Ui>Rooms billed</Ui> box and a <Ui>Change</Ui> button with a quote of the new price before you save. [Your room count and what you pay](/docs/billing/your-room-count) walks through every line.
+
+## Properties not set up yet
+
+Shown only when you have set a property aside with <Ui>Not now</Ui> during a Cloudbeds Marketplace group setup: each one with "Set aside" and the date, and a <Ui>Set up</Ui> button that reopens the payment screen for it. [Paying for a group of properties](/docs/pay/paying-for-a-group) covers groups.
+
+## Restart your subscription
+
+When the subscription has been cancelled, was never completed or is "Paused", a green <Ui>Restart your subscription</Ui> button under the top card opens a screen of the same name, with your room count and period pre-filled. For "Paused", email us first, as [Your plan](#your-plan) explains. An "Unpaid" subscription has no restart button, because it is still alive in Stripe and comes back when you update the card in the portal. [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving) has the steps.
+
+## The dashboard banner
+
+While everything is fine there is no banner. When something needs attention, a strip appears above the dashboard with the same title and sentence as the top card, and one button: <Ui>Fix it</Ui> on an amber warning, <Ui>Restart MAYA</Ui> on a red stop. Both open the <Ui>Billing</Ui> page. Everyone on the property sees the banner, Viewers included. Only a General Manager or Hotel Admin can act on it.
+
+## "Manage billing or cancel" before the property is connected
+
+A property that has paid but has not connected its system yet cannot be shown on the <Ui>Billing</Ui> page. The payment or connect screen shows <Ui>Manage billing or cancel</Ui> instead (with the property's name in a group). It opens Stripe straight onto cancelling that one subscription and brings you back. Once set to cancel it reads "Cancels at the end of the period". Three messages:
+
+- **"There is no subscription waiting on setup to manage."** Nothing is waiting. Open the <Ui>Billing</Ui> page instead.
+- **"This property's billing has changed. Reload the page."** Reload, then try again.
+- **"This subscription is already set to cancel at the end of the period."** Nothing more to do.
+
+## What a group member sees
+
+Each property has its own <Ui>Billing</Ui> page showing its own subscription. A group from the Cloudbeds Marketplace bills on the owner's one account in Stripe. A General Manager or Hotel Admin of one property who does not also manage every other property on that account does not get the full portal. For them, <Ui>Update card, receipts & cancellation</Ui> opens only Stripe's screen for changing that property's plan: no card, no invoices, no cancelling. For those, ask the owner, who opens the full portal from their own <Ui>Billing</Ui> page, or [email us](mailto:info@modern-hospitality-solutions.com?subject=Group%20billing). [Paying for a group of properties](/docs/pay/paying-for-a-group) explains why.
+
+<Example title="Sam's billing page in the trial">
+The Harbour Inn came over from the Cloudbeds Marketplace four days ago. Sam's top card reads "Your trial ends in 3 days" and "Your first charge of $110 lands on" the date. <Ui>Your plan</Ui> shows Status "On trial", Price "$110 per month" with the hint "20 rooms at MAYA's monthly rate.", a <Ui>Trial ends</Ui> date and a <Ui>Next charge</Ui> date. Priya, the Revenue Manager, opens the same page and sees only the line telling her to ask Sam.
+</Example>
+
+<Callout kind="not-yet">
+No invoices, receipts or billing history inside the app. They live in the Stripe portal. No pause. No way to see a property's billing until its system is connected. The code you used at checkout is not shown. The page shows US dollars whatever your property's currency.
+</Callout>
+
+<Related>
+- [Your room count and what you pay](/docs/billing/your-room-count)
+- [Cards, payments and invoices](/docs/billing/cards-payments-and-invoices)
+- [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving)
+</Related>

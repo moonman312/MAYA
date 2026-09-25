@@ -1,0 +1,439 @@
+---
+title: Messages you might see, explained
+summary: Every message, label and banner MAYA shows, grouped by where you see it, each with one line on what it means and what to do, and a link to the page that explains it.
+section: wrong
+order: 100
+readingTime: 39
+readingNote: Type a few words of the message to jump to it
+keywords: [message, error, what does this mean, rule was edited, started it fresh, nobody edited it, banner, warning, red text, amber, popup, dialog, label, button, it says, screen says, explained, glossary of messages, A to Z, find a message, marketplace-initiated, Think Reservations connection failed]
+questions:
+  - What does this message mean? {#in-plain-words}
+  - Where do I find out what an error on screen means? {#in-plain-words}
+  - It says something and I cannot tell what it means {#in-plain-words}
+  - What does "No accessible hotel" mean? {#rules-and-the-rule-builder/no-accessible-hotel}
+  - What does "That's a lot of price changes at once" mean? {#the-calendar-and-prices-you-type/thats-a-lot}
+  - What does "Finding was already resolved" mean? {#the-import-and-the-review/finding-was-already}
+  - What does "We hit a snag connecting your property" mean? {#connecting-your-property-system/we-hit-a}
+  - What does "Payment is needed before connecting" mean? {#connecting-your-property-system/payment-is-needed}
+  - What does "needs an access code to connect" mean? {#connecting-your-property-system/cloudbeds-needs-an}
+  - What does "Return to Command Center" mean? {#connecting-your-property-system/cloudbeds-connection-failed}
+  - I got a plain text error instead of a page {#connecting-your-property-system/a-plain-text}
+  - What does "Your Cloudbeds connection is active again" mean? {#sign-in-and-account/your-cloudbeds-connection}
+  - What does "That connection has already been claimed" mean? {#sign-in-and-account/that-connection-has}
+  - What does "Too many checkout attempts" mean? {#payment-codes-and-checkout/too-many-checkout}
+  - What does "We don't recognize that code" mean? {#payment-codes-and-checkout/we-dont-recognize}
+  - The log says the rule was edited but nobody edited it {#the-change-log/the-rule-was}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Type a few words of the message into the box below to jump to it. Every message MAYA can show is here, grouped by where you see it, and each group stays closed until you open it or the box finds a match inside. Each entry says what the message means and what, if anything, to do. Where a message names Cloudbeds, the same message names Think Reservations or Mews on those properties.
+</InPlainWords>
+
+<MessageFinder />
+
+## Sign in and account
+
+<Group>
+
+- **"Sign in to MAYA"** and **"Create your MAYA account"**: the two modes of the one sign-in card. The links "New to MAYA? Create your account" and "Already have an account? Sign in" switch between them.
+- **"Welcome back."**: the ordinary sign-in intro.
+- **"Set a password and you're on your way. Your property comes next."**: the create-account intro. After the account, you pay, then connect.
+- **"Your Cloudbeds property is connected. Create your account to finish setting it up."**: you arrived from the Cloudbeds Marketplace. Create an account, or sign in to attach the property to an account you already have.
+- **"Your Cloudbeds connection is active again. Sign in to pick up where you left off."**: you pressed <Ui>Connect App</Ui> in the Marketplace for a property MAYA already had. Sign in; everything is as you left it. [Connection lost](/docs/wrong/connection-lost)
+- **"Passwords don't match."**: retype both password fields.
+- **"That email already has an account. Sign in instead."**: the card has switched to sign-in mode. [Account and billing problems](/docs/wrong/account-and-billing-problems)
+- **"Invalid login credentials"**: wrong email or password. Passwords are at least 8 characters. There is no reset link; email us for one. [Account and billing problems](/docs/wrong/account-and-billing-problems)
+- **"Check your email"**: a confirmation link is on its way. Open it, then come back and sign in. **"Your Cloudbeds property is saved and will be waiting."** means the Marketplace property is kept for you meanwhile.
+- **"Back to sign in"**: returns you to the card after the confirmation message.
+- **"Could not finish connecting your property."**: the Marketplace hand-over failed after sign-in. Go back to the Marketplace and press <Ui>Connect App</Ui> again.
+- **"That connection link is not valid."**: the hand-over link is broken. Press <Ui>Connect App</Ui> in the Marketplace again.
+- **"That connection has already been claimed."**: another account owns the property. Ask them to invite you. [Account and billing problems](/docs/wrong/account-and-billing-problems)
+- **"That connection link has expired. Reconnect the app from the Cloudbeds Marketplace."**: the link lasts 24 hours. Press <Ui>Connect App</Ui> again.
+- **"Sign in to finish connecting."**: sign in first, then the property attaches.
+- **"Before you continue"**: the Terms of Service have a new version. Tick "I agree to the Terms of Service and acknowledge the Privacy Policy" and press <Ui>Continue</Ui>. You are asked once. [The Terms checkbox](/docs/account/the-terms-checkbox)
+- **"Tick the box to agree."**: the checkbox is empty.
+- **"The terms have been updated. Reload the page to see them."**: a tab was open across a new version. Reload.
+- **"We couldn't save that"** (please try again): the acceptance did not save. Press <Ui>Continue</Ui> again.
+- **"Set your password"**: the invitation page. Set a password, tick the box, press <Ui>Set password & continue</Ui>.
+- **"Verifying your invite…"**: the link is being checked. Wait a moment.
+- **A message that the invite link is invalid or has expired**, on the "Set your password" page: the link has expired or was already used. If you already set your password with it, sign in. If not, [email us](mailto:info@modern-hospitality-solutions.com?subject=New%20invitation%20link) from the invited address and we send a new link. Inviting you again does not send a new email. [Inviting and removing people](/docs/team/inviting-and-removing-people)
+- **"Password must be at least 8 characters."**: choose a longer one.
+- **"Password set. Redirecting to the app…"**: done. The dashboard opens.
+- **"Hotel not accessible."**: you tried to open a property you are not a member of.
+- **"Sign Out"**: ends your session and returns to the sign-in page.
+
+</Group>
+
+
+## Payment, codes and checkout
+
+<Group>
+
+- **"Let's get you set up"**: the subscribe screen. Type your room count, pick monthly or yearly, and continue. [Setting up payment](/docs/pay/setting-up-payment)
+- **"The Harbour Inn is connected"** (with your property's name) with **"Try MAYA free for 7 days. Nothing is charged until the trial ends, and you can cancel any time."**: a Cloudbeds Marketplace arrival with the trial. Press <Ui>Set up payment</Ui>. [Codes and the free trial](/docs/pay/codes-and-the-free-trial)
+- **"Set up a payment method to start using MAYA."**: the same screen without a trial. Press <Ui>Continue to payment</Ui>.
+- **"Card details are handled by Stripe. They never touch MAYA."**: Stripe hosts the card form.
+- **"How many rooms?"** and **"A whole number between 1 and 500."**: type the number of guest rooms. Over 500 is not sold self-serve; email us.
+- **"save 10%"** beside Yearly: from 21 rooms. **"pay once a year"**: 1 to 20 rooms pay 12 months at the monthly rate.
+- **"Your code"** with **"MAYA is invite-only for now"** (you will have been given a code): a code is required for this property system. **"Your code (optional)"**: a code is not required; enter one if you have it.
+- **"Checking…"**: the code is being checked.
+- **"Enter your code to continue."**: the field is empty and a code is required.
+- **"We don't recognize that code"** (check it for typos): not a code we issued. [Account and billing problems](/docs/wrong/account-and-billing-problems)
+- **"That code has been turned off."**, **"That code has expired."**, **"That code has already been used the maximum number of times."**: the code no longer works. Ask us for a current one.
+- **"This property already used that code."**: one redemption per property.
+- **"Too many code attempts. Wait a few minutes and try again."**: 20 checks per 10 minutes.
+- **"Your session expired"** (sign in again and retry): your sign-in lapsed while the page was open.
+- **"Couldn't check that code"** (try again in a moment) and **"That code didn't work."**: the check failed. Try again.
+- **"14 days free, then your normal rate."**, **"20% off for your first 3 months."** and similar green lines: what a valid code grants.
+- **"No charge was made"** (you left checkout before finishing): you closed Stripe's page. Nothing was taken. Continue when ready.
+- **"Accept the Terms of Service to continue."**: tick the Terms box on the screen that appears, and checkout continues by itself.
+- **"Tell us how many rooms you have"** (any number from 1 to 500): the room count is missing.
+- **"This property already has a subscription. Manage it at /account/billing."**: one subscription per property. Open <Ui>Billing</Ui>.
+- **"Too many checkout attempts. Wait a few minutes and try again."**: 10 checkout starts per 10 minutes.
+- **"That property isn't yours to pay for."**: you are not a manager of that property.
+- **"We couldn't start checkout"** (please try again in a moment): Stripe could not be reached. Try again.
+- **"Payment received"** with **"Setting up your account"**: Stripe has confirmed; MAYA is catching up. It moves on by itself. **"Your payment went through, but our side is taking longer than usual to catch up."** and **"...confirming it here has stalled."**: press <Ui>Check again</Ui>, or leave and sign in later. You have not been charged twice. [Account and billing problems](/docs/wrong/account-and-billing-problems)
+- **"Property 2 of 3"**: a group of Cloudbeds properties is paid for one at a time. [Paying for a group](/docs/pay/paying-for-a-group)
+- **"Not now"** (set this property up later): skip this property for now. It appears under <Ui>Properties not set up yet</Ui> on the billing page.
+- **"This is the only property left to set up."**, **"This property is already set up."**, **"This property is already paid for."**, **"This property isn't waiting on a Marketplace setup."**: "Not now" does not apply to this property.
+- **"Manage billing or cancel"**: opens Stripe for a property that is paid for but not yet connected. **"Cancels at the end of the period"**: that property is already set to cancel.
+
+</Group>
+
+
+## Connecting your property system
+
+<Group>
+
+- **"Connect your property system"**: pick Cloudbeds or Think Reservations and press <Ui>Connect →</Ui>. Mews shows **"Coming soon"** and **"Not yet available"**: we connect Mews for you. [Which systems work](/docs/connect/which-systems-work)
+- **"Sign in with your Cloudbeds account"**: you sign in on Cloudbeds' own site, nothing to install.
+- **"Payment is needed before connecting a PMS."**: set up payment first, then connect.
+- **"Cloudbeds needs an access code to connect"** (use the system you signed up with, or get in touch): you paid without a code for this system. Email us. [Codes and the free trial](/docs/pay/codes-and-the-free-trial)
+- **"This Cloudbeds login covers 3 properties"** (MAYA signs one property up at a time): a group login cannot connect from inside MAYA. Cloudbeds groups connect from the Marketplace; ThinkReservations groups are set up by us. Email us. [Add a second property](/docs/recipes/add-a-second-property)
+- **"We hit a snag connecting your property"**: the connection did not finish. Read the sentence under it, then press <Ui>Try again</Ui>. Sentences you may see: "We connected to your account but couldn't read your property details", "Could not create your property. Try again in a moment.", "Could not store your connection securely. Try again in a moment.", "This connection link belongs to a different account. Please sign in and try again." [Cloudbeds](/docs/connect/cloudbeds)
+- **"Cloudbeds connection failed"** with **"Return to Command Center"**: the sign-in at Cloudbeds (or ThinkReservations) did not finish. Start again the way you started. The sentence under the heading gives the reason. [Reconnect and disconnect](/docs/connect/reconnect-and-disconnect)
+- **"Think Reservations connection failed"** with **"think does not support marketplace-initiated connections."**: the ThinkReservations sign-in took longer than 15 minutes, so its link ran out. Nothing is wrong and nothing has changed. Go back to the connect screen (or the <Ui>PMS</Ui> tab, for a reconnect) and start again. [ThinkReservations](/docs/connect/thinkreservations)
+- **"Cloudbeds did not report a property for this authorization."**: Cloudbeds sent no property with the connection. Press <Ui>Connect App</Ui> again for the right property.
+- **A plain text error instead of a page**: the connect step refused in plain words, such as the payment or access code messages above. Read the words, then go back to MAYA.
+- **"This login is for a different property."**: reconnect with a Cloudbeds login that reaches the same property. [Connection lost](/docs/wrong/connection-lost)
+- **"Cloudbeds didn't answer. Try connecting again in a moment."**: Cloudbeds was unreachable. Try again.
+- **"Reconnect this property from the Cloudbeds Marketplace."**: press <Ui>Connect App</Ui> there.
+
+</Group>
+
+
+## The import and the review
+
+<Group>
+
+- **"Import stopped"**: the history import stopped before it finished, and it will not restart on its own. The screen adds that we have been told. Email us anyway, so we can pick it up sooner. [The history import](/docs/review/the-history-import)
+- **"Hold My Hand"** and **"Let Me Drive"**: the two paths. The first asks five optional questions and walks you through the review. [Hold my hand or let me drive](/docs/review/hold-my-hand-or-let-me-drive)
+- **"A few quick questions · 1 of 5 · all optional"** and **"Skip the rest →"**: every question can be skipped. [The five questions](/docs/review/the-five-questions)
+- **"Did we get your property's name right?"**: whatever you type wins. **"That property name is already taken"**: add your city or neighbourhood.
+- **The blue card ending "Review →"**: your history has been read and there are findings to look at. Press it. [Checking what MAYA found](/docs/review/checking-what-maya-found)
+- **"First: does this match reality?"** and **"Recommendations from your data"**: the two passes of the review screen.
+- **"Is "Meeting Room" actually a room?"**: confirming takes it out of occupancy and your billed room count. [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service)
+- **"Were you closed ... → ...?"** with **"Yes, we were closed"** / **"No, we were open"**, and **"Is your property normally closed ...?"** with **"Yes, that's our season"**: confirming keeps that stretch out of comparisons. Dismissed dates are not asked again. [Similar nights](/docs/rules/similar-nights)
+- **"Hid duplicate room type"** with **"Good call"** / **"Undo"**: an empty duplicate was hidden. Press <Ui>Undo</Ui> to bring it back. After <Ui>Good call</Ui>, email us. [Checking what MAYA found](/docs/review/checking-what-maya-found)
+- **"Some "Standard" rates look like typos"** (with your room type's name), **"Some stays have a $0 rate"**, **"Some old stays reference deleted room types"**: notes about your history. Nothing to do.
+- **"Finding was already resolved"**: another tab or a colleague answered that card first. Reload. It also appears when your role is below Revenue Manager, and then the card stays: ask a Revenue Manager or above to answer it. [Roles](/docs/team/roles)
+- **"We're counting 3 room types as rooms"** (anything here that isn't?): untick anything nobody sleeps in.
+- **"While you were here, we built your first pricing rules"**: your starter rules, running in simulation. [Your starter rules](/docs/review/your-starter-rules)
+- **"Turn them on for real"**: go live. Needs General Manager or Hotel Admin. **"Or leave them in simulation and watch for a while. That works too."**: nothing is sent until you press it. [Going live](/docs/live/going-live)
+- **"✓ Live: your rules are now managing prices"**: you are live.
+- **"Send prices to Cloudbeds?"** with **"Go live"** / **"Not yet"**: the confirm dialog. "MAYA starts sending its prices for the next 60 nights to Cloudbeds on the next cycle, in about 5 minutes." and "Each price it sends replaces that night's rate in Cloudbeds, and a night is sent again whenever its price changes."
+- **"Going live sends these rates to your PMS automatically. You're confirming you've reviewed your rules and limits (Terms 3.3)."**: what your click confirms.
+- **"Go live?"** with **"MAYA doesn't send rates to Mews yet, so nothing is sent. The hotel only shows as live."**: Mews is read-only today.
+- **"Taking pricing live requires General Manager access"** and **"You need admin access on this property to go live."**: ask a General Manager or Hotel Admin.
+- **"Get suggestions from my data"**: re-reads your history and offers changes you accept one by one. The panel **"Here's exactly what happens"** explains it. When the read is done the button reads **"3 suggestions ready →"**. [Getting suggestions later](/docs/review/getting-suggestions-later)
+- **"Let that one finish before starting another."**: <Ui>Get suggestions from my data</Ui> was pressed more than 5 times in 15 minutes on this property. Wait, then press it again. [Getting suggestions later](/docs/review/getting-suggestions-later)
+- **"Tune "Busy nights"?"** with **"Make that change"** / **"Leave it as is"**: changes the rule's occupancy threshold in place. Prices already set are not undone.
+- **"Remove "Busy nights"?"** with **"Remove it"** / **"Turn it off, keep it"** / **"Leave it running"**: remove deletes the rule and undoes its changes; turn off pauses it and keeps them.
+- **"Add a rule: "Warm-date bump"?"** with **"Add this rule"** / **"No thanks"**: adds a rule switched On.
+- **"Set a floor for "Standard"?"** and **"Set a ceiling for "Standard"?"** with **"Set it to 80"**: type your own number or accept. [Floors and ceilings](/docs/review/floors-and-ceilings)
+
+</Group>
+
+
+## Rules and the rule builder
+
+<Group>
+
+- **"Pricing Rules"**: the Rules tab. Filters **"all"**, **"enabled"**, **"disabled"**. [The rule builder](/docs/rules/the-rule-builder)
+- **"How rules behave"**: two short animations, standard rules against booking speed and pickup rules.
+- **"+ Add a rule"** and **"Add Rule"**: open the builder, and save. A new rule is On.
+- **"Rule name"**: required.
+- **"Conditions"** with **"Matches when all of the following are true."**: every condition must hold at once. **"+ Add condition"** adds the next kind; four at most, one of each.
+- **"Sellable occupancy (%)"**, **"Booking speed (recommended)"**, **"Booking window (days to stay)"**, **"Pickup count (advanced)"**: the four things a rule can measure. [The rule builder](/docs/rules/the-rule-builder)
+- **"Compare"** with **"Greater than"** / **"Less than"**, and **"Threshold"**: strict comparisons. Greater than 80 means more than 80.
+- **"Speed"**: Stalled, Much Slower Than Normal, Slower Than Normal, Normal, Faster Than Normal, Much Faster Than Normal, Surging. [Booking speed](/docs/rules/booking-speed)
+- **"Measured over"** with **"Past day"** / **"Past week"** / **"Past month"**: the window of bookings counted.
+- **"Then waits (advanced)"** with **"1 day"** to **"2 weeks"**, and **"(pickup holds it to 3 days)"**: how long the rule leaves a night alone after acting. A pickup lookback longer than the wait wins.
+- **"Lookback window"** and **"Pickup measures"** with **"Room nights (units)"** / **"Revenue (currency)"**: pickup count settings. [Pickup count](/docs/rules/pickup-count)
+- **"Rate adjustment"**, **"Direction (required)"** with **"Increase the rate"** / **"Decrease the rate"**, **"Adjust by percent (%)"**, **"Adjust by fixed amount ($)"**: choose a percent or a fixed amount. If both boxes are ticked, only the percent is saved.
+- **"Apply to room types"** with **"Select all"** / **"Clear"**, and the tag **"not a room"**: which room types the rule measures and changes.
+- **"Change prices on different room types"** with **"Measure"** and **"Change"**: watch one set, price another. [Measure one set of room types, change another](/docs/rules/measure-one-set-change-another)
+- **"Add at least one condition with a valid operator and threshold."**: a threshold is empty or negative.
+- **"Choose whether this rule increases or decreases the rate."**: the direction dropdown is blank.
+- **"Enter a percentage adjustment, or turn off %."**, **"Enter a dollar adjustment, or turn off $."**, **"Enable at least one rate adjustment (% or $)."**: the amount is missing.
+- **"Enter the percentage as a positive number."** and **"Enter the amount as a positive number."**: the direction dropdown sets increase or decrease, so the amount is always positive. An amount of 0 is refused on save.
+- **"Select at least one room type."**, **"Pick at least one room type to measure."**, **"Pick at least one room type to change."**, **"Invalid room types."**: fix the room type lists.
+- **"Could not save the rule. Check your connection and try again."** and **"Could not save the rule. Try again in a moment."**: the save failed. A Viewer sees a red refusal here, because Viewers cannot change rules.
+- **"Rule must include at least one valid condition."** and **"Invalid payload."**: the rule was sent without a usable condition. Add one.
+- **"No accessible hotel"**: your account has no property membership. Ask to be invited.
+- **"Fired"** with **"3×"** or a dash: how many times the rule has acted, per night and room type, including changes that came off. **"What counts as a fire"** is its help.
+- **"Occupancy above 80%"**, **"Booking window below 7 days"**, **"Pickup above 5 bookings"**, **"booking speed at least Much Faster Than Normal (past week), then waits 2 days"**: the conditions column. A pickup rule always says "bookings" here even when it measures revenue.
+- **"Watches Standard, Deluxe · Changes Suite"**: the rule measures one set and changes another.
+- **"+10%"**, **"-$25"**: the price change column. It always shows $.
+- **"On"** / **"Off"**: the status switch. Off keeps the changes the rule made. [Off, delete or change](/docs/rules/off-delete-or-change)
+- **"Stopped on 3 nights"** with **"Let it run again"**: you told the rule to stop on those nights from the amber banner. The link puts it back. [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting)
+- **"Delete "Busy nights"?"** with **"Delete Rule and Undo Its Changes"** / **"Turn It Off and Keep Its Changes"** / **"Cancel"**, and **"Deleting cannot be undone."**: delete reverts every change the rule made; off keeps them.
+
+</Group>
+
+
+## The Rate Simulator
+
+<Group>
+
+- **"Make up a night and see what your rules would do to it."**: nothing here is saved or sent. [The Rate Simulator](/docs/rules/the-rate-simulator)
+- **"Stay date"** with **"Sets days to arrival"** (and which date windows and weekdays apply): pick a future night.
+- **"Booking speed"** with **"Not enough history"**: leave it and booking speed rules stay quiet, as your rules do on a real night with too little history to measure a pace. Pick a level to see them act.
+- **"Base price"**, **"Occupancy"**, **"Picked up"**, **"Guardrails"**: per room type inputs and the floor and ceiling.
+- **"Rules in play"**: every rule, on or off, each with a tick box. The small tags: **"event"** is a booking speed or pickup rule, **"ladder"** is a standard rule (occupancy or booking window conditions only), **"off"** means the rule is switched off and **"fires"** means a ticked rule acts on the night you made up.
+- **"+ Build a test rule"** / **"Discard test rule"**: a draft that exists only on this screen. **"Save This Rule"** saves it switched Off: **"Rule Added to Rules Tab and Initialized as Disabled"**.
+- **"Give the rule a condition, an amount, and at least one room type first."**: the draft is incomplete.
+- **"What would happen"** with **"held at your floor"** / **"held at your ceiling"**, **"Rules asked for $320.00."**, **"No rule fires on this night"**: the result per room type.
+- **"Didn't fire"** with **"Conditions not met"**, **"No occupancy for its signal room types"**, **"Rule has no room types attached"**, **"Outside the rule's date window"**, **"This day of the week is excluded"**: why a rule stayed quiet. [A rule did not fire](/docs/wrong/a-rule-did-not-fire)
+- **"This property has no active room types yet."**: connect and finish the import first.
+
+</Group>
+
+
+## The calendar and prices you type
+
+<Group>
+
+- **"Updated 3:05:12 PM · live"**: when the calendar last refreshed, to the second, on your browser's clock and in its time format. "live" means the calendar refreshes by itself when prices or bookings change. It does not mean prices are being sent, and it shows in simulation too. **"Loading…"** while it loads. [The calendar](/docs/watch/the-calendar)
+- **"strong night"**, **"typical night"**, **"weak night"**: the colour legend, by revenue per room against your own nights. [Calendar and change log questions](/docs/wrong/calendar-and-log-questions)
+- **"12/20 rooms · 60% sellable occupancy · revenue on the books $2,400.00"**: booked over sellable, the percentage, and room revenue. "revenue" alone on past days.
+- **"Booked 8/12"**, **"ADR $150.00"**, **"Current price $165.00"** (or "Current price" followed by a dash), **"Revenue $1,200.00"**: the room type card. A dash means no price published for that night. [A price looks wrong](/docs/wrong/a-price-looks-wrong)
+- **"Manual · $180.00"**: a price someone typed. **"Changed in Cloudbeds · $180.00"**: a rate you changed in your system on a night MAYA had sent to. [Setting a price yourself](/docs/watch/setting-a-price-yourself)
+- **"through…"**: type one price for a range of nights. **"×"** goes back to one night.
+- **"Save"** and **"Clear"**: save the price; hand the night back to your rules.
+- **"Setting a price yourself"**: the help panel beside the price box, a short version of the page of the same name. [Setting a price yourself](/docs/watch/setting-a-price-yourself)
+- **"Saved. Sending to Cloudbeds now."**: sent straight away. **"Saved. Sending to Cloudbeds on the next cycle (about 5 min)."**: on the next run.
+- **"Saved (simulation: not sent to Cloudbeds)."**: you are simulating. [Simulation mode](/docs/live/simulation-mode)
+- **"Saved. It will be sent when the date enters the 60-day push window."**: every night you saved is past the window of tonight and the next 59 nights, so 60 or more nights ahead. Each is sent once it enters the window.
+- **"Saved. 12 nights sending to Cloudbeds now; 8 more will be sent as they enter the 60-day window."**: a range across the edge of the window.
+- **"Saved. MAYA doesn't send a price of 0 to Cloudbeds, so set the night to 0 there yourself."**: a comp night. [Make a night free](/docs/recipes/make-a-night-free)
+- **"Paused 2 rules on this night for this room; new rules will apply on top."** and **"No rule raises a night set to 0."**: what the save did to your rules.
+- **"Cleared. MAYA is pricing this night again."** and **"Cleared 5 nights. MAYA is pricing them again."**: the night is back with your rules.
+- **"Couldn't save that price."**, **"Couldn't clear that price."**, **"Couldn't reach MAYA. Try again."**: the save did not go through. Try again.
+- **"This needs Revenue Manager access or higher on this property."**: Viewers cannot type prices, change room types or answer the banner. [Roles](/docs/team/roles)
+- **"That's a lot of price changes at once. Give it a minute and try again."**: 30 saves or clears per person per 10 minutes.
+- **"Price must be a number of zero or more."**, **"That price is more than MAYA can store."**: type a number from 0 up to 99,999,999.99.
+- **"Start date must be a real date (YYYY-MM-DD)."**, **"End date must be a real date (YYYY-MM-DD)."**, **"End date can't be before the start date."**, **"One change can cover at most 366 nights."**: fix the range.
+- **"Manual prices apply to tonight onwards; earlier nights have already sold."**: past nights cannot take a price.
+- **"MAYA prices up to a year ahead."**: the last night is more than 364 days out.
+- **"Below this room type's floor of $80.00."** and **"Above this room type's ceiling of $300.00."**: refused, not rounded. Change the limit if you mean it. 0 is allowed as a comp night.
+- **"Pick a property first."**, **"Pick a room type."**, **"That room type isn't on this property."**: reload and try again.
+- **"This needs a database update first."**: something on our side is not ready. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Database%20update%20message) with the page you were on. The same message can appear on the PMS tab's room types, or when you set a property aside.
+
+</Group>
+
+
+## Room types, on the PMS tab
+
+<Group>
+
+- **"Room types"** with **"What counts as a room"**: ticked types are what MAYA divides by: sellable occupancy, revenue per room and the room count you are billed for. [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service)
+- **"Counts as a room"** and the tag **"not a room"**: the checkbox per room type. **"6 units"**: the room count read from your system; 100 when MAYA has none.
+- **"That didn't save"** (try again): the tick did not save and snaps back.
+- **"No room types have synced yet."** and **"Couldn't load room types."**: wait for the first read, or press <Ui>Try again</Ui>.
+- **"+ Rooms out of service"** with **"From"**, **"To"**, **"Units"**, **"Reason (optional)"**, **"Save"**, **"Cancel"**: take rooms off sale for a stretch. Nothing is sent to your system. [Tell MAYA rooms are out of service](/docs/recipes/rooms-under-renovation)
+- **"3 out of service"**, **"2026-11-10 → 2026-11-14"**, **"· Renovation"**, **"Clear"**: an existing block and its link to end it.
+- **"One block can cover at most 366 nights."**, **"Units must be a whole number of at least 1."**, **"Keep the reason under 200 characters."**: fix the form.
+- **"Standard has 12 rooms"** (you can't block more than that) and **"Standard already has 8 rooms out of service on some of those nights"** (that leaves 4 you can still block): blocks stack per night up to the room count.
+- **"That block is already cleared."** and **"Pick a block to clear."**: the block is gone already, or none was chosen.
+- **"That's a lot of changes at once. Give it a minute and try again."** and **"That's a lot of room-type changes at once. Give it a minute and try again."**: the same limit as manual prices.
+- **"Something went wrong on our side. Try again in a moment."**: try again.
+
+</Group>
+
+
+## The change log
+
+<Group>
+
+- **"Change Log"** with **"Show All Cycles"** / **"Show Changes Only"**: every run, or only runs that changed something. [The change log](/docs/watch/the-change-log)
+- **"Pricing run · Fri, Sep 18, 2026, 3:05 PM PDT"** with **"(3 min ago)"**, **"(yesterday)"**: one run, in your browser's time zone.
+- **"Prices checked"** (nothing needed to change): a quiet run.
+- **"Couldn't load your price history."** with **"Try again"**: the log could not be fetched.
+- **"Standard · stay 2026-11-14: $150.00 up to $165.00 (+10%)"**: the bold line of one change.
+- **""Busy nights" raised this night 10%, from $150.00 to $165.00."** and **""Last minute" lowered this night 15%, from ... to ..."**: a rule acted.
+- **"Then "Hot-week surge" raised it 25%, from $165.00 to $206.25."**: a second rule on top. **"Then "Slow-date trim" lowered it another 7%"**: the same rule again after its wait.
+- **"It was 82% full, past the 70% mark you set."**, **"under the 40% mark you set"**, **"It had 5 days to go, past the 7-day mark you set."**, **"beyond the 21-day mark you set"**, **"It was 95% full with 17 days to go, past the 90% and 21-day marks you set."**: why an occupancy or booking window rule acted. Fewer days than the mark reads as "past".
+- **"Standard and Deluxe were 92% full, past the 90% mark you set."**: the rule measures other room types than it changes.
+- **"9 bookings arrived in the last 3 days, past the 4-booking mark you set."**: why a pickup rule acted. A room night counts as one.
+- **"Bookings came in faster than normal this past week: 9, against the 5 a night like this usually has by now."**: why a booking speed rule acted. Variants: **"Bookings surged"**, **"Bookings all but stopped"**, **"Bookings came in at the normal pace"**, **"much slower than normal"**, **"this past day"**, **"this past month"**. [Booking speed reads oddly](/docs/wrong/booking-speed-reads-oddly)
+- **"in the 4 days since this night was last raised"**, **"later on the day this night was last cut"**, **"usually gets in those days"**, **"usually gets in a day"**: the rule counted only the bookings made since the night was last raised (for a rule that raises) or last cut (for a rule that cuts), whichever booking speed or pickup rule made that change.
+- **"none, where a night like this usually has almost none by now"**: no bookings, against an expectation under 1.
+- **"That 95% leaves out Pickleball Court."**: a measured type that is not a room was left out of the figure.
+- **"That would have gone past your $300.00 ceiling for Standard, so it stopped there."** and **"That would have dropped under your $80.00 floor for Standard, so it stopped there."**: the limit stepped in. **"...further past your $300.00 ceiling for Standard than the price it started from, so it stopped there."**: the price started from a manual price already beyond the limit.
+- **"The rate moved from $200.00 to $210.00."**: no rule acted; your own rate changed in your system. [A price looks wrong](/docs/wrong/a-price-looks-wrong)
+- **""Warm-date bump" stopped applying an earlier 10% raise here: enough of the bookings behind it cancelled."**: a raise came off. Also **"this night's price was set by hand"**. [When a change comes off](/docs/rules/when-a-change-comes-off)
+- **"the rule was edited, so MAYA started it fresh"**: you should not see this today, because rules cannot be edited. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Rule%20edited%20sentence) the rule name and the night.
+- **"Sam set the base rate to $180.00."** under the label **"Manual price"**: a typed price. **"The base rate was changed in Cloudbeds to $180.00."** under **"Changed in Cloudbeds"**: a rate you changed in your system on a sent night. **"A manager"**: the name is not on file.
+- **"Pricing rule"** and **"A rule"**: a rule that has since been deleted.
+- **"Your answer · Fri, Sep 18, 2026, 3:05 PM PDT"**: an answer to the amber banner, with one line under it. Stopping a rule that raises: **"Priya stopped "Hot-week surge" on 4 nights. The raises it already made stay, unless enough of the bookings behind them cancel."** Stopping a rule that cuts: **"Priya stopped "Slow-date rescue" on 4 nights. What it already cut stays."** Carrying on: **"Priya told "Slow-date rescue" to carry on with 4 nights."** Letting it run again: **"Priya let "Slow-date rescue" run again on 4 nights. It can start adjusting again from the next pricing run."** [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting)
+
+</Group>
+
+
+## "How did we know?" and setting a date aside
+
+<Group>
+
+- **"How did we know?"**: opens the reading behind a booking speed change. **"Pulling up what we knew at the time…"** while it loads. [How did we know](/docs/watch/how-did-we-know)
+- **"No booking-speed observation was recorded for this change."**: the record behind this change holds no booking speed reading MAYA can show. If you expected one, [email us](mailto:info@modern-hospitality-solutions.com?subject=No%20booking%20speed%20reading) the night and room type.
+- **"Could not load the details"** with **"Try again"**: the <Ui>How did we know?</Ui> panel could not load. Press <Ui>Try again</Ui>.
+- **"In the last 7 days, 9 bookings arrived for this night, with 40 days still to go before arrival."**: what was counted. **"9 Standard and Deluxe bookings"**: over the rule's measured types.
+- **"This night was last raised on Fri, Nov 13 2026. In the 4 days from that raise on, 6 bookings arrived for it, with 20 days still to go before arrival."**: the count started at the night's last raise, and bookings later that same day count too. When the raise was earlier the same day, it reads **"Later that day,"** instead.
+- **"By this point on nights like this one, we would expect about 5 bookings over the same stretch."** and **"...almost none..."**: what similar nights had received.
+- **"We do not have enough history yet to say what would be normal for this night, so no expectation was formed."** and **"No booking-speed call was made, and rules that watch booking speed were not allowed to act on this night."**: not enough history.
+- **"That reads as Faster Than Normal."**: the level.
+- **"The raw numbers leaned away from Normal, but the gap was small enough to be ordinary noise at this volume, so we held the call at Normal."**, **"The raw numbers pointed at an even stronger call, but not by enough evidence to justify it, so we softened it one step."**, **"We found only a few genuinely comparable nights, so we kept the call within one step of Normal no matter how strong the numbers looked."**: a check held the call back. [Booking speed reads oddly](/docs/wrong/booking-speed-reads-oddly)
+- **"Why did you expect that?"**: how the similar nights were chosen. Lines: **"Once a night has been raised, rules that raise count only the bookings made after that raise, whichever rule made it, the rest of that day included, and read the nights it is compared with over the same days."**, **"We only compared against other Friday nights"**, **"This night sits in the orbit of Thanksgiving, so we matched against the same position relative to that holiday in earlier years, not the same calendar date."**, **"We stayed inside the same demand season your history shows: Peak Season (June 10 through August 31)."**, **"Strict matching found too few usable nights, so we relaxed the criteria a step"**, **"Closed periods and any dates you have told us were not normal are left out of the comparison entirely."** [Similar nights](/docs/rules/similar-nights)
+- **"This night had no usable comparable nights in your history"** (so MAYA read your recent booking momentum instead), **"Momentum means: how nights near this one are filling right now, compared to how the same nights were filling at this time last year."**, **"3 nearby nights could be paired with their counterparts from last year."**, **"Those nights are filling about 20% faster than they were a year ago."**, **"The starting point was about 4 bookings, taken from how this same night was booking at this point last year."**, **"A momentum read is fuzzier than a direct comparison"**: the fallback when no similar nights exist.
+- **"There was not enough history to form any expectation, so no rule was allowed to act on booking speed for this night."**: the same, in the assumptions list.
+- **"Show me the nights you compared"**: one row per similar night: **"Fri, Jul 18 2025"** with **"4 bookings in the same stretch"** or **"no history for this night"**, and reasons such as **"a Friday; your Peak Season; about a year earlier"** or **"a Saturday, similar to a Friday"**.
+- **"Not a fair comparison?"**: set that night aside. **"What made Fri, Jul 18 2025 not a fair comparison?"** with **"Choose a reason…"**: Holiday We Don't Have Modeled, Local Event or Festival, Sporting Event or Tournament, Conference or Convention, Renovation or Rooms Out of Service, Utility or Amenity Outage, Group Buyout, Nearby Competitor Closed or Sold Out, Severe Weather, Road, Transit, or Flight Disruption, Booking Data Looks Wrong, Other. [Not a fair comparison](/docs/watch/not-a-fair-comparison)
+- **"Tell us in a few words what happened"**: the text box for Other, up to 300 characters.
+- **The three scope options**: the first sets aside this one date (recommended); **"This happens every year around this time"** also counts toward a yearly pattern, which needs reports from 2 different years; **"This should also change how our seasons are read (advanced)"** also counts toward how seasons are read, which needs reports from 3 different years.
+- **"Set this date aside"** / **"Saving…"** / **"Never mind"**: save or cancel. Needs Revenue Manager or higher.
+- **"Set aside"** (not used from the next run onward): the night is out of comparisons from the next run.
+- **"You have already flagged this date for that reason"**: it is already set aside.
+- **""Group Buyout" cannot be generalized that far"** (flag only the date instead): that reason only allows the one date.
+- **""Other" needs a short explanation"**, **"Keep the explanation under 300 characters"**, **"That is not a real calendar date"**, **"Unknown reason"**: fix the form.
+- **"You need manager access to do that."**: Revenue Manager or higher.
+- **"Your corrections"** with **"Show"** / **"Hide"**: every date you have set aside. **"You told us this date was affected by group buyout, so we leave it out of comparisons."**, **"We have seen this reported in 1 year of the 2 different years we would want before treating "Local Event or Festival" near June 10 as a pattern that repeats every year."**, **"Reports across 2 different years flagged "Local Event or Festival" near June 10, so we now leave it out of comparisons every year."**: one line per correction.
+- **"Undo"** / **"Removing…"**: makes the date comparable again from the next run. **"Nothing was removed"** (it may already be gone, or removing it needs manager access), **"Could not load corrections"**, **"Could not remove"**: try again.
+
+</Group>
+
+
+## "Rates not reaching", in the change log
+
+<Group>
+
+- **"Rates not reaching Cloudbeds"**: prices are not landing in your system. The item names the cause and what to do, and **"Show 12 tries"** (or **"Show 3 checks"**) / **"Hide tries"** (or **"Hide checks"**) list the tries behind it. [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price) has every sentence the item can show, with what to do.
+
+</Group>
+
+
+## The "Rules that keep adjusting" banner
+
+<Group>
+
+- **"Rules that keep adjusting"**: a booking speed or pickup rule has adjusted the same night three times. It keeps going until you answer. [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting)
+- **""Hot-week surge" has raised Fri, Nov 13 2026 3 times."**, **""Slow-date rescue" has cut 4 nights, 3 times each."**, **"3 to 5 times each"**, **"up to 5 times each"**: the headline. **"would have raised"** / **"would have cut"**: you are simulating.
+- **"It keeps raising these nights until you stop it."** / **"It keeps cutting these nights until you stop it."**: what happens while nobody answers.
+- **"3 times on Standard, once on Deluxe"**: fires per room type on that night.
+- **"In the 7 days it measured, 9 bookings came in. A night like this usually has about 5 by then."**, **"no bookings came in"**, **"almost none"**: what the rule read.
+- **"Pickup over the last 3 days came to 6 room nights, against the 4 you set."**: a pickup rule's reading.
+- **"If it keeps cutting, the price can fall to your $80.00 floor for Standard."** and **"If it keeps raising, the price can climb to your $400.00 ceiling for Deluxe."**: how far the price can go.
+- **"Your ceiling for Suite is still MAYA's $99,999.99 default, so the price can climb that far."** and **"Your floor for Standard is still MAYA's $1.00 default, so the price can fall that far."**: no limit is set. **"About this limit"** explains; **"Ask MAYA for a ceiling"** / **"Ask MAYA for a floor"** takes you to the Rules tab.
+- **"Keep adjusting"** and **"Stop for this night"**, **"Keep adjusting on all 4 nights"** and **"Stop on all 4 nights"**: your two answers. **"What each answer does"** explains them.
+- **"Fri, Nov 13 2026, Sat, Nov 14 2026, Sun, Nov 15 2026 and 9 more nights"** with **"Answer night by night"** / **"Hide the nights"**: several nights on one card.
+- **"Only a Revenue Manager or above can answer this."**: your role cannot answer.
+- **"That did not save. Try again in a moment."**, **"Choose keep adjusting or stop."**, **"Pick the nights to answer for."**, **"Unknown alert."**, **"Let one rule run again at a time."**, **"Pick the rule to let run again."**, **"Pick the nights to let it run on."**: try again.
+
+</Group>
+
+
+## The PMS tab and the connection
+
+<Group>
+
+- **"PMS"**: the tab. **"Property System (Cloudbeds)"** with **"Bookings sync automatically on a schedule. This page shows how that connection is doing."** [The PMS tab](/docs/watch/the-pms-tab)
+- **"Select a property to view status."**, **"Loading connection status…"**, **"No property system is connected for this property yet."**: no property chosen, still loading, or nothing connected.
+- **"Connection"** with **"Connected"**, **"Pending"**, **"Degraded"**, **"Error"**, **"Disconnected"**, **"unknown"**: the connection's state. [Connection lost](/docs/wrong/connection-lost)
+- **"Health (last 24 hours)"** with **"Healthy"** (98% or more of requests OK), **"Degraded"** (80% or more), **"Having trouble"** (under 80%), **"No recent activity"** (no requests recorded; always the case on ThinkReservations and Mews), and **"97% of 412 requests OK"**.
+- **"Last sync"**: the last successful booking read, on your browser's clock. A dash means none yet.
+- **"Recent requests to Cloudbeds"** and **"No requests recorded yet"** (the log fills as syncs run): MAYA's last 50 calls to Cloudbeds. **"ERR"** marks a call with no status code.
+- **"MAYA has lost its connection to Cloudbeds"** with **"Reconnect Cloudbeds"**: the connection is gone. "Your prices aren't updating while this is down. Reconnecting takes one click and sends you to Cloudbeds to confirm. Your rules, history and settings are all untouched."
+- **"Your rules and settings are still here, and your booking history comes back once you reconnect."**: a property that never paid and sat idle for 180 days had its booking history removed. Reconnecting imports it again. [Privacy, security and your data](/docs/reference/privacy-security-and-your-data)
+- **"Ask this property's General Manager or Hotel Admin to reconnect it"**: your role cannot reconnect.
+- **"Mews needs its keys re-entered"**: email us; Mews uses keys we enter with you.
+- **"Reconnect Cloudbeds"** as a small link on a working connection: reconnect any time; harmless.
+- **"Unauthorized"** and **"Forbidden"**: you opened the reconnect link without the right role. Ask a General Manager or Hotel Admin.
+
+</Group>
+
+
+## Billing
+
+<Group>
+
+- **"MAYA has paused work on this property"** with **"Restart MAYA"**: the subscription is not paying. **"Update your card and the subscription restarts where it left off."** or **"Your subscription was cancelled, so starting again means a new one"**. [Account and billing problems](/docs/wrong/account-and-billing-problems)
+- **"Your last payment did not go through"** with **"Fix it"**: the bank is retrying. "We are still pricing your rooms while the bank retries. Update your card to avoid an interruption."
+- **"Your saved card stopped working"**: a card check was declined. "Nothing has failed yet, but the next charge will. Update it before your renewal to keep pricing running."
+- **"You're billed for 24 rooms but running 26"**: your system shows more rooms than you pay for. "Set the count right below within 7 days and nothing else happens. After that we'll update it to 26 for you and adjust your next invoice." [Your room count](/docs/billing/your-room-count)
+- **"This subscription is set to cancel"**: "MAYA keeps working until November 14, 2026, then stops."
+- **"Your trial ends in 5 days"** / **"Your trial ends today"** with **"Your first charge of $110 lands on November 14, 2026."**: the trial countdown.
+- **"Your subscription is active"** with **"Next charge of $110 on November 14, 2026."**: all is well.
+- **"Your plan"** with **"Status"**: On trial, Active, Payment overdue, Unpaid (stopped), Cancelled, Never completed, Paused. **"Price"** or **"Was"**, **"Trial ends"**, **"Next charge"**, **"Access ends"**, **"Retrying payment until"**, **"Ended"**. [The billing page](/docs/billing/the-billing-page)
+- **"Your card needs attention"**: "We checked it on September 18, 2026 and your bank declined it (insufficient_funds)." Update the card.
+- **"Update card, receipts & cancellation"** with **"Opens Stripe, where your card, invoices and cancellation all live."**: the Stripe portal. **"Could not open the billing portal."**, **"Could not reach the billing portal."**: try again.
+- **"Billing for a shared group is still being set up. Ask the account owner, or try again later."**: a group's shared billing could not be narrowed to your property.
+- **"Room count"** with **"Your plan covers 24 rooms. We check this against your property management system."**, **"Not counted, because they don't look like guest rooms: Meeting Room."**, **"You've marked these as not rooms: Meeting Room."**, **"Every room type is marked as not a room, so we can't measure your count."**, **"Your PMS currently shows 26 active rooms."**: how the count was measured.
+- **"Rooms billed"** with **"Change"**, **"Enter a whole number between 1 and 500."**, **"Room count updated."**: change what you pay for. [Change the room count you pay for](/docs/recipes/change-the-room-count-you-pay-for)
+- **"$120 up to $130 per month. Your next invoice is adjusted for the part of this period you have already paid."**: shown as you type a new count, with your old charge and your new one (here 24 rooms going to 26). A yearly plan says "per year". Lowering the count reads "down to" and adds **"That is $10 less."** A new count that costs the same as the old one reads **"Still $110 per month."**
+- **"This property has no subscription to change."**, **"This subscription has nothing to change."**, **"Could not change the room count. Try again shortly."**: the change did not apply.
+- **"This property's subscription is not active, so MAYA has paused work on it."**: pay first.
+- **"Properties not set up yet"** with **"Set aside September 18, 2026"** and **"Set up"**: group properties you skipped with "Not now". **"Could not pick that property back up."**: try again.
+- **"Restart your subscription"**: a cancelled subscription; a new one starts on the same pricing.
+- **"Billing is handled by this property's General Manager or Hotel Admin. Ask one of them for access if you need to change it."**: your role cannot see billing.
+- **"This needs General Manager access or higher on this property."**: the same, on any billing or team action.
+- **Email "Your MAYA plan covers 24 rooms"** (your PMS shows 26): the room count email. You have 7 days.
+- **Email "Your MAYA subscription starts November 14, 2026"** and **"MAYA renews November 14, 2026 and isn't connected to your PMS yet"**: you have paid and no property system is connected. Press <Ui>Finish setting up MAYA</Ui>. [Emails MAYA sends](/docs/billing/emails-maya-sends)
+
+</Group>
+
+
+## The Team page
+
+<Group>
+
+- **"Your team"** with **"Add someone"**, **"Their email"**, **"What they can do"**, **"Send invitation"**: invite a colleague. [Inviting and removing people](/docs/team/inviting-and-removing-people)
+- **"2 of 4 seats used · 24 rooms"**: seats come with your room count.
+- **"You've used every seat your plan includes. Remove someone below, or raise your room count on the billing page if the property has grown."**: the property is full.
+- **"Invitation sent to name@yourhotel.com. They'll get an email with a link to join."**: sent. If they already use MAYA, they are added at once and no email goes out.
+- **"Enter a valid email address."**, **"Pick a role."**: fix the form.
+- **"You can't give someone a role above your own."** and **"That's above your own access level."**: a General Manager cannot grant or change Hotel Admin. [Roles](/docs/team/roles)
+- **"That person is already on this property."**, **"They already have an invitation pending."**: nothing to do, or cancel the pending one first.
+- **"Your plan covers 4 people at 24 rooms."**: the seat limit in full.
+- **"Too many invitations"** (try again shortly): 20 invitations per property per hour.
+- **"Could not send that invitation."**, **"Could not change that role."**, **"Could not remove them."**, **"Could not cancel that invitation."**: try again.
+- **"On this property"** with **"Invited · Revenue Manager · not accepted yet"**, **"Cancel"**, **"Remove"**: your members and pending invitations.
+- **"That person isn't on this property."**, **"That invitation isn't on this property."**: reload.
+- **"This is the property's only Hotel Admin. Make someone else one first."**: the last Hotel Admin cannot be demoted or removed.
+- **"We couldn't load your team"** with **"Try again"**: the list could not load.
+- **"Who can access this property is managed by its General Manager or Hotel Admin. Ask one of them if you need someone added or removed."**: your role cannot manage the team.
+- **"Staff"**: an older name for the Viewer role. [Roles](/docs/team/roles)
+- **Email "You have been invited to The Harbour Inn on MAYA"** with **"You're invited"** and **"Accept the invite"**: the invitation. The link is single-use and expires.
+
+</Group>
+
+<Callout kind="good-to-know">
+Where a screen message is long, this page quotes the part you need to recognise it and puts the rest in plain words.
+</Callout>
+
+<Related>
+- [Start here: the four questions people ask first](/docs/wrong/start-here)
+- [Glossary](/docs/reference/glossary)
+- [Contact support](/docs/help/contact-support)
+</Related>

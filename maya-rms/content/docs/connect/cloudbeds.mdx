@@ -1,0 +1,149 @@
+---
+title: Cloudbeds
+summary: How to connect Cloudbeds from the Marketplace or from inside MAYA, what MAYA reads there, which rate plan it changes, and how to disconnect and reconnect.
+section: connect
+order: 20
+readingTime: 8
+keywords: [Cloudbeds, Marketplace, Connect App, My Apps, permissions, write reservations, access code, link expired, 24 hours, 15 minutes, covers properties, group, base rate, derived rate, package, rate plan, virtual room type, blocked rooms, allotment, Confirmation Pending, unassigned, password, second user, snag, booking date, day off, time zone, choose rate plan, pick rate plan, different rate plan, user left, employee left, staff left, deactivated user, deleted user, removed user, installer left, group login, stopped syncing, Last sync, second property, new property, Create your MAYA account, took too long, paid without a code, uninstall, disconnect, availability, restrictions, minimum stay, guest names, untick virtual room type]
+questions:
+  - How do I connect Cloudbeds to MAYA? {#way-1-from-the-cloudbeds-marketplace}
+  - Can I connect Cloudbeds from inside MAYA instead of the Marketplace? {#way-2-from-inside-maya}
+  - What is the difference between Sign in with your Cloudbeds account and the Marketplace? {#two-ways-in}
+  - What permissions does MAYA ask Cloudbeds for? {#way-2-from-inside-maya}
+  - Why does MAYA ask Cloudbeds to write reservations when it never writes them? {#what-maya-writes-the-base-rate/a-room-type}
+  - It says This Cloudbeds login covers several properties, what now? {#messages-you-may-see/this-cloudbeds-login}
+  - The Cloudbeds connection link expired, what do I do? {#way-1-from-the-cloudbeds-marketplace}
+  - I clicked Connect App in Cloudbeds and landed on a sign-in page {#way-1-from-the-cloudbeds-marketplace}
+  - Which rate plan does MAYA change in Cloudbeds? {#what-maya-writes-the-base-rate/once-you-go}
+  - My base rate in Cloudbeds is a package, will MAYA write to it? {#what-maya-writes-the-base-rate/once-you-go}
+  - How are Cloudbeds virtual room types handled? {#what-maya-reads-from-cloudbeds/the-booking-date}
+  - I changed my Cloudbeds password, does MAYA still work? {#disconnecting-and-reconnecting/you-disconnect-in}
+  - Can a second Cloudbeds user reconnect MAYA? {#disconnecting-and-reconnecting/when-the-person}
+  - Can I reconnect with a Cloudbeds group login? {#disconnecting-and-reconnecting/if-the-property}
+  - I took too long signing in at Cloudbeds and MAYA offers me a new property {#disconnecting-and-reconnecting/if-you-connected}
+  - How does MAYA date a Cloudbeds booking made late in the evening? {#what-maya-reads-from-cloudbeds/about-every-five}
+  - Can I choose which rate plan MAYA writes to in Cloudbeds? {#what-maya-writes-the-base-rate/once-you-go}
+  - Does the connection break if the Cloudbeds user who installed MAYA leaves? {#disconnecting-and-reconnecting/when-the-person}
+  - What changes in Cloudbeds once I go live? {#what-maya-writes-the-base-rate/once-you-go}
+  - What stays mine in Cloudbeds after I go live? {#what-maya-writes-the-base-rate/once-you-go}
+  - Which Cloudbeds bookings does MAYA count? {#what-maya-reads-from-cloudbeds/about-every-five}
+  - How do I stop using MAYA with Cloudbeds? {#disconnecting-and-reconnecting/you-disconnect-in}
+pms: [cloudbeds]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Install MAYA from the Cloudbeds Marketplace, or sign in with your Cloudbeds account from inside MAYA. MAYA reads your bookings, room types, rate plans and property details, and once you go live it writes one nightly price per room type to that room type's base rate. Plans that follow the base rate move by Cloudbeds' own rules, and packages are left alone. Your bookings, availability and settings in Cloudbeds are never changed.
+</InPlainWords>
+
+## Two ways in
+
+Both ways end with the history import and a review of what MAYA found. The Marketplace way comes with a free trial (7 days), needs no code, and connects several properties at once ([paying for a group of properties](/docs/pay/paying-for-a-group)). From inside MAYA you pay first, a code may be needed, and one property connects at a time.
+
+## Way 1: from the Cloudbeds Marketplace
+
+<Steps>
+<Step>
+**In Cloudbeds, open the Marketplace, find MAYA and click <Ui>Connect App</Ui>.** Approve the permissions Cloudbeds lists. They come from MAYA's Marketplace listing.
+</Step>
+<Step>
+**Create your MAYA account, or switch to <Ui>Sign in</Ui> if you have one.** The page says "Your Cloudbeds property is connected. Create your account to finish setting it up."
+</Step>
+<Step>
+**Click <Ui>Set up payment</Ui>.** Nothing is charged until the trial ends, and you can cancel any time.
+</Step>
+</Steps>
+
+<Callout kind="good-to-know" title="The hand-over link lasts 24 hours">
+If the page says "That connection link has expired. Reconnect the app from the Cloudbeds Marketplace.", click <Ui>Connect App</Ui> in Cloudbeds again for a fresh link.
+</Callout>
+
+A sign-in page that says "Your Cloudbeds connection is active again. Sign in to pick up where you left off." means the property already has an owner, so this was a reconnect. Sign in.
+
+## Way 2: from inside MAYA
+
+<Steps>
+<Step>
+**On the screen titled <Ui>Connect your property system</Ui>, click <Ui>Connect →</Ui> beside Cloudbeds** (<Ui>Sign in with your Cloudbeds account</Ui>).
+</Step>
+<Step>
+**Sign in on Cloudbeds' site and approve, within 15 minutes.** MAYA asks to read bookings, write bookings, read rooms, read and write rates, read property details, and read taxes and fees.
+</Step>
+<Step>
+**You are back in MAYA.** It names the property from Cloudbeds (adding "(2)" if that name is taken), reads its time zone and currency, and starts the history import.
+</Step>
+</Steps>
+
+<Callout kind="careful" title="If signing in took longer than 15 minutes">
+You may land on a page headed "Create your MAYA account". Do not sign in or create an account there: it adds a second property, with its own subscription. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Cloudbeds%20sign-in%20took%20too%20long) instead.
+</Callout>
+
+### Messages you may see
+
+- **"Cloudbeds needs an access code to connect. Use the system you signed up with, or get in touch and we'll sort you out."** You paid without a code, and Cloudbeds needs one. A code cannot be added after paying, so [email us](mailto:info@modern-hospitality-solutions.com?subject=Access%20code%20for%20Cloudbeds).
+- **"This Cloudbeds login covers 3 properties. MAYA signs one property up at a time right now"** (with your own number). MAYA cannot tell which property you paid for, so [email us](mailto:info@modern-hospitality-solutions.com?subject=Group%20login) and we set them up.
+- **Anything else**, such as "We hit a snag connecting your property" or "We couldn't verify your signup just now", usually clears if you try again in a moment. [Messages you might see, explained](/docs/wrong/messages-explained) has each one.
+
+## What MAYA reads from Cloudbeds
+
+About every five minutes, MAYA reads **bookings** made or changed since the last read, with each room's own nightly rate, and your **room types** with the number of units in each. About once an hour it reads your own nightly rates for the next 60 nights from each base rate plan. Once a day it reads the whole booking window again. It also asks for your taxes and fees, because Cloudbeds requires it, but keeps none of that and uses none of it.
+
+Your property's name, time zone and currency are read once, at connect. If you change them in Cloudbeds, [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone%20or%20currency).
+
+Cloudbeds sends availability and restrictions (such as minimum stays) with your room types and nightly rates, and guest names with bookings. MAYA uses none of them and keeps none of them. It never asks for room blocks, allotments or other guest details.
+
+A few Cloudbeds details:
+
+- Bookings count when **Confirmed**, **Checked In**, **Checked Out** or **Confirmation Pending**, even before they are given a room. **Cancelled** and **No Show** come off on the next read.
+- The **booking date** is the one Cloudbeds reports. MAYA does not shift it to another time zone.
+- A **virtual room type** is read like any other. If it makes your room count too high, you can untick <Ui>Counts as a room</Ui> for it on the <Ui>PMS</Ui> tab. Unticking it also stops bookings made on that room type counting towards occupancy and booking speed. If guests book it, [email us](mailto:info@modern-hospitality-solutions.com?subject=Cloudbeds%20virtual%20room%20type) before you untick it.
+- **Blocked rooms** are not read. Record them under <Ui>Rooms out of service</Ui> on the <Ui>PMS</Ui> tab.
+
+## What MAYA writes: the base rate
+
+Once you go live, MAYA sends the prices that changed every cycle, for tonight and the next 59 nights, to each room type's **base rate**. Plans that follow it (derived plans, such as a non-refundable rate at 10% off) move by Cloudbeds' own rules. MAYA never writes to any other plan and never creates one.
+
+<Example title="Which of my Cloudbeds rate plans will MAYA change?">
+1. **Does the plan follow another plan?** MAYA never writes to it. It follows its parent.
+2. **Does it have a public name, like a package or a promotion?** MAYA never writes to it.
+3. **Neither?** Then it is the base rate, and MAYA changes it.
+
+At The Harbour Inn, Standard has "Standard Rate" (the base), "Non-refundable" (follows it at 10% off) and "Bed and Breakfast" (a package). MAYA writes to "Standard Rate" only.
+</Example>
+
+There is no setting to choose a different plan. To have a plan move with MAYA's prices, make it follow the base rate in Cloudbeds.
+
+A room type with no base rate is priced on the calendar but not sent, and the change log says "MAYA can't find a base rate for Deluxe in Cloudbeds, so its rates can't be changed". Once you add one, the held prices go out on a later cycle. Read [when your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price).
+
+<Callout kind="careful" title="MAYA sends the number as it is">
+MAYA reads and writes the same rate field. If your base rate includes tax, so do MAYA's prices. MAYA does not add or remove tax.
+</Callout>
+
+MAYA never writes bookings, availability, restrictions, minimum stays, close-outs, taxes, room types or settings, and never sends a price of 0 (set a comp night to 0 in Cloudbeds yourself). The "write reservations" permission MAYA asks for when you connect from inside MAYA is never used.
+
+<Example title="The Harbour Inn goes live on Cloudbeds">
+The Harbour Inn's Standard rate in Cloudbeds is $150 for Fri, Nov 13 2026. "Busy nights" fires and raises the price to $165. On the next cycle, MAYA sends $165 to "Standard Rate". Cloudbeds reports it done. Nothing in MAYA marks a successful send: the change log shows the price change, and the rate in Cloudbeds now reads $165.
+</Example>
+
+## Disconnecting and reconnecting
+
+You disconnect in Cloudbeds, under <Ui>Marketplace</Ui>, then <Ui>My Apps</Ui>. If you uninstall MAYA in Cloudbeds, Cloudbeds usually tells MAYA within seconds and the connection reads <Ui>Disconnected</Ui>. Disconnecting does not cancel your subscription, so if you are leaving, cancel on the <Ui>Billing</Ui> page first.
+
+To reconnect, a General Manager or Hotel Admin clicks <Ui>Reconnect Cloudbeds</Ui> on the <Ui>PMS</Ui> tab and signs in at Cloudbeds. Rules, history and settings are untouched. MAYA never sees your Cloudbeds password, so after a password change, reconnect only if prices stop updating.
+
+- **If the property came through the Marketplace**, any login that reaches it works, a group login included. Clicking <Ui>Connect App</Ui> again also reconnects.
+- **If you connected from inside MAYA**, use a login for this one property only: a group login stops the syncing, and a login for another property moves MAYA there. <Ui>Connect App</Ui>, or a reconnect sign-in slower than 15 minutes, offers a second property on a "Create your MAYA account" page instead. Do not sign in there. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Cloudbeds%20reconnect).
+
+**When the person who connected MAYA leaves.** Cloudbeds ties the connection to the user who approved it. Once that user is deactivated, nothing is read, priced or sent, though the <Ui>PMS</Ui> tab may still read <Ui>Connected</Ui> (<Ui>Last sync</Ui> stops moving). Reconnect with another login, before you remove them if you can.
+
+Read [reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect) for the rest. For login or data problems inside Cloudbeds, ask Cloudbeds Support at myfrontdesk.cloudbeds.com.
+
+<Callout kind="not-yet" title="Not yet">
+MAYA does not use, keep or write Cloudbeds availability or restrictions, and does not read or write room blocks or allotments. There is no disconnect button in MAYA. A group login cannot connect a property from inside MAYA (connect groups through the Marketplace), and cannot reconnect a property connected that way.
+</Callout>
+
+<Related>
+- [What MAYA reads and writes](/docs/connect/what-maya-reads-and-writes)
+- [Reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect)
+- [How prices reach your property system](/docs/live/how-prices-reach-your-pms)
+</Related>

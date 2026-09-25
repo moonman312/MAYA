@@ -42,7 +42,7 @@ describe("the registry", () => {
         expect(registry.params[k].go, `${id} lists internal key ${k}`).not.toBe(false);
       }
       for (const [k, values] of Object.entries(d.narrow ?? {})) {
-        for (const v of values) expect(registry.params[k].values).toContain(v);
+        for (const v of values) expect(registry.params[k].values ?? []).toContain(v);
       }
       for (const [k, v] of Object.entries(d.target.set ?? {})) {
         expect(links.checkValue(k, v), `${id} sets ${k}=${v}`).toBe(v);
@@ -64,7 +64,7 @@ describe("the registry", () => {
     expect(registry.params.wait.values).toEqual(BOOKING_SPEED_WAIT_OPTIONS.map((o) => String(o.days)));
     expect(registry.params.over.values).toEqual(["1", "7", "30"]);
     expect(registry.params.lookback.values).toEqual(["1", "3", "7"]);
-    expect([...registry.params.role.values].sort()).toEqual(HOTEL_ROLES.map((r) => r.key).sort());
+    expect([...(registry.params.role.values ?? [])].sort()).toEqual(HOTEL_ROLES.map((r) => r.key).sort());
     expect(registry.params.tab.values).toEqual(["calendar", "rules", "simulator", "changelog", "pms"]);
     const row = newConditionRow("pickup");
     for (const spec of Object.values(registry.params)) {

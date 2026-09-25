@@ -1,0 +1,58 @@
+---
+title: Raise prices when you are nearly full
+summary: Build a standard rule that raises a night's price by 10% when its sellable occupancy is above 85%, and takes the raise off again when the night drops back.
+section: recipes
+order: 80
+readingTime: 3
+keywords: [nearly full, almost full, high occupancy, raise when full, sold out, 85%, 90%, occupancy rule, greater than, increase the rate, busy nights, scarcity, last rooms]
+questions:
+  - How do I raise prices when I am nearly full? {#in-plain-words}
+  - How do I make a rule for high occupancy? {#build-the-rule}
+  - How do I charge more for the last few rooms? {#in-plain-words}
+  - Does an occupancy rule undo itself when someone cancels? {#what-you-will-see/the-row-reads}
+  - Why did my 85% rule not fire at exactly 85%? {#what-you-will-see/example-the-harbour}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+On the <Ui>Rules</Ui> tab, click <Ui>+ Add a rule</Ui>, leave <Ui>Metric</Ui> on <Ui>Sellable occupancy (%)</Ui>, set <Ui>Greater than</Ui> 85, choose <Ui>Increase the rate</Ui> by 10%, keep every room type ticked and click <Ui>Add Rule</Ui>. From the next run, any night in the next 60 with more than 85% of its sellable rooms booked is raised 10%. When the night drops back to 85% or under, the raise comes off.
+</InPlainWords>
+
+## Build the rule
+
+<Steps>
+<Step title="Open the builder">
+On the <Ui>Rules</Ui> tab, click <Ui>+ Add a rule</Ui>. In <Ui>Rule name</Ui>, type Nearly full.
+</Step>
+<Step title="Set the condition">
+The first condition row is already <Ui>Sellable occupancy (%)</Ui>. Leave <Ui>Compare</Ui> on <Ui>Greater than</Ui> and change <Ui>Threshold</Ui> from 80 to 85.
+</Step>
+<Step title="Set the change">
+Under <Ui>Rate adjustment</Ui>, choose <Ui>Increase the rate</Ui> in <Ui>Direction (required)</Ui>. <Ui>Adjust by percent (%)</Ui> is ticked with 10 already. For a fixed amount instead, untick it and tick <Ui>Adjust by fixed amount ($)</Ui>. Pick one or the other: when both are ticked only the percent is saved.
+</Step>
+<Step title="Pick the room types and add it">
+Under <Ui>Apply to room types</Ui> every room type that counts as a room is ticked. Leave them, and click <Ui>Add Rule</Ui>. The rule appears in the list switched <Ui>On</Ui>.
+</Step>
+</Steps>
+
+## What you will see
+
+The row reads "Occupancy above 85%" under <Ui>Conditions</Ui> and "+10%" under <Ui>Price Change</Ui>. When a night crosses the mark, the change log shows a line such as "Standard · stay 2026-11-14: $150.00 up to $165.00 (+10%)" with the sentences "Nearly full" raised this night 10%, from $150.00 to $165.00. It was 90% full, past the 85% mark you set.
+
+This is a standard rule: it switches on when the condition starts holding, holds one raise while it holds, and switches off when it stops. A cancellation that takes the night to 85% or under reverts the raise on the next run. It never stacks on itself.
+
+A sold-out night keeps the raise and is still priced every run. Once you are live on Cloudbeds or ThinkReservations, a room freed by a cancellation goes back on sale at the night's current price, raised as long as the night stays above 85%. On Mews it sells at the rate you set in Mews, because MAYA sends no prices there yet. A booking speed cut rule can still cut a sold-out night, because a full night takes no new bookings. Read [A price looks wrong](/docs/wrong/a-price-looks-wrong#we-are-sold-out-tonight-why-is-the-price-still-changing).
+
+<Callout kind="example">
+The Harbour Inn has 20 rooms that count. On Saturday, November 14, 2026, 18 are booked: 90%, so the rule fires and Standard goes from $150 to $165. A cancellation leaves 17 booked: 85% exactly, which is not more than 85, so the raise comes off and Standard returns to $150.
+</Callout>
+
+<Callout kind="good-to-know">
+Occupancy is measured over the rule's own room types, and only over rooms that count as rooms, with rooms out of service taken off first. A rule on Suite alone measures Suite: 2 rooms, so 2 booked is 100% and 1 booked is 50%. The threshold cannot be set above 100.
+</Callout>
+
+<Related>
+- [Sellable occupancy](/docs/rules/sellable-occupancy)
+- [How rules run](/docs/rules/how-rules-run)
+- [Build your first rule](/docs/rules/build-your-first-rule)
+</Related>

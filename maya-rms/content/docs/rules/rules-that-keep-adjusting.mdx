@@ -1,0 +1,138 @@
+---
+title: Rules that keep adjusting (the three-times question)
+summary: The amber banner that appears once a booking speed or pickup rule has adjusted the same night three times, what its two answers do, and how to let a stopped rule run again.
+section: rules
+order: 120
+readingTime: 9
+keywords: [rules that keep adjusting, amber banner, alert, three times, 3 times, keep adjusting, stop for this night, stopped on N nights, let it run again, asking me about one night, why is maya asking, no buttons on the alert, would have raised, simulation alert, your answer, still MAYA's default, ask MAYA for a ceiling, ask MAYA for a floor, price jumped 50 percent, fire three times and keep going, I answered stop but the price did not go back, different counts per room type, I never answered anything, undo keep adjusting, take back keep adjusting, changed my mind, answered keep adjusting by mistake, stop it now, days it measured, 3 days, why only 3 days, past week, bookings came in]
+questions:
+  - What is the "Rules that keep adjusting" banner? {#in-plain-words}
+  - Why is MAYA asking me about one night? {#when-it-appears}
+  - What do "Keep adjusting" and "Stop for this night" do? {#the-two-answers/each-night-has}
+  - What does "Stopped on N nights" under a rule mean? {#stopped-on-n-nights-and-letting-it-run-again}
+  - How do I let a stopped rule run again? {#stopped-on-n-nights-and-letting-it-run-again}
+  - Will it ask me again after I let it run again? {#stopped-on-n-nights-and-letting-it-run-again}
+  - Does the alert appear in simulation? {#in-simulation}
+  - Why are there no buttons on the alert for me? {#who-can-answer}
+  - Why did my rule fire three times and keep going? {#when-it-appears}
+  - I answered Stop but the price did not go back. {#the-two-answers/i-answered-stop}
+  - I answered Keep adjusting and changed my mind. How do I stop the rule on that night now? {#the-two-answers/i-answered-keep}
+  - Why does the alert show different counts per room type? {#what-the-banner-says/why-does-the}
+  - MAYA says a rule is "Stopped on 3 nights" but I never answered anything. {#stopped-on-n-nights-and-letting-it-run-again}
+  - Why did the price jump 50%? {#the-two-answers/why-did-the}
+  - Why does the banner say 3 days when my rule measures the past week? {#what-the-banner-says/why-does-it}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+When a booking speed or pickup rule has adjusted the same night three times, an amber banner asks you: keep adjusting, or stop for this night. Until you answer, it keeps going. Stop means no more changes there, and what it already did stays. You can let it run again from the <Ui>Rules</Ui> tab.
+</InPlainWords>
+
+## When it appears
+
+A booking speed or pickup rule fires, waits, and can fire again on the same night. Each fire stacks on the last, so a night can climb (or fall) a long way on one rule. So at three, MAYA asks you.
+
+The count is per rule, per night: the most fires the rule has on any one of that night's room types. Fires that are open count, and so do raises that were later taken off for cancellations. Fires that came off because you typed a price, or because the night passed, do not count. Only booking speed and pickup rules can reach three. A standard rule fires once per change of state.
+
+The rule does not stop at three. It keeps firing after its wait, as usual, until you answer. The banner is your chance to say otherwise.
+
+The banner appears a few minutes after the third change. It does not refresh by itself, so reload the page to see the latest.
+
+## What the banner says
+
+It sits above the tab content on every tab, in amber, and opens straight with the rule's headline. One card per rule, rules A to Z. Each card has:
+
+- **A headline.** "Hot-week surge" has raised Fri, Nov 13 2026 3 times. For several nights: "Slow-date rescue" has cut 4 nights, 3 times each (or "3 to 5 times each"). When a night's room types got different counts, it says "up to": "up to 3 times", or "up to 5 times each".
+- **A consequence line.** "It keeps raising these nights until you stop it."
+- **One block per night.** The night, then how often on each room type ("3 times on Standard and once on Deluxe"), then what the rule saw at its latest fire: "In the 7 days it measured, 9 bookings came in. A night like this usually has about 4 by then." or, for a pickup rule, "Pickup over the last 3 days came to 6 room nights, against the 4 you set."
+- **A limit line.** Where the price can go if the rule carries on: "If it keeps cutting, the price can fall to your $80.00 floor for Standard." When the limit is still the default: "Your ceiling for Suite is still MAYA's $99,999.99 default, so the price can climb that far." with a "?" and a link, <Ui>Ask MAYA for a ceiling</Ui> or <Ui>Ask MAYA for a floor</Ui>, which takes you to the <Ui>Rules</Ui> tab and its <Ui>Get suggestions from my data</Ui> button. Read [Floors and ceilings](/docs/review/floors-and-ceilings).
+
+Prices in the banner use your property's currency symbol.
+
+**"Why does the alert show different counts per room type?"** Because waits, fires and limits run per room type. Standard may have been raised three times while Deluxe sat at its ceiling and was raised once.
+
+<Example title="The banner after a busy week at The Harbour Inn">
+"Hot-week surge" has raised Sat, Nov 14 2026 up to 3 times.
+It keeps raising these nights until you stop it.
+
+Sat, Nov 14 2026 · 3 times on Standard, 3 times on Deluxe and 2 times on Suite
+In the 3 days it measured, 6 bookings came in. A night like this usually has about 2 by then.
+If it keeps raising, the price can climb to your $600.00 ceiling for Suite.
+
+Under it, the two buttons, <Ui>Keep adjusting</Ui> and <Ui>Stop for this night</Ui>.
+</Example>
+
+**"Why does it say 3 days when my rule measures the past week?"** Once a night has been raised, a rule that raises counts only the bookings that arrived after the night's last raise, whichever rule made it. "Hot-week surge" waits 2 days, so at its third raise it counted the rest of the day of its second raise, then the two days after. A rule that cuts counts from the night's last cut in the same way. Read [Counting after a rule acts](/docs/rules/booking-speed-in-detail#counting-after-a-rule-acts).
+
+## The two answers
+
+Each night has two buttons. The "?" beside them says:
+
+- "Keep adjusting: the rule carries on as it is, and MAYA stops asking about that night."
+- "Stop for this night: the rule makes no more changes on that night. A raise it already made stays, unless enough of the bookings behind it cancel." For a cut rule: "What it already cut stays."
+- "A stopped night shows on the Rules tab, where you can let the rule run on it again; MAYA then asks about it again if the rule keeps adjusting it."
+- "Either way, your other rules keep working on these nights" (the line goes on to mention editing the rule).
+
+There is no edit. Deleting the rule and adding it again starts it fresh.
+
+Stop takes effect from the next cycle. The night is left out of that rule entirely, so it cannot hold the night through its wait either: a weaker rule may now fire there.
+
+**"I answered Stop but the price did not go back."** Stop means no more changes. It does not undo the ones already made. To put the price where you want it, type it on the calendar. Read [Setting a price yourself](/docs/watch/setting-a-price-yourself).
+
+**"I answered Keep adjusting and changed my mind. How do I stop the rule on that night now?"** There is no undo for <Ui>Keep adjusting</Ui>. The night leaves the banner, it never shows under <Ui>Stopped on N nights</Ui>, and MAYA does not ask about it again for that rule. Three things you can do:
+
+- **Type a price** for that night on the calendar. The rule's changes there come off at once. After its wait, the rule can adjust your price again, and MAYA still does not ask.
+- **Turn the rule off** on the <Ui>Rules</Ui> tab. It stops on every night, and the changes it already made stay.
+- **Delete the rule.** Every change it made comes off, on every night. If you add it again, it starts fresh, so the banner can ask about that night once more.
+
+**"Why did the price jump 50%?"** Two raises stacked, or three. The change log shows each step with its running price, and the banner shows how many times each room type has been raised.
+
+## Answering many nights at once
+
+When a card has more than one night, two whole-card buttons come first: <Ui>Keep adjusting on all N nights</Ui> and <Ui>Stop on all N nights</Ui>. The nights themselves sit behind a line naming the first three ("Fri, Nov 13 2026, Sat, Nov 14 2026, Sun, Nov 15 2026 and 4 more nights") with <Ui>Answer night by night</Ui> to open them and <Ui>Hide the nights</Ui> to close them.
+
+## Who can answer
+
+Revenue Managers, General Managers and Hotel Admins. Anyone below that sees the same card with no buttons and the line "Only a Revenue Manager or above can answer this."
+
+Messages you can meet when an answer fails: "That did not save. Try again in a moment." (try again), "Unknown alert." (the banner is stale, so reload the page), "You need manager access to do that."
+
+## In simulation
+
+The banner appears in simulation too, because the rules run and the fires are counted even though nothing is sent. Every sentence switches to the conditional: "would have raised", "It would keep raising these nights until you stop it.", "the price would climb to your $300.00 ceiling". Your answers work the same way.
+
+## Stopped on N nights, and letting it run again
+
+On the <Ui>Rules</Ui> tab, a rule you have stopped on upcoming nights shows an amber chip under its switch: <Ui>Stopped on 3 nights</Ui> (or <Ui>Stopped on 1 night</Ui>). The rule reads <Ui>On</Ui>, because it is on everywhere else. A "?" names the nights: "You told this rule to stop on Fri, Nov 13 2026, Sat, Nov 14 2026 and Sun, Nov 15 2026." then what stays, then "Your other rules still work on those nights." and "Let it run again puts the rule back on them, starting from the price it left, and MAYA asks you again if it keeps adjusting one."
+
+<Ui>Let it run again</Ui> takes your answer off every night you stopped that rule on, in one click. The rule can act on them again from the next cycle, starting from the price it left. It asks you again only after three more adjustments on a night, not straight away.
+
+**"MAYA says a rule is Stopped on 3 nights but I never answered anything."** A colleague did. The change log's "Your answer" entries name who.
+
+## Your answers in the change log
+
+Each answer is its own entry on the <Ui>Change Log</Ui> tab, headed "Your answer":
+
+- "Priya stopped "Hot-week surge" on Sat, Nov 14 2026. The raises it already made stay, unless enough of the bookings behind them cancel." (a cut rule ends "What it already cut stays.")
+- "Priya told "Hot-week surge" to carry on with 4 nights."
+- "Priya let "Hot-week surge" run again on Sat, Nov 14 2026. It can start adjusting again from the next pricing run."
+
+Someone whose name is not on file reads as "A manager". Up to 20 answers are shown.
+
+## A typed price closes the question
+
+If you type a price on a night that is in the banner, the rule's changes there come off, so the count falls under three and the night leaves the banner. If the rule later stacks its way back to three on your price, it asks again. That is only for a night still waiting for your answer: on a night you answered <Ui>Keep adjusting</Ui>, a typed price takes the rule's changes off, but MAYA does not ask again.
+
+## Other rules keep working
+
+Stopping one rule on a night does nothing to your other rules. They keep measuring and changing that night as before.
+
+<Callout kind="not-yet">
+You cannot change the number three, turn the banner off, take back a <Ui>Keep adjusting</Ui> answer, or keep a rule off one night before it has adjusted it three times. Typing a price holds back the rules already on that night (their changes come off), but they can act on top of your price after their wait. To keep a night's price where it is, type the price and switch off the rules that would move it. Switching off stops a rule on every night, not only this one, so switch it back on once the night has passed.
+</Callout>
+
+<Related>
+- [How rules run](/docs/rules/how-rules-run)
+- [Answer the "keeps adjusting" banner](/docs/recipes/answer-the-keeps-adjusting-banner)
+- [Floors and ceilings](/docs/review/floors-and-ceilings)
+</Related>

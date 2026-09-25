@@ -1,0 +1,185 @@
+---
+title: Rates you change in your property system
+summary: What happens when you change a rate in Cloudbeds or ThinkReservations instead of in MAYA. On a night MAYA has sent to, your change is kept as your price. On any other night it becomes the starting point your rules work from.
+section: watch
+order: 60
+readingTime: 15
+keywords: [changed in cloudbeds, typo, mistyped, mistake, wrong rate, typed the wrong rate, $15 instead of $150, extra zero, too low, too high, under the floor, fix a wrong rate, back to simulation, went back to simulation, revenue pickup, best available, rate type, changed in think reservations, overwrite, overwrote, wrote over, edited in cloudbeds, changed the rate in my PMS, base rate, hourly read, an hour, settle, seen, closed a night, rate 0, zero, re-opened, reopened, tax included, markup, simulating, before going live, where should I change prices, the base rate was changed in, raised every rate, raised all my rates, 10%, percentage, every night, across the board, bulk change, my increase was lost, special rate, front desk, discount, one guest, rate on a booking, reservation rate, guest rate, negotiated rate]
+pms: [cloudbeds, thinkreservations, mews]
+questions:
+  - 'I changed a rate in Cloudbeds, will MAYA overwrite it?' {#in-plain-words}
+  - 'Why does the calendar say "Changed in Cloudbeds"?' {#what-you-see}
+  - 'I changed rates in Cloudbeds before going live, what happens to them?' {#the-two-cases/maya-has-never}
+  - 'I closed a night in Cloudbeds by setting the rate to 0, what does MAYA do?' {#closing-a-night-at-0/set-a-nights}
+  - 'I re-opened a night in Cloudbeds, what happens?' {#closing-a-night-at-0/set-a-nights}
+  - 'My property system shows prices with tax, will MAYA read every night as edited?' {#prices-with-tax-or-a-markup}
+  - 'I raised every rate by 10% in Cloudbeds after going live. Why did MAYA write over them?' {#raising-every-night-by-the-same-percentage/the-same-check}
+  - 'How do I raise all my prices at once?' {#raising-every-night-by-the-same-percentage/to-move-a}
+  - 'If the front desk gives one guest a special rate on their booking, does MAYA''s price change?' {#a-special-rate-on-one-booking/a-rate-the}
+  - 'Should I change prices in MAYA or in my property system?' {#where-to-change-prices/in-maya-the}
+  - 'What does "The base rate was changed in Cloudbeds" mean in the change log?' {#what-you-see}
+  - 'How soon does MAYA pick up a rate I changed in my property system?' {#how-soon-a-change-is-read}
+  - 'Does MAYA read the rates I change in Mews?' {#where-to-change-prices/thinkreservations-maya-writes}
+  - 'I went back to simulation. Does MAYA read the rates I change in my system?' {#changes-made-while-simulating}
+  - 'Which rate type does MAYA write to in ThinkReservations?' {#where-to-change-prices/thinkreservations-maya-writes}
+  - 'I mistyped a rate in my system. What does MAYA do with it?' {#a-rate-you-mistyped/on-a-night-maya-has-sent}
+  - 'I typed $15 instead of $150 in Cloudbeds. Will the floor catch it?' {#a-rate-you-mistyped/on-a-night-maya-has-sent}
+  - 'How long should I wait after MAYA sends before I change a rate in my system?' {#when-a-change-counts-as-yours/change-prices-in}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+On a night MAYA has already sent a price to and confirmed, a rate you change in your property system an hour or more later is kept as your price and marked "Changed in Cloudbeds". On a night MAYA has never sent to, your rate becomes the starting point, and your rules work from it. Setting a night to 0 in your system closes it.
+</InPlainWords>
+
+## The two cases
+
+Which case a night falls into depends on one thing: whether MAYA has already sent a price to that night and confirmed it landed.
+
+**MAYA has sent to the night.** Your change is read as a decision. It becomes a manual price for that night and room type, exactly as if you had typed it in MAYA: rules that had already moved the night are paused for that room type, rules that fire later stack on top of your number, and <Ui>Clear</Ui> hands the night back. [Setting a price yourself](/docs/watch/setting-a-price-yourself) explains what a manual price does.
+
+**MAYA has never sent to the night.** That includes every night before you first go live, and any night beyond the 60-night window. Your rate is read as the property's own rate for that night, the starting point. When a rule fires, it works from your number. When no rule fires, your number is the price.
+
+<Example title="The Harbour Inn, one change in each case">
+Sam changes two Standard rates in Cloudbeds on the morning of Friday, October 2, 2026.
+
+Friday, November 13, 2026: MAYA sent $165.00 to that night two days ago and Cloudbeds confirmed it. Sam changes it to $175.00. Within the hour MAYA reads the change and keeps it. The night shows "Changed in Cloudbeds · $175.00" and the change log reads "The base rate was changed in Cloudbeds to $175.00." When "Busy nights" fires later, it raises the night 10% from $175.00, not from $150.00.
+
+Friday, December 18, 2026: 77 nights ahead, beyond the window, so MAYA has never sent to it. Sam changes it from $150.00 to $170.00. When the night enters the window, MAYA reads $170.00 as the starting point and your rules work from there.
+</Example>
+
+## When a change counts as yours
+
+Change prices in MAYA when you can. A price typed there is kept at once and names who typed it.
+
+If you change a rate in your system instead, give the night an hour after MAYA last sent to it (an hour or two on ThinkReservations). Change the rate MAYA writes to: the base rate in Cloudbeds, usually the Best Available rate type in ThinkReservations. Then, while you are live, your change on a night MAYA has sent to is kept as your price when MAYA next reads it.
+
+<Example title="The exact conditions">
+On a night MAYA has sent to, your change is kept only when all of these hold:
+
+- You are live. In simulation nothing is sent, so nothing is read as a change (see "Changes made while simulating" below).
+- MAYA's last send to that night landed and was confirmed. Cloudbeds reports that the job applied. ThinkReservations only accepts the price, so MAYA counts it as confirmed once its hourly read finds the price there.
+- That send went out at least 60 minutes earlier. A system still catching up is not read as a change.
+- Your change is on the same rate plan MAYA writes to. In Cloudbeds that is the base rate. In ThinkReservations it is the rate type named Best Available, or, if none is, the standard rate type that covers the most room types. A change to another rate plan is not read.
+- The new rate differs from MAYA's price by more than half a cent, and is not MAYA's price rounded to a whole unit.
+- No newer price typed in MAYA is still on its way to that night.
+- The difference is not one shared by nearly every night. That covers tax, a markup, or a raise of one percentage across the board (see "Prices with tax or a markup" below).
+- The send landed after you last went live. A rate changed while simulating is a starting point, not a manual price.
+
+A change that fails one of these is not kept. The most common miss is timing: a change you make in your system within an hour of MAYA's send can be written over if MAYA's price for that night changes in that hour.
+</Example>
+
+## How soon a change is read
+
+MAYA reads your own rates for every night in the 60-night window about once an hour, and again when your property's date changes. It also reads a night again right before sending a new price to it, when the night was last sent to over an hour ago and the hourly read did not run this cycle. So a change on a sent night is read within about an hour, and usually before MAYA sends a new price to that night. The exceptions are a cycle in which MAYA could not read your system, and a change made within an hour of MAYA's send.
+
+A night beyond the window is not read until it enters the window.
+
+## What you see
+
+On the calendar, the room type's card shows an amber badge reading "Changed in Cloudbeds · $175.00" (or "Changed in Think Reservations · $175.00"). Hover it for "Seen" and the date and time MAYA read the change, in your browser's clock. A price typed in MAYA shows "Manual" instead, with "Set" on hover.
+
+In the change log the entry names no person: "The base rate was changed in Cloudbeds to $175.00." A rule that fires later on that night adds its sentence after it.
+
+<Ui>Clear</Ui> on the card works the same as for a typed price. Hover it and it reads "Changed in Cloudbeds. Clear hands the night back to MAYA."
+
+## A rate you mistyped
+
+Say you meant $150 for a Standard night and typed $15 in Cloudbeds. What happens depends on the same two cases.
+
+**On a night MAYA has sent to**, your $15 is kept as your price, like any change of yours, and the card shows "Changed in Cloudbeds · $15.00". The floor does not catch it. A price you set yourself is published as you set it, even under the floor, so $15 stays in your system. Rules that fire later work from $15.
+
+**On a night MAYA has never sent to**, $15 becomes the night's starting point. Your rules work from it and the floor holds the result: with Standard's $80 floor, MAYA publishes $80 (and sends it when you are live). That is not your $150 either. A floor still at $1.00 would let the $15 through.
+
+A rate typed too high works the same way, with the ceiling in place of the floor. To put it right, do one of these:
+
+- **Press <Ui>Clear</Ui> in MAYA** on a night marked "Changed in Cloudbeds". The night goes back to your rules, from the starting point MAYA had before your typo, and MAYA's price is sent over the $15.
+- **Type the right price in MAYA.** It is kept at once and, when you are live, sent straight away.
+- **Correct the rate in your system.** MAYA reads it within about an hour. On a night MAYA has sent to, it is kept as your price, the same way the typo was. On any other night it becomes the starting point.
+
+Clearing or typing a price in MAYA needs Revenue Manager access or higher. On Mews, MAYA does not read rates, so a rate mistyped in Mews stays as it is until you correct it there.
+
+## Changes made while simulating
+
+While you are in simulation, MAYA sends nothing. Before you first go live, every rate you change in your system is read as the property's own rate. MAYA reads the whole window again every hour, so the rates you have when you go live are the ones the first live send prices from. A rate you changed in your system while simulating is never kept as a manual price when you go live: going live means MAYA's prices replace yours, and from then on a change counts as yours only after MAYA has sent to that night. [Simulation mode](/docs/live/simulation-mode) has more.
+
+If you were live before and went back to simulation, a rate you change in your system on a night MAYA sent to during the live stretch is not read while you simulate. MAYA's prices for that night keep starting from the old starting point. When you go live again, that rate is read as the night's starting point, and your rules work from it.
+
+## Closing a night at 0
+
+Set a night's rate to 0 in your system and MAYA reads it as closed.
+
+- On a night MAYA has sent to, the starting point becomes 0, MAYA stops pricing that night and sends nothing to it. Any manual price on that night is cleared, and the rules it paused are released. This needs you to be live and the 0 to be on the rate plan MAYA writes to. MAYA's last send to the night must also have gone through over an hour ago. It does not need to be confirmed, because MAYA never sends 0 itself.
+- On a night MAYA has never sent to, a rate of 0 is left unpriced from the start. MAYA does not open a closed night at the floor.
+
+Open the night again by loading a rate in your system. The next hourly read takes that rate as the starting point, and your rules work from it.
+
+A 0 in your system does not close a night MAYA has sent to in three cases:
+
+- **A comp night you set in MAYA.** A typed price of 0 makes the night free, so a 0 in your system for that night matches your price rather than closing the night. [Setting a price yourself](/docs/watch/setting-a-price-yourself) covers comp nights.
+- **A manual price whose last send was never confirmed.** The night is held rather than closed, since that price may never have reached your system. The manual price stays, and MAYA sends nothing new to the night while your system has 0.
+- **A newer price typed in MAYA that is still on its way.** Your typed price is kept and sent as usual.
+
+## Prices with tax or a markup
+
+Some systems report rates through a rule of their own: tax included, or a markup on every night. Those rates all differ from MAYA's price by the same ratio, and reading each one as a change of yours would freeze the window at inflated prices.
+
+So when 80% or more of the sent nights MAYA reads (10 nights at least) differ from its price by one shared ratio, MAYA reads that as your system's rule, not as edits. None of those nights is kept, and nothing shows on the calendar. MAYA's next price for each of them is sent as usual. A night that does not fit the ratio is still read as a change of yours. If your prices in your system look like MAYA's plus tax, that is why, and nothing needs doing.
+
+<Example title="Tax shown on top at The Harbour Inn">
+MAYA sends $165 for a Standard night. If every night in your system then shows MAYA's price plus the same 12% ($184.80 here), that is your system adding tax to what it shows. MAYA keeps sending $165, and guests see whatever your system shows them, as they did before MAYA.
+</Example>
+
+### Raising every night by the same percentage
+
+The same check catches a change you make yourself. Say you are live and you raise every rate by 10% in Cloudbeds. Every sent night now differs from MAYA's price by the same ratio, so MAYA reads your raise as your system's own arithmetic, not as your prices. None of the new rates is kept as a manual price, and nothing shows on the calendar.
+
+Your raised rates stay in your system until MAYA's price for a night next changes. MAYA then sends its new price for that night, worked out from the starting point it had before your raise, so your 10% is gone from that night. Nights change at different times, so for a while some nights carry your raise and some do not. A Standard night MAYA sent at $165.00 reads $181.50 in Cloudbeds after your raise, until MAYA's price for that night next moves.
+
+A percentage change to only some nights is read night by night as usual. It trips this check only when it covers 80% or more of the sent nights MAYA reads, and 10 nights at least.
+
+To move a lot of nights at once, type the prices in MAYA. One save covers one room type and a run of nights at one price, using <Ui>through…</Ui>. Each night is kept at once as a manual price, and rules that fire later stack on it. [Setting a price yourself](/docs/watch/setting-a-price-yourself) has the detail.
+
+Or change rates in your system only on nights MAYA has not sent to yet, such as nights more than 59 nights ahead. Each of those rates becomes the night's starting point when the night enters the window, and your rules work from it.
+
+## Where to change prices
+
+| | In MAYA (the calendar) | In your property system |
+|---|---|---|
+| Takes effect | At once, and sent straight away when you are live | Within about an hour |
+| Which nights | Tonight to 364 days ahead | Only nights MAYA has sent to; any other night becomes a starting point instead |
+| Who did it | Named in the change log | "The base rate was changed in Cloudbeds", no name |
+| A run of nights | One save with <Ui>through…</Ui> | Night by night, as your system allows |
+| Undo | <Ui>Clear</Ui> | <Ui>Clear</Ui> in MAYA |
+
+When you mean to set a price, type it in MAYA. Change it in your system when that is where you happen to be, and give MAYA's send an hour first. A change of one percentage to nearly every sent night is not kept (see "Raising every night by the same percentage" above).
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+MAYA writes to the base rate of each room type in Cloudbeds, the rate plan that does not follow another plan. Change that rate and MAYA reads it. A change to a derived plan or a package is not read. Cloudbeds confirms MAYA's sends, so the hour starts when the send goes out.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+MAYA writes to the rate type named Best Available, or, if none is, to the standard rate type that covers the most room types. Change that rate and MAYA reads it. ThinkReservations accepts a price without confirming it applied, so MAYA counts a send as confirmed only once its hourly read finds the price there. A change you make before that read is not kept and is written over by MAYA's next price change. Give a night an hour or two after MAYA's send.
+</PmsTab>
+<PmsTab pms="mews">
+MAYA does not read rates from Mews and does not send prices to Mews. A rate you change in Mews is neither shown in MAYA nor written over. To set a price in MAYA for a Mews property, type it on the calendar. To change the rate guests see, change it in Mews.
+</PmsTab>
+</PmsTabs>
+
+## A special rate on one booking
+
+A rate the front desk gives one guest lives on that guest's booking, not on your base rate. MAYA does not read it as a change to your rates, and it does not change the price MAYA sends for that night.
+
+The booking counts like any other. It adds to the night's occupancy, booking speed and pickup count. Its rate counts in that night's room revenue and in the ADR (the average rate per room booked) on the calendar, at the rate MAYA read with the booking. Occupancy, booking window and booking speed rules, and pickup rules that count room nights, do not look at what a guest paid. A pickup rule set to measure revenue adds up the rates on the night's bookings, special rates included, so a special rate does move that rule's number.
+
+A booking's rate reaches a price only as a starting point, and only when MAYA has no rate of yours for that night and room type. On Cloudbeds and ThinkReservations, MAYA reads your base rate for every night in the window, so a booking's rate is used only on a night where no rate could be read. On Mews, MAYA does not read rates, so a night starts from the rate on the newest booking MAYA has read for that room type. With no booking yet, it starts from the starting point saved on the last run. A special rate on that newest booking becomes the night's starting point in MAYA until a newer booking arrives. Changing the rate on a booking MAYA has already read does not move the starting point.
+
+<Callout kind="not-yet">
+MAYA does not tell you when it has kept a change from your system. The badge on the calendar and the sentence in the change log are the only signs. There is no list of changes it has kept, and no setting to turn this off.
+</Callout>
+
+<Related>
+- [Setting a price yourself](/docs/watch/setting-a-price-yourself)
+- [How prices reach your property system](/docs/live/how-prices-reach-your-pms)
+- [Prices not reaching your property system](/docs/wrong/prices-not-reaching-your-pms)
+</Related>

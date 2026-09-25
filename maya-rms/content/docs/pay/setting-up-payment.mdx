@@ -1,0 +1,152 @@
+---
+title: Setting up payment
+summary: The payment screen field by field, how many rooms to enter, what the price panel and the Stripe page show, what happens if you leave checkout, the "Payment received" screen, and who can pay.
+section: pay
+order: 10
+readingTime: 11
+keywords: [payment, pay, checkout, card, credit card, stripe, how many rooms, room count, monthly, yearly, price panel, nothing today, first charge, billed when you finish checkout, continue to payment, set up payment, which property management system, your code, terms 7.6, charged for room-count changes, tax, VAT, tax ID, billing address, left checkout, no charge was made, fields empty, lost my code, back button, left restart checkout, payment received, stuck, check again, charged twice, already has a subscription, too many checkout attempts, Before you continue, terms not accepted, pay before connecting, manage billing or cancel, room count blank, does MAYA see my card, Mews not yet available, Mews coming soon, paid but cannot connect]
+questions:
+  - What does the payment screen ask for? {#the-screen-field-by-field/the-screen-is}
+  - How many rooms should I enter? {#how-many-rooms-to-enter/count-the-rooms}
+  - Why do I pay before connecting my property system? {#which-comes-first-paying-or-connecting/cloudbeds-from-the}
+  - 'I use Mews and paid, why does the connect screen say "Not yet available"?' {#which-comes-first-paying-or-connecting/cloudbeds-from-the}
+  - Can I see the price before I commit? {#in-plain-words}
+  - When is my first charge? {#the-screen-field-by-field/appears-once-the}
+  - Does MAYA see my card number? {#what-stripe-asks-for}
+  - 'What does "your card may be charged for room-count changes" mean?' {#the-terms-line-above-the-pay-button}
+  - I left checkout part way, was I charged? {#leaving-checkout-part-way}
+  - 'The "Payment received" screen is stuck, what do I do?' {#the-payment-received-screen/most-people-never}
+  - 'What does "This property already has a subscription" mean?' {#messages-you-might-see/this-property-already}
+  - 'What does "Too many checkout attempts" mean?' {#messages-you-might-see/too-many-checkout}
+  - I typed my room count on the website, why is it blank in the app? {#how-many-rooms-to-enter/count-the-rooms}
+  - 'What does "Manage billing or cancel" on the payment screen do?' {#manage-billing-or-cancel-on-this-screen}
+  - Who can set up payment for a property? {#who-can-set-up-payment}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Type how many rooms you have, pick <Ui>Monthly</Ui> or <Ui>Yearly</Ui>, and the price panel shows your number before you commit to anything. Stripe's own page takes the card, and MAYA never sees it. Cloudbeds Marketplace arrivals connect first and pay after, with a 7-day trial. Direct sign-ups pay first and connect next. Leaving Stripe's page part way charges nothing.
+</InPlainWords>
+
+## Which comes first, paying or connecting
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+From the Cloudbeds Marketplace, you connect first: <Ui>Connect App</Ui> in Cloudbeds, then your MAYA account, then this payment screen, which already names your property and needs no code. MAYA starts reading your booking history while you pay. From maya-rms.com directly, you pay first and connect Cloudbeds on the next screen, and a code may be needed.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+You pay first, then connect. The payment screen asks which property management system you use. Pick <Ui>Think Reservations</Ui>. A code may be needed. After paying you land on the connect screen and sign in to ThinkReservations from there.
+</PmsTab>
+<PmsTab pms="mews">
+You pay first. Pick <Ui>Mews</Ui> on the payment screen. A code may be needed. After paying you land on the connect screen, headed <Ui>Connect your property system</Ui>. Mews shows there under <Ui>Coming soon</Ui> as <Ui>Not yet available</Ui>. That is expected: we connect Mews with you. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Connecting%20Mews) and close that screen. Until Mews is connected, signing in brings you back to it. You are welcome to email before paying, if you would rather talk first.
+</PmsTab>
+</PmsTabs>
+
+If you leave Stripe's page and come back more than once, you never end up with two properties. When you connect, the property takes its name from your system.
+
+## The screen, field by field
+
+The screen is headed <Ui>Let's get you set up</Ui> for a direct sign-up, or with your property's name followed by "is connected" for a Marketplace arrival.
+
+The line under the heading depends on how you arrived. For a direct sign-up, it says that pricing is per room, per month, and that you will see the number before committing. For a Marketplace arrival, it reads "Try MAYA free for 7 days. Nothing is charged until the trial ends, and you can cancel any time." When no trial applies, it reads "Set up a payment method to start using MAYA."
+
+<Steps>
+<Step title="How many rooms?">
+A number box with the hint <Ui>e.g. 24</Ui>. Any whole number from 1 to 500. Anything else shows "A whole number between 1 and 500." The next section says what to count.
+</Step>
+<Step title="Billing">
+Two buttons, <Ui>Monthly</Ui> and <Ui>Yearly</Ui>. Once the room count is valid, the yearly button adds <Ui>save 10%</Ui> for 21 rooms and up, or <Ui>pay once a year</Ui> for 1 to 20 rooms, because the smallest bracket has no yearly discount. [What it costs](/docs/start/what-it-costs) has the brackets.
+</Step>
+<Step title="The price panel">
+Appears once the room count is valid. A large price with "/ month" or "/ year" beside it, then a line such as "20 rooms at $5.50 per room." On a yearly plan the line goes on: "a month, billed as one year" and, from 21 rooms, "less 10%". The last line is either "Nothing today", followed by the date and amount of your first charge and "Cancel anytime." (a trial), or "Billed when you finish checkout. Cancel anytime."
+</Step>
+<Step title="Which property management system do you use?">
+Direct sign-ups only. Four buttons: <Ui>Mews</Ui>, <Ui>Cloudbeds</Ui>, <Ui>Think Reservations</Ui>, <Ui>Something else</Ui>. Your choice sets whether the next field is required. A Marketplace arrival does not see this question, because the system is already Cloudbeds.
+</Step>
+<Step title="Your code">
+Labelled <Ui>Your code</Ui> when your system needs one, with the helper "MAYA is invite-only for now" and a note that you will have been given a code. Labelled <Ui>Your code (optional)</Ui> when it does not, with the helper "Got a discount or trial code? Enter it here" and a note to leave it blank otherwise. The field upper-cases as you type and checks the code a moment after you stop. [Codes and the free trial](/docs/pay/codes-and-the-free-trial) has every message.
+</Step>
+<Step title="Continue to payment">
+The button reads <Ui>Continue to payment</Ui>, or <Ui>Set up payment</Ui> when a trial applies. It reads "Taking you to checkout…" while Stripe's page loads. It stays greyed out until the room count is valid, a system is picked (when asked), and the code is either valid or, when optional, empty. Pressing Enter in any field does the same as the button. Under it: "Card details are handled by Stripe. They never touch MAYA."
+</Step>
+</Steps>
+
+## How many rooms to enter
+
+Count the rooms guests sleep in. Leave out meeting rooms, spa slots, courts, parking and anything else your system sells as a "room type" that is not a bedroom. The Harbour Inn types 20: 12 Standard, 6 Deluxe and 2 Suites, and not its Meeting Room.
+
+The number you type is what you are billed for at the start. After you connect, MAYA counts the rooms in your property system on every sync, leaving out types you have unticked as rooms, and compares that with what you pay for. If it finds more rooms than you pay for, you get an email and 7 days to set the count yourself. It never lowers the count for you. [Your room count and what you pay](/docs/billing/your-room-count) has the whole story, so an honest estimate now is fine.
+
+<Callout kind="good-to-know" title="The website's calculator does not fill this in">
+If you typed a room count into the calculator on get-maya.com, it is not carried into the app. The box here starts empty. Type the number again.
+</Callout>
+
+<Example title="What the price panel says with a code">
+The Harbour Inn (20 rooms) on <Ui>Monthly</Ui> with no code: "$110 / month" and "20 rooms at $5.50 per room." With a code granting 20% off the first 3 months, the list price $110 is struck through and "$88 / month" stands beside it, with the green line "For your first 3 months, then $110 a month." On <Ui>Yearly</Ui> the same code shows $1,320 struck through, "$1,254 / year", and "For your first year, then $1,320 a year.", because 20% off 3 of 12 months is the same money as 5% off the year. Under the code field, the green line spells that out.
+</Example>
+
+## The Terms line above the pay button
+
+On Stripe's page, above the pay button, a line of text says "By subscribing you agree to the MAYA Terms of Service." and that your subscription renews automatically every month (or year) until you cancel. It goes on: "Your card is stored and may be charged for room-count changes (Terms 7.6)." With a trial it adds that the trial becomes a paid subscription unless you cancel before it ends. For a Marketplace property it adds "and offered for your other properties", because one card serves every property on that account.
+
+"Charged for room-count changes" means the room count check above: if your system shows more rooms than you pay for and you do not set the count within 7 days of being told, MAYA raises it and the difference is added to your next invoice, never taken on the day. [The Terms checkbox](/docs/account/the-terms-checkbox) covers the rest of the line.
+
+## What Stripe asks for
+
+Stripe hosts the page and holds the card. MAYA never sees the card number. You pay by card: paying from a US bank account (ACH) is switched off, and every payment is taken automatically, so there is no bank transfer and no invoice by email. Stripe asks for the card, its expiry and security code, and the cardholder's name. Prices exclude tax. Whether Stripe also adds tax and asks for a full billing address and a business tax ID depends on how billing is set up at the time. [Cards, payments and invoices](/docs/billing/cards-payments-and-invoices) has more on tax.
+
+Stripe's own promotion code box is switched off. A code goes in MAYA's <Ui>Your code</Ui> field before you reach Stripe, never on Stripe's page.
+
+## Leaving checkout part way
+
+Nothing is charged until you finish Stripe's page.
+
+If you use the back link on Stripe's page, you return to the payment screen with the line "No charge was made", followed by a note that you left checkout before finishing. The screen starts afresh, so type the room count again, pick <Ui>Monthly</Ui> or <Ui>Yearly</Ui> (it starts on <Ui>Monthly</Ui>), type your code again, and pick your property system again if the screen asks. If you use your browser's back button instead, the screen may come back with your entries still in it, but without the "No charge was made" line.
+
+If you were restarting a cancelled subscription, leaving Stripe's page takes you to the dashboard, not back to the restart screen. Open <Ui>Billing</Ui> and click <Ui>Restart your subscription</Ui> again.
+
+## The "Payment received" screen
+
+Most people never see this screen. After Stripe confirms your payment, MAYA moves you straight on. If confirmation has not reached MAYA yet, a screen headed "Payment received" holds you for a moment: "Setting up your account" with a moving bar, and it moves on by itself the moment the payment is recorded.
+
+If that takes longer than about 25 seconds, the screen says your payment went through but our side is taking longer than usual, and adds "Nothing is lost and you have not been charged twice." A <Ui>Check again</Ui> button asks straight away. After 5 minutes it stops checking on its own and says so. <Ui>Check again</Ui> still works, and so does closing the page and signing in again later, which takes you to the right next step. Your card is saved either way, and there is never a second charge. [Account and billing problems](/docs/wrong/account-and-billing-problems) has what to do if it stays stuck.
+
+<Callout kind="not-yet" title="No email when the payment is confirmed">
+The slow version of this screen says we will email you when it is ready. No such email is sent today. Sign in again later instead, and MAYA takes you to the next step. [Emails MAYA sends](/docs/billing/emails-maya-sends) lists the emails that do exist.
+</Callout>
+
+## After you pay
+
+- **A Marketplace property** is switched on and you go to the path choice, <Ui>Hold My Hand</Ui> or <Ui>Let Me Drive</Ui>. If several properties came over together, the payment screen comes back for the next one, headed <Ui>Property 2 of 3</Ui>, with the same card offered. [Paying for a group of properties](/docs/pay/paying-for-a-group) explains.
+- **A direct sign-up** goes to the connect screen, headed <Ui>Connect your property system</Ui>. If you picked Mews, it shows there as <Ui>Not yet available</Ui>. That is expected: we connect Mews with you, so [email us](mailto:info@modern-hospitality-solutions.com?subject=Connecting%20Mews) and close the screen.
+
+Every property starts in simulation, whichever way you arrived: MAYA runs your rules and sends nothing to your system until a General Manager or Hotel Admin goes live. For Mews, MAYA sends no prices yet, even once the property is live. You set prices in Mews yourself. Read [Mews: what works today](/docs/connect/mews).
+
+## Messages you might see
+
+- **"This property already has a subscription. Manage it at /account/billing."** The property is already paid for. Open the <Ui>Billing</Ui> page instead.
+- **"Too many checkout attempts. Wait a few minutes and try again."** You started checkout more than 10 times in 10 minutes. Wait, then try once more.
+- **"This needs General Manager access or higher on this property."** You are paying for a property that already exists, and your role there is below General Manager. Ask its General Manager or Hotel Admin.
+- **"Tell us how many rooms you have"** followed by the range 1 to 500: the room count did not reach us as a whole number in range. Type it again.
+- **"We couldn't start checkout just now. Please try again in a moment."** Stripe could not be reached. Try again in a minute. If it keeps happening, [email us](mailto:info@modern-hospitality-solutions.com?subject=Checkout%20problem).
+
+If your acceptance of the Terms is not on file when you start checkout, the "Before you continue" screen appears. Tick the box, click <Ui>Continue</Ui>, and checkout carries on by itself.
+
+## Who can set up payment
+
+A first-time payer has no property yet, so anyone with an account can pay, and the payer becomes the property's Hotel Admin. Paying for a property that already exists, restarting a cancelled one, or paying for the next property in a group needs General Manager or Hotel Admin.
+
+## "Manage billing or cancel" on this screen
+
+If a subscription already sits on a property that is not connected yet, the payment or connect screen shows a small link, <Ui>Manage billing or cancel</Ui> (with the property's name when there is one). The <Ui>Billing</Ui> page cannot show a property until its system is connected, so this link is the door in the meantime: it opens Stripe straight onto cancelling that one subscription. Once set to cancel, the link becomes the words "Cancels at the end of the period". [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving) has the details.
+
+<Callout kind="not-yet">
+Cards only: no bank transfer, no ACH, no invoicing by email. No email when a payment is confirmed. The room count typed on get-maya.com is not carried into the app. Over 500 rooms is not sold self-serve. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Over%20500%20rooms) instead.
+</Callout>
+
+<Related>
+- [Codes and the free trial](/docs/pay/codes-and-the-free-trial)
+- [What it costs](/docs/start/what-it-costs)
+- [Paying for a group of properties](/docs/pay/paying-for-a-group)
+</Related>

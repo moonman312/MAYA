@@ -1,0 +1,186 @@
+---
+title: What MAYA does
+summary: You write pricing rules in plain words. About every five minutes MAYA reads your bookings, runs your rules over the next 60 nights, and sends the prices that changed to your property system (not yet to Mews).
+section: start
+order: 10
+readingTime: 15
+keywords: [what is MAYA, what does MAYA do, overnight, nobody signed in, computer off, internet down, runs without me, night audit, what is a rule, who sets my prices, AI, artificial intelligence, machine learning, learns, algorithm, competitor rates, rate shopper, channel manager, revenue management software, how it works, simulation, automatic pricing, price my rooms, already booked, existing bookings, existing reservations, guests pay more, guests pay less, raise the price after booking, change my bookings, black box, learn from my data, forecast, forecasting, predict, occupancy forecast, demand forecast, prices go crazy, runaway prices, out of control, too high, too low, safety]
+questions:
+  - What does MAYA actually do? {#in-plain-words}
+  - Does MAYA set my prices, or do I? {#who-sets-the-prices-you-do/you-write-the}
+  - What is a rule? {#a-rule-in-one-sentence/a-rule-is}
+  - Does MAYA work things out on its own? Does it change itself over time? {#maya-counts-and-compares}
+  - Does MAYA look at competitor rates? {#where-the-prices-come-from/from-your-own}
+  - How is MAYA different from a channel manager or a rate shopper? {#how-maya-differs-from-a-channel-manager-or-a-rate-shopper}
+  - What does MAYA read from my property system, and what does it send? {#what-maya-reads/bookings}
+  - Does MAYA touch reservations, availability or minimum stays? {#what-maya-never-touches}
+  - If one of my rules raises tonight's price, do guests who already booked pay more? {#what-maya-never-touches}
+  - Does MAYA keep pricing when nobody is signed in, the office computer is off, or the hotel's internet is down? {#what-happens-after-you-write-a-rule/about-every-five}
+  - Is there a forecast of occupancy or demand? {#no-forecasts}
+  - What keeps my prices from going too high or too low? {#what-keeps-prices-in-check}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+You write pricing rules. About every five minutes MAYA reads your bookings, runs your rules over the next 60 nights, and sends the prices that changed to your property system (with Mews, nothing is sent yet). Nothing is sent until you say so. The change log shows the latest changes and why each one happened.
+</InPlainWords>
+
+## A rule in one sentence
+
+A rule is a sentence you fill in: when a night looks like this, change the price by that much.
+
+Here is one from The Harbour Inn, a 20-room property we use in every example: when a night is more than 80% full, raise the price by 10%. On the <Ui>Rules</Ui> tab that rule is a name ("Busy nights"), a condition (<Ui>Sellable occupancy (%)</Ui>, <Ui>Greater than</Ui>, 80), a direction (<Ui>Increase the rate</Ui>) and an amount (10%). That is the whole rule.
+
+Sellable occupancy is rooms booked divided by rooms you can sell that night. When The Harbour Inn has 17 of its 20 rooms booked for November 14, that night is 85% full, so "Busy nights" fires and Standard goes from $150 to $165. When it has 16 booked, the night is exactly 80% full, which is not more than 80%, so the rule waits.
+
+A rule can watch four things about a night:
+
+| What a rule can watch | On screen | In plain words |
+|---|---|---|
+| Sellable occupancy | <Ui>Sellable occupancy (%)</Ui> | how full the night is |
+| Booking speed | <Ui>Booking speed (recommended)</Ui> | how fast the night is booking compared with your own similar past nights |
+| Booking window | <Ui>Booking window (days to stay)</Ui> | how many days away the night is |
+| Pickup count | <Ui>Pickup count (advanced)</Ui> | how many more rooms were booked for the night, or how much room revenue it gained, in the last 1, 3 or 7 days |
+
+A rule can combine up to four of these, one of each kind. All of them have to be true at once for the rule to fire. You build rules by filling in dropdowns, not by writing code. [Build your first rule](/docs/rules/build-your-first-rule) walks through it click by click.
+
+## What happens after you write a rule
+
+<Steps>
+<Step title="You set the rules">
+You add a rule on the <Ui>Rules</Ui> tab. With Cloudbeds and ThinkReservations, setup also adds starter rules built from your own booking history, when there is about 60 days of it. They are added for you and switched on, but while you are in simulation they only show what they would do. Nothing is sent. You can switch any of them off or delete them before you go live. Later, <Ui>Get suggestions from my data</Ui> can offer more as cards, which you accept or turn down. Each rule has an <Ui>On/Off</Ui> switch.
+
+<Example title="What this looks like on screen">
+The <Ui>Rules</Ui> tab lists every rule in a table: its name, how many times it has fired, its conditions, the room types it applies to, the price change, and its <Ui>On/Off</Ui> switch. Under the table, <Ui>+ Add a rule</Ui> opens the builder. Above it, a panel called <Ui>How rules behave</Ui> plays two short animations.
+</Example>
+</Step>
+<Step title="MAYA runs them">
+About every five minutes, MAYA reads your bookings and room types from your property system, refreshes your own rates from it about once an hour, runs every rule over the next 60 nights, and sends the prices that changed. Sending only happens once you have gone live, and never to Mews yet. Until then MAYA runs everything and sends nothing.
+
+This all happens on MAYA's side, day and night, whether or not anyone has MAYA open. Nobody needs to be signed in, and the office computer being off or your own internet being down does not stop it. What stops it is MAYA being unable to reach your property system's service (read [Connection lost](/docs/wrong/connection-lost)), or a subscription that has stopped.
+
+<Example title="What this looks like on screen">
+Nothing, most of the time. A run that changed nothing writes one quiet line in the <Ui>Change Log</Ui> that reads "Prices checked". You only see the runs that changed a price unless you click <Ui>Show All Cycles</Ui>.
+</Example>
+</Step>
+<Step title="You watch the log">
+Every price change is recorded: which room type, which night, from what to what, which rule acted and why. For a booking speed change, a <Ui>How did we know?</Ui> button opens the past nights this night was compared with and the counts behind the change.
+
+The <Ui>Change Log</Ui> tab shows the latest ones: about the last 50 minutes (the 10 most recent runs, about five minutes apart). Each run shows up to 40 changes, the biggest moves first. The detail behind every change is kept for 90 days. For a change older than the runs on screen, [email us](mailto:info@modern-hospitality-solutions.com?subject=Why%20did%20a%20price%20change) within those 90 days and we look it up for you. [The change log](/docs/watch/the-change-log) has the limits.
+
+<Example title="What this looks like on screen">
+Each change reads like this: Standard · stay 2026-11-14: $150.00 up to $165.00 (+10%), then a sentence such as "It was 85% full, past the 80% mark you set." The <Ui>Calendar</Ui> tab shows the result: each night's current price per room type.
+</Example>
+</Step>
+</Steps>
+
+## What MAYA reads
+
+MAYA reads only what pricing needs:
+
+- **Bookings**: the stay dates, the room type, the nightly rate, and the date the booking was made. Cancellations are read the same way and taken off the count.
+- **Room types**, and with Cloudbeds how many rooms each has. MAYA does not read room counts from ThinkReservations yet, and Mews does not normally report them. So with those two, MAYA uses one room count for every room type, which we set with you (on ThinkReservations, 100 until then). [Your room count and what you pay](/docs/billing/your-room-count) says why that matters.
+- **Your own rates** for each night, read from your property system about once an hour, so your rate is the starting point a rule works from. This applies to Cloudbeds and ThinkReservations. Mews rates are not read.
+- **Property details**: with Cloudbeds and ThinkReservations, the property's name, time zone and currency are read once, at connection. With Mews we set them with you when we connect it.
+
+Guest names, emails, phone numbers, addresses, notes and payment details are never stored. What is kept about a booking is its structure: dates, room type, price, party size as a count, and the booking channel. [What MAYA reads and writes](/docs/connect/what-maya-reads-and-writes) lists every field.
+
+## What MAYA sends
+
+One nightly price per room type, and nothing else.
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+MAYA writes each room type's base rate. Rate plans set up to follow it move with it by Cloudbeds' own rules. [Cloudbeds](/docs/connect/cloudbeds) has the details.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+MAYA writes the rate type named Best Available. Name your main rate type Best Available to be sure it is the one written. Rate types set up to follow it move with it by ThinkReservations' own rules. ThinkReservations accepts a price and applies it shortly after, and MAYA checks about an hour later that the price is there. [ThinkReservations](/docs/connect/thinkreservations) says what happens when no rate type has that name.
+</PmsTab>
+<PmsTab pms="mews">
+Nothing is sent to Mews yet. MAYA reads your Mews bookings, runs your rules and shows the prices on the <Ui>Calendar</Ui> and in the <Ui>Change Log</Ui>, but no price reaches Mews. A Mews property has no go-live button, and going live would send nothing to Mews anyway. A night that has never had a booking has no price until you type one (read [where the prices come from](#where-the-prices-come-from)).
+</PmsTab>
+</PmsTabs>
+
+Only prices that changed go out. A night whose price has not changed since MAYA last sent it is not sent again. On your first live run, every night in the 60-night window that has a price is sent once, including nights your rules left at your own rate. A price of 0 is never sent. For a free night, type 0 in MAYA and set 0 in your property system yourself.
+
+## What MAYA never touches
+
+- Reservations. MAYA never creates, changes or cancels a booking. So when a rule raises or cuts tonight's price, guests who have already booked keep the rate they booked at. The new price is for bookings made after it reaches your system.
+- Availability, overbooking limits or room allotments.
+- Minimum stays, closed-to-arrival, closed-to-departure or close-outs.
+- Guests, guest profiles or guest messages.
+- Packages, promotions or non-refundable plans directly. Plans set up to follow your base rate move with it by your system's own rules. A package or plan with its own separate rate does not move. With ThinkReservations, this holds once your main rate type is named Best Available.
+- Booking.com, Expedia or any other channel directly. Your property system and channel manager carry your base rate to them, as they do today.
+
+## The two words you will see everywhere
+
+**Sellable occupancy** is rooms booked divided by rooms you can sell that night. Only room types you have ticked as rooms count, and rooms you have marked out of service come off first. Twelve Standard rooms, three out of service, eight booked: 89%. [Sellable occupancy](/docs/rules/sellable-occupancy) has a slider to try.
+
+**Booking speed** is how many bookings a night received in the past day, week or month, compared with how many your own similar past nights had received by the same point before arrival. MAYA turns that into one of seven levels, from Stalled to Surging, and a rule can fire on any of them. After a booking speed or pickup count rule has raised a night, booking speed rules that raise count only the bookings that came in since then. Cuts work the same way. So one burst of bookings brings one booking speed raise. Pickup count and occupancy rules are not limited this way. [Booking speed](/docs/rules/booking-speed) explains the levels, and [after the rule acts](/docs/rules/booking-speed#after-the-rule-acts) explains the counting.
+
+## Where the prices come from
+
+From your own rates, your own rules and your own past bookings. Nothing from outside your property.
+
+- With Cloudbeds and ThinkReservations, the starting price for a night is your own rate, read from your system.
+- With Mews, no rates are read. The starting price is the rate of the most recent booking for that night and room type, or failing that the starting price the night had last time. A Mews night that has never had a booking has no price until you type one. [Mews](/docs/connect/mews#where-a-nights-starting-price-comes-from) has the detail.
+- A rule raises or cuts the starting price by a percentage or a fixed amount, and the result stays between that room type's floor and ceiling. [Floors and ceilings](/docs/review/floors-and-ceilings) says where they come from.
+- Booking speed compares a night with your own similar past nights: the same weekday, the same time of year, the same position around a holiday, from the last three years. It is a comparison with your own past nights, and it says nothing about your future.
+- MAYA does not read competitor rates, rate shoppers, weather, events or market data. There is no feed to switch on.
+
+<Callout kind="good-to-know" title="How a wedding counts">
+With Cloudbeds and ThinkReservations, a wedding of 20 rooms on one booking counts once for booking speed, both now and on the past nights it is compared with. Mews records each room as a booking of its own, so with Mews the same wedding counts as 20 bookings. Occupancy rules and pickup count rules both count all 20 rooms, with every system.
+</Callout>
+
+## MAYA counts and compares
+
+You set the rules, and MAYA runs them against your bookings and your own past years. Each cycle it counts your bookings, compares a night with your own past nights, checks each rule you wrote, and sends the result. That is all it does. Nothing in it adjusts itself over time or builds a picture of your hotel. A rule never changes by itself. The starter rules are added at setup where you can see them, and later suggestions come as cards for you to accept or turn down.
+
+You can check any change by hand. The change log names the rule behind it and says why it acted, and on a booking speed change the <Ui>How did we know?</Ui> button opens the past nights it was compared with and the counts behind the change.
+
+There is nothing to install. With Cloudbeds you connect from the Marketplace or by signing in, with ThinkReservations you sign in, and we connect Mews for you. With Cloudbeds and ThinkReservations, starter rules come from your own history, so you are not starting from a blank page.
+
+## No forecasts
+
+There is no forecast of occupancy or demand anywhere in MAYA. Your rules act on what is already on the books: how full a night is now, how many days away it is, how many rooms it gained in the last 1, 3 or 7 days, and how fast it is booking compared with your own similar past nights at the same point. Booking speed describes the pace so far, not where the night will end up.
+
+So a price moves after bookings arrive, not before them. When you know something your bookings cannot show yet, such as a festival or a wedding in town, type a price for those nights. [Hold a price for an event](/docs/recipes/hold-a-price-for-an-event) shows how.
+
+## Who sets the prices: you do
+
+- **You write the rules.** The starter rules from your history are added for you during setup and switched on, but while you are in simulation they only show what they would do. You can switch any of them off or delete them before you go live. A rule that is switched off holds the changes it already made. A deleted rule undoes them.
+- **You can type a price** for any room type, for tonight or any night up to a year ahead, from the <Ui>Calendar</Ui> tab. It has to sit within the room type's floor and ceiling, or be 0 for a free (comp) night, and it needs Revenue Manager, General Manager or Hotel Admin access. Your typed price becomes the night's new starting point. The changes your rules had already made there are set aside, and any rule that fires after that works from your number. No rule raises a night set to 0, and a 0 is not sent, so set the night to 0 in your property system too.
+- **Floors and ceilings hold every rule.** Each room type has a floor and a ceiling that no rule can take its price past. Setup fills them in from your answers to the five questions and, with Cloudbeds and ThinkReservations, from your own rates. Check them before you go live, in the <Ui>Guardrails</Ui> column of the <Ui>Rate Simulator</Ui> tab. A price you set yourself can sit outside them (0 for a free night, or a rate you changed in your property system), and no rule takes it further out. [Floors and ceilings](/docs/review/floors-and-ceilings) has the detail.
+- **You go live.** Every property starts in simulation. MAYA runs every rule and writes every change in the log, but sends nothing to your system until a General Manager or Hotel Admin clicks <Ui>Turn them on for real</Ui>, or asks us to switch the property live where there is no button. [Going live](/docs/live/going-live) says which.
+
+## What keeps prices in check
+
+Each rule moves a price by the percentage or amount you set in it, and four things hold your rules:
+
+- No rule takes a room type's price below its floor or above its ceiling. Setup fills them in where your answers or your own rates give a number. Check them before you go live: a room type still at the defaults, 1.00 and 99,999.99 in your currency, is held back by nothing. [Floors and ceilings](/docs/review/floors-and-ceilings) has the detail.
+- When a booking speed or pickup rule has adjusted the same night three times, an amber banner asks you whether it should keep adjusting or stop for that night. [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting) explains it.
+- Nothing is sent until you go live, so you can watch what your rules would do for as long as you like.
+- You can type a price for any night, or switch any rule off, at any time. The change log shows every change and the rule behind it.
+
+## How MAYA differs from a channel manager or a rate shopper
+
+A channel manager carries your rates to Booking.com, Expedia and the rest. A rate shopper shows you what other hotels charge. MAYA does neither. Your rules move your base rate using your own bookings, and MAYA sends the result to Cloudbeds or ThinkReservations. Your channel manager keeps distributing that rate, as it does now. Nothing about your channels changes when you connect MAYA.
+
+## Simulation first
+
+Every property starts in simulation. Everything runs: bookings are read, rules fire, prices are worked out, the change log fills. Nothing is sent. You can watch for a day or a month, type prices, add rules, and open the <Ui>Rate Simulator</Ui> to make up a night and see what your rules would do to it. When you are ready, you go live, and from the next run MAYA starts sending prices for the next 60 nights to Cloudbeds or ThinkReservations. [Simulation mode](/docs/live/simulation-mode) covers what changes when you do.
+
+## Who makes MAYA
+
+MAYA is made by Modern Hospitality Solutions LLC. Support is by email, and we aim to answer within one business day. [Getting help](/docs/help/contact-support) has the address and what to include.
+
+<Callout kind="not-yet">
+MAYA does not read competitor rates, weather or event feeds, and it does not set minimum stays or close-outs. Keep setting those in your property system, and type a price yourself for a night you know is special. [What MAYA does not do](/docs/reference/what-maya-does-not-do) has the full list.
+</Callout>
+
+<Related>
+- [Build your first rule](/docs/rules/build-your-first-rule)
+- [Is MAYA right for your property](/docs/start/is-maya-right-for-you)
+- [How rules run](/docs/rules/how-rules-run)
+</Related>

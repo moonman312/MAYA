@@ -1,0 +1,159 @@
+---
+title: Your starter rules
+summary: The five booking speed rules MAYA builds during a first import, what each one does, how they count bookings, why you may not have them, and how to turn one off or delete it.
+section: review
+order: 50
+readingTime: 11
+keywords: [starter rules, rebuild a starter rule, copy a starter rule, slow-date trim in the builder, changed the rate in cloudbeds, cut came off, first pricing rules, we built your first pricing rules, slow-date rescue, slow-date trim, warm-date bump, hot-week surge, sudden-spike catcher, five rules, booking speed rules, why no starter rules, no rules were built, not enough history, 60 days, two months, turn off starter rule, delete starter rule, priority, which room types, every day, simulation, three times, rules that keep adjusting, raise came off, cancelled]
+questions:
+  - What are starter rules? {#in-plain-words}
+  - Why did I not get starter rules? {#why-you-may-not-have-starter-rules}
+  - Can I turn the starter rules off or delete them? {#turning-one-off-or-deleting-it/the-on-off}
+  - What does Slow-date rescue do? {#slow-date-rescue}
+  - What does Hot-week surge do? {#hot-week-surge}
+  - Do starter rules change prices straight away? {#in-plain-words}
+  - Which room types do the starter rules cover? {#which-room-types-which-days}
+  - Why did a starter rule fire before one of my own rules? {#how-they-rank-against-your-own-rules}
+  - Can I edit a starter rule? {#turning-one-off-or-deleting-it/not-yet-a}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+If your property has about two months of booking history or more, and no rules yet, MAYA adds five booking speed rules during the import: two that cut a night booking slower than similar nights had, and three that raise a night booking faster. They start switched on, in simulation, so they change nothing in your system until you go live. Turn any of them off, or delete it, from the <Ui>Rules</Ui> tab.
+</InPlainWords>
+
+## Where you see them
+
+On the review, a green box headed "While you were here, we built your first pricing rules" lists each rule with a sentence about what it does, then the <Ui>Turn them on for real</Ui> button. Read [Going live](/docs/live/going-live) for that button. The box goes once anyone on your team runs <Ui>Get suggestions from my data</Ui>, and the rules stay.
+
+After that they live on the <Ui>Rules</Ui> tab like any rule you build yourself, with a <Ui>Fired</Ui> count, an <Ui>On</Ui> / <Ui>Off</Ui> switch and a <Ui>Delete</Ui> button. Every change they make is written in the <Ui>Change Log</Ui> tab with the rule's name.
+
+## The five rules
+
+Each is a [booking speed](/docs/rules/booking-speed) rule. Booking speed compares how many bookings a night received recently with how many similar past nights had received at the same point before arrival, and reads as one of seven levels from Stalled to Surging. The <Ui>Conditions</Ui> column on the <Ui>Rules</Ui> tab shows each rule like this:
+
+| Name | Conditions, as the Rules tab shows them (each begins "booking speed") | Price change |
+|---|---|---|
+| Slow-date rescue | at most Much Slower Than Normal (past month), then waits 1 week | -15% |
+| Slow-date trim | Slower Than Normal (past month), then waits 1 week | -7% |
+| Warm-date bump | at least Faster Than Normal (past month), then waits 3 days | +10% |
+| Hot-week surge | at least Much Faster Than Normal (past week), then waits 2 days | +25% |
+| Sudden-spike catcher | at least Surging (past day), then waits 1 day | +25% |
+
+"At most Much Slower Than Normal" means Much Slower or Stalled. "Slower Than Normal" on its own means exactly that level. "At least Faster Than Normal" means Faster, Much Faster or Surging.
+
+### Slow-date rescue
+
+When a night is booking far behind similar nights (Much Slower Than Normal or Stalled, over the past month), the rule cuts it 15%. It then waits a week, counts only the bookings made since the night was last cut, and cuts again if those are still that far behind. MAYA asks you once it has cut the same night three times.
+
+### Slow-date trim
+
+When a night is booking a little behind similar nights (exactly Slower Than Normal, over the past month), the rule trims it 7%. It checks again a week after each trim, counting only the bookings made since the night was last cut, and trims again if those are still behind.
+
+### Warm-date bump
+
+When a night is booking ahead of similar nights (Faster Than Normal or more, over the past month), the rule raises it 10%. It waits 3 days, then raises again only if the bookings made since the night was last raised are still ahead. If enough of the bookings behind a raise cancel, the raise comes back off.
+
+### Hot-week surge
+
+When a night's past week runs much faster than similar nights had at the same point (Much Faster Than Normal or more), the rule raises it 25%. It can raise again every 2 days while new bookings keep coming that fast, and MAYA asks you once it has raised the same night three times.
+
+### Sudden-spike catcher
+
+When bookings pour in for a night within a single day (Surging, over the past day), the rule raises it 25%, and can raise again each day while the rush lasts. Your ceiling is the cap, and MAYA asks you once it has raised the same night three times.
+
+## How they count
+
+A booking with several rooms counts once. A 20-room wedding booking is one booking for booking speed (and 20 booked rooms for occupancy). Only bookings in the room types a rule measures are counted.
+
+Each rule waits after it adjusts a night, per night and per room type. Once the wait is over, the rule does not count the same bookings twice:
+
+- A rule that raises counts only bookings made since the night's last raise, whichever rule made it.
+- A rule that cuts counts only bookings made since the night's last cut.
+- The similar past nights are read over the same days, so the comparison stays fair.
+
+So one burst of bookings raises a night once, by the one rule that caught it. A stronger rule steps in on top only when the bookings since that raise read faster on their own. A cut rule keeps cutting a night that stays behind, and a raise rule keeps raising while real demand keeps coming.
+
+A price you type on a night takes its adjustments off and starts the wait over from that price. After the wait, the rule reads its whole window again. Read [Setting a price yourself](/docs/watch/setting-a-price-yourself).
+
+## When a raise comes off, and when it does not
+
+A raise made by Warm-date bump, Hot-week surge or Sudden-spike catcher comes off when enough of the bookings behind it cancel: the bookings still on the books from the days it counted fall back to what a night like it usually gets. The change log then reads that the rule stopped applying an earlier raise because enough of the bookings behind it cancelled.
+
+A cut never comes off on its own. A night Slow-date rescue cut stays cut until you set a price yourself (in MAYA, or by changing the rate in Cloudbeds or ThinkReservations on a night MAYA has sent to), delete the rule, or the night passes. Turning the rule off freezes the cut in place.
+
+## The three-times question
+
+Once one of these rules has adjusted the same night three times, an amber banner appears at the top of the dashboard (the Rules that keep adjusting banner). It is headed with a sentence naming the rule and how many times it adjusted, such as "\"Slow-date rescue\" would have cut 3 nights, 3 times each." While you are in simulation it says "would have cut" or "would have raised". Once you are live it says "has cut" or "has raised".
+
+The banner asks you, night by night: keep adjusting, or stop for this night. Until you answer, the rule keeps going. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
+
+## Which room types, which days
+
+The starter rules measure and change every room type that counted as a room when they were built. A meeting room or court you had unticked is left out of both. They apply every day of the week, with no date range.
+
+A room type your system adds later is not added to them. Build a rule of your own for it.
+
+## How they rank against your own rules
+
+When two booking speed or pickup rules both want to act on the same night and room type, only one fires per run. Starter rules always rank above rules you build, so on a night where a starter rule and one of yours both match, the starter rule fires first. While it waits and still matches, it holds the night and yours does not fire under it. Yours gets its turn once the starter rule no longer matches.
+
+Among the five, the order is: Sudden-spike catcher, Hot-week surge, Warm-date bump, Slow-date rescue, Slow-date trim. Read [How rules run](/docs/rules/how-rules-run).
+
+## Why you may not have starter rules
+
+MAYA builds them once per first import, and only when all of these hold:
+
+- at least 60 past nights on record had a booking (about two months of history),
+- the property has no rules at all, not even one switched off (someone built a rule before the import finished, or an earlier import left one),
+- at least one room type counts as a room,
+- the history import ran at all. Mews has no import yet, so no starter rules.
+
+<Ui>Let Me Drive</Ui> does not stop them. If you delete them, the same import does not build them again. Later, <Ui>Get suggestions from my data</Ui> offers all five again whenever your property has no booking speed rule at all. Read [Getting suggestions later](/docs/review/getting-suggestions-later).
+
+<Callout kind="good-to-know">
+A night with fewer than five similar past nights reads at most one step from Normal, so Slow-date rescue, Hot-week surge and Sudden-spike catcher stay quiet on it. Slow-date trim and Warm-date bump can still fire. A night with no usable history reads nothing, and no booking speed rule fires on it.
+</Callout>
+
+## Turning one off, or deleting it
+
+- The <Ui>On</Ui> / <Ui>Off</Ui> switch on the <Ui>Rules</Ui> tab. Off freezes what the rule has done: the changes it made stay on those nights, and it makes no new ones. On again picks up from the next run.
+- <Ui>Delete</Ui> opens a dialog headed with the rule's name. <Ui>Delete Rule and Undo Its Changes</Ui> removes the rule and every price change it made, so the next run prices those nights as if it had never existed. <Ui>Turn It Off and Keep Its Changes</Ui> is the switch, from the dialog. Deleting cannot be undone.
+
+You need to be a Revenue Manager or higher for either.
+
+To rebuild one your way, the rule builder's <Ui>Speed</Ui> dropdown, <Ui>Measured over</Ui> and <Ui>Then waits (advanced)</Ui> can set the same condition, window and wait as four of the five. Slow-date trim is the exception. The builder turns a slow level into "at most", so the closest you can build is "at most Slower Than Normal", which also fires on Much Slower and Stalled nights. A rule you build also ranks below any starter rules you keep, so a rebuilt copy waits behind them where the original would not.
+
+<Callout kind="not-yet">
+A starter rule cannot be edited, and neither can any rule. To change its number, its wait or its room types, delete it and build your own with the rule builder. Read [The rule builder](/docs/rules/the-rule-builder).
+</Callout>
+
+## When would each one fire?
+
+An illustration with made-up numbers, not your property. Each example assumes at least five similar past nights.
+
+<Example title="Slow-date rescue on a Tuesday six weeks out">
+Similar Tuesdays at The Harbour Inn had about 20 bookings in the month before this point. This one has 8. That reads Much Slower Than Normal (6 to 10 would, and 5 or fewer would read Stalled, which the rule also fires on). Standard drops 15%, from $150 to $127.50. A week later, MAYA counts only the bookings made in that week and compares them with the same week of the similar Tuesdays. If those still read Much Slower or Stalled, it cuts again, to $108.38. After a third cut the amber banner asks whether to carry on.
+</Example>
+
+<Example title="Slow-date trim">
+Similar nights had about 20 bookings in the month. This one has 12: Slower Than Normal (11 to 13 would). Deluxe drops 7%, from $200 to $186. If this night had 10, it would read Much Slower instead, and Slow-date rescue would fire in its place.
+</Example>
+
+<Example title="Warm-date bump">
+Similar nights had about 5 bookings in the month. This one has 9: Faster Than Normal (10 or more would read Much Faster or Surging, and the rule fires on those too). Standard rises 10%, from $150 to $165. Three days later MAYA counts only the bookings made in those three days, against the same three days of the similar nights. If those are still ahead, it raises again, to $181.50. If enough of the 9 cancel, the raise comes off.
+</Example>
+
+<Example title="Hot-week surge on a Saturday">
+Similar Saturdays had about 5 bookings in the week at this point. This one has 10: Much Faster Than Normal (10 to 17 would). Suite rises 25%, from $300 to $375. Two days later the rule counts only the bookings made in those two days. It raises again only if those alone read Much Faster.
+</Example>
+
+<Example title="Sudden-spike catcher">
+A night that usually gets about 1 booking in a day gets 5 today: Surging. Standard rises 25%, from $150 to $187.50. Tomorrow the rule counts only tomorrow's bookings. If Hot-week surge had raised the night earlier today, Sudden-spike catcher would count only the bookings since that raise. If those alone read Surging, its 25% would stack on top, up to the ceiling.
+</Example>
+
+<Related>
+- [Booking speed](/docs/rules/booking-speed)
+- [How rules run](/docs/rules/how-rules-run)
+- [Off, delete or change](/docs/rules/off-delete-or-change)
+</Related>

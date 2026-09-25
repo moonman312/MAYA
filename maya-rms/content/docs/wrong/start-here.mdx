@@ -1,0 +1,118 @@
+---
+title: "Start here: the four questions people ask first"
+summary: Short answers to the four things owners ask when a price surprises them, with a link to the long answer for each, and a map of the rest of this section.
+section: wrong
+order: 10
+readingTime: 11
+keywords: [wedding, wedding weekend, cut my price, did MAYA cut my price, dropped, nothing changed, nothing happened today, quiet, undo, revert, put it back, reverse, is it sending, sending right now, live or simulation, am I live, worried, something wrong, help, price surprise, group block, block, tentative, pencilled in, penciled in, Confirmation Pending, Optional, Enquired, Requested, No recent activity, read failed, paused work, subscription cancelled]
+questions:
+  - Did a rule cut my price for the wedding weekend? {#did-a-rule-cut-my-price-for-the-wedding-weekend/one-of-your}
+  - Why did nothing change today? {#why-did-nothing-change-today/most-pricing-runs}
+  - Can I undo that? {#can-i-undo-that/type-the-price}
+  - Is it sending prices right now? {#is-it-sending-prices-right-now/maya-sends-prices}
+  - How do I put a price back to what it was? {#can-i-undo-that/type-the-price}
+  - Why is MAYA quiet? {#why-did-nothing-change-today/most-pricing-runs}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Open the <Ui>Change Log</Ui> tab: each change a rule makes names the rule and the reason. To fix a night now, type the price you want. To undo a rule's changes everywhere, delete the rule. Most runs change nothing, and nothing is sent until you go live.
+</InPlainWords>
+
+## Did a rule cut my price for the wedding weekend?
+
+One of your rules may have. Open the <Ui>Change Log</Ui> tab and find the night. Each change names the rule that acted and the reason, in one or two sentences. The change log only reaches back about 50 minutes. For an older change, check the night's <Ui>Current price</Ui> and any <Ui>Manual</Ui> badge on the calendar, and [email us](mailto:info@modern-hospitality-solutions.com?subject=Why%20did%20a%20price%20change) the night and room type: the detail behind every change is kept for 90 days, and we can read it for you. If a booking speed rule cut the night, the sentence reads something like "Bookings came in much slower than normal this past month: 1, against the 5 a night like this usually has by now."
+
+That reading can be right and still feel wrong, for two reasons.
+
+First, a wedding booked as one reservation is one booking. For booking speed, a booking counts once however many rooms it holds. A 20-room wedding on your Saturday is 20 booked rooms for occupancy and one booking for booking speed. If similar Saturdays had received 5 bookings by this point, one booking reads as much slower, and a cut rule that measures only booking speed fires. It does not look at how full the night is unless you gave it an occupancy condition.
+
+Second, MAYA reads bookings, not blocks or allotments, from Cloudbeds, ThinkReservations and Mews. A wedding held as a block in your property system, with no booking behind it, adds nothing to the count and nothing to occupancy.
+
+A tentative booking is different. On Cloudbeds a booking marked Confirmation Pending counts as booked, and on Mews so does one marked Optional, Enquired or Requested. They count for occupancy and for booking speed, like any other booking.
+
+**Fix it now.** On the <Ui>Calendar</Ui> tab, open the night, and on the room type card type the price you want. Use <Ui>through…</Ui> to cover the whole weekend in one save. On a live Cloudbeds property that price goes to your system now, and ThinkReservations applies it shortly after. With Mews a typed price is never sent, although the confirmation says "Sending to Mews now". Rules that had already moved the night are paused for that room type. Read [Setting a price yourself](/docs/watch/setting-a-price-yourself).
+
+**Keep the rules off those nights.** Your typed price is not a lock. Once its wait is over, a booking speed rule reads the night again and can cut on top of your price. To keep your number, switch off the cut rules on the <Ui>Rules</Ui> tab until the weekend has passed. Off stops a rule on every night, and what it already did stays. Read [Hold a price for an event](/docs/recipes/hold-a-price-for-an-event).
+
+**Prevent it next time.** Give your cut rules an occupancy condition, so a full night can never read as one to cut. A rule cannot be edited. Switch the old rule <Ui>Off</Ui> (its cuts stay) and add a new one with <Ui>Sellable occupancy (%)</Ui> <Ui>Less than</Ui> 50 as a second condition. Deleting the old rule instead undoes every cut it made, on every night.
+
+For a block held in your system without bookings, enter those rooms as out of service on the <Ui>PMS</Ui> tab so occupancy reads against what you can sell.
+
+<Callout kind="careful">
+A cut made by a booking speed rule never comes off by itself. A raise comes off when enough of the bookings behind it cancel. A cut stays until you type a price or delete the rule. Other rules stack on top of it.
+</Callout>
+
+Read [A price looks wrong](/docs/wrong/a-price-looks-wrong) for the other surprises, and [Booking speed](/docs/rules/booking-speed) for how the count works.
+
+## Why did nothing change today?
+
+Most pricing runs change nothing, and the change log hides them by default. Press <Ui>Show All Cycles</Ui> and you will see a run about every five minutes reading "Prices checked" and nothing needed to change. A quiet property is a property whose rules were checked and found no reason to act.
+
+The usual reasons a rule stays quiet:
+
+- **A standard rule holds.** A rule with only occupancy or booking window conditions changes the price once when its condition starts to hold, then holds it. It does not fire again every day.
+- **A booking speed rule is waiting.** After it acts on a night it leaves that night alone for its wait, from 1 day to 2 weeks. When the wait is over it counts only bookings made since the night was last raised (or last cut), so a burst it already acted on cannot make it act again.
+- **Not enough history.** A booking speed rule stays quiet only when there are neither similar past nights nor enough nearby nights to read momentum from (how nearby nights are filling now). Then <Ui>How did we know?</Ui> under a change says no booking speed call was made. Occupancy and booking window rules work from day one.
+- **A read failed.** A run whose booking read failed prices nothing and sends nothing. <Ui>Last sync</Ui> on the <Ui>PMS</Ui> tab shows the last read that worked. On Cloudbeds, <Ui>Health (last 24 hours)</Ui> also counts the requests that failed. On ThinkReservations and Mews that card always reads "No recent activity", so check <Ui>Last sync</Ui>.
+- **The subscription lapsed.** A red banner at the top of the app reads "MAYA has paused work on this property". Nothing runs until the subscription restarts. After failed payments, update your card. After a cancellation, start a new subscription. The banner says which, and its <Ui>Restart MAYA</Ui> button opens the <Ui>Billing</Ui> page.
+- **The connection is lost.** Open the <Ui>PMS</Ui> tab to check. The amber banner above the calendar, "MAYA has lost its connection to Cloudbeds" (or your system's name), appears only once that tab has been opened in your session. Nothing runs until someone reconnects.
+- **Rules are switched Off.** The <Ui>Rules</Ui> tab shows each rule's <Ui>Status</Ui>.
+
+In simulation the log still fills. Every run happens, every change is written down, and nothing is sent. So a quiet log is quiet for one of the reasons above, not because you are simulating.
+
+Read [A rule did not fire](/docs/wrong/a-rule-did-not-fire) for the full checklist.
+
+## Can I undo that?
+
+Yes, three ways, and one that does not work.
+
+1. **Type the price you want.** On the <Ui>Calendar</Ui> tab, open the night, type the price on the room type card and press <Ui>Save</Ui>. On a live Cloudbeds property it is sent now, and ThinkReservations applies it shortly after. With Mews it is never sent. This is the fastest fix for one night or a range.
+2. **Delete the rule.** On the <Ui>Rules</Ui> tab, <Ui>Delete</Ui> undoes every price change the rule made, on every night. The dialog offers <Ui>Delete Rule and Undo Its Changes</Ui>. Deleting cannot be undone, and the rule's history stays in the change log under the name "Pricing rule".
+3. **Stop it on that night.** When the amber banner asks, <Ui>Stop for this night</Ui> means the rule makes no more changes there. What it already did stays.
+
+Switching a rule <Ui>Off</Ui> does not undo anything. Its changes stay exactly where they are, which is the point: you can pause a rule without prices jumping. The delete dialog's other button, <Ui>Turn It Off and Keep Its Changes</Ui>, does exactly that.
+
+Read [Undo a price change](/docs/recipes/undo-a-price-change) for the steps, and [When a change comes off](/docs/rules/when-a-change-comes-off) for what comes off on its own.
+
+## Is it sending prices right now?
+
+MAYA sends prices only when you have gone live, and only for nights whose price changed since the last send. There is no "sending" light on the dashboard, and no badge that says live or simulation. The word live beside the time at the top right of the calendar ("Updated 3:05:12 PM · live") only means the calendar refreshes by itself. It shows in simulation too. Here is how to tell.
+
+- **The go-live card.** Open the review screen at <AppLink to="review">maya-rms.com/onboarding/review</AppLink>. The card headed "While you were here, we built your first pricing rules" shows "✓ Live: your rules are now managing prices" once you are live, and the button <Ui>Turn them on for real</Ui> while you are simulating. The card appears only when MAYA built starter rules for you during setup, which needs about 60 days of history, and it goes once someone clicks <Ui>Get suggestions from my data</Ui>. Without it, read [Going live](/docs/live/going-live).
+- **A price you typed.** If you typed a price for a real reason lately, its confirmation read "Saved. Sending to Cloudbeds now." on a live property and "Saved (simulation: not sent to Cloudbeds)." while simulating. Do not type a price only to test this: on a live property it sends the price, and it takes any booking speed or pickup change off that night for good.
+- **The alert banner.** In simulation the amber banner says a rule "would have raised" a night. Live, it says "has raised".
+- **Compare a night.** Open a night in your property system and in MAYA. Live, the rate there matches MAYA's <Ui>Current price</Ui> within a few minutes of a change.
+
+Sending problems show in the <Ui>Change Log</Ui> tab as an item headed "Rates not reaching Cloudbeds" (or your system's name). Success is silent. <Ui>Last sync</Ui> on the <Ui>PMS</Ui> tab is the last time bookings were read, not the last time a price was sent.
+
+Mews: nothing is ever sent, live or not. MAYA reads Mews bookings and shows prices, and sending to Mews is not built yet.
+
+Read [Simulation mode](/docs/live/simulation-mode) and [How prices reach your property system](/docs/live/how-prices-reach-your-pms).
+
+<Example title="A Saturday at The Harbour Inn">
+Sam sees Standard cut from $150 to $127.50 on the Saturday of a wedding. The change log reads: "Slow-date rescue" lowered this night 15%, from $150.00 to $127.50. Bookings came in much slower than normal this past month: 1, against the 5 a night like this usually has by now.
+
+The wedding was booked as one reservation for 12 rooms. That is 12 rooms for occupancy (100% of Standard) and one booking for booking speed. Sam opens the Friday, types $150 with <Ui>through…</Ui> set to the Saturday, and presses <Ui>Save</Ui>. The confirmation reads "Saved. Sending to Cloudbeds now. Paused 1 rule on these 2 nights for this room; new rules will apply on top."
+
+Priya then keeps full nights safe from this rule. She switches "Slow-date rescue" <Ui>Off</Ui>, so the cuts it already made stay where they are. Then she clicks <Ui>+ Add a rule</Ui> and builds "Slow-date rescue, not full" with the starter rule's settings (<Ui>Much Slower Than Normal</Ui>, <Ui>Past month</Ui>, waits <Ui>1 week</Ui>, <Ui>Decrease the rate</Ui> by 15%) plus a second condition, <Ui>Sellable occupancy (%)</Ui> <Ui>Less than</Ui> 50. It is On at once, and it never cuts a night that is half full or more. Deleting the old rule instead would have undone every cut it made, on every night, and sent all those prices to Cloudbeds.
+</Example>
+
+## The rest of this section
+
+- [A price looks wrong](/docs/wrong/a-price-looks-wrong): jumped 50%, $1, $99,999, stuck at the floor, changed with no rule named, back to the base rate, an unpriced night.
+- [A rule did not fire](/docs/wrong/a-rule-did-not-fire): the day card says 85% but the rule did not act, fired on Deluxe but not Standard, 59 days out but not 61.
+- [Booking speed reads oddly](/docs/wrong/booking-speed-reads-oddly): faster from two bookings, compared with a festival, a group counted once, a holiday MAYA does not have.
+- [Occupancy looks wrong](/docs/wrong/occupancy-looks-wrong): differs from Cloudbeds, over 100%, tiny on ThinkReservations, a room type with 100 rooms.
+- [Prices are not reaching your property system](/docs/wrong/prices-not-reaching-your-pms): went live and nothing is sent, the old price is still in Cloudbeds, a rate you changed there was written over.
+- [Connection lost](/docs/wrong/connection-lost): the banner, who can reconnect, what Degraded, Error and Pending mean.
+- [Calendar and change log questions](/docs/wrong/calendar-and-log-questions): every day amber, a busy night red, "$" for a euro property, the log is empty.
+- [Account and billing problems](/docs/wrong/account-and-billing-problems): cannot sign in, "Payment received" is stuck, billed for 20 rooms but running 24.
+- [Messages you might see, explained](/docs/wrong/messages-explained): every on-screen message, A to Z, with what to do.
+
+<Related>
+- [A price looks wrong](/docs/wrong/a-price-looks-wrong)
+- [Undo a price change](/docs/recipes/undo-a-price-change)
+- [The change log](/docs/watch/the-change-log)
+</Related>

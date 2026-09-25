@@ -1,0 +1,133 @@
+---
+title: Sellable occupancy
+summary: What the Sellable occupancy condition counts, why it can differ from your property system's headline occupancy, and what Greater than 80 means at exactly 80.
+section: rules
+order: 30
+readingTime: 7
+keywords: [occupancy, sellable occupancy, percent full, greater than 80, exactly 80, 79.99, include 80, above 100, over 100 percent, threshold above 100, occupancy rule, nearly full, raise when full, rooms out of service, counts as a room, occupancy looks wrong, occupancy different from cloudbeds, occupancy unknown, confirmation pending, blocked rooms, allotment, mews optional, mews enquiry, day card, dollar sign, comp, complimentary, house use, owner stay, $0 booking, day use, same-day check-out]
+questions:
+  - What is sellable occupancy? {#in-plain-words}
+  - Is "Greater than 80" met at exactly 80%? {#greater-than-means-more-than}
+  - Can I set an occupancy threshold above 100? {#above-100}
+  - Why is my occupancy over 100%? {#above-100}
+  - Why does MAYA's occupancy differ from Cloudbeds' occupancy? {#why-it-differs-from-your-systems-headline-occupancy/your-property-systems}
+  - The day card says 85% but my 80% rule did not fire. {#the-rule-measures-its-own-room-types}
+  - Why did a "Confirmation Pending" booking count as sold? {#what-counts-as-booked/maya-reads-your}
+  - Do rooms blocked in Cloudbeds reduce my occupancy? {#why-it-differs-from-your-systems-headline-occupancy/your-property-systems}
+  - Do Mews enquiries and optional reservations count as booked? {#what-counts-as-booked/maya-reads-your}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Sellable occupancy is rooms booked divided by rooms you can sell that night. Only room types you have ticked as rooms count, and rooms out of service are taken off first. Twelve rooms, three out of service, eight booked: 89%. <Ui>Greater than</Ui> 80 means more than 80, not 80 exactly.
+</InPlainWords>
+
+## The definition
+
+For each night, MAYA counts two things over the room types a rule measures:
+
+- **Booked**: how many rooms are on the books for that night. A booking that holds several rooms counts each room.
+- **Sellable**: how many rooms you could sell that night. That is the room type's room count, minus any rooms you have marked out of service for that night.
+
+Sellable occupancy is booked divided by sellable, as a percentage.
+
+<Example title="Twelve Standard rooms at The Harbour Inn">
+Standard has 12 rooms. Three are out of service for a repair this week. Eight are booked for Friday.
+
+Booked 8, sellable 12 minus 3, which is 9. Eight of nine is 89% sellable occupancy. A rule set to <Ui>Greater than</Ui> 80 fires.
+
+Without the out-of-service block, the same night is 8 of 12, which is 67%, and the rule does not fire.
+</Example>
+
+The rule builder's label for this condition is <Ui>Sellable occupancy (%)</Ui>. Its fields are <Ui>Compare</Ui> (<Ui>Greater than</Ui> or <Ui>Less than</Ui>) and <Ui>Threshold</Ui>, which starts at 80.
+
+<OccupancySlider />
+
+## What counts as booked
+
+MAYA reads your bookings from your property system about every five minutes. Which bookings count as booked depends on the system.
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+Bookings with the status confirmed, checked in, checked out or "Confirmation Pending" (Cloudbeds calls it not confirmed) count as booked. That matches how Cloudbeds' own occupancy counts them. Cancelled bookings and no-shows do not count.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+Every booking counts as booked except cancelled bookings and no-shows.
+</PmsTab>
+<PmsTab pms="mews">
+Every Mews reservation counts as booked, including enquiries and optional (tentative) and requested ones. Only cancelled reservations are left out. Read [Which bookings count](/docs/connect/mews#which-bookings-count).
+</PmsTab>
+</PmsTabs>
+
+A cancelled booking disappears from the count on the next read. It is not counted as a negative.
+
+A booking counts by its status, not its rate, so a comp, house-use or owner stay at $0 counts as a booked room like any other. A day-use booking (in and out the same day) counts as a booked room on its date too: always in ThinkReservations and Mews, and in Cloudbeds when Cloudbeds lists a room rate for that date. Read [Comp, house-use and day-use bookings](/docs/connect/your-systems-words-and-mayas#comp-house-use-and-day-use-bookings).
+
+Room blocks, allotments and rooms held without a booking are not read from any property system. If you want a held block to reduce what MAYA counts as sellable, enter those rooms as out of service.
+
+## Counts as a room
+
+Only room types ticked as <Ui>Counts as a room</Ui> on the <Ui>PMS</Ui> tab go into the sellable count. A meeting room, a spa slot or a court that you have unticked never adds to the rooms MAYA divides by, and its bookings never add to the booked count. It can still be priced by a rule that changes it. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
+
+When a rule measures a type that does not count as a room, MAYA leaves that type out of the occupancy figure and says so in the change log: "That 95% leaves out Meeting Room." Read [Measure one set of room types, change another](/docs/rules/measure-one-set-change-another).
+
+## Rooms out of service
+
+On the <Ui>PMS</Ui> tab, under each room type, <Ui>+ Rooms out of service</Ui> lets you take some rooms off sale for a stretch of nights. Those rooms come off the sellable count for those nights only, so an occupancy rule reads against what you can sell. Nothing is sent to your property system about the block. Saving or clearing a block re-prices straight away. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
+
+## Above 100%
+
+Sellable occupancy can read above 100%. It happens when you mark rooms out of service after they were already sold, or when your property system has overbooked a night. Twelve rooms, three out of service, ten booked: 111%.
+
+You cannot set a threshold above 100 in the builder. A number above 100 is saved as 100. A rule set to <Ui>Greater than</Ui> 100 fires on any overbooked night.
+
+## Greater than means more than
+
+The comparison is strict. <Ui>Greater than</Ui> 80 fires at 80.01% and does not fire at 80.00%. <Ui>Less than</Ui> 50 fires at 49.9% and does not fire at 50.00%. To include 80% itself, set the threshold to 79.99 (the box takes decimals). A threshold of 79 would also fire at 79.5%, for example 159 of 200 rooms.
+
+## The rule measures its own room types
+
+Occupancy is worked out over the room types a rule measures, not over the whole property. A rule that measures only Deluxe reads Deluxe's occupancy. The day card on the <Ui>Calendar</Ui> tab shows occupancy over every room type that counts as a room. So the day card can say 85% while a rule that measures only Standard sees 75% and does not fire. When you wonder why a rule did not fire, check which room types it measures.
+
+## Where you see it
+
+- **The day card** on the <Ui>Calendar</Ui> tab: "17/20 rooms · 85% sellable occupancy · revenue on the books $4,850.00". The room count there is the sellable count over the types that count as rooms. The day card always shows a $ sign, whatever your property's currency.
+- **The change log**: "It was 83% full, past the 80% mark you set." or "under the 40% mark you set". With a booking window on the same rule: "It was 95% full with 17 days to go, past the 90% and 21-day marks you set."
+- **The Rate Simulator**: you type an occupancy per room type and see what your rules would do with it.
+
+## Why it differs from your system's headline occupancy
+
+Your property system's occupancy report and MAYA's sellable occupancy answer different questions.
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+Cloudbeds' headline occupancy keeps blocked rooms in the total, so a night with 3 rooms blocked and 8 of 12 sold reads 67% there. MAYA does not read Cloudbeds' room blocks at all. It subtracts only the rooms you enter as out of service on the <Ui>PMS</Ui> tab, and then reads 8 of 9, which is 89%. If the two numbers disagree, that is usually why.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+ThinkReservations does not report how many rooms a room type has, so MAYA gives every room type the same number of rooms, 100 until we change it. Until then, occupancy percentages for a ThinkReservations property read far too low. Email us your room counts. Once we have set the number, the percentages are right from the next run if your room types are all the same size. Read [ThinkReservations](/docs/connect/thinkreservations).
+</PmsTab>
+<PmsTab pms="mews">
+Mews does not report how many rooms each category has, so MAYA uses one number for every category, which we set with you when we connect (100 until then). It subtracts only the rooms you enter as out of service on the <Ui>PMS</Ui> tab. Blocks and held rooms in Mews are not read.
+</PmsTab>
+</PmsTabs>
+
+Read [Occupancy looks wrong](/docs/wrong/occupancy-looks-wrong) for a checklist.
+
+## When the number is unknown
+
+If none of the room types a rule measures has any sellable rooms on a night, occupancy is unknown for that night, and an occupancy condition is treated as not met. This happens when every measured type is fully out of service, or when the only measured types do not count as rooms. The rule stays quiet rather than firing on nothing. A room type with 0 sellable rooms is skipped, and the rest of the measured types are counted as usual.
+
+## A rule for nearly full nights
+
+To build it, follow [Raise prices when you are nearly full](/docs/recipes/raise-when-nearly-full).
+
+<Callout kind="not-yet">
+There is no way to tell MAYA about room blocks or allotments held in your property system. Enter them as rooms out of service on the <Ui>PMS</Ui> tab instead.
+</Callout>
+
+<Related>
+- [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service)
+- [Occupancy looks wrong](/docs/wrong/occupancy-looks-wrong)
+- [The rule builder, field by field](/docs/rules/the-rule-builder)
+</Related>

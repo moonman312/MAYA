@@ -1,0 +1,125 @@
+---
+title: Getting suggestions later
+summary: The Get suggestions from my data button on the Rules tab, who can press it, what it re-reads, the four kinds of card it can offer, and what accepting each one does.
+section: review
+order: 70
+readingTime: 10
+keywords: [get suggestions from my data, mews, should I press it on mews, joined, first import still running, no suggestion cards, threshold changed prices dropped, meeting room price changed, unticked room type priced, suggestions, ask maya for help, re-read my history, re-run, rerun, re-import, refresh, here's exactly what happens, sounds good, never mind, suggestions ready, pulsing dot, still pulsing, stuck, still running, never finishes, nothing happened, where are my suggestions, suggestions not showing, blue banner, Review →, tune, make that change, leave it as is, remove, remove it, turn it off keep it, leave it running, add a rule, add this rule, no thanks, set a floor, set a ceiling, no floor card, no ceiling card, still at default, stuck at $1, "99,999.99", "99000", pickup rule, pickup rule not offered for removal, meeting room in pickup rule, occupancy threshold, where nights become scarce, admin access to run, subscription is not active, connect your property system first, just run, let that one finish, before starting another, one at a time, before going live, go-live button gone, go-live card gone, turn them on for real missing, pressed it before going live]
+questions:
+  - What does "Get suggestions from my data" do? {#in-plain-words}
+  - Will suggestions change anything by themselves? {#in-plain-words}
+  - What can Get suggestions suggest? {#in-plain-words}
+  - Why is it suggesting I remove my pickup rule? {#remove-quick-pickup}
+  - Why is it suggesting a different occupancy threshold? {#tune-busy-nights/offered-for-a}
+  - Does Get suggestions re-import everything? {#what-the-read-does}
+  - The dot is still pulsing. Has the read finished? {#the-button/on-the-rules}
+  - Where do I find my suggestions when the read is done? {#the-button/if-the-read}
+  - Who can press Get suggestions from my data? {#who-can-press-it-and-when/a-revenue-manager}
+  - How do I get the starter rules back after deleting them? {#add-a-rule-slow-date-rescue}
+  - How do I get a floor or ceiling suggested? {#set-a-floor-for-standard-and-set-a-ceiling-for-suite/offered-for-a}
+  - Why is there no floor or ceiling card for a room type still at the default? {#set-a-floor-for-standard-and-set-a-ceiling-for-suite/offered-for-a}
+  - Should I press Get suggestions from my data on a Mews property? {#who-can-press-it-and-when/mews-has-no}
+  - Should I press Get suggestions from my data before I go live? {#who-can-press-it-and-when/mews-has-no}
+  - Why did nights lose their raise after I accepted a new threshold? {#tune-busy-nights/offered-for-a}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+On the <Ui>Rules</Ui> tab, <Ui>Get suggestions from my data</Ui> reads your booking history again and compares it with your rules and your floors and ceilings. You get cards on the review screen to accept or reject one by one, and your rules, prices and limits stay as they are until you accept one. It can offer the five starter rules, offer to remove a pickup rule a booking speed rule already covers, offer to move an occupancy rule's threshold, and offer a floor or ceiling for a room type still at its default. If you have not gone live yet, wait: a read it starts takes the go-live button off the review.
+</InPlainWords>
+
+## The button
+
+On the <Ui>Rules</Ui> tab, beside the <Ui>Pricing Rules</Ui> heading, sits <Ui>Get suggestions from my data</Ui> (with a handshake symbol in front of it). Pressing it opens a small panel headed "Here's exactly what happens". The panel says MAYA re-reads your booking history and compares it against your current rules and price guardrails, that nothing changes by itself, and that you approve or reject each suggestion individually. Two buttons: the one beginning "Sounds good" starts the read, and <Ui>Never mind</Ui> closes the panel.
+
+While the read runs, the button turns into a pulsing dot with a short waiting line. MAYA is reading your bookings again and counting. The dot stays as long as the <Ui>Rules</Ui> tab stays open, even after the read has finished. To see the result, press another tab such as <Ui>Calendar</Ui> and then <Ui>Rules</Ui> again, or reload the page and open <Ui>Rules</Ui>.
+
+If the read found something to offer, the button is now a link reading "3 suggestions ready →" that opens the review. The number counts every card waiting for your answer. If the read is still going, the dot shows again. If there was nothing to offer, the plain button is back. After a reload, the blue banner at the top of the dashboard also opens the review with its <Ui>Review →</Ui> link.
+
+## Who can press it, and when
+
+- A Revenue Manager, General Manager or Hotel Admin. Anyone else sees a message saying they need admin access on this property to run it.
+- A property with a subscription in good standing. Otherwise: "This property's subscription is not active, so MAYA has paused work on it."
+- A property with a connected system. Otherwise the message begins "Connect your property system first".
+- Five runs per 15 minutes per property. Past that, a message asks you to let the last read finish before starting another. Read [Messages explained](/docs/wrong/messages-explained).
+- One read at a time. If a read is already running (yours, a colleague's, or the first import), pressing the button joins it rather than starting another. If that read is the first import, it finishes as a first import, with no suggestion cards. Press the button again once it is complete. Either way the press counts towards the five runs.
+
+Mews has no history import yet, so on a Mews property the read cannot complete. Do not press the button there: the dot pulses for a few hours while the read retries, then the plain button comes back with no suggestions and no message. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Suggestions%20on%20Mews) instead. Read [The history import](/docs/review/the-history-import).
+
+<Callout kind="careful" title="Before you go live, wait">
+A read the button starts points the review at the new cards, and the card with <Ui>Turn them on for real</Ui> goes. Your starter rules stay. If it happens, [email us](mailto:info@modern-hospitality-solutions.com?subject=Go%20live) and we switch the property live.
+</Callout>
+
+## What the read does
+
+It is the same history import that ran when you connected, in a different mode. MAYA reads your property setup, your current bookings and your past years again, then compares what it finds with what you have. Nothing is written without a card you accept:
+
+- Closures are proposed on cards, never recorded on their own. New instances of a season you confirmed earlier are proposed too.
+- A duplicate room type with no bookings is proposed, not hidden.
+- Cards about rates that look like typos, stays with a $0 rate and stays that point at deleted room types can come back, because each read is a fresh look.
+- Room types are never unticked as rooms by a re-read. A type whose name or bookings look unlike a bedroom gets an "Is X actually a room?" card instead.
+- Your existing rules and limits are left exactly as they are.
+
+The review reopens with anything from the list above on its first screen, and the suggestion cards on its second. Read [Checking what MAYA found](/docs/review/checking-what-maya-found).
+
+## The four kinds of card
+
+### "Add a rule: "Slow-date rescue"?"
+
+Offered only when your property has no booking speed rule at all. A booking speed rule that is switched off counts as one, so pausing the starter rules for the season does not bring five fresh copies. When you have none, all five starter rules are offered, one card each, with the rule's own sentence and a line saying nothing currently watches for nights falling behind (or ahead of) their normal pace.
+
+Buttons: <Ui>Add this rule</Ui> and <Ui>No thanks</Ui>. An added rule is on and applies every day with no date range. It measures every room type that counts as a room and changes every active room type. Starter rules built at import leave unticked types out altogether. It needs at least 60 past nights with a booking, like the starter rules. Read [Your starter rules](/docs/review/your-starter-rules).
+
+<Callout kind="careful">
+A starter rule added from a card also changes room types you have unticked, such as a Meeting Room. It prices them but never measures them. To keep it off them, delete it and build your own with only your rooms ticked.
+</Callout>
+
+### "Remove "Quick pickup"?"
+
+Offered for a pickup count rule that is switched on when a booking speed rule that is also switched on covers everything it does: the same room types or more, in both the measured and the changed sets, the same days, and the same dates or wider. The card explains that the pickup rule reacts to a fixed booking count that the booking speed rule already covers by comparing with your own similar past nights, so keeping both would stack two price reactions on the same bookings.
+
+Three buttons:
+
+- <Ui>Remove it</Ui> deletes the rule and undoes every price change it made.
+- <Ui>Turn it off, keep it</Ui> switches it off. The changes it made stay, and you can switch it back on from the <Ui>Rules</Ui> tab.
+- <Ui>Leave it running</Ui> changes nothing.
+
+### "Tune "Busy nights"?"
+
+Offered for a rule that is switched on, has an occupancy condition set to <Ui>Greater than</Ui>, and has no booking speed or pickup condition, when its threshold sits more than 10 points away from what your own history supports. A booking window condition in the same rule does not stop the card. MAYA compares your threshold with how full your own past nights got. It finds two levels: one that most of your nights stay under, and one that only your busiest nights pass. If your threshold is more than 10 points from the nearer of the two, the card says your rule fires above X% occupancy but your history suggests Y% is where nights become scarce, and offers to move the trigger from X% to Y%.
+
+Buttons: <Ui>Make that change</Ui> and <Ui>Leave it as is</Ui>. Accepting changes the threshold in place. The rule keeps its name and fire count. From the next run it applies only to nights above the new number, so nights between the old and new numbers lose its change (or gain it, if the number went down).
+
+Never tuned: a rule whose occupancy condition uses <Ui>Less than</Ui>, a rule with no occupancy condition (a booking window rule on its own, say), and any rule with a booking speed or pickup condition. A rule that pairs <Ui>Greater than</Ui> with a booking window condition can be tuned, and the card moves only its occupancy threshold, never the booking window.
+
+<Example title="The exact levels, for the curious">
+MAYA takes the occupancy of every past night that had at least one booking (rooms booked over all your active room types' rooms). Nights with no bookings are left out. The first level is the point 80 in 100 of your nights stay under, held between 60 and 85. The second is the point 95 in 100 stay under, held between 10 above the first and 95. Both are rounded to the nearest 5.
+</Example>
+
+### "Set a floor for "Standard"?" and "Set a ceiling for "Suite"?"
+
+Offered for a room type whose floor or ceiling is still at MAYA's default, when there is a number to offer: your answer from the five questions, or enough history (30 nights for a floor, 200 for a ceiling). Room types whose name or bookings look unlike a bedroom never get one, even after you confirm they are rooms.
+
+The defaults are 1.00 for a floor and 99,999.99 for a ceiling, in your property's currency. Any ceiling of 99,000 or more counts as the default, so in a currency such as yen a ceiling you set yourself can still get a card. Read its number before you accept it.
+
+A card is also held back when its number would not fit. There is no ceiling card when the ceiling would be at or under the room type's floor. There is no floor card when the floor would be at or above the ceiling (or, while the ceiling is still the default, at or above the room type's normal top rate). If it is your own floor answer that does not fit, the number from your history is not offered instead.
+
+The card gives the reason and a suggested amount in an editable box. Press <Ui>Set it to 80</Ui> to accept it, or type your own number and the button follows. <Ui>No thanks</Ui> keeps the default. Read [Floors and ceilings](/docs/review/floors-and-ceilings) for where the numbers come from and how to set a limit when no card comes.
+
+## After the cards
+
+Answered cards are counted as "N items already handled" and are not shown again on this read. A later read may ask about typos, $0 rates or deleted room types again, and will offer the starter rules again if you still have no booking speed rule. Press <Ui>Finish</Ui> or close the page. Read [Checking what MAYA found](/docs/review/checking-what-maya-found).
+
+<Callout kind="not-yet">
+You cannot ask for one kind of suggestion on its own, or run the read on a schedule. There are no suggestions for a booking window threshold, for occupancy rules that use <Ui>Less than</Ui>, or for a rule's percentage. And a suggestion never edits a rule's room types or dates.
+</Callout>
+
+<Example title="Priya runs it at The Harbour Inn">
+Priya, the Revenue Manager, built "Busy nights" at Greater than 60. She also built a pickup rule called "Quick pickup" that raises Standard, Deluxe and Suite (the builder's default: the types that count as rooms) by 10% when a night gains more than 4 room nights in 3 days. The five starter rules are on. She presses <Ui>Get suggestions from my data</Ui>, then the start button, and moves to the <Ui>Calendar</Ui> tab while the read runs. Later she opens <Ui>Rules</Ui> again and the button reads "2 suggestions ready →". The review shows "Tune "Busy nights"?", offering to move the trigger from 60% to 75% because that is where the inn's nights become scarce, and "Remove "Quick pickup"?", because Warm-date bump already measures and changes the same room types on every day. Had she added the Meeting Room to Quick pickup, there would be no removal card, because Warm-date bump leaves the Meeting Room out. Priya presses <Ui>Make that change</Ui> on the first and <Ui>Turn it off, keep it</Ui> on the second. From the next run, nights more than 60% but not more than 75% full lose the raise "Busy nights" gave them. No floor or ceiling cards appear: Standard, Deluxe and Suite already have both, and the Meeting Room never gets a card because its name does not read like a bedroom.
+</Example>
+
+<Related>
+- [Your starter rules](/docs/review/your-starter-rules)
+- [Floors and ceilings](/docs/review/floors-and-ceilings)
+- [Off, delete or change](/docs/rules/off-delete-or-change)
+</Related>

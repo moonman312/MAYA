@@ -1,0 +1,81 @@
+---
+title: Hold a price for a wedding or event weekend
+summary: Type the price you want on each room type for the whole weekend with through…, switch off the rules that would move it, and keep a block held in your system from reading as empty rooms.
+section: recipes
+order: 30
+readingTime: 5
+keywords: [wedding, event, weekend, festival, conference, group, block, hold a price, fix a price, lock a price, keep a price, through, range of nights, manual price, rooms out of service, stop for this night, protect a weekend, cut my wedding, switch off a rule, turn off a rule, rule cut my typed price, Mews, Sending to Mews now, not in Mews]
+questions:
+  - How do I hold a price for a wedding weekend? {#in-plain-words}
+  - How do I stop MAYA changing the price on an event weekend? {#switch-off-the-rules-that-would-move-those-nights/the-reliable-way}
+  - Can I lock a price for a few nights? {#switch-off-the-rules-that-would-move-those-nights/the-reliable-way}
+  - How do I set the same price for a range of nights? {#type-the-price-for-the-weekend/1-open-the}
+  - I use Mews, how do I hold a price for an event weekend? {#type-the-price-for-the-weekend/on-mews-maya}
+  - Will rules still change a price I typed? {#what-holds-and-what-does-not}
+  - Will Stop for this night keep the price I typed? {#switch-off-the-rules-that-would-move-those-nights/the-reliable-way}
+  - The wedding is held as a block in my system, why does MAYA read the night as empty? {#a-block-held-in-your-system/maya-reads-bookings}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Open the first night on the <Ui>Calendar</Ui> tab, type the price on each room type card, click <Ui>through…</Ui> to pick the last night of the weekend, and <Ui>Save</Ui>. That price goes to Cloudbeds or ThinkReservations as typed (on Mews, set it in Mews itself), and rules that had already moved those nights are paused. Rules that fire later still stack on top, so to keep your number, go to the <Ui>Rules</Ui> tab and switch off the rules that would move those nights. Rooms held in your system without bookings are invisible to MAYA: enter them as rooms out of service.
+</InPlainWords>
+
+## Type the price for the weekend
+
+<Steps>
+<Step title="Open the first night">
+Go to the <Ui>Calendar</Ui> tab and click the Friday. The room type cards appear under the grid.
+</Step>
+<Step title="Type the price on a room type card">
+In the box on the Standard card, type the price you want for the weekend, say 250.
+</Step>
+<Step title="Cover the whole weekend">
+Click <Ui>through…</Ui> and pick the Saturday as the last night. The × beside the date goes back to a single night.
+</Step>
+<Step title="Save, then repeat for each room type">
+Click <Ui>Save</Ui>. The line under the box confirms it: "Saved. Sending to Cloudbeds now." on a live property, or "Saved (simulation: not sent to Cloudbeds)." while you are simulating. Each room type has its own card, so do the same on Deluxe and Suite.
+</Step>
+</Steps>
+
+Setting a price needs Revenue Manager access or higher. Prices apply from tonight up to 364 days ahead, so one save covers at most 365 nights. A price under the room type's floor or over its ceiling is refused with the limit named, for example "Above this room type's ceiling of $300.00."
+
+On Mews, MAYA does not send prices yet, so set the weekend's rate in Mews itself. Typing it in MAYA only changes what MAYA shows, even when the line under the box reads "Saved. Sending to Mews now." Switching rules off changes nothing in Mews either. Read [Nothing is sent to Mews](/docs/connect/mews#nothing-is-sent-to-mews).
+
+## What holds and what does not
+
+Your typed price becomes the starting point for those nights and room types. Rules that had already raised or cut them are paused for that room type, and the confirmation counts them: "Paused 2 rules on this night for this room".
+
+It is not a lock. A rule that fires afterwards stacks on top of your number. A booking speed rule waits its wait from the moment you typed, then reads its whole window again, bookings from before your price included. An occupancy or booking window rule whose condition starts holding later applies on top too.
+
+## Switch off the rules that would move those nights
+
+The reliable way to keep your number today is to type the price and then switch off the rules that would move those nights. On the <Ui>Rules</Ui> tab, click a rule's switch so it reads <Ui>Off</Ui>. Click it back to <Ui>On</Ui> once the weekend has passed.
+
+Off stops the rule on every night, not only the weekend, and what it already did stays. For a weekend held as a block, the rules to switch off are usually the ones that cut, because a block adds no bookings (see below). Read [Off, delete or change](/docs/rules/off-delete-or-change).
+
+If you would rather keep a rule on, type the price again whenever it moves one of those nights. Each save takes the rule's change off that night again.
+
+<Ui>Stop for this night</Ui> on the amber banner cannot keep your number. The banner asks only once a booking speed or pickup count rule (the two kinds that fire, then wait before firing again) has adjusted a night three times, and your typed price starts that count again from zero. So by the time it asks, the rule has already moved the night three times from your price. Answering <Ui>Stop for this night</Ui> then prevents a fourth adjustment, and does not undo the three.
+
+<Callout kind="not-yet">
+Rules cannot be limited to a date range or told to skip a weekend, and there is no lock on a night. To hold an event weekend today, type the price and switch off the rules that would move those nights until the weekend has passed.
+</Callout>
+
+## A block held in your system
+
+MAYA reads bookings from Cloudbeds, ThinkReservations and Mews. It does not read blocks, allotments or rooms held without a booking. A wedding pencilled in as a block adds nothing to occupancy and nothing to booking speed, so the night can read as slow and a cut rule can fire.
+
+Two fixes. First, type the price as above and switch off the cut rules that would act on those nights. Your price alone does not stop them: the block keeps the night reading slow, so a booking speed cut can still fire on top of your price once its wait has passed.
+
+Second, on the <Ui>PMS</Ui> tab, under the room type, click <Ui>+ Rooms out of service</Ui> and enter the held rooms for those dates, so sellable occupancy reads against what you can still sell. This changes occupancy only. Booking speed counts bookings, and a block has none. Read [Tell MAYA rooms are out of service](/docs/recipes/rooms-under-renovation).
+
+<Callout kind="example">
+The Harbour Inn has a wedding on Fri, Nov 13 2026 and Sat, Nov 14 2026, held as a block in Cloudbeds. Sam types $250 on Standard through the Saturday, $320 on Deluxe and $450 on Suite. "Slow-date trim" had already cut the Saturday, so the line under the Standard box reads "Paused 1 rule on these 2 nights for this room" and the Standard card shows the badge "Manual · $250.00". The block keeps the weekend reading slow, so Sam switches "Slow-date trim" and "Slow-date rescue" off on the Rules tab, and on again the Monday after.
+</Callout>
+
+<Related>
+- [Setting a price yourself](/docs/watch/setting-a-price-yourself)
+- [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service)
+- [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting)
+</Related>

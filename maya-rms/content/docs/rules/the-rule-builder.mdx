@@ -1,0 +1,154 @@
+---
+title: The rule builder, field by field
+summary: Every field in + Add a rule, what each one accepts, what happens when you click Add Rule, and every message the form can show.
+section: rules
+order: 20
+readingTime: 12
+keywords: [rule builder, add a rule, conditions, metric, compare, threshold, direction, percent, fixed amount, dollar amount, apply to room types, not a room, meeting room never fires, select all, add rule, form stays open, draft kept, switch tabs, please fill out this field, please select an item in the list, value must be greater than or equal to 0, browser message, invalid payload, invalid room types, no accessible hotel, viewer, failed to save, 40 active rules, maximum, too many rules, amount of 0, both percent and fixed, limit on the amount, maximum percent, how big a cut, 100% cut, 150%, typo, price went to $1, price at the floor, combine conditions, four conditions]
+questions:
+  - What are the parts of a rule? {#in-plain-words}
+  - What conditions can a rule use? {#conditions/metric-label-what}
+  - Can I combine conditions in one rule? {#conditions/the-conditions-section}
+  - Should I use a percent or a fixed amount? {#rate-adjustment/the-rate-adjustment}
+  - Can I use both a percent and a fixed amount in one rule? {#rate-adjustment/the-rate-adjustment}
+  - Why did my rule fail to save with an amount of 0? {#rate-adjustment/careful-an-amount}
+  - Is there a limit on how big a raise or cut can be? {#rate-adjustment/is-there-a}
+  - What does "Apply to room types" do? {#apply-to-room-types/the-apply-to}
+  - Why is a room type tagged "not a room" in the picker? {#apply-to-room-types/the-apply-to}
+  - Can a Viewer add rules? {#who-can-add-rules}
+  - Why does the form stay open after I add a rule? {#add-rule-and-what-happens-next/click-add-rule}
+  - What does "Invalid payload" mean? {#messages-you-can-meet}
+  - How do I keep a rule away from one room type? {#apply-to-room-types/the-apply-to}
+  - Does the form keep what I typed if I switch tabs? {#where-the-builder-is}
+  - Why does a rule for the Meeting Room alone never fire? {#apply-to-room-types/with-one-list}
+  - Why does my browser say "Please fill out this field" when I add a rule? {#messages-you-can-meet}
+  - What does "This property already has 40 active rules" mean? {#messages-you-can-meet}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+A rule has a name, one to four conditions that must all be true, a direction and an amount, and the room types it changes. The four conditions are sellable occupancy, booking speed, booking window and pickup count, one of each at most. The amount is a percent or a fixed amount, one or the other. Click <Ui>Add Rule</Ui> and the rule is on.
+</InPlainWords>
+
+## Where the builder is
+
+On the <Ui>Rules</Ui> tab, click <Ui>+ Add a rule</Ui> under the list of rules. The form opens below the button and stays open until you click the button again. Everything you type stays in the form, even if you close it or switch to another tab and back, until you click <Ui>Add Rule</Ui> or reload the page. The room type chips go back to their starting selection when you switch property, or when you change <Ui>Counts as a room</Ui> or rooms out of service on the <Ui>PMS</Ui> tab.
+
+## Rule name
+
+The <Ui>Rule name</Ui> box is required. The placeholder reads "e.g. Weekend surge". There is no length limit. The name appears in the rules list, in every change log sentence the rule writes, and in the banner MAYA shows when a rule keeps adjusting a night, so choose something you will recognise later.
+
+## Conditions
+
+The <Ui>Conditions</Ui> section is headed "Matches when all of the following are true." That sentence is the whole logic: a rule with two conditions acts only on nights where both hold. There is no either/or. If you want "busy or last-minute", make two rules.
+
+A rule needs at least one condition and can have four at most, one of each kind. The first row is there when the form opens, set to occupancy. Click <Ui>+ Add condition</Ui> to add another row. Each new row starts on the next kind you have not used yet, in this order: occupancy, booking speed, booking window, pickup. Once a kind is used, it is greyed out in the other rows' <Ui>Metric</Ui> dropdown. When all four are in use, the button disappears.
+
+Each row has a round red button labelled "Remove condition". Removing the last row puts a fresh occupancy row in its place, because a rule cannot be saved with no condition. Changing a row's <Ui>Metric</Ui> puts its <Ui>Threshold</Ui>, <Ui>Speed</Ui>, <Ui>Measured over</Ui>, <Ui>Lookback window</Ui> and <Ui>Pickup measures</Ui> back to their defaults. <Ui>Compare</Ui> and <Ui>Then waits (advanced)</Ui> keep whatever you had chosen, so check them after a switch.
+
+The <Ui>Metric</Ui> dropdown has four choices. Each has its own page.
+
+| Metric label | What it measures | Fields on the row | Read more |
+|---|---|---|---|
+| <Ui>Sellable occupancy (%)</Ui> | Rooms booked divided by rooms you can sell that night | <Ui>Compare</Ui> (<Ui>Greater than</Ui> or <Ui>Less than</Ui>), <Ui>Threshold</Ui>, default Greater than 80 | [Sellable occupancy](/docs/rules/sellable-occupancy) |
+| <Ui>Booking speed (recommended)</Ui> | How many bookings the night received recently, compared with similar past nights at the same point | <Ui>Speed</Ui> (seven levels, default <Ui>Faster Than Normal</Ui>), <Ui>Measured over</Ui> (default <Ui>Past week</Ui>), <Ui>Then waits (advanced)</Ui> (default <Ui>1 week</Ui>) | [Booking speed](/docs/rules/booking-speed) |
+| <Ui>Booking window (days to stay)</Ui> | Days until the stay, on your property's own calendar (today is 0) | <Ui>Compare</Ui>, <Ui>Threshold</Ui>, default Greater than 7 | [Booking window](/docs/rules/booking-window) |
+| <Ui>Pickup count (advanced)</Ui> | Room nights (or revenue) the night gained in the last 1, 3 or 7 days | <Ui>Compare</Ui>, <Ui>Threshold</Ui> (default Greater than 5), <Ui>Lookback window</Ui> (default <Ui>3 days</Ui>), <Ui>Pickup measures</Ui> (default <Ui>Room nights (units)</Ui>) | [Pickup count (advanced)](/docs/rules/pickup-count) |
+
+A few things about the number fields:
+
+- <Ui>Threshold</Ui> must be 0 or more. If it is blank or below 0, your browser stops the save and points at the box. A typed 0 is accepted.
+- Comparisons are strict. <Ui>Greater than</Ui> 80 means more than 80, not 80 exactly. <Ui>Less than</Ui> 7 means 6 or fewer.
+- An occupancy threshold above 100 is saved as 100. A booking window threshold is rounded to whole days.
+- Booking speed has no <Ui>Compare</Ui> field. Picking a level above Normal means "that fast or faster", a level below Normal means "that slow or slower", and <Ui>Normal</Ui> means exactly Normal.
+
+<Callout kind="good-to-know">
+Beside <Ui>Measured over</Ui> and <Ui>Then waits (advanced)</Ui> there is a "?" you can hover or focus. It opens a short panel that says how booking speed is counted and what the wait does. The same words are on the [Booking speed](/docs/rules/booking-speed) page.
+</Callout>
+
+## Rate adjustment
+
+The <Ui>Rate adjustment</Ui> section has a dropdown and two boxes.
+
+<Ui>Direction (required)</Ui> starts blank on purpose, showing "Choose: increase or decrease the rate…". Pick <Ui>Increase the rate</Ui> or <Ui>Decrease the rate</Ui>. If you leave it blank, your browser stops the save and points at the dropdown.
+
+<Ui>Adjust by percent (%)</Ui> is a checkbox with a number box beside it. It starts ticked with 10. A percent change multiplies the price: 10% on $150 gives $165, and when two percent rules land on the same night they compound (10% then 25% on $200 gives $275, not $270).
+
+<Ui>Adjust by fixed amount ($)</Ui> is a checkbox with a number box. It starts unticked. A fixed amount adds to or subtracts from the price: $25 on $150 gives $175. The box shows a $ sign whatever your property's currency. The amount is in your property's currency.
+
+Type the amount as a positive number in either box. The direction dropdown supplies the sign. If you type a negative number, your browser stops the save and points at the box. Unticking a box clears its number.
+
+**"Is there a limit on how big a raise or cut can be?"** Not one you would meet: any amount above 0 saves in either box, up to just under 1,000,000. A raise stops at the room type's ceiling. A cut that would take the price below the floor publishes the floor instead. A cut of 100% or more, or a fixed cut as big as the price, takes the price to 0 or below on its own, so the room type's floor is published, and the floor is 1.00 in your property's currency until you set one. A typo such as 150 for 15 on a cut rule does exactly that. Set real floors before you use large cuts, and read the number again before you click <Ui>Add Rule</Ui>. Read [Floors and ceilings](/docs/review/floors-and-ceilings).
+
+<Callout kind="careful" title="One amount, not both">
+The screen says both amounts apply when both boxes are ticked. Today that is not what is saved. When both boxes are ticked, only the percent is kept and the fixed amount is dropped. Choose one. If you want a raise of 10% plus $5, that is two rules.
+</Callout>
+
+<Callout kind="careful" title="An amount of 0 cannot be saved">
+The form accepts 0 in either box, but MAYA refuses to store a rule that changes the price by nothing. The save fails and the error appears in red under the form. Type a real amount.
+</Callout>
+
+## Apply to room types
+
+The <Ui>Apply to room types</Ui> field is a row of chips, one per active room type. A selected chip is highlighted. Above the chips a short summary reads "All room types", "K of N room types", "None selected" or, before your room types have loaded, "No room types loaded". The <Ui>Select all</Ui> and <Ui>Clear</Ui> buttons do what they say.
+
+When the form opens, every room type that counts as a room is selected. A type you have unticked under <Ui>Counts as a room</Ui> on the <Ui>PMS</Ui> tab shows a small "not a room" tag on its chip, and hovering it reads "Meeting Room, not counted as a room (change this in the PMS tab)". It is left out of a new rule unless you click it. You can price it: a rule that changes the Meeting Room changes its price like any other type. What MAYA never does is measure it. Occupancy, booking speed and pickup are counted only over room types that count as rooms.
+
+To keep a rule away from a room type, click its chip so it is no longer highlighted before you save. A rule with no room types is refused with "Select at least one room type."
+
+With one list, the rule changes every selected type and measures the selected types that count as rooms. If you select only types that do not count as rooms, the rule can still change their prices but has nothing to measure. An occupancy, booking speed or pickup condition then never holds, so the rule never fires. A rule whose only condition is booking window still fires, because it counts days, not bookings. To move the Meeting Room's price with how busy your rooms are, use the split described next: measure your rooms and change the Meeting Room.
+
+Under the chips is a checkbox, <Ui>Change prices on different room types</Ui>. Ticking it splits the field into a <Ui>Measure</Ui> list and a <Ui>Change</Ui> list, so a rule can watch your standard rooms and price your suites. Read [Measure one set of room types, change another](/docs/rules/measure-one-set-change-another).
+
+## Add Rule, and what happens next
+
+Click <Ui>Add Rule</Ui>. If everything is in order:
+
+- the rule is saved and switched <Ui>On</Ui>
+- it appears in the list above, in the sort order the list uses (most fired first, then on before off, then by name)
+- the form clears back to its defaults and stays open, ready for the next rule
+
+The rule runs from the next pricing check, about five minutes away, on tonight and the next 59 nights. If the property is in simulation, the change log shows what it would have sent. If the property is live on Cloudbeds or ThinkReservations, changed prices go to your property system on the next cycle. On Mews nothing is sent, and the change log shows what the rule did.
+
+<Example title="Saving 'Last minute' at The Harbour Inn">
+Priya, the Revenue Manager, wants a cut on quiet nights that are close. She types Last minute as the name. Row one: <Ui>Booking window (days to stay)</Ui>, <Ui>Less than</Ui>, 3. She clicks <Ui>+ Add condition</Ui>. The new row starts on <Ui>Sellable occupancy (%)</Ui>, because row one no longer uses it, and she sets it to <Ui>Less than</Ui>, 50. Direction <Ui>Decrease the rate</Ui>, percent 15. All three room types stay selected. She clicks <Ui>Add Rule</Ui>.
+
+From the next check, a night 0, 1 or 2 days away with fewer than half its sellable rooms booked is lowered by 15%: Standard $150 becomes $127.50. A night that is 2 days away but 60% full is left alone, because both conditions must hold.
+</Example>
+
+## Messages you can meet
+
+<Example title="Every message this form can show, and what to do">
+| Message | Why | What to do |
+|---|---|---|
+| Your browser's own note beside a field, such as "Please fill out this field." or "Value must be greater than or equal to 0." | The name, a <Ui>Threshold</Ui> or <Ui>Direction (required)</Ui> is empty, or a threshold or amount is below 0. The wording depends on your browser | Fill in the field it points at, with a number of 0 or more |
+| Enter a percentage adjustment, or turn off %. | The percent box is ticked but empty | Type a percent, or untick the box |
+| Enter a dollar adjustment, or turn off $. | The fixed amount box is ticked but empty | Type an amount, or untick the box |
+| Enable at least one rate adjustment (% or $). | Both boxes unticked | Tick one and type an amount |
+| Select at least one room type. | No chip selected | Click a room type |
+| Pick at least one room type to measure. | The split is on and the <Ui>Measure</Ui> list is empty, or you switched property in another browser tab, so the room types on this page belong to a different property | Select a room type that counts as a room. After a switch, reload the page, check the <Ui>Property</Ui> selector and add the rule again |
+| Pick at least one room type to change. | The split is on and the <Ui>Change</Ui> list is empty | Select a room type |
+| Invalid room types. | Something went wrong sending the room types | Reload the page and try again. If it comes back, email us |
+| Could not save the rule. Check your connection and try again. | The request never reached MAYA | Check your connection and click <Ui>Add Rule</Ui> again |
+| Could not save the rule. Try again in a moment. | MAYA refused the save without a reason it could show | Wait a moment and try again |
+| This property already has 40 active rules, which is the maximum. | 40 rules are already <Ui>On</Ui> | Turn a rule <Ui>Off</Ui> or delete one, then add again. Read [How many rules you can have](/docs/rules/off-delete-or-change#how-many-rules-you-can-have) |
+| Invalid payload. | The rule arrived with no name, no condition or no amount | Fill in the name, a condition and an amount |
+| Rule must include at least one valid condition. | Same as above, for the condition | Add a condition |
+| A message that starts "No accessible hotel." | Your sign-in is not a member of any property | Ask the property's Hotel Admin or General Manager to invite you, or email us |
+| A technical message about permissions | You are a Viewer on this property | Ask a Revenue Manager or above to add the rule |
+| A technical message about a constraint | An amount of 0 | Type a real amount |
+</Example>
+
+## Who can add rules
+
+Revenue Managers, General Managers and Hotel Admins can add, switch and delete rules. A Viewer sees the same form and the same controls, but MAYA refuses a Viewer's save. The rule is not created and a permission message appears in red under the form. A Viewer who clicks a rule's switch or <Ui>Delete</Ui> sees no error, and nothing changes either. Read [Roles: who can do what](/docs/team/roles).
+
+<Callout kind="not-yet">
+Once saved, a rule cannot be edited from the builder. Delete it (which undoes the price changes it made) and add it again. The only change made in place is accepting a "Tune ... ?" suggestion after <Ui>Get suggestions from my data</Ui>, which moves an occupancy threshold. There is no date range, no weekday choice and no priority control in the builder. Read [What rules cannot do yet](/docs/rules/what-rules-cannot-do-yet).
+</Callout>
+
+<Related>
+- [Build your first rule](/docs/rules/build-your-first-rule)
+- [Measure one set of room types, change another](/docs/rules/measure-one-set-change-another)
+- [What rules cannot do yet](/docs/rules/what-rules-cannot-do-yet)
+</Related>

@@ -5,8 +5,11 @@ export async function middleware(request: NextRequest) {
   return updateSession(request);
 }
 
+// The docs and support pages are public and built ahead of time, so they skip
+// the session refresh (they find out on their own, in the browser, whether
+// the reader is signed in). So do the docs helper's index and the sitemap.
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|docs(?:/|$)|support$|docs-index\\.|sitemap\\.xml|robots\\.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

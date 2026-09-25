@@ -1,0 +1,60 @@
+---
+title: Keep a rule away from a room type
+summary: Untick a room type under Apply to room types in the rule builder so the rule neither measures nor changes it, and what to do about a rule that already exists.
+section: recipes
+order: 130
+readingTime: 3
+keywords: [only some room types, exclude a room type, leave out a room type, untick, apply to room types, select all, clear, not a room, keep a rule off my suites, one room type only, which room types a rule covers, meeting room only, only not a room ticked]
+questions:
+  - How do I keep a rule away from a room type? {#in-plain-words}
+  - How do I make a rule for only one room type? {#untick-the-room-type}
+  - How do I stop a rule changing my suites? {#an-existing-rule}
+  - Which room types does a rule apply to by default? {#untick-the-room-type}
+  - How do I change which room types an existing rule covers? {#an-existing-rule}
+  - What does the "not a room" tag mean in the rule builder? {#in-plain-words}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+In the rule builder, the chips under <Ui>Apply to room types</Ui> are the room types the rule covers. Every type that counts as a room starts ticked. Click a chip to untick it and the rule leaves that room type alone, in what it measures and in what it changes. A saved rule cannot be changed, so for an existing rule delete it and add it again with the right chips.
+</InPlainWords>
+
+## Untick the room type
+
+<Steps>
+<Step title="Open the builder">
+On the <Ui>Rules</Ui> tab, click <Ui>+ Add a rule</Ui> and fill in the name, condition and rate adjustment as usual.
+</Step>
+<Step title="Untick the chips you want left out">
+Under <Ui>Apply to room types</Ui>, each room type is a chip. A ticked chip is highlighted. Click Suite to untick it. The summary beside the label counts what is left, for example "2 of 4 room types". <Ui>Select all</Ui> ticks every chip and <Ui>Clear</Ui> unticks them all.
+</Step>
+<Step title="Add the rule">
+Click <Ui>Add Rule</Ui>. The row's <Ui>Room Types</Ui> column lists the types it covers: "Standard, Deluxe".
+</Step>
+</Steps>
+
+At least one room type must be ticked. Leaving none gives "Select at least one room type."
+
+## What the ticks mean
+
+With the single list, the rule measures and changes the same room types. It measures the ticked types that count as rooms, and it changes every ticked type. So a rule ticked on Suite alone measures Suite's occupancy on its own (The Harbour Inn has 2 Suites, so 1 booked is 50%) and moves Suite's price only.
+
+A chip tagged "not a room" is a type you have unticked as a room on the <Ui>PMS</Ui> tab, such as a Meeting Room. It starts unticked in the builder. Tick it and the rule changes its price, but never measures it: a court or meeting room has no occupancy to read.
+
+If you tick only "not a room" types, the rule has nothing to measure. An occupancy, booking speed or pickup condition then can never be true, so a rule with any of them never fires. Only a rule whose single condition is booking window (the number of days until the stay) still fires, because it counts days, not bookings.
+
+So tick at least one type that counts as a room as well, unless booking window is the rule's only condition. The rule then changes the price of every type you tick, rooms included. Read more in [Take a meeting room out of occupancy](/docs/recipes/take-a-meeting-room-out-of-occupancy).
+
+<Callout kind="good-to-know">
+To measure one set of room types and change another, tick <Ui>Change prices on different room types</Ui> under the chips. For example, measure Standard and change only the Meeting Room. Read [Let suites follow your standard rooms](/docs/recipes/let-suites-follow-standard-rooms).
+</Callout>
+
+## An existing rule
+
+A rule's room types cannot be changed after it is saved. Delete it with <Ui>Delete Rule and Undo Its Changes</Ui> and add it again with the chips you want. The starter rules MAYA built from your history cover every room type that counts as a room, so to keep one of them off your suites, delete that starter rule and rebuild it. Its settings are in the row: the condition, the window and wait, and the percentage.
+
+<Related>
+- [The rule builder](/docs/rules/the-rule-builder)
+- [Off, delete or change](/docs/rules/off-delete-or-change)
+- [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service)
+</Related>

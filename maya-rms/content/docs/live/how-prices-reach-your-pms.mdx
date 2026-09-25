@@ -1,0 +1,226 @@
+---
+title: How prices reach your property system
+summary: Every cycle MAYA sends the prices that changed, for tonight and the next 59 nights, one nightly rate per room type, to Cloudbeds or ThinkReservations, and each system confirms it in its own way.
+section: live
+order: 30
+readingTime: 19
+keywords: [sending, sent, push, when are prices sent, how many nights, 60 nights, 60 days, window, cycle, five minutes, every 5 minutes, which rate plan, base rate, best available, derived rates, packages, rate plan, landed, confirmed, job, accepted, what was sent, unchanged, re-send, sent again same price, never sent, price of 0, comp night, switched off room type, removed room type, deleted room type, duplicate room type, held back, read failed, cloudbeds down, large property, first send slow, new bookings, past dates, api limits, rate limit, daily re-read, mews not sent, sending to mews now, 364 days, price beyond 60 days, priced past the window, booking.com, expedia, channels, channel manager, booking engine, website price, ota, channel still shows old price, booking.com old price, how long until channels update, channels not updated, channel delay, audit log, rate history, who changed the rate, which changes were MAYA, colleague changed the rate]
+questions:
+  - When are prices sent to my property system? {#when-prices-are-sent/every-cycle}
+  - How many nights ahead does MAYA send? {#how-many-nights-60/your-rules-run}
+  - Does going live send all 60 nights at once? {#how-many-nights-60/your-rules-run}
+  - Will MAYA send prices for nights beyond 60 days when I go live? {#how-many-nights-60/your-rules-run}
+  - Does it send prices past 60 days if I typed them? {#how-many-nights-60/when-you-save}
+  - Why do some nights past 60 days show a price on the calendar? {#how-many-nights-60/when-you-save}
+  - How can I tell that a price landed in Cloudbeds? {#how-maya-confirms-a-send-landed/cloudbeds-cloudbeds-applies}
+  - How can I tell that a price landed in ThinkReservations? {#how-maya-confirms-a-send-landed/thinkreservations-thinkreservations-answers}
+  - Does MAYA re-send a price that has not changed? {#changed-prices-only}
+  - Why did MAYA send a night again at the same price? {#questions-people-ask/why-did-maya}
+  - What is never sent? {#what-is-never-sent/before-every-send}
+  - Why would a night be held back? {#what-is-never-sent/before-every-send}
+  - Does MAYA send prices for room types I switched off? {#room-types-you-have-unticked-or-switched-off/counts-as-a}
+  - What happens to a room type I removed from my system? {#room-types-you-have-unticked-or-switched-off/a-room-type}
+  - Does it send the same price to every rate plan? {#which-rate-is-changed/cloudbeds-maya-writes}
+  - What happens on a cycle where the read of my bookings failed? {#when-the-read-of-your-bookings-fails}
+  - Does a big property slow the cycle? {#large-properties}
+  - Does MAYA respect Cloudbeds' API limits?
+  - Why does the first send take longer than five minutes? {#the-first-send-to-a-night-waits-for-a-fresh-read/the-first-time}
+  - Does MAYA pick up new bookings instantly? {#questions-people-ask/does-maya-pick}
+  - Can I see what MAYA sent versus what my property system has? {#can-i-see-what-was-sent/not-side-by}
+  - Inside Cloudbeds or ThinkReservations, how can I tell which rate changes MAYA made and which a colleague made? {#can-i-see-what-was-sent/inside-my-system}
+  - MAYA changed my price but Booking.com or my booking engine still shows the old one. How long until channels update? {#booking-channels-and-your-booking-engine/mayas-part-ends}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Every cycle, about every five minutes, MAYA sends the prices that changed since the last successful send, for nights from today to 59 days out, one nightly rate per room type. Cloudbeds applies each price a few seconds after receiving it and tells MAYA when it is done. ThinkReservations accepts each price and applies it shortly after, and MAYA's hourly read then finds it there. If a price never appears in your system, MAYA does not send it again until the night's price changes, so compare the night in both places and email us. Mews receives nothing.
+</InPlainWords>
+
+## The cycle, in one paragraph
+
+About every five minutes MAYA runs one cycle for your property. It reads your bookings. If an hour has passed, or your hotel day has changed, it reads your own rates for the window too. It runs every rule over tonight and the next 59 nights. Then, if the property is live, it sends the prices that changed. A cycle where nothing changed sends nothing. About once a day MAYA reads every booking again, so anything missed is picked up within the day. [How rules run](/docs/rules/how-rules-run) covers what happens inside the rules step.
+
+A price you type is the one thing that does not wait for the cycle. On a live property the save runs the rules for those nights at once and asks MAYA to send them now. The confirmation says "Saved. Sending to Cloudbeds now." If that nudge cannot be made, it says "Saved. Sending to Cloudbeds on the next cycle (about 5 min)."
+
+## When prices are sent
+
+- **Every cycle**, changed prices only, live properties only.
+- **Now**, after you save a typed price. If another run is busy with your property, the nudge waits up to a minute and then leaves the price to the next cycle.
+- **Not on a cycle where the read of your bookings failed.** Nothing is priced or sent on stale bookings. The next cycle reads again.
+- **Not until a read of your bookings has finished.** Your rules run on what has arrived, but MAYA sends nothing until a read of your bookings has finished. On a large property that read can take more than one cycle.
+
+## How many nights: 60
+
+Your rules run over tonight and the next 59 nights, and MAYA sends what they set. The nights are counted on your property's own calendar, not the clock where you happen to be. That is the window. Every part of a cycle uses the same one: the read of your rates, the rules and the send. No night goes out that the cycle did not price.
+
+Nights beyond the window are not sent, and the cycle does not price them. Each morning, at your property's day change, one more night enters the window and is priced and sent from then on. Your own base rate is read only inside the window too. So going live sends the 60 nights of the window, and nothing beyond them until each night's turn comes.
+
+A price you type can reach further: up to 364 days ahead. It is saved, shown on the calendar and sent on the cycle after its night enters the window. The confirmation says "Saved. It will be sent when the date enters the 60-day push window." For a range that crosses the edge it says how many nights go now and how many wait: "Saved. 12 nights sending to Cloudbeds now; 8 more will be sent as they enter the 60-day window."
+
+When you save or clear a price further ahead, MAYA runs your rules past the window. It runs them over every night from tonight to the last night you chose. That is the only time rules run beyond the window.
+
+Out there MAYA has none of your own rates to start from. A night is priced only when it has another starting point, such as a booking for that room type or a price you typed. Those nights show a Current price on the calendar. None of them is sent until it enters the window, where the cycle prices it again.
+
+Nights before your property's today are never sent. Tonight stays in the window, priced and sent like any other night, until midnight at the property. After that it leaves the window.
+
+## Changed prices only
+
+A night is sent again only when MAYA's price for it changes. If the last successful send to that night was at the same price, to the same rate plan, the night is skipped. That is why a quiet property can go hours with nothing sent, and why the change log's runs often read "Prices checked" with no change.
+
+One exception: a night is sent again at the same price when the rate plan behind its room type changes in your system, for example after a base rate is replaced or the rate catalogue is rebuilt. MAYA re-reads which plan each room type maps to and sends the night to the new one. If you have renamed or rebuilt your rate plans and prices have stopped landing, [Prices are not reaching your property system](/docs/wrong/prices-not-reaching-your-pms) has the steps.
+
+## Which rate is changed
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+MAYA writes one nightly rate per room type, to that room type's **base rate**: the rate plan that does not follow another plan and has no public name of its own. Every other plan for the room type is left alone. A package, a long-stay plan or any other independent plan is never written, even when the room type has no base rate. A room type with no base rate is left out, and the change log tells you (see "MAYA can't find a base rate" on [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price)).
+
+Plans that follow the base rate (derived plans) move by Cloudbeds' own rules when the base rate moves. Booking channels take their rates from Cloudbeds as before. MAYA does not talk to channels.
+
+MAYA reads and writes the same rate field, so the number you see in MAYA is the number that lands. [What MAYA reads and writes](/docs/connect/what-maya-reads-and-writes) covers what that number includes.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+MAYA writes one nightly rate per room type, to the property's **Best Available** rate type. ThinkReservations marks a rate type as standard or derived, and a non-refundable rate or a package is standard too, so the rate type MAYA writes to is set by its name. MAYA writes to the standard rate types whose name includes "Best Available". If none has that name, it writes to the one standard rate type that covers the most room types. If two cover the same number, it writes to neither, and nothing is sent until you name one Best Available.
+
+A room type that no base rate type covers is left out, and the change log tells you. Derived rate types reprice themselves from their parent, so writing the parent is the whole job.
+
+MAYA reads and writes the same rate field, so the number you see in MAYA is the number that lands. [What MAYA reads and writes](/docs/connect/what-maya-reads-and-writes) covers what that number includes.
+</PmsTab>
+<PmsTab pms="mews">
+Nothing is sent to Mews. MAYA reads Mews bookings and room categories, runs your rules and shows the prices it would send, and stops there. It does not read Mews rates either, so a Mews night's starting price comes from your bookings rather than from a rate calendar.
+
+A price you type on a Mews property is saved and shown but not sent. On a live Mews property the confirmation still says it is sending, for example "Saved. Sending to Mews now." That is wrong: nothing is sent. Ignore it. [Mews: what works today](/docs/connect/mews) has the full picture.
+</PmsTab>
+</PmsTabs>
+
+Whatever your system, it is one price per room type per night. MAYA cannot send a different price to each rate plan, and it never creates a rate plan, a restriction, a minimum stay or a close-out.
+
+## How MAYA confirms a send landed
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+Cloudbeds applies each price a few seconds after receiving it and tells MAYA when it is done. Right after sending, MAYA asks Cloudbeds how each send went, waits a few seconds for any still being applied, and keeps asking on later cycles for up to 60 minutes.
+
+- A send Cloudbeds reports as applied cleanly counts as landed.
+- A send Cloudbeds reports as failed, or applied with a complaint, counts as refused. A cause that clears on its own is retried. A cause that needs you is held. [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price) lists each cause and when you are told.
+- A send still listed as unfinished 45 minutes after it went out is treated as not applied and the night is sent again.
+- A send Cloudbeds never reports back on is left counted as sent. It is not sent again until the night's price changes. If a price never appears in Cloudbeds, compare the night in both places and [email us](mailto:info@modern-hospitality-solutions.com?subject=Price%20not%20in%20Cloudbeds).
+</PmsTab>
+<PmsTab pms="thinkreservations">
+ThinkReservations answers each send with "accepted" and applies it shortly after. It tells MAYA nothing more after that. MAYA's check that the price is there comes with its next hourly read of your rates. If a price never appears, MAYA does not send it again until the night's price changes, so compare the night in both places and [email us](mailto:info@modern-hospitality-solutions.com?subject=Price%20not%20in%20ThinkReservations).
+
+Until that read, MAYA cannot tell whether the rate is there yet. Two things follow. MAYA does not promise the write is instant, only that it is accepted and then checked within about an hour. And a rate you change in ThinkReservations on that night before MAYA has read its own price back is not kept: the next price change writes over it. [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) has the rule.
+</PmsTab>
+<PmsTab pms="mews">
+Nothing is sent, so there is nothing to confirm.
+</PmsTab>
+</PmsTabs>
+
+## Booking channels and your booking engine
+
+MAYA's part ends at your property system. A price that changes is sent on that cycle, to the room type's base rate there, and to nothing else. Your booking engine, your channel manager, Booking.com, Expedia and every other channel take their rates from your system, on their own timing, as they did before MAYA. MAYA does not talk to any of them, so it cannot hurry them and cannot tell you how long they take.
+
+So when MAYA shows a new price and a channel still shows the old one, check your property system first. Look at the room type's base rate for that night.
+
+- **Your system still has the old rate.** The price has not reached it yet. A price that changed in the last few minutes may not have gone out. If it is older than that, read [Prices are not reaching your property system](/docs/wrong/prices-not-reaching-your-pms).
+- **Your system has MAYA's price.** MAYA's part is done, and the wait is on the channel's side. Ask your channel manager, or your system's support, how often that channel picks up a rate change.
+- **The channel sells a rate plan MAYA does not write.** A plan that follows your base rate moves by your system's own rules. A plan that does not follow it, such as a package, keeps its own price whatever MAYA sends.
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+Compare the room type's base rate in Cloudbeds with the night's Current price in MAYA. Cloudbeds applies a send a few seconds after it goes out, so the two should match within a minute of it.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+Compare the rate on the rate type MAYA writes to (Best Available, as above) with the night's Current price in MAYA. ThinkReservations applies a send shortly after accepting it, so allow a little longer than you would for Cloudbeds.
+</PmsTab>
+<PmsTab pms="mews">
+Nothing is sent to Mews, so MAYA never changes what a channel shows. Your channels show your Mews rates, as they always have.
+</PmsTab>
+</PmsTabs>
+
+## What is never sent
+
+Before every send MAYA checks each room type and night once more, against the room type as it is now. A night that fails a check is held back and recorded, and never sent. The checks:
+
+| Held back when | Why |
+|---|---|
+| The night is outside the window | Only nights the cycle priced go out. |
+| The room type is switched off in MAYA | A duplicate room type hidden at import, or one you confirmed as a duplicate on the review screen. A room type your system has removed is not switched off. On Cloudbeds and ThinkReservations it is reported in the change log instead (see the next section). |
+| The price is 0 | A comp night. No property system is confirmed to take a 0 from MAYA, so you set 0 in your system yourself. You are told in the change log. |
+| Your system has the night at 0 and nobody typed a price | The night is closed there, or its rates are not loaded that far out. MAYA leaves it alone. |
+| The price is under the floor or over the ceiling as they are now | A limit you changed after the night was priced. The next cycle re-prices and the hold clears. A typed price widens the limits to include itself. |
+| No pricing run has backed the price within the last 30 minutes | If runs have been failing for half an hour, MAYA stops sending until one succeeds, rather than send an old number. |
+| The room type has no base rate in your system | Nothing to send to. You are told in the change log. |
+
+Only two of these are shown to you: the price of 0 and the missing base rate, because those need you. The rest are MAYA's own checks, and most clear on a later cycle without you. A room type switched off as a duplicate is never meant to be sent, and a night your system has at 0 waits until you load a rate there.
+
+<Callout kind="good-to-know" title="A price of 0 is never sent">
+Type 0 for a night and the confirmation reads "Saved. MAYA doesn't send a price of 0 to Cloudbeds, so set the night to 0 there yourself." The change log then carries the same reminder until your system has the night at 0. No rule raises a night set to 0.
+</Callout>
+
+## Room types you have unticked or switched off
+
+<Ui>Counts as a room</Ui> on the PMS tab changes what MAYA divides by for occupancy and what you are billed for, not what is sent. A room type you untick there is still priced and sent whenever it has a starting price, such as your rate in your system, a booking or a price you typed. To keep MAYA off a room type, leave it out of every rule's <Ui>Apply to room types</Ui>: it is then sent at your own rate, kept between its floor and ceiling. If your rate is outside them, the floor or ceiling is sent instead. There is no switch that takes a room type out of sending, with one exception.
+
+The exception is a duplicate. A room type the review screen hides as a duplicate is switched off in MAYA, and nothing is sent for it. MAYA hides one at import, or you confirm one there later.
+
+A room type your system has removed is not switched off in MAYA. On Cloudbeds its prices cannot land. Once you are live, the change log reports its nights as "Cloudbeds can't find the rate MAYA changes for" that room type. On ThinkReservations its prices cannot land either, and once MAYA's hourly read finds it gone, the change log reports it as "MAYA can't find a base rate for" that room type. [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service) says how to have it switched off.
+
+## The first send to a night waits for a fresh read
+
+The first time MAYA sends to a night, it writes over the rate you had there. So MAYA makes sure the price it sends was built on a rate it has read recently. A night MAYA has never sent to is held until the cycle's read of your rates has succeeded, or a read within the last hour did. That is why the first send after going live, and the first send to each new night entering the window, can take one cycle longer than you expect.
+
+Once MAYA has sent to a night it stops reading that night's rate as yours. What your system reports back is MAYA's own price, and storing it as your rate would build price on price. Instead MAYA compares. If the rate there differs from what MAYA sent, on a night MAYA sent to and confirmed at least an hour ago, MAYA keeps it as your manual price: your rules start from it, and a rule that fires on that night later moves the price on from your number and sends it. Some changes are not kept this way, for example when nearly every night differs from what MAYA sent by the same percentage.
+
+Before a new price goes to a night last sent to over an hour ago, MAYA reads your rate there once more if its hourly read did not run this cycle. A night whose rate moved waits for the next pricing run instead of being written over. [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) has every condition.
+
+## When the read of your bookings fails
+
+Nothing is priced or sent on that cycle. MAYA tries again, waiting longer after each failed read: about ten minutes, then twenty, then forty, up to an hour between tries. The first read that works puts the property back on the normal cycle, prices it and sends what changed.
+
+While reads are failing, the rates already in your system stay exactly as they are. MAYA never sends a rate to undo an earlier one.
+
+If only the hourly read of your rates fails, rules still run and changed prices still go out. Only nights MAYA has never sent to wait for the next successful read.
+
+## Large properties
+
+A property with many bookings can need more than one cycle for its first read of them, and nothing is sent until that read has finished. A large first send goes out in batches, nearest nights first, and continues on the next cycle if it runs out of time.
+
+On a large property the daily re-read of your bookings can take more than one cycle too. Until it finishes, rules still run but nothing is sent. Sending resumes on the cycle it completes.
+
+When your system is busy it can ask MAYA to slow down, and MAYA waits and tries again. A busy hour at your system can make a large send take a few minutes longer. You do not need to do anything. If it lasts, the change log says so, for example "Cloudbeds asked MAYA to slow down, so Standard rates are taking longer than usual to update". [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price) explains that message.
+
+## Can I see what was sent?
+
+Not side by side. Success is silent. The calendar's Current price is what your rules set for the night. It goes to your system on that cycle or the next unless it is held, and a held night that needs you shows in the change log. The <Ui>Last sync</Ui> card on the PMS tab shows the last successful read of your bookings (in your browser's local time, with its time zone), not the last send. Problems, and only problems, appear in the change log as "Rates not reaching Cloudbeds".
+
+To check a night, compare its Current price in MAYA with the rate in your system. On Cloudbeds they should match within a minute of a send. On ThinkReservations, allow a little longer. For "is it working right now?", start at [Start here: the four questions people ask first](/docs/wrong/start-here).
+
+<Callout kind="not-yet">
+MAYA cannot show you what it sent next to what your system has, and there is no per-night "landed" mark. Compare the night in both places, or read the change log for problems.
+</Callout>
+
+**Inside my system, how can I tell which rate changes MAYA made and which a colleague made?** MAYA writes through the connection your property approved. On Cloudbeds that is the MAYA app connected from the Marketplace, and on ThinkReservations the ThinkReservations login used to connect it. It sends only the rate for each night, with no note or tag. How your system's own rate history or audit log labels those changes (by the app's name, or by the person who connected it) is up to your system, so look there for which name appears beside them. MAYA's change log is the record of what MAYA set: each change with its night, room type, price and reason. A rate that matches the change log's latest price for that night came from MAYA. On Mews, MAYA writes nothing, so every rate change there is someone else's.
+
+## Questions people ask
+
+**Does MAYA pick up new bookings instantly?** No. A booking made in your system is read on the next cycle, within about five minutes. The rules run on that cycle, and any price that changes is sent on the same cycle.
+
+**Why did MAYA send a night again at the same price?** The rate plan behind that room type changed in your system, so MAYA sent the night to the new plan.
+
+**What does "Last sync" mean?** The time of the last successful read of your bookings. It says nothing about sending. [The PMS tab: connection health](/docs/watch/the-pms-tab) explains the rest of that tab.
+
+<Example title="One cycle at the Harbour Inn">
+Tuesday, 3:05 PM cycle (your browser's clock). MAYA reads the Harbour Inn's bookings and finds one new booking for Friday, November 13, 2026. That night is now 17 of 20 rooms, 85% full. "Busy nights" (occupancy Greater than 80, Increase 10%) fires on every room type: Standard's $150 becomes $165, Deluxe's $200 becomes $220 and Suite's $300 becomes $330.
+
+The send has three changes, all for November 13: Standard $165, Deluxe $220, Suite $330. Each goes to its room type's base rate in Cloudbeds. MAYA asks Cloudbeds what became of the send a few seconds later and records the prices as landed. The other 59 nights are unchanged and are not sent.
+
+At 3:10 PM nothing has changed. Nothing is sent, and the change log records "Prices checked".
+</Example>
+
+<Related>
+- [Going live](/docs/live/going-live)
+- [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price)
+- [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms)
+</Related>

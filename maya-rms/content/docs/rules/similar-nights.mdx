@@ -1,0 +1,208 @@
+---
+title: Which past nights your rules compare with
+summary: Which past nights your rules compare each night with, up to eight similar nights, how holidays (in the US and elsewhere), weekends, seasons and thin history change them, and how to set aside a night that was not normal.
+section: rules
+order: 60
+readingTime: 21
+keywords: [similar nights, comparable nights, similar past dates, comparison, compared with, same weekday, same day of the week, time of year, season, seasons, peak season, low season, shoulder season, year-round, define my own seasons, cannot see my seasons, season changed, different season, old entry, holiday, holidays, US holidays, american holidays, thanksgiving, christmas, easter, memorial day, labor day, july 4, independence day, outside the US, europe, uk, canada, australia, turn off holidays, switch off US holidays, remove a holiday, our national holiday, bank holiday, add a holiday, local event, festival, event feed, weather, competitor, momentum, nearby dates, a year ago, not enough history, thin history, relaxed the criteria, strict matching, too few nights match, looser matches, orbit, too few usable nights, friday compared with a saturday, weekend, different weekend, thursday friday weekend, our weekend is, closed period, set aside, not a fair comparison, why did you expect that, show me the nights you compared, three years, only compared against other friday nights, trimmed average, closed nights, closed on mews, first year holiday, holiday momentum, holiday compared with ordinary nights, 3 years earlier, four months, how much history for seasons]
+questions:
+  - What are similar nights? {#in-plain-words}
+  - Where can I see the nights MAYA compared with? {#why-it-matters/you-never-see}
+  - Why is MAYA comparing my Friday with a Saturday? {#weekends/weekends-are-friday}
+  - Why does the drill-down say "we relaxed the criteria a step"? {#when-too-few-nights-match/if-the-second}
+  - Which holidays does MAYA have? {#holidays/holiday-days-before}
+  - My hotel is outside the US. Do Thanksgiving and July 4 still change how my nights are compared? {#holidays/my-hotel-is}
+  - Can I turn the US holidays off? {#holidays/my-hotel-is}
+  - We are outside the US, what about our own holidays? {#holidays/my-hotel-is}
+  - Can I add a holiday or a local event? {#holidays/not-yet-your}
+  - Our weekend is Thursday and Friday nights. Can MAYA use a different weekend? {#weekends/our-weekend-is}
+  - What are seasons, and can I define my own? {#seasons/season-here-means}
+  - Why can I not see my seasons anywhere? {#seasons/not-yet-your}
+  - What is momentum? {#momentum-when-nothing-matches/sometimes-no-similar}
+  - What does "Not enough history" mean? {#not-enough-history/when-there-are}
+  - Why did it compare with a festival weekend? {#closed-periods-and-set-aside-dates/dates-you-set}
+  - Does MAYA use weather, events or holiday feeds? {#holidays/holiday-days-before}
+  - The drill-down says "We only compared against other Friday nights", but the list shows a Saturday. {#closed-periods-and-set-aside-dates/we-only-compared}
+  - How do I keep rules off nights we are closed? {#closed-periods-and-set-aside-dates/closed-periods}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Each night is compared with up to eight similar past nights from the last three years: the same weekday (or, near a holiday, the same position around it) and the same time of year, skipping closures and any dates you have set aside. A night near a holiday has at most three, one a year. Away from holidays, with too few, MAYA widens the search a step and says so. With none, it reads booking momentum from nearby nights instead. With nothing at all, booking speed rules stay quiet on that night.
+</InPlainWords>
+
+## Why it matters
+
+A booking speed rule compares a night's recent bookings with what similar nights had received at the same point before arrival. The comparison is only as good as the nights behind it. This page is about how those nights are chosen, in the order MAYA tries things. Read [Booking speed](/docs/rules/booking-speed) for what is done with them.
+
+Which past nights count as similar does not depend on the rule, so every rule uses the same ones. What each rule counts on those nights depends on the room types it measures.
+
+You never see the similar nights while a rule is being checked. You see them afterwards, in the change log, and only under a price change: open <Ui>How did we know?</Ui> under a change on that night, then <Ui>Why did you expect that?</Ui>, then <Ui>Show me the nights you compared</Ui>. <Ui>How did we know?</Ui> is there only when at least one of your booking speed rules was checked on that night in the same run. A rule that is off, or that you stopped on the night, is not checked. A rule that is waiting on every room type it changes that night is checked only when another booking speed or pickup rule is ready to fire on one of them. Read ["How did we know?" explained](/docs/watch/how-did-we-know).
+
+## Up to eight nights from three years
+
+For a night that is not near a holiday, MAYA looks for at least 4 similar nights and keeps at most 8. They come from the three years before the night being priced, up to yesterday. A night near a holiday works differently: it is compared with that holiday in each of the three previous years, so it has 3 similar nights at most (read [Holidays](#holidays) below). Some nights are never used, whatever else is true of them:
+
+- nights inside a closed period you confirmed during the review
+- nights you have set aside as not a fair comparison
+- a window of dates around a yearly event, once your reports from 2 different years agree on it
+
+Read [Closed periods and set-aside dates](#closed-periods-and-set-aside-dates) below.
+
+## When too few nights match
+
+For a night that is not near a holiday, MAYA looks back through your history, most recent first, in up to three steps. It takes the next step only when the ones before have found fewer than 4 nights.
+
+1. **First, the same weekday in the same season.** MAYA steps back 7 days at a time and keeps the nights inside the same season, never a night near a holiday. The reasons you read are "a Friday", "your Peak Season" (or "your Year-Round"), and "earlier this year", "recently", "about a year earlier", "2 years earlier" or "3 years earlier".
+2. **If fewer than 4 are found, the same kind of night in the same season.** Friday and Saturday are weekend nights, and every other night is a weekday night, so a Saturday can stand in for a Friday. The reason reads "a Saturday, similar to a Friday".
+3. **If there are still fewer than 4, the same weekday at a nearby time of year.** Any night on the same weekday within 45 days of the same point in the year counts, whatever the season. The reason reads "a nearby time of year".
+
+When your history is too thin to show seasons, or shows none, the whole year is one season called "Year-Round". The first step then keeps the nearest same-weekday nights, whatever the time of year.
+
+When more than 8 qualify, the best 8 are kept: nights from the first step before the second, the second before the third, and within a step the nearest in time first.
+
+If the second or third step was needed, the list under <Ui>Why did you expect that?</Ui> includes a line that starts "Strict matching found too few usable nights". It means the first step found fewer than 4 nights, so looser matches were added, and it is why a Friday can be compared with a Saturday. The rest of the line asks you to keep that in mind when you weigh how much to trust the reading. To check, open <Ui>Show me the nights you compared</Ui> and look at the dates. If one of them was not a normal night, set it aside with <Ui>Not a fair comparison?</Ui> (read [Setting a date aside](/docs/watch/not-a-fair-comparison)).
+
+Every night is read over the same stretch of its own booking curve as the night being priced. A Saturday 40 days out is compared with how each similar Saturday was booking when it was 40 days out.
+
+<Example title="A Friday in November at The Harbour Inn">
+It is Sunday, October 4, 2026 and the night is Friday, November 13, 2026. The first step goes back a week at a time from the night. Fridays later in October 2026 have not happened yet, so the first candidates are Fri, Oct 2 2026, then Sep 25 and so on, kept only when they fall in the same season as November 13. Then come Fridays from the same season in 2025 and 2024, such as Fri, Nov 14 2025 and Fri, Nov 15 2024. The Friday after Thanksgiving is skipped every year. If fewer than 4 Fridays qualify, the second step adds Saturdays from the same weeks, and the drill-down says so.
+</Example>
+
+## Weekends
+
+Weekends are Friday and Saturday nights. Sunday is a weekday night. MAYA uses that in two places: in the second step of the search, where a Saturday can stand in for a Friday, and in how seasons are read, which watches how Friday and Saturday nights book against the rest of the week (see [Seasons](#seasons) below). Holidays use a wider weekend of their own: a holiday that falls on a Friday, Saturday or Sunday counts as a weekend holiday (see [Holidays](#holidays) below).
+
+**"Our weekend is Thursday and Friday nights. Can MAYA use a different weekend?"** No. There is no setting for which nights are your weekend. Away from holidays, the first and third steps of the search always compare a night with the same weekday, so your Thursdays are compared with Thursdays and your Saturdays with Saturdays. Only the second step, used when the first finds fewer than 4 nights, groups nights into weekend (Friday and Saturday) and weekday (Sunday to Thursday). There a Thursday can be compared with a Monday, and a Friday with a Saturday. Every date on this page is a date on your property's own calendar. Read [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays).
+
+## Holidays
+
+A night inside a holiday's stretch is compared by its position around the holiday, not by its weekday. The Saturday after Thanksgiving is compared with the Saturday after Thanksgiving in each of the last three years, whatever the dates were. Thanksgiving always falls on a Thursday, so there the weekdays line up.
+
+For a holiday on a fixed date, the position around it is the same date every year, so the compared nights usually fall on other weekdays. Saturday, December 26, 2026 (the day after Christmas) is compared with Friday, December 26, 2025, Thursday, December 26, 2024 and Tuesday, December 26, 2023. All three are kept. The fixed-date holidays are New Year's Day, Valentine's Day, St. Patrick's Day, Juneteenth, Independence Day, Halloween, Veterans Day and Christmas.
+
+A year in which the holiday fell on a similar part of the week scores higher, and the reason reads "similar weekend placement". The parts of the week are a weekend (a holiday on a Friday, Saturday or Sunday), a Monday or Thursday, and midweek (a Tuesday or Wednesday). The score only changes the order of the nights, never which ones are used. When the matching night sits nearer a different holiday that year, it is kept but ranked lower, with the reason "also Father's Day that year".
+
+A night near a holiday has 3 similar nights at most, one from each year, and fewer when your history is shorter. With fewer than five, the reading is always kept within one step of Normal (read [Booking speed](/docs/rules/booking-speed#picking-a-level)). So on holiday nights booking speed reads <Ui>Faster Than Normal</Ui>, <Ui>Normal</Ui> or <Ui>Slower Than Normal</Ui>, never anything further out. A rule set to <Ui>Much Faster Than Normal</Ui>, <Ui>Surging</Ui>, <Ui>Much Slower Than Normal</Ui> or <Ui>Stalled</Ui> does nothing on those nights, and that includes three of the starter rules: Slow-date rescue, Hot-week surge and Sudden-spike catcher. For holiday nights, use a rule set to <Ui>Faster Than Normal</Ui> or <Ui>Slower Than Normal</Ui>.
+
+Under <Ui>Why did you expect that?</Ui> a line starts "This night sits in the orbit of Thanksgiving". It means the night is near Thanksgiving, so it was compared with the same position around Thanksgiving in earlier years, not with the same calendar date. Above it, a holiday night also gets the weekday line, such as "We only compared against other Saturday nights". Around a holiday that moves with the weekday, such as Thanksgiving, that is true. Around a fixed-date holiday it is not accurate, because the compared nights usually fall on other weekdays. Go by the holiday line and by the dates under <Ui>Show me the nights you compared</Ui>. There, each night's reasons give the year and the position, for example "Thanksgiving 2025; 2 days after the holiday; similar weekend placement".
+
+MAYA has 17 holidays, all from the United States, and uses them for every property, wherever it is. Each has a stretch of days before and after it:
+
+| Holiday | Days before | Days after |
+|---|---|---|
+| New Year's Day | 1 | 1 |
+| Martin Luther King Jr. Day | 3 | 1 |
+| Valentine's Day | 1 | 1 |
+| Presidents' Day | 3 | 1 |
+| St. Patrick's Day | 1 | 1 |
+| Easter | 2 | 1 |
+| Mother's Day | 2 | 0 |
+| Memorial Day | 3 | 1 |
+| Father's Day | 2 | 0 |
+| Juneteenth | 1 | 1 |
+| Independence Day | 2 | 2 |
+| Labor Day | 3 | 1 |
+| Indigenous Peoples' Day | 3 | 1 |
+| Halloween | 1 | 1 |
+| Veterans Day | 1 | 1 |
+| Thanksgiving | 1 | 3 |
+| Christmas | 1 | 7 (through New Year's Eve) |
+
+A night inside two stretches belongs to the nearer holiday.
+
+Nights that are not near a holiday are never compared with nights that are. A night near a holiday is compared only with the same holiday in earlier years, with one exception: if none of those past holiday nights has any bookings (for example in your first year), the night is read from momentum, which uses the ordinary nights around it. MAYA does not read weather, event listings or any holiday feed. Its only inputs are your own bookings.
+
+**"My hotel is outside the US. Do Thanksgiving and July 4 still change how my nights are compared? Can I turn them off?"** Yes, they apply to every property, and there is no switch to turn them off. In a year, roughly 64 to 70 nights fall inside one of these stretches. Each of those nights is compared with the same position around the same US holiday in earlier years, and your ordinary nights are never compared with them. When none of those past holiday nights has any bookings, for example in your first year, the holiday night is read from momentum instead, which uses the ordinary nights around it. For a holiday on a fixed date, such as Independence Day (July 4), that means the same dates in earlier years, whatever weekday they fell on. For one that moves, such as Thanksgiving (the fourth Thursday of November), it means the matching days around it. On all of those nights, booking speed stays within one step of Normal, as described above. Setting those past nights aside takes them out of comparisons, but it does not make them ordinary nights. Read [Handle a holiday MAYA does not have](/docs/recipes/handle-a-holiday-maya-does-not-have), which also lists the holidays outside the US that already fall inside a US stretch.
+
+<Callout kind="not-yet" title="Your own holidays">
+There is no screen to add a holiday, a school break or a local festival, or to switch a US holiday off, and none is read from anywhere. The workaround is to set the dates aside. Open a change on the <Ui>Change Log</Ui> tab, click <Ui>How did we know?</Ui>, then <Ui>Why did you expect that?</Ui>, then <Ui>Show me the nights you compared</Ui>, and click <Ui>Not a fair comparison?</Ui> under the night. Choose the first reason in the list (the one for a holiday) and the scope <Ui>This happens every year around this time</Ui>. Once you have reported it from 2 different years, that window is skipped every year. Read [Setting a date aside](/docs/watch/not-a-fair-comparison).
+</Callout>
+
+## Seasons
+
+"Season" here means a stretch of your year that books differently from the stretches around it: busier or quieter, with stronger or weaker weekends, or filling earlier or later. Your seasons come straight from your own booking history. They are worked out again each time your rules run, so you never set or maintain them (and cannot edit them).
+
+How seasons are read, in plain terms:
+
+- The input is how many rooms each past night in the last three years sold, and how early it filled. Price is never used, so your own past pricing cannot bend the result.
+- MAYA needs booked past nights on at least 120 different days of the year (about four months). With less, the whole year is one season called "Year-Round".
+- A new season begins where the level, the weekly shape (how Friday and Saturday nights compare with the rest) or how early nights fill shifts and stays shifted for at least 10 days. A season is at least 10 days long.
+- A blip of 7 days or fewer is smoothed away, however many years show it. A longer odd stretch survives only when at least 2 different years show it.
+- Closed periods and every date you have set aside are removed first.
+
+Seasons are named by their level: "Peak Season", "Low Season" and "Shoulder Season" (or "June Shoulder Season" when there are several). When the levels are close and the seasons differ in shape rather than size, they are named by their place in the year instead: "June Season" or "June to August Season".
+
+You will only ever meet a season name inside an explanation, in a line such as "We stayed inside the same demand season your history shows: Peak Season (June 10 through August 31)." or "We stayed inside the same demand season your history shows: Year-Round (January 1 through December 31)." There is no seasons page and no season setting. Each change log entry keeps the season it used at the time. So an older entry can name a season, or season dates, that no longer match today's. New readings work seasons out again from your current history each time your rules run.
+
+<Callout kind="not-yet" title="Your own seasons">
+You cannot see your seasons in one place, define a season, rename one or move its edges. Seasons are worked out again from your bookings each time your rules run, so a change in how you book changes them with no work from you. If a past stretch is skewing them (a renovation, a one-off event), set those dates aside: any date you set aside, with any scope, stops counting toward your seasons from the next run. Choose <Ui>This should also change how our seasons are read (advanced)</Ui> only when the same stretch repeats every year. Once reports from 3 different years agree, the whole window around it is left out of your seasons every year.
+</Callout>
+
+## Momentum, when nothing matches
+
+Sometimes no similar night can be found at all: a room type that has never sold at this time of year, a holiday night whose earlier years have no bookings, a night far outside your history, or a night crowded by set-aside dates. MAYA does not invent a number. It makes one simpler reading, called momentum: how the nights near this one are filling right now, compared with how the same nights were filling a year ago.
+
+In short: if the nearby nights have 6 bookings between them now, against 5 at the same point a year ago, they are filling about 20% faster. If this night itself had 4 bookings at this point a year ago, expected is 4 raised by 20%, about 5.
+
+<Example title="The exact steps, for the curious">
+- It looks at the 10 nights on either side of the night being priced, keeping only nights that are today or later, not near a holiday, and not set aside. It needs at least 2 of them.
+- Each of those nights is paired with the same night 364 days earlier (52 weeks, so the weekday lines up) at the same distance from arrival, when that year-ago night has history and is usable. The paired nights' bookings now, added together, divided by the same nights' bookings a year ago is the momentum ratio, held between 0.15 and 6.
+- With no pairs, or when the year-ago nights had no bookings in that stretch, the ratio is 1. In the second case the drill-down still reads "Those nights are filling at about the same pace as a year ago.", because there was nothing a year ago to measure a change against.
+- The starting point is what the night itself received a year ago at this point, if that is usable. Otherwise it is the trimmed average of what the neighbouring nights have received now: the average with the highest and lowest left out (when there are 5 or more nights, otherwise a plain average).
+- Expected is the starting point times the ratio.
+</Example>
+
+A momentum reading always counts as one similar night, so the level is capped at Faster or Slower. Read [Booking speed](/docs/rules/booking-speed) for the cap.
+
+Under <Ui>Why did you expect that?</Ui> the list opens by saying that the night had no usable comparable nights in your history, so MAYA read your recent booking momentum instead. It goes on with lines such as "3 nearby nights could be paired with their counterparts from last year." and "Those nights are filling about 20% faster than they were a year ago.", and ends with "A momentum read is fuzzier than a direct comparison", a reminder to treat it as a best effort, not a measurement. The year-ago nights behind a momentum read are listed under <Ui>Show me the nights you compared</Ui>, and you can set any of them aside like any other comparison.
+
+## Not enough history
+
+When there are no similar nights and momentum has fewer than 2 usable neighbouring nights, the reading is "not enough history". A booking speed condition is never true on such a night, so booking speed rules do nothing there. Occupancy and booking window rules are unaffected.
+
+A rule that stays quiet leaves nothing in the change log, because the change log lists price changes. So you only see this reading when something else changed that night's price (another rule, a price you typed, or on Cloudbeds and ThinkReservations a rate change in your property system) while a booking speed rule was switched on. Then <Ui>How did we know?</Ui> begins "We do not have enough history yet to say what would be normal for this night", and goes on to say that no booking speed rule was allowed to act there.
+
+The <Ui>Rate Simulator</Ui> shows it too: its <Ui>Booking speed</Ui> dropdown starts on <Ui>Not enough history</Ui>, so that booking speed rules stay quiet in a test unless you pick a level.
+
+This happens on a night whose nearby nights are nearly all holiday nights or set-aside dates. It also happens on a property with no bookings in MAYA at all, where no reading is made anywhere, so nothing is shown at all, not even under <Ui>How did we know?</Ui>. A night far outside your history, or a room type that started selling recently, still gets a reading: when none of its similar nights has bookings, it is read from booking momentum, capped at Faster or Slower. On a new property it clears on its own once the first bookings arrive.
+
+Booking speed rules also stay quiet when none of the room types a rule measures still counts as a room. Read [Measure one set of room types, change another](/docs/rules/measure-one-set-change-another).
+
+## Closed periods and set-aside dates
+
+Two kinds of night are never used as a comparison:
+
+- **Closed periods.** Stretches of at least 14 days with no bookings, with normal bookings on both sides, that you confirmed as a closure on the review after the import ("Were you closed ... ?"). Read [Checking what MAYA found](/docs/review/checking-what-maya-found).
+- **Dates you set aside.** Any night you flagged with <Ui>Not a fair comparison?</Ui>. It is left out from the next run. Say it happens every year and, once reports from 2 different years agree, a window of 5 days either side is skipped every year. Read [Setting a date aside](/docs/watch/not-a-fair-comparison).
+
+Undoing a set-aside date makes it comparable again on the next run.
+
+<Callout kind="not-yet">
+A closed period can only be confirmed from a finding on the review. There is no screen to add one by hand, and a future closure is not a closed period: those nights are still priced. On Cloudbeds and ThinkReservations, set the nights you are closed to 0 in your system, which closes them for MAYA too. On Mews, MAYA does not read your rates, so a 0 set in Mews has no effect and MAYA keeps working out prices for those nights (nothing is sent to Mews either way). Read [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms).
+</Callout>
+
+<Example title="The sentences you will read under Why did you expect that?">
+For an ordinary night:
+
+- "We only compared against other Friday nights" (the line goes on to say why weekdays are not mixed). This line appears even when the criteria were relaxed, when a Saturday may have been used, or the night is a holiday. The list under <Ui>Show me the nights you compared</Ui> shows the weekdays actually used.
+- "We stayed inside the same demand season your history shows: Peak Season (June 10 through August 31)."
+- A line starting "Strict matching found too few usable nights" (only when the second or third step was needed, as described above).
+- "Closed periods and any dates you have told us were not normal are left out of the comparison entirely."
+
+For a night near a holiday, the season line is replaced by one starting "This night sits in the orbit of Thanksgiving": the night was compared with the same position around the holiday in earlier years. The weekday line still appears above it. Around a fixed-date holiday such as Christmas it is not accurate, because the compared nights usually fall on other weekdays (read [Holidays](#holidays) above).
+
+For a night read from momentum: a first line saying that this night had no usable comparable nights in your history, so MAYA read your recent booking momentum instead, followed by "Momentum means: how nights near this one are filling right now, compared to how the same nights were filling at this time last year." and the counts behind it.
+
+For a night with not enough history: "There was not enough history to form any expectation, so no rule was allowed to act on booking speed for this night."
+
+After the night has already been raised: "Once a night has been raised, rules that raise count only the bookings made after that raise, whichever rule made it, the rest of that day included, and read the nights it is compared with over the same days." Here "whichever rule" means any booking speed or pickup rule: a change made by an occupancy or booking window rule does not count.
+
+Under <Ui>Show me the nights you compared</Ui> each night is one row: "Fri, Jul 18 2025", then "4 bookings in the same stretch", "1 booking in the same stretch" or "no history for this night", then its reasons, such as "a Friday; your Peak Season; about a year earlier".
+</Example>
+
+<Related>
+- [Booking speed](/docs/rules/booking-speed)
+- [Setting a date aside](/docs/watch/not-a-fair-comparison)
+- [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays)
+</Related>

@@ -1,0 +1,139 @@
+---
+title: Trying rules out in the Rate Simulator
+summary: How to make up a night on the Rate Simulator tab, see what your real rules would do to each room type and why, and save a test rule switched off, with nothing sent to your property system.
+section: rules
+order: 130
+readingTime: 9
+keywords: [rate simulator, simulator, test a rule, try a rule, what if, preview, dry run, make up a night, stay date, sets days to arrival, booking speed level, not enough history, base price, occupancy, picked up, guardrails, rules in play, event, ladder, off, fires, build a test rule, save this rule, discard test rule, unsaved test rule, disabled, initialized as disabled, what would happen, becomes, held at your floor, held at your ceiling, rules asked for, no rule fires, didn't fire, conditions not met, simulator differs, different from the change log, no measured over, no then waits, every room type or none, one room type but not another, speed dropdown, amount of 0, zero, blank amount, save failed, constraint]
+questions:
+  - What is the Rate Simulator for? {#what-it-is-for}
+  - How do I test a rule before turning it on? {#build-a-test-rule/click-build-a}
+  - Does the Rate Simulator change my real prices or send anything to my property system? {#what-it-is-for}
+  - Why does the simulator say "No rule fires on this night"? {#what-would-happen/the-results-table}
+  - What does "held at your ceiling" mean in the simulator? {#what-would-happen/the-results-table}
+  - What does "Didn't fire" mean in the simulator? {#what-would-happen/the-results-table}
+  - Why does a booking speed rule not fire in the simulator? {#what-the-simulator-simplifies/booking-speed-is}
+  - Why is the rule I built in the simulator switched off on the Rules tab? {#build-a-test-rule/click-build-a}
+  - Why has the simulator's rule builder no Measured over or Then waits? {#build-a-test-rule/the-button-stays}
+  - Why does the simulator show a different result from the change log? {#what-the-simulator-simplifies/a-standard-rule}
+  - What do "event" and "ladder" mean in the Rate Simulator? {#rules-in-play}
+  - Why does a rule in the simulator change every room type or none of them? {#what-the-simulator-simplifies/every-matching-booking}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Make up a night: a stay date, a booking speed level, and each room type's base price, occupancy and pickup. The simulator runs your real rules with the same maths a real run uses and shows what each room type becomes and why. Nothing is saved and nothing is sent. A test rule you build here can be saved to the <Ui>Rules</Ui> tab, switched off.
+</InPlainWords>
+
+## What it is for
+
+The <Ui>Rate Simulator</Ui> tab (the third tab on the dashboard) answers "what would my rules do to a night like this?" without waiting for such a night to come along. Its own words: "Make up a night and see what your rules would do to it. Nothing here is saved and no rate reaches your PMS." It adds that the maths is the same as a real run's, so what you see is what a real run would produce for these numbers.
+
+Use it to check a rule before you build it, to see which of two rules would act, or to see why a price on the calendar is what it is. Everyone on the property can use it.
+
+While it loads it reads "Loading this property's rooms and rules...". Before your first sync it says the property has no active room types yet, and asks you to connect a system and finish the import first.
+
+## The night
+
+Under <Ui>The night</Ui>:
+
+- <Ui>Stay date</Ui>, starting 30 days ahead. The note under it says the date sets the days to arrival. They are counted from your property's date, not your computer's, so the number matches what a real run would see, and a booking window rule reads it.
+- <Ui>Booking speed</Ui>, a dropdown with <Ui>Not enough history</Ui> and the seven levels: Stalled, Much Slower Than Normal, Slower Than Normal, Normal, Faster Than Normal, Much Faster Than Normal, Surging. It starts on <Ui>Not enough history</Ui>, and the note says booking speed rules then stay quiet, which is what a real run does when it cannot measure a pace. Pick a level to test a booking speed rule. A made-up night has no bookings to count, so the level you pick is taken as read.
+
+## Your rooms
+
+One row per room type that counts as a room, with its room count under its name. Room types you have unticked as rooms are not here.
+
+| Column | What it is |
+|---|---|
+| <Ui>Base price</Ui> | The price rules start from. It opens on the nearest price MAYA has published for that room type. With none published yet, it opens halfway between the floor and the ceiling when the ceiling is at most 10 times the floor, otherwise on the floor. |
+| <Ui>Occupancy</Ui> | A percentage from 0 to 100, starting at 70. Beside it, "(8 of 12)" shows how many rooms that is, out of the full room count. Rooms out of service are not taken off here. |
+| <Ui>Picked up</Ui> | Rooms gained over a pickup rule's lookback, starting at 0. A pickup rule that measures revenue values each one at the base price. |
+| <Ui>Guardrails</Ui> | The room type's floor and ceiling, for reference. You cannot change them here. |
+
+An occupancy rule reads occupancy across the room types it measures, added together. Two room types at 92% and 50% with 12 and 6 rooms read as 14 of 18, which is 78%. The rule checks its conditions once, on that one figure, so it fires on every room type it changes or on none of them.
+
+## Rules in play
+
+Every rule on the property is listed with a checkbox, all ticked. Untick one to leave it out of the run. Beside each name:
+
+- "ladder" or "event": the simulator's own words for the two kinds of rule. "ladder" is a standard rule (only occupancy and booking window conditions), which holds one change while its condition holds. "event" is a booking speed or pickup rule, which fires, keeps its change and can fire again after its wait. The rest of these docs say "standard rule" and "booking speed and pickup rules".
+- "off" when the rule is switched off on the <Ui>Rules</Ui> tab
+- "fires" when it fires on the night you have set up
+- "Watches Standard, Deluxe · Changes Suite" when the rule measures different room types from the ones it changes
+
+Switched-off rules are run here too, so you can see what turning one on would do. With no rules yet: "No rules yet. Build a test rule below to see how one would behave before you commit to it."
+
+## Build a test rule
+
+Click <Ui>+ Build a test rule</Ui> and a smaller rule builder opens:
+
+- <Ui>Rule name</Ui>. An unnamed draft is called "Unsaved test rule".
+- Up to 4 conditions under "When all of these are true", one of each kind, each with a <Ui>Metric</Ui>, an <Ui>Is</Ui> dropdown (<Ui>above</Ui> or <Ui>below</Ui>) and a <Ui>Value</Ui>. A <Ui>Booking speed (recommended)</Ui> row has a <Ui>Speed</Ui> dropdown with the seven levels instead. The metric labels differ slightly from the main builder: <Ui>Occupancy (%)</Ui> here is <Ui>Sellable occupancy (%)</Ui> there. The others match.
+- <Ui>Then</Ui> (<Ui>raise the rate</Ui> or <Ui>lower the rate</Ui>), <Ui>By</Ui> and <Ui>Unit</Ui> (<Ui>percent</Ui> or <Ui>dollars</Ui>).
+- <Ui>Room types</Ui>, as pills, all on to start.
+
+The draft runs in the table below as you edit it. "Until you press this, the rule exists only on this screen." <Ui>Discard test rule</Ui> throws it away.
+
+<Ui>Save This Rule</Ui> saves it to the <Ui>Rules</Ui> tab switched off, and the screen reads "Rule Added to Rules Tab and Initialized as Disabled". Turn it on from the <Ui>Rules</Ui> tab when you are ready. Read [Try a rule before turning it on](/docs/recipes/try-a-rule-before-turning-it-on).
+
+The button stays greyed out until the draft has a condition, an amount and at least one room type. An amount of 0 (or a blank <Ui>By</Ui> box) cannot be saved: the save fails with an error. Type a real amount. Saving needs Revenue Manager access or higher: a Viewer who presses it sees an error.
+
+<Callout kind="good-to-know" title="No Measured over or Then waits here">
+The test-rule builder has no <Ui>Measured over</Ui> or <Ui>Then waits (advanced)</Ui> fields. A booking speed test rule is saved with the defaults: <Ui>Past week</Ui> and a wait of <Ui>1 week</Ui>. A pickup test rule is saved with a 3-day lookback measuring room nights. For other settings, build the rule on the <Ui>Rules</Ui> tab instead. [The rule builder, field by field](/docs/rules/the-rule-builder) covers every field.
+</Callout>
+
+## What would happen
+
+The results table has one row per room type: <Ui>Room type</Ui>, <Ui>Base</Ui>, <Ui>Becomes</Ui>, <Ui>Change</Ui> (the move in money, or a dash for none) and <Ui>Because</Ui>.
+
+- <Ui>Becomes</Ui> is the price after every rule that fires and after the floor and ceiling. A "held at your floor" or "held at your ceiling" tag shows when a limit stepped in, and <Ui>Because</Ui> adds what the rules asked for, such as "Rules asked for $412.50."
+- <Ui>Because</Ui> names each rule that fired, with "(currently off)" beside a rule that is off on the <Ui>Rules</Ui> tab, or reads "No rule fires on this night".
+
+Under the table, <Ui>Didn't fire</Ui> lists each rule that did not fire and why:
+
+| Reason | Meaning |
+|---|---|
+| Conditions not met (it saw 62% occupancy, 30 days out) | The night does not meet the rule's conditions. The numbers are what the rule read. |
+| No occupancy for its signal room types | None of the room types the rule measures is in the table, so it has nothing to read. |
+| Rule has no room types attached | The rule changes no room type. |
+| Outside the rule's date window, or This day of the week is excluded | You will not see these for a rule you built in MAYA: every rule you build runs every day with no date window. |
+
+Money in the simulator is shown with a dollar sign whatever your property's currency.
+
+<Example title="Testing 'Last minute' at The Harbour Inn">
+Priya wants to see "Last minute" (<Ui>Booking window (days to stay)</Ui> <Ui>Less than</Ui> 3 and <Ui>Sellable occupancy (%)</Ui> <Ui>Less than</Ui> 50, <Ui>Decrease the rate</Ui> 15%) act. It measures and changes all three room types. She sets <Ui>Stay date</Ui> to tomorrow, then Standard to $150 at 40% (5 of 12), Deluxe to $200 at 30% (2 of 6) and Suite to $300 at 50% (1 of 2).
+
+"Last minute" reads one figure for the three types together: 8 of 20 rooms, which is 40%. That is less than 50, so it fires on every room type. Standard becomes $127.50, Deluxe $170.00 and Suite $255.00.
+
+She changes Deluxe to 100%. Now the rule reads 12 of 20, which is 60%, so it fires on none of them and all three stay at their base. <Ui>Didn't fire</Ui> reads: Last minute, Conditions not met (it saw 60% occupancy, 1 days out).
+</Example>
+
+<Example title="A Friday in November with two rules">
+Priya sets the stay date to Friday, November 13, 2026 and booking speed to <Ui>Faster Than Normal</Ui>. Standard is $150 at 92%, Deluxe $200 at 83%, Suite $300 at 50%. Together that is 17 of 20 rooms, 85%.
+
+"Busy nights" (occupancy <Ui>Greater than</Ui> 80, Increase 10%) fires on every room type. "Warm-date bump" (<Ui>Faster Than Normal</Ui> or above, Increase 10%) fires too. Standard becomes $181.50 (150, then 165, then 181.50). Deluxe becomes $242.00. Suite becomes $363.00, well under its $600 ceiling.
+
+She switches booking speed to <Ui>Not enough history</Ui>. "Warm-date bump" moves to <Ui>Didn't fire</Ui> with "Conditions not met", and Standard becomes $165.00.
+</Example>
+
+## What the simulator simplifies
+
+The maths is the same as a real run's, but a real night plays out over days and this is one run. The screen says so at the bottom of the results. In plain words:
+
+- **A standard rule is shown settled.** On a real night it fires on the way into its condition and holds. Here you see where the night ends up, not each step.
+- **Every matching booking speed or pickup rule is added.** On a real night, when several booking speed or pickup rules match, one wins for that night and room type. Here they all fire, so the result is the most the night could move.
+- **A repeat is shown once.** A booking speed or pickup rule that is still true after its wait adjusts the night again on a real night. Here it fires once.
+- **Booking speed is a level you chose,** not a count against similar nights, so there is no "How did we know?" behind it.
+
+The screen sums it up: "It is one run, not where a night ends up over a week." [How rules run](/docs/rules/how-rules-run) explains what happens across a week.
+
+<Callout kind="not-yet">
+The simulator cannot replay a real past run, and it cannot count bookings: booking speed is a level you pick. To see what really happened on a night, read the change log entry for it and open <Ui>How did we know?</Ui>. Read [The change log](/docs/watch/the-change-log).
+</Callout>
+
+<Related>
+- [Build your first rule](/docs/rules/build-your-first-rule)
+- [How rules run](/docs/rules/how-rules-run)
+- [Try a rule before turning it on](/docs/recipes/try-a-rule-before-turning-it-on)
+</Related>

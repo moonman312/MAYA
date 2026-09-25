@@ -1,0 +1,153 @@
+---
+title: Booking speed in detail
+summary: The fine print behind booking speed, for when you want every step: which bookings count on Cloudbeds, ThinkReservations and Mews, how "expected" is worked out, where the lines between the levels fall, what a rule counts after it acts, and when a reading shows.
+section: rules
+order: 55
+readingTime: 13
+keywords: [booking speed detail, booking speed exact, what is counted, one booking counts once, bookings not rooms, room block, allotment, separate reservations, reservation number, four-room booking, added room, same booking on two nights, three-night stay, booking date, creation date, past day just after midnight, 12:10 am, extended stay, extension, added nights, date change, only measured room types, cancelled booking, not counted as a negative, channel, direct bookings, confirmation pending, no-show, mews optional, mews enquiry, mews requested, expected, we expected about, almost none, fraction, 0.4, trimmed average, highest and lowest dropped, unknown night, zero, same stretch, 40 days out, ratio, at least 1.25 times, twice, 3.5 times, guard, noise, ordinary ups and downs, held the call at Normal, softened it one step, genuinely comparable nights, raw numbers leaned away from Normal, even stronger call, only a few, worked table, how many bookings for faster than normal, 9 bookings, 27 bookings, momentum capped, last raised, last cut, whichever rule, switched-off rule raise, paused rule raise, raise came off after cancellations, later on the day, same day as a raise, from that raise on, since this night was last raised, days after, another rule same day, pickup raise on top, occupancy rule raise, standard rule raise, typed price starts over, when does how did we know show, reading not shown, part of the hotel, suites only, small set, widen what it measures]
+questions:
+  - Why did the same booking count on two nights? {#what-is-counted/each-night-counts}
+  - A guest extended their stay. Does that count as a new booking on the added nights? {#what-is-counted/an-extension-keeps}
+  - Do Mews enquiries and optional reservations count for booking speed? {#what-is-counted/thinkreservations-thinkreservations-reports}
+  - What does "expected" mean in the change log, and why does it say "almost none"? {#what-expected-means/expected-is-the}
+  - How many bookings does it take to read Faster Than Normal? {#the-worked-table/how-many-bookings}
+  - What do the lines under "How did we know?" about Normal mean? {#where-the-lines-fall/the-smaller-the}
+  - Does a raise by another rule change what my booking speed rule counts? {#counting-after-a-rule-acts/another-rule-can}
+  - Can another rule raise the night on the same day as a raise? {#counting-after-a-rule-acts/another-rule-can}
+  - Why is there no booking speed reading under a price change? {#when-the-reading-shows}
+  - Why is my booking speed rule on two Suites so quiet? {#booking-speed-on-part-of-the-hotel}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+This page is the fine print behind booking speed. A booking counts once on each night it covers, dated the day it was made, and only in the room types a rule measures. Expected is the average of what up to eight similar past nights received over the same stretch, with the highest and lowest set aside. Small gaps read as Normal on purpose, so a rule stays quiet on small numbers.
+</InPlainWords>
+
+Start with [Booking speed](/docs/rules/booking-speed) if you have not read it. It covers what you choose in the builder, the seven levels and which one to pick.
+
+## What is counted
+
+For each night in the window, MAYA counts the bookings made for that night during the stretch your rule measures. Five things set what goes into the count.
+
+**One booking counts once.** A booking is one reservation for one night, however many rooms it holds. A 20-room reservation is 20 booked rooms for [sellable occupancy](/docs/rules/sellable-occupancy) and one booking for booking speed.
+
+It counts as one booking on each night it is booked for, and as one booking again whenever one of those nights is later used as a similar night for another date. If a room is added to that reservation a week later, it is still one booking, dated when it was first made, so the added room never reads as a new booking. Rooms booked as separate reservations, for example guests booking from a room block or allotment, count as separate bookings. MAYA does not read room blocks.
+
+**The date is the booking date.** A booking counts on the day your property system recorded it, not on the day of the stay. <Ui>Past day</Ui> counts bookings dated today. <Ui>Past week</Ui> counts bookings dated today and the six days before it. <Ui>Past month</Ui> counts today and the 29 days before it. "Today" is today on your property's own calendar, so a reading taken at 12:10 am has almost nothing in <Ui>Past day</Ui> yet.
+
+**Each night counts its own bookings.** A three-night stay is one booking on each of its three nights, because each night is priced on its own. That is why one booking can turn up in the count for two different nights: it is a booking for both, not two bookings on one.
+
+**An extension keeps the booking's date.** When a guest extends a stay, or a booking's dates are changed in your property system, the added nights belong to the same booking, dated when it was first made. They count as booked rooms for sellable occupancy on the next read, but they are usually too old to count in <Ui>Past day</Ui> or <Ui>Past week</Ui>. This is the same in Cloudbeds, ThinkReservations and Mews. If the extra nights are booked as a new reservation instead, that is a new booking, dated the day it was made.
+
+**Only the room types the rule measures are counted.** A rule that measures Standard and Deluxe counts bookings in those types and no others. A room type you have unticked as a room is never counted. Read [Measure one set of room types, change another](/docs/rules/measure-one-set-change-another).
+
+When a guest cancels, your property system stops reporting the booking and it leaves the count on the next read. It is not counted as a negative. Every booking counts the same whatever channel it came from: there is no way to count only direct bookings.
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+Cloudbeds reports each room of a booking on its own. MAYA groups the rooms back into one booking by the booking's reservation number, so a four-room booking is one booking. Bookings with the status confirmed, checked in, checked out or "Confirmation Pending" count. Cancelled bookings and no-shows do not. The booking date is the creation date Cloudbeds reports.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+ThinkReservations reports each room booking inside a reservation on its own. MAYA groups them back into one booking by the reservation, so a reservation with three rooms is one booking. Every booking counts except cancelled bookings and no-shows. The booking date is the reservation's creation date, on your property's calendar.
+</PmsTab>
+<PmsTab pms="mews">
+A Mews reservation is one room, so each reservation is one booking, including each reservation in a group. Every Mews reservation counts, including enquiries and optional (tentative) and requested ones. Only cancelled reservations are left out. Read [Which bookings count](/docs/connect/mews#which-bookings-count). The booking date is the reservation's creation date, on your property's calendar.
+</PmsTab>
+</PmsTabs>
+
+## What "expected" means
+
+A count on its own says little. Three bookings in a week is a rush for a quiet Tuesday in February and a worry for a Saturday in August. So MAYA compares the count with what similar nights in your own history had received by the same point.
+
+Each night is compared with up to eight similar past nights from the last three years: the same weekday (or, near a holiday, the same position around it) and the same time of year. A night near a holiday has 3 similar nights at most, one from each year. [Which past nights your rules compare with](/docs/rules/similar-nights) explains how they are chosen and what happens when there are too few.
+
+Each similar night is read over the same stretch of its own booking curve. If the night you are pricing is 40 days away and the window is <Ui>Past week</Ui>, MAYA counts what each similar night received in the 7 days when it was 40 days away. It never compares with a similar night's whole history.
+
+Expected is the average of those counts. Once there are five or more similar nights, the single highest and the single lowest are dropped before averaging, so one odd night cannot swing the number. The result is kept to two decimals, so expected can be a fraction, such as 0.4 for a quiet night far out. On screen it reads "almost none" when it is under 1, and is rounded to a whole number otherwise.
+
+A similar night that has no bookings anywhere in your history is treated as unknown, not as zero, and is left out of the average. A night that has history but nothing in the stretch is a real zero and stays in.
+
+## Where the lines fall
+
+The smaller the numbers, the bigger the gap has to be compared with what is usual before a night reads anything but Normal. With 5 expected you need 9 to read <Ui>Faster Than Normal</Ui>, nearly double. With 20 expected you need 27, about a third more. The outer levels, <Ui>Stalled</Ui> and <Ui>Surging</Ui>, need a bigger gap still. With fewer than five similar nights to compare with, the reading stays within one step of Normal. That is always the case near a holiday.
+
+These checks can only pull a reading towards Normal, never away from it. When one of them held a reading back, <Ui>How did we know?</Ui> says so in one of three lines. Each is quoted here only far enough for you to find it:
+
+- "The raw numbers leaned away from Normal": the gap was too small for this many bookings, so the level stays Normal.
+- "The raw numbers pointed at an even stronger": a <Ui>Stalled</Ui> or <Ui>Surging</Ui> reading did not have a big enough gap, so it stepped in one level, to <Ui>Much Slower Than Normal</Ui> or <Ui>Much Faster Than Normal</Ui>.
+- "We found only a few": there were fewer than five similar nights, so the level stays within one step of Normal however strong the numbers look. A reading built from momentum (see [similar nights](/docs/rules/similar-nights#momentum-when-nothing-matches)) always counts as one similar night, so it always stays within one step.
+
+<Example title="The exact lines, for the curious">
+MAYA divides the count by expected, with expected treated as at least 0.5 for the division. At least 1.25 times expected reads Faster Than Normal, at least 2 times Much Faster, at least 3.5 times Surging. The slow side mirrors it: 0.8 times or less is Slower, half or less Much Slower, 1 in 3.5 or less Stalled.
+
+Then three checks. The difference must be at least 2 bookings, or 1.5 times the square root of expected when that is more, or the night reads Normal. Stalled and Surging need a difference of at least 4, or 2 times the square root of expected, or they step in one level. With four or fewer similar nights, the reading stays at Faster or Slower at most.
+</Example>
+
+### The worked table
+
+How many bookings a night needs, in the window, to read each level. Computed from the lines and checks above, with five or more similar nights behind the expectation.
+
+| Expected | Stalled | Much Slower | Slower | Normal | Faster | Much Faster | Surging |
+|---|---|---|---|---|---|---|---|
+| 0 (a night far out) | never | never | never | 0 or 1 | never | 2 or 3 | 4 or more |
+| 1 | never | never | never | 0 to 2 | never | 3 or 4 | 5 or more |
+| 3 | never | 0 | never | 1 to 5 | never | 6 to 10 | 11 or more |
+| 5 | 0 | 1 | never | 2 to 8 | 9 | 10 to 17 | 18 or more |
+| 10 | 0 to 2 | 3 to 5 | never | 6 to 14 | 15 to 19 | 20 to 34 | 35 or more |
+| 20 | 0 to 5 | 6 to 10 | 11 to 13 | 14 to 26 | 27 to 39 | 40 to 69 | 70 or more |
+
+Two things in the table are on purpose. At small expectations some levels can never be reached: with 1 expected, one missing booking is inside the ordinary ups and downs, so the night cannot read slow at all. And with fewer than five similar nights, every "Much" cell and both ends collapse to <Ui>Faster Than Normal</Ui> or <Ui>Slower Than Normal</Ui>. Nights near a holiday always read this way, because they never have more than 3 similar nights.
+
+<Example title="Where the Friday lands">
+Take the Friday from [Booking speed](/docs/rules/booking-speed#how-a-night-reads), with 5 expected from five similar Fridays. In the past week it received 9 bookings, 1.8 times the usual, and a gap of 4 is big enough at this size. Five similar nights is enough for the full range. The level is <Ui>Faster Than Normal</Ui>.
+
+With 10 bookings instead of 9, twice the usual, the level is <Ui>Much Faster Than Normal</Ui>. With 18, 3.6 times the usual, it reads <Ui>Surging</Ui>. With 1 booking, a fifth of the usual, the first reading would be Stalled, but a gap of 4 is not enough for the outermost level, so it steps in to <Ui>Much Slower Than Normal</Ui>.
+</Example>
+
+## Counting after a rule acts
+
+Once a night has been raised, a rule that raises counts only the bookings that arrived after that raise, whichever booking speed or pickup rule made it: the rest of the day it was raised, then every day since. That includes a raise made by a rule you have since switched off, and even a raise that later came off after cancellations. A raise stops counting only when a price you type takes it off, or when you delete the rule that made it.
+
+A rule that cuts counts from the night's last cut in the same way: the rest of the day of the cut, then every day since. Raises and cuts keep separate starting points. A raise or cut made by a standard rule (occupancy or booking window) does not change what a booking speed rule counts.
+
+On the day of the raise or cut, a booking counts only if it first reached MAYA from your property system after that change. So a rush later that day is still counted, and nothing from before the change is counted twice.
+
+The similar nights are read over the same days of their own curves, so the comparison stays fair. They had no change that day, so for them the first day counts in full. A pickup rule is different: it always measures its whole lookback, so it can add a raise on bookings a booking speed rule has already acted on.
+
+<Example title="What the change log says after a re-count">
+In the Hot-week surge example on [Booking speed](/docs/rules/booking-speed#after-the-rule-acts), the rule raised Standard for Friday, November 13, 2026 on Monday, October 12 and counted again on Wednesday, October 14. For the similar Fridays, those three days fell 30 to 32 days before arrival, and their Monday counts in full.
+
+The change log says: "Bookings came in much faster than normal in the 3 days since this night was last raised: 6, against the 2 a night like this usually gets in those days." Under <Ui>How did we know?</Ui> it says: "This night was last raised on Mon, Oct 12 2026. In the 3 days from that raise on, 6 bookings arrived for it, with 30 days still to go before arrival." The day of the raise is the first of those 3 days.
+</Example>
+
+When only the day of the raise has been counted so far, the change log says "later on the day this night was last raised" and ends with "in a day" instead of "in those days". The second sentence under <Ui>How did we know?</Ui> then begins "Later that day".
+
+Two things follow:
+
+- **Another rule can act on the same day.** If a raise rule fired on the night earlier today, another raise rule can still act on that night today, but only on the bookings that arrived after the raise. A raise earlier the same day never keeps a booking speed rule quiet on its own, unless the rule that raised earlier ranks above it and still reads true over its full window. That rule then holds the night through its wait (read [How rules run](/docs/rules/how-rules-run#which-one-fires-when-several-match)).
+- **A price you type starts the rule over.** Typing a price on a night takes the rules' changes off it. A booking speed rule then waits its wait from the moment you typed, and after that it counts its whole window again, including bookings from before your price. Read [Setting a price yourself](/docs/watch/setting-a-price-yourself).
+
+## When the reading shows
+
+You cannot see a night's booking speed on the calendar. The reading appears in the change log, under <Ui>How did we know?</Ui>, under a price change on that night when at least one of your booking speed rules was checked there in that run.
+
+- A rule that is switched off, or that you stopped on the night, is not checked.
+- A rule that is waiting on every room type it changes that night is checked only when another booking speed or pickup rule is ready to fire on one of them.
+- A night whose price did not change shows no reading.
+
+The <Ui>Rate Simulator</Ui> lets you pick a level for a made-up night, but does not count anything.
+
+## Booking speed on part of the hotel
+
+A rule that measures every room type ticked as a room reads the whole hotel's history. A rule that measures only some types (Standard alone, say) gets its own counts over the same similar nights, shared with every other rule that measures the same set.
+
+Two things follow. A room type that started selling only last year has no data before its first sale, so it has fewer similar nights and its reading more often stays within one step of Normal. And a small set has a small expected, so small gaps keep the reading at Normal more often. That is by design: a rule on a small set fires less often rather than wrongly.
+
+If a rule on two Suites seems too quiet, widen what it measures: tick <Ui>Change prices on different room types</Ui>, measure your whole property and change only the Suites.
+
+<Related>
+- [Booking speed](/docs/rules/booking-speed)
+- [Which past nights your rules compare with](/docs/rules/similar-nights)
+- ["How did we know?" explained](/docs/watch/how-did-we-know)
+</Related>

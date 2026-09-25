@@ -1,0 +1,16 @@
+[
+  { "slug": "start", "label": "Start here", "blurb": "What MAYA is and how to begin." },
+  { "slug": "account", "label": "Your account", "blurb": "Signing in, the Terms, several properties." },
+  { "slug": "pay", "label": "Paying and codes", "blurb": "Payment, the trial, codes, groups." },
+  { "slug": "connect", "label": "Your property system", "blurb": "Cloudbeds, ThinkReservations, Mews." },
+  { "slug": "review", "label": "Your history and the review", "blurb": "The import, the questions, what MAYA found." },
+  { "slug": "rules", "label": "Rules", "blurb": "Build rules and understand how they run." },
+  { "slug": "watch", "label": "Watching it work", "blurb": "The calendar, the change log, prices you type." },
+  { "slug": "live", "label": "Going live", "blurb": "Simulation, going live, how prices reach your system." },
+  { "slug": "billing", "label": "Billing", "blurb": "Your bill, your room count, your card." },
+  { "slug": "team", "label": "Your team", "blurb": "Roles and invitations." },
+  { "slug": "recipes", "label": "How do I...", "blurb": "Short, numbered answers." },
+  { "slug": "wrong", "label": "When something looks wrong", "blurb": "Symptoms, reasons, fixes." },
+  { "slug": "reference", "label": "Reference", "blurb": "Glossary, numbers, limits, privacy." },
+  { "slug": "help", "label": "Getting help", "blurb": "How to reach us." }
+]

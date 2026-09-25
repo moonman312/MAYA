@@ -1,0 +1,66 @@
+---
+title: Stop an unusual past night skewing comparisons
+summary: From a change's "How did we know?" panel, open the nights MAYA compared with, click "Not a fair comparison?" on the odd one, give a reason and set it aside so it drops out of comparisons from the next run.
+section: recipes
+order: 180
+readingTime: 4
+keywords: [festival, not a fair comparison, set aside, set this date aside, unusual night, skewed, skewing, compared with, group buyout, conference, sporting event, renovation week, your corrections, undo a correction, flag a date, odd comparison, how long, expire, expired, 3 years, still left out]
+questions:
+  - How do I stop a festival night skewing comparisons? {#in-plain-words}
+  - Why did MAYA compare my night with a festival weekend? {#in-plain-words}
+  - How do I set a past date aside? {#set-the-date-aside/1-open-the}
+  - What does "Not a fair comparison?" do? {#in-plain-words}
+  - Can I undo a correction? {#see-and-undo-your-corrections}
+  - How long does a date stay set aside? {#what-it-does/from-the-next}
+  - Who can set a date aside? {#set-the-date-aside/leave-just-set}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Find the change in the <Ui>Change Log</Ui> tab, click <Ui>How did we know?</Ui>, then <Ui>Why did you expect that?</Ui> and <Ui>Show me the nights you compared</Ui>. On the night that was not normal, click <Ui>Not a fair comparison?</Ui>, choose a reason such as <Ui>Local Event or Festival</Ui>, keep <Ui>Just set aside this one date (recommended)</Ui> and click <Ui>Set this date aside</Ui>. From the next run that date is left out of comparisons for 3 years. <Ui>Undo</Ui> under <Ui>Your corrections</Ui> puts it back.
+</InPlainWords>
+
+## Set the date aside
+
+<Steps>
+<Step title="Open the change">
+On the <Ui>Change Log</Ui> tab, find the change made by a booking speed rule and click <Ui>How did we know?</Ui> under it. The panel shows how many bookings arrived and how many a night like it usually has.
+</Step>
+<Step title="Show the nights it compared">
+Click <Ui>Why did you expect that?</Ui>, then <Ui>Show me the nights you compared</Ui>. One row per past night appears, such as "Fri, Jul 18 2025" with "12 bookings in the same stretch" and why it was picked.
+</Step>
+<Step title="Flag the odd one">
+On the row that was not normal, click <Ui>Not a fair comparison?</Ui>. Under "What made Fri, Jul 18 2025 not a fair comparison?", choose a reason from the list: <Ui>Local Event or Festival</Ui>, <Ui>Sporting Event or Tournament</Ui>, <Ui>Conference or Convention</Ui>, <Ui>Renovation or Rooms Out of Service</Ui>, <Ui>Utility or Amenity Outage</Ui>, <Ui>Group Buyout</Ui>, <Ui>Nearby Competitor Closed or Sold Out</Ui>, <Ui>Severe Weather</Ui>, <Ui>Road, Transit, or Flight Disruption</Ui>, <Ui>Booking Data Looks Wrong</Ui>, <Ui>Other</Ui> (which asks for a few words), or the holiday reason covered in [Handle a holiday MAYA does not have](/docs/recipes/handle-a-holiday-maya-does-not-have).
+</Step>
+<Step title="Keep the recommended scope and save">
+Leave <Ui>Just set aside this one date (recommended)</Ui> selected and click <Ui>Set this date aside</Ui>. The row now reads "Set aside" with a note that it is not used from the next run onward.
+</Step>
+</Steps>
+
+Setting a date aside needs Revenue Manager access or higher. Anyone on the property can open the panel and read the nights.
+
+## What it does
+
+From the next pricing run the date is left out of every comparison and out of the reading of your seasons. The expected count for the night you started from is worked out again from the nights that remain, and any booking speed rule reads the new figure on its next check. Nothing about the past is changed and no price is moved by the correction itself.
+
+Some reasons offer two more scopes. <Ui>This happens every year around this time</Ui> starts a yearly pattern: once the same reason is reported near the same time of year from 2 different years, a window of about 5 days either side is left out every year. <Ui>This should also change how our seasons are read (advanced)</Ui> needs reports from 3 different years before it changes anything about seasons. Until those counts are reached, only the single date is set aside.
+
+A date you set aside counts for 3 years from the day you set it aside. After that it still shows under <Ui>Your corrections</Ui> but is no longer left out, so a yearly pattern needs newer reports to keep going.
+
+<Callout kind="example">
+Priya opens a cut on Fri, Nov 13 2026 at The Harbour Inn. One of the eight nights compared is Fri, Nov 15 2024, with 14 bookings in the same stretch, the weekend of a food festival that has since moved. She sets it aside with <Ui>Local Event or Festival</Ui>. On the next run the usual count for a night like this drops from 6 to 5, and the cut rule reads the night as Normal.
+</Callout>
+
+## See and undo your corrections
+
+At the top of the <Ui>Change Log</Ui> tab, <Ui>Your corrections</Ui> lists every date you have set aside, each with <Ui>Undo</Ui>. Undo makes the date comparable again from the next run. A flagged date can also be seen on the row itself the next time you open that night's comparisons.
+
+<Callout kind="not-yet">
+Dates can only be set aside from a change's comparisons, so you cannot flag a date before it has been used. Closed periods (a stretch when the whole property was shut) are confirmed on the setup review, not here.
+</Callout>
+
+<Related>
+- [Not a fair comparison](/docs/watch/not-a-fair-comparison)
+- [Similar nights](/docs/rules/similar-nights)
+- [How did we know?](/docs/watch/how-did-we-know)
+</Related>

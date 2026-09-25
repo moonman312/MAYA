@@ -1,0 +1,166 @@
+---
+title: What MAYA reads and writes
+summary: Exactly what MAYA reads from your property system, what it writes back (one nightly price per room type and, on Cloudbeds, one notification subscription), and what it never stores.
+section: connect
+order: 50
+readingTime: 12
+keywords: [reads, writes, guest names, guest data, guest details, emails, phone, address, card details, credit card, payment, privacy, rate plans, rate types, base rate, derived, linked, packages, non-refundable, create rate plans, availability, overbooking, restrictions, minimum stay, close out, reservations, bookings, taxes, fees, tax amount, subtotal, with tax, without tax, tax included, VAT, property name, time zone, currency, unit count, room count, stored, already booked, existing bookings, guests pay more, read-only, read only, read access only, no write access, permission to change rates, IT, security review, choose rate plan, pick rate plan, different rate plan, Best Available, notification, subscription, webhook, uninstall]
+questions:
+  - What does MAYA read from my property system? {#in-plain-words}
+  - Does MAYA read guest names, emails or card details? {#guest-data}
+  - Does MAYA read my rate plans? {#rate-plans-and-packages/maya-reads-your}
+  - What does MAYA write to my property system? {#what-maya-writes/cloudbeds-once-you}
+  - What is the Cloudbeds notification MAYA subscribes to? {#what-maya-writes/cloudbeds-once-you}
+  - Which rate plan does MAYA change? {#rate-plans-and-packages/cloudbeds}
+  - Will MAYA interfere with my derived or linked rates? {#rate-plans-and-packages/cloudbeds}
+  - Does MAYA create rate plans? {#rate-plans-and-packages/maya-reads-your}
+  - Does MAYA price packages or non-refundable rates? {#rate-plans-and-packages/cloudbeds}
+  - Does MAYA change availability or cause overbooking? {#what-maya-writes/cloudbeds-once-you}
+  - Does MAYA touch reservations or guests? {#what-maya-writes/cloudbeds-once-you}
+  - If a rule raises a night's price, do guests who already booked pay more? {#what-maya-writes/cloudbeds-once-you}
+  - Does MAYA read my taxes and fees? {#taxes-and-fees}
+  - Are the prices I see with or without tax? {#with-or-without-tax}
+  - Does MAYA read my minimum stays or restrictions? {#what-maya-reads/cloudbeds-about-every}
+  - Can I give MAYA read-only access? {#read-only-access}
+  - Can I choose which rate plan MAYA writes to? {#rate-plans-and-packages/mews}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+MAYA reads your bookings (nights, room type, nightly rate, booking date), your room types (and, on Cloudbeds, how many rooms each has), your rate plans, and your property's name, time zone and currency. It writes only one nightly price per room type to one rate plan (on Cloudbeds, MAYA also asks Cloudbeds to let it know if the app is uninstalled). On Mews it does not copy your rate plans or property details, and it writes nothing. It never stores guest names, emails, phone numbers, addresses or card details.
+</InPlainWords>
+
+This page is the full list, for anyone who needs to answer "what exactly does MAYA touch?" before connecting, or who wants to check afterwards. Where the three systems differ, the tabs say how. The short version: MAYA reads the shape of your bookings and your rates, and it writes nightly prices. Everything else in your system is yours alone.
+
+## What MAYA reads
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+About every five minutes: bookings made or changed since the last read, with every room in the booking and each room's own nightly rate, and your room types with the number of units in each.
+
+About once an hour: your rate plans, with each room type's own nightly rate for the next 60 nights from its base rate plan.
+
+Once a day: the whole booking window again, and your taxes and fees (Cloudbeds requires the request, but MAYA keeps none of it and uses none of it).
+
+Once, at connect: the property's name, time zone and currency, and which properties your login covers.
+
+Arrives but is never used or kept: availability and restrictions (minimum stays, closed to arrival or departure), which come with your room types and nightly rates, and guest names, which come with bookings.
+
+Never asked for: room blocks, allotments, or other guest details. Read the [Cloudbeds page](/docs/connect/cloudbeds).
+</PmsTab>
+<PmsTab pms="thinkreservations">
+About every five minutes: bookings made or changed since the last read, with each room and its room charges, and your room types by name. MAYA does not read room counts from ThinkReservations yet, so it uses one number for every room type (100 until we change it). Occupancy is exact only when your room types are the same size.
+
+About once an hour: your rate types (name, standard or derived, which room types each covers) and your own nightly rates for the next 60 nights from the rate type MAYA sends to.
+
+Once a day: the whole booking window again.
+
+Once, at connect: the property's name, time zone and currency, and which hotels your login covers.
+
+Never asked for: availability (MAYA asks for the permission but makes no such call), restrictions, or guest details. Guest details still arrive with each booking, and MAYA drops them before anything is stored. Read the [ThinkReservations page](/docs/connect/thinkreservations).
+</PmsTab>
+<PmsTab pms="mews">
+About every five minutes: bookings made or changed since the last read, with their room category, arrival, departure and total price, and your room categories by name. MAYA does not read room counts from Mews yet, so it uses one number for every category.
+
+Once a day: the whole window again.
+
+Once, at connect: your property's details, only to check the keys work. MAYA keeps none of them. We set the property's name, time zone and currency with you.
+
+Never asked for: your rate plans, availability, restrictions or guest details. Guest fields that come with a booking are dropped before anything is stored. Read the [Mews page](/docs/connect/mews).
+</PmsTab>
+</PmsTabs>
+
+## What MAYA writes
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+Once you go live: one nightly price per room type, to that room type's base rate plan, for tonight and the next 59 nights, whenever a price changes. MAYA also keeps one notification subscription with Cloudbeds so Cloudbeds can tell it if the app is uninstalled. That is all.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+Once you go live: one nightly price per room type, to your Best Available rate type, for tonight and the next 59 nights, whenever a price changes. That is all.
+</PmsTab>
+<PmsTab pms="mews">
+Nothing. MAYA does not send prices to Mews yet, including prices you type.
+</PmsTab>
+</PmsTabs>
+
+Until you go live, no price is written. Every property starts in simulation. Read [going live](/docs/live/going-live).
+
+MAYA never creates, changes or cancels a booking. So when a rule raises or cuts a night's price, guests who have already booked keep the rate they booked at. The new price is for bookings made after it reaches your system. MAYA never changes availability, so it cannot cause an overbooking. It never changes restrictions, minimum stays, close-outs, taxes, room types, rate plans or property settings. It never sends a price of 0. Read [how prices reach your property system](/docs/live/how-prices-reach-your-pms).
+
+<Callout kind="good-to-know" title="Two permissions asked for but never used">
+When you connect Cloudbeds from inside MAYA, the permission list includes writing reservations. When you connect ThinkReservations, it includes reading availability. MAYA asks for both and uses neither. Nothing in MAYA creates, changes or cancels a booking, and nothing uses how many rooms are free on a night.
+</Callout>
+
+## Read-only access
+
+Simulation is the read-only way to use MAYA. Every property starts in it and stays in it until a General Manager or Hotel Admin goes live. In simulation MAYA reads your system and runs your rules. The results show on the calendar and in the change log, and no price is sent. On Cloudbeds, the only thing written is the notification subscription, set up when you connect. Read [simulation mode](/docs/live/simulation-mode).
+
+MAYA has no read-only connection. When you connect Cloudbeds from inside MAYA, or connect ThinkReservations, the permissions it asks for include changing rates, because it needs that once you are live.
+
+If your system lets MAYA read but not change rates, everything else carries on as normal: reads, rules, the calendar and the change log. Once you are live, each price your system refuses is held, and the change log shows a "Rates not reaching" item such as "Cloudbeds won't let MAYA change Standard rates because MAYA doesn't have permission to update rates". To stop sending, go back to simulation instead. Read [pausing, or going back to simulation](/docs/live/pausing-or-going-back).
+
+## What a stored booking looks like
+
+For each room in a booking, MAYA keeps one line per night: the night, the room type, the date the booking was made, the days between the two, and that room's nightly rate. It also keeps a short record of the booking's shape: its reference in your system, its status, its dates, how many adults and children, and the channel it came from. Where your system sends them, the record also holds the room the booking was given and the rate plan it was booked on. On ThinkReservations it also keeps the booking's subtotal, tax and total amounts. No price is worked out from these amounts. Bookings read by the history import keep no record at all beyond the line per night.
+
+What one line stands for depends on your system. In Cloudbeds and ThinkReservations it is one room of a booking. In Mews it is one booking, which is always one room. For occupancy every line counts. For booking speed a booking counts once however many rooms it holds. Read [booking speed](/docs/rules/booking-speed).
+
+## Guest data
+
+MAYA never stores guest names, emails, phone numbers, addresses, notes, dietary or special requests, payment details or loyalty numbers. Where your system lets MAYA choose, it does not ask for them: MAYA never asks Cloudbeds for guest details, and never asks ThinkReservations for customer records. Where they arrive anyway (a guest name on a Cloudbeds booking, a customer block on a ThinkReservations booking, a Mews booking's guest fields), MAYA keeps only the fields on a short list and drops the rest before anything is stored. A new field your system adds is dropped by default.
+
+The same promise is in the [Privacy Policy](https://www.get-maya.com/privacy) and the [Terms](https://www.get-maya.com/terms). Read [privacy, security and your data](/docs/reference/privacy-security-and-your-data).
+
+## Rate plans and packages
+
+MAYA reads your rate plans for two reasons: to find the one plan per room type it writes to, and to read your own nightly rates from that plan about once an hour. Your own rate is what a rule starts from on a night MAYA has not sent to yet. Read [how rules run](/docs/rules/how-rules-run).
+
+MAYA writes to one plan per room type and never to any other.
+
+- **Cloudbeds**: the room type's base rate, the plan that does not follow another plan and has no public name. Derived plans (a non-refundable rate at 10% off, say) follow the base by Cloudbeds' own rules, so they move when MAYA moves the base. Packages, promotions and long-stay plans are never written to. Read [which rate plan MAYA changes in Cloudbeds](/docs/connect/cloudbeds#what-maya-writes-the-base-rate).
+- **ThinkReservations**: your Best Available rate type, the standard rate type with "Best Available" in its name. If no rate type has that name, MAYA uses the one standard rate type that covers the most room types. Derived rate types reprice themselves from it. A non-refundable or package rate type is written to only if it is the one chosen, so give exactly one standard rate type a name with "Best Available" in it. Read [which rate type MAYA sends to in ThinkReservations](/docs/connect/thinkreservations#which-rate-type-maya-sends-prices-to).
+- **Mews**: none.
+
+There is no setting to choose a different plan, in MAYA or with us. On Cloudbeds, it follows from how your plans are built. MAYA writes to the base rate, so a plan you want to move with MAYA's prices should follow the base rate.
+
+On ThinkReservations, it follows from the name. MAYA sends to the standard rate type whose name contains "Best Available", so you choose by giving that name to the standard rate type you want (and to no other). MAYA reads your rate types about once an hour, so a renamed rate type is picked up within about an hour.
+
+MAYA never creates a rate plan or a rate type. Set up any new rate structure in your system first. If a room type has no plan MAYA can write to, it is priced on the calendar and not sent, and the change log says so. Read [when your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price).
+
+<Example title="A price moving through The Harbour Inn's rate plans">
+The Harbour Inn's Standard room in Cloudbeds has "Standard Rate" (the base), "Non-refundable" (follows Standard Rate at 10% off) and "Bed and Breakfast" (a package). MAYA writes $165 to Standard Rate for Fri, Nov 13 2026. Cloudbeds moves Non-refundable to $148.50 on its own. Bed and Breakfast stays where it was. Your booking engine and channels read Standard Rate as they always have.
+</Example>
+
+## Taxes and fees
+
+On Cloudbeds, MAYA asks for your taxes and fees once a day, because Cloudbeds requires it of pricing tools like MAYA. MAYA keeps none of it and uses none of it. No price is worked out from your taxes, and nothing about tax is sent. If your property has not given MAYA permission to read them, Cloudbeds turns the request down and MAYA carries on as normal.
+
+On ThinkReservations and Mews, MAYA does not read your tax settings at all. A ThinkReservations booking does arrive with its own tax amount. MAYA keeps it with the booking and works out no price from it. Read [what a stored booking looks like](#what-a-stored-booking-looks-like).
+
+## With or without tax
+
+MAYA reads and writes the same rate field in your system, so prices come out on whatever basis your base rate is on. If your base rate in Cloudbeds is entered with tax included, MAYA's prices are with tax included. If it is entered without, so are MAYA's. The same holds for ThinkReservations. MAYA does not add or remove tax, and it shows you the number it works with.
+
+<Callout kind="careful" title="MAYA sends the number as it is">
+On Cloudbeds and ThinkReservations, a price you type in MAYA goes to your system exactly as typed, on that same basis (except 0, which you set there yourself). If your rates are entered without tax, type prices without tax. Nothing is sent to Mews.
+</Callout>
+
+## Property details are read once
+
+MAYA reads your property's name, time zone and currency at connect and does not read them again. On Mews it copies none of the three, and we set them with you when we connect. The name you can change yourself in the questions step. The time zone and currency cannot be changed inside MAYA. If you change either in your system, [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone%20or%20currency) and we change it in MAYA. The time zone matters more than it looks: the calendar, the 60-night window, the booking window and every "past week" count run on it. Read [time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays).
+
+## How many rooms each room type has
+
+Cloudbeds reports the number of rooms in each room type, and MAYA re-reads it on every cycle, so a wing you open shows up on the next read. MAYA does not read room counts from Mews yet, so it uses one number for every Mews room category, which we set with you when we connect (100 until then). MAYA does not read room counts from ThinkReservations yet either, so it uses one number for every ThinkReservations room type: 100, until we change it for you. On both, the number cannot differ by room type, so occupancy is exact only when your room types are the same size. The count is what sellable occupancy divides by and what your bill is based on. Read [room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service) and [your room count and what you pay](/docs/billing/your-room-count).
+
+<Callout kind="not-yet" title="Not yet">
+MAYA does not use, keep or write availability or restrictions on any system (on Cloudbeds they arrive with your room types and nightly rates and are dropped). It does not read or write room blocks or allotments. It does not read rate plans from Mews or send anything to Mews. Time zone and currency are not re-read after connect (email us). ThinkReservations and Mews room counts are not read, and a count for each room type is not possible there yet (one number covers them all).
+</Callout>
+
+<Related>
+- [Which systems MAYA works with](/docs/connect/which-systems-work)
+- [How prices reach your property system](/docs/live/how-prices-reach-your-pms)
+- [Privacy, security and your data](/docs/reference/privacy-security-and-your-data)
+</Related>

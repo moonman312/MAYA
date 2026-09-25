@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* The docs' own dark mode is a class on <html>, set by the docs theme switch.
+   Nothing outside the docs uses dark: classes. */
+@custom-variant dark (&:is(.dark *));
+
 :root {
   --background: #020617;
   --foreground: #e2e8f0;
@@ -10,6 +14,27 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+
+  /* The docs' colour names (the marketing site's). Their values are only set
+     on docs pages (see "Docs" below), so no app screen can pick them up. */
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -23,4 +48,186 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* A link from the docs or an email lands on a place and highlights it for a
+   moment (src/components/deep-links/flash.ts). A ring, so nothing moves. */
+[data-dl-flash] {
+  border-radius: 0.5rem;
+  box-shadow: 0 0 0 3px rgb(56 189 248 / 0.9), 0 0 0 8px rgb(56 189 248 / 0.25);
+  animation: dl-flash 1.8s ease-out forwards;
+}
+[data-dl-flash]:focus {
+  outline: none;
+}
+@keyframes dl-flash {
+  0%,
+  55% {
+    box-shadow: 0 0 0 3px rgb(56 189 248 / 0.9), 0 0 0 8px rgb(56 189 248 / 0.25);
+  }
+  100% {
+    box-shadow: 0 0 0 3px rgb(56 189 248 / 0), 0 0 0 8px rgb(56 189 248 / 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-dl-flash] {
+    animation: none;
+  }
+}
+
+/* ── Docs ───────────────────────────────────────────────────────────────────
+   The docs and support pages keep the marketing site's look: its colours,
+   radii and Geist. Every value below applies only while a page holds a
+   .docs-root, so the app's own screens are untouched. The theme class on
+   <html> is set before paint by ThemeScript (src/components/docs/theme-script.tsx). */
+
+:root:has(.docs-root) {
+  color-scheme: light;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.52 0.12 180);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.52 0.12 180);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --warning: oklch(0.56 0.13 65);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.52 0.12 180);
+  --radius: 0.625rem;
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  scroll-padding-top: 7rem;
+}
+
+:root.dark:has(.docs-root) {
+  color-scheme: dark;
+  --background: oklch(0.13 0.005 260);
+  --foreground: oklch(0.95 0 0);
+  --card: oklch(0.18 0.005 260);
+  --card-foreground: oklch(0.95 0 0);
+  --popover: oklch(0.18 0.005 260);
+  --popover-foreground: oklch(0.95 0 0);
+  --primary: oklch(0.72 0.14 180);
+  --primary-foreground: oklch(0.13 0.005 260);
+  --secondary: oklch(0.22 0.005 260);
+  --secondary-foreground: oklch(0.95 0 0);
+  --muted: oklch(0.22 0.005 260);
+  --muted-foreground: oklch(0.65 0 0);
+  --accent: oklch(0.72 0.14 180);
+  --accent-foreground: oklch(0.13 0.005 260);
+  --destructive: oklch(0.704 0.191 22.216);
+  --warning: oklch(0.82 0.13 80);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.72 0.14 180);
+}
+
+@layer base {
+  :root:has(.docs-root) *,
+  :root:has(.docs-root) ::before,
+  :root:has(.docs-root) ::after {
+    border-color: var(--color-border);
+    outline-color: color-mix(in oklab, var(--color-ring) 50%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html:has(.docs-shell) {
+    scroll-behavior: smooth;
+  }
+}
+
+.docs-prose > :first-child {
+  margin-top: 0;
+}
+
+/* A docs widget's answer fades in when it changes. */
+@keyframes docs-fade {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Every closed <details> opens, and every property system tab shows, on paper. */
+@media print {
+  :root:has(.docs-root),
+  :root.dark:has(.docs-root) {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.45 0 0);
+    --border: oklch(0.85 0 0);
+    --primary: oklch(0.45 0.1 180);
+    --warning: oklch(0.5 0.13 65);
+  }
+  :root:has(.docs-root) body {
+    background: white;
+  }
+  .docs-root [data-print-hide],
+  .docs-root nav,
+  .docs-root footer {
+    display: none !important;
+  }
+  .docs-shell {
+    padding-top: 0 !important;
+  }
+  [data-pms-panel]::before {
+    content: attr(data-pms-label);
+    display: block;
+    font-weight: 600;
+    font-size: 0.8rem;
+    margin: 0.75rem 0 0.25rem;
+  }
+  [data-widget-live] {
+    display: none !important;
+  }
+  [data-widget-static] {
+    display: block !important;
+  }
+  .docs-prose a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.8em;
+  }
+  .docs-prose table,
+  [data-callout],
+  .docs-root details {
+    break-inside: avoid;
+  }
+  .docs-root details > summary {
+    list-style: none;
+  }
+  /* closed examples print open (the page also opens them on beforeprint) */
+  .docs-root details::details-content {
+    content-visibility: visible;
+    display: block;
+  }
+}
+
+/* Tailwind's base layer hides [hidden] with !important, and an important rule
+   in an earlier layer wins over one outside layers, so this one lives there too. */
+@layer base {
+  @media print {
+    [data-pms-panel][hidden] {
+      display: block !important;
+    }
+  }
 }

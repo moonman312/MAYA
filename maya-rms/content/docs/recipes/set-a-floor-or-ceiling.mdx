@@ -1,0 +1,88 @@
+---
+title: Set or change a floor or ceiling
+summary: Setup fills in each room type's floor and ceiling from your answers and, where there is enough history, its own past rates, so check yours on the Rate Simulator tab first. There is no editor. Accept or edit a suggestion for one still at $1.00 or $99,999.99, or answer the floor and ceiling questions again to change every room type at once.
+section: recipes
+order: 150
+readingTime: 7
+keywords: [floor, ceiling, minimum price, maximum price, guardrails, guardrails column, set a floor, change a floor, change a ceiling, where do I set floors, already set, set during setup, check my limits, get suggestions from my data, set it to, amount to set, $1, $99999, default floor, lowest price, highest price, limits, floor not applied, floor did not change, ceiling did not change, floor above ceiling, ceiling below floor, room nights, 30 room nights, 200 room nights, not enough history, still $99999 after import, price above ceiling, price below floor, over my ceiling, under my floor, kept rate, changed in Cloudbeds, comp night]
+questions:
+  - Where do I set floors and ceilings? {#in-plain-words}
+  - Did setup already set my floors and ceilings? {#check-what-you-have-first/before-you-set}
+  - How do I change a floor or ceiling that is already set? {#change-a-floor-or-ceiling-that-is-already-set/the-floor-and}
+  - Why is my ceiling $99,999.99? {#check-what-you-have-first/a-limit-stays}
+  - Why is my floor $1.00? {#check-what-you-have-first/a-limit-stays}
+  - Why did my new floor not change one room type? {#change-a-floor-or-ceiling-that-is-already-set/a-clash-is}
+  - Can I set a different floor for each room type? {#change-a-floor-or-ceiling-that-is-already-set/the-floor}
+  - Can I set a floor for one night or one season? {#where-the-limits-act/standards-ceiling-is}
+  - Why is a price over my ceiling or under my floor? {#where-the-limits-act/every-price-your}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+There is no floor and ceiling editor yet. Setup sets them from your answers and your own past rates: check them in the <Ui>Guardrails</Ui> column on the <Ui>Rate Simulator</Ui> tab. A limit still at $1.00 or $99,999.99 can be set from a <Ui>Get suggestions from my data</Ui> card. To change one already set, answer the floor and ceiling questions again, or email us the numbers.
+</InPlainWords>
+
+## Check what you have first
+
+Before you set anything, look at what you already have. Setup fills in floors and ceilings for you, so do not assume yours are still at $1.00 and $99,999.99.
+
+Your answers to the floor and ceiling questions go on first. The floor goes to every room type, and the ceiling to each room type whose highest sold rate is at or below it, unless the two clash (see below).
+
+Then the history import fills any floor still at $1.00, or ceiling still at $99,999.99, from that room type's own past rates. There is no card to accept. The floor is 40% of what the room type typically sells for, rounded to the nearest $5 and never under $10, and needs at least 30 room nights sold for that room type (a room night is one room for one night). The ceiling is 1.5 times the rate it rarely sells above, rounded to the nearest $10, and needs at least 200 room nights sold.
+
+A limit stays at the default when the room type had sold too few room nights, or looked like it might not be a room. A ceiling needs far more room nights than a floor, and a room type with few rooms gets there more slowly. At The Harbour Inn, Standard has 12 rooms and reaches 200 room nights after about 17 full nights. Suite has 2 rooms and needs at least 100. So a room type can have a floor and still carry the $99,999.99 ceiling. To see yours, open the <Ui>Rate Simulator</Ui> tab and read the <Ui>Guardrails</Ui> column. It shows the floor and ceiling of every room type that counts as a room.
+
+## Set a floor or ceiling from a suggestion
+
+<Steps>
+<Step title="Ask for suggestions">
+On the <Ui>Rules</Ui> tab, click <Ui>Get suggestions from my data</Ui> beside the <Ui>Pricing Rules</Ui> heading. A panel headed "Here's exactly what happens" says that nothing changes by itself. Click <Ui>Sounds good</Ui>. The button shows a waiting message while MAYA reads your history again.
+</Step>
+<Step title="Open the review">
+When it is done, the button reads "3 suggestions ready →". Click it to open the review page, under the heading "Recommendations from your data".
+</Step>
+<Step title="Edit the amount and set it">
+A card reads "Set a floor for "Standard"?" with the reason under it, for example: Standard has typically sold for $150 a night, so MAYA suggests a floor of $60. The amount sits in a box labelled <Ui>Amount to set</Ui>. Leave it, or type your own number. The button reads <Ui>Set it to 60</Ui> and follows what you typed. Click it. <Ui>No thanks</Ui> leaves the room type as it is.
+</Step>
+</Steps>
+
+Cards only fill gaps: a floor still at $1.00 or a ceiling still at $99,999.99. A limit that is already set, by your answers, the import or an earlier card, gets no card, whatever its number. So if setup filled every limit, you will see no floor or ceiling cards. The amount on a card is your own answer where it fits, and otherwise a number from the room type's past rates, worked out the same way as during the import.
+
+Accepting a suggestion needs Revenue Manager access or higher. Reading your history again is limited to 5 runs in 15 minutes, needs a paid property with a connected system, and can take a while on a large property.
+
+## Change a floor or ceiling that is already set
+
+The floor and ceiling questions from setup can be answered again at any time, at <AppLink to="questions">maya-rms.com/onboarding/questions</AppLink> once your property is connected. They are the same five cards, all skippable. Skip to the floor card, answer it, then the ceiling card, then skip the rest.
+
+- **The floor** you type replaces the floor of every active room type, except where it clashes.
+- **The ceiling** you type goes only to room types whose highest sold rate is at or below it, so a property-wide ceiling never pins a suite below what it already sells for. Other room types keep their ceiling.
+- **A clash is skipped without a message.** A room type takes the new numbers only if its floor still ends up at or below its ceiling. If your floor is above a room type's ceiling, or your ceiling is below its floor, that room type keeps the floor and ceiling it had.
+- **Your saved answers go on again each time.** Saving the floor card, the ceiling card or the fifth card writes both of your saved answers again, by the same rules. So answering only the ceiling card still puts your saved floor answer, if you gave one, back on every room type. Skipping a card changes nothing.
+
+Nothing on screen tells you when a room type was skipped. Check the <Ui>Guardrails</Ui> column on the <Ui>Rate Simulator</Ui> tab afterwards.
+
+To give one room type a floor of its own, or to lower a ceiling under a room type's past rates, [email us](mailto:info@modern-hospitality-solutions.com?subject=Floor%20and%20ceiling) with the room type and the numbers.
+
+## Where the limits act
+
+Every price your rules produce is held inside the room type's floor and ceiling. So is your system's own rate on a night where no rule has fired: under the floor, the floor is published, and over the ceiling, the ceiling. The change log says so when a limit stops a rule: "That would have gone past your $300.00 ceiling for Standard, so it stopped there." A booking speed or pickup rule that cannot move the price in its own direction against a limit does not fire.
+
+The exception is a price you set yourself. It is published as you set it, even outside the limits: a price typed before the floor or ceiling was changed, a [comp night](/docs/recipes/make-a-night-free) at 0, or a rate you changed in Cloudbeds or ThinkReservations that MAYA kept as your price ("Changed in Cloudbeds" or "Changed in Think Reservations" on the calendar). Rules stacked on it go no further out than that price. A price you type now under the floor or over the ceiling is refused, except 0. Read [Setting a price yourself](/docs/watch/setting-a-price-yourself).
+
+<Example title="A kept rate over the ceiling">
+Standard's ceiling is $300. MAYA sent a price to Fri, Nov 13 2026 two days ago, and Cloudbeds confirmed it. You change that night to $320 in Cloudbeds, and within the hour MAYA keeps it as your price. $320 is published. If "Busy nights" then fires, 10% on top would be $352, further past the ceiling than your price. So the price stays at $320, and the change log reads "That would have gone further past your $300.00 ceiling for Standard than the price it started from, so it stopped there."
+</Example>
+
+<Callout kind="good-to-know">
+When the amber banner says a rule keeps adjusting a night and your limit is still the default, it offers <Ui>Ask MAYA for a ceiling</Ui> or <Ui>Ask MAYA for a floor</Ui>. The link takes you to the <Ui>Rules</Ui> tab, where <Ui>Get suggestions from my data</Ui> is the next click.
+</Callout>
+
+<Callout kind="not-yet">
+No per-room-type editor, no floor or ceiling per night or per season, and no way to lower a ceiling under a room type's past rates yourself. The floor cannot be 0: use a comp night for a free night.
+</Callout>
+
+<Related>
+- [Floors and ceilings](/docs/review/floors-and-ceilings)
+- [Getting suggestions later](/docs/review/getting-suggestions-later)
+- [The five questions](/docs/review/the-five-questions)
+</Related>

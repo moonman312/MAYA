@@ -1,0 +1,120 @@
+---
+title: What MAYA does not do (yet)
+summary: Every limit in one list, grouped by rules, prices and sending, property systems, the calendar and change log, account and billing, and your data, each with what to do instead and the page that explains it.
+section: reference
+order: 40
+readingTime: 9
+keywords: [not yet, cannot, can't, limits, limitations, missing, feature request, workaround, weekend rule, date range, season, edit a rule, copy a rule, how many rules, 40 rules, too many rules, maximum, holiday, event, Mews sending, minimum stay, close out, restrictions, availability, packages, per guest, competitor rates, weather, export, report, revenue report, what would my rules have earned, API, mobile app, app store, demo, password reset, two-factor, 2FA, single sign-on, SSO, bank transfer, ACH, invoice, accounting, QuickBooks, Xero, Sage, accountant, bookkeeping, pause, status page, phone support, chat, SLA, Opera, Little Hotelier, Guesty, spreadsheet, time zone, currency, whole units, notifications, email alerts]
+questions:
+  - What can MAYA not do yet? {#in-plain-words}
+  - Does MAYA connect to my accounting software (QuickBooks, Xero)? {#account-team-and-billing/no-link-to}
+  - Can I see what my rules have earned, or would have earned? {#calendar-and-change-log/no-report-of}
+  - Is there a public API? {#your-data-and-everything-else/no-public-api}
+  - Is there a mobile app? {#your-data-and-everything-else/no-mobile-app}
+  - Can I export my data, rules or the change log? {#your-data-and-everything-else/no-export}
+  - Does MAYA send email alerts when a price changes? {#calendar-and-change-log/no-notifications-when}
+  - Does MAYA use competitor rates, weather or events? {#prices-and-sending/no-competitor-rates}
+  - Is there a demo property I can look at? {#your-data-and-everything-else/no-demo-property}
+  - Is there phone or chat support, or a status page? {#your-data-and-everything-else/no-phone-or}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+This is every limit of MAYA today, in one list, each with what to do instead and the page that explains it. The ones people meet first: rules cannot be limited to weekends or dates or be edited, nothing is sent to Mews yet, and nothing can be exported. No dates are promised here. When a limit goes away, this page changes.
+</InPlainWords>
+
+Each line says what is missing, then what you can do today. Most limits have a way round them, and the most useful one is often typing a price yourself on the <Ui>Calendar</Ui> tab: it can do for chosen nights nearly everything a rule cannot.
+
+## Rules
+
+- **No weekday rules.** Every rule runs every night, weekends included. Type a price on the nights you want, or use booking speed, which already compares each Friday with other Fridays. [What rules cannot do yet](/docs/rules/what-rules-cannot-do-yet)
+- **No date range, season or event rules.** Type a price for the stretch with <Ui>through…</Ui> on the calendar, for any nights from tonight to 364 days ahead. [Hold a price for an event](/docs/recipes/hold-a-price-for-an-event)
+- **No editing, renaming or copying a rule**, and no copying rules to another property. Delete it and add it again, or turn it off and add the new one beside it. [Turning a rule off, deleting it, or changing it](/docs/rules/off-delete-or-change)
+- **At most 40 rules <Ui>On</Ui> at once.** Rules switched <Ui>Off</Ui> do not count. Switch one <Ui>Off</Ui> to add another, and the changes it made stay. Deleting one also frees a place, but undoes its changes. [Turning a rule off, deleting it, or changing it](/docs/rules/off-delete-or-change#how-many-rules-you-can-have)
+- **No "or" between conditions**, and at most one condition of each kind. Make two rules. [What rules cannot do yet](/docs/rules/what-rules-cannot-do-yet)
+- **No priority setting.** When two booking speed or pickup rules are true on the same night, a fixed order picks the one that acts. Standard rules all apply. [How rules run](/docs/rules/how-rules-run)
+- **No price further than 60 nights ahead by rule.** Type a price for the night, and it is sent when the night enters the window. [How rules run](/docs/rules/how-rules-run)
+- **No rule that copies one room type's price onto another**, or keeps a fixed gap between them. Measure one set of room types and change another by a percentage or an amount. [Let suites follow standard rooms](/docs/recipes/let-suites-follow-standard-rooms)
+- **No rule that measures a room type that does not count as a room.** Tick it as a room, or measure your rooms and change it. [Measure one set, change another](/docs/rules/measure-one-set-change-another)
+- **No change to the three-times question.** You cannot change the number three or stop a rule on a night before it asks. Type a price for that night. [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting)
+- **No control over booking speed's levels**, guards or how many similar nights are used. [Booking speed](/docs/rules/booking-speed)
+- **No floor or ceiling editor**, and no floor or ceiling per night or season. Answer the five questions again, or email us the numbers. [Floors and ceilings](/docs/review/floors-and-ceilings)
+
+## Seasons, holidays and history
+
+- **No holidays outside the US**, and no way to add a holiday, festival or local event. Set the night aside with the reason for a holiday, and say it happens every year. [Handle a holiday MAYA does not have](/docs/recipes/handle-a-holiday-maya-does-not-have)
+- **No seasons you set yourself.** You cannot name, move or define one. Set unusual past dates aside with the scope that also changes how seasons are read. [Similar nights](/docs/rules/similar-nights)
+- **No page that lists your seasons, similar nights or holidays.** They show inside <Ui>How did we know?</Ui>, for the night in question. [How did we know?](/docs/watch/how-did-we-know)
+- **No closed period added by hand**, and a closure still to come is priced as normal. On Cloudbeds or ThinkReservations, set those nights to 0 in your system, which closes them for MAYA too. On Mews a 0 there has no effect in MAYA. [Checking what MAYA found](/docs/review/checking-what-maya-found)
+- **No button to restart the history import.** If it stops, email us. [The history import](/docs/review/the-history-import)
+
+## Prices and sending
+
+- **Nothing is sent to Mews**, including prices you type. MAYA reads Mews bookings, runs your rules and shows the prices. [Mews: what works today](/docs/connect/mews)
+- **No minimum stays, closed to arrival or departure, close-outs, availability or allotments.** MAYA writes nightly prices only. Set the rest in your property system. [What MAYA reads and writes](/docs/connect/what-maya-reads-and-writes)
+- **No price per rate plan, per guest count or per package.** MAYA writes one base rate per room type, and plans that follow it move by your system's own rules. [How prices reach your property system](/docs/live/how-prices-reach-your-pms)
+- **No price of 0 is ever sent.** For a free night, set 0 in your system yourself. [Make a night free](/docs/recipes/make-a-night-free)
+- **No undo button for one price change.** Type the price you want, delete the rule, or stop it on that night from the banner. [When a price change comes off](/docs/rules/when-a-change-comes-off)
+- **No per-night "sent" or "landed" mark.** Compare the night in both places, and read the change log for problems. [How prices reach your property system](/docs/live/how-prices-reach-your-pms)
+- **No email, text or banner for a sending problem.** It appears in the change log only. [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price)
+- **No "sync now" button.** MAYA reads your bookings about every five minutes on its own. [The PMS tab](/docs/watch/the-pms-tab)
+- **No button back to simulation once you are live.** Email us, or turn your rules off. [Pausing, or going back to simulation](/docs/live/pausing-or-going-back)
+- **No competitor rates, weather, event or holiday feeds.** MAYA works from your own bookings and rates only. [What MAYA does](/docs/start/what-maya-does)
+- **No watching for emergency declarations or changes in the law.** If a law limits price rises, change your rules or type prices yourself. [Terms and legal](/docs/reference/terms-and-legal)
+- **No rounding to whole units** for a currency without cents. Prices are worked out to two decimal places. [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays)
+
+## Property systems
+
+- **Three systems only**: Cloudbeds, ThinkReservations and Mews. No Opera, Little Hotelier, Guesty or others, no spreadsheet or file import, and one system per property. [Which systems work](/docs/connect/which-systems-work)
+- **Mews is connected by us**, with no history import, no starter rules, no suggestions, no read of your rates, and no go-live or reconnect from the app. Email us. [Mews: what works today](/docs/connect/mews)
+- **ThinkReservations reports no room counts**, so one number covers every room type, set by us. There is no Marketplace install, so no trial without a code, and a login covering several hotels is set up by hand. [ThinkReservations](/docs/connect/thinkreservations)
+- **No room blocks, allotments or out-of-order rooms read from any system.** Enter them as rooms out of service on the <Ui>PMS</Ui> tab. [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service)
+- **No renaming, merging or switching off a room type in MAYA.** Names and unit counts come from your system. Untick <Ui>Counts as a room</Ui> for anything nobody sleeps in. [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service)
+- **No screen that shows or changes your time zone or currency.** Both are read once when you connect. Email us. [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays)
+- **No disconnect button in MAYA.** Disconnect in your system, or email us. [Reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect)
+
+## Calendar and change log
+
+- **The change log shows the 10 most recent runs**, with no paging back, search, filter or export. For an older change, email us the night and room type. [The change log](/docs/watch/the-change-log)
+- **No notifications when a price changes**, by email or otherwise. [Emails MAYA sends](/docs/billing/emails-maya-sends)
+- **The calendar shows $ whatever your currency.** The numbers are yours, and the change log's sentences use your currency. [Calendar and change log questions](/docs/wrong/calendar-and-log-questions)
+- **No week or list view, no weekday names above the grid, and no list of the bookings behind a night.** Open the night in your property system. [The calendar](/docs/watch/the-calendar)
+- **No live or simulation badge.** [Tell if you are live](/docs/recipes/tell-if-you-are-live) walks through the clues.
+- **No booking speed reading before a rule acts.** It appears under <Ui>How did we know?</Ui> after a change. [Booking speed](/docs/rules/booking-speed)
+- **No report of what your rules have earned, or would have earned**, and no revenue report. The change log shows each change, and the <Ui>Rate Simulator</Ui> shows what your rules would do to a night you make up, though it cannot replay a real past run. [The Rate Simulator](/docs/rules/the-rate-simulator)
+
+## Account, team and billing
+
+- **No password reset link**, and no way to change your email address or password in the app. Email us. [Reset your password](/docs/recipes/reset-your-password)
+- **No two-factor sign-in, Google sign-in or single sign-on.** [Create an account and sign in](/docs/account/create-an-account-and-sign-in)
+- **No custom roles**, and no role that sees billing without also being able to go live and change the team. [Roles](/docs/team/roles)
+- **No resend button for an invitation**, and no inviting someone to several properties at once. [Inviting and removing people](/docs/team/inviting-and-removing-people)
+- **No view of all your properties at once**, no shared rules and no pooled billing. [Several properties](/docs/account/several-properties)
+- **No free plan**, and no trial without the Cloudbeds Marketplace or a code. Properties over 500 rooms are not sold self-serve. [What it costs](/docs/start/what-it-costs)
+- **Cards only**: no bank transfer, ACH or invoicing. [Cards, payments and invoices](/docs/billing/cards-payments-and-invoices)
+- **No invoices inside MAYA.** They live in Stripe's billing portal, opened with <Ui>Update card, receipts & cancellation</Ui> on the <Ui>Billing</Ui> page. [The billing page](/docs/billing/the-billing-page)
+- **No link to accounting software** such as QuickBooks or Xero. Forward Stripe's receipts to your accountant, or change the billing email in the portal to an address they read. They do not need a MAYA login for invoices. [Cards, payments and invoices](/docs/billing/cards-payments-and-invoices)
+- **No pause.** Turn your rules off, ask us to put the property back in simulation, or cancel and restart later. [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving)
+- **No payment-confirmed email, no digest, and no email settings.** [Emails MAYA sends](/docs/billing/emails-maya-sends)
+
+## Your data, and everything else
+
+- **No export** of rules, data, the calendar or the change log. Copy what you need from the screen. You can email us for a copy of your data, though one is promised only where the law requires it. [Privacy, security and your data](/docs/reference/privacy-security-and-your-data)
+- **No self-serve deletion** of a property or its data. A Hotel Admin or General Manager emails us. [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving)
+- **No public API** for your own systems. [What MAYA does](/docs/start/what-maya-does)
+- **No mobile app.** MAYA is a website, with nothing to install. [A tour of the app](/docs/start/a-tour-of-the-app)
+- **No demo property.** Every property starts in simulation, which runs your rules and sends nothing. [Is MAYA right for your property](/docs/start/is-maya-right-for-you)
+- **No phone or chat support, and no status page.** Support is by email. [Contact support](/docs/help/contact-support)
+- **No uptime guarantee.** [Terms and legal](/docs/reference/terms-and-legal)
+- **No choice of hosting region, no published security certification and no fixed IP addresses.** [Privacy, security and your data](/docs/reference/privacy-security-and-your-data)
+
+<Callout kind="good-to-know" title="Something missing from this list?">
+If you need MAYA to do something and it is not here or anywhere else in these docs, [email us](mailto:info@modern-hospitality-solutions.com?subject=Docs%20question). We answer, and we add the answer here.
+</Callout>
+
+<Related>
+- [What rules cannot do yet](/docs/rules/what-rules-cannot-do-yet)
+- [Setting a price yourself](/docs/watch/setting-a-price-yourself)
+- [Contact support](/docs/help/contact-support)
+</Related>

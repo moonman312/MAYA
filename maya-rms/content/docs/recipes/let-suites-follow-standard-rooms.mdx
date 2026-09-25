@@ -1,0 +1,59 @@
+---
+title: Let suites follow your standard rooms
+summary: Tick "Change prices on different room types" in the rule builder so a rule measures your Standard rooms and changes your Suite prices.
+section: recipes
+order: 120
+readingTime: 3
+keywords: [suites follow, measure one room type change another, watches, changes, change prices on different room types, measure, change, cross room type, suite pricing, follow standard rooms, whole hotel occupancy but only suites]
+questions:
+  - How do I make my suites follow my standard rooms? {#in-plain-words}
+  - Can a rule watch one room type and change another? {#in-plain-words}
+  - Can a rule watch the whole hotel but only change suites? {#in-plain-words}
+  - What does "Change prices on different room types" do? {#in-plain-words}
+  - What do Measure and Change mean in the rule builder? {#build-the-rule}
+  - Why can I not measure my meeting room? {#what-the-rule-reads}
+updated: 2026-09-20
+---
+
+<InPlainWords>
+In the rule builder, tick <Ui>Change prices on different room types</Ui>. The room type list splits in two: <Ui>Measure</Ui>, the room types whose occupancy or bookings the rule reads, and <Ui>Change</Ui>, the room types whose prices it moves. Tick Standard under <Ui>Measure</Ui> and Suite under <Ui>Change</Ui>. When Standard is more than 80% full, the Suite price rises.
+</InPlainWords>
+
+## Build the rule
+
+<Steps>
+<Step title="Open the builder and set the condition">
+On the <Ui>Rules</Ui> tab, click <Ui>+ Add a rule</Ui>. Name it Suites follow Standard. Leave the condition on <Ui>Sellable occupancy (%)</Ui> <Ui>Greater than</Ui> 80, and under <Ui>Rate adjustment</Ui> choose <Ui>Increase the rate</Ui> by 10%.
+</Step>
+<Step title="Split the room type lists">
+Under the room types, tick <Ui>Change prices on different room types</Ui>. The single <Ui>Apply to room types</Ui> list becomes two lists, <Ui>Measure</Ui> and <Ui>Change</Ui>. The <Ui>?</Ui> beside the box explains: you watch occupancy, pickup and booking speed on the Measure room types, and when the rule fires you change prices on the Change room types.
+</Step>
+<Step title="Pick Measure and Change">
+Under <Ui>Measure</Ui>, click <Ui>Clear</Ui> and then tick Standard only. Under <Ui>Change</Ui>, click <Ui>Clear</Ui> and tick Suite only.
+</Step>
+<Step title="Add it">
+Click <Ui>Add Rule</Ui>. The row's <Ui>Room Types</Ui> column reads "Watches Standard · Changes Suite".
+</Step>
+</Steps>
+
+## What the rule reads
+
+Occupancy is measured over the <Ui>Measure</Ui> list alone. The Harbour Inn's Standard has 12 rooms, so 10 booked reads as 83% and the rule fires: Suite goes from $300 to $330, while Standard's own price is untouched. Booking speed and pickup conditions work the same way, counting only bookings in the measured room types.
+
+Only room types that count as rooms are offered under <Ui>Measure</Ui>. A Meeting Room, unticked as a room on the <Ui>PMS</Ui> tab, can be changed by a rule but never measured. Under <Ui>Change</Ui>, every room type is offered, rooms or not.
+
+The change log names both sides: Standard was 83% full, past the 80% mark you set, on a line for Suite.
+
+<Callout kind="good-to-know">
+To watch the whole property and change one room type, tick every room type under <Ui>Measure</Ui> and only the one you want under <Ui>Change</Ui>. With the box unticked, one list does both jobs: the rule measures the ticked types that count as rooms and changes all the ticked types.
+</Callout>
+
+<Callout kind="not-yet">
+A rule cannot copy Standard's price onto Suite, or set Suite at a fixed distance from Standard. It changes Suite's own price by a percentage or a fixed amount when Standard's numbers meet the condition.
+</Callout>
+
+<Related>
+- [Measure one set, change another](/docs/rules/measure-one-set-change-another)
+- [The rule builder](/docs/rules/the-rule-builder)
+- [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service)
+</Related>

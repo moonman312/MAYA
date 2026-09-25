@@ -1,0 +1,143 @@
+---
+title: Limits and numbers
+summary: Every number MAYA works by, in one place, grouped by the cycle, the window, rules, booking speed, floors and ceilings, history, the change log, how often you can do things, billing and the connection, each with the page that explains it.
+section: reference
+order: 30
+readingTime: 6
+keywords: [limits, numbers, how often, how many, how long, how far ahead, every five minutes, hourly, 60 nights, 364 days, 365 nights, 366 nights, four conditions, rule amount, biggest cut, 100% cut, how many rules, 40 rules, 40 active rules, maximum rules, too many rules, widens the search, full range of levels, 1 day to 2 weeks, lookback, past day, past week, past month, threshold, 100, eight similar nights, three years, ten years, 13 months, 60 days, 90 days, 7 days, 10 runs, 40 changes, rate limit, too many, try again shortly, 30 saves, 20 invitations, seats, 500 rooms, trial, 48 hours, 180 days, 24 hours, 15 minutes, 45 minutes, 2 hours, $1.00, '$99,999.99', maximum price]
+questions:
+  - How often does MAYA run? {#the-cycle}
+  - How far ahead does MAYA price? {#the-window-and-prices-you-type}
+  - How many conditions can a rule have? {#rules}
+  - How long can a rule wait? {#rules}
+  - How far back does MAYA look at my history? {#your-history}
+  - How many runs does the change log show? {#the-change-log-and-the-pms-tab}
+  - How many price changes can I make at once? {#how-often-you-can-do-things}
+  - Why does it say "Try again shortly" or "Too many"? {#how-often-you-can-do-things}
+  - What is the highest price I can type? {#the-window-and-prices-you-type}
+  - How long is the connection link good for? {#the-connection/what-number-read}
+  - How many people can be on my team? {#billing-and-your-team}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+MAYA runs about every five minutes and prices tonight and the next 59 nights. A rule has up to four conditions and waits between 1 day and 2 weeks after it acts. Booking speed compares with up to eight similar nights from the last three years. The tables below give every other number, with the page that explains it. None of them can be changed from the app.
+</InPlainWords>
+
+## The cycle
+
+| What | Number | Read |
+|---|---|---|
+| How often MAYA reads your bookings and runs your rules | About every five minutes | [How rules run](/docs/rules/how-rules-run) |
+| How often your own rates are read (Cloudbeds and ThinkReservations) | About once an hour, and again when your property's date changes | [What MAYA picks up from your system, and how soon](/docs/connect/what-maya-picks-up-from-your-system) |
+| How often the whole booking window is read again | Once a day | [What MAYA picks up from your system, and how soon](/docs/connect/what-maya-picks-up-from-your-system) |
+| When a read fails | Tried again with a growing wait, up to an hour between tries | [Connection lost](/docs/wrong/connection-lost) |
+
+## The window and prices you type
+
+| What | Number | Read |
+|---|---|---|
+| Nights your rules price and MAYA sends | 60: tonight and the next 59 | [How rules run](/docs/rules/how-rules-run) |
+| How far ahead you can type a price | Up to 364 days, from tonight | [Setting a price yourself](/docs/watch/setting-a-price-yourself) |
+| Nights in one price save | At most 365, because a save runs from tonight to no more than 364 days ahead | [Setting a price yourself](/docs/watch/setting-a-price-yourself) |
+| Nights in one block of rooms out of service | At most 366 | [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service#rooms-out-of-service) |
+| Highest price you can type | $99,999,999.99, and never above the room type's ceiling | [Setting a price yourself](/docs/watch/setting-a-price-yourself) |
+
+## Rules
+
+| What | Number | Read |
+|---|---|---|
+| Conditions in one rule | 1 to 4, at most one of each kind | [The rule builder, field by field](/docs/rules/the-rule-builder) |
+| Amount of a rule's change, percent or fixed | Above 0, with no upper limit you would meet (anything under 1,000,000 saves). A cut to 0 or below publishes the floor | [The rule builder, field by field](/docs/rules/the-rule-builder#rate-adjustment) |
+| Occupancy threshold | 0 to 100 | [Sellable occupancy](/docs/rules/sellable-occupancy) |
+| <Ui>Measured over</Ui> for booking speed | <Ui>Past day</Ui>, <Ui>Past week</Ui> or <Ui>Past month</Ui> | [Booking speed](/docs/rules/booking-speed) |
+| <Ui>Then waits (advanced)</Ui> | 1 day to 2 weeks, 1 week when unset | [How rules run](/docs/rules/how-rules-run) |
+| Pickup count lookback | 1, 3 or 7 days | [Pickup count (advanced)](/docs/rules/pickup-count) |
+| Adjustments before the amber banner asks you | 3 on the same night | [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting) |
+| Rules switched <Ui>On</Ui> at the same time | 40. Rules switched <Ui>Off</Ui> do not count | [How many rules you can have](/docs/rules/off-delete-or-change#how-many-rules-you-can-have) |
+
+## Booking speed
+
+| What | Number | Read |
+|---|---|---|
+| Similar past nights compared | Up to 8, or up to 3 for a night near a holiday | [Which past nights your rules compare with](/docs/rules/similar-nights) |
+| How far back they come from | The last 3 years | [Which past nights your rules compare with](/docs/rules/similar-nights) |
+| Similar nights before MAYA widens the search | 4, away from holidays (with fewer, the search widens a step) | [Which past nights your rules compare with](/docs/rules/similar-nights) |
+| Similar nights needed for the full range of levels | 5 (with fewer, the reading stays within one step of Normal) | [Booking speed](/docs/rules/booking-speed) |
+| Bookings needed to read Faster Than Normal | 9 when 5 are expected, 27 when 20 are expected | [Booking speed](/docs/rules/booking-speed) |
+
+## Floors and ceilings
+
+| What | Number | Read |
+|---|---|---|
+| Floor until one is set | $1.00 | [Floors and ceilings](/docs/review/floors-and-ceilings) |
+| Ceiling until one is set | $99,999.99 | [Floors and ceilings](/docs/review/floors-and-ceilings) |
+| A floor of 0 | Not allowed. A typed 0 is a comp night instead | [Make a night free](/docs/recipes/make-a-night-free) |
+
+## Your history
+
+| What | Number | Read |
+|---|---|---|
+| History read when you connect | Up to about 10 years, as far as your system holds (not for Mews yet) | [The history import](/docs/review/the-history-import) |
+| History booking speed and the review use | The last 3 years | [The history import](/docs/review/the-history-import) |
+| Bookings read ahead | About 13 months | [The history import](/docs/review/the-history-import) |
+| History needed before MAYA builds starter rules | About 60 days of past stays | [Your starter rules](/docs/review/your-starter-rules) |
+
+## The change log and the PMS tab
+
+| What | Number | Read |
+|---|---|---|
+| Runs on screen | The 10 most recent, quiet ones included: roughly the last 50 minutes | [The change log](/docs/watch/the-change-log) |
+| Changes shown per run | The 40 biggest moves | [The change log](/docs/watch/the-change-log) |
+| Sending problems and your banner answers shown | Up to 20 of each | [The change log](/docs/watch/the-change-log) |
+| How long the detail behind a change is kept | 90 days (email us for an older change) | [Find out why a price changed](/docs/recipes/find-out-why-a-price-changed) |
+| Requests listed on the <Ui>PMS</Ui> tab (Cloudbeds) | The last 50, kept for 7 days | [The PMS tab](/docs/watch/the-pms-tab) |
+
+## How often you can do things
+
+When you go past one of these, the screen asks you to wait a few minutes and try again. Nothing is lost.
+
+| What | Limit | Read |
+|---|---|---|
+| Saving or clearing typed prices, and room type changes | 30 per person in 10 minutes | [Setting a price yourself](/docs/watch/setting-a-price-yourself) |
+| <Ui>Get suggestions from my data</Ui> | 5 runs in 15 minutes | [Getting suggestions later](/docs/review/getting-suggestions-later) |
+| Checking a code | 20 per person in 10 minutes | [Codes and the free trial](/docs/pay/codes-and-the-free-trial) |
+| Starting checkout | 10 in 10 minutes | [Setting up payment](/docs/pay/setting-up-payment) |
+| Invitations | 20 an hour on one property | [Inviting and removing people](/docs/team/inviting-and-removing-people) |
+
+## Billing and your team
+
+| What | Number | Read |
+|---|---|---|
+| Rooms you can sign up for yourself | 1 to 500 (above 500, email us) | [What it costs](/docs/start/what-it-costs) |
+| Free trial (Cloudbeds Marketplace only) | 7 days | [Codes and the free trial](/docs/pay/codes-and-the-free-trial) |
+| Second card check after checkout | 48 hours | [Cards, payments and invoices](/docs/billing/cards-payments-and-invoices) |
+| Time to set your room count after the room count email | 7 days | [Your room count and what you pay](/docs/billing/your-room-count) |
+| People on the team | 2 up to 20 rooms, 4 up to 40, 5 up to 60, 6 up to 80, 8 up to 500 | [Inviting and removing people](/docs/team/inviting-and-removing-people) |
+| Password | At least 8 characters | [Create an account and sign in](/docs/account/create-an-account-and-sign-in) |
+| Telling us about a charge you dispute | Within 60 days | [Cards, payments and invoices](/docs/billing/cards-payments-and-invoices) |
+| Notice before a price change | At least 30 days | [What it costs](/docs/start/what-it-costs) |
+| Deleting your data after a verified request | Within 90 days | [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving) |
+| A Cloudbeds Marketplace property that never paid, unused | Its history may be removed after 180 days | [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving) |
+
+## The connection
+
+| What | Number | Read |
+|---|---|---|
+| The Cloudbeds Marketplace hand-over link | Good for 24 hours | [Cloudbeds](/docs/connect/cloudbeds) |
+| The sign-in link from inside MAYA | Good for 15 minutes | [How to get started](/docs/start/how-to-get-started) |
+| A rate you change in your system is kept as yours | When changed 60 minutes or more after MAYA's send landed | [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) |
+| An unfinished Cloudbeds job is sent again | After 45 minutes | [How prices reach your property system](/docs/live/how-prices-reach-your-pms) |
+| A price that will not land is tried again | Every cycle, up to 10 times at one price, then once a day | [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price) |
+| You are told about a problem that usually clears itself | After 2 hours and at least 5 tries | [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price) |
+
+<Callout kind="not-yet">
+None of these numbers can be changed from the app: not the cycle, the 60-night window, the waits on offer or the limits above. If one of them gets in your way, [email us](mailto:info@modern-hospitality-solutions.com?subject=Limits) and tell us which.
+</Callout>
+
+<Related>
+- [What MAYA does not do (yet)](/docs/reference/what-maya-does-not-do)
+- [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays)
+- [Glossary](/docs/reference/glossary)
+</Related>

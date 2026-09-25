@@ -1,0 +1,64 @@
+---
+title: Tell MAYA rooms are out of service
+summary: Add a rooms-out-of-service block under a room type on the PMS tab so those rooms come off the sellable count for those nights and occupancy reads against what you can sell.
+section: recipes
+order: 170
+readingTime: 3
+keywords: [renovation, out of service, out of order, rooms blocked, blocked rooms, closed rooms, repair, refurbishment, wing closed, occupancy wrong, sellable, rooms out of service, from, to, units, reason, clear a block]
+questions:
+  - How do I tell MAYA rooms are out of service? {#in-plain-words}
+  - How do I handle a renovation? {#in-plain-words}
+  - Why does MAYA not see the rooms I blocked in my system? {#what-changes/good-to-know}
+  - Does entering rooms out of service change anything in my property system? {#in-plain-words}
+  - How do I clear a block when the work is done? {#when-the-work-is-done}
+  - How many rooms can I block? {#add-the-block}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Go to the <Ui>PMS</Ui> tab, find the room type under <Ui>Room types</Ui>, click <Ui>+ Rooms out of service</Ui>, enter the dates and the number of rooms, and <Ui>Save</Ui>. Those rooms come off the sellable count for those nights only, so occupancy reads against what you can sell. Nothing is sent to your property system, and rooms you block there are not read by MAYA, so enter them here.
+</InPlainWords>
+
+## Add the block
+
+<Steps>
+<Step title="Find the room type">
+On the <Ui>PMS</Ui> tab, scroll to <Ui>Room types</Ui> and find the row. Under it, click <Ui>+ Rooms out of service</Ui>.
+</Step>
+<Step title="Fill in the block">
+<Ui>From</Ui> is the first night. <Ui>To</Ui> is the last night and defaults to the same night. <Ui>Units</Ui> is how many rooms of that type are off sale, from 1 up to the type's count. <Ui>Reason (optional)</Ui> takes a few words, such as Renovation.
+</Step>
+<Step title="Save">
+Click <Ui>Save</Ui>. The block lists under the row as "3 out of service", the dates, and the reason, with a <Ui>Clear</Ui> link. MAYA re-prices the next 60 nights at once.
+</Step>
+</Steps>
+
+Adding or clearing a block needs Revenue Manager access or higher. One block can cover at most 366 nights. Blocks on the same nights add up, and the total cannot exceed the type's units: MAYA tells you how many you can still block.
+
+## What changes
+
+Sellable occupancy is rooms booked divided by rooms you can sell that night. A rule reads it over the room types it measures, and a new rule measures every type that counts as a room. At The Harbour Inn that is Standard, Deluxe and Suite: 20 rooms, or 17 with 3 Standard rooms out of service.
+
+Take a night with 8 Standard, 5 Deluxe and 1 Suite booked. A rule that measures all three reads 14 of 17, or 82%, instead of 14 of 20, or 70%. A rule that measures Standard alone (only Standard ticked) reads 8 of 9, or 89%, instead of 8 of 12, or 67%. Either way, an occupancy rule set at <Ui>Greater than</Ui> 80 fires with the block and not without it.
+
+The calendar shows the same reduced counts. On this night the day card reads "14/17 rooms", and the day detail reads "Booked 8/9" for Standard.
+
+Nothing else moves. MAYA sends no availability, no closures and no restrictions to Cloudbeds, ThinkReservations or Mews. Block the rooms in your system as you normally would, and enter them here so MAYA's numbers match.
+
+<Callout kind="good-to-know">
+A block held in your system for a wedding or a group, with no bookings behind it, is invisible to MAYA in the same way. Entering those rooms as out of service keeps the night from reading as empty. Read [Hold a price for a wedding or event weekend](/docs/recipes/hold-a-price-for-an-event).
+</Callout>
+
+## When the work is done
+
+Click <Ui>Clear</Ui> beside the block. The rooms come back into the sellable count from the next run. Cleared blocks are kept for the record but no longer shown. A block whose last night has passed needs no clearing: it only ever counted for its own nights.
+
+<Callout kind="not-yet">
+Blocks are per room type, not per room, and MAYA does not read blocks, allotments or out-of-order rooms from any property system. A whole-property closure that is still to come is not a closed period either: those nights are still priced. Closed periods only come from your setup review.
+</Callout>
+
+<Related>
+- [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service)
+- [Sellable occupancy](/docs/rules/sellable-occupancy)
+- [Occupancy looks wrong](/docs/wrong/occupancy-looks-wrong)
+</Related>

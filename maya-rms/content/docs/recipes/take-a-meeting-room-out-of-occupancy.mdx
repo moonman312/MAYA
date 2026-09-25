@@ -1,0 +1,55 @@
+---
+title: Take a meeting room out of occupancy
+summary: Untick Counts as a room for a meeting room, spa slot or court on the PMS tab so it no longer counts in sellable occupancy, the calendar's room counts or the room count you are billed for.
+section: recipes
+order: 160
+readingTime: 3
+keywords: [meeting room, spa, spa slot, court, pickleball, parking, boardroom, not a room, counts as a room, untick, exclude from occupancy, occupancy wrong, room types, billed for a meeting room, event space, rule never fires, booking window]
+questions:
+  - How do I take a meeting room out of occupancy? {#in-plain-words}
+  - Should I untick my meeting room or spa slot? {#untick-the-room-type}
+  - What does "Counts as a room" mean? {#untick-the-room-type}
+  - Will a room type I untick still be priced? {#in-plain-words}
+  - Does unticking a room type change my bill? {#what-changes/your-bill}
+  - Why does my occupancy include the spa? {#what-changes/sellable-occupancy}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Open the <Ui>PMS</Ui> tab, scroll to <Ui>Room types</Ui>, and untick <Ui>Counts as a room</Ui> on the meeting room's row. It saves at once. From then on that type is left out of sellable occupancy, the calendar's room counts, booking speed and the room count you are billed for. It can still be priced if a rule changes it.
+</InPlainWords>
+
+## Untick the room type
+
+<Steps>
+<Step title="Open the room types">
+Go to the <Ui>PMS</Ui> tab. Under the connection cards is a section headed <Ui>Room types</Ui>, one row per active room type with its unit count and a <Ui>Counts as a room</Ui> checkbox.
+</Step>
+<Step title="Untick Counts as a room">
+On the Meeting Room's row, untick the box. It saves straight away, with no confirmation. The row dims and gains a "not a room" tag. If it did not save, the box snaps back and a short error shows.
+</Step>
+</Steps>
+
+Changing it needs Revenue Manager access or higher. The change queues a re-price of the next 60 nights, so occupancy rules read the new figure within a few minutes.
+
+## What changes
+
+- **Sellable occupancy.** Only ticked types are divided by. The Harbour Inn has 20 rooms plus a Meeting Room. With it ticked, 18 booked rooms read as 18 of 21 (86%). Unticked, they read as 18 of 20 (90%).
+- **The calendar.** The day card's "18/20 rooms" and its percentage count ticked types only. Revenue on the card still sums every type.
+- **Booking speed.** Bookings for an unticked type are not counted, and it is never measured by a rule.
+- **Rules.** In the rule builder the type is tagged "not a room" and starts unticked. A rule that ticks it can still change its price. A rule that measures only unticked types (the Meeting Room alone, say) never fires on occupancy, pickup or booking speed. A booking window condition counts days, not bookings. So a rule whose only condition is booking window still fires and changes the room types it is set to change.
+- **Your bill.** The room count MAYA measures from your system leaves out unticked types. Lowering the count never lowers your bill on its own: set it on the <Ui>Billing</Ui> page. Read [Change the room count you pay for](/docs/recipes/change-the-room-count-you-pay-for).
+
+<Callout kind="good-to-know">
+During setup MAYA unticks types whose names are plainly not bedrooms (parking, meeting, conference, spa treatment and the like) and asks about softer cases on the review page with a card headed "Is "Pool Cabana" actually a room?". Your answer is final either way, and you can change it here any time.
+</Callout>
+
+<Callout kind="not-yet">
+Room types cannot be renamed, merged or hidden in MAYA, and their unit counts come from your property system. ThinkReservations reports no unit count, so every ThinkReservations room type shows the same count: 100, unless we change it for your whole property. A different count for each room type is not possible yet, and [ThinkReservations](/docs/connect/thinkreservations) explains when one number fits.
+</Callout>
+
+<Related>
+- [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service)
+- [Your room count](/docs/billing/your-room-count)
+- [Sellable occupancy](/docs/rules/sellable-occupancy)
+</Related>

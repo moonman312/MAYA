@@ -1,0 +1,102 @@
+---
+title: Emails MAYA sends
+summary: The three emails MAYA itself sends (the team invitation, the room count email, and a nudge before a charge when nothing is connected), the account confirmation email, what comes from Stripe instead, the emails that do not exist, how to change the billing email, and the address the emails come from.
+section: billing
+order: 50
+readingTime: 7
+keywords: [email, emails, invitation email, invite email, room count email, your MAYA plan covers, your subscription starts, renews, isn't connected, nudge, reminder, trial reminder, receipt, invoice email, failed payment email, card expiring, payment confirmed, confirmation email, change log digest, alert email, notification, billing email, change billing email, spam, did not arrive, never got the email, from address, reply-to, invitation link expired, confirm your email, account confirmation, sending address, sender address, which address, allow list, allowlist, whitelist, safe sender, spam filter, junk, IT team, domain, Mews, connect Mews, two minutes, Finish setting up MAYA, not yet available]
+questions:
+  - What billing emails will I get? {#emails-that-come-from-stripe}
+  - 'What is the "your subscription starts" email?' {#the-nudge-before-a-charge-when-nothing-is-connected/sent-to-a}
+  - Will I get an email when my payment is confirmed? {#emails-that-do-not-exist/a-payment-confirmed}
+  - Will I get a reminder before the trial ends? {#emails-that-do-not-exist/a-trial-ending}
+  - Will I get a receipt? {#emails-that-come-from-stripe}
+  - Does MAYA email me when a price changes or a rule needs an answer? {#emails-that-do-not-exist/a-change-log}
+  - How do I change the billing email address? {#changing-the-billing-email}
+  - Which emails come from Stripe and which from MAYA? {#emails-that-come-from-stripe}
+  - An email did not arrive, what should I check? {#if-an-email-did-not-arrive/check-spam-and}
+  - Which address do MAYA's emails come from, so we can allow them through our spam filter? {#the-sending-address}
+  - I use Mews and got a reminder that my system is not connected. What should I do? {#the-nudge-before-a-charge-when-nothing-is-connected/sent-to-a}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+MAYA itself sends three emails: the team invitation, the room count email, and a nudge before your subscription starts or renews if your property system is not connected. Creating an account may also bring a confirmation link from the sign-in service. Anything about money (receipts, failed payments, card expiry, a trial reminder) comes from Stripe, if Stripe's settings send it, to the email address on your billing account. MAYA sends no email about prices, rules or the change log.
+</InPlainWords>
+
+## The three emails MAYA sends
+
+| Email | When | Subject |
+|---|---|---|
+| The team invitation | Someone on your team invites an address that does not have a MAYA account yet | "You have been invited to The Harbour Inn on MAYA" |
+| The room count email | Your property system shows more rooms than you pay for | "Your MAYA plan covers 20 rooms" followed by what your system shows |
+| The nudge before a charge | A charge is coming up and your property system is still not connected | "Your MAYA subscription starts" and the date (first charge), or "MAYA renews" the date "and isn't connected to your PMS yet" |
+
+All three come from MAYA's own sending address, described under [The sending address](#the-sending-address). Nothing else is sent by MAYA today.
+
+### The team invitation
+
+Sent when a General Manager or Hotel Admin invites an email address that does not have a MAYA account yet. Its heading is "You're invited", it names the property, the role and the person who invited you (the reply-to is their address, so a reply reaches them), and it carries an <Ui>Accept the invite</Ui> button. The link is single-use and expires after a limited time. If it has expired, [email us](mailto:info@modern-hospitality-solutions.com?subject=New%20invitation%20link) for a new one. Inviting you again does not help, because you are already on the property and a second invitation sends no email.
+
+Everyone invited is added to the property straight away, before they open the email. Someone who already uses MAYA gets no email at all. [Inviting and removing people](/docs/team/inviting-and-removing-people) covers both cases.
+
+### The room count email
+
+Sent after MAYA measures more rooms in your property system than you pay for. The banner on the dashboard and the <Ui>Billing</Ui> page appears at once. The email follows at the next daily check (once a day), so it can arrive the day after. It goes to the address on your billing account, the one that receives invoices, and your 7 days count from the email. Headed "Your room count has changed", it says what your system lists and what your plan covers, what you pay today and what you would pay at the measured count, that you have 7 days to set the number yourself, and the date after which MAYA updates it. Its button, <Ui>Set your room count</Ui>, opens the <Ui>Billing</Ui> page. A new one goes out if the measured number changes again. [Your room count and what you pay](/docs/billing/your-room-count) has the whole sequence.
+
+### The nudge before a charge when nothing is connected
+
+Sent to a property with a subscription, on a trial or paid, whose property system is not connected (never connected, or disconnected), shortly before a charge. It is triggered when Stripe announces the upcoming invoice. How many days ahead that happens is a Stripe setting. A connected property never gets it, even one whose connection is showing a problem.
+
+It says that your first payment (or renewal) of a stated amount is scheduled for a stated date. It goes on to say that your property system is not connected yet, so your rules have not been able to run, and that connecting takes about two minutes. Its button reads <Ui>Finish setting up MAYA</Ui>. It also states what you are paying for ("20 rooms at $5.50 per room, per month") and says that if that number is wrong, connecting first opens your <Ui>Billing</Ui> page, where you can change it before the charge.
+
+If your property uses Mews, we connect it for you, and until we have, this email can still arrive. Its button cannot connect Mews. It leads to the connect screen, where Mews is listed as <Ui>Not yet available</Ui>, so the two minutes the email mentions do not apply. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Connect%20Mews) instead and we connect it with you.
+
+## The account confirmation email
+
+When you create an account, you may get an email with a link to confirm your address before you can sign in. It comes from the sign-in service MAYA uses, not from MAYA's own emails, and whether it is asked for at all is set on our side. [Create an account and sign in](/docs/account/create-an-account-and-sign-in) shows the "Check your email" screen and what to do next.
+
+## Emails that come from Stripe
+
+Stripe, not MAYA, sends everything about money: receipts and invoices, a failed-payment message, a card-expiring warning, and the reminder before the first charge at the end of a trial that the Terms promise. Which of these Stripe sends, and when, is set on Stripe's side. MAYA cannot resend them, and your <Ui>Billing</Ui> page is always the place that is right. They go to the email address on your billing account.
+
+## Emails that do not exist
+
+- **A "payment confirmed" email.** The slow version of the "Payment received" screen says one will come, but none is sent today. Sign in again and MAYA takes you to the next step.
+- **A change log digest or a price alert.** There is no email when a night's price changes. The <Ui>Change Log</Ui> tab is the record.
+- **An email about the <Ui>Rules that keep adjusting</Ui> banner.** The question is asked on the dashboard only.
+- **A password reset link.** Email us and we send one.
+- **A trial-ending reminder from MAYA.** Any reminder comes from Stripe, if Stripe's settings send one.
+- **A "your subscription was cancelled" email from MAYA.** The <Ui>Billing</Ui> page shows the status.
+
+## Changing the billing email
+
+The address that receives invoices, receipts, the room count email and the nudge is the one on your billing account in Stripe. Change it in Stripe's billing portal, opened from <Ui>Update card, receipts & cancellation</Ui> on the <Ui>Billing</Ui> page. Changing it does not change the address you sign in with, which cannot be changed in the app yet.
+
+## The sending address
+
+MAYA's three emails all come from one sending address that we set on our side. It is not shown anywhere in the app. If your IT team wants to allow our emails through a spam filter, [email us](mailto:info@modern-hospitality-solutions.com?subject=Sending%20address) and we send the exact address and domain.
+
+In the meantime, two things help. Every subject in the table above contains "MAYA". A reply to the team invitation goes to the person who sent it, not to us.
+
+The other emails come from elsewhere: anything about money from Stripe, and the account confirmation email from the sign-in service. Allow those separately.
+
+## If an email did not arrive
+
+- Check spam, and search for "MAYA" in the subject. To have your IT team allow our emails, read [the sending address](#the-sending-address).
+- For an invitation: if the person already has a MAYA account, no email is sent, because they are on the property already. Ask them to sign in and pick it in the <Ui>Property</Ui> selector. If they are new to MAYA and the email is lost, [email us](mailto:info@modern-hospitality-solutions.com?subject=New%20invitation%20link) for a new link.
+- For the account confirmation: check spam, then [email us](mailto:info@modern-hospitality-solutions.com?subject=Confirmation%20email) with the address you used.
+- For the room count email or the nudge: it went to the billing email, which may not be the address you sign in with.
+- For a receipt or a Stripe reminder: the same billing email, and it depends on Stripe's settings.
+- Still nothing? [Email us](mailto:info@modern-hospitality-solutions.com?subject=Missing%20email) and say which email and which address.
+
+<Callout kind="not-yet">
+No payment-confirmed email. No price or rule alerts by email. No digest. No email preferences screen: the three emails are sent when their moment comes and cannot be switched off individually.
+</Callout>
+
+<Related>
+- [Inviting and removing people](/docs/team/inviting-and-removing-people)
+- [Your room count and what you pay](/docs/billing/your-room-count)
+- [Cards, payments and invoices](/docs/billing/cards-payments-and-invoices)
+</Related>

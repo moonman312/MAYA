@@ -1,0 +1,210 @@
+---
+title: Is MAYA right for your property
+summary: Which property systems work, what kinds and sizes of property, how much history MAYA needs, how it sits beside channel managers and other revenue tools, how to see the results, and the honest list of what is not there yet.
+section: start
+order: 20
+readingTime: 16
+keywords: [is MAYA right for me, which PMS, without a PMS, spreadsheet, Excel, channel manager, Booking.com, Expedia, OTA, revenue management, small B&B, 3 rooms, brand new hotel, no history, how much history, years of history, demo, trial, group of properties, currency, time zone, Europe, UK, guest data, support, onboarding call, Opera, Little Hotelier, Guesty, SiteMinder, another revenue tool, other revenue tool, RMS, pricing tool, switching, switch over, run both, two tools, import rules, import history, switch off, old tool, performance report, pace report, pace, is it working, earning more, results, ROI, before and after, compare periods, report, language, languages, English only, Spanish, French, German, Portuguese, Italian, translation, hostel, dorm, beds, per bed, per person, per guest, apartments, campsite, campground, glamping, pitches, cabins, cottages, vacation rental, holiday let, single unit, one unit, yield rules, automatic pricing, built-in pricing, Cloudbeds pricing, switch off before going live, some room types, split room types, only some rooms, suites, 365 days, a year ahead, far out, nights beyond 60, after 60 days, case study, case studies, references, reference hotel, talk to a customer, other hotels using MAYA, reviews]
+questions:
+  - Can I use MAYA without a property system, from a spreadsheet? {#without-a-property-system-or-from-a-spreadsheet}
+  - Do I need a channel manager for MAYA to work? {#channel-managers-bookingcom-and-expedia}
+  - Does MAYA change my prices on Booking.com and Expedia? {#channel-managers-bookingcom-and-expedia}
+  - Do I need to understand revenue management to use MAYA? {#do-you-need-a-background-in-revenue-management/starter-rules}
+  - Will MAYA work for a 3-room B&B? {#how-big-or-small}
+  - Do I need years of booking history? {#how-much-history-you-need/it-depends-on}
+  - My property is brand new with no history. Is MAYA useful? {#brand-new-properties/maya-is-useful}
+  - Is there a demo I can look at? {#support-and-onboarding}
+  - We use another revenue tool. Can we run both, and can we import its rules or history? {#switching-from-another-revenue-tool/nothing-is-imported}
+  - Do we have to switch our old revenue tool off before going live? {#switching-from-another-revenue-tool/nothing-is-imported}
+  - We use Cloudbeds' own automatic pricing or yield rules. Do we need to switch them off before going live? {#switching-from-another-revenue-tool/a-rate-the}
+  - Can we use MAYA for some room types and the old tool for the rest? {#switching-from-another-revenue-tool/when-you-go}
+  - Our old tool priced a year ahead. What happens to nights more than 60 days out when we switch? {#switching-from-another-revenue-tool/when-you-go}
+  - How can I tell whether MAYA is earning me more? Is there a performance or pace report? {#measuring-the-results/maya-has-no}
+  - Is MAYA available in languages other than English? {#countries-currencies-time-zones-and-language/language}
+  - Does MAYA work for hostels, apartments, campsites or vacation rentals? {#hostels-apartments-campsites-and-rentals/maya-works-with}
+  - Can MAYA price per bed or per guest? {#hostels-apartments-campsites-and-rentals/maya-works-with}
+  - Can I talk to a hotel that already uses MAYA, or read about one? {#support-and-onboarding}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+MAYA works with Cloudbeds fully, sends prices to ThinkReservations, and reads Mews without sending. It works for 3 rooms or 500. Occupancy and booking window rules work from day one. Booking speed rules need past bookings to compare with, and the starter rules MAYA builds for you need about two months of history.
+</InPlainWords>
+
+## Which property systems
+
+MAYA connects to three property systems today. What it can do differs by system, so here is the honest table.
+
+| | Cloudbeds | ThinkReservations | Mews |
+|---|---|---|---|
+| Reads bookings and room types | yes | yes | yes |
+| Reads your own rates | yes, about hourly | yes, about hourly | no |
+| Sends prices | yes | yes | not yet |
+| Free trial without a code | yes, from the Cloudbeds Marketplace | no | no |
+| You connect it yourself | yes | yes | no, we connect it for you |
+| Several properties in one go | yes, from the Marketplace | no | no |
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+The complete path. You install MAYA from the Cloudbeds Marketplace, MAYA reads your bookings, room types, rate plans and property details, and once you go live it sends one nightly rate per room type to that room type's base rate plan. Cloudbeds' own occupancy counts a booking marked Confirmation Pending as booked, and so does MAYA. [Cloudbeds](/docs/connect/cloudbeds) has the details.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+You connect by signing in to ThinkReservations from inside MAYA after paying. A code may be needed. MAYA reads bookings, room types and rate types, and sends nightly prices to the Best Available rate type. When you sign up, email us how many rooms each room type has. MAYA does not read room counts from ThinkReservations yet, so it uses one number for every room type, 100 until we set yours. The same number goes into the room count on your bill, once for each room type ticked as a room, so three room types would read as 300. Setting it early keeps your bill from being raised to a wrong count. Occupancy is exact only when every room type has the same number of rooms. [Your room count and what you pay](/docs/billing/your-room-count) explains. [ThinkReservations](/docs/connect/thinkreservations) has the details.
+</PmsTab>
+<PmsTab pms="mews">
+We connect Mews for you, with keys from your own Mews dashboard. MAYA reads your bookings and room categories on a schedule, runs your rules and shows the prices they give. Nothing is sent to Mews yet, and nothing is read from your Mews rate plans. So a night's starting price is the rate of its newest booking for that room type, and a night that has never had a booking has no price until you type one. Bookings in Optional, Enquired and Requested states count as booked. [Mews](/docs/connect/mews) has the details.
+</PmsTab>
+</PmsTabs>
+
+Opera, Little Hotelier, Guesty, SiteMinder and every other system are not supported today. [Which systems work](/docs/connect/which-systems-work) lists the ones on our roadmap, with no dates promised. Guesty and SiteMinder are not among them.
+
+If your system is not one of these three, MAYA cannot connect to it. The <Ui>Something else</Ui> option at checkout is only useful when we have agreed to set a property up by hand, which is why it always asks for a code.
+
+## Without a property system, or from a spreadsheet
+
+No. MAYA reads your bookings from your property system and sends prices back to it. There is no way to upload a spreadsheet, and no way to use MAYA without one of the three systems above.
+
+## Channel managers, Booking.com and Expedia
+
+You do not need a channel manager for MAYA to work, and if you have one, nothing about it changes.
+
+With Cloudbeds and ThinkReservations, MAYA writes one base rate per room type in your property system. With Mews, nothing is sent yet. Your system and your channel manager carry that rate to Booking.com, Expedia and your website exactly as they do today. Rate plans set up to follow your base rate (a 10% off member rate, a non-refundable rate) move with it by your system's own rules. MAYA never talks to Booking.com, Expedia or any other booking site directly.
+
+So yes, your rules change what guests see on Booking.com and Expedia, but only through your base rate in your own system, and only with Cloudbeds and ThinkReservations.
+
+## Switching from another revenue tool
+
+Nothing is imported from another revenue tool: no rules, no settings, no history. MAYA reads your booking history from your property system, and you build your rules fresh: your own, plus the starter rules MAYA adds from that history with Cloudbeds and ThinkReservations.
+
+While MAYA is in simulation, the two can run side by side. MAYA sends nothing in simulation, so it cannot clash with the old tool. With Cloudbeds and ThinkReservations, MAYA reads the rates in your system about once an hour as the starting point for your rules. So what you watch in simulation is your rules working on top of the old tool's prices.
+
+Running both while you simulate needs no consent from us. If you plan to measure MAYA's results against the old tool's, [email us](mailto:info@modern-hospitality-solutions.com?subject=Comparing%20MAYA) first: the Terms ask for our written consent before a comparative test. [Terms and legal](/docs/reference/terms-and-legal#other-things-people-ask) explains where the line is.
+
+Switch the old tool off before you go live. Once MAYA is live, two tools writing the same base rate work against each other:
+
+- A rate the old tool writes an hour or more after MAYA's send has landed is kept as if you had typed it yourself. The calendar marks it "Changed in Cloudbeds" (or "Changed in Think Reservations"), and your rules treat it as a price you set. The exception is an old tool that moves most nights by the same percentage. MAYA reads that as your system's own rule, keeps none of those rates, and writes over each one with its next price for that night ([read how](/docs/watch/rates-changed-in-your-pms#raising-every-night-by-the-same-percentage)).
+- A rate the old tool writes within that hour can be written over by MAYA's next price for that night.
+
+Either way, you cannot be sure which tool set the price a guest sees. [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) has the details.
+
+Automatic pricing built into your property system counts too. Any feature inside Cloudbeds or ThinkReservations that changes the base rate by itself, such as automatic pricing or yield rules, is another tool writing the same rate. Leave it on while you simulate if you like, and switch it off before you go live, for the same two reasons.
+
+When you go live, MAYA reads your rates once more before its first send. The rates the old tool last left in your system become the starting point your rules work from, so if you would rather start from rates of your own, load them in your system before you go live.
+
+Your rules run over tonight and the next 59 nights. Nights further out keep the rates the old tool last wrote until they enter that window, and then those rates become their starting point. Look over your far-out rates before you switch the old tool off, or load the rates you want.
+
+**Can we use MAYA for some room types and the old tool for the rest?** No. Going live is one switch for the whole property. Once live, MAYA sends a price for every room type in the 60-night window, including room types no rule changes (for those it sends your own rate back). So both tools would be writing those room types, with the two problems above. Go live for the whole property instead. To leave a room type at your own rates, [keep every rule away from it](/docs/recipes/price-only-some-room-types) and type any change for it in MAYA.
+
+With Mews, MAYA sends no prices yet, so the two never clash, and the old tool keeps setting the rates guests see.
+
+## Do you need a background in revenue management?
+
+No. Two things stand in for it.
+
+**Starter rules.** With Cloudbeds and ThinkReservations, MAYA reads your booking history during setup and, when there is about two months of it, adds five booking speed rules named for what they do: <Ui>Slow-date rescue</Ui>, <Ui>Slow-date trim</Ui>, <Ui>Warm-date bump</Ui>, <Ui>Hot-week surge</Ui> and <Ui>Sudden-spike catcher</Ui>. They are switched on while you are in simulation, and each comes with a one-paragraph explanation on the review screen. You can keep them, switch any off, or delete them. [Your starter rules](/docs/review/your-starter-rules) explains each one.
+
+**Hold My Hand.** After you connect, MAYA asks whether you want to be walked through. The <Ui>Hold My Hand</Ui> path asks five short optional questions: your property's name, what it costs to clean and prepare a room for the next guest, the lowest and highest rates you would take, and how you feel about your pricing today. Then it shows you what it found in your history and asks you to confirm or dismiss each item. [Hold My Hand or Let Me Drive](/docs/review/hold-my-hand-or-let-me-drive) shows both paths.
+
+A plain occupancy rule needs no theory at all. "When a night is more than 80% full, raise it 10%" is something you already do in your head.
+
+## How big or small
+
+There is no minimum. A 3-room property pays $16.50 a month and gets the same MAYA as a 300-room hotel.
+
+Self-serve signup takes any room count from 1 to 500. Above 500 rooms, [email us](mailto:info@modern-hospitality-solutions.com?subject=Over%20500%20rooms) and we set it up by hand. [What it costs](/docs/start/what-it-costs) has the brackets.
+
+<Example title="What a small B&B can expect">
+Say you run 3 rooms. Occupancy rules work from your first night: with 3 rooms, "more than 60% full" means 2 or 3 booked. Booking window rules work too: "less than 3 days away and less than 50% full, cut 15%" catches an empty room this weekend.
+
+Booking speed rules are quieter at this size, on purpose. With 3 rooms, a night rarely receives more than a booking or two in a week, and a difference of one booking is inside the range MAYA treats as normal ups and downs. So booking speed rules fire less often at a small property, rather than firing on noise. Starter rules still need about two months of history before MAYA builds them.
+</Example>
+
+## Hostels, apartments, campsites and rentals
+
+MAYA works with the room types in your property system, whatever they hold: hotel rooms, apartments, cabins, pitches or dorms. A room type with a single unit is fine. One holiday cottage is a room type with 1 unit, and a property of 1 unit can sign up.
+
+MAYA sends one nightly price per room type. There is no per-bed or per-guest pricing, so MAYA cannot charge more for a third guest or price the beds in a dorm one by one. With Cloudbeds and ThinkReservations, MAYA reads a room type's own rate and writes back to that same rate, so a dorm's price stays on whatever basis your system already uses for it.
+
+Four things to check first:
+
+- **Minimum stays.** MAYA does not read or set them. If your rentals rely on them, keep setting them in your property system.
+- **Room counts.** Cloudbeds reports how many units each room type has. MAYA does not read room counts from ThinkReservations yet, and Mews does not normally report them, so one number covers every room type there. On ThinkReservations it is 100 until you email us your counts, and on Mews we set it with you when we connect. That fits when every room type has the same number of rooms, such as a set of single cottages, and reads wrong when they differ. The same number sets the room count on your bill. Read [ThinkReservations](/docs/connect/thinkreservations) or [Mews](/docs/connect/mews).
+- **What counts as a room.** When you connect Cloudbeds or ThinkReservations, the review may ask "Is "Lakeside Rental" actually a room?" about a room type whose name does not read like a bedroom. Press <Ui>It's a real room</Ui> for everything you sell for overnight stays, so it counts in your occupancy.
+- **Single units.** A rule that measures one single-unit room type reads either 0% or 100% full. Select all your units in the rule and it reads how full the whole property is. [Measure one set of room types, change another](/docs/rules/measure-one-set-change-another) shows how to read the whole property and change only one unit.
+
+## How much history you need
+
+It depends on the kind of rule.
+
+| Kind of rule | History needed |
+|---|---|
+| Sellable occupancy | none. It reads tonight's bookings. |
+| Booking window | none. It reads the calendar. |
+| Pickup count | as many days as the rule looks back (1, 3 or 7), so MAYA has a snapshot from the start of that window. |
+| Booking speed | similar past nights to compare with: the same weekday, the same time of year, up to three years back. |
+| Starter rules | about 60 days of past stays before MAYA builds them. |
+
+With little history, booking speed readings stay between Slower Than Normal and Faster Than Normal, so a rule set for a stronger level, such as Surging, waits. As your history builds, readings can reach every level. With next to nothing to compare with, such as a property with no bookings in MAYA yet, the reading is "Not enough history" and booking speed rules stay quiet. [Which past nights MAYA compares with](/docs/rules/similar-nights) has the detail.
+
+The import itself reads as far back as your system holds, up to about ten years, though booking speed only ever uses the last three.
+
+With Mews there is no history import. MAYA has only the stays its regular reads cover, from 30 days before we connected you, and that grows by a day each day. So there are no starter rules, and booking speed readings stay between Slower Than Normal and Faster Than Normal until a night has five or more similar past nights on record. [Mews](/docs/connect/mews#no-history-import-yet) has the detail.
+
+## Brand-new properties
+
+MAYA is useful from day one, with a caveat.
+
+<Example title="What a brand-new hotel can expect">
+You open in March with no history. Occupancy and booking window rules work straight away, because they read your bookings and the calendar, not your past. Set your floor and ceiling in the five questions: the floor goes to every room type, and the ceiling to every room type that has not sold above it. Add a Busy nights rule and a Last minute rule. When you are ready, email us and we switch the property live. The <Ui>Turn them on for real</Ui> button only appears once MAYA has built starter rules from your history, so a brand-new property goes live by email.
+
+Booking speed rules are quiet at first. Once bookings arrive, a night with no similar past nights is read from momentum: how nearby nights are filling now (compared with a year ago, once there is one). Those readings stay between Slower Than Normal and Faster Than Normal. MAYA will not build starter rules until about 60 days of stays are on record. After your first couple of months, click <Ui>Get suggestions from my data</Ui> on the <Ui>Rules</Ui> tab and MAYA proposes the starter rules from what it has read so far. Over the first year, each night finds more similar nights to compare with, and booking speed rules can reach every level.
+</Example>
+
+## Groups of properties
+
+If one Cloudbeds login covers several properties, one click on <Ui>Connect App</Ui> in the Marketplace connects all of them. Each property is its own subscription, paid for one at a time, with the same card offered for each. One login, one <Ui>Property</Ui> dropdown, separate rules and separate go-live for each.
+
+ThinkReservations and Mews properties are connected one at a time. [Several properties](/docs/account/several-properties) covers switching between them and [Paying for a group](/docs/pay/paying-for-a-group) covers the billing.
+
+## Countries, currencies, time zones and language
+
+MAYA takes customers worldwide. Three things to expect:
+
+- **Currency** comes from your property system at connection, and for Mews we set it with you. MAYA never converts anything. Some screens show $ whatever your currency. The numbers are yours. [Currency](/docs/reference/time-weekends-currency-and-holidays#currency) says which screens. Billing is in US dollars.
+- **Time zone** also comes from your system at connection (for Mews we set it with you). "Today", the 60-night window and "past week" all count in your property's own calendar days. Weekends are Friday and Saturday nights.
+- **Language** is English only. MAYA's screens, the emails it sends and these docs have no other language, and there is no language setting. Room type names come from your property system and show as you named them there. With Mews, where a room category has names in several languages, MAYA shows the English one when there is one. A few dates and times, such as when each change log run happened, follow your browser's own language and date format.
+
+The only holidays MAYA uses to pick similar past nights are 17 US holidays. Outside the US, a night that reads oddly because of a local holiday can be set aside from the change log so it is not used as a comparison. [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays) has the list.
+
+## Measuring the results
+
+MAYA has no performance report, no pace report and no before-and-after comparison. Nothing in the app adds up what your rules have earned or compares one period with another.
+
+What you can see in MAYA:
+
+- **The <Ui>Calendar</Ui> tab**: each night's sellable occupancy and room revenue, one night at a time. Nights ahead show the revenue on the books. Past nights show too, as far back as the bookings MAYA has read. There are no monthly or yearly totals.
+- **The <Ui>Change Log</Ui> tab**: about the last 50 minutes (the 10 most recent runs, about five minutes apart), up to 40 changes per run, biggest moves first, each from what to what, and why.
+- **The <Ui>Rules</Ui> tab**: the <Ui>Fired</Ui> column counts how many times each rule has fired.
+
+To see how you are doing, use your property system's own reports: how full you were, your average rate and your room revenue. Nothing in MAYA can be exported, and MAYA sends no summary emails.
+
+## Your data and your guests
+
+Guest names, emails, phone numbers, addresses, notes and payment details are never stored. MAYA keeps the structure of a booking: dates, room type, nightly rate, party size as a count, and the channel it came through. Card details for your subscription are held by Stripe and never touch MAYA. [Privacy, security and your data](/docs/reference/privacy-security-and-your-data) says where data lives and for how long.
+
+## Support and onboarding
+
+Support is by email at info@modern-hospitality-solutions.com, and we aim to answer within one business day. Setup is designed so that nobody needs a call: connect, answer five optional questions, review what MAYA found, go live. If you would rather have a person walk you through, email us and say so.
+
+**Can I talk to a hotel that uses MAYA, or read about one?** There are no published examples from other hotels yet. If you would like to talk to a property that uses MAYA, [email us](mailto:info@modern-hospitality-solutions.com?subject=Talk%20to%20a%20MAYA%20customer) and ask. We can put you in touch where a customer has agreed to it. [Will you use our hotel's name as a customer?](/docs/reference/terms-and-legal#other-things-people-ask) covers the other direction.
+
+<Callout kind="not-yet">
+There is no demo property: simulation is how you look before anything is sent, running your rules and sending nothing. There is no phone or chat support (email us instead) and no performance report (your property system's reports show your results). [What MAYA does not do](/docs/reference/what-maya-does-not-do) has the full list.
+</Callout>
+
+<Related>
+- [Which systems work](/docs/connect/which-systems-work)
+- [How to get started](/docs/start/how-to-get-started)
+- [What it costs](/docs/start/what-it-costs)
+</Related>

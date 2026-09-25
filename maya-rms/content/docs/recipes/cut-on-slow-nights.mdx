@@ -1,0 +1,64 @@
+---
+title: Cut prices on nights booking slowly
+summary: Build a booking speed rule that cuts a night 7% when its bookings over the past month read Slower Than Normal, waits a week, then counts only the bookings made since the cut before it cuts again.
+section: recipes
+order: 90
+readingTime: 4
+keywords: [slow nights, booking slowly, cut prices, slower than normal, much slower, stalled, past month, decrease the rate, 7%, slow-date trim, slow-date rescue, starter rule, duplicate, same rule, booking speed rule, then waits, 1 week, quiet nights, behind pace, discount slow dates, last cut, restart the count, standard rule, last minute, wedding, wedding block, group, block, several rooms, mews, cut stays, comes off, floor]
+questions:
+  - How do I cut prices on nights that are booking slowly? {#in-plain-words}
+  - How do I make a booking speed rule that lowers the price? {#build-the-rule}
+  - What does "Slower Than Normal" fire on? {#what-the-rule-reads}
+  - How often will a cut rule cut the same night? {#what-happens-after-it-cuts/the-cut-stays}
+  - Will a cut ever come off by itself? {#what-happens-after-it-cuts/the-cut-stays}
+  - Does a wedding block count as many bookings for booking speed? {#what-the-rule-reads}
+  - Is this the same as the starter rule Slow-date trim? {#what-happens-after-it-cuts/good-to-know}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+On the <Ui>Rules</Ui> tab, add a rule with <Ui>Metric</Ui> set to <Ui>Booking speed (recommended)</Ui>, <Ui>Speed</Ui> <Ui>Slower Than Normal</Ui>, <Ui>Measured over</Ui> <Ui>Past month</Ui>, <Ui>Then waits (advanced)</Ui> <Ui>1 week</Ui>, and <Ui>Decrease the rate</Ui> by 7%. A night whose bookings over the past month are slower than similar past nights had by the same point is cut 7%. After a week the rule counts only the bookings made since that cut, and cuts again if those are still slow. This rule is not a copy of the starter rule "Slow-date trim", which cuts only nights that read exactly Slower Than Normal.
+</InPlainWords>
+
+## Build the rule
+
+<Steps>
+<Step title="Open the builder and name it">
+On the <Ui>Rules</Ui> tab, click <Ui>+ Add a rule</Ui>. In <Ui>Rule name</Ui>, type Slow nights.
+</Step>
+<Step title="Choose booking speed">
+In the condition row, change <Ui>Metric</Ui> to <Ui>Booking speed (recommended)</Ui>. The row changes to a <Ui>Speed</Ui> dropdown: pick <Ui>Slower Than Normal</Ui>.
+</Step>
+<Step title="Set the window and the wait">
+Under the row, set <Ui>Measured over</Ui> to <Ui>Past month</Ui> and <Ui>Then waits (advanced)</Ui> to <Ui>1 week</Ui>. The <Ui>?</Ui> beside each explains what it does in the app's own words.
+</Step>
+<Step title="Set the cut, pick the room types, add it">
+Under <Ui>Rate adjustment</Ui>, choose <Ui>Decrease the rate</Ui> and type 7 in <Ui>Adjust by percent (%)</Ui>. Leave every room type ticked and click <Ui>Add Rule</Ui>.
+</Step>
+</Steps>
+
+## What the rule reads
+
+For each night in the next 60, MAYA counts the bookings that night received over the past 30 days and compares the count with what similar past nights (same weekday, same time of year, up to 3 years back) had received over the same stretch of their own run-up. A booking counts once, however many rooms it holds. Only the room types the rule measures are counted.
+
+How a wedding block counts depends on how it was booked. On Cloudbeds and ThinkReservations, one reservation that holds several rooms counts as one booking. When guests book their own rooms from the block, each of their reservations counts as a booking. On Mews every room is its own reservation, so a group counts once per room. For occupancy, every booked room counts either way.
+
+<Ui>Slower Than Normal</Ui> means that slow or slower: the rule fires on Slower Than Normal, Much Slower Than Normal and Stalled. With an expected count of 5, a night with 1 booking reads as Much Slower Than Normal and fires. With 5 or 6 it reads Normal and does not. When the difference is small, or there are fewer than 5 similar nights to compare with, MAYA keeps the call close to Normal, so the rule fires less often rather than wrongly.
+
+## What happens after it cuts
+
+The cut stays on the price, and cancelled bookings never take it off. For 1 week the rule leaves that night alone for that room type. When the wait is over it counts only the bookings made since the night was last cut by a booking speed or pickup rule, this one or another. A cut from a standard rule, such as "Last minute", does not restart the count. It compares those bookings with the same days on the similar nights, and if they read slow on their own, it cuts another 7%, and the change log reads: Then "Slow nights" lowered it another 7%. Once it has cut the same night three times, the amber banner asks whether to keep adjusting or stop.
+
+<Callout kind="careful">
+A cut stays until you type a price on the night, delete the rule or the night passes. At the room type's floor no further cut fires, but the cuts already made stay. Set a real floor before you go live: MAYA's default of $1.00 stops nothing.
+</Callout>
+
+<Callout kind="good-to-know">
+The five starter rules include "Slow-date trim" (Slower Than Normal only, past month, cut 7%, waits 1 week) and "Slow-date rescue" (Much Slower Than Normal or Stalled, past month, cut 15%, waits 1 week). This rule is not a copy of either: it cuts 7% on all three slow levels. If both starter rules are on, you do not need this one: together they already cover every slow level. To keep a nearly full night from ever being cut, click <Ui>+ Add condition</Ui> and add <Ui>Sellable occupancy (%)</Ui> <Ui>Less than</Ui> 60: the rule then needs both to be true.
+</Callout>
+
+<Related>
+- [Booking speed](/docs/rules/booking-speed)
+- [Your starter rules](/docs/review/your-starter-rules)
+- [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting)
+</Related>

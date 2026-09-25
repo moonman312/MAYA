@@ -1,0 +1,198 @@
+---
+title: Reconnecting and disconnecting
+summary: What happens when the connection to your property system breaks, who can reconnect it in one click, and how to disconnect on purpose without losing anything.
+section: connect
+order: 60
+readingTime: 14
+keywords: [lost its connection, reconnect, Reconnect Cloudbeds, Reconnect Think Reservations, disconnected, disconnect, uninstall, uninstalled, remove MAYA, subscription stopped, unpaid, paused work, typed price while disconnected, Sending to Cloudbeds now, Revenue Manager, My Apps, banner, General Manager, Hotel Admin, prices stopped, not updating, revert, put back, rules lost, history lost, Connected, Pending, Degraded, Error, keys re-entered, different property, permission to update rates, delete data, 180 days, cancel first, sync resumes, next cycle, an hour, which login, wrong hotel, different hotel, group login, several hotels, several properties, Last sync, no banner, still Connected, Connect App, second property, deactivated user]
+questions:
+  - Who can reconnect MAYA to my property system? {#the-banner-and-who-sees-the-button/when-the-connection}
+  - What happens to my prices while MAYA is disconnected? {#what-stops-while-disconnected/rates-already-in}
+  - Will MAYA revert my prices when it disconnects? {#what-stops-while-disconnected/rates-already-in}
+  - How does MAYA find out that it has been disconnected? {#how-maya-is-told-about-a-disconnect/cloudbeds-cloudbeds-tells}
+  - How do I disconnect MAYA from Cloudbeds? {#disconnecting-on-purpose/maya-has-no}
+  - How do I remove MAYA from Cloudbeds? {#disconnecting-on-purpose/maya-has-no}
+  - Will reconnecting lose my rules or history? {#what-stops-while-disconnected/your-rules-history}
+  - How long until syncing resumes after I reconnect? {#reconnecting/1-open-the}
+  - Which login should I use to reconnect? {#which-login-to-use/a-login-that}
+  - Why is there no banner when my prices have stopped? {#when-there-is-no-banner/the-banner-shows}
+  - Can I reconnect with Connect App in the Cloudbeds Marketplace? {#reconnecting/if-your-cloudbeds}
+  - What happens to my data when I disconnect? {#what-is-kept/everything-disconnecting-deletes}
+  - What do Connected, Pending, Degraded, Error and Disconnected mean on the PMS tab? {#the-connection-words-on-the-pms-tab}
+  - Does disconnecting delete anything? {#what-is-kept/everything-disconnecting-deletes}
+  - Can I type a price while MAYA is disconnected? {#what-stops-while-disconnected/the-five-minute}
+  - Last sync stopped but the PMS tab says Connected and there is no banner, why? {#when-there-is-no-banner/the-banner-shows}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+When the connection breaks, a General Manager or Hotel Admin reconnects it in one click, signing in with a login for this property only (on Mews, you email us and we arrange new keys). A banner shows for some breaks but not all, so the sign to watch is <Ui>Last sync</Ui> on the <Ui>PMS</Ui> tab. While the connection is down, MAYA reads no bookings and sends nothing, and the rates already in your system stay exactly as they are. Disconnecting on purpose happens in your property system, not in MAYA, and it does not cancel your subscription or delete anything.
+</InPlainWords>
+
+A connection breaks for ordinary reasons: someone uninstalls the app, a token stops being renewed, keys are rotated. This page covers what you see, what stops, how to put it back, and how to disconnect on purpose. The short version: reconnecting is one click and loses nothing when you sign in with a login for this property only, and MAYA never puts back your old rates.
+
+## The banner and who sees the button
+
+When the connection is broken, the <Ui>PMS</Ui> tab shows a panel headed "MAYA has lost its connection to Cloudbeds" (or Think Reservations). The same panel appears as a banner above the calendar once the <Ui>PMS</Ui> tab has been opened in that visit.
+
+During onboarding, the prompt appears in one case only. A property that came through the Cloudbeds Marketplace, never paid and went unused for 180 days can have its connection removed (see "What is kept", below). Once that has happened, the prompt shows on the payment screen and on the import progress screens.
+
+If the connection breaks during an ordinary import, the onboarding screens show no prompt. Open the <Ui>PMS</Ui> tab on the dashboard to reconnect.
+
+- A **General Manager or Hotel Admin** sees "Your prices aren't updating while this is down. Reconnecting takes one click and sends you to Cloudbeds to confirm. Your rules, history and settings are all untouched." with a <Ui>Reconnect Cloudbeds</Ui> button.
+- **Everyone else** sees "Prices aren't updating while this is down." and is asked to find the property's General Manager or Hotel Admin. Only a General Manager or Hotel Admin sees the button.
+- On a **Mews** property the panel reads "Mews needs its keys re-entered", with no button. Read [Mews: what works today](/docs/connect/mews).
+
+On a working Cloudbeds or ThinkReservations connection, the <Ui>PMS</Ui> tab shows a quiet <Ui>Reconnect Cloudbeds</Ui> link instead. You can use it any time, for instance after granting MAYA a permission it was missing.
+
+### When there is no banner
+
+The banner shows only when the word on the <Ui>Connection</Ui> card is <Ui>Error</Ui>, <Ui>Degraded</Ui> or <Ui>Disconnected</Ui>. Some breaks, and a stopped subscription, leave it at <Ui>Connected</Ui>, so no connection banner shows:
+
+- **ThinkReservations**, after MAYA's access is removed, until ThinkReservations refuses to renew that access. That can take up to about a day.
+- **Mews**, when the keys stop working. The word does not change.
+- **Cloudbeds**, when the Cloudbeds user who approved MAYA is deactivated or deleted. The word may stay <Ui>Connected</Ui>.
+- **A reconnect with a login that reaches several properties** (read "Which login to use", below).
+- **Your subscription has stopped**, because it was cancelled or the bank's retries ran out. The connection is fine, but MAYA stops reading, pricing and sending for the property until billing is sorted. The <Ui>Billing</Ui> page says "MAYA has paused work on this property". Reconnecting does not help: fix it on the <Ui>Billing</Ui> page. Read [cards, payments and invoices](/docs/billing/cards-payments-and-invoices).
+
+The sign to watch is <Ui>Last sync</Ui> on the <Ui>PMS</Ui> tab, the last time bookings were read. On a working connection it is a few minutes old. If it is more than an hour old, MAYA has not read your bookings for over an hour, and nothing new has been priced or sent. A General Manager or Hotel Admin can click the quiet reconnect link even while the card reads <Ui>Connected</Ui> (on Mews, [email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20keys)). Read [connection lost](/docs/wrong/connection-lost).
+
+## What stops while disconnected
+
+The five-minute cycle skips a disconnected property: no bookings are read, no scheduled pricing runs and nothing is sent.
+
+Two things you do in MAYA still re-price the calendar from what MAYA already has: typing a price, and changing a room type on the <Ui>PMS</Ui> tab (<Ui>Counts as a room</Ui> or <Ui>Rooms out of service</Ui>). The new prices show on the calendar, but they are not sent until you reconnect. That holds even when the line after a save reads "Saved. Sending to Cloudbeds now."
+
+What does not change:
+
+- **Rates already in your system stay as they are.** MAYA never puts back your old rates when it disconnects or when you cancel. If you want different rates while MAYA is disconnected, set them in your system.
+- **Your rules, history, settings, room type answers, floors and ceilings and manual prices stay in MAYA.**
+- **Your subscription carries on.** Disconnecting does not cancel it. Read [cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving).
+
+## Reconnecting
+
+<Steps>
+<Step>
+**Open the <Ui>PMS</Ui> tab (or the banner) and click <Ui>Reconnect Cloudbeds</Ui>** (or <Ui>Reconnect Think Reservations</Ui>). Only a General Manager or Hotel Admin sees the reconnect button.
+</Step>
+<Step>
+**Sign in on your system's website and approve.** Use a login that reaches this property and no other. It does not have to be the login that connected MAYA first. Before you use any other login, read "Which login to use", below.
+</Step>
+<Step>
+**You are back on the MAYA dashboard.** There is no confirmation message. The banner stops showing once the connection reads as connected, which is right away.
+</Step>
+</Steps>
+
+Syncing resumes on the next cycle, within about five minutes, or up to an hour if reads had been failing for a while. (After each failed read MAYA waits longer before trying again, up to an hour, and reconnecting does not cut that wait short.) The first read after a reconnect picks up the bookings you missed. Prices that changed while you were disconnected go out on that cycle like any changed price, and prices that were held for a missing permission go out on that cycle too, rather than a day later.
+
+If your Cloudbeds property started in the Cloudbeds Marketplace (you first connected by clicking <Ui>Connect App</Ui> in Cloudbeds), there is a second way: click <Ui>Connect App</Ui> for MAYA in the Marketplace again. You land on the MAYA sign-in page with "Your Cloudbeds connection is active again. Sign in to pick up where you left off." Sign in and carry on.
+
+If you connected Cloudbeds from inside MAYA instead (you paid first, then connected), use <Ui>Reconnect Cloudbeds</Ui> in MAYA. <Ui>Connect App</Ui> in the Marketplace does not find your property. It adds a second, separate property and asks you to create an account ("Your Cloudbeds property is connected. Create your account to finish setting it up."), and your first property stays disconnected. If that has happened, [email us](mailto:info@modern-hospitality-solutions.com?subject=Cloudbeds%20reconnect).
+
+## Which login to use
+
+A login that reaches this property and no other always works. What any other login does depends on your system and on how you first connected.
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+**If you started in the Cloudbeds Marketplace**, MAYA stays with the Cloudbeds property it was first connected to. A login that reaches that property works, even one that covers a whole group. A login that does not reach it stops with "This login is for a different property." and nothing changes. If Cloudbeds could not be reached, you see "Cloudbeds didn't answer. Try connecting again in a moment." and can try again.
+
+**If you connected from inside MAYA**, the reconnect takes any Cloudbeds login, and the next read asks Cloudbeds which property that login reaches:
+
+- **This property only**: everything carries on.
+- **Several properties**: the reconnect looks fine and the card reads <Ui>Connected</Ui>, but every read fails. Nothing is read, priced or sent, no banner shows, and <Ui>Last sync</Ui> stops moving. Reconnect again with a login for this property only. If your only Cloudbeds login reaches several properties, [email us](mailto:info@modern-hospitality-solutions.com?subject=Cloudbeds%20reconnect).
+- **One other property**: MAYA moves over to that property. It reads that property's bookings and, once you are live, sends prices to it.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+The reconnect takes any ThinkReservations login, and the next read asks ThinkReservations which hotels that login reaches:
+
+- **This hotel only**: everything carries on.
+- **Several hotels**: the reconnect looks fine and the card reads <Ui>Connected</Ui>, but every read fails. Nothing is read, priced or sent, no banner shows, and <Ui>Last sync</Ui> stops moving. Reconnect again with a login for this hotel only. If your only login reaches several hotels (we set those properties up by hand), [email us](mailto:info@modern-hospitality-solutions.com?subject=ThinkReservations%20reconnect).
+- **One other hotel**: MAYA moves over to that hotel. It reads that hotel's bookings and, once you are live, sends prices to it.
+</PmsTab>
+<PmsTab pms="mews">
+Mews connects with keys, not a login. To reconnect, [email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20keys) and we arrange new keys with you. Leave the keys themselves out of the email: we set up a secure way to share them. Read [Mews: what works today](/docs/connect/mews).
+</PmsTab>
+</PmsTabs>
+
+<Callout kind="careful" title="A login for another hotel moves MAYA there">
+On ThinkReservations, and on a Cloudbeds property you connected from inside MAYA, a reconnect with a login that reaches one other hotel moves MAYA onto that hotel, and nothing on screen warns you. If you signed in to the wrong hotel, reconnect straight away with the right login and [email us](mailto:info@modern-hospitality-solutions.com?subject=Reconnected%20to%20the%20wrong%20hotel).
+</Callout>
+
+## The connection words on the PMS tab
+
+The <Ui>Connection</Ui> card shows one word. What each one means:
+
+| Word | What it means | What to do |
+|---|---|---|
+| <Ui>Connected</Ui> | The connection is working as far as MAYA can tell. Some breaks, and a stopped subscription, still read Connected (see "When there is no banner") | Nothing, as long as <Ui>Last sync</Ui> is a few minutes old |
+| <Ui>Pending</Ui> | Connected but not paid for yet, or set up but not switched on | Finish payment, or wait for us |
+| <Ui>Degraded</Ui> | MAYA is still reading and sending. The lost-connection banner may show. (Cloudbeds and ThinkReservations only.) | If it is still there in an hour, reconnect with a login for this property only. It does no harm |
+| <Ui>Error</Ui> | Your system refused to renew MAYA's access | Reconnect |
+| <Ui>Disconnected</Ui> | Access has been withdrawn, or the app was uninstalled | Reconnect |
+| unknown | MAYA could not read the status | Reload the page. If it stays, email us |
+
+The banner appears for <Ui>Error</Ui>, <Ui>Degraded</Ui> and <Ui>Disconnected</Ui>. A break that leaves the card at <Ui>Connected</Ui> shows no banner (see "When there is no banner", above). For what to check in each case, read [connection lost](/docs/wrong/connection-lost).
+
+## How MAYA is told about a disconnect
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+Cloudbeds tells MAYA when the property disables or uninstalls the app, usually within seconds. MAYA marks the connection <Ui>Disconnected</Ui> at once and the property leaves the cycle. If that message does not reach MAYA, MAYA finds out on its next read, within about five minutes, and the card reads <Ui>Disconnected</Ui> or <Ui>Error</Ui>. Either way, reconnect. One case is not caught: when the Cloudbeds user who approved MAYA is deactivated or deleted, the tab may still read <Ui>Connected</Ui> while <Ui>Last sync</Ui> stops moving. A user at the property who is still active reconnects.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+ThinkReservations does not tell MAYA. MAYA reads the refusal when its next call fails. Failed reads are tried again with a growing wait, up to an hour between tries, and nothing is priced or sent while they fail. When ThinkReservations refuses to renew MAYA's access, which can take up to about a day, the status changes to <Ui>Error</Ui> and the banner appears. Until then the tab can still read <Ui>Connected</Ui>, and <Ui>Last sync</Ui> is the sign to watch. A refused price write never disconnects a ThinkReservations property. Read the [ThinkReservations page](/docs/connect/thinkreservations).
+</PmsTab>
+<PmsTab pms="mews">
+Mews connects with keys, so there is nothing to revoke from Mews' side that MAYA is told about. If the keys stop working, reads fail and back off, and the tab keeps reading <Ui>Connected</Ui> with no banner. When we remove the keys at your request, the status reads <Ui>Disconnected</Ui>. Read [Mews: what works today](/docs/connect/mews).
+</PmsTab>
+</PmsTabs>
+
+## Disconnecting on purpose
+
+MAYA has no disconnect button of its own. You disconnect in your property system.
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+In Cloudbeds, go to <Ui>Marketplace</Ui>, then <Ui>My Apps</Ui>, find MAYA and disconnect it there. Cloudbeds tells MAYA, and MAYA marks the connection <Ui>Disconnected</Ui>. If you did it by accident, click <Ui>Reconnect Cloudbeds</Ui> in MAYA. If your property started in the Cloudbeds Marketplace, clicking <Ui>Connect App</Ui> again there works too.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+To remove MAYA's access in ThinkReservations, [email us](mailto:info@modern-hospitality-solutions.com?subject=Disconnect%20ThinkReservations) and we walk you through it.
+</PmsTab>
+<PmsTab pms="mews">
+[Email us](mailto:info@modern-hospitality-solutions.com?subject=Disconnect%20Mews) and we remove the keys. If you only revoke them in your Mews dashboard, MAYA's reads start failing but do not stop. They are tried again with a growing wait, up to an hour between tries, until we remove the keys. Nothing is priced while they fail, and the <Ui>PMS</Ui> tab keeps reading <Ui>Connected</Ui>. So if you revoke them in Mews, email us as well.
+</PmsTab>
+</PmsTabs>
+
+<Callout kind="careful" title="Cancel first, then disconnect">
+Disconnecting does not cancel your subscription, and cancelling does not disconnect your system. To stop completely, cancel on the <Ui>Billing</Ui> page first, then disconnect in your system. Read [cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving).
+</Callout>
+
+## When someone removed MAYA's permission to update rates
+
+If your system still lets MAYA read but refuses the price write, the connection stays up and only sending waits. The change log shows "Cloudbeds won't let MAYA change Standard rates because MAYA doesn't have permission to update rates", with the action "Give MAYA permission to update rates in Cloudbeds, then reconnect on the PMS tab." Restore the permission in your system, then click the <Ui>Reconnect</Ui> link on the <Ui>PMS</Ui> tab. The held prices go out on the next cycle. Read [when your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price).
+
+## What is kept
+
+Everything. Disconnecting deletes nothing, and neither does cancelling, so a property that paid and comes back finds its history, rules and settings intact. Reconnecting never resets anything.
+
+There is one exception, and it only touches properties that never paid. If a property connected through the Cloudbeds Marketplace has never paid for MAYA and nobody has used it for 180 days, its imported booking history, its stored connection and its credentials may be deleted. The property, its members, rules and settings stay. When that owner comes back, the banner reads "Your rules and settings are still here, and your booking history comes back once you reconnect." and reconnecting reads the history again. The same rule is in the [Terms](https://www.get-maya.com/terms), section 8.8.
+
+To have a property's data deleted for good, a Hotel Admin or General Manager emails us. Read [privacy, security and your data](/docs/reference/privacy-security-and-your-data).
+
+<Callout kind="not-yet" title="Not yet">
+There is no disconnect button in MAYA (disconnect in your system, or email us). ThinkReservations does not tell MAYA about a disconnect, and some breaks never show a banner at all (watch <Ui>Last sync</Ui>). A reconnect does not check that the login is for the same property, except on a Cloudbeds property that started in the Marketplace (sign in with a login for this property only). Mews cannot be reconnected from the app (email us and we arrange new keys with you). The banner above the calendar appears only once the PMS tab has been opened in that visit, so open the PMS tab if the change log says to reconnect and you see no banner.
+</Callout>
+
+<Example title="The Harbour Inn loses its connection">
+On Tuesday a new front desk manager tidies up the Cloudbeds Marketplace and disconnects MAYA by mistake. Within seconds MAYA marks The Harbour Inn as disconnected. The cycle skips the property from then on. The rates in Cloudbeds stay exactly as MAYA last sent them, and the calendar changes only if someone types a price.
+
+On Wednesday Priya, the Revenue Manager, opens the <Ui>PMS</Ui> tab and sees "MAYA has lost its connection to Cloudbeds" with no button, because Priya is not a General Manager. Sam, the Hotel Admin, opens the same tab, clicks <Ui>Reconnect Cloudbeds</Ui>, signs in at Cloudbeds with a login for The Harbour Inn only, and is back on the dashboard. On the next cycle MAYA reads Tuesday's and Wednesday's bookings, runs the rules, and sends the prices that changed. Nothing else needed doing.
+</Example>
+
+<Related>
+- [Connection lost](/docs/wrong/connection-lost)
+- [The PMS tab: connection health](/docs/watch/the-pms-tab)
+- [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving)
+</Related>

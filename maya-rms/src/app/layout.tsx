@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { TermsGate } from "@/components/legal/terms-gate";
+import { ThemeGuard } from "@/components/docs/theme-guard";
+import { ThemeScript } from "@/components/docs/theme-script";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -15,7 +17,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "MAYA",
-  description: "Machine Assisted Yield Automation — revenue management for hotels",
+  description: "Machine Assisted Yield Automation: revenue management for hotels",
   applicationName: "MAYA",
   appleWebApp: { title: "MAYA" },
 };
@@ -33,9 +35,15 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      // the docs and support pages set their light or dark class before hydrating
+      suppressHydrationWarning
     >
+      <head>
+        <ThemeScript />
+      </head>
       <body className="min-h-full flex flex-col">
         {children}
+        <ThemeGuard />
         <TermsGate />
       </body>
     </html>

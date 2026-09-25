@@ -1,0 +1,170 @@
+---
+title: Your room count and what you pay
+summary: How MAYA counts your rooms from your property system, the banner and email when you run more rooms than you pay for, the 7 days you get to set it yourself, what changes on the invoice, why the count is never lowered for you, and how to change it on the billing page.
+section: billing
+order: 20
+readingTime: 13
+keywords: [room count, rooms billed, billed for, running, how many rooms, wrong room count, bill says 24, more rooms, fewer rooms, 7 days, 7-day, email, banner, raise, lower, closed a wing, renovation, refurbishment, out of service, counts as a room, not a room, meeting room, spa, court, parking, proration, prorated, next invoice, credit, refund, change the room count, change count in stripe, seats, over 500, measured, active rooms, property management system shows, past months, back billing, charged separately, email next day, ThinkReservations room count, rooms per type, Mews room count, 100 rooms, 300 rooms, running 300, left out, not counted, cabana, pool house, bedroom word, no email, email never came, 600 rooms, raised by mistake, count was raised, 100-rooms default, invoice went up, put it right, get it back, credit back]
+questions:
+  - What counts as a room for billing? {#how-maya-counts-your-rooms/types-you-have-unticked}
+  - Why does the bill say 24 rooms when I have 22? {#how-maya-counts-your-rooms/types-you-have-unticked}
+  - 'What does "You''re billed for 20 rooms but running 24" mean?' {#running-more-rooms-than-you-pay-for/1-first-a}
+  - What is the 7-day room count email? {#running-more-rooms-than-you-pay-for/the-email-follows}
+  - Will you charge me immediately for extra rooms? {#running-more-rooms-than-you-pay-for/if-the-billed}
+  - I closed a wing, will my bill drop by itself? {#paying-for-more-rooms-than-you-run}
+  - How do I change the room count I pay for? {#changing-the-count-yourself/1-open-billing}
+  - Can I change the room count in Stripe? {#changing-the-count-yourself/1-open-billing}
+  - What if I entered the wrong room count at signup? {#changing-the-count-yourself/1-open-billing}
+  - Do I get more seats when my room count goes up? {#seats-follow-the-billed-count}
+  - Will you charge me for past months of extra rooms? {#running-more-rooms-than-you-pay-for/if-the-billed}
+  - Why does the room count email come a day after the banner? {#running-more-rooms-than-you-pay-for/the-email-follows}
+  - Why is my ThinkReservations room count wrong? {#how-maya-counts-your-rooms/email-us-as}
+  - Does MAYA read how many rooms each Mews category has? {#how-maya-counts-your-rooms/so-the-count}
+  - Why is a room type left out of my room count? {#how-maya-counts-your-rooms/types-you-have-unticked}
+  - The banner says you'll email me, but no email came. Why? {#over-500-rooms}
+  - MAYA raised my room count because of the 100-rooms default. How do I get it put right? {#if-the-100-rooms-number-has-already-raised-your-count/on-thinkreservations-or}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+MAYA charges per room and counts your rooms from your property system on every sync, leaving out room types you have unticked as rooms. Up to 500 rooms, if it finds more rooms than you pay for, you get a banner, an email and 7 days to set the count yourself before MAYA raises it and adjusts your next invoice. It never lowers the count for you: if you run fewer rooms, lower it on the <Ui>Billing</Ui> page and your next invoice drops. On ThinkReservations every room type counts as 100 rooms until we set your property's number, so [email us](mailto:info@modern-hospitality-solutions.com?subject=ThinkReservations%20room%20counts) as soon as you connect.
+</InPlainWords>
+
+## How MAYA counts your rooms
+
+About every five minutes, when MAYA reads your bookings, it also adds up the rooms in your active room types. Two kinds of type are left out:
+
+- **Types you have unticked as rooms.** On the <Ui>PMS</Ui> tab, each room type has a <Ui>Counts as a room</Ui> box. Untick it for anything nobody sleeps in, such as a meeting room, a spa slot or a court. An unticked type is left out of the count whatever its name. A ticked one is counted whatever its name. Your answer is final in both directions.
+- **Types you have not answered for, whose name reads like something nobody sleeps in.** Until you tick or untick a type, MAYA reads its name, as set out below. This is only a reading of the name, and one tick from you overrides it.
+
+Some words leave a type out whatever else its name says, such as meeting, conference, boardroom, banquet, parking, massage, treatment, storage and day use. Others leave a type out only when its name has no bedroom word in it (room, suite, king, queen, villa or cabin, for example). Spa, pool, cabana, court, event, hall, package and fee are words of this second kind. So "Spa Suite" is counted, while "Meeting Room", "Garden Cabana" and "Pool House" are left out.
+
+If the <Ui>Billing</Ui> page lists a type as not counted and guests do sleep there, tick it on the <Ui>PMS</Ui> tab. If its box already shows ticked, untick it and tick it again: your tick then counts.
+
+The count is the same for every night: rooms out of service change your occupancy, not your bill. Nothing is measured while your history is still importing, so an empty read is never treated as zero rooms.
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+Cloudbeds reports how many rooms each room type has, so the count MAYA measures is the count Cloudbeds holds.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+ThinkReservations does not report how many rooms each room type has. So MAYA gives every room type the same number of rooms, from one rooms-per-type number for the whole property, and uses it for occupancy and for this count alike. Until we set that number for your property, it is 100: each room type ticked as a room counts as 100 rooms. We can change that one number, not set a separate count for each type, and there is no field in MAYA for you to set it yourself.
+
+So expect the banner and the email soon after you connect: the banner once your history has imported, the email at the next daily check after that. The Harbour Inn's Standard, Deluxe and Suite read as 3 types times 100, so 300 rooms against the 20 it pays for (its Meeting Room is left out by its name). The banner reads "You're billed for 20 rooms but running 300", and the email quotes "$110 today, $750 at 300 rooms". With 6 or more types counted as rooms, the count passes 500 and [Over 500 rooms](#over-500-rooms) applies.
+
+[Email us](mailto:info@modern-hospitality-solutions.com?subject=ThinkReservations%20room%20counts) as soon as you connect, so we can sort out your billed count with you by hand before the 7 days run out. If nobody steps in, MAYA raises your billed count to the measured number 7 days after the email: for The Harbour Inn, to 300 rooms at $750 a month. If that has already happened, [you can put it right](#if-the-100-rooms-number-has-already-raised-your-count). Even after we change the number, the count is that one number times your room types, so it may not match what you run: The Harbour Inn's 12, 6 and 2 can read as 18 or 21, never 20.
+</PmsTab>
+<PmsTab pms="mews">
+Mews does not report how many rooms each category has, so MAYA gives every category one number, which we set with you when we connect (100 until then). We cannot set a separate number for each category, and there is no field in MAYA for you to set it yourself.
+
+So the count is that one number times the categories counted as rooms, and it may not match what you run: at 100, three such categories read as 300 rooms. Check the <Ui>Room count</Ui> section of the <Ui>Billing</Ui> page in the days after connecting, and if the measured number is higher than what you run, [email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20room%20counts) before the 7 days pass. If they have already passed and your count was raised, [you can put it right](#if-the-100-rooms-number-has-already-raised-your-count).
+</PmsTab>
+</PmsTabs>
+
+## What the billing page shows
+
+The <Ui>Room count</Ui> section of the <Ui>Billing</Ui> page starts with "Your plan covers 20 rooms. We check this against your property management system." Then, depending on your property:
+
+- "Not counted, because they don't look like guest rooms:" followed by the names. MAYA read these names and left the types out. If one of them is a guest room, tick it under <Ui>PMS</Ui>, then Room types, and it joins the count (if its box already shows ticked, untick it and tick it again).
+- "You've marked these as not rooms:" followed by the names. Your own unticks. Change them on the same tab if one is wrong.
+- "Every room type is marked as not a room, so we can't measure your count." in amber. Tick the types guests sleep in.
+- "Your PMS currently shows 24 active rooms." when the measured number differs from the billed one, followed by either "You're paying for more than that" and a prompt to lower it here so your next invoice drops, or a note that the number comes from your property system and updates on its own as you open or close rooms.
+
+Under those lines sit the <Ui>Rooms billed</Ui> box and the <Ui>Change</Ui> button, covered below.
+
+## Running more rooms than you pay for
+
+<Steps>
+<Step title="First a banner, then an email">
+The moment MAYA measures more rooms than you pay for, the top card on the <Ui>Billing</Ui> page and the dashboard banner turn amber: "You're billed for 20 rooms but running 24", then "MAYA charges per room, so 4 rooms are not being paid for." At first it adds "Set the count right below. We'll email you before anything changes." Once the email is out it says how many days remain: "Set the count right below within 7 days and nothing else happens. After that we'll update it to 24 for you and adjust your next invoice."
+
+The email follows at the next daily check (once a day), so it can arrive the day after the banner. Above 500 rooms it never comes, as [Over 500 rooms](#over-500-rooms) explains. It goes to the address on your billing account, the one that receives invoices. Its subject is "Your MAYA plan covers 20 rooms" followed by what your system shows. Its heading is "Your room count has changed", and it says what your system lists, what your plan covers, what you pay today and what you would pay at the measured count ("$110 today, $120 at 24 rooms"), that you have 7 days to set the number yourself, and the date after which MAYA updates it. A button, <Ui>Set your room count</Ui>, opens the <Ui>Billing</Ui> page. It also names any types that were left out and why, so your own count and MAYA's reconcile.
+</Step>
+<Step title="The 7 days">
+The 7 days count from the email, not from the first measurement, so you always get the full week after being told. If the measured number changes again during the week, a new email goes out about the new number. MAYA never corrects a count it has not emailed you about.
+</Step>
+<Step title="After the 7 days">
+If the billed count is still lower than the measured one, MAYA raises it to the measured number. Stripe works out the difference for the part of the period you have already paid and adds it to your next invoice. Nothing is charged on the day and nothing is charged separately. The banner clears and the <Ui>Room count</Ui> section shows the new number.
+</Step>
+</Steps>
+
+That is how the correction works today. The Terms (clause 7.5) also allow the difference to be charged separately, and allow us to invoice for rooms that were in use but not paid for during the previous 12 months. MAYA does neither on its own: the raise above is the only change it makes to your bill, and it charges only from the day of the raise. [Terms and legal](/docs/reference/terms-and-legal) lists the clauses.
+
+Any shortfall counts. There is no tolerance band: one extra room is a real amount every month, so one extra room triggers the email.
+
+<Example title="The Harbour Inn opens an annex">
+The Harbour Inn pays for 20 rooms at $5.50, $110 a month. Sam opens a 4-room annex in Cloudbeds as a new room type. On the next sync MAYA measures 24. The banner reads "You're billed for 20 rooms but running 24", the email says "$110 today, $120 at 24 rooms" (24 rooms sits in the next bracket, at $5.00 a room). Sam can type 24 in <Ui>Rooms billed</Ui> today, or let MAYA do it in a week. Either way the next invoice is $120 plus the part-month difference, and the property's team grows from 2 seats to 4.
+</Example>
+
+## Paying for more rooms than you run
+
+MAYA never lowers the count for you. A wing closed for a fortnight's refurbishment would otherwise cut the bill without anyone asking, and put it back up with a warning email when the wing reopened. Instead, the <Ui>Room count</Ui> section says "Your PMS currently shows 16 active rooms." and "You're paying for more than that", and you lower it yourself if you want to.
+
+Lowering the count gives a credit for the unused part of the current period, taken off future invoices. It is never a cash refund.
+
+## If the 100-rooms number has already raised your count
+
+On ThinkReservations, or on Mews for a category with no room count, the 7 days can run out before your real count is set. MAYA then raises your billed count to the measured number: The Harbour Inn would go from 20 rooms at $110 a month to 300 rooms at $750. Here is how to put it right.
+
+<Steps>
+<Step title="Email us your real room counts">
+[Email us](mailto:info@modern-hospitality-solutions.com?subject=Room%20count%20raised) with your property's name and how many rooms each room type has. We set your property's rooms-per-type number. Within about five minutes the <Ui>Room count</Ui> section of the <Ui>Billing</Ui> page shows the new measured number.
+</Step>
+<Step title="Lower Rooms billed to that number">
+Once the new measured number shows, type it in <Ui>Rooms billed</Ui> and click <Ui>Change</Ui>. Two things bring the email back, and a new raise 7 days later: lowering the count while it still reads 300, and lowering it below the new measured number.
+</Step>
+<Step title="The credit">
+Stripe credits the difference between the two counts for the rest of the current period, and the credit comes off your next invoices. The days between the raise and your change stay billed at the higher count.
+</Step>
+</Steps>
+
+If you want those days looked at too, say so in the same email. Anything beyond the credit is up to us, case by case. The Terms call it a one-off courtesy, so we cannot promise it.
+
+## Changing the count yourself
+
+<Steps>
+<Step title="Open Billing and find Room count">
+The section is there while the subscription is running. A General Manager or Hotel Admin can change it.
+</Step>
+<Step title="Type the new number in Rooms billed">
+Any whole number from 1 to 500. Anything else shows "Enter a whole number between 1 and 500." <Ui>Change</Ui> stays greyed out until the number is valid and different from today's.
+</Step>
+<Step title="Read the quote">
+Before you save, a line shows what the new bill will be, from the same brackets Stripe bills: "$110 up to $120 per month. Your next invoice is adjusted for the part of this period you have already paid." Going down, it adds in green "That is $22 less." If the new count lands in the same price, it reads "Still $110 per month."
+</Step>
+<Step title="Click Change">
+It reads "Saving…", then "Room count updated." Stripe confirms the change to MAYA a moment later, so the number on the page can take a moment to catch up.
+</Step>
+</Steps>
+
+Messages you might see:
+
+- **"This property has no subscription to change."** Set up payment for the property first.
+- **"This subscription has nothing to change."** [Email us](mailto:info@modern-hospitality-solutions.com?subject=Room%20count) and we look at the subscription.
+- **"Could not change the room count. Try again shortly."** Wait a moment, then try again.
+- **"This property's subscription is not active, so MAYA has paused work on it."** The subscription has lapsed. Fix the payment first.
+
+The count is changed here and only here. Stripe's billing portal does not offer a quantity control, because MAYA measures the count and would correct a number typed there.
+
+<Callout kind="careful" title="Lowering below what you run brings the email back">
+If you lower the count below what your system shows, the next sync measures the shortfall again, the email goes out, and after 7 days MAYA raises it back. Lower it only when the rooms really are gone from your system, or untick the types that are not rooms.
+</Callout>
+
+## Seats follow the billed count
+
+How many people can be on your team depends on the rooms you pay for: 2 seats up to 20 rooms, 4 up to 40, 5 up to 60, 6 up to 80, 8 up to 500. Raising the count raises the seats at the same moment. [Inviting and removing people](/docs/team/inviting-and-removing-people) has the details.
+
+## Over 500 rooms
+
+Self-serve stops at 500. If MAYA measures more than 500 rooms, the banner still turns amber, for example "You're billed for 20 rooms but running 600", and still ends "We'll email you before anything changes." No email follows, and nothing changes on its own: above 500, MAYA sends no room count email and makes no automatic correction. The <Ui>Rooms billed</Ui> box does not take a number above 500 either. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Over%20500%20rooms) and we price it by hand.
+
+<Callout kind="not-yet">
+No tolerance band (every extra room counts), no automatic decrease, no room count control in Stripe and no change to the count while the subscription has lapsed. Above 500 rooms, no email and no automatic change, although the banner says an email is coming. On ThinkReservations and Mews, the measurement uses one rooms-per-type number for the whole property, 100 until we set it, not a count for each type, and you cannot set it yourself.
+</Callout>
+
+<Related>
+- [The billing page](/docs/billing/the-billing-page)
+- [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service)
+- [What it costs](/docs/start/what-it-costs)
+</Related>

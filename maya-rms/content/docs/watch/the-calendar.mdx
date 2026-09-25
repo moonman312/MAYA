@@ -1,0 +1,217 @@
+---
+title: The calendar
+summary: What each day on the Calendar tab shows, what the colours mean, what you see when you click a day, and how fresh the numbers are.
+section: watch
+order: 10
+readingTime: 14
+keywords: [calendar, day card, tax, taxes, including tax, excluding tax, commission, OTA commission, net revenue, gross revenue, fees, extras, revenue does not match, revenue report, UTC, wrong month, next month, opens on next month, percentage, occupancy, rooms booked, revenue on the books, colour, green, amber, orange, red, strong night, weak night, current price, dash, ADR, ADR $150, $150, placeholder, booking with no amount, no rate, revenue too high, $150 too much, updated, live, weekday, how far ahead, 60 nights, base price, week view, list view, bookings list, time zone, past night, year list, colour does not match revenue, colour does not match dollar figure, rate changed, Mews not sent]
+pms: [cloudbeds, thinkreservations, mews]
+questions:
+  - 'What does the calendar show?' {#in-plain-words}
+  - 'What is the big percentage on each day of the calendar?' {#one-day-line-by-line/every-day-is}
+  - 'What does "12/20 rooms" mean?' {#one-day-line-by-line/every-day-is}
+  - 'What is the dollar figure on each day?' {#one-day-line-by-line/the-dollar-figure}
+  - 'Is the revenue on the calendar with or without tax, fees and OTA commission? Why does it not match my PMS revenue report?' {#one-day-line-by-line/what-that-rate}
+  - 'What do the colours on the calendar mean?' {#what-the-colours-mean/under-the-grid}
+  - 'Why does a night''s colour not match its dollar figure?' {#what-the-colours-mean/nights-inside-a}
+  - 'Why are there no weekday headers on the calendar?' {#what-the-calendar-does-not-show}
+  - 'How far ahead can I look on the calendar?' {#the-controls}
+  - 'Why does "Current price" show a dash?' {#when-a-night-has-no-current-price/the-night-is-beyond}
+  - 'What is "Current price"?' {#click-a-day-the-day-detail/line-what-it}
+  - 'Where is the base price on the calendar?' {#what-the-calendar-does-not-show}
+  - 'How fresh is the calendar?' {#how-fresh-the-calendar-is}
+  - 'What does "· live" mean on the calendar?' {#how-fresh-the-calendar-is}
+  - 'Is there a list or week view?' {#what-the-calendar-does-not-show}
+  - 'Can I see occupancy per room type?' {#click-a-day-the-day-detail/line-what-it}
+  - 'Is the calendar in my hotel''s time zone?' {#time-zones}
+  - 'What is the "Updated 3:05:12 PM" time?' {#time-zones}
+  - 'Why does a night that has passed still show a current price?' {#when-a-night-has-no-current-price/the-night-has}
+  - 'Why does the Year list show only one year?' {#the-controls}
+  - 'Can I click a day and see every booking?' {#what-the-calendar-does-not-show}
+  - 'Why did the calendar open on next month?' {#time-zones}
+  - 'Why does yesterday still say "revenue on the books"?' {#time-zones}
+  - 'Why does tonight already say "revenue" instead of "revenue on the books"?' {#time-zones}
+  - 'Why is a night''s revenue $150 more than my system shows?' {#one-day-line-by-line/a-booking-with}
+  - 'Why does the ADR say $150.00 on a room type with nothing booked?' {#click-a-day-the-day-detail/line-what-it}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Each day on the calendar shows sellable occupancy for the whole property, rooms booked over rooms you can sell, the room revenue already on the books, and a colour bar that compares the night with your own other nights. Click a day to see every room type's current price and to type a price yourself. The calendar updates on its own as bookings and prices change.
+</InPlainWords>
+
+## Where it is
+
+The <Ui>Calendar</Ui> tab is the first tab on the dashboard and the one MAYA opens on. Everyone on the property can see it, whatever their role.
+
+## The controls
+
+Across the top you have <Ui>Prev</Ui> and <Ui>Next</Ui>, which step one month at a time, and two dropdowns, <Ui>Month</Ui> and <Ui>Year</Ui>. The years on offer run from the first month that has any booking or any published price to the last one. A property with no bookings or prices yet sees only the year on screen. <Ui>Prev</Ui> and <Ui>Next</Ui> still move across years.
+
+You can open any month, past or future. What changes far ahead is not the calendar but the prices: your rules run on tonight and the next 59 nights, so nights beyond that show no current price (see "When a night has no current price" below).
+
+On the right, once the month has loaded, a small line reads "Updated 3:05:12 PM · live". The time is your browser's clock, to the second, not the property's. Before the month loads it reads "Loading…".
+
+## The grid
+
+The month is laid out seven days wide with Sunday in the first column. There is no row of weekday names above the grid. Count from the left with Sunday first, or click a day: the heading of the day detail names the weekday.
+
+While the month loads, or while you switch property, a grey placeholder of the same shape stands in for the grid.
+
+## One day, line by line
+
+Every day is a button. From top to bottom it shows:
+
+| Line | What it is |
+|---|---|
+| The day number | The date within the month. |
+| A large percentage, such as **60%** | Sellable occupancy for the whole property: rooms booked divided by rooms you can sell that night, rounded to a whole percent. |
+| "12/20 rooms" | Rooms booked, then rooms you can sell that night. |
+| A dollar figure, such as "$2.2k" or "$850" | Room revenue on the books for that night. From $1,000 it is shortened to thousands with one decimal. Hover it and the label reads "Room revenue (booked nights)". |
+| A thin colour bar | Green, amber or red, comparing the night with your other nights (next section). |
+
+Two details behind those numbers matter when you check them against your property system.
+
+**Only room types ticked as rooms are counted** in the percentage and in "12/20 rooms". A meeting room or a court that you have unticked under <Ui>Counts as a room</Ui> is left out of both. Rooms you have entered as out of service come off the sellable count for those nights. The Harbour Inn has 20 rooms across Standard, Deluxe and Suite. With 2 Standard rooms out of service and 11 rooms booked, the card reads "11/18 rooms" and 61%.
+
+**The dollar figure sums every room type**, including ones that do not count as rooms. Each booked night is valued at the rate MAYA imported with the booking, or at its current rate if none was imported.
+
+**What that rate includes depends on your system.** MAYA never adds tax, never takes off a booking site's commission, and never converts currency. It adds up the nightly rates your system reports:
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+The nightly room rate Cloudbeds lists for each room of the booking. It is on the same tax basis as the rates you set in Cloudbeds: if your rates include tax, so does this figure. Fees and extras charged separately are not in it.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+The room charges ThinkReservations lists for the booking, after discounts, one night at a time. Other lines on the booking, such as separate tax, fee or extra lines, are not in it.
+</PmsTab>
+<PmsTab pms="mews">
+The booking's total price, taxes included, split evenly across its nights. Anything else Mews includes in that total, such as extras, is in it too.
+</PmsTab>
+</PmsTabs>
+
+So the figure will not match a revenue report in your system that adds taxes, fees or extras, takes off commission, or reflects a booking's rate after it was changed. A $0 comp or house-use booking adds nothing and lowers the ADR. [Occupancy looks wrong](/docs/wrong/occupancy-looks-wrong) covers the occupancy side.
+
+**A booking with no amount at all counts as $150 a night.** That happens only when your system reports a booking with no amount on it, which is not the same as $0. The $150 is a placeholder, not a rate from your system, and it is the same in every currency. It also goes into that room type's Revenue and ADR in the day detail. If a night's figure is $150 more than your system shows, look for a booking on that night with no amount.
+
+<Callout kind="good-to-know">
+Occupancy on the day card can read over 100%. That happens when rooms were sold before a block or an out of service stretch was entered, or when your system has taken an overbooking. [Occupancy looks wrong](/docs/wrong/occupancy-looks-wrong) has the detail.
+</Callout>
+
+## What the colours mean
+
+Under the grid a legend names the three colours: "strong night" (green), "typical night" (amber) and "weak night" (red). The legend goes on to say the colour is measured by revenue per room, relative to the property's own results, and that future nights compare against other upcoming nights.
+
+Here is how the colour is set:
+
+- For each night, MAYA adds up the latest rate it has read for each booked room. A booked room with no rate adds nothing.
+- It divides that total by the number of rooms in room types that count as rooms. That is revenue per room.
+- Nights before today are compared only with other past nights. Today and later are compared only with other upcoming nights. Revenue for a future night keeps growing as bookings land, so mixing the two would paint every future night red.
+- Each group is cut into thirds. A night in the bottom third is red, the middle third is amber, and the top third is green.
+- A group needs at least 10 nights to be cut into thirds. With fewer, MAYA uses both groups together, and if that is still under 10 nights every night on that side is amber.
+- Nights inside a closed period you confirmed on the review are left out when the thirds are worked out, but they still get a colour.
+
+The total behind the colour can differ from the dollar figure on the day card. The card uses the rate MAYA imported with each booking, and the $150 placeholder for a booking with no amount. So the two differ when a booking's rate has changed in your system since it was imported. They also differ when a booking has no amount.
+
+The colour is not occupancy. A night can be 90% full and still red if those rooms sold cheaply against your other nights, and a half-full night with strong rates can be green.
+
+<Callout kind="good-to-know" title="Colours can lag by a few minutes">
+The booked counts and dollar figures are always fresh, but a new booking can take up to 5 minutes to change a colour.
+</Callout>
+
+## Click a day: the day detail
+
+Clicking a day opens a panel under the grid. The clicked day gets a blue ring.
+
+The heading is the full date, for example "Friday, November 13, 2026". Under it, one summary line:
+
+"12/20 rooms · 60% sellable occupancy · revenue on the books $2,180.00"
+
+For a night that has passed, the last part reads "revenue $2,180.00" instead of "revenue on the books". The dollar amount here is the same figure as on the day card, shown in full.
+
+Then one card per active room type, including types that do not count as rooms. Each card shows:
+
+| Line | What it is |
+|---|---|
+| The room type's name | With a badge beside it when a manual price is open on that night (below). |
+| "Booked 8/12" | Rooms booked in this type, then rooms you can sell in this type that night. |
+| "ADR $160.00" | ADR means average daily rate: this type's room revenue for the night divided by the rooms booked. When <Ui>Booked</Ui> reads 0, ignore the ADR line. It shows the $150.00 placeholder on every room type with nothing booked, whatever that type's rate. |
+| "Current price $165.00" | The price your rules produce for this room type on this night, within your floor and ceiling. On Cloudbeds and ThinkReservations, this is the price MAYA sends when you are live (except a price of 0, a comp night). Nothing is sent to Mews. On a night that has passed, it is the last price the night had. It shows a dash when no price has been published (next section). |
+| "Revenue $1280.00" | Room revenue on the books for this type on this night. The card prints it without a thousands comma. |
+| A price box, <Ui>through…</Ui>, <Ui>Save</Ui> and a <Ui>?</Ui> | The manual price editor. [Setting a price yourself](/docs/watch/setting-a-price-yourself) explains every part of it. |
+
+<Example title="The Harbour Inn on a Friday in November">
+Friday, November 13, 2026 has 12 of 20 rooms booked, so the day card reads 60% and "12/20 rooms". Standard has 8 of 12 booked at $160 a night on average, Deluxe 3 of 6 at $200, Suite 1 of 2 at $300, and the Meeting Room is unbooked. Revenue on the books is $1,280 + $600 + $300 = $2,180, so the day card reads "$2.2k" and the day detail "$2,180.00".
+
+The Standard card reads "Booked 8/12", "ADR $160.00", "Current price $165.00" (the "Busy nights" rule has not fired, because the property is 60% full, but the "Warm-date bump" booking speed rule has raised it 10%) and "Revenue $1280.00", the 8 booked rooms at $160 a night on average.
+
+The Meeting Room's rate in Cloudbeds is $90, and no rule changes it. Its card reads "Booked 0/1", "ADR $150.00", "Current price $90.00" and "Revenue $0.00". The $150.00 is the placeholder every room type shows when nothing is booked. It is not the Meeting Room's $90, and it is not Standard's $150 either.
+
+Not counting as a room does not stop a type being priced: the Meeting Room starts from its $90 like any other type. Had its rate in Cloudbeds been 0, the night would be closed, and "Current price" would show a dash.
+</Example>
+
+## The Manual and Changed-in badges
+
+When a manual price is open on a room type for that night, a small amber badge sits beside the room type's name:
+
+- "Manual · $180.00" for a price someone typed in MAYA. Hover it and you see "Set" followed by the date and time it was typed.
+- "Changed in Cloudbeds · $180.00" (or "Changed in Think Reservations · ...") for a rate you changed in your property system on a night MAYA had already sent to. Hover it and you see "Seen" followed by the date and time MAYA read it.
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+Both badges can appear. The second needs the property to be live and the night to have been sent to and confirmed at least an hour earlier. [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) has the conditions.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+Both badges can appear. A send to ThinkReservations counts as confirmed only once MAYA has read the rate back, so "Changed in Think Reservations" can take a little longer to appear than on Cloudbeds.
+</PmsTab>
+<PmsTab pms="mews">
+Only "Manual" appears. MAYA does not send prices to Mews, so there is no sent night for a change in Mews to be read against.
+</PmsTab>
+</PmsTabs>
+
+Before you have opened the <Ui>PMS</Ui> tab in this visit, the badge and the manual price help may say "your PMS" instead of naming your system. Open the <Ui>PMS</Ui> tab once and the name fills in.
+
+## When a night has no current price
+
+A dash after "Current price" means MAYA has not published a price for that room type on that night. There are four ordinary reasons:
+
+- **The night is beyond the window.** Your rules run on tonight and the next 59 nights (60 nights). A night further out has no price until it enters the window. The exception is a manual price you saved further ahead: that save prices every night up to the last one you chose.
+- **The night is closed in your system, or has no rate to start from.** On Cloudbeds and ThinkReservations, a night whose rate in your system is 0, with no manual price typed in MAYA, is left unpriced on purpose. Load a rate there and the next hourly read picks it up. On Mews, MAYA does not read rates. It starts from the newest booking's rate for that room type on that night, or from the starting point it used there before. With neither, the night stays unpriced until you type a price.
+- **The night has passed and had no price.** A night that has passed is not priced again. The card keeps the last price the night had before it passed, or a dash if it had none.
+- **No run has happened yet.** A newly connected property shows dashes until its first pricing run.
+
+The price your rules start from (the base price) is not shown on the day card. The change log names it in every change: "from $150.00 to $165.00".
+
+## How fresh the calendar is
+
+The calendar updates on its own, within a few seconds of a change to a booking, a published price, a manual price or an out of service block. While the history import is running it refreshes less often, so the page stays calm.
+
+Behind that, while you are on the <Ui>Calendar</Ui> tab, MAYA re-reads the month every 5 minutes, and again whenever you come back to the browser tab. After you save or clear a manual price the calendar refreshes at once. A month you opened a moment ago can show from memory when you step back to it.
+
+The "· live" marker shows whenever the month has loaded.
+
+<Callout kind="good-to-know">
+A new booking in your property system reaches MAYA on the next read of your bookings, about every five minutes. So the calendar can show it within about five minutes of the booking, not the same second.
+</Callout>
+
+## Time zones
+
+Your rules run in your property's own time zone: "tonight" is today's date there, and that is where the 60-night window starts. The "Updated 3:05:12 PM" time is your browser's clock.
+
+<Example title='Why does yesterday still say "revenue on the books"?'>
+The day detail's summary line switches from "revenue on the books" to "revenue" at midnight UTC (the world reference time), not at midnight at your property. In the Americas that is the afternoon or evening, 4 PM in winter and 5 PM in summer at The Harbour Inn, so tonight can already read "revenue". In most of Europe, and in Asia and Australia, it comes after your own midnight, so yesterday can still read "revenue on the books" for a few hours. Only the label changes, never a number.
+
+The same clock picks the month the calendar opens on. From that hour on the last day of a month in the Americas, it opens on the next month. Early on the first of a month in those places, it opens on the month before. <Ui>Prev</Ui> and <Ui>Next</Ui> take you to the one you want.
+</Example>
+
+## What the calendar does not show
+
+<Callout kind="not-yet">
+There is no row of weekday names above the grid, no list or week view, and no export. The day card does not show the base price a rule started from, and it does not list the bookings behind a night. The cards and the day detail always show "$", whatever your property's currency (the sentences in the change log follow your currency, but its bold line shows $ too). To see a night's bookings, open your property system.
+</Callout>
+
+<Related>
+- [Setting a price yourself](/docs/watch/setting-a-price-yourself)
+- [The change log](/docs/watch/the-change-log)
+- [Occupancy looks wrong](/docs/wrong/occupancy-looks-wrong)
+</Related>

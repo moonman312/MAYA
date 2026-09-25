@@ -1,0 +1,99 @@
+---
+title: The Terms checkbox
+summary: The one box every agreement goes through, where it appears, why you agree to the Terms but only acknowledge the Privacy Policy, what MAYA records when you tick it, and what the Terms lines on the payment screen and in the go-live dialog mean.
+section: account
+order: 20
+readingTime: 7
+keywords: [terms, terms of service, privacy policy, checkbox, tick the box, agree, acknowledge, before you continue, accept the terms again, terms have been updated, reload the page, not signed in, version, what is recorded, IP address, browser, terms 7.6, terms 3.3, stripe, free trial, go live, legal, consent]
+questions:
+  - What am I agreeing to with the checkbox? {#in-plain-words}
+  - Why do I agree to the Terms but only acknowledge the Privacy Policy? {#what-the-box-says-and-why-the-two-verbs-differ}
+  - Why am I being asked to accept the Terms again? {#before-you-continue/when-a-new}
+  - 'What does "The terms have been updated. Reload the page to see them" mean?' {#before-you-continue/the-terms-have}
+  - What does MAYA record when I tick the box? {#what-is-recorded}
+  - What is the Terms line above the pay button on the Stripe page? {#the-terms-line-on-the-stripe-page/above-the-pay}
+  - What version of the Terms am I on? {#versions-in-force}
+  - Where are the Terms of Service and the Privacy Policy? {#in-plain-words}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+One checkbox: <Ui>I agree to the Terms of Service and acknowledge the Privacy Policy</Ui>. You see it when you create an account, when you accept an invitation, and once more whenever a new version is in force. MAYA records who ticked it, when, where in the app and from which browser, plus your IP address everywhere except when you create an account directly. The Terms are at get-maya.com/terms and the Privacy Policy at get-maya.com/privacy.
+</InPlainWords>
+
+## What the box says, and why the two verbs differ
+
+Every agreement in the app goes through the same box. Its text is "I agree to the Terms of Service and acknowledge the Privacy Policy", with the two document names as links. Both open in a new tab, so reading them never loses what you typed into the form. The box starts unticked, and the button under it stays greyed out until you tick it.
+
+The two verbs are deliberate. The Terms of Service are a contract between your business and Modern Hospitality Solutions, so you agree to them. The Privacy Policy is a description of what happens with data, not a bargain, so you acknowledge that you have seen it. The wording is the same in every place the box appears.
+
+## Where it appears
+
+| Moment | What you see |
+|---|---|
+| Creating an account at maya-rms.com/login | The box under the password fields. <Ui>Create Account</Ui> is greyed out until it is ticked. |
+| Creating an account after <Ui>Connect App</Ui> in Cloudbeds | The same box on the same form. |
+| Accepting a team invitation | The box on the "Set your password" page. <Ui>Set password & continue</Ui> waits for it. |
+| A new version of the Terms or Privacy Policy is in force | A screen headed "Before you continue", once, over whatever page you opened. |
+| Starting checkout with nothing on file | The same "Before you continue" screen, and checkout carries on by itself once you tick it. |
+
+## "Before you continue"
+
+When a new version of either document is published, every signed-in person is asked once. The screen shows the MAYA logo, the heading "Before you continue", the box, a <Ui>Continue</Ui> button that reads "Saving..." while it saves, and a small <Ui>Sign out</Ui> link for anyone who would rather not accept right then.
+
+It never covers the sign-in page or the invitation page, which carry their own box. When you tick and continue, the screen goes away and you are exactly where you were going. Nothing navigates.
+
+Three messages can appear on it:
+
+- **"The terms have been updated. Reload the page to see them."** You left a tab open across a new release, so the wording on your screen is older than the version MAYA would record. Reload the page and the current text and version load.
+- **"We couldn't save that just now. Please try again."** The record could not be written. Try once more. If it keeps failing, [email us](mailto:info@modern-hospitality-solutions.com?subject=Terms%20screen).
+- **"Not signed in"** means your session ended before the tick was saved, for example because you signed out in another tab. Press <Ui>Sign out</Ui> under the button, sign in again, and the screen asks once more.
+
+<Callout kind="good-to-know" title="Why you might be asked twice">
+If MAYA cannot check whether your acceptance is on file, it lets you through and asks again later. A property is never locked out of its pricing by this record. So an occasional second ask means the check could not be made at that moment, not that your first tick was lost.
+</Callout>
+
+## What is recorded
+
+When you tick the box, MAYA records:
+
+- Your email and account.
+- The version number of the Terms and of the Privacy Policy you saw.
+- Where it happened: creating an account, claiming a Cloudbeds property, accepting an invitation, or the "Before you continue" screen.
+- The property, where there is one (a Marketplace claim records it against each property you claimed).
+- Your browser's identifying string.
+- Your IP address, when you claim a Cloudbeds property, accept an invitation or use the "Before you continue" screen (it is not recorded when you create an account at maya-rms.com without coming from the Marketplace).
+- The time.
+
+A second click, a retry, or the same tick from another tab writes nothing extra. The Privacy Policy describes the same record in its own words.
+
+## The Terms line on the Stripe page
+
+Above the pay button on Stripe's checkout page there is a line of text, not a box, because your acceptance is already on file. It starts "By subscribing you agree to the MAYA Terms of Service." and goes on: "Your subscription renews automatically every month until you cancel. Your card is stored and may be charged for room-count changes (Terms 7.6)." On a yearly plan it says "every year". For a property from the Cloudbeds Marketplace the card sentence adds "and offered for your other properties", because one card serves every property on that account.
+
+With a free trial, a sentence comes straight after the first one: "Your [number]-day free trial becomes a paid subscription unless you cancel before it ends." The number is your trial's length. For a Cloudbeds Marketplace property that is 7 days. If your code grants a trial, it is the code's number instead, because a code's own trial replaces the Marketplace one. [Codes and the free trial](/docs/pay/codes-and-the-free-trial) has the details.
+
+"Charged for room-count changes" refers to the room count check described on [Your room count and what you pay](/docs/billing/your-room-count): if your property system shows more rooms than you pay for and you do not set the count yourself within 7 days of being told, MAYA raises it and the difference lands on your next invoice.
+
+## The Terms 3.3 line in the go-live dialog
+
+On the review screen, <Ui>Turn them on for real</Ui> opens a dialog to confirm. Its heading depends on your property system: "Send prices to Cloudbeds?", "Send prices to Think Reservations?" or, for Mews, "Go live?". In that dialog, above its <Ui>Go live</Ui> button: "Going live sends these rates to your PMS automatically. You're confirming you've reviewed your rules and limits (Terms 3.3)." Clause 3.3 makes your click on <Ui>Go live</Ui> the confirmation that you have reviewed every active rule and every floor and ceiling.
+
+For Mews, the dialog also says, above that line: "MAYA doesn't send rates to Mews yet, so nothing is sent. The hotel only shows as live." That is what happens. The Terms line reads the same for every system, but going live sends nothing to Mews and the property only shows as live. [Mews: what works today](/docs/connect/mews) explains what MAYA does for a Mews property.
+
+Only a General Manager or Hotel Admin can go live. <Ui>Turn them on for real</Ui> shows for everyone, and a Revenue Manager or Viewer who clicks <Ui>Go live</Ui> sees "Taking pricing live requires General Manager access" in the dialog, and nothing changes. [Going live](/docs/live/going-live) has the whole dialog.
+
+## Versions in force
+
+The Terms of Service are version 1, effective September 17, 2026. The Privacy Policy is version 3. Each document states its own version and effective date at the top of its page, and those pages are the copies you agreed to and acknowledged: [get-maya.com/terms](https://www.get-maya.com/terms) and [get-maya.com/privacy](https://www.get-maya.com/privacy). [Terms and legal](/docs/reference/terms-and-legal) lists the clauses these docs lean on.
+
+<Callout kind="not-yet">
+There is no screen inside the app that shows which version you accepted or when. The record exists. If you need a copy, [email us](mailto:info@modern-hospitality-solutions.com?subject=My%20Terms%20acceptance).
+</Callout>
+
+<Related>
+- [Create an account and sign in](/docs/account/create-an-account-and-sign-in)
+- [Terms and legal](/docs/reference/terms-and-legal)
+- [Privacy, security and your data](/docs/reference/privacy-security-and-your-data)
+</Related>

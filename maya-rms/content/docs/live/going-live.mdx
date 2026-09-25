@@ -1,0 +1,165 @@
+---
+title: Going live
+summary: Where the go-live button is, who can press it, what the confirm dialog promises for your property system, what MAYA records, and what happens in the first cycles after.
+section: live
+order: 20
+readingTime: 13
+keywords: [go live, going live, accept responsibility, responsibility for every rate, rate changed with no rule, sent at the floor, own rate changed, turn them on for real, send prices, activate, switch on, turn on, who can go live, general manager, hotel admin, revenue manager, admin access, terms 3.3, each price it sends replaces that night's rate, how long until prices appear, load rates before going live, no rate loaded, floor, ceiling, $1.00, 99,999.99, guardrails column, go live during trial, some room types only, one way, cannot go back, live your rules are now managing prices, onboarding review, what is recorded, couldn't switch to live, not signed in, failed to fetch, go live failed, no go-live button, button missing, turn them on for real missing, card missing, get suggestions before going live, starter rule turned off, turned off before going live, delete starter rule, first does this match reality, continue to recommendations, you need admin access on this property to go live, mews go live, other pricing tools, checklist]
+questions:
+  - How do I go live? {#in-plain-words}
+  - Who can go live? {#who-can-go-live}
+  - What exactly happens when I press Go live? {#what-happens-next/the-button-becomes}
+  - 'What does "Each price it sends replaces that night''s rate" mean?' {#what-each-price-it-sends-replaces-that-nights-rate-means}
+  - Can I go live for some room types only? {#going-live-for-some-room-types-only/not-yet-the}
+  - How long after going live until prices appear in my property system? {#how-long-until-prices-appear-in-my-system}
+  - Should I load rates in my property system before going live? {#before-you-go-live/maya-enforces-none}
+  - Can I go live during the free trial? {#going-live-during-the-trial}
+  - 'What is "Live: your rules are now managing prices"?' {#what-happens-next/the-button-becomes}
+  - Does going live change my rules or my history? {#what-maya-records-when-you-go-live}
+  - Why did a rate change on a night no rule touched when I went live? {#what-each-price-it-sends-replaces-that-nights-rate-means}
+  - What is recorded when I go live? {#what-maya-records-when-you-go-live}
+  - How do I go live, and can I go back? {#in-plain-words}
+  - Can I schedule going live for a date, say next Monday morning? {#where-the-button-is/the-go-live}
+  - 'What is "Taking pricing live requires General Manager access"?' {#who-can-go-live}
+  - 'What is "You need admin access on this property to go live."?' {#who-can-go-live}
+  - Why is there no Turn them on for real button on my review screen? {#where-the-button-is/not-yet-no}
+  - If I turn a starter rule off before going live, are its changes sent? {#before-you-go-live/starter-rules}
+  - Can a Mews property go live? {#the-confirm-dialog/mews-a-mews}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+On the review screen, click <Ui>Turn them on for real</Ui>, read the confirm, click <Ui>Go live</Ui>. From the next cycle MAYA sends prices for tonight and the next 59 nights to your property system, and sends a night again whenever its price changes. Only a General Manager or Hotel Admin can go live. No button on your review screen? Email us and we switch the property live. It is one-way in the app: to go back to simulation, email us.
+</InPlainWords>
+
+## Who can go live
+
+A General Manager or a Hotel Admin. The button is visible to everyone who opens the review screen, but the switch itself is refused for anyone below General Manager, and nothing changes. A Revenue Manager who clicks <Ui>Go live</Ui> sees "Taking pricing live requires General Manager access". A Viewer sees "You need admin access on this property to go live." Either way, ask a General Manager or Hotel Admin.
+
+If a General Manager or Hotel Admin sees "You need admin access on this property to go live.", something on our side is missing for this property, and asking someone else will not help. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Go%20live) with your property name.
+
+[Roles: who can do what](/docs/team/roles) says it in one line: a Revenue Manager "Cannot take pricing live or change the team."
+
+## Before you go live
+
+MAYA enforces none of these checks. Each one saves a surprise.
+
+Start with [the checklist for your property system](/docs/connect/setting-up-your-system-for-maya): a base rate of its own for every room type, rates loaded for tonight and the next 59 nights, your time zone confirmed with us, anything nobody sleeps in unticked under <Ui>Counts as a room</Ui>, blocked rooms recorded, and floors and ceilings set. Load those rates before you go live. Your rules start from your own rate for each night, and a night your system has at 0 is left alone.
+
+Then four checks in MAYA itself.
+
+1. **Floors and ceilings.** Each room type has a floor and a ceiling: the lowest and highest price that can go out for it.
+   - **Where to see them.** The <Ui>Guardrails</Ui> column on the <Ui>Rate Simulator</Ui> tab shows them for every room type that counts as a room. Your answers to the five questions set some of them, and the import filled others from your own past rates where there was enough history.
+   - **A limit still at $1.00 or $99,999.99** stops nothing in most currencies. To set it, answer the floor or ceiling question again at <AppLink to="questions">maya-rms.com/onboarding/questions</AppLink> (your floor answer goes to every room type at once), or [email us](mailto:info@modern-hospitality-solutions.com?subject=Floor%20and%20ceiling) the number. Wait until you are live before you press <Ui>Get suggestions from my data</Ui>: pressing it earlier removes the go-live button from the review.
+   - **A limit that is already set** has no editor yet. [Floors and ceilings](/docs/review/floors-and-ceilings) explains how to move one.
+2. **Starter rules.** They are on, and the prices they set already show on the calendar. Turning a rule <Ui>Off</Ui> keeps every change it has made to your prices so far, even in simulation, and those prices go out when you go live. To be rid of a starter rule and what it did, <Ui>Delete</Ui> it and choose <Ui>Delete Rule and Undo Its Changes</Ui>. Turn it off only if you are happy for its changes so far to be sent.
+3. **Watch for a week.** Open the change log a few times a day (it shows about the last 50 minutes), check the <Ui>Fired</Ui> column on the <Ui>Rules</Ui> tab to see which rules act most, and copy any entry you want to keep. If a price would have surprised you, change the rule or the limit before you go live.
+4. **Switch off other pricing tools.** If another tool changes rates in your system, switch it off before you go live. MAYA reads a rate another tool changes the same way as a rate you change by hand. [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) says what happens to those.
+
+<Example title="Selling in yen, won or rupiah">
+The default ceiling is the plain number 99,999.99 in your property's currency. Say a Suite sells at ¥120,000 a night and its ceiling is still the default. On a night where no rule fires, the price that goes out is ¥99,999.99, because every price is kept under the room type's ceiling. Give a room type like this a real ceiling before you go live.
+</Example>
+
+## Where the button is
+
+The go-live control lives on the review screen, inside the card headed "While you were here, we built your first pricing rules", near the end of the screen and above the <Ui>Finish</Ui> button. Under the list of starter rules sits a green <Ui>Turn them on for real</Ui> button, with "Or leave them in simulation and watch for a while. That works too." beside it.
+
+You can come back to that screen at any time at <AppLink to="review">maya-rms.com/onboarding/review</AppLink>. If it opens on "First: does this match reality?", click <Ui>Continue to recommendations</Ui>. The card is near the end of the next screen. The dashboard has no go-live button of its own. The blue banner on the dashboard that points to the review appears only while the review still has cards you have not looked at.
+
+There is no way to schedule going live for a later date, such as next Monday morning. Sending starts on the next cycle after a General Manager or Hotel Admin confirms, so click the button when you want sending to start, after switching off any other tool that changes your rates. If we switch you live by email, send the email when you want sending to start.
+
+<Callout kind="not-yet" title="No card, no button">
+The card appears only when setup built starter rules for you. They need at least 60 days of booking history from the history import, which runs for Cloudbeds and ThinkReservations but not yet for Mews. The card also goes once anyone on your team runs <Ui>Get suggestions from my data</Ui> on the <Ui>Rules</Ui> tab. Without the card, [email us](mailto:info@modern-hospitality-solutions.com?subject=Go%20live) with your property name and we switch the property live for you.
+</Callout>
+
+## The confirm dialog
+
+Clicking <Ui>Turn them on for real</Ui> opens a small dialog. Nothing happens until you click <Ui>Go live</Ui> inside it. <Ui>Not yet</Ui>, or the Escape key, closes it and leaves you in simulation. While the switch is being made the button reads "Switching…". The words in the dialog depend on your property system.
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+The title is "Send prices to Cloudbeds?", followed by two sentences:
+
+"MAYA starts sending its prices for the next 60 nights to Cloudbeds on the next cycle, in about 5 minutes."
+
+"Each price it sends replaces that night's rate in Cloudbeds, and a night is sent again whenever its price changes."
+</PmsTab>
+<PmsTab pms="thinkreservations">
+The title is "Send prices to Think Reservations?", followed by two sentences:
+
+"MAYA starts sending its prices for the next 60 nights to Think Reservations on the next cycle, in about 5 minutes."
+
+"Each price it sends replaces that night's rate in Think Reservations, and a night is sent again whenever its price changes."
+</PmsTab>
+<PmsTab pms="mews">
+A Mews property has no go-live button, and nothing would be sent to Mews anyway. Your rules run and show their prices either way. There is no history import for Mews yet, so there are no starter rules and no card on the review screen.
+
+We can switch a Mews property to live if you ask. That sends nothing to Mews. It only changes wording in MAYA: the amber banner says "has raised" instead of "would have raised", and a typed price's confirmation says it is sending to Mews although nothing is sent. [Mews: what works today](/docs/connect/mews) explains what MAYA does for a Mews property.
+</PmsTab>
+</PmsTabs>
+
+Under those lines, above the buttons, one more sentence: "Going live sends these rates to your PMS automatically. You're confirming you've reviewed your rules and limits (Terms 3.3)." The word "Terms" is a link to the Terms of Service.
+
+If the switch fails for a reason other than your role, the dialog stays open and shows the reason above the buttons. It is the reason MAYA sent back, or your browser's own words if the connection dropped. When no reason came back at all, it reads "Couldn't switch to live. Try again." Click <Ui>Go live</Ui> once more. "Not signed in" means your session has ended: sign in again and come back to the review screen. If it keeps failing, [email us](mailto:info@modern-hospitality-solutions.com?subject=Go%20live%20failed) with the words you see.
+
+### What "Each price it sends replaces that night's rate" means
+
+For each room type MAYA writes one nightly rate to one rate plan in your system: the base rate in Cloudbeds, the Best Available rate type in ThinkReservations. The number that was there is replaced by the price your rules set for that night. That price starts from the rate you had, so on a night where no rule fired the number that goes out is your own rate, kept between that room type's floor and ceiling. If your rate is under the floor or over the ceiling, the floor or ceiling goes out instead, so check the <Ui>Guardrails</Ui> column on the <Ui>Rate Simulator</Ui> tab first.
+
+Rate plans that follow the base rate (derived plans, and packages built on it) move as your system's own rules move them. MAYA never writes those directly. [How prices reach your property system](/docs/live/how-prices-reach-your-pms) has the detail.
+
+"A night is sent again whenever its price changes" is the other half. After the first send, a night goes out again only when MAYA's price for it changes. A night whose price stays the same is not sent again.
+
+### Terms 3.3
+
+Clause 3.3 of the Terms of Service says who can switch a property to live: a General Manager or Hotel Admin, or another role we designate, and you choose who holds those roles. It treats your click on <Ui>Go live</Ui> as your confirmation of two things. First, that you have reviewed the property's rules and limits: every active rule, whether you wrote it or MAYA built it, and every floor and ceiling. Second, that you accept responsibility for every rate MAYA publishes for the property. It also says that if we switch a property live at your request or with your permission, we act on your instruction. That is why the sentence sits beside the button rather than in Terms accepted weeks earlier, possibly by someone else. [Terms and legal](/docs/reference/terms-and-legal) has the clause.
+
+## What MAYA records when you go live
+
+- Who clicked the button, the version of the Terms shown on the screen, your IP address and your browser. This is kept as the record of the go-live.
+- The moment the property went live. It matters later: a rate you changed in your system while simulating is read as your base rate, not as a manual price, and this moment is how MAYA tells the two apart.
+- A request to read your own rates again before the first send.
+
+Nothing else changes. Your rules, your floors and ceilings, your history, your manual prices and your team are exactly as they were. Going live flips one switch.
+
+## What happens next
+
+1. **The button becomes a pill**: "✓ Live: your rules are now managing prices".
+2. **The next cycle reads your rates first.** Cycles run about every five minutes. The first live cycle reads your own rate for every night in the window before it prices. Whatever you had in your system at that moment is the starting point your rules work from.
+3. **Then it sends.** Prices for tonight and the next 59 nights go out, nearest nights first, in batches. Nothing has been sent before, so every priced night goes out on this first send: nights where a rule fired at the rule's price, nights where none fired at your own rate (kept between the room type's floor and ceiling), and a price you typed while simulating as typed. A change made while simulating by a rule you have since turned off goes out too.
+4. **After that, changes only.** A night is sent again when its price changes. A cycle where nothing changed sends nothing.
+
+Everything about what is sent, held back, confirmed and retried is on [How prices reach your property system](/docs/live/how-prices-reach-your-pms).
+
+### How long until prices appear in my system
+
+Usually on the next cycle, so about five minutes. Cloudbeds applies each price a few seconds after receiving it. ThinkReservations accepts each send and applies it shortly after.
+
+It takes longer when the first read of your rates fails or runs out of time (the first send waits for the next cycle that reads them), when your property is large (a big first send continues on the next cycle), or when your system asks MAYA to slow down. If nothing has changed in your system after 15 minutes, open the change log. A problem that needs you appears there as "Rates not reaching Cloudbeds". [Prices are not reaching your property system](/docs/wrong/prices-not-reaching-your-pms) walks through what to check.
+
+## Going live during the trial
+
+Yes. A property on its free trial is treated as paid for everything MAYA does, sending included. The only gate on going live is your role.
+
+## Going live for some room types only
+
+Not yet. The switch is for the whole property. What you can do instead: a rule only changes the room types you tick under <Ui>Apply to room types</Ui>, so a room type no rule names is sent at your own rate, kept between its floor and ceiling. Its number in your system does not move unless your rate sits under its floor or over its ceiling, and then the floor or ceiling goes out instead. There is no way to keep a room type out of sending altogether.
+
+<Callout kind="careful" title="One-way in the app">
+There is no switch to put a property back into simulation. To pause, turn your rules off (the prices they set stay). To go back to simulation, email us. [Pausing, or going back to simulation](/docs/live/pausing-or-going-back) covers both.
+</Callout>
+
+<Example title="The Harbour Inn goes live">
+On Tuesday at 3:05 PM (your browser's clock) Sam, the Hotel Admin, clicks <Ui>Turn them on for real</Ui>, reads "Send prices to Cloudbeds?" and clicks <Ui>Go live</Ui>. The pill "✓ Live: your rules are now managing prices" appears.
+
+At about 3:10 PM the next cycle reads the Harbour Inn's Cloudbeds rates for the 60 nights, then runs the rules. "Busy nights" has fired on two Friday nights in November, so on those two Fridays Standard goes out at $165, Deluxe at $220 and Suite at $330. Every other night goes out at the rates Sam already had: Standard $150, Deluxe $200, Suite $300. Cloudbeds' derived plans follow their base rates by Cloudbeds' own rules.
+
+At about 3:15 PM the next cycle finds nothing changed and sends nothing. On Thursday a booking takes another night over 80% full. "Busy nights" fires, and only that night's three room types are sent.
+</Example>
+
+<Related>
+- [Simulation mode](/docs/live/simulation-mode)
+- [How prices reach your property system](/docs/live/how-prices-reach-your-pms)
+- [Pausing, or going back to simulation](/docs/live/pausing-or-going-back)
+</Related>

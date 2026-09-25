@@ -1,0 +1,68 @@
+---
+title: Change the room count you pay for
+summary: On the Billing page, type the new number under Rooms billed and click Change. The quote shows the new price first, the difference lands on your next invoice, and MAYA raises the count itself if your system shows more rooms than you pay for.
+section: recipes
+order: 230
+readingTime: 5
+keywords: [room count, rooms billed, change the room count, billed for more rooms, paying for more rooms, running more rooms, opened a wing, closed a wing, 7 days, room count updated, proration, next invoice, price per room, ThinkReservations, rooms per type, one number, 100 rooms, 300 rooms, wrong room count]
+questions:
+  - How do I change the room count I pay for? {#change-it}
+  - I closed a wing, will my bill drop by itself? {#what-maya-measures/paying-for-more}
+  - Why does it say I am billed for 20 rooms but running 24? {#what-maya-measures/running-more-rooms}
+  - Am I charged immediately for extra rooms? {#what-maya-measures/running-more-rooms}
+  - Can I change the room count in Stripe? {#what-maya-measures/email-us-your}
+  - Who can change the room count? {#change-it}
+  - I use ThinkReservations and it says I am running 300 rooms. Why? {#what-maya-measures/email-us-your}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Click <Ui>Billing</Ui> at the top right, scroll to <Ui>Room count</Ui>, type the new number under <Ui>Rooms billed</Ui> and click <Ui>Change</Ui>. A quote shows the new price before you commit, and the difference is adjusted on your next invoice, never charged the same day. If your system shows more rooms than you pay for, MAYA tells you and gives you 7 days before it raises the count for you. It never lowers the count on its own.
+</InPlainWords>
+
+## Change it
+
+<Steps>
+<Step title="Open the Billing page">
+Click <Ui>Billing</Ui> in the dashboard header. You need General Manager or Hotel Admin access. Scroll to the <Ui>Room count</Ui> section: "Your plan covers 20 rooms. We check this against your property management system."
+</Step>
+<Step title="Type the new number">
+Under <Ui>Rooms billed</Ui>, type a whole number from 1 to 500. A quote appears from the same brackets Stripe bills. For example, going from 20 rooms to 21 (the cheaper bracket) reads "$110 down to $105 per month. Your next invoice is adjusted for the part of this period you have already paid." When the price goes down, the quote adds "That is $5 less."
+</Step>
+<Step title="Click Change">
+The page reads "Room count updated." Stripe confirms a moment later and the new number shows on the page. Nothing is charged today: the unused part of the period is credited and the difference lands on the next invoice.
+</Step>
+</Steps>
+
+## What MAYA measures
+
+MAYA counts the rooms in your property system on every cycle: the units of every active room type ticked as <Ui>Counts as a room</Ui>, leaving out types you have unticked and, until you answer, types whose names are plainly not bedrooms. The section shows what it found: "Your PMS currently shows 22 active rooms."
+
+- **Running more rooms than you pay for.** The billing page and a dashboard banner say "You're billed for 20 rooms but running 22", and an email goes to the address that gets your invoices. Set the count yourself within 7 days of that email. After that MAYA raises it to the measured number and adjusts the next invoice. Nothing is charged separately.
+- **Paying for more rooms than you run.** The page says so and invites you to lower it here. It is never lowered for you, so a wing closed for a fortnight does not quietly cut your bill: lower it yourself if you want to.
+
+On ThinkReservations, the measured number starts at 100 rooms per room type. ThinkReservations does not report how many rooms a room type has, so MAYA gives every room type the same number, 100 until we change it. Three room types that count as rooms measure as 300, and the page can read "You're billed for 20 rooms but running 300".
+
+We can set one number of rooms for your property, and it applies to every ThinkReservations room type. We cannot set a different count for each room type yet. So your measured number is that one number times your room types ticked as rooms.
+
+That matches your real total only when the total splits evenly across your room types. The Harbour Inn's 12, 6 and 2 rooms can measure as 18 or 21, never 20. At 21, you get the banner and the email, and 7 days after the email MAYA raises your billed count to 21. At 18, the page says you pay for more rooms than you run, and your billed count stays at 20 because it is never lowered for you.
+
+[Email us your room counts](mailto:info@modern-hospitality-solutions.com?subject=ThinkReservations%20room%20counts) as soon as you connect, so we can set your property's number. If the email about running more rooms has already reached you, write to us before its 7 days pass, or MAYA raises your count to the measured number.
+
+<Callout kind="example">
+The Harbour Inn pays for 20 rooms at $5.50 each, $110 a month. Sam opens an annexe of 4 rooms. The next cycle measures 24, and the page reads "You're billed for 20 rooms but running 24". Sam types 24 and clicks <Ui>Change</Ui>: 24 rooms falls in the 21 to 40 bracket at $5.00, so the quote reads "$110 up to $120 per month".
+</Callout>
+
+<Callout kind="good-to-know">
+The room count changes on MAYA's billing page, not in Stripe: the Stripe portal does not offer it. Your seats on the <Ui>Team</Ui> page follow the billed count too. Prices are per room per month in US dollars: $5.50 for 1 to 20 rooms, $5.00 for 21 to 40, $4.00 for 41 to 60, $3.00 for 61 to 80, $2.50 for 81 to 500, with the whole property at its bracket's rate.
+</Callout>
+
+<Callout kind="not-yet">
+Over 500 rooms is not sold self-serve. Lowering the count gives a credit against future invoices, never a refund. While a subscription has lapsed the field is refused with "This property's subscription is not active, so MAYA has paused work on it."
+</Callout>
+
+<Related>
+- [Your room count](/docs/billing/your-room-count)
+- [What it costs](/docs/start/what-it-costs)
+- [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service)
+</Related>

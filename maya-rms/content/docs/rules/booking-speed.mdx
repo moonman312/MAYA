@@ -1,0 +1,207 @@
+---
+title: Booking speed
+summary: How a night's recent bookings are compared with your own similar past nights, the seven levels you build a rule on, which level to pick, what a rule counts after it acts, and why a rule stays quiet.
+section: rules
+order: 50
+readingTime: 17
+keywords: [booking speed, pace, faster than normal, slower than normal, much faster than normal, much slower than normal, surging, stalled, normal, expected, similar nights, past day, past week, past month, measured over, then waits, wait, wedding, group booking, counted once, bookings not rooms, forecast, predict, demand, empty night raised, full night cut, two bookings, why normal, level, which level, speed dropdown, recommended, starter rules, warm-date bump, hot-week surge, sudden-spike catcher, slow-date rescue, slow-date trim, last raised, last cut, since this night was last raised, did not fire again, stays quiet, not enough history, how did we know, cut comes off, take a cut off, holiday night, never fires on holidays, christmas, july 4, at the ceiling, at the floor, stop for this night, rule switched off, paused rule raise, same burst, raised twice, rate of 0, zero rate, mews rate, see booking speed, booking speed now, current pace, pace report, how fast is it booking, before a rule acts, booking speed on the calendar, cancel later, cancelled bookings, fake bookings, speculative bookings, test bookings, book and cancel, push my prices, manipulate prices, game the price]
+questions:
+  - What is booking speed? {#in-plain-words}
+  - Which speed level should I pick for my rule? {#picking-a-level/you-pick-one}
+  - What does "Measured over" mean? {#measured-over}
+  - Does a wedding or a group booking count as lots of bookings? {#questions-people-ask/does-a-wedding}
+  - Is booking speed a forecast of demand? {#questions-people-ask/is-booking-speed}
+  - Why do my strongest booking speed rules never fire on holiday nights? {#why-a-rule-stays-quiet/the-night-is}
+  - Why does MAYA say Faster Than Normal from only two bookings? {#questions-people-ask/why-does-maya}
+  - Why does it say Normal when we got far more bookings than usual? {#questions-people-ask/why-does-it}
+  - Why did it raise a night that is still empty? {#questions-people-ask/why-did-it-raise}
+  - Why did it cut a night that is nearly full? {#questions-people-ask/why-did-it-cut}
+  - Why does a rule that already raised a night not count the same bookings again? {#after-the-rule-acts/a-booking-speed}
+  - Does a raise come off when bookings cancel if I have switched the rule off? {#when-a-raise-comes-off}
+  - Why is my booking speed rule staying quiet? {#why-a-rule-stays-quiet/there-is-not}
+  - Can I see a night's booking speed before a rule acts on it? {#questions-people-ask/can-i-see}
+  - Can bookings that later cancel move my prices? {#questions-people-ask/can-bookings-that}
+  - Should I use booking speed or pickup count? {#booking-speed-or-pickup-count}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Booking speed compares how many bookings a night received in the past day, week or month with how many similar nights in your own history had received at the same point before arrival. A booking with several rooms counts once. Seven levels run from <Ui>Stalled</Ui> to <Ui>Surging</Ui>. You pick one, and your rule fires when the night reads that level or beyond.
+</InPlainWords>
+
+## Where you set it
+
+In the rule builder, choose <Ui>Booking speed (recommended)</Ui> in the <Ui>Metric</Ui> dropdown. Three fields appear:
+
+- <Ui>Speed</Ui>: the level, from <Ui>Stalled</Ui> to <Ui>Surging</Ui>. It starts at <Ui>Faster Than Normal</Ui>.
+- <Ui>Measured over</Ui>: the window MAYA counts in, <Ui>Past day</Ui>, <Ui>Past week</Ui> or <Ui>Past month</Ui>. It starts at <Ui>Past week</Ui>.
+- <Ui>Then waits (advanced)</Ui>: how long the rule leaves a night alone after acting on it. It starts at <Ui>1 week</Ui>.
+
+There is no <Ui>Compare</Ui> dropdown for this condition. The level you pick already says which way the rule looks (see [Picking a level](#picking-a-level)).
+
+A "?" beside <Ui>Measured over</Ui> opens a panel titled <Ui>How booking speed works</Ui>. It says in a few lines what this page says in full, with the same example: about 5 bookings expected, 1 reads much slower, 5 or 6 normal, 10 much faster.
+
+## How a night reads
+
+Say your rule measures <Ui>Past week</Ui>, and the night is Friday, November 13, 2026, 40 days away. MAYA counts the bookings made for that Friday in the past 7 days. Then it takes similar Fridays from your own history and counts what each of them received in the 7 days when it, too, was 40 days away. Their average is the night's "expected" count.
+
+It is Sunday, October 4, 2026. Five similar Fridays at The Harbour Inn received 4, 6, 5, 3 and 7 bookings over those 7 days. The highest and the lowest are set aside, and the average of 4, 6 and 5 is 5. So 5 bookings are expected. Here is how the Friday reads, depending on how many bookings it received itself:
+
+| Level, as shown on screen | Reads as | With 5 expected |
+|---|---|---|
+| <Ui>Stalled</Ui> | far fewer bookings than similar nights had | 0 |
+| <Ui>Much Slower Than Normal</Ui> | half or fewer | 1 |
+| <Ui>Slower Than Normal</Ui> | clearly fewer | none at this size |
+| <Ui>Normal</Ui> | about the same | 2 to 8 |
+| <Ui>Faster Than Normal</Ui> | clearly more | 9 |
+| <Ui>Much Faster Than Normal</Ui> | twice as many or more | 10 to 17 |
+| <Ui>Surging</Ui> | far more | 18 or more |
+
+Small gaps read as Normal on purpose. With 5 expected, anything from 2 to 8 is inside the ordinary ups and downs, which is why <Ui>Slower Than Normal</Ui> never shows at this size. The smaller the numbers, the bigger the gap has to be, so a rule stays quiet on small numbers rather than firing on them.
+
+With fewer than five similar nights to compare with, the reading stays within one step of Normal: <Ui>Slower Than Normal</Ui>, <Ui>Normal</Ui> or <Ui>Faster Than Normal</Ui>. That is always the case on a night near a holiday (see [Picking a level](#picking-a-level)).
+
+This is a comparison with your own past. Booking speed does not say how many bookings a night will end up with, and it does not look ahead. It says whether the bookings so far are ahead of or behind what your own similar nights had at the same point.
+
+<BookingSpeedPlayground />
+
+[Booking speed in detail](/docs/rules/booking-speed-in-detail) has the fine print: exactly which bookings count on each property system, how expected is worked out, and the exact lines between the levels for other numbers. [Which past nights your rules compare with](/docs/rules/similar-nights) explains how the similar nights are chosen.
+
+## Picking a level
+
+You pick one level. The rule fires when the night reads that level or anything beyond it on the same side of Normal.
+
+| You pick | The rule fires when the night reads |
+|---|---|
+| <Ui>Stalled</Ui> | Stalled only |
+| <Ui>Much Slower Than Normal</Ui> | Much Slower Than Normal or Stalled |
+| <Ui>Slower Than Normal</Ui> | Slower Than Normal, Much Slower Than Normal or Stalled |
+| <Ui>Normal</Ui> | Normal only |
+| <Ui>Faster Than Normal</Ui> | Faster Than Normal, Much Faster Than Normal or Surging |
+| <Ui>Much Faster Than Normal</Ui> | Much Faster Than Normal or Surging |
+| <Ui>Surging</Ui> | Surging only |
+
+The rules list shows the condition as "booking speed at least Much Faster Than Normal (past week), then waits 2 days". A level below Normal reads "at most". <Ui>Normal</Ui> shows no word at all.
+
+The five starter rules, the same five for every property that gets them, show how the levels are meant to work together. Read [Your starter rules](/docs/review/your-starter-rules) for what each one says on the review screen and why a property may not have them.
+
+| Starter rule | Speed | Measured over | Then waits | Change |
+|---|---|---|---|---|
+| Slow-date rescue | Much Slower Than Normal | Past month | 1 week | Decrease 15% |
+| Slow-date trim | Slower Than Normal, exactly (see below) | Past month | 1 week | Decrease 7% |
+| Warm-date bump | Faster Than Normal | Past month | 3 days | Increase 10% |
+| Hot-week surge | Much Faster Than Normal | Past week | 2 days | Increase 25% |
+| Sudden-spike catcher | Surging | Past day | 1 day | Increase 25% |
+
+Slow-date trim is the one exception to the table above. It fires on exactly <Ui>Slower Than Normal</Ui>, so that Slow-date rescue handles anything slower. A rule you build yourself cannot do that: picking <Ui>Slower Than Normal</Ui> in the builder fires on Slower and everything below it.
+
+At a small property, or on nights far out, expected is small and the strongest levels are rarely reached. <Ui>Faster Than Normal</Ui> and <Ui>Slower Than Normal</Ui> fire more often, because they include everything beyond them.
+
+Holiday nights are a firm limit. A night near one of the 17 US holidays is compared with at most 3 past nights, one a year, so it only ever reads <Ui>Slower Than Normal</Ui>, <Ui>Normal</Ui> or <Ui>Faster Than Normal</Ui>. Rules set to <Ui>Much Faster Than Normal</Ui>, <Ui>Surging</Ui>, <Ui>Much Slower Than Normal</Ui> or <Ui>Stalled</Ui> do nothing on those nights, roughly 64 to 70 a year. That includes three of the starter rules: Slow-date rescue, Hot-week surge and Sudden-spike catcher. For holiday nights, use a rule set to <Ui>Faster Than Normal</Ui> or <Ui>Slower Than Normal</Ui>. [Which past nights your rules compare with](/docs/rules/similar-nights#holidays) lists the holidays and their stretches.
+
+Two recipes use the one-step levels: [Cut prices on nights booking slowly](/docs/recipes/cut-on-slow-nights) and [Catch a sudden rush](/docs/recipes/catch-a-sudden-rush).
+
+## Measured over
+
+<Ui>Past day</Ui>, <Ui>Past week</Ui> and <Ui>Past month</Ui> are 1, 7 and 30 booking dates, counting today. A short window reacts to a burst within a day and is noisy on quiet nights. A month smooths the count and reacts later. The starter rules use <Ui>Past day</Ui> to catch a spike, <Ui>Past week</Ui> for a surge, and <Ui>Past month</Ui> for the slow-date rules and the warm-date bump.
+
+The similar nights are always read over the same length of window, at the same distance from arrival, so a long window never compares a month of this night with a week of another.
+
+## Then waits
+
+After a booking speed rule adjusts a night, it leaves that night alone for the wait you chose: <Ui>1 day</Ui>, <Ui>2 days</Ui>, <Ui>3 days</Ui>, <Ui>1 week</Ui> or <Ui>2 weeks</Ui>. A rule saved before the choice existed waits 1 week. The wait is counted per night and per room type, in 24-hour periods from the moment the rule acted.
+
+If the same rule also has a <Ui>Pickup count</Ui> condition with a longer lookback, the rule waits the lookback instead. The shorter options in the dropdown then say so, for example "(pickup holds it to 3 days)". A stronger rule can still step in while this one waits. Read [How rules run](/docs/rules/how-rules-run) for the wait in full, including which rule fires when several are true.
+
+## After the rule acts
+
+A booking speed rule fires, its change stays on the price, it waits, and it can fire again if the night still reads that level. The second time, it does not count the same bookings again.
+
+Once a night has been raised, a rule that raises counts only the bookings that arrived after that raise, whichever booking speed or pickup rule made it. A rule that cuts counts from the night's last cut in the same way. The similar nights are read over the same days of their own curves, so the comparison stays fair.
+
+So your booking speed rules never stack two raises on the same burst of bookings. A stronger booking speed rule adds its raise on top only when the bookings since the first raise read that fast on their own. A price you type starts the count over: after the rule's wait, it counts its whole window again.
+
+<Example title="Hot-week surge at The Harbour Inn">
+"Hot-week surge" measures <Ui>Past week</Ui>, fires on <Ui>Much Faster Than Normal</Ui>, raises 25% and waits 2 days. On Monday, October 12, 2026 it raises Standard for Friday, November 13. On Tuesday it is waiting. On Wednesday, October 14 the wait is over.
+
+MAYA now counts three days: the bookings that arrived after Monday's raise, then all of Tuesday's and Wednesday's. It compares them with the same three days of each similar Friday's curve. The rule fires again only if those three days on their own read Much Faster Than Normal.
+
+If it does, the change log says: "Bookings came in much faster than normal in the 3 days since this night was last raised: 6, against the 2 a night like this usually gets in those days."
+</Example>
+
+[Counting after a rule acts](/docs/rules/booking-speed-in-detail#counting-after-a-rule-acts) covers the rest: the day of the raise itself, raises made by rules you have since switched off, and the exact wording under <Ui>How did we know?</Ui>.
+
+<Callout kind="good-to-know">
+When a rule has adjusted the same night three times, an amber banner asks you whether to keep adjusting or stop for that night. Until you answer, it keeps going. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
+</Callout>
+
+## When a raise comes off
+
+A raise made on <Ui>Faster Than Normal</Ui> or above comes off by itself when enough of the bookings behind it cancel: when the bookings still on the books from the stretch the rule counted are back down to what a night like it usually gets. Each raise is tested on its own numbers, and never in the run that made it.
+
+The change log then says the rule "stopped applying an earlier 25% raise here: enough of the bookings behind it cancelled." This line appears only when another change is still on that night. If the raise was the only one, the night returns to its base price and the change log lists nothing for it.
+
+While the rule is switched off, its raises stay on the price and are not checked for cancellations. Switch it back on and the check resumes.
+
+A cut never comes off because of how the night books. It stays until you type a price for that night, delete the rule, or the night passes. Switching the rule off leaves the cut where it is. Read [When a price change comes off](/docs/rules/when-a-change-comes-off).
+
+## Why a rule stays quiet
+
+A booking speed rule stays quiet on a night when:
+
+- **There is not enough history.** No similar nights could be found and there was nothing nearby to read momentum from, so the condition is never true. A quiet rule leaves nothing in the change log. You see this only when something else changed that night's price while the rule was switched on: <Ui>How did we know?</Ui> then begins "We do not have enough history yet to say what would be normal for this night", and says no booking speed rule was allowed to act there. A property with no bookings in MAYA yet shows nothing at all until the first bookings arrive. Read [Which past nights your rules compare with](/docs/rules/similar-nights#not-enough-history).
+- **The price is already at its limit.** A rule that raises does not fire on a night already at the room type's ceiling, and a rule that cuts does not fire on a night already at its floor. Read [Floors and ceilings](/docs/review/floors-and-ceilings).
+- **You chose to stop it on that night.** When the <Ui>Rules that keep adjusting</Ui> banner asked, you clicked <Ui>Stop for this night</Ui>. <Ui>Let it run again</Ui> on the <Ui>Rules</Ui> tab undoes that.
+- **The night has no price to start from**, for example a rate of 0 in Cloudbeds or ThinkReservations. Such a night is left unpriced, and no rule acts on it. (On Mews, MAYA does not read your rates, so a 0 there has no effect.)
+- **The rule is switched off, or does not change that room type.** Its switch on the <Ui>Rules</Ui> tab reads <Ui>Off</Ui>, or the room type is not in its <Ui>Change</Ui> list. Rules have no dates or days to set, so a rule that is on covers every night in the window.
+- **Every room type the rule measures is unticked as a room.** The rule measures nothing, so it cannot read a pace. Read [Measure one set of room types, change another](/docs/rules/measure-one-set-change-another).
+- **The rule is waiting.** Its wait on that night and room type is not over.
+- **Another rule holds the night.** A stronger rule that is still true keeps a weaker one from firing under it. Read [How rules run](/docs/rules/how-rules-run).
+- **The night is near a holiday and the rule asks for a stronger level.** A holiday night reads at most <Ui>Faster Than Normal</Ui> or <Ui>Slower Than Normal</Ui>, so a rule set further out never fires there.
+
+Occupancy rules and booking window rules work from day one. Booking speed needs your history, which is why MAYA imports it as soon as you connect. Read [The history import](/docs/review/the-history-import).
+
+In the Rate Simulator, the <Ui>Booking speed</Ui> dropdown starts at <Ui>Not enough history</Ui>, which keeps booking speed rules quiet in the same way. Read [Trying rules out in the Rate Simulator](/docs/rules/the-rate-simulator).
+
+## Questions people ask
+
+**Does a wedding or a group booking count as lots of bookings?** No. A booking with several rooms counts once for booking speed, while all its rooms still count for [sellable occupancy](/docs/rules/sellable-occupancy). Rooms booked as separate reservations, for example guests booking from a room block, count as separate bookings. Read [What is counted](/docs/rules/booking-speed-in-detail#what-is-counted).
+
+**Is booking speed a forecast of demand?** No. It describes how a night has booked so far, against your own similar past nights at the same point, and says nothing about where the night will end up. There is no forecast of occupancy or demand anywhere in MAYA. Read [No forecasts](/docs/start/what-maya-does#no-forecasts).
+
+**Why did it raise a night that is still empty?** Booking speed does not look at how full the night is. On a quiet night far out, 2 bookings against an expected 0 reads <Ui>Much Faster Than Normal</Ui>, and a raise rule fires. That is what a far-out rush looks like, for example after a concert is announced months ahead, and it clears the same checks as everything else. If you want raises only on busy nights, add a <Ui>Sellable occupancy (%)</Ui> row to the same rule, so both must be true.
+
+**Why did it cut a night that is nearly full?** For the same reason. A cut rule reads the pace of recent bookings, not the total. A nearly full night that received nothing this month, against similar nights that received 6, reads slow. Add an occupancy row (<Ui>Less than</Ui> 70, say) to keep cuts away from full nights.
+
+**Why does MAYA say Faster Than Normal from only two bookings?** Because similar nights had almost none at the same point, so 2 is a real change. With five or more similar nights behind it, 2 bookings against an expected 0 reads <Ui>Much Faster Than Normal</Ui>. With fewer than five, the reading stays one step from Normal, at <Ui>Faster Than Normal</Ui>.
+
+**Why does it say Normal when we got far more bookings than usual?** Usually one of three things. The difference is still small in bookings (with 3 expected, anything from 1 to 5 reads Normal). The bookings came in before a booking speed or pickup rule last raised the night, and the rule now counts only the ones since. Or the similar nights were as busy at the same point, so this night is keeping pace rather than running ahead. <Ui>How did we know?</Ui> in the change log shows the counts.
+
+**Can I see a night's booking speed before a rule acts on it?** Not yet. The calendar does not show it, and the <Ui>Rate Simulator</Ui> works on a night you make up, so it counts nothing. A real night's reading shows under <Ui>How did we know?</Ui> in the change log, under a change on that night, when a booking speed rule was checked there.
+
+To watch for a level while your property is in simulation, add a rule set to the level you are curious about. When a night reads that level or beyond, the rule fires there (unless a stronger rule holds the night), and the change log shows the reading under the change without sending anything. The change log keeps about the last 50 minutes on screen, so look soon after. Delete the rule before you go live. Read [When the reading shows](/docs/rules/booking-speed-in-detail#when-the-reading-shows).
+
+**Can bookings that later cancel move my prices?** For a while, and only inside your floors and ceilings. Every booking still on the books counts for booking speed, whatever channel it came from, so bookings that are made and later cancelled (speculative bookings, test bookings or fake ones) can make a raise rule fire before they cancel. On Mews, enquiries and optional reservations count too. Here is what keeps that in check:
+
+- A cancelled booking leaves the count on the next read, as if it had never been made. It never counts as a negative, so making and cancelling bookings cannot make a night read slower than it would have.
+- A raise made on <Ui>Faster Than Normal</Ui> or above comes off by itself once enough of the bookings behind it cancel (read [When a raise comes off](#when-a-raise-comes-off)). An occupancy raise comes off as soon as the night drops back under your line. A raise from a pickup rule set to <Ui>Greater than</Ui> comes off once the booked rooms are back to where its window opened.
+- A cut never comes off by itself. A pickup rule set to <Ui>Less than</Ui> reads cancellations as negative pickup, so a wave of cancellations can make it cut.
+- Every price stays between the room type's floor and ceiling. Read [Floors and ceilings](/docs/review/floors-and-ceilings).
+- Once a rule has adjusted the same night three times, the amber banner asks you whether it should keep going.
+
+Read [When a price change comes off](/docs/rules/when-a-change-comes-off) for every case.
+
+## Booking speed or pickup count
+
+Both count what a night gained recently. Booking speed compares the count with your own past nights, so the same three bookings can read as a rush in February and as normal in August. Pickup count compares with a fixed number you type, and counts room nights rather than bookings. That is why the builder labels them <Ui>Booking speed (recommended)</Ui> and <Ui>Pickup count (advanced)</Ui>. Read [Pickup count (advanced)](/docs/rules/pickup-count) for when a fixed number is the right tool.
+
+<Callout kind="not-yet">
+You cannot see a night's booking speed on the calendar or before a rule acts on it. You cannot move the lines between the levels, change the checks that hold small gaps at Normal, or change how many similar nights are used.
+</Callout>
+
+<Related>
+- [Booking speed in detail](/docs/rules/booking-speed-in-detail)
+- [Which past nights your rules compare with](/docs/rules/similar-nights)
+- [Booking speed reads oddly](/docs/wrong/booking-speed-reads-oddly)
+</Related>

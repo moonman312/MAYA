@@ -1,0 +1,81 @@
+---
+title: Pause everything for a while
+summary: Switch your rules Off to stop new price changes while keeping your account, what stays where it is, how to go back to simulation by email, and why cancelling is a different thing.
+section: recipes
+order: 60
+readingTime: 5
+keywords: [pause, pause maya, stop for a while, take a break, holiday, closed for the season, switch off all rules, turn everything off, back to simulation, go live again, start sending again, no go-live button, go-live button gone, Turn them on for real, starter rules box missing, stop sending, without cancelling, freeze prices, still sending, still sent, new nights, mews, mews rates, change rates in mews]
+questions:
+  - How do I pause everything without leaving? {#in-plain-words}
+  - Can I pause MAYA for a while? {#in-plain-words}
+  - How do I stop MAYA sending prices without cancelling? {#go-back-to-simulation}
+  - How do I go back to simulation? {#go-back-to-simulation}
+  - How do I start sending prices again after going back to simulation? {#start-sending-again}
+  - The Turn them on for real button is gone. How do I go live again? {#start-sending-again}
+  - If I turn all my rules off, what happens to the prices already in my system? {#what-stays-and-what-stops/prices-already-in}
+  - If I switch every rule off, does MAYA still send anything? {#what-stays-and-what-stops/prices-you-type}
+  - Is there a pause button? {#in-plain-words}
+  - I use Mews. Does switching my rules off or going back to simulation change anything in Mews? {#what-stays-and-what-stops/on-mews-nothing}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+There is no pause button. To stop new price changes, switch every rule <Ui>Off</Ui> on the <Ui>Rules</Ui> tab: the prices the rules already set stay where they are, and your rules make no new changes. On a live Cloudbeds or ThinkReservations property, MAYA still sends a price you type, and each new night that enters the window goes out at your own rate. To stop sending altogether, email us and we put the property back into simulation (MAYA sends nothing to Mews yet). Cancelling is different: MAYA keeps working until the end of the paid period, then stops.
+</InPlainWords>
+
+## Switch your rules off
+
+<Steps>
+<Step title="Open the Rules tab">
+Click the <Ui>Enabled</Ui> filter above the list to see only the rules that are on.
+</Step>
+<Step title="Switch each one Off">
+Click the switch in the <Ui>Status</Ui> column until it reads <Ui>Off</Ui>. There is no confirmation and no all-at-once switch, so do it rule by rule.
+</Step>
+<Step title="Check the list">
+Click <Ui>All</Ui>. Every rule now reads <Ui>Off</Ui>. From the next run, about five minutes away, no rule fires.
+</Step>
+</Steps>
+
+Switching a rule needs Revenue Manager access or higher.
+
+## What stays and what stops
+
+- **Prices already in your system stay as they are.** Off freezes a rule: the changes it made keep applying, and nothing is reverted or re-sent. If you would rather the prices went back to your own rates, delete the rules instead. Deleting undoes every change a rule made. On a live Cloudbeds or ThinkReservations property, the changed prices go to your system on the next cycle.
+- **Prices you type still go out** on a live Cloudbeds or ThinkReservations property. A price you set or clear on the <Ui>Calendar</Ui> tab is sent as usual, and so is a price that moves because you changed a floor or ceiling.
+- **Each new night still goes out.** Every day one more night enters the 60-night window. On a live Cloudbeds or ThinkReservations property it is sent at your own rate, kept between your floor and ceiling.
+- **MAYA keeps reading your bookings** about every five minutes and keeps the calendar and change log up to date. Quiet runs read "Prices checked" under <Ui>Show All Cycles</Ui>.
+- **Your bill continues.** Turning rules off changes nothing about the subscription.
+- **On Mews, nothing is sent.** MAYA sends no prices to Mews yet, so switching rules off or going back to simulation changes nothing in Mews. Change rates in Mews itself.
+
+When you are ready, switch the rules back <Ui>On</Ui>. A rule that had adjusted a night before it was paused carries on from where it left off. A booking speed rule counts bookings from the night's last raise (for a rule that raises) or last cut (for one that cuts) made by a booking speed or pickup rule, a paused one included. A rule with only occupancy or booking window conditions never moves where that count starts.
+
+<Callout kind="careful">
+A rule that is Off still holds its changes, even if the bookings behind a raise cancel. A night raised 25% before you paused stays raised until you type a price for it, delete the rule or the night passes. Once you switch the rule back On, the next run checks its raises for cancellations again, counting any made while it was Off.
+</Callout>
+
+## Go back to simulation
+
+Going live is one way in the app. To stop sending prices to Cloudbeds or ThinkReservations while keeping everything else running, [email us](mailto:info@modern-hospitality-solutions.com?subject=Back%20to%20simulation) with the subject "Back to simulation" from a General Manager's or Hotel Admin's address. Sending stops on the next cycle. Prices already in your system stay as they are, MAYA keeps reading bookings and running your rules, and the change log keeps filling with what it would have done. On Mews nothing is sent, live or not, so going back to simulation changes nothing in Mews.
+
+## Start sending again
+
+To send prices to Cloudbeds or ThinkReservations again, a General Manager or Hotel Admin opens the review page at <AppLink to="review">maya-rms.com/onboarding/review</AppLink>, clicks <Ui>Turn them on for real</Ui> and confirms with <Ui>Go live</Ui>.
+
+This works only while the review page still shows that button. It sits above the <Ui>Finish</Ui> button, in the box headed "While you were here, we built your first pricing rules". If the review opens on "First: does this match reality?", click <Ui>Continue to recommendations</Ui> to reach it.
+
+For many properties the box is gone. It never appears if MAYA built no starter rules for you at setup, and starter rules need at least 60 days of booking history. It also disappears once anyone on your team runs <Ui>Get suggestions from my data</Ui> on the <Ui>Rules</Ui> tab. Without the box, [email us](mailto:info@modern-hospitality-solutions.com?subject=Go%20live) with your property name and we switch the property live.
+
+## Cancel instead
+
+If you are leaving for good, or for a long stretch, cancel on the <Ui>Billing</Ui> page. MAYA keeps working until the end of the period you have paid for, then stops reading, pricing and sending. Your rules, settings and history stay, and you can restart later with a new subscription. Read [Cancel MAYA](/docs/recipes/cancel-maya).
+
+<Callout kind="not-yet">
+There is no pause on the subscription itself, and no way to pause for a date range. The choices are: rules Off (your rules make no new changes), back to simulation by email (nothing is sent at all), or cancel (everything stops at the period end).
+</Callout>
+
+<Related>
+- [Pausing or going back to simulation](/docs/live/pausing-or-going-back)
+- [Off, delete or change](/docs/rules/off-delete-or-change)
+- [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving)
+</Related>

@@ -1,0 +1,111 @@
+---
+title: Which systems MAYA works with
+summary: Cloudbeds and ThinkReservations connect from the app and receive prices. Mews is connected by us and is read-only for now. Every other system is not yet supported.
+section: connect
+order: 10
+readingTime: 8
+keywords: [property system, PMS, Cloudbeds, ThinkReservations, Think Reservations, Mews, Opera, Little Hotelier, Guesty, StayNTouch, WebRezPro, ResNexus, Maestro, spreadsheet, channel manager, install, firewall, IP address, password, changed password, two systems, switch systems, something else, supported, integrations, compatible, roadmap, waitlist, coming soon, when, date, release date, notify me, Opera Cloud, history, old system, previous system, imported history, keys, Mews keys]
+questions:
+  - Which property systems does MAYA work with? {#in-plain-words}
+  - Does MAYA work with Cloudbeds, ThinkReservations or Mews? {#in-plain-words}
+  - Does MAYA work with Opera, Little Hotelier, Guesty or another system? {#other-systems/the-connect-screen}
+  - Can I use MAYA without a property system, from a spreadsheet? {#other-systems/not-yet-not}
+  - Can I connect two systems to one property? {#what-every-connection-has-in-common/one-connection-per}
+  - How do I switch from Cloudbeds to Mews or another system? {#switching-from-one-system-to-another}
+  - Do we keep the history MAYA imported if we switch systems? {#switching-from-one-system-to-another}
+  - Can MAYA read older bookings from a system we used before? {#switching-from-one-system-to-another}
+  - Is Opera on the roadmap? {#other-systems/the-connect-screen}
+  - Do I need to install anything to connect MAYA? {#what-every-connection-has-in-common/nothing-to-install}
+  - What does it mean that MAYA sends prices? {#what-sends-means}
+  - When will MAYA support my system? {#other-systems/the-connect-screen}
+  - When will MAYA send prices to Mews? {#other-systems/the-connect-screen}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+MAYA connects to one property system per property. Cloudbeds: connect from the Cloudbeds Marketplace or from inside MAYA, and MAYA reads your bookings and sends prices back. ThinkReservations: connect from inside MAYA, and MAYA reads and sends. Mews: we connect it for you, and MAYA reads your bookings and shows prices but sends nothing to Mews yet. Any other system: not yet.
+</InPlainWords>
+
+Your property system is where your bookings and your rates live. MAYA reads bookings from it about every five minutes, runs your rules, and (for Cloudbeds and ThinkReservations) sends the prices that changed back to it. This page says which systems work today, what each one can do, and what to expect if yours is not on the list.
+
+## The three systems at a glance
+
+| | Cloudbeds | ThinkReservations | Mews |
+|---|---|---|---|
+| How you connect | From the Cloudbeds Marketplace, or from inside MAYA | From inside MAYA | We connect it for you |
+| Free trial without a code | Yes, for Marketplace arrivals (7 days) | No | No |
+| A code may be needed | Only when you create your account at maya-rms.com rather than arriving from the Marketplace | Yes, a code may be needed | Not applicable (we set it up) |
+| What MAYA reads | Bookings, room types, rate plans, property name, time zone, currency | Bookings, room types, rate types, property name, time zone, currency | Bookings and room categories |
+| What MAYA sends | One nightly price per room type | One nightly price per room type | Nothing yet |
+| Which rate is changed | Each room type's base rate | Your Best Available rate type | None |
+| How a send is confirmed | MAYA checks the job Cloudbeds ran | ThinkReservations accepts it, then MAYA reads it back within about an hour | Not applicable |
+| History import when you connect | Yes | Yes | Not yet |
+| Several properties on one login | Yes, from the Marketplace | No, one property per login | No |
+| Rooms per room type | Read from Cloudbeds | Not read by MAYA yet. One number covers every room type (100 until we change it), so occupancy is exact only if your room types are the same size | Not read by MAYA yet. One number covers every room category, set with you when we connect (100 until then) |
+| How MAYA is told about a disconnect | Cloudbeds tells MAYA, usually within seconds | Only when ThinkReservations refuses to renew MAYA's access, which can take about a day. Until then the <Ui>PMS</Ui> tab reads <Ui>Connected</Ui> | When we remove the keys |
+| Reconnect | One click, sign in at Cloudbeds | One click, sign in at ThinkReservations | Email us |
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+Cloudbeds is the complete path. Install MAYA from the Cloudbeds Marketplace with one click, or sign in with your Cloudbeds account from inside MAYA after paying. MAYA reads your bookings, room types, rate plans and property details. Once you go live, it writes one nightly price per room type to that room type's base rate. Read the full [Cloudbeds page](/docs/connect/cloudbeds).
+</PmsTab>
+<PmsTab pms="thinkreservations">
+ThinkReservations connects from inside MAYA: pick <Ui>Think Reservations</Ui>, sign in on their site, and you are brought back. MAYA reads bookings, room types and rate types and sends nightly prices to your Best Available rate type. MAYA does not read room counts from ThinkReservations yet. We can set one number that covers every room type, so occupancy percentages are exact only when your room types are the same size. Read the full [ThinkReservations page](/docs/connect/thinkreservations).
+</PmsTab>
+<PmsTab pms="mews">
+Mews is read-only for now. We connect it for you with keys from Mews, and arrange a secure way to share them. MAYA reads bookings and room categories every few minutes and shows what your rules would do, but it sends nothing to Mews. There is no history import for Mews yet. Read the full [Mews page](/docs/connect/mews).
+</PmsTab>
+</PmsTabs>
+
+## What "sends" means
+
+When a property is live, MAYA sends the prices that changed to your property system every cycle, for tonight and the next 59 nights. One number goes to one rate per room type. Your system's own derived rates, channels and booking engine follow from there by its own rules. On Cloudbeds, MAYA also asks Cloudbeds to let it know if the app is uninstalled. MAYA never sends anything else: no bookings, no availability, no minimum stays, no close-outs. Read [what MAYA reads and writes](/docs/connect/what-maya-reads-and-writes) for the full list.
+
+Until you go live, no price is sent. Every property starts in simulation, where MAYA runs your rules and writes down what it would have sent. Read [simulation mode](/docs/live/simulation-mode).
+
+## What every connection has in common
+
+- **About every five minutes**, MAYA reads new and changed bookings from your system, runs your rules over the next 60 nights, and (when live) sends the prices that changed. A very large first read can take a few cycles to finish.
+- **Once a day**, MAYA re-reads the whole booking window, so a booking that was missed in between is picked up within the day.
+- **Nothing to install.** You sign in on your system's own website (Cloudbeds or ThinkReservations), or we enter your keys (Mews). Nothing runs on your computers.
+- **Your password is never seen by MAYA.** Cloudbeds and ThinkReservations hand MAYA a token that lets it read and write on your behalf. If prices stop updating after you change your password there, a General Manager or Hotel Admin can reconnect from the <Ui>PMS</Ui> tab.
+- **One connection per property.** MAYA holds one property system per property. There is no screen for a second one.
+
+<Callout kind="good-to-know" title="Nothing to open on your network">
+MAYA talks to your system's online service directly, over the internet, the same service its own website uses. There is nothing to install on a front-desk computer and nothing to open or allow on your network.
+</Callout>
+
+## Switching from one system to another
+
+A property has one connection. If you move your property from one system to another (say, from Cloudbeds to Mews), [email us](mailto:info@modern-hospitality-solutions.com?subject=Switching%20property%20system) and we will set the new connection up with you. Your rules and settings stay, but each rule is tied to your old system's room types, both the ones it measures and the ones it prices. Your new system's room types arrive in MAYA as new room types, so we go through your rules with you and point them at the new ones.
+
+Booking history works the same way. The bookings MAYA has already read stay with the property, filed under your old system's room types. MAYA reads bookings only from the system it is connected to (and has no history import for Mews yet). It cannot read a system you have left, or a file. So older bookings that live only in a system you no longer use are not read. Read [how much history you need](/docs/start/is-maya-right-for-you#how-much-history-you-need).
+
+## Other systems
+
+The connect screen inside MAYA lists Cloudbeds and Think Reservations under the systems you can connect, and Mews under <Ui>Coming soon</Ui>. Nothing else appears there. At checkout you can pick <Ui>Something else</Ui>, but that choice always needs a code and there is nothing to connect afterwards, so it is only useful when we have agreed to set you up by hand.
+
+These systems are on the roadmap on get-maya.com: StayNTouch, Little Hotelier, WebRezPro, Opera Cloud, ResNexus and Maestro. No dates are promised for any of them, or for sending prices to Mews.
+
+If you run one of them, join the waitlist on get-maya.com. The waitlist asks only for your email, so also [email us](mailto:info@modern-hospitality-solutions.com?subject=Notify%20me%20when%20my%20system%20is%20ready) with the name of your system, and we will tell you when it is ready.
+
+Opera Cloud is on that roadmap. Older Opera versions, Guesty and any other system not named here are not supported today and are not on the roadmap. MAYA cannot read bookings from a spreadsheet or a file. It needs a live connection to one of the three systems above.
+
+<Callout kind="not-yet" title="Not yet">
+Two systems on one property, a system not named above, and a spreadsheet or file import are not possible today. For a second property on a different system, email us and we will set it up as its own property in MAYA.
+</Callout>
+
+<Example title="What connecting looks like for The Harbour Inn">
+The Harbour Inn runs Cloudbeds. Sam, the Hotel Admin, opens the Cloudbeds Marketplace, finds MAYA and clicks <Ui>Connect App</Ui>. Cloudbeds hands Sam over to MAYA, where Sam creates an account and sets up payment with the free trial. Then Sam picks <Ui>Hold My Hand</Ui> (the guided setup) or <Ui>Let Me Drive</Ui> (straight to the dashboard). The history import runs on its own either way.
+
+If The Harbour Inn ran ThinkReservations instead, Sam would create the account at maya-rms.com first, pay, then pick <Ui>Think Reservations</Ui> and sign in on ThinkReservations' site. Same two buttons after that, same review, same rules, same calendar.
+
+If it ran Mews, Sam would pay, then email us, and we would arrange a secure way to share the keys. Sam never pastes a key into an ordinary email. MAYA would read the bookings and show prices, but nothing would be sent to Mews.
+</Example>
+
+<Related>
+- [Cloudbeds](/docs/connect/cloudbeds)
+- [What MAYA reads and writes](/docs/connect/what-maya-reads-and-writes)
+- [Is MAYA right for your property](/docs/start/is-maya-right-for-you)
+</Related>

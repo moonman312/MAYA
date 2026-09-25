@@ -1,0 +1,161 @@
+---
+title: Room types and rooms out of service
+summary: The Room types list on the PMS tab. Untick Counts as a room for anything nobody sleeps in, and enter rooms out of service so occupancy reads against what you can really sell.
+section: watch
+order: 70
+readingTime: 12
+keywords: [counts as a room, unanswered, not billed, new room type not billed, not a room, meeting room, spa, court, parking, boardroom, units, unit count, rooms out of service, block, blocked rooms, out of order, renovation, repair, clear a block, more rooms than I have, 100 rooms, room type deleted, room type removed, old room type still showing, removed room type still priced, new room type, room type added, rename, switch off a room type, occupancy divides by, sellable, billed rooms, rebuilt room type, recreated, deleted and created again, two room types with the same name, do my rules cover it, rules missing a room type, new room type not in my rules, new room type history, new room type floor, new room type ceiling, $1.00 floor, 99999.99 ceiling, Mews room count, Mews units, room category units, same size, 30 room nights, 200 room nights, no floor card]
+pms: [cloudbeds, thinkreservations, mews]
+questions:
+  - 'What does "Counts as a room" mean?' {#counts-as-a-room/a-ticked-room}
+  - 'Will an unticked room type still be priced?' {#counts-as-a-room/a-ticked-room}
+  - 'Why did MAYA propose that a room type is not a room?' {#how-maya-proposes-the-answer}
+  - 'What are "Rooms out of service"?' {#rooms-out-of-service/under-each-room}
+  - 'Does rooms out of service send anything to my property system?' {#rooms-out-of-service/under-each-room}
+  - 'Does rooms out of service change booking speed?' {#booking-speed-is-not-changed-by-a-block}
+  - 'Can I block more rooms than I have?' {#limits-and-messages}
+  - 'How do I remove a rooms out of service block?' {#clearing-a-block}
+  - 'A room type was deleted in my property system, what happens in MAYA?' {#room-types-added-removed-or-resized-in-your-system/cloudbeds-a-new}
+  - 'A new room type was added in my property system, when does MAYA see it?' {#room-types-added-removed-or-resized-in-your-system/cloudbeds-a-new}
+  - 'I added a room type in my property system. Do my rules cover it?' {#what-a-new-room-type-starts-with/your-rules-do}
+  - 'I rebuilt a room type. Does it keep the old one''s history, floor and ceiling?' {#what-a-new-room-type-starts-with/delete-a-room}
+  - 'Why do I see two room types with the same name?' {#what-a-new-room-type-starts-with/delete-a-room}
+  - 'Can I switch a room type off in MAYA?' {#something-to-try}
+  - 'Can I rename room types in MAYA?' {#something-to-try}
+  - 'The unit count for a room type is wrong, how do I fix it?' {#something-to-try}
+  - 'Why is a room type that shows ticked not in my bill?' {#counts-as-a-room/a-ticked-room}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+The <Ui>PMS</Ui> tab lists your room types as your property system reports them, with their unit counts. Untick <Ui>Counts as a room</Ui> for anything nobody sleeps in, and MAYA leaves it out of occupancy and your bill. It is still priced, and sent when you are live, like any other room type. Add <Ui>Rooms out of service</Ui> for units off sale for a stretch, so occupancy reads against what you can really sell.
+</InPlainWords>
+
+## Where it is
+
+Open the <Ui>PMS</Ui> tab. Under the connection cards sits a section headed <Ui>Room types</Ui>, with a <Ui>?</Ui> beside the heading. Everyone on the property can see it. Changing anything here needs Revenue Manager access or higher.
+
+## The list
+
+One row per active room type, in name order. Each row shows the room type's name, its unit count ("12 units"), a small "not a room" tag when it is unticked, and the checkbox <Ui>Counts as a room</Ui>. A room type that does not count is dimmed.
+
+While the list loads you see a grey placeholder. If it cannot load: "Couldn't load room types." with <Ui>Try again</Ui>. Before the first sync: "No room types have synced yet."
+
+## Counts as a room
+
+A ticked room type is one guests sleep in. Ticked room types are what MAYA divides by. They make up:
+
+- the sellable count behind sellable occupancy, on the day card and in every occupancy rule,
+- the room count behind the calendar's colours (revenue per room),
+- the room count you are billed for.
+
+One exception on the bill: a room type nobody has answered for yet, whose name reads like something nobody sleeps in, shows ticked but is left out of your bill until you answer (see "How MAYA proposes the answer" below).
+
+Untick a room type and it leaves all three. Its bookings also leave the history booking speed reads, so a court selling six slots a night cannot read as the hotel filling up. It is still priced, and sent when you are live, like any other room type, and its revenue still counts in the day card's dollar figure.
+
+A rule cannot measure an unticked room type. A rule that measures only unticked types measures nothing and never fires. When an occupancy rule measured a mix, the change log says which were left out: "That 82% leaves out Meeting Room." [Measure one set of room types, change another](/docs/rules/measure-one-set-change-another) has the detail.
+
+Tick or untick and the change saves at once. If it does not save you see "That didn't save" with a note to try again, and the box goes back to where it was. Your rules then run again across the 60-night window, since every occupancy figure has moved. Each change is recorded with who made it.
+
+<Example title="The Harbour Inn's meeting room">
+Cloudbeds lists four room types at The Harbour Inn: Standard (12), Deluxe (6), Suite (2) and Meeting Room (1). With Meeting Room unticked, the property has 20 rooms, not 21. A night with 12 rooms booked reads "12/20 rooms" and 60%. If the meeting room is booked that night, its revenue is in the dollar figure, and the percentage stays 60%. Sam is billed for 20 rooms.
+</Example>
+
+## How MAYA proposes the answer
+
+When your history is first imported, MAYA reads each room type's name. A name that is certainly not a bedroom (parking, a boardroom, a pickleball court) is proposed as not a room and shown unticked on the review screen, where one click puts it right. A name that only might be (a "Pool Cabana", a "Spa Deluxe") stays ticked, and the review asks "Is "Pool Cabana" actually a room?".
+
+After that, MAYA never unticks a room type on its own. A new room type from your system arrives counted as a room. If its name reads like something nobody sleeps in, it stays unanswered: it shows ticked and counts in occupancy (your existing rules do not include it, see "What a new room type starts with" below), but it is left out of your bill until you answer. To answer, untick it, or, if it is a room, untick it and tick it again. A sync never overwrites an answer you have given. You can change any room type from the <Ui>PMS</Ui> tab at any time.
+
+## Rooms out of service
+
+Under each room type, click <Ui>+ Rooms out of service</Ui>. A short form opens:
+
+| Field | What to enter |
+|---|---|
+| <Ui>From</Ui> | The first night the rooms are off sale. Required. |
+| <Ui>To</Ui> | The last night. Leave it empty for one night. |
+| <Ui>Units</Ui> | How many rooms, from 1 up to the room type's unit count. |
+| <Ui>Reason (optional)</Ui> | A few words, up to 200 characters. "Renovation" is the hint. |
+
+Click <Ui>Save</Ui> (it reads <Ui>Saving…</Ui> while it works) or <Ui>Cancel</Ui>. The block then lists under the room type as "2 out of service", the first and last night, "· Renovation", and <Ui>Clear</Ui>.
+
+For those nights only, the units come off the room type's sellable count, for your rules and on the calendar day card. Occupancy then reads against what you can sell, so an occupancy rule does not stay quiet because a renovated wing looks empty. Nothing is sent to your property system. Your rules run again across the 60-night window as soon as you save.
+
+<Example title="Two Standard rooms under renovation">
+The Harbour Inn takes 2 Standard rooms off sale from November 10 to November 20, 2026. On those nights the property has 18 sellable rooms, so a night with 11 rooms booked reads "11/18 rooms" and 61% instead of 55%. With 15 rooms booked, "Busy nights" (occupancy Greater than 80) fires at 15 of 18, which is 83%. Without the block, 15 of 20 is 75% and the rule would stay quiet.
+</Example>
+
+### Limits and messages
+
+| Rule | What the screen says |
+|---|---|
+| One block covers at most 366 nights | "One block can cover at most 366 nights." |
+| Units are whole numbers from 1 | "Units must be a whole number of at least 1." |
+| Not more units than the room type has | "Standard has 12 rooms" followed by a note that you cannot block more than that. |
+| Blocks stack night by night, never past the count | "Standard already has 8 rooms out of service on some of those nights" followed by how many you can still block. |
+| Reason under 200 characters | "Keep the reason under 200 characters." |
+| Real dates, last night not before the first | "End date can't be before the start date." |
+| Revenue Manager or higher | "This needs Revenue Manager access or higher on this property." |
+| 30 changes per person per 10 minutes, shared with typed prices | "That's a lot of changes at once. Give it a minute and try again." |
+
+### Clearing a block
+
+Click <Ui>Clear</Ui> beside the block. The rooms are back on sale from the next run, which starts at once. MAYA keeps a record of the block and who cleared it, but it no longer shows. A block already cleared by someone else answers "That block is already cleared."
+
+There is no edit. To change a block's dates or units, clear it and add a new one.
+
+### Booking speed is not changed by a block
+
+A block changes occupancy only. Booking speed counts the bookings a night has received against what similar past nights had, and a room off sale changes neither count. [Booking speed](/docs/rules/booking-speed) explains the count.
+
+## Blocks in your property system are not read
+
+MAYA reads bookings and rates from your system, not room blocks, out-of-order rooms or allotments. A wing you close in Cloudbeds, ThinkReservations or Mews still counts as sellable in MAYA until you enter it here. This is also why MAYA's occupancy can differ from your system's headline figure. [Occupancy looks wrong](/docs/wrong/occupancy-looks-wrong) walks through the differences.
+
+## Room types added, removed or resized in your system
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+A new room type appears in MAYA on the next cycle, about five minutes, counted as a room. If its name reads like something nobody sleeps in, it stays unanswered: it counts in occupancy but is left out of your bill until you tick or untick it on the <Ui>PMS</Ui> tab. A changed unit count is picked up on the next cycle, from the count Cloudbeds reports for the room type. A renamed room type shows its new name on the next cycle.
+
+A room type you remove in Cloudbeds is not removed in MAYA: it stays listed, on the calendar and priced until it is switched off for you. Its old stays still count. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Switch%20off%20a%20room%20type) with its name and we switch it off. Until then its units still count in occupancy and in the room count you are billed for. Nights that enter the 60-night window after you remove it have no Cloudbeds rate to start from, so they are left unpriced. Its prices cannot reach Cloudbeds. Once you are live and MAYA tries to send one, the change log says "Cloudbeds can't find the rate MAYA changes for" that room type.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+A new room type appears in MAYA on the next cycle, about five minutes, counted as a room. If its name reads like something nobody sleeps in, it stays unanswered: it counts in occupancy but is left out of your bill until you tick or untick it on the <Ui>PMS</Ui> tab. A room type you remove stays in MAYA with its history. ThinkReservations does not report how many rooms a room type has, so MAYA gives every ThinkReservations room type the same number of units, 100 until we change it. [Email us](mailto:info@modern-hospitality-solutions.com?subject=ThinkReservations%20room%20counts) your counts. Once we have set the number, occupancy is right from the next run if your room types are all the same size. A renamed room type shows its new name on the next cycle.
+</PmsTab>
+<PmsTab pms="mews">
+A new space category appears in MAYA as a room type on the next cycle, about five minutes, counted as a room. If its name reads like something nobody sleeps in, it stays unanswered: it counts in occupancy but is left out of your bill until you tick or untick it on the <Ui>PMS</Ui> tab. A category you remove stays in MAYA with its history. Mews does not report how many rooms a category has, so MAYA gives every Mews category the same number of units: the number we set with you when we connect Mews, or 100 if it was never set. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20room%20counts) your counts. Once we have set the number, occupancy is right from the next run if your categories are all the same size. A renamed category shows its new name on the next cycle.
+</PmsTab>
+</PmsTabs>
+
+## What a new room type starts with
+
+Delete a room type in your system and create it again, and your system treats it as a new room type. So does MAYA, even when the name is the same. Nothing carries over from the old one. The old one stays in MAYA as the tabs above describe, so for a while you may see two room types with the same name. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Switch%20off%20a%20room%20type) and we switch the old one off.
+
+A brand new room type, or a rebuilt one, starts like this:
+
+- **Your rules do not cover it.** A rule covers the room types that were selected when you saved it. A room type added later is not in any of your rules, not even one that covered every room type you had. That goes for rules you built and for the starter rules. The <Ui>Room Types</Ui> column on the <Ui>Rules</Ui> tab shows what each rule changes.
+- **It has no history.** The old type's past stays remain under the old type, so the new one starts with none. A booking speed rule that measures only the new type has nothing to compare with, so it stays quiet at first. Once the type has bookings of its own, readings with fewer than 5 similar nights are capped at one step.
+- **Occupancy works at once.** An occupancy rule that measures it reads its bookings against its units from the first cycle. A pickup count rule that measures it waits until MAYA has kept a record of the type for the whole lookback (1, 3 or 7 days).
+- **Its floor and ceiling are MAYA's defaults**, $1.00 and $99,999.99, which stop nothing in most currencies (where a room sells above 99,999.99, the default ceiling holds its price down). They stay there until real ones are set for it. A suggestion card is the quickest way (below).
+- **Prices you typed stay with the old type.** A manual price belongs to one room type, so the new type starts without any.
+- **On ThinkReservations and Mews, it gets the same unit count as your other room types**, as the ThinkReservations and Mews tabs above explain.
+
+To bring the new type into your pricing, add a rule for it, or change an existing rule to include it. A saved rule cannot take on a room type, so changing one means deleting it and adding it again with the new type selected. [Change a rule](/docs/recipes/change-a-rule) walks through it.
+
+Then, on the <Ui>Rules</Ui> tab, click <Ui>Get suggestions from my data</Ui>. The review can offer a floor card and a ceiling card for any room type still at a default. For a type with no history yet, the cards offer your answers to the five questions, if you gave them. Without those, a floor card needs at least 30 room nights sold in that room type, and a ceiling card needs at least 200. A room night is one room for one night at a rate above 0, so a room type with 12 rooms can reach 30 in three full nights. [Floors and ceilings](/docs/review/floors-and-ceilings) has the detail.
+
+## Something to try
+
+<OccupancySlider rooms={12} outOfService={2} booked={9} threshold={80} />
+
+<Callout kind="not-yet">
+You cannot switch a room type off in MAYA or rename it. Names and unit counts come from your property system. The one exception is a duplicate found at import, which the review screen can hide. You cannot edit a block: clear it and add another. Floors and ceilings are not set here. [Floors and ceilings](/docs/review/floors-and-ceilings) explains where they are.
+</Callout>
+
+<Related>
+- [Sellable occupancy](/docs/rules/sellable-occupancy)
+- [Occupancy looks wrong](/docs/wrong/occupancy-looks-wrong)
+- [Your room count](/docs/billing/your-room-count)
+</Related>

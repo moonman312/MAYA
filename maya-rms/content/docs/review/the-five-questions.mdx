@@ -1,0 +1,127 @@
+---
+title: The five questions
+summary: The five optional questions on the Hold My Hand path, what each one asks, what MAYA does with each answer, how the floor ladder works, and what happens if you skip or answer again later.
+section: review
+order: 30
+readingTime: 9
+keywords: [five questions, skipped the floor question, floor still $1, $1 floor, 30 nights, is it safe to skip, floor went back, floor reset, floors changed after last question, ceiling pinned, suite stuck at ceiling, rates read so far, import complete, lift a ceiling, a few quick questions, all optional, skip the rest, skip this question, property name, looks right, name already taken, turn cost, cost to turn over a room, cleaning cost, floor ladder, i'd take, too low, i'll just type my floor, true floor, tuesday in your slowest month, taylor swift, most you'd charge, ceiling, my pricing works, find money i'm leaving on the table, last question, floor needs to be below ceiling, ceiling lower than floor, ceiling under floor, ceiling didn't save, guardrails, couldn't save that, answer again]
+questions:
+  - Do I have to answer the five questions? {#in-plain-words}
+  - What is the cost to turn over a room used for? {#question-2-what-a-room-turnover-costs}
+  - What does the Taylor Swift question set? {#question-4-the-most-you-would-charge/the-card-opens}
+  - What does the last question about my current pricing change? {#question-5-how-to-treat-your-current-pricing}
+  - What happens if I skip a question? {#skipping-finishing-and-answering-again/skip-this-question}
+  - If I skip the floor question, why is a room type's floor still $1.00? {#question-3-the-floor-ladder/what-the-answer}
+  - Can I go back and answer the questions later? {#skipping-finishing-and-answering-again/skip-this-question}
+  - Why does the floor question keep offering me a number? {#question-3-the-floor-ladder/the-card-reads}
+  - What happens if my ceiling is lower than my floor? {#question-4-the-most-you-would-charge/once-the-progress}
+  - Why did my floors change when I answered the last question? {#question-5-how-to-treat-your-current-pricing}
+  - Why is my Suite stuck at the ceiling I gave? {#question-4-the-most-you-would-charge/once-the-progress}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Five optional questions, one card at a time: your property's name, what a room turnover costs you, the lowest rate you would take on a dead Tuesday, the most you would charge when the town is full, and how you want your current pricing treated. The name renames your property, and the turnover cost only shapes the floor question. The lowest rate becomes every room type's floor, and the highest becomes the ceiling of each room type whose rates read so far fit under it. The last question is not used for anything yet. Careful: saving the floor, ceiling or last card again puts your saved floor back on every room type, over any floor set since.
+</InPlainWords>
+
+## Where they are
+
+The questions come after you press <Ui>Hold My Hand</Ui>. Each one is a card. Across the top you see "A few quick questions · 1 of 5 · all optional" and a <Ui>Skip the rest →</Ui> link. Under the cards sits the import's progress bar, because your history is being read while you answer.
+
+Every card has a <Ui>Skip this question</Ui> link. A money card shows a <Ui>Continue</Ui> button once you have typed a number above zero. Press it, or press Enter in the box. While an answer saves, the button reads "Saving…".
+
+Money amounts show your property's currency: "$" for US dollars, otherwise the currency code and a space, for example "EUR ". Whatever you type is rounded to two decimal places.
+
+<Callout kind="good-to-know">
+None of the five questions is required. Skip all of them and the import still finishes, the review still opens, and your floors and ceilings are filled in from your own rates where the import can. [Floors and ceilings](/docs/review/floors-and-ceilings) says when it cannot.
+</Callout>
+
+## Question 1: your property's name
+
+The card asks "Did we get your property's name right?" and shows the name MAYA read from your property system. Leave it and press <Ui>Looks right</Ui>, or type a better one.
+
+A name you type wins. It renames the property everywhere in MAYA, and a later read of your system never puts the old name back.
+
+If another property on MAYA already uses that name, the card says the name is already taken and suggests adding your city or neighbourhood.
+
+## Question 2: what a room turnover costs
+
+"Ballpark: what does it cost you to turn over a room?" Cleaning, laundry, utilities and supplies for one night's stay, as a rough number. The placeholder suggests 35.
+
+This number does one thing: it sets where the next question starts. It is saved with your answers and nothing else reads it. It is not a floor, and it never reaches a price.
+
+## Question 3: the floor ladder
+
+The card reads "Picture a Tuesday in your slowest month. You're at 10% occupancy." and offers a rate: would you take this much for a room tonight, from someone walking in off the street? Two buttons: <Ui>I'd take $50</Ui> (the amount changes) and <Ui>Too low</Ui>.
+
+The first offer is a little above your turnover cost ($40 if you skipped that question), and each <Ui>Too low</Ui> raises it by at least 15%, rounded up to the next $5. After two <Ui>Too low</Ui> presses a reminder appears: a night like this would otherwise earn nothing, so anything above your turnover cost is profit.
+
+If you would rather name the number, press <Ui>I'll just type my floor</Ui>. The card changes to "What's your true floor?" with a money box.
+
+<FloorLadder />
+
+<Example title="The exact steps, for the curious">
+The first offer is your turnover cost times 1.2, plus 5, rounded up to the next $5. Each step after that is the current offer times 1.15, plus 1, rounded up to the next $5. A $35 turnover cost offers $50, then $60, $70 and $85.
+</Example>
+
+What the answer does: it becomes the floor of every active room type, straight away. A floor is the lowest price MAYA will publish for that room type. The same number is written again once the import's first results are in, so room types the import adds get it too.
+
+<Callout kind="careful">
+Your answer goes to every room type, the Suite included. If your room types need different floors, answer with your cheapest room type's floor and [email us](mailto:info@modern-hospitality-solutions.com?subject=Floor%20and%20ceiling) to raise the others. Once you have answered, the import fills in only ceilings.
+</Callout>
+
+If you skip this question, the import works each room type's floor out from its own rates instead: about 40% of what it usually sells for. It does that only for a room type with at least 30 nights of history. A room type with less, or one whose name or bookings look unlike a bedroom, stays at $1.00. To give it a floor, answer this question or [email us](mailto:info@modern-hospitality-solutions.com?subject=Floor%20and%20ceiling).
+
+## Question 4: the most you would charge
+
+The card opens "Now the fun one" and asks you to imagine the biggest concert of the year next door, with every room in town gone. What is the most you would charge for a night? The card also asks you to bear in mind the highest you have ever actually sold a room for, as a reference point. It does not show that number. The placeholder suggests 450.
+
+What the answer does: it becomes the ceiling of each room type whose highest rate read so far is at or below your number. A ceiling is the highest price MAYA will publish for that room type. A room type whose rates read so far go above your number keeps its ceiling as it was.
+
+"Read so far" matters, because you answer while the import is still reading. The check uses only the rates read by the moment you save, and a room type with no rates read yet gets your ceiling.
+
+If the first results arrive after you answer, your saved answer is written again then, onto the room types that fit by that point. It never takes a ceiling off. So a Suite whose higher rates sit in an older year can keep your ceiling and be held under what it really sells for.
+
+Once the progress bar reads "Import complete", check the <Ui>Guardrails</Ui> column on the <Ui>Rate Simulator</Ui> tab. If a ceiling pins a room type down, [email us](mailto:info@modern-hospitality-solutions.com?subject=Lift%20a%20ceiling) and we will lift it.
+
+Answer with a number above your floor. If you type a ceiling under the floor you gave, the card still moves on. That ceiling is not written to any room type, and nothing on screen tells you.
+
+To fix it, open <AppLink to="questions">maya-rms.com/onboarding/questions</AppLink> to reopen the questions. Answer the ceiling question with a higher number, or the floor question with a lower one.
+
+## Question 5: how to treat your current pricing
+
+The last card asks how you want your current pricing treated, with two choices: the card that begins "My pricing works" (keep doing what you do, without touching it every day) and "Find money I'm leaving on the table" (show me what the data says).
+
+What the answer does: nothing in MAYA today. It is saved with your answers, and nothing reads it yet. The card's small print says it tunes suggestions. It does not do that yet.
+
+Saving it does one more thing: it writes your saved floor and ceiling answers to your room types again, as if you had answered those questions again. Your floor goes back on every active room type, and your ceiling on every room type whose rates fit under it. The first time through, that repeats what questions 3 and 4 wrote.
+
+## Skipping, finishing and answering again
+
+- <Ui>Skip this question</Ui> moves to the next card and saves nothing for that one.
+- <Ui>Skip the rest →</Ui> ends the questions from any card.
+- After the last card, or after <Ui>Skip the rest →</Ui>, MAYA opens the review if the first results are in and there is something to look at. Otherwise it opens the progress page, which moves you on by itself.
+
+You can reopen the questions any time after your property is connected at <AppLink to="questions">maya-rms.com/onboarding/questions</AppLink>. The cards do not show your earlier answers (the name card shows the property's current name). A new answer replaces the old one.
+
+Saving the floor card, the ceiling card or the last card writes both your saved answers again: your floor onto every active room type, and your ceiling onto every room type whose rates fit under it, over whatever limits they had. A room type whose ceiling is under the new floor keeps its old floor, and nothing on screen says so.
+
+<Callout kind="careful">
+Answering only the ceiling question, or only the last one, also puts your saved floor answer back on every active room type, over any floor set since. That includes a floor you accepted from a suggestion card or one we set for you by email. Check the <Ui>Guardrails</Ui> column on the <Ui>Rate Simulator</Ui> tab afterwards.
+</Callout>
+
+If a save fails you see "Couldn't save that" with an invitation to try again. Your earlier answers are unaffected.
+
+<Callout kind="not-yet">
+The questions do not set a floor or ceiling per room type, per night or per season, and there is no floor and ceiling editor yet. After the import there are three ways to change one: [a suggestion card](/docs/review/getting-suggestions-later) for a room type still at MAYA's default ($1.00 for a floor, $99,999.99 for a ceiling), answering these questions again (every room type at once), or [email us](mailto:info@modern-hospitality-solutions.com?subject=Floor%20and%20ceiling) for one room type.
+</Callout>
+
+<Example title="Sam answers the questions at The Harbour Inn">
+The name card shows "Harbour Inn", the name Cloudbeds holds. Sam types "The Harbour Inn" and presses <Ui>Looks right</Ui>. Sam types 35 for the turnover cost and sees the first offer, $50. Two presses of <Ui>Too low</Ui> take it to $60, then $70. Sam has a number in mind for a Standard on a dead night, so Sam presses <Ui>I'll just type my floor</Ui> and types 80. Every room type gets an $80 floor. Sam skips the ceiling question, so the import sets the Standard, Deluxe and Suite ceilings from their own rates: $300, $400 and $600. On the last question, the bar under the card reads "First results ready. Importing older years". Sam picks the first card and lands on the review. Deluxe and Suite need higher floors, so Sam emails us and we set them to $110 and $180. If Sam ever saves the floor, ceiling or last card again, both go back to $80.
+</Example>
+
+<Related>
+- [Hold My Hand or Let Me Drive](/docs/review/hold-my-hand-or-let-me-drive)
+- [Floors and ceilings](/docs/review/floors-and-ceilings)
+- [Checking what MAYA found](/docs/review/checking-what-maya-found)
+</Related>

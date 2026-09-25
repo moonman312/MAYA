@@ -58,6 +58,13 @@ export const RATE_LIMITS = {
    * minute; this is only the ceiling on a loop filling the log.
    */
   productEvent: { limit: 60, windowSeconds: 600 },
+  /**
+   * Questions and page votes sent from the public docs, counted for everybody
+   * together (the subject is "all"): readers need no account, so there is no
+   * per-person subject that the caller cannot change. Each reader also has an
+   * in-memory limit in the route.
+   */
+  docsQuestion: { limit: 300, windowSeconds: 3600 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

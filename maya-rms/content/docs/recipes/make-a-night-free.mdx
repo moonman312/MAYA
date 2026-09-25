@@ -1,0 +1,74 @@
+---
+title: Make a night free (a comp)
+summary: Type 0 on the room type card and save. No rule raises a night set to 0, and because MAYA never sends a price of 0 to Cloudbeds or ThinkReservations, you set the night to 0 in your system yourself.
+section: recipes
+order: 40
+readingTime: 3
+keywords: [comp, comp night, free night, complimentary, zero, 0, price of 0, doesn't send a price of 0, free room, house use, give a room away, set to 0, comp cancelled, clear a comp, after the stay]
+questions:
+  - How do I make a night free? {#set-the-night-to-0}
+  - How do I set a comp night? {#in-plain-words}
+  - Can I set a price of 0? {#set-the-night-to-0}
+  - It says "MAYA doesn't send a price of 0", what do I do? {#what-your-system-needs}
+  - Will a rule raise a night I set to 0? {#set-the-night-to-0}
+  - Why can the floor not be 0? {#why-0-is-the-way}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Open the night on the <Ui>Calendar</Ui> tab, type 0 in the room type's box and <Ui>Save</Ui>. A night set to 0 is a comp night: no rule raises it. MAYA never sends a price of 0 to Cloudbeds or ThinkReservations, so set that night to 0 in your system yourself. If the comp is cancelled before the night, <Ui>Clear</Ui> hands it back to MAYA.
+</InPlainWords>
+
+## Set the night to 0
+
+<Steps>
+<Step title="Open the night">
+Go to the <Ui>Calendar</Ui> tab and click the night. Find the room type's card.
+</Step>
+<Step title="Type 0 and save">
+Type 0 in the box. For several nights, click <Ui>through…</Ui> and pick the last night. Click <Ui>Save</Ui>.
+</Step>
+<Step title="Read the confirmation">
+On a live property the line under the box reads "Saved. MAYA doesn't send a price of 0 to Cloudbeds, so set the night to 0 there yourself." followed by "No rule raises a night set to 0." While you are simulating it reads "Saved (simulation: not sent to Cloudbeds)."
+</Step>
+<Step title="Set the night to 0 in your property system">
+MAYA has done its part. The room's rate in your system is still whatever it was, until you change it there.
+</Step>
+</Steps>
+
+Setting a price needs Revenue Manager access or higher.
+
+## Why 0 is the way
+
+A floor cannot be 0: the lowest floor MAYA accepts is above 0, and a typed price under the floor is refused. The one exception is exactly 0, which is not read as a price under the floor but as a comp night. On a comp night no rule can raise the price, so it stays at 0.
+
+## What your system needs
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+MAYA does not send a rate of 0 to Cloudbeds, so the change log carries an ongoing item headed "Rates not reaching Cloudbeds" with the line "MAYA doesn't send a price of 0 to Cloudbeds, so Standard rates set to 0 in MAYA weren't changed there." Open the night's base rate in Cloudbeds and set it to 0 yourself. Once MAYA's next hourly read of your rates finds the 0 there, the item closes.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+The same applies. Set the night to 0 in ThinkReservations yourself. The change log item closes once MAYA reads the 0 back.
+</PmsTab>
+<PmsTab pms="mews">
+MAYA does not send any price to Mews yet, so nothing changes there whatever you type. Set the night to 0 in Mews. In MAYA the comp night still stops every rule from raising it.
+</PmsTab>
+</PmsTabs>
+
+<Callout kind="careful">
+Until you set 0 in your system, the room is still on sale there at its old rate. MAYA cannot close a night or block a room. If the night should not be sold at all, close it in your system as you normally would.
+</Callout>
+
+## Afterwards
+
+If the comp is cancelled before the night, click <Ui>Clear</Ui> on the room type card. The line reads "Cleared. MAYA is pricing this night again." and your rules apply to it from the next run. Remember to put the rate back in your system too.
+
+Once the night has passed there is nothing to clear. MAYA never prices a past night again, so the comp needs no tidying up.
+
+<Related>
+- [Setting a price yourself](/docs/watch/setting-a-price-yourself)
+- [How prices reach your property system](/docs/live/how-prices-reach-your-pms)
+- [Floors and ceilings](/docs/review/floors-and-ceilings)
+</Related>

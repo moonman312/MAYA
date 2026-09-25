@@ -1,0 +1,113 @@
+---
+title: A tour of the app
+summary: One page with five tabs (Calendar, Rules, Rate Simulator, Change Log and PMS), Billing and Team top right, a Property dropdown, and banners above the tabs when something needs you.
+section: start
+order: 50
+readingTime: 9
+keywords: [tour, dashboard, tabs, Calendar tab, Rules tab, Rate Simulator, Change Log, PMS tab, Billing, Team, Sign Out, Property dropdown, banner, amber banner, red banner, where is, where do I find, layout, overview, screen, what am I looking at, first login, home screen, room types, rooms out of service, Counts as a room, day card, colour bar, legend, ADR, ADR 150, banner still showing, wrong property banner, switched property, Mews keys, keys re-entered, am I live]
+questions:
+  - What do I see when I first sign in to MAYA? {#in-plain-words}
+  - What are the five tabs for? {#the-five-tabs}
+  - Where is the Billing page? {#the-billing-and-team-pages}
+  - Where do I find my room types and rooms out of service? {#pms}
+  - What are the banners above the tabs? {#the-banners-in-the-order-they-stack/billing}
+  - Where do I type a price for one night? {#calendar/a-month-grid}
+  - Does the app remember which tab I was on? {#what-is-not-on-screen/the-tab-you}
+  - What does the coloured bar on a calendar day mean? {#calendar/a-month-grid}
+  - I switched property. Why does a banner still show the old one? {#the-property-dropdown}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+MAYA is one page with five tabs: <Ui>Calendar</Ui>, <Ui>Rules</Ui>, <Ui>Rate Simulator</Ui>, <Ui>Change Log</Ui> and <Ui>PMS</Ui>. <Ui>Billing</Ui> and <Ui>Team</Ui> are buttons at the top right. A <Ui>Property</Ui> dropdown sits to the right of the tabs. Banners above the tabs tell you when something needs you, and stay out of the way when nothing does.
+</InPlainWords>
+
+<AppTour />
+
+## The header
+
+At the top left is the MAYA logo with two short taglines under it. At the top right are three buttons: <Ui>Billing</Ui>, <Ui>Team</Ui> and <Ui>Sign Out</Ui>.
+
+<Ui>Billing</Ui> opens your billing page and <Ui>Team</Ui> opens your team page. Both are for a General Manager or Hotel Admin. Anyone else who opens them sees the page with a short explanation instead of the controls. Each has a <Ui>← Back to MAYA</Ui> link at the top. <Ui>Sign Out</Ui> signs you out and returns you to the sign-in page.
+
+## The five tabs
+
+The tabs sit under the header. <Ui>Calendar</Ui> is the one that opens first every time you sign in.
+
+### Calendar
+
+A month grid. Each day is a card showing the day number, that night's sellable occupancy as a percentage, how many rooms are booked out of how many you can sell, the room revenue on the books, and a thin colour bar. The legend under the grid reads <Ui>strong night</Ui>, <Ui>typical night</Ui> and <Ui>weak night</Ui>: the colour compares the night's revenue per room with your own other nights, past nights against past nights and future nights against future nights.
+
+Click a day and the day detail opens: the date, a summary line, and one card per room type with <Ui>Booked</Ui>, <Ui>ADR</Ui> (ADR means average daily rate: that night's room revenue divided by the rooms booked), <Ui>Current price</Ui> and <Ui>Revenue</Ui>. When <Ui>Booked</Ui> reads 0, ignore the ADR line: the $150.00 there is a placeholder, not a rate of yours. Under each room type card is the box where you type a price for that room type on that night. <Ui>Prev</Ui> and <Ui>Next</Ui> step a month at a time, and the month and year dropdowns jump further. Read [The calendar](/docs/watch/the-calendar).
+
+<Callout kind="good-to-know">
+Top right of the calendar, a small line reads "Updated", then the time in your browser's own format ("Updated 3:05:12 PM · live" in US English). The word live there means the calendar refreshes by itself when prices or bookings change. It shows in simulation too, so it does not mean your property is live. [Tell if you are live or in simulation](/docs/recipes/tell-if-you-are-live) shows where to look for that.
+</Callout>
+
+### Rules
+
+The heading <Ui>Pricing Rules</Ui>, with the <Ui>Get suggestions from my data</Ui> button beside it. Under that, a filter (<Ui>All</Ui>, <Ui>Enabled</Ui>, <Ui>Disabled</Ui>), a closed panel called <Ui>How rules behave</Ui> that holds two short animations, and the list of your rules with columns <Ui>Name</Ui>, <Ui>Fired</Ui>, <Ui>Conditions</Ui>, <Ui>Room Types</Ui>, <Ui>Price Change</Ui> and <Ui>Status</Ui>, plus a <Ui>Delete</Ui> button on each row. At the bottom, <Ui>+ Add a rule</Ui> opens the rule builder. Read [Build your first rule](/docs/rules/build-your-first-rule).
+
+### Rate Simulator
+
+Make up a night and see what your rules would do to it. Its intro says so, and adds that nothing here is saved and no rate reaches your property system. Five panels run down the page:
+
+1. <Ui>The night</Ui>: a stay date, and a booking speed to pretend.
+2. <Ui>Your rooms</Ui>: each room type that counts as a room, with a <Ui>Base price</Ui>, <Ui>Occupancy</Ui> and <Ui>Picked up</Ui> you can change. Its <Ui>Guardrails</Ui> are its floor and ceiling: no rule can take its price below or above them.
+3. <Ui>Rules in play</Ui>: your real rules, switched-off ones included, each with a checkbox to leave it in or out of the test.
+4. <Ui>+ Build a test rule</Ui>: a draft rule to try alongside them.
+5. <Ui>What would happen</Ui>: the result for each room type.
+
+<Ui>Save This Rule</Ui> adds the draft to the Rules tab switched off. Read [Trying rules out in the Rate Simulator](/docs/rules/the-rate-simulator).
+
+### Change Log
+
+The latest pricing runs, newest first: about the last 50 minutes (the 10 most recent runs, about five minutes apart). The button at the top right toggles between <Ui>Show All Cycles</Ui> and <Ui>Show Changes Only</Ui>. Changes only is the default, so runs that changed nothing are hidden until you ask. Each run lists up to 40 changes, one per room type and night, biggest moves first, each with a sentence saying which rule acted and why. The detail behind every change is kept for 90 days. For a change older than the runs on screen, [email us](mailto:info@modern-hospitality-solutions.com?subject=Why%20did%20a%20price%20change) within those 90 days and we look it up for you. Booking speed changes carry a <Ui>How did we know?</Ui> button. A <Ui>Your corrections</Ui> panel under the heading collects any past nights you have set aside as not a fair comparison. Read [The change log](/docs/watch/the-change-log).
+
+### PMS
+
+The connection to your property system. The heading reads <Ui>Property System</Ui> with your system's name in brackets. Three cards: <Ui>Connection</Ui> (connected, pending, degraded, error or disconnected), <Ui>Health (last 24 hours)</Ui> and <Ui>Last sync</Ui>, then a list of the most recent requests MAYA made to your system. When the connection is broken, a <Ui>Reconnect Cloudbeds</Ui> (or <Ui>Reconnect Think Reservations</Ui>) button appears here.
+
+Under the connection is the <Ui>Room types</Ui> section. Each room type has a <Ui>Counts as a room</Ui> checkbox (untick a meeting room or a spa slot, and it leaves the occupancy count and the room count you are billed for) and a <Ui>+ Rooms out of service</Ui> link where you note units you have taken off sale for a stretch, so occupancy counts only what you can sell. Nothing is sent to your system. Read [The PMS tab: connection health](/docs/watch/the-pms-tab) and [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
+
+## The Property dropdown
+
+To the right of the tab row, labelled <Ui>Property</Ui>. It lists every property you belong to, in alphabetical order, and shows even when there is only one. Choosing another property reloads the calendar, the rules, the room types and the rules that keep adjusting banner for it. The billing and review banners update only when you reload the page, and the connection banner when you open the <Ui>PMS</Ui> tab. Reload after switching to see them for the new property. Properties that are set aside or not yet paid for do not appear. Read [Several properties on one account](/docs/account/several-properties).
+
+## The banners, in the order they stack
+
+Banners appear between the tabs and the tab's content, only when something needs you. From top to bottom:
+
+1. **Billing.** Red with a <Ui>Restart MAYA</Ui> button when work has stopped (for example "MAYA has paused work on this property"). Amber with a <Ui>Fix it</Ui> button for a warning, such as a payment that did not go through, a card that stopped working, a room count that is higher than you pay for, or a subscription set to cancel. Silent while everything is fine. Read [The billing page](/docs/billing/the-billing-page).
+2. **Connection lost.** "MAYA has lost its connection to Cloudbeds" (or your system's name), with a <Ui>Reconnect Cloudbeds</Ui> button for a General Manager or Hotel Admin. One click sends you to your system to confirm and brings you back. Anyone else sees the heading and a line asking a General Manager or Hotel Admin to reconnect. With Mews, a General Manager or Hotel Admin sees "Mews needs its keys re-entered" instead, with no button: [email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20keys) and we re-enter them with you. Your rules, history and settings are untouched. Read [Connection lost](/docs/wrong/connection-lost).
+3. **The review.** A blue card, shown after your history has been read and something is waiting for a yes or no from you, ending with the link <Ui>Review →</Ui>. It disappears once you finish the review.
+4. **Rules that keep adjusting.** An amber banner once a booking speed or pickup count rule has adjusted the same night three times. It names the rule and the night and asks you to choose <Ui>Keep adjusting</Ui> or <Ui>Stop for this night</Ui>. Until you answer, the rule keeps going. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
+
+<Callout kind="good-to-know">
+The connection lost banner only shows once you have opened the <Ui>PMS</Ui> tab in this visit, so open it if you suspect a problem. On a live Cloudbeds property whose connection has been cut, the change log also says "Reconnect Cloudbeds on the PMS tab." Other refusals, and ThinkReservations, get their own line saying what to do.
+</Callout>
+
+## The Billing and Team pages
+
+<Ui>Billing</Ui> shows one headline sentence about your subscription (on trial, active, a payment to fix), the <Ui>Your plan</Ui> rows, your <Ui>Room count</Ui> with a box to change it, and the button <Ui>Update card, receipts & cancellation</Ui>, which opens Stripe. Read [The billing page](/docs/billing/the-billing-page).
+
+<Ui>Team</Ui> shows how many seats your plan includes and how many are used, an <Ui>Add someone</Ui> form with the four roles to choose from, and the list <Ui>On this property</Ui> of members and pending invitations. Read [Roles: who can do what](/docs/team/roles).
+
+## What is not on screen
+
+- **A live or simulation badge.** There is none. After you save a price on the <Ui>Calendar</Ui>, the confirmation line says which state you are in: "Saved (simulation: not sent to Cloudbeds)." in simulation, "Saved. Sending to Cloudbeds now." (or "on the next cycle") once live. Do not type a price only to check, because on a live property it is sent. The amber rules banner says "would have raised" or "would have cut" in simulation, and [Tell if you are live or in simulation](/docs/recipes/tell-if-you-are-live) has every clue.
+- **The base price.** The calendar shows the current price for each room type and night, not the price the rules started from. The change log's sentences say what each change started from and what it became.
+- **Weekday headers on the calendar.** The grid has no row of day names. The weekday appears in the day detail heading when you click a day, and the grid runs Sunday to Saturday.
+- **Your currency, on some screens.** Some screens show $ whatever your currency. The numbers are yours. [Currency](/docs/reference/time-weekends-currency-and-holidays#currency) says which screens.
+- **The tab you were on.** The app opens on <Ui>Calendar</Ui> every visit. Your choice of property is remembered.
+
+<Callout kind="not-yet">
+There is no edit screen for a rule: delete it (which undoes its price changes) and add it again, or switch it off to keep its prices and add the new one beside it. Invoices are not listed inside MAYA, but on the Stripe page that <Ui>Update card, receipts & cancellation</Ui> opens. [What MAYA does not do](/docs/reference/what-maya-does-not-do) has the full list.
+</Callout>
+
+<Related>
+- [The calendar](/docs/watch/the-calendar)
+- [Build your first rule](/docs/rules/build-your-first-rule)
+- [The change log](/docs/watch/the-change-log)
+</Related>

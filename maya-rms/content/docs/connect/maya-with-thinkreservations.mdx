@@ -1,0 +1,102 @@
+---
+title: MAYA with ThinkReservations, start to finish
+summary: A short checklist for a ThinkReservations property's first weeks with MAYA, in order, with a link to the page that explains each step.
+section: connect
+order: 80
+readingTime: 7
+keywords: [ThinkReservations, Think Reservations, guide, walkthrough, start to finish, step by step, checklist, connect, first week, first day, what happens next, what to do first, timeline, go live, Send prices to Think Reservations, room counts, daily check, every day, night audit, what to check, automatic pricing]
+questions:
+  - What happens after I connect ThinkReservations to MAYA? {#in-plain-words}
+  - Once we are live, what should someone check in MAYA each day? {#daily-life/a-normal-day}
+  - What does a ThinkReservations property's first week with MAYA look like? {#leaving/cancel-on-the}
+  - How does MAYA work with ThinkReservations from start to finish? {#in-plain-words}
+  - What is different about running MAYA on ThinkReservations? {#in-plain-words}
+pms: [thinkreservations]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Pay, connect by signing in to ThinkReservations, and let MAYA read your history. On day one, email us your room counts and ask which time zone MAYA has, then watch your rules in simulation before you go live. The main differences from Cloudbeds: there is no Marketplace (you connect from inside MAYA), ThinkReservations does not report room counts, and MAYA checks each send by reading your rates back within about an hour.
+</InPlainWords>
+
+## Before you start
+
+- **A login that reaches one property.** A login covering several hotels cannot connect from inside MAYA. We set those up with you. Read [ThinkReservations](/docs/connect/thinkreservations).
+- **A card, and possibly a code.** There is no free trial without a code. Read [Codes and the free trial](/docs/pay/codes-and-the-free-trial).
+- **One standard rate type named Best Available**, covering every room type you want priced. MAYA sends its prices there. Read [Which rate type MAYA sends prices to](/docs/connect/thinkreservations#which-rate-type-maya-sends-prices-to).
+- **Your room counts to hand.** Read [How many rooms each room type has](/docs/connect/thinkreservations#how-many-rooms-each-room-type-has).
+
+## Day one
+
+<Steps>
+<Step title="Pay">
+Create your account and pay, choosing <Ui>Think Reservations</Ui> as your system. Enter your code there if you have one. Read [Setting up payment](/docs/pay/setting-up-payment).
+</Step>
+<Step title="Connect">
+On <Ui>Connect your property system</Ui>, click <Ui>Connect →</Ui> beside <Ui>Sign in with your Think Reservations account</Ui>, sign in on ThinkReservations' site and approve. The link lasts 15 minutes. Read [Connecting](/docs/connect/thinkreservations#connecting) for the messages you might see.
+</Step>
+<Step title="Pick a path">
+<Ui>Hold My Hand</Ui> or <Ui>Let Me Drive</Ui>. MAYA reads your history either way. Read [Hold My Hand or Let Me Drive](/docs/review/hold-my-hand-or-let-me-drive).
+</Step>
+<Step title="Email us two things">
+[Email us](mailto:info@modern-hospitality-solutions.com?subject=ThinkReservations%20room%20counts%20and%20time%20zone) your room counts, and ask which time zone MAYA has. MAYA copies your time zone and currency from ThinkReservations once, when you connect. No screen in MAYA shows the time zone. Nothing waits on it while you simulate, but check it with us before you go live. Read [Time zone and currency](/docs/connect/setting-up-your-system-for-maya#time-zone-and-currency).
+</Step>
+</Steps>
+
+<Callout kind="careful" title="Expect a room count email">
+Until we set your room count, MAYA measures 100 rooms for every room type, so you will likely get a room count email. If your room count is still 100 per room type 7 days after that email, the number of rooms you are billed for is raised to it (100 for each room type ticked as a room), and your next invoice is adjusted. Reply before then and we sort it out. Read [Your room count and what you pay](/docs/billing/your-room-count).
+</Callout>
+
+## The first days
+
+- **The history import** runs on its own. You can close the page. Read [The history import](/docs/review/the-history-import).
+- **The review** lists what MAYA found and, with about 60 days of history, your starter rules. Untick anything nobody sleeps in. Read [Checking what MAYA found](/docs/review/checking-what-maya-found).
+- **Floors and ceilings** are set by the import from your answers and your own rates. Check them in the <Ui>Guardrails</Ui> column of the <Ui>Rate Simulator</Ui> tab. Read [Floors and ceilings](/docs/review/floors-and-ceilings).
+- **Occupancy, and the way booking speed picks similar nights to compare with, are approximate** until we set your room count. Once we set the average number of rooms per room type, whole-property occupancy reads close. Occupancy for one room type is right only when your room types are the same size. Read [Occupancy looks wrong](/docs/wrong/occupancy-looks-wrong).
+- **Simulation.** Your rules run on the Best Available rates you keep in ThinkReservations, read about once an hour, and nothing is sent. Read [Simulation mode](/docs/live/simulation-mode).
+
+## Going live
+
+- A General Manager or Hotel Admin clicks <Ui>Turn them on for real</Ui> on the review and confirms "Send prices to Think Reservations?". With no starter rules there is no button: [email us](mailto:info@modern-hospitality-solutions.com?subject=Go%20live) and we switch the property live. Read [Going live](/docs/live/going-live).
+- From the next cycle, MAYA sends each room type's changed prices to Best Available. ThinkReservations accepts them and applies them shortly after, and MAYA reads them back within about an hour. Read [How a send is checked](/docs/connect/thinkreservations#how-a-send-is-checked).
+- If a night in ThinkReservations still shows the old rate an hour after MAYA's calendar changed, [email us](mailto:info@modern-hospitality-solutions.com?subject=ThinkReservations%20rate%20not%20applied) the night and room type and we check it.
+- **Switch off other automatic pricing first.** Any feature in ThinkReservations that changes the Best Available rate by itself counts as another revenue tool. Switch it off before you go live, or the two will write over each other. Read [Switching from another revenue tool](/docs/start/is-maya-right-for-you#switching-from-another-revenue-tool).
+
+## Daily life
+
+**A normal day** once you are live takes a few minutes:
+
+- Open the <Ui>Change Log</Ui> tab. Its default view shows only the runs that changed a price, so read what moved and why.
+- Look for a banner: billing, a lost connection, a rule that raised or cut a night several times, or "Rates not reaching Think Reservations" at the top of the change log.
+- On the <Ui>PMS</Ui> tab, check that <Ui>Last sync</Ui> is a few minutes old. It is written in universal time (UTC), not your local time: [the PMS tab](/docs/watch/the-pms-tab#last-sync) shows how to read it. If it is more than an hour old, bookings are not being read, even if <Ui>Connection</Ui> reads Connected. Read [When there is no banner](/docs/connect/reconnect-and-disconnect#when-there-is-no-banner).
+- For your own events, such as a wedding or a local festival, type a price on those nights.
+
+The rest runs without you, day and night, whether or not anyone has MAYA open. Other things you may meet:
+
+- **A rate you change in ThinkReservations** on a night MAYA has sent to is kept as yours once MAYA has read its own price back there and the send is an hour old. Read [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms).
+- **A free night.** MAYA never sends a price of 0, so set a comp night to 0 in ThinkReservations yourself. Read [Make a night free](/docs/recipes/make-a-night-free).
+- **Blocked rooms.** MAYA does not read them. Enter them under <Ui>Rooms out of service</Ui> on the <Ui>PMS</Ui> tab. Read [Tell MAYA rooms are out of service](/docs/recipes/rooms-under-renovation).
+- **Permission or connection problems** show in the change log or as a banner, and a General Manager or Hotel Admin reconnects in one click. Read [Connection lost](/docs/wrong/connection-lost).
+- **The PMS tab's request list stays empty** for ThinkReservations. Look at <Ui>Connection</Ui> and <Ui>Last sync</Ui> instead. Read [The PMS tab](/docs/watch/the-pms-tab).
+
+## Leaving
+
+Cancel on the <Ui>Billing</Ui> page first, then [email us](mailto:info@modern-hospitality-solutions.com?subject=Disconnect%20ThinkReservations) and we remove the connection from our side. The rates in ThinkReservations stay as MAYA last sent them. Read [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving).
+
+<Example title="The Harbour Inn's first week on ThinkReservations">
+**Monday, October 5, 2026.** Sam pays, clicks <Ui>Connect →</Ui> beside Think Reservations, signs in and picks <Ui>Hold My Hand</Ui>. The <Ui>PMS</Ui> tab shows Standard, Deluxe and Suite at "100 units" each. Sam emails us the real counts (12, 6 and 2) and asks which time zone MAYA has. The same day, we reply that MAYA has US Pacific. We also set the room count to 7 for every room type: 21 rooms, close to the real 20. Sam's plan covers 20 rooms, so the room count email is about 21 rooms, not 300. A week after it, Sam's plan moves to 21 rooms: $105 a month instead of $110, because 21 rooms sits in the next bracket, at $5.00 a room.
+
+**Tuesday to Thursday.** Sam adds "Busy nights" (occupancy Greater than 80, Increase 10%) on every room type. In simulation, Sat, Nov 14 2026 has 18 rooms booked, 86% of 21, so the rule raises Standard from the $150 Best Available rate in ThinkReservations to $165. Nothing is sent.
+
+**Friday, October 9, 2026.** Sam clicks <Ui>Turn them on for real</Ui>. On the next cycle MAYA sends the changed prices to Best Available. Within the hour MAYA's read finds $165 there. "Non-Refundable", which follows Best Available at 10% off, shows $148.50 without MAYA touching it.
+</Example>
+
+<Callout kind="not-yet">
+ThinkReservations reports no room counts, and a count for each room type is not possible yet. There is no marketplace listing, so no trial without a code, and no disconnect button in MAYA. The request log on the <Ui>PMS</Ui> tab stays empty. A review with no starter rules has no go-live button (email us).
+</Callout>
+
+<Related>
+- [ThinkReservations](/docs/connect/thinkreservations)
+- [Setting up your system before you go live](/docs/connect/setting-up-your-system-for-maya)
+- [Occupancy looks wrong](/docs/wrong/occupancy-looks-wrong)
+</Related>

@@ -1,0 +1,109 @@
+---
+title: When a price change comes off
+summary: Which price changes undo themselves and which do not (standard rules, raises after cancellations, cuts, a price you type, a deleted rule), and the change log sentences for each.
+section: rules
+order: 100
+readingTime: 8
+keywords: [undo, revert, come off, came off, went back, back to base rate, stopped applying, cancellation, guest cancels, cancelled, raise came off, cut did not come off, bookings recovered, price went back, undo a price change, standard rule undo itself, booking speed rule undo itself, enough of the bookings behind it cancelled, set by hand, night passed, nothing in the change log, no entry for that night, tune, threshold changed, sent right away, next cycle, not sent, mews, price of 0]
+questions:
+  - Does a standard rule undo itself? {#standard-rules}
+  - Does a booking speed rule undo itself? {#raises-after-cancellations/a-booking-speed}
+  - What happens when a guest cancels? {#raises-after-cancellations/a-booking-speed}
+  - Why did a raise come off? {#raises-after-cancellations/a-booking-speed}
+  - Bookings recovered, so why did the cut not come off? {#cuts}
+  - Why did the price go back to the base rate? {#the-change-log-sentences/why-did-the}
+  - Can I undo a price change? {#a-price-you-type/careful-typing-a}
+  - What does "stopped applying an earlier 10% raise" mean in the change log? {#the-change-log-sentences/what-happened-what}
+  - Why is there no change log entry for a price that went back? {#the-change-log-sentences/what-happened-what}
+  - What happens to prices when I accept a Tune suggestion? {#a-rule-that-is-changed}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+A standard rule's change comes off when its condition stops holding. A booking speed raise comes off when enough of the bookings behind it cancel. A cut never comes off by itself. Your typed price takes earlier changes off that night. Deleting a rule undoes everything it did. Turning a rule off undoes nothing.
+</InPlainWords>
+
+## Standard rules
+
+A standard rule (only <Ui>Sellable occupancy (%)</Ui> and <Ui>Booking window (days to stay)</Ui> rows) holds one change on a night and room type while its condition holds, and takes it off on the first cycle where it does not. Nothing else is needed.
+
+<Example title="A cancellation at The Harbour Inn">
+"Busy nights" raises 10% when a night is more than 80% full. Friday is 17 of 20 booked (85%): Standard is $165. Two guests cancel, so Friday drops to 15 of 20 (75%). On the next cycle, about five minutes later, the raise comes off and Standard goes back to $150. If a new booking lifts Friday over 80% again, the raise goes back on.
+</Example>
+
+The <Ui>How rules behave</Ui> panel on the <Ui>Rules</Ui> tab animates exactly this: "Next evaluation: conditions no longer match. The rule turns off and the price reverts to $200."
+
+## Raises after cancellations
+
+A booking speed or pickup raise stays on the price after the rule fires. It comes off on its own in one case: enough of the bookings behind it cancel. Which test applies is fixed at the moment the raise fires.
+
+| The raise came from | It comes off when |
+|---|---|
+| Booking speed at <Ui>Faster Than Normal</Ui> or above, with more bookings than expected in its window | the bookings still on the books from the days it counted are back down to what a night like it usually gets over those days |
+| Pickup count <Ui>Greater than</Ui> a number of 0 or more, with bookings up over its window | the rooms booked for the night, over the room types the rule measures, are back down to where they were when the window opened |
+
+The bar is deliberately high. One or two cancellations out of a real rush do not undo a raise. Each stacked raise is tested on its own numbers. A raise is never taken off in the same cycle that made it, never while its rule is switched off, and never once the rule measures a different set of room types from the one it measured when it fired.
+
+A raise made by a rule whose trigger was <Ui>Less than</Ui>, <Ui>Slower Than Normal</Ui> or <Ui>Normal</Ui> was not caused by bookings, so cancellations never undo it.
+
+<Example title="Four cancellations, then three more">
+On Monday, October 12, 2026, "Hot-week surge" raised Saturday, November 14, 2026 by 25%, after 12 bookings arrived in a week when a night like it usually gets 5. Four of those 12 cancel: 8 are still on the books, more than 5, so the raise stays. Three more cancel: 5 are left, back to the usual 5, so the raise comes off on the next cycle.
+</Example>
+
+When another rule or a price you typed is still on that night, the change log says: "Warm-date bump" stopped applying an earlier 10% raise here: enough of the bookings behind it cancelled. When the raise was the only change on the night, the price goes back to the base and the change log lists nothing for that night. The calendar shows the price it is at now.
+
+## Cuts
+
+A cut never comes off by itself, whatever happens to the bookings. That is by design: a cut that switched off the moment a booking arrived would have undone the thing that brought the booking in. If bookings have recovered and you want the price back up, type the price you want on the calendar, or delete the rule, which undoes every cut it made.
+
+**"Bookings recovered, so why did the cut not come off?"** Because a cut is only ever undone by you. A cut rule can keep cutting the same night after each wait, down to your floor. After three cuts the amber banner asks whether it should keep going, and until you answer, it does. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
+
+## A price you type
+
+When you type a price for a night and room type on the calendar:
+
+- every booking speed and pickup change already on that night and room type comes off ("this night's price was set by hand" in the change log)
+- every standard rule change already there is held: the rule stays on, so it does not fire again on the same trigger, but it stops moving the price until its condition next changes
+- your number becomes the base, and rules that fire later stack on top of it
+- a booking speed or pickup rule that already existed waits its wait from the moment you saved, then reads its whole window again
+
+Read [Setting a price yourself](/docs/watch/setting-a-price-yourself). Clearing your price hands the night back: held standard rules move the price again, but the booking speed and pickup changes that came off stay off.
+
+<Callout kind="careful" title="Typing a price is the quickest undo">
+If a price looks wrong and you want it fixed now, type the price you want. It is saved at once. If you are live on Cloudbeds or ThinkReservations it is sent right away or on the next cycle, about five minutes later (the screen says which). A night more than 59 nights ahead is sent when it enters the 60-night window. A 0 is not sent, and nothing is sent to Mews. Read [Undo a price change](/docs/recipes/undo-a-price-change).
+</Callout>
+
+## A rule that is changed
+
+Today there is no edit control for a rule. The one change you can make in place is accepting a "Tune ... ?" suggestion after <Ui>Get suggestions from my data</Ui>, which moves the occupancy threshold of a standard rule. From the next cycle the rule checks every night against the new threshold, so a night that no longer meets it loses the change, and a night that now meets it gains one.
+
+## The night passes
+
+Once your property's date moves past a night, every change on it is left as it was and nothing touches it again. Past nights are never re-priced.
+
+## A deleted rule
+
+Deleting a rule removes every change it made, whether from a standard rule or a booking speed or pickup rule, from the next cycle. Every night it adjusted goes back to what the price would be if the rule had never run. The delete dialog says so and offers <Ui>Turn It Off and Keep Its Changes</Ui> beside <Ui>Delete Rule and Undo Its Changes</Ui>. Read [Turning a rule off, deleting it, or changing it](/docs/rules/off-delete-or-change).
+
+Turning a rule off undoes nothing: its changes stay exactly as they are.
+
+## The change log sentences
+
+| What happened | What you read |
+|---|---|
+| A standard rule switched off | If another rule or a typed price is still on the night, its next entry shows the price without the change, and no rule is named for the drop. If it was the only change, nothing: the night is back at its base and has no entry |
+| A raise came off for cancellations | If another rule or a typed price is still on the night: "Warm-date bump" stopped applying an earlier 10% raise here: enough of the bookings behind it cancelled. If it was the only change, nothing |
+| You typed a price | "Warm-date bump" stopped applying an earlier 10% raise here: this night's price was set by hand. Then a line naming who set it. |
+| A rule was deleted | The next run prices without it. In older entries a deleted standard rule is called "Pricing rule" with no reason given, and a deleted booking speed or pickup rule's line is left out |
+
+**"Why did the price go back to the base rate?"** One of: a standard rule's condition stopped holding, a raise came off after cancellations, you or a colleague cleared a typed price, or the rule was deleted. The change log lists a night only while a rule or a typed price is on it, so a night back at its base usually has no entry at all. Check the night's current price on the calendar. When another rule or a typed price is still on the night, its entry shows the price without the change, and names a raise that came off for cancellations.
+
+<Callout kind="not-yet">
+There is no undo button for one price change. The three ways back are: type the price you want on that night (now), delete the rule (undoes everything it did, everywhere), or stop the rule on that night from the banner if it has fired three times there (no more changes, and what it did stays).
+</Callout>
+
+<Related>
+- [How rules run](/docs/rules/how-rules-run)
+- [Setting a price yourself](/docs/watch/setting-a-price-yourself)
+- [Undo a price change](/docs/recipes/undo-a-price-change)
+</Related>

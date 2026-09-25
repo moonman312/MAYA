@@ -1,0 +1,141 @@
+---
+title: Raise or lower all your prices
+summary: One booking window rule moves every night MAYA prices by the same percentage. A rule cannot be limited to a season, so for a stretch of dates, type the new price for each room type with through…, or change your rates in your property system on nights MAYA has not sent a price to yet.
+section: recipes
+order: 75
+readingTime: 9
+keywords: [raise all prices, lower all prices, all my prices, every price, every night, all nights, whole window, across the board, percentage, percent, 10%, put prices up, bring prices down, increase everything, decrease everything, price rise, price increase, general increase, inflation, new rates, new year, season, seasonal, summer, winter, holidays, peak season, low season, date range, stretch of dates, bulk change, base rates, change my base rates, booking window, less than 60, fixed amount, flat amount, through, undo a raise, take a raise off]
+questions:
+  - How do I raise or lower all my prices by a percentage? {#in-plain-words}
+  - How do I put every price up 10%? {#move-every-night-by-a-percentage}
+  - How do I lower all my prices for a quiet month? {#move-a-season-by-typing-prices/the-price-box}
+  - How do I raise my prices for a season? {#move-a-season-by-typing-prices/the-price-box}
+  - Can one rule raise every night? {#move-every-night-by-a-percentage}
+  - Can I type a percentage on the calendar? {#move-a-season-by-typing-prices/the-price-box}
+  - Should I change my base rates in my property system or in MAYA? {#move-a-season-in-your-property-system/change-rates-in}
+  - Will a rule that raises every night also raise nights where I typed a price? {#using-more-than-one-way/the-rule-works}
+  - How do I take an across-the-board raise off again? {#change-the-percentage-or-take-it-off/to-take-it}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+To move every night by the same percentage, add one rule on the <Ui>Rules</Ui> tab: <Ui>Booking window (days to stay)</Ui> <Ui>Less than</Ui> 60, then <Ui>Increase the rate</Ui> or <Ui>Decrease the rate</Ui> by the percentage you want. It covers tonight and the next 59 nights, which is every night MAYA prices, and it stacks with your other rules. A rule cannot be limited to a season, so for a stretch of dates, type the new price for each room type on the <Ui>Calendar</Ui> tab with <Ui>through…</Ui>, or change your rates in your property system on nights MAYA has not sent a price to yet.
+</InPlainWords>
+
+## Pick the way that fits
+
+A season here is any stretch of dates you choose, such as your summer or the winter holidays.
+
+| You want to move | Do this | Keep in mind |
+|---|---|---|
+| Every night MAYA prices | Add a booking window rule | Moves every night by the same percentage, on top of your other rules. It cannot stop at a date. |
+| A season, at one price per room type | Type the price on the calendar with <Ui>through…</Ui> | One amount for every night in the run. You work out the new price. |
+| A season, keeping each night's own rate | Change the rates in your property system | Only on nights MAYA has never sent to: every night before you first go live, then nights more than 59 nights ahead. Cloudbeds and ThinkReservations only. |
+
+## Move every night by a percentage
+
+<Steps>
+<Step title="Open the builder and name the rule">
+On the <Ui>Rules</Ui> tab, click <Ui>+ Add a rule</Ui>. In <Ui>Rule name</Ui>, type a name you will recognise in the change log, such as All nights up 10%.
+</Step>
+<Step title="Set the condition">
+In the first row, change <Ui>Metric</Ui> to <Ui>Booking window (days to stay)</Ui>. Set <Ui>Compare</Ui> to <Ui>Less than</Ui> and <Ui>Threshold</Ui> to 60.
+</Step>
+<Step title="Set the percentage">
+Under <Ui>Rate adjustment</Ui>, choose <Ui>Increase the rate</Ui> (or <Ui>Decrease the rate</Ui>) and type 10 in <Ui>Adjust by percent (%)</Ui>. For a flat amount, untick the percent box and tick <Ui>Adjust by fixed amount ($)</Ui> instead.
+</Step>
+<Step title="Pick the room types and add it">
+Under <Ui>Apply to room types</Ui>, leave every room type ticked, or untick any you want left alone. Click <Ui>Add Rule</Ui>. The rule is <Ui>On</Ui> at once.
+</Step>
+</Steps>
+
+Adding a rule needs Revenue Manager access or higher. On a live property every night's new price goes to your property system on the next run. In simulation they show in MAYA only. To see the numbers first, read [Try a rule before turning it on](/docs/recipes/try-a-rule-before-turning-it-on).
+
+### What it does
+
+Booking window is the number of days until the stay, on your property's own calendar: tonight is 0. <Ui>Less than</Ui> 60 covers 0 to 59, the whole window MAYA prices, and each new night as it comes into the window. This is a standard rule (one with only occupancy or booking window conditions): it makes its change once on each night and room type and holds it until the night has passed. The change comes in on the next pricing run, about every five minutes.
+
+On the Rules tab the row reads "Booking window below 60 days" with "+10%". In the change log a change reads: "All nights up 10%" raised this night 10%, from $150.00 to $165.00.
+
+Percentages multiply. On a night where "Busy nights" (occupancy Greater than 80, Increase 10%) also holds, Standard goes from $150 to $165 to $181.50, which is 21% up, not 20%. A raise still stops at the room type's ceiling, and a cut at its floor.
+
+<StackingCalculator />
+
+A raise or cut from a standard rule like this does not change which bookings your booking speed rules count. It does not open a night you closed at 0 in your system, and it does not raise a comp night (a night you typed as 0).
+
+### Change the percentage, or take it off
+
+- **To change 10% to 15%**, delete the rule and add it again. Read [Change a rule](/docs/recipes/change-a-rule).
+- **To take it off**, click <Ui>Delete</Ui> on its row, then <Ui>Delete Rule and Undo Its Changes</Ui>. From the next run every night goes back to what it would be without the rule.
+- **Switching it Off does not take it off.** Nights it already moved keep the change and new nights do not get it, so the window ends up mixed. Use Delete to end it.
+
+## Move a season by typing prices
+
+The price box on the calendar takes an amount, not a percentage, so work out each room type's new price first. The Harbour Inn's Standard is usually $150, so 10% up is $165.
+
+<Steps>
+<Step title="Open the first night">
+On the <Ui>Calendar</Ui> tab, click the first night of the season. The room type cards appear under the grid.
+</Step>
+<Step title="Type the price and cover the season">
+In the box on the Standard card, type 165. Click <Ui>through…</Ui> and pick the last night of the season.
+</Step>
+<Step title="Save, then repeat for each room type">
+Click <Ui>Save</Ui>. Do the same on the Deluxe and Suite cards, each with its own new price.
+</Step>
+</Steps>
+
+- One save puts one amount on every night in the run. If Friday and Saturday nights normally sell higher, save them as runs of their own, or use your property system (below).
+- One save covers up to 365 nights, from tonight to 364 days ahead, inside the room type's floor and ceiling. Each person can make 30 saves or clears in 10 minutes. It needs Revenue Manager access or higher.
+- Your price becomes the starting point. Rules that had already moved those nights pause, rules that fire later stack on top, and booking speed and pickup rules wait again from your price. Read [Setting a price yourself](/docs/watch/setting-a-price-yourself).
+- When you are live it goes to your property system as typed, and nights more than 59 nights ahead go as they come into the window. Nothing is sent to Mews.
+- To hand the season back, open its first night, pick the last one with <Ui>through…</Ui> and click <Ui>Clear</Ui>.
+
+## Move a season in your property system
+
+Change rates in your property system only on nights MAYA has never sent a price to. Before you first go live, that is every night. Once you are live, it is every night more than 59 nights ahead.
+
+MAYA reads your rate for each night in the window about once an hour, and again when your property's date changes. On a night it has never sent to, your rate is the starting point, so a night you raised 10% starts 10% higher and your rules work on top. Each night keeps its own rate, so weekends stay above weekdays.
+
+On a night MAYA has already sent to, a change in your system is kept as your own price once MAYA's last send there has landed and is an hour old ("Changed in Cloudbeds" on the calendar). That works for part of the window, not for nearly all of it. [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) has every condition.
+
+<Callout kind="careful" title="Changing the whole window in your system once you are live">
+If you are live and change 80% or more of the nights MAYA has sent to (10 at least) by one percentage in your system, MAYA reads it as your system's own arithmetic, like prices shown with tax, and keeps none of it. Your new rates stay in your system only until MAYA's price for each night next changes. For the whole window, use the rule above.
+</Callout>
+
+<PmsTabs>
+<PmsTab pms="cloudbeds">
+Change each room type's base rate, the rate plan that does not follow another plan. MAYA reads and writes that rate. A change to a derived plan or a package is not read.
+</PmsTab>
+<PmsTab pms="thinkreservations">
+Change the Best Available rate type. MAYA reads and writes that rate. A change to another rate type is not read.
+</PmsTab>
+<PmsTab pms="mews">
+MAYA does not read your rates from Mews and sends nothing to Mews. Change your rates in Mews as you always have. A rule or a typed price changes the prices MAYA shows, which you can use as a guide.
+</PmsTab>
+</PmsTabs>
+
+## Using more than one way
+
+The rule works on top of whatever starting point a night has, a rate you raised in your system included. With a price you typed (or one MAYA kept from your system as yours), it depends on timing:
+
+- If the rule was already acting on the night when you typed, your price stands and the rule stays off that night until you click <Ui>Clear</Ui>.
+- A price typed for a night more than 59 nights ahead gets the rule's change on top once the night comes into the window.
+- A rule added after you typed a price applies on top of that price.
+
+<Example title="The Harbour Inn, all nights up 10% and the winter holidays">
+On Friday, October 2, 2026, Sam adds "All nights up 10%". On the next run every night from October 2 to November 30 moves: Standard from $150 to $165, Deluxe from $200 to $220, Suite from $300 to $330.
+
+Sam wants the winter holidays higher still, Friday, December 18, 2026 through Sunday, January 3, 2027. Those nights are 77 to 93 nights away, so MAYA has never sent to them, and Sam raises each one's base rate 10% in Cloudbeds. On October 20, December 18 comes into the window. MAYA reads $165 as the Standard starting point, and the rule adds its 10%: $181.50, which is 21% above the old $150.
+</Example>
+
+<Callout kind="not-yet">
+A rule cannot be limited to a date range or a season, and a booking window counts days from today, so it cannot pick out fixed dates. The calendar takes an amount, not a percentage, and there is no bulk upload.
+</Callout>
+
+<Related>
+- [Setting a price yourself](/docs/watch/setting-a-price-yourself)
+- [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms)
+- [Booking window](/docs/rules/booking-window)
+</Related>

@@ -1,0 +1,62 @@
+---
+title: Update your card
+summary: Click Update card, receipts & cancellation on the Billing page to open Stripe's portal, change the payment method there, come back, and email us so we move your subscription onto the new card. When to do it, and what clears the warning.
+section: recipes
+order: 240
+readingTime: 3
+keywords: [update my card, change card, new card, card expired, card declined, card stopped working, payment did not go through, fix it, stripe portal, update card receipts & cancellation, payment method, paused work, restart maya, old card still charged, old card, move to a new card, retry, retries]
+questions:
+  - How do I update my card? {#update-the-card}
+  - Where do I change my payment method? {#update-the-card}
+  - What happens if my card fails? {#when-to-do-it/the-billing-page}
+  - It says my saved card stopped working, what do I do? {#when-to-do-it/the-billing-page}
+  - MAYA has paused work on my property, how do I get it going again? {#when-to-do-it/the-billing-page}
+  - Will Stripe's retry use my new card? {#update-the-card}
+  - Does MAYA store my card details? {#in-plain-words}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Click <Ui>Billing</Ui> at the top right, then <Ui>Update card, receipts & cancellation</Ui>. That opens Stripe, where your card, invoices and cancellation live. Save the new card there as your default and you are sent back to the Billing page. Then email us so we move your subscription onto it, because a subscription can keep charging the card it started with. MAYA never holds your card: Stripe does.
+</InPlainWords>
+
+## Update the card
+
+<Steps>
+<Step title="Open the Billing page">
+Click <Ui>Billing</Ui> in the dashboard header, or <Ui>Fix it</Ui> on the amber banner when one is showing. You need General Manager or Hotel Admin access.
+</Step>
+<Step title="Open Stripe">
+Under <Ui>Manage</Ui>, click <Ui>Update card, receipts & cancellation</Ui>. The button reads "Opening…" and Stripe's portal opens for your property's subscription.
+</Step>
+<Step title="Change the payment method and come back">
+In the portal, update the payment method and save the new card as your default. Stripe returns you to the Billing page. The portal also holds your invoices and receipts, and the switch between monthly and yearly.
+</Step>
+<Step title="Email us to move the subscription onto the new card">
+Your subscription may keep charging the card it started with, including when Stripe retries an overdue payment. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Move%20to%20a%20new%20card) with your property name and we move the subscription onto the new card.
+</Step>
+</Steps>
+
+## When to do it
+
+| The Billing page says | What it means | What to do |
+|---|---|---|
+| Your saved card stopped working | MAYA checks the card with a zero-amount check that moves no money, once after checkout and again about 48 hours later. This one was declined. Nothing has failed yet. | Before the next charge, update the card, then email us so we move your subscription onto it. The warning clears by itself the next time a payment succeeds. |
+| Your last payment did not go through | The bank declined a real charge. Stripe is retrying, and your rules keep running in the meantime. The status row reads "Payment overdue". | Update the card, then email us so we move your subscription onto it. The next retry then uses the new card. |
+| MAYA has paused work on this property | The retries ran out. Prices are no longer worked out or sent. The status row reads "Unpaid" and the dashboard shows the red <Ui>Restart MAYA</Ui> banner. | Update the card, then email us so we move your subscription onto it. Once a payment goes through, the subscription restarts where it left off. Your rules, settings and history are untouched. |
+
+The retry period is a Stripe setting, about two weeks.
+
+<Callout kind="good-to-know">
+Receipts, failed-payment emails and expiring-card emails come from Stripe, not from MAYA, to the email address on your billing account. MAYA cannot resend them. MAYA itself sends three emails: the team invitation, the room count email and a nudge before a charge when your property system is not connected.
+</Callout>
+
+<Callout kind="not-yet">
+Every payment is taken automatically, so there is no invoice to pay by hand. US bank debit (ACH) is switched off when you subscribe, and Stripe's portal shows the ways you can pay. There is no way to update a card from inside MAYA, and no card details are shown there beyond the decline reason when a check fails.
+</Callout>
+
+<Related>
+- [Cards, payments and invoices](/docs/billing/cards-payments-and-invoices)
+- [The billing page](/docs/billing/the-billing-page)
+- [Account and billing problems](/docs/wrong/account-and-billing-problems)
+</Related>

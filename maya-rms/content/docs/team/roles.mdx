@@ -1,0 +1,143 @@
+---
+title: "Roles: who can do what"
+summary: The four roles as the app describes them, a table of every action and the lowest role that can do it, what a Viewer or Revenue Manager sees on the pages they cannot use, the one difference between General Manager and Hotel Admin, and what to do when your only Hotel Admin has left.
+section: team
+order: 10
+readingTime: 8
+keywords: [roles, role, permissions, access, who can, hotel admin, general manager, revenue manager, viewer, staff, staff role, front desk, read only, view only, look but not change, who can go live, who can see billing, who can reconnect, who can type prices, who can answer the banner, who can see the change log, who can use the rate simulator, who can save a rule, who can invite, per property, different roles, share a login, one login per person, platform staff, MHS staff, can look cannot change, remove a general manager, remove another general manager, hotel admin left, only hotel admin left, admin left the company, admin quit, no hotel admin, nobody can manage the team, nobody can manage billing, make someone hotel admin, replace the hotel admin, above your own access level]
+questions:
+  - What roles are there in MAYA? {#in-plain-words}
+  - What can a Viewer do? {#the-four-roles-as-the-app-describes-them}
+  - What can a Revenue Manager do? {#the-four-roles-as-the-app-describes-them}
+  - What can a General Manager do? {#the-four-roles-as-the-app-describes-them}
+  - What is the difference between General Manager and Hotel Admin? {#general-manager-versus-hotel-admin}
+  - Who can go live? {#what-a-viewer-or-revenue-manager-sees-on-the-gated-pages/going-live}
+  - Who can see billing? {#what-a-viewer-or-revenue-manager-sees-on-the-gated-pages/the-billing-page}
+  - Who can reconnect the property system? {#who-can-do-what/the-lowest-role}
+  - Who can answer the Rules that keep adjusting banner? {#who-can-do-what/the-lowest-role}
+  - Who can type prices? {#who-can-do-what/the-lowest-role}
+  - Who can see the change log? {#who-can-do-what/the-lowest-role}
+  - Can a Viewer try rules in the Rate Simulator? {#who-can-do-what/the-lowest-role}
+  - Can one person have different roles on different properties? {#roles-are-per-property}
+  - Can two people share one login? {#two-people-one-login}
+  - Can a General Manager remove another General Manager? {#general-manager-versus-hotel-admin}
+  - Our only Hotel Admin has left and nobody can manage the team or billing. What do we do? {#if-your-only-hotel-admin-has-left/a-property-always}
+  - Can MHS staff see my property? {#can-we-see-your-property}
+pms: [cloudbeds, thinkreservations, mews]
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Four roles, set per property. Hotel Admin: everything. General Manager: everything except managing Hotel Admins. Revenue Manager: day-to-day pricing, with no going live, no billing and no team changes. Viewer: look at everything, change nothing. The person who creates the account and pays is the property's first Hotel Admin.
+</InPlainWords>
+
+## The four roles, as the app describes them
+
+These are the words the app shows beside each role when you invite someone or hover the <Ui>?</Ui> on the <Ui>Team</Ui> page.
+
+| Role | What the app says |
+|---|---|
+| **Hotel Admin** | "Everything, including managing General Managers." |
+| **General Manager** | "Everything except managing Hotel Admins or removing other General Managers: pricing, taking it live, the property system, billing, and the rest of the team." Despite that wording, a General Manager can change or remove another General Manager. [General Manager versus Hotel Admin](#general-manager-versus-hotel-admin) has the details. |
+| **Revenue Manager** | "Day-to-day pricing: rules, rates, floor and ceiling guardrails, and reverting changes. Cannot take pricing live or change the team." |
+| **Viewer** | "Can look, cannot change anything." |
+
+Two lines run through everything. Revenue Manager and up can change pricing. General Manager and up can change money, the connection and the team.
+
+## Who can do what
+
+The lowest role that can do each thing. A higher role can do everything a lower one can.
+
+| Action | Lowest role |
+|---|---|
+| Open the app and read the calendar, the change log, <Ui>How did we know?</Ui>, the <Ui>PMS</Ui> tab and the room types | Viewer |
+| See the dashboard billing banner and the <Ui>Rules that keep adjusting</Ui> banner | Viewer |
+| Try rules in the <Ui>Rate Simulator</Ui> | Viewer |
+| Switch between properties you belong to | Viewer |
+| Accept the Terms for your own login | Viewer |
+| Add a rule, switch it on or off, delete it | Revenue Manager |
+| Save a rule from the <Ui>Rate Simulator</Ui> | Revenue Manager |
+| Type or clear a manual price | Revenue Manager |
+| Answer the <Ui>Rules that keep adjusting</Ui> banner, and <Ui>Let it run again</Ui> | Revenue Manager |
+| Set a past date aside as not a fair comparison, and undo it | Revenue Manager |
+| Tick or untick <Ui>Counts as a room</Ui> | Revenue Manager |
+| Add or clear rooms out of service | Revenue Manager |
+| Accept suggestion cards in the review, floor and ceiling cards included, and answer the floor and ceiling questions again | Revenue Manager |
+| Run <Ui>Get suggestions from my data</Ui> | Revenue Manager |
+| Go live | General Manager |
+| Reconnect the property system (the <Ui>Reconnect</Ui> button) | General Manager |
+| Open the <Ui>Billing</Ui> page, Stripe's billing portal, change the room count, restart, cancel | General Manager |
+| Set a group property aside with <Ui>Not now</Ui>, and set it up later | General Manager |
+| Open the <Ui>Team</Ui> page to invite, change a role, remove or cancel an invitation | General Manager, for roles up to General Manager. Hotel Admin, for any role. |
+| Make or unmake a Hotel Admin | Hotel Admin |
+
+Some pages show controls to everyone and refuse the action for a role below the line. A Viewer who tries to add a rule sees an error under the form, and a Viewer's switch or delete on a rule changes nothing. The <Ui>Rules that keep adjusting</Ui> card shows a Viewer no buttons and reads "Only a Revenue Manager or above can answer this."
+
+## What a Viewer or Revenue Manager sees on the gated pages
+
+- **The <Ui>Billing</Ui> page:** "Billing is handled by this property's General Manager or Hotel Admin. Ask one of them for access if you need to change it."
+- **The <Ui>Team</Ui> page:** "Who can access this property is managed by its General Manager or Hotel Admin. Ask one of them if you need someone added or removed."
+- **Going live:** the <Ui>Turn them on for real</Ui> button on the review screen shows for every role and opens a confirm dialog. Nothing is refused until you click <Ui>Go live</Ui> in that dialog. A Revenue Manager or Viewer then sees "Taking pricing live requires General Manager access" in the dialog, and nothing changes. [Going live](/docs/live/going-live) walks through the dialog.
+- **Anything else above your role:** "This needs General Manager access or higher on this property." or the Revenue Manager version of the same sentence.
+
+## Roles are per property
+
+Your role is set on each property separately, by that property's General Manager or Hotel Admin. The same person can be Hotel Admin on one property and Viewer on another. [Several properties on one account](/docs/account/several-properties) has the switch.
+
+## General Manager versus Hotel Admin
+
+One difference: managing Hotel Admins. A General Manager can hand out any role up to General Manager, change or remove anyone up to that level (other General Managers included), and cannot touch a Hotel Admin. A Hotel Admin can do all of that and also make, demote or remove other Hotel Admins. Both can go live, reconnect, see billing and manage the team. Two rank rules hold for everyone: you can give a role at your own level or below, never above ("You can't give someone a role above your own."), and you cannot change or remove someone above you ("That's above your own access level.").
+
+Can a General Manager remove another General Manager? Yes. A General Manager can change another General Manager's role or remove them, as they can for anyone up to their own level, even though the role's one-line description in the app says otherwise.
+
+A property is never left without a Hotel Admin: the last one cannot be demoted or removed ("This is the property's only Hotel Admin. Make someone else one first.").
+
+## If your only Hotel Admin has left
+
+A property always keeps at least one Hotel Admin, and only a Hotel Admin can change or remove one. So when your only Hotel Admin leaves the business, their login stays on the property and still opens it. A General Manager who tries to change or remove it sees "That's above your own access level."
+
+If you have a General Manager, they can still keep things running: open <Ui>Billing</Ui> and Stripe's billing portal, change the room count, go live, reconnect, and invite, change or remove anyone up to General Manager. What they cannot do is make someone Hotel Admin or remove the one who left. For that, email us.
+
+<Steps>
+<Step title="Email us from the right address">
+[Email us](mailto:info@modern-hospitality-solutions.com?subject=Our%20Hotel%20Admin%20has%20left) from the address of a General Manager on the property, or from the address that receives the property's invoices from Stripe (usually the owner's). Say which property it is, who has left, and who should become Hotel Admin. If that person is not on the team yet, a General Manager can invite them first as a General Manager.
+</Step>
+<Step title="We check the request">
+Before we change anything, we check that the address you wrote from belongs to a General Manager on that property, or is the billing email on its account in Stripe. Then we reply to that address and wait for you to confirm.
+</Step>
+<Step title="We make the change">
+We make the person you named Hotel Admin and take the old login off the property. From then on your new Hotel Admin manages everything from the <Ui>Team</Ui> page.
+</Step>
+</Steps>
+
+If nobody on the team can write from either address, email us anyway from your work address and explain. We reply with what we need to confirm that you run the property. Write promptly either way: until the old login is removed, it still opens the property.
+
+## The first Hotel Admin
+
+Whoever creates the account and pays, or claims the property after <Ui>Connect App</Ui> in Cloudbeds, becomes its Hotel Admin. They invite everyone else. If a colleague signed up first, ask them to invite you.
+
+## The front desk
+
+Give front-desk colleagues the Viewer role: they see every night's price and the change log and can change nothing. [Give the front desk view-only access](/docs/recipes/give-the-front-desk-view-only-access) is the two-minute version.
+
+## Two people, one login
+
+The Terms ask for one login per individual, and each person on the team takes a seat. Do not share a login. Invite each person with the role they need. The change log names the person who answered a <Ui>Rules that keep adjusting</Ui> banner, which only works when each person has their own login.
+
+## Can we see your property?
+
+Yes. Modern Hospitality Solutions staff can open your property to help, for example to switch it back to simulation at your request or to check a price with you.
+
+<Example title="The Harbour Inn's team">
+Sam created the account and is Hotel Admin. Priya is Revenue Manager. With 20 rooms the property has 2 seats, and Sam and Priya fill them. Priya builds rules, types a price for the wedding weekend, and answers the amber banner when a rule has adjusted a night three times. She cannot go live, change billing or invite anyone. Sam does those. Once the annex opened and the room count went to 24, the property had 4 seats, and the night manager joined as a Viewer to read the calendar each evening.
+</Example>
+
+<Callout kind="not-yet">
+No custom roles and no per-tab permissions: the four roles are the choices. No way to hide the rule controls from a Viewer: they see them and the action is refused. No role that sees billing without also being able to go live and change the team. No way for a General Manager to replace a Hotel Admin who has left: email us.
+</Callout>
+
+<Related>
+- [Inviting and removing people](/docs/team/inviting-and-removing-people)
+- [Going live](/docs/live/going-live)
+- [The billing page](/docs/billing/the-billing-page)
+</Related>

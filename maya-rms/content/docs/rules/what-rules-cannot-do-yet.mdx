@@ -1,0 +1,106 @@
+---
+title: What rules cannot do yet
+summary: Every limit of the rule builder today, stated plainly, with what to do instead, for weekends, date ranges, seasons, events, priority, editing, either/or, one night, both amounts, copying, exact prices, caps on movement, quiet periods, channels, length of stay and how bold prices move.
+section: rules
+order: 140
+readingTime: 10
+keywords: [weekend rule, weekend only, friday saturday, date range, season, event, festival, priority, which rule wins, edit, edit a rule, either or, or, one night only, single night, both percent and fixed, percent and dollar, copy, duplicate, copy to another property, rename, threshold above 100, two occupancy conditions, exact price, set the price to, $199, fixed price, cap, maximum change, limit how far, how fast, one change a day, minimum change, smallest change, tiny changes, small changes, a few cents, under 1%, noise, percent floor, floor as a percentage, never more than 20%, freeze, freeze window, last few days, close to arrival, near arrival, quiet hours, overnight, at night, direct bookings, channel, channels, OTA, online travel agency, booking site, booking.com, expedia, cannot, not yet, limits, workaround, length of stay, LOS, 7-night stay, weekly rate, long stay, minimum stay, min stay, aggressive, aggressiveness, conservative, slider, how bold, more aggressive]
+questions:
+  - Can I make a weekend-only rule? {#each-limit-and-what-to-do-instead/a-weekend-only}
+  - Can I make a rule for a date range, a season or an event? {#each-limit-and-what-to-do-instead/a-date-range}
+  - Can I set which rule wins? {#each-limit-and-what-to-do-instead/priority}
+  - Can I make an either/or rule? {#each-limit-and-what-to-do-instead/either-or}
+  - Can a rule apply to one night only? {#each-limit-and-what-to-do-instead/one-night-only}
+  - Can I use both a percent and a fixed amount in one rule? {#each-limit-and-what-to-do-instead/both-a-percent}
+  - Can I copy or duplicate a rule, or copy rules to another property? {#each-limit-and-what-to-do-instead/copy-or-duplicate}
+  - Can I have two occupancy conditions in one rule? {#each-limit-and-what-to-do-instead/two-conditions-of}
+  - Can a rule set an exact price, like $199, instead of a percent or an amount? {#each-limit-and-what-to-do-instead/an-exact-price}
+  - Can I cap how far or how fast prices move, or set a floor as a percentage? {#each-limit-and-what-to-do-instead/a-cap-on}
+  - Can I stop MAYA sending tiny changes, like under 1% or a few cents? {#each-limit-and-what-to-do-instead/a-smallest-change}
+  - Can I stop MAYA changing prices in the last few days before arrival, or at certain hours? {#each-limit-and-what-to-do-instead/no-changes-in}
+  - Can a rule count only direct bookings, or leave out bookings from online travel agencies (OTAs)? {#each-limit-and-what-to-do-instead/only-direct-bookings}
+  - Can MAYA price by length of stay (LOS), for example cheaper for a 7-night stay? {#each-limit-and-what-to-do-instead/length-of-stay}
+  - Is there an aggressiveness setting, to make MAYA more aggressive or more conservative? {#each-limit-and-what-to-do-instead/a-setting-for}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Rules run every day of the year, for every night in the window. Every rule you build ranks the same, and the starter rules rank above yours. You cannot yet limit a rule to weekends, a date range, a season or some channels, set which rule wins, edit a rule, make an either/or rule, set an exact price, or cap how far prices move. Here is what to do instead.
+</InPlainWords>
+
+## Each limit and what to do instead
+
+**A weekend-only rule.** Every rule runs every day of the week. There is no weekday choice in the builder, and MAYA has no setting for which nights are your weekend. (In these docs, and in how similar nights are chosen, weekends are Friday and Saturday nights.) What to do instead: for a weekend price, type a price on those nights on the calendar. It becomes the base for that night, and the rules already on it are held (their changes come off). Read [Setting a price yourself](/docs/watch/setting-a-price-yourself). For a rule that reads weekend busyness on its own, remember that booking speed already compares each Friday with other Fridays and each Saturday with other Saturdays, so a booking speed rule does not need a weekday switch to behave differently on weekends.
+
+**A date range, a season or an event.** Every rule runs for every night in the 60-night window, all year. What to do instead: for a wedding weekend or a festival, type a price for the range with <Ui>through…</Ui> on the calendar (up to 365 nights in one save, from tonight to 364 days ahead). Rules already on those nights are held (their changes come off), and rules that fire later stack on top, so switch off the rules that would move those nights until the weekend has passed. Switching a rule off stops it on every night, so switch it back on afterwards. Read [Hold a price for a wedding or event weekend](/docs/recipes/hold-a-price-for-an-event). For seasons, booking speed already compares inside the season your history shows, so a booking speed rule adjusts to the season by itself.
+
+**Priority.** Every rule you build has the same priority. When two booking speed or pickup rules are true on the same night, the one with more conditions wins, then (for two pickup rules with the same <Ui>Compare</Ui>) the stricter threshold, then the bigger money move, then the older rule. The five starter rules carry a higher priority than yours, so when a starter rule and one of yours are both true on the same night and room type, the starter rule is the one that fires. Standard rules do not compete: every one whose condition holds applies. Read [How rules run](/docs/rules/how-rules-run).
+
+**Editing a rule.** There is no edit control. Delete the rule (which undoes its changes) and add it again. To keep its prices in place, turn it off instead and add the new one beside it. Read [Turning a rule off, deleting it, or changing it](/docs/rules/off-delete-or-change).
+
+**Either/or.** Conditions on one rule are always "and": "Matches when all of the following are true." For "busy or last-minute", make two rules. Both can act on the same night, and their changes stack.
+
+**One night only.** A rule cannot be limited to one night. Type a price for that night instead.
+
+**Both a percent and a fixed amount.** The form has both boxes, but when both are ticked only the percent is saved. Choose one. For "10% plus $5", make two rules. They stack.
+
+**An exact price, like $199.** A rule changes the price by a percent or a fixed amount, up or down. It cannot set the price to a number. For an exact price, type it on the calendar for that night, or for a run of nights with <Ui>through…</Ui>. It is published as you typed it, and rules that fire later stack on top of it. Read [Setting a price yourself](/docs/watch/setting-a-price-yourself).
+
+**Copy or duplicate a rule, or copy rules to another property.** Not yet. Build the rule again. Rules belong to one property.
+
+**Rename a rule.** Not yet. Delete and re-add.
+
+**An occupancy threshold above 100.** The measured number can go above 100% (rooms out of service after a night sold, or overbooking), but a threshold above 100 is saved as 100. <Ui>Greater than</Ui> 100 fires on any overbooked night.
+
+**Two conditions of the same kind.** One of each: at most one occupancy row, one booking speed row, one booking window row and one pickup row per rule. For a band such as "between 60% and 80%", the builder cannot say it. Use two rules: one at <Ui>Greater than</Ui> 60, and a second at <Ui>Greater than</Ui> 80 that makes the change you want above the band. The two stack, so choose the second amount with the first already applied.
+
+<Example title="A band with two rules">
+You want Standard ($150) up $15 above 60% full, and up $30 in all above 80%. Fixed amounts add, so build two rules on Standard alone. Rule A: <Ui>Greater than</Ui> 60, <Ui>Increase the rate</Ui>, <Ui>Adjust by fixed amount ($)</Ui> 15 (untick the percent). Rule B: the same with <Ui>Greater than</Ui> 80. With 9 of 12 Standard rooms booked (75%), only rule A holds: $165. With 11 of 12 booked (92%), both hold: $180.
+</Example>
+
+**A cap on how far or how fast prices move.** There is no setting such as "never more than 20% below my base rate" or "at most one change a day", and a floor or ceiling cannot be a percentage. Floors and ceilings are fixed amounts, one pair per room type, the same on every night.
+
+To keep Standard ($150) within 20% of its usual rate, it needs a $120 floor. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Floor%20for%20one%20room%20type) to set it for Standard alone. Answering the floor question again would put $120 on every room type, Deluxe and Suite included. A floor is one amount for every night, so it does not follow a base rate that changes through the year. Read [Floors and ceilings](/docs/review/floors-and-ceilings#where-they-are-set).
+
+What holds prices back today:
+
+- the floor and ceiling of each room type
+- a standard rule makes one change while its condition holds, and takes it off when the condition stops
+- a booking speed or pickup rule waits after each change on a night (its <Ui>Then waits (advanced)</Ui> setting, or its lookback) before it can change that night again
+- in each cycle, at most one booking speed or pickup rule changes a given night and room type
+- once a booking speed or pickup rule has changed the same night three times, an amber banner asks you whether it should keep going
+
+A price can still change more than once in a day. A standard rule switches on and off as bookings come and go, and a stronger rule can step in while a weaker one waits. Read [How rules run](/docs/rules/how-rules-run) and [Floors and ceilings](/docs/review/floors-and-ceilings).
+
+**A smallest change, such as "do not send moves under 1%".** There is no minimum-change setting. Any price that changed, even by a cent, is sent to Cloudbeds or ThinkReservations once you are live. What to do instead: use larger amounts, or fewer rules that stack.
+
+**No changes in the last few days before arrival, or at certain hours.** There is no freeze window and no quiet hours. Cycles run about every five minutes, day and night, and tonight is always priced. What you can do:
+
+- On a booking speed or pickup rule you build, add a <Ui>Booking window (days to stay)</Ui> row set to <Ui>Greater than</Ui> 2. The rule then makes no new change on tonight or the next two nights. What it already did there stays, though a raise still comes off if enough of the bookings behind it cancel.
+- On a standard rule, the same row takes the rule's change off as the night comes within those days, and that is itself a price change. A standard rule cannot be held still near arrival this way.
+- The starter rules cannot be changed. To give one the extra row, delete it (which undoes its changes) and build it again yourself. A rule you build ranks below the starter rules you keep, and Slow-date trim cannot be rebuilt exactly (in the builder, <Ui>Slower Than Normal</Ui> also fires on the slower levels).
+- A price you type for those nights is published as typed, but rules that fire later still stack on it, so it is not a freeze either.
+
+**Only direct bookings, or leaving out booking sites.** There is no channel filter. Every booking counts the same, whatever channel it came from: direct, through an online travel agency (a booking site), or made at the front desk. That goes for sellable occupancy, booking speed and pickup count alike.
+
+**Length of stay (LOS) pricing, such as cheaper for a 7-night stay.** There is no condition for how long a guest is staying, and no minimum stay setting. MAYA writes one nightly rate per room type on Cloudbeds and ThinkReservations, and nothing to Mews. What to do instead: keep length-of-stay prices and minimum stays in your property system. A long-stay or discounted rate plan set up there to follow your base rate moves by your system's own rules when MAYA changes the base. Read [Prices are not reaching your property system](/docs/wrong/prices-not-reaching-your-pms) for how a plan that follows the base rate behaves.
+
+**A setting for how bold MAYA is.** There is no aggressiveness setting and no slider from careful to bold. How far and how often prices move depends only on what you set: the rules, their amounts, the speed levels, the waits, and each room type's floor and ceiling. To be bolder, pick larger amounts, levels nearer Normal (such as <Ui>Faster Than Normal</Ui>), shorter waits or a higher ceiling. To be gentler, do the opposite or raise the floor. The last of the five questions asks how you want your current pricing treated, but it changes nothing today. Read [The five questions](/docs/review/the-five-questions) and [Your starter rules](/docs/review/your-starter-rules).
+
+**A rule that raises only when a night is nearly full and booking fast.** This one you can do: put a <Ui>Sellable occupancy (%)</Ui> row and a <Ui>Booking speed (recommended)</Ui> row on the same rule. Both must be true.
+
+## Things that are settings, not rules
+
+- Floors and ceilings are per room type, not per night, season or weekend. Read [Floors and ceilings](/docs/review/floors-and-ceilings).
+- Rooms out of service take rooms off the sellable count for a stretch of nights, which changes what occupancy rules see. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
+- Which room types count as rooms is set on the <Ui>PMS</Ui> tab.
+
+<Callout kind="good-to-know">
+Most limits on this page are limits of the rule builder, not of the pricing. A price you type on the calendar can set an exact number, a weekend price or an event price for the nights you choose, and rules keep working around it.
+</Callout>
+
+<Related>
+- [The rule builder, field by field](/docs/rules/the-rule-builder)
+- [Setting a price yourself](/docs/watch/setting-a-price-yourself)
+- [What MAYA does not do (yet)](/docs/reference/what-maya-does-not-do)
+</Related>

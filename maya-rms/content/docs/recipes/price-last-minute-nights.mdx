@@ -1,0 +1,63 @@
+---
+title: Price last-minute nights differently
+summary: Build a rule with two conditions, Booking window Less than 3 and Sellable occupancy Less than 50, that cuts close-in nights 15% while they are still half empty.
+section: recipes
+order: 110
+readingTime: 3
+keywords: [last minute, last-minute, close in, tonight, tomorrow, days to arrival, booking window, less than 3, less than 7, two conditions, add condition, decrease 15%, empty tonight, fill tonight, walk-in, discount close to arrival, keep a weekend out, skip an event, typed price still cut]
+questions:
+  - How do I price last-minute nights differently? {#in-plain-words}
+  - How do I cut the price on empty nights close to arrival? {#in-plain-words}
+  - Can a rule have two conditions? {#in-plain-words}
+  - Which nights does "Booking window Less than 3" cover? {#which-nights-it-covers}
+  - Why would I add occupancy to a last-minute rule? {#build-the-rule}
+  - Does a last-minute cut come off when the night fills up? {#what-you-will-see/the-row-on}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+On the <Ui>Rules</Ui> tab, add a rule with two conditions: <Ui>Booking window (days to stay)</Ui> <Ui>Less than</Ui> 3, and <Ui>Sellable occupancy (%)</Ui> <Ui>Less than</Ui> 50, then <Ui>Decrease the rate</Ui> by 15%. Tonight, tomorrow night and the night after are cut 15% while fewer than half their sellable rooms are booked. When a night fills to 50% or more, the cut comes off.
+</InPlainWords>
+
+## Build the rule
+
+<Steps>
+<Step title="Open the builder and name it">
+On the <Ui>Rules</Ui> tab, click <Ui>+ Add a rule</Ui>. In <Ui>Rule name</Ui>, type Last minute.
+</Step>
+<Step title="Set the booking window condition">
+In the first row, change <Ui>Metric</Ui> to <Ui>Booking window (days to stay)</Ui>. Set <Ui>Compare</Ui> to <Ui>Less than</Ui> and <Ui>Threshold</Ui> to 3.
+</Step>
+<Step title="Add the occupancy condition">
+Click <Ui>+ Add condition</Ui>. The new row is <Ui>Sellable occupancy (%)</Ui>. Set <Ui>Compare</Ui> to <Ui>Less than</Ui> and <Ui>Threshold</Ui> to 50. The line under <Ui>Conditions</Ui> says it: the rule matches when all of its conditions are true.
+</Step>
+<Step title="Set the cut, pick the room types, add it">
+Under <Ui>Rate adjustment</Ui>, choose <Ui>Decrease the rate</Ui> and type 15 in <Ui>Adjust by percent (%)</Ui>. Leave every room type ticked and click <Ui>Add Rule</Ui>.
+</Step>
+</Steps>
+
+## Which nights it covers
+
+Booking window is the number of days until the stay, on your property's own calendar: tonight is 0, tomorrow night is 1. <Ui>Less than</Ui> 3 covers 0, 1 and 2, so tonight and the next two nights. The count moves every day, so each night slides into the rule's range as it gets closer, and out again once it has passed.
+
+The occupancy condition is what keeps this from cutting a night that is already selling. A night at 50% or more is left alone. Both conditions must hold at the same time.
+
+## What you will see
+
+The row on the Rules tab reads "Occupancy below 50% · Booking window below 3 days" with "-15%". In the change log a change reads: "Last minute" lowered this night 15%, from $150.00 to $127.50. It was 40% full with 1 day to go, under the 50% mark and past the 3-day mark you set.
+
+This is a standard rule. It holds one cut while both conditions hold and takes it off when either stops: when the night fills to 50% or more, or when the night passes. It never cuts the same night twice.
+
+<Callout kind="example">
+It is Tuesday at The Harbour Inn. Wednesday night has 8 of 20 rooms booked (40%) and is 1 day away, so Standard drops from $150 to $127.50, Deluxe from $200 to $170 and Suite from $300 to $255. Two more bookings on Wednesday morning take it to 10 of 20 (50%), which is not less than 50, so on the next run the cut comes off.
+</Callout>
+
+<Callout kind="not-yet">
+A rule cannot be limited to certain weekdays or dates, so this rule runs every night of the year. To keep a weekend or event out of it, type those nights' prices and switch this rule off (which stops it on every night) until the nights have passed. A typed price alone does not stop a rule that starts to hold later. Read [Hold a price for a wedding or event weekend](/docs/recipes/hold-a-price-for-an-event).
+</Callout>
+
+<Related>
+- [Booking window](/docs/rules/booking-window)
+- [Sellable occupancy](/docs/rules/sellable-occupancy)
+- [How rules run](/docs/rules/how-rules-run)
+</Related>

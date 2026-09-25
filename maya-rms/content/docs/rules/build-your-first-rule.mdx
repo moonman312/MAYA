@@ -1,0 +1,139 @@
+---
+title: Build your first rule
+summary: A five-minute walkthrough of the Rules tab, from + Add a rule to seeing your rule in the change log, with three more rules to try next.
+section: rules
+order: 10
+readingTime: 8
+keywords: [add a rule, first rule, rules tab, busy nights, add rule button, new rule, where do I make a rule, is my rule on, good first rules, starter rules, pricing rules, how to make a rule, fired count, fired count jumped, big fired number, mews, how much, amount, how big a change, 10%, percent to raise, how much to cut, sensible amount]
+questions:
+  - Where do I make a rule? {#in-plain-words}
+  - How do I add a rule in MAYA? {#in-plain-words}
+  - What is a rule? {#before-you-start}
+  - Is a new rule on straight away? {#in-plain-words}
+  - What are good first rules? {#three-more-rules-to-try/a-last-minute}
+  - Do I need to understand revenue management to use MAYA? {#before-you-start}
+  - Why does a new rule's Fired count jump so fast? {#what-you-see-in-the-list-afterwards}
+  - How much should I raise or cut by? Is 10% a sensible amount? {#choosing-the-amount/how-much-a}
+updated: 2026-09-24
+---
+
+<InPlainWords>
+Open the <Ui>Rules</Ui> tab, click <Ui>+ Add a rule</Ui>, name it, pick a condition, choose raise or lower and by how much, pick the room types, and click <Ui>Add Rule</Ui>. The rule is on straight away. While your property is in simulation, MAYA shows what the rule would do without sending anything. After you go live, it sends the prices to Cloudbeds or ThinkReservations. Nothing is sent to Mews yet.
+</InPlainWords>
+
+## Before you start
+
+A rule is one sentence you write once: when a night looks like this, change its price by that much. About every five minutes MAYA checks every rule against your bookings, for tonight and the next 59 nights, and writes down what it did in the <Ui>Change Log</Ui> tab.
+
+Rules live on the <Ui>Rules</Ui> tab. From the top down you will find:
+
+- the heading <Ui>Pricing Rules</Ui>, with the <Ui>Get suggestions from my data</Ui> button beside it
+- a filter with three choices, <Ui>All</Ui>, <Ui>Enabled</Ui> and <Ui>Disabled</Ui>
+- a closed panel called <Ui>How rules behave</Ui>, which holds two short animations
+- the list of your rules
+- the <Ui>+ Add a rule</Ui> button, which opens the rule builder underneath the list
+
+You need to be a Revenue Manager, General Manager or Hotel Admin on the property to add a rule. A Viewer can open the form, but the save is refused.
+
+<Callout kind="good-to-know">
+If your property had about two months of booking history when you connected, MAYA built five starter rules for you and they are already on the list. You can build your own beside them, turn any of them off, or delete them. Read [Your starter rules](/docs/review/your-starter-rules) for what each one does.
+</Callout>
+
+## The walkthrough
+
+We will build a rule called "Busy nights" for The Harbour Inn, a made-up 20-room property: when a night is more than 80% full, raise every room type by 10%.
+
+<Steps>
+<Step title="Open the rule builder">
+Go to the <Ui>Rules</Ui> tab and click <Ui>+ Add a rule</Ui>. The form opens underneath the list of rules.
+</Step>
+<Step title="Name it">
+In <Ui>Rule name</Ui>, type Busy nights. The name is how you will find the rule in the change log later, so choose words you will recognise in a month.
+</Step>
+<Step title="Set the condition">
+Under <Ui>Conditions</Ui>, one row is already there. Leave <Ui>Metric</Ui> on <Ui>Sellable occupancy (%)</Ui>, leave <Ui>Compare</Ui> on <Ui>Greater than</Ui>, and leave <Ui>Threshold</Ui> at 80. Read together, the row says: when more than 80% of the rooms you can sell that night are booked.
+</Step>
+<Step title="Choose the change">
+Under <Ui>Rate adjustment</Ui>, open <Ui>Direction (required)</Ui> and choose <Ui>Increase the rate</Ui>. The box <Ui>Adjust by percent (%)</Ui> is already ticked with 10 in it. Leave <Ui>Adjust by fixed amount ($)</Ui> unticked.
+</Step>
+<Step title="Pick the room types">
+Under <Ui>Apply to room types</Ui>, every room type that counts as a room is already selected. Leave them all on. A type tagged "not a room" (The Harbour Inn's Meeting Room, say) stays out unless you click it.
+</Step>
+<Step title="Add it">
+Click <Ui>Add Rule</Ui>. The rule appears in the list with its switch on <Ui>On</Ui>, and the form clears, ready for the next rule.
+</Step>
+</Steps>
+
+That is a complete rule. From the next check, about five minutes away, any night in the next 60 with sellable occupancy above 80% has its price raised by 10% for every room type you picked. When a night drops back to 80% or under, the raise comes off again.
+
+<Callout kind="careful">
+A new rule is on the moment you add it. If your property is live on Cloudbeds or ThinkReservations, its first price changes go to your system on the next cycle. Nothing is sent to Mews. If you would rather look first, build the rule in the <Ui>Rate Simulator</Ui> tab instead. A rule saved from there arrives on the Rules tab switched off. Read [Trying rules out in the Rate Simulator](/docs/rules/the-rate-simulator).
+</Callout>
+
+## What you see in the list afterwards
+
+The list has seven columns: <Ui>Name</Ui>, <Ui>Fired</Ui>, <Ui>Conditions</Ui>, <Ui>Room Types</Ui>, <Ui>Price Change</Ui>, <Ui>Status</Ui>, and a <Ui>Delete</Ui> button at the end of the row.
+
+| Column | What it shows for "Busy nights" |
+|---|---|
+| Name | Busy nights |
+| Fired | A dash until the rule has acted, then a count such as 3× |
+| Conditions | Occupancy above 80% |
+| Room Types | Standard, Deluxe, Suite |
+| Price Change | +10% |
+| Status | On |
+
+The <Ui>Fired</Ui> count goes up once for every night and room type the rule acts on. So if "Busy nights" raises two Fridays for Standard, Deluxe and Suite, <Ui>Fired</Ui> reads 6×. A new rule whose condition already holds on many nights can show a big number within minutes: 20 nights across 3 room types is 60×. It keeps counting changes that later come off. The list is sorted with the most fired rule first, then rules that are on before rules that are off, then by name. Read [Turning a rule off, deleting it, or changing it](/docs/rules/off-delete-or-change) for the rest of the list.
+
+## Watch it in the change log
+
+Open the <Ui>Change Log</Ui> tab. Each pricing run lists the prices that changed, room type by room type. When "Busy nights" acts on a Standard room at The Harbour Inn, the entry reads:
+
+> "Busy nights" raised this night 10%, from $150.00 to $165.00.
+> It was 85% full, past the 80% mark you set.
+
+In simulation the same entries appear. They show what the rule would have sent. After you go live on Cloudbeds or ThinkReservations, the same entries are what was sent.
+
+<OccupancySlider />
+
+<Example title="Busy nights on three nights at The Harbour Inn">
+The Harbour Inn has 20 rooms across Standard (12), Deluxe (6) and Suite (2). "Busy nights" measures all 20 together, because occupancy is worked out over the room types the rule measures.
+
+- Friday: 17 of 20 rooms booked, 85%. Above 80, so the rule fires. Standard goes from $150 to $165, Deluxe from $200 to $220, Suite from $300 to $330.
+- Saturday: 16 of 20 booked, exactly 80%. Not above 80, so nothing happens. Greater than means more than, not equal to.
+- Sunday: 9 of 20 booked, 45%. Nothing happens.
+
+If two Friday guests cancel, Friday drops to 15 of 20, 75%, and on the next check the raise comes off. Standard goes back to $150.
+</Example>
+
+## Choosing the amount
+
+How much a rule raises or cuts is your choice. There is no right number, and MAYA does not pick one for you. The builder starts at 10%, which is $15 on The Harbour Inn's $150 Standard. Three things help you settle on yours:
+
+- **Use the starter rules as a reference.** They cut by 7% and 15% and raise by 10% and 25%. Read [Your starter rules](/docs/review/your-starter-rules).
+- **Try it before it counts.** In the <Ui>Rate Simulator</Ui>, make up a night and see what each room type becomes. Then watch a week of the change log in simulation before you go live.
+- **Remember what stacks.** Percentages compound: $200 raised 10% and then 25% is $275, not $270. A booking speed rule can fire again after each wait, so two 10% raises on $150 make $181.50. The ceiling stops raises and the floor stops cuts, so check those first. Read [Floors and ceilings](/docs/review/floors-and-ceilings).
+
+## Three more rules to try
+
+Each of these is a short recipe with exact labels.
+
+1. **A last-minute cut.** When a night is close and still quiet, lower the price. <Ui>Booking window (days to stay)</Ui> <Ui>Less than</Ui> 3, plus <Ui>Sellable occupancy (%)</Ui> <Ui>Less than</Ui> 50, then <Ui>Decrease the rate</Ui> by 15%. Read [Price last-minute nights differently](/docs/recipes/price-last-minute-nights).
+2. **A booking speed raise.** When a night is booking faster than similar past nights did at the same point, raise it. <Ui>Booking speed (recommended)</Ui>, <Ui>Speed</Ui> <Ui>Faster Than Normal</Ui>, <Ui>Measured over</Ui> <Ui>Past week</Ui>, then <Ui>Increase the rate</Ui> by 10%. Read [Booking speed](/docs/rules/booking-speed) first, so the levels make sense.
+3. **Suites that follow your standard rooms.** Tick <Ui>Change prices on different room types</Ui>, measure Standard, change Suite. Read [Let suites follow your standard rooms](/docs/recipes/let-suites-follow-standard-rooms).
+
+<Callout kind="not-yet">
+Rules run every day of the year, for every night in the window. You cannot yet limit a rule to weekends, a date range or a season, and you cannot edit a rule from the builder once it is saved. The only change made in place is accepting a "Tune ... ?" suggestion after <Ui>Get suggestions from my data</Ui>, which moves an occupancy threshold. Read [What rules cannot do yet](/docs/rules/what-rules-cannot-do-yet) for each limit and what to do instead.
+</Callout>
+
+## What to read next
+
+- [The rule builder, field by field](/docs/rules/the-rule-builder): every field, every message, and what happens when you click <Ui>Add Rule</Ui>.
+- [How rules run](/docs/rules/how-rules-run): the five-minute cycle, the 60-night window, and how two rules combine on one night.
+- [Simulation mode](/docs/live/simulation-mode): what "not sent" means, and how to go live when you are ready.
+
+<Related>
+- [The rule builder, field by field](/docs/rules/the-rule-builder)
+- [How rules run](/docs/rules/how-rules-run)
+- [Trying rules out in the Rate Simulator](/docs/rules/the-rate-simulator)
+</Related>
