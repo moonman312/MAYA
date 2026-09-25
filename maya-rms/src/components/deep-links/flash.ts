@@ -28,7 +28,13 @@ export function flashWhenReady(id: string, options: { timeoutMs?: number } = {})
     stop();
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     el.scrollIntoView?.({ block: "center", behavior: reduce ? "auto" : "smooth" });
-    if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "-1");
+    // A link or a button can hold focus already, and its place in the tab
+    // order stays exactly as it was. Anything else gets tabindex="-1" only
+    // while it holds focus, so it never lingers on the page.
+    if (el.tabIndex < 0 && !el.hasAttribute("tabindex")) {
+      el.setAttribute("tabindex", "-1");
+      el.addEventListener("blur", () => el.removeAttribute("tabindex"), { once: true });
+    }
     el.focus?.({ preventScroll: true });
     el.setAttribute("data-dl-flash", "");
     clear = setTimeout(() => el.removeAttribute("data-dl-flash"), reduce ? 2000 : 1800);

@@ -101,6 +101,36 @@ describe("flashWhenReady", () => {
     box.remove();
   });
 
+  it("leaves a link's place in the tab order alone", async () => {
+    const link = document.createElement("a");
+    link.href = "/account/billing/restart";
+    link.textContent = "Restart your subscription";
+    link.setAttribute("data-deeplink", "billing.restart");
+    document.body.appendChild(link);
+    const stop = flashWhenReady("billing.restart", { timeoutMs: 2000 });
+    await waitFor(() => expect(link.hasAttribute("data-dl-flash")).toBe(true));
+    expect(document.activeElement).toBe(link);
+    expect(link.hasAttribute("tabindex")).toBe(false);
+    expect(link.tabIndex).toBe(0);
+    stop();
+    link.remove();
+  });
+
+  it("lets a plain box hold focus only until focus moves on", async () => {
+    const box = document.createElement("section");
+    box.setAttribute("data-deeplink", "billing.room-count");
+    const next = document.createElement("button");
+    document.body.append(box, next);
+    const stop = flashWhenReady("billing.room-count", { timeoutMs: 2000 });
+    await waitFor(() => expect(document.activeElement).toBe(box));
+    expect(box.getAttribute("tabindex")).toBe("-1");
+    next.focus();
+    expect(box.hasAttribute("tabindex")).toBe(false);
+    stop();
+    box.remove();
+    next.remove();
+  });
+
   it("never takes a selector from anywhere but its id, and gives up quietly", async () => {
     vi.useFakeTimers();
     const evil = document.createElement("div");
