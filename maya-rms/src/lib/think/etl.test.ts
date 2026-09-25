@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  countThinkRoomsByType,
   isThinkRoomCharge,
   parseThinkReservations,
   parseThinkRoomTypes,
@@ -443,7 +444,7 @@ describe("think etl", () => {
     it("maps ids and names, skipping entries without an id", () => {
       const types = parseThinkRoomTypes(
         [{ id: "rt_king", name: "Deluxe King" }, { name: "orphan" }, null],
-        12,
+        new Map([["rt_king", 12]]),
       );
       expect(types).toEqual([
         {
@@ -453,6 +454,83 @@ describe("think etl", () => {
           total_rooms: 12,
         },
       ]);
+    });
+
+    it("gives a type with no counted rooms 0", () => {
+      const types = parseThinkRoomTypes(
+        [{ id: "rt_king", name: "King" }, { id: "rt_cottage", name: "Cottage" }],
+        new Map([["rt_king", 3]]),
+      );
+      expect(types.map((t) => t.total_rooms)).toEqual([3, 0]);
+    });
+
+    it("says null, not a default, when there is no count this run", () => {
+      const types = parseThinkRoomTypes([{ id: "rt_king", name: "King" }], null);
+      expect(types[0].total_rooms).toBeNull();
+    });
+  });
+
+  describe("countThinkRoomsByType", () => {
+    /** A Room in the spec's shape, trimmed to the fields that matter here. */
+    const room = (id: string, roomTypeId: string, extra: Record<string, unknown> = {}) => ({
+      id,
+      roomTypeId,
+      name: `Room ${id}`,
+      inactive: false,
+      isNotARoom: false,
+      doNotIncludeInOccupancy: false,
+      doNotSellOnline: false,
+      ...extra,
+    });
+
+    it("counts one room per type when every room is its own type", () => {
+      const types = Array.from({ length: 8 }, (_, i) => `rt${i + 1}`);
+      const rooms = types.map((t, i) => room(`r${i + 1}`, t));
+      const { counts } = countThinkRoomsByType(rooms, new Set(types));
+      expect(counts).not.toBeNull();
+      expect(types.map((t) => counts!.get(t))).toEqual([1, 1, 1, 1, 1, 1, 1, 1]);
+    });
+
+    it("counts several rooms under one type", () => {
+      const rooms = [
+        room("101", "rt_queen"),
+        room("102", "rt_queen"),
+        room("103", "rt_queen"),
+        room("201", "rt_suite"),
+      ];
+      const { counts } = countThinkRoomsByType(rooms, new Set(["rt_queen", "rt_suite"]));
+      expect(Object.fromEntries(counts!)).toEqual({ rt_queen: 3, rt_suite: 1 });
+    });
+
+    it("leaves out inactive rooms, non-rooms and rooms kept out of occupancy", () => {
+      const rooms = [
+        room("101", "rt_queen"),
+        room("102", "rt_queen", { inactive: true }),
+        room("103", "rt_queen", { isNotARoom: true }),
+        room("104", "rt_queen", { doNotIncludeInOccupancy: true }),
+        // Still sold at the desk, so still inventory.
+        room("105", "rt_queen", { doNotSellOnline: true }),
+      ];
+      const { counts, stats } = countThinkRoomsByType(rooms, new Set(["rt_queen"]));
+      expect(counts!.get("rt_queen")).toBe(2);
+      expect(stats).toMatchObject({ rooms: 5, counted: 2, inactive: 1, notARoom: 1, notInOccupancy: 1 });
+    });
+
+    it("counts a room repeated across pages once", () => {
+      const { counts } = countThinkRoomsByType(
+        [room("101", "rt_queen"), room("101", "rt_queen"), room("102", "rt_queen")],
+        new Set(["rt_queen"]),
+      );
+      expect(counts!.get("rt_queen")).toBe(2);
+    });
+
+    it("has no usable count for an empty list or one with nothing on a known type", () => {
+      expect(countThinkRoomsByType([], new Set(["rt_queen"])).counts).toBeNull();
+      expect(
+        countThinkRoomsByType([room("101", "rt_queen", { inactive: true })], new Set(["rt_queen"])).counts,
+      ).toBeNull();
+      expect(countThinkRoomsByType([room("101", "rt_gone")], new Set(["rt_queen"])).counts).toBeNull();
+      expect(countThinkRoomsByType([{ name: "no ids" }, null], new Set(["rt_queen"])).counts).toBeNull();
     });
   });
 

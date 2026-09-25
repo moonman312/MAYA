@@ -291,6 +291,49 @@ export async function thinkGetRoomTypes(
   return Array.isArray(data) ? (data as JsonRecord[]) : [];
 }
 
+/** A rooms walk that never says `last` stops here instead of spinning. */
+const ROOMS_PAGE_GUARD = 50;
+
+/**
+ * GET /v1/hotels/{hotelId}/rooms → every physical room, raw.
+ *
+ * The published spec answers this with a plain array of Room and declares no
+ * paging parameters (read 2026-09-25, UNVERIFIED against the live sandbox).
+ * page and size go out anyway: a server that ignores them still answers with
+ * the array, and one that pages the list like /reservations then pages it at
+ * our size from page 0, so the walk below cannot skip rows between a default
+ * first page and a sized second one. Any other shape throws, which the
+ * callers read as "no count this run".
+ */
+export async function thinkGetRooms(
+  creds: ThinkCredentials,
+  hotelId: string,
+  pageSize: number,
+  opts: { deadlineAt?: number } = {},
+): Promise<JsonRecord[]> {
+  const path = `/v1/hotels/${encodeURIComponent(hotelId)}/rooms`;
+  const rooms: JsonRecord[] = [];
+  for (let page = 0; page < ROOMS_PAGE_GUARD; page++) {
+    const data = await thinkGet(
+      creds,
+      path,
+      { page: String(page), size: String(pageSize) },
+      undefined,
+      opts,
+    );
+    // A bare array is the whole list, whatever page was asked for.
+    if (Array.isArray(data)) return [...rooms, ...(data as JsonRecord[])];
+    const rec = (data && typeof data === "object" ? data : {}) as JsonRecord;
+    if (!Array.isArray(rec.content)) {
+      throw new Error(`Think ${path}: unexpected response shape`);
+    }
+    rooms.push(...(rec.content as JsonRecord[]));
+    const last = typeof rec.last === "boolean" ? rec.last : true;
+    if (last || rec.content.length === 0) return rooms;
+  }
+  throw new Error(`Think ${path}: more than ${ROOMS_PAGE_GUARD} pages`);
+}
+
 /** GET /v1/hotels/{hotelId}/rate_types → raw array (id, name, type, roomTypeIds…). */
 export async function thinkGetRateTypes(
   creds: ThinkCredentials,

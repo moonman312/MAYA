@@ -114,19 +114,24 @@ export type ThinkParsedRoomType = {
   external_room_type_id: string;
   name: string;
   display_name: string;
-  total_rooms: number;
+  /**
+   * Rooms of this type counted from GET /rooms, 0 for a type none of them
+   * belong to. Null when this run has no usable count: the writer keeps the
+   * stored number, and only a type with nothing stored takes the hotel
+   * default.
+   */
+  total_rooms: number | null;
 };
 
 /** ── Room types ─────────────────────────────────────────────
- * The spec's RoomType is just { id, name } — no inventory count anywhere on
- * it; the physical rooms live behind the separate /rooms endpoint. Until the
- * sync counts real rooms from there, every category gets the hotel default so
- * occupancy math has a denominator, and a later count can overwrite it
- * without reshaping anything.
+ * The spec's RoomType is just { id, name }: no inventory count anywhere on
+ * it. The count comes from the physical rooms, see countThinkRoomsByType.
+ * `roomCounts` null means that count is unavailable this run, and every type
+ * says so rather than borrowing a default the writer would store.
  */
 export function parseThinkRoomTypes(
   raw: unknown[],
-  defaultRooms: number,
+  roomCounts: ReadonlyMap<string, number> | null,
 ): ThinkParsedRoomType[] {
   const out: ThinkParsedRoomType[] = [];
   for (const entry of raw) {
@@ -139,10 +144,96 @@ export function parseThinkRoomTypes(
       external_room_type_id: id,
       name,
       display_name: name,
-      total_rooms: Math.max(0, Math.floor(defaultRooms)),
+      total_rooms: roomCounts ? (roomCounts.get(id) ?? 0) : null,
     });
   }
   return out;
+}
+
+/** The spec types these as booleans; a stringly "true" is hedged for free. */
+function flagSet(value: unknown): boolean {
+  return value === true || value === "true";
+}
+
+export type ThinkRoomCountStats = {
+  /** Distinct rooms in the payload with an id and a roomTypeId. */
+  rooms: number;
+  counted: number;
+  inactive: number;
+  notARoom: number;
+  notInOccupancy: number;
+  /** Counted rooms whose roomTypeId is not in the /room_types list. */
+  unknownType: number;
+};
+
+/** ── Rooms → rooms per type ─────────────────────────────────
+ * Think keeps inventory on the physical room, not the type: an inn that
+ * sells every room by name has one type per room, a larger property has
+ * several rooms under one type, and GET /v1/hotels/{hotelId}/rooms is the
+ * only place either shape is visible.
+ *
+ * Fields relied on, from the published OpenAPI document
+ * (https://developers.thinkreservations.com/external.openapi.json, schema
+ * `Room`, read 2026-09-25). UNVERIFIED against the live sandbox:
+ *   id                       string
+ *   roomTypeId               string
+ *   inactive                 boolean  → not counted
+ *   isNotARoom               boolean  → not counted
+ *   doNotIncludeInOccupancy  boolean  → not counted (this number is the
+ *                                        occupancy denominator)
+ * doNotSellOnline is counted on purpose: the room is still sold at the desk.
+ * The spec gives none of these a description, so the reading of each is
+ * from its name.
+ *
+ * Returns null when the payload holds nothing usable (empty, or not one
+ * countable room on a type /room_types lists). A hotel with no rooms is not
+ * a thing, so that answer is a failed read, and zeroing every type on it
+ * would wipe good counts. A type with no countable rooms in a usable
+ * payload is simply absent from the map and parses as 0.
+ */
+export function countThinkRoomsByType(
+  rawRooms: unknown[],
+  knownRoomTypeIds: ReadonlySet<string>,
+): { counts: Map<string, number> | null; stats: ThinkRoomCountStats } {
+  const stats: ThinkRoomCountStats = {
+    rooms: 0,
+    counted: 0,
+    inactive: 0,
+    notARoom: 0,
+    notInOccupancy: 0,
+    unknownType: 0,
+  };
+  const counts = new Map<string, number>();
+  const seen = new Set<string>();
+  let matched = 0;
+  for (const entry of rawRooms) {
+    const room = asJson(entry);
+    if (!room) continue;
+    const id = str(room.id);
+    const typeId = str(room.roomTypeId);
+    if (!id || !typeId) continue;
+    // A room repeated across pages is still one room.
+    if (seen.has(id)) continue;
+    seen.add(id);
+    stats.rooms += 1;
+    if (flagSet(room.inactive)) {
+      stats.inactive += 1;
+      continue;
+    }
+    if (flagSet(room.isNotARoom)) {
+      stats.notARoom += 1;
+      continue;
+    }
+    if (flagSet(room.doNotIncludeInOccupancy)) {
+      stats.notInOccupancy += 1;
+      continue;
+    }
+    stats.counted += 1;
+    counts.set(typeId, (counts.get(typeId) ?? 0) + 1);
+    if (knownRoomTypeIds.has(typeId)) matched += 1;
+    else stats.unknownType += 1;
+  }
+  return { counts: matched > 0 ? counts : null, stats };
 }
 
 /** Both spellings survive here even though the spec enum only has one — the

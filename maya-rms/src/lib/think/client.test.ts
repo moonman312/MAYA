@@ -11,6 +11,7 @@ import {
   thinkGet,
   thinkGetHotels,
   thinkGetReservationsPage,
+  thinkGetRooms,
   ThinkHttpError,
 } from "@/lib/think/client";
 
@@ -137,5 +138,53 @@ describe("think client", () => {
     expect(httpErr.path).toBe("/v1/hotels/nope/room_types");
     expect(httpErr.retryAfterMs).toBeNull();
     expect(httpErr.message).toContain("Hotel not found");
+  });
+
+  describe("thinkGetRooms", () => {
+    const room = (id: string) => ({ id, roomTypeId: "rt1", inactive: false });
+
+    it("takes the spec's bare array in one paced call", async () => {
+      const fetchMock = vi.fn(async () => json(200, [room("r1"), room("r2")]));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const rooms = await thinkGetRooms(CREDS, "prop 1", 200);
+
+      expect(rooms.map((r) => r.id)).toEqual(["r1", "r2"]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(limiter.acquire).toHaveBeenCalledWith("think", "tok-1");
+      const url = new URL(String((fetchMock.mock.calls[0] as unknown as [string])[0]));
+      expect(url.pathname).toBe("/v1/hotels/prop%201/rooms");
+      expect(url.searchParams.get("page")).toBe("0");
+      expect(url.searchParams.get("size")).toBe("200");
+    });
+
+    it("walks a paged envelope to the last page at a fixed size", async () => {
+      const pages = [
+        { content: [room("r1"), room("r2")], last: false, number: 0 },
+        { content: [room("r3")], last: true, number: 1 },
+      ];
+      const fetchMock = vi.fn(async (u: string) => {
+        const page = Number(new URL(u).searchParams.get("page"));
+        return json(200, pages[page]);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const rooms = await thinkGetRooms(CREDS, "p1", 2);
+
+      expect(rooms.map((r) => r.id)).toEqual(["r1", "r2", "r3"]);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const sizes = fetchMock.mock.calls.map((c) => new URL(String(c[0])).searchParams.get("size"));
+      expect(sizes).toEqual(["2", "2"]);
+    });
+
+    it("throws on a shape it cannot read, so callers keep stored counts", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => json(200, { rooms: "nope" })));
+      await expect(thinkGetRooms(CREDS, "p1", 200)).rejects.toThrow(/unexpected response shape/);
+    });
+
+    it("throws a ThinkHttpError when the call fails", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => json(403, { message: "insufficient scope" })));
+      await expect(thinkGetRooms(CREDS, "p1", 200)).rejects.toBeInstanceOf(ThinkHttpError);
+    });
   });
 });

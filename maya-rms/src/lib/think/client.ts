@@ -4,6 +4,7 @@ export {
   thinkGetHotels,
   thinkGetRateTypes,
   thinkGetReservationsPage,
+  thinkGetRooms,
   thinkGetRoomTypes,
   thinkPutDailyRates,
   thinkPutGzipJson,
