@@ -77,7 +77,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     },
   );
 
-  const res = NextResponse.redirect(new URL(result.location, request.url), 303);
+  // A relative Location: the browser resolves it against this same origin,
+  // so no Host header ever decides where anyone is sent.
+  const res = new NextResponse(null, { status: 303, headers: { Location: result.location } });
   if (result.setHotel) res.cookies.set(MAYA_ACTIVE_HOTEL_COOKIE, result.setHotel, activeHotelCookieOptions());
   res.headers.set("Cache-Control", "private, no-store");
   res.headers.set("X-Robots-Tag", "noindex");
