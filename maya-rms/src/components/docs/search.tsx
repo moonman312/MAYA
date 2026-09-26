@@ -30,6 +30,7 @@ export const DocsSearch = forwardRef<DocsSearchHandle, { onNavigate?: () => void
     const [data, setData] = useState<Awaited<ReturnType<typeof loadIndex>> | null>(null);
     const [active, setActive] = useState(0);
     const [focused, setFocused] = useState(false);
+    const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const listId = useId();
 
     useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }), []);
@@ -47,11 +48,28 @@ export const DocsSearch = forwardRef<DocsSearchHandle, { onNavigate?: () => void
       onNavigate?.();
     }
 
+    function askHelper() {
+      openAsk(query);
+      setQuery("");
+    }
+
     const showList = focused && query.trim() !== "";
     const optionId = (i: number) => `${listId}-opt-${i}`;
 
     return (
-      <div className={cn("relative", className)}>
+      <div
+        className={cn("relative", className)}
+        onFocus={() => {
+          if (blurTimer.current) clearTimeout(blurTimer.current);
+          setFocused(true);
+        }}
+        onBlur={(e) => {
+          // Stay open while focus moves within the search, such as from the
+          // box to the "Ask the docs helper" button under it.
+          if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+          blurTimer.current = setTimeout(() => setFocused(false), 150);
+        }}
+      >
         <div
           className={cn(
             "flex items-center gap-2 rounded-xl border border-input bg-background px-3 transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 dark:bg-input/30",
@@ -64,7 +82,7 @@ export const DocsSearch = forwardRef<DocsSearchHandle, { onNavigate?: () => void
             type="search"
             role="combobox"
             aria-label="Search the docs"
-            aria-expanded={showList}
+            aria-expanded={showList && results.length > 0}
             aria-controls={listId}
             aria-autocomplete="list"
             aria-activedescendant={showList && results[active] ? optionId(active) : undefined}
@@ -72,11 +90,7 @@ export const DocsSearch = forwardRef<DocsSearchHandle, { onNavigate?: () => void
             autoComplete="off"
             autoFocus={autoFocus}
             value={query}
-            onFocus={() => {
-              setFocused(true);
-              load();
-            }}
-            onBlur={() => setTimeout(() => setFocused(false), 150)}
+            onFocus={load}
             onChange={(e) => {
               setQuery(e.target.value);
               setActive(0);
@@ -92,6 +106,9 @@ export const DocsSearch = forwardRef<DocsSearchHandle, { onNavigate?: () => void
                 if (results[active]) {
                   e.preventDefault();
                   go(results[active]);
+                } else if (data && askEnabled && query.trim()) {
+                  e.preventDefault();
+                  askHelper();
                 }
               } else if (e.key === "Escape") {
                 if (query) {
@@ -110,19 +127,14 @@ export const DocsSearch = forwardRef<DocsSearchHandle, { onNavigate?: () => void
           ) : null}
         </div>
         <div
-          id={listId}
-          role="listbox"
-          aria-label="Search results"
           hidden={!showList}
           className={cn(
             "absolute top-full left-0 z-50 mt-2 max-h-[min(28rem,70vh)] overflow-y-auto rounded-xl border border-border bg-popover p-1.5 shadow-xl",
             size === "lg" ? "right-0" : "w-[min(26rem,calc(100vw-2rem))]"
           )}
         >
-          {!data ? (
-            <p className="px-3 py-3 text-sm text-muted-foreground">Loading the search…</p>
-          ) : results.length ? (
-            results.map((r, i) => (
+          <div id={listId} role="listbox" aria-label="Search results" hidden={!results.length}>
+            {results.map((r, i) => (
               <div
                 key={`${r.url}-${i}`}
                 id={optionId(i)}
@@ -137,8 +149,12 @@ export const DocsSearch = forwardRef<DocsSearchHandle, { onNavigate?: () => void
                 <p className="text-sm font-medium text-foreground">{r.title}</p>
                 {r.heading ? <p className="truncate text-xs text-muted-foreground">› {r.heading}</p> : null}
               </div>
-            ))
-          ) : (
+            ))}
+          </div>
+          {/* Outside the listbox, which may hold only options. */}
+          {!data ? (
+            <p className="px-3 py-3 text-sm text-muted-foreground">Loading the search…</p>
+          ) : results.length ? null : (
             <div className="px-3 py-3 text-sm text-muted-foreground">
               <p>No page matches.{askEnabled ? " Ask the docs helper, or email us." : " Email us."}</p>
               <div className="mt-2 flex gap-2">
@@ -146,10 +162,7 @@ export const DocsSearch = forwardRef<DocsSearchHandle, { onNavigate?: () => void
                   <button
                     type="button"
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      openAsk(query);
-                      setQuery("");
-                    }}
+                    onClick={askHelper}
                     className="rounded-lg bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground"
                   >
                     Ask the docs helper
