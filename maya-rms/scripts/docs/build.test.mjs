@@ -148,6 +148,34 @@ test("trailing source notes are stripped at build time, and notes anywhere else 
   assert.ok(leak.problems.some((p) => /code file name/.test(p.message)));
 });
 
+test("the leak scan catches home and temp paths on any machine, every setting name and code file names", () => {
+  for (const [text, name] of [
+    ["/home/user/MAYA/docs/pms-integrations-status.md", "home directory path"],
+    ["See (/root/notes)", "home directory path"],
+    ["~/MAYA/notes", "home directory path"],
+    ["/Users/someone/app", "home directory path"],
+    ["/tmp/claude-0/x/tasks/x", "temp path"],
+    ["/var/folders/xy/T/x", "temp path"],
+    ["/private/tmp/x", "temp path"],
+    ["DOCS_ASK_DISABLED", "setting name"],
+    ["SUPABASE_SERVICE_ROLE_KEY", "setting name"],
+    ["CLOUDBEDS_CLIENT_SECRET", "setting name"],
+    ["PMS_OAUTH_STATE_SECRET", "setting name"],
+    ["MAYA_X", "setting name"],
+    ["src/lib/deep-links/registry.json", "code file name"],
+    ["scripts/docs-build.js", "code file name"],
+    ["foo.tsx", "code file name"],
+  ]) {
+    assert.ok(scanText(text).some((h) => h.name === name), `${name} in ${text}: ${JSON.stringify(scanText(text))}`);
+  }
+  for (const text of ["Built on Next.js.", "https://www.get-maya.com/privacy", "Open /docs/start/what-maya-does from your home page.", "A 10/20 split."]) {
+    assert.deepEqual(scanText(text), [], text);
+  }
+  for (const file of ["content/docs-questions.json", "src/lib/docs/synonyms.json"]) {
+    assert.deepEqual(scanText(fs.readFileSync(path.join(ROOT, file), "utf8")), [], file);
+  }
+});
+
 test("frontmatter validation lists every problem", () => {
   const problems = validateFrontmatter({ title: "", section: "rules", order: "x", keywords: [], questions: ["one"], pms: ["opera"], extra: 1 }, ["rules"]);
   for (const want of ['"title"', 'missing "summary"', '"order"', '"keywords"', '"questions"', '"pms"', 'unknown frontmatter key "extra"']) {
