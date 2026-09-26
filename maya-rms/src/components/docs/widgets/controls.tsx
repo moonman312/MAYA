@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, type ReactNode } from "react";
+import { useId, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 // Small, labelled, keyboard-first controls shared by the widgets.
@@ -109,15 +109,25 @@ export function Segmented<T extends string>({
   onChange: (v: T) => void;
 }) {
   const id = useId();
+  const buttons = useRef<(HTMLButtonElement | null)[]>([]);
+  // Arrows move the choice and the focus together, so Space or Enter on the
+  // focused option keeps the new choice instead of going back to the old one.
+  const pick = (next: number) => {
+    onChange(options[next].value);
+    buttons.current[next]?.focus();
+  };
   return (
     <div className="space-y-1.5">
       <p id={id} className="text-sm font-medium text-foreground">
         {label}
       </p>
       <div role="radiogroup" aria-labelledby={id} className="inline-flex flex-wrap gap-1 rounded-lg bg-muted p-1">
-        {options.map((o) => (
+        {options.map((o, idx) => (
           <button
             key={o.value}
+            ref={(el) => {
+              buttons.current[idx] = el;
+            }}
             type="button"
             role="radio"
             aria-checked={value === o.value}
@@ -126,10 +136,10 @@ export function Segmented<T extends string>({
               const i = options.findIndex((x) => x.value === value);
               if (e.key === "ArrowRight" || e.key === "ArrowDown") {
                 e.preventDefault();
-                onChange(options[(i + 1) % options.length].value);
+                pick((i + 1) % options.length);
               } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
                 e.preventDefault();
-                onChange(options[(i - 1 + options.length) % options.length].value);
+                pick((i - 1 + options.length) % options.length);
               }
             }}
             tabIndex={value === o.value ? 0 : -1}
