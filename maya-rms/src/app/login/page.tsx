@@ -47,6 +47,33 @@ function forgetNext() {
 }
 
 /**
+ * When this page last sent someone with a session straight on to a /go link.
+ * The browser can hold a session /go cannot confirm (Supabase Auth failing or
+ * rate limiting, a deleted user whose token has not run out), and then /go
+ * sends them straight back here. Without this the two would bounce forever,
+ * so the page goes on by itself at most once a minute per link, then shows
+ * the form.
+ */
+const FORWARDED_KEY = "maya.go.forwarded";
+const FORWARD_AGAIN_MS = 60 * 1000;
+
+/** Whether to go straight on to `next` now. Remembers the hop when it says yes. */
+function mayForward(next: string): boolean {
+  try {
+    const raw = sessionStorage.getItem(FORWARDED_KEY);
+    const last = raw ? (JSON.parse(raw) as { next?: unknown; at?: unknown } | null) : null;
+    if (last?.next === next && typeof last.at === "number" && Date.now() - last.at < FORWARD_AGAIN_MS) {
+      return false;
+    }
+    sessionStorage.setItem(FORWARDED_KEY, JSON.stringify({ next, at: Date.now() }));
+    return true;
+  } catch {
+    // Without storage a bounce back looks like a first visit: show the form.
+    return false;
+  }
+}
+
+/**
  * One card, two doors. Sign-in is the default; the signup mode is its own
  * form that asks a new owner to SET a password rather than assuming one
  * exists — most arrivals come from a waitlist invite and have never had one.
@@ -100,12 +127,13 @@ export default function LoginPage() {
       } catch {
         // Private browsing: the URL parameter still covers the direct path.
       }
-      // Already signed in (in another tab, say): go straight on.
+      // Already signed in (in another tab, say): go straight on, unless this
+      // page just did and /go sent them back.
       if (fromLink && !c && configured) {
         void createClient()
           .auth.getSession()
           .then(({ data }) => {
-            if (data.session) {
+            if (data.session && mayForward(going)) {
               forgetNext();
               window.location.assign(going);
             }
