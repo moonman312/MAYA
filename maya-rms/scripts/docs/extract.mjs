@@ -78,6 +78,38 @@ function attrs(node) {
   return out;
 }
 
+// Attributes of <AppLink> and <OpenInMaya> that are not values for the link,
+// as in paramsOf (src/components/docs/app-links/server.tsx).
+const NOT_LINK_VALUES = new Set(["to", "children", "off", "words"]);
+
+/**
+ * Problems with a link into MAYA, read the way the page renders it: only
+ * written-out text reaches the link, so a bare attribute (true) or a {…}
+ * value (a number, say) would be dropped from it. `attributes` defaults to
+ * all of the node's.
+ */
+function linkProblems(node, attributes = node.attributes || []) {
+  const out = [];
+  const extra = {};
+  for (const a of attributes) {
+    if (a.type !== "mdxJsxAttribute") out.push("a {…} attribute would be dropped from the link; write each value out");
+    else if (NOT_LINK_VALUES.has(a.name)) continue;
+    else if (typeof a.value === "string") extra[a.name] = a.value;
+    else out.push(`${a.name}${a.value ? "={…}" : ""} would be dropped from the link; write ${a.name}="..."`);
+  }
+  return [...out, ...appLinkProblems(attr(node, "to"), extra)];
+}
+
+/** Problems with a <Ui>: it hands only `to` and `q` to its link, and `off` keeps the linker away. */
+function uiProblems(node) {
+  const all = node.attributes || [];
+  const out = all
+    .filter((a) => a.type !== "mdxJsxAttribute" || !["to", "q", "off"].includes(a.name))
+    .map((a) => `takes only to=, q= and off; ${a.type === "mdxJsxAttribute" ? a.name : "{…}"} would be dropped`);
+  if (attr(node, "to") === undefined) return out;
+  return [...out, ...linkProblems(node, all.filter((a) => a.type === "mdxJsxAttribute" && a.name === "q"))];
+}
+
 /** Plain text of a node, the way a heading id is worked out from it. */
 export function toText(node) {
   if (!node) return "";
@@ -155,11 +187,8 @@ export function extractPage(body, ctx = {}) {
           break;
         case "mdxJsxTextElement": {
           components.push(n.name);
-          if ((n.name === "AppLink" || n.name === "Ui") && (n.name === "AppLink" || attr(n, "to") !== undefined)) {
-            const { to, off, ...extra } = attrs(n);
-            void off;
-            for (const p of appLinkProblems(to, extra)) problem(n, `<${n.name}> ${p}`);
-          }
+          if (n.name === "AppLink") for (const p of linkProblems(n)) problem(n, `<AppLink> ${p}`);
+          if (n.name === "Ui") for (const p of uiProblems(n)) problem(n, `<Ui> ${p}`);
           if (n.name === "OpenInMaya") problem(n, "<OpenInMaya ... /> goes on a line of its own, self-closing, not inside a sentence");
           if (n.name === "Ui") {
             const inner = inline(n.children);
@@ -365,21 +394,16 @@ export function extractPage(body, ctx = {}) {
         return [{ md: [alt, caption].filter(Boolean).join(". ") }];
       }
       case "Ui":
-        if (attr(node, "to") !== undefined) {
-          const { to, off, ...extra } = attrs(node);
-          void off;
-          for (const p of appLinkProblems(to, extra)) problem(node, `<Ui> ${p}`);
-        }
+        for (const p of uiProblems(node)) problem(node, `<Ui> ${p}`);
         return [{ md: `**${cleanSpaces(inline(node.children))}**` }];
       case "AppLink": {
-        const { to, ...extra } = attrs(node);
-        for (const p of appLinkProblems(to, extra)) problem(node, `<AppLink> ${p}`);
+        for (const p of linkProblems(node)) problem(node, `<AppLink> ${p}`);
         return childBlocks(node);
       }
       case "OpenInMaya": {
         // A button only signed-in readers see: no words for search or the helper.
-        const { to, words, ...extra } = attrs(node);
-        for (const p of appLinkProblems(to, extra)) problem(node, `<OpenInMaya> ${p}`);
+        const words = attr(node, "words");
+        for (const p of linkProblems(node)) problem(node, `<OpenInMaya> ${p}`);
         if (typeof words !== "string" || !words.trim()) problem(node, '<OpenInMaya> needs words="...": the owner doing something');
         if ((node.children || []).length) problem(node, "<OpenInMaya> takes its words in words=\"...\" and closes itself: <OpenInMaya ... />");
         return [];

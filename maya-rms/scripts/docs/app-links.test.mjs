@@ -146,6 +146,20 @@ test("the build refuses a link into MAYA it would change, drop or show to everyo
   assert.match(problems('<Ui to="nope">Rules</Ui>').join(" "), /not a place/);
 });
 
+test("the build refuses a link value the page would drop: a <Ui> hands on only to and q, and a {…} value never arrives", () => {
+  const problems = (body) => extractPage(IPW + body).problems.map((p) => p.message);
+  assert.deepEqual(problems('Open <Ui to="rules.new" name="Nearly full" percent="10">+ Add a rule</Ui> now.'), [
+    "<Ui> takes only to=, q= and off; name would be dropped",
+    "<Ui> takes only to=, q= and off; percent would be dropped",
+  ]);
+  assert.deepEqual(problems('<Ui to="rules.new" name="Nearly full">+ Add a rule</Ui>'), ["<Ui> takes only to=, q= and off; name would be dropped"]);
+  assert.deepEqual(problems('<OpenInMaya to="rules.new" name="Nearly full" percent={10} words="Open it" />'), [
+    '<OpenInMaya> percent={…} would be dropped from the link; write percent="..."',
+  ]);
+  assert.deepEqual(problems('Read <AppLink to="rules.list" filter>the rules</AppLink>.'), ['<AppLink> filter would be dropped from the link; write filter="..."']);
+  assert.deepEqual(problems('<Ui off>Rules</Ui> and <Ui to="rules.new" q="focus=conditions">Conditions</Ui>'), []);
+});
+
 test("a written-out link into the app is refused, so a visitor never gets one", () => {
   const raw = `---\ntitle: T\nsummary: S.\nsection: rules\norder: 10\nkeywords: [a]\nquestions:\n  - Q?\n---\n\n${IPW}See [the review](https://maya-rms.com/onboarding/review).\n`;
   const { problems } = loadPages([{ file: "rules/t.mdx", raw }], sections);
