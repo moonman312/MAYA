@@ -2,14 +2,12 @@
 
 import { useSyncExternalStore } from "react";
 import { Moon, Sun } from "lucide-react";
-import { THEME_KEY } from "@/lib/docs/theme";
+import { THEME_EVENT, THEME_KEY } from "@/lib/docs/theme";
 import { cn } from "@/lib/utils";
 
-const EVENT = "maya:theme-change";
-
 function subscribe(onChange: () => void) {
-  window.addEventListener(EVENT, onChange);
-  return () => window.removeEventListener(EVENT, onChange);
+  window.addEventListener(THEME_EVENT, onChange);
+  return () => window.removeEventListener(THEME_EVENT, onChange);
 }
 
 const isDark = () => document.documentElement.classList.contains("dark");
@@ -26,7 +24,7 @@ export function ThemeToggle({ className }: { className?: string }) {
     } catch {
       // private window: the switch still works for this page
     }
-    window.dispatchEvent(new Event(EVENT));
+    window.dispatchEvent(new Event(THEME_EVENT));
   }
 
   const label = dark === false ? "Switch to dark theme" : "Switch to light theme";

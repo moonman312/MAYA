@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { THEME_KEY, THEMED_PATHS } from "@/lib/docs/theme";
+import { THEME_EVENT, THEME_KEY, THEMED_PATHS } from "@/lib/docs/theme";
 
 function preferredDark(): boolean {
   try {
@@ -24,6 +24,8 @@ export function ThemeGuard() {
   useEffect(() => {
     const dark = THEMED_PATHS.test(pathname) ? preferredDark() : false;
     document.documentElement.classList.toggle("dark", dark);
+    // Tell any theme toggle on the page, which may have read the class before this ran.
+    window.dispatchEvent(new Event(THEME_EVENT));
   }, [pathname]);
   return null;
 }
