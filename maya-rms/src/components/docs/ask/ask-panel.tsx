@@ -370,7 +370,7 @@ export function AskPanel() {
                               <p className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">This might help</p>
                             ) : null}
                             <div className="rounded-2xl rounded-bl-md border border-border bg-card/60 px-3.5 py-3">
-                              <MarkdownLite text={index.entries[answer.entry].x} pageUrl={index.pages[answer.page].u} />
+                              <MarkdownLite text={index.entries[answer.entry].x} pageUrl={index.pages[answer.page].u} onNavigate={closeAsk} />
                               <p className="mt-3 border-t border-border pt-2.5 text-xs text-muted-foreground">
                                 {index.entries[answer.entry].m ? "More in:" : "From:"}{" "}
                                 <Link href={link.href} onClick={closeAsk} className="font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:decoration-primary">

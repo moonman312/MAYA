@@ -3,11 +3,13 @@ import { Fragment, type ReactNode } from "react";
 
 // Renders a docs passage as the helper stores it: paragraphs, "- " and "1."
 // lists, "| a | b |" tables, **bold** and [links](/docs/...). Nothing else,
-// so a passage can never carry markup of its own.
+// so a passage can never carry markup of its own. Following a link calls
+// onNavigate, so the helper can close and show the page it went to. An email
+// link leaves the page where it is, so it does not.
 
 const SAFE_LINK = /^(\/docs(\/|#|$)|\/support(#|$)|https:\/\/www\.get-maya\.com\/(privacy|terms)(#|$)|mailto:)/;
 
-function inline(text: string, pageUrl: string, key: string): ReactNode[] {
+function inline(text: string, pageUrl: string, key: string, onNavigate?: () => void): ReactNode[] {
   const out: ReactNode[] = [];
   const re = /\*\*([^*]+)\*\*|\[([^\]]+)\]\(([^)\s]+)\)/g;
   let last = 0;
@@ -32,7 +34,7 @@ function inline(text: string, pageUrl: string, key: string): ReactNode[] {
               {m[2]}
             </a>
           ) : (
-            <Link key={`${key}-l${i++}`} href={href} className={cls}>
+            <Link key={`${key}-l${i++}`} href={href} onClick={onNavigate} className={cls}>
               {m[2]}
             </Link>
           ),
@@ -47,7 +49,7 @@ function inline(text: string, pageUrl: string, key: string): ReactNode[] {
   return out;
 }
 
-export function MarkdownLite({ text, pageUrl }: { text: string; pageUrl: string }) {
+export function MarkdownLite({ text, pageUrl, onNavigate }: { text: string; pageUrl: string; onNavigate?: () => void }) {
   const blocks = text.split(/\n{2,}/);
   return (
     <div className="space-y-3 text-[0.9375rem] leading-relaxed">
@@ -72,7 +74,7 @@ export function MarkdownLite({ text, pageUrl }: { text: string; pageUrl: string 
                   <tr>
                     {head.map((c, ci) => (
                       <th key={ci} className="border-b border-border bg-muted/60 px-2.5 py-1.5 font-semibold">
-                        {inline(c, pageUrl, `h${bi}${ci}`)}
+                        {inline(c, pageUrl, `h${bi}${ci}`, onNavigate)}
                       </th>
                     ))}
                   </tr>
@@ -82,7 +84,7 @@ export function MarkdownLite({ text, pageUrl }: { text: string; pageUrl: string 
                     <tr key={ri}>
                       {r.map((c, ci) => (
                         <td key={ci} className="border-b border-border/60 px-2.5 py-1.5 align-top">
-                          {inline(c, pageUrl, `c${bi}${ri}${ci}`)}
+                          {inline(c, pageUrl, `c${bi}${ri}${ci}`, onNavigate)}
                         </td>
                       ))}
                     </tr>
@@ -100,7 +102,7 @@ export function MarkdownLite({ text, pageUrl }: { text: string; pageUrl: string 
           return (
             <List key={bi} className={ordered ? "list-decimal space-y-1.5 pl-5" : "list-disc space-y-1.5 pl-5 marker:text-primary/60"}>
               {items.map((it, ii) => (
-                <li key={ii}>{inline(it, pageUrl, `i${bi}${ii}`)}</li>
+                <li key={ii}>{inline(it, pageUrl, `i${bi}${ii}`, onNavigate)}</li>
               ))}
             </List>
           );
@@ -110,7 +112,7 @@ export function MarkdownLite({ text, pageUrl }: { text: string; pageUrl: string 
             {lines.map((l, li) => (
               <Fragment key={li}>
                 {li > 0 ? " " : null}
-                {inline(l.replace(/^\s*(-|\d+\.)\s+/, ""), pageUrl, `p${bi}${li}`)}
+                {inline(l.replace(/^\s*(-|\d+\.)\s+/, ""), pageUrl, `p${bi}${li}`, onNavigate)}
               </Fragment>
             ))}
           </p>
