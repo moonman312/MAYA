@@ -678,3 +678,19 @@ export function checkSynonyms(synonyms, corpus) {
 export function contentHash(text) {
   return createHash("sha256").update(text).digest("hex").slice(0, 10);
 }
+
+/**
+ * Where the helper's index lives (public/docs-index.<hash>.json) and what is
+ * in it: `json` is the packed index as written. Only what the index itself
+ * decides, so the same docs give the same committed file on any machine.
+ */
+export function buildAskManifest(index, stats, json) {
+  return {
+    file: `/docs-index.${contentHash(json)}.json`,
+    pages: index.pages.length,
+    entries: index.entries.length,
+    questions: index.questions.length,
+    withPassage: stats.withPassage,
+    bytes: Buffer.byteLength(json),
+  };
+}

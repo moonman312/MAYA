@@ -28,7 +28,7 @@ import {
   toWire,
   checkSynonyms,
   checkAppLabels,
-  contentHash,
+  buildAskManifest,
 } from "./docs/build-lib.mjs";
 import { scanText } from "./docs/leaks.mjs";
 
@@ -112,8 +112,10 @@ const evalFixture = buildEvalFixture(bank, askIndex);
 
 const searchJson = JSON.stringify(searchIndex);
 const askJson = JSON.stringify(toWire(askIndex));
-const askHash = contentHash(askJson);
-const askFile = `docs-index.${askHash}.json`;
+const manifest = buildAskManifest(askIndex, askStats, askJson);
+const askFile = manifest.file.slice(1);
+// Compressed sizes are for the budget and the summary only: gzip's depends
+// on the machine's zlib, so neither goes into the committed manifest.
 const askGzip = zlib.gzipSync(askJson, { level: 9 }).length;
 const askBrotli = zlib.brotliCompressSync(askJson, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11 } }).length;
 if (askGzip > ASK_BUDGET_GZIP) {
@@ -133,17 +135,6 @@ if (problems.length) {
   console.error("\nFix these and build again.\n");
   process.exit(1);
 }
-
-const manifest = {
-  file: `/${askFile}`,
-  pages: askIndex.pages.length,
-  entries: askIndex.entries.length,
-  questions: askIndex.questions.length,
-  withPassage: askStats.withPassage,
-  bytes: Buffer.byteLength(askJson),
-  gzipBytes: askGzip,
-  brotliBytes: askBrotli,
-};
 
 if (!checkOnly) {
   let rewritten = 0;

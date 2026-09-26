@@ -12,6 +12,7 @@ import {
   buildPagesMeta,
   buildSearchIndex,
   buildAskIndex,
+  buildAskManifest,
   buildEvalFixture,
   checkSynonyms,
   readingTimeFor,
@@ -324,6 +325,18 @@ test("a long passage is cut to what a reader needs, keeping the part that answer
   assert.ok(!/^\| Stalled/m.test(cut.md) || /\| Normal/.test(cut.md), "no run skips the rows above the one it wants");
   const long = trimPassage(`${"One sentence here. ".repeat(20)}`, 100);
   assert.ok(long.md.endsWith(".") && long.md.length <= 100, long.md);
+});
+
+test("the helper's manifest holds only what the index decides, so any machine writes the same one", () => {
+  const body = `${IPW}\n## How a night reads\n\nIt compares bookings.\n`;
+  const { pages } = loadPages([{ file: "rules/booking-speed.mdx", raw: page(body) }], sections);
+  const { index, stats } = buildAskIndex(pages, sections, [], []);
+  const json = JSON.stringify(toWire(index));
+  const manifest = buildAskManifest(index, stats, json);
+  assert.deepEqual(Object.keys(manifest), ["file", "pages", "entries", "questions", "withPassage", "bytes"], "no compressed sizes: gzip's differs by zlib");
+  assert.match(manifest.file, /^\/docs-index\.[0-9a-f]{10}\.json$/);
+  assert.equal(manifest.bytes, Buffer.byteLength(json));
+  assert.deepEqual(buildAskManifest(index, stats, json), manifest);
 });
 
 test("the synonym check fails a group whose docs word is not in the docs", () => {
