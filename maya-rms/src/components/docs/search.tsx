@@ -9,10 +9,16 @@ import { buildSearch, searchDocs, type DocsSearchIndex, type SearchPage, type Se
 
 // The index is a static file bundled on its own; it loads the first time a
 // search box gets focus, and every keystroke after that searches in memory.
+// A load that fails is forgotten, so the next focus or keystroke tries again.
 let indexPromise: Promise<DocsSearchIndex> | null = null;
 function loadIndex() {
   if (!indexPromise) {
-    indexPromise = import("@/lib/docs/generated/index.json").then((mod) => buildSearch((mod.default as { pages: SearchPage[] }).pages));
+    indexPromise = import("@/lib/docs/generated/index.json")
+      .then((mod) => buildSearch((mod.default as { pages: SearchPage[] }).pages))
+      .catch((e) => {
+        indexPromise = null;
+        throw e;
+      });
   }
   return indexPromise;
 }
@@ -28,6 +34,7 @@ export const DocsSearch = forwardRef<DocsSearchHandle, { onNavigate?: () => void
     const inputRef = useRef<HTMLInputElement>(null);
     const [query, setQuery] = useState("");
     const [data, setData] = useState<Awaited<ReturnType<typeof loadIndex>> | null>(null);
+    const [failed, setFailed] = useState(false);
     const [active, setActive] = useState(0);
     const [focused, setFocused] = useState(false);
     const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -36,7 +43,8 @@ export const DocsSearch = forwardRef<DocsSearchHandle, { onNavigate?: () => void
     useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }), []);
 
     const load = useCallback(() => {
-      loadIndex().then(setData).catch(() => undefined);
+      setFailed(false);
+      loadIndex().then(setData, () => setFailed(true));
     }, []);
 
     const results: Result[] = useMemo(() => (data ? searchDocs(data, query) : []), [data, query]);
@@ -94,6 +102,7 @@ export const DocsSearch = forwardRef<DocsSearchHandle, { onNavigate?: () => void
             onChange={(e) => {
               setQuery(e.target.value);
               setActive(0);
+              if (!data) load();
             }}
             onKeyDown={(e) => {
               if (e.key === "ArrowDown") {
@@ -153,7 +162,9 @@ export const DocsSearch = forwardRef<DocsSearchHandle, { onNavigate?: () => void
           </div>
           {/* Outside the listbox, which may hold only options. */}
           {!data ? (
-            <p className="px-3 py-3 text-sm text-muted-foreground">Loading the search…</p>
+            <p className="px-3 py-3 text-sm text-muted-foreground">
+              {failed ? "The search could not load. Check your connection and type again." : "Loading the search…"}
+            </p>
           ) : results.length ? null : (
             <div className="px-3 py-3 text-sm text-muted-foreground">
               <p>No page matches.{askEnabled ? " Ask the docs helper, or email us." : " Email us."}</p>
