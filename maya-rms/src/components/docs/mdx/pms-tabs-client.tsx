@@ -12,6 +12,10 @@ export interface PmsTabContent {
 const KEY = "maya-docs-pms";
 const EVENT = "maya:pms-change";
 
+// The reader's pick when this browser will not store it (site data blocked).
+// It lasts until the page is reloaded.
+let unsaved: string | null = null;
+
 function subscribe(onChange: () => void) {
   window.addEventListener(EVENT, onChange);
   window.addEventListener("storage", onChange);
@@ -22,6 +26,7 @@ function subscribe(onChange: () => void) {
 }
 
 function readChoice(): string | null {
+  if (unsaved !== null) return unsaved;
   try {
     return localStorage.getItem(KEY);
   } catch {
@@ -41,8 +46,10 @@ export function PmsTabsClient({ tabs }: { tabs: PmsTabContent[] }) {
     if (typeof next !== "string") return;
     try {
       localStorage.setItem(KEY, next);
+      unsaved = null;
     } catch {
-      // storage blocked: the tab still switches below
+      // storage blocked: keep the pick in memory, so the tab still switches
+      unsaved = next;
     }
     window.dispatchEvent(new Event(EVENT));
   }
