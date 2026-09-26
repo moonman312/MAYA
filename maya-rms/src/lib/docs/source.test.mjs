@@ -53,6 +53,25 @@ test("a # inside a quoted value is kept, and an unquoted value is never cut shor
   assert.throws(() => parseFrontmatter('title: "Roles": who'), /frontmatter line 2/);
 });
 
+test("a number, true or false, or a list may carry a # comment, and a quoted phrase may open plain text", () => {
+  assert.equal(parseFrontmatter("order: 10 # after the intro").order, 10);
+  assert.equal(parseFrontmatter("order: -2.5 #").order, -2.5);
+  assert.equal(parseFrontmatter("draft: true # for now").draft, true);
+  assert.equal(parseFrontmatter("draft: false # for now").draft, false);
+  assert.deepEqual(parseFrontmatter("keywords: [price, rates] # more later").keywords, ["price", "rates"]);
+  assert.deepEqual(parseFrontmatter('keywords: [a, "rooms # x", \'b]\'] # c').keywords, ["a", "rooms # x", "b]"]);
+  assert.throws(() => parseFrontmatter("keywords: [a, rooms # x]"), /frontmatter line 2: " # " would cut a list item short/);
+  assert.equal(parseFrontmatter("summary: [Beta] how rates work").summary, "[Beta] how rates work");
+  assert.equal(
+    parseFrontmatter('summary: "How did we know?" explains every change.').summary,
+    '"How did we know?" explains every change.',
+  );
+  assert.equal(parseFrontmatter('title: "Rates" vs "Rules"').title, '"Rates" vs "Rules"', "the quotes at both ends stay");
+  assert.throws(() => parseFrontmatter('summary: "How did we know?" counts the # of rooms'), /" # " would cut the value short/);
+  assert.throws(() => parseFrontmatter("summary: plain words # a note"), /" # " would cut the value short/);
+  assert.throws(() => parseFrontmatter('title: "Roles": who'), /a colon after the closing quote/);
+});
+
 test("a question can end with the {#anchor} of the passage that answers it", () => {
   const fm = parseFrontmatter("questions:\n  - Can I get a refund? {#refunds}\n  - 'What does \"Unpaid\" mean?' {#when-a-payment-fails/the-status-becomes}\n  - Plain one?");
   assert.deepEqual(fm.questions, [

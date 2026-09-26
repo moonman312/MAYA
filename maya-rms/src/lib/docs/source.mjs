@@ -93,28 +93,77 @@ function scalar(value) {
   return unquote(v);
 }
 
+// What may follow a value on its line: nothing, or a " # comment".
+const ONLY_A_COMMENT = /^(\s+#.*)?$/;
+
+/** Where the quote that opens v closes, or -1 if it never does. */
+function closingQuote(v) {
+  const q = v[0];
+  for (let i = 1; i < v.length; i++) {
+    if (q === '"' && v[i] === "\\") i++;
+    else if (q === "'" && v[i] === "'" && v[i + 1] === "'") i++;
+    else if (v[i] === q) return i;
+  }
+  return -1;
+}
+
+/**
+ * Where the `[` that opens v closes, or -1 if it never does. Quoted items
+ * are stepped over the way splitFlowList reads them, so a ] or # inside one
+ * is kept. An unquoted item may not hold " # ", for the same reason plain
+ * text may not.
+ */
+function closingBracket(v, lineNo) {
+  let quote = null;
+  let started = false;
+  for (let i = 1; i < v.length; i++) {
+    const ch = v[i];
+    if (quote) {
+      if (ch !== quote) continue;
+      if (quote === "'" && v[i + 1] === "'") i++;
+      else quote = null;
+    } else if (ch === "]") return i;
+    else if (ch === ",") started = false;
+    else if ((ch === "'" || ch === '"') && !started) {
+      quote = ch;
+      started = true;
+    } else if (ch === "#" && /\s#(\s|$)/.test(v.slice(i - 1, i + 2))) {
+      throw new Error(`frontmatter line ${lineNo}: " # " would cut a list item short; put the item in quotes`);
+    } else if (/\S/.test(ch)) started = true;
+  }
+  return -1;
+}
+
 /**
  * The value on a `key: value` line. A quoted value runs to its own closing
- * quote, so a # inside it is kept, and a " # comment" may follow it. An
- * unquoted value may not hold " # ": YAML reads the rest as a comment, which
+ * quote, so a # inside it is kept, and a " # comment" may follow it. So may
+ * a number, true or false, or an `[a, b]` list.
+ *
+ * Anything else is plain text: the rest of the line, word for word. That
+ * includes a value that opens with a quoted phrase and goes on, as in
+ * `"How did we know?" explains every change.` A colon straight after the
+ * closing quote is refused, as YAML would read the quoted words as a key.
+ * Plain text may not hold " # ": YAML reads the rest as a comment, which
  * would cut the value short without a word.
  */
 function lineValue(rest, lineNo) {
   const v = rest.trim();
-  const q = v[0];
-  if (q !== '"' && q !== "'") {
-    if (/\s#(\s|$)/.test(v)) throw new Error(`frontmatter line ${lineNo}: " # " would cut the value short; put the value in quotes`);
-    return v;
-  }
-  for (let i = 1; i < v.length; i++) {
-    if (q === '"' && v[i] === "\\") i++;
-    else if (q === "'" && v[i] === "'" && v[i + 1] === "'") i++;
-    else if (v[i] === q) {
-      if (/^(\s+#.*)?$/.test(v.slice(i + 1))) return v.slice(0, i + 1);
-      break;
+  if (v[0] === '"' || v[0] === "'") {
+    const end = closingQuote(v);
+    if (end === -1) throw new Error(`frontmatter line ${lineNo}: a value that starts with a quote must end with it`);
+    if (ONLY_A_COMMENT.test(v.slice(end + 1))) return scalar(v.slice(0, end + 1));
+    if (/^\s*:/.test(v.slice(end + 1))) {
+      throw new Error(`frontmatter line ${lineNo}: a colon after the closing quote reads as a new key; put the whole value in quotes`);
     }
+  } else if (v[0] === "[") {
+    const end = closingBracket(v, lineNo);
+    if (end !== -1 && ONLY_A_COMMENT.test(v.slice(end + 1))) return scalar(v.slice(0, end + 1));
+  } else {
+    const typed = v.match(/^(-?\d+(\.\d+)?|true|false)(\s+#.*)?$/);
+    if (typed) return scalar(typed[1]);
   }
-  throw new Error(`frontmatter line ${lineNo}: a value that starts with a quote must end with it`);
+  if (/\s#(\s|$)/.test(v)) throw new Error(`frontmatter line ${lineNo}: " # " would cut the value short; put the value in quotes`);
+  return v;
 }
 
 // A list item may end with {#anchor}: the heading (and passage) that
@@ -160,7 +209,7 @@ export function parseFrontmatter(text) {
       return;
     }
     listKey = null;
-    data[key] = scalar(lineValue(rest, i + 2));
+    data[key] = lineValue(rest, i + 2);
   });
   return data;
 }
