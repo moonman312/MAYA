@@ -13,15 +13,19 @@ export const LIMITS = { perHour: 20, bodyBytes: 8_000, question: 500, note: 1_00
 const REMOVED = "[removed]";
 
 /**
- * Takes out what should never be stored: email addresses, card-length digit
- * runs (12 to 19 digits, spaces or dashes allowed) and phone-like numbers
- * (9 or more digits with the usual separators).
+ * Takes out what should never be stored: email addresses (accented letters
+ * included, as in josé@ or münchen.de), card-length digit runs (12 to 19
+ * digits, spaces or dashes allowed) and phone-like numbers (9 or more digits
+ * with the usual separators, or one slash as in 030/12345678). Only one
+ * slash is taken, so a date such as 01/06/2026 is read in pieces too short
+ * to be a phone number.
  */
 export function scrub(text: string): string {
   return text
-    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, REMOVED)
+    .replace(/[\p{L}\p{M}\p{N}._%+-]+@[\p{L}\p{M}\p{N}.-]+\.\p{L}{2,}/gu, REMOVED)
     .replace(/(?:\d[ -]?){11,18}\d/g, REMOVED)
     .replace(/\+?\(?\d[\d\s().-]{6,}\d/g, (m) => ((m.match(/\d/g) ?? []).length >= 9 ? REMOVED : m))
+    .replace(/\+?\(?\d[\d\s().-]*\/\s?\d[\d\s().-]*\d/g, (m) => ((m.match(/\d/g) ?? []).length >= 9 ? REMOVED : m))
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "")
     // half an emoji (a lone surrogate) would make Postgres refuse the whole row
     .replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, "")

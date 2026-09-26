@@ -26,6 +26,21 @@ test("emails, phone numbers and card-length digit runs are removed", () => {
   assert.equal(scrub("$99,999.99 ceiling"), "$99,999.99 ceiling");
 });
 
+test("emails with accented letters and phone numbers written with a slash are removed too", () => {
+  // no part of the name is left behind
+  assert.equal(scrub("please reply to info@hotel-münchen.de"), "please reply to [removed]");
+  assert.equal(scrub("my login is josé@hotelsol.es"), "my login is [removed]");
+  assert.equal(scrub("I'm rené.müller@hotel.de"), "I'm [removed]");
+  assert.equal(scrub("josé@hotelsol.es"), "[removed]", "an accent typed as its own mark");
+  assert.equal(scrub("call me on 030/12345678"), "call me on [removed]");
+  assert.equal(scrub("mobile 0171/1234567"), "mobile [removed]");
+  assert.equal(scrub("+49 30/12345678 after 6"), "[removed] after 6");
+  // dates and counts with a slash stay
+  for (const kept of ["dates 01/06/2026 to 30/06/2026", "01/06/2026 - 30/06/2026", "12/20 rooms", "half is 1/2", "2026/06/30"]) {
+    assert.equal(scrub(kept), kept);
+  }
+});
+
 test("an unanswered question is written scrubbed, with the page and the time, and no identifier", async () => {
   const db = recorder();
   const res = await handleFeedback(
