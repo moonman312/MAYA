@@ -4,6 +4,7 @@
  * page loads, only for a reader signed in to MAYA in this browser.
  */
 import { cleanup, render, screen } from "@testing-library/react";
+import { compileMDX } from "next-mdx-remote/rsc";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -12,6 +13,7 @@ vi.mock("./session", () => ({ useSignedIn: () => session.signedIn, hasSessionCoo
 
 import { AppLinkClient, SignedInOnly } from "./app-link";
 import { AppLink, OpenInMaya, docsAppHref } from "./server";
+import { Ui } from "../mdx/blocks";
 
 afterEach(() => {
   cleanup();
@@ -76,6 +78,23 @@ describe("signed in", () => {
     render(<OpenInMaya to="changelog" view="all" words="Open the Change Log on Show All Cycles" />);
     expect(screen.getByText("Open the Change Log on Show All Cycles").closest("a")!.getAttribute("href")).toBe("/go/changelog?view=all");
     expect(screen.queryByText(/Nothing is saved/)).toBeNull();
+  });
+
+  it("keeps a value a page quotes in braces, as the docs build reads it", async () => {
+    session.signedIn = true;
+    // Compiled as the docs page route does, so {"..."} arrives as the page renders it.
+    const { content } = await compileMDX({
+      source: [
+        'Open <Ui to="rules.list" q={"filter=enabled"}>Enabled</Ui> now.',
+        "",
+        '<OpenInMaya to="rules.new" name={"Nearly full"} percent={\'10\'} words="Open the rule builder" />',
+      ].join("\n"),
+      components: { Ui, OpenInMaya },
+      options: { blockJS: false, blockDangerousJS: true },
+    });
+    render(content);
+    expect(screen.getByText("Enabled").closest("a")!.getAttribute("href")).toBe("/go/rules.list?filter=enabled");
+    expect(screen.getByText("Open the rule builder").closest("a")!.getAttribute("href")).toBe("/go/rules.new?name=Nearly+full&percent=10");
   });
 
   it("never renders a link the registry would change, or one to a place the docs cannot open", () => {

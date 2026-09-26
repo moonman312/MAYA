@@ -83,18 +83,32 @@ function attrs(node) {
 const NOT_LINK_VALUES = new Set(["to", "children", "off", "words"]);
 
 /**
+ * The words in a {…} value that is only a quoted string, as {"Nearly full"}
+ * or {'enabled'}: the page gets those words just as if they were written
+ * name="Nearly full". Anything else in braces (a number, a name, a
+ * `template`, "a" + "b") gives undefined: the build does not work out what
+ * it comes to.
+ */
+function quotedWords(value) {
+  const body = value?.data?.estree?.body ?? [];
+  const e = body.length === 1 && body[0].type === "ExpressionStatement" ? body[0].expression : undefined;
+  return e?.type === "Literal" && typeof e.value === "string" ? e.value : undefined;
+}
+
+/**
  * Problems with a link into MAYA, read the way the page renders it: only
- * written-out text reaches the link, so a bare attribute (true) or a {…}
- * value (a number, say) would be dropped from it. `attributes` defaults to
- * all of the node's.
+ * words reach the link, written out or quoted in braces, so a bare attribute
+ * (true) or any other {…} value (a number, say) would be dropped from it.
+ * `attributes` defaults to all of the node's.
  */
 function linkProblems(node, attributes = node.attributes || []) {
   const out = [];
   const extra = {};
   for (const a of attributes) {
+    const words = typeof a.value === "string" ? a.value : quotedWords(a.value);
     if (a.type !== "mdxJsxAttribute") out.push("a {…} attribute would be dropped from the link; write each value out");
     else if (NOT_LINK_VALUES.has(a.name)) continue;
-    else if (typeof a.value === "string") extra[a.name] = a.value;
+    else if (words !== undefined) extra[a.name] = words;
     else out.push(`${a.name}${a.value ? "={…}" : ""} would be dropped from the link; write ${a.name}="..."`);
   }
   return [...out, ...appLinkProblems(attr(node, "to"), extra)];

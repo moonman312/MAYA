@@ -180,6 +180,31 @@ test("the build refuses a link value the page would drop: a <Ui> hands on only t
   assert.deepEqual(problems('<Ui off>Rules</Ui> and <Ui to="rules.new" q="focus=conditions">Conditions</Ui>'), []);
 });
 
+test("a value quoted in braces reaches the link as its words, and is checked like one written out", () => {
+  const problems = (body) => extractPage(IPW + body).problems.map((p) => p.message);
+  assert.deepEqual(problems('Open <Ui to="rules.list" q={"filter=enabled"}>Rules</Ui> now.'), []);
+  assert.deepEqual(problems('<OpenInMaya to="rules.new" name={"Nearly full"} words="Open it" />'), []);
+  assert.deepEqual(problems("Read <AppLink to=\"rules.list\" filter={'enabled'}>the rules</AppLink>."), []);
+  // Checked, not waved through: the same problems as the value written out.
+  for (const [quoted, written] of [
+    ['<OpenInMaya to="rules.new" percent={"90"} words="x" />', '<OpenInMaya to="rules.new" percent="90" words="x" />'],
+    ['Open <Ui to="rules.list" q={"filter=weekend"}>Rules</Ui> now.', 'Open <Ui to="rules.list" q="filter=weekend">Rules</Ui> now.'],
+  ]) {
+    assert.notDeepEqual(problems(written), []);
+    assert.deepEqual(problems(quoted), problems(written));
+  }
+  // Anything else in braces is still refused: a number, a name, a template, a sum, a spread.
+  for (const value of ["{10}", "{nearlyFull}", "{`Nearly full`}", '{"Nearly" + " full"}']) {
+    assert.deepEqual(problems(`<OpenInMaya to="rules.new" name=${value} words="x" />`), [
+      '<OpenInMaya> name={…} would be dropped from the link; write name="..."',
+    ]);
+  }
+  assert.deepEqual(problems('Open <Ui to="rules.list" q={filters}>Rules</Ui> now.'), ['<Ui> q={…} would be dropped from the link; write q="..."']);
+  assert.deepEqual(problems('<OpenInMaya to="rules.new" {...rule} words="x" />'), [
+    "<OpenInMaya> a {…} attribute would be dropped from the link; write each value out",
+  ]);
+});
+
 test("a written-out link into the app is refused, so a visitor never gets one", () => {
   const raw = `---\ntitle: T\nsummary: S.\nsection: rules\norder: 10\nkeywords: [a]\nquestions:\n  - Q?\n---\n\n${IPW}See [the review](https://maya-rms.com/onboarding/review).\n`;
   const { problems } = loadPages([{ file: "rules/t.mdx", raw }], sections);
