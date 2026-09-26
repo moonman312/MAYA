@@ -110,11 +110,14 @@ function uiProblems(node) {
   return [...out, ...linkProblems(node, all.filter((a) => a.type === "mdxJsxAttribute" && a.name === "q"))];
 }
 
-/** Plain text of a node, the way a heading id is worked out from it. */
+/**
+ * Plain text of a node, the way a heading id is worked out from it: every
+ * space as written, and a line break as the new line it renders as.
+ */
 export function toText(node) {
   if (!node) return "";
   if (node.type === "text" || node.type === "inlineCode") return node.value;
-  if (node.type === "break") return " ";
+  if (node.type === "break") return "\n";
   if (Array.isArray(node.children)) return node.children.map(toText).join("");
   return "";
 }
@@ -137,16 +140,14 @@ export function extractPage(body, ctx = {}) {
   const where = (node) => (node && node.position ? node.position.start.line : 0);
   const problem = (node, message) => problems.push({ line: where(node) + (ctx.lineOffset || 0), message });
 
-  // Heading ids first, in document order over every heading, as rehype-slug does.
-  // Also where each [words][ref] link goes: its "[ref]: url" line, the first
-  // one when there are two, as the page renders it.
+  // Heading ids first, in document order over every heading, as rehype-slug
+  // does: from the words exactly as written, so "Foo  bar" is foo--bar there
+  // and here. Also where each [words][ref] link goes: its "[ref]: url" line,
+  // the first one when there are two, as the page renders it.
   const idFor = new Map();
   const defined = new Map();
   (function visit(node) {
-    if (node.type === "heading") {
-      const text = cleanSpaces(toText(node));
-      idFor.set(node, slugger.slug(text));
-    }
+    if (node.type === "heading") idFor.set(node, slugger.slug(toText(node)));
     if (node.type === "definition" && !defined.has(node.identifier)) defined.set(node.identifier, node.url);
     if (Array.isArray(node.children)) node.children.forEach(visit);
   })(tree);

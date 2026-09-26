@@ -85,6 +85,15 @@ test("a well-formed page loads with its title, sections, headings and reading ti
   assert.equal(p.readingTime, 1);
 });
 
+test("heading ids are the ones the page renders, even with doubled or edge spaces and line breaks", () => {
+  // What rehype-slug gives each of these headings on the rendered page.
+  const ex = extractPage(`${IPW}\n## Foo  bar\n\nx\n\n## Open <Ui>Rules </Ui>\n\nx\n\nLine\\\nbreak\n---\n\nx\n\n## A \`code  x\` b\n\nSee [it](#foo--bar).\n`);
+  assert.deepEqual(ex.headings.map((h) => h.id), ["foo--bar", "open-rules-", "linebreak", "a-code--x-b"]);
+  assert.deepEqual(ex.headings.map((h) => h.text).slice(0, 2), ["Foo bar", "Open Rules"], "the words shown keep single spaces");
+  const { problems } = loadPages([{ file: "rules/x.mdx", raw: page(`${IPW}\n## Foo  bar\n\nSee [it](#foo--bar), not [that](#foo-bar).\n`) }], sections);
+  assert.deepEqual(problems.map((p) => p.message), ['link "#foo-bar" points at no heading on this page']);
+});
+
 test("the build refuses a page without In plain words first", () => {
   const { problems } = loadPages([{ file: "rules/x.mdx", raw: page("## Start\n\nText.\n") }], sections);
   assert.ok(problems.some((p) => /first thing on the page must be <InPlainWords>/.test(p.message)), JSON.stringify(problems));
