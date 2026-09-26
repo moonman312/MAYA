@@ -4,7 +4,7 @@
  * nothing else: every request it causes is a read, apart from the one
  * analytics event that says a link landed.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Dashboard } from "./dashboard";
 
@@ -24,7 +24,7 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
-let calls: { url: string; method: string }[] = [];
+let calls: { url: string; method: string; body?: string }[] = [];
 /** What a test adds to the answers below, by "METHOD url" or by url. */
 let routes: Record<string, unknown> = {};
 
@@ -36,7 +36,7 @@ beforeEach(() => {
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
-      calls.push({ url, method });
+      calls.push({ url, method, body: typeof init?.body === "string" ? init.body : undefined });
       const route = routes[`${method} ${url}`] ?? routes[url];
       if (route !== undefined) return json(route);
       if (url === "/api/rules") return json([]);
@@ -149,6 +149,59 @@ describe("coming back to the Rate Simulator after a link filled its test rule", 
     expect(screen.queryByLabelText("Rule name")).toBeNull();
     expect(screen.queryByText("Filled in from a link")).toBeNull();
     expect(writes()).toEqual([]);
+  });
+});
+
+describe("a manual price link's range after the owner closed it", () => {
+  const RT = ROOM_TYPES[0].id;
+  const night = {
+    occupancy_pct: 50,
+    booked: 6,
+    total: 12,
+    revenue: 900,
+    weekday: "Saturday",
+    revpar: 75,
+    color: "orange",
+    room_types: [
+      { id: RT, name: "Standard", total_rooms: 12, occupancy_pct: 50, booked: 6, rate: 150, revenue: 900, current_rate: 160, base_price: 150, manual_price: null },
+    ],
+  };
+  const october = {
+    year: 2026,
+    month: 10,
+    month_name: "October",
+    days_in_month: 31,
+    first_weekday: 4,
+    thresholds: { low: 40, high: 70, basis: "revpar", past: { p33: 50, p67: 90 }, future: { p33: 50, p67: 90 } },
+    range: { min: "2026-01", max: "2026-12" },
+    days: Object.fromEntries(Array.from({ length: 31 }, (_, i) => [String(i + 1), night])),
+  };
+
+  it("stays closed when the owner comes back to the night, so Enter prices that night alone", async () => {
+    routes["/api/hotels"] = { hotels: [{ id: "h1", name: "Seaside" }], activeHotelId: "h1" };
+    routes["/api/calendar/2026/10"] = october;
+    window.history.replaceState(null, "", `/?tab=calendar&dl=calendar.manual-price&date=2026-10-03&roomType=${RT}&through=2026-10-05`);
+    render(<Dashboard initialSearch={window.location.search} />);
+
+    const through = (await screen.findByLabelText("Last night this price applies to")) as HTMLInputElement;
+    expect(through.value).toBe("2026-10-05");
+    fireEvent.click(screen.getByRole("button", { name: "Back to a single night" }));
+
+    // Another night, then back to the linked one.
+    fireEvent.click(screen.getByText("4", { selector: "button > div" }));
+    await waitFor(() => expect(window.location.search).toBe("?date=2026-10-04"));
+    await act(async () => {
+      window.history.back();
+      await new Promise((r) => window.addEventListener("popstate", r, { once: true }));
+    });
+    expect(window.location.search).toBe("?tab=calendar&date=2026-10-03");
+    const price = await screen.findByLabelText("Manual price for Standard");
+    expect(screen.queryByLabelText("Last night this price applies to")).toBeNull();
+
+    fireEvent.change(price, { target: { value: "199" } });
+    fireEvent.keyDown(price, { key: "Enter" });
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(JSON.parse(writes()[0].body ?? "{}")).toEqual({ hotelId: "h1", roomTypeId: RT, dateFrom: "2026-10-03", price: 199 });
   });
 });
 

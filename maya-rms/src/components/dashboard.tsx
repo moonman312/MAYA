@@ -826,12 +826,13 @@ export function Dashboard({
   }, []);
 
   // Notes where the link landed, and marks the fill used once the owner is
-  // somewhere else (another tab), even if they come straight back.
+  // somewhere else (another tab or another night), even if they come straight back.
+  const place = `${tab}|${year}-${month}-${selectedDay ?? ""}`;
   useEffect(() => {
     if (!arrival?.dest || fillUsed) return;
-    if (arrivedAt.current === null) arrivedAt.current = tab;
-    else if (tab !== arrivedAt.current) setFillUsed(true);
-  }, [arrival, fillUsed, tab]);
+    if (arrivedAt.current === null) arrivedAt.current = place;
+    else if (place !== arrivedAt.current) setFillUsed(true);
+  }, [arrival, fillUsed, place]);
 
   // The rule builder, filled in through its own setters once the room types
   // have loaded (loading them resets the builder's room type lists).
@@ -1317,6 +1318,7 @@ export function Dashboard({
                                   }}
                                   initialThrough={
                                     arrival?.dest === "calendar.manual-price" &&
+                                    !fillUsed &&
                                     arrival.params.roomType === rt.id &&
                                     arrival.params.date === isoDate(year, month, selectedDay)
                                       ? (arrival.params.through ?? null)
