@@ -48,6 +48,16 @@ test("results are at most ten, grouped by section, and name the heading that mat
   assert.ok(withHeading && withHeading.anchor, "the heading that matched comes with its anchor");
 });
 
+test("a result names the heading the query fits best, not the first one that shares a word", () => {
+  const anchorOn = (query, url) => searchDocs(search, query).find((r) => r.url === url)?.anchor;
+  // The page's first heading, "Did a rule cut my price for the wedding weekend?", shares "did" and "price".
+  assert.equal(anchorOn("is it sending prices right now", "/docs/wrong/start-here"), "is-it-sending-prices-right-now");
+  assert.equal(anchorOn("why did nothing change today", "/docs/wrong/start-here"), "why-did-nothing-change-today");
+  // "card" is in the title and in "Paying by card"; "fails" says which part of the page.
+  assert.equal(anchorOn("card fails", "/docs/billing/cards-payments-and-invoices"), "when-a-payment-fails");
+  assert.equal(anchorOn("What happens if my card fails?", "/docs/billing/cards-payments-and-invoices"), "when-a-payment-fails");
+});
+
 test("an empty query finds nothing and a nonsense one finds nothing", () => {
   assert.deepEqual(searchDocs(search, "  "), []);
   assert.deepEqual(searchDocs(search, "zzqxv"), []);
