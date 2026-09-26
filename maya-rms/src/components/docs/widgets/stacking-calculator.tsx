@@ -56,7 +56,7 @@ export function StackingCalculatorLive() {
   const b = base === "" ? 0 : base;
   const f = floor === "" ? 0 : floor;
   const c = ceiling === "" ? 99999.99 : ceiling;
-  const result = stackPrice(b, [rule1, rule2], f, Math.max(c, f));
+  const result = stackPrice(b, [rule1, rule2], f, c);
   const key = JSON.stringify([base, rule1, rule2, floor, ceiling]);
 
   return (

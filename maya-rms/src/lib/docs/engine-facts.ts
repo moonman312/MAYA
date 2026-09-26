@@ -137,8 +137,10 @@ export interface Adjustment {
 const cents = (n: number) => Math.round(n * 100) / 100;
 
 /**
- * Applies changes in order: percents multiply, amounts add, and the floor
- * and ceiling hold the result. Rounded to the cent at the end, as MAYA does.
+ * Applies changes in order: percents multiply, amounts add. Then, as MAYA
+ * does, the result is rounded to the cent before the limits look at it, and
+ * the ceiling is checked before the floor. Checking the unrounded price
+ * would stop $125.999... at a $126 floor that the rounded $126.00 is on.
  */
 export function stackPrice(base: number, changes: Adjustment[], floor: number, ceiling: number) {
   let running = base;
@@ -147,12 +149,13 @@ export function stackPrice(base: number, changes: Adjustment[], floor: number, c
     running = c.kind === "percent" ? running * (1 + (sign * c.value) / 100) : running + sign * c.value;
     return cents(running);
   });
-  const clamped = Math.min(Math.max(running, floor), ceiling);
+  const unclamped = cents(running);
+  const clampedBy = unclamped > ceiling ? ("ceiling" as const) : unclamped < floor ? ("floor" as const) : null;
   return {
     steps,
-    unclamped: cents(running),
-    published: cents(clamped),
-    clampedBy: running > ceiling ? ("ceiling" as const) : running < floor ? ("floor" as const) : null,
+    unclamped,
+    published: clampedBy === "ceiling" ? ceiling : clampedBy === "floor" ? floor : unclamped,
+    clampedBy,
   };
 }
 

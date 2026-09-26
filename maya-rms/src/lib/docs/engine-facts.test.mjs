@@ -5,6 +5,7 @@ import { engineFacts, floorOffers, occupancyFires, priceFor, readBookingSpeed, s
 import { fallbackFor, occupancySentence, WIDGET_NAMES } from "./widget-fallbacks.mjs";
 import { ruleConditionsMatch } from "../engine/conditions.ts";
 import { computeOccupancy } from "../engine/metrics.ts";
+import { applyAdjustments, clampPrice } from "../engine/pricing.ts";
 import { conditionRowsToRuleCondition, newConditionRow } from "../rule-form.ts";
 
 test("booking speed matches the worked table on the booking speed in detail page", () => {
@@ -105,6 +106,54 @@ test("stacking multiplies percents, adds amounts, and holds at the floor and cei
   assert.equal(stackPrice(150, [{ kind: "percent", direction: "down", value: 60 }], 80, 300).published, 80);
   assert.equal(stackPrice(200, [up(10), up(25)], 110, 400).steps.length, 2);
   assert.equal(stackPrice(165, [up(25)], 0, 999).published, 206.25);
+});
+
+// The engine's own price for the same night: applyAdjustments stacks the
+// changes and rounds to the cent, then clampPrice holds it.
+function enginePrice(base, changes, floor, ceiling) {
+  const specs = changes.map((c, i) => ({
+    rule_id: String(i),
+    action_kind: c.kind === "percent" ? "percent" : "fixed",
+    action_direction: c.direction === "up" ? "increase" : "decrease",
+    action_value: c.value,
+  }));
+  return clampPrice(applyAdjustments(base, specs, []), floor, ceiling);
+}
+
+test("stacking publishes the engine's price and names the limit the engine names", () => {
+  const same = (base, changes, floor, ceiling) => {
+    const widget = stackPrice(base, changes, floor, ceiling);
+    const engine = enginePrice(base, changes, floor, ceiling);
+    const what = JSON.stringify([base, changes, floor, ceiling]);
+    assert.equal(widget.published, engine.final, what);
+    assert.equal(widget.clampedBy ?? "none", engine.clamped_by, what);
+  };
+  const down = (value) => ({ kind: "percent", direction: "down", value });
+  const up = (value) => ({ kind: "percent", direction: "up", value });
+  // $200 less 10% and 30% is $126.00 once rounded, so a $126 floor holds nothing
+  same(200, [down(10), down(30)], 126, 300);
+  assert.equal(stackPrice(200, [down(10), down(30)], 126, 300).clampedBy, null);
+  same(200, [up(10), up(0)], 110, 220);
+  // with the floor above the ceiling, the ceiling is checked first
+  same(500, [up(0), up(0)], 400, 300);
+  assert.equal(stackPrice(500, [up(0), up(0)], 400, 300).published, 300);
+
+  // Many made-up nights, a quarter of them with a limit exactly on the price.
+  let seed = 7;
+  const rand = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  for (let i = 0; i < 20000; i++) {
+    const base = Math.round(rand() * 50000) / 100;
+    const changes = [0, 1].map(() => ({
+      kind: rand() < 0.7 ? "percent" : "amount",
+      direction: rand() < 0.5 ? "up" : "down",
+      value: Math.round(rand() * 60),
+    }));
+    const onTheLine = enginePrice(base, changes, -Infinity, Infinity).final;
+    const pick = rand();
+    const floor = pick < 0.125 ? onTheLine : Math.round(rand() * 30000) / 100;
+    const ceiling = pick > 0.875 ? onTheLine : Math.round(rand() * 60000) / 100;
+    same(base, changes, floor, ceiling);
+  }
 });
 
 test("the bill follows the brackets on the what it costs page", () => {
