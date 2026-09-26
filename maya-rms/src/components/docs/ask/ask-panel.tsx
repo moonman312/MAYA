@@ -12,7 +12,7 @@ import { useAsk } from "./ask-context";
 import { MarkdownLite } from "./markdown-lite";
 
 const SUPPORT_EMAIL = "info@modern-hospitality-solutions.com";
-const STORE_KEY = "maya-docs-ask";
+const STORE_KEY = "maya-docs-ask-v2";
 
 // The index is fetched the first time the panel opens, then kept for the visit.
 let loading: Promise<{ index: AskIndex; matcher: Matcher }> | null = null;
@@ -51,11 +51,14 @@ interface Turn {
   sent?: "sending" | SendResult;
 }
 
+// A saved turn points at passages by their place in the index, so it only
+// holds for the index it was asked against. The index file is named after its
+// contents: after a docs deploy the name differs and the conversation starts over.
 function readStore(): Turn[] {
   try {
     const raw = sessionStorage.getItem(STORE_KEY);
-    const parsed = raw ? (JSON.parse(raw) as Turn[]) : [];
-    return Array.isArray(parsed) ? parsed.slice(-30) : [];
+    const parsed = raw ? (JSON.parse(raw) as { file?: string; turns?: Turn[] }) : null;
+    return parsed?.file === manifest.file && Array.isArray(parsed.turns) ? parsed.turns.slice(-30) : [];
   } catch {
     return [];
   }
@@ -63,7 +66,7 @@ function readStore(): Turn[] {
 
 function writeStore(turns: Turn[]) {
   try {
-    sessionStorage.setItem(STORE_KEY, JSON.stringify(turns.slice(-30)));
+    sessionStorage.setItem(STORE_KEY, JSON.stringify({ file: manifest.file, turns: turns.slice(-30) }));
   } catch {
     // storage blocked: the conversation lasts as long as the panel
   }
@@ -95,6 +98,12 @@ export async function send(body: Record<string, unknown>): Promise<SendResult> {
 function mailto(question: string) {
   const body = question ? `My question: ${question}\n\n` : "";
   return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Docs question")}${body ? `&body=${encodeURIComponent(body)}` : ""}`;
+}
+
+/** The hit still names a passage on that page, so it is safe to show and link to. */
+function valid(index: AskIndex, hit: Hit) {
+  const e = index.entries[hit.entry];
+  return !!e && e.p === hit.page && !!index.pages[hit.page];
 }
 
 function linkFor(index: AskIndex, hit: Hit) {
@@ -223,7 +232,7 @@ export function AskPanel() {
     const q = question.trim().slice(0, 500);
     if (!q || !ready) return;
     const { index, matcher } = ready;
-    const last = [...turns].reverse().find((t) => t.answer);
+    const last = [...turns].reverse().find((t) => t.answer && valid(index, t.answer));
     const current = index.pages.findIndex((p) => p.u === pathname);
     const r = matcher.ask(q, {
       lastPage: last?.answer?.page ?? null,
@@ -254,7 +263,7 @@ export function AskPanel() {
   function sectionsShown(turn: Turn) {
     if (!ready) return "";
     return [turn.answer, ...turn.also]
-      .filter((h): h is Hit => !!h)
+      .filter((h): h is Hit => !!h && valid(ready.index, h))
       .map((h) => linkFor(ready.index, h).href)
       .join(", ");
   }
@@ -347,8 +356,9 @@ export function AskPanel() {
               {ready
                 ? turns.map((turn) => {
                     const { index } = ready;
-                    const answer = turn.answer && index.entries[turn.answer.entry] ? turn.answer : null;
+                    const answer = turn.answer && valid(index, turn.answer) ? turn.answer : null;
                     const link = answer ? linkFor(index, answer) : null;
+                    const also = turn.also.filter((h) => valid(index, h));
                     return (
                       <article key={turn.id} className="space-y-3 scroll-mt-4" aria-label={`Answer to: ${turn.question}`}>
                         <p className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-primary/10 px-3.5 py-2 text-sm text-foreground">
@@ -369,11 +379,11 @@ export function AskPanel() {
                                 </Link>
                               </p>
                             </div>
-                            {turn.also.length ? (
+                            {also.length ? (
                               <div>
                                 <p className="mb-1 text-xs font-semibold text-muted-foreground">Also see</p>
                                 <ul className="space-y-1">
-                                  {turn.also.map((h) => {
+                                  {also.map((h) => {
                                     const l = linkFor(index, h);
                                     return (
                                       <li key={`${h.page}-${h.entry}`}>
