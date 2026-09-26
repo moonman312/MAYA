@@ -25,7 +25,9 @@ function Spot({ n, id, active, onShow }: { n: number; id: PartId; active: PartId
       aria-pressed={active === id}
       onMouseEnter={() => onShow(id)}
       onFocus={() => onShow(id)}
-      onClick={() => onShow(active === id ? null : id)}
+      // A tap or click comes after the hover and the focus have already shown
+      // this spot, so it only shows it too: a toggle would hide it again.
+      onClick={() => onShow(id)}
       className={cn(
         "relative z-10 inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[0.65rem] font-bold ring-2 ring-background transition-transform focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring/60",
         active === id ? "scale-110 bg-primary text-primary-foreground" : "bg-foreground text-background hover:scale-110"
