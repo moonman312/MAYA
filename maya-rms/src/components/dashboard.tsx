@@ -329,6 +329,10 @@ export function Dashboard({
   const [builderFilled, setBuilderFilled] = useState(false);
   const [roomTypesReady, setRoomTypesReady] = useState(false);
   const builderApplied = useRef(false);
+  // A link fills a form in once. Leaving the place it opened uses the fill up,
+  // so coming back finds the form as the owner left it, not filled in again.
+  const [fillUsed, setFillUsed] = useState(false);
+  const arrivedAt = useRef<string | null>(null);
 
   const [rules, setRules] = useState<RuleConfig[]>([]);
   /** Rule awaiting the delete-or-disable choice; null when the dialog is closed. */
@@ -820,6 +824,14 @@ export function Dashboard({
     setArrivalNote(a.note);
     track("deeplink.opened", { dest: a.dest, filled: links.fills(a.params), noted: Boolean(a.note) });
   }, []);
+
+  // Notes where the link landed, and marks the fill used once the owner is
+  // somewhere else (another tab), even if they come straight back.
+  useEffect(() => {
+    if (!arrival?.dest || fillUsed) return;
+    if (arrivedAt.current === null) arrivedAt.current = tab;
+    else if (tab !== arrivedAt.current) setFillUsed(true);
+  }, [arrival, fillUsed, tab]);
 
   // The rule builder, filled in through its own setters once the room types
   // have loaded (loading them resets the builder's room type lists).
@@ -1930,7 +1942,7 @@ export function Dashboard({
             onRuleSaved={reloadRules}
             draftOpenAtStart={panel === "test-rule"}
             onDraftOpenChange={(open) => setPanel(open ? "test-rule" : null)}
-            initialDraft={arrival?.dest === "simulator.test-rule" ? testRuleFill(arrival.params) : null}
+            initialDraft={arrival?.dest === "simulator.test-rule" && !fillUsed ? testRuleFill(arrival.params) : null}
           />
         )}
 
