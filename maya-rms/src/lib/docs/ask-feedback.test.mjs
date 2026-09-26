@@ -41,6 +41,27 @@ test("emails with accented letters and phone numbers written with a slash are re
   }
 });
 
+test("prices, amounts and dates joined by a slash stay, since only an area code makes a phone number", () => {
+  for (const kept of [
+    "I set floor/ceiling 80.00/250.00 but it went to 300",
+    "weekday/weekend 189.00/209.00",
+    "single/double 120.00/140.00 €",
+    "rates 25000/30000 HUF",
+    "stay 2026-06-01/2026-06-05",
+    "Zeitraum 01.06.2026/05.06.2026",
+    "season 2025/2026 - 2026/2027",
+    "rooms 101/102",
+  ]) {
+    assert.equal(scrub(kept), kept);
+  }
+  // the phone shapes a slash is used for are still removed
+  assert.equal(scrub("call 030/12345678"), "call [removed]");
+  assert.equal(scrub("mobile 0171/1234567 or"), "mobile [removed] or");
+  assert.equal(scrub("from abroad +49 30/1234567"), "from abroad [removed]");
+  assert.equal(scrub("office (030) 1234/5678"), "office [removed]");
+  assert.equal(scrub("0049 30/1234567 or 030 / 123 456 78"), "[removed] or [removed]");
+});
+
 test("an unanswered question is written scrubbed, with the page and the time, and no identifier", async () => {
   const db = recorder();
   const res = await handleFeedback(

@@ -25,7 +25,12 @@ export function scrub(text: string): string {
     .replace(/[\p{L}\p{M}\p{N}._%+-]+@[\p{L}\p{M}\p{N}.-]+\.\p{L}{2,}/gu, REMOVED)
     .replace(/(?:\d[ -]?){11,18}\d/g, REMOVED)
     .replace(/\+?\(?\d[\d\s().-]{6,}\d/g, (m) => ((m.match(/\d/g) ?? []).length >= 9 ? REMOVED : m))
-    .replace(/\+?\(?\d[\d\s().-]*\/\s?\d[\d\s().-]*\d/g, (m) => ((m.match(/\d/g) ?? []).length >= 9 ? REMOVED : m))
+    // With a slash, only an area code before it (030, (030), 0049 30 or +49 30)
+    // makes a phone number, and never one that goes on from a date or a price,
+    // so 80.00/250.00, 25000/30000 and 01.06.2026/05.06.2026 stay.
+    .replace(/(?<!\d)(?<!\d[./-])(?:\+\d[\d ()-]*|\(?0\d{1,5}\)?(?: \d{1,5})?)\s?\/\s?\d(?:[ -]?\d)*/g, (m) =>
+      (m.match(/\d/g) ?? []).length >= 9 ? REMOVED : m,
+    )
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "")
     // half an emoji (a lone surrogate) would make Postgres refuse the whole row
     .replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, "")
