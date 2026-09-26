@@ -58,6 +58,16 @@ test("a result names the heading the query fits best, not the first one that sha
   assert.equal(anchorOn("What happens if my card fails?", "/docs/billing/cards-payments-and-invoices"), "when-a-payment-fails");
 });
 
+test("a typo in a word's first letters still names the heading the search found it by", () => {
+  const anchorOn = (query, url) => searchDocs(search, query).find((r) => r.url === url)?.anchor;
+  // The search finds these pages through "occupancy" and "access".
+  assert.equal(anchorOn("ocupancy", "/docs/wrong/occupancy-looks-wrong"), "why-does-mayas-occupancy-differ-from-cloudbeds");
+  assert.equal(anchorOn("ocupancy", "/docs/rules/sellable-occupancy"), "why-it-differs-from-your-systems-headline-occupancy");
+  assert.equal(anchorOn("acess", "/docs/connect/what-maya-reads-and-writes"), "read-only-access");
+  // A typo further in keeps working.
+  assert.equal(anchorOn("cancelation", "/docs/wrong/booking-speed-reads-oddly"), "do-cancellations-lower-the-count");
+});
+
 test("an empty query finds nothing and a nonsense one finds nothing", () => {
   assert.deepEqual(searchDocs(search, "  "), []);
   assert.deepEqual(searchDocs(search, "zzqxv"), []);

@@ -29,11 +29,14 @@ export interface SearchResult {
 
 export type DocsSearchIndex = { mini: MiniSearch<SearchPage & { id: number }>; pages: SearchPage[] };
 
+// How many typos the search forgives: a fifth of the word's letters, rounded.
+const FUZZY = 0.2;
+
 export function buildSearch(pages: SearchPage[]): DocsSearchIndex {
   const mini = new MiniSearch<SearchPage & { id: number }>({
     fields: ["t", "k", "hs", "sum"],
     extractField: (doc, field) => (field === "hs" ? doc.h.join(" • ") : String((doc as unknown as Record<string, unknown>)[field] ?? "")),
-    searchOptions: { boost: { t: 4, k: 3, hs: 2, sum: 1 }, prefix: true, fuzzy: 0.2 },
+    searchOptions: { boost: { t: 4, k: 3, hs: 2, sum: 1 }, prefix: true, fuzzy: FUZZY },
   });
   mini.addAll(pages.map((p, id) => ({ ...p, id })));
   return { mini, pages };
@@ -46,13 +49,27 @@ const STOP_WORDS = new Set(
 
 const words = (text: string) => text.toLowerCase().split(/[^a-z0-9$%]+/).filter(Boolean);
 
+// Whether adding, dropping or changing at most `max` letters turns a into b.
+function withinEdits(a: string, b: string, max: number): boolean {
+  if (Math.abs(a.length - b.length) > max) return false;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++) row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    if (Math.min(...row) > max) return false;
+    prev = row;
+  }
+  return prev[b.length] <= max;
+}
+
 // How well one query term fits one word: 2 for the same word, 1 for a word it
 // starts (the reader is still typing), or for a word the search matched that
-// shares its first three letters (another ending, or a small typo).
+// is within the search's own typo allowance of it (another ending, or a small
+// typo anywhere, "ocupancy" for "occupancy" too).
 function fit(term: string, word: string, matched: Set<string>): number {
   if (word === term) return 2;
   if (word.startsWith(term)) return 1;
-  if (matched.has(word) && word.length >= 3 && word.slice(0, 3) === term.slice(0, 3)) return 1;
+  if (matched.has(word) && withinEdits(term, word, Math.round(term.length * FUZZY))) return 1;
   return 0;
 }
 
