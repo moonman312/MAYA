@@ -3,21 +3,17 @@
  * The docs search box. When no page matches, a keyboard reader can still
  * reach "Ask the docs helper" and "Email us": the results stay open while
  * focus moves onto them, and Enter in the box asks the helper. And when the
- * search index fails to load, the next try loads it again.
+ * search index fails to load, the search says so and offers to reload the
+ * page, because the built site will not fetch the index again on its own.
  */
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 const index = vi.hoisted(() => ({
-  loads: 0,
-  failures: 0,
+  offline: false,
   load() {
-    index.loads++;
-    if (index.failures > 0) {
-      index.failures--;
-      throw new Error("offline");
-    }
+    if (index.offline) throw new Error("offline");
     return {
       default: {
         pages: [{ u: "/docs/rules/booking-speed", t: "Booking speed", s: "Rules", sum: "How fast nights book.", h: ["Where you set it"], hid: ["where-you-set-it"], k: "" }],
@@ -88,13 +84,20 @@ describe("when no page matches", () => {
 });
 
 describe("when the search index fails to load", () => {
-  it("says so, and loads it on the next try", async () => {
-    // A fresh copy of the search box and the index, neither loaded yet.
+  afterEach(() => {
+    index.offline = false;
+    vi.unstubAllGlobals();
+  });
+
+  it("says so and offers to reload the page, and does not pretend to try again", async () => {
+    // A fresh copy of the search box and the index, neither loaded yet. The
+    // index stays out of reach for the whole test, as it does in the built
+    // site, where the bundler keeps a file that failed and never fetches it
+    // again: a later focus or keystroke cannot bring it back.
     vi.resetModules();
     vi.doMock("@/lib/docs/generated/index.json", () => index.load());
     const { DocsSearch: FreshSearch } = await import("./search");
-    index.failures = 1;
-    const loadsBefore = index.loads;
+    index.offline = true;
     render(
       <>
         <FreshSearch />
@@ -104,13 +107,29 @@ describe("when the search index fails to load", () => {
     const input = screen.getByRole("combobox");
     act(() => input.focus());
     fireEvent.change(input, { target: { value: "booking" } });
-    await screen.findByText(/could not load/);
+    expect((await screen.findByText(/could not load/)).textContent).toMatch(/reload the page/);
+    expect(screen.queryByText(/type again/)).toBeNull();
 
+    // Coming back to the box and typing more keeps the message, rather than
+    // going back to "Loading" as if the search were trying again.
     act(() => screen.getByRole("button", { name: "Elsewhere" }).focus());
     await pause();
     act(() => input.focus());
-    expect(await screen.findByText("Booking speed")).toBeTruthy();
-    expect(screen.queryByText(/could not load|Loading the search/)).toBeNull();
-    expect(index.loads - loadsBefore).toBe(2);
+    fireEvent.change(input, { target: { value: "booking speed" } });
+    expect(screen.queryByText(/Loading the search/)).toBeNull();
+    await pause();
+    expect(screen.getByText(/could not load/)).toBeTruthy();
+    expect(screen.queryByText(/Loading the search/)).toBeNull();
+
+    // Tab reaches the reload button without closing the results, and it
+    // reloads the page.
+    const reloadButton = screen.getByRole("button", { name: "Reload the page" });
+    act(() => reloadButton.focus());
+    await pause();
+    expect(reloadButton.closest("[hidden]")).toBeNull();
+    const reload = vi.fn();
+    vi.stubGlobal("location", { reload });
+    fireEvent.click(reloadButton);
+    expect(reload).toHaveBeenCalledOnce();
   });
 });

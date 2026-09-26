@@ -9,7 +9,10 @@ import { buildSearch, searchDocs, type DocsSearchIndex, type SearchPage, type Se
 
 // The index is a static file bundled on its own; it loads the first time a
 // search box gets focus, and every keystroke after that searches in memory.
-// A load that fails is forgotten, so the next focus or keystroke tries again.
+// If that load fails, the bundler keeps the failed file for the rest of the
+// visit and will not fetch it again, so the search asks the reader to reload
+// the page. The failed load is still forgotten, which does no harm and lets a
+// bundler that does fetch again load the index on a later focus.
 let indexPromise: Promise<DocsSearchIndex> | null = null;
 function loadIndex() {
   if (!indexPromise) {
@@ -42,8 +45,9 @@ export const DocsSearch = forwardRef<DocsSearchHandle, { onNavigate?: () => void
 
     useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }), []);
 
+    // Once a load has failed, the search keeps saying so rather than going
+    // back to "Loading", since only a reload of the page can fix it.
     const load = useCallback(() => {
-      setFailed(false);
       loadIndex().then(setData, () => setFailed(true));
     }, []);
 
@@ -162,9 +166,20 @@ export const DocsSearch = forwardRef<DocsSearchHandle, { onNavigate?: () => void
           </div>
           {/* Outside the listbox, which may hold only options. */}
           {!data ? (
-            <p className="px-3 py-3 text-sm text-muted-foreground">
-              {failed ? "The search could not load. Check your connection and type again." : "Loading the search…"}
-            </p>
+            failed ? (
+              <div className="px-3 py-3 text-sm text-muted-foreground">
+                <p>The search could not load. Check your connection, then reload the page.</p>
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="mt-2 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-foreground"
+                >
+                  Reload the page
+                </button>
+              </div>
+            ) : (
+              <p className="px-3 py-3 text-sm text-muted-foreground">Loading the search…</p>
+            )
           ) : results.length ? null : (
             <div className="px-3 py-3 text-sm text-muted-foreground">
               <p>No page matches.{askEnabled ? " Ask the docs helper, or email us." : " Email us."}</p>
