@@ -2,7 +2,10 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import { engineFacts, floorOffers, occupancyFires, priceFor, readBookingSpeed, sellableOccupancy, stackPrice } from "./engine-facts.ts";
-import { fallbackFor, WIDGET_NAMES } from "./widget-fallbacks.mjs";
+import { fallbackFor, occupancySentence, WIDGET_NAMES } from "./widget-fallbacks.mjs";
+import { ruleConditionsMatch } from "../engine/conditions.ts";
+import { computeOccupancy } from "../engine/metrics.ts";
+import { conditionRowsToRuleCondition, newConditionRow } from "../rule-form.ts";
 
 test("booking speed matches the worked table on the booking speed in detail page", () => {
   // expected: [bookings, level] pairs straight from the table, five or more similar nights
@@ -30,12 +33,65 @@ test("with fewer than five similar nights the level stays one step from Normal",
 });
 
 test("sellable occupancy is strict, can pass 100, and has nothing to say with no rooms to sell", () => {
-  assert.equal(Math.round(sellableOccupancy(12, 3, 8)), 89);
-  assert.equal(Math.round(sellableOccupancy(12, 3, 10)), 111);
+  assert.equal(Math.round(sellableOccupancy(12, 3, 8) * 100), 89);
+  assert.equal(Math.round(sellableOccupancy(12, 3, 10) * 100), 111);
   assert.equal(sellableOccupancy(3, 3, 0), null);
-  assert.equal(occupancyFires(80, "greater", 80), false);
-  assert.equal(occupancyFires(80.01, "greater", 80), true);
+  assert.equal(occupancyFires(0.8, "greater", 80), false);
+  assert.equal(occupancyFires(0.8001, "greater", 80), true);
   assert.equal(occupancyFires(null, "less", 50), false);
+});
+
+// What the engine does with the same night: the rule form stores the
+// threshold as a share, computeOccupancy works out booked over sellable, and
+// ruleConditionsMatch compares the two.
+function engineFires(rooms, outOfService, booked, compare, threshold) {
+  const row = newConditionRow("occupancy", { operator: compare === "greater" ? "gt" : "lt", value: String(threshold) });
+  const rule = { condition: conditionRowsToRuleCondition([row]) };
+  const snap = new Map([["rt", { booked_units: booked, sellable_units: Math.max(0, rooms - outOfService) }]]);
+  return ruleConditionsMatch(rule, { occupancy: computeOccupancy(snap, ["rt"]), dta: 0 });
+}
+
+test("the occupancy slider fires exactly when the engine would, for every setting the slider allows", () => {
+  const conditions = [];
+  for (const compare of ["greater", "less"]) {
+    for (let threshold = 0; threshold <= 100; threshold++) {
+      const row = newConditionRow("occupancy", { operator: compare === "greater" ? "gt" : "lt", value: String(threshold) });
+      conditions.push({ compare, threshold, rule: { condition: conditionRowsToRuleCondition([row]) } });
+    }
+  }
+  const mismatches = [];
+  for (let rooms = 1; rooms <= 40; rooms++) {
+    for (let oos = 0; oos <= rooms; oos++) {
+      for (let booked = 0; booked <= rooms; booked++) {
+        const snap = new Map([["rt", { booked_units: booked, sellable_units: rooms - oos }]]);
+        const metrics = { occupancy: computeOccupancy(snap, ["rt"]), dta: 0 };
+        const share = sellableOccupancy(rooms, oos, booked);
+        for (const { compare, threshold, rule } of conditions) {
+          if (occupancyFires(share, compare, threshold) !== ruleConditionsMatch(rule, metrics)) {
+            mismatches.push(`${rooms}/${oos}/${booked} ${compare} ${threshold}`);
+          }
+        }
+      }
+    }
+  }
+  assert.deepEqual(mismatches.slice(0, 5), []);
+});
+
+test("the occupancy fallback sentence fires exactly when the engine would", () => {
+  // 11 of 20 is exactly 55%, which a Greater than 55 rule does not pass
+  assert.match(occupancySentence({ rooms: 20, outOfService: 0, booked: 11, threshold: 55 }), /55% sellable occupancy, so a Greater than 55 rule does not fire\.$/);
+  for (let rooms = 1; rooms <= 40; rooms++) {
+    for (const outOfService of [0, 1, 3]) {
+      for (let booked = 0; booked <= rooms; booked++) {
+        for (let threshold = 0; threshold <= 100; threshold++) {
+          for (const compare of ["greater", "less"]) {
+            const says = occupancySentence({ rooms, outOfService, booked, threshold, compare }).endsWith(" rule fires.");
+            assert.equal(says, engineFires(rooms, outOfService, booked, compare, threshold), `${rooms}/${outOfService}/${booked} ${compare} ${threshold}`);
+          }
+        }
+      }
+    }
+  }
 });
 
 test("stacking multiplies percents, adds amounts, and holds at the floor and ceiling", () => {

@@ -24,9 +24,12 @@ export function occupancySentence(props = {}) {
   const label = p.compare === "less" ? "Less than" : "Greater than";
   const lead = `${capital(count(p.rooms))} rooms, ${count(p.outOfService)} out of service, ${count(p.booked)} booked`;
   if (sellable === 0) return `${lead}: no rooms to sell, so a ${label} ${p.threshold} rule does not fire.`;
-  const exact = (p.booked / sellable) * 100;
-  const fires = p.compare === "less" ? exact < p.threshold : exact > p.threshold;
-  return `${lead}: ${Math.round(exact)}% sellable occupancy, so a ${label} ${p.threshold} rule ${fires ? "fires" : "does not fire"}.`;
+  // Shares against the threshold over 100, as the engine compares them. In
+  // percents, 11 of 20 comes out a hair over 55.
+  const share = p.booked / sellable;
+  const line = p.threshold / 100;
+  const fires = p.compare === "less" ? share < line : share > line;
+  return `${lead}: ${Math.round(share * 100)}% sellable occupancy, so a ${label} ${p.threshold} rule ${fires ? "fires" : "does not fire"}.`;
 }
 
 const FIXED = {

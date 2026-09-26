@@ -106,16 +106,26 @@ export function readBookingSpeed(expected: number, recent: number, similarNights
   return { ratio, difference, level: levelAt(rank), steps };
 }
 
-/** Sellable occupancy as a percentage, or null when there is nothing to sell. */
+/**
+ * Sellable occupancy as a share of the rooms you can sell (0.55 is 55%), or
+ * null when there is nothing to sell. A share, as the engine keeps it.
+ */
 export function sellableOccupancy(rooms: number, outOfService: number, booked: number): number | null {
   const sellable = rooms - outOfService;
   if (sellable <= 0) return null;
-  return (booked / sellable) * 100;
+  return booked / sellable;
 }
 
-export function occupancyFires(pct: number | null, compare: "greater" | "less", threshold: number): boolean {
-  if (pct === null) return false;
-  return compare === "greater" ? pct > threshold : pct < threshold;
+/**
+ * Whether an occupancy rule fires. The threshold is the percent the reader
+ * types; the engine stores it as a share and compares shares, so this does
+ * too. Multiplying up to a percent first makes 11 of 20 come out a hair over
+ * 55, which would fire a Greater than 55 rule the engine does not.
+ */
+export function occupancyFires(share: number | null, compare: "greater" | "less", threshold: number): boolean {
+  if (share === null) return false;
+  const line = threshold / 100;
+  return compare === "greater" ? share > line : share < line;
 }
 
 export interface Adjustment {

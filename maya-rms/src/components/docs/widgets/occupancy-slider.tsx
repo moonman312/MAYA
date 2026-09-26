@@ -31,8 +31,9 @@ export function OccupancySliderLive(props: OccupancySliderProps) {
   };
 
   const sellable = rooms - oos;
-  const pct = sellableOccupancy(rooms, oos, booked);
-  const fires = occupancyFires(pct, compare, threshold);
+  const share = sellableOccupancy(rooms, oos, booked);
+  const fires = occupancyFires(share, compare, threshold);
+  const pct = share === null ? null : share * 100;
   const shown = pct === null ? null : Math.round(pct);
   const exactlyOnLine = pct !== null && Math.abs(pct - threshold) < 1e-9;
   const label = compare === "greater" ? "Greater than" : "Less than";
