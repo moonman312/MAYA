@@ -93,6 +93,30 @@ function scalar(value) {
   return unquote(v);
 }
 
+/**
+ * The value on a `key: value` line. A quoted value runs to its own closing
+ * quote, so a # inside it is kept, and a " # comment" may follow it. An
+ * unquoted value may not hold " # ": YAML reads the rest as a comment, which
+ * would cut the value short without a word.
+ */
+function lineValue(rest, lineNo) {
+  const v = rest.trim();
+  const q = v[0];
+  if (q !== '"' && q !== "'") {
+    if (/\s#(\s|$)/.test(v)) throw new Error(`frontmatter line ${lineNo}: " # " would cut the value short; put the value in quotes`);
+    return v;
+  }
+  for (let i = 1; i < v.length; i++) {
+    if (q === '"' && v[i] === "\\") i++;
+    else if (q === "'" && v[i] === "'" && v[i + 1] === "'") i++;
+    else if (v[i] === q) {
+      if (/^(\s+#.*)?$/.test(v.slice(i + 1))) return v.slice(0, i + 1);
+      break;
+    }
+  }
+  throw new Error(`frontmatter line ${lineNo}: a value that starts with a quote must end with it`);
+}
+
 // A list item may end with {#anchor}: the heading (and passage) that
 // answers it, as in `- Can I get a refund? {#refunds}`.
 const ITEM_REF = /^(.*?)\s*\{#([^{}]*)\}\s*$/;
@@ -110,7 +134,8 @@ export function splitRef(item) {
 /**
  * Parses the small YAML subset the docs frontmatter uses: `key: value`
  * lines (the value is the rest of the line, so a colon inside a summary is
- * fine), `[a, b]` lists, and `- item` lists under a key. A list item may end
+ * fine, and " # " needs quotes around it), `[a, b]` lists, and `- item` lists
+ * under a key. A list item may end
  * with {#anchor} after its quotes; it is kept on the unquoted item. Throws
  * with the line number on anything else.
  */
@@ -135,7 +160,7 @@ export function parseFrontmatter(text) {
       return;
     }
     listKey = null;
-    data[key] = scalar(rest.replace(/\s+#\s.*$/, ""));
+    data[key] = scalar(lineValue(rest, i + 2));
   });
   return data;
 }

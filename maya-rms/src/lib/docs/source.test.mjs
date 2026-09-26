@@ -43,6 +43,16 @@ test("the frontmatter parser reads quoted titles, colons in summaries and both l
   assert.throws(() => parseFrontmatter("just words"), /frontmatter line 2/);
 });
 
+test("a # inside a quoted value is kept, and an unquoted value is never cut short at one", () => {
+  assert.equal(parseFrontmatter('title: "Rooms # and rates"').title, "Rooms # and rates");
+  assert.equal(parseFrontmatter("title: 'Rooms # and rates' # a note").title, "Rooms # and rates");
+  assert.equal(parseFrontmatter('title: "Say \\"# of rooms\\""').title, 'Say "# of rooms"');
+  assert.equal(parseFrontmatter("title: Room #12").title, "Room #12", "a # with no space after it is just a character");
+  assert.throws(() => parseFrontmatter("summary: Change the # of rooms you pay for."), /frontmatter line 2: " # " would cut the value short/);
+  assert.throws(() => parseFrontmatter('title: ok\ntitle: "Rooms # x'), /frontmatter line 3: a value that starts with a quote must end with it/);
+  assert.throws(() => parseFrontmatter('title: "Roles": who'), /frontmatter line 2/);
+});
+
 test("a question can end with the {#anchor} of the passage that answers it", () => {
   const fm = parseFrontmatter("questions:\n  - Can I get a refund? {#refunds}\n  - 'What does \"Unpaid\" mean?' {#when-a-payment-fails/the-status-becomes}\n  - Plain one?");
   assert.deepEqual(fm.questions, [
