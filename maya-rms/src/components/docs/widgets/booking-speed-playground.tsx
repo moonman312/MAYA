@@ -5,8 +5,9 @@ import { engineFacts, readBookingSpeed, SPEED_LEVELS, type SpeedLevel } from "@/
 import { cn } from "@/lib/utils";
 import { Output, RangeField } from "./controls";
 
-// The three notes "How did we know?" shows when a check held a reading back,
-// quoted as the app writes them.
+// The three notes "How did we know?" can show when a check held a reading
+// back, quoted as the app writes them. It shows one, for the last check that
+// changed the level, so the playground quotes only that one too.
 const GUARD_NOTES = {
   noise:
     "The raw numbers leaned away from Normal, but the gap was small enough to be ordinary noise at this volume, so we held the call at Normal.",
@@ -58,7 +59,7 @@ export function BookingSpeedPlaygroundLive() {
   lines.push({
     title: "Is the gap big enough?",
     body: `The difference is ${trimNumber(Math.round(r.difference * 100) / 100)} booking${r.difference === 1 ? "" : "s"}. Leaving Normal needs at least ${trimNumber(Math.round(noise * 100) / 100)}.`,
-    note: noiseStep.changed ? GUARD_NOTES.noise : undefined,
+    note: r.guard === "noise" ? GUARD_NOTES.noise : undefined,
     changed: noiseStep.changed,
   });
   const extremeStep = r.steps[2];
@@ -69,7 +70,7 @@ export function BookingSpeedPlaygroundLive() {
       : band === "Stalled" || band === "Surging"
         ? `Stalled and Surging need a difference of at least ${trimNumber(Math.round(extreme * 100) / 100)}.`
         : "Only Stalled and Surging need this check.",
-    note: extremeStep?.changed ? GUARD_NOTES.extreme : undefined,
+    note: r.guard === "extreme" ? GUARD_NOTES.extreme : undefined,
     changed: !!extremeStep?.changed,
     skipped: !extremeStep,
   });
@@ -81,7 +82,7 @@ export function BookingSpeedPlaygroundLive() {
       : similar < fewComparables
         ? `${similar} similar night${similar === 1 ? "" : "s"}, fewer than ${fewComparables}, so the reading stays within one step of Normal.`
         : `${similar} similar nights: the full range of levels is open.`,
-    note: fewStep?.changed ? GUARD_NOTES.few : undefined,
+    note: r.guard === "few" ? GUARD_NOTES.few : undefined,
     changed: !!fewStep?.changed,
     skipped: !fewStep,
   });

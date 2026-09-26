@@ -6,6 +6,7 @@ import { fallbackFor, occupancySentence, WIDGET_NAMES } from "./widget-fallbacks
 import { ruleConditionsMatch } from "../engine/conditions.ts";
 import { computeOccupancy } from "../engine/metrics.ts";
 import { applyAdjustments, clampPrice } from "../engine/pricing.ts";
+import { classifyBookingSpeed } from "../observations/booking-speed.ts";
 import { conditionRowsToRuleCondition, newConditionRow } from "../rule-form.ts";
 
 test("booking speed matches the worked table on the booking speed in detail page", () => {
@@ -31,6 +32,26 @@ test("with fewer than five similar nights the level stays one step from Normal",
   assert.equal(readBookingSpeed(0.4, 2, 5).level, "Normal", "against 0.4, two bookings read Normal");
   assert.equal(readBookingSpeed(0.4, 3, 5).level, "Much Faster Than Normal");
   assert.equal(readBookingSpeed(0.4, 5, 5).level, "Surging");
+});
+
+test("booking speed reads every night the playground allows as the engine does, with the note the app shows", () => {
+  // "How did we know?" shows one note: the engine's guard, which is the last check that moved the level
+  const guardFor = { noise: "small_difference", extreme: "extreme_demoted", few: "few_comparables" };
+  for (let expected = 0; expected <= 30; expected += 0.5) {
+    for (let recent = 0; recent <= 60; recent++) {
+      for (let similar = 1; similar <= 8; similar++) {
+        const widget = readBookingSpeed(expected, recent, similar);
+        const engine = classifyBookingSpeed({ expectedBookings: expected, recentBookings: recent, comparableCount: similar });
+        const what = `expected ${expected}, received ${recent}, ${similar} similar nights`;
+        assert.equal(widget.level, engine.label, what);
+        const lastChanged = widget.steps.filter((s) => s.changed).at(-1);
+        assert.equal(lastChanged ? guardFor[lastChanged.check] : "none", engine.guard, what);
+        assert.equal(widget.guard ? guardFor[widget.guard] : "none", engine.guard, what);
+      }
+    }
+  }
+  // with nothing expected and nothing received, nothing was held back
+  assert.equal(readBookingSpeed(0, 0, 5).steps[1].changed, false);
 });
 
 test("sellable occupancy is strict, can pass 100, and has nothing to say with no rooms to sell", () => {

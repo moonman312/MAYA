@@ -62,7 +62,7 @@ export interface SpeedStep {
   check: "band" | "noise" | "extreme" | "few";
   /** what the level was after this step */
   level: SpeedLevel;
-  /** true when this check changed the level */
+  /** true when this check held the reading back, as the engine counts it */
   changed: boolean;
 }
 
@@ -71,6 +71,11 @@ export interface SpeedReading {
   difference: number;
   level: SpeedLevel;
   steps: SpeedStep[];
+  /**
+   * The check "How did we know?" writes its one note about: the last that
+   * changed the level, as the engine records it. Null when none did.
+   */
+  guard: SpeedStep["check"] | null;
 }
 
 const levelAt = (rank: number) => SPEED_LEVELS[rank + 3];
@@ -91,7 +96,10 @@ export function readBookingSpeed(expected: number, recent: number, similarNights
   const steps: SpeedStep[] = [{ check: "band", level: levelAt(rank), changed: false }];
 
   if (difference < noiseGuard(e)) {
-    const changed = rank !== 0;
+    // With the same count expected and received there was nothing to hold
+    // back: the band only reads off the minimum expected, and the engine
+    // writes no note for it.
+    const changed = rank !== 0 && difference > 0;
     rank = 0;
     steps.push({ check: "noise", level: levelAt(rank), changed });
   } else {
@@ -103,7 +111,8 @@ export function readBookingSpeed(expected: number, recent: number, similarNights
     if (few) rank = Math.sign(rank);
     steps.push({ check: "few", level: levelAt(rank), changed: few });
   }
-  return { ratio, difference, level: levelAt(rank), steps };
+  const guard = steps.filter((s) => s.changed).at(-1)?.check ?? null;
+  return { ratio, difference, level: levelAt(rank), steps, guard };
 }
 
 /**
