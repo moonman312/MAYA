@@ -44,7 +44,7 @@ const FIXED = {
     "An occupancy rule set to Greater than 80 writes: It was 85% full, past the 80% mark you set.",
   DateStrip: "Less than 7 covers tonight and the next six nights.",
   AppTour:
-    "The app is one page: a header with Help, Billing, Team and Sign Out, five tabs (Calendar, Rules, Rate Simulator, Change Log and PMS), the Property dropdown beside the tabs, and banners above the tabs when something needs you.",
+    "The app is one page: a header with Help, Billing, Team and Sign Out, five tabs (Calendar, Rules, Rate Simulator, Change Log and PMS), the Property dropdown beside the tabs, and banners under the tabs when something needs you.",
   MessageFinder: "",
 };
 

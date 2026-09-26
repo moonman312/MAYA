@@ -134,6 +134,9 @@ test("every widget has its fallback sentence, and the sentences agree with the m
   assert.match(fallbackFor("BookingSpeedPlayground"), /Faster Than Normal/);
   assert.match(fallbackFor("PriceCalculator"), /\$110 a month.*\$105 a month.*\$1,134/);
   assert.match(fallbackFor("FloorLadder"), /\$50, then \$60, \$70 and \$85/);
+  // the dashboard puts its banners after the tab row, as the tour drawing does
+  assert.match(fallbackFor("AppTour"), /banners under the tabs/);
+  assert.ok(!/above the tabs/.test(fallbackFor("AppTour")));
   for (const name of WIDGET_NAMES) {
     const s = fallbackFor(name);
     assert.ok(!/[–—!]/.test(s), `${name}: no dashes or exclamation marks`);
