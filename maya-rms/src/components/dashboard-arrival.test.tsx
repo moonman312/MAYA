@@ -60,6 +60,12 @@ function writes() {
   return calls.filter((c) => c.method !== "GET" && c.url !== "/api/events");
 }
 
+/** Over to Rules and straight back, as an owner checking something would. */
+function toRulesAndBack(tab: string) {
+  fireEvent.click(screen.getByRole("button", { name: "Rules" }));
+  fireEvent.click(screen.getByRole("button", { name: tab }));
+}
+
 describe("arriving at the rule builder from a link", () => {
   it("opens the builder filled in exactly as the link says, and saves nothing", async () => {
     window.history.replaceState(
@@ -120,12 +126,6 @@ describe("coming back to the Rate Simulator after a link filled its test rule", 
     );
   });
 
-  async function toRulesAndBack() {
-    fireEvent.click(screen.getByRole("button", { name: "Rules" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Rate Simulator" }));
-    await screen.findByText("Rules in play");
-  }
-
   it("does not fill the rule in again once it is saved, so it cannot be saved twice", async () => {
     render(<Dashboard initialSearch={window.location.search} />);
     const name = (await screen.findByLabelText("Rule name")) as HTMLInputElement;
@@ -133,7 +133,8 @@ describe("coming back to the Rate Simulator after a link filled its test rule", 
     fireEvent.click(screen.getByRole("button", { name: "Save This Rule" }));
     await screen.findByText(/Rule Added to Rules Tab/);
 
-    await toRulesAndBack();
+    toRulesAndBack("Rate Simulator");
+    await screen.findByText("Rules in play");
     expect(screen.queryByLabelText("Rule name")).toBeNull();
     expect(screen.queryByText("Filled in from a link")).toBeNull();
     expect(window.location.search).toBe("?tab=simulator");
@@ -145,7 +146,8 @@ describe("coming back to the Rate Simulator after a link filled its test rule", 
     await screen.findByLabelText("Rule name");
     fireEvent.click(screen.getByRole("button", { name: "Discard test rule" }));
 
-    await toRulesAndBack();
+    toRulesAndBack("Rate Simulator");
+    await screen.findByText("Rules in play");
     expect(screen.queryByLabelText("Rule name")).toBeNull();
     expect(screen.queryByText("Filled in from a link")).toBeNull();
     expect(writes()).toEqual([]);
@@ -202,6 +204,76 @@ describe("a manual price link's range after the owner closed it", () => {
     fireEvent.keyDown(price, { key: "Enter" });
     await waitFor(() => expect(writes()).toHaveLength(1));
     expect(JSON.parse(writes()[0].body ?? "{}")).toEqual({ hotelId: "h1", roomTypeId: RT, dateFrom: "2026-10-03", price: 199 });
+  });
+});
+
+describe("a link to a change in the Change Log", () => {
+  const RUN = "55555555-5555-4555-8555-555555555555";
+  const change = (stayDate: string, rt: { id: string; name: string }) => ({
+    room_type: rt.name,
+    rule_name: "Slow dates",
+    original_rate: 150,
+    new_rate: 135,
+    change_pct: -10,
+    occupancy_pct: 40,
+    description: "Slow dates took the rate down.",
+    stay_date: stayDate,
+    evaluation_run_id: RUN,
+    room_type_id: rt.id,
+    has_booking_speed_details: true,
+  });
+  const GONE = "That change is no longer in the list shown here.";
+  const explains = () => calls.filter((c) => c.url.startsWith("/api/explain"));
+  const closedDrilldowns = () => screen.queryAllByRole("button", { name: "How did we know?" });
+  const settle = () => act(() => new Promise((r) => setTimeout(r, 30)));
+
+  beforeEach(() => {
+    routes["/api/changelog"] = [
+      {
+        cycle: 1,
+        timestamp: "2026-09-25T10:00:00Z",
+        has_changes: true,
+        changes: [change("2026-10-03", ROOM_TYPES[0]), change("2026-10-03", ROOM_TYPES[1]), change("2026-10-04", ROOM_TYPES[0])],
+      },
+    ];
+  });
+
+  it("naming only the run highlights the run and opens none of its changes", async () => {
+    window.history.replaceState(null, "", `/?tab=changelog&dl=changelog.entry&run=${RUN}`);
+    render(<Dashboard initialSearch={window.location.search} />);
+    await screen.findAllByText("Slow dates took the rate down.");
+    const run = document.querySelector(`[data-deeplink="changelog.run:${RUN}"]`) as HTMLElement;
+    await waitFor(() => expect(run.hasAttribute("data-dl-flash")).toBe(true));
+    await settle();
+    expect(explains()).toHaveLength(0);
+    expect(closedDrilldowns()).toHaveLength(3);
+  });
+
+  it("naming one change opens that one, once, not again when the owner comes back", async () => {
+    window.history.replaceState(null, "", `/?tab=changelog&dl=changelog.entry&run=${RUN}&date=2026-10-03&roomType=${ROOM_TYPES[0].id}`);
+    render(<Dashboard initialSearch={window.location.search} />);
+    await waitFor(() => expect(explains()).toHaveLength(1));
+    expect(explains()[0].url).toContain(`room_type_id=${ROOM_TYPES[0].id}`);
+    expect(closedDrilldowns()).toHaveLength(2);
+
+    toRulesAndBack("Change Log");
+    await screen.findAllByText("Slow dates took the rate down.");
+    await settle();
+    expect(explains()).toHaveLength(1);
+    expect(closedDrilldowns()).toHaveLength(3);
+  });
+
+  it("says the change has gone once, and not again after the owner closed the note", async () => {
+    window.history.replaceState(null, "", "/?tab=changelog&dl=changelog.entry&run=66666666-6666-4666-8666-666666666666");
+    render(<Dashboard initialSearch={window.location.search} />);
+    const note = await screen.findByText(GONE);
+    fireEvent.click(note.parentElement!.querySelector("button")!);
+    expect(screen.queryByText(GONE)).toBeNull();
+
+    toRulesAndBack("Change Log");
+    await waitFor(() => expect(calls.filter((c) => c.url === "/api/changelog")).toHaveLength(2));
+    await settle();
+    expect(screen.queryByText(GONE)).toBeNull();
   });
 });
 

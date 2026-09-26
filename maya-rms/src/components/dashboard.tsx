@@ -868,20 +868,26 @@ export function Dashboard({
     if (target) return flashWhenReady(target);
   }, [arrival, roomTypesReady]);
 
-  // A link to one change that has since left the list says so.
+  // A link to one change that has since left the list says so, once: against
+  // the first list that loads, not again each time the list reloads.
+  const entryChecked = useRef(false);
   useEffect(() => {
-    if (arrival?.dest !== "changelog.entry" || changelog.length === 0) return;
+    if (arrival?.dest !== "changelog.entry" || entryChecked.current || changelog.length === 0) return;
+    entryChecked.current = true;
     const run = arrival.params.run;
     if (!changelog.some((c) => !isPushProblem(c) && !isRuleAlertChoice(c) && c.changes.some((ch) => ch.evaluation_run_id === run))) {
       setArrivalNote("entry-gone");
     }
   }, [arrival, changelog]);
 
-  const linkedDrilldown = (runId: string | undefined, stayDate: string | undefined, roomTypeId: string | undefined) =>
+  // Only a link that names one change (its run, night and room type) opens
+  // How did we know?. A link to a whole run highlights the run and opens none.
+  const linkedDrilldown = (runId: string, stayDate: string, roomTypeId: string) =>
     arrival?.dest === "changelog.entry" &&
+    !fillUsed &&
     arrival.params.run === runId &&
-    (!arrival.params.date || arrival.params.date === stayDate) &&
-    (!arrival.params.roomType || arrival.params.roomType === roomTypeId);
+    arrival.params.date === stayDate &&
+    arrival.params.roomType === roomTypeId;
 
   const visibleCycles = useMemo(
     // A push problem is always shown: it is never a "nothing changed" run.
