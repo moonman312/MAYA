@@ -6,6 +6,9 @@ import { describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 vi.mock("next/headers", () => ({ cookies: async () => ({ getAll: () => [], get: () => undefined, set: () => {} }) }));
+// Demo mode whatever the environment holds: with real Supabase keys set, /go
+// would send these signed-out requests to sign in instead.
+vi.mock("@/utils/supabase/shared", () => ({ isSupabaseConfigured: () => false }));
 
 import { GET } from "./route";
 
