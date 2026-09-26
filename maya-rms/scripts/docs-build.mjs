@@ -108,7 +108,6 @@ for (const msg of bankProblems) {
   const [where, ...rest] = msg.split(": ");
   say(where === "question bank" ? rel(BANK) : where, 0, rest.join(": "));
 }
-const evalFixture = buildEvalFixture(bank, askIndex);
 
 const searchJson = JSON.stringify(searchIndex);
 const askJson = JSON.stringify(toWire(askIndex));
@@ -135,6 +134,9 @@ if (problems.length) {
   console.error("\nFix these and build again.\n");
   process.exit(1);
 }
+
+// Only from a bank that passed its checks: every question's pages are real.
+const evalFixture = buildEvalFixture(bank, askIndex);
 
 if (!checkOnly) {
   let rewritten = 0;

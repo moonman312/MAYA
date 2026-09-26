@@ -624,16 +624,23 @@ export function buildEvalFixture(bank, index = null, size = EVAL_SIZE) {
     if (e.ipw && !intro.has(e.p)) intro.set(e.p, i);
   });
   const record = new Map(index.questions.map((q) => [`${norm(q.q)}|${q.p}`, q]));
-  return picked.map((item) => {
-    const pages = homesOf(item).map((p) => `/docs/${p}`);
-    const e = pages.map((u) => {
-      const pi = pageOf.get(u);
-      const rec = record.get(`${norm(item.q)}|${pi}`);
-      return rec && rec.e !== undefined ? rec.e : intro.get(pi);
-    });
-    const at = e.map((i) => `${index.pages[index.entries[i].p].u}#${index.entries[i].a}`);
-    return { q: item.q, pages, e, at };
-  });
+  // A home that is not a page, or a page with no passage for the question,
+  // is left out (the build reports it), and so is a question left with none.
+  return picked
+    .map((item) => {
+      const homes = homesOf(item)
+        .map((p) => {
+          const u = `/docs/${p}`;
+          const pi = pageOf.get(u);
+          const rec = record.get(`${norm(item.q)}|${pi}`);
+          return { u, e: rec && rec.e !== undefined ? rec.e : intro.get(pi) };
+        })
+        .filter((h) => h.e !== undefined);
+      const e = homes.map((h) => h.e);
+      const at = e.map((i) => `${index.pages[index.entries[i].p].u}#${index.entries[i].a}`);
+      return { q: item.q, pages: homes.map((h) => h.u), e, at };
+    })
+    .filter((x) => x.pages.length);
 }
 
 /**

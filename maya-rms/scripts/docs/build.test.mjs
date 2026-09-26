@@ -355,6 +355,19 @@ test("the eval fixture is a stable spread of the bank", () => {
   assert.equal(perSection.size, 20, "every bank section is represented");
 });
 
+test("the eval fixture leaves out a home that is not a page, rather than stopping the build before it reports it", () => {
+  const body = `${IPW}\n## How a night reads\n\nIt compares bookings.\n`;
+  const { pages } = loadPages([{ file: "rules/booking-speed.mdx", raw: page(body) }], sections);
+  const bank = [
+    { q: "What is booking speed?", page: "rules/booking-speed", alt: ["rules/no-such-page"] },
+    { q: "Is it magic?", page: "rules/no-such-page" },
+  ];
+  const { index, problems } = buildAskIndex(pages, sections, bank, []);
+  assert.ok(problems.some((p) => /which is not a page/.test(p)), JSON.stringify(problems));
+  const fixture = buildEvalFixture(bank, index);
+  assert.deepEqual(fixture, [{ q: "What is booking speed?", pages: ["/docs/rules/booking-speed"], e: [0], at: ["/docs/rules/booking-speed#"] }]);
+});
+
 // ── The real content ──────────────────────────────────────────────────
 
 const real = loadPages(realFiles(), sections);
