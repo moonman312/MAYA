@@ -116,6 +116,14 @@ test("the build refuses a dead link and a link to a heading that does not exist"
   assert.equal(messages.filter((m) => m.includes("#two")).length, 0, "an anchor on the same page resolves");
 });
 
+test("a [words][ref] link gets the same checks as one written inline", () => {
+  const body = `${IPW}\n## One\n\nSee [the review][r] and [pricing][p].\n\n[r]: https://maya-rms.com/onboarding/review\n[p]: /docs/start/no-such-page#nope\n`;
+  const { problems } = loadPages([{ file: "rules/booking-speed.mdx", raw: page(body) }], sections);
+  const messages = problems.map((p) => p.message);
+  assert.ok(messages.some((m) => m.includes('"https://maya-rms.com/onboarding/review" goes into MAYA for everyone')), messages.join("\n"));
+  assert.ok(messages.some((m) => m.includes('"/docs/start/no-such-page#nope" points at a page that does not exist')), messages.join("\n"));
+});
+
 test("the build refuses a non-kebab slug and a duplicate path", () => {
   const { problems } = loadPages([{ file: "rules/Booking_Speed.mdx", raw: page(IPW) }], sections);
   assert.ok(problems.some((p) => /kebab-case/.test(p.message)));

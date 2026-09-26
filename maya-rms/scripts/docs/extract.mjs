@@ -106,12 +106,16 @@ export function extractPage(body, ctx = {}) {
   const problem = (node, message) => problems.push({ line: where(node) + (ctx.lineOffset || 0), message });
 
   // Heading ids first, in document order over every heading, as rehype-slug does.
+  // Also where each [words][ref] link goes: its "[ref]: url" line, the first
+  // one when there are two, as the page renders it.
   const idFor = new Map();
+  const defined = new Map();
   (function visit(node) {
     if (node.type === "heading") {
       const text = cleanSpaces(toText(node));
       idFor.set(node, slugger.slug(text));
     }
+    if (node.type === "definition" && !defined.has(node.identifier)) defined.set(node.identifier, node.url);
     if (Array.isArray(node.children)) node.children.forEach(visit);
   })(tree);
 
@@ -137,10 +141,13 @@ export function extractPage(body, ctx = {}) {
         case "delete":
           md += inline(n.children);
           break;
-        case "link": {
-          links.push({ url: n.url, line: where(n) + (ctx.lineOffset || 0) });
+        case "link":
+        case "linkReference": {
+          // [words][ref] renders as a link too, so it gets the same checks.
+          const url = n.type === "link" ? n.url : (defined.get(n.identifier) ?? "");
+          links.push({ url, line: where(n) + (ctx.lineOffset || 0) });
           const text = inline(n.children);
-          md += KEEP_LINK.test(n.url) ? `[${text.replace(/\*\*/g, "")}](${n.url})` : text;
+          md += KEEP_LINK.test(url) ? `[${text.replace(/\*\*/g, "")}](${url})` : text;
           break;
         }
         case "image":
