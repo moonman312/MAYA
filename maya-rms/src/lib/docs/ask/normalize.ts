@@ -67,6 +67,12 @@ export function stemWord(word: string): string {
 }
 
 /**
+ * A synonym group's token, `syn<n>`. Only the digits tell it apart from a
+ * reader's word that starts the same way: "syncing" stems to "sync".
+ */
+export const isSynonymToken = (t: string) => /^syn\d+$/.test(t);
+
+/**
  * The tokens for a piece of text. Every synonym phrase found adds a
  * `syn<n>` token for its group, next to the words themselves, so a match on
  * the reader's own word still counts for more than a match on a synonym.
@@ -97,7 +103,7 @@ export function tokenize(text: string, synonyms?: SynonymTable, options: { pairs
 
 /** Character trigrams of the joined tokens, for the question bank's fuzzy pass. */
 export function trigrams(tokens: string[]): Set<string> {
-  const s = ` ${tokens.filter((t) => !t.startsWith("syn") && !t.includes("_")).join(" ")} `;
+  const s = ` ${tokens.filter((t) => !isSynonymToken(t) && !t.includes("_")).join(" ")} `;
   const out = new Set<string>();
   for (let i = 0; i + 3 <= s.length; i++) out.add(s.slice(i, i + 3));
   return out;

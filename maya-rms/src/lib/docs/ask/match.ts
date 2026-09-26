@@ -9,7 +9,7 @@
 // 5. a follow-up leans on the last answer's page and question
 
 import MiniSearch from "minisearch";
-import { buildSynonymTable, tokenize, trigrams, type SynonymTable } from "./normalize.ts";
+import { buildSynonymTable, isSynonymToken, tokenize, trigrams, type SynonymTable } from "./normalize.ts";
 
 export interface AskPage {
   /** url, "/docs/rules/booking-speed" */
@@ -282,7 +282,7 @@ export function createMatcher(index: AskIndex, options: { exclude?: (q: AskQuest
   // when only one of the reader's words was found (a lone word such as
   // "life" can match by accident).
   function confidenceOf(qTokens: string[], page: number, entry: number, bank: number): number {
-    const uniq = [...new Set(qTokens)].filter((t) => !t.startsWith("syn") && !t.includes("_"));
+    const uniq = [...new Set(qTokens)].filter((t) => !isSynonymToken(t) && !t.includes("_"));
     if (!uniq.length) return bank;
     const entryTokens = new Set(
       [docs[entry].t, docs[entry].h, docs[entry].l, docs[entry].sum, docs[entry].x].join(" ").split(" "),
@@ -360,8 +360,8 @@ export function createMatcher(index: AskIndex, options: { exclude?: (q: AskQuest
 
     // BM25 passes, over passages and over pages. Words from an earlier question count for half.
     const searchOptions = {
-      fuzzy: (term: string) => (term.startsWith("syn") || term.length < 5 ? false : TUNING.fuzzy),
-      prefix: (term: string) => !term.startsWith("syn") && term.length >= 5,
+      fuzzy: (term: string) => (isSynonymToken(term) || term.length < 5 ? false : TUNING.fuzzy),
+      prefix: (term: string) => !isSynonymToken(term) && term.length >= 5,
       combineWith: "OR" as const,
       tokenize: split,
       processTerm: same,

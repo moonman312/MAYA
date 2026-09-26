@@ -46,6 +46,7 @@ test("synonyms add a shared token, phrases included, next to the reader's own wo
   assert.ok(a.includes("rate"), "the reader's own word stays");
   assert.ok(tokenize("we are sold out tonight", syn).includes("syn1"));
   assert.ok(trigrams(["book", "speed"]).has("spe"));
+  assert.ok(trigrams(["sync"]).has("syn"), "a word that starts like a synonym token is still a word");
 });
 
 // ── A tiny index ─────────────────────────────────────────────────────
@@ -235,6 +236,18 @@ test("real questions from the docs pages land where the pages say", () => {
   assert.equal(at("Is there a status page?").r.confidence, "high");
   assert.equal(at("how do I undo a price change").url, "/docs/recipes/undo-a-price-change");
   assert.equal(at("Why is my price $1?").url, "/docs/wrong/a-price-looks-wrong");
+});
+
+test("sync, synced and syncing count as the reader's words, not as synonym tokens", () => {
+  const m = createMatcher(index);
+  for (const q of ["is it syncing", "synced?"]) {
+    const r = m.ask(q);
+    assert.equal(r.confidence, "high", `${q}: ${r.confidence} ${r.score}`);
+    assert.equal(index.pages[r.answer.page].u, "/docs/watch/the-pms-tab", q);
+  }
+  // Only "rates" is in the docs, so this is not a confident answer.
+  const r = m.ask("synchronise rates");
+  assert.notEqual(r.confidence, "high", `${r.confidence} ${r.score}`);
 });
 
 test("questions people ask before signing up land on the passage that answers them", () => {
