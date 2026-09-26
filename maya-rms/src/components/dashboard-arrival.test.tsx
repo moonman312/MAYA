@@ -25,7 +25,7 @@ function json(body: unknown, status = 200) {
 }
 
 let calls: { url: string; method: string; body?: string }[] = [];
-/** What a test adds to the answers below, by "METHOD url" or by url. */
+/** What a test adds to the answers below, by "METHOD url" or by url; a promise holds the answer back. */
 let routes: Record<string, unknown> = {};
 
 beforeEach(() => {
@@ -38,7 +38,7 @@ beforeEach(() => {
       const method = (init?.method ?? "GET").toUpperCase();
       calls.push({ url, method, body: typeof init?.body === "string" ? init.body : undefined });
       const route = routes[`${method} ${url}`] ?? routes[url];
-      if (route !== undefined) return json(route);
+      if (route !== undefined) return json(await route);
       if (url === "/api/rules") return json([]);
       if (url === "/api/rules/fire-counts") return json({});
       if (url === "/api/rules/stops") return json([]);
@@ -86,6 +86,9 @@ describe("arriving at the rule builder from a link", () => {
     const split = screen.getByLabelText("Change prices on different room types") as HTMLInputElement;
     expect(split.checked).toBe(true);
 
+    // Highlighted once the room types have filled their lists in.
+    await waitFor(() => expect(document.querySelector("[data-dl-flash]")?.getAttribute("data-deeplink")).toMatch(/^rules\.builder/));
+
     // The place stays in the address; the fill does not.
     expect(window.location.search).toBe("?tab=rules&panel=builder");
     expect(writes()).toEqual([]);
@@ -108,6 +111,31 @@ describe("arriving at the rule builder from a link", () => {
     expect(await screen.findByText("Adding a rule needs Revenue Manager access or higher on this property.")).toBeTruthy();
     expect(window.location.search).toBe("?tab=rules");
     expect(writes()).toEqual([]);
+  });
+});
+
+describe("the highlight a link leaves", () => {
+  it("rings the place once, and room types loading later does not take focus back", async () => {
+    let releaseRoomTypes = () => {};
+    routes["/api/room-types"] = new Promise((r) => {
+      releaseRoomTypes = () => r(ROOM_TYPES);
+    });
+    window.history.replaceState(null, "", "/?tab=rules&focus=suggestions&dl=suggestions");
+    render(<Dashboard initialSearch={window.location.search} />);
+    const spot = document.querySelector('[data-deeplink="rules.suggestions"]') as HTMLElement;
+    await waitFor(() => expect(document.activeElement).toBe(spot));
+
+    // The owner moves on before the room types arrive.
+    const enabled = screen.getByRole("button", { name: "enabled" });
+    enabled.focus();
+    spot.removeAttribute("data-dl-flash");
+    await act(async () => {
+      releaseRoomTypes();
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    expect(calls.some((c) => c.url === "/api/room-types")).toBe(true);
+    expect(document.activeElement).toBe(enabled);
+    expect(spot.hasAttribute("data-dl-flash")).toBe(false);
   });
 });
 

@@ -860,13 +860,15 @@ export function Dashboard({
     setBuilderFilled(links.fills(arrival.params));
   }, [arrival, roomTypesReady, selectedRoomTypeIds]);
 
-  // Scroll to the place and ring it for a moment.
+  // Scroll to the place and ring it for a moment, once. Only the builder waits
+  // for the room types; anywhere else, their loading must not flash it again.
+  const flashAfterRoomTypes = arrival?.dest === "rules.new" ? roomTypesReady : true;
   useEffect(() => {
     if (!arrival?.dest) return;
     if (arrival.dest === "rules.new" && !builderApplied.current) return;
     const target = arrivalFlashTarget(arrival);
     if (target) return flashWhenReady(target);
-  }, [arrival, roomTypesReady]);
+  }, [arrival, flashAfterRoomTypes]);
 
   // A link to one change that has since left the list says so, once: against
   // the first list that loads, not again each time the list reloads.
