@@ -3,7 +3,7 @@
 
 import { createHash } from "node:crypto";
 import { splitFrontmatter, stripTrailingNotes, parseFrontmatter, splitRef } from "../../src/lib/docs/source.mjs";
-import { extractPage, mdToPlain, wordCount } from "./extract.mjs";
+import { appLinkProblems, extractPage, mdToPlain, wordCount } from "./extract.mjs";
 import { scanText } from "./leaks.mjs";
 
 export const WORDS_PER_MINUTE = 200;
@@ -634,6 +634,30 @@ export function buildEvalFixture(bank, index = null, size = EVAL_SIZE) {
     const at = e.map((i) => `${index.pages[index.entries[i].p].u}#${index.entries[i].a}`);
     return { q: item.q, pages, e, at };
   });
+}
+
+/**
+ * The docs linker's list (src/lib/docs/app-labels.json): every label and
+ * phrase must be a place the docs may open, with values the app reads
+ * unchanged, and every page override must name a page or a section. The
+ * linker adds these links only when a page renders, so the list is checked
+ * here, on its own. Returns problem strings.
+ */
+export function checkAppLabels(dict, pagePaths, sectionSlugs) {
+  const problems = [];
+  const check = (where, e) => {
+    if (e === null) return;
+    if (e?.q !== undefined && typeof e.q !== "string") problems.push(`${where}: q should be text like "filter=enabled"`);
+    for (const p of appLinkProblems(e?.to, typeof e?.q === "string" ? { q: e.q } : {})) problems.push(`${where}: ${p}`);
+  };
+  for (const [label, e] of Object.entries(dict.labels ?? {})) check(`label "${label}"`, e);
+  for (const [phrase, e] of Object.entries(dict.phrases ?? {})) check(`phrase "${phrase}"`, e);
+  for (const [page, overrides] of Object.entries(dict.pages ?? {})) {
+    const known = page.endsWith("/*") ? sectionSlugs.includes(page.slice(0, -2)) : pagePaths.includes(page);
+    if (!known) problems.push(`an override for ${page}, which is not a page or a section`);
+    for (const [label, e] of Object.entries(overrides ?? {})) check(`"${label}" on ${page}`, e);
+  }
+  return problems;
 }
 
 /** Every synonym group's first word (the docs' own word) must appear in the pages. */

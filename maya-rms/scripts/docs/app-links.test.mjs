@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractPage, parseMdx } from "./extract.mjs";
-import { loadPages } from "./build-lib.mjs";
+import { checkAppLabels, loadPages } from "./build-lib.mjs";
 import { createAppLinker, entryFor } from "../../src/lib/docs/app-linker.mjs";
 import { createLinks } from "../../src/lib/deep-links/core.mjs";
 
@@ -127,6 +127,26 @@ test("every dictionary entry is a place the docs may open, with values the app r
     assert.ok(page.endsWith("/*") ? sections.some((s) => `${s.slug}/*` === page) : pages.has(page), `override for unknown page ${page}`);
     for (const [label, e] of Object.entries(overrides)) if (e) check(`${page} ${label}`, e);
   }
+});
+
+test("the docs build checks the dictionary itself, not just the links a page writes", () => {
+  const paths = pagesMeta.map((p) => p.path);
+  const slugs = sections.map((s) => s.slug);
+  assert.deepEqual(checkAppLabels(dict, paths, slugs), []);
+  const bad = checkAppLabels(
+    {
+      labels: { Calendar: { to: "rules.list", q: "filter=weekend" } },
+      phrases: { "the review screen": { to: "nowhere" }, "the calendar date": null },
+      pages: { "rules/no-such-page": { Rules: null }, "nowhere/*": {} },
+    },
+    paths,
+    slugs,
+  );
+  assert.equal(bad.length, 4, bad.join("\n"));
+  assert.match(bad[0], /^label "Calendar": to="rules\.list": .*filter.* is not something this link can carry$/);
+  assert.match(bad[1], /^phrase "the review screen": to="nowhere" is not a place in MAYA/);
+  assert.equal(bad[2], "an override for rules/no-such-page, which is not a page or a section");
+  assert.equal(bad[3], "an override for nowhere/*, which is not a page or a section");
 });
 
 const IPW = "<InPlainWords>\nWords.\n</InPlainWords>\n\n";

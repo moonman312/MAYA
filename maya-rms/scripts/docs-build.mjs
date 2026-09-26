@@ -27,6 +27,7 @@ import {
   buildEvalFixture,
   toWire,
   checkSynonyms,
+  checkAppLabels,
   contentHash,
 } from "./docs/build-lib.mjs";
 import { scanText } from "./docs/leaks.mjs";
@@ -36,6 +37,7 @@ const CONTENT = path.join(ROOT, "content/docs");
 const BANK = path.join(ROOT, "content/docs-questions.json");
 const SYNONYMS = path.join(ROOT, "src/lib/docs/synonyms.json");
 const SECTIONS = path.join(ROOT, "src/lib/docs/sections.json");
+const APP_LABELS = path.join(ROOT, "src/lib/docs/app-labels.json");
 const GENERATED = path.join(ROOT, "src/lib/docs/generated");
 const PUBLIC = path.join(ROOT, "public");
 // The helper's index loads when the panel opens, so it has a budget: 400 KB gzipped.
@@ -68,6 +70,18 @@ const files = walk(CONTENT)
 
 const { pages, problems: pageProblems } = loadPages(files, sectionList);
 for (const p of pageProblems) say(`content/docs/${p.file}`, p.line, p.message);
+
+// The linker adds its links only when a page renders, so check its list here.
+let appLabels = null;
+try {
+  appLabels = JSON.parse(fs.readFileSync(APP_LABELS, "utf8"));
+} catch (err) {
+  say(rel(APP_LABELS), 0, `not valid JSON: ${err.message}`);
+}
+if (appLabels) {
+  const found = checkAppLabels(appLabels, pages.map((p) => p.path), sectionList.map((s) => s.slug));
+  for (const msg of found) say(rel(APP_LABELS), 0, msg);
+}
 
 let bank = [];
 let synonyms = [];
