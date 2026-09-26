@@ -159,6 +159,30 @@ describe("ArrivalFlash", () => {
     expect(calls[0][0]).toBe("/api/events");
     expect(JSON.parse(String((calls[0][1] as RequestInit).body))).toMatchObject({ event: "deeplink.opened", properties: { dest: "billing.room-count", filled: false } });
   });
+
+  it("highlights once: a server refresh after Save leaves focus on Save", async () => {
+    at("/account/billing?focus=room-count&dl=billing.room-count");
+    // A refresh hands the page an equal but new flashIds object.
+    const page = () => (
+      <>
+        <section data-deeplink="billing.room-count">
+          Room count <button type="button">Save</button>
+        </section>
+        <ArrivalFlash flashIds={{ "room-count": "billing.room-count" }} />
+      </>
+    );
+    const { rerender } = render(page());
+    const box = document.querySelector('[data-deeplink="billing.room-count"]') as HTMLElement;
+    await waitFor(() => expect(box.hasAttribute("data-dl-flash")).toBe(true));
+    const save = screen.getByRole("button", { name: "Save" });
+    save.focus();
+    box.removeAttribute("data-dl-flash");
+
+    rerender(page());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(document.activeElement).toBe(save);
+    expect(box.hasAttribute("data-dl-flash")).toBe(false);
+  });
 });
 
 describe("arrivalFlashTarget", () => {

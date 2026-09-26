@@ -39,6 +39,10 @@ export function FilledChip({ show }: { show: boolean }) {
  */
 export function ArrivalFlash({ flashIds }: { flashIds: Partial<Record<string, string>> }) {
   const arrived = useRef<Arrival | null>(null);
+  // The ids as the page first drew them (each page's are fixed). A server
+  // refresh, such as saving the room count, hands down an equal new object,
+  // and must never flash the place again and pull focus off what was pressed.
+  const ids = useRef(flashIds);
   useEffect(() => {
     if (!arrived.current) {
       arrived.current = readArrivalOnce();
@@ -47,9 +51,9 @@ export function ArrivalFlash({ flashIds }: { flashIds: Partial<Record<string, st
     }
     const a = arrived.current;
     if (!a.dest) return;
-    const target = (a.focus && flashIds[a.focus]) ?? flashIds[a.dest];
+    const target = (a.focus && ids.current[a.focus]) ?? ids.current[a.dest];
     if (target) return flashWhenReady(target);
-  }, [flashIds]);
+  }, []);
   return null;
 }
 
