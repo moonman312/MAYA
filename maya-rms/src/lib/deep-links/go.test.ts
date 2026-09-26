@@ -50,6 +50,8 @@ describe("/go", () => {
     expect((await resolveGo(req("calendar", `hotel=${B}`, same), deps())).setHotel).toBe(B);
     expect((await resolveGo(req("calendar", `hotel=${B}`, { fetchSite: "none" }), deps())).setHotel).toBe(B);
     expect((await resolveGo(req("calendar", `hotel=${B}`), deps())).setHotel).toBeNull();
+    // a browser that sends no Sec-Fetch-Site cannot show MAYA made the click
+    expect((await resolveGo(req("calendar", `hotel=${B}`, { fetchSite: null }), deps())).setHotel).toBeNull();
     expect((await resolveGo(req("calendar", `hotel=${B}`, { ...same, prefetch: true }), deps())).setHotel).toBeNull();
     const other = "2b0c8a6e-3c1d-4d8e-9f2a-6a1b2c3d4e5f";
     expect((await resolveGo(req("calendar", `hotel=${other}`, same), deps())).setHotel).toBeNull();

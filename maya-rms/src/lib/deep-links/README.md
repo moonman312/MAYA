@@ -28,4 +28,4 @@ A destination id the registry does not have opens the nearest place it names: `f
 
 ## The active property
 
-`hotel` is honoured only when the click came from MAYA itself (`Sec-Fetch-Site: same-origin` or `none`), it is not a prefetch, and the signed-in person can open that property. Otherwise it is ignored and the active property stays. It is never carried through sign-in (the hop back from sign-in is same-origin, so a hand-made `/login?next=` could launder it): `/go` leaves it out of `next`, and `safeNext` strips it. The docs never send it.
+`hotel` is honoured only when the click came from MAYA itself (`Sec-Fetch-Site: same-origin` or `none`; a browser that sends no `Sec-Fetch-Site` is not trusted), it is not a prefetch, and the signed-in person can open that property. Otherwise it is ignored and the active property stays. It is never carried through sign-in (the hop back from sign-in is same-origin, so a hand-made `/login?next=` could launder it): `/go` leaves it out of `next`, and `safeNext` strips it. The docs never send it.

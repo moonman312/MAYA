@@ -11,7 +11,10 @@ import { links, type ParsedLink } from "@/lib/deep-links";
 export type GoRequest = {
   destination: string;
   search: URLSearchParams;
-  /** Sec-Fetch-Site, null when the browser sent none. */
+  /**
+   * Sec-Fetch-Site, null when the browser sent none. Only "same-origin" and
+   * "none" are trusted to switch the property; a missing header is not.
+   */
   fetchSite: string | null;
   /** A prefetch or a link preview, not a person clicking. */
   prefetch: boolean;
@@ -48,7 +51,7 @@ function keepOnly(parsed: ParsedLink, dest: string): ParsedLink {
 
 export async function resolveGo(req: GoRequest, deps: GoDeps): Promise<GoResult> {
   let parsed = links.parseLink(req.destination, req.search);
-  const trusted = req.fetchSite === null || req.fetchSite === "same-origin" || req.fetchSite === "none";
+  const trusted = req.fetchSite === "same-origin" || req.fetchSite === "none";
 
   if (!deps.configured) return { location: links.internalHref(parsed), setHotel: null };
 
