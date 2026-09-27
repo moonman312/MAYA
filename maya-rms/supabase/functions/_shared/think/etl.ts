@@ -169,8 +169,15 @@ export type ThinkRoomCountStats = {
 /** ── Rooms → rooms per type ─────────────────────────────────
  * Think keeps inventory on the physical room, not the type: an inn that
  * sells every room by name has one type per room, a larger property has
- * several rooms under one type, and GET /v1/hotels/{hotelId}/rooms is the
- * only place either shape is visible.
+ * several rooms under one type. GET /v1/hotels/{hotelId}/rooms shows either
+ * shape room by room.
+ *
+ * GET /inventory (RoomTypeDailyInventory.totalRooms) also has a per-type
+ * total, and its read:availability scope is already requested. It is not
+ * used here: it is a number per date over a required date range, while
+ * total_rooms is one number per type (rooms out of service are handled
+ * separately), and the spec does not say whether totalRooms leaves out the
+ * three flags below. Counting /rooms applies those exclusions ourselves.
  *
  * Fields relied on, from the published OpenAPI document
  * (https://developers.thinkreservations.com/external.openapi.json, schema
