@@ -109,6 +109,34 @@ test("a question with a subject of its own is answered from the docs, never with
   }
 });
 
+test("orientation questions in everyday words get their set reply, and the page ones answer about the page", () => {
+  for (const [q, id, on] of [
+    ["how does everything fit together", "overview"],
+    ["give me the big picture", "overview"],
+    ["what are the basics", "overview"],
+    ["what do i read first", "start"],
+    ["guide me", "start"],
+    ["what does this button do", "page", "/docs/rules/the-rule-builder"],
+    ["what is this setting for", "page", "/docs/rules/the-rule-builder"],
+    ["is this normal", "page", "/docs/watch/the-change-log"],
+    ["what is happening here", "page", "/docs/watch/the-pms-tab"],
+    ["why am i here", "page", "/docs/start/how-to-get-started"],
+    ["what is on this screen", "page", "/docs/watch/the-calendar"],
+    ["this makes no sense", "lost"],
+    ["none of this makes any sense", "lost"],
+    ["not sure what to do next", "lost"],
+    ["are you there?", "bot"],
+  ]) {
+    const r = say(q, on ? at(on) : undefined);
+    assert.equal(r.canned?.intent, id, `${q}: ${r.outcome} ${r.canned?.intent ?? (r.docs.answer ? index.pages[r.docs.answer.page].u : "")}`);
+    if (on) assert.equal(index.pages[r.canned.show.page].u, on, q);
+  }
+  // the same words with a subject of their own still go to the docs
+  for (const q of ["what does the manual badge mean", "is this normal for booking speed", "basics of booking speed"]) {
+    assert.notEqual(say(q).outcome, "canned", q);
+  }
+});
+
 test("being new here is getting started; what is new here is about the page", () => {
   assert.equal(say("i'm new here").canned?.intent, "start");
   assert.equal(say("new here").canned?.intent, "start");

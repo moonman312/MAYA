@@ -59,7 +59,19 @@
         "how do i do this", "how do i do that", "how does that work", "what is that", "what is the point of this", "what is the point of this page", "can you summarize", "summarize", "short version", "the short version", "give me the short version", "in a nutshell", "more detail", "more details", "in more detail", "tell me more about it", "elaborate", "can you elaborate", "go deeper", "what does this all mean", "how does all this work", "how does this all work", "i do not get this", "i do not understand this page", "what is this for exactly", "how do i use this thing",
         "explain how to use this", "can you explain how to use this", "explain how this works", "can you explain how this works", "explain how it works",
         "what is new here", "what is new on this page", "what is new",
-        "walk me through this page", "go through this page with me"
+        "walk me through this page", "go through this page with me",
+        "what is this button", "what is this button for", "what does the button do", "what does this setting do",
+        "what does this switch do", "what does this toggle mean", "what does this option do", "what is this field",
+        "what does this box mean", "what does this number mean", "what is this number", "what does this column mean",
+        "what does this icon mean", "what does this badge mean", "why am i here", "why did i land here",
+        "why was i sent here", "what is happening here", "what is happening", "what happened here", "is this normal",
+        "is that normal", "is it normal", "is this expected", "is this ok", "is that right", "does this look right",
+        "is this correct",
+        "what am i looking at here", "what is this screen", "what is on this screen", "explain this screen",
+        "anything new here", "is there anything new", "show me how it works", "show me how this works",
+        "show me how to use this",
+        "what am i seeing",
+        "what is this setting"
       ]
     },
     {
@@ -76,7 +88,12 @@
         "maya in a nutshell", "what is maya for", "what is maya used for", "give me an overview", "overview",
         "an overview please", "what can this app do", "what can maya do", "features", "what are the features",
         "what features does it have", "why use maya", "why should i use maya", "explain maya in simple words",
-        "maya in plain english", "maya in simple words", "what is maya in simple words"
+        "maya in plain english", "maya in simple words", "what is maya in simple words",
+        "how does everything fit together", "how does it all work together", "how do the parts fit together",
+        "what are the parts of maya", "what are the pieces", "big picture", "the big picture",
+        "what is the big picture", "the basics", "basics", "what are the basics", "the basics of maya", "gist",
+        "the gist", "what is the gist of it", "how does the system work", "how does the whole thing fit together",
+        "what are the main pieces"
       ]
     },
     {
@@ -93,7 +110,10 @@
         "what should i do first", "how do i set it up", "setup",
         "set up", "how do i set up", "new user where do i start", "i am new where do i start",
         "step by step", "step by step guide", "beginner guide", "guide for beginners", "tutorial", "is there a tutorial", "where do i start with this", "where do i even start", "how do i get going",
-        "walk me through it", "can you walk me through it", "walk me through getting started", "talk me through it", "take me through it step by step"
+        "walk me through it", "can you walk me through it", "walk me through getting started", "talk me through it", "take me through it step by step",
+        "what do i read first", "what to read first", "which page do i read first", "where should i begin reading",
+        "i am a beginner", "beginner", "for beginners", "where does a beginner start",
+        "show me step by step", "guide me", "i need a guide"
       ]
     },
     {
@@ -119,7 +139,10 @@
         "i have no idea what i am doing", "i have no clue", "no clue", "overwhelmed", "i am overwhelmed",
         "this is too complicated", "too complicated", "complicated", "i am stuck", "stuck", "what now", "now what",
         "what next", "what do i do now", "nothing makes sense", "makes no sense",
-        "too much information", "too much info", "i feel lost", "feeling lost", "i am lost here", "this is hard", "hard to understand", "i do not understand how this works"
+        "too much information", "too much info", "i feel lost", "feeling lost", "i am lost here", "this is hard", "hard to understand", "i do not understand how this works",
+        "none of this makes any sense", "nothing here makes sense", "this makes no sense", "this does not make sense",
+        "it does not make sense", "not sure what to do", "i am not sure what to do", "unsure what to do",
+        "i do not know what to do next", "what should i do next"
       ]
     },
     {
@@ -152,7 +175,8 @@
         "who am i talking to", "who is this", "how does the docs helper work", "do you remember what i asked",
         "you are a bot right", "anyone there", "is anyone there", "are these answers ai generated",
         "is this ai generated", "is this written by ai", "are you a real human", "is this a human or a bot",
-        "am i talking to a machine", "are you a computer", "is this a real chat"
+        "am i talking to a machine", "are you a computer", "is this a real chat",
+        "are you there", "is anybody there", "hello is anyone there", "still there", "you still there"
       ]
     },
     {
