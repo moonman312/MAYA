@@ -11,9 +11,12 @@
 //   3. Otherwise the docs answer. "how does booking speed work" has
 //      "booking" and "speed", so it is answered from the docs.
 //   4. Only when the docs have no answer at all does a matching set reply
-//      answer a question with words of its own ("hi there, xyzzy"), and
-//      only a reply that is about the conversation (a greeting, thanks,
-//      help, a person), never one about a page or MAYA.
+//      answer a question with a word of its own ("hi there, xyzzy"): one
+//      word at most, and only a reply that is about the conversation (a
+//      greeting, thanks, help, a person), never one about a page or MAYA.
+//      That reply offers to send the question too. Two words of its own
+//      make a subject ("a guest booked at a price that makes no sense"),
+//      and a subject with no answer gets no answer, not a set reply.
 //   5. Nothing matches: no answer, with the closest pages when there are
 //      any worth a look, and a few good places to start.
 //
@@ -67,6 +70,8 @@ export interface RespondContext extends AskContext {
 export const CLOSEST_FLOOR = 0.2;
 /** Intents whose reply is about a subject: the reader may still send the question. */
 const SUBJECT_INTENTS = new Set(["page", "overview", "start"]);
+/** With no answer in the docs, a set reply about the conversation may still take a question with this many words of its own. */
+const STRAY_WORDS = 1;
 /** Words that point at the page the reader is on, and at these docs as a whole. */
 const PAGE_WORDS = /\b(page|here|screen|tab)\b/;
 const SITE_WORDS = /\b(site|website|docs|documentation|place)\b/;
@@ -169,8 +174,12 @@ export function createHelper(index: AskIndex, matcher: Matcher = createMatcher(i
     const docs = matcher.ask(question, { ...ctx, currentPage });
     const m = intents ? intents.match(question) : null;
     const base = { docs, closest: [] as AskHit[], start: [] as AskLink[] };
-    if (m && (m.residual.length === 0 || (docs.confidence === "none" && !SUBJECT_INTENTS.has(m.intent.id)))) {
-      return { ...base, outcome: "canned", canned: canned(m, question, { ...ctx, currentPage }) };
+    const stray = docs.confidence === "none" && !SUBJECT_INTENTS.has(m?.intent.id ?? "") && (m?.residual.length ?? 0) <= STRAY_WORDS;
+    if (m && (m.residual.length === 0 || stray)) {
+      const c = canned(m, question, { ...ctx, currentPage });
+      // A word the set reply does not cover may be what the reader meant.
+      if (m.residual.length) c.offerSend = true;
+      return { ...base, outcome: "canned", canned: c };
     }
     if (docs.confidence !== "none") {
       return { ...base, outcome: docs.confidence === "high" ? "answered" : "unsure", canned: null };

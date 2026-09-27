@@ -192,6 +192,19 @@ test("opened from MAYA's Help, the page reply says which screen it came from", (
   assert.doesNotMatch(elsewhere.canned.say, /opened Help/, "only on the page that screen opens");
 });
 
+test("with no answer, a set reply takes one stray word at most, and then offers to send the question", () => {
+  const hi = say("hi there, xyzzy");
+  assert.equal(hi.outcome, "canned");
+  assert.equal(hi.canned.intent, "greeting");
+  assert.equal(hi.canned.offerSend, true, "the stray word may be what the reader meant");
+  assert.equal(say("hi there").canned.offerSend, false);
+  // "makes no sense" is a lost reader's phrase, but this question has a subject of its own
+  const r = say("a guest booked at a price that makes no sense who approved this");
+  assert.notEqual(r.outcome, "canned", r.canned?.intent);
+  const c = say("this price makes no sense, who approved it");
+  assert.notEqual(c.canned?.intent, "lost");
+});
+
 test("no answer keeps the outcome none and offers somewhere to go", () => {
   const r = say("purple elephant dancing");
   assert.equal(r.outcome, "none");
