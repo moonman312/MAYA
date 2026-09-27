@@ -79,6 +79,10 @@ test("general questions get their set reply", () => {
     ["this is useless", "frustrated"],
     ["wrong answer", "missed"],
     ["ok", "ack"],
+    ["walk me through it", "start"],
+    ["can you walk me through it", "start"],
+    ["sorry, what is maya", "overview"],
+    ["excuse me, where do I start", "start"],
   ]) {
     const r = say(q);
     assert.equal(r.outcome, "canned", `${q}: ${r.outcome}`);
@@ -103,6 +107,15 @@ test("a question with a subject of its own is answered from the docs, never with
     assert.notEqual(r.outcome, "none", q);
     if (url) assert.equal(index.pages[r.docs.answer.page].u, url, q);
   }
+});
+
+test("being new here is getting started; what is new here is about the page", () => {
+  assert.equal(say("i'm new here").canned?.intent, "start");
+  assert.equal(say("new here").canned?.intent, "start");
+  const r = say("whats new here", at("/docs/watch/the-change-log"));
+  assert.equal(r.canned?.intent, "page");
+  assert.equal(index.pages[r.canned.show.page].u, "/docs/watch/the-change-log");
+  assert.equal(say("walk me through it", at("/docs/start/how-to-get-started")).canned?.intent, "start", "a walk-through is not a request for a person");
 });
 
 test("a message pasted in quotes always goes to the docs", () => {
@@ -259,7 +272,7 @@ test("a reader's word the docs never use still counts when a synonym of it is on
 
 test("a greeting or thanks in front of a question does not change its answer", () => {
   const plain = say("how do i undo a price change?");
-  for (const q of ["hi, how do i undo a price change?", "thanks! so how do I undo a price change"]) {
+  for (const q of ["hi, how do i undo a price change?", "thanks! so how do I undo a price change", "sorry, how do i undo a price change?", "um, how do i undo a price change"]) {
     const r = say(q);
     assert.equal(r.outcome, plain.outcome, q);
     assert.equal(r.docs.answer.page, plain.docs.answer.page, q);

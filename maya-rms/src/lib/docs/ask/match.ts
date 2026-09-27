@@ -233,7 +233,7 @@ export interface Matcher {
 
 const FOLLOW_UP = /^(and|also|what about|how about|and what about|same for|what if|but what about|what for|for)\b/;
 /** Words a question may open with before it starts ("hi, how do I...", "thanks! and why..."). */
-const LEAD_IN = /^((hi|hello|hey|thanks|thank you|thx|ok|okay|so|and|also|please|pls|um|hmm|well|quick question|question)\s+)+/;
+const LEAD_IN = /^((hi|hello|hey|thanks|thank you|thx|ok|okay|so|and|also|please|pls|um|hmm|well|sorry|pardon|excuse me|quick question|question)\s+)+/;
 
 export function isFollowUp(question: string): boolean {
   const q = question.toLowerCase().trim();

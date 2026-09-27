@@ -17,7 +17,8 @@ export const STOP_WORDS = new Set(
     "someone something anything thing things way ways " +
     "mean means meaning meant happen happens happened happening work works use using used " +
     "see seeing say said look looks looking like go going goes gone come comes possible able " +
-    "exactly actually really kind sort bit lot lots whats whos wheres hows thats theres lets heres"
+    "exactly actually really kind sort bit lot lots whats whos wheres hows thats theres lets heres " +
+    "sorry excuse pardon um umm uh er erm"
   ).split(" "),
 );
 

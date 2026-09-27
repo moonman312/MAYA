@@ -11,7 +11,7 @@
   ],
   "filler": [
     "um", "umm", "uh", "er", "erm", "so", "well", "oh", "ah", "anyway", "just", "please", "kindly", "guys", "even", "basically",
-    "whole", "entire", "overall", "general", "supposed", "section", "exactly", "actually"
+    "whole", "entire", "overall", "general", "supposed", "section", "exactly", "actually", "sorry", "excuse", "pardon"
   ],
   "fixes": {
     "u": "you", "ur": "your", "r": "are", "y": "why", "hw": "how", "wat": "what", "wht": "what", "wot": "what",
@@ -57,7 +57,9 @@
         "what are these docs", "how do these docs work", "explain like i am 5", "explain it like i am five",
         "what am i supposed to do", "what am i supposed to do here", "what does it say", "what is it about",
         "how do i do this", "how do i do that", "how does that work", "what is that", "what is the point of this", "what is the point of this page", "can you summarize", "summarize", "short version", "the short version", "give me the short version", "in a nutshell", "more detail", "more details", "in more detail", "tell me more about it", "elaborate", "can you elaborate", "go deeper", "what does this all mean", "how does all this work", "how does this all work", "i do not get this", "i do not understand this page", "what is this for exactly", "how do i use this thing",
-        "explain how to use this", "can you explain how to use this", "explain how this works", "can you explain how this works", "explain how it works"
+        "explain how to use this", "can you explain how to use this", "explain how this works", "can you explain how this works", "explain how it works",
+        "what is new here", "what is new on this page", "what is new",
+        "walk me through this page", "go through this page with me"
       ]
     },
     {
@@ -90,7 +92,8 @@
         "first time here", "first time", "first steps", "what is the first step", "what do i do first",
         "what should i do first", "how do i set it up", "setup",
         "set up", "how do i set up", "new user where do i start", "i am new where do i start",
-        "step by step", "step by step guide", "beginner guide", "guide for beginners", "tutorial", "is there a tutorial", "where do i start with this", "where do i even start", "how do i get going"
+        "step by step", "step by step guide", "beginner guide", "guide for beginners", "tutorial", "is there a tutorial", "where do i start with this", "where do i even start", "how do i get going",
+        "walk me through it", "can you walk me through it", "walk me through getting started", "talk me through it", "take me through it step by step"
       ]
     },
     {
