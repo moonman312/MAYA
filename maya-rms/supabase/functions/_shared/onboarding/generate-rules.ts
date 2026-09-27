@@ -41,6 +41,13 @@
  * front of the owner and asks whether to carry on; until they answer, the
  * rule carries on.
  *
+ * Every starter rule is created with its undo box ticked
+ * (pricing_rules.undo_on_cancellation, Jake 2026-09-25), as every rule is:
+ * a raise comes back off once cancellations leave the bookings it counted
+ * short of its pace (cancellationsUndo in engine/pickup.ts). The two cuts
+ * are on a slow pace, which cancellations only make slower, so nothing
+ * cancelled ever undoes them.
+ *
  * Decreases wait longer than increases on purpose: a surge prices itself
  * back to Normal (higher rate, slower pace), while a dead date can stay
  * dead no matter what, so its cuts want more room between them. Floors and
@@ -167,8 +174,8 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
         "A night booking ahead of the pace similar nights set can carry 10% more: the demand " +
         "is already showing up in your own numbers. MAYA waits 3 days, then raises again only " +
         "if the bookings made since this rule or a stronger one last raised the night are, on " +
-        "their own, ahead of what similar nights get in a whole month. If enough of the bookings " +
-        "behind a raise cancel, the raise comes back off.",
+        "their own, ahead of what similar nights get in a whole month. If guests cancel and the " +
+        "bookings a raise counted are no longer ahead of that pace, the raise comes back off.",
     },
     {
       name: "Hot-week surge",
@@ -185,7 +192,8 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
         "When the past week runs much faster than similar nights ever did, raise 25% and ride " +
         "the wave. Every couple of days it steps up again if the bookings made since this rule " +
         "or a stronger one last raised the night are, on their own, far more than a normal week " +
-        "brings, and MAYA tells you once it has raised the same night three times.",
+        "brings, and MAYA tells you once it has raised the same night three times. If guests " +
+        "cancel and the bookings a raise counted are no longer far ahead, the raise comes back off.",
     },
     {
       name: "Sudden-spike catcher",
@@ -201,7 +209,8 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       explanation:
         "Bookings pouring in within a single day, a concert announcement or a viral mention, " +
         "trigger an immediate 25% raise, repeated daily while the rush lasts. Your ceiling is the " +
-        "cap, and MAYA tells you once it has raised the same night three times.",
+        "cap, and MAYA tells you once it has raised the same night three times. If guests cancel " +
+        "and what is left of that day's rush no longer counts as one, the raise comes back off.",
     },
   ];
 }
@@ -309,6 +318,8 @@ export async function generateStarterRules(
         action_direction: spec.action.action_direction,
         action_value: spec.action.action_value,
         is_pickup_rule: spec.is_pickup_rule,
+        // Ticked, like every rule (the column's default says the same).
+        undo_on_cancellation: true,
       })
       .select("id")
       .single();

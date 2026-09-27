@@ -246,6 +246,19 @@ describe("computeStarterRules: the booking-speed ladder", () => {
     }
   });
 
+  it("says a raise comes back off when cancellations leave it short of its pace, and never promises that of a cut", () => {
+    // engine/pickup.ts cancellationsUndo: every starter rule is ticked; the
+    // raises are on "at least" a pace, which cancellations can make false,
+    // and the cuts on a slow pace, which they only make slower.
+    for (const name of ["Warm-date bump", "Hot-week surge", "Sudden-spike catcher"]) {
+      expect(byName.get(name)!.explanation).toMatch(/If guests cancel and .*, the raise comes back off\.$/);
+    }
+    for (const name of ["Slow-date rescue", "Slow-date trim"]) {
+      expect(byName.get(name)!.explanation).not.toMatch(/cancel/);
+    }
+    for (const r of rules) expect(r.explanation).not.toContain("enough of the bookings");
+  });
+
   it("says the cut rules look at full days only", () => {
     // engine/booking-speed-provider.ts countsCompleteDays.
     expect(byName.get("Slow-date rescue")!.explanation).toContain("It looks at full days only, up to yesterday.");
