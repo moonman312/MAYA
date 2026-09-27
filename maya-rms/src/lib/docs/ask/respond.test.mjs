@@ -312,6 +312,37 @@ test("asides and vague words are not the subject: a specific night, and I don't 
   assert.ok(tokens("maya undercut my price").includes(`syn${cut}`), "undercut reads as a cut");
 });
 
+test("the example questions the set replies suggest are answered from the right page", () => {
+  const examples = index.replies.intents.flatMap((i) => [...(i.say ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+  assert.ok(examples.length >= 6, examples.join(", "));
+  const home = new Map([
+    ["why did my price go up?", "/docs/recipes/find-out-why-a-price-changed"],
+    ["how do I connect Cloudbeds?", "/docs/connect/cloudbeds"],
+    ["how do I undo a price change?", "/docs/recipes/undo-a-price-change"],
+  ]);
+  for (const q of examples) {
+    const r = say(q);
+    assert.equal(r.outcome, "answered", `${q}: ${r.outcome}`);
+    if (home.has(q)) assert.equal(index.pages[r.docs.answer.page].u, home.get(q), q);
+  }
+});
+
+test("short lookups, simplified English and the billing sense of price land on the right page", () => {
+  for (const [q, url] of [
+    ["rules", "/docs/rules/the-rule-builder"],
+    ["comp night", "/docs/recipes/make-a-night-free"],
+    ["day cards", "/docs/watch/the-calendar"],
+    ["whats included in the price", "/docs/start/what-it-costs"],
+    ["my employee should only look, not edit", "/docs/recipes/give-the-front-desk-view-only-access"],
+    ["stop every rule for now", "/docs/recipes/pause-everything"],
+    ["can i see why the price changed on one particular night", "/docs/recipes/find-out-why-a-price-changed"],
+  ]) {
+    const r = say(q);
+    assert.equal(r.outcome, "answered", `${q}: ${r.outcome}`);
+    assert.equal(index.pages[r.docs.answer.page].u, url, q);
+  }
+});
+
 test("numbers alone are no question", () => {
   for (const q of ["what is 2+2", "123", "60"]) assert.equal(say(q).outcome, "none", q);
 });
