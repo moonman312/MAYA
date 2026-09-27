@@ -146,8 +146,9 @@ export function buildExplainView(
   // Set when this night had already been raised (for a rule that raises) or
   // cut (one that cuts) by the rule behind this reading or by a stronger
   // rule that moves the price the same way, and the reading counted only
-  // from the newest of those changes (engine/pickup.ts, countFromFireAt and
-  // bookingSpeedCountFrom). A weaker rule's change, or one the other way,
+  // from the newest of those changes still on the price (engine/pickup.ts,
+  // countFromFireAt over openFireHeads, and bookingSpeedCountFrom: one that
+  // came off for cancellations covers nothing). A weaker rule's change, or one the other way,
   // never moves where it counts from. The reading is shared by every rule
   // that counts from the same change, so it can't name which rule made it:
   // the copy says "this rule or a stronger one". countedAfter says raise or
@@ -180,7 +181,7 @@ export function buildExplainView(
       : `In the ${windowPhrase} after that,`;
   const toGo = `with ${dayWord(daysOut)} still to go before arrival.`;
   const observed = changedOn
-    ? `The rule behind this reading, or a stronger rule, last ${lastChange} this night on ${humanDate(changedOn)}. ${stretch} ${arrived} arrived for it, ${toGo}`
+    ? `The newest ${change} still on this night's price, by the rule behind this reading or a stronger rule, was made on ${humanDate(changedOn)}. ${stretch} ${arrived} arrived for it, ${toGo}`
     : countedThrough
       ? `In the ${fullDays} up to yesterday, ${arrived} arrived for this night, ${toGo}`
       : `In the last ${windowPhrase}, ${arrived} arrived for this night, ${toGo}`;
@@ -222,10 +223,10 @@ export function buildExplainView(
     // With countedSince the rest of the raise's own day counted too; a cut
     // counts from the day after its own.
     const counts = countedSince
-      ? `the bookings made after the newest of those ${changes}, the rest of that day included,`
+      ? `the bookings made after the newest of those ${changes} still on the price, the rest of that day included,`
       : countedThrough
-        ? `the full days after the day of the newest of those ${changes},`
-        : `the bookings made after the day of the newest of those ${changes},`;
+        ? `the full days after the day of the newest of those ${changes} still on the price,`
+        : `the bookings made after the day of the newest of those ${changes} still on the price,`;
     const unmoved =
       countedAfter === "cut"
         ? "A weaker rule's cut, or any raise, doesn't move where it starts."

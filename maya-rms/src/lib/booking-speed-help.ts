@@ -10,8 +10,9 @@
  * the nights it is compared with, and the panel says so in one line.
  *
  * Once a rule has adjusted a night, it counts only the bookings made since
- * the newest adjustment there by itself or by a stronger rule that moves
- * the price the same way (countFromFireAt and bookingSpeedCountFrom in
+ * the newest adjustment still on the price there by itself or by a stronger
+ * rule that moves the price the same way (a change that came off for
+ * cancellations covers nothing; countFromFireAt and bookingSpeedCountFrom in
  * engine/pickup.ts: from a raise on, the rest of that day included; from
  * the day after a cut). A rule that raises on a fast pace ("at least"
  * Faster, Much Faster or Surging, as the form builds it) needs those
@@ -59,7 +60,7 @@ export function bookingSpeedHelp(windowDays: number): { label: string; title: st
       `Say those nights usually got about ${e.expected} bookings in that ${span}. If this night got ${e.muchSlower}, that's much slower than normal. ${e.normal[0]} or ${e.normal[1]} is normal. ${e.muchFaster} is much faster than normal.`,
       "Only bookings in the room types this rule measures are counted.",
       "A rule that cuts counts full days only, up to yesterday. A rule that raises counts today so far too.",
-      "After a rule changes a night, it only counts bookings made since then. So does every weaker rule that moves the price the same way, so they don't add to that change on the same bookings.",
+      "After a rule changes a night, it only counts bookings made since then, while that change is still on the price. So does every weaker rule that moves the price the same way, so they don't add to that change on the same bookings.",
       `A rule that raises on a fast pace needs those bookings alone to beat what similar nights get in a whole ${span}. Any other rule compares them with similar nights over the same days.`,
       "If those keep the rule true after its wait, it adjusts that night again.",
       STRONGER_RULE_LINE,
@@ -69,6 +70,7 @@ export function bookingSpeedHelp(windowDays: number): { label: string; title: st
 
 /** The lines every wait panel ends on: a typed price, and room types waiting on their own. */
 const WAIT_HELP_TAIL = [
+  "If cancellations take its change off, the wait still runs from that change.",
   "A price you type on a night after it adjusted starts it over: it waits again from that price, then looks at its whole window.",
   "Each room type waits on its own, and a stronger rule can still step in while this one waits.",
 ];
@@ -104,7 +106,7 @@ export function bookingSpeedWaitHelp(
         : pickupWaitLabel
           ? [`Its pickup count waits ${pickupWaitLabel}, which is longer, so that is what it waits.`]
           : []),
-      "When the wait is over it only counts bookings made since it last adjusted that night, or since a stronger rule that moves the price the same way did, if that was later. If those keep it true, it adjusts again, and MAYA tells you once a night has been adjusted three times.",
+      "When the wait is over it only counts bookings made since its last change still on that night, or since a stronger rule's that moves the price the same way, if that was later. If those keep it true, it adjusts again, and MAYA tells you once three of its changes are on one night.",
       ...WAIT_HELP_TAIL,
       STRONGER_RULE_LINE,
     ],
@@ -120,16 +122,16 @@ export function bookingSpeedWaitHelp(
  * stronger rule's that moves the price the same way when that is later
  * (countFromFireAt over openFireHeads, pickupWindowOpensAt), so a wait
  * shorter than the window never counts that change's bookings again; a
- * raise that came off for cancellations starts nothing there, since new
- * bookings would only be netted against the ones that cancelled. A
- * condition on low pickup
+ * change that came off for cancellations starts nothing there (it is off
+ * the price, and new bookings would only be netted against the ones that
+ * cancelled), though its wait still runs from it. A condition on low pickup
  * (`lowPickup`: below a number, or above one under zero) is never judged on
  * less than its whole window after such a change (pickupJudgesShortStretch:
  * fewer bookings would only make it truer), so it never adjusts a night
- * again sooner than its window, whatever its wait. Three fires on a night
- * alert the owner; a typed price starts the wait again and the count after
- * it is the whole window (pickupWindowOpensAt ignores fires before the
- * price).
+ * again sooner than its window, whatever its wait. Three of its fires still
+ * on a night alert the owner; a typed price starts the wait again and the
+ * count after it is the whole window (pickupWindowOpensAt ignores fires
+ * before the price).
  *
  * A rule that also has a booking speed condition waits the longer of the
  * two (ruleWaitDays), so when that one decides it the panel says so once and
@@ -150,8 +152,8 @@ export function pickupWaitHelp(
         ? [`Its booking speed condition waits ${bookingSpeedWaitLabel}, which is longer, so that is what it waits.`]
         : []),
       lowPickup
-        ? "It looks for low pickup, so it only judges a whole lookback window of pickup that came in after it last adjusted that night, or after a stronger rule that moves the price the same way did, if that was later. So it never adjusts a night again sooner than its lookback window, whatever the wait. If that keeps it true, it adjusts again, and MAYA tells you once a night has been adjusted three times."
-        : "When the wait is over it counts pickup over its lookback window, but only what came in since it last adjusted that night, or since a stronger rule that moves the price the same way did, if that was later. It skips a raise that came off because its bookings cancelled. If that keeps it true, it adjusts again, and MAYA tells you once a night has been adjusted three times.",
+        ? "It looks for low pickup, so it only judges a whole lookback window of pickup that came in after its last change still on that night, or after a stronger rule's that moves the price the same way, if that was later. So it never adjusts a night again sooner than its lookback window, whatever the wait. If that keeps it true, it adjusts again, and MAYA tells you once three of its changes are on one night."
+        : "When the wait is over it counts pickup over its lookback window, but only what came in since its last change still on that night, or since a stronger rule's that moves the price the same way, if that was later. If that keeps it true, it adjusts again, and MAYA tells you once three of its changes are on one night.",
       ...WAIT_HELP_TAIL,
       STRONGER_RULE_LINE,
     ],

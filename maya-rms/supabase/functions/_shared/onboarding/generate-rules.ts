@@ -37,7 +37,7 @@
  * bookings a stronger rule already acted on, and each tier steps in as the
  * count reaches it (a stronger rule that is waiting holds the night
  * meanwhile only while the bookings it counts would make it adjust again).
- * Once a rule has adjusted one night three times MAYA puts that night in
+ * Once three of a rule's changes are on one night MAYA puts that night in
  * front of the owner and asks whether to carry on; until they answer, the
  * rule carries on.
  *
@@ -139,8 +139,8 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
         "When a night is booking far behind the pace similar nights set, a real 15% cut " +
         "restarts interest. It looks at full days only, up to yesterday. MAYA waits a week, " +
         "judges only the bookings made since this rule or a stronger one last cut the night, and " +
-        "cuts again if those are still that far behind. It tells you once it has cut the same " +
-        "night three times.",
+        "cuts again if those are still that far behind. It tells you once three of its cuts are " +
+        "on the same night.",
     },
     {
       name: "Slow-date trim",
@@ -192,7 +192,7 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
         "When the past week runs much faster than similar nights ever did, raise 25% and ride " +
         "the wave. Every couple of days it steps up again if the bookings made since this rule " +
         "or a stronger one last raised the night are, on their own, far more than a normal week " +
-        "brings, and MAYA tells you once it has raised the same night three times. If guests " +
+        "brings, and MAYA tells you once three of its raises are on the same night. If guests " +
         "cancel and the bookings a raise counted are no longer far ahead, the raise comes back off.",
     },
     {
@@ -209,7 +209,7 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       explanation:
         "Bookings pouring in within a single day, a concert announcement or a viral mention, " +
         "trigger an immediate 25% raise, repeated daily while the rush lasts. Your ceiling is the " +
-        "cap, and MAYA tells you once it has raised the same night three times. If guests cancel " +
+        "cap, and MAYA tells you once three of its raises are on the same night. If guests cancel " +
         "and what is left of that day's rush no longer counts as one, the raise comes back off.",
     },
   ];

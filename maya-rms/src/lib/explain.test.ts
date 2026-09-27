@@ -237,15 +237,15 @@ describe("an observation cut short by the newest raise or cut by the rule or a s
   it("says which days a raise rule counted and why, in plain words", () => {
     const view = buildExplainView(raise)!;
     expect(view.observed).toBe(
-      "The rule behind this reading, or a stronger rule, last raised this night on Sat, Jul 25 2026. In the 4 days from that raise on, 9 bookings arrived for it, with 17 days still to go before arrival.",
+      "The newest raise still on this night's price, by the rule behind this reading or a stronger rule, was made on Sat, Jul 25 2026. In the 4 days from that raise on, 9 bookings arrived for it, with 17 days still to go before arrival.",
     );
     expect(view.expected).toContain("over the same stretch");
     expect(view.assumptions[0]).toBe(
-      "Once a rule or a stronger one has raised this night, it counts only the bookings made after the newest of those raises, the rest of that day included, and reads the nights it is compared with over the same days. A weaker rule's raise, or any cut, doesn't move where it starts.",
+      "Once a rule or a stronger one has raised this night, it counts only the bookings made after the newest of those raises still on the price, the rest of that day included, and reads the nights it is compared with over the same days. A weaker rule's raise, or any cut, doesn't move where it starts.",
     );
     expect(view.window_days).toBe(4);
     expect(buildExplainView({ ...raise, windowDays: 1, countedFrom: "2026-07-28", countedSince: "2026-07-28T09:00:00.000Z" })!.observed).toContain(
-      "The rule behind this reading, or a stronger rule, last raised this night on Tue, Jul 28 2026. Later that day, 9 bookings arrived for it,",
+      "The newest raise still on this night's price, by the rule behind this reading or a stronger rule, was made on Tue, Jul 28 2026. Later that day, 9 bookings arrived for it,",
     );
     for (const line of [view.observed, view.assumptions[0]]) expect(line).not.toMatch(/[<>=≤≥—]/);
     expect(view.assumptions.join(" ")).not.toContain("whichever rule");
@@ -259,7 +259,7 @@ describe("an observation cut short by the newest raise or cut by the rule or a s
     expect(view.expected).toBe("By this point on nights like this one, we would expect about 4 bookings over a whole month.");
     expect(view.expected).not.toContain("same stretch");
     expect(view.assumptions[0]).toBe(
-      "Once a rule or a stronger one has raised this night, it counts only the bookings made after the newest of those raises, the rest of that day included, and those alone have to beat what the nights it is compared with get in a whole month. A weaker rule's raise, or any cut, doesn't move where it starts.",
+      "Once a rule or a stronger one has raised this night, it counts only the bookings made after the newest of those raises still on the price, the rest of that day included, and those alone have to beat what the nights it is compared with get in a whole month. A weaker rule's raise, or any cut, doesn't move where it starts.",
     );
     expect(view.comparables[0].summary).toBe("4 bookings in a whole month");
     expect(buildExplainView({ ...raise, expectedOverFullWindow: true, fullWindowDays: 7 })!.expected).toContain("over a whole week.");
@@ -271,14 +271,14 @@ describe("an observation cut short by the newest raise or cut by the rule or a s
   it("says a cut rule counted full days after the newest cut's day, up to yesterday", () => {
     const view = buildExplainView(cut)!;
     expect(view.observed).toBe(
-      "The rule behind this reading, or a stronger rule, last cut this night on Sat, Jul 25 2026. In the 2 full days after that, up to yesterday, 9 bookings arrived for it, with 17 days still to go before arrival.",
+      "The newest cut still on this night's price, by the rule behind this reading or a stronger rule, was made on Sat, Jul 25 2026. In the 2 full days after that, up to yesterday, 9 bookings arrived for it, with 17 days still to go before arrival.",
     );
     expect(view.assumptions.slice(0, 2)).toEqual([
       "A rule that cuts counts full days only, up to yesterday, on this night and on the nights it is compared with alike.",
-      "Once a rule or a stronger one has cut this night, it counts only the full days after the day of the newest of those cuts, and reads the nights it is compared with over the same days. A weaker rule's cut, or any raise, doesn't move where it starts.",
+      "Once a rule or a stronger one has cut this night, it counts only the full days after the day of the newest of those cuts still on the price, and reads the nights it is compared with over the same days. A weaker rule's cut, or any raise, doesn't move where it starts.",
     ]);
     expect(buildExplainView({ ...cut, windowDays: 1, countedFrom: "2026-07-27" })!.observed).toContain(
-      "last cut this night on Sun, Jul 26 2026. In the full day after that, up to yesterday,",
+      "The newest cut still on this night's price, by the rule behind this reading or a stronger rule, was made on Sun, Jul 26 2026. In the full day after that, up to yesterday,",
     );
     for (const line of [view.observed, ...view.assumptions.slice(0, 2)]) expect(line).not.toMatch(/[<>=≤≥—]/);
   });
@@ -294,13 +294,13 @@ describe("an observation cut short by the newest raise or cut by the rule or a s
 
   it("reads a snapshot that doesn't say raise or cut as a change", () => {
     const view = buildExplainView({ ...raise, countedAfter: undefined })!;
-    expect(view.observed).toContain("The rule behind this reading, or a stronger rule, last changed this night on Sat, Jul 25 2026. In the 4 days from that change on,");
+    expect(view.observed).toContain("The newest change still on this night's price, by the rule behind this reading or a stronger rule, was made on Sat, Jul 25 2026. In the 4 days from that change on,");
     expect(view.assumptions[0]).toBe(
-      "Once a rule or a stronger one has changed this night, it counts only the bookings made after the newest of those changes, the rest of that day included, and reads the nights it is compared with over the same days. A weaker rule's change doesn't move where it starts.",
+      "Once a rule or a stronger one has changed this night, it counts only the bookings made after the newest of those changes still on the price, the rest of that day included, and reads the nights it is compared with over the same days. A weaker rule's change doesn't move where it starts.",
     );
     const noSince = buildExplainView({ ...raise, countedAfter: undefined, countedSince: undefined, countedFrom: "2026-07-26", windowDays: 3 })!;
-    expect(noSince.observed).toContain("last changed this night on Sat, Jul 25 2026. In the 3 days after that,");
-    expect(noSince.assumptions[0]).toContain("counts only the bookings made after the day of the newest of those changes,");
+    expect(noSince.observed).toContain("The newest change still on this night's price, by the rule behind this reading or a stronger rule, was made on Sat, Jul 25 2026. In the 3 days after that,");
+    expect(noSince.assumptions[0]).toContain("counts only the bookings made after the day of the newest of those changes still on the price,");
   });
 
   it("reads a whole-window snapshot as it always did", () => {

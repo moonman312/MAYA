@@ -269,8 +269,9 @@ describe("computeStarterRules: the booking-speed ladder", () => {
   });
 
   it("tells the owner about the alert on the rules that can run away", () => {
-    // Three fires on one night is where MAYA asks (engine/repeat-alerts.ts).
-    const told = rules.filter((r) => r.explanation.includes("three times"));
+    // Three of a rule's changes still on one night is where MAYA asks
+    // (engine/repeat-alerts.ts counts the ones still on the price).
+    const told = rules.filter((r) => /once three of its (raises|cuts) are on the same night/.test(r.explanation));
     expect(told.map((r) => r.name)).toEqual([
       "Slow-date rescue",
       "Hot-week surge",
@@ -279,7 +280,8 @@ describe("computeStarterRules: the booking-speed ladder", () => {
   });
 
   it("only claims a raise comes back off where the cancellation test can take it off", () => {
-    // Cuts are never undone by cancellations: cancel_check is none for them.
+    // The starter cuts are on a slow pace, which cancellations only make
+    // slower (cancellableParts leaves it out), so nothing cancelled undoes them.
     for (const r of rules.filter((x) => x.action.action_direction === "decrease")) {
       expect(r.explanation).not.toContain("comes back off");
     }

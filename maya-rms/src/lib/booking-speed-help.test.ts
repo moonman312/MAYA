@@ -58,7 +58,7 @@ describe("bookingSpeedHelp", () => {
     ] as const) {
       const lines = bookingSpeedHelp(w).lines;
       expect(lines.at(-4)).toBe(
-        "After a rule changes a night, it only counts bookings made since then. So does every weaker rule that moves the price the same way, so they don't add to that change on the same bookings.",
+        "After a rule changes a night, it only counts bookings made since then, while that change is still on the price. So does every weaker rule that moves the price the same way, so they don't add to that change on the same bookings.",
       );
       expect(lines.at(-3)).toBe(
         `A rule that raises on a fast pace needs those bookings alone to beat what similar nights get in a whole ${span}. Any other rule compares them with similar nights over the same days.`,
@@ -104,16 +104,19 @@ describe("bookingSpeedWaitHelp", () => {
     const h = bookingSpeedWaitHelp("2 days");
     expect(h.lines[0]).toBe("After this rule adjusts a night, it leaves that night alone for 2 days.");
     // What the engine does: the wait is per night and room type, a stronger
-    // rule may still fire during it, and three fires on a night alert the owner.
+    // rule may still fire during it, and three of its changes on a night
+    // alert the owner (repeat-alerts.ts counts the ones still on the price).
     expect(h.lines.join(" ")).toContain("Each room type waits on its own");
     expect(h.lines.join(" ")).toContain("stronger rule can still step in");
-    expect(h.lines.join(" ")).toContain("three times");
+    expect(h.lines.join(" ")).toContain("MAYA tells you once three of its changes are on one night.");
+    // waitAnchor: a change that came off for cancellations still starts the wait.
+    expect(h.lines.join(" ")).toContain("If cancellations take its change off, the wait still runs from that change.");
     // Once it is over, only what came in since its own last adjustment
     // counts, or since a stronger rule's that moves the price the same way
     // when that is later, until a typed price starts it over with its
     // whole window.
     expect(h.lines.join(" ")).toContain(
-      "it only counts bookings made since it last adjusted that night, or since a stronger rule that moves the price the same way did, if that was later.",
+      "it only counts bookings made since its last change still on that night, or since a stronger rule's that moves the price the same way, if that was later.",
     );
     expect(h.lines.join(" ")).not.toContain("whichever rule");
     expect(h.lines.join(" ")).toContain("starts it over");
@@ -158,12 +161,12 @@ describe("pickupWaitHelp", () => {
     // weaker rule's never (Jake, 2026-09-24, option A).
     const words = pickupWaitHelp("2 days").lines.join(" ");
     expect(words).toContain(
-      "When the wait is over it counts pickup over its lookback window, but only what came in since it last adjusted that night, or since a stronger rule that moves the price the same way did, if that was later.",
+      "When the wait is over it counts pickup over its lookback window, but only what came in since its last change still on that night, or since a stronger rule's that moves the price the same way, if that was later.",
     );
     expect(words).not.toContain("whichever rule");
-    // openFireHeads: a raise taken off for cancellations opens no pickup count.
-    expect(words).toContain("It skips a raise that came off because its bookings cancelled.");
-    expect(words).toContain("three times");
+    // openFireHeads: a change taken off for cancellations is not "still on", so it opens no pickup count.
+    expect(words).toContain("MAYA tells you once three of its changes are on one night.");
+    expect(words).toContain("If cancellations take its change off, the wait still runs from that change.");
     // A typed price: waitAnchor starts the wait there, and
     // pickupWindowOpensAt ignores the fires before it.
     expect(words).toContain("starts it over");
@@ -181,10 +184,10 @@ describe("pickupWaitHelp", () => {
     // has nothing to judge until a whole window has passed.
     const words = pickupWaitHelp("1 day", null, true).lines.join(" ");
     expect(words).toContain(
-      "It looks for low pickup, so it only judges a whole lookback window of pickup that came in after it last adjusted that night, or after a stronger rule that moves the price the same way did, if that was later. So it never adjusts a night again sooner than its lookback window, whatever the wait.",
+      "It looks for low pickup, so it only judges a whole lookback window of pickup that came in after its last change still on that night, or after a stronger rule's that moves the price the same way, if that was later. So it never adjusts a night again sooner than its lookback window, whatever the wait.",
     );
     expect(words).not.toContain("When the wait is over it counts pickup");
-    expect(words).toContain("three times");
+    expect(words).toContain("three of its changes");
     expect(words).toContain("starts it over");
     expect(pickupWaitHelp("1 day", null, false).lines).toEqual(pickupWaitHelp("1 day").lines);
   });
