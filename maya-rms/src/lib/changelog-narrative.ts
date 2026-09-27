@@ -415,7 +415,9 @@ function roomNightWord(n: number): string {
  * What the cancellation check found no longer true (the audit's finding),
  * in numbers: the occupancy now against the bar, what is left of the pickup
  * the change counted, or how many of the bookings it counted are still
- * booked against the usual frozen at the change. null without one.
+ * booked against the usual frozen at the change and the booking speed the
+ * rule needs (a finding from before the level was kept leaves that out).
+ * null without one.
  */
 function findingSentence(finding: CancellationFinding | null | undefined, sym: string): string | null {
   if (!finding) return null;
@@ -431,9 +433,10 @@ function findingSentence(finding: CancellationFinding | null | undefined, sym: s
   }
   const usual = finding.expected < 1 ? "almost none" : `about ${Math.round(finding.expected)}`;
   const still = finding.left === 1 ? "is" : "are";
+  const needs = isBookingSpeed(finding.level) ? `, and the rule needs a booking speed of at least ${speedPhrase(finding.level)}` : "";
   return finding.counted != null
-    ? `Of the ${finding.counted} ${finding.counted === 1 ? "booking" : "bookings"} it counted, ${finding.left} ${still} still booked, where nights like it usually get ${usual}.`
-    : `${finding.left} of the bookings it counted ${still} still booked, where nights like it usually get ${usual}.`;
+    ? `Of the ${finding.counted} ${finding.counted === 1 ? "booking" : "bookings"} it counted, ${finding.left} ${still} still booked, where nights like it usually get ${usual}${needs}.`
+    : `${finding.left} of the bookings it counted ${still} still booked, where nights like it usually get ${usual}${needs}.`;
 }
 
 /**

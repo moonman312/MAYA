@@ -741,7 +741,7 @@ describe("buildRetirements", () => {
           fire_seq: 1,
           reason: "bookings_cancelled",
           cancel_check: "recount",
-          finding: { part: "booking_speed", left: 6, counted: 9, expected: 5 },
+          finding: { part: "booking_speed", left: 6, counted: 9, expected: 5, level: "faster" },
         },
       ],
     });
@@ -750,13 +750,13 @@ describe("buildRetirements", () => {
         rule_name: "Demand-spike catcher",
         delta: "+12%",
         reason: "bookings_cancelled",
-        finding: { part: "booking_speed", left: 6, counted: 9, expected: 5 },
+        finding: { part: "booking_speed", left: 6, counted: 9, expected: 5, level: "faster" },
       },
     ]);
     const entry = buildEntry(row({ base_price: 200, final_price: 200, details: withFinding }), lookups());
     expect(entry.narrative?.slice(0, 2)).toEqual([
       'Cancellations meant "Demand-spike catcher" was no longer true, so its 12% raise came off.',
-      "Of the 9 bookings it counted, 6 are still booked, where nights like it usually get about 5.",
+      "Of the 9 bookings it counted, 6 are still booked, where nights like it usually get about 5, and the rule needs a booking speed of at least faster than normal.",
     ]);
   });
 });

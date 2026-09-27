@@ -938,12 +938,16 @@ describe("a fire that came off", () => {
         applications: [],
         retirements: [{ rule_name: "Quick pickup", delta, reason: "bookings_cancelled", finding }],
       });
-    expect(off({ part: "booking_speed", left: 6, counted: 9, expected: 5 })).toEqual([
+    expect(off({ part: "booking_speed", left: 6, counted: 9, expected: 5, level: "much_faster" })).toEqual([
       'Cancellations meant "Quick pickup" was no longer true, so its 10% raise came off.',
-      "Of the 9 bookings it counted, 6 are still booked, where nights like it usually get about 5.",
+      "Of the 9 bookings it counted, 6 are still booked, where nights like it usually get about 5, and the rule needs a booking speed of at least much faster than normal.",
     ]);
-    expect(off({ part: "booking_speed", left: 1, counted: null, expected: 0.4 })[1]).toBe(
-      "1 of the bookings it counted is still booked, where nights like it usually get almost none.",
+    expect(off({ part: "booking_speed", left: 1, counted: null, expected: 0.4, level: "surging" })[1]).toBe(
+      "1 of the bookings it counted is still booked, where nights like it usually get almost none, and the rule needs a booking speed of at least surging.",
+    );
+    // A finding kept before the level was leaves it out.
+    expect(off({ part: "booking_speed", left: 6, counted: 9, expected: 5 })[1]).toBe(
+      "Of the 9 bookings it counted, 6 are still booked, where nights like it usually get about 5.",
     );
     expect(off({ part: "occupancy", occupancy: 0.65, threshold: 0.7 }, "-$15.00")).toEqual([
       'Cancellations meant "Quick pickup" was no longer true, so its $15.00 cut came off.',
@@ -962,7 +966,7 @@ describe("a fire that came off", () => {
       "None of the pickup it counted was left, and the rule needs more than 1 room night.",
     );
     for (const f of [
-      { part: "booking_speed" as const, left: 6, counted: 9, expected: 5 },
+      { part: "booking_speed" as const, left: 6, counted: 9, expected: 5, level: "faster" },
       { part: "occupancy" as const, occupancy: 0.65, threshold: 0.7 },
       { part: "pickup" as const, net: 4, threshold: 4, metric: "room_nights" as const },
     ]) {
