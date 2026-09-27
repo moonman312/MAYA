@@ -41,12 +41,13 @@ export function clean(text: string): string {
     .trim();
 }
 
-/** "and I don't know why": the reader's aside, not the subject. The "why" stays. */
+/** "and I don't know why", "I have no idea why": the reader's aside, not the subject. The "why" stays. */
 const ASIDE = /\b(?:(?:and|but) )?(?:i|we) (?:dont|do not|didnt|did not|cant|can not|cannot) (?:know|understand|tell|see|work out|figure out) why\b/g;
+const UNSURE_WHY = /\b(?:(?:and|but) )?(?:(?:i|we) (?:have|had) |(?:im|i am|were|we are) )?(?:no idea|no clue|not sure) why\b/g;
 
 /** The question cleaned, with asides such as "and I don't know why" cut down to "why". */
 export function dropAsides(text: string): string {
-  return clean(text).replace(ASIDE, "why").replace(/\bidk why\b/g, "why");
+  return clean(text).replace(ASIDE, "why").replace(UNSURE_WHY, "why").replace(/\bidk why\b/g, "why");
 }
 
 export function buildSynonymTable(groups: string[][]): SynonymTable {

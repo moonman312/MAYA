@@ -341,6 +341,10 @@ test("asides and vague words are not the subject: a specific night, and I don't 
   assert.deepEqual(tokens("for a particular room type"), tokens("for a room type"));
   assert.deepEqual(tokens("my price dropped and i don't know why"), tokens("why my price dropped"));
   assert.deepEqual(tokens("my price dropped and we do not understand why"), tokens("why my price dropped"));
+  assert.deepEqual(tokens("my price dropped and i have no idea why"), tokens("why my price dropped"));
+  assert.deepEqual(tokens("not sure why my price dropped"), tokens("why my price dropped"));
+  assert.deepEqual(tokens("i'm not sure why my price dropped"), tokens("why my price dropped"));
+  assert.ok(tokens("i have no idea about floors").includes("idea"), "no idea without a why stays");
   assert.ok(tokens("how did we know").includes("know"), "a docs title keeps its words");
   const cut = helper.index.synonyms.findIndex((g) => g[0] === "cut");
   assert.ok(tokens("maya undercut my price").includes(`syn${cut}`), "undercut reads as a cut");
@@ -372,6 +376,7 @@ test("everyday ways of naming a docs subject no bank question uses land on its p
     ["the price is ridiculous", ["/docs/wrong/a-price-looks-wrong"]],
     ["this software lost me money this week", ["/docs/wrong/a-price-looks-wrong"]],
     ["who is liable if maya loses me money", ["/docs/reference/terms-and-legal"]],
+    ["maya undercut the price i typed and i have no idea why", ["/docs/watch/setting-a-price-yourself"]],
   ]) {
     const r = say(q);
     assert.ok(r.outcome === "answered" || r.outcome === "unsure", `${q}: ${r.outcome} ${r.canned?.intent ?? ""}`);

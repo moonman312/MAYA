@@ -909,5 +909,8 @@
 {"q": "a rule lowered my typed price", "page": "watch/setting-a-price-yourself", "anchor": "your-rules-after-your-price"},
 {"q": "my manual price got lowered", "page": "watch/setting-a-price-yourself", "anchor": "your-rules-after-your-price"},
 {"q": "maya lowered my own price", "page": "watch/setting-a-price-yourself", "anchor": "your-rules-after-your-price"},
-{"q": "a rule raised the price i typed", "page": "watch/setting-a-price-yourself", "anchor": "your-rules-after-your-price"}
+{"q": "a rule raised the price i typed", "page": "watch/setting-a-price-yourself", "anchor": "your-rules-after-your-price"},
+{"q": "maya undercut my manual price", "page": "watch/setting-a-price-yourself", "anchor": "your-rules-after-your-price"},
+{"q": "why did maya cut below my manual price", "page": "watch/setting-a-price-yourself", "anchor": "your-rules-after-your-price"},
+{"q": "my manual price was undercut", "page": "watch/setting-a-price-yourself", "anchor": "your-rules-after-your-price"}
 ]
