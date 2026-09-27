@@ -19,6 +19,7 @@ import { RuleAlertBanner } from "@/components/rule-alert-banner";
 import { letRunAgainBody, stoppedChipLabel, stoppedNightsHelp, type RuleStops } from "@/lib/rule-alerts";
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { RuleRoomTypesField } from "@/components/rule-room-types-field";
+import { UndoOnCancellationField, UndoOnCancellationToggle } from "@/components/undo-on-cancellation-box";
 import { isQuietChecks, isRuleAlertChoice } from "@/lib/changelog-route-helpers";
 import { QuietChecksLine } from "@/components/quiet-checks-line";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
@@ -341,6 +342,9 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
   const [splitRoomTypeSets, setSplitRoomTypeSets] = useState(false);
   const [changeRoomTypeIds, setChangeRoomTypeIds] = useState<string[]>([]);
   const [ruleFormError, setRuleFormError] = useState<string | null>(null);
+  // The undo box starts ticked on every new rule (Jake, 2026-09-25).
+  const [undoOnCancellation, setUndoOnCancellation] = useState(true);
+  const [undoSaving, setUndoSaving] = useState<string | null>(null);
 
   useEffect(() => {
     void reloadRules();
@@ -620,6 +624,27 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
     await reloadRules();
   }
 
+  /**
+   * The undo box in the rules table. Not an edit: the rule keeps its
+   * changes, and the next pricing run checks them (ticked) or not.
+   */
+  async function onToggleUndo(rule: RuleConfig) {
+    const next = rule.undo_on_cancellation === false;
+    setUndoSaving(rule.id);
+    setRules((rs) => rs.map((r) => (r.id === rule.id ? { ...r, undo_on_cancellation: next } : r)));
+    try {
+      await api(`/api/rules/${rule.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ undo_on_cancellation: next }),
+      });
+    } catch {
+      // The reload below puts back whatever the rule really says.
+    } finally {
+      setUndoSaving(null);
+      await reloadRules();
+    }
+  }
+
   async function onDeleteRule(ruleId: string) {
     await api(`/api/rules/${ruleId}`, { method: "DELETE" });
     setPendingDelete(null);
@@ -751,6 +776,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
           room_types,
           signal_room_type_ids,
           affected_room_type_ids,
+          undo_on_cancellation: undoOnCancellation,
         }),
       });
     } catch {
@@ -773,6 +799,7 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
     setSelectedRoomTypeIds(roomTypeOptions.filter(isCountingRoom).map((r) => r.id));
     setSplitRoomTypeSets(false);
     setChangeRoomTypeIds([]);
+    setUndoOnCancellation(true);
     await reloadRules();
   }
 
@@ -1325,6 +1352,14 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                             {rule.enabled ? "On" : "Off"}
                           </span>
                         </button>
+                        <div className="mt-1">
+                          <UndoOnCancellationToggle
+                            ruleName={rule.rule_name}
+                            checked={rule.undo_on_cancellation !== false}
+                            disabled={undoSaving === rule.id}
+                            onToggle={() => void onToggleUndo(rule)}
+                          />
+                        </div>
                         {(() => {
                           const stops = ruleStops.find((s) => s.rule_id === rule.id);
                           if (!stops || stops.nights.length === 0) return null;
@@ -1789,6 +1824,9 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                         className="min-w-32 flex-1 rounded border border-slate-700 bg-slate-950 p-2 text-sm disabled:opacity-40"
                       />
                     </label>
+                    <div className="border-t border-slate-800 pt-3">
+                      <UndoOnCancellationField checked={undoOnCancellation} onChange={setUndoOnCancellation} />
+                    </div>
                   </div>
                 </div>
 
