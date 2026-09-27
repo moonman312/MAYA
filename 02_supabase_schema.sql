@@ -541,9 +541,11 @@ create table if not exists pickup_event (
   window_bookings_at_fire       integer,
   window_expected_at_fire       numeric(10,2),
   signal_set_key                text not null,
-  -- What a pickup count saw come in during its window (the undo migration).
+  -- What a pickup count saw come in during its window, and the bookings a
+  -- booking speed window counted, by key (the undo migration).
   pickup_units_arrived_at_fire   integer,
   pickup_revenue_arrived_at_fire numeric(12,2),
+  window_booking_keys            text[],
   constraint pickup_event_retired_reason_set_chk check ((retired_at is null) = (retired_reason is null)),
   constraint pickup_event_cancel_increase_chk check (cancel_check in ('none', 'recount') or action_direction = 'increase'),
   constraint pickup_event_arrivals_chk check (

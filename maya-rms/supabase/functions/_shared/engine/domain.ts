@@ -67,12 +67,17 @@ export type PickupCancelCheck = "none" | "net_units" | "window_bookings" | "eith
  *   rule's number;
  * - booking_speed: of the bookings the change counted in its window
  *   (null on a change from before that was stored), how many are still
- *   booked, against the usual frozen at the change.
+ *   booked, against the usual frozen at the change, and the pace the rule
+ *   needs (level, a BookingSpeed key; absent on rows written before it was
+ *   kept).
+ *
+ * Found only when the rule is not true either counted the way it would
+ * count once the change is off (cancellablePartsHold).
  */
 export type CancellationFinding =
   | { part: "occupancy"; occupancy: number; threshold: number }
   | { part: "pickup"; net: number; threshold: number; metric: "room_nights" | "revenue" }
-  | { part: "booking_speed"; left: number; counted: number | null; expected: number };
+  | { part: "booking_speed"; left: number; counted: number | null; expected: number; level?: string };
 
 /** Why a fire stopped applying. "legacy" and "self_cancelled" only mark rows from before stacking. */
 export type PickupRetiredReason =

@@ -125,11 +125,14 @@ import {
 } from "../observations/booking-speed.ts";
 import {
   DEFAULT_BOOKING_SPEED_COOLDOWN_DAYS,
+  bookingKeysOnNight,
   bookingsStillBookedFromFire,
   countsCompleteDays,
   isWithinCooldown,
   signalSetKey,
+  windowBookingKeys,
   type BookingSpeedContext,
+  type NightBookingRow,
   type SplitNeed,
 } from "./booking-speed-provider.ts";
 import { conditionCount } from "./conditions.ts";
@@ -422,7 +425,8 @@ export function countFromFireAt(
  * Per `rule_id|stay_date|room_type_id` (fireHeadKey), the fires still on
  * the night from each given rule's current version, leaving out `retired`
  * (the fires this run took off): how many (counted, what the three-changes
- * alert counts) and the newest (lastCountedAt, where every rule counts from,
+ * alert counts) and the newest instant one of them counted to
+ * (lastCountedAt, OpenPickupFire.counted_at: where every rule counts from,
  * countFromFireAt). A change that came off for cancellations is not among
  * them: the price no longer carries it, so it covers no bookings, for its
  * own rule or any other, and the owner is only asked about changes still
@@ -442,12 +446,12 @@ export function openFireHeads(
     const key = fireHeadKey(fire.rule_id, fire.stay_date, fire.affected_room_type_id);
     const head = out.get(key);
     if (!head) {
-      out.set(key, { lastCountedAt: fire.applied_at, counted: 1 });
+      out.set(key, { lastCountedAt: fire.counted_at, counted: 1 });
       continue;
     }
     head.counted += 1;
-    if (!head.lastCountedAt || Date.parse(fire.applied_at) > Date.parse(head.lastCountedAt)) {
-      head.lastCountedAt = fire.applied_at;
+    if (!head.lastCountedAt || Date.parse(fire.counted_at) > Date.parse(head.lastCountedAt)) {
+      head.lastCountedAt = fire.counted_at;
     }
   }
   return out;
@@ -538,6 +542,8 @@ export function candidateFor(input: {
     window_to: windowTo,
     window_bookings_at_fire: bs ? bs.recent : null,
     window_expected_at_fire: bs ? Math.round(bs.expected * 100) / 100 : null,
+    // Filled in before the competition (recordWindowKeys in evaluate.ts).
+    window_booking_keys: null,
     signal_set_key: signalSetKey(rule.signal_room_type_ids),
   };
 }
@@ -577,6 +583,47 @@ export function recordArrivals(
   if (!opened || !seen) return;
   candidate.pickup_units_arrived = Math.max(0, seen.units - opened.units);
   candidate.pickup_revenue_arrived = Math.max(0, Math.round((seen.revenue - opened.revenue) * 100) / 100);
+}
+
+/** The nights whose bookings windowKeyReads needs read (loadNightBookingRows) for these candidates. */
+export function windowKeyNights(candidates: readonly PickupCandidate[]): string[] {
+  return [
+    ...new Set(
+      candidates
+        .filter((c) => cancellableParts(c.rule).bookingSpeed && c.window_from && c.window_to && c.window_bookings_at_fire != null)
+        .map((c) => c.stay_date),
+    ),
+  ];
+}
+
+/**
+ * Record on a candidate whose booking speed condition cancellations can
+ * make false the bookings its window counted, by key (windowBookingKeys),
+ * from `rows` (loadNightBookingRows for its night). Kept only when they
+ * come to exactly what the reading counted (window_bookings_at_fire): a
+ * sync that landed between the two reads, or a history that still counts
+ * rooms, leaves it null, and the check then recounts the window the way
+ * a change from before the keys is recounted.
+ */
+export function recordWindowKeys(
+  candidate: PickupCandidate,
+  ctx: BookingSpeedContext,
+  rows: ReadonlyMap<string, readonly NightBookingRow[]>,
+): void {
+  if (!cancellableParts(candidate.rule).bookingSpeed) return;
+  const { window_from, window_to, window_bookings_at_fire } = candidate;
+  const night = rows.get(candidate.stay_date);
+  if (!night || !window_from || !window_to || window_bookings_at_fire == null) return;
+  const keys = windowBookingKeys(
+    ctx,
+    night,
+    candidate.stay_date,
+    window_from,
+    window_to,
+    candidate.rule.signal_room_type_ids,
+    candidate.window_since,
+  );
+  candidate.window_booking_keys = keys && keys.length === window_bookings_at_fire ? keys : null;
 }
 
 /* ── Per-room competition (§7.3) ──────────────────────────────── */
@@ -850,6 +897,7 @@ export async function insertPickupEvent(
     window_to: candidate.window_to,
     window_bookings_at_fire: candidate.window_bookings_at_fire,
     window_expected_at_fire: candidate.window_expected_at_fire,
+    window_booking_keys: candidate.window_booking_keys,
     signal_set_key: candidate.signal_set_key,
   };
   let { data, error } = await supabase.from("pickup_event").insert(row).select(FIRE_COLUMNS).single();
@@ -874,6 +922,7 @@ export async function insertPickupEvent(
     const legacy: Record<string, unknown> = { ...row, cancel_check: "none" };
     delete legacy.pickup_units_arrived_at_fire;
     delete legacy.pickup_revenue_arrived_at_fire;
+    delete legacy.window_booking_keys;
     ({ data, error } = await supabase
       .from("pickup_event")
       .insert(legacy)
@@ -1008,6 +1057,13 @@ export type OpenPickupFire = {
   stay_date: string;
   affected_room_type_id: string;
   applied_at: string;
+  /**
+   * The instant its numbers below were taken (baseline_end_ts): its
+   * applied_at, or a later run's when cancellations left its rule still
+   * true and that run took them again (restateFire). Where the rules count
+   * from after it (openFireHeads).
+   */
+  counted_at: string;
   fire_seq: number;
   action_kind: string;
   action_direction: string;
@@ -1029,15 +1085,17 @@ export type OpenPickupFire = {
   window_to: string | null;
   window_bookings_at_fire: number | null;
   window_expected_at_fire: number | null;
+  /** See PickupCandidate.window_booking_keys. null on fires without them. */
+  window_booking_keys: string[] | null;
   signal_set_key: string;
 };
 
 const OPEN_FIRE_COLUMNS =
-  "id, rule_id, rule_version, stay_date, affected_room_type_id, applied_at, fire_seq, " +
+  "id, rule_id, rule_version, stay_date, affected_room_type_id, applied_at, baseline_end_ts, fire_seq, " +
   "action_kind, action_direction, action_value, cancel_check, baseline_start_ts, " +
   "signal_booked_units_start, signal_booked_units_end, signal_booked_revenue_start, signal_booked_revenue_end, " +
   "window_from, window_since, window_to, window_bookings_at_fire, window_expected_at_fire, signal_set_key";
-const ARRIVAL_COLUMNS = "pickup_units_arrived_at_fire, pickup_revenue_arrived_at_fire";
+const ARRIVAL_COLUMNS = "pickup_units_arrived_at_fire, pickup_revenue_arrived_at_fire, window_booking_keys";
 
 let loggedPreUndoRead = false;
 
@@ -1111,6 +1169,7 @@ export async function loadOpenPickupFires(
     stay_date: String(r.stay_date),
     affected_room_type_id: String(r.affected_room_type_id),
     applied_at: String(r.applied_at),
+    counted_at: String(r.baseline_end_ts ?? r.applied_at),
     fire_seq: Number(r.fire_seq),
     action_kind: r.action_kind,
     action_direction: r.action_direction,
@@ -1128,6 +1187,7 @@ export async function loadOpenPickupFires(
     window_to: r.window_to != null ? String(r.window_to).slice(0, 10) : null,
     window_bookings_at_fire: num(r.window_bookings_at_fire),
     window_expected_at_fire: num(r.window_expected_at_fire),
+    window_booking_keys: Array.isArray(r.window_booking_keys) ? r.window_booking_keys.map(String) : null,
     signal_set_key: String(r.signal_set_key ?? ""),
   }));
 }
@@ -1266,51 +1326,87 @@ function windowRecountable(fire: OpenPickupFire): boolean {
 }
 
 /**
- * What the check must read for these fires, all at once: for loadBookedBefore
- * each fire's own instant (what was booked then and is still booked) and,
- * for a pickup condition, the instant its count opened; for loadSplitWindows
- * each booking speed window's bookings first seen after the fire, and after
- * window_since when its first day was split.
+ * What the check reads first for these fires, all at once, for
+ * loadBookedBefore: each fire's counted_at (what was booked then and is
+ * still booked) and, for a pickup condition, the instant its count opened.
+ * The rest is read only for the fires something they saw has cancelled on
+ * (somethingCancelled, recountReads).
  */
-export function cancellationReads(checks: readonly { fire: OpenPickupFire; rule: EngineRule }[]): {
-  booked: BookedBeforePair[];
+export function cancellationReads(checks: readonly { fire: OpenPickupFire; rule: EngineRule }[]): BookedBeforePair[] {
+  const booked: BookedBeforePair[] = [];
+  for (const { fire, rule } of checks) {
+    booked.push({ stayDate: fire.stay_date, at: fire.counted_at });
+    if (cancellableParts(rule).pickup) booked.push({ stayDate: fire.stay_date, at: fire.baseline_start_ts });
+  }
+  return booked;
+}
+
+/**
+ * Whether something a fire saw has cancelled: the room nights on its rule's
+ * room types first seen by its counted_at and still booked are fewer than
+ * it saw (signal_booked_units_end). Nothing else is read or judged for a
+ * fire until then. false when this run did not read the night.
+ */
+export function somethingCancelled(
+  fire: OpenPickupFire,
+  rule: EngineRule,
+  booked: ReadonlyMap<string, ReadonlyMap<string, BookedCount>>,
+): boolean {
+  const atFire = bookedBeforeOver(booked, fire.stay_date, fire.counted_at, rule.signal_room_type_ids);
+  return atFire !== null && atFire.units < fire.signal_booked_units_end;
+}
+
+/**
+ * What the recount of these fires (the ones somethingCancelled let through)
+ * reads next, all at once: for a booking speed window recorded with its
+ * bookings' keys, the night's bookings now (loadNightBookingRows); for one
+ * recorded without them, its bookings first seen after the fire's
+ * counted_at, and after window_since when its first day was split
+ * (loadSplitWindows).
+ */
+export function recountReads(checks: readonly { fire: OpenPickupFire; rule: EngineRule }[]): {
+  nights: string[];
   splits: SplitNeed[];
 } {
-  const booked: BookedBeforePair[] = [];
+  const nights = new Set<string>();
   const splits: SplitNeed[] = [];
   for (const { fire, rule } of checks) {
-    const parts = cancellableParts(rule);
-    booked.push({ stayDate: fire.stay_date, at: fire.applied_at });
-    if (parts.pickup) booked.push({ stayDate: fire.stay_date, at: fire.baseline_start_ts });
-    if (parts.bookingSpeed && windowRecountable(fire)) {
-      splits.push({ since: fire.applied_at, stayDate: fire.stay_date, signalIds: rule.signal_room_type_ids });
-      if (fire.window_since) {
-        splits.push({ since: fire.window_since, stayDate: fire.stay_date, signalIds: rule.signal_room_type_ids });
-      }
+    if (!cancellableParts(rule).bookingSpeed || !windowRecountable(fire)) continue;
+    if (fire.window_booking_keys) {
+      nights.add(fire.stay_date);
+      continue;
+    }
+    splits.push({ since: fire.counted_at, stayDate: fire.stay_date, signalIds: rule.signal_room_type_ids });
+    if (fire.window_since) {
+      splits.push({ since: fire.window_since, stayDate: fire.stay_date, signalIds: rule.signal_room_type_ids });
     }
   }
-  return { booked, splits };
+  return { nights: [...nights].sort(), splits };
 }
 
 /** What this run knows about the nights it checks for cancellations. */
 export type CancellationInput = {
-  /** loadBookedBefore for cancellationReads(...).booked. */
+  /** loadBookedBefore for cancellationReads(...). */
   booked: ReadonlyMap<string, ReadonlyMap<string, BookedCount>>;
   /** The night's sellable occupancy now over those room types, from this run's snapshot; null with nothing to sell. */
   occupancyNow: (stayDate: string, roomTypeIds: readonly string[]) => number | null;
-  /** With cancellationReads(...).splits loaded (loadSplitWindows). */
+  /** With recountReads(...).splits loaded (loadSplitWindows). */
   bsCtx: BookingSpeedContext | null;
+  /** loadNightBookingRows for recountReads(...).nights. */
+  nightRows?: ReadonlyMap<string, readonly NightBookingRow[]> | null;
 };
 
 /**
  * A fire's net pickup counted the way its rule counts it (room nights, or
  * revenue for a revenue rule) over the fire's own window, less the bookings
  * that came in during that window and have cancelled since: the net the
- * fire judged, less how far its arrivals (first seen after its count opened
- * and by the fire, pickup_units_arrived_at_fire) have fallen since. So
- * bookings made after the fire, and older bookings that cancel after it,
- * never move it, and with nothing of its own cancelled it is exactly the
- * number the fire judged. A fire from before the arrivals were stored
+ * fire judged, less the room nights of its arrivals (first seen after its
+ * count opened and by the fire, pickup_units_arrived_at_fire) that are no
+ * longer booked, for a revenue rule each valued at the average rate its
+ * arrivals had at the fire. So bookings made after the fire, older
+ * bookings that cancel after it, and a rate changed on a booking still
+ * there never move it, and with nothing of its own cancelled it is exactly
+ * the number the fire judged. A fire from before the arrivals were stored
  * (null) counts what came in during its window and is still booked, which
  * leaves out the older bookings that cancelled inside the window before
  * the fire: never less than the right number, so it only keeps a change
@@ -1325,13 +1421,48 @@ function pickupStillCounted(
   const opened = bookedBeforeOver(input.booked, fire.stay_date, fire.baseline_start_ts, rule.signal_room_type_ids);
   if (!opened) return null;
   const revenue = rule.condition.pickup_metric === "revenue";
-  const arrivedNow = revenue ? atFire.revenue - opened.revenue : atFire.units - opened.units;
-  const arrivedAtFire = revenue ? fire.pickup_revenue_arrived_at_fire : fire.pickup_units_arrived_at_fire;
-  const netAtFire = revenue
-    ? fire.signal_booked_revenue_end - fire.signal_booked_revenue_start
-    : fire.signal_booked_units_end - fire.signal_booked_units_start;
-  const net = arrivedAtFire == null ? arrivedNow : netAtFire - Math.max(0, arrivedAtFire - arrivedNow);
-  return revenue ? Math.round(net * 100) / 100 : Math.round(net);
+  const unitsArrived = fire.pickup_units_arrived_at_fire;
+  const revenueArrived = fire.pickup_revenue_arrived_at_fire;
+  if (unitsArrived == null || (revenue && revenueArrived == null)) {
+    const arrivedNow = revenue ? atFire.revenue - opened.revenue : atFire.units - opened.units;
+    return revenue ? Math.round(arrivedNow * 100) / 100 : Math.round(arrivedNow);
+  }
+  const lostUnits = Math.max(0, unitsArrived - (atFire.units - opened.units));
+  if (!revenue) return Math.round(fire.signal_booked_units_end - fire.signal_booked_units_start - lostUnits);
+  const averageRate = unitsArrived > 0 ? revenueArrived! / unitsArrived : 0;
+  const net = fire.signal_booked_revenue_end - fire.signal_booked_revenue_start - lostUnits * averageRate;
+  return Math.round(net * 100) / 100;
+}
+
+/**
+ * The bookings a fire's booking speed window counted that are still
+ * booked. With their keys recorded (window_booking_keys): those of them
+ * with a row on the night now, on the rule's room types (bookingKeysOnNight
+ * over input.nightRows), so a group is one of them until its last room
+ * there cancels, whenever its rooms were added. Without: the window's
+ * bookings still booked, less those first seen after the fire's counted_at
+ * (bookingsStillBookedFromFire over the splits loaded). null when what it
+ * needs was not read.
+ */
+function bookingsLeft(fire: OpenPickupFire, rule: EngineRule, input: CancellationInput): number | null {
+  const ctx = input.bsCtx;
+  if (!ctx) return null;
+  const signal = rule.signal_room_type_ids;
+  if (fire.window_booking_keys) {
+    const night = input.nightRows?.get(fire.stay_date);
+    if (!night) return null;
+    const present = bookingKeysOnNight(ctx, night, signal);
+    return fire.window_booking_keys.filter((key) => present.has(key)).length;
+  }
+  return bookingsStillBookedFromFire(
+    ctx,
+    fire.stay_date,
+    fire.window_from!,
+    fire.window_to!,
+    signal,
+    fire.window_since,
+    fire.counted_at,
+  );
 }
 
 /**
@@ -1355,23 +1486,23 @@ function paceStillHolds(condition: EngineRule["condition"], recent: number, expe
 }
 
 /**
- * Whether cancellations have made a fire's rule no longer true, so the
- * change comes off (bookings_cancelled), and what was found false: null
- * while the rule still holds. `fire` and `rule` come from
- * cancellationChecks.
+ * Whether cancellations have made what a fire counted fall short of its
+ * rule, and what was found: null while it still holds. `fire` and `rule`
+ * come from cancellationChecks. This is the first half of the check; the
+ * change comes off only if its rule is not true either counted the way it
+ * would count once the change is off (cancellablePartsHold, in
+ * evaluate.ts).
  *
- * First, something the fire saw must have cancelled: the room nights on the
- * rule's room types first seen by the fire and still booked are fewer than
- * the fire saw (signal_booked_units_end). Then each part cancellations can
- * make false (cancellableParts) is judged, and the first one that fails
- * takes the change off:
+ * First, something the fire saw must have cancelled (somethingCancelled).
+ * Then each part cancellations can make false (cancellableParts) is
+ * judged, and the first one that fails is the finding:
  *
  * - occupancy "more than": the night's sellable occupancy now;
  * - pickup "more than": the fire's net pickup with the cancelled bookings
  *   that came in during its window taken out (pickupStillCounted);
- * - a pace: the bookings in the fire's frozen window it saw and that are
- *   still booked (bookingsStillBookedFromFire), against the usual frozen at
- *   the fire (window_expected_at_fire, paceStillHolds).
+ * - a pace: the bookings it counted in its frozen window that are still
+ *   booked (bookingsLeft), against the usual frozen at the fire
+ *   (window_expected_at_fire, paceStillHolds).
  *
  * A part this run can't recount (a night it did not read, a fire from
  * before its numbers were in bookings) is left as it was at the fire. So
@@ -1383,7 +1514,7 @@ export function cancellationFinding(
   input: CancellationInput,
 ): CancellationFinding | null {
   const signal = rule.signal_room_type_ids;
-  const atFire = bookedBeforeOver(input.booked, fire.stay_date, fire.applied_at, signal);
+  const atFire = bookedBeforeOver(input.booked, fire.stay_date, fire.counted_at, signal);
   if (!atFire || atFire.units >= fire.signal_booked_units_end) return null;
   const c = rule.condition;
   const parts = cancellableParts(rule);
@@ -1404,38 +1535,32 @@ export function cancellationFinding(
       };
     }
   }
-  if (parts.bookingSpeed && input.bsCtx && windowRecountable(fire)) {
-    const left = bookingsStillBookedFromFire(
-      input.bsCtx,
-      fire.stay_date,
-      fire.window_from!,
-      fire.window_to!,
-      signal,
-      fire.window_since,
-      fire.applied_at,
-    );
+  if (parts.bookingSpeed && windowRecountable(fire)) {
+    const left = bookingsLeft(fire, rule, input);
     if (left !== null && !paceStillHolds(c, left, fire.window_expected_at_fire!)) {
       return {
         part: "booking_speed",
         left,
         counted: fire.window_bookings_at_fire,
         expected: fire.window_expected_at_fire!,
+        level: c.booking_speed_level!,
       };
     }
   }
   return null;
 }
 
-/** Whether cancellations have made a fire's rule no longer true (cancellationFinding found something). */
+/** Whether cancellations have made what a fire counted fall short of its rule (cancellationFinding found something). */
 export function cancellationsUndo(fire: OpenPickupFire, rule: EngineRule, input: CancellationInput): boolean {
   return cancellationFinding(fire, rule, input) !== null;
 }
 
 /**
- * The fires cancellations take off this run (bookings_cancelled), each with
- * what was found no longer true: each check cancellationChecks names that
- * cancellationFinding says has gone false. `fires` are the ones
- * firesToReset left.
+ * The fires whose own count cancellations have taken short of their rule
+ * this run, each with what was found (cancellationFinding): each check
+ * cancellationChecks names that has a finding. `fires` are the ones
+ * firesToReset left. Each still has to fail cancellablePartsHold counted
+ * the way its rule would count without it before it comes off.
  */
 export function firesCancelled(
   fires: readonly OpenPickupFire[],
@@ -1447,6 +1572,96 @@ export function firesCancelled(
     if (finding) out.set(fire.id, finding);
   }
   return out;
+}
+
+/**
+ * Whether every part of a rule that cancellations can make false
+ * (cancellableParts) holds on `metrics`: the second half of the check.
+ * `metrics` is the rule counted the way it would count once the change
+ * whose count fell short is off (the newest other change still on the
+ * night by itself or a stronger rule its way, else its whole window), so
+ * bookings made since the change count, as they would for its next one.
+ * True keeps the change on: the rule is still true, and taking the change
+ * off would only have it make the same change again. A pace of "exactly" a
+ * level for a raise reads as "at least" here, as in the first half: more
+ * bookings since never make cancellations the reason it is off. The other
+ * parts only get truer as bookings cancel and are not read.
+ */
+export function cancellablePartsHold(rule: EngineRule, metrics: RuleMetrics): boolean {
+  const c = rule.condition;
+  const parts = cancellableParts(rule);
+  if (parts.occupancy && !(metrics.occupancy != null && metrics.occupancy > c.occupancy_threshold!)) return false;
+  if (parts.pickup) {
+    if (metrics.pickup_block_reason) return false;
+    const net = c.pickup_metric === "revenue" ? metrics.net_pickup_revenue : metrics.net_pickup_units;
+    if (net == null || !(net > c.pickup_threshold!)) return false;
+  }
+  if (parts.bookingSpeed) {
+    const bs = metrics.booking_speed;
+    if (metrics.booking_speed_block_reason || !bs || !isBookingSpeed(c.booking_speed_level)) return false;
+    if (bs.rank < bookingSpeedRank(c.booking_speed_level)) return false;
+  }
+  return true;
+}
+
+let loggedRestateFailure = false;
+
+/** Test hook: forget that a failed restate was already logged. */
+export function resetRestateLogOnce(): void {
+  loggedRestateFailure = false;
+}
+
+/**
+ * Keep a change whose own count cancellations took short but whose rule is
+ * still true counted without it (cancellablePartsHold), and take its
+ * numbers again from that count (`candidate`, candidateFor on it, with its
+ * arrivals and window keys recorded): the count it now stands for, so a
+ * later check recounts those bookings, and the rules count from this run
+ * on (counted_at is baseline_end_ts, set to the candidate's eval_ts). Its
+ * applied_at, fire number and adjustment stay: the price is unchanged and
+ * its wait still runs from when it was made. Returns whether the row was
+ * written; a failed write is logged once a run and the change simply stays
+ * as it was, for the next run to check again.
+ */
+export async function restateFire(
+  supabase: SupabaseClient,
+  hotelId: string,
+  fireId: string,
+  candidate: PickupCandidate,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("pickup_event")
+    .update({
+      baseline_start_ts: candidate.baseline_ts,
+      baseline_end_ts: candidate.eval_ts,
+      signal_booked_units_start: candidate.signal_booked_units_start,
+      signal_booked_units_end: candidate.signal_booked_units_end,
+      signal_booked_revenue_start: candidate.signal_booked_revenue_start,
+      signal_booked_revenue_end: candidate.signal_booked_revenue_end,
+      cancel_check: "recount",
+      pickup_units_arrived_at_fire: candidate.pickup_units_arrived,
+      pickup_revenue_arrived_at_fire: candidate.pickup_revenue_arrived,
+      window_from: candidate.window_from,
+      window_since: candidate.window_since,
+      window_to: candidate.window_to,
+      window_bookings_at_fire: candidate.window_bookings_at_fire,
+      window_expected_at_fire: candidate.window_expected_at_fire,
+      window_booking_keys: candidate.window_booking_keys,
+    })
+    .eq("hotel_id", hotelId)
+    .eq("id", fireId)
+    .is("retired_at", null)
+    .select("id");
+  if (error) {
+    if (!loggedRestateFailure) {
+      loggedRestateFailure = true;
+      console.error(
+        JSON.stringify({ fn: "restateFire", hotelId, fireId, error: error.message, migration: MIGRATIONS.undoOnCancellation }),
+      );
+    }
+    return false;
+  }
+  return (data ?? []).length > 0;
 }
 
 const RETIRE_CHUNK = 200;

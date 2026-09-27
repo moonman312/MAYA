@@ -394,12 +394,11 @@ describe.skipIf(!PGLITE_DIR)("the pickup event stacking migration in PGlite", ()
              affected_room_type_id::text as affected_room_type_id, applied_at, fire_seq, retired_at, retired_reason
         from public.pickup_event
     `);
-    const model = pickupFireHeads(events.rows as FakeRow[], {
-      p_hotel_id: H1,
-      p_rule_ids: [R_RAISE, R_CUT],
-      p_from: "2026-09-01",
-      p_to: "2026-12-31",
-    });
+    const model = pickupFireHeads(
+      events.rows as FakeRow[],
+      { p_hotel_id: H1, p_rule_ids: [R_RAISE, R_CUT], p_from: "2026-09-01", p_to: "2026-12-31" },
+      "stacking",
+    );
     const shape = (r: Record<string, unknown>) => ({
       rule_id: String(r.rule_id),
       stay_date: String(r.stay_date),

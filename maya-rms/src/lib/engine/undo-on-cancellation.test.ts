@@ -5,6 +5,10 @@
  * off once cancellations make its rule no longer true, judged on what the
  * change counted (its stored window, less what has cancelled since, against
  * the usual frozen at the change) and on the night's occupancy now.
+ * A change whose own count cancellations took short still stays while its
+ * rule is true counted the way it would count without it (bookings made
+ * since included): the condition that led to it is still met, and its
+ * numbers are taken again from that count.
  * Unticked, cancellations never take it off. After an undo the rule's wait
  * still runs from the change that came off; a change that came off covers
  * no weaker rule and no longer counts toward the three-changes alert.
@@ -67,13 +71,13 @@ function rule(id: string, condition: FakeRow, over: Partial<FakeRow> = {}): Fake
 }
 
 let resId = 0;
-/** One booking of one room, first seen at `firstSeen`. */
-function booking(stay: string, bookedOn: string, firstSeen: number | string): FakeRow {
+/** One booking of one room, first seen at `firstSeen` (with `pmsId`, one room of that PMS reservation). */
+function booking(stay: string, bookedOn: string, firstSeen: number | string, pmsId?: string): FakeRow {
   resId++;
   return {
     id: `f0000000-0000-4000-8000-${String(resId).padStart(12, "0")}`,
     hotel_id: "h1",
-    external_reservation_id: `${700000000 + resId}`,
+    external_reservation_id: pmsId ?? `${700000000 + resId}`,
     stay_date: stay,
     room_type_id: STD,
     booking_date: bookedOn,
@@ -212,7 +216,13 @@ describe.each(ENGINES)("$name: the undo box", (engine) => {
       expect(off.map((e) => e.reason)).toEqual(undo ? ["bookings_cancelled"] : []);
       const fire = w.fires()[0];
       if (undo) {
-        expect(off[0].finding).toEqual({ part: "booking_speed", left: 3, counted: 5, expected: Number(fire.window_expected_at_fire) });
+        expect(off[0].finding).toEqual({
+          part: "booking_speed",
+          left: 3,
+          counted: 5,
+          expected: Number(fire.window_expected_at_fire),
+          level: "much_faster",
+        });
       }
     }, 120_000);
 
@@ -381,6 +391,169 @@ describe.each(ENGINES)("$name: the undo box", (engine) => {
       w.cancel([older]);
       await w.runAt(at(0, 11, 5));
       expect(w.price()).toBe(undo ? 100 : 110);
+    }, 120_000);
+  });
+
+  describe("a change stays while bookings made since keep its rule true", () => {
+    // More than 9 room nights in 7 days, +20%: 10 at once, 3 more the next
+    // day, then one of the 10 cancels. The 9 left of what it counted are not
+    // more than 9, but with the 3 since there are 12 in its week: the
+    // condition that led to it is still met.
+    const ten = (wait: number | null) =>
+      rule(
+        "Ten",
+        { pickup_operator: "gt", pickup_threshold: 9, pickup_window_days: 7, pickup_metric: "room_nights", pickup_cooldown_days: wait },
+        { action_value: 20 },
+      );
+    const five = rule(
+      "Five",
+      { pickup_operator: "gt", pickup_threshold: 4, pickup_window_days: 7, pickup_metric: "room_nights", pickup_cooldown_days: null },
+      { action_value: 10 },
+    );
+
+    it.each([
+      { wait: "its week", days: null },
+      { wait: "a day", days: 1 },
+    ])("pickup, waiting $wait: the raise stays, once, and its numbers are taken again", async ({ days }) => {
+      const tenAtOnce = burst(10, at(0, 10));
+      const w = timeline(engine, { rules: [ten(days)], rows: [...settled(5), ...tenAtOnce, ...burst(3, at(1, 10))], snapshotDays: 8 });
+      await w.runAt(at(0, 10, 5));
+      expect(w.price()).toBe(120);
+      await w.runAt(at(1, 10, 5));
+      w.cancel(tenAtOnce.slice(0, 1));
+      await w.runAt(at(2, 10, 5));
+      expect(w.price()).toBe(120);
+      await w.runAt(at(3, 10, 5));
+      expect(w.price()).toBe(120);
+      // Neither taken off nor made again.
+      expect(w.story()).toEqual([["Ten", iso(at(0, 10, 5)), null]]);
+      const [fire] = w.fires();
+      expect(fire.fire_seq).toBe(1);
+      // It now stands for the 12 in its week, counted at the run that kept it.
+      expect([fire.baseline_end_ts, fire.signal_booked_units_end, fire.pickup_units_arrived_at_fire]).toEqual([
+        iso(at(2, 10, 5)),
+        17,
+        12,
+      ]);
+    }, 120_000);
+
+    it("pickup, with the rule for 5 as well: still 120, and the rule for 5 never counts what the change stands for", async () => {
+      const tenAtOnce = burst(10, at(0, 10));
+      const w = timeline(engine, { rules: [five, ten(null)], rows: [...settled(5), ...tenAtOnce, ...burst(3, at(1, 10))], snapshotDays: 8 });
+      await w.runAt(at(0, 10, 5));
+      await w.runAt(at(1, 10, 5));
+      w.cancel(tenAtOnce.slice(0, 1));
+      for (const d of [2, 3, 8]) {
+        await w.runAt(at(d, 10, 5));
+        expect(w.price()).toBe(120);
+      }
+      expect(w.story()).toEqual([["Ten", iso(at(0, 10, 5)), null]]);
+    }, 120_000);
+
+    it("booking speed (the owner's rules for 5 and for 10 in a day): 10, 3 more, then 4 of the 10 cancel: 9 in the day still surge", async () => {
+      const rules = [
+        rule(
+          "Five in a day",
+          { booking_speed_operator: "at_least", booking_speed_level: "much_faster", booking_speed_window_days: 1, booking_speed_cooldown_days: 1 },
+          { priority: 100, action_value: 10 },
+        ),
+        rule(
+          "Stronger tier",
+          { booking_speed_operator: "at_least", booking_speed_level: "surging", booking_speed_window_days: 1, booking_speed_cooldown_days: 1 },
+          { priority: 120, action_value: 20 },
+        ),
+      ];
+      const tenAtOnce = burst(10, at(0, 10));
+      const w = timeline(engine, { rules, rows: [...paced(), ...tenAtOnce, ...burst(3, at(0, 11))] });
+      await w.runAt(at(0, 10, 5));
+      expect(w.price()).toBe(120);
+      await w.runAt(at(0, 11, 5));
+      w.cancel(tenAtOnce.slice(0, 4));
+      await w.runAt(at(0, 11, 35));
+      expect(w.price()).toBe(120);
+      expect(w.story()).toEqual([["Stronger tier", iso(at(0, 10, 5)), null]]);
+      expect(w.fires()[0].window_bookings_at_fire).toBe(9);
+    }, 120_000);
+  });
+
+  describe("a group is one booking until its last room on the night cancels (much faster in a day, and surging in a day)", () => {
+    const rules = [
+      rule(
+        "Quick",
+        { booking_speed_operator: "at_least", booking_speed_level: "much_faster", booking_speed_window_days: 1, booking_speed_cooldown_days: 1 },
+        { priority: 100, action_value: 10 },
+      ),
+      rule(
+        "Surge",
+        { booking_speed_operator: "at_least", booking_speed_level: "surging", booking_speed_window_days: 1, booking_speed_cooldown_days: 1 },
+        { priority: 120, action_value: 20 },
+      ),
+    ];
+
+    it("the group cancels its first rooms and keeps two it added after both raises: both stay", async () => {
+      const bookedOn = dayOf(at(0, 10));
+      const group = [1, 2, 3].map((k) => booking(NIGHT, bookedOn, at(0, 10), `6364686337417-${k}`));
+      const added = [4, 5].map((k) => booking(NIGHT, bookedOn, at(0, 11), `6364686337417-${k}`));
+      const w = timeline(engine, { rules, rows: [...paced(), ...burst(4, at(0, 10)), ...group, ...burst(2, at(0, 10, 30)), ...added] });
+      // Four singles and the group: 5 bookings, much faster.
+      await w.runAt(at(0, 10, 5));
+      expect(w.price()).toBe(110);
+      // Two more: 7 in the day, surging, on top.
+      await w.runAt(at(0, 10, 35));
+      expect(w.price()).toBe(132);
+      expect(w.fires().map((e) => (e.window_booking_keys as string[]).length)).toEqual([5, 7]);
+      await w.runAt(at(0, 11, 5));
+      w.cancel(group);
+      await w.runAt(at(0, 12, 5));
+      // Every booking either raise counted is still booked.
+      expect(w.price()).toBe(132);
+      expect(w.story()).toEqual([
+        ["Quick", iso(at(0, 10, 5)), null],
+        ["Surge", iso(at(0, 10, 35)), null],
+      ]);
+    }, 120_000);
+  });
+
+  describe("what the check reads", () => {
+    it("with nothing cancelled, a change's window is never read again", async () => {
+      const quick = rule(
+        "Quick pickup",
+        { booking_speed_operator: "at_least", booking_speed_level: "much_faster", booking_speed_window_days: 1, booking_speed_cooldown_days: 1 },
+      );
+      const w = timeline(engine, { rules: [quick], rows: [...paced(), ...burst(5, at(0, 10))] });
+      await w.runAt(at(0, 10, 5));
+      expect(w.price()).toBe(110);
+      const before = w.calls.length;
+      await w.runAt(at(2, 10, 5));
+      const since = w.calls
+        .slice(before)
+        .filter((c) => c.table === "rpc:booking_speed_windows")
+        .flatMap((c) => ((c.payload as { p_since?: string[] | null } | null)?.p_since ?? []) as string[]);
+      expect(since).not.toContain(iso(at(0, 10, 5)));
+      expect(w.price()).toBe(110);
+    }, 120_000);
+  });
+
+  describe("a rate changed in the PMS is not a cancellation (revenue more than 400 in 3 days, +10%)", () => {
+    it("one of the five it counted is re-rated to 0 and an older booking cancels: it stays", async () => {
+      const rev = rule("Revenue pickup", {
+        pickup_operator: "gt",
+        pickup_threshold: 400,
+        pickup_window_days: 3,
+        pickup_metric: "revenue",
+        pickup_cooldown_days: 1,
+      });
+      const five = burst(5, at(0, 10));
+      const old = settled(10);
+      const w = timeline(engine, { rules: [rev], rows: [...old, ...five], snapshotDays: 4 });
+      await w.runAt(at(0, 10, 5));
+      expect(w.price()).toBe(110);
+      w.tables.reservations.find((r) => r.id === five[0].id)!.current_rate = 0;
+      await w.runAt(at(0, 11, 5));
+      w.cancel(old.slice(0, 1));
+      await w.runAt(at(0, 12, 5));
+      expect(w.price()).toBe(110);
+      expect(w.story()).toEqual([["Revenue pickup", iso(at(0, 10, 5)), null]]);
     }, 120_000);
   });
 

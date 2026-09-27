@@ -18,6 +18,7 @@ import { dirname, join, normalize, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FakeRow } from "./fake-supabase.test";
 import { COUNTS_BOOKINGS_MIGRATION, insertReservations, openPglite, uuidFor, type Db } from "./large-property-sql.test";
+import { pickupFireHeads } from "./pickup-stacking-rpc-model.test";
 import { engineBookedBefore } from "./undo-rpc-model.test";
 
 const PGLITE_DIR = process.env.MAYA_PGLITE_DIR;
@@ -71,6 +72,7 @@ alter table public.pickup_event
   add column stay_date date,
   add column affected_room_type_id uuid,
   add column fire_seq integer not null default 1,
+  add column baseline_end_ts timestamptz,
   add column signal_set_key text not null default '';
 create table public.rule_repeat_alerts (
   id uuid primary key default gen_random_uuid(),
@@ -189,6 +191,16 @@ describe.skipIf(!PGLITE_DIR)("the undo on cancellation migration in PGlite, afte
       ["00000009", "window_bookings", "bookings_cancelled", 6],
       ["00000010", "none", "manual_price", null],
     ]);
+  });
+
+  it("takes a change's booking keys", async () => {
+    await db.exec(`insert into public.pickup_event
+      (id, hotel_id, rule_id, stay_date, affected_room_type_id, fire_seq, applied_at, action_direction, cancel_check, window_booking_keys)
+      values ('${uuidFor("keys")}', '${H1}', '${R1}', '2026-10-21', '${RT1}', 1, now(), 'increase', 'recount',
+              array['6364686337417', 'row ${uuidFor("res")}'])`);
+    const keys = await db.query(`select window_booking_keys from public.pickup_event where stay_date = '2026-10-21'`);
+    expect(keys.rows).toEqual([{ window_booking_keys: ["6364686337417", `row ${uuidFor("res")}`] }]);
+    await db.exec(`delete from public.pickup_event where stay_date = '2026-10-21'`);
   });
 
   it("takes 'recount' on a raise or a cut and arrivals of 0 or more, and refuses anything else", async () => {
@@ -408,6 +420,52 @@ describe.skipIf(!PGLITE_DIR)("the three-changes alert counts changes still on th
         last: new Date(Date.parse(String(h.last_counted_at))).toISOString(),
       })),
     ).toEqual([{ max: 4, anchor: "2026-09-22T10:00:00.000Z", counted: 2, last: "2026-09-21T10:00:00.000Z" }]);
+  });
+
+  it("pickup_fire_heads answers what the engine tests' stand-in answers, a change counted again included", async () => {
+    await db.exec(`insert into public.pickup_event
+      (id, hotel_id, rule_id, rule_version, stay_date, affected_room_type_id, fire_seq, applied_at, baseline_end_ts,
+       retired_at, retired_reason, action_direction, cancel_check, signal_set_key) values
+      ('${uuidFor("g1")}', '${H1}', '${R2}', 1, '2026-10-24', '${RT1}', 1, '2026-09-20T10:00:00Z', '2026-09-23T10:05:00Z', null, null, 'increase', 'recount', '${RT1}'),
+      ('${uuidFor("g2")}', '${H1}', '${R2}', 1, '2026-10-24', '${RT1}', 2, '2026-09-22T10:00:00Z', '2026-09-22T10:00:00Z', null, null, 'increase', 'recount', '${RT1}'),
+      ('${uuidFor("g3")}', '${H1}', '${R2}', 1, '2026-10-24', '${RT1}', 3, '2026-09-24T10:00:00Z', '2026-09-24T10:00:00Z', '2026-09-24T11:00:00Z', 'bookings_cancelled', 'increase', 'recount', '${RT1}'),
+      ('${uuidFor("g4")}', '${H1}', '${R2}', 2, '2026-10-24', '${RT1}', 4, '2026-09-25T10:00:00Z', null, null, null, 'increase', 'recount', '${RT1}'),
+      ('${uuidFor("g5")}', '${H1}', '${R2}', 1, '2026-10-25', '${RT1}', 1, '2026-09-25T10:00:00Z', '2026-09-25T10:00:00Z', '2026-09-26T10:00:00Z', 'manual_price', 'decrease', 'recount', '${RT1}')`);
+    const sql = await db.query(
+      `select * from public.pickup_fire_heads($1::uuid, $2::uuid[], $3::date, $4::date)
+        order by rule_id, stay_date, affected_room_type_id, rule_version`,
+      [H1, [R1, R2], "2026-10-01", "2026-10-31"],
+    );
+    const events = await db.query(`
+      select hotel_id::text as hotel_id, rule_id::text as rule_id, rule_version, stay_date::text as stay_date,
+             affected_room_type_id::text as affected_room_type_id, applied_at, baseline_end_ts, fire_seq, retired_at, retired_reason
+        from public.pickup_event`);
+    const at = (v: unknown) => (v == null ? null : new Date(Date.parse(String(v))).toISOString());
+    const model = pickupFireHeads(
+      events.rows.map((r) => ({ ...r, applied_at: at(r.applied_at), baseline_end_ts: at(r.baseline_end_ts) })) as FakeRow[],
+      { p_hotel_id: H1, p_rule_ids: [R1, R2], p_from: "2026-10-01", p_to: "2026-10-31" },
+    );
+    const shape = (r: Record<string, unknown>) => ({
+      rule: String(r.rule_id),
+      night: String(r.stay_date).slice(0, 10),
+      version: Number(r.rule_version),
+      max: Number(r.max_fire_seq),
+      anchor: at(r.anchor_at),
+      counted: Number(r.counted_fires),
+      last: at(r.last_counted_at),
+    });
+    expect(sql.rows.map(shape)).toEqual(model.map(shape));
+    // The change counted again at 10:05 on the 23rd is where the rule counts from.
+    expect(sql.rows.map(shape)).toContainEqual({
+      rule: R2,
+      night: "2026-10-24",
+      version: 1,
+      max: 3,
+      anchor: "2026-09-24T10:00:00.000Z",
+      counted: 2,
+      last: "2026-09-23T10:05:00.000Z",
+    });
+    await db.exec(`delete from public.pickup_event where rule_id = '${R2}'`);
   });
 
   it("a resumed night's fire_count is the changes still on the price", async () => {

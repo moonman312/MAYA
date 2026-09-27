@@ -147,6 +147,15 @@ export type PickupCandidate = {
   window_to: string | null;
   window_bookings_at_fire: number | null;
   window_expected_at_fire: number | null;
+  /**
+   * The bookings counted in that window (window_bookings_at_fire of them),
+   * by booking key (windowBookingKeys), so a later cancellation check
+   * recounts exactly those still booked: a group that cancels its first
+   * rooms and keeps rooms it added later is still one of them. null
+   * without a booking speed condition cancellations can make false, or
+   * when the keys read did not come to that count.
+   */
+  window_booking_keys: string[] | null;
   /** signalSetKey of the room types measured. */
   signal_set_key: string;
 };

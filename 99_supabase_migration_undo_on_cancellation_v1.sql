@@ -20,16 +20,19 @@
 --   * and 99_supabase_migration_booking_speed_counts_bookings_v1.sql turned
 --     the window test off on the raises it found recorded in rooms.
 --
--- Now there is one check (cancellationsUndo in engine/pickup.ts, both
--- copies). On every run, for each change still on a night that is still to
--- come, made by a rule whose box is ticked, once a room booked on that night
--- when the change was made has cancelled: recount what the change counted,
--- inside the window stored with it, less what has cancelled since, and judge
--- the rule again against the "usual" frozen at the change:
---   * a booking speed condition counts the bookings (not rooms) in the
---     change's own window (window_from, window_to, and window_since when its
---     first day was split) on the rule's room types that the change saw and
---     that are still booked, against window_expected_at_fire;
+-- Now there is one check (cancellationFinding and cancellablePartsHold in
+-- engine/pickup.ts, both copies), in two halves. On every run, for each
+-- change still on a night that is still to come, made by a rule whose box
+-- is ticked, once a room booked on that night when the change was made has
+-- cancelled, first recount what the change counted, inside the window
+-- stored with it, less what has cancelled since, and judge the rule again
+-- against the "usual" frozen at the change:
+--   * a booking speed condition counts the bookings (not rooms) the change
+--     counted in its own window that are still booked on the rule's room
+--     types (window_booking_keys, below; for a change from before them, the
+--     window's bookings the change saw, from window_from, window_to and
+--     window_since when its first day was split), against
+--     window_expected_at_fire;
 --   * a pickup count condition takes the net pickup the change judged, less
 --     the bookings that came in during its window and have cancelled since
 --     (pickup_units_arrived_at_fire, below), in room nights or revenue as
@@ -38,13 +41,22 @@
 -- Only what cancellations can make false is judged: occupancy "more than",
 -- pickup "more than", a pace of "at least" a level, or exactly a level for
 -- a raise. Days before arrival, anything "less than" and a pace of "at
--- most" a level only get truer as bookings cancel. If the rule is no longer
--- true, the change comes off (retired_reason 'bookings_cancelled'). Nothing
--- older is recounted: bookings made after the change never prop it up, and
--- older bookings cancelling don't touch a pickup or booking speed count.
--- Only open changes on nights still ahead are looked at, each with one
--- probe of idx_reservations_hotel_stay_date (4 below) and, for a booking
--- speed window, the per-instant windows read the engine already makes.
+-- most" a level only get truer as bookings cancel. Older bookings
+-- cancelling don't touch a pickup or booking speed count, and a rate
+-- changed on a booking still there doesn't either. If what the change
+-- counted still holds, it stays. If not, the second half judges the rule
+-- the way it would count once the change is off: from the newest other
+-- change still on the night by itself or a stronger rule adjusting the
+-- same way, else its whole window, so bookings made since the change count
+-- too. Only if the rule is not true that way either does the change come
+-- off (retired_reason 'bookings_cancelled'): the condition that led to it
+-- is no longer met. Otherwise it stays and its numbers are taken again from
+-- that count, at that run (baseline_end_ts is then that run's instant, and
+-- the rules count on from there), so the bookings that kept it on are not
+-- counted again for the next change. Only open changes on nights still
+-- ahead are looked at, each with one probe of
+-- idx_reservations_hotel_stay_date (4 below); the night's bookings are read
+-- again only for a change something it saw has cancelled on.
 --
 -- Unticked, cancellations never take a change off. For a rule that holds
 -- while its conditions hold (occupancy and days before arrival only) that
@@ -71,9 +83,11 @@
 --    owner has unticked since stays unticked. Changing the box is not an
 --    edit: the rule keeps its version and its changes, and from the next
 --    run its changes are checked (ticked) or not (unticked). The column
---    lives on pricing_rules, whose row policy (pricing_rules_access: members
---    of the hotel read, managers write) and table grants already cover it;
---    nothing is added for it. 02_supabase_schema.sql has the same column for
+--    lives on pricing_rules, whose row policies (pricing_rules_read: members
+--    of the hotel read, is_hotel_accessible; pricing_rules_update: managers
+--    write, can_manage_hotel; both from
+--    99_supabase_migration_rls_hardening_v1.sql) and table grants already
+--    cover it; nothing is added for it. 02_supabase_schema.sql has the same column for
 --    a fresh install.
 --
 -- 2. pickup_event gets what the one check needs that it did not store:
@@ -88,7 +102,20 @@
 --                                      their window and is still booked,
 --                                      which is never less than the right
 --                                      number, so in doubt a change stays.
---    Both null or at least 0 (pickup_event_arrivals_chk). cancel_check gains
+--      window_booking_keys             for a rule with a booking speed
+--                                      condition cancellations can make
+--                                      false: the bookings its window
+--                                      counted, by booking key (booking_key()
+--                                      from the counts-bookings file; a row
+--                                      with no PMS id is 'row <id>'), so
+--                                      the check recounts exactly those
+--                                      still booked: a group whose first
+--                                      rooms cancel while rooms added after
+--                                      the change stay is still one of
+--                                      them. Null on every change from
+--                                      before this file, which is recounted
+--                                      from its window as before.
+--    Both arrivals null or at least 0 (pickup_event_arrivals_chk). cancel_check gains
 --    'recount', which every change the new engine makes carries, raise or
 --    cut: all of its stored numbers can be recounted. A cut may now carry
 --    it (pickup_event_cancel_increase_chk). The old values stay legal for
@@ -129,10 +156,12 @@
 --        took changes off. Like 'price_set', it opens again if the rule
 --        stacks its way back to three.
 --      pickup_fire_heads counts (counted_fires, last_counted_at) only the
---        open fires of each rule version. The anchor its wait runs from
---        (anchor_at) still includes one taken off for cancellations. The
---        engine works the same counts out itself after its own retirements,
---        so this only matters to an engine from before this file.
+--        open fires of each rule version, last_counted_at to the newest
+--        instant one counted to (baseline_end_ts). The anchor its wait runs
+--        from (anchor_at) still includes one taken off for cancellations.
+--        The engine works the same counts out itself after its own
+--        retirements, so this only matters to an engine from before this
+--        file.
 --      rule_repeat_alert_resume_many sets a resumed night's fire_count from
 --        the open fires only, the count the engine asks again above.
 --    Everything else in those functions is as
@@ -174,6 +203,7 @@
 --     longer reads its pace, not only once it is back to the usual number;
 --   * a pickup raise comes off once its count falls to its threshold, not
 --     only once it is back to where its count opened;
+--   * neither comes off while bookings made since keep its rule true;
 --   * after an undo the rule waits its wait before it adjusts that night
 --     again, from the change that came off;
 --   * a change that came off no longer holds back the weaker rules, and no
@@ -224,7 +254,8 @@ comment on column public.pricing_rules.undo_on_cancellation is
 
 alter table public.pickup_event
   add column if not exists pickup_units_arrived_at_fire integer,
-  add column if not exists pickup_revenue_arrived_at_fire numeric(12,2);
+  add column if not exists pickup_revenue_arrived_at_fire numeric(12,2),
+  add column if not exists window_booking_keys text[];
 
 comment on column public.pickup_event.pickup_units_arrived_at_fire is
   'For a rule with a pickup condition: room nights on its room types first seen after the count opened '
@@ -232,6 +263,13 @@ comment on column public.pickup_event.pickup_units_arrived_at_fire is
   'and on changes from before 99_supabase_migration_undo_on_cancellation_v1.sql.';
 comment on column public.pickup_event.pickup_revenue_arrived_at_fire is
   'The same bookings'' current_rate summed, for a rule that counts pickup in revenue.';
+comment on column public.pickup_event.window_booking_keys is
+  'For a rule with a booking speed condition cancellations can make false: the bookings its window counted '
+  '(window_bookings_at_fire of them), by booking key. Null on changes from before '
+  '99_supabase_migration_undo_on_cancellation_v1.sql, and when the keys read did not come to that count.';
+comment on column public.pickup_event.baseline_end_ts is
+  'When the change''s numbers were taken: applied_at, or a later run''s instant when cancellations left its rule '
+  'still true and its numbers were taken again. Rules count from here.';
 comment on column public.pickup_event.cancel_check is
   'recount: every stored number can be recounted when cancellations are checked (every change since '
   '99_supabase_migration_undo_on_cancellation_v1.sql, raise or cut). none | net_units | window_bookings | either: '
@@ -330,7 +368,8 @@ alter table public.rule_repeat_alert_nights
     ('night_passed', 'rule_edited', 'price_set', 'bookings_cancelled', 'resumed'));
 
 -- As in 99_supabase_migration_pickup_event_stacking_v1.sql section 5, with
--- counted_fires and last_counted_at over the open fires only.
+-- counted_fires and last_counted_at over the open fires only, last_counted_at
+-- to the newest instant one counted to.
 create or replace function public.pickup_fire_heads(
   p_hotel_id uuid,
   p_rule_ids uuid[],
@@ -369,7 +408,7 @@ begin
            where e.retired_at is null
               or e.retired_reason in ('bookings_cancelled', 'night_passed', 'legacy')),
          (count(*) filter (where e.retired_at is null))::integer,
-         max(e.applied_at) filter (where e.retired_at is null)
+         max(coalesce(e.baseline_end_ts, e.applied_at)) filter (where e.retired_at is null)
     from public.pickup_event e
    where e.hotel_id = p_hotel_id
      and e.rule_id = any(coalesce(p_rule_ids, '{}'::uuid[]))

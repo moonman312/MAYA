@@ -11,10 +11,19 @@ import { addDays } from "@/lib/observations/calendar";
 import type { EngineRule } from "@/types/domain";
 import { indexBookingRows, type SlimReservationRow } from "@/lib/observations/booking-rows";
 import { detectSeasons } from "@/lib/observations/seasons";
-import { resetBookingSpeedLogOnce, signalSetKey, splitKey, type BookingSpeedContext } from "./booking-speed-provider";
+import {
+  bookingKeysOnNight,
+  resetBookingSpeedLogOnce,
+  signalSetKey,
+  splitKey,
+  windowBookingKeys,
+  type BookingSpeedContext,
+  type NightBookingRow,
+} from "./booking-speed-provider";
 import { evaluateHotel } from "./evaluate";
 import { fakeSupabase as sharedFake, type FakeRow } from "./fake-supabase.test";
 import {
+  cancellablePartsHold,
   cancellationChecks,
   cancellationFinding,
   cancellationReads,
@@ -22,12 +31,15 @@ import {
   firesCancelled,
   firesToReset,
   loadOpenPickupFires,
+  recountReads,
   retireFires,
   retirePassedNights,
+  somethingCancelled,
   type CancellationInput,
   type OpenPickupFire,
 } from "./pickup";
 import { bookedBeforeKey, type BookedCount } from "./snapshots";
+import type { RuleMetrics } from "./types";
 
 const NOW = "2026-08-01T12:00:00.000Z";
 const NIGHT = "2026-09-01";
@@ -56,6 +68,7 @@ function fire(over: Partial<OpenPickupFire> = {}): OpenPickupFire {
     stay_date: NIGHT,
     affected_room_type_id: "rt1",
     applied_at: FIRED,
+    counted_at: over.counted_at ?? over.applied_at ?? FIRED,
     fire_seq: 1,
     action_kind: "percent",
     action_direction: "increase",
@@ -73,6 +86,7 @@ function fire(over: Partial<OpenPickupFire> = {}): OpenPickupFire {
     window_to: null,
     window_bookings_at_fire: null,
     window_expected_at_fire: null,
+    window_booking_keys: null,
     signal_set_key: "rt1",
     ...over,
   };
@@ -154,7 +168,20 @@ describe("which fires the cancellation check looks at (cancellationChecks)", () 
     expect(cancellationChecks([fire()], rules(lowPickup), NOW)).toHaveLength(0);
   });
 
-  it("reads each fire's own instant, the instant a pickup count opened, and a booking speed window after the fire", () => {
+  it("first reads each fire's own instant and the instant a pickup count opened, nothing more", () => {
+    const speed = rule({ condition: { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 7 } });
+    expect(cancellationReads([{ fire: fire(), rule: rule() }])).toEqual([
+      { stayDate: NIGHT, at: FIRED },
+      { stayDate: NIGHT, at: OPENED },
+    ]);
+    expect(cancellationReads([{ fire: fire(), rule: speed }])).toEqual([{ stayDate: NIGHT, at: FIRED }]);
+    // A change whose numbers were taken again reads from then.
+    expect(cancellationReads([{ fire: fire({ counted_at: "2026-07-28T09:00:00.000Z" }), rule: speed }])).toEqual([
+      { stayDate: NIGHT, at: "2026-07-28T09:00:00.000Z" },
+    ]);
+  });
+
+  it("reads a booking speed window again only once something the change saw has cancelled", () => {
     const speed = rule({ condition: { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 7 } });
     const f = fire({
       window_from: "2026-07-19",
@@ -163,20 +190,26 @@ describe("which fires the cancellation check looks at (cancellationChecks)", () 
       window_bookings_at_fire: 6,
       window_expected_at_fire: 2,
     });
-    expect(cancellationReads([{ fire: fire(), rule: rule() }])).toEqual({
-      booked: [
-        { stayDate: NIGHT, at: FIRED },
-        { stayDate: NIGHT, at: OPENED },
-      ],
-      splits: [],
-    });
-    expect(cancellationReads([{ fire: f, rule: speed }])).toEqual({
-      booked: [{ stayDate: NIGHT, at: FIRED }],
+    // Everything the change saw (6 room nights) is still booked: nothing more is read.
+    expect(somethingCancelled(f, speed, booked({ [FIRED]: { rt1: 6 } }))).toBe(false);
+    expect(somethingCancelled(f, speed, booked({ [FIRED]: { rt1: 5 } }))).toBe(true);
+    // A night this run did not read says nothing.
+    expect(somethingCancelled(f, speed, new Map())).toBe(false);
+    // Then, without the bookings' keys, the window's bookings first seen after the change and after window_since.
+    expect(recountReads([{ fire: f, rule: speed }])).toEqual({
+      nights: [],
       splits: [
         { since: FIRED, stayDate: NIGHT, signalIds: ["rt1"] },
         { since: "2026-07-19T08:00:00.000Z", stayDate: NIGHT, signalIds: ["rt1"] },
       ],
     });
+    // With them, the night's bookings now.
+    expect(recountReads([{ fire: { ...f, window_booking_keys: ["700000001"] }, rule: speed }])).toEqual({
+      nights: [NIGHT],
+      splits: [],
+    });
+    // A pickup count needs nothing more.
+    expect(recountReads([{ fire: fire(), rule: rule() }])).toEqual({ nights: [], splits: [] });
   });
 });
 
@@ -235,6 +268,26 @@ describe("the one cancellation check (cancellationsUndo)", () => {
     expect(cancellationsUndo(fire(), rev, input({ booked: booked({ [FIRED]: { rt1: 5 }, [OPENED]: { rt1: 1 } }) }))).toBe(true);
     const low = rule({ condition: { pickup_operator: "gt", pickup_threshold: 350, pickup_window_days: 7, pickup_metric: "revenue" } });
     expect(cancellationsUndo(fire(), low, input({ booked: booked({ [FIRED]: { rt1: 5 }, [OPENED]: { rt1: 1 } }) }))).toBe(false);
+  });
+
+  it("pickup on revenue: a rate changed on a booking still there never moves the count", () => {
+    const rev = rule({ condition: { pickup_operator: "gt", pickup_threshold: 400, pickup_window_days: 7, pickup_metric: "revenue" } });
+    const at = (fired: BookedCount, opened: BookedCount) =>
+      new Map([
+        [bookedBeforeKey(NIGHT, FIRED), new Map([["rt1", fired]])],
+        [bookedBeforeKey(NIGHT, OPENED), new Map([["rt1", opened]])],
+      ]);
+    // Five came in at 100 each: net 500. One of them is re-rated to 0 in the
+    // PMS and the one booking from before the count cancels. All five are
+    // still booked, so the count is still 500.
+    expect(cancellationFinding(fire(), rev, input({ booked: at({ units: 5, revenue: 400 }, { units: 0, revenue: 0 }) }))).toBeNull();
+    // One of the five cancelling takes out what each came to at the change, 100: net 400.
+    expect(cancellationFinding(fire(), rev, input({ booked: at({ units: 5, revenue: 500 }, { units: 1, revenue: 100 }) }))).toEqual({
+      part: "pickup",
+      net: 400,
+      threshold: 400,
+      metric: "revenue",
+    });
   });
 
   it("sums every room type the rule measures", () => {
@@ -367,7 +420,7 @@ describe("booking speed: the bookings the raise counted, still booked, against t
     // Three of the six cancel: 3 left where 2 is usual no longer reads faster.
     expect(
       cancellationFinding(f, speed("faster"), input({ booked: booked({ [FIRED]: { rt1: 5 }, [OPENED]: { rt1: 1 } }), bsCtx: context(six.slice(0, 3)) })),
-    ).toEqual({ part: "booking_speed", left: 3, counted: 6, expected: 2 });
+    ).toEqual({ part: "booking_speed", left: 3, counted: 6, expected: 2, level: "faster" });
     // Occupancy is judged first when both went.
     const both = rule({
       condition: { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 7, occupancy_operator: "gt", occupancy_threshold: 0.7 },
@@ -387,9 +440,118 @@ describe("booking speed: the bookings the raise counted, still booked, against t
     expect(cancellationFinding(f, speed("faster"), input({ booked: booked({ [FIRED]: { rt1: 5 }, [OPENED]: { rt1: 1 } }), bsCtx: context(six.slice(0, 5)) }))).toBeNull();
   });
 
+  it("with the bookings' keys, recounts exactly the bookings it counted: a group is one of them until its last room there cancels", () => {
+    // Five where 2 is usual: four single rooms and a group whose first rooms were booked in the window.
+    const singles = ["700000001", "700000002", "700000003", "700000004"];
+    const g = fire({
+      window_from: "2026-07-19",
+      window_to: "2026-07-25",
+      window_bookings_at_fire: 5,
+      window_expected_at_fire: 2,
+      window_booking_keys: ["6364686337417", ...singles],
+    });
+    const night = (rows: [string, string][]) =>
+      new Map([[NIGHT, rows.map(([key, created_at]): NightBookingRow => ({ key, room_type_id: "rt1", bw: 40, created_at }))]]);
+    const left = (rows: [string, string][]) =>
+      cancellationFinding(
+        g,
+        speed("much_faster"),
+        input({ booked: booked({ [FIRED]: { rt1: 5 }, [OPENED]: { rt1: 1 } }), bsCtx: context([]), nightRows: night(rows) }),
+      );
+    const four = singles.map((k): [string, string] => [k, seen]);
+    const later = "2026-07-30T10:00:00.000Z";
+    // The group's first rooms cancelled, and a room it added after the change is still there: all five are still booked.
+    expect(left([...four, ["6364686337417", later]])).toBeNull();
+    // Its last room goes: four left no longer read much faster.
+    expect(left(four)).toEqual({ part: "booking_speed", left: 4, counted: 5, expected: 2, level: "much_faster" });
+    // A booking it didn't count never props it up.
+    expect(left([...four, ["700000009", later]])).toEqual({ part: "booking_speed", left: 4, counted: 5, expected: 2, level: "much_faster" });
+    // Without the night's bookings read, nothing is said.
+    expect(
+      cancellationFinding(g, speed("much_faster"), input({ booked: booked({ [FIRED]: { rt1: 5 } }), bsCtx: context([]), nightRows: new Map() })),
+    ).toBeNull();
+  });
+
   it("with no history loaded for the night, nothing is said", () => {
     expect(cancellationsUndo(f, speed("faster"), input({ booked: booked({ [FIRED]: { rt1: 5 } }), bsCtx: null }))).toBe(false);
     expect(cancellationsUndo(f, speed("faster"), input({ booked: booked({ [FIRED]: { rt1: 5 } }), bsCtx: context(six.slice(0, 2), []) }))).toBe(false);
+  });
+});
+
+describe("the bookings a booking speed window counted, by key (windowBookingKeys)", () => {
+  const r = (key: string, bw: number | null, created_at: string, room_type_id: string | null = "rt1"): NightBookingRow => ({
+    key,
+    room_type_id,
+    bw,
+    created_at,
+  });
+  // Night 2026-09-01, window Jul 19 to 25: booked 38 to 44 days out.
+  const keys = (rows: NightBookingRow[], since: string | null = null, ctx: BookingSpeedContext = context([])) =>
+    windowBookingKeys(ctx, rows, NIGHT, "2026-07-19", "2026-07-25", ["rt1"], since);
+
+  it("the bookings booked in the window, each once, a group at its earliest booking date and first row", () => {
+    const rows = [
+      r("a", 38, "2026-07-25T09:00:00.000Z"),
+      // A group: its first room booked 44 days out, one added later from 30 out.
+      r("g", 44, "2026-07-19T09:00:00.000Z"),
+      r("g", 30, "2026-08-02T09:00:00.000Z"),
+      // Booked before the window, and after it.
+      r("old", 50, "2026-07-13T09:00:00.000Z"),
+      r("new", 37, "2026-07-26T09:00:00.000Z"),
+      // No booking date: not counted.
+      r("undated", null, "2026-07-20T09:00:00.000Z"),
+    ];
+    expect(keys(rows)).toEqual(["a", "g"]);
+  });
+
+  it("on a split first day, only the bookings first seen after the split", () => {
+    const rows = [r("before", 44, "2026-07-19T07:00:00.000Z"), r("after", 44, "2026-07-19T09:00:00.000Z"), r("mid", 40, "2026-07-21T09:00:00.000Z")];
+    expect(keys(rows, "2026-07-19T08:00:00.000Z")).toEqual(["after", "mid"]);
+  });
+
+  it("only the room types the rule measures, when that is not the whole hotel's", () => {
+    const ctx: BookingSpeedContext = { ...context([]), hotelSetKey: signalSetKey(["rt1", "rt2"]) };
+    const rows = [r("a", 40, "2026-07-21T09:00:00.000Z"), r("b", 40, "2026-07-21T09:00:00.000Z", "rt2"), r("c", 40, "2026-07-21T09:00:00.000Z", null)];
+    expect(keys(rows, null, ctx)).toEqual(["a"]);
+    expect([...bookingKeysOnNight(ctx, rows, ["rt1"])]).toEqual(["a"]);
+    // Measuring every room type reads every row, one with no room type included.
+    expect(keys(rows, null, { ...ctx, hotelSetKey: signalSetKey(["rt1"]) })).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("the second half: the rule counted the way it would count once the change is off (cancellablePartsHold)", () => {
+  const metrics = (over: Partial<RuleMetrics> = {}): RuleMetrics =>
+    ({ occupancy: 0.6, dta: 30, net_pickup_units: 5, net_pickup_revenue: 500, booking_speed: null, ...over }) as RuleMetrics;
+  const bs = (rank: number) => ({ speed: "x", rank, label: "x", recent: 9, expected: 2, window_days: 7, method: "x" });
+
+  it("holds while every part cancellations can make false still holds", () => {
+    // Pickup more than 4: 5 counted.
+    expect(cancellablePartsHold(rule(), metrics())).toBe(true);
+    expect(cancellablePartsHold(rule(), metrics({ net_pickup_units: 4 }))).toBe(false);
+    expect(cancellablePartsHold(rule(), metrics({ pickup_block_reason: "stale_baseline_snapshot" }))).toBe(false);
+    const occ = rule({ condition: { occupancy_operator: "gt", occupancy_threshold: 0.5 } });
+    expect(cancellablePartsHold(occ, metrics())).toBe(true);
+    expect(cancellablePartsHold(occ, metrics({ occupancy: 0.5 }))).toBe(false);
+    expect(cancellablePartsHold(occ, metrics({ occupancy: null }))).toBe(false);
+  });
+
+  it("reads a pace of at least, or exactly for a raise, as at least the level", () => {
+    const at = (operator: "at_least" | "is", level: string) =>
+      rule({ condition: { booking_speed_operator: operator, booking_speed_level: level, booking_speed_window_days: 7 } });
+    const muchFaster = 2;
+    expect(cancellablePartsHold(at("at_least", "much_faster"), metrics({ booking_speed: bs(muchFaster) }))).toBe(true);
+    expect(cancellablePartsHold(at("at_least", "much_faster"), metrics({ booking_speed: bs(muchFaster + 1) }))).toBe(true);
+    expect(cancellablePartsHold(at("is", "much_faster"), metrics({ booking_speed: bs(muchFaster + 1) }))).toBe(true);
+    expect(cancellablePartsHold(at("at_least", "much_faster"), metrics({ booking_speed: bs(muchFaster - 1) }))).toBe(false);
+    expect(cancellablePartsHold(at("at_least", "much_faster"), metrics({ booking_speed: null }))).toBe(false);
+  });
+
+  it("leaves out what cancellations only make truer", () => {
+    const quiet = rule({
+      action_direction: "decrease",
+      condition: { occupancy_operator: "lt", occupancy_threshold: 0.3, dta_operator: "lt", dta_threshold_days: 10 },
+    });
+    expect(cancellablePartsHold(quiet, metrics({ occupancy: 0.9, dta: 40 }))).toBe(true);
   });
 });
 

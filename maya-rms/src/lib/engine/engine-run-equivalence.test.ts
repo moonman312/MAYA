@@ -139,6 +139,15 @@
  * stayed on, differently in this churn, and every other hash, size and count
  * is unchanged.
  *
+ * Every pickup_event hash, in both variants, was rewritten an eleventh time
+ * when a fire started keeping the bookings its booking speed window counted
+ * (window_booking_keys), so a group whose first rooms cancel is still one of
+ * them. Read against a dump of the previous engine first: the one booking
+ * speed event rule here cuts on "at most" a pace, which cancellations can't
+ * make false, so the field is null on every row, and with it left out every
+ * row of every table in every run matches. Every other hash, size and count
+ * is unchanged.
+ *
  * The golden file was written by this same test at commit 4ef5d65 with
  * MAYA_WRITE_ENGINE_GOLDEN=1. Its ladder_rule_state hashes were rewritten
  * once, leaving out last_evaluated_at, from an engine that still matched the

@@ -25,6 +25,7 @@ import {
   loadBookingSpeedContext,
   loadSplitWindows,
   keepsWholeWindowBar,
+  loadNightBookingRows,
   observeForStayDate,
   signalSetKey,
   type BookingSpeedContext,
@@ -41,8 +42,10 @@ import {
   baselineTsFrom,
   bookingSpeedCountFrom,
   basePriceKey,
+  cancellablePartsHold,
   cancellationChecks,
   cancellationReads,
+  comparePickupRules,
   countFromFireAt,
   pickupJudgesShortStretch,
   pickupWindowOpensAt,
@@ -57,14 +60,20 @@ import {
   openFireHeads,
   pickupEffectsFromFires,
   recordArrivals,
+  recordWindowKeys,
+  recountReads,
+  restateFire,
   retireFires,
   retirePassedNights,
   ruleWaitDays,
   runPickupPass,
+  somethingCancelled,
   waitAnchor,
+  windowKeyNights,
   type BookingSpeedCountFrom,
   type CancellationFinding,
   type FireHead,
+  type OpenPickupFire,
   type PickupRetireReason,
   type PickupWin,
   type RetiredPickupFire,
@@ -850,13 +859,68 @@ export async function evaluateHotel(
   });
   const resetIds = resetReasons.size > 0 ? await retireFires(supabase, hotelId, resetReasons, now) : new Set<string>();
 
+  // Paused event rules never run, but pausing leaves their fires on the
+  // price, so each one still covers the weaker rules that adjust the same
+  // way (countFromFireAt). Only needed when some active event rule counts.
+  const pausedEventRules = pickupRules.length > 0 ? await loadPausedEventRules(supabase, hotelId) : [];
+  // Every event rule that can move where another counts from.
+  const rankedEventRules = [...pickupRules, ...pausedEventRules];
+  // The rules whose fires may move where each one counts from.
+  const sameWayOf = new Map(
+    pickupRules.map((rule) => [
+      rule.id,
+      rankedEventRules.filter((o) => o.id !== rule.id && o.action_direction === rule.action_direction),
+    ]),
+  );
+
+  // What came in during each count, and which bookings a booking speed
+  // window counted, recorded on the fire it may make or on a change whose
+  // numbers are taken again, so a later cancellation check can tell those
+  // bookings from the others (recordArrivals, recordWindowKeys): one read
+  // of every night at the counts' instants, and one of the nights'
+  // bookings. Left unrecorded when a read fails, which a later check reads
+  // as the most it can keep.
+  const recordCounts = async (candidates: PickupCandidate[]) => {
+    const arrivalPairs = arrivalReads(candidates);
+    if (arrivalPairs.length > 0) {
+      try {
+        const booked = await loadBookedBefore(supabase, hotelId, arrivalPairs);
+        for (const c of candidates) recordArrivals(c, booked);
+      } catch (e) {
+        console.error(
+          JSON.stringify({ fn: "evaluateHotel", step: "pickup_arrivals", hotelId, error: e instanceof Error ? e.message : String(e) }),
+        );
+      }
+    }
+    const keyNights = bsCtx ? windowKeyNights(candidates) : [];
+    if (bsCtx && keyNights.length > 0) {
+      try {
+        const rows = await loadNightBookingRows(supabase, hotelId, keyNights);
+        for (const c of candidates) recordWindowKeys(c, bsCtx, rows);
+      } catch (e) {
+        console.error(
+          JSON.stringify({ fn: "evaluateHotel", step: "window_keys", hotelId, error: e instanceof Error ? e.message : String(e) }),
+        );
+      }
+    }
+  };
+
   // Then cancellations, on the open fires of ticked rules with a condition
-  // they can make false (cancellationChecks): what each fire counted is
-  // recounted less what has cancelled since (cancellationsUndo), from one
-  // read of the nights at each fire's instants (loadBookedBefore) and, for
-  // a booking speed window, one read of its bookings first seen after the
-  // fire (loadSplitWindows). Before where anyone counts from is worked out
-  // below: a change that comes off here covers nothing this very run.
+  // they can make false (cancellationChecks), in two halves. First, what
+  // each fire counted is recounted less what has cancelled since
+  // (cancellationFinding): one read of the nights at each fire's instants
+  // (loadBookedBefore), and only for the fires something they saw has
+  // cancelled on (somethingCancelled), one read of those nights' bookings
+  // (loadNightBookingRows) or of a window's bookings first seen after the
+  // fire (loadSplitWindows). Second, a fire whose count fell short comes
+  // off only if its rule is not true either counted the way it would count
+  // once that fire is off (cancellablePartsHold): from the newest other
+  // fire still on the night by itself or a stronger rule its way, else its
+  // whole window, so the bookings made since count. The condition that led
+  // to it is then still met, and it stays, its numbers taken again from
+  // that count (restateFire), so the rules count on from this run. All
+  // before where anyone counts from is worked out below: a change that
+  // comes off here covers nothing this very run.
   const cancelChecks = cancellationChecks(
     openFires.filter((f) => !resetReasons.has(f.id)),
     rulesById,
@@ -864,16 +928,32 @@ export async function evaluateHotel(
   );
   let cancelFindings = new Map<string, CancellationFinding>();
   if (cancelChecks.length > 0) {
+    const snapshotByCell = new Map(writtenSnapshots.map((sn) => [`${sn.stay_date}|${sn.room_type_id}`, sn]));
+    const occupancyNow = (stayDate: string, ids: readonly string[]) => {
+      const cells = new Map<string, { booked_units: number; sellable_units: number }>();
+      for (const id of ids) {
+        const sn = snapshotByCell.get(`${stayDate}|${id}`);
+        if (sn) cells.set(id, sn);
+      }
+      return computeOccupancy(cells, [...ids]);
+    };
     // A read that fails leaves every change where it is this run (logged):
     // one checked on numbers it doesn't have could come off with all its
     // bookings still there.
-    let booked: Awaited<ReturnType<typeof loadBookedBefore>> | null = null;
     try {
-      const reads = cancellationReads(cancelChecks);
-      booked = await loadBookedBefore(supabase, hotelId, reads.booked);
-      if (bsCtx && reads.splits.length > 0) await loadSplitWindows(supabase, hotelId, bsCtx, reads.splits);
+      const booked = await loadBookedBefore(supabase, hotelId, cancellationReads(cancelChecks));
+      const gated = cancelChecks.filter(({ fire, rule }) => somethingCancelled(fire, rule, booked));
+      if (gated.length > 0) {
+        const reads = recountReads(gated);
+        const nightRows = bsCtx && reads.nights.length > 0 ? await loadNightBookingRows(supabase, hotelId, reads.nights) : null;
+        if (bsCtx && reads.splits.length > 0) await loadSplitWindows(supabase, hotelId, bsCtx, reads.splits);
+        cancelFindings = firesCancelled(
+          gated.map((c) => c.fire),
+          { rules: rulesById, now, booked, bsCtx, nightRows, occupancyNow },
+        );
+      }
     } catch (e) {
-      booked = null;
+      cancelFindings = new Map();
       console.error(
         JSON.stringify({
           fn: "evaluateHotel",
@@ -884,25 +964,113 @@ export async function evaluateHotel(
         }),
       );
     }
-    const snapshotByCell = new Map(writtenSnapshots.map((sn) => [`${sn.stay_date}|${sn.room_type_id}`, sn]));
-    if (booked) cancelFindings = firesCancelled(
-      cancelChecks.map((c) => c.fire),
-      {
-        rules: rulesById,
-        now,
-        booked,
-        bsCtx,
-        occupancyNow: (stayDate, ids) => {
-          const cells = new Map<string, { booked_units: number; sellable_units: number }>();
-          for (const id of ids) {
-            const sn = snapshotByCell.get(`${stayDate}|${id}`);
-            if (sn) cells.set(id, sn);
-          }
-          return computeOccupancy(cells, [...ids]);
-        },
-      },
-    );
   }
+
+  // The second half, cell by cell, the strongest rule first and a rule's
+  // newer fire before its older one, so each is judged without the fires
+  // already coming off and with those already kept counting to now.
+  const keptFires: { fire: OpenPickupFire; candidate: PickupCandidate }[] = [];
+  if (cancelFindings.size > 0) {
+    const off = new Set(resetIds);
+    const byCell = new Map<string, OpenPickupFire[]>();
+    for (const fire of openFires) {
+      if (cancelFindings.has(fire.id)) pushTo(byCell, `${fire.stay_date}|${fire.affected_room_type_id}`, fire);
+    }
+    for (const [key, fires] of byCell) {
+      const base = basePrices.get(key) ?? 100;
+      fires.sort(
+        (a, b) =>
+          comparePickupRules(rulesById.get(a.rule_id)!, rulesById.get(b.rule_id)!, base, base) ||
+          Date.parse(b.applied_at) - Date.parse(a.applied_at),
+      );
+      for (const fire of fires) {
+        const rule = rulesById.get(fire.rule_id)!;
+        const stayDate = fire.stay_date;
+        const rtId = fire.affected_room_type_id;
+        try {
+          const fireAt = countFromFireAt(
+            rule,
+            sameWayOf.get(rule.id) ?? [],
+            openFireHeads(rankedEventRules, openFires, new Set([...off, fire.id])),
+            stayDate,
+            rtId,
+            base,
+          );
+          const manual = manualByCell.get(key);
+          const baselineTs = baselineTsFrom(rule, now);
+          const countBaselineTs = pickupWindowOpensAt(baselineTs, baselineTs === null ? null : fireAt, manual);
+          // A pickup count that can't be judged on a stretch shorter than
+          // its window has nothing to judge yet: not true.
+          if (countBaselineTs !== baselineTs && !pickupJudgesShortStretch(rule)) {
+            off.add(fire.id);
+            continue;
+          }
+          const countFrom = bookingSpeedCountFrom(rule, fireAt, manual, hotelTimeZone);
+          if (
+            bsCtx &&
+            countFrom?.since &&
+            rule.condition.booking_speed_operator &&
+            rule.signal_room_type_ids.length > 0 &&
+            countFromInWindow(rule.condition.booking_speed_window_days ?? 7, localDate, countFrom.from)
+          ) {
+            await loadSplitWindows(supabase, hotelId, bsCtx, [
+              { since: countFrom.since, stayDate, signalIds: rule.signal_room_type_ids },
+            ]);
+          }
+          const metrics = await computeRuleMetrics(
+            supabase,
+            rule,
+            hotelId,
+            stayDate,
+            now,
+            localDate,
+            now,
+            countBaselineTs,
+            snapshots,
+          );
+          attachBookingSpeed(rule, stayDate, metrics, countFrom);
+          noteExcludedSignals(rule, metrics);
+          if (countBaselineTs && countBaselineTs !== baselineTs) metrics.pickup_counted_since = countBaselineTs;
+          if (!cancellablePartsHold(rule, metrics)) {
+            off.add(fire.id);
+            continue;
+          }
+          cancelFindings.delete(fire.id);
+          fire.counted_at = now;
+          keptFires.push({
+            fire,
+            candidate: candidateFor({
+              rule,
+              metrics,
+              stayDate,
+              roomTypeId: rtId,
+              now,
+              localDate,
+              baselineTs: countBaselineTs,
+              head: undefined,
+            }),
+          });
+        } catch (e) {
+          // Not judged: the change stays as it is this run.
+          cancelFindings.delete(fire.id);
+          console.error(
+            JSON.stringify({
+              fn: "evaluateHotel",
+              step: "cancellation_recount",
+              hotelId,
+              fireId: fire.id,
+              error: e instanceof Error ? e.message : String(e),
+            }),
+          );
+        }
+      }
+    }
+  }
+  if (keptFires.length > 0) {
+    await recordCounts(keptFires.map((k) => k.candidate));
+    for (const { fire, candidate } of keptFires) await restateFire(supabase, hotelId, fire.id, candidate);
+  }
+
   const cancelReasons = new Map([...cancelFindings.keys()].map((id) => [id, "bookings_cancelled" as const]));
   const cancelledIds =
     cancelReasons.size > 0 ? await retireFires(supabase, hotelId, cancelReasons, now) : new Set<string>();
@@ -918,13 +1086,6 @@ export async function evaluateHotel(
       ...(finding ? { finding } : {}),
     });
   }
-
-  // Paused event rules never run, but pausing leaves their fires on the
-  // price, so each one still covers the weaker rules that adjust the same
-  // way (countFromFireAt). Only needed when some active event rule counts.
-  const pausedEventRules = pickupRules.length > 0 ? await loadPausedEventRules(supabase, hotelId) : [];
-  // Every event rule that can move where another counts from.
-  const rankedEventRules = [...pickupRules, ...pausedEventRules];
 
   // The fires still on each night, per rule and room type, after this run's
   // retirements (openFireHeads): where every rule counts from, and what the
@@ -964,13 +1125,6 @@ export async function evaluateHotel(
   };
   type ScopedNight = { rule: EngineRule; stayDate: string; cells: ScopedCell[] };
   const scopedNights: ScopedNight[] = [];
-  // The rules whose fires may move where each one counts from.
-  const sameWayOf = new Map(
-    pickupRules.map((rule) => [
-      rule.id,
-      rankedEventRules.filter((o) => o.id !== rule.id && o.action_direction === rule.action_direction),
-    ]),
-  );
   for (const rule of pickupRules) {
     const waitDays = ruleWaitDays(rule);
     const sameWay = sameWayOf.get(rule.id)!;
@@ -1225,21 +1379,9 @@ export async function evaluateHotel(
   const allPickupWriteFailures: Map<string, PickupCandidate[]> = new Map();
   const cellOf = (c: PickupCandidate) => `${c.stay_date}|${c.affected_room_type_id}`;
 
-  // What came in during each pickup count, recorded on the fire it may make
-  // so a later cancellation check can tell those bookings from older ones
-  // (recordArrivals): one read for every candidate night. Left unrecorded
-  // when the read fails, which a later check reads as the most it can keep.
-  const arrivalPairs = arrivalReads(allPickupCandidates);
-  if (arrivalPairs.length > 0) {
-    try {
-      const booked = await loadBookedBefore(supabase, hotelId, arrivalPairs);
-      for (const c of allPickupCandidates) recordArrivals(c, booked);
-    } catch (e) {
-      console.error(
-        JSON.stringify({ fn: "evaluateHotel", step: "pickup_arrivals", hotelId, error: e instanceof Error ? e.message : String(e) }),
-      );
-    }
-  }
+  // What each candidate counted, recorded on the fire it may make
+  // (recordCounts): one read for every candidate night.
+  await recordCounts(allPickupCandidates);
 
   if (allPickupCandidates.length > 0) {
     const pass = await runPickupPass(supabase, allPickupCandidates, hotelId, basePrices, holders);

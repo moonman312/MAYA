@@ -93,6 +93,7 @@ function makeCandidate(rule: EngineRule, rtId: string = "rt1", stayDate: string 
     window_to: null,
     window_bookings_at_fire: null,
     window_expected_at_fire: null,
+    window_booking_keys: null,
     signal_set_key: "rt1",
   };
 }
@@ -708,6 +709,7 @@ describe("where a pickup count opens: the fires still on the night (openFireHead
     stay_date: NIGHT,
     affected_room_type_id: "rt1",
     applied_at: "2026-09-20T12:00:00.000Z",
+    counted_at: over.counted_at ?? over.applied_at ?? "2026-09-20T12:00:00.000Z",
     fire_seq: 1,
     action_kind: "percent",
     action_direction: "increase",
@@ -725,6 +727,7 @@ describe("where a pickup count opens: the fires still on the night (openFireHead
     window_to: null,
     window_bookings_at_fire: null,
     window_expected_at_fire: null,
+    window_booking_keys: null,
     signal_set_key: "rt1",
     ...over,
   });

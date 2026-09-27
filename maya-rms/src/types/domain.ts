@@ -86,12 +86,17 @@ export type PickupCancelCheck = "none" | "net_units" | "window_bookings" | "eith
  *   rule's number;
  * - booking_speed: of the bookings the change counted in its window
  *   (null on a change from before that was stored), how many are still
- *   booked, against the usual frozen at the change.
+ *   booked, against the usual frozen at the change, and the pace the rule
+ *   needs (level, a BookingSpeed key; absent on rows written before it was
+ *   kept).
+ *
+ * Found only when the rule is not true either counted the way it would
+ * count once the change is off (cancellablePartsHold).
  */
 export type CancellationFinding =
   | { part: "occupancy"; occupancy: number; threshold: number }
   | { part: "pickup"; net: number; threshold: number; metric: "room_nights" | "revenue" }
-  | { part: "booking_speed"; left: number; counted: number | null; expected: number };
+  | { part: "booking_speed"; left: number; counted: number | null; expected: number; level?: string };
 
 /** Why a fire stopped applying. "legacy" and "self_cancelled" only mark rows from before stacking. */
 export type PickupRetiredReason =
@@ -185,6 +190,11 @@ export type PickupEvent = {
   stay_date: string;
   affected_room_type_id: string;
   baseline_start_ts: string;
+  /**
+   * When the numbers below were taken: applied_at, or a later run's when
+   * cancellations left the rule still true and its numbers were taken
+   * again (restateFire in engine/pickup.ts). Rules count from here.
+   */
   baseline_end_ts: string;
   signal_booked_units_start: number;
   signal_booked_units_end: number;
@@ -211,6 +221,8 @@ export type PickupEvent = {
   window_to?: string | null;
   window_bookings_at_fire?: number | null;
   window_expected_at_fire?: number | null;
+  /** The bookings counted in that window, by booking key: see PickupCandidate.window_booking_keys. */
+  window_booking_keys?: string[] | null;
   /** The measured room types at the fire (sorted ids, comma separated). */
   signal_set_key: string;
 };

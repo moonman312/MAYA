@@ -63,6 +63,9 @@ import {
 } from "../observations/expected-bookings.ts";
 import {
   StayDateWindowsBuilder,
+  bookingKeyOf,
+  bookingWindowOf,
+  earliestBookingWindow,
   pickupInWindowIndexed,
   type SlimReservationRow,
   type StayDateWindows,
@@ -1211,6 +1214,142 @@ export function bookingsStillBookedFromFire(
   const after = splitRead(ctx, splitKey(firedAt, frozen.setPart), stayDate);
   if (!after) return null;
   return counted - pickupInWindowIndexed(after, stayDate, frozen.daysOut, frozen.days);
+}
+
+/**
+ * One reservation row on a night, as the booking it belongs to: its key
+ * (bookingKeyOf its PMS id, or the row's own id for a row without one), its
+ * room type, its booking window on the night (bookingWindowOf) and when it
+ * first reached MAYA.
+ */
+export type NightBookingRow = {
+  key: string;
+  room_type_id: string | null;
+  bw: number | null;
+  created_at: string | null;
+};
+
+/**
+ * Every row on each of `stayDates` now, as NightBookingRow, in one paged
+ * read: what a change's booking speed window is recorded from
+ * (windowBookingKeys) and what its cancellation check finds still booked
+ * (bookingKeysOnNight). Throws on a failed read.
+ */
+export async function loadNightBookingRows(
+  supabase: SupabaseClient,
+  hotelId: string,
+  stayDates: readonly string[],
+): Promise<Map<string, NightBookingRow[]>> {
+  const out = new Map<string, NightBookingRow[]>();
+  const dates = [...new Set(stayDates)].sort();
+  if (dates.length === 0) return out;
+  for (const d of dates) out.set(d, []);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let rows: any[];
+  try {
+    rows = await fetchAllRows(() =>
+      supabase
+        .from("reservations")
+        .select("id, stay_date, booking_date, booking_window_days, room_type_id, external_reservation_id, created_at")
+        .eq("hotel_id", hotelId)
+        .in("stay_date", dates)
+        .order("stay_date", { ascending: true })
+        .order("id", { ascending: true }),
+    );
+  } catch (e) {
+    throw new Error(`Failed to load the nights' bookings: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  for (const r of rows as Record<string, unknown>[]) {
+    const stayDate = String(r.stay_date).slice(0, 10);
+    const list = out.get(stayDate);
+    if (!list) continue;
+    const ext = r.external_reservation_id != null ? String(r.external_reservation_id) : "";
+    list.push({
+      key: ext !== "" ? bookingKeyOf(ext) : `row ${String(r.id)}`,
+      room_type_id: r.room_type_id != null ? String(r.room_type_id) : null,
+      bw: bookingWindowOf({
+        stay_date: stayDate,
+        booking_date: r.booking_date != null ? String(r.booking_date).slice(0, 10) : null,
+        booking_window_days: r.booking_window_days != null ? Number(r.booking_window_days) : null,
+      }),
+      created_at: r.created_at != null ? String(r.created_at) : null,
+    });
+  }
+  return out;
+}
+
+/**
+ * Which rows a rule measuring `signalIds` reads, the way its observation
+ * does (frozenWindowOf): the room types it measures, less those that don't
+ * count as rooms; the hotel-wide history (every row but those, a row with
+ * no room type included) when that is all of the hotel's.
+ */
+function measuredRow(ctx: BookingSpeedContext, signalIds: readonly string[]): (roomTypeId: string | null) => boolean {
+  const kept = ctx.excluded ? signalIds.filter((id) => !ctx.excluded!.has(id)) : [...signalIds];
+  if (ctx.hotelSetKey !== undefined && signalSetKey(kept) !== ctx.hotelSetKey) {
+    const set = new Set(kept);
+    return (id) => id !== null && set.has(id);
+  }
+  return (id) => id === null || !ctx.excluded?.has(id);
+}
+
+/**
+ * The bookings a booking speed reading counted in its window, by key, from
+ * `rows` (loadNightBookingRows for `stayDate`): those on the room types it
+ * measures (measuredRow) whose booking window falls in [windowFrom,
+ * windowTo] (hotel dates, both included), and with `since`, on windowFrom's
+ * day only those first seen after it, as observeForStayDate counts them. A
+ * booking is one however many rooms it holds, at its earliest booking date,
+ * first seen at its earliest row. Sorted. null for a window that doesn't
+ * read (it ends after the night, or has no day).
+ */
+export function windowBookingKeys(
+  ctx: BookingSpeedContext,
+  rows: readonly NightBookingRow[],
+  stayDate: string,
+  windowFrom: string,
+  windowTo: string,
+  signalIds: readonly string[],
+  since: string | null,
+): string[] | null {
+  const daysOut = daysBetween(windowTo, stayDate);
+  const days = daysBetween(windowFrom, windowTo) + 1;
+  if (daysOut < 0 || days < 1) return null;
+  const measured = measuredRow(ctx, signalIds);
+  const bookings = new Map<string, { bw: number | null; firstSeen: number }>();
+  for (const row of rows) {
+    if (!measured(row.room_type_id)) continue;
+    const at = row.created_at ? Date.parse(row.created_at) : NaN;
+    const seen = Number.isNaN(at) ? -Infinity : at;
+    const prev = bookings.get(row.key);
+    bookings.set(
+      row.key,
+      prev
+        ? { bw: earliestBookingWindow(prev.bw, row.bw), firstSeen: Math.min(prev.firstSeen, seen) }
+        : { bw: row.bw, firstSeen: seen },
+    );
+  }
+  const sinceMs = since ? Date.parse(since) : null;
+  const splitBw = daysOut + days - 1;
+  const out: string[] = [];
+  for (const [key, { bw, firstSeen }] of bookings) {
+    if (bw === null || bw < daysOut || bw > splitBw) continue;
+    if (sinceMs !== null && bw === splitBw && !(firstSeen > sinceMs)) continue;
+    out.push(key);
+  }
+  return out.sort();
+}
+
+/** The bookings with a row on the night now over the room types a rule measures (measuredRow), by key. */
+export function bookingKeysOnNight(
+  ctx: BookingSpeedContext,
+  rows: readonly NightBookingRow[],
+  signalIds: readonly string[],
+): Set<string> {
+  const measured = measuredRow(ctx, signalIds);
+  const out = new Set<string>();
+  for (const row of rows) if (measured(row.room_type_id)) out.add(row.key);
+  return out;
 }
 
 /** Where a frozen window is read from: the set's index, its splitWindows key part, and the window as offsets. */
