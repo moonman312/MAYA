@@ -192,9 +192,9 @@
 -- a change comes off when cancellations make its rule no longer true;
 -- left on the old bundle, a hotel onboarded in the gap keeps the old text
 -- for good. The app runs the same engine and carries the box in the rule
--- builder and the rules table, its "?", the change log's and drill-down's
--- "Cancellations meant ... was no longer true" line, the three-changes
--- alert's text, and the rules animation.
+-- builder, the rules table and the Rate Simulator's test rule, its "?", the
+-- change log's and drill-down's "Cancellations meant ... was no longer
+-- true" line, the three-changes alert's text, and the rules animation.
 --
 -- Between the migration and the deploy, the old engine reads rules without
 -- the column (its select names its columns) and treats every rule the old
