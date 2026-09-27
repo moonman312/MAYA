@@ -12,7 +12,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { classifyBookingSpeed, bookingSpeedRank, MIN_COMPARABLES_FULL_RANGE } from "@/lib/observations/booking-speed";
 import { applyAdjustments } from "@/lib/engine/pricing";
-import { UNDO_ON_CANCELLATION_LABEL } from "@/lib/rule-form";
+import { UNDO_ON_CANCELLATION_HELP, UNDO_ON_CANCELLATION_LABEL } from "@/lib/rule-form";
 import {
   OCCUPANCY_SCENE,
   RuleBehaviorAnimations,
@@ -159,6 +159,11 @@ describe("RuleBehaviorAnimations", () => {
     const box = screen.getByRole("checkbox") as HTMLInputElement;
     expect(box.checked).toBe(true);
     expect(box.closest("label")?.textContent).toContain(UNDO_ON_CANCELLATION_LABEL);
+    // What else takes a change off sits behind the box's "?", not in the panel.
+    expect(screen.queryByText(UNDO_ON_CANCELLATION_HELP.lines[3])).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: UNDO_ON_CANCELLATION_HELP.label }));
+    for (const line of UNDO_ON_CANCELLATION_HELP.lines) expect(screen.getByText(line)).toBeTruthy();
+    expect(box.checked).toBe(true);
   });
 
   it("with reduced motion, starts paused, and the step dots walk through the story, ticked and unticked", () => {

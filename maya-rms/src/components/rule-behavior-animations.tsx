@@ -39,7 +39,8 @@
 
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { bookingSpeedLabel, bookingSpeedRank, type BookingSpeed } from "@/lib/observations/booking-speed";
-import { UNDO_ON_CANCELLATION_LABEL } from "@/lib/rule-form";
+import { RoomCountHelp } from "@/components/room-type-settings";
+import { UNDO_ON_CANCELLATION_HELP, UNDO_ON_CANCELLATION_LABEL } from "@/lib/rule-form";
 
 /* ── Scene data ───────────────────────────────────────────────────────── */
 
@@ -574,24 +575,26 @@ export function RuleBehaviorAnimations() {
 
       {open && (
         <div id={panelId} className="space-y-3 border-t border-slate-800 p-3 sm:p-4">
-          <label className="flex cursor-pointer items-start gap-2.5 rounded border border-slate-800 bg-slate-900 px-3 py-2">
-            <input
-              type="checkbox"
-              className="mt-0.5 rounded border-slate-600"
-              checked={undo}
-              onChange={(e) => setUndo(e.target.checked)}
-            />
-            <span className="text-xs text-slate-400">
-              Try the box: <span className="text-slate-200">{UNDO_ON_CANCELLATION_LABEL}</span>
-            </span>
-          </label>
+          <div className="flex items-start gap-2 rounded border border-slate-800 bg-slate-900 px-3 py-2">
+            <label className="flex cursor-pointer items-start gap-2.5">
+              <input
+                type="checkbox"
+                className="mt-0.5 rounded border-slate-600"
+                checked={undo}
+                onChange={(e) => setUndo(e.target.checked)}
+              />
+              <span className="text-xs text-slate-400">
+                Try the box: <span className="text-slate-200">{UNDO_ON_CANCELLATION_LABEL}</span>
+              </span>
+            </label>
+            <RoomCountHelp {...UNDO_ON_CANCELLATION_HELP} />
+          </div>
           <RuleScene scene={SPEED_SCENE} undo={undo} intervalMs={4200} />
           <RuleScene scene={OCCUPANCY_SCENE} undo={undo} intervalMs={3600} />
           <RuleScene scene={STRONGER_SCENE} undo={undo} intervalMs={4200} />
           <p className="text-[11px] leading-relaxed text-slate-400">
-            The box works the same way on every rule, raise or cut, whatever it checks. A change also comes off
-            when the night passes, when you type a price, when you edit the rule or when you delete it. Turning a
-            rule off keeps its changes as they are.
+            The box works the same way on every rule, raise or cut, whatever it checks. Its &quot;?&quot; says what
+            else takes a change off. Turning a rule off keeps its changes as they are.
           </p>
         </div>
       )}

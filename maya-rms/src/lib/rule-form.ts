@@ -211,19 +211,30 @@ export const UNDO_ON_CANCELLATION_LABEL = "Undo the change if cancellations mean
 export const UNDO_ON_CANCELLATION_SHORT = "Undo on cancellations";
 
 /**
- * The "?" beside the box. What the engine does (cancellationsUndo in
- * engine/pickup.ts, ladderConditionsHold in engine/conditions.ts): ticked,
- * a change comes off once cancellations make its rule no longer true for
- * that night, judged on what the change counted, and the rule adjusts again
- * once it is true again and its wait, if it has one, is over. Unticked,
- * cancellations never take it off; the rest still does.
+ * The "?" beside the box. What the engine does: ticked, once bookings a
+ * change counted have cancelled (cancellationFinding in engine/pickup.ts),
+ * the change comes off only if its rule is also not true counted the way it
+ * would count without it, bookings made since included
+ * (cancellablePartsHold, evaluate.ts); a cut's booking speed part is never
+ * judged (cancellableParts), and an unticked occupancy rule keeps its
+ * change (ladderConditionsHold in engine/conditions.ts). After an undo the
+ * rule adjusts again once it is true and its wait, if it has one, is over.
+ * Either way a change comes off when its night passes or its price is set
+ * by hand here or in the PMS; a rule on occupancy or days before arrival
+ * lets go whenever it stops being true for another reason; an edit starts
+ * the rule over (edited changes come off, and an occupancy or
+ * days-before-arrival rule still true after it keeps its change with the
+ * edited adjustment); deleting a rule takes its changes off.
  */
 export const UNDO_ON_CANCELLATION_HELP: { label: string; title: string; lines: string[] } = {
   label: "What undo on cancellations does",
   title: "Undo on cancellations",
   lines: [
-    "Ticked: if guests cancel and this rule is no longer true for a night, its change there comes off. It can adjust that night again once it is true again and any wait it has is over.",
-    "Unticked: cancellations never undo it. Its change still comes off when the night passes, when you set the price yourself, or when you edit or delete the rule.",
+    "Ticked: if bookings this change counted cancel and the rule is no longer true for the night, the change comes off. Bookings made since count too, so while they keep the rule true, the change stays.",
+    "A cut on booking speed stays when cancellations only slow the night down. Once a change comes off, the rule can adjust the night again when it is true again and any wait it has is over.",
+    "Unticked: cancellations never undo it.",
+    "Either way, a change comes off when the night passes or its price is set by you or in your PMS. A rule on occupancy or days before arrival also lets go once it stops being true for other reasons.",
+    "Editing a rule starts it over, and deleting it takes its changes off.",
   ],
 };
 

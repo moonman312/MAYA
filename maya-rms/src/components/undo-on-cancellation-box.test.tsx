@@ -55,8 +55,12 @@ describe("UndoOnCancellationToggle", () => {
 });
 
 describe("the help's words", () => {
-  it("say what the box does in plain words, two short lines, no dashes or claims about MAYA", () => {
-    expect(UNDO_ON_CANCELLATION_HELP.lines).toHaveLength(2);
+  it("say what the box does in plain words, in short lines, no dashes or claims about MAYA", () => {
+    for (const line of UNDO_ON_CANCELLATION_HELP.lines) expect(line.length).toBeLessThanOrEqual(220);
+    // Ticked, unticked, and what takes a change off either way.
+    expect(UNDO_ON_CANCELLATION_HELP.lines[0]).toMatch(/^Ticked: if bookings this change counted cancel/);
+    expect(UNDO_ON_CANCELLATION_HELP.lines.some((l) => l.startsWith("Unticked:"))).toBe(true);
+    expect(UNDO_ON_CANCELLATION_HELP.lines.join(" ")).toMatch(/you or in your PMS/);
     for (const line of [UNDO_ON_CANCELLATION_LABEL, UNDO_ON_CANCELLATION_HELP.title, ...UNDO_ON_CANCELLATION_HELP.lines]) {
       expect(line).not.toMatch(/—|–/);
       expect(line).not.toMatch(/\b(learns|knows|thinks|smart|AI)\b/i);
