@@ -9,7 +9,7 @@
 // 5. a follow-up leans on the last answer's page and question
 
 import MiniSearch from "minisearch";
-import { buildSynonymTable, clean, createSpeller, synonymCover, tokenize, trigrams, type SynonymTable } from "./normalize.ts";
+import { buildSynonymTable, clean, createSpeller, dropAsides, synonymCover, tokenize, trigrams, type SynonymTable } from "./normalize.ts";
 
 export interface AskPage {
   /** url, "/docs/rules/booking-speed" */
@@ -406,7 +406,7 @@ export function createMatcher(index: AskIndex, options: { exclude?: (q: AskQuest
   }
 
   function run(question: string, ctx: AskContext, followUp: boolean): AskResult {
-    const spelt = spell(question);
+    const spelt = spell(dropAsides(question));
     let tokens = tok(spelt);
     const empty: AskResult = { confidence: "none", score: 0, answer: null, alsoSee: [], pages: [], tokens };
     if (!tokens.length) return empty;

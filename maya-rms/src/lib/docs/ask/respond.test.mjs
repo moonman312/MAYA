@@ -301,6 +301,17 @@ test("the speller leaves names alone: a five-letter word may gain, lose or swap 
   assert.equal(spell("bookign"), "booking");
 });
 
+test("asides and vague words are not the subject: a specific night, and I don't know why", () => {
+  const tokens = (q) => helper.matcher.ask(q).tokens;
+  assert.deepEqual(tokens("the price on a specific night"), tokens("the price on a night"));
+  assert.deepEqual(tokens("for a particular room type"), tokens("for a room type"));
+  assert.deepEqual(tokens("my price dropped and i don't know why"), tokens("why my price dropped"));
+  assert.deepEqual(tokens("my price dropped and we do not understand why"), tokens("why my price dropped"));
+  assert.ok(tokens("how did we know").includes("know"), "a docs title keeps its words");
+  const cut = helper.index.synonyms.findIndex((g) => g[0] === "cut");
+  assert.ok(tokens("maya undercut my price").includes(`syn${cut}`), "undercut reads as a cut");
+});
+
 test("numbers alone are no question", () => {
   for (const q of ["what is 2+2", "123", "60"]) assert.equal(say(q).outcome, "none", q);
 });

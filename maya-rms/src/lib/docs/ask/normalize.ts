@@ -18,7 +18,7 @@ export const STOP_WORDS = new Set(
     "mean means meaning meant happen happens happened happening work works use using used " +
     "see seeing say said look looks looking like go going goes gone come comes possible able " +
     "exactly actually really kind sort bit lot lots whats whos wheres hows thats theres lets heres " +
-    "sorry excuse pardon um umm uh er erm"
+    "sorry excuse pardon um umm uh er erm specific specifically particular particularly certain"
   ).split(" "),
 );
 
@@ -39,6 +39,14 @@ export function clean(text: string): string {
     .replace(/(\d)\/(\d)/g, "$1of$2")
     .replace(/[^a-z0-9$%]+/g, " ")
     .trim();
+}
+
+/** "and I don't know why": the reader's aside, not the subject. The "why" stays. */
+const ASIDE = /\b(?:(?:and|but) )?(?:i|we) (?:dont|do not|didnt|did not|cant|can not|cannot) (?:know|understand|tell|see|work out|figure out) why\b/g;
+
+/** The question cleaned, with asides such as "and I don't know why" cut down to "why". */
+export function dropAsides(text: string): string {
+  return clean(text).replace(ASIDE, "why").replace(/\bidk why\b/g, "why");
 }
 
 export function buildSynonymTable(groups: string[][]): SynonymTable {
