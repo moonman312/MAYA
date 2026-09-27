@@ -167,6 +167,16 @@
 --    Everything else in those functions is as
 --    99_supabase_migration_pickup_event_stacking_v1.sql made it.
 --
+-- 6. Product analytics see the box (product_events_pricing_rules, replaced
+--    whole, and its update trigger): rule.created carries
+--    undo_on_cancellation, so a rule saved unticked shows, and ticking or
+--    unticking it later writes rule.undo_ticked or rule.undo_unticked
+--    (rule_id, origin), the way switching a rule on or off writes
+--    rule.enabled or rule.disabled. The update trigger now also fires on the
+--    box. Everything else is as 99_supabase_migration_product_events_v1.sql
+--    made it; replaying that file after this one would put its older
+--    trigger back, so run this one again after it.
+--
 -- Run AFTER 99_supabase_migration_booking_speed_counts_bookings_v1.sql and
 -- 99_supabase_migration_pickup_wait_v1.sql (and so after
 -- 99_supabase_migration_pickup_event_stacking_v1.sql). It touches nothing
@@ -508,5 +518,115 @@ $$;
 
 revoke all on function public.rule_repeat_alert_resume_many(uuid[], date[]) from public, anon;
 grant execute on function public.rule_repeat_alert_resume_many(uuid[], date[]) to authenticated, service_role;
+
+-- ----------------------------------------------------------------------------
+-- 6. Product analytics see the box
+-- ----------------------------------------------------------------------------
+
+-- As in 99_supabase_migration_product_events_v1.sql, with the box on
+-- rule.created and an event when it changes.
+create or replace function public.product_events_pricing_rules()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_rule public.pricing_rules%rowtype;
+  v_origin text;
+begin
+  begin
+    if tg_op = 'DELETE' then
+      v_rule := old;
+      -- A hotel delete cascades here; that is the property going, not a rule.
+      if not exists (select 1 from public.hotels h where h.id = old.hotel_id) then
+        return null;
+      end if;
+    else
+      v_rule := new;
+    end if;
+
+    if tg_op = 'INSERT' then
+      v_origin := case
+        when auth.uid() is null
+             and (auth.role() = 'service_role' or auth.role() is null)
+             and (new.name in ('Slow-date rescue', 'Slow-date trim', 'Warm-date bump', 'Hot-week surge', 'Sudden-spike catcher')
+                  or exists (select 1 from public.import_jobs j
+                              where j.hotel_id = new.hotel_id and j.status = 'running'))
+          then 'starter'
+        when auth.uid() is null then 'system'
+        when exists (
+          select 1 from public.onboarding_findings f
+           where f.hotel_id = new.hotel_id
+             and f.kind = 'rule_suggestion'
+             and f.status = 'confirmed'
+             and f.resolved_by = auth.uid()
+             and f.resolved_at > now() - interval '5 minutes'
+             and f.payload->'spec'->>'name' = new.name
+        ) then 'suggestion'
+        else 'owner'
+      end;
+    else
+      select e.properties->>'origin' into v_origin
+        from public.product_events e
+       where e.hotel_id = v_rule.hotel_id
+         and e.event = 'rule.created'
+         and e.properties->>'rule_id' = v_rule.id::text
+       order by e.occurred_at asc
+       limit 1;
+    end if;
+
+    if tg_op = 'INSERT' then
+      perform public.product_event_emit(
+        'rule.created', new.hotel_id, coalesce(auth.uid(), new.created_by),
+        jsonb_build_object(
+          'rule_id', new.id, 'origin', v_origin, 'is_active', new.is_active,
+          'is_pickup_rule', new.is_pickup_rule,
+          'action_type', new.action_type, 'action_direction', new.action_direction,
+          'undo_on_cancellation', new.undo_on_cancellation
+        ),
+        'trigger', new.created_at
+      );
+    elsif tg_op = 'UPDATE' then
+      if new.is_active is distinct from old.is_active then
+        perform public.product_event_emit(
+          case when new.is_active then 'rule.enabled' else 'rule.disabled' end,
+          new.hotel_id, auth.uid(),
+          jsonb_build_object('rule_id', new.id, 'origin', v_origin)
+        );
+      end if;
+      if new.version > old.version then
+        perform public.product_event_emit(
+          'rule.edited', new.hotel_id, auth.uid(),
+          jsonb_build_object('rule_id', new.id, 'origin', v_origin, 'version', new.version)
+        );
+      end if;
+      if new.undo_on_cancellation is distinct from old.undo_on_cancellation then
+        perform public.product_event_emit(
+          case when new.undo_on_cancellation then 'rule.undo_ticked' else 'rule.undo_unticked' end,
+          new.hotel_id, auth.uid(),
+          jsonb_build_object('rule_id', new.id, 'origin', v_origin)
+        );
+      end if;
+    else
+      perform public.product_event_emit(
+        'rule.deleted', old.hotel_id, auth.uid(),
+        jsonb_build_object(
+          'rule_id', old.id, 'origin', v_origin, 'was_active', old.is_active,
+          'age_days', round((extract(epoch from (now() - old.created_at)) / 86400)::numeric, 2)
+        )
+      );
+    end if;
+  exception when others then
+    raise warning 'product_events_pricing_rules: % [%]', sqlerrm, sqlstate;
+  end;
+  return null;
+end;
+$$;
+
+drop trigger if exists trg_product_events_pricing_rules_update on public.pricing_rules;
+create trigger trg_product_events_pricing_rules_update
+  after update of is_active, version, undo_on_cancellation on public.pricing_rules
+  for each row execute function public.product_events_pricing_rules();
 
 commit;

@@ -416,6 +416,8 @@ export function EngagementPanel({ events }: { events: EventCountRow[] }) {
           line("Starter rules created", "rule.created", "starter"),
           line("Rules switched off", "rule.disabled"),
           line("Rules edited", "rule.edited"),
+          line("Undo box unticked", "rule.undo_unticked"),
+          line("Undo box ticked again", "rule.undo_ticked"),
           line("Rules deleted", "rule.deleted"),
           line("Manual prices set", "manual_price.set", undefined, "nights"),
           line("Manual prices cleared", "manual_price.cleared", undefined, "nights"),

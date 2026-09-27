@@ -6,7 +6,8 @@
  * in either order: the box on every rule, what pickup_event takes, the open
  * changes it converts, engine_booked_before against the model the engine's
  * tests run on (undo-rpc-model.test.ts), and the three-changes alert
- * counting changes still on the price. Also its deploy list.
+ * counting changes still on the price, and the product events for the box.
+ * Also its deploy list.
  *
  * The PGlite part only runs with MAYA_PGLITE_DIR set (see
  * large-property-sql.test.ts).
@@ -56,7 +57,12 @@ create table public.pricing_rules (
   hotel_id uuid not null references public.hotels(id),
   name text not null,
   version integer not null default 1,
-  action_direction text not null default 'increase'
+  is_active boolean not null default true,
+  is_pickup_rule boolean not null default false,
+  action_type text not null default 'percent',
+  action_direction text not null default 'increase',
+  created_at timestamptz not null default now(),
+  created_by uuid
 );
 create table public.rule_condition (
   rule_id uuid primary key references public.pricing_rules(id) on delete cascade,
@@ -272,6 +278,63 @@ describe.skipIf(!PGLITE_DIR)("the undo on cancellation migration in PGlite, afte
     ]);
     // The pickup wait file's column is still there, still empty.
     expect((await db.query(`select pickup_cooldown_days from public.rule_condition`)).rows).toEqual([{ pickup_cooldown_days: null }]);
+  });
+
+  it("writes a product event when the box is ticked or unticked, and puts the box on rule.created", async () => {
+    // What 99_supabase_migration_product_events_v1.sql leaves that the trigger calls, as stubs.
+    await db.exec(`
+      create or replace function auth.role() returns text language sql stable as $f$ select null::text $f$;
+      create table public.import_jobs (hotel_id uuid, status text);
+      create table public.onboarding_findings (
+        hotel_id uuid, kind text, status text, resolved_by uuid, resolved_at timestamptz, payload jsonb
+      );
+      create table public.product_events (
+        event text not null, hotel_id uuid, user_id uuid, properties jsonb not null,
+        occurred_at timestamptz not null default clock_timestamp()
+      );
+      create or replace function public.product_event_emit(
+        p_event text, p_hotel_id uuid default null, p_user_id uuid default null,
+        p_properties jsonb default '{}'::jsonb, p_source text default 'trigger', p_occurred_at timestamptz default null
+      ) returns void language sql as $f$
+        insert into public.product_events (event, hotel_id, user_id, properties) values (p_event, p_hotel_id, p_user_id, p_properties)
+      $f$;
+      create trigger trg_product_events_pricing_rules_insert
+        after insert on public.pricing_rules
+        for each row execute function public.product_events_pricing_rules();`);
+    const events = async () =>
+      (await db.query(`select event, properties from public.product_events order by occurred_at`)).rows.map((r) => [
+        r.event,
+        r.properties,
+      ]);
+    await db.exec(`insert into public.product_events (event, hotel_id, properties)
+      values ('rule.created', '${H1}', '{"rule_id": "${R1}", "origin": "owner"}')`);
+    await db.exec(`update public.pricing_rules set undo_on_cancellation = false where id = '${R1}'`);
+    // Saved again unchanged, or something else changed: nothing.
+    await db.exec(`update public.pricing_rules set undo_on_cancellation = false where id = '${R1}'`);
+    await db.exec(`update public.pricing_rules set name = 'Quick pickup 2' where id = '${R1}'`);
+    await db.exec(`update public.pricing_rules set undo_on_cancellation = true, name = 'Quick pickup' where id = '${R1}'`);
+    const fresh = uuidFor("rule-unticked");
+    await db.exec(`insert into public.pricing_rules (id, hotel_id, name, undo_on_cancellation) values ('${fresh}', '${H1}', 'Unticked', false)`);
+    expect((await events()).slice(1)).toEqual([
+      ["rule.undo_unticked", { rule_id: R1, origin: "owner" }],
+      ["rule.undo_ticked", { rule_id: R1, origin: "owner" }],
+      [
+        "rule.created",
+        {
+          rule_id: fresh,
+          origin: "system",
+          is_active: true,
+          is_pickup_rule: false,
+          action_type: "percent",
+          action_direction: "increase",
+          undo_on_cancellation: false,
+        },
+      ],
+    ]);
+    // Switching it off and editing it still say so.
+    await db.exec(`update public.pricing_rules set is_active = false, version = version + 1 where id = '${fresh}'`);
+    expect((await events()).slice(4).map((e) => e[0])).toEqual(["rule.disabled", "rule.edited"]);
+    await db.exec(`delete from public.pricing_rules where id = '${fresh}'`);
   });
 });
 

@@ -160,9 +160,10 @@ payment, so `import.started` and often `import.completed` land before
 
 | event | meaning | emitted by | properties |
 |---|---|---|---|
-| `rule.created` | a pricing rule exists | trigger on `pricing_rules` | `rule_id`, `origin`, `is_active`, `is_pickup_rule`, `action_type`, `action_direction` |
+| `rule.created` | a pricing rule exists | trigger on `pricing_rules` | `rule_id`, `origin`, `is_active`, `is_pickup_rule`, `action_type`, `action_direction`, `undo_on_cancellation` (the undo box as saved; absent before `99_supabase_migration_undo_on_cancellation_v1.sql`) |
 | `rule.enabled`, `rule.disabled` | switched on or off (off keeps its effects) | same | `rule_id`, `origin` |
 | `rule.edited` | a behavioural edit (version bump) | same | `rule_id`, `origin`, `version` |
+| `rule.undo_ticked`, `rule.undo_unticked` | the undo box ("Undo this change if cancellations mean the rule is no longer true") ticked or unticked on a saved rule; not an edit | same | `rule_id`, `origin` |
 | `rule.deleted` | deleted (effects reverted); not emitted when the hotel itself is deleted | same | `rule_id`, `origin`, `was_active`, `age_days` |
 | `rule.repeat_alert_answered` | the owner answered a rule that had adjusted the same night 3 times or more, or took an answer back: one event per answer, however many nights it settled, and one per "Let it run again" click however many alerts it covered | `POST /api/rules/alerts/[alertId]`, `POST /api/rules/stops` (the rules table's "Let it run again") | `rule_id`, `choice` (`keep_adjusting`, `stop` or `resume`), `nights`, `all_nights`, `simulation` |
 | `manual_price.set` | one save of a typed price, over a range of nights | statement trigger on `manual_price` | `room_type_id`, `nights`, `first_night`, `last_night`, `lead_days` |
