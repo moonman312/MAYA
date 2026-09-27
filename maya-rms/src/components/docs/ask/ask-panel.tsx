@@ -435,8 +435,9 @@ export function AskPanel() {
 
           <div className="flex-1 overflow-y-auto px-4 py-4">
             <Dialog.Description className="text-sm leading-relaxed text-muted-foreground">
-              Ask anything about MAYA. Every answer comes straight from these docs, with a link to the page it lives on. Nothing you type
-              leaves your browser unless you choose to send it to us. Never type guest names, card numbers or passwords.
+              Ask anything about MAYA. Answers come from these docs, with a link to the page they live on. Nothing you type leaves your
+              browser unless you choose to send it to us. We count questions asked, never their words. Never type guest names, card numbers
+              or passwords.
             </Dialog.Description>
 
             {!turns.length ? (
@@ -617,7 +618,7 @@ export function AskPanel() {
               </button>
             </div>
             <p className="mt-2 text-center text-[0.7rem] text-muted-foreground">
-              Answers are passages from these pages. <Link href="/docs/help/about-these-docs" onClick={closeAsk} className="underline underline-offset-2">How it works</Link>
+              Answers come from these pages. <Link href="/docs/help/about-these-docs" onClick={closeAsk} className="underline underline-offset-2">How it works</Link>
             </p>
           </form>
         </Dialog.Popup>

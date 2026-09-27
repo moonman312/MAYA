@@ -8339,9 +8339,9 @@
   "order": 50,
   "title": "Privacy, security and your data",
   "summary": "What MAYA keeps and never keeps, where it is hosted, how long each thing is kept, how your system's access is held and withdrawn, who else handles data, Europe and the GDPR, cookies, how to report a security problem and how we would reach you, and the questions a security review asks.",
-  "readingTime": 17,
+  "readingTime": 18,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-27",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -8688,10 +8688,10 @@
   "slug": "about-these-docs",
   "order": 20,
   "title": "About these docs and the docs helper",
-  "summary": "These pages describe MAYA as it works today, including what it cannot do yet. The docs helper answers with passages taken word for word from these pages, matches your question inside your browser and sends nothing unless you press Send.",
-  "readingTime": 8,
+  "summary": "These pages describe MAYA as it works today, including what it cannot do yet. The docs helper answers with passages taken word for word from these pages and matches your question inside your browser. It counts each question without its words, and sends your words only if you press Send.",
+  "readingTime": 9,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-27",
   "pms": [],
   "headings": [
    {
