@@ -58,6 +58,10 @@
 --    while booking_speed_windows is still the row-counting one (or missing),
 --    so a replay after the switch leaves the raises made since, whose
 --    numbers are in bookings, exactly as they are.
+--    99_supabase_migration_undo_on_cancellation_v1.sql, which runs after
+--    this file, replaces this cancellation test with one check for every
+--    rule behind a per rule box; it keeps the part of a raise's window
+--    this file turned off ('none', 'net_units') as it was at the raise.
 --
 -- 3. booking_speed_windows(hotel, dates, exclude, include, since): the
 --    result of 99_supabase_migration_large_property_scale_v1.sql plus a

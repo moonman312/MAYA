@@ -64,7 +64,9 @@
 -- (openFireHeads): its run's snapshot still holds the bookings that
 -- cancelled, so new bookings were being netted against them. It still
 -- starts the rule's wait, counts toward the three-raises alert, and starts
--- a Booking Speed count, which counts the bookings made after it. A fire
+-- a Booking Speed count, which counts the bookings made after it (until
+-- 99_supabase_migration_undo_on_cancellation_v1.sql, which runs after this
+-- file: from then a change that came off starts only the wait). A fire
 -- made before the open manual price on the night is ignored: after a typed
 -- price the rule waits from the price and then counts its whole window. The
 -- run that made a fire wrote a snapshot at that very instant (snapshot_ts =
