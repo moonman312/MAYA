@@ -301,6 +301,16 @@ test("the speller leaves names alone: a five-letter word may gain, lose or swap 
   assert.equal(spell("bookign"), "booking");
 });
 
+test("a letter on the end makes another word, not a slip: pasta is not past", () => {
+  const spell = createSpeller(new Map([["past", 30], ["motel", 5], ["booking", 40], ["price", 50]]));
+  assert.equal(spell("pasta"), "pasta");
+  assert.equal(spell("pricee"), "price", "a repeated last letter is a slip");
+  assert.equal(spell("motels"), "motel", "a plural is the word");
+  for (const q of ["whats a good recipe for pasta", "good pasta place nearby", "how do i make pasta"]) {
+    assert.equal(say(q).outcome, "none", q);
+  }
+});
+
 test("asides and vague words are not the subject: a specific night, and I don't know why", () => {
   const tokens = (q) => helper.matcher.ask(q).tokens;
   assert.deepEqual(tokens("the price on a specific night"), tokens("the price on a night"));

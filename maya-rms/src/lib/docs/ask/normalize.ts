@@ -143,7 +143,9 @@ export function editDistance(a: string, b: string, max: number): number {
  * length keep ordinary words from turning into docs words ("cook" stays).
  * A five-letter word may gain, lose or swap a letter ("windo", "delet") but
  * not change one, since that turns too many names into docs words ("paris"
- * is not "parts"). Ties go to the word the docs use most.
+ * is not "parts"). A letter on the end is another word, not a slip ("pasta"
+ * is not "past"), unless it is a plural s ("motels") or repeats the one
+ * before ("bookingg"). Ties go to the word the docs use most.
  */
 /** True when b is a with two letters side by side swapped. */
 function swapped(a: string, b: string): boolean {
@@ -175,6 +177,7 @@ export function createSpeller(counts: Map<string, number>): (text: string) => st
       const d = editDistance(w, c, max);
       if (d > max) continue;
       if (w.length < 6 && c.length === w.length && !swapped(w, c)) continue;
+      if (extraLastLetter(w, c)) continue;
       const n = counts.get(c) ?? 0;
       if (d < bestD || (d === bestD && n > bestN)) {
         best = c;
@@ -190,6 +193,12 @@ export function createSpeller(counts: Map<string, number>): (text: string) => st
       .split(" ")
       .map((w) => (w ? fix(w) : w))
       .join(" ");
+}
+
+/** True when a is b with one more letter on the end, other than a plural s or a repeat of the letter before it. */
+function extraLastLetter(a: string, b: string): boolean {
+  const last = a[a.length - 1];
+  return a.length === b.length + 1 && a.startsWith(b) && last !== "s" && last !== b[b.length - 1];
 }
 
 /**
