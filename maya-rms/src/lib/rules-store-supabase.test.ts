@@ -33,6 +33,8 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
   // specifically the NEW data, not a blanket table outage (so a compensating
   // re-insert of the untouched OLD row is expected to succeed).
   const failInsertWhen = new Map<string, (row: Row) => boolean>();
+  /** Ids row security won't let this caller update (staff, viewers): the update touches nothing. */
+  const readOnly = new Set<string>();
   /** Every column list a read asked for, by table. */
   const selects: { table: string; columns: string }[] = [];
 
@@ -101,11 +103,14 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
         return { data: inserted, error: null };
       }
       if (mode === "update" && pendingUpdate) {
-        const rows = tableOf(table);
-        for (const r of rows) {
-          if (matches(r, filters)) Object.assign(r, pendingUpdate);
+        const updated: Row[] = [];
+        for (const r of tableOf(table)) {
+          if (matches(r, filters) && !readOnly.has(String(r.id))) {
+            Object.assign(r, pendingUpdate);
+            updated.push(r);
+          }
         }
-        return { data: null, error: null };
+        return { data: updated, error: null };
       }
       if (mode === "delete") {
         const rows = tableOf(table);
@@ -122,7 +127,7 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
 
   const client = { from: (t: string) => builder(t) };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return { client: client as any, tables, failInsertWhen, selects };
+  return { client: client as any, tables, failInsertWhen, selects, readOnly };
 }
 
 const HOTEL = "hotel-1";
@@ -464,5 +469,19 @@ describe("the undo box round-trips through the store", () => {
     expect(tables.get("pickup_event")![0]).toMatchObject({ retired_at: null });
     expect(await updateRule("r1", { undo_on_cancellation: true }, client)).toBe(true);
     expect(tables.get("pricing_rules")![0]).toMatchObject({ version: 4, undo_on_cancellation: true });
+  });
+
+  it("a save row security leaves untouched (staff, viewers) says it failed, and nothing else moves", async () => {
+    const { client, tables, readOnly } = fakeSupabase({
+      pricing_rules: [{ id: "r1", version: 4, is_active: true, is_pickup_rule: true, undo_on_cancellation: true }],
+      rule_condition: [{ rule_id: "r1", ...occupancy }],
+      pickup_event: [{ id: "pe1", rule_id: "r1", retired_at: null }],
+    });
+    readOnly.add("r1");
+    expect(await updateRule("r1", { undo_on_cancellation: false }, client)).toBe(false);
+    expect(await updateRule("r1", { condition: { ...occupancy, occupancy_threshold: 0.9 } }, client)).toBe(false);
+    expect(tables.get("pricing_rules")![0]).toMatchObject({ version: 4, undo_on_cancellation: true });
+    expect(tables.get("rule_condition")![0]).toMatchObject({ occupancy_threshold: occupancy.occupancy_threshold });
+    expect(tables.get("pickup_event")![0]).toMatchObject({ retired_at: null });
   });
 });

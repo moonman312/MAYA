@@ -5,9 +5,14 @@
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { UNDO_ON_CANCELLATION_HELP, UNDO_ON_CANCELLATION_LABEL } from "@/lib/rule-form";
-import { UndoOnCancellationField, UndoOnCancellationToggle } from "./undo-on-cancellation-box";
+import {
+  UNDO_BOX_NOT_SAVED,
+  UndoOnCancellationField,
+  UndoOnCancellationToggle,
+  saveUndoOnCancellation,
+} from "./undo-on-cancellation-box";
 
 afterEach(cleanup);
 
@@ -51,6 +56,37 @@ describe("UndoOnCancellationToggle", () => {
     rerender(<UndoOnCancellationToggle ruleName="Quick pickup" checked disabled onToggle={() => flips.push("y")} />);
     expect(box.checked).toBe(true);
     expect(box.disabled).toBe(true);
+  });
+});
+
+describe("saving a saved rule's box", () => {
+  const answer = (status: number, body: unknown) =>
+    vi.fn(async () => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
+
+  it("sends the box alone, and says nothing when it saved", async () => {
+    const fetchImpl = answer(200, { ok: true });
+    expect(await saveUndoOnCancellation("r1", false, fetchImpl as unknown as typeof fetch)).toBeNull();
+    expect(fetchImpl).toHaveBeenCalledWith("/api/rules/r1", expect.objectContaining({ method: "PUT", body: '{"undo_on_cancellation":false}' }));
+  });
+
+  it("says why when the person's role can't change rules, and asks for a retry otherwise", async () => {
+    const refused = answer(403, { error: "Only a Revenue Manager or above can change this." });
+    expect(await saveUndoOnCancellation("r1", true, refused as unknown as typeof fetch)).toBe(
+      "Only a Revenue Manager or above can change this.",
+    );
+    expect(await saveUndoOnCancellation("r1", true, answer(500, {}) as unknown as typeof fetch)).toBe(UNDO_BOX_NOT_SAVED);
+    const offline = vi.fn(async () => {
+      throw new TypeError("offline");
+    });
+    expect(await saveUndoOnCancellation("r1", true, offline as unknown as typeof fetch)).toBe(UNDO_BOX_NOT_SAVED);
+  });
+
+  it("the table shows the reason under the box", () => {
+    render(<UndoOnCancellationToggle ruleName="Quick pickup" checked onToggle={() => {}} error="Only a Revenue Manager or above can change this." />);
+    expect(screen.getByRole("alert").textContent).toBe("Only a Revenue Manager or above can change this.");
+    cleanup();
+    render(<UndoOnCancellationToggle ruleName="Quick pickup" checked onToggle={() => {}} />);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 

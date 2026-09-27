@@ -941,12 +941,16 @@ export async function updateRule(
     updates.version = (current?.version ?? 0) + 1;
   }
 
-  const { error } = await supabase
+  const { data: saved, error } = await supabase
     .from("pricing_rules")
     .update(updates)
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
 
   if (error) return false;
+  // Row security lets staff and viewers read a rule but not change it: the
+  // update touched nothing, and nothing else here is theirs to write either.
+  if ((saved ?? []).length === 0) return false;
 
   if (isBehavioralEdit) {
     // Retire every open fire of this rule (§7.4), after the new version is

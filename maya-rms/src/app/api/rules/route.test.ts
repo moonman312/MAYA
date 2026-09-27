@@ -6,12 +6,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const createRule = vi.fn(async (input: unknown) => ({ id: "r1", input }));
 const updateRule = vi.fn(async () => true);
+const hasHotelRank = vi.fn(async () => true);
+/** The rule the PUT route reads back when a save changed nothing. */
+let ruleRow: { hotel_id: string } | null = { hotel_id: "h1" };
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
 vi.mock("@/utils/supabase/shared", () => ({ isSupabaseConfigured: () => true }));
 vi.mock("@/utils/supabase/server", () => ({
-  createClient: () => ({ auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) } }),
+  createClient: () => ({
+    auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) },
+    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: ruleRow, error: null }) }) }) }),
+  }),
 }));
+vi.mock("@/lib/require-supabase-hotel", () => ({ hasHotelRank }));
 vi.mock("@/lib/hotel-context", () => ({ resolveAccessibleHotelId: async () => "h1" }));
 vi.mock("@/lib/rules-store", () => ({
   createRule,
@@ -116,5 +123,20 @@ describe("the undo box on the rules routes", () => {
     const res = await PUT(req({ undo_on_cancellation: false }, "PUT"), params);
     expect(res.status).toBe(200);
     expect(updateRule.mock.calls[0]).toEqual(["r1", { undo_on_cancellation: false }, expect.anything()]);
+  });
+
+  it("PUT says why when the save changed nothing for someone who can't manage the hotel, and 404 otherwise", async () => {
+    updateRule.mockResolvedValueOnce(false);
+    hasHotelRank.mockResolvedValueOnce(false);
+    const refused = await PUT(req({ undo_on_cancellation: false }, "PUT"), params);
+    expect(refused.status).toBe(403);
+    expect((await refused.json()).error).toBe("Only a Revenue Manager or above can change this.");
+    expect(hasHotelRank).toHaveBeenLastCalledWith(expect.anything(), "h1", "revenue_manager");
+    updateRule.mockResolvedValueOnce(false);
+    expect((await PUT(req({ undo_on_cancellation: false }, "PUT"), params)).status).toBe(404);
+    ruleRow = null;
+    updateRule.mockResolvedValueOnce(false);
+    expect((await PUT(req({ undo_on_cancellation: false }, "PUT"), params)).status).toBe(404);
+    ruleRow = { hotel_id: "h1" };
   });
 });

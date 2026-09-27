@@ -241,6 +241,9 @@ export const UNDO_ON_CANCELLATION_HELP: { label: string; title: string; lines: s
   ],
 };
 
+/** What a rule's save says to someone who may read the rule but not change it. */
+export const RULE_CHANGE_FORBIDDEN = "Only a Revenue Manager or above can change this.";
+
 /**
  * Why an undo_on_cancellation value in a request is unusable, or null when
  * it is fine (a boolean) or absent. Anything else is refused rather than
