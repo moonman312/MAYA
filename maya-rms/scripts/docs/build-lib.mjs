@@ -681,6 +681,7 @@ export function buildReplies(raw, pages, index, sectionList, screens) {
     replies: {
       light: words(raw.light, `"light"`),
       neutral: words(raw.neutral, `"neutral"`),
+      filler: words(raw.filler ?? [], `"filler"`),
       fixes,
       start: (Array.isArray(raw.start) ? raw.start : []).map((l) => link(l, `"start"`)).filter(Boolean),
       areas,

@@ -9,7 +9,7 @@
 // 5. a follow-up leans on the last answer's page and question
 
 import MiniSearch from "minisearch";
-import { buildSynonymTable, clean, createSpeller, tokenize, trigrams, type SynonymTable } from "./normalize.ts";
+import { buildSynonymTable, clean, createSpeller, synonymCover, tokenize, trigrams, type SynonymTable } from "./normalize.ts";
 
 export interface AskPage {
   /** url, "/docs/rules/booking-speed" */
@@ -73,6 +73,8 @@ export interface AskReplies {
   light: string[];
   /** words that never make a question specific */
   neutral: string[];
+  /** words dropped before comparing ("um", "so", "please"): they change nothing */
+  filler?: string[];
   /** casual spellings, one word to the words the examples use */
   fixes: Record<string, string>;
   /** good starting points, for a question with no answer */
@@ -193,6 +195,8 @@ export const TUNING = {
   coverWeight: 0.9,
   /** coverage from a single word that is not in the page's title or keywords */
   loneWord: 0.5,
+  /** how much a reader's word counts as covered when only a synonym of it is on the page ("max rate" and "ceiling") */
+  synonymCover: 0.5,
   /** at or above: a confident answer */
   high: 0.6,
   /** at or above: "This might help"; below: not covered */
@@ -228,6 +232,8 @@ export interface Matcher {
 }
 
 const FOLLOW_UP = /^(and|also|what about|how about|and what about|same for|what if|but what about|what for|for)\b/;
+/** Words a question may open with before it starts ("hi, how do I...", "thanks! and why..."). */
+const LEAD_IN = /^((hi|hello|hey|thanks|thank you|thx|ok|okay|so|and|also|please|pls|um|hmm|well|quick question|question)\s+)+/;
 
 export function isFollowUp(question: string): boolean {
   const q = question.toLowerCase().trim();
@@ -345,9 +351,11 @@ export function createMatcher(index: AskIndex, options: { exclude?: (q: AskQuest
   // much of the question's weight the passage and its page cover, held down
   // when only one of the reader's words was found (a lone word such as
   // "life" can match by accident).
-  function confidenceOf(qTokens: string[], page: number, entry: number, bank: number): number {
+  function confidenceOf(qTokens: string[], page: number, entry: number, bank: number, synonyms: Map<string, number[]>): number {
     const uniq = [...new Set(qTokens)].filter((t) => !t.startsWith("syn") && !t.includes("_"));
     if (!uniq.length) return Math.min(1, bank);
+    // Numbers alone ("2+2", "60") are no question the docs can answer, unless one is listed word for word.
+    if (uniq.every((t) => /^\d+$/.test(t))) return bank >= TUNING.strongBank ? Math.min(1, bank) : 0;
     const entryTokens = new Set(
       [docs[entry].t, docs[entry].h, docs[entry].l, docs[entry].sum, docs[entry].x].join(" ").split(" "),
     );
@@ -360,12 +368,16 @@ export function createMatcher(index: AskIndex, options: { exclude?: (q: AskQuest
     for (const t of uniq) {
       const w = idf(t);
       total += w;
-      if (entryTokens.has(t)) inEntry += w;
-      if (pageTokens[page].has(t)) {
-        inPage += w;
+      const groups = (synonyms.get(t) ?? []).map((g) => `syn${g}`);
+      const has = (set: Set<string>) => (set.has(t) ? 1 : groups.some((g) => set.has(g)) ? TUNING.synonymCover : 0);
+      const e = has(entryTokens);
+      const p = has(pageTokens[page]);
+      inEntry += w * e;
+      if (p) {
+        inPage += w * p;
         if (!/^\d+$/.test(t)) found++;
       }
-      if (topical.has(t) && !/^\d+$/.test(t)) onTopic++;
+      if (has(topical) && !/^\d+$/.test(t)) onTopic++;
     }
     let cover = total ? (0.6 * inEntry + 0.4 * inPage) / total : 0;
     if (found < 2 && onTopic === 0) cover *= TUNING.loneWord;
@@ -394,7 +406,8 @@ export function createMatcher(index: AskIndex, options: { exclude?: (q: AskQuest
   }
 
   function run(question: string, ctx: AskContext, followUp: boolean): AskResult {
-    let tokens = tok(spell(question));
+    const spelt = spell(question);
+    let tokens = tok(spelt);
     const empty: AskResult = { confidence: "none", score: 0, answer: null, alsoSee: [], pages: [], tokens };
     if (!tokens.length) return empty;
 
@@ -480,8 +493,8 @@ export function createMatcher(index: AskIndex, options: { exclude?: (q: AskQuest
       for (const r of ranked) if (r.bank >= strongest - 0.03) r.score += 10;
     }
     // "How do I..." leans towards the recipes, "Why..." towards the troubleshooting pages.
-    const lead = question.toLowerCase().trim();
-    const intent = /^(how (do|can|should) (i|we)|how to)\b/.test(lead) ? "recipes" : /^why\b/.test(lead) ? "wrong" : null;
+    const lead = clean(question).replace(LEAD_IN, "");
+    const intent = /^(how (do|can|should) (i|we)|how to|how i can)\b/.test(lead) ? "recipes" : /^why\b/.test(lead) ? "wrong" : null;
     if (intent) for (const r of ranked) if (sectionOf[r.page] === intent) r.score += TUNING.intentBoost;
     ranked.sort((a, b) => b.score - a.score || a.page - b.page);
     if (!ranked.length) return empty;
@@ -508,7 +521,7 @@ export function createMatcher(index: AskIndex, options: { exclude?: (q: AskQuest
     const hits: AskHit[] = ranked.map((r) => ({ page: r.page, score: r.score, entry: pick(r.page) }));
     const best = ranked[0];
     const answer = hits[0];
-    const confidenceScore = confidenceOf(tokens.filter((t) => own.has(t)), best.page, answer.entry, best.bank);
+    const confidenceScore = confidenceOf(tokens.filter((t) => own.has(t)), best.page, answer.entry, best.bank, synonymCover(spelt, syn));
     const confidence: Confidence =
       confidenceScore >= TUNING.high ? "high" : confidenceScore >= TUNING.unsure ? "unsure" : "none";
 

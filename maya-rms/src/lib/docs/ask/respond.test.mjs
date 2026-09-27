@@ -116,9 +116,12 @@ test("of every question the docs and the bank list, only a few general ones get 
     ["What MAYA does", "overview"],
     ["How do I get started with MAYA?", "start"],
     ["How to get started", "start"],
-    ["what happens when i sign up", "start"],
     ["How do I contact support?", "human"],
     ["Contact support", "human"],
+    ["Is there phone or chat support?", "human"],
+    ["What is the support email address?", "human"],
+    ["setup steps", "start"],
+    ["what do i need to get started", "start"],
     ["What is the docs helper?", "bot"],
   ]);
   const asked = new Set([...index.questions.map((q) => q.q), ...index.pages.map((p) => p.t)]);
@@ -235,3 +238,56 @@ test("the matcher reads a misspelt docs word as the word", () => {
     assert.equal(index.pages[r.answer.page].u, url, q);
   }
 });
+
+test("the speller leaves names alone: a five-letter word may gain, lose or swap a letter, not change one", () => {
+  const spell = createSpeller(new Map([["parts", 30], ["window", 20], ["delete", 12], ["booking", 40]]));
+  assert.equal(spell("paris"), "paris");
+  assert.equal(spell("windo"), "window");
+  assert.equal(spell("delet"), "delete");
+  assert.equal(spell("bookign"), "booking");
+});
+
+test("numbers alone are no question", () => {
+  for (const q of ["what is 2+2", "123", "60"]) assert.equal(say(q).outcome, "none", q);
+});
+
+test("a reader's word the docs never use still counts when a synonym of it is on the page", () => {
+  const r = say("max rate");
+  assert.notEqual(r.outcome, "none");
+  assert.match(index.pages[r.docs.answer.page].u, /floor/);
+});
+
+test("a greeting or thanks in front of a question does not change its answer", () => {
+  const plain = say("how do i undo a price change?");
+  for (const q of ["hi, how do i undo a price change?", "thanks! so how do I undo a price change"]) {
+    const r = say(q);
+    assert.equal(r.outcome, plain.outcome, q);
+    assert.equal(r.docs.answer.page, plain.docs.answer.page, q);
+  }
+  assert.equal(index.pages[plain.docs.answer.page].u, "/docs/recipes/undo-a-price-change");
+});
+
+test("filler is dropped, and a question made only of one set reply's words gets it", () => {
+  for (const [q, id] of [
+    ["um so how does this whole thing work?", "page"],
+    ["how am i supposed to use this", "page"],
+    ["can someone explain how to use this", "page"],
+    ["hmm ok", "ack"],
+    ["hwo does this work", "page"],
+  ]) {
+    const r = say(q);
+    assert.equal(r.canned?.intent, id, `${q}: ${r.outcome} ${r.canned?.intent}`);
+  }
+  // but not a question with a subject of its own, or one naming MAYA
+  for (const q of ["get suggestions", "is maya ai", "go live", "am i live", "what emails will i get"]) {
+    assert.notEqual(say(q).outcome, "canned", q);
+  }
+});
+
+test("a short word is not read as a typo of a set reply's word", () => {
+  const i = createIntents(index.replies, helper.matcher.knows);
+  assert.equal(i.words("cook rice").map((w) => w.raw).join(" "), "cook rice");
+  assert.equal(i.words("helo").map((w) => w.raw).join(" "), "hello");
+  assert.equal(say("how do i cook rice").outcome, "none");
+});
+

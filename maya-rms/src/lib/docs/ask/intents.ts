@@ -6,7 +6,7 @@
 // A question is compared with every example of every intent, word by word:
 // casual spellings fixed ("u" is "you", "dose" is "does"), repeated letters
 // squeezed ("helpp"), a word the docs never use allowed one typo ("helo"),
-// then stemmed. The score is a weighted F1 of the shared words, where stop
+// filler dropped ("um", "so", "please"), then stemmed. The score is a weighted F1 of the shared words, where stop
 // words and "light" words (hi, thanks, please) count for little, so a word
 // another intent or list knows ("is MAYA AI?" has "maya") keeps it from
 // matching "is this AI?". Words no example or list uses are left out of the
@@ -24,6 +24,12 @@ const NEGATION = new Set(["not", "no", "never", "nothing", "without"]);
 const QUOTED = /["\u201c\u201d][^"\u201c\u201d]*\s[^"\u201c\u201d]*["\u201c\u201d]/;
 /** at or above: the question is this intent */
 export const INTENT_MATCH = 0.75;
+/**
+ * at or above, when every word of the question that carries meaning is one
+ * of this intent's own words: "can someone explain how to use this" joins
+ * two of the page intent's examples and matches neither closely
+ */
+export const INTENT_COVERED = 0.55;
 
 export interface IntentMatch {
   intent: AskIntent;
@@ -54,12 +60,20 @@ export function oneEditApart(a: string, b: string): boolean {
   return la > lb ? a.slice(i + 1) === b.slice(i) : a.slice(i) === b.slice(i + 1);
 }
 
+/** True when b is a with two letters side by side swapped. */
+function swapped(a: string, b: string): boolean {
+  let i = 0;
+  while (i < a.length && a[i] === b[i]) i++;
+  return a.length === b.length && i + 1 < a.length && a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2);
+}
+
 /**
  * `knows(stem)`: true when the docs use the word. Only a word the docs never
  * use is read as a typo of an example's word, so "code" never becomes "come".
  */
 export function createIntents(replies: AskReplies, knows: (stem: string) => boolean = () => false): IntentMatcher {
   const fixes = new Map(Object.entries(replies.fixes));
+  const filler = new Set(replies.filler ?? []);
   const lightRaw = new Set(replies.light);
   const neutralRaw = new Set(replies.neutral);
 
@@ -72,11 +86,14 @@ export function createIntents(replies: AskReplies, knows: (stem: string) => bool
     const fixed = fixes.get(w);
     if (fixed) return fixed.split(" ");
     if (known.has(w) || STOP_WORDS.has(w) || /\d/.test(w)) return [w];
-    for (const squeezed of [w.replace(/(.)\1{2,}/g, "$1"), w.replace(/(.)\1+/g, "$1"), w.replace(/(.)\1{2,}/g, "$1$1")]) {
+    // "helppp", "hellooo"; a doubled letter is squeezed only when three letters or more are left ("sso" is not "so")
+    const doubled = w.replace(/(.)\1+/g, "$1");
+    for (const squeezed of [w.replace(/(.)\1{2,}/g, "$1"), doubled.length >= 3 ? doubled : w, w.replace(/(.)\1{2,}/g, "$1$1")]) {
       if (squeezed !== w && (known.has(squeezed) || fixes.has(squeezed))) return repair(squeezed);
     }
     if (w.length >= 4 && !knows(stemWord(w))) {
-      const near = knownList.filter((k) => oneEditApart(w, k));
+      // A short word may gain, lose or swap a letter ("helo") but not change one ("cook" is not "cool").
+      const near = knownList.filter((k) => oneEditApart(w, k) && (w.length >= 6 || k.length !== w.length || swapped(w, k)));
       if (near.length === 1) return [near[0]];
     }
     return [w];
@@ -86,7 +103,7 @@ export function createIntents(replies: AskReplies, knows: (stem: string) => bool
     const out: { raw: string; stem: string }[] = [];
     for (const w of clean(question).split(" ")) {
       if (!w) continue;
-      for (const r of repair(w)) out.push({ raw: r, stem: stemWord(r) });
+      for (const r of repair(w)) if (!filler.has(r)) out.push({ raw: r, stem: stemWord(r) });
     }
     return out;
   }
@@ -126,8 +143,8 @@ export function createIntents(replies: AskReplies, knows: (stem: string) => bool
     if (QUOTED.test(question)) return null;
     const ws = words(question);
     if (!ws.length) {
-      // Only punctuation or symbols ("?", "..."): the reader wants a way in.
-      if (!question.trim()) return null;
+      // Only punctuation or symbols ("?", "..."): the reader wants a way in. Only filler ("um"): nothing to go on.
+      if (!question.trim() || clean(question)) return null;
       const help = prepared.find((p) => p.intent.id === "help");
       return help ? { intent: help.intent, score: 1, residual: [] } : null;
     }
@@ -137,16 +154,29 @@ export function createIntents(replies: AskReplies, knows: (stem: string) => bool
     const qw = total(q);
     let best: (typeof prepared)[number] | null = null;
     let bestScore = 0;
+    // Two or more words that carry meaning, and no word such as "maya" that names a subject ("is MAYA AI?").
+    const own = ws.filter((w) => !isStop(w.raw) && !lightStem.has(w.stem) && !neutralStem.has(w.stem));
+    const coverable = own.length >= 2 && !ws.some((w) => neutralStem.has(w.stem));
+    let covered: (typeof prepared)[number] | null = null;
+    let coveredScore = 0;
     for (const p of prepared) {
-      for (const e of p.examples) {
-        const s = f1(q, qw, e.b, e.w);
-        if (s > bestScore + 1e-9) {
-          bestScore = s;
-          best = p;
-        }
+      let top = 0;
+      for (const e of p.examples) top = Math.max(top, f1(q, qw, e.b, e.w));
+      if (top > bestScore + 1e-9) {
+        bestScore = top;
+        best = p;
+      }
+      if (coverable && top > coveredScore + 1e-9 && own.every((w) => p.vocab.has(w.stem))) {
+        coveredScore = top;
+        covered = p;
       }
     }
-    if (!best || bestScore < INTENT_MATCH) return null;
+    if ((!best || bestScore < INTENT_MATCH) && covered && coveredScore >= INTENT_COVERED) {
+      best = covered;
+      bestScore = coveredScore;
+    }
+    if (!best || bestScore < INTENT_COVERED) return null;
+    if (bestScore < INTENT_MATCH && best !== covered) return null;
     const vocab = best.vocab;
     const residual = [
       ...new Set(
