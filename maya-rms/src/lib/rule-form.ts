@@ -223,7 +223,7 @@ export const UNDO_ON_CANCELLATION_HELP: { label: string; title: string; lines: s
   title: "Undo on cancellations",
   lines: [
     "Ticked: if guests cancel and this rule is no longer true for a night, its change there comes off. It can adjust that night again once it is true again and any wait it has is over.",
-    "Unticked: cancellations never undo it. Its change still comes off when the night passes, when you set the price yourself, or when you edit the rule.",
+    "Unticked: cancellations never undo it. Its change still comes off when the night passes, when you set the price yourself, or when you edit or delete the rule.",
   ],
 };
 
