@@ -6,11 +6,20 @@ import { track } from "@/lib/analytics/track";
 // MAYA's way into its docs. Both open a new tab, so whatever is half-filled
 // on the screen stays exactly as it was.
 
+/**
+ * The docs page about a screen, with ?from=<screen> so the docs helper knows
+ * which screen Help was opened from (components/docs/ask/help-origin.ts).
+ */
+export function helpHref(screen: string): string {
+  const [page, anchor] = screenDocsHref(screen).split("#");
+  return `${page}?from=${encodeURIComponent(screen)}${anchor ? `#${anchor}` : ""}`;
+}
+
 /** "Help" in a header: the docs page about the screen the owner is on. */
 export function HelpLink({ screen, className }: { screen: string; className?: string }) {
   return (
     <a
-      href={screenDocsHref(screen)}
+      href={helpHref(screen)}
       target="_blank"
       rel="noopener"
       onClick={() => track("help.opened", { from: "header" })}
