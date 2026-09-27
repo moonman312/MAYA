@@ -16,6 +16,7 @@ import { evaluateHotel } from "./evaluate";
 import { fakeSupabase as sharedFake, type FakeRow } from "./fake-supabase.test";
 import {
   cancellationChecks,
+  cancellationFinding,
   cancellationReads,
   cancellationsUndo,
   firesCancelled,
@@ -362,6 +363,30 @@ describe("booking speed: the bookings the raise counted, still booked, against t
     expect(cancellationsUndo(f, r, i(0.68))).toBe(true);
   });
 
+  it("says what it found no longer true, with the numbers it judged, for the change log", () => {
+    // Three of the six cancel: 3 left where 2 is usual no longer reads faster.
+    expect(
+      cancellationFinding(f, speed("faster"), input({ booked: booked({ [FIRED]: { rt1: 5 }, [OPENED]: { rt1: 1 } }), bsCtx: context(six.slice(0, 3)) })),
+    ).toEqual({ part: "booking_speed", left: 3, counted: 6, expected: 2 });
+    // Occupancy is judged first when both went.
+    const both = rule({
+      condition: { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 7, occupancy_operator: "gt", occupancy_threshold: 0.7 },
+    });
+    expect(
+      cancellationFinding(f, both, input({ booked: booked({ [FIRED]: { rt1: 5 }, [OPENED]: { rt1: 1 } }), bsCtx: context(six.slice(0, 3)), occupancyNow: () => 0.65 })),
+    ).toEqual({ part: "occupancy", occupancy: 0.65, threshold: 0.7 });
+    // Revenue pickup says so.
+    const rev = rule({ condition: { pickup_operator: "gt", pickup_threshold: 450, pickup_window_days: 7, pickup_metric: "revenue" } });
+    expect(cancellationFinding(fire(), rev, input({ booked: booked({ [FIRED]: { rt1: 5 }, [OPENED]: { rt1: 1 } }) }))).toEqual({
+      part: "pickup",
+      net: 400,
+      threshold: 450,
+      metric: "revenue",
+    });
+    // Still true: nothing found.
+    expect(cancellationFinding(f, speed("faster"), input({ booked: booked({ [FIRED]: { rt1: 5 }, [OPENED]: { rt1: 1 } }), bsCtx: context(six.slice(0, 5)) }))).toBeNull();
+  });
+
   it("with no history loaded for the night, nothing is said", () => {
     expect(cancellationsUndo(f, speed("faster"), input({ booked: booked({ [FIRED]: { rt1: 5 } }), bsCtx: null }))).toBe(false);
     expect(cancellationsUndo(f, speed("faster"), input({ booked: booked({ [FIRED]: { rt1: 5 } }), bsCtx: context(six.slice(0, 2), []) }))).toBe(false);
@@ -381,7 +406,8 @@ describe("firesCancelled", () => {
       rules: new Map([["r1", rule()]]),
       now: NOW,
     });
-    expect(out).toEqual(new Map([["e1", "bookings_cancelled"]]));
+    // With what was found no longer true: one of the five cancelled, net 4, not more than 4.
+    expect(out).toEqual(new Map([["e1", { part: "pickup", net: 4, threshold: 4, metric: "room_nights" }]]));
     // Unticked, the same cancellations take nothing off.
     expect(
       firesCancelled(fires, {

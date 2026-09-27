@@ -64,6 +64,7 @@ import {
   runPickupPass,
   waitAnchor,
   type BookingSpeedCountFrom,
+  type CancellationFinding,
   type FireHead,
   type PickupRetireReason,
   type PickupWin,
@@ -871,7 +872,7 @@ export async function evaluateHotel(
     rulesById,
     now,
   );
-  let cancelReasons = new Map<string, "bookings_cancelled">();
+  let cancelFindings = new Map<string, CancellationFinding>();
   if (cancelChecks.length > 0) {
     // A read that fails leaves every change where it is this run (logged):
     // one checked on numbers it doesn't have could come off with all its
@@ -894,7 +895,7 @@ export async function evaluateHotel(
       );
     }
     const snapshotByCell = new Map(writtenSnapshots.map((sn) => [`${sn.stay_date}|${sn.room_type_id}`, sn]));
-    if (booked) cancelReasons = firesCancelled(
+    if (booked) cancelFindings = firesCancelled(
       cancelChecks.map((c) => c.fire),
       {
         rules: rulesById,
@@ -912,6 +913,7 @@ export async function evaluateHotel(
       },
     );
   }
+  const cancelReasons = new Map([...cancelFindings.keys()].map((id) => [id, "bookings_cancelled" as const]));
   const cancelledIds =
     cancelReasons.size > 0 ? await retireFires(supabase, hotelId, cancelReasons, now) : new Set<string>();
   const retireReasons = new Map<string, PickupRetireReason>([...resetReasons, ...cancelReasons]);
@@ -919,7 +921,12 @@ export async function evaluateHotel(
   const retiredByCell = new Map<string, RetiredPickupFire[]>();
   for (const fire of openFires) {
     if (!retiredIds.has(fire.id)) continue;
-    pushTo(retiredByCell, `${fire.stay_date}|${fire.affected_room_type_id}`, { fire, reason: retireReasons.get(fire.id)! });
+    const finding = cancelFindings.get(fire.id);
+    pushTo(retiredByCell, `${fire.stay_date}|${fire.affected_room_type_id}`, {
+      fire,
+      reason: retireReasons.get(fire.id)!,
+      ...(finding ? { finding } : {}),
+    });
   }
 
   // Paused event rules never run, but pausing leaves their fires on the

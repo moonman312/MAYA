@@ -74,6 +74,25 @@ export type RuleCondition = {
  */
 export type PickupCancelCheck = "none" | "net_units" | "window_bookings" | "either" | "recount";
 
+/**
+ * What the cancellation check found no longer true when it took a change
+ * off (cancellationFinding in engine/pickup.ts), with the numbers it
+ * judged, so the change log can say why:
+ *
+ * - occupancy: the night's sellable occupancy then (0 to 1), against the
+ *   rule's bar;
+ * - pickup: the pickup the change counted, less its bookings that
+ *   cancelled, in room nights or revenue as the rule counts, against the
+ *   rule's number;
+ * - booking_speed: of the bookings the change counted in its window
+ *   (null on a change from before that was stored), how many are still
+ *   booked, against the usual frozen at the change.
+ */
+export type CancellationFinding =
+  | { part: "occupancy"; occupancy: number; threshold: number }
+  | { part: "pickup"; net: number; threshold: number; metric: "room_nights" | "revenue" }
+  | { part: "booking_speed"; left: number; counted: number | null; expected: number };
+
 /** Why a fire stopped applying. "legacy" and "self_cancelled" only mark rows from before stacking. */
 export type PickupRetiredReason =
   | "night_passed"
@@ -253,6 +272,8 @@ export type EvaluationAuditDetails = {
     fire_seq: number;
     reason: "bookings_cancelled" | "manual_price" | "rule_edited";
     cancel_check: PickupCancelCheck;
+    /** For bookings_cancelled, what cancellations made no longer true. Absent on rows from before it was kept. */
+    finding?: CancellationFinding;
   }[];
   application_order: string[];
   pre_clamp_price: string;

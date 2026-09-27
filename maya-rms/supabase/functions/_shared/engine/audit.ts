@@ -209,7 +209,7 @@ export function buildAuditRow(input: AuditInput): Record<string, unknown> | null
     })),
     ...(input.retiredPickupEffects && input.retiredPickupEffects.length > 0
       ? {
-          retired_pickup_effects: input.retiredPickupEffects.map(({ fire, reason }) => ({
+          retired_pickup_effects: input.retiredPickupEffects.map(({ fire, reason, finding }) => ({
             event_id: fire.id,
             rule_id: fire.rule_id,
             delta: formatDelta(fire.action_kind, fire.action_direction, fire.action_value),
@@ -217,6 +217,8 @@ export function buildAuditRow(input: AuditInput): Record<string, unknown> | null
             fire_seq: fire.fire_seq,
             reason,
             cancel_check: fire.cancel_check,
+            // What cancellations made no longer true, for the change log.
+            ...(finding ? { finding } : {}),
           })),
         }
       : {}),

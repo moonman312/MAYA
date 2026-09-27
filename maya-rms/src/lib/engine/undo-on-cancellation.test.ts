@@ -204,11 +204,16 @@ describe.each(ENGINES)("$name: the undo box", (engine) => {
       // Three left in its day no longer read "much faster".
       expect(w.price()).toBe(undo ? 100 : 110);
       expect(w.story()).toEqual([["Quick pickup", iso(at(0, 10, 5)), undo ? "bookings_cancelled" : null]]);
-      // The audit row says why it came off.
+      // The audit row says why it came off, and what it found: of the 5 it
+      // counted, 3 are still booked, against the usual frozen at the raise.
       const off = w.tables.evaluation_audit
         .filter((a) => a.stay_date === NIGHT && a.evaluated_at === iso(at(0, 11, 5)))
-        .flatMap((a) => ((a.details as { retired_pickup_effects?: FakeRow[] }).retired_pickup_effects ?? []).map((e) => e.reason));
-      expect(off).toEqual(undo ? ["bookings_cancelled"] : []);
+        .flatMap((a) => (a.details as { retired_pickup_effects?: FakeRow[] }).retired_pickup_effects ?? []);
+      expect(off.map((e) => e.reason)).toEqual(undo ? ["bookings_cancelled"] : []);
+      const fire = w.fires()[0];
+      if (undo) {
+        expect(off[0].finding).toEqual({ part: "booking_speed", left: 3, counted: 5, expected: Number(fire.window_expected_at_fire) });
+      }
     }, 120_000);
 
     it.each(BOXES)("$box: cancellations a long time later: only the change's own window is recounted", async ({ undo }) => {

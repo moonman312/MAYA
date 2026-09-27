@@ -114,7 +114,7 @@
  * the weaker rules, and are not checked while it is paused.
  */
 
-import type { EngineRule, PickupCancelCheck } from "@/types/domain";
+import type { CancellationFinding, EngineRule, PickupCancelCheck } from "@/types/domain";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   MIN_COMPARABLES_FULL_RANGE,
@@ -143,6 +143,8 @@ import {
 } from "./snapshots";
 import { addCalendarDays, evalIsoToHotelDateString } from "./timezone";
 import type { PickupCandidate, RuleMetrics } from "./types";
+
+export type { CancellationFinding };
 
 const DAY_MS = 86_400_000;
 
@@ -1146,7 +1148,8 @@ export function pickupEffectsFromFires(
 
 export type PickupRetireReason = "manual_price" | "rule_edited" | "bookings_cancelled";
 
-export type RetiredPickupFire = { fire: OpenPickupFire; reason: PickupRetireReason };
+/** A fire this run took off, and for one taken off for cancellations what was found no longer true. */
+export type RetiredPickupFire = { fire: OpenPickupFire; reason: PickupRetireReason; finding?: CancellationFinding };
 
 /**
  * The open fires a typed price or an edit takes off, before anything else
@@ -1351,14 +1354,15 @@ function paceStillHolds(condition: EngineRule["condition"], recent: number, expe
 
 /**
  * Whether cancellations have made a fire's rule no longer true, so the
- * change comes off (bookings_cancelled). `fire` and `rule` come from
+ * change comes off (bookings_cancelled), and what was found false: null
+ * while the rule still holds. `fire` and `rule` come from
  * cancellationChecks.
  *
  * First, something the fire saw must have cancelled: the room nights on the
  * rule's room types first seen by the fire and still booked are fewer than
  * the fire saw (signal_booked_units_end). Then each part cancellations can
- * make false (cancellableParts) is judged, and any one that fails takes the
- * change off:
+ * make false (cancellableParts) is judged, and the first one that fails
+ * takes the change off:
  *
  * - occupancy "more than": the night's sellable occupancy now;
  * - pickup "more than": the fire's net pickup with the cancelled bookings
@@ -1371,19 +1375,32 @@ function paceStillHolds(condition: EngineRule["condition"], recent: number, expe
  * before its numbers were in bookings) is left as it was at the fire. So
  * are the other parts: they only get truer as bookings cancel.
  */
-export function cancellationsUndo(fire: OpenPickupFire, rule: EngineRule, input: CancellationInput): boolean {
+export function cancellationFinding(
+  fire: OpenPickupFire,
+  rule: EngineRule,
+  input: CancellationInput,
+): CancellationFinding | null {
   const signal = rule.signal_room_type_ids;
   const atFire = bookedBeforeOver(input.booked, fire.stay_date, fire.applied_at, signal);
-  if (!atFire || atFire.units >= fire.signal_booked_units_end) return false;
+  if (!atFire || atFire.units >= fire.signal_booked_units_end) return null;
   const c = rule.condition;
   const parts = cancellableParts(rule);
   if (parts.occupancy) {
     const occupancy = input.occupancyNow(fire.stay_date, signal);
-    if (occupancy !== null && !(occupancy > c.occupancy_threshold!)) return true;
+    if (occupancy !== null && !(occupancy > c.occupancy_threshold!)) {
+      return { part: "occupancy", occupancy, threshold: c.occupancy_threshold! };
+    }
   }
   if (parts.pickup) {
     const net = pickupStillCounted(fire, rule, input, atFire);
-    if (net !== null && !(net > c.pickup_threshold!)) return true;
+    if (net !== null && !(net > c.pickup_threshold!)) {
+      return {
+        part: "pickup",
+        net,
+        threshold: c.pickup_threshold!,
+        metric: c.pickup_metric === "revenue" ? "revenue" : "room_nights",
+      };
+    }
   }
   if (parts.bookingSpeed && input.bsCtx && windowRecountable(fire)) {
     const left = bookingsStillBookedFromFire(
@@ -1395,23 +1412,37 @@ export function cancellationsUndo(fire: OpenPickupFire, rule: EngineRule, input:
       fire.window_since,
       fire.applied_at,
     );
-    if (left !== null && !paceStillHolds(c, left, fire.window_expected_at_fire!)) return true;
+    if (left !== null && !paceStillHolds(c, left, fire.window_expected_at_fire!)) {
+      return {
+        part: "booking_speed",
+        left,
+        counted: fire.window_bookings_at_fire,
+        expected: fire.window_expected_at_fire!,
+      };
+    }
   }
-  return false;
+  return null;
+}
+
+/** Whether cancellations have made a fire's rule no longer true (cancellationFinding found something). */
+export function cancellationsUndo(fire: OpenPickupFire, rule: EngineRule, input: CancellationInput): boolean {
+  return cancellationFinding(fire, rule, input) !== null;
 }
 
 /**
- * The fires cancellations take off this run (bookings_cancelled): each
- * check cancellationChecks names that cancellationsUndo says has gone
- * false. `fires` are the ones firesToReset left.
+ * The fires cancellations take off this run (bookings_cancelled), each with
+ * what was found no longer true: each check cancellationChecks names that
+ * cancellationFinding says has gone false. `fires` are the ones
+ * firesToReset left.
  */
 export function firesCancelled(
   fires: readonly OpenPickupFire[],
   input: CancellationInput & { rules: ReadonlyMap<string, EngineRule>; now: string },
-): Map<string, "bookings_cancelled"> {
-  const out = new Map<string, "bookings_cancelled">();
+): Map<string, CancellationFinding> {
+  const out = new Map<string, CancellationFinding>();
   for (const { fire, rule } of cancellationChecks(fires, input.rules, input.now)) {
-    if (cancellationsUndo(fire, rule, input)) out.set(fire.id, "bookings_cancelled");
+    const finding = cancellationFinding(fire, rule, input);
+    if (finding) out.set(fire.id, finding);
   }
   return out;
 }
