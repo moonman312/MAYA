@@ -422,3 +422,47 @@ describe("a pickup count rule's wait round-trips through the store", () => {
     );
   });
 });
+
+describe("the undo box round-trips through the store", () => {
+  const occupancy = { occupancy_operator: "gt", occupancy_threshold: 0.7 } as const;
+  const readBack = (tables: Map<string, Row[]>) => {
+    const rule = { ...tables.get("pricing_rules")![0], rule_condition: tables.get("rule_condition")![0] };
+    return fakeSupabase({ pricing_rules: [rule] });
+  };
+
+  it("a new rule is written ticked unless the owner unticked it, and reads back the same way to the table and the engine", async () => {
+    for (const [given, stored] of [
+      [undefined, true],
+      [true, true],
+      [false, false],
+    ] as const) {
+      const { client, tables } = fakeSupabase();
+      await createRule(baseCreateInput({ condition: occupancy, undo_on_cancellation: given }), client, HOTEL);
+      expect(tables.get("pricing_rules")![0]).toMatchObject({ undo_on_cancellation: stored });
+      const reader = readBack(tables);
+      expect((await listRules(reader.client, HOTEL))[0].undo_on_cancellation).toBe(stored);
+      expect((await listEngineRules(reader.client, HOTEL))[0].undo_on_cancellation).toBe(stored);
+      // The reads ask for the column.
+      expect(reader.selects.find((s) => s.table === "pricing_rules")?.columns).toMatch(/undo_on_cancellation/);
+    }
+  });
+
+  it("a rule saved before the box existed reads as ticked", async () => {
+    const { client } = fakeSupabase({ pricing_rules: [{ id: "r1", hotel_id: HOTEL, name: "Old", is_active: true, action_type: "percent", action_direction: "increase", action_value: 10, rule_condition: occupancy }] });
+    expect((await listRules(client, HOTEL))[0].undo_on_cancellation).toBe(true);
+    expect((await listEngineRules(client, HOTEL))[0].undo_on_cancellation).toBe(true);
+  });
+
+  it("changing the box is not an edit: the version and the rule's changes stay", async () => {
+    const { client, tables } = fakeSupabase({
+      pricing_rules: [{ id: "r1", version: 4, is_active: true, is_pickup_rule: true, undo_on_cancellation: true }],
+      rule_condition: [{ rule_id: "r1", ...occupancy }],
+      pickup_event: [{ id: "pe1", rule_id: "r1", retired_at: null }],
+    });
+    expect(await updateRule("r1", { undo_on_cancellation: false }, client)).toBe(true);
+    expect(tables.get("pricing_rules")![0]).toMatchObject({ version: 4, undo_on_cancellation: false });
+    expect(tables.get("pickup_event")![0]).toMatchObject({ retired_at: null });
+    expect(await updateRule("r1", { undo_on_cancellation: true }, client)).toBe(true);
+    expect(tables.get("pricing_rules")![0]).toMatchObject({ version: 4, undo_on_cancellation: true });
+  });
+});

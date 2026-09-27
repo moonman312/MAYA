@@ -91,3 +91,30 @@ describe("room type sets on the rules routes", () => {
     expect(updateRule).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("the undo box on the rules routes", () => {
+  it("POST creates a rule ticked unless the request unticks it", async () => {
+    expect((await POST(req(base))).status).toBe(201);
+    expect(createRule.mock.calls[0][0]).toMatchObject({ undo_on_cancellation: true });
+    expect((await POST(req({ ...base, undo_on_cancellation: true }))).status).toBe(201);
+    expect(createRule.mock.calls[1][0]).toMatchObject({ undo_on_cancellation: true });
+    expect((await POST(req({ ...base, undo_on_cancellation: false }))).status).toBe(201);
+    expect(createRule.mock.calls[2][0]).toMatchObject({ undo_on_cancellation: false });
+  });
+
+  it.each([["no"], [0], [null], [{}]])("POST and PUT refuse %j rather than guess", async (value) => {
+    const created = await POST(req({ ...base, undo_on_cancellation: value }));
+    expect(created.status).toBe(400);
+    expect((await created.json()).error).toBe("Undo on cancellations must be true or false.");
+    expect(createRule).not.toHaveBeenCalled();
+    const updated = await PUT(req({ undo_on_cancellation: value }, "PUT"), params);
+    expect(updated.status).toBe(400);
+    expect(updateRule).not.toHaveBeenCalled();
+  });
+
+  it("PUT passes the box alone through to the store", async () => {
+    const res = await PUT(req({ undo_on_cancellation: false }, "PUT"), params);
+    expect(res.status).toBe(200);
+    expect(updateRule.mock.calls[0]).toEqual(["r1", { undo_on_cancellation: false }, expect.anything()]);
+  });
+});

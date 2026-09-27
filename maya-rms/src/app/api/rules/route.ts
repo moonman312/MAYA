@@ -5,6 +5,7 @@ import {
   isRuleConditionEmpty,
   roomTypeIdListError,
   ruleConditionForInsert,
+  undoOnCancellationError,
 } from "@/lib/rule-form";
 import { createRule, listRules } from "@/lib/rules-store";
 import type { CreateRuleInput } from "@/lib/rules-store";
@@ -60,7 +61,8 @@ export async function POST(req: Request) {
     }
     const setError =
       roomTypeIdListError(body.signal_room_type_ids, "measure") ??
-      roomTypeIdListError(body.affected_room_type_ids, "change");
+      roomTypeIdListError(body.affected_room_type_ids, "change") ??
+      undoOnCancellationError(body.undo_on_cancellation);
     if (setError) {
       return NextResponse.json({ error: setError }, { status: 400 });
     }
@@ -103,6 +105,8 @@ export async function POST(req: Request) {
         // including a missing or malformed field, still creates it enabled, so
         // the existing Rules-tab form is untouched by this.
         is_active: body.is_active === false ? false : undefined,
+        // Ticked unless the request says false (checked above).
+        undo_on_cancellation: body.undo_on_cancellation !== false,
       },
       supabase,
       hotelId,

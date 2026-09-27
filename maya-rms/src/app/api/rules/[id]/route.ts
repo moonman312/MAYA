@@ -1,4 +1,4 @@
-import { RoomTypeSetError, roomTypeIdListError } from "@/lib/rule-form";
+import { RoomTypeSetError, roomTypeIdListError, undoOnCancellationError } from "@/lib/rule-form";
 import { deleteRule, updateRule } from "@/lib/rules-store";
 import type { UpdateRuleInput } from "@/lib/rules-store";
 import { createClient } from "@/utils/supabase/server";
@@ -26,7 +26,8 @@ export async function PUT(req: Request, { params }: Params) {
     const body = (await req.json()) as Partial<UpdateRuleInput>;
     const setError =
       roomTypeIdListError(body.signal_room_type_ids, "measure") ??
-      roomTypeIdListError(body.affected_room_type_ids, "change");
+      roomTypeIdListError(body.affected_room_type_ids, "change") ??
+      undoOnCancellationError(body.undo_on_cancellation);
     if (setError) {
       return NextResponse.json({ error: setError }, { status: 400 });
     }

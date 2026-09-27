@@ -322,6 +322,8 @@ function dbRowToRuleConfig(row: any): RuleConfig {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     signal_room_type_ids: signal.map((rt: any) => String(rt.room_type_id)),
     signal_room_types,
+    // Ticked unless the rule says false (every rule was ticked by the migration).
+    undo_on_cancellation: row.undo_on_cancellation !== false,
   };
 }
 
@@ -376,6 +378,7 @@ function dbRowToEngineRule(row: any): EngineRule {
     affected_room_type_ids: affected_ids,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    undo_on_cancellation: row.undo_on_cancellation !== false,
   };
 }
 
@@ -385,7 +388,7 @@ const RULE_SELECT = `
   id, hotel_id, name, is_active, version, priority,
   start_date, end_date, is_annual, dow_mask,
   action_type, action_direction, action_value,
-  is_pickup_rule, created_at, updated_at,
+  is_pickup_rule, undo_on_cancellation, created_at, updated_at,
   rule_condition (
     occupancy_operator, occupancy_threshold,
     dta_operator, dta_threshold_days,
@@ -495,6 +498,7 @@ export function listEngineRulesFromMemory(allRoomTypeIds: string[]): EngineRule[
       affected_room_type_ids: roomTypeIds,
       created_at: new Date(0).toISOString(),
       updated_at: new Date(0).toISOString(),
+      undo_on_cancellation: r.undo_on_cancellation !== false,
     };
   });
 }
@@ -585,6 +589,11 @@ export type CreateRuleInput = {
    * moving real prices with a rule nobody has approved yet.
    */
   is_active?: boolean;
+  /**
+   * "Undo this change if cancellations mean the rule is no longer true".
+   * Defaults to true: only an explicit false unticks it.
+   */
+  undo_on_cancellation?: boolean;
 };
 
 export async function createRule(
@@ -606,6 +615,7 @@ export async function createRule(
       action: input.action,
       room_types: input.room_types,
       enabled: input.is_active ?? true,
+      undo_on_cancellation: input.undo_on_cancellation !== false,
     };
     memoryRules.push(rule);
     return rule;
@@ -679,6 +689,7 @@ export async function createRule(
       action_direction: dbAction.action_direction,
       action_value: dbAction.action_value,
       is_pickup_rule: hasPickup,
+      undo_on_cancellation: input.undo_on_cancellation !== false,
     })
     .select("id")
     .single();
@@ -833,11 +844,18 @@ export type UpdateRuleInput = {
   condition?: RuleCondition;
   signal_room_type_ids?: string[];
   affected_room_type_ids?: string[];
+  /**
+   * The undo box. Not an edit: the rule keeps its version and its changes,
+   * and from the next run the engine checks them for cancellations
+   * (ticked) or stops checking them (unticked).
+   */
+  undo_on_cancellation?: boolean;
 };
 
 /**
  * Update a rule. If conditions, action, scope, or room-type sets change,
- * bump version and retire active pickup events per §7.4.
+ * bump version and retire active pickup events per §7.4. Renaming, pausing
+ * and the undo box change none of that.
  */
 export async function updateRule(
   id: string,
@@ -897,6 +915,7 @@ export async function updateRule(
   if (input.end_date !== undefined) updates.end_date = input.end_date;
   if (input.is_annual !== undefined) updates.is_annual = input.is_annual;
   if (input.dow_mask !== undefined) updates.dow_mask = input.dow_mask;
+  if (input.undo_on_cancellation !== undefined) updates.undo_on_cancellation = input.undo_on_cancellation;
 
   if (input.action) {
     const dbAction = uiActionToDb(input.action);

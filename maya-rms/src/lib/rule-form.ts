@@ -202,6 +202,41 @@ export const RULE_FIRES_HELP: { label: string; title: string; lines: string[] } 
   ],
 };
 
+/**
+ * The rule builder's box, ticked on every new rule, and its short form in
+ * the rules table. Jake, 2026-09-25: one option for every rule, the same for
+ * a raise or a cut and for every kind of condition.
+ */
+export const UNDO_ON_CANCELLATION_LABEL = "Undo the change if cancellations mean this rule is no longer true";
+export const UNDO_ON_CANCELLATION_SHORT = "Undo on cancellations";
+
+/**
+ * The "?" beside the box. What the engine does (cancellationsUndo in
+ * engine/pickup.ts, ladderConditionsHold in engine/conditions.ts): ticked,
+ * a change comes off once cancellations make its rule no longer true for
+ * that night, judged on what the change counted, and the rule adjusts again
+ * once it is true again and its wait, if it has one, is over. Unticked,
+ * cancellations never take it off; the rest still does.
+ */
+export const UNDO_ON_CANCELLATION_HELP: { label: string; title: string; lines: string[] } = {
+  label: "What undo on cancellations does",
+  title: "Undo on cancellations",
+  lines: [
+    "Ticked: if guests cancel and this rule is no longer true for a night, its change there comes off. It can adjust that night again once it is true again and any wait it has is over.",
+    "Unticked: cancellations never undo it. Its change still comes off when the night passes, when you set the price yourself, or when you edit the rule.",
+  ],
+};
+
+/**
+ * Why an undo_on_cancellation value in a request is unusable, or null when
+ * it is fine (a boolean) or absent. Anything else is refused rather than
+ * read as ticked or unticked.
+ */
+export function undoOnCancellationError(value: unknown): string | null {
+  if (value === undefined || typeof value === "boolean") return null;
+  return "Undo on cancellations must be true or false.";
+}
+
 /** True when no usable condition family is set. */
 export function isRuleConditionEmpty(c: RuleCondition | undefined | null): boolean {
   if (!c) return true;
