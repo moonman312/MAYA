@@ -58,6 +58,8 @@ export function ruleConditionsMatch(rule: EngineRule, metrics: RuleMetrics): boo
  * change is on, and the rest is read as it is now, so a days-before-arrival
  * condition still runs out with time and new bookings still end an
  * "occupancy less than" rule. A night with nothing measured is not held.
+ * Only for a change the rule's current version made: one from before an
+ * edit is judged on every condition (evaluateLadderTriple in ladder.ts).
  */
 export function ladderConditionsHold(rule: EngineRule, metrics: RuleMetrics): boolean {
   const c = rule.condition;

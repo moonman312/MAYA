@@ -161,6 +161,13 @@ function timeline(engine: Engine, o: { rules: FakeRow[]; rows: FakeRow[]; rooms?
     const gone = new Set(rows.map((r) => r.id));
     fake.tables.reservations = fake.tables.reservations.filter((r) => !gone.has(r.id));
   };
+  /** Edit a rule's condition, and with `over` anything else, as updateRule does: a new version. */
+  const edit = (id: string, condition: FakeRow, over: FakeRow = {}) => {
+    const r = fake.tables.pricing_rules.find((x) => x.id === id)!;
+    Object.assign(r, over);
+    r.version = Number(r.version) + 1;
+    r.rule_condition = [condition];
+  };
   const fires = () =>
     fake.tables.pickup_event
       .filter((e) => e.stay_date === NIGHT)
@@ -169,7 +176,7 @@ function timeline(engine: Engine, o: { rules: FakeRow[]; rows: FakeRow[]; rooms?
   const story = () => fires().map((e) => [e.rule_id, iso(Date.parse(String(e.applied_at))), e.retired_reason ?? null]);
   const price = () =>
     Math.round(Number(fake.tables.published_price.find((p) => p.stay_date === NIGHT && p.room_type_id === STD)?.price) * 100) / 100;
-  return { ...fake, runAt, cancel, fires, story, price };
+  return { ...fake, runAt, cancel, edit, fires, story, price };
 }
 
 beforeEach(() => {
@@ -312,6 +319,48 @@ describe.each(ENGINES)("$name: the undo box", (engine) => {
       expect(w.price()).toBe(undo ? 100 : 110);
       await w.runAt(at(0, 12, 5));
       // 23 of 40: true again, and with no wait it is back on at once.
+      expect(w.price()).toBe(110);
+    }, 120_000);
+
+    it.each(BOXES)("$box: an edit is judged whole: on at 60%, edited to more than 80%, it comes off", async ({ undo }) => {
+      const w = timeline(engine, { rules: [busy(undo)], rows: settled(24) });
+      await w.runAt(at(0, 10, 5));
+      expect(w.price()).toBe(110);
+      w.edit("Busy night", { occupancy_operator: "gt", occupancy_threshold: 0.8 });
+      await w.runAt(at(0, 11, 5));
+      expect(w.price()).toBe(100);
+    }, 120_000);
+
+    it.each(BOXES)("$box: an edit it still meets makes the change the edited rule's, its adjustment included", async ({ undo }) => {
+      const w = timeline(engine, { rules: [busy(undo)], rows: settled(24) });
+      await w.runAt(at(0, 10, 5));
+      expect(w.price()).toBe(110);
+      w.edit("Busy night", { occupancy_operator: "gt", occupancy_threshold: 0.5 }, { action_value: 20 });
+      await w.runAt(at(0, 11, 5));
+      expect(w.price()).toBe(120);
+    }, 120_000);
+
+    it("unticked: a days-before-arrival rule edited to need occupancy more than 80% comes off at 60%", async () => {
+      const closeIn = rule("Close in", { dta_operator: "lt", dta_threshold_days: 60 }, { is_pickup_rule: false, undo_on_cancellation: false });
+      const w = timeline(engine, { rules: [closeIn], rows: settled(24) });
+      await w.runAt(at(0, 10, 5));
+      expect(w.price()).toBe(110);
+      w.edit("Close in", { dta_operator: "lt", dta_threshold_days: 60, occupancy_operator: "gt", occupancy_threshold: 0.8 });
+      await w.runAt(at(0, 11, 5));
+      expect(w.price()).toBe(100);
+    }, 120_000);
+
+    it("unticked: an edit it still meets keeps the change, and cancellations after it still don't take it off", async () => {
+      const old = settled(24);
+      const w = timeline(engine, { rules: [busy(false)], rows: old });
+      await w.runAt(at(0, 10, 5));
+      w.edit("Busy night", { occupancy_operator: "gt", occupancy_threshold: 0.55 });
+      await w.runAt(at(0, 11, 5));
+      // 60% is more than 55%.
+      expect(w.price()).toBe(110);
+      w.cancel(old.slice(0, 4));
+      await w.runAt(at(0, 12, 5));
+      // 50% after cancellations: unticked, it stays.
       expect(w.price()).toBe(110);
     }, 120_000);
 

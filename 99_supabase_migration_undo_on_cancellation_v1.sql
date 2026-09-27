@@ -209,8 +209,12 @@
 --   * a change that came off no longer holds back the weaker rules, and no
 --     longer counts toward "adjusted this night 3 times";
 --   * an unticked occupancy rule keeps its change when the night's
---     occupancy falls.
--- Occupancy rules left ticked behave as before.
+--     occupancy falls;
+--   * an occupancy or days-before-arrival rule that is edited is judged on
+--     every condition of the edited rule, ticked or not: its change comes
+--     off if they don't hold, and if they do it stays with the edited
+--     adjustment (it used to keep the old one until it went off and on).
+-- Occupancy rules left ticked and unedited behave as before.
 --
 -- Checking by hand (the SQL editor carries no JWT, so say you are the
 -- service role for one transaction):
