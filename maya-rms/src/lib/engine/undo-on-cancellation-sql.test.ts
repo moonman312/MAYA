@@ -29,7 +29,6 @@ const FUNCTIONS = resolve(__dirname, "../../../supabase/functions");
 const H1 = uuidFor("h1");
 const H2 = uuidFor("h2");
 const RT1 = uuidFor("rt1");
-const RT2 = uuidFor("rt2");
 const R1 = uuidFor("rule-1");
 const R2 = uuidFor("rule-2");
 const USER = "00000000-0000-4000-8000-00000000aaaa";
@@ -299,7 +298,7 @@ describe.skipIf(!PGLITE_DIR)("engine_booked_before in PGlite", () => {
     await db?.close();
   });
 
-  const asTables = () =>
+  const asTables = (): FakeRow[] =>
     rows.map((x) => ({
       ...x,
       hotel_id: uuidFor(String(x.hotel_id)),
