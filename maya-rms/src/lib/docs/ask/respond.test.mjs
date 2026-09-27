@@ -361,6 +361,24 @@ test("the example questions the set replies suggest are answered from the right 
   }
 });
 
+test("everyday ways of naming a docs subject no bank question uses land on its page", () => {
+  for (const [q, urls] of [
+    ["why did one night's rate change", ["/docs/recipes/find-out-why-a-price-changed"]],
+    ["how can i tell why saturday's price moved", ["/docs/recipes/find-out-why-a-price-changed"]],
+    ["let my receptionist view prices but not change them", ["/docs/recipes/give-the-front-desk-view-only-access", "/docs/team/roles"]],
+    ["rule", ["/docs/rules/the-rule-builder"]],
+    ["bookings are flying in what do i do", ["/docs/rules/booking-speed", "/docs/recipes/catch-a-sudden-rush"]],
+    ["is the price all inclusive", ["/docs/start/what-it-costs"]],
+    ["the price is ridiculous", ["/docs/wrong/a-price-looks-wrong"]],
+    ["this software lost me money this week", ["/docs/wrong/a-price-looks-wrong"]],
+    ["who is liable if maya loses me money", ["/docs/reference/terms-and-legal"]],
+  ]) {
+    const r = say(q);
+    assert.ok(r.outcome === "answered" || r.outcome === "unsure", `${q}: ${r.outcome} ${r.canned?.intent ?? ""}`);
+    assert.ok(urls.includes(index.pages[r.docs.answer.page].u), `${q}: ${index.pages[r.docs.answer.page].u}`);
+  }
+});
+
 test("short lookups, simplified English and the billing sense of price land on the right page", () => {
   for (const [q, url] of [
     ["rules", "/docs/rules/the-rule-builder"],
