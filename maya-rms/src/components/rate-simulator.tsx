@@ -23,6 +23,7 @@ import {
 } from "@/lib/simulator";
 import type { EngineRule, RuleAction } from "@/types/domain";
 import { trackOnce } from "@/lib/analytics/track";
+import { UndoOnCancellationField } from "@/components/undo-on-cancellation-box";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 /**
@@ -90,6 +91,8 @@ export function RateSimulator({
   const [draftDirection, setDraftDirection] = useState<"increase" | "decrease">("increase");
   const [draftAmount, setDraftAmount] = useState("10");
   const [draftRoomTypeIds, setDraftRoomTypeIds] = useState<string[]>([]);
+  // The undo box, ticked on every new rule, as in the rule builder.
+  const [draftUndo, setDraftUndo] = useState(true);
   const [draftError, setDraftError] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -175,11 +178,13 @@ export function RateSimulator({
       // picked types that count as rooms.
       signal_room_type_ids: defaultSignalIds(draftRoomTypeIds, countsAsRoom),
       affected_room_type_ids: draftRoomTypeIds,
+      undo_on_cancellation: draftUndo,
       created_at: "",
       updated_at: "",
     };
   }, [
     draftOpen,
+    draftUndo,
     draftRows,
     draftAmount,
     draftKind,
@@ -264,6 +269,7 @@ export function RateSimulator({
           room_types: names,
           signal_room_type_ids: draftRule.signal_room_type_ids,
           affected_room_type_ids: draftRule.affected_room_type_ids,
+          undo_on_cancellation: draftUndo,
           // Off at birth. A rule nobody has approved must never get a window in
           // which a scheduled run could price with it.
           is_active: false,
@@ -287,7 +293,7 @@ export function RateSimulator({
         if (created?.id) setSelectedRuleIds((prev) => new Set(prev).add(String(created.id)));
       } catch {
         setSavedNotice(
-          "Rule Added to Rules Tab and Initialized as Disabled — reload to see it listed here.",
+          "Rule Added to Rules Tab and Initialized as Disabled. Reload to see it listed here.",
         );
       }
     } catch (e) {
@@ -304,6 +310,7 @@ export function RateSimulator({
     setDraftDirection("increase");
     setDraftAmount("10");
     setDraftRoomTypeIds(roomTypes.map((rt) => rt.id));
+    setDraftUndo(true);
     setDraftError(null);
   }
 
@@ -730,6 +737,8 @@ export function RateSimulator({
                 </select>
               </div>
             </div>
+
+            <UndoOnCancellationField checked={draftUndo} onChange={setDraftUndo} />
 
             <div>
               <span className={microLabel} id="sim-room-types-label">
