@@ -6,17 +6,19 @@ import { usePathname } from "next/navigation";
 import { Dialog } from "@base-ui/react/dialog";
 import { ArrowUp, MessageCircleQuestion, RotateCcw, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import manifest from "@/lib/docs/generated/ask-manifest.json";
-import { createMatcher, expandIndex, type AskIndex, type AskWire, type Confidence, type Matcher } from "@/lib/docs/ask/match";
+import { expandIndex, type AskIndex, type AskLink, type AskWire, type Confidence } from "@/lib/docs/ask/match";
+import { createHelper, placeFor, type CannedReply, type Helper, type Outcome } from "@/lib/docs/ask/respond";
 import { cn } from "@/lib/utils";
 import { useAsk } from "./ask-context";
+import { helpOrigin } from "./help-origin";
 import { MarkdownLite } from "./markdown-lite";
 
 const SUPPORT_EMAIL = "info@modern-hospitality-solutions.com";
 const STORE_KEY = "maya-docs-ask";
 
 // The index is fetched the first time the panel opens, then kept for the visit.
-let loading: Promise<{ index: AskIndex; matcher: Matcher }> | null = null;
-function loadMatcher() {
+let loading: Promise<{ index: AskIndex; helper: Helper }> | null = null;
+function loadHelper() {
   if (!loading) {
     loading = fetch(manifest.file)
       .then((r) => {
@@ -25,7 +27,7 @@ function loadMatcher() {
       })
       .then((wire) => {
         const index: AskIndex = expandIndex(wire);
-        return { index, matcher: createMatcher(index) };
+        return { index, helper: createHelper(index) };
       })
       .catch((err) => {
         loading = null;
@@ -43,9 +45,16 @@ interface Hit {
 interface Turn {
   id: number;
   question: string;
+  /** what kind of reply it got; absent on a turn kept from before set replies existed */
+  outcome?: Outcome;
   confidence: Confidence;
   answer: Hit | null;
   also: Hit[];
+  /** a set reply ("how do I use this?", "hi", "can I talk to a person?") */
+  canned?: CannedReply | null;
+  /** with no answer: the pages that came closest, and good places to start */
+  closest?: Hit[];
+  start?: AskLink[];
   helpful?: "yes" | "no";
   note?: string;
   sent?: "sending" | SendResult;
@@ -92,6 +101,24 @@ export async function send(body: Record<string, unknown>): Promise<SendResult> {
   }
 }
 
+/**
+ * Counts one question asked: the kind of reply, and where it was asked (the
+ * docs section, and the MAYA screen whose Help opened the docs). Never the
+ * question. Fire and forget: nothing waits on it and a failure is silent.
+ */
+export function countQuestion(outcome: Outcome, section: string, appArea: string | null): void {
+  try {
+    void fetch("/api/docs-ask/tally", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome, section, appArea: appArea ?? "" }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+    // no fetch, or the browser refused it: the helper works the same
+  }
+}
+
 function mailto(question: string) {
   const body = question ? `My question: ${question}\n\n` : "";
   return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Docs question")}${body ? `&body=${encodeURIComponent(body)}` : ""}`;
@@ -119,10 +146,50 @@ export function SentNote({ state }: { state?: "sending" | SendResult }) {
   );
 }
 
-function NotCovered({ turn, onSend }: { turn: Turn; onSend: () => void }) {
+const LINK = "text-sm text-primary underline decoration-primary/30 underline-offset-4 hover:decoration-primary";
+
+/** A short list of docs links under a title. */
+function LinkList({ title, links, onGo }: { title: string; links: { href: string; label: string }[]; onGo: () => void }) {
+  if (!links.length) return null;
+  return (
+    <div>
+      <p className="mb-1 text-xs font-semibold text-muted-foreground">{title}</p>
+      <ul className="space-y-1">
+        {links.map((l) => (
+          <li key={l.href}>
+            <Link href={l.href} onClick={onGo} className={LINK}>
+              {l.label}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** No answer: where to look instead, then the ways to reach us. */
+function NoAnswer({
+  turn,
+  index,
+  onSend,
+  onGo,
+}: {
+  turn: Turn;
+  index: AskIndex;
+  onSend: () => void;
+  onGo: () => void;
+}) {
+  const closest = (turn.closest ?? [])
+    .filter((h) => index.entries[h.entry] && index.pages[h.page])
+    .map((h) => {
+      const l = linkFor(index, h);
+      return { href: l.href, label: l.section ? `${l.page} › ${l.section}` : l.page };
+    });
   return (
     <div className="space-y-3 rounded-xl border border-dashed border-border p-3.5">
-      <p className="text-[0.9375rem] font-medium text-foreground">The docs don&apos;t cover that yet.</p>
+      <p className="text-[0.9375rem] font-medium text-foreground">No clear answer in the docs.</p>
+      <LinkList title="Closest in the docs" links={closest} onGo={onGo} />
+      <LinkList title="Good places to start" links={turn.start ?? []} onGo={onGo} />
       <p className="text-sm text-muted-foreground">
         Send your question and we&apos;ll write the missing page. It carries no name or email address, so we can&apos;t reply to it. For an answer, email us.
       </p>
@@ -146,6 +213,45 @@ function NotCovered({ turn, onSend }: { turn: Turn; onSend: () => void }) {
           </a>
         </div>
       )}
+    </div>
+  );
+}
+
+/** A set reply: a few words, maybe a passage from the docs, and links. */
+function CannedAnswer({
+  turn,
+  canned,
+  index,
+  onSend,
+  onGo,
+}: {
+  turn: Turn;
+  canned: CannedReply;
+  index: AskIndex;
+  onSend: () => void;
+  onGo: () => void;
+}) {
+  const show = canned.show && index.entries[canned.show.entry] && index.pages[canned.show.page] ? canned.show : null;
+  const link = show ? linkFor(index, show) : null;
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl rounded-bl-md border border-border bg-card/60 px-3.5 py-3">
+        <MarkdownLite text={canned.say} pageUrl={show ? index.pages[show.page].u : "/docs"} />
+        {show && link ? (
+          <div className="mt-3 border-t border-border pt-3">
+            <MarkdownLite text={index.entries[show.entry].x} pageUrl={index.pages[show.page].u} />
+            <p className="mt-3 text-xs text-muted-foreground">
+              {index.entries[show.entry].m ? "More in:" : "From:"}{" "}
+              <Link href={link.href} onClick={onGo} className="font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:decoration-primary">
+                {link.page}
+                {link.section ? ` › ${link.section}` : ""}
+              </Link>
+            </p>
+          </div>
+        ) : null}
+      </div>
+      {canned.linksTitle ? <LinkList title={canned.linksTitle} links={canned.links} onGo={onGo} /> : null}
+      {canned.offerSend ? <NotQuiteIt turn={turn} onSend={onSend} /> : null}
     </div>
   );
 }
@@ -180,7 +286,7 @@ export function AskPanel() {
   // renders once opened, so reading it here never differs from the server.
   const [turns, setTurns] = useState<Turn[]>(readStore);
   const [text, setText] = useState("");
-  const [ready, setReady] = useState<{ index: AskIndex; matcher: Matcher } | null>(null);
+  const [ready, setReady] = useState<{ index: AskIndex; helper: Helper } | null>(null);
   const [failed, setFailed] = useState(false);
   const [wasOpen, setWasOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -199,7 +305,7 @@ export function AskPanel() {
   useEffect(() => {
     if (!open || ready || failed) return;
     let cancelled = false;
-    loadMatcher()
+    loadHelper()
       .then((r) => !cancelled && setReady(r))
       .catch(() => !cancelled && setFailed(true));
     return () => {
@@ -222,21 +328,31 @@ export function AskPanel() {
   function ask(question: string) {
     const q = question.trim().slice(0, 500);
     if (!q || !ready) return;
-    const { index, matcher } = ready;
-    const last = [...turns].reverse().find((t) => t.answer);
-    const current = index.pages.findIndex((p) => p.u === pathname);
-    const r = matcher.ask(q, {
-      lastPage: last?.answer?.page ?? null,
-      lastQuestion: last?.question ?? null,
-      currentPage: current >= 0 ? current : null,
+    const { index, helper } = ready;
+    // A follow-up leans on the last answer's page: a docs passage, or a set reply that showed one.
+    const last = [...turns].reverse().find((t) => t.answer || t.canned?.show);
+    const place = placeFor(index, pathname ?? "/docs");
+    const appArea = helpOrigin();
+    const r = helper.respond(q, {
+      lastPage: last?.answer?.page ?? last?.canned?.show?.page ?? null,
+      lastQuestion: last?.answer ? last.question : null,
+      place,
+      appArea,
     });
+    countQuestion(r.outcome, place.section, appArea);
+    const hit = (h: { entry: number; page: number }): Hit => ({ entry: h.entry, page: h.page });
+    const docsAnswer = r.outcome === "answered" || r.outcome === "unsure";
     if (!nextId.current) nextId.current = turns.reduce((n, t) => Math.max(n, t.id), 0) + 1;
     const turn: Turn = {
       id: nextId.current++,
       question: q,
-      confidence: r.confidence,
-      answer: r.answer ? { entry: r.answer.entry, page: r.answer.page } : null,
-      also: r.alsoSee.map((h) => ({ entry: h.entry, page: h.page })),
+      outcome: r.outcome,
+      confidence: r.docs.confidence,
+      answer: docsAnswer && r.docs.answer ? hit(r.docs.answer) : null,
+      also: docsAnswer ? r.docs.alsoSee.map(hit) : [],
+      canned: r.canned,
+      closest: r.closest.map(hit),
+      start: r.start,
     };
     setTurns((all) => {
       const next = [...all, turn];
@@ -253,8 +369,8 @@ export function AskPanel() {
 
   function sectionsShown(turn: Turn) {
     if (!ready) return "";
-    return [turn.answer, ...turn.also]
-      .filter((h): h is Hit => !!h)
+    return [turn.answer, ...turn.also, turn.canned?.show ?? null, ...(turn.closest ?? [])]
+      .filter((h): h is Hit => !!h && !!ready.index.entries[h.entry] && !!ready.index.pages[h.page])
       .map((h) => linkFor(ready.index, h).href)
       .join(", ");
   }
@@ -354,7 +470,9 @@ export function AskPanel() {
                         <p className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-primary/10 px-3.5 py-2 text-sm text-foreground">
                           {turn.question}
                         </p>
-                        {answer && link ? (
+                        {turn.canned ? (
+                          <CannedAnswer turn={turn} canned={turn.canned} index={index} onSend={() => sendUnanswered(turn)} onGo={closeAsk} />
+                        ) : answer && link ? (
                           <div className="space-y-3">
                             {turn.confidence === "unsure" ? (
                               <p className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">This might help</p>
@@ -446,7 +564,7 @@ export function AskPanel() {
                             )}
                           </div>
                         ) : (
-                          <NotCovered turn={turn} onSend={() => sendUnanswered(turn)} />
+                          <NoAnswer turn={turn} index={index} onSend={() => sendUnanswered(turn)} onGo={closeAsk} />
                         )}
                       </article>
                     );

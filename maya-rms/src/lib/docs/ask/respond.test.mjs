@@ -9,6 +9,7 @@ import { expandIndex } from "./match.ts";
 import { createIntents, oneEditApart, INTENT_MATCH } from "./intents.ts";
 import { createHelper, placeFor } from "./respond.ts";
 import { createSpeller, editDistance } from "./normalize.ts";
+import { APP_AREAS, PLACES } from "../ask-tally.ts";
 
 vi.setConfig({ testTimeout: 120_000 });
 
@@ -190,6 +191,16 @@ test("where a question was asked from", () => {
   assert.deepEqual(placeFor(index, "/support"), { page: null, section: "support" });
   assert.deepEqual(placeFor(index, "/docs/rules/booking-speed"), { page: pageOf("/docs/rules/booking-speed"), section: "rules" });
   assert.deepEqual(placeFor(index, "/docs/rules/no-such-page"), { page: null, section: "rules" });
+  assert.deepEqual(placeFor(index, "/docs/no-such-section"), { page: null, section: "home" }, "only sections the tally accepts");
+  assert.deepEqual(placeFor(index, "/docs/rules/booking-speed?from=rules#top"), placeFor(index, "/docs/rules/booking-speed"));
+});
+
+test("every place and MAYA screen the helper counts is one the tally route accepts", () => {
+  for (const u of ["/docs", "/support", ...index.pages.map((p) => p.u)]) {
+    const { section } = placeFor(index, u);
+    assert.ok(PLACES.includes(section), `${u}: ${section}`);
+  }
+  assert.deepEqual(Object.keys(index.replies.areas).sort(), [...APP_AREAS].sort());
 });
 
 test("the intents fix casual spelling, squeeze repeated letters and allow one typo only in words the docs never use", () => {

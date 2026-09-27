@@ -78,14 +78,15 @@ export interface Helper {
   respond(question: string, ctx?: RespondContext): Reply;
 }
 
-/** The place for a pathname: /docs, /support, /docs/<section>/<page>. */
+/** The place for a pathname: /docs, /support, /docs/<section>/<page>. A section the docs do not have counts as the docs home. */
 export function placeFor(index: AskIndex, pathname: string): Place {
   const path = pathname.replace(/[?#].*$/, "").replace(/\/+$/, "") || "/";
   if (path === "/support") return { page: null, section: "support" };
+  const known = (slug: string) => !index.replies || slug in index.replies.sections;
   const page = index.pages.findIndex((p) => p.u === path);
-  if (page >= 0) return { page, section: path.split("/")[2] ?? "" };
-  const m = /^\/docs\/([a-z0-9-]+)/.exec(path);
-  return { page: null, section: m ? m[1] : "home" };
+  const slug = /^\/docs\/([a-z0-9-]+)/.exec(path)?.[1] ?? "";
+  const section = slug && known(slug) ? slug : "home";
+  return { page: page >= 0 ? page : null, section };
 }
 
 export function createHelper(index: AskIndex, matcher: Matcher = createMatcher(index)): Helper {
