@@ -74,7 +74,7 @@ describe("alertHeadline", () => {
         nights: [{ label: "Sat, Nov 14 2026", fires: 3 }],
         simulation: false,
       }),
-    ).toBe('"Slow-date rescue" has cut Sat, Nov 14 2026 3 times.');
+    ).toBe('"Slow-date rescue" has 3 cuts on Sat, Nov 14 2026.');
 
     expect(
       alertHeadline({
@@ -86,7 +86,7 @@ describe("alertHeadline", () => {
         ],
         simulation: false,
       }),
-    ).toBe('"Slow-date rescue" has cut 2 nights, 3 to 5 times each.');
+    ).toBe('"Slow-date rescue" has 3 to 5 cuts on each of 2 nights.');
 
     expect(
       alertHeadline({
@@ -98,16 +98,16 @@ describe("alertHeadline", () => {
         ],
         simulation: false,
       }),
-    ).toBe('"Hot-week surge" has raised 2 nights, 4 times each.');
+    ).toBe('"Hot-week surge" has 4 raises on each of 2 nights.');
   });
 
   it("puts a simulating hotel in the conditional, because nothing was sent", () => {
     const nights = [{ label: "Sat, Nov 14 2026", fires: 3 }];
-    expect(alertHeadline({ ruleName: "R", direction: "decrease", nights, simulation: true })).toContain(
-      "would have cut",
+    expect(alertHeadline({ ruleName: "R", direction: "decrease", nights, simulation: true })).toBe(
+      '"R" would have 3 cuts on Sat, Nov 14 2026.',
     );
-    expect(alertHeadline({ ruleName: "R", direction: "increase", nights, simulation: true })).toContain(
-      "would have raised",
+    expect(alertHeadline({ ruleName: "R", direction: "increase", nights: [{ label: "x", fires: 1 }], simulation: true })).toBe(
+      '"R" would have 1 raise on x.',
     );
     expect(alertConsequence("decrease", true)).toBe("It would keep cutting these nights until you stop it.");
     expect(alertConsequence("increase", false)).toBe("It keeps raising these nights until you stop it.");
@@ -130,15 +130,15 @@ describe("nightWhy", () => {
     );
   });
 
-  it("says a rule that raises on a fast pace counted only since the last raise, against a whole window", () => {
+  it("says a rule that raises on a fast pace counted only since the latest raise still on the night, against a whole window", () => {
     // Engine keepsWholeWindowBar: measured over fewer days than its window,
     // the rule counted from its own or a stronger rule's raise, and
     // window_expected is what a night like this gets in the whole window.
     expect(nightWhy(night({ window_days: 2, window_bookings: 5, window_expected: 2.33 }), "$", 7)).toEqual([
-      "Since it or a stronger rule last raised this night, 5 bookings came in. A night like this usually gets about 2 in a whole week.",
+      "Since its or a stronger rule's latest raise still on this night, 5 bookings came in. A night like this usually gets about 2 in a whole week.",
     ]);
     expect(nightWhy(night({ window_days: 4, window_bookings: 9, window_expected: 0.4 }), "$", 30)[0]).toBe(
-      "Since it or a stronger rule last raised this night, 9 bookings came in. A night like this usually gets almost none in a whole month.",
+      "Since its or a stronger rule's latest raise still on this night, 9 bookings came in. A night like this usually gets almost none in a whole month.",
     );
     // Over its whole window it reads as before.
     expect(nightWhy(night({ window_days: 7, window_bookings: 9, window_expected: 2.33 }), "$", 7)[0]).toBe(
@@ -245,15 +245,16 @@ describe("nightFiresLine", () => {
       { room_type_id: STD, fires: 3, limit: 80, limit_is_default: false, price: 100 },
       { room_type_id: SUITE, fires: 1, limit: 80, limit_is_default: false, price: 200 },
     ];
-    expect(nightFiresLine(night({ room_types: rooms, fire_count: 3 }), roomTypeNames)).toBe(
-      "3 times on Standard and once on Suite",
+    expect(nightFiresLine(night({ room_types: rooms, fire_count: 3 }), roomTypeNames, "decrease")).toBe(
+      "3 cuts on Standard and 1 cut on Suite",
     );
-    expect(nightFiresLine(night(), roomTypeNames)).toBe("3 times on Standard");
+    expect(nightFiresLine(night(), roomTypeNames, "decrease")).toBe("3 cuts on Standard");
+    expect(nightFiresLine(night(), roomTypeNames, "increase")).toBe("3 raises on Standard");
   });
 
   it("falls back to the count that filed the night when no room type can be named", () => {
-    expect(nightFiresLine(night({ room_types: [] }), roomTypeNames)).toBe("3 times");
-    expect(nightFiresLine(night({ fire_count: 1, room_types: [] }), roomTypeNames)).toBe("once");
+    expect(nightFiresLine(night({ room_types: [] }), roomTypeNames, "decrease")).toBe("3 cuts");
+    expect(nightFiresLine(night({ fire_count: 1, room_types: [] }), roomTypeNames, "increase")).toBe("1 raise");
   });
 });
 
@@ -274,8 +275,8 @@ describe("buildRuleAlerts", () => {
     expect(card.rule_name).toBe("Slow-date rescue");
     expect(card.nights.map((n) => n.stay_date)).toEqual(["2026-11-14", "2026-11-16"]);
     expect(card.nights[0].label).toBe("Sat, Nov 14 2026");
-    expect(card.nights[0].fires_line).toBe("3 times on Standard");
-    expect(card.headline).toBe('"Slow-date rescue" has cut 2 nights, 3 times each.');
+    expect(card.nights[0].fires_line).toBe("3 cuts on Standard");
+    expect(card.headline).toBe('"Slow-date rescue" has 3 cuts on each of 2 nights.');
   });
 
   it("leaves out an alert with nothing left to answer, and one whose rule it cannot name", () => {
@@ -297,16 +298,16 @@ describe("buildRuleAlerts", () => {
         }),
       ],
     });
-    expect(card.nights[0].fires_line).toBe("3 times on Standard and once on Suite");
+    expect(card.nights[0].fires_line).toBe("3 cuts on Standard and 1 cut on Suite");
     expect(card.nights[0].uneven).toBe(true);
-    expect(card.headline).toBe('"Slow-date rescue" has cut Sat, Nov 14 2026 up to 3 times.');
+    expect(card.headline).toBe('"Slow-date rescue" has up to 3 cuts on Sat, Nov 14 2026.');
   });
 
   it("names the whole window for a rule that raises on a fast pace, and only for that rule", () => {
     const short = [night({ window_days: 2, window_bookings: 5, window_expected: 2.33 })];
     const [raise] = build({ nights: short, wholeWindowDays: new Map([[RULE, 7]]) });
     expect(raise.nights[0].why[0]).toBe(
-      "Since it or a stronger rule last raised this night, 5 bookings came in. A night like this usually gets about 2 in a whole week.",
+      "Since its or a stronger rule's latest raise still on this night, 5 bookings came in. A night like this usually gets about 2 in a whole week.",
     );
     const [other] = build({ nights: short });
     expect(other.nights[0].why[0]).toBe("In the 2 days it measured, 5 bookings came in. A night like this usually has about 2 by then.");

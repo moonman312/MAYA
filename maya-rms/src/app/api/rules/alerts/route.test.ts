@@ -208,7 +208,7 @@ describe("GET /api/rules/alerts", () => {
     expect(body.simulation).toBe(false);
     expect(body.currency_symbol).toBe("$");
     expect(body.alerts).toHaveLength(1);
-    expect(body.alerts[0].headline).toBe('"Slow-date rescue" has cut 2 nights, 3 to 4 times each.');
+    expect(body.alerts[0].headline).toBe('"Slow-date rescue" has 3 to 4 cuts on each of 2 nights.');
     expect(body.alerts[0].nights.map((n: { stay_date: string }) => n.stay_date)).toEqual([
       "2026-11-14",
       "2026-11-16",
@@ -254,7 +254,7 @@ describe("GET /api/rules/alerts", () => {
     });
     const body = await (await GET()).json();
     expect(body.alerts[0].nights[0].why).toEqual([
-      "Since it or a stronger rule last raised this night, 6 bookings came in. A night like this usually gets about 1 in a whole week.",
+      "Since its or a stronger rule's latest raise still on this night, 6 bookings came in. A night like this usually gets about 1 in a whole week.",
     ]);
   });
 

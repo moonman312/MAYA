@@ -572,6 +572,8 @@ describe("the undo on cancellation migration's deploy list", () => {
       "_shared/engine/repeat-alerts.ts",
       "_shared/engine/booking-speed-provider.ts",
       "_shared/onboarding/generate-rules.ts",
+      "_shared/observations/expected-bookings.ts",
+      "_shared/observations/booking-speed.ts",
     ];
     const carries = readdirSync(FUNCTIONS, { withFileTypes: true })
       .filter((d) => d.isDirectory() && d.name !== "_shared")

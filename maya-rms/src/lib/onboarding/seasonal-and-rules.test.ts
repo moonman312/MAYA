@@ -219,23 +219,29 @@ describe("computeStarterRules: the booking-speed ladder", () => {
     expect(byName.get("Sudden-spike catcher")!.explanation).toContain("repeated daily");
   });
 
-  it("says a rule that acts again judges only the bookings since it or a stronger rule last adjusted the night", () => {
+  it("says a rule that acts again judges only the bookings since its or a stronger rule's latest change still on the night", () => {
     // engine/pickup.ts countFromFireAt: a rule counts from the newest raise
-    // or cut on the night by itself or a stronger rule that moves the price
-    // the same way; a weaker rule's never moves it (Jake, 2026-09-24,
-    // option A). Among the starters the rescue ranks ahead of the trim, and
+    // or cut still on the night by itself or a stronger rule that moves the
+    // price the same way; a weaker rule's never moves it, and one that came
+    // off for cancellations covers nothing (Jake, 2026-09-24, option A). Among the starters the rescue ranks ahead of the trim, and
     // the spike rule ahead of the week rule, both ahead of the month rule,
     // so their changes cover the weaker ones; an owner's own rule can rank
     // ahead of any of them.
-    expect(byName.get("Slow-date rescue")!.explanation).toContain("judges only the bookings made since this rule or a stronger one last cut the night");
-    expect(byName.get("Slow-date trim")!.explanation).toContain("looking only at bookings made since this rule or a stronger one last cut the night");
-    expect(byName.get("Warm-date bump")!.explanation).toContain("only if the bookings made since this rule or a stronger one last raised the night are, on their own, ahead of what similar nights get in a whole month");
+    expect(byName.get("Slow-date rescue")!.explanation).toContain(
+      "judges only the bookings made since this rule or a stronger one's latest cut still on the night",
+    );
+    expect(byName.get("Slow-date trim")!.explanation).toContain(
+      "looking only at bookings made since this rule or a stronger one's latest cut still on the night",
+    );
+    expect(byName.get("Warm-date bump")!.explanation).toContain(
+      "only if the bookings made since this rule or a stronger one's latest raise still on the night are, on their own, ahead of what similar nights get in a whole month",
+    );
     expect(byName.get("Warm-date bump")!.explanation).not.toContain("another rule already raised on");
     // A raise rule on "at least" a pace needs the bookings since the change
     // alone to beat a whole window's usual (keepsWholeWindowBar), so it
     // doesn't raise again on bookings that merely keep the pace up.
     expect(byName.get("Hot-week surge")!.explanation).toContain(
-      "if the bookings made since this rule or a stronger one last raised the night are, on their own, far more than a normal week brings",
+      "if the bookings made since this rule or a stronger one's latest raise still on the night are, on their own, far more than a normal week brings",
     );
     expect(byName.get("Hot-week surge")!.explanation).not.toContain("keep coming that fast");
     for (const r of rules) {
@@ -243,6 +249,7 @@ describe("computeStarterRules: the booking-speed ladder", () => {
       expect(r.explanation).not.toContain("while demand holds");
       expect(r.explanation).not.toContain("whichever rule");
       expect(r.explanation).not.toContain("the night was last");
+      expect(r.explanation).not.toMatch(/last (raised|cut) the night/);
     }
   });
 
@@ -251,7 +258,10 @@ describe("computeStarterRules: the booking-speed ladder", () => {
     // raises are on "at least" a pace, which cancellations can make false,
     // and the cuts on a slow pace, which they only make slower.
     for (const name of ["Warm-date bump", "Hot-week surge", "Sudden-spike catcher"]) {
-      expect(byName.get(name)!.explanation).toMatch(/If guests cancel and .*, the raise comes back off\.$/);
+      // It stays while bookings made since keep the rule true, so the blurb
+      // speaks of the night, not only the bookings the raise counted.
+      expect(byName.get(name)!.explanation).toMatch(/If guests cancel and that leaves .*, the raise comes back off\.$/);
+      expect(byName.get(name)!.explanation).not.toMatch(/bookings a raise counted|what is left of that day/);
     }
     for (const name of ["Slow-date rescue", "Slow-date trim"]) {
       expect(byName.get(name)!.explanation).not.toMatch(/cancel/);

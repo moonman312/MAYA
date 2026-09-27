@@ -138,7 +138,8 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       explanation:
         "When a night is booking far behind the pace similar nights set, a real 15% cut " +
         "restarts interest. It looks at full days only, up to yesterday. MAYA waits a week, " +
-        "judges only the bookings made since this rule or a stronger one last cut the night, and " +
+        "judges only the bookings made since this rule or a stronger one's latest cut still on the " +
+        "night, and " +
         "cuts again if those are still that far behind. It tells you once three of its cuts are " +
         "on the same night.",
     },
@@ -157,7 +158,7 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
         "A night booking a bit behind the usual pace gets a small 7% trim, enough to stay " +
         "competitive without giving the room away. It looks at full days only, up to yesterday. " +
         "MAYA re-checks a week after each trim, looking only at bookings made since this rule " +
-        "or a stronger one last cut the night, and trims again if those are still behind.",
+        "or a stronger one's latest cut still on the night, and trims again if those are still behind.",
     },
     {
       name: "Warm-date bump",
@@ -173,9 +174,9 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       explanation:
         "A night booking ahead of the pace similar nights set can carry 10% more: the demand " +
         "is already showing up in your own numbers. MAYA waits 3 days, then raises again only " +
-        "if the bookings made since this rule or a stronger one last raised the night are, on " +
-        "their own, ahead of what similar nights get in a whole month. If guests cancel and the " +
-        "bookings a raise counted are no longer ahead of that pace, the raise comes back off.",
+        "if the bookings made since this rule or a stronger one's latest raise still on the night " +
+        "are, on their own, ahead of what similar nights get in a whole month. If guests cancel " +
+        "and that leaves the night no longer ahead of that pace, the raise comes back off.",
     },
     {
       name: "Hot-week surge",
@@ -191,9 +192,9 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       explanation:
         "When the past week runs much faster than similar nights ever did, raise 25% and ride " +
         "the wave. Every couple of days it steps up again if the bookings made since this rule " +
-        "or a stronger one last raised the night are, on their own, far more than a normal week " +
-        "brings, and MAYA tells you once three of its raises are on the same night. If guests " +
-        "cancel and the bookings a raise counted are no longer far ahead, the raise comes back off.",
+        "or a stronger one's latest raise still on the night are, on their own, far more than a " +
+        "normal week brings, and MAYA tells you once three of its raises are on the same night. If " +
+        "guests cancel and that leaves the night no longer far ahead, the raise comes back off.",
     },
     {
       name: "Sudden-spike catcher",
@@ -210,7 +211,7 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
         "Bookings pouring in within a single day, a concert announcement or a viral mention, " +
         "trigger an immediate 25% raise, repeated daily while the rush lasts. Your ceiling is the " +
         "cap, and MAYA tells you once three of its raises are on the same night. If guests cancel " +
-        "and what is left of that day's rush no longer counts as one, the raise comes back off.",
+        "and that leaves no rush to speak of, the raise comes back off.",
     },
   ];
 }

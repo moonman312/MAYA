@@ -441,7 +441,7 @@ describe("booking speed narration", () => {
         "increase",
       ),
     ).toEqual([
-      "Bookings came in faster than normal in the 2 days since this rule or a stronger one last raised this night: 30, where a night like this usually gets almost none in those days.",
+      "Bookings came in faster than normal in the 2 days since this rule or a stronger one's latest raise still on this night: 30, where a night like this usually gets almost none in those days.",
     ]);
     expect(
       describeConditions(
@@ -451,7 +451,7 @@ describe("booking speed narration", () => {
         "increase",
       ),
     ).toEqual([
-      "Bookings came in much faster than normal later on the day this rule or a stronger one last raised this night: 12, against the 1 a night like this usually gets in a day.",
+      "Bookings came in much faster than normal later on the day of this rule or a stronger one's latest raise still on this night: 12, against the 1 a night like this usually gets in a day.",
     ]);
     // A rule that raises on a fast pace: those bookings alone against what a
     // night like this gets in its whole window (expected_over_full_window).
@@ -474,7 +474,7 @@ describe("booking speed narration", () => {
         "increase",
       ),
     ).toEqual([
-      "Bookings came in much faster than normal in the 2 days since this rule or a stronger one last raised this night: 5, against the 2 a night like this usually gets in a whole week.",
+      "Bookings came in much faster than normal in the 2 days since this rule or a stronger one's latest raise still on this night: 5, against the 2 a night like this usually gets in a whole week.",
     ]);
     expect(
       describeConditions(
@@ -484,7 +484,7 @@ describe("booking speed narration", () => {
         "increase",
       ),
     ).toEqual([
-      "Bookings came in faster than normal later on the day this rule or a stronger one last raised this night: 9, where a night like this usually gets almost none in a whole month.",
+      "Bookings came in faster than normal later on the day of this rule or a stronger one's latest raise still on this night: 9, where a night like this usually gets almost none in a whole month.",
     ]);
     // A cut rule: the full days after the cut's day, up to yesterday.
     expect(
@@ -494,7 +494,7 @@ describe("booking speed narration", () => {
         null,
         "decrease",
       ),
-    ).toEqual(["Bookings all but stopped in the 6 full days after this rule or a stronger one last cut this night: none, against the 6 a night like this usually gets in those days."]);
+    ).toEqual(["Bookings all but stopped in the 6 full days after this rule or a stronger one's latest cut still on this night: none, against the 6 a night like this usually gets in those days."]);
     expect(
       describeConditions(
         { booking_speed_operator: "at_most", booking_speed_level: "stalled", booking_speed_window_days: 7 },
@@ -502,14 +502,14 @@ describe("booking speed narration", () => {
         null,
         "decrease",
       ),
-    ).toEqual(["Bookings all but stopped on the full day after this rule or a stronger one last cut this night: none, against the 1 a night like this usually gets that day."]);
+    ).toEqual(["Bookings all but stopped on the full day after this rule or a stronger one's latest cut still on this night: none, against the 1 a night like this usually gets that day."]);
     // Without the rule's direction its change is just a change.
     expect(
       describeConditions(month, {
         booking_speed: { label: "Surging", recent: 12, expected: 0.4, window_days: 3, counted_from: "2026-09-17", counted_since: since },
       }),
     ).toEqual([
-      "Bookings came in faster than normal in the 3 days since this rule or a stronger one last changed this night: 12, where a night like this usually gets almost none in those days.",
+      "Bookings came in faster than normal in the 3 days since this rule or a stronger one's latest change still on this night: 12, where a night like this usually gets almost none in those days.",
     ]);
     // A whole window reads as it always did for a raise rule.
     expect(describeConditions(month, { booking_speed: { label: "Faster Than Normal", recent: 11, expected: 6, window_days: 30 } }, null, "increase")).toEqual([
@@ -526,7 +526,7 @@ describe("booking speed narration", () => {
     // when it is later than a whole window back (pickup_counted_since).
     const pickup = { pickup_operator: "gt", pickup_threshold: 4, pickup_window_days: 7, pickup_metric: "room_nights" } as const;
     expect(describeConditions(pickup, { pickup_units: 5, pickup_counted_since: "2026-09-18T12:05:00.000Z" }, null, "increase")).toEqual([
-      "5 bookings arrived since this rule or a stronger one last raised this night, past the 4-booking mark you set.",
+      "5 bookings arrived since this rule or a stronger one's latest raise still on this night, past the 4-booking mark you set.",
     ]);
     expect(describeConditions(pickup, { pickup_units: 5 }, null, "increase")).toEqual([
       "5 bookings arrived in the last 7 days, past the 4-booking mark you set.",

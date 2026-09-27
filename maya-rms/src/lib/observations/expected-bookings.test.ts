@@ -616,19 +616,19 @@ describe("observeBookingSpeed from a date: a rule counts only what came after it
     expect(countFromInWindow(7, AS_OF, null)).toBe(false);
   });
 
-  it("says in words that it counted since the last raise, and against a whole week when it was", () => {
+  it("says in words that it counted since the latest raise still on the night, and against a whole week when it was", () => {
     const rows = [...usual, ...rowsFor(TARGET, [14, 16, 17, 18, 19, 20, 20])];
     const whole = describeObservation(
       observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, countFrom: FROM, wholeWindowBar: true }),
     );
-    expect(whole).toContain("This stay date has received 2 bookings since the last raise.");
+    expect(whole).toContain("This stay date has received 2 bookings since the latest raise still on the night.");
     expect(whole).toContain("we expected about 7 in a whole week.");
     expect(whole).not.toContain("in the last 3 days");
     expect(whole).not.toMatch(NO_MATH_SYMBOLS);
     const same = describeObservation(
       observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, countFrom: FROM }),
     );
-    expect(same).toContain("received 2 bookings since the last raise. Based on similar past dates, we expected about 3.");
+    expect(same).toContain("received 2 bookings since the latest raise still on the night. Based on similar past dates, we expected about 3.");
   });
 
   it("counts whole days, and refuses a date that leaves none", () => {
@@ -701,7 +701,7 @@ describe("observeBookingSpeed over complete days: a cut rule's reading ends yest
     // The comparables read the same two days.
     expect(since.perComparable.map((c) => c.bookings)).toEqual([2, 2, 2, 2, 2]);
     expect(since.expectedOverFullWindow).toBeUndefined();
-    expect(describeObservation(since)).toContain("received 2 bookings in the 2 full days since the last cut.");
+    expect(describeObservation(since)).toContain("received 2 bookings in the 2 full days since the latest cut still on the night.");
     expect(windowDaysFrom(7, lastCountedDay(AS_OF, true), "2026-07-30")).toBe(2);
     // A cut yesterday: nothing complete since its day.
     expect(windowDaysFrom(7, lastCountedDay(AS_OF, true), AS_OF)).toBe(0);

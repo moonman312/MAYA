@@ -113,8 +113,10 @@ function nightWord(n: number): string {
   return n === 1 ? "1 night" : `${n} nights`;
 }
 
-function timesWord(n: number): string {
-  return n === 1 ? "once" : `${n} times`;
+/** "1 raise", "3 cuts": changes still on the price. */
+function changesWord(n: number, direction: "increase" | "decrease"): string {
+  const noun = direction === "increase" ? "raise" : "cut";
+  return `${n} ${n === 1 ? noun : `${noun}s`}`;
 }
 
 function listWords(items: string[]): string {
@@ -123,26 +125,31 @@ function listWords(items: string[]): string {
 }
 
 /** "cut" / "raised", in the tense a simulating hotel can believe. */
-export function alertVerb(direction: "increase" | "decrease", simulation: boolean): string {
-  if (simulation) return direction === "increase" ? "would have raised" : "would have cut";
-  return direction === "increase" ? "has raised" : "has cut";
+/** "has", or "would have" in simulation: the rule's changes still on the price. */
+export function alertVerb(simulation: boolean): string {
+  return simulation ? "would have" : "has";
 }
 
 /**
- * "3 times on Standard, once on Deluxe" — what the rule did to each room type
- * that night. The night's own fire_count is the most on any one of them, so a
- * rule that cut Standard three times and Deluxe once would otherwise read as
- * having cut both three times. Room types whose name this run could not read
- * are left out, and a night with none of them falls back to the count that
+ * "3 cuts on Standard and 1 cut on Deluxe": the rule's changes still on the
+ * price on each room type that night (a change that came off is not among
+ * them). The night's own fire_count is the most on any one of them, so a
+ * rule with three cuts on Standard and one on Deluxe would otherwise read as
+ * having three on both. Room types whose name this run could not read are
+ * left out, and a night with none of them falls back to the count that
  * filed it.
  */
-export function nightFiresLine(night: AlertNightRow, roomTypeNames: Map<string, string>): string {
+export function nightFiresLine(
+  night: AlertNightRow,
+  roomTypeNames: Map<string, string>,
+  direction: "increase" | "decrease",
+): string {
   const named = night.room_types.flatMap((rt) => {
     const name = roomTypeNames.get(rt.room_type_id);
     return name ? [{ name, fires: rt.fires }] : [];
   });
-  if (named.length === 0) return timesWord(night.fire_count);
-  return listWords(named.map((rt) => `${timesWord(rt.fires)} on ${rt.name}`));
+  if (named.length === 0) return changesWord(night.fire_count, direction);
+  return listWords(named.map((rt) => `${changesWord(rt.fires, direction)} on ${rt.name}`));
 }
 
 /** The room types it fired on that night did not all get the same number. */
@@ -152,10 +159,12 @@ export function nightIsUneven(night: AlertNightRow): boolean {
 }
 
 /**
- * "\"Slow-date rescue\" has cut 4 nights, 3 times each." One night names the
- * night; several say how far the range goes, because that is the number the
- * owner is being asked about. When a night's room types got different numbers
- * the headline says "up to", and the line under each night gives each one.
+ * "\"Slow-date rescue\" has 3 cuts on each of 4 nights.": the changes of its
+ * own still on each night's price, which is what files the alert. One night
+ * names the night; several say how far the range goes, because that is the
+ * number the owner is being asked about. When a night's room types got
+ * different numbers the headline says "up to", and the line under each night
+ * gives each one.
  */
 export function alertHeadline(input: {
   ruleName: string;
@@ -163,16 +172,18 @@ export function alertHeadline(input: {
   nights: { label: string; fires: number; uneven?: boolean }[];
   simulation: boolean;
 }): string {
-  const verb = alertVerb(input.direction, input.simulation);
+  const verb = alertVerb(input.simulation);
   const counts = input.nights.map((n) => n.fires);
   const low = Math.min(...counts);
   const high = Math.max(...counts);
   const upTo = input.nights.some((n) => n.uneven);
+  const noun = input.direction === "increase" ? "raises" : "cuts";
   if (input.nights.length === 1) {
-    return `"${input.ruleName}" ${verb} ${input.nights[0].label} ${upTo ? "up to " : ""}${low} times.`;
+    const many = upTo ? `up to ${low} ${noun}` : changesWord(low, input.direction);
+    return `"${input.ruleName}" ${verb} ${many} on ${input.nights[0].label}.`;
   }
-  const howOften = upTo ? `up to ${high} times each` : low === high ? `${low} times each` : `${low} to ${high} times each`;
-  return `"${input.ruleName}" ${verb} ${nightWord(input.nights.length)}, ${howOften}.`;
+  const many = upTo ? `up to ${high}` : low === high ? `${low}` : `${low} to ${high}`;
+  return `"${input.ruleName}" ${verb} ${many} ${noun} on each of ${nightWord(input.nights.length)}.`;
 }
 
 /** What happens while nobody answers: the rule carries on. */
@@ -206,15 +217,15 @@ function spanWord(days: number): string {
  * What the rule was looking at when it last fired, one short sentence per
  * signal. A booking speed rule names the bookings it measured against the
  * pace similar nights set; a pickup rule names the pickup against the mark
- * the owner typed, over its window, or since it or a stronger rule last
- * raised the night (last cut it, for a rule that cuts) when that is where
- * its count opened (pickupWindowOpensAt in engine/pickup.ts: the fire's
- * pickup_window_days is then null). A rule with both says both.
+ * the owner typed, over its window, or since the newest raise (cut, for a
+ * rule that cuts) still on the night by it or a stronger rule when that is
+ * where its count opened (pickupWindowOpensAt in engine/pickup.ts: the
+ * fire's pickup_window_days is then null). A rule with both says both.
  *
  * `wholeWindowDays` is the rule's booking speed window when it raises on a
  * fast pace (engine keepsWholeWindowBar): measured over fewer days than
- * that, it counted only the bookings since it or a stronger rule last
- * raised the night, and those alone had to beat what a night like this
+ * that, it counted only the bookings since the newest raise still on the
+ * night by it or a stronger rule, and those alone had to beat what a night like this
  * gets in the whole window, which is what window_expected then is.
  * `direction` is the rule's.
  */
@@ -228,7 +239,7 @@ export function nightWhy(
   if (night.window_days != null && night.window_bookings != null) {
     const sinceRaise = wholeWindowDays != null && night.window_days < wholeWindowDays;
     const measured = sinceRaise
-      ? `Since it or a stronger rule last raised this night, ${bookingsPhrase(night.window_bookings)}.`
+      ? `Since its or a stronger rule's latest raise still on this night, ${bookingsPhrase(night.window_bookings)}.`
       : `In the ${dayWord(night.window_days)} it measured, ${bookingsPhrase(night.window_bookings)}.`;
     out.push(
       night.window_expected == null
@@ -242,11 +253,11 @@ export function nightWhy(
     const revenue = night.pickup_metric === "revenue";
     const got = revenue ? money(night.pickup_net, currencySymbol) : unitsPhrase(night.pickup_net);
     const mark = revenue ? money(night.pickup_threshold, currencySymbol) : String(night.pickup_threshold);
-    const change = direction === "decrease" ? "cut" : direction === "increase" ? "raised" : "adjusted";
+    const change = direction === "decrease" ? "cut" : direction === "increase" ? "raise" : "change";
     const over =
       night.pickup_window_days != null
         ? `over the last ${dayWord(night.pickup_window_days)}`
-        : `since it or a stronger rule last ${change} this night`;
+        : `since its or a stronger rule's latest ${change} still on this night`;
     out.push(`Pickup ${over} came to ${got}, against the ${mark} you set.`);
   }
   return out;
@@ -460,7 +471,7 @@ export function buildRuleAlerts(input: {
         label: humanDate(night.stay_date),
         fires: night.fire_count,
         uneven: nightIsUneven(night),
-        fires_line: nightFiresLine(night, input.roomTypeNames),
+        fires_line: nightFiresLine(night, input.roomTypeNames, alert.action_direction),
         why: nightWhy(
           night,
           input.currencySymbol,

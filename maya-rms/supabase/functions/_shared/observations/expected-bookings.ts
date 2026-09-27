@@ -384,8 +384,8 @@ function spanWords(days: number): string {
 export function describeObservation(obs: BookingSpeedObservation): string {
   const counted = obs.countedFrom
     ? obs.countedThrough
-      ? `in the ${obs.windowDays === 1 ? "full day" : `${obs.windowDays} full days`} since the last cut`
-      : "since the last raise"
+      ? `in the ${obs.windowDays === 1 ? "full day" : `${obs.windowDays} full days`} since the latest cut still on the night`
+      : "since the latest raise still on the night"
     : null;
   if (obs.method === "insufficient_data") {
     const seen =

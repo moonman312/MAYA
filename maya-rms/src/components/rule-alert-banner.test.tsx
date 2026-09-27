@@ -23,7 +23,7 @@ const view = (over: Partial<RuleAlertsView> = {}): RuleAlertsView => ({
       rule_name: "Slow-date rescue",
       direction: "decrease",
       undo_on_cancellation: true,
-      headline: '"Slow-date rescue" has cut 2 nights, 3 times each.',
+      headline: '"Slow-date rescue" has 3 cuts on each of 2 nights.',
       consequence: "It keeps cutting these nights until you stop it.",
       nights: [
         {
@@ -31,7 +31,7 @@ const view = (over: Partial<RuleAlertsView> = {}): RuleAlertsView => ({
           label: "Sat, Nov 14 2026",
           fires: 3,
           uneven: false,
-          fires_line: "3 times on Standard",
+          fires_line: "3 cuts on Standard",
           why: ["In the 30 days it measured, 1 booking came in. A night like this usually has about 6 by then."],
           limit_line: "Your floor for Standard is still MAYA's $1.00 default, so the price can fall that far.",
           limit_is_default: true,
@@ -41,7 +41,7 @@ const view = (over: Partial<RuleAlertsView> = {}): RuleAlertsView => ({
           label: "Mon, Nov 16 2026",
           fires: 3,
           uneven: false,
-          fires_line: "3 times on Standard",
+          fires_line: "3 cuts on Standard",
           why: ["In the 30 days it measured, no bookings came in."],
           limit_line: "If it keeps cutting, the price can fall to your $80.00 floor for Standard.",
           limit_is_default: false,
@@ -85,7 +85,7 @@ describe("RuleAlertBanner", () => {
 
   it("puts the rule, its nights, the reason and where the price is heading on screen", async () => {
     render(<RuleAlertBanner onAskForLimits={() => {}} />);
-    await waitFor(() => screen.getByText('"Slow-date rescue" has cut 2 nights, 3 times each.'));
+    await waitFor(() => screen.getByText('"Slow-date rescue" has 3 cuts on each of 2 nights.'));
     expect(screen.getByText("It keeps cutting these nights until you stop it.")).toBeTruthy();
     expect(screen.getByText("Sat, Nov 14 2026")).toBeTruthy();
     expect(screen.getByText(/1 booking came in/)).toBeTruthy();
@@ -106,7 +106,7 @@ describe("RuleAlertBanner", () => {
   it("gives a viewer the story and no buttons", async () => {
     serve(view({ can_manage: false }));
     render(<RuleAlertBanner />);
-    await waitFor(() => screen.getByText(/has cut 2 nights/));
+    await waitFor(() => screen.getByText(/has 3 cuts on each of 2 nights/));
     expect(screen.queryByText("Stop for this night")).toBeNull();
     expect(screen.queryByText("Keep adjusting")).toBeNull();
     expect(screen.getByText("Only a Revenue Manager or above can answer this.")).toBeTruthy();

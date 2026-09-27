@@ -230,7 +230,7 @@ export function classifyBookingSpeed(input: BookingSpeedInput): BookingSpeedClas
 export interface DescribeBookingSpeedOptions {
   /** Length of the recent-pickup window the counts came from. Default 7. */
   windowDays?: number;
-  /** Where the count started, in place of "in the last N days" ("since the last raise"). */
+  /** Where the count started, in place of "in the last N days" ("since the latest raise still on the night"). */
   windowPhrase?: string;
   /** The stretch the expectation covers, when it is not the one counted ("in a whole week"). */
   expectedOver?: string;

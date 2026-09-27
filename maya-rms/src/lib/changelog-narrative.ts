@@ -215,8 +215,8 @@ function fullnessSentence(
 
 /**
  * "9 bookings arrived in the last 3 days, past the 4-booking mark you set."
- * When the count opened at this rule's own last raise or cut, or a
- * stronger rule's newer one (pickup_counted_since), it says so instead of
+ * When the count opened at the newest raise or cut still on the night by
+ * this rule or a stronger one (pickup_counted_since), it says so instead of
  * naming the window. `direction` is the rule's, as in bookingSpeedSentence.
  */
 function pickupSentence(
@@ -231,14 +231,24 @@ function pickupSentence(
   const limit = `${dir} the ${Number(condition.pickup_threshold)}-booking mark you set`;
   const seen = metrics?.pickup_units;
   const kind = measured?.length ? `${listWords(measured)} ` : "";
-  const change = direction === "decrease" ? "cut" : direction === "increase" ? "raised" : "changed";
   const when = metrics?.pickup_counted_since
-    ? `since this rule or a stronger one last ${change} this night`
+    ? `since ${latestChangeWords(direction)}`
     : `in the last ${dayWord(windowDays)}`;
   if (seen != null) {
     return `${seen} ${kind}${seen === 1 ? "booking" : "bookings"} arrived ${when}, ${limit}.`;
   }
   return kind ? `${kind}bookings ${when} came in ${limit}.` : `Bookings ${when} came in ${limit}.`;
+}
+
+/**
+ * "this rule or a stronger one's latest raise still on this night": where a
+ * rule counts from once the night carries a change its way (countFromFireAt
+ * in engine/pickup.ts: a change that came off covers nothing). `direction`
+ * is the rule's; without it the change is a "change".
+ */
+function latestChangeWords(direction?: "increase" | "decrease" | null): string {
+  const change = direction === "decrease" ? "cut" : direction === "increase" ? "raise" : "change";
+  return `this rule or a stronger one's latest ${change} still on this night`;
 }
 
 /**
@@ -259,7 +269,7 @@ function speedLead(levelKey: string, when: string, subject = "Bookings"): string
  *
  * On a night this rule, or a stronger rule that moves the price the same
  * way, already raised (a rule that raises) or cut (one that cuts), it
- * counted only from the newest of those changes (engine/pickup.ts,
+ * counted only from the newest of those changes still on the price (engine/pickup.ts,
  * countFromFireAt and bookingSpeedCountFrom): from the raise itself on its
  * own day (counted_since), or from the day after a cut. So the sentence
  * names those days instead of its whole window, and says "this rule or a
@@ -282,18 +292,18 @@ function bookingSpeedSentence(
   const fromChange = !!metrics?.booking_speed?.counted_since;
   const fullDays = !!metrics?.booking_speed?.counted_through;
   const full = fullDays ? "full " : "";
-  const change = direction === "decrease" ? "cut" : direction === "increase" ? "raised" : "changed";
+  const latest = latestChangeWords(direction);
   const span =
     condition.booking_speed_window_days === 1 ? "day" : condition.booking_speed_window_days === 30 ? "month" : "week";
   const when =
     counted != null && counted >= 1
       ? fromChange
         ? counted === 1
-          ? `later on the day this rule or a stronger one last ${change} this night`
-          : `in the ${counted} days since this rule or a stronger one last ${change} this night`
+          ? `later on the day of ${latest}`
+          : `in the ${counted} days since ${latest}`
         : counted === 1
-          ? `on the ${full}day after this rule or a stronger one last ${change} this night`
-          : `in the ${counted} ${full}days after this rule or a stronger one last ${change} this night`
+          ? `on the ${full}day after ${latest}`
+          : `in the ${counted} ${full}days after ${latest}`
       : fullDays
         ? `in the ${span} up to yesterday`
         : `this past ${span}`;

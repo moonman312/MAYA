@@ -50,13 +50,13 @@ describe("the change log on a pickup count that started at its own or a stronger
   it("says since this rule or a stronger one last raised or cut the night, not the window's days", () => {
     const metrics = { pickup_units: 5, pickup_counted_since: "2026-09-17T12:00:00.000Z" };
     expect(describeConditions(pickup, metrics, null, "increase")).toEqual([
-      "5 bookings arrived since this rule or a stronger one last raised this night, past the 4-booking mark you set.",
+      "5 bookings arrived since this rule or a stronger one's latest raise still on this night, past the 4-booking mark you set.",
     ]);
     expect(
       describeConditions({ ...pickup, pickup_operator: "lt", pickup_threshold: 2 }, { ...metrics, pickup_units: 0 }, null, "decrease"),
-    ).toEqual(["0 bookings arrived since this rule or a stronger one last cut this night, under the 2-booking mark you set."]);
+    ).toEqual(["0 bookings arrived since this rule or a stronger one's latest cut still on this night, under the 2-booking mark you set."]);
     expect(describeConditions(pickup, { pickup_counted_since: metrics.pickup_counted_since }, ["Standard"], "increase")).toEqual([
-      "Standard bookings since this rule or a stronger one last raised this night came in past the 4-booking mark you set.",
+      "Standard bookings since this rule or a stronger one's latest raise still on this night came in past the 4-booking mark you set.",
     ]);
     // A count over the whole window reads as it always has.
     expect(describeConditions(pickup, { pickup_units: 5 }, null, "increase")).toEqual([
@@ -85,10 +85,10 @@ describe("the owner alert on a pickup count that started at its own or a stronge
 
   it("says since it or a stronger rule last raised or cut the night when no window's days were counted", () => {
     expect(nightWhy(night(), "$", null, "increase")).toEqual([
-      "Pickup since it or a stronger rule last raised this night came to 6 room nights, against the 3 you set.",
+      "Pickup since its or a stronger rule's latest raise still on this night came to 6 room nights, against the 3 you set.",
     ]);
     expect(nightWhy(night({ pickup_net: 0, pickup_threshold: 1 }), "$", null, "decrease")).toEqual([
-      "Pickup since it or a stronger rule last cut this night came to 0 room nights, against the 1 you set.",
+      "Pickup since its or a stronger rule's latest cut still on this night came to 0 room nights, against the 1 you set.",
     ]);
   });
 
