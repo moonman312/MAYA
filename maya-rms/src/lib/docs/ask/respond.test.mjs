@@ -137,6 +137,30 @@ test("orientation questions in everyday words get their set reply, and the page 
   }
 });
 
+test("orientation asked in words no example uses still gets its set reply", () => {
+  for (const [q, ids, on] of [
+    ["could you help me understand this screen", ["page"], "/docs/watch/the-calendar"],
+    ["does this seem right to you", ["page"], "/docs/watch/the-change-log"],
+    ["is it meant to look like this", ["page"], "/docs/watch/the-calendar"],
+    ["anybody home?", ["bot"]],
+    ["is there a real person i can talk to", ["bot", "human"]],
+    ["i give up!", ["frustrated"]],
+    ["what should i know first?", ["start"]],
+    ["ok so what are the next steps", ["start"]],
+    ["how does all of this hang together", ["overview"]],
+    ["give me the quick rundown", ["overview"]],
+    ["no idea what any of this means", ["lost"]],
+  ]) {
+    const r = say(q, on ? at(on) : undefined);
+    assert.ok(ids.includes(r.canned?.intent), `${q}: ${r.outcome} ${r.canned?.intent ?? (r.docs.answer ? index.pages[r.docs.answer.page].u : "")}`);
+    if (on) assert.equal(index.pages[r.canned.show.page].u, on, q);
+  }
+  // with a subject of their own they still go to the docs
+  for (const q of ["what do i need to know before going live", "is this how the calendar should look", "what is next after going live", "tour of the calendar"]) {
+    assert.notEqual(say(q).outcome, "canned", q);
+  }
+});
+
 test("being new here is getting started; what is new here is about the page", () => {
   assert.equal(say("i'm new here").canned?.intent, "start");
   assert.equal(say("new here").canned?.intent, "start");

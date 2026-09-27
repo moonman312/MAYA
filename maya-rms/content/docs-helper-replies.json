@@ -71,7 +71,13 @@
         "anything new here", "is there anything new", "show me how it works", "show me how this works",
         "show me how to use this",
         "what am i seeing",
-        "what is this setting"
+        "what is this setting",
+        "help me understand this", "help me understand this page", "help me understand this screen",
+        "i want to understand this", "is this how it should look", "is this what it should look like",
+        "should it look like this", "is it supposed to look like this", "does this seem right", "does that seem right",
+        "does this look ok", "does this seem normal", "is this how it should be", "what is the idea behind this",
+        "what is the idea here", "what is the purpose of this", "what is the purpose of this screen", "where am i now",
+        "what page is this", "which page is this", "what screen is this"
       ]
     },
     {
@@ -93,7 +99,12 @@
         "what are the parts of maya", "what are the pieces", "big picture", "the big picture",
         "what is the big picture", "the basics", "basics", "what are the basics", "the basics of maya", "gist",
         "the gist", "what is the gist of it", "how does the system work", "how does the whole thing fit together",
-        "what are the main pieces"
+        "what are the main pieces",
+        "how do all the parts connect", "how do the pieces connect", "how does it all tie together",
+        "how does this all hang together", "how do the parts work together", "what is the main idea", "the main idea",
+        "what is the concept", "the concept", "what is the idea", "what is the purpose of maya", "rundown",
+        "the rundown", "give me the rundown", "a quick rundown", "run me through the basics", "tell me all about it",
+        "tell me about the app", "sum it up", "sum it up for me", "summary of maya"
       ]
     },
     {
@@ -113,7 +124,11 @@
         "walk me through it", "can you walk me through it", "walk me through getting started", "talk me through it", "take me through it step by step",
         "what do i read first", "what to read first", "which page do i read first", "where should i begin reading",
         "i am a beginner", "beginner", "for beginners", "where does a beginner start",
-        "show me step by step", "guide me", "i need a guide"
+        "show me step by step", "guide me", "i need a guide",
+        "what do i need to know", "what do i need to know first", "what should i know", "what should i know first",
+        "anything i should know first", "what is next", "what comes next", "what are the next steps", "next steps",
+        "next step", "where do i go from here", "where do i go next", "what do i do after this",
+        "what should i do after this", "what now after this", "which page first", "where do i begin reading"
       ]
     },
     {
@@ -142,7 +157,10 @@
         "too much information", "too much info", "i feel lost", "feeling lost", "i am lost here", "this is hard", "hard to understand", "i do not understand how this works",
         "none of this makes any sense", "nothing here makes sense", "this makes no sense", "this does not make sense",
         "it does not make sense", "not sure what to do", "i am not sure what to do", "unsure what to do",
-        "i do not know what to do next", "what should i do next"
+        "i do not know what to do next", "what should i do next",
+        "i have no idea what this means", "no idea what this means", "i have no idea what any of this means",
+        "i do not know what any of this means", "i am totally lost", "completely lost", "i am so lost",
+        "i am confused here", "where do i even go", "i do not know where to go"
       ]
     },
     {
@@ -176,7 +194,8 @@
         "you are a bot right", "anyone there", "is anyone there", "are these answers ai generated",
         "is this ai generated", "is this written by ai", "are you a real human", "is this a human or a bot",
         "am i talking to a machine", "are you a computer", "is this a real chat",
-        "are you there", "is anybody there", "hello is anyone there", "still there", "you still there"
+        "are you there", "is anybody there", "hello is anyone there", "still there", "you still there",
+        "anybody home", "anyone home", "is someone there", "somebody there", "anybody there", "hello anybody"
       ]
     },
     {
@@ -194,7 +213,10 @@
         "contact you", "how do i contact you", "how can i contact you", "how do i reach you", "get in touch",
         "phone number", "do you have a phone number", "can i call you", "call me", "call me please", "whatsapp",
         "email address", "what is your email", "support email", "connect me to support", "someone walk me through it",
-        "get me a human", "get me a person", "how do i reach customer service", "reach customer service", "contact customer service", "reach support", "how do i reach support", "i want a real person", "can i talk to support", "talk to support", "speak with a human", "i want to speak with someone"
+        "get me a human", "get me a person", "how do i reach customer service", "reach customer service", "contact customer service", "reach support", "how do i reach support", "i want a real person", "can i talk to support", "talk to support", "speak with a human", "i want to speak with someone",
+        "can a real person help", "can a real person help me", "a real person", "i want a real human",
+        "can a human help me", "is there a human i can talk to", "is there a real person", "i need a real person",
+        "let me talk to a human", "let me speak to a person"
       ]
     },
     {
@@ -208,7 +230,8 @@
         "stupid bot", "stupid", "you are not helping", "not helping", "waste of time", "ugh", "wtf", "i hate this",
         "hate it", "this is ridiculous", "ridiculous", "rubbish", "garbage", "i want to complain", "complaint",
         "i have a complaint", "this is broken", "annoying", "this is annoying", "come on",
-        "this is not working", "you are not helpful", "not useful", "so annoying", "bad bot", "this bot is useless", "pointless"
+        "this is not working", "you are not helpful", "not useful", "so annoying", "bad bot", "this bot is useless", "pointless",
+        "i give up", "giving up", "forget it", "this is hopeless", "hopeless", "this is a joke"
       ]
     },
     {
