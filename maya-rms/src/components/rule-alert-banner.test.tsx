@@ -22,6 +22,7 @@ const view = (over: Partial<RuleAlertsView> = {}): RuleAlertsView => ({
       rule_id: "rule-1",
       rule_name: "Slow-date rescue",
       direction: "decrease",
+      undo_on_cancellation: true,
       headline: '"Slow-date rescue" has cut 2 nights, 3 times each.',
       consequence: "It keeps cutting these nights until you stop it.",
       nights: [

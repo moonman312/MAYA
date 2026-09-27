@@ -82,6 +82,8 @@ export type RuleAlert = {
   rule_id: string;
   rule_name: string;
   direction: "increase" | "decrease";
+  /** The rule's undo box: whether cancellations can still take its changes off. */
+  undo_on_cancellation: boolean;
   /** One line naming the rule, what it did and how often. */
   headline: string;
   /** One line on what happens if nobody answers. */
@@ -302,15 +304,23 @@ export function nightLimitLine(
     : `If it keeps ${keeps}, the price ${move} to your ${amount} ${word} for ${names}.`;
 }
 
+/** What "stop" leaves in place: the changes already made stay, and a ticked rule's still come off for cancellations. */
+function stopKeeps(undo: boolean): string {
+  return undo
+    ? "What it already changed there stays, unless cancellations mean the rule is no longer true."
+    : "What it already changed there stays.";
+}
+
 /**
  * Behind the "?" beside the two answers.
  *
- * What "stop" leaves in place depends on the direction. A cut is never undone
- * by anything MAYA does on its own. A raise still comes off if enough of the
- * bookings behind it cancel: the stop holds back new fires, it does not freeze
- * the ones already made (pickup.ts firesToRetire).
+ * What "stop" leaves in place depends on the rule's undo box, not on which
+ * way it moves the price: the stop holds back new changes, it does not
+ * freeze the ones already made, and with the box ticked one still comes off
+ * when cancellations mean the rule is no longer true (pickup.ts
+ * cancellationChecks), raise or cut alike.
  */
-export function alertChoiceHelp(direction: "increase" | "decrease"): {
+export function alertChoiceHelp(undo: boolean): {
   label: string;
   title: string;
   lines: string[];
@@ -320,9 +330,7 @@ export function alertChoiceHelp(direction: "increase" | "decrease"): {
     title: "Your two answers",
     lines: [
       "Keep adjusting: the rule carries on as it is, and MAYA stops asking about that night.",
-      direction === "increase"
-        ? "Stop for this night: the rule makes no more changes on that night. A raise it already made stays, unless enough of the bookings behind it cancel."
-        : "Stop for this night: the rule makes no more changes on that night. What it already cut stays.",
+      `Stop for this night: the rule makes no more changes on that night. ${stopKeeps(undo)}`,
       "A stopped night shows on the Rules tab, where you can let the rule run on it again; MAYA then asks about it again if the rule keeps adjusting it.",
       "Either way, your other rules keep working on these nights, and an edit to this rule starts it fresh.",
     ],
@@ -388,7 +396,7 @@ const STOPPED_NIGHTS_NAMED = 8;
 /** Behind the chip: which nights, and how to let the rule run on them again. */
 export function stoppedNightsHelp(
   nights: string[],
-  direction: "increase" | "decrease",
+  undo: boolean,
 ): { label: string; title: string; lines: string[] } {
   const named = nights.slice(0, STOPPED_NIGHTS_NAMED).map(humanDate);
   const more = nights.length - named.length;
@@ -398,9 +406,7 @@ export function stoppedNightsHelp(
     title: `Stopped on ${nightWord(nights.length)}`,
     lines: [
       `You told this rule to stop on ${which}.`,
-      direction === "increase"
-        ? "It makes no more changes there. A raise it already made stays, unless enough of the bookings behind it cancel."
-        : "It makes no more changes there. What it already cut stays.",
+      `It makes no more changes there. ${stopKeeps(undo)}`,
       "Your other rules still work on those nights.",
       "Let it run again puts the rule back on them, starting from the price it left, and MAYA asks you again if it keeps adjusting one.",
     ],
@@ -426,6 +432,8 @@ export function buildRuleAlerts(input: {
   simulation: boolean;
   /** Per rule that raises on a fast pace, its booking speed window in days (see nightWhy). */
   wholeWindowDays?: Map<string, number>;
+  /** The rules whose undo box is unticked; every other rule is ticked. */
+  untickedRuleIds?: ReadonlySet<string>;
 }): RuleAlert[] {
   const byAlert = new Map<string, AlertNightRow[]>();
   for (const night of input.nights) {
@@ -471,6 +479,7 @@ export function buildRuleAlerts(input: {
       rule_id: alert.rule_id,
       rule_name: ruleName,
       direction: alert.action_direction,
+      undo_on_cancellation: !(input.untickedRuleIds?.has(alert.rule_id) ?? false),
       headline: alertHeadline({
         ruleName,
         direction: alert.action_direction,

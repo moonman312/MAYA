@@ -1363,16 +1363,12 @@ export function Dashboard({ isPlatformAdmin = false }: { isPlatformAdmin?: boole
                         {(() => {
                           const stops = ruleStops.find((s) => s.rule_id === rule.id);
                           if (!stops || stops.nights.length === 0) return null;
-                          const direction =
-                            (rule.action.adjust_rate_percent ?? rule.action.adjust_rate_dollars ?? 0) < 0
-                              ? "decrease"
-                              : "increase";
                           return (
                             <div className="mt-1 flex flex-wrap items-center gap-1.5">
                               <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-200">
                                 {stoppedChipLabel(stops.nights.length)}
                               </span>
-                              <RoomCountHelp {...stoppedNightsHelp(stops.nights, direction)} />
+                              <RoomCountHelp {...stoppedNightsHelp(stops.nights, rule.undo_on_cancellation !== false)} />
                               <button
                                 type="button"
                                 disabled={lettingRun !== null}

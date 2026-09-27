@@ -142,7 +142,7 @@ export async function loadRuleAlerts(
   const [{ data: rules }, { data: roomTypes }] = await Promise.all([
     supabase
       .from("pricing_rules")
-      .select("id, name, action_direction, rule_condition ( booking_speed_operator, booking_speed_window_days )")
+      .select("id, name, action_direction, undo_on_cancellation, rule_condition ( booking_speed_operator, booking_speed_window_days )")
       .in("id", alerts.map((a) => a.rule_id)),
     roomTypeIds.size > 0
       ? supabase.from("room_types").select("id, name").in("id", [...roomTypeIds])
@@ -155,6 +155,7 @@ export async function loadRuleAlerts(
       nights,
       ruleNames: new Map((rules ?? []).map((r) => [String(r.id), String(r.name)])),
       wholeWindowDays: wholeWindowDaysOf(rules ?? []),
+      untickedRuleIds: new Set((rules ?? []).filter((r) => r.undo_on_cancellation === false).map((r) => String(r.id))),
       roomTypeNames: new Map((roomTypes ?? []).map((rt) => [String(rt.id), String(rt.name)])),
       currencySymbol,
       simulation,

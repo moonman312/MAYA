@@ -169,7 +169,7 @@ export function RuleAlertBanner({
                     </button>
                   </>
                 ) : null}
-                <RoomCountHelp {...alertChoiceHelp(alert.direction)} />
+                <RoomCountHelp {...alertChoiceHelp(alert.undo_on_cancellation !== false)} />
               </div>
             ) : (
               <p className="text-xs text-amber-200/80">Only a Revenue Manager or above can answer this.</p>

@@ -330,15 +330,15 @@ describe("the nights a rule was stopped on", () => {
     expect(stoppedChipLabel(12)).toBe("Stopped on 12 nights");
     expect(stoppedChipLabel(1)).toBe("Stopped on 1 night");
 
-    const cut = stoppedNightsHelp(["2026-11-14", "2026-11-16"], "decrease");
-    expect(cut.title).toBe("Stopped on 2 nights");
-    expect(cut.lines[0]).toBe("You told this rule to stop on Sat, Nov 14 2026 and Mon, Nov 16 2026.");
-    expect(cut.lines[1]).toContain("What it already cut stays.");
-    expect(cut.lines.join(" ")).toContain("Let it run again");
-    expect(cut.lines.join(" ")).toContain("MAYA asks you again");
-    // A stop does not hold a raise against the cancellation check.
-    expect(stoppedNightsHelp(["2026-11-14"], "increase").lines[1]).toContain(
-      "unless enough of the bookings behind it cancel",
+    const unticked = stoppedNightsHelp(["2026-11-14", "2026-11-16"], false);
+    expect(unticked.title).toBe("Stopped on 2 nights");
+    expect(unticked.lines[0]).toBe("You told this rule to stop on Sat, Nov 14 2026 and Mon, Nov 16 2026.");
+    expect(unticked.lines[1]).toBe("It makes no more changes there. What it already changed there stays.");
+    expect(unticked.lines.join(" ")).toContain("Let it run again");
+    expect(unticked.lines.join(" ")).toContain("MAYA asks you again");
+    // A stop does not hold a ticked rule's changes against the cancellation check.
+    expect(stoppedNightsHelp(["2026-11-14"], true).lines[1]).toBe(
+      "It makes no more changes there. What it already changed there stays, unless cancellations mean the rule is no longer true.",
     );
   });
 
@@ -375,7 +375,7 @@ describe("the nights a rule was stopped on", () => {
 
   it("sums the rest up rather than listing a whole season", () => {
     const many = Array.from({ length: 30 }, (_, i) => `2026-11-${String(i + 1).padStart(2, "0")}`);
-    const help = stoppedNightsHelp(many, "decrease");
+    const help = stoppedNightsHelp(many, true);
     expect(help.lines[0]).toContain("and 22 more nights");
     expect(help.lines[0]).toContain("Sun, Nov 1 2026");
     expect(help.lines[0]).not.toContain("Nov 30");
@@ -396,16 +396,16 @@ describe("the words themselves", () => {
       card.headline,
       card.consequence,
       ...card.nights.flatMap((n) => [...n.why, n.limit_line ?? ""]),
-      alertChoiceHelp("decrease").title,
-      ...alertChoiceHelp("decrease").lines,
-      ...alertChoiceHelp("increase").lines,
+      alertChoiceHelp(false).title,
+      ...alertChoiceHelp(false).lines,
+      ...alertChoiceHelp(true).lines,
       alertLimitHelp("$").title,
       ...alertLimitHelp("$").lines,
       limitActionLabel("decrease"),
       limitActionLabel("increase"),
       stoppedChipLabel(3),
-      ...stoppedNightsHelp(["2026-11-14"], "decrease").lines,
-      ...stoppedNightsHelp(["2026-11-14"], "increase").lines,
+      ...stoppedNightsHelp(["2026-11-14"], false).lines,
+      ...stoppedNightsHelp(["2026-11-14"], true).lines,
     ].join(" ");
     expect(every).not.toContain("—");
     expect(every).not.toMatch(/[<>≥≤]|[^a-z]=[^a-z]/i);
@@ -419,17 +419,24 @@ describe("the words themselves", () => {
     expect(alertLimitHelp("$").lines.join(" ")).toContain("Rules tab");
   });
 
-  it("promises only what the choice does, and says a raise can still come off", () => {
-    const cut = alertChoiceHelp("decrease").lines.join(" ");
-    expect(cut).toContain("What it already cut stays.");
-    expect(cut).toContain("MAYA stops asking");
-    // A stop holds back new fires; it does not stop the cancellation check
-    // taking a raise off, so the help must not promise that it does.
-    const raise = alertChoiceHelp("increase").lines.join(" ");
-    expect(raise).toContain("unless enough of the bookings behind it cancel");
-    expect(raise).not.toContain("What it already changed stays.");
+  it("promises only what the choice does, and says a ticked rule's change can still come off", () => {
+    const unticked = alertChoiceHelp(false).lines.join(" ");
+    expect(unticked).toContain("What it already changed there stays.");
+    expect(unticked).toContain("MAYA stops asking");
+    // A stop holds back new changes; it does not stop the cancellation check
+    // taking a ticked rule's change off, raise or cut, so the help must not
+    // promise that it does.
+    const ticked = alertChoiceHelp(true).lines.join(" ");
+    expect(ticked).toContain("What it already changed there stays, unless cancellations mean the rule is no longer true.");
     // And both say where a stopped night can be let go again.
-    expect(cut).toContain("Rules tab");
-    expect(raise).toContain("Rules tab");
+    expect(unticked).toContain("Rules tab");
+    expect(ticked).toContain("Rules tab");
+  });
+
+  it("reads each rule's box into its card: ticked unless the rule is unticked", () => {
+    const cards = (unticked?: Set<string>) =>
+      buildRuleAlerts({ alerts: [alert], nights: [night()], ruleNames, roomTypeNames, currencySymbol: "$", simulation: false, untickedRuleIds: unticked });
+    expect(cards()[0].undo_on_cancellation).toBe(true);
+    expect(cards(new Set([alert.rule_id]))[0].undo_on_cancellation).toBe(false);
   });
 });
