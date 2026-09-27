@@ -725,9 +725,39 @@ describe("buildRetirements", () => {
   it("puts it in the entry before whatever is still applying", () => {
     const entry = buildEntry(row({ base_price: 200, final_price: 200, details: retired() }), lookups());
     expect(entry.narrative?.[0]).toBe(
-      '"Demand-spike catcher" stopped applying an earlier 12% raise here: enough of the bookings behind it cancelled.',
+      'Cancellations meant "Demand-spike catcher" was no longer true, so its 12% raise came off.',
     );
     expect(entry.rule_name).toBe("Demand-spike catcher");
+  });
+
+  it("says what the check found when the audit kept it", () => {
+    const withFinding = details({
+      retired_pickup_effects: [
+        {
+          event_id: "evt-3",
+          rule_id: "rule-2",
+          delta: "+12%",
+          applied_at: "2026-07-21T10:00:00Z",
+          fire_seq: 1,
+          reason: "bookings_cancelled",
+          cancel_check: "recount",
+          finding: { part: "booking_speed", left: 6, counted: 9, expected: 5 },
+        },
+      ],
+    });
+    expect(buildRetirements(withFinding, lookups().rules)).toEqual([
+      {
+        rule_name: "Demand-spike catcher",
+        delta: "+12%",
+        reason: "bookings_cancelled",
+        finding: { part: "booking_speed", left: 6, counted: 9, expected: 5 },
+      },
+    ]);
+    const entry = buildEntry(row({ base_price: 200, final_price: 200, details: withFinding }), lookups());
+    expect(entry.narrative?.slice(0, 2)).toEqual([
+      'Cancellations meant "Demand-spike catcher" was no longer true, so its 12% raise came off.',
+      "Of the 9 bookings it counted, 6 are still booked, where nights like it usually get about 5.",
+    ]);
   });
 });
 
@@ -744,20 +774,25 @@ describe("buildAlertChoices", () => {
     expect(items[0].nights).toBe(2);
     expect(items[0].first_night).toBe("2026-11-14");
     expect(items[0].last_night).toBe("2026-11-16");
-    // "Demand-spike catcher" raises, and a stop does not hold a raise against
-    // the cancellation check.
+    // "Demand-spike catcher" is ticked, and a stop does not hold its changes
+    // against the cancellation check.
     expect(items[0].title).toBe(
-      'Jake stopped "Demand-spike catcher" on 2 nights. The raises it already made stay, unless enough of the bookings behind them cancel.',
+      'Jake stopped "Demand-spike catcher" on 2 nights. What it already changed stays, unless cancellations mean the rule is no longer true.',
     );
     expect(items[1].title).toBe('A manager told "Busy-day bump" to carry on with Sat, Nov 14 2026.');
     expect(items.every(isRuleAlertChoice)).toBe(true);
   });
 
-  it("says a cut it already made stays, because nothing MAYA does takes one back", () => {
+  it("says a cut it already made can come off the same way, and nothing comes off for an unticked rule", () => {
     const cutter = new Map(lookups().rules);
     cutter.set("rule-2", { ...cutter.get("rule-2")!, name: "Slow-date rescue", action_direction: "decrease" });
-    const items = buildAlertChoices([rows[0]], { rules: cutter });
-    expect(items[0].title).toBe('A manager stopped "Slow-date rescue" on Mon, Nov 16 2026. What it already cut stays.');
+    expect(buildAlertChoices([rows[0]], { rules: cutter })[0].title).toBe(
+      'A manager stopped "Slow-date rescue" on Mon, Nov 16 2026. What it already changed stays, unless cancellations mean the rule is no longer true.',
+    );
+    cutter.set("rule-2", { ...cutter.get("rule-2")!, undo_on_cancellation: false });
+    expect(buildAlertChoices([rows[0]], { rules: cutter })[0].title).toBe(
+      'A manager stopped "Slow-date rescue" on Mon, Nov 16 2026. What it already changed stays.',
+    );
   });
 
   it("says a manager let the rule run again, and what that leaves the rule free to do", () => {
@@ -784,7 +819,7 @@ describe("buildAlertChoices", () => {
   it("says nothing it cannot back up when the rule is gone", () => {
     const items = buildAlertChoices([rows[0]], { rules: new Map() });
     expect(items[0].title).toBe(
-      'A manager stopped "A rule" on Mon, Nov 16 2026. What it already cut stays.',
+      'A manager stopped "A rule" on Mon, Nov 16 2026. What it already changed stays.',
     );
     expect(items[0].title).not.toMatch(/—/);
   });

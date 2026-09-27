@@ -908,7 +908,7 @@ describe("a fire that came off", () => {
       ],
     });
     expect(lines.slice(0, 3)).toEqual([
-      '"Hot-week surge" stopped applying an earlier 25% raise here: enough of the bookings behind it cancelled.',
+      'Cancellations meant "Hot-week surge" was no longer true, so its 25% raise came off.',
       `"Slow-date rescue" stopped applying an earlier $15.00 cut here: this night's price was set by hand.`,
       '"Warm-date bump" stopped applying an earlier 10% raise here: the rule was edited, so MAYA started it fresh.',
     ]);
@@ -926,8 +926,50 @@ describe("a fire that came off", () => {
         applications: [],
         retirements: [{ rule_name: "Hot-week surge", delta: "+25%", reason: "bookings_cancelled" }],
       }),
-    ).toEqual([
-      '"Hot-week surge" stopped applying an earlier 25% raise here: enough of the bookings behind it cancelled.',
+    ).toEqual(['Cancellations meant "Hot-week surge" was no longer true, so its 25% raise came off.']);
+  });
+
+  it("says what cancellations made no longer true, in numbers, when the audit kept it", () => {
+    const off = (finding: NonNullable<Parameters<typeof narrateChange>[0]["retirements"]>[number]["finding"], delta = "+10%") =>
+      narrateChange({
+        room_type: "Standard",
+        base_price: 200,
+        final_price: 200,
+        applications: [],
+        retirements: [{ rule_name: "Quick pickup", delta, reason: "bookings_cancelled", finding }],
+      });
+    expect(off({ part: "booking_speed", left: 6, counted: 9, expected: 5 })).toEqual([
+      'Cancellations meant "Quick pickup" was no longer true, so its 10% raise came off.',
+      "Of the 9 bookings it counted, 6 are still booked, where nights like it usually get about 5.",
     ]);
+    expect(off({ part: "booking_speed", left: 1, counted: null, expected: 0.4 })[1]).toBe(
+      "1 of the bookings it counted is still booked, where nights like it usually get almost none.",
+    );
+    expect(off({ part: "occupancy", occupancy: 0.65, threshold: 0.7 }, "-$15.00")).toEqual([
+      'Cancellations meant "Quick pickup" was no longer true, so its $15.00 cut came off.',
+      "Sellable occupancy had fallen to 65%, and the rule needs more than 70%.",
+    ]);
+    expect(off({ part: "occupancy", occupancy: 0.695, threshold: 0.7 })[1]).toBe(
+      "Sellable occupancy had fallen to 69.5%, and the rule needs more than 70%.",
+    );
+    expect(off({ part: "pickup", net: 4, threshold: 4, metric: "room_nights" })[1]).toBe(
+      "The pickup it counted was down to 4 room nights, and the rule needs more than 4 room nights.",
+    );
+    expect(off({ part: "pickup", net: 400, threshold: 450, metric: "revenue" })[1]).toBe(
+      "The pickup it counted was down to $400.00 in revenue, and the rule needs more than $450.00.",
+    );
+    expect(off({ part: "pickup", net: -1, threshold: 1, metric: "room_nights" })[1]).toBe(
+      "None of the pickup it counted was left, and the rule needs more than 1 room night.",
+    );
+    for (const f of [
+      { part: "booking_speed" as const, left: 6, counted: 9, expected: 5 },
+      { part: "occupancy" as const, occupancy: 0.65, threshold: 0.7 },
+      { part: "pickup" as const, net: 4, threshold: 4, metric: "room_nights" as const },
+    ]) {
+      for (const line of off(f)) {
+        expect(line).not.toMatch(/—|–/);
+        expect(line).not.toMatch(NO_MATH_SYMBOLS);
+      }
+    }
   });
 });

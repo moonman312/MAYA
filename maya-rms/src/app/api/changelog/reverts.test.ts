@@ -192,7 +192,8 @@ describe("change log: a run that put a price back to base is a change", () => {
       original_rate: 110,
       new_rate: 100,
       narrative: [
-        '"Pickup" stopped applying an earlier 10% raise here: enough of the bookings behind it cancelled.',
+        'Cancellations meant "Pickup" was no longer true, so its 10% raise came off.',
+        "None of the pickup it counted was left, and the rule needs more than 3 room nights.",
         "That took this night from $110.00 to $100.00.",
       ],
     });
@@ -250,7 +251,8 @@ describe("change log: a run that put a price back to base is a change", () => {
     const body = await w.changelog();
     expect(shape(body)).toEqual([`run ${at(10)}`, `run ${at(0)}`]);
     expect((body[0].changes as FakeRow[])[0].narrative).toEqual([
-      '"Pickup" stopped applying an earlier 10% raise here: enough of the bookings behind it cancelled.',
+      'Cancellations meant "Pickup" was no longer true, so its 10% raise came off.',
+      "None of the pickup it counted was left, and the rule needs more than 3 room nights.",
     ]);
     const lines = vi.mocked(console.error).mock.calls.filter((c) => String(c[0]).includes("audit_rows_before"));
     expect(lines).toHaveLength(1);

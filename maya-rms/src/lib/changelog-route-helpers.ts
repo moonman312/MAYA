@@ -79,6 +79,8 @@ export type RuleLookupEntry = {
   action_direction: "increase" | "decrease";
   action_value: number;
   is_pickup_rule: boolean;
+  /** The rule's undo box (pricing_rules.undo_on_cancellation). Absent reads as ticked, like every rule the migration found. */
+  undo_on_cancellation?: boolean;
 };
 
 export type ChangelogLookups = {
@@ -439,6 +441,7 @@ export function buildRetirements(
     rule_name: rules.get(e.rule_id)?.name ?? "Pricing rule",
     delta: e.delta,
     reason: e.reason,
+    ...(e.finding ? { finding: e.finding } : {}),
   }));
 }
 
@@ -843,17 +846,23 @@ function nightsWord(n: number): string {
  * still to come, so a night that was already over never reads as one the
  * rule can adjust again.
  * "Stop" says what happens to the changes already made, because that is the
- * question the word leaves open, and it says it by direction: a cut is never
- * undone on MAYA's own account, while a raise still comes off if enough of
- * the bookings behind it cancel (pickup.ts firesToRetire runs on every open
- * raise, stop or no stop). A resume says when the rule is free again, and
- * says "can", because whether it adjusts anything is still up to its
- * conditions.
+ * question the word leaves open: they stay, and with the rule's undo box
+ * ticked one still comes off if cancellations mean the rule is no longer
+ * true (pickup.ts cancellationChecks looks at every open change of a
+ * ticked rule, stop or no stop), raise or cut alike. A resume says when the
+ * rule is free again, and says "can", because whether it adjusts anything
+ * is still up to its conditions.
  */
 export function buildAlertChoices(
   rows: AlertChoiceRow[],
   lookups: Pick<ChangelogLookups, "rules"> & Partial<Pick<ChangelogLookups, "setterNames">>,
 ): ChangelogRuleAlertChoice[] {
+  // Ticked unless the rule says otherwise; a rule this log can't find any
+  // more gets the first half of the stop line only.
+  const undoes = (ruleId: string) => {
+    const rule = lookups.rules.get(ruleId);
+    return rule !== undefined && rule.undo_on_cancellation !== false;
+  };
   const groups = new Map<string, AlertChoiceRow[]>();
   for (const row of rows) {
     const key = `${row.rule_id}|${row.choice}|${row.at}`;
@@ -881,9 +890,9 @@ export function buildAlertChoices(
         first.choice === "resume"
           ? `${who} let "${ruleName}" run again on ${where}. It can start adjusting again from the next pricing run.`
           : first.choice === "stop"
-            ? lookups.rules.get(first.rule_id)?.action_direction === "increase"
-              ? `${who} stopped "${ruleName}" on ${where}. The raises it already made stay, unless enough of the bookings behind them cancel.`
-              : `${who} stopped "${ruleName}" on ${where}. What it already cut stays.`
+            ? undoes(first.rule_id)
+              ? `${who} stopped "${ruleName}" on ${where}. What it already changed stays, unless cancellations mean the rule is no longer true.`
+              : `${who} stopped "${ruleName}" on ${where}. What it already changed stays.`
             : `${who} told "${ruleName}" to carry on with ${where}.`,
     });
   }

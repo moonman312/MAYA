@@ -342,7 +342,7 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
       supabase
         .from("pricing_rules")
         .select(
-          `id, name, action_type, action_direction, action_value, is_pickup_rule,
+          `id, name, action_type, action_direction, action_value, is_pickup_rule, undo_on_cancellation,
            rule_condition (
              occupancy_operator, occupancy_threshold,
              dta_operator, dta_threshold_days,
@@ -395,6 +395,7 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
       action_direction: rule.action_direction as RuleLookupEntry["action_direction"],
       action_value: Number(rule.action_value),
       is_pickup_rule: Boolean(rule.is_pickup_rule),
+      undo_on_cancellation: rule.undo_on_cancellation !== false,
     });
     const rc = Array.isArray(rule.rule_condition)
       ? rule.rule_condition[0]

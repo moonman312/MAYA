@@ -34,7 +34,7 @@
  */
 
 import { bookingSpeedPhrase as speedPhrase, isBookingSpeed } from "@/lib/observations/booking-speed";
-import type { RuleCondition } from "@/types/domain";
+import type { CancellationFinding, RuleCondition } from "@/types/domain";
 
 /**
  * Lowercase level for use mid-sentence. The Title Case label is still the
@@ -121,6 +121,8 @@ export type NarrativeRetirement = {
    * hold (a ladder rule) stopped holding. null: the log can't tell why.
    */
   reason: "bookings_cancelled" | "manual_price" | "rule_edited" | "no_longer_met" | null;
+  /** For bookings_cancelled: what cancellations made no longer true, when the audit kept it. */
+  finding?: CancellationFinding | null;
 };
 
 export type NarrativeInput = {
@@ -393,17 +395,62 @@ function retirementWords(delta: string): string {
   return `${delta.replace(/^[+-]/, "")} ${raise ? "raise" : "cut"}`;
 }
 
-const RETIREMENT_REASONS: Record<NonNullable<NarrativeRetirement["reason"]>, string> = {
-  bookings_cancelled: "enough of the bookings behind it cancelled",
+const RETIREMENT_REASONS: Record<Exclude<NonNullable<NarrativeRetirement["reason"]>, "bookings_cancelled">, string> = {
   manual_price: "this night's price was set by hand",
   rule_edited: "the rule was edited, so MAYA started it fresh",
   no_longer_met: "this night no longer met its conditions",
 };
 
-/** '"Busy" stopped applying an earlier 10% raise here: this night no longer met its conditions.' */
-function retirementSentence(off: NarrativeRetirement): string {
+/** 70%, or 69.5% when it isn't whole: an occupancy (0 to 1) as the owner set it. */
+function percentWord(fraction: number): string {
+  const tenths = Math.round(fraction * 1000) / 10;
+  return `${Number.isInteger(tenths) ? tenths.toFixed(0) : tenths.toFixed(1)}%`;
+}
+
+function roomNightWord(n: number): string {
+  return n === 1 ? "1 room night" : `${n} room nights`;
+}
+
+/**
+ * What the cancellation check found no longer true (the audit's finding),
+ * in numbers: the occupancy now against the bar, what is left of the pickup
+ * the change counted, or how many of the bookings it counted are still
+ * booked against the usual frozen at the change. null without one.
+ */
+function findingSentence(finding: CancellationFinding | null | undefined, sym: string): string | null {
+  if (!finding) return null;
+  if (finding.part === "occupancy") {
+    return `Sellable occupancy had fallen to ${percentWord(finding.occupancy)}, and the rule needs more than ${percentWord(finding.threshold)}.`;
+  }
+  if (finding.part === "pickup") {
+    const needs =
+      finding.metric === "revenue" ? money(finding.threshold, sym) : roomNightWord(finding.threshold);
+    if (finding.net <= 0) return `None of the pickup it counted was left, and the rule needs more than ${needs}.`;
+    const left = finding.metric === "revenue" ? `${money(finding.net, sym)} in revenue` : roomNightWord(finding.net);
+    return `The pickup it counted was down to ${left}, and the rule needs more than ${needs}.`;
+  }
+  const usual = finding.expected < 1 ? "almost none" : `about ${Math.round(finding.expected)}`;
+  const still = finding.left === 1 ? "is" : "are";
+  return finding.counted != null
+    ? `Of the ${finding.counted} ${finding.counted === 1 ? "booking" : "bookings"} it counted, ${finding.left} ${still} still booked, where nights like it usually get ${usual}.`
+    : `${finding.left} of the bookings it counted ${still} still booked, where nights like it usually get ${usual}.`;
+}
+
+/**
+ * '"Busy" stopped applying an earlier 10% raise here: this night no longer
+ * met its conditions.' A change taken off for cancellations says so the way
+ * the rule builder's box does ('Cancellations meant "Quick pickup" was no
+ * longer true, so its 10% raise came off.'), then the numbers when the
+ * audit kept them.
+ */
+function retirementSentences(off: NarrativeRetirement, sym: string): string[] {
+  if (off.reason === "bookings_cancelled") {
+    const found = findingSentence(off.finding, sym);
+    const lead = `Cancellations meant "${off.rule_name}" was no longer true, so its ${retirementWords(off.delta)} came off.`;
+    return found ? [lead, found] : [lead];
+  }
   const lead = `"${off.rule_name}" stopped applying an earlier ${retirementWords(off.delta)} here`;
-  return off.reason ? `${lead}: ${RETIREMENT_REASONS[off.reason]}.` : `${lead}.`;
+  return [off.reason ? `${lead}: ${RETIREMENT_REASONS[off.reason]}.` : `${lead}.`];
 }
 
 /**
@@ -416,7 +463,7 @@ export function narrateChange(input: NarrativeInput): string[] {
   const sentences: string[] = [];
   let running = input.base_price;
 
-  for (const off of input.retirements ?? []) sentences.push(retirementSentence(off));
+  for (const off of input.retirements ?? []) sentences.push(...retirementSentences(off, sym));
 
   input.applications.forEach((app, i) => {
     const before = running;
@@ -500,7 +547,7 @@ export type NarrativeRevertInput = {
  */
 export function narrateRevert(input: NarrativeRevertInput): string[] {
   const sym = input.currencySymbol ?? "$";
-  const sentences = [...input.retirements, ...input.rules_off].map(retirementSentence);
+  const sentences = [...input.retirements, ...input.rules_off].flatMap((off) => retirementSentences(off, sym));
   if (input.manual_cleared) {
     sentences.push(
       input.manual_cleared.pms == null
