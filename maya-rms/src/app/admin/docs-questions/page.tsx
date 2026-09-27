@@ -1,13 +1,18 @@
+import { DocsTallyWeekly } from "@/components/admin/docs-tally-panels";
+import { loadTallyWeekly, type WeeklyTally } from "@/lib/admin/docs-tally";
 import { createClient } from "@/utils/supabase/server";
 import { cookies } from "next/headers";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
-// What docs readers chose to send from the docs helper and the "Was this page
-// useful?" buttons. Written by POST /api/docs-ask/feedback; the text is
-// scrubbed before it is stored. The layout already checks platform admin, and
-// RLS lets only platform admins read the table.
+// Two things from the docs helper. On top, the count of every question asked
+// (docs_ask_tally, written by POST /api/docs-ask/tally: the kind of reply and
+// where, never the question), week by week. Below, what readers chose to send
+// from the helper and the "Was this page useful?" buttons (docs_questions,
+// written by POST /api/docs-ask/feedback; the text is scrubbed before it is
+// stored). The layout already checks platform admin, and RLS lets only
+// platform admins read either table.
 
 const SOURCES = [
   { key: "", label: "Everything" },
@@ -52,13 +57,23 @@ export default async function AdminDocsQuestionsPage({
     .order("created_at", { ascending: false })
     .limit(LIMIT);
   if (source) query = query.eq("source", source);
-  const { data, error } = await query;
+  const [{ data, error }, tally] = await Promise.all([
+    query,
+    loadTallyWeekly(ssr, new Date().toISOString().slice(0, 10)).then(
+      (t): { tally: WeeklyTally | null; error: string | null } => ({ tally: t, error: null }),
+      (e: unknown) => ({ tally: null, error: e instanceof Error ? e.message : String(e) }),
+    ),
+  ]);
   const rows = (data ?? []) as Row[];
 
   return (
     <div className="space-y-6">
+      <h1 className="text-2xl font-semibold">Docs questions</h1>
+
+      <DocsTallyWeekly tally={tally.tally} error={tally.error} />
+
       <div>
-        <h1 className="text-2xl font-semibold">Docs questions</h1>
+        <h2 className="text-lg font-semibold text-slate-100">Sent by readers</h2>
         <p className="text-sm text-slate-400">
           What readers sent from the docs at /docs: questions the helper could not answer, answers that did not help, and page
           votes. Newest first, up to {LIMIT}.

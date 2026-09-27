@@ -15,7 +15,7 @@ export type TallyOutcome = (typeof TALLY_OUTCOMES)[number];
 
 /** Plain words for each kind of reply. */
 export const OUTCOME_LABEL: Record<TallyOutcome, string> = {
-  answered: "Answered",
+  answered: "From the docs",
   canned: "Set reply",
   unsure: "Might help",
   none: "No answer",
