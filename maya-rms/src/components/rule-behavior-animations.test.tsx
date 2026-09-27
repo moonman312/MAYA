@@ -38,6 +38,7 @@ function adjustment(change: string) {
   const m = /^([+-])(\d+(?:\.\d+)?)%$/.exec(change);
   if (!m) throw new Error(`not a percent change: ${change}`);
   return {
+    rule_id: "scene",
     action_kind: "percent" as const,
     action_direction: m[1] === "+" ? ("increase" as const) : ("decrease" as const),
     action_value: Number(m[2]),
