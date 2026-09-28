@@ -541,3 +541,131 @@ describe("the daily pass plus touched nights prices every night the way pricing 
     expect(pricedByB).toBeLessThan(pricedByA / 3);
   }, 900_000);
 });
+
+describe("the moments that used to move a price with the clock", () => {
+  const LOCAL0 = "2026-10-28";
+  const HORIZON = 12;
+  const at = (day: number, hhmm: string) => Date.parse(`${addDays(LOCAL0, day)}T${hhmm}:00.000Z`);
+
+  it("a wait ends as the hotel's day begins: both raise again at the first tick after midnight, and the cadence prices that night then and not before", async () => {
+    // More than 0 new bookings in 3 days, +5%, waiting a day.
+    const seed = seedHotel(LOCAL0, HORIZON);
+    seed.pricing_rules = [
+      rule("c9000000-0000-4000-8000-000000000001", {
+        is_pickup_rule: true,
+        action_value: 5,
+        cond: { pickup_operator: "gt", pickup_threshold: 0, pickup_window_days: 3, pickup_metric: "units", pickup_cooldown_days: 1 },
+        signals: [KING],
+        affected: [KING],
+      }),
+    ];
+    const w = world(seed, HORIZON);
+    const night = addDays(LOCAL0, 6);
+    const add = (atMs: number) => {
+      const row = booking(rng(atMs), night, KING, LOCAL0, 150, iso(atMs));
+      w.change(atMs, (t) => t.reservations.push({ ...row }));
+    };
+    const fires = (f: Fake) => f.tables.pickup_event.filter((e) => e.stay_date === night).map((e) => [e.fire_seq, e.applied_at]);
+
+    // Three quiet days first, for the snapshots a pickup window opens on.
+    for (let day = -3; day < 0; day++) {
+      for (const atMs of ticksFor(Date.parse(`${addDays(LOCAL0, day)}T00:00:00.000Z`))) {
+        await w.tick(atMs);
+        expectSame(w, iso(atMs));
+      }
+    }
+    w.priced.clear();
+    for (const [atMs, book] of [
+      [at(0, "12:00"), false],
+      [at(0, "13:00"), true],
+      [at(0, "13:30"), true],
+      [at(0, "20:00"), false],
+      [at(1, "03:55"), false],
+      [at(1, "04:05"), false],
+      [at(1, "09:00"), false],
+    ] as const) {
+      if (book) add(atMs);
+      await w.tick(atMs);
+      expectSame(w, iso(atMs));
+    }
+    // The raise at 13:00, and the next on the booking at 13:30 once the wait
+    // is over: 00:05 in New York, not 13:00.
+    expect(fires(w.a)).toEqual([
+      [1, iso(at(0, "13:00"))],
+      [2, iso(at(1, "04:05"))],
+    ]);
+    // The cadence priced the night in the day's pass (the first tick of
+    // Oct 28 here is at 12:00), when it was booked, in the next day's pass,
+    // and in the tick after each change a rule made on it (a follow-up that
+    // found nothing new): never at 20:00 or 03:55, when nothing about it
+    // changed.
+    const pricedNight = [...w.priced.entries()].filter(([, n]) => n.includes(night)).map(([t]) => t);
+    expect(pricedNight).toEqual([
+      iso(at(0, "12:00")),
+      iso(at(0, "13:00")),
+      iso(at(0, "13:30")),
+      iso(at(1, "04:05")),
+      iso(at(1, "09:00")),
+    ]);
+  }, 120_000);
+
+  it("a pass in chunks: nights it has not reached keep yesterday's reading for a few ticks, and match again once it has", async () => {
+    // A night the pass reaches a tick or two after midnight is priced that
+    // much later than pricing every night would price it, on the same hotel
+    // day and the same bookings (none arrive between those ticks here). So
+    // once the pass is done every price is the same, and so is every
+    // change, ladder row and filed night, apart from the instants they were
+    // written at.
+    const instants = /"(computed_at|applied_at|baseline_start_ts|baseline_end_ts|retired_at|window_since|activated_at|deactivated_at|checked_at|last_fire_at|reached_at|updated_at|last_event_id)":("[^"]*"|null),?/g;
+    const same = (at: string) => {
+      const pick = (f: Fake) => {
+        const n = normalize(f.tables);
+        const strip = (rows: string[]) => rows.map((r) => r.replace(instants, "")).sort();
+        return {
+          published_price: strip(n.published_price),
+          pickup_event: strip(n.pickup_event),
+          ladder_rule_state: strip(n.ladder_rule_state),
+          rule_repeat_alert_nights: strip(n.rule_repeat_alert_nights),
+        };
+      };
+      expect(pick(w.b), `after the tick at ${at}`).toEqual(pick(w.a));
+    };
+    // The first pass whole, as a hotel priced every tick until the release
+    // has every night priced; then chunks of 8 nights.
+    const config: CadenceConfig = { ...WHOLE_PASS };
+    const w = world(seedHotel(LOCAL0, 30), 30, config);
+    await w.tick(at(-1, "22:00"));
+    expectSame(w, iso(at(-1, "22:00")));
+    Object.assign(config, { chunkNights: 8, runMaxNights: 16 });
+    const ticks: number[] = [];
+    // Never on the stroke of midnight: a night that comes into the window
+    // then would have a snapshot at the very instant its pickup windows
+    // open when priced every tick, and none a chunk later.
+    for (let day = 0; day < 3; day++) for (const hhmm of ["03:50", "03:55", "04:02", "04:07", "04:12", "04:17", "13:05", "13:10", "13:15", "13:20"]) ticks.push(at(day, hhmm));
+    let checked = 0;
+    let behind = 0;
+    for (const atMs of ticks) {
+      const minute = new Date(atMs).getUTCHours() * 60 + new Date(atMs).getUTCMinutes();
+      if (minute === 13 * 60 + 5) {
+        const g = rng(atMs);
+        const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date(atMs));
+        // Made once, applied to both copies.
+        const rows = [0, 1, 2].map((k) => booking(g, addDays(today, Math.floor(g() * 30)), ROOM_TYPES[k].id, today, 120, iso(atMs)));
+        w.change(atMs, (t) => {
+          for (const row of rows) t.reservations.push({ ...row });
+        });
+      }
+      await w.tick(atMs);
+      const state = w.b.tables.hotel_pricing_state[0];
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date(atMs));
+      if (state.pass_date === today && state.pass_cursor === null) {
+        same(iso(atMs));
+        checked++;
+      } else {
+        behind++;
+      }
+    }
+    expect(checked).toBeGreaterThan(20);
+    expect(behind).toBeGreaterThan(0);
+  }, 300_000);
+});
