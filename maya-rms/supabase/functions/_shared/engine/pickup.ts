@@ -449,9 +449,7 @@ export function countFromFireAt(
  * price changes. A change that came off for cancellations is not among
  * them: the price no longer carries it, so it covers no bookings, for its
  * own rule or any other, and the owner is only asked about changes still
- * on the price. Its run's snapshot also still holds the bookings that
- * cancelled, so a pickup count opened there would net every new booking
- * against them.
+ * on the price.
  */
 export function openFireHeads(
   rules: readonly Pick<RankedRule, "id" | "version">[],

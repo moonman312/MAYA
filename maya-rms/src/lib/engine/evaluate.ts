@@ -132,7 +132,10 @@ function pushTo<T>(map: Map<string, T[]>, key: string, value: T): void {
  * that opens at a fire (`atFire`) has a baseline of its own per night, the
  * fire's applied_at, which that fire's run wrote a snapshot at: those are
  * all read by their exact instants together (preloadAt), however few cells
- * each covers, rather than one read per night and room type.
+ * each covers, rather than one read per night and room type. Such a count
+ * is then taken from when each booking was first seen instead
+ * (countPickupSinceChange), and the snapshot stands only when that read
+ * fails.
  */
 async function preloadSharedBaselines(
   snapshots: ReturnType<typeof createSnapshotLookup>,
