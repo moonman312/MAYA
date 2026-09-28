@@ -15,17 +15,20 @@
  *     typed prices, rooms out of service, base rates, answers to the
  *     three-changes alert. Edits that can move any night (rules, room types,
  *     closed periods, flags on past dates, the time zone) start a new pass.
- *   * Wake-ups: a pickup count window and a rule's wait are exact spans of 24
- *     hours, so time alone ends them. The engine says when (CadenceReport),
- *     and the night is priced again in the first tick after.
+ *   * Follow-ups: a night where a run changed a rule's state (a change made,
+ *     taken off or restated, a ladder rule switched) is priced again next
+ *     tick, until a run changes nothing there, since the next run can decide
+ *     differently on it (CadenceReport.changedNights).
  *   * Momentum: a night whose Booking Speed reading leans on the nights
  *     around it (usesMomentum) is priced again when a booking lands within
  *     10 nights of it.
  *
- * Time alone never moves anything else in a price during the day (cut rules
- * judge whole days ending yesterday, raise rules count today so far), so the
- * daily pass plus these nights gives the prices pricing every night every
- * tick would. The pricing cadence tests hold the two side by side.
+ * Time alone never moves a price during the day (Jake, 2026-09-28): pickup
+ * count windows and rule waits count whole hotel days, cut rules judge
+ * complete days ending yesterday, raise rules count today so far, and
+ * everything else reads the hotel's date. So the daily pass plus these
+ * nights gives the prices pricing every night every tick would. The pricing
+ * cadence tests hold the two side by side.
  *
  * MAYA_PRICING_CADENCE=every_tick prices the whole window every tick, as
  * before (the rollback switch; the marks are cleared by those runs).
@@ -85,13 +88,10 @@ export type PricingState = {
 };
 
 export type DirtyNight = { stay_date: string; mark_seq: number; first_marked_at: string; reasons: string[] };
-export type DueWakeup = { stay_date: string; due_at: string; reason: string };
 
 /** What pricing_work returns for one hotel and window. */
 export type PricingWork = {
   dirty: DirtyNight[];
-  wakeups: DueWakeup[];
-  nextWakeupAt: string | null;
   state: PricingState | null;
 };
 
@@ -115,8 +115,6 @@ export type PassStep = {
 export type PricingPlan = {
   /** Every night to price, sorted. */
   nights: string[];
-  /** Nights priced because a booking changed on them (pickup_window wake-ups). */
-  bookingNights: string[];
   /** The marks read for nights in `nights`: cleared by pricing_run_done if not marked again. */
   dirtyRead: { stay_date: string; mark_seq: number }[];
   /** The pass chunk this run takes, if any. */
@@ -127,7 +125,7 @@ export type PricingPlan = {
   passWorkLeft: boolean;
   /** A new pass is due and this run did not start it (no time, or over the invocation's budget). */
   passDue: PassReason | null;
-  counts: { touched: number; wakeups: number; momentum: number; chunk: number };
+  counts: { touched: number; momentum: number; chunk: number };
 };
 
 /** The number of whole days from `a` to `b` (YYYY-MM-DD). */
@@ -150,8 +148,8 @@ export function passReason(state: PricingState | null, today: string, horizonDay
  * has. Pure: the tick reads the list (loadPricingWork), prices the plan's
  * nights, and reports back (recordPricingRun).
  *
- * Touched nights (marked, due wake-ups, and the momentum nights near a
- * booking) always go first, nearest first, up to runMaxNights; the pass
+ * Touched nights (marked, and the momentum nights near a booking) always
+ * go first, nearest first, up to runMaxNights; the pass
  * chunk takes what room is left, and none when `passAllowed` is false or
  * `passBudget` is spent. A momentum night the cap leaves out is marked again
  * (deferred), since the booking that moved it is cleared with its own night.
@@ -173,7 +171,6 @@ export function planPricingRun(input: {
   const dirty = work.dirty.filter((d) => inWindow(d.stay_date));
   const dirtyNights = new Set(dirty.map((d) => d.stay_date));
   const bookingNights = new Set(dirty.filter((d) => d.reasons.includes("booking")).map((d) => d.stay_date));
-  const wakeNights = new Set(work.wakeups.map((w) => w.stay_date).filter(inWindow));
 
   // A booking moves the reading of every momentum night within 10 nights of it.
   const momentumOf = new Map<string, string[]>();
@@ -192,12 +189,12 @@ export function planPricingRun(input: {
     }
   }
 
-  const touched = [...new Set([...dirtyNights, ...wakeNights, ...momentum])].sort();
+  const touched = [...new Set([...dirtyNights, ...momentum])].sort();
   const cap = Math.max(1, input.config.runMaxNights);
   const taken = touched.slice(0, cap);
   const takenSet = new Set(taken);
-  // Left out by the cap: marks and wake-ups stay for the next tick on their
-  // own, a momentum night has no mark of its own. Its booking's night is
+  // Left out by the cap: marks stay for the next tick on their own, a
+  // momentum night has no mark of its own. Its booking's night is
   // cleared if this run prices it, so the momentum night is marked again.
   const deferred = new Set<string>();
   for (const [b, list] of momentumOf) {
@@ -236,13 +233,12 @@ export function planPricingRun(input: {
   const nights = [...takenSet].sort();
   return {
     nights,
-    bookingNights: nights.filter((d) => bookingNights.has(d)),
     dirtyRead: dirty.filter((d) => takenSet.has(d.stay_date)).map((d) => ({ stay_date: d.stay_date, mark_seq: d.mark_seq })),
     pass,
     deferred: [...deferred].sort(),
     passWorkLeft,
     passDue: reason !== null && !(pass?.start ?? false) ? reason : null,
-    counts: { touched: dirtyNights.size, wakeups: wakeNights.size, momentum: momentum.size, chunk: chunkCount },
+    counts: { touched: dirtyNights.size, momentum: momentum.size, chunk: chunkCount },
   };
 }
 
@@ -254,7 +250,6 @@ export function planWholeWindow(work: PricingWork | null, today: string, lastNig
   const reason = work ? passReason(work.state, today, horizonDays) : null;
   return {
     nights,
-    bookingNights: dirty.filter((d) => d.reasons.includes("booking")).map((d) => d.stay_date),
     dirtyRead: dirty.map((d) => ({ stay_date: d.stay_date, mark_seq: d.mark_seq })),
     // The whole window is priced: today's pass is done, whatever it was.
     pass: work
@@ -271,7 +266,7 @@ export function planWholeWindow(work: PricingWork | null, today: string, lastNig
     deferred: [],
     passWorkLeft: false,
     passDue: null,
-    counts: { touched: dirty.length, wakeups: 0, momentum: 0, chunk: nights.length },
+    counts: { touched: dirty.length, momentum: 0, chunk: nights.length },
   };
 }
 
@@ -312,19 +307,17 @@ function num(v: unknown): number | null {
   return v == null || v === "" ? null : Number(v);
 }
 
-/** One call: the hotel's marked nights and due wake-ups in the window, and its pass (pricing_work). */
+/** One call: the hotel's marked nights in the window, and its pass (pricing_work). */
 export async function loadPricingWork(
   supabase: SupabaseClient,
   hotelId: string,
   first: string,
   last: string,
-  at: string,
 ): Promise<PricingWork | typeof CADENCE_MISSING> {
   const { data, error } = await supabase.rpc("pricing_work", {
     p_hotel_id: hotelId,
     p_first: first,
     p_last: last,
-    p_at: at,
   });
   if (error) {
     if (isMissingFunction(error)) {
@@ -348,12 +341,6 @@ export async function loadPricingWork(
       first_marked_at: String(d.first_marked_at),
       reasons: Array.isArray(d.reasons) ? d.reasons.map(String) : [],
     })),
-    wakeups: ((body.wakeups ?? []) as Record<string, unknown>[]).map((w) => ({
-      stay_date: String(w.stay_date).slice(0, 10),
-      due_at: String(w.due_at),
-      reason: String(w.reason),
-    })),
-    nextWakeupAt: body.next_wakeup_at != null ? String(body.next_wakeup_at) : null,
     state: s
       ? {
           pass_date: s.pass_date != null ? String(s.pass_date).slice(0, 10) : null,
@@ -378,8 +365,9 @@ export type PricingRunRecord = {
   last: string;
   nights: string[];
   dirty: { stay_date: string; mark_seq: number }[];
-  wakeups: { stay_date: string; due_at: string; reason: string }[];
   failed: string[];
+  /** Nights whose engine state the run changed: priced again next tick (CadenceReport.changedNights). */
+  again: string[];
   pass: PassStep | null;
   momentum: string[];
   msPerNight: number | null;
@@ -387,12 +375,12 @@ export type PricingRunRecord = {
   runId?: string;
 };
 
-/** One call, one transaction: clear what was priced, book wake-ups, move the pass on (pricing_run_done). */
+/** One call, one transaction: clear what was priced, mark the follow-ups, move the pass on (pricing_run_done). */
 export async function recordPricingRun(
   supabase: SupabaseClient,
   hotelId: string,
   run: PricingRunRecord,
-): Promise<{ cleared: number; kept: number; wakeups: number; passMoved: boolean | null } | typeof CADENCE_MISSING> {
+): Promise<{ cleared: number; kept: number; passMoved: boolean | null } | typeof CADENCE_MISSING> {
   const { data, error } = await supabase.rpc("pricing_run_done", {
     p_hotel_id: hotelId,
     p_run: {
@@ -401,8 +389,8 @@ export async function recordPricingRun(
       last: run.last,
       nights: run.nights,
       dirty: run.dirty,
-      wakeups: run.wakeups,
       failed: run.failed,
+      again: run.again,
       pass: run.pass
         ? {
             date: run.pass.date,
@@ -435,7 +423,6 @@ export async function recordPricingRun(
   return {
     cleared: Number(body.cleared ?? 0),
     kept: Number(body.kept ?? 0),
-    wakeups: Number(body.wakeups ?? 0),
     passMoved: body.pass_moved == null ? null : Boolean(body.pass_moved),
   };
 }

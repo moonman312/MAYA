@@ -287,15 +287,16 @@ describe.each(ENGINES)("$name: a rule counts from its own last change or a stron
       ["Sudden-spike catcher", iso(at(0, 14, 17)), D0, D0, null, 4],
     ]);
     await w.runAll(ticks(1, 5, [0, 18]));
-    // After its two-day wait the week rule counts only what reached MAYA
-    // after the newest raise by itself or a stronger rule: the spike
-    // rule's at 14:17, so the six from 14:20 on (window_since is that
-    // raise). The month rule ranks below both and never counts any of
-    // them: every one came before a stronger rule's raise.
+    // Its two-day wait is over as day 2 begins, and at the first run of
+    // that day the week rule counts only what reached MAYA after the newest
+    // raise by itself or a stronger rule: the spike rule's at 14:17, so the
+    // six from 14:20 on (window_since is that raise). The month rule ranks
+    // below both and never counts any of them: every one came before a
+    // stronger rule's raise.
     expect(w.fired(NIGHT)).toEqual([
       ["Hot-week surge", iso(at(0, 14, 7)), addDays(D0, -6), D0, null, 3],
       ["Sudden-spike catcher", iso(at(0, 14, 17)), D0, D0, null, 4],
-      ["Hot-week surge", iso(at(2, 18, 5)), D0, addDays(D0, 2), iso(at(0, 14, 17)), 6],
+      ["Hot-week surge", iso(at(2, 0, 5)), D0, addDays(D0, 2), iso(at(0, 14, 17)), 6],
     ]);
     expect(w.price(NIGHT)).toBeCloseTo(100 * 1.25 ** 3, 2);
     // Every count starts at the newest earlier raise by the rule itself or
@@ -568,16 +569,17 @@ describe.each(ENGINES)("$name: a rule counts from its own last change or a stron
       expect(w.price(NIGHT)).toBeCloseTo(132, 2);
     }, 120_000);
 
-    it("10 at once, then 10 more: Ten counts more than 9 since its raise again, so it holds the night and raises on them itself after its week ($144)", async () => {
+    it("10 at once, then 10 more the same day: Ten counts more than 9 since its raise again, so it holds the night all week, and the 10 have left its window when its week is over ($120)", async () => {
       // The waiting rule keeps what would be its own next raise: Five, which
-      // would raise on the 10 at once, is held, and Ten raises the moment its
-      // week is over, while the 10 are still in its window.
+      // would raise on the 10 at once, is held. Ten's week is over as day 7
+      // begins (Jake, 2026-09-28: waits and windows in whole hotel days),
+      // and its 7 days are then days 1 to 7: the 10 booked on day 0 are
+      // behind them, so nothing raises on them. A Booking Speed rule on a
+      // week with a week's wait does the same. With the waits counted to
+      // the minute Ten raised on them at 10:05 on day 7 ($144).
       const w = await story([{ n: 10, at: at(0, 10) }, { n: 10, at: at(0, 11) }], undefined, [at(0, 10, 5), at(0, 11, 5), at(7, 10, 10)]);
-      expect(counted(w)).toEqual([
-        ["Ten", iso(at(0, 10, 5)), 0, 10],
-        ["Ten", iso(at(7, 10, 10)), 10, 20],
-      ]);
-      expect(w.price(NIGHT)).toBeCloseTo(144, 2);
+      expect(counted(w)).toEqual([["Ten", iso(at(0, 10, 5)), 0, 10]]);
+      expect(w.price(NIGHT)).toBe(120);
     }, 120_000);
 
     it("7 at once, then 3 more: Five raises on the 7 ($110), then Ten on all 10 ($132), because Five's raise doesn't restart Ten's count", async () => {
@@ -604,8 +606,9 @@ describe.each(ENGINES)("$name: a rule counts from its own last change or a stron
       // night yet, so Dead cuts at the first run, and the owner pauses it:
       // its cut stays on the price and still covers Slow. Slow counts from
       // that cut, and "fewer than 3 in 7 days" can't be told from a day or
-      // two, so it waits for a whole week after the cut, then cuts on that
-      // week's one booking.
+      // two, so it waits for a whole week of complete days from the start
+      // of the cut's day (the cut counted the days before it), then cuts on
+      // that week's one booking.
       const cut = (id: string, threshold: number, windowDays: number, value: number, priority: number) =>
         rule(
           id,
@@ -626,7 +629,7 @@ describe.each(ENGINES)("$name: a rule counts from its own last change or a stron
         ["Dead", iso(at(0, 0, 5)), 0, 0],
         ["Slow", iso(at(7, 0, 5)), 0, 1],
       ]);
-      expect(w.fires(NIGHT)[1].baseline_start_ts).toBe(iso(at(0, 0, 5)));
+      expect(w.fires(NIGHT)[1].baseline_start_ts).toBe(iso(at(0, 0)));
       expect(w.price(NIGHT)).toBeCloseTo(100 * 0.85 * 0.93, 2);
     }, 120_000);
   });
@@ -744,12 +747,16 @@ describe.each(ENGINES)("$name: a rule counts from its own last change or a stron
     await w.runAll(ticks(0, 22, [1, 13]));
     const fires = w.fires(NIGHT);
     // The week rule raises every two days while the bookings keep coming,
-    // each time on the bookings since its own last raise. The month rule
-    // ranks below it and counts from those raises too, and in between the
-    // week rule holds the night against it while those bookings read much
-    // faster again. The day rule never reads surging on three a day.
+    // at the first run of the day its two-day wait ends, each time on the
+    // bookings since its own last raise. The month rule ranks below it and
+    // counts from those raises too, and in between the week rule holds the
+    // night against it while those bookings read much faster again. The
+    // day rule never reads surging on three a day.
     const week = fires.filter((e) => e.rule_id === "Hot-week surge");
-    expect(week.map((e) => String(e.applied_at))).toEqual([0, 2, 4, 6, 8, 10, 12, 14].map((d) => iso(at(d, 13, 5))));
+    expect(week.map((e) => String(e.applied_at))).toEqual([
+      iso(at(0, 13, 5)),
+      ...[2, 4, 6, 8, 10, 12, 14].map((d) => iso(at(d, 1, 5))),
+    ]);
     for (let i = 1; i < week.length; i++) expect(week[i].window_since).toBe(week[i - 1].applied_at);
     // Once they stop, the week rule has nothing new. The month rule ranks
     // below it, so it only ever counts what came after the week rule's

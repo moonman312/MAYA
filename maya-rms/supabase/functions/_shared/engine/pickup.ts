@@ -9,16 +9,19 @@
  * fires again, so a raise raises again and a cut cuts again. Each fire is a
  * pickup_event row with its own fire number (fire_seq).
  *
- * WAIT (ruleWaitDays, waitAnchor). A Booking Speed rule waits its cooldown
- * (booking_speed_cooldown_days, a week when unset, never under a day); a
- * pickup count rule waits the wait its owner chose (pickup_cooldown_days,
- * never under a day), or its lookback window when none was chosen
- * (pickupWaitDays); a rule with both waits the longer. The wait runs from
- * the newest of: this rule version's latest fire on the cell that is still
- * open or came off for cancellations, a passed night or before reasons were
- * kept; and the set_at of an open manual price on the cell, for a rule that
- * existed when the price was set. Fires taken off by a manual price or an
- * edit never start a wait.
+ * WAIT (ruleWaitDays, waitAnchor, isWaiting). A Booking Speed rule waits its
+ * cooldown (booking_speed_cooldown_days, a week when unset, never under a
+ * day); a pickup count rule waits the wait its owner chose
+ * (pickup_cooldown_days, never under a day), or its lookback window when
+ * none was chosen (pickupWaitDays); a rule with both waits the longer. The
+ * wait runs from the newest of: this rule version's latest fire on the cell
+ * that is still open or came off for cancellations, a passed night or before
+ * reasons were kept; and the set_at of an open manual price on the cell, for
+ * a rule that existed when the price was set. Fires taken off by a manual
+ * price or an edit never start a wait. Waits count whole hotel days (Jake,
+ * 2026-09-28): a wait of N days from a change made on hotel day D ends when
+ * hotel day D+N begins, whatever the hour of the change, so time alone never
+ * ends one in the middle of a day.
  *
  * WHAT A RULE MEASURES. A rule counts only the bookings made after the
  * newest change on the night and room type by itself or by a rule that
@@ -41,9 +44,15 @@
  * more, for the rule itself or for the rules below it, since the price no
  * longer carries it.
  *
- * A pickup condition counts net bookings over its window (now minus
- * pickup_window_days), or from that fire when it is later
- * (pickupWindowOpensAt): then it counts the room nights first seen after
+ * A pickup condition counts net bookings over its window in whole hotel
+ * days (baselineTsFrom; Jake, 2026-09-28): a count looking for more ("more
+ * than" 0 or more) counts today so far and the pickup_window_days - 1 whole
+ * days before it; a count looking for low pickup (pickupCountsCompleteDays)
+ * counts the pickup_window_days complete days ending yesterday, and a
+ * cancellation made today counts against it at once (countPickupToDayStart),
+ * as booking speed cuts do. So the window never moves during a day. It
+ * counts from that fire when that is later (pickupWindowOpensAt): then it
+ * counts the room nights first seen after
  * the fire that are still booked (countPickupSinceChange), so a booking
  * from before the fire cancelling takes nothing from it. Counting starts
  * again only when a price actually changes (Jake, 2026-09-27): with a rule
@@ -161,7 +170,7 @@ import {
   type BookedCount,
   type NightSet,
 } from "./snapshots.ts";
-import { addCalendarDays, evalIsoToHotelDateString } from "./timezone.ts";
+import { addCalendarDays, evalIsoToHotelDateString, hotelDayStartIso } from "./timezone.ts";
 import type { PickupCandidate, RuleMetrics } from "./types.ts";
 
 export type { CancellationFinding };
@@ -196,14 +205,82 @@ export function pickupWaitDays(c: EngineRule["condition"]): number {
 }
 
 /**
- * Where a pickup condition's window opens: now minus pickup_window_days, in
- * milliseconds. null for a rule with no pickup condition, which reads no old
- * snapshot at all.
+ * Whether a pickup condition counts complete hotel days only, ending
+ * yesterday (Jake, 2026-09-28): one that looks for low pickup ("fewer
+ * than", or "more than" a number under zero), which a day not over yet
+ * would read as low. One that looks for more counts today so far: a day
+ * not over can only make it harder to reach (pickupJudgesShortStretch).
  */
-export function baselineTsFrom(rule: EngineRule, evalTs: string): string | null {
+export function pickupCountsCompleteDays(rule: Pick<RankedRule, "condition">): boolean {
+  return !!rule.condition.pickup_operator && !pickupJudgesShortStretch(rule);
+}
+
+/**
+ * Where a pickup condition's window opens, in whole hotel days, for a run on
+ * hotel day `localDate`: the start of the day pickup_window_days - 1 days
+ * back for a count that looks for more (today so far is its last day), and
+ * of the day pickup_window_days back for one that counts complete days
+ * (pickupCountsCompleteDays: yesterday is its last day). It moves only at
+ * the hotel's midnight. null for a rule with no pickup condition, which
+ * reads no old snapshot at all.
+ */
+export function baselineTsFrom(
+  rule: Pick<RankedRule, "condition">,
+  localDate: string,
+  hotelTimeZone: string,
+): string | null {
   if (!rule.condition.pickup_operator) return null;
-  const windowDays = rule.condition.pickup_window_days ?? 3;
-  return new Date(Date.parse(evalTs) - windowDays * DAY_MS).toISOString();
+  const windowDays = Math.max(1, rule.condition.pickup_window_days ?? 3);
+  const back = pickupCountsCompleteDays(rule) ? windowDays : windowDays - 1;
+  return hotelDayStartIso(addCalendarDays(localDate, -back), hotelTimeZone);
+}
+
+/**
+ * Where a pickup condition's count ends, for a run at `now` on hotel day
+ * `localDate`: now, or for a count of complete days
+ * (pickupCountsCompleteDays) the start of today. Null without a pickup
+ * condition.
+ */
+export function pickupCountEndsAt(
+  rule: Pick<RankedRule, "condition">,
+  now: string,
+  localDate: string,
+  hotelTimeZone: string,
+): string | null {
+  if (!rule.condition.pickup_operator) return null;
+  return pickupCountsCompleteDays(rule) ? hotelDayStartIso(localDate, hotelTimeZone) : now;
+}
+
+/**
+ * A pickup count of complete days (pickupCountsCompleteDays) ends at the
+ * start of today (`dayStart`, pickupCountEndsAt): its "now" side is the room
+ * nights, and their revenue, on the rule's room types first seen before
+ * today began and still booked (loadBookedBefore at `dayStart`). So a
+ * booking made today waits for tomorrow's count, and a cancellation made
+ * today of a booking made before it counts against the window at once
+ * (Jake, 2026-09-28: everything reacts, as booking speed cuts do). Rewrites
+ * the now side and net pickup of `metrics` (computeRuleMetrics, which read
+ * them from this run's snapshot), records where the count ended
+ * (pickup_counted_to), and returns true; false, leaving them as read, when
+ * the baseline was not usable or `dayStart` was not read.
+ */
+export function countPickupToDayStart(
+  metrics: RuleMetrics,
+  rule: Pick<EngineRule, "condition" | "signal_room_type_ids">,
+  stayDate: string,
+  dayStart: string,
+  booked: ReadonlyMap<string, ReadonlyMap<string, BookedCount>>,
+): boolean {
+  if (!rule.condition.pickup_operator || rule.signal_room_type_ids.length === 0) return false;
+  if (metrics.pickup_block_reason) return false;
+  const seen = bookedBeforeOver(booked, stayDate, dayStart, rule.signal_room_type_ids);
+  if (!seen) return false;
+  metrics.signal_booked_units_now = seen.units;
+  metrics.signal_booked_revenue_now = seen.revenue;
+  metrics.net_pickup_units = Math.round(seen.units - (metrics.signal_booked_units_baseline ?? 0));
+  metrics.net_pickup_revenue = Math.round((seen.revenue - (metrics.signal_booked_revenue_baseline ?? 0)) * 100) / 100;
+  metrics.pickup_counted_to = dayStart;
+  return true;
 }
 
 /**
@@ -499,16 +576,18 @@ export function openFireHeads(
  * than" a number of 0 or more, which fewer bookings can only make harder
  * to reach. "Less than" (or "more than" a negative number) would read a
  * short stretch as slow, so such a rule has nothing to judge until a whole
- * window has passed since that fire.
+ * window has passed since that fire: its window counts complete days
+ * (pickupCountsCompleteDays), so that is once the window's first day is the
+ * fire's own (pickupFireDayStart).
  */
-export function pickupJudgesShortStretch(rule: RankedRule): boolean {
+export function pickupJudgesShortStretch(rule: Pick<RankedRule, "condition">): boolean {
   const c = rule.condition;
   return c.pickup_operator === "gt" && (c.pickup_threshold ?? 0) >= 0;
 }
 
 /**
- * Where a pickup condition's window opens on a cell: now minus its window
- * (`baselineTs`, baselineTsFrom), or the fire it counts from
+ * Where a pickup condition's window opens on a cell: the start of its first
+ * hotel day (`baselineTs`, baselineTsFrom), or the fire it counts from
  * (countFromFireAt over openFireHeads: its own newest fire still on the
  * night, or a newer one by a stronger rule that adjusts the same way) when
  * that is later, so a pickup rule doesn't count
@@ -523,10 +602,40 @@ export function pickupWindowOpensAt(
   baselineTs: string | null,
   fireAt: string | null,
   manualPrice: { set_at: string } | undefined,
+  /**
+   * For a count of complete days (pickupCountsCompleteDays): where the
+   * fire's hotel day began (pickupFireDayStart). The fire's own count ended
+   * there, so this one may start there: each whole day is judged once.
+   */
+  fireDayStart?: string | null,
 ): string | null {
   if (baselineTs === null || fireAt === null) return baselineTs;
   if (manualPrice && Date.parse(fireAt) < Date.parse(manualPrice.set_at)) return baselineTs;
-  return Date.parse(fireAt) > Date.parse(baselineTs) ? fireAt : baselineTs;
+  const opensAt = fireDayStart ?? fireAt;
+  return Date.parse(opensAt) > Date.parse(baselineTs) ? opensAt : baselineTs;
+}
+
+/**
+ * Where a count of complete days (pickupCountsCompleteDays) may start after
+ * the change it counts from: the start of that change's hotel day. The
+ * change counted complete days ending the day before its own, so the day it
+ * was made has not been judged yet, and starting there judges every whole
+ * day once, never twice (Jake, 2026-09-28: waits and windows in whole hotel
+ * days). A low-pickup rule has nothing to judge until its whole window lies
+ * past that point (pickupJudgesShortStretch), so a rule that cut on day D
+ * with a window of N days judges again on day D + N at the earliest, however
+ * short its wait. Extra bookings can only make a low-pickup condition
+ * harder to meet, so a stronger rule's change made later on day D never
+ * lets it count a burst twice. null for a count that looks for more, which
+ * counts from the change's instant.
+ */
+export function pickupFireDayStart(
+  rule: Pick<RankedRule, "condition">,
+  fireAt: string | null,
+  hotelTimeZone: string,
+): string | null {
+  if (!fireAt || !pickupCountsCompleteDays(rule)) return null;
+  return hotelDayStartIso(evalIsoToHotelDateString(fireAt, hotelTimeZone), hotelTimeZone);
 }
 
 /**
@@ -561,9 +670,14 @@ export function countPickupSinceChange(
   return true;
 }
 
-/** Still waiting: less than `waitDays` whole days since the anchor. */
-export function isWaiting(anchor: string | null, nowIso: string, waitDays: number): boolean {
-  return isWithinCooldown(anchor, nowIso, waitDays);
+/**
+ * Still waiting: a wait of `waitDays` from a change on hotel day D (the
+ * anchor's date at the property) ends when hotel day D + waitDays begins
+ * (Jake, 2026-09-28), so a run on `localDate` waits while its date is
+ * before that. Time alone never ends a wait in the middle of a day.
+ */
+export function isWaiting(anchor: string | null, localDate: string, waitDays: number, hotelTimeZone: string): boolean {
+  return isWithinCooldown(anchor, localDate, waitDays, hotelTimeZone);
 }
 
 /**
@@ -594,6 +708,7 @@ export function candidateFor(input: {
     baseline_ts: baselineTs ?? new Date(Date.parse(now) - bsWindowDays * DAY_MS).toISOString(),
     affected_room_type_id: input.roomTypeId,
     eval_ts: now,
+    count_to: m.pickup_counted_to ?? now,
     signal_booked_units_start: measuresWindow ? (m.signal_booked_units_baseline ?? 0) : (m.signal_booked_units_now ?? 0),
     signal_booked_units_end: m.signal_booked_units_now ?? 0,
     signal_booked_revenue_start: measuresWindow
@@ -619,26 +734,27 @@ export function candidateFor(input: {
 /**
  * What a run reads to record, on each candidate with a pickup condition,
  * what came in during its count (PickupCandidate.pickup_units_arrived): the
- * night at the instant the count opened (baseline_ts) and at the run's own
- * instant (eval_ts), for loadBookedBefore. The same two reads the
+ * night at the instant the count opened (baseline_ts) and where it ended
+ * (count_to: the run's own instant, or the start of today for a count of
+ * complete days), for loadBookedBefore. The same two reads the
  * cancellation check makes later at the fire's baseline_start_ts and
- * applied_at, so both sides count by when a booking was first seen.
+ * baseline_end_ts, so both sides count by when a booking was first seen.
  */
 export function arrivalReads(candidates: readonly PickupCandidate[]): BookedBeforePair[] {
   return candidates
     .filter((c) => c.rule.condition.pickup_operator)
     .flatMap((c) => [
       { stayDate: c.stay_date, at: c.baseline_ts },
-      { stayDate: c.stay_date, at: c.eval_ts },
+      { stayDate: c.stay_date, at: c.count_to },
     ]);
 }
 
 /**
  * Record on a candidate with a pickup condition the room nights (and
- * revenue) on its room types first seen after its count opened and by the
- * run's instant, still booked now: what was first seen by now, less what
- * was first seen by the time the count opened. Left null when either
- * instant was not read.
+ * revenue) on its room types first seen after its count opened and by
+ * where it ended (count_to), still booked now: what was first seen by then,
+ * less what was first seen by the time the count opened. Left null when
+ * either instant was not read.
  */
 export function recordArrivals(
   candidate: PickupCandidate,
@@ -647,7 +763,7 @@ export function recordArrivals(
   if (!candidate.rule.condition.pickup_operator) return;
   const signal = candidate.rule.signal_room_type_ids;
   const opened = bookedBeforeOver(booked, candidate.stay_date, candidate.baseline_ts, signal);
-  const seen = bookedBeforeOver(booked, candidate.stay_date, candidate.eval_ts, signal);
+  const seen = bookedBeforeOver(booked, candidate.stay_date, candidate.count_to, signal);
   if (!opened || !seen) return;
   candidate.pickup_units_arrived = Math.max(0, seen.units - opened.units);
   candidate.pickup_revenue_arrived = Math.max(0, Math.round((seen.revenue - opened.revenue) * 100) / 100);
@@ -945,7 +1061,9 @@ export async function insertPickupEvent(
     stay_date: candidate.stay_date,
     affected_room_type_id: candidate.affected_room_type_id,
     baseline_start_ts: candidate.baseline_ts,
-    baseline_end_ts: candidate.eval_ts,
+    // Where the count ended: the fire's instant, or the start of its day
+    // for a count of complete days (read back as count_end_ts).
+    baseline_end_ts: candidate.count_to,
     signal_booked_units_start: candidate.signal_booked_units_start,
     signal_booked_units_end: candidate.signal_booked_units_end,
     signal_booked_revenue_start: candidate.signal_booked_revenue_start,
@@ -1155,6 +1273,14 @@ export type OpenPickupFire = {
   cancel_check: PickupCancelCheck;
   /** Where the fire's pickup count opened (its window's start, or the fire it counted from). */
   baseline_start_ts: string;
+  /**
+   * Where that count ended and what signal_booked_units_end was read at:
+   * checked_at, except for a pickup count of complete days, whose count
+   * ended at the start of its day (pickupCountEndsAt, stored as
+   * baseline_end_ts). What the cancellation check reads "booked at the
+   * fire" at.
+   */
+  count_end_ts: string;
   signal_booked_units_start: number;
   /** Room nights booked on the measured room types at the fire. */
   signal_booked_units_end: number;
@@ -1176,7 +1302,7 @@ export type OpenPickupFire = {
 
 const OPEN_FIRE_COLUMNS =
   "id, rule_id, rule_version, stay_date, affected_room_type_id, applied_at, fire_seq, " +
-  "action_kind, action_direction, action_value, cancel_check, baseline_start_ts, " +
+  "action_kind, action_direction, action_value, cancel_check, baseline_start_ts, baseline_end_ts, " +
   "signal_booked_units_start, signal_booked_units_end, signal_booked_revenue_start, signal_booked_revenue_end, " +
   "window_from, window_since, window_to, window_bookings_at_fire, window_expected_at_fire, signal_set_key";
 /** The columns 99_supabase_migration_undo_on_cancellation_v1.sql adds. */
@@ -1190,6 +1316,8 @@ const UNDO_COLUMNS =
  */
 export type CheckedCount = {
   baseline_start_ts: string;
+  /** Where the count ended (PickupCandidate.count_to); absent on counts stored before it was. */
+  baseline_end_ts?: string;
   signal_booked_units_start: number;
   signal_booked_units_end: number;
   signal_booked_revenue_start: number;
@@ -1208,6 +1336,7 @@ export type CheckedCount = {
 export function checkedCountOf(candidate: PickupCandidate): CheckedCount {
   return {
     baseline_start_ts: candidate.baseline_ts,
+    baseline_end_ts: candidate.count_to,
     signal_booked_units_start: candidate.signal_booked_units_start,
     signal_booked_units_end: candidate.signal_booked_units_end,
     signal_booked_revenue_start: candidate.signal_booked_revenue_start,
@@ -1307,6 +1436,9 @@ export async function loadOpenPickupFires(
       affected_room_type_id: String(r.affected_room_type_id),
       applied_at: String(r.applied_at),
       checked_at: String(checked ? r.checked_at : r.applied_at),
+      count_end_ts: String(
+        checked ? (c.baseline_end_ts ?? r.checked_at) : (r.baseline_end_ts ?? r.applied_at),
+      ),
       fire_seq: Number(r.fire_seq),
       action_kind: r.action_kind,
       action_direction: r.action_direction,
@@ -1465,15 +1597,16 @@ function windowRecountable(fire: OpenPickupFire): boolean {
 
 /**
  * What the check reads first for these fires, all at once, for
- * loadBookedBefore: each fire's checked_at (what was booked then and is
- * still booked) and, for a pickup condition, the instant its count opened.
+ * loadBookedBefore: where each fire's count ended (count_end_ts: what was
+ * booked then and is still booked) and, for a pickup condition, the instant
+ * its count opened.
  * The rest is read only for the fires something they saw has cancelled on
  * (somethingCancelled, recountReads).
  */
 export function cancellationReads(checks: readonly { fire: OpenPickupFire; rule: EngineRule }[]): BookedBeforePair[] {
   const booked: BookedBeforePair[] = [];
   for (const { fire, rule } of checks) {
-    booked.push({ stayDate: fire.stay_date, at: fire.checked_at });
+    booked.push({ stayDate: fire.stay_date, at: fire.count_end_ts });
     if (cancellableParts(rule).pickup) booked.push({ stayDate: fire.stay_date, at: fire.baseline_start_ts });
   }
   return booked;
@@ -1481,16 +1614,17 @@ export function cancellationReads(checks: readonly { fire: OpenPickupFire; rule:
 
 /**
  * Whether something a fire saw has cancelled: the room nights on its rule's
- * room types first seen by its checked_at and still booked are fewer than
- * it saw (signal_booked_units_end). Nothing else is read or judged for a
- * fire until then. false when this run did not read the night.
+ * room types first seen by where its count ended (count_end_ts) and still
+ * booked are fewer than it saw (signal_booked_units_end). Nothing else is
+ * read or judged for a fire until then. false when this run did not read
+ * the night.
  */
 export function somethingCancelled(
   fire: OpenPickupFire,
   rule: EngineRule,
   booked: ReadonlyMap<string, ReadonlyMap<string, BookedCount>>,
 ): boolean {
-  const atFire = bookedBeforeOver(booked, fire.stay_date, fire.checked_at, rule.signal_room_type_ids);
+  const atFire = bookedBeforeOver(booked, fire.stay_date, fire.count_end_ts, rule.signal_room_type_ids);
   return atFire !== null && atFire.units < fire.signal_booked_units_end;
 }
 
@@ -1652,7 +1786,7 @@ export function cancellationFinding(
   input: CancellationInput,
 ): CancellationFinding | null {
   const signal = rule.signal_room_type_ids;
-  const atFire = bookedBeforeOver(input.booked, fire.stay_date, fire.checked_at, signal);
+  const atFire = bookedBeforeOver(input.booked, fire.stay_date, fire.count_end_ts, signal);
   if (!atFire || atFire.units >= fire.signal_booked_units_end) return null;
   const c = rule.condition;
   const parts = cancellableParts(rule);

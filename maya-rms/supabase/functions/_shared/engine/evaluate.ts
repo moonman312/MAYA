@@ -50,6 +50,9 @@ import {
   comparePickupRules,
   countFromFireAt,
   countPickupSinceChange,
+  countPickupToDayStart,
+  pickupCountsCompleteDays,
+  pickupFireDayStart,
   pickupJudgesShortStretch,
   pickupWindowOpensAt,
   candidateFor,
@@ -120,7 +123,7 @@ import {
   type RunGap,
 } from "./snapshots.ts";
 import { MAX_PRICING_HORIZON_DAYS, pricingHorizonDays } from "../pms/pricing-window.ts";
-import { addCalendarDays, evalIsoToHotelDateString } from "./timezone.ts";
+import { addCalendarDays, evalIsoToHotelDateString, hotelDayStartIso } from "./timezone.ts";
 import type { PickupCandidate, RoomTypeRow, RuleMetrics } from "./types.ts";
 import { countsAsRoom } from "./types.ts";
 
@@ -185,11 +188,6 @@ export type EvaluationResult = {
   pickup_events_created: number;
 };
 
-const DAY_MS = 86_400_000;
-
-/** Why a night must be priced again at a set instant although nothing about it changed. */
-export type WakeupReason = "wait_ends" | "pickup_window" | "fire_window";
-
 /** What a run tells the pricing cadence (see pricing-plan.ts) about the nights it priced. */
 export type CadenceReport = {
   /** The nights priced, sorted. */
@@ -200,18 +198,17 @@ export type CadenceReport = {
    * until the daily pass.
    */
   failedNights: string[];
-  /**
-   * Instants a priced night must be priced again: a rule's wait ends
-   * (wait_ends), a pickup count that opened at a change reaches its whole
-   * window (fire_window), a booking this run saw leaves a pickup window
-   * (pickup_window). Pickup windows and waits are exact spans of 24 hours,
-   * so time alone moves them.
-   */
-  wakeups: { stay_date: string; due_at: string; reason: WakeupReason }[];
   /** Priced nights whose Booking Speed reading leans on nearby nights (usesMomentum). */
   momentumNights: string[];
-  /** The pickup count windows (days) of the rules loaded. */
-  pickupWindows: number[];
+  /**
+   * Nights where this run changed what the next run reads: a rule's change
+   * made, taken off or restated, a ladder rule switched on, off or moved to
+   * a new version. The next run can decide differently on them (a weaker
+   * rule that lost to one that fired now may fire once that one waits), as
+   * it would when every night is priced every tick, so they are priced
+   * again next tick, until a run changes nothing.
+   */
+  changedNights: string[];
   /** Wall time of the run, ms. */
   engineMs: number;
 };
@@ -222,12 +219,6 @@ export type EvaluateOptions = {
    * from the hotel's today. Nights outside the window are ignored.
    */
   nights?: readonly string[];
-  /**
-   * Nights priced because their bookings changed: their snapshot moves at
-   * this run, so a pickup count window rolls past the change later
-   * (pickup_window wake-ups).
-   */
-  bookingNights?: readonly string[];
   /** Recorded on the run's log row; left off, the row is written as before. */
   runKind?: "window" | "nights" | "save";
   /** Filled in for the pricing cadence. */
@@ -250,8 +241,11 @@ export type EvaluateOptions = {
  * any other night is read, judged or written, apart from the hotel-wide
  * tidying every run does (nights that have passed). `opts.report` is filled
  * with what the cadence needs back: the nights priced, those not fully
- * written, when each must be priced again (a wait or a pickup window ending
- * at an exact instant), and which lean on nearby nights' bookings.
+ * written, those whose rule state the run changed, and which lean on nearby
+ * nights' bookings. Nothing in a price moves with the clock during a hotel
+ * day (pickup windows and waits count whole hotel days, booking speed cuts
+ * read complete days), so a night nothing changed on keeps its price until
+ * the next day's pass.
  */
 export async function evaluateHotel(
   supabase: SupabaseClient,
@@ -262,7 +256,6 @@ export async function evaluateHotel(
 ): Promise<EvaluationResult> {
   const startedMs = Date.now();
   const now = evalTs ?? new Date().toISOString();
-  const nowMs = Date.parse(now);
   const runId = crypto.randomUUID();
   const report = opts.report;
 
@@ -351,9 +344,8 @@ export async function evaluateHotel(
   if (report) {
     report.nights = [...stayDates];
     report.failedNights = [];
-    report.wakeups = [];
     report.momentumNights = [];
-    report.pickupWindows = [];
+    report.changedNights = [];
     report.engineMs = 0;
   }
 
@@ -372,13 +364,11 @@ export async function evaluateHotel(
   const stayDateSet = new Set(stayDates);
   // Nights whose writes did not all land (CadenceReport.failedNights).
   const failedNights = new Set<string>();
-  // Instants priced nights must be priced again (CadenceReport.wakeups).
-  const wakeups = new Map<string, { stay_date: string; due_at: string; reason: WakeupReason }>();
-  const addWakeup = (stayDate: string, dueMs: number, reason: WakeupReason) => {
-    if (!report || !Number.isFinite(dueMs) || dueMs <= nowMs || !stayDateSet.has(stayDate)) return;
-    const key = `${stayDate}|${dueMs}`;
-    if (!wakeups.has(key)) wakeups.set(key, { stay_date: stayDate, due_at: new Date(dueMs).toISOString(), reason });
-  };
+  // Nights whose engine state this run changed (CadenceReport.changedNights).
+  const changedNights = new Set<string>();
+  // Where today began at the property: pickup counts of complete days end
+  // there (pickupCountEndsAt).
+  const todayStart = hotelDayStartIso(localDate, hotelTimeZone);
   // Handed to every read keyed by a range of nights, so a run over a few
   // nights reads a few nights (see NightSet). Undefined for a window.
   const runNights: NightSet | undefined = opts.nights ? stayDates : undefined;
@@ -593,24 +583,18 @@ export async function evaluateHotel(
     const w = r.condition.pickup_window_days;
     if (w != null) maxPickupWindowDays = Math.max(maxPickupWindowDays, w);
   }
-  // Every pickup count window in use, in days: when a booking this run saw
-  // leaves each of them (wake-ups below).
-  const pickupWindows = [
-    ...new Set(rules.filter((r) => r.condition.pickup_operator).map((r) => r.condition.pickup_window_days ?? 3)),
-  ].sort((a, b) => a - b);
-  if (report) report.pickupWindows = pickupWindows;
-
   // When pricing ran, for a pickup count's staleness guard (baselineIsStale):
   // only when a rule counts pickup, over the oldest baseline any can read
-  // (now less the longest window) and the 12 hours before it. The read
-  // starts an hour before that: its first end counts as a run, and must lie
-  // before any stretch a baseline asks about.
+  // (the start of the hotel day the longest window counts back to) and the
+  // 12 hours before it. The read starts an hour before that: its first end
+  // counts as a run, and must lie before any stretch a baseline asks about.
   let runGaps: RunGap[] | null = null;
-  if (pickupWindows.length > 0) {
+  if (rules.some((r) => r.condition.pickup_operator)) {
+    const oldestBaseline = hotelDayStartIso(addCalendarDays(localDate, -Math.max(1, maxPickupWindowDays)), hotelTimeZone);
     runGaps = await loadRunGaps(
       supabase,
       hotelId,
-      new Date(nowMs - maxPickupWindowDays * DAY_MS - RUN_GAP_STALE_MS - 3_600_000).toISOString(),
+      new Date(Date.parse(oldestBaseline) - RUN_GAP_STALE_MS - 3_600_000).toISOString(),
       now,
     );
   }
@@ -950,6 +934,7 @@ export async function evaluateHotel(
             ? { set_at: override.set_at, heldAtOverride: () => heldAtOverride(override.set_at) }
             : undefined;
 
+        const prior = ladderBatch.state(rule.id, stayDate, rtId);
         const result = await evaluateLadderTriple(
           supabase,
           rule,
@@ -970,6 +955,11 @@ export async function evaluateHotel(
 
         if (result.transition === "activate") ladderActivations++;
         if (result.transition === "deactivate") ladderDeactivations++;
+        // Switched, or kept and moved onto the edited rule (the prior row was
+        // on for an older version): the next run reads a different row.
+        if (result.transition !== "noop" || (prior?.is_active && prior.rule_version != null && Number(prior.rule_version) !== rule.version)) {
+          changedNights.add(stayDate);
+        }
       }
     }
   }
@@ -1166,8 +1156,13 @@ export async function evaluateHotel(
             base,
           );
           const manual = manualByCell.get(key);
-          const baselineTs = baselineTsFrom(rule, now);
-          const countBaselineTs = pickupWindowOpensAt(baselineTs, baselineTs === null ? null : fireAt, manual);
+          const baselineTs = baselineTsFrom(rule, localDate, hotelTimeZone);
+          const countBaselineTs = pickupWindowOpensAt(
+            baselineTs,
+            baselineTs === null ? null : fireAt,
+            manual,
+            pickupFireDayStart(rule, fireAt, hotelTimeZone),
+          );
           // A pickup count that can't be judged on a stretch shorter than
           // its window has nothing to judge yet: not true.
           if (countBaselineTs !== baselineTs && !pickupJudgesShortStretch(rule)) {
@@ -1203,6 +1198,9 @@ export async function evaluateHotel(
             metrics.pickup_counted_since = countBaselineTs;
             await loadBookedAtChange([{ stayDate, at: countBaselineTs }]);
             countPickupSinceChange(metrics, rule, stayDate, countBaselineTs, bookedAtChange);
+          } else if (pickupCountsCompleteDays(rule)) {
+            await loadBookedAtChange([{ stayDate, at: todayStart }]);
+            countPickupToDayStart(metrics, rule, stayDate, todayStart, bookedAtChange);
           }
           if (!cancellablePartsHold(rule, metrics)) {
             off.add(fire.id);
@@ -1315,13 +1313,11 @@ export async function evaluateHotel(
         const head = fireHeads.get(fireHeadKey(rule.id, stayDate, rtId));
         const manual = manualByCell.get(`${stayDate}|${rtId}`);
         const fireAt = countFromFireAt(rule, sameWay, openHeads, stayDate, rtId, basePrices.get(basePriceKey(stayDate, rtId)) ?? 100);
-        const anchor = waitAnchor(rule, head, manual);
-        // The wait ends at an exact instant: the night is priced again then.
-        if (anchor) addWakeup(stayDate, Date.parse(anchor) + waitDays * DAY_MS, "wait_ends");
         return {
           rtId,
           manual,
-          waits: isWaiting(anchor, now, waitDays),
+          // Whole hotel days: a wait ends when a day begins.
+          waits: isWaiting(waitAnchor(rule, head, manual), localDate, waitDays, hotelTimeZone),
           fireAt,
           countFrom: bookingSpeedCountFrom(rule, fireAt, manual, hotelTimeZone),
         };
@@ -1380,7 +1376,7 @@ export async function evaluateHotel(
   };
   const ruleNights: RuleNight[] = [];
   for (const { rule, stayDate, cells } of scopedNights) {
-    const baselineTs = baselineTsFrom(rule, now);
+    const baselineTs = baselineTsFrom(rule, localDate, hotelTimeZone);
     const shortStretch = pickupJudgesShortStretch(rule);
     const byFrom = new Map<string, RuleNight>();
     const entryFor = (countFrom: BookingSpeedCountFrom | null, cellBaselineTs: string | null) => {
@@ -1403,7 +1399,12 @@ export async function evaluateHotel(
     };
     for (const { rtId, manual, waits, fireAt, countFrom } of cells) {
       if (waits) entryFor(null, baselineTs).waiting.push(rtId);
-      const cellBaselineTs = pickupWindowOpensAt(baselineTs, baselineTs === null ? null : fireAt, manual);
+      const cellBaselineTs = pickupWindowOpensAt(
+        baselineTs,
+        baselineTs === null ? null : fireAt,
+        manual,
+        pickupFireDayStart(rule, fireAt, hotelTimeZone),
+      );
       if (cellBaselineTs !== baselineTs && !shortStretch) continue;
       const entry = entryFor(countFrom, cellBaselineTs);
       (waits ? entry.waitingOwn : entry.open).push(rtId);
@@ -1440,12 +1441,24 @@ export async function evaluateHotel(
     if (rn.pickupSince) {
       metrics.pickup_counted_since = rn.pickupSince;
       countPickupSinceChange(metrics, rn.rule, rn.stayDate, rn.pickupSince, bookedAtChange);
+    } else if (pickupCountsCompleteDays(rn.rule)) {
+      countPickupToDayStart(metrics, rn.rule, rn.stayDate, todayStart, bookedAtChange);
     }
     rn.metrics = metrics;
     rn.matched = ruleConditionsMatch(rn.rule, metrics);
   };
+  // What each count reads by first-seen time: where a count from a change
+  // opened, or where a count of complete days ended (the start of today).
   const sinceChangePairs = (list: RuleNight[]) =>
-    list.flatMap((rn) => (rn.pickupSince && !rn.metrics ? [{ stayDate: rn.stayDate, at: rn.pickupSince }] : []));
+    list.flatMap((rn) =>
+      rn.metrics
+        ? []
+        : rn.pickupSince
+          ? [{ stayDate: rn.stayDate, at: rn.pickupSince }]
+          : pickupCountsCompleteDays(rn.rule)
+            ? [{ stayDate: rn.stayDate, at: todayStart }]
+            : [],
+    );
   const withBaseline = (list: RuleNight[]) =>
     list.flatMap((rn) =>
       rn.baselineTs
@@ -1597,8 +1610,6 @@ export async function evaluateHotel(
       pushTo(allPickupWriteFailures, cellOf(f), f);
       failedNights.add(f.stay_date);
     }
-    // A change made now starts its rule's wait now.
-    for (const w of pass.winners) addWakeup(w.candidate.stay_date, nowMs + ruleWaitDays(w.candidate.rule) * DAY_MS, "wait_ends");
     if (pass.write_failures.length > 0) {
       console.error(
         JSON.stringify({
@@ -1781,6 +1792,7 @@ export async function evaluateHotel(
               ),
               roomTypes,
               finalPriceByCell: new Map(assembledCells.map((c) => [c.key, c.assembled.final_price])),
+              hotelTimeZone,
             })
           : Promise.resolve(),
     ],
@@ -1806,29 +1818,12 @@ export async function evaluateHotel(
   }
 
   if (report) {
-    // A pickup count that opened at a change reaches its whole window at
-    // that change plus the window, and a "less than" rule starts judging
-    // then (pickupJudgesShortStretch): every change still on a priced night,
-    // this run's included, for every window in use.
-    if (pickupWindows.length > 0) {
-      const onNight = [
-        ...openFires.filter((f) => !retiredIds.has(f.id)).map((f) => ({ stayDate: f.stay_date, at: f.applied_at })),
-        ...[...allPickupWinners.values()].flat().map((w) => ({ stayDate: w.candidate.stay_date, at: now })),
-      ];
-      for (const { stayDate, at } of onNight) {
-        for (const w of pickupWindows) addWakeup(stayDate, Date.parse(at) + w * DAY_MS, "fire_window");
-      }
-      // A booking this run saw entered the snapshots now, and leaves each
-      // rolling pickup window exactly that window from now.
-      for (const stayDate of opts.bookingNights ?? []) {
-        for (const w of pickupWindows) addWakeup(stayDate, nowMs + w * DAY_MS, "pickup_window");
-      }
-    }
-    report.wakeups = [...wakeups.values()].sort(
-      (a, b) => a.stay_date.localeCompare(b.stay_date) || a.due_at.localeCompare(b.due_at),
-    );
     report.failedNights = [...failedNights].filter((d) => stayDateSet.has(d)).sort();
     report.momentumNights = bsCtx ? stayDates.filter((d) => usesMomentum(bsCtx!, d)) : [];
+    for (const fire of openFires) if (retiredIds.has(fire.id)) changedNights.add(fire.stay_date);
+    for (const { fire } of keptFires) changedNights.add(fire.stay_date);
+    for (const wins of allPickupWinners.values()) for (const w of wins) changedNights.add(w.candidate.stay_date);
+    report.changedNights = [...changedNights].filter((d) => stayDateSet.has(d)).sort();
     report.engineMs = Date.now() - startedMs;
   }
 

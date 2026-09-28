@@ -20,11 +20,15 @@
 --   * Owner edits that can move any night (rules, their conditions and room
 --     type lists, room types, closed periods, "not a fair comparison" flags,
 --     the hotel's time zone) ask for a new pass (full_reprice_seq).
---   * Two things still depend on the clock inside a day: a pickup count
---     window is an exact number of 24-hour spans, and so is a rule's wait.
---     The engine books a re-check of the night for the moment either runs
---     out (pricing_wakeups), so those prices change at the same minute they
---     do today.
+--   * A night where a run changed a rule's state (a change made, taken off
+--     or restated, a ladder rule switched) is marked again for the next
+--     tick, until a run changes nothing there.
+--
+-- Nothing in a price moves with the clock during a hotel day (Jake,
+-- 2026-09-28): pickup count windows and rule waits count whole hotel days,
+-- and the code deployed with this file reads them that way. So the daily
+-- pass plus the marked nights gives the prices that pricing every night
+-- every tick would.
 --
 -- Nothing here prices anything. The scheduled functions read the list with
 -- pricing_work() and report what they priced with pricing_run_done(). The
@@ -37,7 +41,7 @@
 -- deploy are cleared by those passes.
 --
 -- Sections:
---   1. Tables: pricing_dirty_nights, pricing_wakeups, hotel_pricing_state
+--   1. Tables: pricing_dirty_nights, hotel_pricing_state
 --   2. evaluation_run_log: run_kind, nights_priced, nights
 --   3. pms_connections.base_rates_through
 --   4. Access: row level security on, no policies, service role only
@@ -67,7 +71,9 @@ create table if not exists public.pricing_dirty_nights (
   first_marked_at timestamptz not null default now(),
   last_marked_at  timestamptz not null default now(),
   mark_seq        bigint not null,
-  -- booking | base_rate | manual_price | out_of_service | alert_answer | retry
+  -- booking | base_rate | manual_price | out_of_service | alert_answer |
+  -- retry (a night a run could not fully write) | follow_up (a night a run
+  -- changed a rule's state on)
   reasons         text[] not null default '{}',
   primary key (hotel_id, stay_date)
 );
@@ -77,23 +83,6 @@ comment on table public.pricing_dirty_nights is
   'triggers (99_supabase_migration_pricing_cadence_v1.sql), read by '
   'pricing_work(), cleared by pricing_run_done() only for rows not marked '
   'again since they were read.';
-
-create table if not exists public.pricing_wakeups (
-  hotel_id  uuid not null references public.hotels(id) on delete cascade,
-  stay_date date not null,
-  due_at    timestamptz not null,
-  -- wait_ends | pickup_window | fire_window
-  reason    text not null,
-  primary key (hotel_id, stay_date, due_at)
-);
-
-create index if not exists pricing_wakeups_due
-  on public.pricing_wakeups (hotel_id, due_at);
-
-comment on table public.pricing_wakeups is
-  'When a night must be priced again although nothing about it changed: a '
-  'rule''s wait ends, or a booking leaves a pickup count window. Written by '
-  'pricing_run_done() from what the engine returns.';
 
 create table if not exists public.hotel_pricing_state (
   hotel_id                  uuid primary key references public.hotels(id) on delete cascade,
@@ -162,14 +151,11 @@ comment on column public.pms_connections.base_rates_through is
 -- the triggers run as the function owner.
 
 alter table public.pricing_dirty_nights enable row level security;
-alter table public.pricing_wakeups enable row level security;
 alter table public.hotel_pricing_state enable row level security;
 
 revoke all on table public.pricing_dirty_nights from public, anon, authenticated;
-revoke all on table public.pricing_wakeups from public, anon, authenticated;
 revoke all on table public.hotel_pricing_state from public, anon, authenticated;
 grant select, insert, update, delete on table public.pricing_dirty_nights to service_role;
-grant select, insert, update, delete on table public.pricing_wakeups to service_role;
 grant select, insert, update, delete on table public.hotel_pricing_state to service_role;
 revoke all on sequence public.pricing_mark_seq from public, anon, authenticated;
 grant usage, select on sequence public.pricing_mark_seq to service_role;
@@ -660,14 +646,12 @@ revoke all on function public.pricing_mark_hotel_row() from public, anon, authen
 -- ----------------------------------------------------------------------------
 
 -- What one hotel has to price this tick, in one call: the marked nights in
--- the window (with the number each was read at), the re-checks due by p_at,
--- and the hotel's pass state. Rows outside the window are left for
--- pricing_run_done() to tidy.
+-- the window (with the number each was read at) and the hotel's pass state.
+-- Rows outside the window are left for pricing_run_done() to tidy.
 create or replace function public.pricing_work(
   p_hotel_id uuid,
   p_first date,
-  p_last date,
-  p_at timestamptz
+  p_last date
 )
 returns jsonb
 language plpgsql
@@ -693,28 +677,13 @@ begin
        where d.hotel_id = p_hotel_id
          and d.stay_date between p_first and p_last
     ), '[]'::jsonb),
-    'wakeups', coalesce((
-      select jsonb_agg(jsonb_build_object('stay_date', w.stay_date, 'due_at', w.due_at, 'reason', w.reason)
-             order by w.stay_date, w.due_at)
-        from public.pricing_wakeups w
-       where w.hotel_id = p_hotel_id
-         and w.stay_date between p_first and p_last
-         and w.due_at <= p_at
-    ), '[]'::jsonb),
-    'next_wakeup_at', (
-      select min(w.due_at)
-        from public.pricing_wakeups w
-       where w.hotel_id = p_hotel_id
-         and w.stay_date between p_first and p_last
-         and w.due_at > p_at
-    ),
     'state', (select to_jsonb(s) from public.hotel_pricing_state s where s.hotel_id = p_hotel_id)
   );
 end;
 $$;
 
-revoke all on function public.pricing_work(uuid, date, date, timestamptz) from public, anon, authenticated;
-grant execute on function public.pricing_work(uuid, date, date, timestamptz) to service_role;
+revoke all on function public.pricing_work(uuid, date, date) from public, anon, authenticated;
+grant execute on function public.pricing_work(uuid, date, date) to service_role;
 
 -- What a run priced, in one call and one transaction (p_run, jsonb):
 --   at            the tick's instant
@@ -722,9 +691,12 @@ grant execute on function public.pricing_work(uuid, date, date, timestamptz) to 
 --   nights        every night the run priced
 --   dirty         [{stay_date, mark_seq}] marks the run read for nights it
 --                 priced: each is cleared only if not marked again since
---   wakeups       [{stay_date, due_at, reason}] re-checks to book
 --   failed        nights not fully written (a failed publish or fire):
 --                 marked again for the next tick
+--   again         nights where the run changed a rule's state (a change made,
+--                 taken off or restated, a ladder rule switched): the next
+--                 run can decide differently on them, so they are marked
+--                 again too, until a run changes nothing
 --   pass          {date, start, from, next, horizon, reason, reprice_seq}
 --                 when the run included a chunk of the daily pass. A start
 --                 records a new pass; otherwise the cursor moves from `from`
@@ -757,7 +729,6 @@ declare
   v_pass   jsonb := p_run->'pass';
   v_cleared integer := 0;
   v_kept   integer := 0;
-  v_wakeups integer := 0;
   v_moved  boolean := null;
   v_ms     numeric := nullif(p_run->>'ms_per_night', '')::numeric;
 begin
@@ -792,39 +763,25 @@ begin
      and d.stay_date = any(v_nights);
   get diagnostics v_kept = row_count;
 
-  -- Re-checks this run has taken care of.
-  delete from public.pricing_wakeups w
-   where w.hotel_id = p_hotel_id
-     and w.stay_date = any(v_nights)
-     and w.due_at <= v_at;
-
   -- Past nights, and nights past the window (the pass covers them as they
   -- come into it).
   delete from public.pricing_dirty_nights d
    where d.hotel_id = p_hotel_id and (d.stay_date < v_first or d.stay_date > v_last);
-  delete from public.pricing_wakeups w
-   where w.hotel_id = p_hotel_id and (w.stay_date < v_first or w.stay_date > v_last);
 
-  -- New re-checks, inside the window and still ahead.
-  with ins as (
-    insert into public.pricing_wakeups (hotel_id, stay_date, due_at, reason)
-    select p_hotel_id, x.stay_date, x.due_at, coalesce(x.reason, 'wait_ends')
-      from jsonb_to_recordset(coalesce(p_run->'wakeups', '[]'::jsonb))
-             as x(stay_date date, due_at timestamptz, reason text)
-     where x.stay_date between v_first and v_last
-       and x.due_at > v_at
-    on conflict (hotel_id, stay_date, due_at) do nothing
-    returning 1
-  )
-  select count(*) into v_wakeups from ins;
-
-  -- Nights the run could not fully write come back next tick.
+  -- Nights the run could not fully write come back next tick, and so do the
+  -- nights where it changed what the next run reads.
   perform public.pricing_mark_many(
     array_agg(p_hotel_id),
     array_agg(value::date),
     'retry'
   )
   from jsonb_array_elements_text(coalesce(p_run->'failed', '[]'::jsonb));
+  perform public.pricing_mark_many(
+    array_agg(p_hotel_id),
+    array_agg(value::date),
+    'follow_up'
+  )
+  from jsonb_array_elements_text(coalesce(p_run->'again', '[]'::jsonb));
 
   insert into public.hotel_pricing_state (hotel_id)
   select p_hotel_id where exists (select 1 from public.hotels h where h.id = p_hotel_id)
@@ -882,7 +839,6 @@ begin
   return jsonb_build_object(
     'cleared', v_cleared,
     'kept', v_kept,
-    'wakeups', v_wakeups,
     'pass_moved', v_moved
   );
 end;
@@ -972,7 +928,7 @@ declare
   v_missing text;
 begin
   select string_agg(t, ', ') into v_missing
-    from unnest(array['pricing_dirty_nights', 'pricing_wakeups', 'hotel_pricing_state']) t
+    from unnest(array['pricing_dirty_nights', 'hotel_pricing_state']) t
    where to_regclass('public.' || t) is null;
   if v_missing is not null then
     raise exception 'pricing cadence: missing tables %', v_missing;
@@ -996,7 +952,7 @@ begin
 
   if exists (
     select 1 from pg_class c
-     where c.relname in ('pricing_dirty_nights', 'pricing_wakeups', 'hotel_pricing_state')
+     where c.relname in ('pricing_dirty_nights', 'hotel_pricing_state')
        and c.relnamespace = 'public'::regnamespace
        and not c.relrowsecurity
   ) then

@@ -39,8 +39,8 @@
  * last ran and only checked for gaps (covered) holds them.
  *
  * Which nights the evaluation prices is the pricing cadence's call
- * (pricing-plan.ts): the nights whose inputs changed, re-checks that are
- * due, and a chunk of the daily pass, read from the database after the base
+ * (pricing-plan.ts): the nights whose inputs changed, the nights a run
+ * changed a rule's state on, and a chunk of the daily pass, read from the database after the base
  * rate refresh (which can mark nights) and reported back once the engine has
  * priced them. A tick with nothing to price writes its heartbeat and prices
  * nothing. MAYA_PRICING_CADENCE=every_tick prices the whole window, as before;
@@ -49,7 +49,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CadenceReport, EvaluateOptions } from "../engine/evaluate.ts";
-import { utcInstantForHotelCalendarDate } from "../engine/timezone.ts";
+import { hotelDayStartIso } from "../engine/timezone.ts";
 import { ensureBaseRateCalendar, type EnsureCalendarResult } from "./base-rate-calendar.ts";
 import { pmsEditSettleMs } from "./pms-edits.ts";
 import {
@@ -108,13 +108,13 @@ export type TickCadence = {
   mode: PricingCadence | "pre_migration";
   nights: number;
   touched: number;
-  wakeups: number;
   momentum: number;
   chunk: number;
   passStarted: string | null;
   passNext: string | null;
   failedNights: number;
-  wakeupsBooked: number;
+  /** Nights the run changed a rule's state on: priced again next tick. */
+  again?: number;
   error?: string;
 };
 
@@ -355,9 +355,8 @@ type PricedNights<E> = {
 const emptyReport = (): CadenceReport => ({
   nights: [],
   failedNights: [],
-  wakeups: [],
   momentumNights: [],
-  pickupWindows: [],
+  changedNights: [],
   engineMs: 0,
 });
 
@@ -385,7 +384,7 @@ async function priceNights<E>(
   let work: PricingWork | typeof CADENCE_MISSING;
   let workError: string | undefined;
   try {
-    work = await loadPricingWork(supabase, hotelId, clock.today, lastNight, clock.at);
+    work = await loadPricingWork(supabase, hotelId, clock.today, lastNight);
   } catch (e) {
     // The list can't be read this tick: price the whole window, as before,
     // and leave every mark for the next tick.
@@ -407,13 +406,11 @@ async function priceNights<E>(
       mode: workError ? args.cadence : "pre_migration",
       nights: horizonDays,
       touched: 0,
-      wakeups: 0,
       momentum: 0,
       chunk: horizonDays,
       passStarted: null,
       passNext: null,
       failedNights: 0,
-      wakeupsBooked: 0,
       ...(workError ? { error: workError } : {}),
     };
     try {
@@ -444,13 +441,11 @@ async function priceNights<E>(
     mode: args.cadence,
     nights: plan.nights.length,
     touched: plan.counts.touched,
-    wakeups: plan.counts.wakeups,
     momentum: plan.counts.momentum,
     chunk: plan.counts.chunk,
     passStarted: plan.pass?.start ? plan.pass.reason : null,
     passNext: plan.pass ? plan.pass.next : null,
     failedNights: 0,
-    wakeupsBooked: 0,
   };
   const passWorkLeft = plan.passWorkLeft || plan.passDue !== null;
   const settled = work;
@@ -466,7 +461,7 @@ async function priceNights<E>(
         maxAgeMs: pushMaxPriceAgeMs(),
         today: clock.today,
         lastNight,
-        dayStartedMs: utcInstantForHotelCalendarDate(clock.today, clock.timeZone).getTime(),
+        dayStartedMs: Date.parse(hotelDayStartIso(clock.today, clock.timeZone)),
         passMaxLagMs: args.config.passMaxLagMinutes * 60_000,
       }),
     };
@@ -482,8 +477,8 @@ async function priceNights<E>(
         last: lastNight,
         nights: [],
         dirty: [],
-        wakeups: [],
         failed: plan.deferred,
+        again: [],
         pass: null,
         momentum: [],
         msPerNight: null,
@@ -511,7 +506,6 @@ async function priceNights<E>(
     evaluate = await args.evaluate(supabase, hotelId, clock.at, horizonDays, {
       // A whole-window plan prices the window the way it always has.
       ...(args.cadence === "every_tick" ? {} : { nights: plan.nights }),
-      bookingNights: plan.bookingNights,
       runKind: args.cadence === "every_tick" ? "window" : "nights",
       report,
     });
@@ -529,7 +523,7 @@ async function priceNights<E>(
   }
 
   cadence.failedNights = report.failedNights.length;
-  cadence.wakeupsBooked = report.wakeups.length;
+  cadence.again = report.changedNights.length;
   const pricedNights = report.nights.length > 0 ? report.nights : plan.nights;
   try {
     const recorded = await recordPricingRun(supabase, hotelId, {
@@ -538,8 +532,8 @@ async function priceNights<E>(
       last: lastNight,
       nights: pricedNights,
       dirty: plan.dirtyRead,
-      wakeups: report.wakeups,
       failed: [...new Set([...report.failedNights, ...plan.deferred])].sort(),
+      again: report.changedNights,
       pass: plan.pass,
       momentum: report.momentumNights,
       msPerNight: pricedNights.length > 0 ? Math.round((report.engineMs / pricedNights.length) * 1000) / 1000 : null,

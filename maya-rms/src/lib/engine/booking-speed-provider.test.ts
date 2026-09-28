@@ -38,13 +38,17 @@ function makeContext(rows: SlimReservationRow[], asOf: string): BookingSpeedCont
 }
 
 describe("isWithinCooldown", () => {
-  it("throttles inside the window and frees exactly at it", () => {
-    const now = "2026-07-28T12:00:00Z";
-    expect(isWithinCooldown("2026-07-25T12:00:00Z", now, 7)).toBe(true);
-    expect(isWithinCooldown("2026-07-21T12:00:00Z", now, 7)).toBe(false); // exactly 7 days — free
-    expect(isWithinCooldown("2026-07-21T12:00:01Z", now, 7)).toBe(true); // one second short
-    expect(isWithinCooldown(undefined, now, 7)).toBe(false);
-    expect(isWithinCooldown("2026-07-28T11:59:00Z", now, 0)).toBe(false); // zero cooldown never throttles
+  it("counts whole hotel days: a change on day D waits until day D+N begins, whatever the hour", () => {
+    const UTC = "UTC";
+    const today = "2026-07-28";
+    expect(isWithinCooldown("2026-07-25T12:00:00Z", today, 7, UTC)).toBe(true);
+    expect(isWithinCooldown("2026-07-21T12:00:00Z", today, 7, UTC)).toBe(false); // the 21st + 7 is today: free
+    expect(isWithinCooldown("2026-07-21T23:59:59Z", today, 7, UTC)).toBe(false); // late on the 21st: free all the same
+    expect(isWithinCooldown("2026-07-22T00:00:00Z", today, 7, UTC)).toBe(true); // the 22nd: waits through today
+    expect(isWithinCooldown(undefined, today, 7, UTC)).toBe(false);
+    expect(isWithinCooldown("2026-07-28T11:59:00Z", today, 0, UTC)).toBe(false); // zero cooldown never throttles
+    // The day of the change is the hotel's: 02:00 UTC on the 22nd is the 21st in New York.
+    expect(isWithinCooldown("2026-07-22T02:00:00Z", today, 7, "America/New_York")).toBe(false);
   });
 
   it("defaults to a week, per the starter-ladder design", () => {

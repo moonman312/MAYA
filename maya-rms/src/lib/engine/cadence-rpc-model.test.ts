@@ -163,21 +163,13 @@ export function pricingWork(args: Record<string, unknown>, tables: Tables): Fake
   const hotel = args.p_hotel_id;
   const first = String(args.p_first);
   const last = String(args.p_last);
-  const atMs = Date.parse(String(args.p_at));
   const inWindow = (d: unknown) => String(d) >= first && String(d) <= last;
-  const wakeups = (tables.pricing_wakeups ?? []).filter((w) => w.hotel_id === hotel && inWindow(w.stay_date));
-  const future = wakeups.filter((w) => Date.parse(String(w.due_at)) > atMs).map((w) => Date.parse(String(w.due_at)));
   const state = (tables.hotel_pricing_state ?? []).find((s) => s.hotel_id === hotel) ?? null;
   return {
     dirty: (tables.pricing_dirty_nights ?? [])
       .filter((d) => d.hotel_id === hotel && inWindow(d.stay_date))
       .sort((a, b) => String(a.stay_date).localeCompare(String(b.stay_date)))
       .map((d) => ({ stay_date: d.stay_date, mark_seq: d.mark_seq, first_marked_at: d.first_marked_at, reasons: d.reasons })),
-    wakeups: wakeups
-      .filter((w) => Date.parse(String(w.due_at)) <= atMs)
-      .sort((a, b) => String(a.stay_date).localeCompare(String(b.stay_date)) || Date.parse(String(a.due_at)) - Date.parse(String(b.due_at)))
-      .map((w) => ({ stay_date: w.stay_date, due_at: w.due_at, reason: w.reason })),
-    next_wakeup_at: future.length > 0 ? new Date(Math.min(...future)).toISOString() : null,
     state: state ? { ...state } : null,
   };
 }
@@ -192,7 +184,6 @@ export function pricingRunDone(args: Record<string, unknown>, tables: Tables): F
   const last = String(run.last);
   const nights = new Set((run.nights as string[]) ?? []);
   const dirty = (tables.pricing_dirty_nights ??= []);
-  const wake = (tables.pricing_wakeups ??= []);
 
   let cleared = 0;
   for (const read of (run.dirty as { stay_date: string; mark_seq: number }[]) ?? []) {
@@ -209,25 +200,12 @@ export function pricingRunDone(args: Record<string, unknown>, tables: Tables): F
     if (Date.parse(String(d.first_marked_at)) < atMs) d.first_marked_at = at;
     kept++;
   }
-  for (let i = wake.length - 1; i >= 0; i--) {
-    const w = wake[i];
-    if (w.hotel_id !== hotel) continue;
-    const sd = String(w.stay_date);
-    if ((nights.has(sd) && Date.parse(String(w.due_at)) <= atMs) || sd < first || sd > last) wake.splice(i, 1);
-  }
   for (let i = dirty.length - 1; i >= 0; i--) {
     const d = dirty[i];
     if (d.hotel_id === hotel && (String(d.stay_date) < first || String(d.stay_date) > last)) dirty.splice(i, 1);
   }
-  let added = 0;
-  for (const w of (run.wakeups as { stay_date: string; due_at: string; reason: string }[]) ?? []) {
-    if (w.stay_date < first || w.stay_date > last || !(Date.parse(w.due_at) > atMs)) continue;
-    const dueMs = Date.parse(w.due_at);
-    if (wake.some((x) => x.hotel_id === hotel && x.stay_date === w.stay_date && Date.parse(String(x.due_at)) === dueMs)) continue;
-    wake.push({ hotel_id: hotel, stay_date: w.stay_date, due_at: new Date(dueMs).toISOString(), reason: w.reason ?? "wait_ends" });
-    added++;
-  }
   markNights(tables, hotel, (run.failed as string[]) ?? [], "retry", at);
+  markNights(tables, hotel, (run.again as string[]) ?? [], "follow_up", at);
 
   const states = (tables.hotel_pricing_state ??= []);
   let state = states.find((s) => s.hotel_id === hotel);
@@ -276,7 +254,7 @@ export function pricingRunDone(args: Record<string, unknown>, tables: Tables): F
       nights_priced: 0,
     });
   }
-  return { cleared, kept, wakeups: added, pass_moved: moved };
+  return { cleared, kept, pass_moved: moved };
 }
 
 /** For fakeSupabase's rpc option: the cadence functions, undefined for anything else. */
@@ -303,12 +281,12 @@ export function runGapsRpc(fn: string, args: unknown, tables: Tables): unknown {
 }
 
 describe("cadence rpc model", () => {
-  it("keeps a night marked again after it was read, and books wake-ups inside the window only", () => {
+  it("keeps a night marked again after it was read, and marks the follow-ups and retries", () => {
     const tables: Tables = { hotels: [{ id: "h" }] };
     const now = "2026-10-01T12:00:00.000Z";
     markNights(tables, "h", ["2026-10-02", "2026-10-03", "2026-09-01"], "booking", now);
     expect(tables.pricing_dirty_nights.map((d) => d.stay_date)).toEqual(["2026-10-02", "2026-10-03"]);
-    const work = pricingWork({ p_hotel_id: "h", p_first: "2026-10-01", p_last: "2026-10-10", p_at: now }, tables) as {
+    const work = pricingWork({ p_hotel_id: "h", p_first: "2026-10-01", p_last: "2026-10-10" }, tables) as {
       dirty: { stay_date: string; mark_seq: number }[];
     };
     markNights(tables, "h", ["2026-10-03"], "manual_price", now);
@@ -321,12 +299,8 @@ describe("cadence rpc model", () => {
           last: "2026-10-10",
           nights: ["2026-10-02", "2026-10-03"],
           dirty: work.dirty,
-          wakeups: [
-            { stay_date: "2026-10-02", due_at: "2026-10-02T12:00:00.000Z", reason: "pickup_window" },
-            { stay_date: "2026-10-20", due_at: "2026-10-02T12:00:00.000Z", reason: "pickup_window" },
-            { stay_date: "2026-10-02", due_at: "2026-10-01T11:00:00.000Z", reason: "wait_ends" },
-          ],
-          failed: [],
+          failed: ["2026-10-04"],
+          again: ["2026-10-02"],
           pass: null,
           momentum: [],
           idle: false,
@@ -334,8 +308,11 @@ describe("cadence rpc model", () => {
       },
       tables,
     );
-    expect(tables.pricing_dirty_nights.map((d) => [d.stay_date, d.reasons])).toEqual([["2026-10-03", ["booking", "manual_price"]]]);
-    expect(tables.pricing_wakeups.map((w) => w.stay_date)).toEqual(["2026-10-02"]);
+    expect(tables.pricing_dirty_nights.map((d) => [d.stay_date, d.reasons]).sort()).toEqual([
+      ["2026-10-02", ["follow_up"]],
+      ["2026-10-03", ["booking", "manual_price"]],
+      ["2026-10-04", ["retry"]],
+    ]);
   });
 
   it("finds the stretches without a run longer than the gap", () => {

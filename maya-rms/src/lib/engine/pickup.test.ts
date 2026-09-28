@@ -9,11 +9,14 @@ import {
   candidateFor,
   comparePickupRules,
   countFromFireAt,
+  countPickupToDayStart,
   fireHeadKey,
   insertPickupEvent,
   isWaiting,
   resetPickupInsertLogOnce,
   openFireHeads,
+  pickupCountEndsAt,
+  pickupCountsCompleteDays,
   pickupJudgesShortStretch,
   pickupTieBreakTrace,
   pickupWaitDays,
@@ -80,6 +83,7 @@ function makeCandidate(rule: EngineRule, rtId: string = "rt1", stayDate: string 
     baseline_ts: "2026-07-12T02:30:00Z",
     affected_room_type_id: rtId,
     eval_ts: "2026-07-15T02:30:00Z",
+    count_to: "2026-07-15T02:30:00Z",
     signal_booked_units_start: 10,
     signal_booked_units_end: 16,
     signal_booked_revenue_start: 2000,
@@ -537,18 +541,82 @@ describe("waits", () => {
     expect(waitAnchor(later, undefined, { set_at: "2026-07-12T00:00:00Z" })).toBeNull();
   });
 
-  it("waiting runs out exactly on the day", () => {
-    expect(isWaiting("2026-07-12T02:30:00Z", "2026-07-15T02:29:59Z", 3)).toBe(true);
-    expect(isWaiting("2026-07-12T02:30:00Z", "2026-07-15T02:30:00Z", 3)).toBe(false);
-    expect(isWaiting(null, "2026-07-15T02:30:00Z", 3)).toBe(false);
+  it("a wait of N days from a change on hotel day D ends when day D+N begins, whatever the hour", () => {
+    const NY = "America/New_York";
+    // 02:30 UTC on the 12th is 22:30 on the 11th in New York: day D is the 11th.
+    expect(isWaiting("2026-07-12T02:30:00Z", "2026-07-13", 3, NY)).toBe(true);
+    expect(isWaiting("2026-07-12T02:30:00Z", "2026-07-14", 3, NY)).toBe(false);
+    // In UTC the same change is on the 12th, so it waits through the 14th.
+    expect(isWaiting("2026-07-12T02:30:00Z", "2026-07-14", 3, "UTC")).toBe(true);
+    expect(isWaiting("2026-07-12T02:30:00Z", "2026-07-15", 3, "UTC")).toBe(false);
+    // A change a minute before midnight and one a minute after midnight end a day apart.
+    expect(isWaiting("2026-07-12T03:59:00Z", "2026-07-12", 1, NY)).toBe(false);
+    expect(isWaiting("2026-07-12T04:01:00Z", "2026-07-12", 1, NY)).toBe(true);
+    expect(isWaiting(null, "2026-07-15", 3, NY)).toBe(false);
   });
 
-  it("a pickup window opens exactly its length back; a booking speed rule reads no old snapshot", () => {
-    expect(baselineTsFrom(makeRule(), "2026-07-15T02:30:00.000Z")).toBe("2026-07-12T02:30:00.000Z");
+  it("a pickup window opens at the start of a hotel day: today so far and the days before for more, complete days for low", () => {
+    const NY = "America/New_York";
+    // "More than 5 in 3 days" on the 15th: the 13th, the 14th and the 15th so far.
+    expect(pickupCountsCompleteDays(makeRule())).toBe(false);
+    expect(baselineTsFrom(makeRule(), "2026-07-15", NY)).toBe("2026-07-13T04:00:00.000Z");
+    expect(pickupCountEndsAt(makeRule(), "2026-07-15T19:00:00.000Z", "2026-07-15", NY)).toBe("2026-07-15T19:00:00.000Z");
+    // "Fewer than 2 in 3 days": the 12th, 13th and 14th, ending where today began.
+    const low = makeRule({
+      action_direction: "decrease",
+      condition: { pickup_operator: "lt", pickup_threshold: 2, pickup_window_days: 3, pickup_metric: "room_nights" },
+    });
+    expect(pickupCountsCompleteDays(low)).toBe(true);
+    expect(baselineTsFrom(low, "2026-07-15", NY)).toBe("2026-07-12T04:00:00.000Z");
+    expect(pickupCountEndsAt(low, "2026-07-15T19:00:00.000Z", "2026-07-15", NY)).toBe("2026-07-15T04:00:00.000Z");
+    // "More than" a number under zero reads low too.
+    const negative = makeRule({ condition: { pickup_operator: "gt", pickup_threshold: -2, pickup_window_days: 1, pickup_metric: "room_nights" } });
+    expect(pickupCountsCompleteDays(negative)).toBe(true);
+    expect(baselineTsFrom(negative, "2026-07-15", NY)).toBe("2026-07-14T04:00:00.000Z");
+    // A one-day window for more is today so far.
+    const oneDay = makeRule({ condition: { pickup_operator: "gt", pickup_threshold: 1, pickup_window_days: 1, pickup_metric: "room_nights" } });
+    expect(baselineTsFrom(oneDay, "2026-07-15", NY)).toBe("2026-07-15T04:00:00.000Z");
+    // Across the end of daylight saving time the day starts an hour later in UTC.
+    expect(baselineTsFrom(oneDay, "2026-11-02", NY)).toBe("2026-11-02T05:00:00.000Z");
+    expect(baselineTsFrom(oneDay, "2026-11-01", NY)).toBe("2026-11-01T04:00:00.000Z");
     const bs = makeRule({
       condition: { booking_speed_operator: "at_most", booking_speed_level: "slower", booking_speed_window_days: 30 },
     });
-    expect(baselineTsFrom(bs, "2026-07-15T02:30:00.000Z")).toBeNull();
+    expect(baselineTsFrom(bs, "2026-07-15", NY)).toBeNull();
+  });
+
+  it("a count of complete days ends where today began: today's bookings wait, today's cancellations count at once", () => {
+    const low = makeRule({
+      action_direction: "decrease",
+      condition: { pickup_operator: "lt", pickup_threshold: 2, pickup_window_days: 3, pickup_metric: "room_nights" },
+    });
+    const dayStart = "2026-07-15T04:00:00.000Z";
+    // 10 booked when the window opened, 13 now: 2 of those first seen today,
+    // and one booked before today cancelled today, so 10 first seen before
+    // today are still booked... plus the 1 that cancelled is gone: 11 left.
+    const metrics: RuleMetrics = {
+      occupancy: 0.5,
+      dta: 10,
+      net_pickup_units: 3,
+      net_pickup_revenue: 300,
+      pickup_block_reason: null,
+      signal_booked_units_baseline: 10,
+      signal_booked_revenue_baseline: 1000,
+      signal_booked_units_now: 13,
+      signal_booked_revenue_now: 1300,
+    };
+    const booked = new Map([[bookedBeforeKey("2026-07-15", dayStart), new Map([["rt1", { units: 11, revenue: 1100 }]])]]);
+    expect(countPickupToDayStart(metrics, low, "2026-07-15", dayStart, booked)).toBe(true);
+    expect(metrics).toMatchObject({
+      net_pickup_units: 1,
+      net_pickup_revenue: 100,
+      signal_booked_units_now: 11,
+      pickup_counted_to: dayStart,
+    });
+    // Nothing read at that instant: left as it was.
+    const other = { ...metrics, net_pickup_units: 3, pickup_counted_to: undefined };
+    expect(countPickupToDayStart(other, low, "2026-07-15", dayStart, new Map())).toBe(false);
+    expect(other.net_pickup_units).toBe(3);
   });
 });
 
@@ -710,6 +778,7 @@ describe("where a pickup count opens: the fires still on the night (openFireHead
     affected_room_type_id: "rt1",
     applied_at: "2026-09-20T12:00:00.000Z",
     checked_at: over.checked_at ?? over.applied_at ?? "2026-09-20T12:00:00.000Z",
+    count_end_ts: over.count_end_ts ?? over.checked_at ?? over.applied_at ?? "2026-09-20T12:00:00.000Z",
     fire_seq: 1,
     action_kind: "percent",
     action_direction: "increase",

@@ -32,6 +32,8 @@ const STD = "a0000000-0000-4000-8000-0000000000a1";
 const NIGHT = addDays(D0, 20);
 const HORIZON = 21;
 const iso = (ms: number) => new Date(ms).toISOString();
+/** Where a hotel day begins: the hotel here keeps UTC. Pickup windows open at one. */
+const dayStart = (ymd: string) => `${ymd}T00:00:00.000Z`;
 
 const ENGINES = [
   { name: "app engine", evaluateHotel: appEvaluateHotel, resetLog: appResetLog },
@@ -188,8 +190,8 @@ describe.each(ENGINES)("$name: a pickup count rule's wait", (engine) => {
       fire_seq: 2,
     });
     expect(w.fireMetrics(T0 + 3 * DAY)).toMatchObject({ net_pickup_units: 4, pickup_counted_since: iso(T0) });
-    // The first counted its whole window.
-    expect(w.fires()[0]).toMatchObject({ baseline_start_ts: iso(T0 - 7 * DAY), signal_booked_units_start: 2 });
+    // The first counted its whole window: today so far and the six days before.
+    expect(w.fires()[0]).toMatchObject({ baseline_start_ts: dayStart(addDays(D0, -6)), signal_booked_units_start: 2 });
     expect(w.fireMetrics(T0)).not.toHaveProperty("pickup_counted_since");
   }, 60_000);
 
@@ -204,8 +206,9 @@ describe.each(ENGINES)("$name: a pickup count rule's wait", (engine) => {
     for (let day = 1; day <= 11; day++) await w.run(T0 + day * DAY);
     expect(w.fires()).toHaveLength(1);
 
-    // Fourteen days on, its 3-day window no longer reaches that burst, nor
-    // the raise: only what came in during those three days counts.
+    // Fourteen days on, its 3-day window (days 12, 13 and 14 so far) no
+    // longer reaches that burst, nor the raise: only what came in during
+    // those three days counts.
     w.tables.reservations.push(...bookings(4, addDays(D0, 12)));
     for (let day = 12; day <= 13; day++) await w.run(T0 + day * DAY);
     expect(w.fires()).toHaveLength(1);
@@ -214,7 +217,7 @@ describe.each(ENGINES)("$name: a pickup count rule's wait", (engine) => {
       ["r-wait14", 0],
       ["r-wait14", 14],
     ]);
-    expect(w.fires()[1]).toMatchObject({ baseline_start_ts: iso(T0 + 11 * DAY) });
+    expect(w.fires()[1]).toMatchObject({ baseline_start_ts: dayStart(addDays(D0, 12)) });
     expect(w.fireMetrics(T0 + 14 * DAY)).toMatchObject({ net_pickup_units: 4 });
     expect(w.fireMetrics(T0 + 14 * DAY)).not.toHaveProperty("pickup_counted_since");
   }, 60_000);
@@ -230,14 +233,18 @@ describe.each(ENGINES)("$name: a pickup count rule's wait", (engine) => {
     await w.run(T0 + 2 * DAY);
     expect(w.fires()).toHaveLength(1);
 
-    // Three days on its window opens exactly where its raise was: nothing is
-    // cut, and it raises on the four that came since.
+    // Its wait ends as day 3 begins, and its window (days 1, 2 and 3 so far)
+    // opens after the raise's day: it raises on the four that came since.
     await w.run(T0 + 3 * DAY);
     expect(w.firedOn()).toEqual([
       ["r-same", 0],
       ["r-same", 3],
     ]);
-    expect(w.fires()[1]).toMatchObject({ baseline_start_ts: iso(T0), signal_booked_units_start: 5, signal_booked_units_end: 9 });
+    expect(w.fires()[1]).toMatchObject({
+      baseline_start_ts: dayStart(addDays(D0, 1)),
+      signal_booked_units_start: 5,
+      signal_booked_units_end: 9,
+    });
     expect(w.fireMetrics(T0 + 3 * DAY)).not.toHaveProperty("pickup_counted_since");
   }, 60_000);
 
@@ -293,11 +300,12 @@ describe.each(ENGINES)("$name: a pickup count rule after a typed price", (engine
     expect(w.fires()).toHaveLength(1);
     expect(w.price()).toBe(150);
 
-    // A day after the price it counts its whole week again, not from the
-    // raise before the price (whose run saw the five that cancelled).
+    // The day after the price it counts its whole week again (day 2 so far
+    // and the six days before), not from the raise before the price (whose
+    // run saw the five that cancelled).
     await w.run(setAt + DAY + HOUR);
     expect(w.fires()).toHaveLength(2);
-    expect(w.fires()[1]).toMatchObject({ baseline_start_ts: iso(setAt + DAY + HOUR - 7 * DAY), signal_booked_units_start: 2 });
+    expect(w.fires()[1]).toMatchObject({ baseline_start_ts: dayStart(addDays(D0, -4)), signal_booked_units_start: 2 });
     expect(w.price()).toBe(165);
   }, 60_000);
 
@@ -318,7 +326,7 @@ describe.each(ENGINES)("$name: a pickup count rule after a typed price", (engine
       [1, "manual_price"],
       [2, null],
     ]);
-    expect(w.fires()[1]).toMatchObject({ baseline_start_ts: iso(setAt + DAY + HOUR - 7 * DAY) });
+    expect(w.fires()[1]).toMatchObject({ baseline_start_ts: dayStart(addDays(D0, -5)) });
     expect(w.price()).toBe(165);
   }, 60_000);
 });
@@ -482,10 +490,11 @@ describe.each(ENGINES)("$name: a \"less than\" pickup rule", (engine) => {
   }, 60_000);
 
   it("with a wait shorter than its window, never cuts a night again before its whole window has passed its cut", async () => {
-    // Under 2 over the week, waiting a day, on a night nothing books: after
-    // its cut it has a whole week of nothing to judge only on day 7, so the
-    // day's wait changes nothing (the builder says "low pickup holds it to 1
-    // week").
+    // Under 2 over the week, waiting a day, on a night nothing books. It
+    // counts complete days ending yesterday, and its cut on day 0 counted
+    // the week up to the start of that day: it has the next whole week to
+    // judge (days 0 to 6) only on day 7, so the day's wait changes nothing
+    // (the builder says "low pickup holds it to 1 week").
     const rule = pickupRule(
       "r-slow",
       { pickup_operator: "lt", pickup_threshold: 2, pickup_window_days: 7, pickup_cooldown_days: 1 },
@@ -498,8 +507,12 @@ describe.each(ENGINES)("$name: a \"less than\" pickup rule", (engine) => {
       ["r-slow", 7],
     ]);
     expect(w.price()).toBe(90.25);
-    // The second cut judged the whole week after the first.
-    expect(w.fires()[1]).toMatchObject({ baseline_start_ts: iso(T0) });
+    // The second cut judged the whole week from the start of the first's
+    // day to the start of its own.
+    expect(w.fires()[1]).toMatchObject({
+      baseline_start_ts: dayStart(D0),
+      baseline_end_ts: dayStart(addDays(D0, 7)),
+    });
   }, 60_000);
 });
 

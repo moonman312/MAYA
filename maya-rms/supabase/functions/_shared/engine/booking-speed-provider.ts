@@ -80,6 +80,7 @@ import {
   type ChallengeScope,
 } from "../observations/reinforcement.ts";
 import { MIGRATIONS, fetchAllRows, isMissingFunctionError } from "./snapshots.ts";
+import { evalIsoToHotelDateString } from "./timezone.ts";
 import type { RuleMetrics } from "./types.ts";
 
 export const HISTORY_YEARS_BACK = 3;
@@ -1168,14 +1169,23 @@ export function bookingSpeedAuditSnapshots(
   return out;
 }
 
-/** True while `anchorAt` is less than `waitDays` whole days (in milliseconds) before `nowIso`. */
+/**
+ * True while a wait of `cooldownDays` whole hotel days from a change at
+ * `lastAppliedAt` runs, for a run on hotel day `localDate` (Jake,
+ * 2026-09-28): a change made on hotel day D waits until hotel day
+ * D + cooldownDays begins, whatever the hour of the change. So a wait never
+ * ends in the middle of a day, and the first run of the day it ends on
+ * (the daily pass) is when the rule may adjust again. 0 never waits.
+ */
 export function isWithinCooldown(
   lastAppliedAt: string | null | undefined,
-  nowIso: string,
+  localDate: string,
   cooldownDays: number,
+  hotelTimeZone: string,
 ): boolean {
-  if (!lastAppliedAt) return false;
-  return Date.parse(nowIso) - Date.parse(lastAppliedAt) < cooldownDays * 86_400_000;
+  if (!lastAppliedAt || !(cooldownDays > 0)) return false;
+  const changeDay = evalIsoToHotelDateString(lastAppliedAt, hotelTimeZone);
+  return localDate < addDays(changeDay, cooldownDays);
 }
 
 /**

@@ -82,6 +82,15 @@ export type RuleMetrics = {
    * first seen by then and is still booked.
    */
   pickup_counted_since?: string;
+  /**
+   * Set when a pickup condition counts complete hotel days, ending yesterday
+   * (pickupCountsCompleteDays in pickup.ts: it looks for low pickup): the
+   * start of the hotel's today, where the count ended. The "now" side below
+   * is then the room nights first seen before it that are still booked
+   * (countPickupToDayStart): today's bookings wait for tomorrow, today's
+   * cancellations count at once.
+   */
+  pickup_counted_to?: string;
   /** Summed across signal room types at baseline snapshot (pickup ledger / audit). */
   signal_booked_units_baseline?: number;
   signal_booked_revenue_baseline?: number;
@@ -111,6 +120,12 @@ export type PickupCandidate = {
   baseline_ts: string;
   affected_room_type_id: string;
   eval_ts: string;
+  /**
+   * Where the pickup count ended: eval_ts, or for a count of complete days
+   * the start of the hotel's today (RuleMetrics.pickup_counted_to). Stored
+   * as baseline_end_ts.
+   */
+  count_to: string;
   /**
    * Booked room-nights (and revenue) over the measured room types when the
    * pickup window opened, and now. A rule with no pickup condition measures
