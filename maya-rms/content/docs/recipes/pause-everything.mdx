@@ -16,7 +16,7 @@ questions:
   - If I switch every rule off, does MAYA still send anything? {#what-stays-and-what-stops/prices-you-type}
   - Is there a pause button? {#in-plain-words}
   - I use Mews. Does switching my rules off or going back to simulation change anything in Mews? {#what-stays-and-what-stops/on-mews-nothing}
-updated: 2026-09-24
+updated: 2026-09-27
 ---
 
 <InPlainWords>
@@ -46,14 +46,14 @@ Switching a rule needs Revenue Manager access or higher.
 - **Prices already in your system stay as they are.** Off freezes a rule: the changes it made keep applying, and nothing is reverted or re-sent. If you would rather the prices went back to your own rates, delete the rules instead. Deleting undoes every change a rule made. On a live Cloudbeds or ThinkReservations property, the changed prices go to your system on the next cycle.
 - **Prices you type still go out** on a live Cloudbeds or ThinkReservations property. A price you set or clear on the <Ui>Calendar</Ui> tab is sent as usual, and so is a price that moves because you changed a floor or ceiling.
 - **Each new night still goes out.** Every day one more night enters the 60-night window. On a live Cloudbeds or ThinkReservations property it is sent at your own rate, kept between your floor and ceiling.
-- **MAYA keeps reading your bookings** about every five minutes and keeps the calendar and change log up to date. Quiet runs read "Prices checked" under <Ui>Show All Cycles</Ui>.
+- **MAYA keeps reading your bookings** about every five minutes and keeps the calendar and change log up to date. Runs that change nothing are counted into quiet lines, "Prices checked ... nothing needed to change", under <Ui>Show All Cycles</Ui>.
 - **Your bill continues.** Turning rules off changes nothing about the subscription.
 - **On Mews, nothing is sent.** MAYA sends no prices to Mews yet, so switching rules off or going back to simulation changes nothing in Mews. Change rates in Mews itself.
 
-When you are ready, switch the rules back <Ui>On</Ui>. A rule that had adjusted a night before it was paused carries on from where it left off. A booking speed rule counts bookings from the night's last raise (for a rule that raises) or last cut (for one that cuts) made by a booking speed or pickup rule, a paused one included. A rule with only occupancy or booking window conditions never moves where that count starts.
+When you are ready, switch the rules back <Ui>On</Ui>. A rule that had adjusted a night before it was paused carries on from where it left off. A booking speed or pickup rule that has changed a night counts only the bookings made since the newest change still on that night by itself or a stronger rule moving the price the same way, a paused one included. A rule with only occupancy or booking window conditions never moves where that count starts.
 
 <Callout kind="careful">
-A rule that is Off still holds its changes, even if the bookings behind a raise cancel. A night raised 25% before you paused stays raised until you type a price for it, delete the rule or the night passes. Once you switch the rule back On, the next run checks its raises for cancellations again, counting any made while it was Off.
+A rule that is Off still holds its changes, even if the bookings behind a raise cancel. A night raised 25% before you paused stays raised until you type a price for it, delete the rule or the night passes. Once you switch the rule back On, if its <Ui>Undo the change if cancellations mean this rule is no longer true</Ui> box is ticked, the next run checks its changes for cancellations again, counting any made while it was Off.
 </Callout>
 
 ## Go back to simulation
