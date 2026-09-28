@@ -4,12 +4,12 @@ summary: The numbers behind a booking speed reading, opened from a button under 
 section: watch
 order: 30
 readingTime: 15
-keywords: [how did we know, numbers behind a change, the numbers, show the numbers, why this price, which nights were compared, why did you expect that, show me the nights you compared, evidence, expected, observed, reads as, guard, held the call at normal, softened it one step, few comparable nights, momentum, nearby nights, last year, widened the comparison, relaxed the criteria, holiday, season, closed periods, last raised on, from that raise on, later that day, rest of that day, not a fair comparison, no booking-speed observation, missing button, three blocks, several blocks, occupancy rule, typed price, four similar nights, which block, same numbers twice, measured over, no history for this night, eight nights, nearest first, missing week, Halloween, thin history]
+keywords: [how did we know, numbers behind a change, the numbers, show the numbers, why this price, which nights were compared, why did you expect that, show me the nights you compared, evidence, expected, observed, reads as, guard, held the call at normal, softened it one step, few comparable nights, momentum, nearby nights, last year, widened the comparison, relaxed the criteria, holiday, season, closed periods, newest raise still on this night's price, from that raise on, full days up to yesterday, stronger rule, whole window, later that day, rest of that day, not a fair comparison, no booking-speed observation, missing button, several blocks, occupancy rule, typed price, four similar nights, which block, same numbers twice, measured over, no history for this night, eight nights, nearest first, missing week, Halloween, thin history]
 questions:
   - 'What is "How did we know?"' {#in-plain-words}
   - 'Why is "How did we know?" missing on some changes?' {#where-the-button-appears/how-did-we}
   - 'Why is "How did we know?" under a change an occupancy rule made?' {#where-the-button-appears/how-did-we}
-  - 'Why does "How did we know?" show three blocks?' {#where-the-button-appears/click-the-button}
+  - 'Why does "How did we know?" show several blocks?' {#where-the-button-appears/click-the-button}
   - 'Which block belongs to the rule that made the change?' {#where-the-button-appears/click-the-button}
   - 'Why do two blocks show the same numbers?' {#where-the-button-appears/say-warm-date}
   - 'In what order are the compared nights listed?' {#the-third-layer-show-me-the-nights-you-compared/a-row-can}
@@ -18,12 +18,12 @@ questions:
   - 'What is "Show me the nights you compared"?' {#the-third-layer-show-me-the-nights-you-compared/once-the-second}
   - 'What does "we held the call at Normal" mean?' {#the-first-layer-what-arrived-what-is-usual-and-the-reading/a-note-when}
   - 'What does "we softened it one step" mean?' {#the-first-layer-what-arrived-what-is-usual-and-the-reading/a-note-when}
-  - 'What does "This night was last raised on" mean in the evidence?' {#after-the-night-has-already-been-raised-or-cut}
+  - 'What does "The newest raise still on this night's price" mean in the evidence?' {#after-the-night-has-already-been-raised-or-cut}
   - 'What does "Later that day" mean in the evidence?' {#how-long-the-evidence-is-kept}
   - 'Where do I see which past nights MAYA compared my night with?' {#the-third-layer-show-me-the-nights-you-compared/once-the-second}
   - 'How long can I open the evidence behind a change?' {#how-long-the-evidence-is-kept}
   - 'Where do I see the numbers behind a price change?' {#in-plain-words}
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -38,11 +38,11 @@ The button is missing when the run took no booking speed reading for the night: 
 
 Anyone on the property can open it, whatever their role. Setting a night aside from inside it needs Revenue Manager access or higher.
 
-Click the button and the panel opens with a short loading line while MAYA fetches what the run recorded. Then you see one block for each window a booking speed rule read on that night, whether that rule acted or not. With the starter rules that is usually three: the past month, the past week and the past day. A rule that counted only from the night's last raise or cut adds a block of its own. Each block is read on its own, so their levels can differ.
+Click the button and the panel opens with a short loading line while MAYA fetches what the run recorded. Then you see one block for each window a booking speed rule read on that night, whether that rule acted or not. With the starter rules that is usually four: the past month twice (once up to now for the rules that raise, once in full days up to yesterday for the rules that cut), the past week and the past day. A rule that counted only from a change still on the night adds a block of its own. Each block is read on its own, so their levels can differ.
 
-To find the block behind a booking speed rule's change, read the first sentence of each. Usually it is the block for the rule's <Ui>Measured over</Ui> setting, starting "In the last 7 days" for a 7-day rule. But a rule that raises may find the night already raised within that stretch by a booking speed or pickup rule. Then it counts only from that raise, and its block begins "This night was last raised on". A rule that cuts works the same way after a cut, with "This night was last cut on".
+To find the block behind a booking speed rule's change, read the first sentence of each. Usually it is the block for the rule's <Ui>Measured over</Ui> setting: "In the last 7 days" for a 7-day rule that raises, "In the 7 full days up to yesterday" for one that cuts. But a rule may find the night already raised within that stretch, by itself or a stronger rule, with that raise still on the price. Then it counts only the bookings since, and its block begins "The newest raise still on this night's price". A rule that cuts works the same way after a cut, with "The newest cut still on this night's price".
 
-Say "Warm-date bump" raised a night on a Friday and "Hot-week surge" raises it on the Monday after. The surge's block starts "This night was last raised on" and covers those 4 days, not 7. When "Warm-date bump" raises a night again within 30 days of the last raise, its own block starts the same way, and the block starting "In the last 30 days" is usually the one read for the rules that cut. Two rules that count from the same raise over the same days show the same numbers, so two blocks can look alike.
+Say "Warm-date bump" raises a night on a Monday, and "Hot-week surge" raised it the Friday before. The surge changes the price by more, so it is the stronger rule, and the bump counts only the bookings since the surge's raise: its block starts "The newest raise still on this night's price" and covers those 4 days, not 30. The bump's raise never moves where the surge counts from. When the surge raises the night again within 7 days of its own raise, its block starts the same way. Two rules that count from the same raise over the same days show the same numbers, so two blocks can look alike.
 
 If a change turns out to carry no reading, the panel says "No booking-speed observation was recorded for this change." If the fetch fails you see the error and <Ui>Try again</Ui>. <Ui>Close</Ui> folds the panel away.
 
@@ -50,7 +50,7 @@ If a change turns out to carry no reading, the panel says "No booking-speed obse
 
 Three sentences, then sometimes a fourth.
 
-**What arrived.** "In the last 7 days, 9 bookings arrived for this night, with 40 days still to go before arrival." The stretch matches the rule's <Ui>Measured over</Ui> setting. When the rule measures some room types only, the count names them: "In the last 7 days, 9 Standard and Deluxe bookings arrived for this night, ...". A booking that holds several rooms counts once.
+**What arrived.** "In the last 7 days, 9 bookings arrived for this night, with 40 days still to go before arrival." The stretch matches the rule's <Ui>Measured over</Ui> setting. For a rule that cuts it counts full days only, ending yesterday: "In the 7 full days up to yesterday, 9 bookings arrived for this night, ...". When the rule measures some room types only, the count names them: "In the last 7 days, 9 Standard and Deluxe bookings arrived for this night, ...". A booking that holds several rooms counts once.
 
 **What is usual.** "By this point on nights like this one, we would expect about 5 bookings over the same stretch." When similar nights had fewer than 1 booking over that stretch it reads "almost none". The number is what the similar nights had received over the same stretch of their own booking curves, at the same distance before arrival. It is their average, with the highest and lowest left off when there are 5 or more similar nights, and rounded to a whole number wherever it is shown.
 
@@ -76,13 +76,15 @@ That reads as Faster Than Normal.
 
 ### After the night has already been raised or cut
 
-A rule never re-counts bookings it already acted on. Once a booking speed or pickup rule has raised a night, a booking speed rule that raises counts only the bookings made after that raise. One that cuts counts from the night's last cut by such a rule. An occupancy or booking window rule's change never restarts the count. The first sentence then names the stretch:
+A rule never counts the same bookings twice for the same change. Once a rule has raised a night, it counts only the bookings made since the newest raise still on that night's price by itself or a stronger rule. So does every weaker rule that raises. Cuts work the same way among the rules that cut. A weaker rule's change never moves where a stronger rule counts from, and a raise never moves where a cut counts from, or the other way round. Only booking speed and pickup rules move the count: an occupancy or booking window rule's change never does. The first sentence then names the stretch:
 
-"This night was last raised on Fri, Oct 2 2026. In the 4 days from that raise on, 3 bookings arrived for it, with 39 days still to go before arrival."
+"The newest raise still on this night's price, by the rule behind this reading or a stronger rule, was made on Fri, Oct 2 2026. In the 4 days from that raise on, 3 bookings arrived for it, with 39 days still to go before arrival."
 
-When the raise was earlier the same day, the sentence reads "Later that day," instead: "This night was last raised on Fri, Oct 2 2026. Later that day, 2 bookings arrived for it, with 42 days still to go before arrival." After a cut it reads "last cut on" and "from that cut on".
+When the raise was earlier the same day, the second sentence reads "Later that day," instead: "... was made on Fri, Oct 2 2026. Later that day, 2 bookings arrived for it, with 42 days still to go before arrival." After a cut it reads "The newest cut still on this night's price", then "In the 3 full days after that, up to yesterday," since a rule that cuts counts whole days from the day after its cut.
 
-The "usual" sentence compares over that same shorter stretch of the similar nights, so a shorter count is set against a shorter usual. On the day of that raise only the bookings that arrived after it are counted, so a burst later the same day is not lost.
+On the day of a raise only the bookings that arrived after it are counted, so a burst later the same day is not lost. The "usual" sentence usually compares over that same shorter stretch of the similar nights. A rule that raises on a fast pace (at least Faster Than Normal, Much Faster Than Normal or Surging) is the exception: the bookings since the raise alone have to beat what the similar nights get in its whole window, and the sentence reads "we would expect about 5 bookings over a whole week".
+
+The count starts again only when a price actually changes. A change that comes off because of cancellations no longer counts, so the rule goes back to counting from the change before it, or over its whole window. A change the cancellations leave on stays where it was, and counting still runs from when it was made.
 
 A price you type on that night starts the count over: the rule waits its wait from the moment you typed, then reads its whole window again.
 
@@ -99,7 +101,9 @@ You will see this on a change made by some other rule on a night whose booking s
 
 Click <Ui>Why did you expect that?</Ui> and a short list appears under the first layer. Each line is one rule MAYA followed when choosing the similar nights.
 
-When the night had already been raised or cut, the first line says so: "Once a night has been raised, rules that raise count only the bookings made after that raise, whichever rule made it, the rest of that day included, and read the nights it is compared with over the same days." There is a matching line for cuts. "Whichever rule" means any booking speed or pickup rule: an occupancy or booking window rule's change does not count.
+For a rule that cuts, the first line is "A rule that cuts counts full days only, up to yesterday, on this night and on the nights it is compared with alike."
+
+When the night had already been raised or cut, the next line says so: "Once a rule or a stronger one has raised this night, it counts only the bookings made after the newest of those raises still on the price, the rest of that day included, and reads the nights it is compared with over the same days. A weaker rule's raise, or any cut, doesn't move where it starts." For a rule that raises on a fast pace the middle reads "and those alone have to beat what the nights it is compared with get in a whole week" instead. There is a matching line for cuts.
 
 Then, for an ordinary comparison:
 
@@ -151,7 +155,7 @@ The 1-booking night is Sat, Nov 15 2025. Sam recalls the road closure that weeke
 
 ## How long the evidence is kept
 
-MAYA keeps the detail behind a change for 90 days. Within that time the numbers open for any change still on the change log. Since the log shows the 10 most recent runs, in practice you will always be well inside the 90 days.
+MAYA keeps the detail behind a change for 90 days. Within that time the numbers open for any change still on the change log. Since the log shows the 10 most recent runs that changed a price, in practice you will nearly always be inside the 90 days.
 
 <Callout kind="not-yet">
 There is no page that lists your seasons, your similar nights or your holidays on their own. They appear only inside this panel, for the night in question. You cannot type an expected number or change the level by hand. The one lever is setting a night aside.

@@ -16,7 +16,7 @@ questions:
   - Why does it say part 2 while reading my bookings? {#what-it-reads-in-order/reading-your-current}
   - We only have 18 months of history. Will the review still open? {#what-it-reads-in-order/checking-your-full}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -78,7 +78,7 @@ MAYA reads at most 300,000 room nights, or more for a larger property: about one
 You can. Here is what to expect:
 
 - The dashboard fills in as the import goes. Your current bookings arrive in step 2, so the calendar shows real occupancy early on, while older years are still loading.
-- Your rules run during the import. About every five minutes MAYA runs them over tonight and the next 59 nights and writes the result in the <Ui>Change Log</Ui> tab. A run that changes nothing writes one line, "Prices checked".
+- Your rules run during the import. About every five minutes MAYA runs them over tonight and the next 59 nights and writes the result in the <Ui>Change Log</Ui> tab. Each stretch of runs that change nothing is counted into one line, such as "Prices checked 47 times from Sep 24, 10:05 AM to 1:55 PM, nothing needed to change."
 - Your property starts in simulation, so no rule, starter or yours, changes anything in your system until you go live.
 - With Cloudbeds and ThinkReservations, MAYA also reads the rate you already have for each night, about once an hour, and your rules work from it. Mews rates are not read.
 - When the first results are in and there are cards waiting for your answer, a blue banner on the dashboard links to the review (it ends with the link <Ui>Review →</Ui>). If there is nothing to ask you, there is no banner. Open the review at <AppLink to="review">maya-rms.com/onboarding/review</AppLink>.

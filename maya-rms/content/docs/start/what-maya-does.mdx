@@ -19,7 +19,7 @@ questions:
   - Is there a forecast of occupancy or demand? {#no-forecasts}
   - What keeps my prices from going too high or too low? {#what-keeps-prices-in-check}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -63,13 +63,13 @@ About every five minutes, MAYA reads your bookings and room types from your prop
 This all happens on MAYA's side, day and night, whether or not anyone has MAYA open. Nobody needs to be signed in, and the office computer being off or your own internet being down does not stop it. What stops it is MAYA being unable to reach your property system's service (read [Connection lost](/docs/wrong/connection-lost)), or a subscription that has stopped.
 
 <Example title="What this looks like on screen">
-Nothing, most of the time. A run that changed nothing writes one quiet line in the <Ui>Change Log</Ui> that reads "Prices checked". You only see the runs that changed a price unless you click <Ui>Show All Cycles</Ui>.
+Nothing, most of the time. Each stretch of runs that changed nothing is counted into one quiet line in the <Ui>Change Log</Ui>, such as "Prices checked 47 times from Sep 24, 10:05 AM to 1:55 PM, nothing needed to change." You only see the runs that changed a price unless you click <Ui>Show All Cycles</Ui>.
 </Example>
 </Step>
 <Step title="You watch the log">
 Every price change is recorded: which room type, which night, from what to what, which rule acted and why. For a booking speed change, a <Ui>How did we know?</Ui> button opens the past nights this night was compared with and the counts behind the change.
 
-The <Ui>Change Log</Ui> tab shows the latest ones: about the last 50 minutes (the 10 most recent runs, about five minutes apart). Each run shows up to 40 changes, the biggest moves first. The detail behind every change is kept for 90 days. For a change older than the runs on screen, [email us](mailto:info@modern-hospitality-solutions.com?subject=Why%20did%20a%20price%20change) within those 90 days and we look it up for you. [The change log](/docs/watch/the-change-log) has the limits.
+The <Ui>Change Log</Ui> tab shows the latest ones: the 10 most recent runs that changed a price. Each run shows up to 40 changes, the biggest moves first. The detail behind every change is kept for 90 days. For a change older than the runs on screen, [email us](mailto:info@modern-hospitality-solutions.com?subject=Why%20did%20a%20price%20change) within those 90 days and we look it up for you. [The change log](/docs/watch/the-change-log) has the limits.
 
 <Example title="What this looks like on screen">
 Each change reads like this: Standard · stay 2026-11-14: $150.00 up to $165.00 (+10%), then a sentence such as "It was 85% full, past the 80% mark you set." The <Ui>Calendar</Ui> tab shows the result: each night's current price per room type.
@@ -119,7 +119,7 @@ Only prices that changed go out. A night whose price has not changed since MAYA 
 
 **Sellable occupancy** is rooms booked divided by rooms you can sell that night. Only room types you have ticked as rooms count, and rooms you have marked out of service come off first. Twelve Standard rooms, three out of service, eight booked: 89%. [Sellable occupancy](/docs/rules/sellable-occupancy) has a slider to try.
 
-**Booking speed** is how many bookings a night received in the past day, week or month, compared with how many your own similar past nights had received by the same point before arrival. MAYA turns that into one of seven levels, from Stalled to Surging, and a rule can fire on any of them. After a booking speed or pickup count rule has raised a night, booking speed rules that raise count only the bookings that came in since then. Cuts work the same way. So one burst of bookings brings one booking speed raise. Pickup count and occupancy rules are not limited this way. [Booking speed](/docs/rules/booking-speed) explains the levels, and [after the rule acts](/docs/rules/booking-speed#after-the-rule-acts) explains the counting.
+**Booking speed** is how many bookings a night received in the past day, week or month, compared with how many your own similar past nights had received by the same point before arrival. MAYA turns that into one of seven levels, from Stalled to Surging, and a rule can fire on any of them. After a booking speed or pickup count rule changes a night, it counts only the bookings made since then, while that change is still on the price, and so does every weaker rule that moves the price the same way. So one burst of bookings brings one raise, not one from every rule. Occupancy and booking window rules are not limited this way. [Booking speed](/docs/rules/booking-speed) explains the levels, and [after the rule acts](/docs/rules/booking-speed#after-the-rule-acts) explains the counting.
 
 ## Where the prices come from
 
@@ -161,7 +161,7 @@ So a price moves after bookings arrive, not before them. When you know something
 Each rule moves a price by the percentage or amount you set in it, and four things hold your rules:
 
 - No rule takes a room type's price below its floor or above its ceiling. Setup fills them in where your answers or your own rates give a number. Check them before you go live: a room type still at the defaults, 1.00 and 99,999.99 in your currency, is held back by nothing. [Floors and ceilings](/docs/review/floors-and-ceilings) has the detail.
-- When a booking speed or pickup rule has adjusted the same night three times, an amber banner asks you whether it should keep adjusting or stop for that night. [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting) explains it.
+- When three changes by one booking speed or pickup rule are on the same night's price, an amber banner asks you whether it should keep adjusting or stop for that night. [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting) explains it.
 - Nothing is sent until you go live, so you can watch what your rules would do for as long as you like.
 - You can type a price for any night, or switch any rule off, at any time. The change log shows every change and the rule behind it.
 

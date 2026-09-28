@@ -16,7 +16,7 @@ questions:
   - What does the coloured bar on a calendar day mean? {#calendar/a-month-grid}
   - I switched property. Why does a banner still show the old one? {#the-property-dropdown}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -47,7 +47,7 @@ Top right of the calendar, a small line reads "Updated", then the time in your b
 
 ### Rules
 
-The heading <Ui>Pricing Rules</Ui>, with the <Ui>Get suggestions from my data</Ui> button beside it. Under that, a filter (<Ui>All</Ui>, <Ui>Enabled</Ui>, <Ui>Disabled</Ui>), a closed panel called <Ui>How rules behave</Ui> that holds two short animations, and the list of your rules with columns <Ui>Name</Ui>, <Ui>Fired</Ui>, <Ui>Conditions</Ui>, <Ui>Room Types</Ui>, <Ui>Price Change</Ui> and <Ui>Status</Ui>, plus a <Ui>Delete</Ui> button on each row. At the bottom, <Ui>+ Add a rule</Ui> opens the rule builder. Read [Build your first rule](/docs/rules/build-your-first-rule).
+The heading <Ui>Pricing Rules</Ui>, with the <Ui>Get suggestions from my data</Ui> button beside it. Under that, a filter (<Ui>All</Ui>, <Ui>Enabled</Ui>, <Ui>Disabled</Ui>), a closed panel called <Ui>How rules behave</Ui> that holds three short animations, and the list of your rules with columns <Ui>Name</Ui>, <Ui>Fired</Ui>, <Ui>Conditions</Ui>, <Ui>Room Types</Ui>, <Ui>Price Change</Ui> and <Ui>Status</Ui>, plus a <Ui>Delete</Ui> button on each row. At the bottom, <Ui>+ Add a rule</Ui> opens the rule builder. Read [Build your first rule](/docs/rules/build-your-first-rule).
 
 ### Rate Simulator
 
@@ -63,7 +63,7 @@ Make up a night and see what your rules would do to it. Its intro says so, and a
 
 ### Change Log
 
-The latest pricing runs, newest first: about the last 50 minutes (the 10 most recent runs, about five minutes apart). The button at the top right toggles between <Ui>Show All Cycles</Ui> and <Ui>Show Changes Only</Ui>. Changes only is the default, so runs that changed nothing are hidden until you ask. Each run lists up to 40 changes, one per room type and night, biggest moves first, each with a sentence saying which rule acted and why. The detail behind every change is kept for 90 days. For a change older than the runs on screen, [email us](mailto:info@modern-hospitality-solutions.com?subject=Why%20did%20a%20price%20change) within those 90 days and we look it up for you. Booking speed changes carry a <Ui>How did we know?</Ui> button. A <Ui>Your corrections</Ui> panel under the heading collects any past nights you have set aside as not a fair comparison. Read [The change log](/docs/watch/the-change-log).
+The 10 most recent pricing runs that changed a price, newest first. The button at the top right toggles between <Ui>Show All Cycles</Ui> and <Ui>Show Changes Only</Ui>. Changes only is the default. <Ui>Show All Cycles</Ui> adds one quiet line for each stretch of runs that changed nothing, such as "Prices checked 47 times from Sep 24, 10:05 AM to 1:55 PM, nothing needed to change." Each run lists up to 40 changes, one per room type and night, biggest moves first, each with a sentence saying which rule acted and why. The detail behind every change is kept for 90 days. For a change older than the runs on screen, [email us](mailto:info@modern-hospitality-solutions.com?subject=Why%20did%20a%20price%20change) within those 90 days and we look it up for you. Booking speed changes carry a <Ui>How did we know?</Ui> button. A <Ui>Your corrections</Ui> panel under the heading collects any past nights you have set aside as not a fair comparison. Read [The change log](/docs/watch/the-change-log).
 
 ### PMS
 
@@ -82,7 +82,7 @@ Banners appear between the tabs and the tab's content, only when something needs
 1. **Billing.** Red with a <Ui>Restart MAYA</Ui> button when work has stopped (for example "MAYA has paused work on this property"). Amber with a <Ui>Fix it</Ui> button for a warning, such as a payment that did not go through, a card that stopped working, a room count that is higher than you pay for, or a subscription set to cancel. Silent while everything is fine. Read [The billing page](/docs/billing/the-billing-page).
 2. **Connection lost.** "MAYA has lost its connection to Cloudbeds" (or your system's name), with a <Ui>Reconnect Cloudbeds</Ui> button for a General Manager or Hotel Admin. One click sends you to your system to confirm and brings you back. Anyone else sees the heading and a line asking a General Manager or Hotel Admin to reconnect. With Mews, a General Manager or Hotel Admin sees "Mews needs its keys re-entered" instead, with no button: [email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20keys) and we re-enter them with you. Your rules, history and settings are untouched. Read [Connection lost](/docs/wrong/connection-lost).
 3. **The review.** A blue card, shown after your history has been read and something is waiting for a yes or no from you, ending with the link <Ui>Review →</Ui>. It disappears once you finish the review.
-4. **Rules that keep adjusting.** An amber banner once a booking speed or pickup count rule has adjusted the same night three times. It names the rule and the night and asks you to choose <Ui>Keep adjusting</Ui> or <Ui>Stop for this night</Ui>. Until you answer, the rule keeps going. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
+4. **Rules that keep adjusting.** An amber banner once three changes by one booking speed or pickup count rule are on the same night's price. It names the rule and the night and asks you to choose <Ui>Keep adjusting</Ui> or <Ui>Stop for this night</Ui>. Until you answer, the rule keeps going. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
 
 <Callout kind="good-to-know">
 The connection lost banner only shows once you have opened the <Ui>PMS</Ui> tab in this visit, so open it if you suspect a problem. On a live Cloudbeds property whose connection has been cut, the change log also says "Reconnect Cloudbeds on the PMS tab." Other refusals, and ThinkReservations, get their own line saying what to do.
