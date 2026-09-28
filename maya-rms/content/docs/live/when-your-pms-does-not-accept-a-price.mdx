@@ -86,7 +86,7 @@ The night that was refused waits. MAYA is not told about a change you make in yo
 
 MAYA counts days on your property's own calendar, using the time zone it read from your system when you connected. If the time zone in your system has since changed, or was wrong then, the two can disagree about when tonight ends. If midnight comes first in your system's time zone, your system counts tonight as over until midnight comes in MAYA's. It refuses any new price MAYA sends for tonight in those hours.
 
-Don't wait for the change log to tell you, because it will usually not show this cause at all. A refused night is held rather than sent every cycle, and at midnight in MAYA's time zone it leaves the 60-night window. An item appears only once one night has had at least 5 tries over 2 hours or more. A held night rarely gets there before midnight.
+Don't wait for the change log to tell you, because it will usually not show this cause at all. A refused night is held rather than sent every cycle, and at midnight in MAYA's time zone it leaves the 396-night window. An item appears only once one night has had at least 5 tries over 2 hours or more. A held night rarely gets there before midnight.
 
 Look at your rates instead. The sign is a new price for tonight, set in those hours, that shows as the <Ui>Current price</Ui> in MAYA but never reaches your system. Prices for later nights go through as normal. If you see it, check the property's time zone in your system first. To change the time zone MAYA uses, [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone). [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays) explains how MAYA counts days.
 
@@ -116,7 +116,7 @@ An item that closed within the last hour and then fails again is reopened rather
 An item is over when no night is still failing for that cause. The second line then says how it ended:
 
 - **Resolved** when your system took the prices (for ThinkReservations, when it accepted them).
-- **Ended** when something else closed it: a new price replaced the failing one, the night left the 60-night window, the night is no longer priced, or the property stopped sending (it went back to simulation, or its subscription lapsed).
+- **Ended** when something else closed it: a new price replaced the failing one, the night left the 396-night window, the night is no longer priced, or the property stopped sending (it went back to simulation, or its subscription lapsed).
 
 A resolved or ended item is not deleted. It sits in the timeline at the point it ended, for as long as the log shows runs from that time.
 

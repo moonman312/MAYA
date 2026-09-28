@@ -3,7 +3,7 @@ title: The change log
 summary: Your 10 most recent pricing runs that changed a price, newest first, with the quiet runs between them counted into one line each. Each night listed shows its starting price and its new price, then one plain sentence per rule saying what it did and why.
 section: watch
 order: 20
-readingTime: 18
+readingTime: 19
 keywords: [change log, deleted rule, deleted rule missing, revenue pickup, booking mark, UTC, exact time, +00:00, pricing run, prices checked, show all cycles, show changes only, sentence, raised, lowered, past the mark, under the mark, faster than normal, days since this rule or a stronger one's latest raise, later on the day of, full days after, cancellations meant, no longer true, that took this night from, prices checked 47 times, nothing needed to change, just before that, quiet line, two rules, ceiling, floor, stopped there, stopped applying, set the base rate, changed in cloudbeds, pricing rule, rate moved, rates not reaching, your answer, your corrections, 10 runs, 40 changes, 90 days, time zone, currency, euro, pound, dollar sign, export, email, notification, couldn't load your price history, weeks ago, last month, gone from the log, disappeared, older change, old change, look up a change, price history, history of a night, night's history, past prices, what was the price before, empty, blank, nothing listed, log is empty, this morning, earlier today, an hour ago, 50 minutes, last hour, went back, back to normal, dropped back, price came back down, no entry, missing change, not listed, starting price, starting point, 37.5%, total move, wrong before price, not finding the rate, can't find the rate, five minutes]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
@@ -47,13 +47,13 @@ The <Ui>Change Log</Ui> tab shows your 10 most recent pricing runs that changed 
 
 ## What a pricing run is
 
-A pricing run is one pass of MAYA over your property: it reads your bookings, runs every rule that is on against every night in the window (tonight and the next 59 nights), and publishes a new price wherever one changed. When you are live, the changed prices are then sent to your property system. In simulation the run happens in full and the log fills in the same way, but nothing is sent.
+A pricing run is one pass of MAYA over your property: it reads your bookings, runs every rule that is on against the nights that need it, and publishes a new price wherever one changed. The nights that need it are every night whose bookings changed since the last run and every night a change of yours reaches, and, in the first runs after midnight at your property, every night in the window (tonight and the next 395 nights), nearest first. A run where nothing needed pricing still counts as a run that changed nothing. When you are live, the changed prices are then sent to your property system. In simulation the run happens in full and the log fills in the same way, but nothing is sent.
 
 Runs happen:
 
 - **About every five minutes**, each time MAYA's scheduled read of your bookings succeeds. A read that fails prices nothing that time, and a property whose subscription has lapsed is skipped.
-- **Straight after you save or clear a manual price**, as far as the last night you saved.
-- **Straight after you change a room type** (ticking or unticking <Ui>Counts as a room</Ui>, adding or clearing rooms out of service).
+- **Straight after you save or clear a manual price**, on the nights you saved.
+- **Straight after you change a room type** (ticking or unticking <Ui>Counts as a room</Ui>, adding or clearing rooms out of service): the change asks for a run at once. Rooms out of service re-price their own nights. A room type setting re-prices every night in the window over that run and the next few, nearest first.
 
 A run that finds nothing to change is counted into a quiet line between the runs that did. <Ui>Show All Cycles</Ui> shows those lines.
 
@@ -230,7 +230,7 @@ The log lists nearly every price move:
 - **A price going back to its starting point** is listed, from the price it had: the only rule on the night stops holding (for "Busy nights", the night falls to 80% full or less), cancellations take its only change off, or you clear a price you set on a night no rule is on. The entry names what came off and ends "That took this night from $165.00 to $150.00."
 - **A price that moves only because its starting point moved**, on a night no rule is on, reads "The base rate for this night changed from $150.00 to $160.00." On Cloudbeds and ThinkReservations that includes a new rate MAYA reads from your system (about once an hour). On Mews, it is a newer booking with a different rate.
 
-Two things are left out: moves past the 40 biggest of a run, and a night arriving in the 60-night window at its starting point with nothing on it. To see where a night stands now, open the <Ui>Calendar</Ui> tab.
+Two things are left out: moves past the 40 biggest of a run, and a night arriving in the 396-night window at its starting point with nothing on it. To see where a night stands now, open the <Ui>Calendar</Ui> tab.
 
 ## A change that has left the log
 

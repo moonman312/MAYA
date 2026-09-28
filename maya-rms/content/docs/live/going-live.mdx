@@ -30,7 +30,7 @@ updated: 2026-09-28
 ---
 
 <InPlainWords>
-On the review screen, click <Ui>Turn them on for real</Ui>, read the confirm, click <Ui>Go live</Ui>. From the next cycle MAYA sends prices for tonight and the next 59 nights to your property system, and sends a night again whenever its price changes. Only a General Manager or Hotel Admin can go live. No button on your review screen? Email us and we switch the property live. It is one-way in the app: to go back to simulation, email us.
+On the review screen, click <Ui>Turn them on for real</Ui>, read the confirm, click <Ui>Go live</Ui>. From the next cycle MAYA sends prices for tonight and the next 395 nights to your property system, and sends a night again whenever its price changes. Only a General Manager or Hotel Admin can go live. No button on your review screen? Email us and we switch the property live. It is one-way in the app: to go back to simulation, email us.
 </InPlainWords>
 
 ## Who can go live
@@ -45,7 +45,7 @@ If a General Manager or Hotel Admin sees "You need admin access on this property
 
 MAYA enforces none of these checks. Each one saves a surprise.
 
-Start with [the checklist for your property system](/docs/connect/setting-up-your-system-for-maya): a base rate of its own for every room type, rates loaded for tonight and the next 59 nights, your time zone confirmed with us, anything nobody sleeps in unticked under <Ui>Counts as a room</Ui>, blocked rooms recorded, and floors and ceilings set. Load those rates before you go live. Your rules start from your own rate for each night, and a night your system has at 0 is left alone.
+Start with [the checklist for your property system](/docs/connect/setting-up-your-system-for-maya): a base rate of its own for every room type, rates loaded for tonight and the next 395 nights, your time zone confirmed with us, anything nobody sleeps in unticked under <Ui>Counts as a room</Ui>, blocked rooms recorded, and floors and ceilings set. Load those rates before you go live. Your rules start from your own rate for each night, and a night your system has at 0 is left alone.
 
 Then four checks in MAYA itself.
 
@@ -83,14 +83,14 @@ Clicking <Ui>Turn them on for real</Ui> opens a small dialog. Nothing happens un
 <PmsTab pms="cloudbeds">
 The title is "Send prices to Cloudbeds?", followed by two sentences:
 
-"MAYA starts sending its prices for the next 60 nights to Cloudbeds on the next cycle, in about 5 minutes."
+"MAYA starts sending its prices for the next 396 nights to Cloudbeds on the next cycle, in about 5 minutes."
 
 "Each price it sends replaces that night's rate in Cloudbeds, and a night is sent again whenever its price changes."
 </PmsTab>
 <PmsTab pms="thinkreservations">
 The title is "Send prices to Think Reservations?", followed by two sentences:
 
-"MAYA starts sending its prices for the next 60 nights to Think Reservations on the next cycle, in about 5 minutes."
+"MAYA starts sending its prices for the next 396 nights to Think Reservations on the next cycle, in about 5 minutes."
 
 "Each price it sends replaces that night's rate in Think Reservations, and a night is sent again whenever its price changes."
 </PmsTab>
@@ -129,7 +129,7 @@ Nothing else changes. Your rules, your floors and ceilings, your history, your m
 
 1. **The button becomes a pill**: "✓ Live: your rules are now managing prices".
 2. **The next cycle reads your rates first.** Cycles run about every five minutes. The first live cycle reads your own rate for every night in the window before it prices. Whatever you had in your system at that moment is the starting point your rules work from.
-3. **Then it sends.** Prices for tonight and the next 59 nights go out, nearest nights first, in batches. Nothing has been sent before, so every priced night goes out on this first send: nights where a rule fired at the rule's price, nights where none fired at your own rate (kept between the room type's floor and ceiling), and a price you typed while simulating as typed. A change made while simulating by a rule you have since turned off goes out too.
+3. **Then it sends.** Prices for tonight and the next 395 nights go out, nearest nights first, in batches. Nothing has been sent before, so every priced night goes out on this first send: nights where a rule fired at the rule's price, nights where none fired at your own rate (kept between the room type's floor and ceiling), and a price you typed while simulating as typed. A change made while simulating by a rule you have since turned off goes out too.
 4. **After that, changes only.** A night is sent again when its price changes. A cycle where nothing changed sends nothing.
 
 Everything about what is sent, held back, confirmed and retried is on [How prices reach your property system](/docs/live/how-prices-reach-your-pms).
@@ -155,7 +155,7 @@ There is no switch to put a property back into simulation. To pause, turn your r
 <Example title="The Harbour Inn goes live">
 On Tuesday at 3:05 PM (your browser's clock) Sam, the Hotel Admin, clicks <Ui>Turn them on for real</Ui>, reads "Send prices to Cloudbeds?" and clicks <Ui>Go live</Ui>. The pill "✓ Live: your rules are now managing prices" appears.
 
-At about 3:10 PM the next cycle reads the Harbour Inn's Cloudbeds rates for the 60 nights, then runs the rules. "Busy nights" has fired on two Friday nights in November, so on those two Fridays Standard goes out at $165, Deluxe at $220 and Suite at $330. Every other night goes out at the rates Sam already had: Standard $150, Deluxe $200, Suite $300. Cloudbeds' derived plans follow their base rates by Cloudbeds' own rules.
+At about 3:10 PM the next cycle reads the Harbour Inn's Cloudbeds rates for the 396 nights, then runs the rules. "Busy nights" has fired on two Friday nights in November, so on those two Fridays Standard goes out at $165, Deluxe at $220 and Suite at $330. Every other night goes out at the rates Sam already had: Standard $150, Deluxe $200, Suite $300. Cloudbeds' derived plans follow their base rates by Cloudbeds' own rules.
 
 At about 3:15 PM the next cycle finds nothing changed and sends nothing. On Thursday a booking takes another night over 80% full. "Busy nights" fires, and only that night's three room types are sent.
 </Example>

@@ -1,15 +1,15 @@
 ---
 title: A rule did not fire (or fired when you did not expect it)
-summary: The checklist for a rule that looks true but did nothing, a rule that fired on one room type and not another, the 60-night window, room types that are not rooms, the Rate Simulator's reasons, and what a Viewer can and cannot do.
+summary: The checklist for a rule that looks true but did nothing, a rule that fired on one room type and not another, the 396-night window, room types that are not rooms, the Rate Simulator's reasons, and what a Viewer can and cannot do.
 section: wrong
 order: 30
 readingTime: 11
-keywords: [did not fire, didn't fire, not firing, never fires, nothing happened, rule is true, 85%, 80%, exactly 80, 79.99, include 80, strict, greater than, deluxe but not standard, one room type, 59 days, 61 days, 60 nights, window, beyond 60 nights, further out, 364 days, hidden room type, duplicate room type, switched off room type, removed room type, deleted room type, pickleball, court, meeting room, not a room, conditions not met, no occupancy for its signal room types, simulator, viewer, could not save, wrong room type, watches, changes, waiting, wait, stronger rule, ceiling, floor, not enough history, momentum, last raised, raised earlier today, pickup snapshot, fired column]
+keywords: [did not fire, didn't fire, not firing, never fires, nothing happened, rule is true, 85%, 80%, exactly 80, 79.99, include 80, strict, greater than, deluxe but not standard, one room type, 395 days, 397 days, 396 nights, window, beyond the window, further out, 399 days, hidden room type, duplicate room type, switched off room type, removed room type, deleted room type, pickleball, court, meeting room, not a room, conditions not met, no occupancy for its signal room types, simulator, viewer, could not save, wrong room type, watches, changes, waiting, wait, stronger rule, ceiling, floor, not enough history, momentum, last raised, raised earlier today, pickup snapshot, fired column]
 questions:
   - The day card says 85% but my 80% rule did not fire {#the-day-card-says-85-but-my-80-rule-did-not-fire/which-room-types}
   - Why did nothing fire on a night where my rule looks true? {#the-rule-looks-true-but-nothing-happened/the-rule-is}
   - Why did my rule fire on Deluxe but not Standard? {#it-fired-on-deluxe-but-not-standard/different-ceilings-and}
-  - Why did a rule fire 59 days out but not 61? {#it-fired-59-days-out-but-not-61}
+  - Why did a rule fire 395 days out but not 397? {#it-fired-395-days-out-but-not-397}
   - Why does a rule measuring only my pickleball court never fire? {#a-rule-that-measures-only-the-pickleball-court-never-fires}
   - What does "Conditions not met" mean in the Rate Simulator? {#the-rate-simulator-says-conditions-not-met-or-no-occupancy-for-its-signal-room-types/the-rate-simulator}
   - Why did the rule change the wrong room type? {#the-rule-changed-the-wrong-room-type}
@@ -39,7 +39,7 @@ Work down this list. Most are visible on screen.
 
 1. **The rule is Off.** The <Ui>Status</Ui> switch on the <Ui>Rules</Ui> tab. An Off rule is skipped on every night.
 2. **It measures nothing.** Only room types ticked as <Ui>Counts as a room</Ui> are measured. A rule whose measured list holds only a meeting room, a court or a spa slot reads nothing, so its conditions can never be true. A room type switched off in MAYA (an empty duplicate hidden during the review, or one we switched off after you removed it from your system) is dropped from the list too.
-3. **It changes nothing.** A rule needs at least one room type to change, and the builder refuses to save without one. A room type switched off in MAYA is never priced, so a rule that changes only that type does nothing. A room type you only removed in your system stays priced until we switch it off, but nights that enter the 60-night window after you removed it have no rate to start from, so nothing fires on them (item 10).
+3. **It changes nothing.** A rule needs at least one room type to change, and the builder refuses to save without one. A room type switched off in MAYA is never priced, so a rule that changes only that type does nothing. A room type you only removed in your system stays priced until we switch it off, but nights that enter the 396-night window after you removed it have no rate to start from, so nothing fires on them (item 10).
 4. **It is waiting.** A booking speed or pickup rule leaves a night alone for its wait after acting on it, from 1 day to 2 weeks, per night and room type. A price you type on the night restarts the wait from that moment for every rule that existed when you typed it.
 5. **It counts only what came in after the latest raise.** Once a night has been raised, a booking speed rule that raises counts from the newest raise still on that night by itself or a stronger rule. A weaker rule's raise never moves where it counts from. On the day of the raise, only the bookings that arrived after it count. A rule that raises on a fast pace needs those alone to beat what similar nights get in its whole window; any other rule compares them with similar nights over the same days. Cuts work the same way among the rules that cut, in full days up to yesterday. A raise by a rule with only occupancy or booking window conditions never moves where counting starts. After a price you type, the rule reads its whole window again.
 6. **A stronger rule holds the night.** Only one booking speed or pickup rule fires on a night and room type in a run. A waiting rule whose condition still holds keeps the night, so nothing weaker fires under it. When two are ready at once, higher priority wins first (starter rules before yours, and every rule you build has the same priority). Then the one with more conditions wins, then, for two pickup rules with the same <Ui>Compare</Ui>, the stricter threshold, then the larger money move, then the older rule. Read [which one fires when several match](/docs/rules/how-rules-run#which-one-fires-when-several-match).
@@ -48,7 +48,7 @@ Work down this list. Most are visible on screen.
 9. **No pickup reading from the window's start.** A pickup count rule compares booked rooms now with booked rooms when its lookback window opened (1, 3 or 7 days ago). MAYA needs a reading from that moment for every room type the rule measures. A property that connected two days ago has no reading from 3 days ago, so a 3-day pickup rule stays quiet until it does, and a room type ticked as a room today has none either. A reading more than 12 hours older than the window's start does not count.
 10. **The night has no starting price.** A night your system has at 0, with no price typed in MAYA, is not priced, so nothing can fire on it. Neither is a night with no rate at all and no booking or earlier price to start from.
 11. **A standard rule is already holding.** A rule with only occupancy or booking window conditions fires once when its condition starts to hold, then holds. It does not fire again while the condition stays true, and the <Ui>Fired</Ui> count does not climb.
-12. **The night is outside the window.** Regular runs price tonight and the next 59 nights. Past nights are never touched.
+12. **The night is outside the window.** Your rules price tonight and the next 395 nights. Past nights are never touched.
 
 <Callout kind="good-to-know" title="The Fired column">
 <Ui>Fired</Ui> shows how many times a rule has acted, once per night and room type, including changes that later came off. A dash means never. Its <Ui>?</Ui> explains the count.
@@ -65,11 +65,11 @@ Rules act per room type, so every hold in the list above applies room type by ro
 
 The change log lists each room type's change separately, so you can read the reason for the one that fired and look for the hold on the one that did not.
 
-## It fired 59 days out but not 61
+## It fired 395 days out but not 397
 
-Each regular run prices a window of 60 nights: tonight and the next 59, counted on your property's own calendar. On those runs, a night 61 days out is not priced or sent, and no rule reads it. It enters the window the day after tomorrow, and rules act on it then.
+Your rules price a window of 396 nights: tonight and the next 395, counted on your property's own calendar. A night 397 days out is not priced or sent, and no rule reads it. It enters the window the day after tomorrow, and rules act on it then.
 
-One exception: when you save or clear a price further out, MAYA runs your rules once over every night from tonight to the last night you chose. Nights past the window can get a price then. Those prices are sent once the nights enter the window. You can type a price up to 364 days ahead.
+You can type a price up to 399 days ahead. It is kept, and the night is priced and sent once it enters the window.
 
 ## A rule that measures only the pickleball court never fires
 

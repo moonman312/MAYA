@@ -4,7 +4,7 @@ summary: Which day MAYA counts as today, the time zone it uses and whose clock e
 section: reference
 order: 20
 readingTime: 10
-keywords: [time zone, timezone, hotel day, today, tonight, midnight, which day, UTC, clock, browser time, change the time zone, wrong time zone, past day, past week, past month, last 24 hours, 7 days, 30 days, booking date, a day off, wait, 24 hours, lookback, daylight saving, DST, clocks change, weekend, Friday, Saturday, Sunday, weekday, holiday, holidays, US holidays, Thanksgiving, Christmas, bank holiday, national holiday, outside the US, season, currency, euro, pound, yen, JPY, no cents, whole numbers, rounding, decimals, two decimal places, dollar sign, $, change the currency, US dollars, billing currency, how far ahead, 13 months, 364 days, won, rupiah, dong, over 99999, default ceiling, decimal comma, comma or point, 180,50, decimal separator, thousands separator]
+keywords: [time zone, timezone, hotel day, today, tonight, midnight, which day, UTC, clock, browser time, change the time zone, wrong time zone, past day, past week, past month, last 24 hours, 7 days, 30 days, booking date, a day off, wait, 24 hours, lookback, daylight saving, DST, clocks change, weekend, Friday, Saturday, Sunday, weekday, holiday, holidays, US holidays, Thanksgiving, Christmas, bank holiday, national holiday, outside the US, season, currency, euro, pound, yen, JPY, no cents, whole numbers, rounding, decimals, two decimal places, dollar sign, $, change the currency, US dollars, billing currency, how far ahead, 13 months, 396 nights, 399 days, whole days, won, rupiah, dong, over 99999, default ceiling, decimal comma, comma or point, 180,50, decimal separator, thousands separator]
 questions:
   - What is a hotel day? {#your-propertys-day/maya-counts-days}
   - Which time zone does MAYA use? {#which-time-zone}
@@ -12,7 +12,7 @@ questions:
   - Whose clock are the times on screen in? {#whose-clock-you-see/times-on-screen}
   - Is "Past day" the last 24 hours? {#past-day-past-week-and-past-month}
   - Do "Past week" and "Past month" mean 7 and 30 days? {#past-day-past-week-and-past-month}
-  - Is a rule's wait counted in hotel days or 24-hour periods? {#waits-and-pickup-lookbacks-24-hour-periods/a-rules-wait}
+  - Is a rule's wait counted in hotel days or 24-hour periods? {#waits-and-pickup-lookbacks-whole-days/a-rules-wait}
   - Does daylight saving affect anything? {#daylight-saving}
   - Why is a booking's date a day off from my property system? {#past-day-past-week-and-past-month}
   - What counts as a weekend? {#weekends}
@@ -38,9 +38,10 @@ MAYA counts days on your property's calendar. "Today" is the date at your proper
 Everything that counts nights starts from it:
 
 - **Tonight** is night 0 of the booking window, and tomorrow night is night 1. [Booking window](/docs/rules/booking-window)
-- **The 60-night window** your rules price every cycle is tonight and the next 59 nights. [How rules run](/docs/rules/how-rules-run)
+- **The 396-night window** your rules price is tonight and the next 395 nights. Every night in it is priced again once a day, in the first cycles after midnight at your property. [How rules run](/docs/rules/how-rules-run)
 - **A typed price** can be set from tonight onwards, never on a night that has passed. [Setting a price yourself](/docs/watch/setting-a-price-yourself)
 - **Past day, past week and past month** in booking speed are counted in hotel days. [See how they are counted](#past-day-past-week-and-past-month).
+- **Waits and pickup lookbacks** are counted in hotel days too. [See how](#waits-and-pickup-lookbacks-whole-days).
 
 <Example title="Midnight at The Harbour Inn">
 The Harbour Inn is on US Pacific time. A check at 11 pm on Friday still treats Friday night as tonight, night 0. A check at 12:30 am on Saturday treats Saturday night as tonight and Friday as past, so Friday leaves the window and a price can no longer be typed for it.
@@ -102,16 +103,16 @@ The moment Mews recorded the booking, put on your property's own calendar.
 
 If a booking's date looks a day off from what your system shows, [email us](mailto:info@modern-hospitality-solutions.com?subject=Booking%20date) with the booking and we check it.
 
-## Waits and pickup lookbacks: 24-hour periods
+## Waits and pickup lookbacks: whole days
 
-Two things are counted in hours rather than hotel days:
+Both are counted in whole hotel days:
 
-- **A rule's wait.** After a booking speed or pickup rule changes a night, it leaves that night alone for its wait: 1 day to 2 weeks, set in <Ui>Then waits (advanced)</Ui>. A pickup rule waits its lookback window unless you choose another. The wait is counted in 24-hour periods from the moment the rule acted. [How rules run](/docs/rules/how-rules-run)
-- **A pickup lookback.** "The last 3 days" means from exactly 3 times 24 hours before the check. A check at 3:05 PM reaches back to 3:05 PM three days earlier. [Pickup count](/docs/rules/pickup-count)
+- **A rule's wait.** After a booking speed or pickup rule changes a night, it leaves that night alone for its wait: 1 day to 2 weeks, set in <Ui>Then waits (advanced)</Ui>. A pickup rule waits its lookback window unless you choose another. A wait of 2 days from a change made at any time on Monday is over as Wednesday begins at your property. [How rules run](/docs/rules/how-rules-run)
+- **A pickup lookback.** A rule set to <Ui>Greater than</Ui> counts today so far and the days before it: 3 days is today, yesterday and the day before. A rule set to <Ui>Less than</Ui> counts the 3 full days up to yesterday. [Pickup count](/docs/rules/pickup-count)
 
 ## Daylight saving
 
-Hotel days follow your property's local calendar, so the change to or from daylight saving time moves no night: tonight is still tonight. Waits and pickup lookbacks are 24-hour periods, so across the change they end an hour earlier or later by the clock on the wall.
+Hotel days follow your property's local calendar, so the change to or from daylight saving time moves no night: tonight is still tonight. Waits and pickup lookbacks count hotel days too, so they still end at midnight at your property. The day of the change is 23 or 25 hours long, and nothing else moves.
 
 ## Weekends
 
@@ -167,8 +168,8 @@ This applies to Cloudbeds and ThinkReservations. Nothing is sent to Mews yet.
 ## How far ahead MAYA looks
 
 - **Bookings:** each read covers 30 days back to about 13 months ahead. A booking for a stay further out is picked up once its night comes into that range.
-- **Rules:** tonight and the next 59 nights.
-- **Typed prices:** up to 364 days ahead. One 60 or more nights ahead is sent when its night enters the window. [Setting a price yourself](/docs/watch/setting-a-price-yourself)
+- **Rules:** tonight and the next 395 nights.
+- **Typed prices:** up to 399 days ahead. One 396 or more nights ahead is priced and sent when its night enters the window. [Setting a price yourself](/docs/watch/setting-a-price-yourself)
 
 <Callout kind="not-yet">
 No screen shows or changes the time zone or the currency (email us). The calendar cannot show your currency's symbol. Rules have no weekday setting. There is no holiday list to edit and no holidays outside the US. Prices cannot be rounded to whole units.

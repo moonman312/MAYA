@@ -26,7 +26,7 @@ updated: 2026-09-24
 ---
 
 <InPlainWords>
-Give a new price two cycles, about ten minutes, then open the <Ui>Change Log</Ui> tab. A problem that needs you, such as a lost connection or a rate rule in your system, sits at the top at once as "Rates not reaching Cloudbeds", with the cause and what to do. One that clears on its own is shown only if it lasts 2 hours, and a time zone mismatch usually not at all. Nothing is sent while you are simulating, nothing is ever sent to Mews, a price of 0 is never sent, and a night past the 60-night window (tonight and the next 59) waits until it enters it.
+Give a new price two cycles, about ten minutes, then open the <Ui>Change Log</Ui> tab. A problem that needs you, such as a lost connection or a rate rule in your system, sits at the top at once as "Rates not reaching Cloudbeds", with the cause and what to do. One that clears on its own is shown only if it lasts 2 hours, and a time zone mismatch usually not at all. Nothing is sent while you are simulating, nothing is ever sent to Mews, a price of 0 is never sent, and a night past the 396-night window (tonight and the next 395) waits until it enters it.
 </InPlainWords>
 
 ## I went live and nothing is being sent
@@ -114,7 +114,7 @@ MAYA does not send a price of 0 to any property system. A manual price of 0 is a
 
 ## Why was a night 70 days out not sent?
 
-Each cycle prices and sends tonight and the next 59 nights, on your property's own calendar. A night 70 days out is not priced, refreshed or sent until it enters the window. A manual price you type further out is saved now and sent when the night enters the window, and the confirmation says so: "Saved. It will be sent when the date enters the 60-day push window."
+MAYA prices and sends tonight and the next 395 nights, on your property's own calendar. A night 70 days out is not priced, refreshed or sent until it enters the window. A manual price you type further out is saved now and sent when the night enters the window, and the confirmation says so: "Saved. It will be sent when the date enters the 396-day push window."
 
 ## Every "Rates not reaching" sentence, and what to do
 

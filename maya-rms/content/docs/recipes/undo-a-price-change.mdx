@@ -4,7 +4,7 @@ summary: Three ways to put a price back, from the quickest (type the price you w
 section: recipes
 order: 20
 readingTime: 5
-keywords: [undo, revert, put back, reverse, roll back, wrong price, wrong rate went out, fix fast, price went out, restore, go back to the old price, delete rule undo, switch off, turn off, stop for this night, manual price, mews, change it in mews, not sent to mews, sending to mews now, 60 nights, window, far ahead]
+keywords: [undo, revert, put back, reverse, roll back, wrong price, wrong rate went out, fix fast, price went out, restore, go back to the old price, delete rule undo, switch off, turn off, stop for this night, manual price, mews, change it in mews, not sent to mews, sending to mews now, 396 nights, window, far ahead]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
   - Can I undo that? {#in-plain-words}
@@ -40,10 +40,10 @@ Your number becomes that night's starting point. Rules that fire later still sta
 
 <PmsTabs>
 <PmsTab pms="cloudbeds">
-When you are live, your price is sent to Cloudbeds straight away, or with the next run about five minutes later. A night more than 59 nights ahead is sent when it enters the 60-night window (tonight and the next 59). When every night you saved is that far out, the line reads "Saved. It will be sent when the date enters the 60-day push window." In simulation nothing is sent.
+When you are live, your price is sent to Cloudbeds straight away, or with the next run about five minutes later. A night more than 395 nights ahead is sent when it enters the 396-night window (tonight and the next 395). When every night you saved is that far out, the line reads "Saved. It will be sent when the date enters the 396-day push window." In simulation nothing is sent.
 </PmsTab>
 <PmsTab pms="thinkreservations">
-When you are live, your price is sent to ThinkReservations straight away, or with the next run about five minutes later. A night more than 59 nights ahead is sent when it enters the 60-night window (tonight and the next 59). When every night you saved is that far out, the line reads "Saved. It will be sent when the date enters the 60-day push window." In simulation nothing is sent.
+When you are live, your price is sent to ThinkReservations straight away, or with the next run about five minutes later. A night more than 395 nights ahead is sent when it enters the 396-night window (tonight and the next 395). When every night you saved is that far out, the line reads "Saved. It will be sent when the date enters the 396-day push window." In simulation nothing is sent.
 </PmsTab>
 <PmsTab pms="mews">
 MAYA does not send prices to Mews yet, live or not. Your typed price shows in MAYA, on the calendar and in the change log, and nothing reaches Mews. The line under the box may still read "Saved. Sending to Mews now." That line is wrong for Mews. To change the rate guests see, change it in Mews itself.
@@ -63,7 +63,7 @@ A dialog asks "Delete "Busy nights"?" and explains that deleting also undoes the
 </Step>
 </Steps>
 
-From the next run, about five minutes away, every night the rule adjusted goes back to what its price would be if the rule had never run. If you are live on Cloudbeds or ThinkReservations, the changed prices are sent, and a night more than 59 nights ahead goes when it enters the window. Nothing is sent to Mews. The rule's old entries stay in the change log, where it now reads as "Pricing rule".
+From the next run, about five minutes away, nearest nights first, every night the rule adjusted goes back to what its price would be if the rule had never run. If you are live on Cloudbeds or ThinkReservations, the changed prices are sent, and a night more than 395 nights ahead goes when it enters the window. Nothing is sent to Mews. The rule's old entries stay in the change log, where it now reads as "Pricing rule".
 
 <Callout kind="careful">
 Deleting cannot be undone, and it takes the rule's changes off every night, not only the one you are looking at. If you only want the rule to stop from now on, choose <Ui>Turn It Off and Keep Its Changes</Ui> in the same dialog instead.

@@ -37,7 +37,7 @@ Three clocks set how soon a change in your system reaches MAYA. This page names 
 | Clock | What is read | How often |
 |---|---|---|
 | The cycle | Bookings made or changed since the last read, and your room types | About every five minutes |
-| The rates read | Your own nightly rate on the base rate plan, for tonight and the next 59 nights, and your rate plans | About once an hour, or when your hotel day changes (Cloudbeds and ThinkReservations only) |
+| The rates read | Your own nightly rate on the base rate plan, for tonight and the next 395 nights, and your rate plans | About once an hour, or when your hotel day changes (Cloudbeds and ThinkReservations only) |
 | The daily re-read | Every booking in the window, 30 days back and about 13 months ahead | Once a day |
 
 "Next read" below means the next cycle, up to about five minutes on a healthy connection. "Within the hour" means the next rates read.
@@ -131,7 +131,7 @@ If your rules ran with it, here is what happens to what they did:
 
 In simulation nothing was sent. If you are live on Cloudbeds or ThinkReservations, a price it moved was sent like any other (nothing is ever sent to Mews). To put a night straight back, type the price you want on the calendar. Read [Undo a price change](/docs/recipes/undo-a-price-change).
 
-To test without moving any price, book a night more than 59 nights ahead and cancel it straight away. Your rules run on tonight and the next 59 nights only.
+To test without moving any price, book a night more than 395 nights ahead and cancel it straight away. Your rules run on tonight and the next 395 nights only.
 
 ## Things MAYA never reads
 
@@ -142,7 +142,7 @@ From any system: availability by night, room blocks, out-of-order rooms, allotme
 - **A large property's first read** can take several cycles. Each cycle reads for a fixed slice of time and carries on from where it stopped. Until the whole window has been read, your rules run on what has arrived and nothing is sent.
 - **A failing connection** is tried again with a growing wait, up to an hour between tries. Nothing is priced or sent on a cycle where the read failed, so bookings are never priced on stale data.
 - **If your system keeps asking MAYA to slow down**, MAYA waits a minute or two before calling it again, and sends move to a later cycle.
-- **Nights 60 or more days out** (past tonight and the next 59) are neither read for rates nor sent until they enter the window.
+- **Nights 396 or more days out** (past tonight and the next 395) are neither read for rates nor sent until they enter the window.
 - **A rate you change within an hour of MAYA's send** is not yet kept as yours, and MAYA's next price for that night can write over it. Wait an hour after a send before changing that night's rate by hand, or type the price in MAYA instead. Read [rates you change in your property system](/docs/watch/rates-changed-in-your-pms).
 
 <Example title="A Tuesday at The Harbour Inn on Cloudbeds">

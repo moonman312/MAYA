@@ -114,7 +114,7 @@ A rule that cuts counts full days only, ending yesterday: 1, 7 or 30 whole days,
 
 ## Then waits
 
-After a booking speed rule adjusts a night, it leaves that night alone for the wait you chose: <Ui>1 day</Ui>, <Ui>2 days</Ui>, <Ui>3 days</Ui>, <Ui>1 week</Ui> or <Ui>2 weeks</Ui>. A rule saved before the choice existed waits 1 week. The wait is counted per night and per room type, in 24-hour periods from the moment the rule acted.
+After a booking speed rule adjusts a night, it leaves that night alone for the wait you chose: <Ui>1 day</Ui>, <Ui>2 days</Ui>, <Ui>3 days</Ui>, <Ui>1 week</Ui> or <Ui>2 weeks</Ui>. A rule saved before the choice existed waits 1 week. The wait is counted per night and per room type, in whole days at your property: a 2-day wait from a change made at any time on Monday is over as Wednesday begins, and the rule reads the night again in the first cycle of that day.
 
 If the same rule also has a <Ui>Pickup count</Ui> condition with a longer wait of its own, the rule waits that instead. The shorter options in the dropdown then say so, for example "(pickup holds it to 3 days)". A stronger rule can still step in while this one waits. If cancellations take the rule's change off, the wait still runs from that change. Read [How rules run](/docs/rules/how-rules-run) for the wait in full, including which rule fires when several are true.
 

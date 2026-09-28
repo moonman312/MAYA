@@ -4,7 +4,7 @@ summary: How to type a price for a room type on one night or a run of nights, wh
 section: watch
 order: 50
 readingTime: 12
-keywords: [manual price, type a price, set a price, override, through, range of nights, save, clear, hand back, comp night, free night, 0, zero, floor, ceiling, refused, below the floor, above the ceiling, paused rules, tonight onwards, a year ahead, 365 nights, 366 nights, how many nights in one save, sending now, next cycle, simulation not sent, push window, 60-day, your PMS, note, rate plan, bulk upload, exactly that number, badge, manual, comma, decimal comma, point, decimal separator, 180,50, thousands separator, save greyed out]
+keywords: [manual price, type a price, set a price, override, through, range of nights, save, clear, hand back, comp night, free night, 0, zero, floor, ceiling, refused, below the floor, above the ceiling, paused rules, tonight onwards, a year ahead, 399 days, 400 nights, 366 nights, how many nights in one save, sending now, next cycle, simulation not sent, push window, 396-day, your PMS, note, rate plan, bulk upload, exactly that number, badge, manual, comma, decimal comma, point, decimal separator, 180,50, thousands separator, save greyed out]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
   - 'How do I set a price myself?' {#in-plain-words}
@@ -18,7 +18,7 @@ questions:
   - 'Can I type a price outside the floor or ceiling?' {#limits/a-price-outside}
   - 'It says "MAYA doesn''t send a price of 0", what does that mean?' {#a-price-of-0-a-comp-night}
   - 'When is my typed price sent to my property system?' {#when-your-price-is-sent/cloudbeds-when-you}
-  - 'It says "It will be sent when the date enters the 60-day push window", what does that mean?' {#every-confirmation-line-and-what-it-means/example-the-lines}
+  - 'It says "It will be sent when the date enters the 396-day push window", what does that mean?' {#every-confirmation-line-and-what-it-means/example-the-lines}
   - 'What does Clear do to the rules that were paused?' {#clear-handing-the-night-back/clear-removes-your}
   - 'Can I clear a whole range of nights at once?' {#clear-handing-the-night-back/clear-removes-your}
   - 'Does typing a price restart a rule''s wait?' {#your-rules-after-your-price/a-booking-speed}
@@ -79,8 +79,8 @@ A week later the night passes 80% full. "Busy nights" (occupancy Greater than 80
 | "Saved. Sending to Cloudbeds now." | You are live and MAYA has asked for the price to be sent straight away. |
 | "Saved. Sending to Cloudbeds on the next cycle (about 5 min)." | You are live and the price goes with the next pricing run. |
 | "Saved (simulation: not sent to Cloudbeds)." | You are still in simulation. The price shows in MAYA and is not sent. |
-| "Saved. It will be sent when the date enters the 60-day push window." | Every night you saved is more than 59 nights ahead. MAYA sends a night once it enters the window. |
-| "Saved. 12 nights sending to Cloudbeds now; 8 more will be sent as they enter the 60-day window." | Your run of nights crosses the edge of the window. |
+| "Saved. It will be sent when the date enters the 396-day push window." | Every night you saved is more than 395 nights ahead. MAYA sends a night once it enters the window. |
+| "Saved. 12 nights sending to Cloudbeds now; 8 more will be sent as they enter the 396-day window." | Your run of nights crosses the edge of the window. |
 | "Saved. MAYA doesn't send a price of 0 to Cloudbeds, so set the night to 0 there yourself." | You typed 0, a comp night. See below. |
 | "... Paused 2 rules on this night for this room; new rules will apply on top." | Added when your price took a rule's change off. "on these 5 nights" for a run. |
 | "... No rule raises a night set to 0." | Added when you typed 0. |
@@ -95,10 +95,10 @@ The system's name in these lines (Cloudbeds, Think Reservations, Mews) fills in 
 
 <PmsTabs>
 <PmsTab pms="cloudbeds">
-When you are live, MAYA runs your rules on the nights you saved straight away and asks for the price to be sent now. If it cannot ask, the next run sends it within about five minutes. It goes to the room type's base rate in Cloudbeds. A night more than 59 nights ahead is priced now and sent when it enters the 60-night window.
+When you are live, MAYA runs your rules on the nights you saved straight away and asks for the price to be sent now. If it cannot ask, the next run sends it within about five minutes. It goes to the room type's base rate in Cloudbeds. A night more than 395 nights ahead is kept, and is priced and sent when it enters the 396-night window.
 </PmsTab>
 <PmsTab pms="thinkreservations">
-When you are live, MAYA runs your rules on the nights you saved straight away and asks for the price to be sent now. If it cannot ask, the next run sends it within about five minutes. It goes to the rate type named Best Available, or, if none is, the standard rate type that covers the most room types. ThinkReservations accepts the price and applies it shortly after, and MAYA reads it back within about an hour to confirm it landed. A night more than 59 nights ahead is priced now and sent when it enters the 60-night window.
+When you are live, MAYA runs your rules on the nights you saved straight away and asks for the price to be sent now. If it cannot ask, the next run sends it within about five minutes. It goes to the rate type named Best Available, or, if none is, the standard rate type that covers the most room types. ThinkReservations accepts the price and applies it shortly after, and MAYA reads it back within about an hour to confirm it landed. A night more than 395 nights ahead is kept, and is priced and sent when it enters the 396-night window.
 </PmsTab>
 <PmsTab pms="mews">
 MAYA does not send prices to Mews. A price you type shows in MAYA, in the change log and on the calendar, and nothing reaches Mews. The confirmation line may still read "Saved. Sending to Mews now." Nothing is sent to Mews whatever that line says. To change a rate in Mews, change it there.
@@ -112,8 +112,8 @@ In simulation the price is saved and shown, and nothing is sent. If you go live 
 | Limit | What the screen says |
 |---|---|
 | Tonight onwards only, on your property's own calendar | "Manual prices apply to tonight onwards; earlier nights have already sold." |
-| Up to 364 days ahead | "MAYA prices up to a year ahead." |
-| At most 365 nights in one save in practice (tonight to 364 days ahead). The screen's own limit reads 366 | "One change can cover at most 366 nights." You see it only if you pick 367 nights or more. |
+| Up to 399 days ahead (400 nights counting tonight) | "You can set a price up to 400 nights ahead." |
+| At most 366 nights in one save | "One change can cover at most 366 nights." You see it only if you pick 367 nights or more. |
 | A number of 0 or more | "Price must be a number of zero or more." |
 | Not below the floor (except 0) | "Below this room type's floor of $80.00." |
 | Not above the ceiling | "Above this room type's ceiling of $300.00." |
@@ -149,7 +149,7 @@ A typed price of 0 stops every rule on that night for that room type, and nothin
 
 After a clear, your rules run on the night again straight away. The starting point is the rate MAYA read from Cloudbeds or ThinkReservations for that night, otherwise the rate of the newest booking on it, otherwise the starting point saved on the last run. Mews properties start from the booking or that saved starting point, since MAYA does not read Mews rates.
 
-While your price was open, it was the night's starting point, so that is the one saved. A night with no rate read and no booking on it starts again from the price you typed (when it was above 0). On Cloudbeds and ThinkReservations that is usually a night more than 59 nights ahead, because MAYA reads rates for tonight and the next 59 nights. Once the night enters that window, MAYA reads its rate and starts from that instead.
+While your price was open, it was the night's starting point, so that is the one saved. A night with no rate read and no booking on it starts again from the price you typed (when it was above 0). On Cloudbeds and ThinkReservations that is usually a night more than 395 nights ahead, because MAYA reads rates for tonight and the next 395 nights. Once the night enters that window, MAYA reads its rate and starts from that instead.
 
 A standard rule that was holding quietly moves the price again. A booking speed or pickup change that your price took off stays off. The rule can fire again later, on its own terms.
 

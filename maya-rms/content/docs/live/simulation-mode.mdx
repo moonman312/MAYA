@@ -32,7 +32,7 @@ Every property starts in simulation. MAYA reads your bookings, runs every rule a
 
 Simulation is the state every property is in from the moment it connects. Nothing you do at sign-up or at the connect step switches it off. It ends when a General Manager or Hotel Admin clicks <Ui>Turn them on for real</Ui> on the review screen and confirms, or when we switch it live at your request.
 
-In simulation MAYA does everything it would do for a live property except the last step. About every five minutes it reads your bookings. About once an hour it reads your own rates for the nights ahead (Cloudbeds and ThinkReservations). Every cycle it runs every rule over tonight and the next 59 nights and writes the result to the calendar and the change log. Then it stops. No price leaves MAYA.
+In simulation MAYA does everything it would do for a live property except the last step. About every five minutes it reads your bookings. About once an hour it reads your own rates for the nights ahead (Cloudbeds and ThinkReservations). Every cycle it runs every rule on the nights whose bookings changed, and once a day, just after midnight at your property, on every night from tonight to 395 nights ahead, and writes the result to the calendar and the change log. Then it stops. No price leaves MAYA.
 
 So you can read each night's Current price on the calendar, open the change log, follow "How did we know?" and answer the Rules that keep adjusting banner exactly as you would once live. Your property system keeps the rates you have there.
 
@@ -48,7 +48,7 @@ There is no separate demo or test property. Simulation is the look before you se
 |---|---|---|
 | Reads your bookings about every five minutes | Yes | Yes |
 | Reads your own rates about once an hour (Cloudbeds and ThinkReservations) | Yes | Yes |
-| Runs every rule over the 60-night window | Yes | Yes |
+| Runs every rule over the 396-night window | Yes | Yes |
 | Shows a Current price for each room type and night on the calendar | Yes | Yes |
 | Records every run and every change in the change log | Yes | Yes |
 | Shows the Rules that keep adjusting banner and takes your answer | Yes | Yes |
@@ -116,9 +116,9 @@ If your property was live and we switched it back, a rate you change on a night 
 
 ## Prices you type in simulation
 
-You can type a price for any night from tonight up to 364 days ahead, on its own or as a range with <Ui>through…</Ui>. It is saved, it shows on the day card with a <Ui>Manual</Ui> badge, rules that had already moved that night pause for that room type, and the confirmation starts "Saved (simulation: not sent to Cloudbeds)." and adds how many rules were paused. Nothing goes to your system.
+You can type a price for any night from tonight up to 399 days ahead, on its own or as a range with <Ui>through…</Ui>. It is saved, it shows on the day card with a <Ui>Manual</Ui> badge, rules that had already moved that night pause for that room type, and the confirmation starts "Saved (simulation: not sent to Cloudbeds)." and adds how many rules were paused. Nothing goes to your system.
 
-When you go live, a typed price inside the 60-night window goes out with the first send like any other price. A typed price further ahead is sent when its night enters the window. [Setting a price yourself](/docs/watch/setting-a-price-yourself) has every confirmation line.
+When you go live, a typed price inside the 396-night window goes out with the first send like any other price. A typed price further ahead is sent when its night enters the window. [Setting a price yourself](/docs/watch/setting-a-price-yourself) has every confirmation line.
 
 ## Mews
 

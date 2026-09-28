@@ -3,7 +3,7 @@ title: A price looks wrong
 summary: 'Every price surprise in one place: a jump of 50%, a raise on an empty night, a cut on a full one, $1, $99,999, stuck at the floor, changed with no rule named, back to the base rate, and an unpriced night, each with the reason and the fix.'
 section: wrong
 order: 20
-readingTime: 16
+readingTime: 15
 keywords: [jumped, jump, 50%, doubled, too high, too low, $1, 1.00, 99999, 99,999.99, floor, ceiling, stuck, stuck at the floor, empty night raised, raised an empty night, cut a full night, nearly full, no rule named, the rate moved from, back to the base rate, went back, reverted, unpriced, current price dash, no price, three times, keeps going, stop did not go back, same rule twice, another 15%, typed price disappeared, manual price gone, pricing rule, sold out, full night, no rooms left, still changing, yen, capped at 99,999.99, hidden room type, room type switched off, inactive room type, deactivated room type, removed room type, deleted room type, room type removed in cloudbeds, mews starting price, new booking changed the price, re-add a starter rule, rebuild a starter rule, slow-date trim, lost money, losing money, lost me money, cost me money, lost bookings, lost revenue, losing revenue]
 questions:
   - Why did the price jump 50%? {#why-did-the-price-jump-50/two-rules-acted}
@@ -15,7 +15,7 @@ questions:
   - Why is my price stuck at the floor? {#why-is-my-price-stuck-at-the-floor}
   - Why did a price change with no rule named? {#why-did-a-price-change-with-no-rule-named/the-rate-moved}
   - Why did the price go back to the base rate? {#why-did-the-price-go-back-to-the-base-rate/a-standard-rule}
-  - Why is a night unpriced? {#why-is-a-night-unpriced/beyond-60-nights}
+  - Why is a night unpriced? {#why-is-a-night-unpriced/beyond-396-nights}
   - Why did my rule fire three times and keep going? {#why-did-my-rule-fire-three-times-and-keep-going}
   - I answered Stop but the price did not go back {#i-answered-stop-but-the-price-did-not-go-back}
   - Why does the same rule appear twice on one night? {#why-does-the-same-rule-appear-twice-on-one-night}
@@ -25,7 +25,7 @@ updated: 2026-09-28
 ---
 
 <InPlainWords>
-Start in the <Ui>Change Log</Ui> tab: every change names the rule and the reason. A big jump is usually two rules stacked (percentages compound). A $1 or $99,999 price is the default floor or ceiling, which stop nothing in most currencies, so set real ones. A change with no rule named is your own rate changing in your property system, or a price someone typed. A night with no price is past the 60-night window (tonight and the next 59), closed in your system, or not run yet.
+Start in the <Ui>Change Log</Ui> tab: every change names the rule and the reason. A big jump is usually two rules stacked (percentages compound). A $1 or $99,999 price is the default floor or ceiling, which stop nothing in most currencies, so set real ones. A change with no rule named is your own rate changing in your property system, or a price someone typed. A night with no price is past the 396-night window (tonight and the next 395), closed in your system, or not run yet.
 </InPlainWords>
 
 ## Why did the price jump 50%?
@@ -67,7 +67,7 @@ Prevent it by giving cut rules an occupancy condition (<Ui>Less than</Ui> 50, sa
 
 ## We are sold out tonight. Why is the price still changing?
 
-MAYA does not read how many rooms your system still has for sale. A full night is priced like any other: your rules run on it every cycle, and once you are live its price is sent whenever it changes (Cloudbeds and ThinkReservations). That is on purpose. A cancellation puts a room back on sale, and it sells at the rate your system has at that moment, which is MAYA's latest price once you are live.
+MAYA does not read how many rooms your system still has for sale. A full night is priced like any other: your rules run on it whenever its bookings change and once a day, and once you are live its price is sent whenever it changes (Cloudbeds and ThinkReservations). That is on purpose. A cancellation puts a room back on sale, and it sells at the rate your system has at that moment, which is MAYA's latest price once you are live.
 
 On a sold-out night:
 
@@ -138,11 +138,11 @@ Read [When a change comes off](/docs/rules/when-a-change-comes-off).
 
 The room type card shows "Current price" followed by a dash when no price has been published for that night and room type. Reasons, most common first:
 
-1. **Beyond 60 nights.** Regular runs price tonight and the next 59 nights, so on those runs a night further out gets no price. One exception: when you save or clear a price further out, MAYA runs your rules once over every night from tonight to the last night you chose. Nights past the window can get a price then, and a night you typed a price for does. Those prices are sent once the nights enter the window.
+1. **Beyond 396 nights.** Your rules price tonight and the next 395 nights, so a night further out gets no price. A price you typed further out is kept, and the night is priced and sent once it enters the window.
 2. **Closed in your system.** A night whose rate is 0 in Cloudbeds or ThinkReservations, with no price typed in MAYA, is left unpriced. MAYA does not open a closed night at the floor. Type a price if you want the night priced.
 3. **Not run yet.** A property that connected minutes ago has no runs until its first cycle. Give it about five minutes.
 4. **A past night.** Past nights are never priced or changed.
-5. **A room type switched off in MAYA.** A room type hidden during the review (an empty duplicate), or one we switched off after you removed it from your system, is not priced and has no card on the <Ui>Calendar</Ui> tab. A room type you only removed in your system stays priced until we switch it off, but nights that enter the 60-night window after you removed it have no rate to start from and show a dash. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Switch%20off%20a%20room%20type) its name and we switch it off. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
+5. **A room type switched off in MAYA.** A room type hidden during the review (an empty duplicate), or one we switched off after you removed it from your system, is not priced and has no card on the <Ui>Calendar</Ui> tab. A room type you only removed in your system stays priced until we switch it off, but nights that enter the 396-night window after you removed it have no rate to start from and show a dash. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Switch%20off%20a%20room%20type) its name and we switch it off. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
 
 Mews: a Mews property has no rate read, so a night's starting price comes from its bookings or from the last saved starting price, and a night with neither stays unpriced.
 

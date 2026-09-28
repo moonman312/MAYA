@@ -4,7 +4,7 @@ summary: What each day on the Calendar tab shows, what the colours mean, what yo
 section: watch
 order: 10
 readingTime: 14
-keywords: [calendar, day card, tax, taxes, including tax, excluding tax, commission, OTA commission, net revenue, gross revenue, fees, extras, revenue does not match, revenue report, UTC, wrong month, next month, opens on next month, percentage, occupancy, rooms booked, revenue on the books, colour, green, amber, orange, red, strong night, weak night, current price, dash, ADR, ADR $150, $150, placeholder, booking with no amount, no rate, revenue too high, $150 too much, updated, live, weekday, how far ahead, 60 nights, base price, week view, list view, bookings list, time zone, past night, year list, colour does not match revenue, colour does not match dollar figure, rate changed, Mews not sent]
+keywords: [calendar, day card, tax, taxes, including tax, excluding tax, commission, OTA commission, net revenue, gross revenue, fees, extras, revenue does not match, revenue report, UTC, wrong month, next month, opens on next month, percentage, occupancy, rooms booked, revenue on the books, colour, green, amber, orange, red, strong night, weak night, current price, dash, ADR, ADR $150, $150, placeholder, booking with no amount, no rate, revenue too high, $150 too much, updated, live, weekday, how far ahead, 396 nights, 13 months, base price, week view, list view, bookings list, time zone, past night, year list, colour does not match revenue, colour does not match dollar figure, rate changed, Mews not sent]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
   - 'What does the calendar show?' {#in-plain-words}
@@ -48,7 +48,7 @@ The <Ui>Calendar</Ui> tab is the first tab on the dashboard and the one MAYA ope
 
 Across the top you have <Ui>Prev</Ui> and <Ui>Next</Ui>, which step one month at a time, and two dropdowns, <Ui>Month</Ui> and <Ui>Year</Ui>. The years on offer run from the first month that has any booking or any published price to the last one. A property with no bookings or prices yet sees only the year on screen. <Ui>Prev</Ui> and <Ui>Next</Ui> still move across years.
 
-You can open any month, past or future. What changes far ahead is not the calendar but the prices: your rules run on tonight and the next 59 nights, so nights beyond that show no current price (see "When a night has no current price" below).
+You can open any month, past or future. What changes far ahead is not the calendar but the prices: your rules run on tonight and the next 395 nights, so nights beyond that show no current price (see "When a night has no current price" below).
 
 On the right, once the month has loaded, a small line reads "Updated 3:05:12 PM · live". The time is your browser's clock, to the second, not the property's. Before the month loads it reads "Loading…".
 
@@ -175,7 +175,7 @@ Before you have opened the <Ui>PMS</Ui> tab in this visit, the badge and the man
 
 A dash after "Current price" means MAYA has not published a price for that room type on that night. There are four ordinary reasons:
 
-- **The night is beyond the window.** Your rules run on tonight and the next 59 nights (60 nights). A night further out has no price until it enters the window. The exception is a manual price you saved further ahead: that save prices every night up to the last one you chose.
+- **The night is beyond the window.** Your rules run on tonight and the next 395 nights (396 nights, about 13 months). A night further out has no price until it enters the window. A manual price you saved further ahead shows with its badge, and is priced once its night enters the window.
 - **The night is closed in your system, or has no rate to start from.** On Cloudbeds and ThinkReservations, a night whose rate in your system is 0, with no manual price typed in MAYA, is left unpriced on purpose. Load a rate there and the next hourly read picks it up. On Mews, MAYA does not read rates. It starts from the newest booking's rate for that room type on that night, or from the starting point it used there before. With neither, the night stays unpriced until you type a price.
 - **The night has passed and had no price.** A night that has passed is not priced again. The card keeps the last price the night had before it passed, or a dash if it had none.
 - **No run has happened yet.** A newly connected property shows dashes until its first pricing run.
@@ -196,7 +196,7 @@ A new booking in your property system reaches MAYA on the next read of your book
 
 ## Time zones
 
-Your rules run in your property's own time zone: "tonight" is today's date there, and that is where the 60-night window starts. The "Updated 3:05:12 PM" time is your browser's clock.
+Your rules run in your property's own time zone: "tonight" is today's date there, and that is where the 396-night window starts. The "Updated 3:05:12 PM" time is your browser's clock.
 
 <Example title='Why does yesterday still say "revenue on the books"?'>
 The day detail's summary line switches from "revenue on the books" to "revenue" at midnight UTC (the world reference time), not at midnight at your property. In the Americas that is the afternoon or evening, 4 PM in winter and 5 PM in summer at The Harbour Inn, so tonight can already read "revenue". In most of Europe, and in Asia and Australia, it comes after your own midnight, so yesterday can still read "revenue on the books" for a few hours. Only the label changes, never a number.

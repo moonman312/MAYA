@@ -95,7 +95,7 @@ An illustration with made-up numbers, not your property.
 
 **MAYA holds old prices back.** If pricing runs have been failing for 30 minutes, MAYA stops sending rather than send an old number, and starts again once a run succeeds. [How prices reach your property system](/docs/live/how-prices-reach-your-pms) lists this with the other reasons a price is held.
 
-**When it comes back.** The next cycle reads the bookings that arrived in the meantime, runs your rules over the next 60 nights, and sends the prices that changed.
+**When it comes back.** The next cycle reads the bookings that arrived in the meantime, runs your rules on the nights they changed (and, if the date changed while it was away, on every night of the 396-night window), and sends the prices that changed.
 
 **If you changed rates by hand meanwhile.** On a night MAYA has sent to and confirmed, a rate you change in Cloudbeds or ThinkReservations an hour or more after MAYA's send is kept as a manual price. On a night MAYA has never sent to, your rate becomes the starting point and MAYA prices on top of it. [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) explains both.
 

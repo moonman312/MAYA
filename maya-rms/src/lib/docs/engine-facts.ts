@@ -2,9 +2,9 @@
 // pricing engine is one edit here. Each matches the engine the docs describe.
 
 export const engineFacts = {
-  /** nights priced: tonight and the next 59 */
-  windowNights: 60,
-  /** about how often a cycle runs, as set up today */
+  /** nights priced: tonight and the next 395 (MAYA_PRICING_HORIZON_DAYS) */
+  windowNights: 396,
+  /** about how often a cycle runs, as set up today: bookings read, changed nights priced */
   cycleMinutes: 5,
   bookingSpeed: {
     /** ratio edges on the fast side; the slow side mirrors them (0.8, 0.5, 1 in 3.5) */

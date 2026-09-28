@@ -5,6 +5,7 @@ import { SimulationModeToggle } from "@/components/admin/simulation-mode-toggle"
 import { PmsStatusPill } from "@/components/admin/status-pill";
 import { getHotel, getHotelSimulationMode } from "@/lib/admin/hotels";
 import { listHotelMemberships, listPendingInvites } from "@/lib/admin/memberships";
+import { hotelPricingHorizon } from "@/lib/pms/pricing-horizon";
 import { pricingHorizonDays } from "@/lib/pms/pricing-window";
 import { listPmsStatuses } from "@/lib/pms/registry";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
@@ -33,6 +34,8 @@ export default async function AdminHotelDetailPage({
   const simulationMode = isAdminConfigured()
     ? await getHotelSimulationMode(createAdminClient(), hotelId)
     : true;
+  // The window the hotel's last daily pass used (the syncs' switch sets it).
+  const windowDays = isAdminConfigured() ? await hotelPricingHorizon(createAdminClient(), hotelId) : pricingHorizonDays();
   if (!hotel) {
     notFound();
   }
@@ -115,7 +118,7 @@ export default async function AdminHotelDetailPage({
             simulationMode={simulationMode}
             pmsType={hotel.pms_type}
             pmsStatus={hotel.pms_status}
-            windowDays={pricingHorizonDays()}
+            windowDays={windowDays}
           />
           <HotelTestToggle hotelId={hotel.id} isTest={hotel.is_test === true} />
         </div>

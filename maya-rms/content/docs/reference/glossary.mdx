@@ -9,7 +9,7 @@ questions:
   - What does this word mean? {#in-plain-words}
   - What is a cycle? {#a-to-c/cycle}
   - What is a pricing run? {#l-to-p/pricing-run}
-  - What is the 60-night window? {#t-to-y/window-60-nights}
+  - What is the 396-night window? {#t-to-y/window-396-nights}
   - What is a hotel day? {#d-to-h/hotel-day}
   - What is a comp night? {#a-to-c/comp-night}
   - What is a standard rule? {#r-to-s/standard-rule}
@@ -69,7 +69,7 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 **Current price** (screen). The price MAYA has worked out for a room type on a night, after rules and limits. It is what the calendar shows and what is sent. Read [The calendar](/docs/watch/the-calendar).
 
-**Cycle.** One run of MAYA for your property, about every five minutes: read bookings, refresh your rates if due, run every rule over the next 60 nights and, once you are live, send the prices that changed. For Mews, MAYA does not read rates or send prices yet. Cycles run on MAYA's side, day and night, whether or not anyone has MAYA open, and your own internet being down does not stop them. Only MAYA being unable to reach your property system's service does, or a stopped subscription. Read [How rules run](/docs/rules/how-rules-run).
+**Cycle.** One run of MAYA for your property, about every five minutes: read bookings, refresh your rates if due, run your rules on every night whose bookings changed or that a change of yours reaches (and on every night once a day, after midnight at your property) and, once you are live, send the prices that changed. For Mews, MAYA does not read rates or send prices yet. Cycles run on MAYA's side, day and night, whether or not anyone has MAYA open, and your own internet being down does not stop them. Only MAYA being unable to reach your property system's service does, or a stopped subscription. Read [How rules run](/docs/rules/how-rules-run).
 
 ## D to H
 
@@ -99,7 +99,7 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 **Hotel Admin** (screen, a role). Everything, including managing General Managers. The person who creates the account and pays is a property's first Hotel Admin. Read [Roles](/docs/team/roles).
 
-**Hotel day.** A calendar date in your property's own time zone. The window, booking windows and "past week" all count in hotel days. Read [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays).
+**Hotel day.** A calendar date in your property's own time zone. The window, booking windows, "past week", pickup count lookbacks and rule waits all count in hotel days. Read [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays).
 
 **How did we know?** (screen). The link under a booking speed change in the change log. It opens the counts behind the change, the nights MAYA compared with, and the way to set one aside. Read [How did we know?](/docs/watch/how-did-we-know).
 
@@ -111,7 +111,7 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 **Live.** The state after going live. Every cycle, prices that changed are sent to Cloudbeds or ThinkReservations. Nothing is sent to Mews yet, so a Mews property only shows as live. Read [Simulation mode](/docs/live/simulation-mode).
 
-**Manual price** (screen: Manual · $123.00). A price you typed for a room type on a night on the Calendar tab. It becomes the night's base price. Once you are live, it is sent as typed to Cloudbeds or ThinkReservations (a night beyond the 60-night window goes when it enters the window). Nothing is sent to Mews yet, and a price of 0 is never sent. Rules already on that night pause for that room type, and rules that fire later stack on top. Read [Setting a price yourself](/docs/watch/setting-a-price-yourself).
+**Manual price** (screen: Manual · $123.00). A price you typed for a room type on a night on the Calendar tab. It becomes the night's base price. Once you are live, it is sent as typed to Cloudbeds or ThinkReservations (a night beyond the 396-night window goes when it enters the window). Nothing is sent to Mews yet, and a price of 0 is never sent. Rules already on that night pause for that room type, and rules that fire later stack on top. Read [Setting a price yourself](/docs/watch/setting-a-price-yourself).
 
 **Marketplace.** The Cloudbeds Marketplace, where a Cloudbeds property installs MAYA with <Ui>Connect App</Ui>. Properties that arrive this way get the free trial and can come in as a group. Read [Cloudbeds](/docs/connect/cloudbeds).
 
@@ -129,7 +129,7 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 **Pending** (screen, on the PMS tab). Connected but not paid for yet, or set up and not switched on yet. Nothing runs until then. Finish payment, or wait for us. Read [The PMS tab](/docs/watch/the-pms-tab).
 
-**Pickup count** (screen: Pickup count (advanced)). How many room nights, or how much revenue, a night gained over the last 1, 3 or 7 days, cancellations subtracted. Read [Pickup count](/docs/rules/pickup-count).
+**Pickup count** (screen: Pickup count (advanced)). How many room nights, or how much revenue, a night gained over 1, 3 or 7 whole days at your property, cancellations subtracted: today so far and the days before it, or for a rule that looks for low pickup, the full days up to yesterday. Read [Pickup count](/docs/rules/pickup-count).
 
 **PMS** (screen). Your property management system: Cloudbeds, ThinkReservations or Mews, where your bookings and rates live. In these docs, "property system". Read [Which systems work](/docs/connect/which-systems-work).
 
@@ -153,7 +153,7 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 **Rooms out of service** (screen). Rooms you take off sale for a stretch, entered on the PMS tab. They come off the sellable count for those nights only. Nothing is sent to your system. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
 
-**Rule.** One sentence you write once: when a night looks like this, change its price by that much. MAYA checks every rule against your bookings about every five minutes. Read [Build your first rule](/docs/rules/build-your-first-rule).
+**Rule.** One sentence you write once: when a night looks like this, change its price by that much. MAYA checks every rule on a night within about five minutes of its bookings changing, and on every night once a day. Read [Build your first rule](/docs/rules/build-your-first-rule).
 
 **Rules that keep adjusting** (screen). The amber banner that asks you what to do once three of a booking speed or pickup rule's changes are on the same night. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
 
@@ -185,11 +185,11 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 **Viewer** (screen, a role). Can look at everything and change nothing. Read [Roles](/docs/team/roles).
 
-**Wait.** See Then waits. The wait is counted per rule, night and room type, from that night's last counted change, or from a price you typed if it came later.
+**Wait.** See Then waits. The wait is counted per rule, night and room type, from that night's last counted change, or from a price you typed if it came later, in whole days at your property: a 2-day wait from a change made any time on Monday is over as Wednesday begins.
 
 **Weekend.** Friday and Saturday nights. Used when similar nights are chosen and seasons are read. Rules have no weekday control yet. Read [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays).
 
-**Window (60 nights).** Tonight and the next 59 nights on your property's calendar: the nights your rules price every cycle and, once you are live, the nights whose prices are sent to Cloudbeds or ThinkReservations. A price you type further ahead is sent when its night enters the window. Read [How prices reach your property system](/docs/live/how-prices-reach-your-pms).
+**Window (396 nights).** Tonight and the next 395 nights on your property's calendar, about 13 months: the nights your rules price and, once you are live, the nights whose prices are sent to Cloudbeds or ThinkReservations. A price you type further ahead is sent when its night enters the window. Read [How prices reach your property system](/docs/live/how-prices-reach-your-pms).
 
 **Your corrections** (screen). The panel at the top of the change log that lists every date you have set aside, each with <Ui>Undo</Ui>. Read [Not a fair comparison](/docs/watch/not-a-fair-comparison).
 

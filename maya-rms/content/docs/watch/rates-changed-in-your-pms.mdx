@@ -38,7 +38,7 @@ Which case a night falls into depends on one thing: whether MAYA has already sen
 
 **MAYA has sent to the night.** Your change is read as a decision. It becomes a manual price for that night and room type, exactly as if you had typed it in MAYA: rules that had already moved the night are paused for that room type, rules that fire later stack on top of your number, and <Ui>Clear</Ui> hands the night back. [Setting a price yourself](/docs/watch/setting-a-price-yourself) explains what a manual price does.
 
-**MAYA has never sent to the night.** That includes every night before you first go live, and any night beyond the 60-night window. Your rate is read as the property's own rate for that night, the starting point. When a rule fires, it works from your number. When no rule fires, your number is the price.
+**MAYA has never sent to the night.** That includes every night before you first go live, and any night beyond the 396-night window. Your rate is read as the property's own rate for that night, the starting point. When a rule fires, it works from your number. When no rule fires, your number is the price.
 
 <Example title="The Harbour Inn, one change in each case">
 Sam changes two Standard rates in Cloudbeds on the morning of Friday, October 2, 2026.
@@ -71,7 +71,7 @@ A change that fails one of these is not kept. The most common miss is timing: a 
 
 ## How soon a change is read
 
-MAYA reads your own rates for every night in the 60-night window about once an hour, and again when your property's date changes. It also reads a night again right before sending a new price to it, when the night was last sent to over an hour ago and the hourly read did not run this cycle. So a change on a sent night is read within about an hour, and usually before MAYA sends a new price to that night. The exceptions are a cycle in which MAYA could not read your system, and a change made within an hour of MAYA's send.
+MAYA reads your own rates for every night in the 396-night window about once an hour, and again when your property's date changes. It also reads a night again right before sending a new price to it, when the night was last sent to over an hour ago and the hourly read did not run this cycle. So a change on a sent night is read within about an hour, and usually before MAYA sends a new price to that night. The exceptions are a cycle in which MAYA could not read your system, and a change made within an hour of MAYA's send.
 
 A night beyond the window is not read until it enters the window.
 
@@ -140,14 +140,14 @@ A percentage change to only some nights is read night by night as usual. It trip
 
 To move a lot of nights at once, type the prices in MAYA. One save covers one room type and a run of nights at one price, using <Ui>through…</Ui>. Each night is kept at once as a manual price, and rules that fire later stack on it. [Setting a price yourself](/docs/watch/setting-a-price-yourself) has the detail.
 
-Or change rates in your system only on nights MAYA has not sent to yet, such as nights more than 59 nights ahead. Each of those rates becomes the night's starting point when the night enters the window, and your rules work from it.
+Or change rates in your system only on nights MAYA has not sent to yet, such as nights more than 395 nights ahead. Each of those rates becomes the night's starting point when the night enters the window, and your rules work from it.
 
 ## Where to change prices
 
 | | In MAYA (the calendar) | In your property system |
 |---|---|---|
 | Takes effect | At once, and sent straight away when you are live | Within about an hour |
-| Which nights | Tonight to 364 days ahead | Only nights MAYA has sent to; any other night becomes a starting point instead |
+| Which nights | Tonight to 399 days ahead | Only nights MAYA has sent to; any other night becomes a starting point instead |
 | Who did it | Named in the change log | "The base rate was changed in Cloudbeds", no name |
 | A run of nights | One save with <Ui>through…</Ui> | Night by night, as your system allows |
 | Undo | <Ui>Clear</Ui> | <Ui>Clear</Ui> in MAYA |

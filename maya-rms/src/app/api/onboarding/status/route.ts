@@ -1,4 +1,5 @@
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
+import { hotelPricingHorizon } from "@/lib/pms/pricing-horizon";
 import { pricingHorizonDays } from "@/lib/pms/pricing-window";
 import { marketplaceReconnectNeeded } from "@/lib/pms/purged";
 import { getRegistry, type PmsType } from "@/lib/pms/registry";
@@ -124,7 +125,8 @@ export async function GET() {
     latestProposedAt: latestProposed?.created_at ?? null,
     simulationMode: settings?.simulation_mode !== false,
     pmsType: connection?.pms_type != null ? String(connection.pms_type) : null,
-    // The nights the push sends, so the go-live confirm names the real window.
-    pushWindowDays: pricingHorizonDays(),
+    // The nights the push sends, so the go-live confirm names the real window:
+    // the one the hotel's last daily pass used, which the syncs' switch sets.
+    pushWindowDays: isAdminConfigured() ? await hotelPricingHorizon(createAdminClient(), hotelId) : pricingHorizonDays(),
   });
 }
