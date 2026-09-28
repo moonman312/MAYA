@@ -415,7 +415,7 @@ export function RateSimulator({
         <h3 className="mb-1 text-sm font-semibold">Your rooms</h3>
         <p className="mb-3 text-[11px] text-slate-500">
           Real room types from this property. Each starts at the nearest rate MAYA has published for
-          it — change it to whatever night you want to test.
+          it. Change it to whatever night you want to test.
         </p>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] border-collapse text-sm">
@@ -868,8 +868,8 @@ export function RateSimulator({
                 ).values(),
               ).map((o) => (
                 <li key={`${o.ruleId}-${o.skipReason}`}>
-                  <span className="text-slate-400">{o.ruleName}</span> —{" "}
-                  {o.skipReason ? SIM_SKIP_LABEL[o.skipReason] : "—"}
+                  <span className="text-slate-400">{o.ruleName}</span>
+                  {o.skipReason ? `: ${SIM_SKIP_LABEL[o.skipReason]}` : ""}
                   {o.skipReason === "condition_not_met" && o.occupancySeen != null && (
                     <span className="tabular-nums">
                       {" "}
