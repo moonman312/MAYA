@@ -33,7 +33,7 @@ import type { EngineRule } from "./domain.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeDta } from "./metrics.ts";
 import { fireHeadKey, type FireHead } from "./pickup.ts";
-import { fetchAllRows } from "./snapshots.ts";
+import { fetchAllRows, filterNights, type NightSet } from "./snapshots.ts";
 import type { RoomTypeRow } from "./types.ts";
 
 /** Counted fires on one room type that put a night in front of the owner. */
@@ -94,19 +94,24 @@ export async function loadRepeatAlertNights(
   ruleIds: string[],
   firstDate: string,
   lastDate: string,
+  /** The run's nights when they are not every night in the range (filterNights). */
+  nights?: NightSet,
 ): Promise<Map<string, RepeatAlertNight[]>> {
   const out = new Map<string, RepeatAlertNight[]>();
   if (ruleIds.length === 0) return out;
   let rows: Record<string, unknown>[];
   try {
     rows = await fetchAllRows(() =>
-      supabase
-        .from("rule_repeat_alert_nights")
-        .select("alert_id, rule_id, rule_version, stay_date, fire_count, last_fire_at, choice, closed_at, closed_reason")
-        .eq("hotel_id", hotelId)
-        .in("rule_id", ruleIds)
-        .gte("stay_date", firstDate)
-        .lte("stay_date", lastDate)
+      filterNights(
+        supabase
+          .from("rule_repeat_alert_nights")
+          .select("alert_id, rule_id, rule_version, stay_date, fire_count, last_fire_at, choice, closed_at, closed_reason")
+          .eq("hotel_id", hotelId)
+          .in("rule_id", ruleIds),
+        nights,
+        firstDate,
+        lastDate,
+      )
         .order("stay_date", { ascending: true })
         .order("rule_id", { ascending: true })
         .order("rule_version", { ascending: true }),

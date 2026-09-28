@@ -153,9 +153,12 @@ import {
   MIGRATIONS,
   bookedBeforeOver,
   fetchAllRows,
+  filterNights,
   isMissingColumnError,
+  rangesForNights,
   type BookedBeforePair,
   type BookedCount,
+  type NightSet,
 } from "./snapshots";
 import { addCalendarDays, evalIsoToHotelDateString } from "./timezone";
 import type { PickupCandidate, RuleMetrics } from "./types";
@@ -259,10 +262,27 @@ export async function loadPickupFireHeads(
   rules: Pick<EngineRule, "id" | "version">[],
   firstDate: string,
   lastDate: string,
+  /** The run's nights when they are not every night in the range (rangesForNights). */
+  nights?: NightSet,
 ): Promise<Map<string, FireHead>> {
   const out = new Map<string, FireHead>();
   if (rules.length === 0) return out;
   const versionOf = new Map(rules.map((r) => [r.id, r.version]));
+  for (const [segFirst, segLast] of rangesForNights(nights, firstDate, lastDate)) {
+    await readFireHeads(supabase, hotelId, rules, versionOf, segFirst, segLast, out);
+  }
+  return out;
+}
+
+async function readFireHeads(
+  supabase: SupabaseClient,
+  hotelId: string,
+  rules: Pick<EngineRule, "id" | "version">[],
+  versionOf: ReadonlyMap<string, number>,
+  firstDate: string,
+  lastDate: string,
+  out: Map<string, FireHead>,
+): Promise<void> {
   for (let from = 0; ; from += HEADS_PAGE) {
     const { data, error } = await supabase
       .rpc("pickup_fire_heads", {
@@ -295,7 +315,6 @@ export async function loadPickupFireHeads(
     }
     if (data.length < HEADS_PAGE) break;
   }
-  return out;
 }
 
 /**
@@ -1225,17 +1244,22 @@ export async function loadOpenPickupFires(
   roomTypeIds: string[],
   firstDate: string,
   lastDate: string,
+  /** The run's nights when they are not every night in the range (filterNights). */
+  nights?: NightSet,
 ): Promise<OpenPickupFire[]> {
   if (roomTypeIds.length === 0) return [];
   const read = (columns: string) =>
     fetchAllRows(() =>
-      supabase
-        .from("pickup_event")
-        .select(columns)
-        .eq("hotel_id", hotelId)
-        .in("affected_room_type_id", roomTypeIds)
-        .gte("stay_date", firstDate)
-        .lte("stay_date", lastDate)
+      filterNights(
+        supabase
+          .from("pickup_event")
+          .select(columns)
+          .eq("hotel_id", hotelId)
+          .in("affected_room_type_id", roomTypeIds),
+        nights,
+        firstDate,
+        lastDate,
+      )
         .is("retired_at", null)
         .order("stay_date", { ascending: true })
         .order("affected_room_type_id", { ascending: true })

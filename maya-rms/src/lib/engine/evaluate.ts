@@ -28,6 +28,7 @@ import {
   loadNightBookingRows,
   observeForStayDate,
   signalSetKey,
+  usesMomentum,
   type BookingSpeedContext,
   type SplitNeed,
 } from "./booking-speed-provider";
@@ -101,16 +102,23 @@ import {
 import { ruleScopeMatches } from "./scope";
 import {
   MIGRATIONS,
+  RUN_GAP_STALE_MS,
   createSnapshotLookup,
   fetchAllRows,
+  filterNights,
+  isContiguousNights,
   isMissingColumnError,
   isMissingRelationError,
   bookedBeforeKey,
   loadBookedBefore,
   loadReservationCells,
+  loadRunGaps,
   purgeOldSnapshots,
   snapshotCurrentState,
+  type NightSet,
+  type RunGap,
 } from "./snapshots";
+import { MAX_PRICING_HORIZON_DAYS, pricingHorizonDays } from "@/lib/pms/pricing-window";
 import { addCalendarDays, evalIsoToHotelDateString } from "./timezone";
 import type { PickupCandidate, RoomTypeRow, RuleMetrics } from "./types";
 import { countsAsRoom } from "./types";
@@ -176,21 +184,86 @@ export type EvaluationResult = {
   pickup_events_created: number;
 };
 
+const DAY_MS = 86_400_000;
+
+/** Why a night must be priced again at a set instant although nothing about it changed. */
+export type WakeupReason = "wait_ends" | "pickup_window" | "fire_window";
+
+/** What a run tells the pricing cadence (see pricing-plan.ts) about the nights it priced. */
+export type CadenceReport = {
+  /** The nights priced, sorted. */
+  nights: string[];
+  /**
+   * Nights not fully written: a price, a rule's change or its record that
+   * failed to save. Priced again next tick rather than left as they are
+   * until the daily pass.
+   */
+  failedNights: string[];
+  /**
+   * Instants a priced night must be priced again: a rule's wait ends
+   * (wait_ends), a pickup count that opened at a change reaches its whole
+   * window (fire_window), a booking this run saw leaves a pickup window
+   * (pickup_window). Pickup windows and waits are exact spans of 24 hours,
+   * so time alone moves them.
+   */
+  wakeups: { stay_date: string; due_at: string; reason: WakeupReason }[];
+  /** Priced nights whose Booking Speed reading leans on nearby nights (usesMomentum). */
+  momentumNights: string[];
+  /** The pickup count windows (days) of the rules loaded. */
+  pickupWindows: number[];
+  /** Wall time of the run, ms. */
+  engineMs: number;
+};
+
+export type EvaluateOptions = {
+  /**
+   * Price only these nights (YYYY-MM-DD) of the window instead of every night
+   * from the hotel's today. Nights outside the window are ignored.
+   */
+  nights?: readonly string[];
+  /**
+   * Nights priced because their bookings changed: their snapshot moves at
+   * this run, so a pickup count window rolls past the change later
+   * (pickup_window wake-ups).
+   */
+  bookingNights?: readonly string[];
+  /** Recorded on the run's log row; left off, the row is written as before. */
+  runKind?: "window" | "nights" | "save";
+  /** Filled in for the pricing cadence. */
+  report?: CadenceReport;
+};
+
 /**
  * Evaluate a hotel: run the full 11-step pipeline.
  *
- * `horizonDays` bounds how many days forward are priced in this run. Reads and
- * writes are paged across the whole horizon rather than made per cell, so a
- * 365-day run on a 500-room, 20-type property is a few hundred round trips.
+ * `horizonDays` is the window: tonight and the nights after it, 396 by
+ * default (pricingHorizonDays), never more than MAX_PRICING_HORIZON_DAYS.
+ * Reads and writes are paged across the nights priced rather than made per
+ * cell, so a year on a 500-room, 20-type property is a few hundred round
+ * trips.
+ *
+ * `opts.nights` prices only those nights of the window: what the scheduled
+ * tick's cadence picked (pricing-plan.ts), the nights whose inputs changed
+ * and a chunk of the once-a-day pass. Every read keyed by a range of nights
+ * then asks for those nights only where that is cheaper, and nothing about
+ * any other night is read, judged or written, apart from the hotel-wide
+ * tidying every run does (nights that have passed). `opts.report` is filled
+ * with what the cadence needs back: the nights priced, those not fully
+ * written, when each must be priced again (a wait or a pickup window ending
+ * at an exact instant), and which lean on nearby nights' bookings.
  */
 export async function evaluateHotel(
   supabase: SupabaseClient,
   hotelId: string,
   evalTs?: string,
-  horizonDays: number = 365,
+  horizonDays: number = pricingHorizonDays(),
+  opts: EvaluateOptions = {},
 ): Promise<EvaluationResult> {
+  const startedMs = Date.now();
   const now = evalTs ?? new Date().toISOString();
+  const nowMs = Date.parse(now);
   const runId = crypto.randomUUID();
+  const report = opts.report;
 
   const { data: hotelRow, error: hotelErr } = await supabase
     .from("hotels")
@@ -258,7 +331,31 @@ export async function evaluateHotel(
   const countingIds = new Set(countingRoomTypes.map((rt) => rt.id));
   const roomTypeNameById = new Map(roomTypes.map((rt) => [rt.id, rt.name]));
 
-  if (roomTypes.length === 0) {
+  const horizon = Math.max(1, Math.min(MAX_PRICING_HORIZON_DAYS, Math.floor(horizonDays)));
+  const windowLast = addCalendarDays(localDate, horizon - 1);
+  let stayDates: string[] = [];
+  if (opts.nights) {
+    // A set of nights (the cadence's touched nights and a chunk of the daily
+    // pass): those inside the window, in order.
+    stayDates = [...new Set(opts.nights)].filter((d) => d >= localDate && d <= windowLast).sort();
+  } else {
+    let cursor = localDate;
+    for (let i = 0; i < horizon; i++) {
+      stayDates.push(cursor);
+      cursor = addCalendarDays(cursor, 1);
+    }
+  }
+  if (report) {
+    report.nights = [...stayDates];
+    report.failedNights = [];
+    report.wakeups = [];
+    report.momentumNights = [];
+    report.pickupWindows = [];
+    report.engineMs = 0;
+  }
+
+  if (roomTypes.length === 0 || stayDates.length === 0) {
+    if (report) report.engineMs = Date.now() - startedMs;
     return {
       run_id: runId,
       hotel_id: hotelId,
@@ -269,14 +366,19 @@ export async function evaluateHotel(
       pickup_events_created: 0,
     };
   }
-
-  const horizon = Math.max(1, Math.min(365, Math.floor(horizonDays)));
-  const stayDates: string[] = [];
-  let cursor = localDate;
-  for (let i = 0; i < horizon; i++) {
-    stayDates.push(cursor);
-    cursor = addCalendarDays(cursor, 1);
-  }
+  const stayDateSet = new Set(stayDates);
+  // Nights whose writes did not all land (CadenceReport.failedNights).
+  const failedNights = new Set<string>();
+  // Instants priced nights must be priced again (CadenceReport.wakeups).
+  const wakeups = new Map<string, { stay_date: string; due_at: string; reason: WakeupReason }>();
+  const addWakeup = (stayDate: string, dueMs: number, reason: WakeupReason) => {
+    if (!report || !Number.isFinite(dueMs) || dueMs <= nowMs || !stayDateSet.has(stayDate)) return;
+    const key = `${stayDate}|${dueMs}`;
+    if (!wakeups.has(key)) wakeups.set(key, { stay_date: stayDate, due_at: new Date(dueMs).toISOString(), reason });
+  };
+  // Handed to every read keyed by a range of nights, so a run over a few
+  // nights reads a few nights (see NightSet). Undefined for a window.
+  const runNights: NightSet | undefined = opts.nights ? stayDates : undefined;
 
   // The horizon's reservations grouped per cell, once, for both the snapshot
   // and the base rates below. Null before the migration: each reads rows.
@@ -285,6 +387,7 @@ export async function evaluateHotel(
     hotelId,
     stayDates[0],
     stayDates[stayDates.length - 1],
+    runNights,
   );
   const writtenSnapshots = await snapshotCurrentState(
     supabase,
@@ -294,10 +397,6 @@ export async function evaluateHotel(
     countingRoomTypes,
     reservationCells?.booked,
   );
-  // Every snapshot read below goes through this: the rows just written are
-  // answered from memory, older ones are read once per (cell, timestamp).
-  const snapshots = createSnapshotLookup(supabase, hotelId, now, writtenSnapshots);
-
   // Once per run: can ladder_rule_state carry suppressed_at? See
   // probeSuppressionSupport. The answer is threaded to every ladder write
   // and every effects read below.
@@ -486,6 +585,31 @@ export async function evaluateHotel(
     const w = r.condition.pickup_window_days;
     if (w != null) maxPickupWindowDays = Math.max(maxPickupWindowDays, w);
   }
+  // Every pickup count window in use, in days: when a booking this run saw
+  // leaves each of them (wake-ups below).
+  const pickupWindows = [
+    ...new Set(rules.filter((r) => r.condition.pickup_operator).map((r) => r.condition.pickup_window_days ?? 3)),
+  ].sort((a, b) => a - b);
+  if (report) report.pickupWindows = pickupWindows;
+
+  // When pricing ran, for a pickup count's staleness guard (baselineIsStale):
+  // only when a rule counts pickup, over the oldest baseline any can read
+  // (now less the longest window) and the 12 hours before it. The read
+  // starts an hour before that: its first end counts as a run, and must lie
+  // before any stretch a baseline asks about.
+  let runGaps: RunGap[] | null = null;
+  if (pickupWindows.length > 0) {
+    runGaps = await loadRunGaps(
+      supabase,
+      hotelId,
+      new Date(nowMs - maxPickupWindowDays * DAY_MS - RUN_GAP_STALE_MS - 3_600_000).toISOString(),
+      now,
+    );
+  }
+
+  // Every snapshot read below goes through this: the rows just written are
+  // answered from memory, older ones are read once per (cell, timestamp).
+  const snapshots = createSnapshotLookup(supabase, hotelId, now, writtenSnapshots, runGaps);
 
   // Base prices — batched: one reservations read + one published_price read for
   // the whole horizon, resolved in memory. (Previously this was ~2 queries per
@@ -531,12 +655,12 @@ export async function evaluateHotel(
   }
 
   const ppRows = await fetchAllRows(() =>
-    supabase
-      .from("published_price")
-      .select("stay_date, room_type_id, base_price")
-      .eq("hotel_id", hotelId)
-      .gte("stay_date", firstDate)
-      .lte("stay_date", lastDate)
+    filterNights(
+      supabase.from("published_price").select("stay_date, room_type_id, base_price").eq("hotel_id", hotelId),
+      runNights,
+      firstDate,
+      lastDate,
+    )
       .order("stay_date", { ascending: true })
       .order("room_type_id", { ascending: true }),
   );
@@ -559,12 +683,12 @@ export async function evaluateHotel(
   const calendarBaseByCell = new Map<string, number>();
   try {
     const calRows = await fetchAllRows(() =>
-      supabase
-        .from("base_rate_calendar")
-        .select("stay_date, room_type_id, price")
-        .eq("hotel_id", hotelId)
-        .gte("stay_date", firstDate)
-        .lte("stay_date", lastDate)
+      filterNights(
+        supabase.from("base_rate_calendar").select("stay_date, room_type_id, price").eq("hotel_id", hotelId),
+        runNights,
+        firstDate,
+        lastDate,
+      )
         .order("stay_date", { ascending: true })
         .order("room_type_id", { ascending: true }),
     );
@@ -598,12 +722,12 @@ export async function evaluateHotel(
   try {
     const readManual = (columns: string) =>
       fetchAllRows(() =>
-        supabase
-          .from("manual_price")
-          .select(columns)
-          .eq("hotel_id", hotelId)
-          .gte("stay_date", firstDate)
-          .lte("stay_date", lastDate)
+        filterNights(
+          supabase.from("manual_price").select(columns).eq("hotel_id", hotelId),
+          runNights,
+          firstDate,
+          lastDate,
+        )
           .is("cleared_at", null)
           .order("stay_date", { ascending: true })
           .order("room_type_id", { ascending: true }),
@@ -696,6 +820,7 @@ export async function evaluateHotel(
       lastDate,
       [...countingIds],
       rules.filter((r) => r.condition.booking_speed_operator).map((r) => r.signal_room_type_ids),
+      runNights,
     );
   }
 
@@ -756,6 +881,7 @@ export async function evaluateHotel(
     ladderRules.map((r) => r.id),
     firstDate,
     lastDate,
+    runNights,
   );
 
   for (const rule of ladderRules) {
@@ -854,7 +980,11 @@ export async function evaluateHotel(
   // heals and checks for cancellations. Before anything fires, so a fire
   // taken off here is already out of the prices this run publishes, and one
   // this run makes can never be taken off by the run that made it.
-  const openFires = await loadOpenPickupFires(supabase, hotelId, roomTypeIds, firstDate, lastDate);
+  // Only the nights this run prices: a fire on another night is checked,
+  // counted and priced when that night is.
+  const openFires = (await loadOpenPickupFires(supabase, hotelId, roomTypeIds, firstDate, lastDate, runNights)).filter(
+    (f) => stayDateSet.has(f.stay_date),
+  );
   const rulesById = new Map(rules.map((r) => [r.id, r]));
   // Fires a typed price or an edit takes off go first.
   const resetReasons = firesToReset(openFires, {
@@ -863,6 +993,10 @@ export async function evaluateHotel(
     now,
   });
   const resetIds = resetReasons.size > 0 ? await retireFires(supabase, hotelId, resetReasons, now) : new Set<string>();
+  const noteUnretired = (asked: ReadonlyMap<string, unknown>, done: ReadonlySet<string>) => {
+    for (const fire of openFires) if (asked.has(fire.id) && !done.has(fire.id)) failedNights.add(fire.stay_date);
+  };
+  noteUnretired(resetReasons, resetIds);
 
   // Paused event rules never run, but pausing leaves their fires on the
   // price, so each one still covers the weaker rules that adjust the same
@@ -1098,12 +1232,15 @@ export async function evaluateHotel(
   }
   if (keptFires.length > 0) {
     await recordCounts(keptFires.map((k) => k.candidate));
-    for (const { fire, candidate } of keptFires) await restateFire(supabase, hotelId, fire.id, candidate);
+    for (const { fire, candidate } of keptFires) {
+      if (!(await restateFire(supabase, hotelId, fire.id, candidate))) failedNights.add(fire.stay_date);
+    }
   }
 
   const cancelReasons = new Map([...cancelFindings.keys()].map((id) => [id, "bookings_cancelled" as const]));
   const cancelledIds =
     cancelReasons.size > 0 ? await retireFires(supabase, hotelId, cancelReasons, now) : new Set<string>();
+  noteUnretired(cancelReasons, cancelledIds);
   const retireReasons = new Map<string, PickupRetireReason>([...resetReasons, ...cancelReasons]);
   const retiredIds = new Set([...resetIds, ...cancelledIds]);
   const retiredByCell = new Map<string, RetiredPickupFire[]>();
@@ -1128,14 +1265,19 @@ export async function evaluateHotel(
   // night; and the owner's answers to repeat alerts on these nights.
   const fireHeads = new Map<string, FireHead>();
   if (pickupRules.length > 0) {
-    for (const [key, head] of await loadPickupFireHeads(supabase, hotelId, rankedEventRules, firstDate, lastDate)) {
+    for (const [key, head] of await loadPickupFireHeads(supabase, hotelId, rankedEventRules, firstDate, lastDate, runNights)) {
+      if (!stayDateSet.has(key.split("|")[1])) continue;
       const open = openHeads.get(key);
       fireHeads.set(key, { ...head, counted: open?.counted ?? 0, lastCountedAt: open?.lastCountedAt ?? null });
     }
   }
   const alertNights =
     pickupRules.length > 0
-      ? await loadRepeatAlertNights(supabase, hotelId, pickupRules.map((r) => r.id), firstDate, lastDate)
+      ? new Map(
+          [
+            ...(await loadRepeatAlertNights(supabase, hotelId, pickupRules.map((r) => r.id), firstDate, lastDate, runNights)),
+          ].filter(([key]) => stayDateSet.has(key.split("|")[1])),
+        )
       : new Map<string, RepeatAlertNight[]>();
 
   // Per (rule, night) in scope, first each room type's wait and where its
@@ -1165,10 +1307,13 @@ export async function evaluateHotel(
         const head = fireHeads.get(fireHeadKey(rule.id, stayDate, rtId));
         const manual = manualByCell.get(`${stayDate}|${rtId}`);
         const fireAt = countFromFireAt(rule, sameWay, openHeads, stayDate, rtId, basePrices.get(basePriceKey(stayDate, rtId)) ?? 100);
+        const anchor = waitAnchor(rule, head, manual);
+        // The wait ends at an exact instant: the night is priced again then.
+        if (anchor) addWakeup(stayDate, Date.parse(anchor) + waitDays * DAY_MS, "wait_ends");
         return {
           rtId,
           manual,
-          waits: isWaiting(waitAnchor(rule, head, manual), now, waitDays),
+          waits: isWaiting(anchor, now, waitDays),
           fireAt,
           countFrom: bookingSpeedCountFrom(rule, fireAt, manual, hotelTimeZone),
         };
@@ -1266,6 +1411,7 @@ export async function evaluateHotel(
     firstDate,
     lastDate,
     supportsSuppression,
+    runNights,
   );
 
   const measure = async (rn: RuleNight) => {
@@ -1439,7 +1585,12 @@ export async function evaluateHotel(
         await loadActivePickupEffects(supabase, hotelId, s.stay_date, s.affected_room_type_id),
       );
     }
-    for (const f of pass.write_failures) pushTo(allPickupWriteFailures, cellOf(f), f);
+    for (const f of pass.write_failures) {
+      pushTo(allPickupWriteFailures, cellOf(f), f);
+      failedNights.add(f.stay_date);
+    }
+    // A change made now starts its rule's wait now.
+    for (const w of pass.winners) addWakeup(w.candidate.stay_date, nowMs + ruleWaitDays(w.candidate.rule) * DAY_MS, "wait_ends");
     if (pass.write_failures.length > 0) {
       console.error(
         JSON.stringify({
@@ -1462,6 +1613,7 @@ export async function evaluateHotel(
     hotelId,
     stayDates[0],
     stayDates[stayDates.length - 1],
+    runNights,
   );
 
   let cellsChecked = 0;
@@ -1487,6 +1639,7 @@ export async function evaluateHotel(
     }
   }
 
+  const failedCells = new Set<string>();
   const publishedKeys = await publishPrices(
     supabase,
     hotelId,
@@ -1497,7 +1650,9 @@ export async function evaluateHotel(
       basePrice: c.basePrice,
     })),
     now,
+    failedCells,
   );
+  for (const key of failedCells) failedNights.add(key.split("|")[0]);
   pricesPublished = publishedKeys.size;
   // Whatever an earlier run published for a night this run left unpriced is
   // no longer MAYA's price, and must neither show as one nor be pushed.
@@ -1550,7 +1705,9 @@ export async function evaluateHotel(
       cellsChanged++;
     }
   }
-  await insertAuditRows(supabase, auditRows);
+  for (const row of await insertAuditRows(supabase, auditRows)) {
+    if (typeof row.stay_date === "string") failedNights.add(row.stay_date);
+  }
 
   // Bookkeeping only, past this point — the correct prices are already
   // computed and published above. None of it may be allowed to fail the
@@ -1570,10 +1727,26 @@ export async function evaluateHotel(
     [
       "heartbeat",
       () =>
-        recordRunHeartbeat(supabase, hotelId, runId, now, cellsChecked, cellsChanged, {
-          first: stayDates[0],
-          last: stayDates[stayDates.length - 1],
-        }),
+        recordRunHeartbeat(
+          supabase,
+          hotelId,
+          runId,
+          now,
+          cellsChecked,
+          cellsChanged,
+          // A set of nights with gaps names no range: nothing may read it as
+          // having priced the nights in between.
+          !opts.nights || isContiguousNights(stayDates)
+            ? { first: stayDates[0], last: stayDates[stayDates.length - 1] }
+            : null,
+          opts.runKind || opts.nights
+            ? {
+                runKind: opts.runKind ?? "nights",
+                nightsPriced: stayDates.length,
+                list: opts.nights && !isContiguousNights(stayDates) ? stayDates : null,
+              }
+            : undefined,
+        ),
     ],
     // Nights a rule has adjusted 3 times, for the owner to answer.
     [
@@ -1622,6 +1795,33 @@ export async function evaluateHotel(
         }),
       );
     }
+  }
+
+  if (report) {
+    // A pickup count that opened at a change reaches its whole window at
+    // that change plus the window, and a "less than" rule starts judging
+    // then (pickupJudgesShortStretch): every change still on a priced night,
+    // this run's included, for every window in use.
+    if (pickupWindows.length > 0) {
+      const onNight = [
+        ...openFires.filter((f) => !retiredIds.has(f.id)).map((f) => ({ stayDate: f.stay_date, at: f.applied_at })),
+        ...[...allPickupWinners.values()].flat().map((w) => ({ stayDate: w.candidate.stay_date, at: now })),
+      ];
+      for (const { stayDate, at } of onNight) {
+        for (const w of pickupWindows) addWakeup(stayDate, Date.parse(at) + w * DAY_MS, "fire_window");
+      }
+      // A booking this run saw entered the snapshots now, and leaves each
+      // rolling pickup window exactly that window from now.
+      for (const stayDate of opts.bookingNights ?? []) {
+        for (const w of pickupWindows) addWakeup(stayDate, nowMs + w * DAY_MS, "pickup_window");
+      }
+    }
+    report.wakeups = [...wakeups.values()].sort(
+      (a, b) => a.stay_date.localeCompare(b.stay_date) || a.due_at.localeCompare(b.due_at),
+    );
+    report.failedNights = [...failedNights].filter((d) => stayDateSet.has(d)).sort();
+    report.momentumNights = bsCtx ? stayDates.filter((d) => usesMomentum(bsCtx!, d)) : [];
+    report.engineMs = Date.now() - startedMs;
   }
 
   return {

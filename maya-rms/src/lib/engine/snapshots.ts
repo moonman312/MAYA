@@ -29,7 +29,154 @@ export const MIGRATIONS = {
   pickupStacking: "99_supabase_migration_pickup_event_stacking_v1.sql",
   pickupWait: "99_supabase_migration_pickup_wait_v1.sql",
   undoOnCancellation: "99_supabase_migration_undo_on_cancellation_v1.sql",
+  pricingCadence: "99_supabase_migration_pricing_cadence_v1.sql",
 } as const;
+
+/* ── The nights one run prices ─────────────────────────────────────────────
+ *
+ * A run prices either every night from its first to its last (the window) or
+ * a set of nights (evaluateHotel's `nights` option: the nights whose inputs
+ * changed plus a chunk of the daily pass). Reads keyed by a range of nights
+ * ask for just the run's nights when that is cheaper: a short list goes in as
+ * a filter, a range function is called once per stretch of consecutive
+ * nights when there are few stretches, and otherwise the whole range is read
+ * and the caller keys by night, as every caller already does.
+ */
+
+/** Sorted, distinct YYYY-MM-DD nights. */
+export type NightSet = readonly string[];
+
+/** Longest list of nights sent as an `in` filter (about 2.4 KB of URL). */
+export const NIGHT_LIST_FILTER_MAX = 200;
+/** Most stretches of consecutive nights read one call each before the whole range is read instead. */
+export const NIGHT_SEGMENTS_MAX = 6;
+
+/** Whether the nights are every night from the first to the last. */
+export function isContiguousNights(nights: NightSet): boolean {
+  for (let i = 1; i < nights.length; i++) {
+    if (addUtcDays(nights[i - 1], 1) !== nights[i]) return false;
+  }
+  return true;
+}
+
+/** Stretches of consecutive nights, as [first, last] pairs. */
+export function nightSegments(nights: NightSet): [string, string][] {
+  const out: [string, string][] = [];
+  for (const night of nights) {
+    const last = out[out.length - 1];
+    if (last && addUtcDays(last[1], 1) === night) last[1] = night;
+    else if (!last || night > last[1]) out.push([night, night]);
+  }
+  return out;
+}
+
+/**
+ * The ranges a range function is called over for these nights: one per
+ * stretch when there are at most NIGHT_SEGMENTS_MAX, else the whole range.
+ */
+export function rangesForNights(nights: NightSet | undefined, firstDate: string, lastDate: string): [string, string][] {
+  if (!nights || nights.length === 0) return [[firstDate, lastDate]];
+  const segments = nightSegments(nights);
+  return segments.length <= NIGHT_SEGMENTS_MAX ? segments : [[firstDate, lastDate]];
+}
+
+/**
+ * Filters a query to the nights: the range, or the list itself when the
+ * nights are not consecutive and the list is short enough for a URL.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function filterNights(query: any, nights: NightSet | undefined, firstDate: string, lastDate: string, column = "stay_date"): any {
+  if (nights && nights.length > 0 && nights.length <= NIGHT_LIST_FILTER_MAX && !isContiguousNights(nights)) {
+    return query.in(column, nights as string[]);
+  }
+  return query.gte(column, firstDate).lte(column, lastDate);
+}
+
+/* ── Runs, for the pickup baseline's staleness guard ─────────────────────── */
+
+/** How long a hotel may go without a successful run before a pickup baseline inside that stretch is stale. */
+export const RUN_GAP_STALE_MS = 12 * 60 * 60 * 1000;
+
+/** A stretch with no run of the hotel longer than RUN_GAP_STALE_MS: no run strictly between `from` and `to`. */
+export type RunGap = { from: number; to: number };
+
+let loggedRunGapsMissing = false;
+
+/** Test hook: forget that the pre-migration line was already logged. */
+export function resetRunGapsLogOnce(): void {
+  loggedRunGapsMissing = false;
+}
+
+/**
+ * The stretches of more than RUN_GAP_STALE_MS without a run of the hotel
+ * between `from` and `to` (engine_run_gaps), both ends counting as runs.
+ * Null when they can't be read, before the migration included: the caller
+ * then judges a baseline by the age of its snapshot, as before.
+ */
+export async function loadRunGaps(
+  supabase: SupabaseClient,
+  hotelId: string,
+  from: string,
+  to: string,
+): Promise<RunGap[] | null> {
+  const { data, error } = await supabase.rpc("engine_run_gaps", {
+    p_hotel_id: hotelId,
+    p_from: from,
+    p_to: to,
+    p_min_gap_seconds: Math.round(RUN_GAP_STALE_MS / 1000),
+  });
+  if (error || !Array.isArray(data)) {
+    if (!loggedRunGapsMissing) {
+      loggedRunGapsMissing = true;
+      const missing = error && isMissingFunctionError(error);
+      console.error(
+        JSON.stringify({
+          fn: "evaluateHotel",
+          step: "engine_run_gaps",
+          hotelId,
+          ...(missing
+            ? {
+                schema: "pre-migration",
+                message: `engine_run_gaps does not exist yet; a pickup baseline is stale when its snapshot is over 12 hours older than it. Run ${MIGRATIONS.pricingCadence}.`,
+                migration: MIGRATIONS.pricingCadence,
+              }
+            : {}),
+          error: error?.message ?? "no rows came back",
+        }),
+      );
+    }
+    return null;
+  }
+  const out: RunGap[] = [];
+  for (const r of data as Record<string, unknown>[]) {
+    const a = Date.parse(String(r.gap_from));
+    const b = Date.parse(String(r.gap_to));
+    if (Number.isFinite(a) && Number.isFinite(b)) out.push({ from: a, to: b });
+  }
+  return out;
+}
+
+/**
+ * Whether a pickup count's window opens at a moment pricing was not
+ * running (§16.3). The snapshot found under the baseline is over
+ * RUN_GAP_STALE_MS older than it, and, when the run gaps were read, the
+ * hotel had no run at all in the RUN_GAP_STALE_MS up to the baseline.
+ *
+ * The first test alone is what the engine always asked. It was an outage
+ * test only while every run snapshotted every night: once most nights are
+ * priced once a day, the latest snapshot of a quiet night is usually hours
+ * old, and nothing is wrong. A run in the 12 hours up to the baseline says
+ * pricing was running, so a night with no snapshot since had no booking
+ * change since, and its older snapshot is its state at the baseline. The
+ * gaps come from a read that starts well before any baseline (see
+ * evaluateHotel), so "no run in the 12 hours" is exact.
+ */
+export function baselineIsStale(baselineTs: string, snapshotTs: string, gaps: readonly RunGap[] | null): boolean {
+  const at = Date.parse(baselineTs);
+  const old = at - Date.parse(snapshotTs) > RUN_GAP_STALE_MS;
+  if (!old || gaps === null) return old;
+  return gaps.some((g) => at > g.from + RUN_GAP_STALE_MS && at < g.to);
+}
 
 type PostgrestLike = { code?: string | null; message?: string | null } | null | undefined;
 
@@ -231,9 +378,25 @@ export async function loadReservationCells(
   hotelId: string,
   firstDate: string,
   lastDate: string,
+  /** The run's nights when they are not every night in the range (see rangesForNights). */
+  nights?: NightSet,
 ): Promise<ReservationCells | null> {
   const booked = new Map<string, { units: number; revenue: number }>();
   const latestBase = new Map<string, { base_rate: number | null; created_at: string }>();
+  for (const [from, to] of rangesForNights(nights, firstDate, lastDate)) {
+    if (!(await readReservationCells(supabase, hotelId, from, to, booked, latestBase))) return null;
+  }
+  return { booked, latestBase };
+}
+
+async function readReservationCells(
+  supabase: SupabaseClient,
+  hotelId: string,
+  firstDate: string,
+  lastDate: string,
+  booked: Map<string, { units: number; revenue: number }>,
+  latestBase: Map<string, { base_rate: number | null; created_at: string }>,
+): Promise<boolean> {
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase
       .rpc("engine_reservation_cells", { p_hotel_id: hotelId, p_from: firstDate, p_to: lastDate })
@@ -258,7 +421,7 @@ export async function loadReservationCells(
           }),
         );
       }
-      return null;
+      return false;
     }
     const rows = (data ?? []) as Record<string, unknown>[];
     for (const r of rows) {
@@ -271,7 +434,7 @@ export async function loadReservationCells(
     }
     if (rows.length < 1000) break;
   }
-  return { booked, latestBase };
+  return true;
 }
 
 /** Room nights on one night and room type, and the sum of their current_rate (null as 0). */
@@ -612,6 +775,11 @@ export type SnapshotLookup = {
    * the old way.
    */
   preloadAt: (cells: { stayDate: string; roomTypeIds: string[]; ts: string }[]) => Promise<void>;
+  /**
+   * Whether a pickup baseline at `baselineTs`, answered by the snapshot at
+   * `snapshotTs`, is too old to count (baselineIsStale over the run's gaps).
+   */
+  staleBaseline?: (baselineTs: string, snapshotTs: string) => boolean;
 };
 
 /** Instants per exact-snapshot read, which keeps the request line short. */
@@ -631,6 +799,8 @@ export function createSnapshotLookup(
   hotelId: string,
   writtenTs: string,
   writtenRows: SnapshotRow[],
+  /** The hotel's stretches without a run (loadRunGaps); null judges a baseline by its snapshot's age. */
+  runGaps: readonly RunGap[] | null = null,
 ): SnapshotLookup {
   const writtenByCell = new Map<string, SnapshotRow>();
   for (const r of writtenRows) writtenByCell.set(`${r.stay_date}|${r.room_type_id}`, r);
@@ -641,6 +811,10 @@ export function createSnapshotLookup(
   const cellKey = (stayDate: string, rtId: string, ts: string) => `${stayDate}|${rtId}|${ts}`;
 
   return {
+    staleBaseline(baselineTs, snapshotTs) {
+      return baselineIsStale(baselineTs, snapshotTs, runGaps);
+    },
+
     written(stayDate, roomTypeIds, ts) {
       if (ts !== writtenTs) return null;
       const snapshots = new Map<string, SnapshotRowAt>();

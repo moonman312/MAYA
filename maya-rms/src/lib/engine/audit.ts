@@ -11,7 +11,7 @@ import type { BaseSource } from "./base-price";
 import type { LadderPassResult } from "./ladder";
 import { basePriceKey, pickupTieBreakTrace, type PickupWin, type RetiredPickupFire } from "./pickup";
 import type { AssembledPrice } from "./pricing";
-import { MIGRATIONS, isMissingColumnError, isMissingFunctionError } from "./snapshots";
+import { MIGRATIONS, filterNights, isMissingColumnError, isMissingFunctionError, rangesForNights, type NightSet } from "./snapshots";
 import type { PickupCandidate } from "./types";
 
 export type AuditInput = {
@@ -282,17 +282,28 @@ const AUDIT_CHUNK_BYTES = 1_000_000;
 /**
  * Insert built audit rows in chunks instead of one request per cell. A chunk
  * that fails is retried row by row so a bad row costs only itself. Insert
- * errors go unreported, as they always have: the audit trail is bookkeeping
- * and must never fail a run whose prices are already published.
+ * errors never fail the run, as they never have: the audit trail is
+ * bookkeeping and must never fail a run whose prices are already published.
+ * The rows that did not land are returned, so a run that prices only some
+ * nights can price those again (a whole-window run writes them next tick).
  */
-export async function insertAuditRows(supabase: SupabaseClient, rows: Record<string, unknown>[]): Promise<void> {
+export async function insertAuditRows(
+  supabase: SupabaseClient,
+  rows: Record<string, unknown>[],
+): Promise<Record<string, unknown>[]> {
+  const failed: Record<string, unknown>[] = [];
   let chunk: Record<string, unknown>[] = [];
   let bytes = 0;
   const send = async () => {
     if (chunk.length === 0) return;
     const { error } = await supabase.from("evaluation_audit").insert(chunk);
     if (error && chunk.length > 1) {
-      for (const row of chunk) await supabase.from("evaluation_audit").insert([row]);
+      for (const row of chunk) {
+        const { error: rowError } = await supabase.from("evaluation_audit").insert([row]);
+        if (rowError) failed.push(row);
+      }
+    } else if (error) {
+      failed.push(...chunk);
     }
     chunk = [];
     bytes = 0;
@@ -304,6 +315,7 @@ export async function insertAuditRows(supabase: SupabaseClient, rows: Record<str
     bytes += size;
   }
   await send();
+  return failed;
 }
 
 /** The details fields a signature is built from, and nothing else. */
@@ -345,52 +357,57 @@ export async function loadLastAuditSignatures(
   hotelId: string,
   firstDate: string,
   lastDate: string,
+  /** The run's nights when they are not every night in the range. */
+  nights?: NightSet,
 ): Promise<Map<string, string>> {
   const PAGE = 1000;
   const signatures = new Map<string, string>();
 
   let rpcAvailable = true;
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase
-      .rpc("audit_last_signatures", { p_hotel_id: hotelId, p_from: firstDate, p_to: lastDate })
-      .order("stay_date", { ascending: true })
-      .order("room_type_id", { ascending: true })
-      .range(from, from + PAGE - 1);
-    if (error) {
-      if (!isMissingFunctionError(error)) {
-        throw new Error(`Failed to load prior audit signatures: ${error.message}`);
+  for (const [segFirst, segLast] of rangesForNights(nights, firstDate, lastDate)) {
+    if (!rpcAvailable) break;
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .rpc("audit_last_signatures", { p_hotel_id: hotelId, p_from: segFirst, p_to: segLast })
+        .order("stay_date", { ascending: true })
+        .order("room_type_id", { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) {
+        if (!isMissingFunctionError(error)) {
+          throw new Error(`Failed to load prior audit signatures: ${error.message}`);
+        }
+        if (!loggedAuditSignaturesMissing) {
+          loggedAuditSignaturesMissing = true;
+          console.error(
+            JSON.stringify({
+              fn: "loadLastAuditSignatures",
+              hotelId,
+              schema: "pre-migration",
+              message: `audit_last_signatures does not exist yet; paging the audit rows instead. Run ${MIGRATIONS.largePropertyScale}.`,
+              migration: MIGRATIONS.largePropertyScale,
+              error: error.message,
+            }),
+          );
+        }
+        rpcAvailable = false;
+        signatures.clear();
+        break;
       }
-      if (!loggedAuditSignaturesMissing) {
-        loggedAuditSignaturesMissing = true;
-        console.error(
-          JSON.stringify({
-            fn: "loadLastAuditSignatures",
-            hotelId,
-            schema: "pre-migration",
-            message: `audit_last_signatures does not exist yet; paging the audit rows instead. Run ${MIGRATIONS.largePropertyScale}.`,
-            migration: MIGRATIONS.largePropertyScale,
-            error: error.message,
-          }),
-        );
-      }
-      rpcAvailable = false;
-      signatures.clear();
-      break;
+      const rows = (data ?? []) as Record<string, unknown>[];
+      for (const r of rows) signatures.set(`${r.stay_date}|${r.room_type_id}`, signatureOf(r));
+      if (rows.length < PAGE) break;
     }
-    const rows = (data ?? []) as Record<string, unknown>[];
-    for (const r of rows) signatures.set(`${r.stay_date}|${r.room_type_id}`, signatureOf(r));
-    if (rows.length < PAGE) break;
   }
   if (rpcAvailable) return signatures;
 
   const seenKeys = new Set<string>();
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase
-      .from("evaluation_audit")
-      .select(SIGNATURE_COLUMNS)
-      .eq("hotel_id", hotelId)
-      .gte("stay_date", firstDate)
-      .lte("stay_date", lastDate)
+    const { data, error } = await filterNights(
+      supabase.from("evaluation_audit").select(SIGNATURE_COLUMNS).eq("hotel_id", hotelId),
+      nights,
+      firstDate,
+      lastDate,
+    )
       .order("evaluated_at", { ascending: false })
       .order("id", { ascending: false })
       .range(from, from + PAGE - 1);
@@ -447,7 +464,14 @@ export async function recordRunHeartbeat(
   evalTs: string,
   cellsChecked: number,
   cellsChanged: number,
-  nights?: { first: string; last: string },
+  nights?: { first: string; last: string } | null,
+  /**
+   * What kind of run this was (99_supabase_migration_pricing_cadence_v1.sql):
+   * "window" prices every night from first to last, "nights" the listed
+   * nights only, "save" a typed price's own run. Left off by callers that
+   * predate it, whose rows stay as they were.
+   */
+  kind?: { runKind: "window" | "nights" | "save"; nightsPriced: number; list?: readonly string[] | null },
 ): Promise<void> {
   const row = {
     hotel_id: hotelId,
@@ -458,14 +482,20 @@ export async function recordRunHeartbeat(
   };
   // The nights this run priced. The push only takes a run as proof that a
   // price is current for nights it covered: a manual price save evaluates up
-  // to the night it changed, not the whole window.
+  // to the night it changed, not the whole window. A run over a set of
+  // nights leaves first and last empty, so nothing reads it as covering the
+  // nights in between.
   const withNights = nights ? { ...row, first_stay_date: nights.first, last_stay_date: nights.last } : row;
-  let { error } = await supabase
-    .from("evaluation_run_log")
-    .upsert(withNights, { onConflict: "hotel_id,evaluation_run_id" });
-  if (error && nights && isMissingColumnError(error)) {
-    // Before the push guardrails migration: the heartbeat still counts for the change log.
-    ({ error } = await supabase.from("evaluation_run_log").upsert(row, { onConflict: "hotel_id,evaluation_run_id" }));
+  const withKind = kind
+    ? { ...withNights, run_kind: kind.runKind, nights_priced: kind.nightsPriced, nights: kind.list ?? null }
+    : withNights;
+  const attempts = [withKind, withNights, row].filter((r, i, all) => all.indexOf(r) === i);
+  let error: { message: string } | null = null;
+  for (const attempt of attempts) {
+    ({ error } = await supabase.from("evaluation_run_log").upsert(attempt, { onConflict: "hotel_id,evaluation_run_id" }));
+    // Before the push guardrails or cadence migration: the heartbeat still
+    // counts for the change log.
+    if (!error || !isMissingColumnError(error)) break;
   }
   if (error) throw new Error(`Run heartbeat failed: ${error.message}`);
 }

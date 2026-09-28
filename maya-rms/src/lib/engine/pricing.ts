@@ -7,7 +7,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BaseSource } from "./base-price";
-import { fetchAllRows } from "./snapshots";
+import { fetchAllRows, filterNights, type NightSet } from "./snapshots";
 import type { ActionDirection } from "@/types/domain";
 import type { AdjustmentSpec, RoomTypeRow } from "./types";
 
@@ -276,6 +276,8 @@ export async function loadActiveLadderEffectsForRange(
   firstDate: string,
   lastDate: string,
   supportsSuppression: boolean = true,
+  /** The run's nights when they are not every night in the range (filterNights). */
+  nights?: NightSet,
 ): Promise<Map<string, AdjustmentSpec[]>> {
   const out = new Map<string, AdjustmentSpec[]>();
   if (roomTypeIds.length === 0) return out;
@@ -283,13 +285,15 @@ export async function loadActiveLadderEffectsForRange(
   let rows: any[];
   try {
     rows = await fetchAllRows(() => {
-      let q = supabase
-        .from("ladder_rule_state")
-        .select("rule_id, stay_date, room_type_id, action_kind, action_direction, action_value")
-        .in("room_type_id", roomTypeIds)
-        .gte("stay_date", firstDate)
-        .lte("stay_date", lastDate)
-        .eq("is_active", true);
+      let q = filterNights(
+        supabase
+          .from("ladder_rule_state")
+          .select("rule_id, stay_date, room_type_id, action_kind, action_direction, action_value")
+          .in("room_type_id", roomTypeIds),
+        nights,
+        firstDate,
+        lastDate,
+      ).eq("is_active", true);
       if (supportsSuppression) q = q.is("suppressed_at", null);
       return q
         .order("stay_date", { ascending: true })
@@ -523,28 +527,39 @@ export async function publishPrices(
   hotelId: string,
   cells: PublishCell[],
   computedAt: string,
+  /**
+   * Filled with the `stay_date|room_type_id` of every cell whose write
+   * failed, so a run that prices only some nights can ask for those again.
+   * When the current prices can't be read, every cell goes in: the cell by
+   * cell path below logs its failures without saying which.
+   */
+  failedCells?: Set<string>,
 ): Promise<Set<string>> {
   const published = new Set<string>();
   if (cells.length === 0) return published;
-  const dates = cells.map((c) => c.stayDate).sort();
+  const dates = [...new Set(cells.map((c) => c.stayDate))].sort();
   const firstDate = dates[0];
   const lastDate = dates[dates.length - 1];
 
   const current = new Map<string, { price: unknown; base_price: unknown }>();
   try {
     const rows = await fetchAllRows(() =>
-      supabase
-        .from("published_price")
-        .select("stay_date, room_type_id, price, base_price")
-        .eq("hotel_id", hotelId)
-        .gte("stay_date", firstDate)
-        .lte("stay_date", lastDate)
+      filterNights(
+        supabase
+          .from("published_price")
+          .select("stay_date, room_type_id, price, base_price")
+          .eq("hotel_id", hotelId),
+        dates,
+        firstDate,
+        lastDate,
+      )
         .order("stay_date", { ascending: true })
         .order("room_type_id", { ascending: true }),
     );
     for (const r of rows) current.set(`${r.stay_date}|${r.room_type_id}`, r);
   } catch {
     for (const c of cells) {
+      failedCells?.add(`${c.stayDate}|${c.roomTypeId}`);
       if (await maybePublish(supabase, hotelId, c.stayDate, c.roomTypeId, c.finalPrice, computedAt, c.basePrice)) {
         published.add(`${c.stayDate}|${c.roomTypeId}`);
       }
@@ -581,7 +596,8 @@ export async function publishPrices(
       logPublishError(hotelId, chunk[0].cell, error.message);
     }
     for (const w of chunk) {
-      if (w.priceChanged && !failed.has(w)) published.add(`${w.cell.stayDate}|${w.cell.roomTypeId}`);
+      if (failed.has(w)) failedCells?.add(`${w.cell.stayDate}|${w.cell.roomTypeId}`);
+      else if (w.priceChanged) published.add(`${w.cell.stayDate}|${w.cell.roomTypeId}`);
     }
   }
   return published;

@@ -66,6 +66,7 @@ import {
   bookingKeyOf,
   bookingWindowOf,
   earliestBookingWindow,
+  hasAnyRowIndexed,
   pickupInWindowIndexed,
   type SlimReservationRow,
   type StayDateWindows,
@@ -740,6 +741,12 @@ export async function loadBookingSpeedContext(
   horizonEnd: string = localDate,
   countingRoomTypeIds: readonly string[] = [],
   signalSets: readonly (readonly string[])[] = [],
+  /**
+   * The stay dates a run prices when they are not every date from
+   * `localDate` through `horizonEnd` (sorted). Observations can then be taken
+   * for these and no other; horizonEnd must be the last of them.
+   */
+  targetDates?: readonly string[],
 ): Promise<BookingSpeedContext | null> {
   const historyStart = addDays(localDate, -(HISTORY_YEARS_BACK * 366));
   const historyEnd = addDays(localDate, -1);
@@ -752,7 +759,8 @@ export async function loadBookingSpeedContext(
     if (key !== hotelSetKey && key !== "") setIds.set(key, new Set(kept));
   }
   const targets: string[] = [];
-  for (let d = localDate; d <= horizonEnd; d = addDays(d, 1)) targets.push(d);
+  if (targetDates) targets.push(...targetDates);
+  else for (let d = localDate; d <= horizonEnd; d = addDays(d, 1)) targets.push(d);
 
   // Season inputs come from fully observed (past) dates only — future
   // dates' booking curves are still being written and would read as
@@ -957,6 +965,22 @@ function selectionFor(ctx: BookingSpeedContext, stayDate: string): ComparableSel
     ctx.selectionCache.set(stayDate, selection);
   }
   return selection;
+}
+
+/**
+ * Whether a night's Booking Speed reading leans on nearby nights: none of its
+ * comparable nights has a booking in the history of any set of room types
+ * the hotel's rules measure, so its observation falls back to momentum
+ * (observeBookingSpeed), which reads how the nights within
+ * MOMENTUM_RADIUS_DAYS of it are selling now. A booking on one of those
+ * nights then moves this night's reading. Which comparables a night gets,
+ * and whether they have history, depend on the hotel day and past stays
+ * only, so the answer holds for the whole day whatever arrives.
+ */
+export function usesMomentum(ctx: BookingSpeedContext, stayDate: string): boolean {
+  const selection = selectionFor(ctx, stayDate);
+  const indexes = [ctx.windowsByDate, ...(ctx.setWindows?.values() ?? [])];
+  return indexes.some((index) => !selection.comparables.some((c) => hasAnyRowIndexed(index, c.date)));
 }
 
 /**
