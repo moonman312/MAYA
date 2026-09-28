@@ -215,10 +215,11 @@ export const UNDO_ON_CANCELLATION_SHORT = "Undo on cancellations";
  * change counted have cancelled (cancellationFinding in engine/pickup.ts),
  * the change comes off only if its rule is also not true counted the way it
  * would count without it, bookings made since included
- * (cancellablePartsHold, evaluate.ts); kept, it counts as made at that run
- * (restateFire), which is where the rules count from after it, and what
- * "since the latest raise still on this night" means everywhere the owner
- * reads it; a cut's booking speed part is never
+ * (cancellablePartsHold, evaluate.ts); kept, only the numbers its own check
+ * recounts are taken again (restateFire), and every rule still counts from
+ * when it was made, which is what "since the latest raise still on this
+ * night" means everywhere the owner reads it (Jake, 2026-09-27: counting
+ * starts again only when a price changes); a cut's booking speed part is never
  * judged (cancellableParts), and an unticked occupancy rule keeps its
  * change (ladderConditionsHold in engine/conditions.ts). After an undo the
  * rule adjusts again once it is true and its wait, if it has one, is over.
@@ -233,7 +234,7 @@ export const UNDO_ON_CANCELLATION_HELP: { label: string; title: string; lines: s
   label: "What undo on cancellations does",
   title: "Undo on cancellations",
   lines: [
-    "Ticked: if bookings this change counted cancel and the rule is no longer true for the night, the change comes off. If bookings made since keep the rule true, it stays and counts as made at that point.",
+    "Ticked: if bookings this change counted cancel and the rule is no longer true for the night, the change comes off. If bookings made since keep the rule true, it stays, and rules keep counting from when it was made.",
     "A cut on booking speed stays when cancellations only slow the night down. Once a change comes off, the rule can adjust the night again when it is true again and any wait it has is over.",
     "Unticked: cancellations never undo it.",
     "Either way, a change comes off when the night passes or its price is set by you or in your PMS. A rule on occupancy or days before arrival also lets go once it stops being true for other reasons.",

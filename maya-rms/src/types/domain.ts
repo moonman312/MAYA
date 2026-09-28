@@ -190,11 +190,7 @@ export type PickupEvent = {
   stay_date: string;
   affected_room_type_id: string;
   baseline_start_ts: string;
-  /**
-   * When the numbers below were taken: applied_at, or a later run's when
-   * cancellations left the rule still true and its numbers were taken
-   * again (restateFire in engine/pickup.ts). Rules count from here.
-   */
+  /** When the numbers below were taken: the fire's own run, applied_at. */
   baseline_end_ts: string;
   signal_booked_units_start: number;
   signal_booked_units_end: number;
@@ -223,6 +219,15 @@ export type PickupEvent = {
   window_expected_at_fire?: number | null;
   /** The bookings counted in that window, by booking key: see PickupCandidate.window_booking_keys. */
   window_booking_keys?: string[] | null;
+  /**
+   * Set when a run found cancellations had taken this change's own count
+   * short but bookings made since kept its rule true: that run's instant,
+   * and the numbers its cancellation check recounts from then on, under the
+   * names of the columns above (CheckedCount in engine/pickup.ts). Only that
+   * check reads them; every rule still counts from applied_at.
+   */
+  checked_at?: string | null;
+  checked_count?: Record<string, unknown> | null;
   /** The measured room types at the fire (sorted ids, comma separated). */
   signal_set_key: string;
 };
