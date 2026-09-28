@@ -750,6 +750,41 @@ describe.each(ENGINES)("$name: the undo box", (engine) => {
     }, 120_000);
   });
 
+  describe("what a fire records reads only for fires about to be written", () => {
+    it("a raise that loses, or is held by a stronger rule still waiting, reads none of the night's bookings", async () => {
+      const rules = [
+        rule(
+          "Five in a day",
+          { booking_speed_operator: "at_least", booking_speed_level: "much_faster", booking_speed_window_days: 1, booking_speed_cooldown_days: 1 },
+          { priority: 100, action_value: 10 },
+        ),
+        rule(
+          "Stronger tier",
+          { booking_speed_operator: "at_least", booking_speed_level: "surging", booking_speed_window_days: 1, booking_speed_cooldown_days: 1 },
+          { priority: 120, action_value: 20 },
+        ),
+      ];
+      const w = timeline(engine, { rules, rows: [...paced(), ...burst(10, at(0, 10)), ...burst(7, at(0, 10, 30))] });
+      const nightReads = (from: number) =>
+        w.calls
+          .slice(from)
+          .filter((c) => c.table === "reservations" && c.op === "select" && c.columns.includes("external_reservation_id")).length;
+      let before = w.calls.length;
+      // Both are true on the 10; the stronger one wins and is written with its keys.
+      await w.runAt(at(0, 10, 5));
+      expect(w.price()).toBe(120);
+      expect(nightReads(before)).toBe(1);
+      expect((w.fires()[0].window_booking_keys as string[]).length).toBe(10);
+      // 7 more: the first rule counts them since the raise and would raise,
+      // but the stronger one, waiting, counts them too and holds the night.
+      before = w.calls.length;
+      await w.runAt(at(0, 10, 35));
+      expect(w.price()).toBe(120);
+      expect(w.story()).toEqual([["Stronger tier", iso(at(0, 10, 5)), null]]);
+      expect(nightReads(before)).toBe(0);
+    }, 120_000);
+  });
+
   describe("a rate changed in the PMS is not a cancellation (revenue more than 400 in 3 days, +10%)", () => {
     it("one of the five it counted is re-rated to 0 and an older booking cancels: it stays", async () => {
       const rev = rule("Revenue pickup", {
