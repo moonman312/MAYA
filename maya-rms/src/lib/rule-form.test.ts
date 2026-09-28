@@ -17,9 +17,38 @@ import {
   pickupCountsLow,
   pickupOwnWait,
   pickupSetsWait,
+  RATE_AMOUNT_BOTH,
+  RATE_AMOUNT_MISSING,
+  ruleActionError,
+  ruleActionFromAmounts,
   ruleConditionForInsert,
   waitDaysLabel,
 } from "./rule-form";
+
+describe("one amount per rule", () => {
+  it("uses whichever box has a number, signed by the direction", () => {
+    expect(ruleActionFromAmounts("10", "", "increase")).toEqual({ action: { adjust_rate_percent: 10 } });
+    expect(ruleActionFromAmounts("", "15", "decrease")).toEqual({ action: { adjust_rate_dollars: -15 } });
+  });
+
+  it("asks for an amount when neither box has one, and refuses both", () => {
+    expect(ruleActionFromAmounts("", " ", "increase")).toEqual({ error: RATE_AMOUNT_MISSING });
+    expect(ruleActionFromAmounts("10", "15", "increase")).toEqual({ error: RATE_AMOUNT_BOTH });
+  });
+
+  it("refuses a negative number in the box that has it", () => {
+    expect(ruleActionFromAmounts("-5", "", "increase")).toMatchObject({ error: expect.stringMatching(/^Enter the percentage/) });
+    expect(ruleActionFromAmounts("", "-5", "increase")).toMatchObject({ error: expect.stringMatching(/^Enter the amount/) });
+  });
+
+  it("finds both amounts in a request, whatever their values", () => {
+    expect(ruleActionError({ adjust_rate_percent: 10, adjust_rate_dollars: 5 })).toBe(RATE_AMOUNT_BOTH);
+    expect(ruleActionError({ adjust_rate_percent: 0, adjust_rate_dollars: null })).toBe(RATE_AMOUNT_BOTH);
+    expect(ruleActionError({ adjust_rate_percent: 10 })).toBeNull();
+    expect(ruleActionError({ adjust_rate_dollars: -5 })).toBeNull();
+    expect(ruleActionError(undefined)).toBeNull();
+  });
+});
 
 describe("threshold parsing rejects empty/negative instead of clamping to 0", () => {
   // Number("") and Number("  ") are both 0 and finite — a cleared field

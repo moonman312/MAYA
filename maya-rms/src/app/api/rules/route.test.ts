@@ -1,6 +1,7 @@
 /**
  * The rules routes refuse a room type set that would leave a rule measuring
- * or changing nothing, before anything reaches the store.
+ * or changing nothing, and a rule with both a percent and a fixed amount,
+ * before anything reaches the store.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -28,7 +29,7 @@ vi.mock("@/lib/rules-store", () => ({
 }));
 
 const { POST } = await import("@/app/api/rules/route");
-const { RoomTypeSetError } = await import("@/lib/rule-form");
+const { RoomTypeSetError, RuleAmountError } = await import("@/lib/rule-form");
 const { PUT } = await import("@/app/api/rules/[id]/route");
 
 const base = {
@@ -138,5 +139,40 @@ describe("the undo box on the rules routes", () => {
     updateRule.mockResolvedValueOnce(false);
     expect((await PUT(req({ undo_on_cancellation: false }, "PUT"), params)).status).toBe(404);
     ruleRow = { hotel_id: "h1" };
+  });
+});
+
+describe("one amount per rule on the rules routes", () => {
+  const both = { adjust_rate_percent: 10, adjust_rate_dollars: 5 };
+
+  it("POST refuses a percent and a fixed amount together with a 400 that says so", async () => {
+    const res = await POST(req({ ...base, action: both }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("Use a percent or a fixed amount, not both.");
+    expect(createRule).not.toHaveBeenCalled();
+  });
+
+  it("PUT refuses the same, and passes one amount through", async () => {
+    const refused = await PUT(req({ action: both }, "PUT"), params);
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).error).toBe("Use a percent or a fixed amount, not both.");
+    expect(updateRule).not.toHaveBeenCalled();
+    expect((await PUT(req({ action: { adjust_rate_dollars: -15 } }, "PUT"), params)).status).toBe(200);
+  });
+
+  it("POST saves a percent alone or a fixed amount alone", async () => {
+    expect((await POST(req({ ...base, action: { adjust_rate_percent: 10 } }))).status).toBe(201);
+    expect((await POST(req({ ...base, action: { adjust_rate_dollars: 15 } }))).status).toBe(201);
+    expect(createRule.mock.calls.map((c) => (c[0] as { action: unknown }).action)).toEqual([
+      { adjust_rate_percent: 10 },
+      { adjust_rate_dollars: 15 },
+    ]);
+  });
+
+  it("answers 400 when the store refuses both", async () => {
+    createRule.mockRejectedValueOnce(new RuleAmountError());
+    const res = await POST(req(base));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("Use a percent or a fixed amount, not both.");
   });
 });

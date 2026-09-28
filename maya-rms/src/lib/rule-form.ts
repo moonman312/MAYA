@@ -203,12 +203,11 @@ export const RULE_FIRES_HELP: { label: string; title: string; lines: string[] } 
 };
 
 /**
- * The rule builder's box, ticked on every new rule, and its short form in
- * the rules table. Jake, 2026-09-25: one option for every rule, the same for
- * a raise or a cut and for every kind of condition.
+ * The rule builder's box, ticked on every new rule. Jake, 2026-09-25: one
+ * option for every rule, the same for a raise or a cut and for every kind
+ * of condition. The rules list does not show it (Jake, 2026-09-28).
  */
 export const UNDO_ON_CANCELLATION_LABEL = "Undo the change if cancellations mean this rule is no longer true";
-export const UNDO_ON_CANCELLATION_SHORT = "Undo on cancellations";
 
 /**
  * The "?" beside the box. What the engine does: ticked, once bookings a
@@ -430,6 +429,58 @@ export function isRuleActionEmpty(a: RuleAction | undefined | null): boolean {
   const hasDolR =
     a.adjust_rate_dollars !== undefined && Number.isFinite(a.adjust_rate_dollars);
   return !hasPct && !hasDolR;
+}
+
+/* ── The amount: a percent or a fixed amount, never both ─────── */
+
+/** The builder's two amount boxes are both empty. */
+export const RATE_AMOUNT_MISSING = "Enter a percent or a fixed amount.";
+/** A rule with a percent and a fixed amount, which the routes refuse. */
+export const RATE_AMOUNT_BOTH = "Use a percent or a fixed amount, not both.";
+
+/**
+ * Why an action in a request is unusable because it has both amounts, or
+ * null. A key that is there at all counts, so nothing is silently dropped.
+ */
+export function ruleActionError(action: unknown): string | null {
+  if (!action || typeof action !== "object") return null;
+  const a = action as Record<string, unknown>;
+  return a.adjust_rate_percent !== undefined && a.adjust_rate_dollars !== undefined ? RATE_AMOUNT_BOTH : null;
+}
+
+/** A rule's action the store refused for having both amounts. The routes answer it with a 400. */
+export class RuleAmountError extends Error {
+  constructor() {
+    super(RATE_AMOUNT_BOTH);
+    this.name = "RuleAmountError";
+  }
+}
+
+/**
+ * The rule builder's two amount boxes. Typing in one greys out the other,
+ * so only one can hold a number; whichever does is the rule's amount, signed
+ * by the direction.
+ */
+export function ruleActionFromAmounts(
+  percent: string,
+  dollars: string,
+  direction: "increase" | "decrease",
+): { action: RuleAction } | { error: string } {
+  const p = percent.trim();
+  const d = dollars.trim();
+  if (p !== "" && d !== "") return { error: RATE_AMOUNT_BOTH };
+  if (p === "" && d === "") return { error: RATE_AMOUNT_MISSING };
+  const n = Number(p !== "" ? p : d);
+  if (!Number.isFinite(n) || n < 0) {
+    return {
+      error:
+        p !== ""
+          ? "Enter the percentage as a positive number. The direction dropdown decides increase or decrease."
+          : "Enter the amount as a positive number. The direction dropdown decides increase or decrease.",
+    };
+  }
+  const signed = direction === "decrease" ? -n : n;
+  return { action: p !== "" ? { adjust_rate_percent: signed } : { adjust_rate_dollars: signed } };
 }
 
 /* ── Measured and changed room types ─────────────────────────── */

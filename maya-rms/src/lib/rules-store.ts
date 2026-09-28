@@ -15,10 +15,12 @@ import { INITIAL_RULES } from "@/lib/demo-data";
 import { bookingSpeedLabel, isBookingSpeed } from "@/lib/observations/booking-speed";
 import {
   RoomTypeSetError,
+  RuleAmountError,
   bookingSpeedWaitLabel,
   eventRuleWaitDays,
   isRuleConditionEmpty,
   pickupCountsLow,
+  ruleActionError,
   ruleConditionForInsert,
   ruleConditionToLegacyConditions,
   waitDaysLabel,
@@ -601,6 +603,9 @@ export async function createRule(
   supabase?: SupabaseClient,
   hotelId?: string | null,
 ): Promise<RuleConfig> {
+  // One amount per rule. uiActionToDb would keep the percent and drop the
+  // fixed amount without a word, so both is refused before anything is saved.
+  if (ruleActionError(input.action)) throw new RuleAmountError();
   if (!supabase) {
     const conditionsFromMap =
       input.conditions && Object.keys(input.conditions).length > 0
@@ -868,6 +873,7 @@ export async function updateRule(
   // applied to the rule while reporting "failed" to the caller, which is
   // worse than doing nothing: it silently changes the rule's action/scope
   // and destroys its pickup history for an edit that never actually landed.
+  if (input.action && ruleActionError(input.action)) throw new RuleAmountError();
   let cleanCondition: RuleCondition | null = null;
   if (input.condition) {
     cleanCondition = ruleConditionForInsert(input.condition);

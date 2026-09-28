@@ -38,8 +38,9 @@ export type BuilderFill = {
   name?: string;
   rows?: ConditionFormRow[];
   direction?: "increase" | "decrease";
-  percent?: { enabled: boolean; value: string };
-  dollars?: { enabled: boolean; value: string };
+  /** One amount at most: the builder leaves the other box empty. */
+  percent?: string;
+  dollars?: string;
   split?: boolean;
 };
 
@@ -50,13 +51,8 @@ export function builderFill(params: Record<string, string>): BuilderFill {
   const rows = conditionRowsFromFill(params);
   if (rows) fill.rows = rows;
   if (params.direction === "increase" || params.direction === "decrease") fill.direction = params.direction;
-  if (params.percent) {
-    fill.percent = { enabled: true, value: params.percent };
-    fill.dollars = { enabled: false, value: "" };
-  } else if (params.amount) {
-    fill.percent = { enabled: false, value: "" };
-    fill.dollars = { enabled: true, value: params.amount };
-  }
+  if (params.percent) fill.percent = params.percent;
+  else if (params.amount) fill.dollars = params.amount;
   if (params.split === "1") fill.split = true;
   return fill;
 }

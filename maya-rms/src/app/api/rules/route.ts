@@ -1,9 +1,11 @@
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import {
   RoomTypeSetError,
+  RuleAmountError,
   isRuleActionEmpty,
   isRuleConditionEmpty,
   roomTypeIdListError,
+  ruleActionError,
   ruleConditionForInsert,
   undoOnCancellationError,
 } from "@/lib/rule-form";
@@ -59,7 +61,9 @@ export async function POST(req: Request) {
     ) {
       return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
     }
+    // A percent and a fixed amount together is refused, not trimmed to one.
     const setError =
+      ruleActionError(body.action) ??
       roomTypeIdListError(body.signal_room_type_ids, "measure") ??
       roomTypeIdListError(body.affected_room_type_ids, "change") ??
       undoOnCancellationError(body.undo_on_cancellation);
@@ -114,7 +118,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(rule, { status: 201 });
   } catch (error) {
-    if (error instanceof RoomTypeSetError) {
+    if (error instanceof RoomTypeSetError || error instanceof RuleAmountError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     return NextResponse.json(
