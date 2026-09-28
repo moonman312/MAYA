@@ -147,7 +147,8 @@ vi.mock("@/lib/rate-limit", async () => {
 });
 vi.mock("@/lib/engine", () => ({ evaluateHotel }));
 
-const { GET, PATCH, fallbackSeed, isCountingRoom } = await import("./route");
+const { GET, PATCH } = await import("./route");
+const { fallbackSeed, isCountingRoom } = await import("@/lib/room-types");
 
 function seed(opts?: Parameters<typeof fakeSupabase>[1]) {
   return fakeSupabase(
