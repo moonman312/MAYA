@@ -5,37 +5,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Dialog } from "@base-ui/react/dialog";
 import { ArrowUp, MessageCircleQuestion, RotateCcw, ThumbsDown, ThumbsUp, X } from "lucide-react";
-import manifest from "@/lib/docs/generated/ask-manifest.json";
-import { expandIndex, type AskIndex, type AskLink, type AskWire, type Confidence } from "@/lib/docs/ask/match";
-import { createHelper, placeFor, type CannedReply, type Helper, type Outcome } from "@/lib/docs/ask/respond";
+import type { AskIndex, AskLink, Confidence } from "@/lib/docs/ask/match";
+import { placeFor, type CannedReply, type Outcome } from "@/lib/docs/ask/respond";
 import { cn } from "@/lib/utils";
 import { useAsk } from "./ask-context";
 import { helpOrigin } from "./help-origin";
+import { loadHelper, prefetchHelper, type LoadedHelper } from "./helper-load";
 import { MarkdownLite } from "./markdown-lite";
 
 const SUPPORT_EMAIL = "info@modern-hospitality-solutions.com";
 const STORE_KEY = "maya-docs-ask";
-
-// The index is fetched the first time the panel opens, then kept for the visit.
-let loading: Promise<{ index: AskIndex; helper: Helper }> | null = null;
-function loadHelper() {
-  if (!loading) {
-    loading = fetch(manifest.file)
-      .then((r) => {
-        if (!r.ok) throw new Error(`docs index ${r.status}`);
-        return r.json() as Promise<AskWire>;
-      })
-      .then((wire) => {
-        const index: AskIndex = expandIndex(wire);
-        return { index, helper: createHelper(index) };
-      })
-      .catch((err) => {
-        loading = null;
-        throw err;
-      });
-  }
-  return loading;
-}
 
 interface Hit {
   entry: number;
@@ -286,7 +265,7 @@ export function AskPanel() {
   // renders once opened, so reading it here never differs from the server.
   const [turns, setTurns] = useState<Turn[]>(readStore);
   const [text, setText] = useState("");
-  const [ready, setReady] = useState<{ index: AskIndex; helper: Helper } | null>(null);
+  const [ready, setReady] = useState<LoadedHelper | null>(null);
   const [failed, setFailed] = useState(false);
   const [wasOpen, setWasOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -302,6 +281,13 @@ export function AskPanel() {
     }
   }
 
+  // Download the index in the background once the page has loaded, so the
+  // panel is ready when opened. Once per visit; skipped on data saver.
+  useEffect(() => {
+    if (enabled) return prefetchHelper();
+  }, [enabled]);
+
+  // Opened: use the background download (or its result), or start it now.
   useEffect(() => {
     if (!open || ready || failed) return;
     let cancelled = false;
