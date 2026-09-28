@@ -11,8 +11,8 @@ describe("builderFill", () => {
     const fill = builderFill(params);
     expect(fill.name).toBe("Slow-date rescue, not full");
     expect(fill.direction).toBe("decrease");
-    expect(fill.percent).toEqual({ enabled: true, value: "15" });
-    expect(fill.dollars).toEqual({ enabled: false, value: "" });
+    expect(fill.percent).toBe("15");
+    expect(fill.dollars).toBeUndefined();
     expect(strip(fill.rows)).toEqual([
       expect.objectContaining({ metric: "occupancy", operator: "lt", value: "50" }),
       expect.objectContaining({
@@ -35,9 +35,16 @@ describe("builderFill", () => {
   it("maps pickup's lookback and measure, a fixed amount, and the split box", () => {
     const fill = builderFill(links.parseLink("rules.new", "pickup=gt4.5&lookback=7&measures=revenue&amount=20&split=1&direction=increase").params);
     expect(fill.rows?.[0]).toMatchObject({ metric: "pickup", operator: "gt", value: "4.5", pickup_window_days: 7, pickup_metric: "revenue" });
-    expect(fill.dollars).toEqual({ enabled: true, value: "20" });
-    expect(fill.percent).toEqual({ enabled: false, value: "" });
+    expect(fill.dollars).toBe("20");
+    expect(fill.percent).toBeUndefined();
     expect(fill.split).toBe(true);
+  });
+
+  it("fills one amount at most, the percent when a hand-made link names both", () => {
+    expect(links.parseLink("rules.new", "percent=10&amount=20").params.amount).toBeUndefined();
+    const fill = builderFill({ percent: "10", amount: "20" });
+    expect(fill.percent).toBe("10");
+    expect(fill.dollars).toBeUndefined();
   });
 });
 

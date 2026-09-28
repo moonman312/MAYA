@@ -61,6 +61,18 @@ describe("rules-store (in-memory mode)", () => {
     expect(Number(r2.id)).toBeGreaterThan(Number(r1.id));
   });
 
+  it("refuses a rule with a percent and a fixed amount, and saves nothing", async () => {
+    await expect(
+      store.createRule({
+        rule_name: "Both",
+        conditions: { occupancy_percentage: ">90" },
+        action: { adjust_rate_percent: 10, adjust_rate_dollars: 5 },
+        room_types: ["Suite"],
+      }),
+    ).rejects.toThrow("Use a percent or a fixed amount, not both.");
+    expect((await store.listRules()).length).toBe(4);
+  });
+
   /* ── toggleRule ─────────────────────────────────────────────── */
 
   it("toggles an enabled rule to disabled", async () => {

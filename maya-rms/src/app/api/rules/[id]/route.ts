@@ -1,5 +1,12 @@
 import { hasHotelRank } from "@/lib/require-supabase-hotel";
-import { RULE_CHANGE_FORBIDDEN, RoomTypeSetError, roomTypeIdListError, undoOnCancellationError } from "@/lib/rule-form";
+import {
+  RULE_CHANGE_FORBIDDEN,
+  RoomTypeSetError,
+  RuleAmountError,
+  roomTypeIdListError,
+  ruleActionError,
+  undoOnCancellationError,
+} from "@/lib/rule-form";
 import { deleteRule, updateRule } from "@/lib/rules-store";
 import type { UpdateRuleInput } from "@/lib/rules-store";
 import { createClient } from "@/utils/supabase/server";
@@ -26,6 +33,7 @@ export async function PUT(req: Request, { params }: Params) {
 
     const body = (await req.json()) as Partial<UpdateRuleInput>;
     const setError =
+      ruleActionError(body.action) ??
       roomTypeIdListError(body.signal_room_type_ids, "measure") ??
       roomTypeIdListError(body.affected_room_type_ids, "change") ??
       undoOnCancellationError(body.undo_on_cancellation);
@@ -44,7 +52,7 @@ export async function PUT(req: Request, { params }: Params) {
     }
     return NextResponse.json({ ok: true });
   } catch (error) {
-    if (error instanceof RoomTypeSetError) {
+    if (error instanceof RoomTypeSetError || error instanceof RuleAmountError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     return NextResponse.json(

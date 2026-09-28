@@ -2451,7 +2451,7 @@
   "summary": "A five-minute walkthrough of the Rules tab, from + Add a rule to seeing your rule in the change log, with three more rules to try next.",
   "readingTime": 8,
   "readingNote": null,
-  "updated": "2026-09-27",
+  "updated": "2026-09-28",
   "pms": [],
   "headings": [
    {
@@ -2511,9 +2511,9 @@
   "order": 20,
   "title": "The rule builder, field by field",
   "summary": "Every field in + Add a rule, what each one accepts, what happens when you click Add Rule, and every message the form can show.",
-  "readingTime": 13,
+  "readingTime": 12,
   "readingNote": null,
-  "updated": "2026-09-27",
+  "updated": "2026-09-28",
   "pms": [],
   "headings": [
    {
@@ -2565,6 +2565,7 @@
    "Can I use both a percent and a fixed amount in one rule?",
    "Why did my rule fail to save with an amount of 0?",
    "Is there a limit on how big a raise or cut can be?",
+   "Why is one of the amount boxes greyed out?",
    "What does the checkbox under the amounts do?",
    "What does \"Apply to room types\" do?",
    "Why is a room type tagged \"not a room\" in the picker?",
@@ -3221,7 +3222,7 @@
   "summary": "The undo box, which price changes come off by themselves and which do not (standard rules, changes after cancellations, cuts, a price you type, a deleted rule), and the change log sentences for each.",
   "readingTime": 10,
   "readingNote": null,
-  "updated": "2026-09-27",
+  "updated": "2026-09-28",
   "pms": [],
   "headings": [
    {
@@ -3299,7 +3300,7 @@
   "summary": "What the On/Off switch and Delete each do to prices already set, how to change a rule when there is no edit yet, and how to read the rules list.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-27",
+  "updated": "2026-09-28",
   "pms": [],
   "headings": [
    {
@@ -5785,7 +5786,7 @@
   "summary": "A rule cannot be edited, so delete it (which undoes its price changes) and add it again with the new settings, or accept a Tune suggestion that moves an occupancy rule's threshold in place.",
   "readingTime": 4,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [],
   "headings": [
    {
@@ -5826,7 +5827,7 @@
   "summary": "One booking window rule moves every night MAYA prices by the same percentage. A rule cannot be limited to a season, so for a stretch of dates, type the new price for each room type with through…, or change your rates in your property system on nights MAYA has not sent a price to yet.",
   "readingTime": 9,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",

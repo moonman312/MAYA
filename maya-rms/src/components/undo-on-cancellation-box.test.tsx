@@ -1,18 +1,14 @@
 // @vitest-environment jsdom
 /**
- * The undo box in the rule builder and in the rules table: ticked to start,
- * a click is the owner's choice, and what it does is behind the "?".
+ * The undo box in the rule builder: ticked to start, a click is the owner's
+ * choice, and what it does is behind the "?". Saving a saved rule's box is
+ * kept for rule editing.
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { UNDO_ON_CANCELLATION_HELP, UNDO_ON_CANCELLATION_LABEL } from "@/lib/rule-form";
-import {
-  UNDO_BOX_NOT_SAVED,
-  UndoOnCancellationField,
-  UndoOnCancellationToggle,
-  saveUndoOnCancellation,
-} from "./undo-on-cancellation-box";
+import { UNDO_BOX_NOT_SAVED, UndoOnCancellationField, saveUndoOnCancellation } from "./undo-on-cancellation-box";
 
 afterEach(cleanup);
 
@@ -45,20 +41,6 @@ describe("UndoOnCancellationField", () => {
   });
 });
 
-describe("UndoOnCancellationToggle", () => {
-  it("names the rule it belongs to, shows the rule's setting and asks for the flip", () => {
-    const flips: string[] = [];
-    const { rerender } = render(<UndoOnCancellationToggle ruleName="Quick pickup" checked={false} onToggle={() => flips.push("x")} />);
-    const box = screen.getByLabelText(`${UNDO_ON_CANCELLATION_LABEL}: Quick pickup`) as HTMLInputElement;
-    expect(box.checked).toBe(false);
-    fireEvent.click(box);
-    expect(flips).toEqual(["x"]);
-    rerender(<UndoOnCancellationToggle ruleName="Quick pickup" checked disabled onToggle={() => flips.push("y")} />);
-    expect(box.checked).toBe(true);
-    expect(box.disabled).toBe(true);
-  });
-});
-
 describe("saving a saved rule's box", () => {
   const answer = (status: number, body: unknown) =>
     vi.fn(async () => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
@@ -79,14 +61,6 @@ describe("saving a saved rule's box", () => {
       throw new TypeError("offline");
     });
     expect(await saveUndoOnCancellation("r1", true, offline as unknown as typeof fetch)).toBe(UNDO_BOX_NOT_SAVED);
-  });
-
-  it("the table shows the reason under the box", () => {
-    render(<UndoOnCancellationToggle ruleName="Quick pickup" checked onToggle={() => {}} error="Only a Revenue Manager or above can change this." />);
-    expect(screen.getByRole("alert").textContent).toBe("Only a Revenue Manager or above can change this.");
-    cleanup();
-    render(<UndoOnCancellationToggle ruleName="Quick pickup" checked onToggle={() => {}} />);
-    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 

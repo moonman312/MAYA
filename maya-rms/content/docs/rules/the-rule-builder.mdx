@@ -3,16 +3,17 @@ title: The rule builder, field by field
 summary: Every field in + Add a rule, what each one accepts, what happens when you click Add Rule, and every message the form can show.
 section: rules
 order: 20
-readingTime: 13
+readingTime: 12
 keywords: [rule builder, add a rule, conditions, metric, compare, threshold, direction, percent, fixed amount, dollar amount, apply to room types, not a room, meeting room never fires, select all, add rule, form stays open, draft kept, switch tabs, please fill out this field, please select an item in the list, value must be greater than or equal to 0, browser message, invalid payload, invalid room types, no accessible hotel, viewer, failed to save, 40 active rules, maximum, too many rules, amount of 0, both percent and fixed, limit on the amount, maximum percent, how big a cut, 100% cut, 150%, typo, price went to $1, price at the floor, combine conditions, four conditions, undo box, undo the change if cancellations mean this rule is no longer true, ticked by default, pickup wait, then waits]
 questions:
   - What are the parts of a rule? {#in-plain-words}
   - What conditions can a rule use? {#conditions/metric-label-what}
   - Can I combine conditions in one rule? {#conditions/the-conditions-section}
   - Should I use a percent or a fixed amount? {#rate-adjustment/the-rate-adjustment}
-  - Can I use both a percent and a fixed amount in one rule? {#rate-adjustment/the-rate-adjustment}
+  - Can I use both a percent and a fixed amount in one rule? {#rate-adjustment/a-rule-has}
   - Why did my rule fail to save with an amount of 0? {#rate-adjustment/careful-an-amount}
   - Is there a limit on how big a raise or cut can be? {#rate-adjustment/is-there-a}
+  - Why is one of the amount boxes greyed out? {#rate-adjustment/a-rule-has}
   - What does the checkbox under the amounts do? {#rate-adjustment/under-the-amounts}
   - What does "Apply to room types" do? {#apply-to-room-types/the-apply-to}
   - Why is a room type tagged "not a room" in the picker? {#apply-to-room-types/the-apply-to}
@@ -24,7 +25,7 @@ questions:
   - Why does a rule for the Meeting Room alone never fire? {#apply-to-room-types/with-one-list}
   - Why does my browser say "Please fill out this field" when I add a rule? {#messages-you-can-meet}
   - What does "This property already has 40 active rules" mean? {#messages-you-can-meet}
-updated: 2026-09-27
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -73,22 +74,20 @@ The <Ui>Rate adjustment</Ui> section has a dropdown and two boxes.
 
 <Ui>Direction (required)</Ui> starts blank on purpose, showing "Choose: increase or decrease the rate…". Pick <Ui>Increase the rate</Ui> or <Ui>Decrease the rate</Ui>. If you leave it blank, your browser stops the save and points at the dropdown.
 
-<Ui>Adjust by percent (%)</Ui> is a checkbox with a number box beside it. It starts ticked with 10. A percent change multiplies the price: 10% on $150 gives $165, and when two percent rules land on the same night they compound (10% then 25% on $200 gives $275, not $270).
+<Ui>Adjust by percent (%)</Ui> is a number box, empty to start, showing "e.g. 10" until you type. A percent change multiplies the price: 10% on $150 gives $165, and when two percent rules land on the same night they compound (10% then 25% on $200 gives $275, not $270).
 
-<Ui>Adjust by fixed amount ($)</Ui> is a checkbox with a number box. It starts unticked. A fixed amount adds to or subtracts from the price: $25 on $150 gives $175. The box shows a $ sign whatever your property's currency. The amount is in your property's currency.
+<Ui>Adjust by fixed amount ($)</Ui> is the number box under it, also empty, showing "e.g. 15". A fixed amount adds to or subtracts from the price: $25 on $150 gives $175. The box shows a $ sign whatever your property's currency. The amount is in your property's currency.
 
-Type the amount as a positive number in either box. The direction dropdown supplies the sign. If you type a negative number, your browser stops the save and points at the box. Unticking a box clears its number.
+A rule has one amount. Type a number in one box and the other is greyed out until you clear it. Whichever box has the number is the amount the rule saves. For a raise of 10% plus $5, make two rules: they stack.
 
-Under the amounts is one more checkbox, <Ui>Undo the change if cancellations mean this rule is no longer true</Ui>, ticked to start. Ticked, a change the rule makes comes off when guests cancel and the rule is no longer true for that night. Unticked, cancellations never take its changes off. You can change it later on the <Ui>Rules</Ui> tab. Read [The undo box](/docs/rules/when-a-change-comes-off#the-undo-box).
+Type the amount as a positive number. The direction dropdown supplies the sign. If you type a negative number, your browser stops the save and points at the box.
+
+Under the amounts is one more checkbox, <Ui>Undo the change if cancellations mean this rule is no longer true</Ui>, ticked to start. Ticked, a change the rule makes comes off when guests cancel and the rule is no longer true for that night. Unticked, cancellations never take its changes off. It is set when you add the rule: the rules list does not show it, and it cannot be changed on a saved rule. Read [The undo box](/docs/rules/when-a-change-comes-off#the-undo-box).
 
 **"Is there a limit on how big a raise or cut can be?"** Not one you would meet: any amount above 0 saves in either box, up to just under 1,000,000. A raise stops at the room type's ceiling. A cut that would take the price below the floor publishes the floor instead. A cut of 100% or more, or a fixed cut as big as the price, takes the price to 0 or below on its own, so the room type's floor is published, and the floor is 1.00 in your property's currency until you set one. A typo such as 150 for 15 on a cut rule does exactly that. Set real floors before you use large cuts, and read the number again before you click <Ui>Add Rule</Ui>. Read [Floors and ceilings](/docs/review/floors-and-ceilings).
 
-<Callout kind="careful" title="One amount, not both">
-The screen says both amounts apply when both boxes are ticked. Today that is not what is saved. When both boxes are ticked, only the percent is kept and the fixed amount is dropped. Choose one. If you want a raise of 10% plus $5, that is two rules.
-</Callout>
-
 <Callout kind="careful" title="An amount of 0 cannot be saved">
-The form accepts 0 in either box, but MAYA refuses to store a rule that changes the price by nothing. The save fails and the error appears in red under the form. Type a real amount.
+The form accepts 0 as an amount, but MAYA refuses to store a rule that changes the price by nothing. The save fails and the error appears in red under the form. Type a real amount.
 </Callout>
 
 ## Apply to room types
@@ -127,9 +126,7 @@ From the next check, a night 0, 1 or 2 days away with fewer than half its sellab
 | Message | Why | What to do |
 |---|---|---|
 | Your browser's own note beside a field, such as "Please fill out this field." or "Value must be greater than or equal to 0." | The name, a <Ui>Threshold</Ui> or <Ui>Direction (required)</Ui> is empty, or a threshold or amount is below 0. The wording depends on your browser | Fill in the field it points at, with a number of 0 or more |
-| Enter a percentage adjustment, or turn off %. | The percent box is ticked but empty | Type a percent, or untick the box |
-| Enter a dollar adjustment, or turn off $. | The fixed amount box is ticked but empty | Type an amount, or untick the box |
-| Enable at least one rate adjustment (% or $). | Both boxes unticked | Tick one and type an amount |
+| Enter a percent or a fixed amount. | Both amount boxes are empty | Type a number in one of them |
 | Select at least one room type. | No chip selected | Click a room type |
 | Pick at least one room type to measure. | The split is on and the <Ui>Measure</Ui> list is empty, or you switched property in another browser tab, so the room types on this page belong to a different property | Select a room type that counts as a room. After a switch, reload the page, check the <Ui>Property</Ui> selector and add the rule again |
 | Pick at least one room type to change. | The split is on and the <Ui>Change</Ui> list is empty | Select a room type |
