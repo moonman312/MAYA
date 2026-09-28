@@ -15,7 +15,9 @@
  * chaining to exercise both functions' real control flow.
  */
 import { describe, expect, it } from "vitest";
-import { createRule, listRules, updateRule, type CreateRuleInput } from "./rules-store";
+import { ruleWaitDays } from "./engine/pickup";
+import { formatRuleConditionsDisplay } from "./rule-form";
+import { createRule, listEngineRules, listRules, updateRule, type CreateRuleInput } from "./rules-store";
 
 type Row = Record<string, unknown>;
 
@@ -31,6 +33,10 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
   // specifically the NEW data, not a blanket table outage (so a compensating
   // re-insert of the untouched OLD row is expected to succeed).
   const failInsertWhen = new Map<string, (row: Row) => boolean>();
+  /** Ids row security won't let this caller update (staff, viewers): the update touches nothing. */
+  const readOnly = new Set<string>();
+  /** Every column list a read asked for, by table. */
+  const selects: { table: string; columns: string }[] = [];
 
   function matches(row: Row, filters: [string, unknown][]): boolean {
     return filters.every(([col, val]) => row[col] === val);
@@ -43,7 +49,8 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
     let mode: "insert" | "update" | "delete" | "select" = "select";
 
     const api = {
-      select() {
+      select(columns?: string) {
+        if (mode === "select" && columns) selects.push({ table, columns });
         return api;
       },
       eq(col: string, val: unknown) {
@@ -96,11 +103,14 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
         return { data: inserted, error: null };
       }
       if (mode === "update" && pendingUpdate) {
-        const rows = tableOf(table);
-        for (const r of rows) {
-          if (matches(r, filters)) Object.assign(r, pendingUpdate);
+        const updated: Row[] = [];
+        for (const r of tableOf(table)) {
+          if (matches(r, filters) && !readOnly.has(String(r.id))) {
+            Object.assign(r, pendingUpdate);
+            updated.push(r);
+          }
         }
-        return { data: null, error: null };
+        return { data: updated, error: null };
       }
       if (mode === "delete") {
         const rows = tableOf(table);
@@ -117,7 +127,7 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
 
   const client = { from: (t: string) => builder(t) };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return { client: client as any, tables, failInsertWhen };
+  return { client: client as any, tables, failInsertWhen, selects, readOnly };
 }
 
 const HOTEL = "hotel-1";
@@ -287,5 +297,191 @@ describe("listRules: a booking speed rule's card says how long it waits", () => 
     expect(await card(14, { operator: "gt", windowDays: 7 })).toBe(
       "at least Much Faster Than Normal (past week), then waits 2 weeks",
     );
+  });
+});
+
+describe("a pickup count rule's wait round-trips through the store", () => {
+  const pickup = { pickup_operator: "gt", pickup_threshold: 5, pickup_window_days: 7, pickup_metric: "room_nights" } as const;
+  /** The rule as PostgREST hands it back: its condition embedded. */
+  const readBack = (tables: Map<string, Row[]>) => {
+    const rule = { ...tables.get("pricing_rules")![0], rule_condition: tables.get("rule_condition")![0] };
+    return fakeSupabase({ pricing_rules: [rule] });
+  };
+
+  it("writes the wait chosen, and the engine reads it back and waits it", async () => {
+    const { client, tables } = fakeSupabase();
+    await createRule(baseCreateInput({ condition: { ...pickup, pickup_cooldown_days: 2 } }), client, HOTEL);
+    expect(tables.get("rule_condition")![0]).toMatchObject({ ...pickup, pickup_cooldown_days: 2 });
+    expect(tables.get("pricing_rules")![0]).toMatchObject({ is_pickup_rule: true });
+    const reader = readBack(tables);
+    const [rule] = await listEngineRules(reader.client, HOTEL);
+    expect(rule.condition.pickup_cooldown_days).toBe(2);
+    expect(ruleWaitDays(rule)).toBe(2);
+    // The read asks for the column: the fake hands back whole rows, PostgREST doesn't.
+    expect(reader.selects.find((s) => s.table === "pricing_rules")?.columns).toMatch(/rule_condition \([^)]*pickup_cooldown_days/);
+  });
+
+  it("left on the lookback window, writes no wait, and reads back as the window", async () => {
+    const { client, tables } = fakeSupabase();
+    await createRule(baseCreateInput({ condition: { ...pickup, pickup_cooldown_days: null } }), client, HOTEL);
+    expect(tables.get("rule_condition")![0]).not.toHaveProperty("pickup_cooldown_days");
+    const [rule] = await listEngineRules(readBack(tables).client, HOTEL);
+    expect(rule.condition.pickup_cooldown_days).toBeNull();
+    expect(ruleWaitDays(rule)).toBe(7);
+  });
+
+  it("changing only the wait is an edit: the version moves on and the rule's fires come off", async () => {
+    const { client, tables } = fakeSupabase({
+      pricing_rules: [{ id: "r1", version: 1, is_active: true, is_pickup_rule: true }],
+      rule_condition: [{ rule_id: "r1", ...pickup }],
+      pickup_event: [{ id: "pe1", rule_id: "r1", retired_at: null }],
+    });
+    expect(await updateRule("r1", { condition: { ...pickup, pickup_cooldown_days: 2 } }, client)).toBe(true);
+    expect(tables.get("pricing_rules")![0]).toMatchObject({ version: 2, is_pickup_rule: true });
+    expect(tables.get("pickup_event")![0]).toMatchObject({ retired_reason: "rule_edited" });
+    expect(tables.get("rule_condition")).toHaveLength(1);
+    expect(tables.get("rule_condition")![0]).toMatchObject({ rule_id: "r1", ...pickup, pickup_cooldown_days: 2 });
+
+    // And back to the window.
+    expect(await updateRule("r1", { condition: { ...pickup, pickup_cooldown_days: null } }, client)).toBe(true);
+    expect(tables.get("pricing_rules")![0]).toMatchObject({ version: 3 });
+    expect(tables.get("rule_condition")).toHaveLength(1);
+    expect(tables.get("rule_condition")![0]).toMatchObject({ rule_id: "r1", ...pickup });
+    expect(tables.get("rule_condition")![0]).not.toHaveProperty("pickup_cooldown_days");
+  });
+
+  it("the rules table says a pickup rule's window and the wait it keeps, chosen or not", async () => {
+    const table = async (condition: Record<string, unknown>) => {
+      const { client } = fakeSupabase({
+        pricing_rules: [
+          {
+            id: "r1",
+            hotel_id: "h1",
+            name: "Pickup",
+            is_active: true,
+            version: 1,
+            action_type: "percent",
+            action_direction: "increase",
+            action_value: 10,
+            is_pickup_rule: true,
+            rule_condition: condition,
+          },
+        ],
+      });
+      return formatRuleConditionsDisplay((await listRules(client, "h1"))[0].conditions);
+    };
+    expect(await table({ ...pickup, pickup_cooldown_days: 2 })).toBe("Pickup above 5 bookings (past week), then waits 2 days");
+    // None chosen: it waits its window (ruleWaitDays).
+    expect(await table({ ...pickup, pickup_cooldown_days: null })).toBe("Pickup above 5 bookings (past week), then waits 1 week");
+    expect(await table({ ...pickup, pickup_window_days: 3, pickup_cooldown_days: null })).toBe(
+      "Pickup above 5 bookings (past 3 days), then waits 3 days",
+    );
+    expect(await table({ ...pickup, pickup_operator: "lt", pickup_window_days: 1, pickup_cooldown_days: 14 })).toBe(
+      "Pickup below 5 bookings (past day), then waits 2 weeks",
+    );
+    // A rule on low pickup never adjusts a night again before its whole
+    // window has passed (pickupJudgesShortStretch), so a shorter wait reads
+    // as its window.
+    expect(await table({ ...pickup, pickup_operator: "lt", pickup_cooldown_days: 1 })).toBe(
+      "Pickup below 5 bookings (past week), then waits 1 week",
+    );
+    // With booking speed too, the wait is said once, the longer of the two.
+    expect(
+      await table({
+        ...pickup,
+        pickup_cooldown_days: 2,
+        booking_speed_operator: "at_least",
+        booking_speed_level: "faster",
+        booking_speed_window_days: 7,
+        booking_speed_cooldown_days: 3,
+      }),
+    ).toBe("Pickup above 5 bookings (past week) · booking speed at least Faster Than Normal (past week), then waits 3 days");
+  });
+
+  it("the card names the pickup wait chosen when it is longer than the booking speed one", async () => {
+    const { client } = fakeSupabase({
+      pricing_rules: [
+        {
+          id: "r1",
+          hotel_id: "h1",
+          name: "Both",
+          is_active: true,
+          version: 1,
+          action_type: "percent",
+          action_direction: "increase",
+          action_value: 10,
+          is_pickup_rule: true,
+          rule_condition: {
+            ...pickup,
+            pickup_cooldown_days: 14,
+            booking_speed_operator: "at_least",
+            booking_speed_level: "faster",
+            booking_speed_window_days: 7,
+            booking_speed_cooldown_days: 3,
+          },
+        },
+      ],
+    });
+    expect((await listRules(client, "h1"))[0].conditions.booking_speed).toBe(
+      "at least Faster Than Normal (past week), then waits 2 weeks",
+    );
+  });
+});
+
+describe("the undo box round-trips through the store", () => {
+  const occupancy = { occupancy_operator: "gt", occupancy_threshold: 0.7 } as const;
+  const readBack = (tables: Map<string, Row[]>) => {
+    const rule = { ...tables.get("pricing_rules")![0], rule_condition: tables.get("rule_condition")![0] };
+    return fakeSupabase({ pricing_rules: [rule] });
+  };
+
+  it("a new rule is written ticked unless the owner unticked it, and reads back the same way to the table and the engine", async () => {
+    for (const [given, stored] of [
+      [undefined, true],
+      [true, true],
+      [false, false],
+    ] as const) {
+      const { client, tables } = fakeSupabase();
+      await createRule(baseCreateInput({ condition: occupancy, undo_on_cancellation: given }), client, HOTEL);
+      expect(tables.get("pricing_rules")![0]).toMatchObject({ undo_on_cancellation: stored });
+      const reader = readBack(tables);
+      expect((await listRules(reader.client, HOTEL))[0].undo_on_cancellation).toBe(stored);
+      expect((await listEngineRules(reader.client, HOTEL))[0].undo_on_cancellation).toBe(stored);
+      // The reads ask for the column.
+      expect(reader.selects.find((s) => s.table === "pricing_rules")?.columns).toMatch(/undo_on_cancellation/);
+    }
+  });
+
+  it("a rule saved before the box existed reads as ticked", async () => {
+    const { client } = fakeSupabase({ pricing_rules: [{ id: "r1", hotel_id: HOTEL, name: "Old", is_active: true, action_type: "percent", action_direction: "increase", action_value: 10, rule_condition: occupancy }] });
+    expect((await listRules(client, HOTEL))[0].undo_on_cancellation).toBe(true);
+    expect((await listEngineRules(client, HOTEL))[0].undo_on_cancellation).toBe(true);
+  });
+
+  it("changing the box is not an edit: the version and the rule's changes stay", async () => {
+    const { client, tables } = fakeSupabase({
+      pricing_rules: [{ id: "r1", version: 4, is_active: true, is_pickup_rule: true, undo_on_cancellation: true }],
+      rule_condition: [{ rule_id: "r1", ...occupancy }],
+      pickup_event: [{ id: "pe1", rule_id: "r1", retired_at: null }],
+    });
+    expect(await updateRule("r1", { undo_on_cancellation: false }, client)).toBe(true);
+    expect(tables.get("pricing_rules")![0]).toMatchObject({ version: 4, undo_on_cancellation: false });
+    expect(tables.get("pickup_event")![0]).toMatchObject({ retired_at: null });
+    expect(await updateRule("r1", { undo_on_cancellation: true }, client)).toBe(true);
+    expect(tables.get("pricing_rules")![0]).toMatchObject({ version: 4, undo_on_cancellation: true });
+  });
+
+  it("a save row security leaves untouched (staff, viewers) says it failed, and nothing else moves", async () => {
+    const { client, tables, readOnly } = fakeSupabase({
+      pricing_rules: [{ id: "r1", version: 4, is_active: true, is_pickup_rule: true, undo_on_cancellation: true }],
+      rule_condition: [{ rule_id: "r1", ...occupancy }],
+      pickup_event: [{ id: "pe1", rule_id: "r1", retired_at: null }],
+    });
+    readOnly.add("r1");
+    expect(await updateRule("r1", { undo_on_cancellation: false }, client)).toBe(false);
+    expect(await updateRule("r1", { condition: { ...occupancy, occupancy_threshold: 0.9 } }, client)).toBe(false);
+    expect(tables.get("pricing_rules")![0]).toMatchObject({ version: 4, undo_on_cancellation: true });
+    expect(tables.get("rule_condition")![0]).toMatchObject({ occupancy_threshold: occupancy.occupancy_threshold });
+    expect(tables.get("pickup_event")![0]).toMatchObject({ retired_at: null });
   });
 });

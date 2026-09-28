@@ -389,6 +389,8 @@ describe("counts_as_room in starter rules", () => {
     );
     const specs = await generateStarterRules(client, "h1");
     expect(specs.length).toBeGreaterThan(0);
+    // Every starter rule starts with its undo box ticked.
+    expect(tables.pricing_rules.map((r) => r.undo_on_cancellation)).toEqual(specs.map(() => true));
     const perRule = (t: FakeRow[]) => new Set(t.map((r) => r.room_type_id));
     expect(perRule(tables.rule_signal_room_type)).toEqual(new Set(["rt1", "rt3"]));
     expect(perRule(tables.rule_affected_room_type)).toEqual(new Set(["rt1", "rt3"]));

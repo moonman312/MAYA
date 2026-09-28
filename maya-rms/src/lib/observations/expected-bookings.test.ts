@@ -14,8 +14,13 @@ import {
   observeBookingSpeed,
   pickupInWindow,
   trimmedMean,
+  countFromInWindow,
+  lastCountedDay,
+  windowDaysFrom,
   type SlimReservationRow,
 } from "../../../supabase/functions/_shared/observations/expected-bookings";
+import { estimateMomentumFallback } from "../../../supabase/functions/_shared/observations/momentum";
+import { indexBookingRows } from "../../../supabase/functions/_shared/observations/booking-rows";
 import { classifyBookingSpeed } from "../../../supabase/functions/_shared/observations/booking-speed";
 
 const NO_MATH_SYMBOLS = /[<>]/;
@@ -398,6 +403,350 @@ describe("observeBookingSpeed", () => {
     expect(expectation).toContain("4 similar past dates");
     expect(expectation).toContain("days before arrival");
     expect(expectation).not.toMatch(NO_MATH_SYMBOLS);
+  });
+});
+
+describe("observeBookingSpeed from a date: a rule counts only what came after its last fire", () => {
+  // Target 14 days out on 2026-08-01. countFrom 2026-07-30 leaves 3 days of a
+  // 7-day window: bookings 14, 15 and 16 days before arrival. The
+  // comparables read the same days, or with wholeWindowBar (a rule that
+  // raises on "at least" a pace) their whole week.
+  const TARGET = "2026-08-15";
+  const AS_OF = "2026-08-01";
+  const FROM = "2026-07-30";
+  const COMPARABLES = ["2025-08-16", "2025-08-09", "2025-08-02", "2024-08-17", "2024-08-10"];
+  const selection = (comparables: string[]): ComparableSelection => ({
+    target: TARGET,
+    comparables: comparables.map((date, i) => ({ date, tier: 1, reasons: ["a Saturday"], score: 100 - i })),
+    assumptions: {
+      dayOfWeek: "Saturday",
+      dowClass: "weekend",
+      holiday: null,
+      seasonLabel: "Peak Season",
+      seasonRange: "June 1 through August 31",
+      relaxed: false,
+    },
+  });
+  const rowsFor = (stayDate: string, leads: number[]): SlimReservationRow[] =>
+    leads.map((w) => ({ stay_date: stayDate, booking_window_days: w }));
+  // Every comparable books one room a day, 14 to 20 days out, plus older ones.
+  const usual = COMPARABLES.flatMap((d) => rowsFor(d, [14, 15, 16, 17, 18, 19, 20, 40, 60]));
+
+  it("counts the days from the date on, on the target and on every comparable", () => {
+    const rows = [...usual, ...rowsFor(TARGET, [14, 16, 17, 18, 19, 20, 20])];
+    const obs = observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, countFrom: FROM });
+    expect(obs.windowDays).toBe(3);
+    expect(obs.countedFrom).toBe(FROM);
+    expect(obs.fullWindowDays).toBe(7);
+    // Two of the target's seven bookings in the week were made from the 30th on.
+    expect(obs.recentBookings).toBe(2);
+    // Each comparable over the same three days of its own booking curve.
+    expect(obs.perComparable.map((c) => c.bookings)).toEqual([3, 3, 3, 3, 3]);
+    expect(obs.expectedBookings).toBe(3);
+    expect(obs.expectedOverFullWindow).toBeUndefined();
+  });
+
+  it("with wholeWindowBar keeps the comparables' whole week as the bar, the target still counted from the date", () => {
+    const rows = [...usual, ...rowsFor(TARGET, [14, 16, 17, 18, 19, 20, 20])];
+    const obs = observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, countFrom: FROM, wholeWindowBar: true });
+    expect(obs.windowDays).toBe(3);
+    expect(obs.countedFrom).toBe(FROM);
+    expect(obs.fullWindowDays).toBe(7);
+    expect(obs.expectedOverFullWindow).toBe(true);
+    expect(obs.recentBookings).toBe(2);
+    // Each comparable over its whole week, 14 to 20 days out.
+    expect(obs.perComparable.map((c) => c.bookings)).toEqual([7, 7, 7, 7, 7]);
+    expect(obs.expectedBookings).toBe(7);
+    // With nothing counted from, it changes nothing.
+    const plain = observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7 });
+    expect(observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, wholeWindowBar: true })).toEqual(plain);
+    expect(observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, countFrom: "2026-07-01", wholeWindowBar: true })).toEqual(plain);
+  });
+
+  it("after 10 at once and a raise, 3 more that day don't read fast against a week's usual, and 5 do", () => {
+    // Jake's rules for 5 and for 10 bookings in a week, as Booking Speed: a
+    // night like this gets 2 bookings in the week ending today (15 and 18
+    // days out), and none on most single days. Ten came in this morning (14
+    // days out) and a raise at noon counted them; the rule for 5 now counts
+    // from that raise, only the bookings first seen after it.
+    const noon = "2026-08-01T12:00:00.000Z";
+    const quiet = COMPARABLES.flatMap((d) => rowsFor(d, [15, 18, 40, 60]));
+    const read = (after: number, wholeWindowBar: boolean) => {
+      const target: SlimReservationRow[] = [
+        ...Array.from({ length: 10 }, () => ({ stay_date: TARGET, booking_window_days: 14, created_at: "2026-08-01T09:00:00.000Z" })),
+        ...Array.from({ length: after }, () => ({ stay_date: TARGET, booking_window_days: 14, created_at: "2026-08-01T15:00:00.000Z" })),
+      ];
+      const rows = [...quiet, ...target];
+      const index = indexBookingRows(rows);
+      const split = { since: noon, index: indexBookingRows(rows, noon) };
+      return observeBookingSpeed({ index, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, countFrom: AS_OF, split, wholeWindowBar });
+    };
+    const three = read(3, true);
+    expect(three.windowDays).toBe(1);
+    expect(three.recentBookings).toBe(3);
+    expect(three.expectedBookings).toBe(2);
+    expect(three.classification.speed).toBe("normal");
+    const five = read(5, true);
+    expect(five.recentBookings).toBe(5);
+    expect(five.expectedBookings).toBe(2);
+    expect(five.classification.speed).toBe("much_faster");
+    // Against what the comparables got on that one day, none, the 3 alone
+    // read much faster.
+    const sameDay = read(3, false);
+    expect(sameDay.expectedBookings).toBe(0);
+    expect(sameDay.classification.speed).toBe("much_faster");
+  });
+
+  it("leaves a burst the rule already acted on out, so it can't read as fast twice", () => {
+    // Twenty rooms booked 18 days out, before the date: much faster over the week.
+    const rows = [...usual, ...rowsFor(TARGET, Array.from({ length: 20 }, () => 18))];
+    const whole = observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7 });
+    expect(whole.recentBookings).toBe(20);
+    expect(whole.classification.speed).toBe("much_faster");
+    // From the date on nothing came in, against the 3 a night like it gets.
+    const since = observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, countFrom: FROM });
+    expect(since.recentBookings).toBe(0);
+    expect(since.expectedBookings).toBe(3);
+    expect(since.classification.speed).toBe("much_slower");
+  });
+
+  it("reads the momentum fallback over the same days", () => {
+    // No comparable has any history, so momentum decides. Neighbors book one
+    // room a day this year and every other day a year ago.
+    const rows: SlimReservationRow[] = [...rowsFor(TARGET, [14, 15])];
+    for (const offset of [-2, -1, 1, 2]) {
+      const n = addDays(TARGET, offset);
+      const out = 14 + offset;
+      rowsFor(n, [out, out + 1, out + 2, out + 3, out + 4, out + 5, out + 6]).forEach((r) => rows.push(r));
+      rowsFor(addDays(n, -364), [out, out + 2, out + 4, out + 6]).forEach((r) => rows.push(r));
+    }
+    const obs = observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, countFrom: FROM });
+    expect(obs.method).toBe("momentum");
+    expect(obs.windowDays).toBe(3);
+    expect(obs.momentum).toEqual(
+      estimateMomentumFallback({ rows, target: TARGET, asOf: AS_OF, windowDays: 3, isExcluded: () => false }),
+    );
+    // Each pair is three days of the neighbor's curve, now and a year ago.
+    for (const p of obs.momentum!.pairs) {
+      expect(p.bookings).toBe(3);
+      expect(p.yearAgoBookings).toBe(2);
+    }
+    // With wholeWindowBar, each neighbor's whole week.
+    const whole = observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, countFrom: FROM, wholeWindowBar: true });
+    expect(whole.method).toBe("momentum");
+    expect(whole.windowDays).toBe(3);
+    expect(whole.momentum).toEqual(
+      estimateMomentumFallback({ rows, target: TARGET, asOf: AS_OF, windowDays: 7, isExcluded: () => false }),
+    );
+    for (const p of whole.momentum!.pairs) {
+      expect(p.bookings).toBe(7);
+      expect(p.yearAgoBookings).toBe(4);
+    }
+  });
+
+  it("changes nothing when the date is on or before the window's first day", () => {
+    const rows = [...usual, ...rowsFor(TARGET, [14, 16, 17, 18, 19, 20, 20])];
+    const plain = observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7 });
+    for (const countFrom of ["2026-07-26", "2026-07-01", null]) {
+      expect(observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, countFrom })).toEqual(plain);
+    }
+    expect(plain.countedFrom).toBeUndefined();
+    expect(plain.fullWindowDays).toBeUndefined();
+  });
+
+  it("splits the fire's day: only the bookings first seen after the fire count on it, the later days count whole, the comparables read whole days", () => {
+    // A raise at noon on the 30th. The target's week: two before the 30th,
+    // three on the 30th (one before the raise, two after), one on the 31st.
+    const noon = "2026-07-30T12:00:00.000Z";
+    const target: SlimReservationRow[] = [
+      { stay_date: TARGET, booking_window_days: 18, created_at: "2026-07-28T09:00:00.000Z" },
+      { stay_date: TARGET, booking_window_days: 17, created_at: "2026-07-29T09:00:00.000Z" },
+      { stay_date: TARGET, booking_window_days: 16, created_at: "2026-07-30T09:00:00.000Z" },
+      { stay_date: TARGET, booking_window_days: 16, created_at: "2026-07-30T14:00:00.000Z" },
+      { stay_date: TARGET, booking_window_days: 16, created_at: "2026-07-30T18:00:00.000Z" },
+      { stay_date: TARGET, booking_window_days: 15, created_at: "2026-07-31T09:00:00.000Z" },
+    ];
+    const rows = [...usual, ...target];
+    const index = indexBookingRows(rows);
+    const split = { since: noon, index: indexBookingRows(rows, noon) };
+    const obs = observeBookingSpeed({ index, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, countFrom: FROM, split });
+    // The 30th, 31st and 1st: three days; on the 30th only the two after the raise.
+    expect(obs.windowDays).toBe(3);
+    expect(obs.recentBookings).toBe(3);
+    expect(obs.countedFrom).toBe(FROM);
+    expect(obs.countedSince).toBe(noon);
+    expect(obs.fullWindowDays).toBe(7);
+    // The comparables read those three days whole, as before.
+    expect(obs.perComparable.map((c) => c.bookings)).toEqual([3, 3, 3, 3, 3]);
+    expect(obs.expectedBookings).toBe(3);
+    // With wholeWindowBar their whole week, the split day read whole.
+    const week = observeBookingSpeed({ index, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, countFrom: FROM, split, wholeWindowBar: true });
+    expect(week.recentBookings).toBe(3);
+    expect(week.countedSince).toBe(noon);
+    expect(week.perComparable.map((c) => c.bookings)).toEqual([7, 7, 7, 7, 7]);
+    expect(week.expectedOverFullWindow).toBe(true);
+    // Without the split the 30th counts whole: the raise's own burst again.
+    const whole = observeBookingSpeed({ index, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, countFrom: FROM });
+    expect(whole.recentBookings).toBe(4);
+    expect(whole.countedSince).toBeUndefined();
+  });
+
+  it("reaches the split only when the window starts on the fire's day, and then even when it cuts nothing off", () => {
+    const noon = "2026-07-30T12:00:00.000Z";
+    const rows = [...usual, ...rowsFor(TARGET, [14, 15, 16, 16, 17, 18, 19, 20]).map((r, i) => ({ ...r, created_at: i === 3 ? "2026-07-30T14:00:00.000Z" : "2026-07-01T00:00:00.000Z" }))];
+    const index = indexBookingRows(rows);
+    const split = { since: noon, index: indexBookingRows(rows, noon) };
+    // A 3-day window ending on the 1st starts on the 30th: split, though the
+    // window is not shorter than the rule's.
+    const exact = observeBookingSpeed({ index, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 3, countFrom: FROM, split });
+    expect(exact.windowDays).toBe(3);
+    expect(exact.recentBookings).toBe(3);
+    expect(exact.countedFrom).toBe(FROM);
+    expect(exact.countedSince).toBe(noon);
+    expect(exact.fullWindowDays).toBe(3);
+    // A 2-day window starts on the 31st: the fire's day is outside it, the
+    // split is not reached, and the observation is the plain one.
+    const after = observeBookingSpeed({ index, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 2, countFrom: FROM, split });
+    expect(after).toEqual(observeBookingSpeed({ index, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 2 }));
+    expect(after.countedSince).toBeUndefined();
+    expect(countFromInWindow(3, AS_OF, FROM)).toBe(true);
+    expect(countFromInWindow(2, AS_OF, FROM)).toBe(false);
+    expect(countFromInWindow(7, AS_OF, AS_OF)).toBe(true);
+    expect(countFromInWindow(7, AS_OF, "2026-08-02")).toBe(false);
+    expect(countFromInWindow(7, AS_OF, null)).toBe(false);
+  });
+
+  it("says in words that it counted since the latest raise still on the night, and against a whole week when it was", () => {
+    const rows = [...usual, ...rowsFor(TARGET, [14, 16, 17, 18, 19, 20, 20])];
+    const whole = describeObservation(
+      observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, countFrom: FROM, wholeWindowBar: true }),
+    );
+    expect(whole).toContain("This stay date has received 2 bookings since the latest raise still on the night.");
+    expect(whole).toContain("we expected about 7 in a whole week.");
+    expect(whole).not.toContain("in the last 3 days");
+    expect(whole).not.toMatch(NO_MATH_SYMBOLS);
+    const same = describeObservation(
+      observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, countFrom: FROM }),
+    );
+    expect(same).toContain("received 2 bookings since the latest raise still on the night. Based on similar past dates, we expected about 3.");
+  });
+
+  it("counts whole days, and refuses a date that leaves none", () => {
+    expect(windowDaysFrom(30, AS_OF, null)).toBe(30);
+    expect(windowDaysFrom(30, AS_OF, "2026-07-29")).toBe(4);
+    expect(windowDaysFrom(7, AS_OF, AS_OF)).toBe(1);
+    expect(windowDaysFrom(7, AS_OF, "2026-08-02")).toBe(0);
+    expect(windowDaysFrom(1, AS_OF, "2026-07-01")).toBe(1);
+    expect(() =>
+      observeBookingSpeed({ rows: usual, target: TARGET, asOf: AS_OF, selection: selection(COMPARABLES), windowDays: 7, countFrom: "2026-08-02" }),
+    ).toThrow();
+  });
+});
+
+describe("observeBookingSpeed over complete days: a cut rule's reading ends yesterday", () => {
+  // Target 14 days out on 2026-08-01 (today). With completeDays the week is
+  // the 25th to the 31st: bookings 15 to 21 days before arrival, on the
+  // target and on every comparable alike. Today's bookings (14 days out)
+  // wait for tomorrow's reading.
+  const TARGET = "2026-08-15";
+  const AS_OF = "2026-08-01";
+  const COMPARABLES = ["2025-08-16", "2025-08-09", "2025-08-02", "2024-08-17", "2024-08-10"];
+  const selection: ComparableSelection = {
+    target: TARGET,
+    comparables: COMPARABLES.map((date, i) => ({ date, tier: 1, reasons: ["a Saturday"], score: 100 - i })),
+    assumptions: {
+      dayOfWeek: "Saturday",
+      dowClass: "weekend",
+      holiday: null,
+      seasonLabel: "Peak Season",
+      seasonRange: "June 1 through August 31",
+      relaxed: false,
+    },
+  };
+  const rowsFor = (stayDate: string, leads: number[]): SlimReservationRow[] =>
+    leads.map((w) => ({ stay_date: stayDate, booking_window_days: w }));
+  // Every comparable books one a day 14 to 21 days out, and three on the
+  // day 14 days out: a whole day's bookings, where today's are still coming.
+  const usual = COMPARABLES.flatMap((d) => rowsFor(d, [14, 14, 14, 15, 16, 17, 18, 19, 20, 21, 40]));
+
+  it("counts the days before today on the target and on every comparable, and says where the stretch ended", () => {
+    // The target: one today so far, and one a day over the week before.
+    const rows = [...usual, ...rowsFor(TARGET, [14, 15, 16, 17, 18, 19, 20, 21])];
+    const today = observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection, windowDays: 7 });
+    // Today so far against a whole day of the comparables reads slow.
+    expect(today.recentBookings).toBe(7);
+    expect(today.expectedBookings).toBe(9);
+    expect(today.countedThrough).toBeUndefined();
+    const complete = observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection, windowDays: 7, completeDays: true });
+    expect(complete.windowDays).toBe(7);
+    expect(complete.recentBookings).toBe(7);
+    expect(complete.perComparable.map((c) => c.bookings)).toEqual([7, 7, 7, 7, 7]);
+    expect(complete.expectedBookings).toBe(7);
+    expect(complete.classification.speed).toBe("normal");
+    expect(complete.countedThrough).toBe("2026-07-31");
+    expect(complete.countedFrom).toBeUndefined();
+    expect(lastCountedDay(AS_OF, true)).toBe("2026-07-31");
+    expect(lastCountedDay(AS_OF)).toBe(AS_OF);
+  });
+
+  it("after a cut counts the complete days from the day after the cut's through yesterday, and refuses a date that leaves none", () => {
+    const rows = [...usual, ...rowsFor(TARGET, [15, 16, 17, 18, 19, 20, 21])];
+    // A cut on the 29th: the 30th and 31st, 15 and 16 days out.
+    const since = observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection, windowDays: 7, completeDays: true, countFrom: "2026-07-30" });
+    expect(since.windowDays).toBe(2);
+    expect(since.countedFrom).toBe("2026-07-30");
+    expect(since.fullWindowDays).toBe(7);
+    expect(since.countedThrough).toBe("2026-07-31");
+    expect(since.recentBookings).toBe(2);
+    // The comparables read the same two days.
+    expect(since.perComparable.map((c) => c.bookings)).toEqual([2, 2, 2, 2, 2]);
+    expect(since.expectedOverFullWindow).toBeUndefined();
+    expect(describeObservation(since)).toContain("received 2 bookings in the 2 full days since the latest cut still on the night.");
+    expect(windowDaysFrom(7, lastCountedDay(AS_OF, true), "2026-07-30")).toBe(2);
+    // A cut yesterday: nothing complete since its day.
+    expect(windowDaysFrom(7, lastCountedDay(AS_OF, true), AS_OF)).toBe(0);
+    expect(() => observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection, windowDays: 7, completeDays: true, countFrom: AS_OF })).toThrow();
+  });
+
+  it("never reads complete days against a whole window", () => {
+    const rows = [...usual, ...rowsFor(TARGET, [15, 16])];
+    expect(() =>
+      observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection, windowDays: 7, completeDays: true, countFrom: "2026-07-30", wholeWindowBar: true }),
+    ).toThrow(/same days/);
+  });
+
+  it("never splits a complete day", () => {
+    const rows = [...usual, ...rowsFor(TARGET, [15, 16])];
+    const split = { since: "2026-07-30T12:00:00.000Z", index: indexBookingRows(rows) };
+    expect(() =>
+      observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection, windowDays: 7, completeDays: true, countFrom: "2026-07-30", split }),
+    ).toThrow(/never splits/);
+  });
+
+  it("reads the momentum fallback over the same complete days", () => {
+    // No comparable has any history, so momentum decides. Neighbors book one
+    // a day this year, today included, and every other day a year ago.
+    const rows: SlimReservationRow[] = [...rowsFor(TARGET, [15, 16])];
+    for (const offset of [-2, -1, 1, 2]) {
+      const n = addDays(TARGET, offset);
+      const out = 14 + offset;
+      rowsFor(n, [out, out + 1, out + 2, out + 3, out + 4, out + 5, out + 6, out + 7]).forEach((r) => rows.push(r));
+      rowsFor(addDays(n, -364), [out + 1, out + 3, out + 5, out + 7]).forEach((r) => rows.push(r));
+    }
+    const obs = observeBookingSpeed({ rows, target: TARGET, asOf: AS_OF, selection, windowDays: 7, completeDays: true });
+    expect(obs.method).toBe("momentum");
+    expect(obs.momentum).toEqual(
+      estimateMomentumFallback({ rows, target: TARGET, asOf: AS_OF, windowDays: 7, endOffset: 1, isExcluded: () => false }),
+    );
+    // Each pair is the neighbor's seven complete days, now and a year ago.
+    for (const p of obs.momentum!.pairs) {
+      expect(p.bookings).toBe(7);
+      expect(p.yearAgoBookings).toBe(4);
+    }
+    // Ending today instead, every stretch moves a day on: the year-ago
+    // neighbors lose the day 7 days before this one, and read 3.
+    const today = estimateMomentumFallback({ rows, target: TARGET, asOf: AS_OF, windowDays: 7, isExcluded: () => false })!;
+    expect(today.pairs.map((p) => p.yearAgoBookings)).toEqual([3, 3, 3, 3]);
   });
 });
 

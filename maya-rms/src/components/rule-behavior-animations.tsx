@@ -1,595 +1,460 @@
 "use client";
 
 /**
- * Educational animations for the rule creation page.
+ * "How rules behave": three short animations on the Rules tab, so an owner
+ * can predict what a rule will do to a night's price. The story is the one
+ * the engine tells (supabase/functions/_shared/engine, mirrored in
+ * src/lib/engine):
  *
- * Two scenes:
- *   1) RuleCancellationScene — a standard rule fires, then a cancellation
- *      drops occupancy below the threshold, and the price reverts. Mirrors
- *      the ladder transition logic in `src/lib/engine/ladder.ts`
- *      (activate / deactivate based on whether conditions currently match).
+ *   1) A rule adjusts the price when its condition is met. If cancellations
+ *      make the condition no longer true, the change comes off, unless the
+ *      rule's box ("Undo the change if cancellations mean this rule is no
+ *      longer true", ticked by default) is unticked (cancellationFinding in
+ *      engine/pickup.ts). A rule that is still true after its wait can
+ *      adjust again, and after an undo the wait still runs from the change
+ *      that came off (waitAnchor).
+ *   2) An occupancy rule has no wait: ticked, it comes off when cancellations
+ *      take the night under its bar and goes back on as soon as the night is
+ *      over it again (ladderConditionsHold in engine/conditions.ts).
+ *   3) A stronger rule's change covers the weaker rules that move the price
+ *      the same way: they count only the bookings made after it, and a
+ *      weaker rule's change never restarts a stronger rule's count
+ *      (countFromFireAt in engine/pickup.ts; Jake, 2026-09-24, option A).
  *
- *   2) StandardVsPickupScene — same input data on the days a 3-day pickup
- *      rule can act (Day 1, Day 4, Day 7):
- *      - Standard rule activates once on Day 1; subsequent days are no-ops
- *        because the rule is already active (ladder is state-based).
- *      - Pickup rule inserts a new `pickup_event` every time its window has
- *        passed and the pickup still clears the threshold. Effects compound
- *        in `loadActivePickupEffects` -> `applyAdjustments`.
+ * A box above the scenes flips scenes 1 and 2 between ticked and unticked.
+ * Scene 3 has no cancellations, so the box changes nothing there.
  *
- * No external animation deps — uses CSS transitions on Tailwind utilities
- * driven by a step state advanced by `setInterval`.
+ * The scene numbers are data, exported so the tests can hold them to the
+ * engine: rule-behavior-animations.test.tsx checks every level against
+ * classifyBookingSpeed and every price against applyAdjustments, and
+ * engine/rule-animation-scenes.test.ts plays each scene, ticked and
+ * unticked, through whole engine runs on both engine copies and expects
+ * the prices shown. Every booking in them is one room, so a count of
+ * bookings is also a count of rooms and of room nights.
+ *
+ * No animation library: CSS transitions driven by a step index that a timer
+ * advances. Reduced motion starts every scene paused and drops the
+ * transitions; the step dots still walk through it.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
+import { bookingSpeedLabel, bookingSpeedRank, type BookingSpeed } from "@/lib/observations/booking-speed";
+import { RoomCountHelp } from "@/components/room-type-settings";
+import { UNDO_ON_CANCELLATION_HELP, UNDO_ON_CANCELLATION_LABEL } from "@/lib/rule-form";
 
-/* ── Reusable visual primitives ───────────────────────────────────────── */
+/* ── Scene data ───────────────────────────────────────────────────────── */
 
-type RuleStatus = "inactive" | "active";
+/** A booking speed reading as the rule judged it. */
+export type SpeedReading = {
+  /** What the count covers: "Past week", or what is left of the bookings a change counted. */
+  over: string;
+  /** Bookings counted. */
+  booked: number;
+  /** About how many a night like it usually gets over the same days. */
+  usual: number;
+  level: BookingSpeed;
+};
 
-function StatusPill({ status, label }: { status: RuleStatus; label?: string }) {
-  const isActive = status === "active";
+/** One rule's line in the stronger-rule scene. */
+export type RuleCount = {
+  /** Bookings it counts now: since the newest raise still on the night by itself or a stronger rule. */
+  counting: number;
+  /** Raises of its own on the night. */
+  raises: number;
+};
+
+export type SceneStep = {
+  day: number;
+  label: string;
+  caption: string;
+  /** The night's price after this step. */
+  price: number;
+  /** Each change on the price after this step, in the order they apply ("+10%"). */
+  changes: string[];
+  /** Rooms booked on the night (occupancy scene). */
+  roomsBooked?: number;
+  /** Bookings that came in since the step before. */
+  newBookings?: number;
+  /** Bookings that cancelled since the step before. */
+  cancelled?: number;
+  speed?: SpeedReading;
+  /** Stronger-rule scene: the weaker and the stronger rule's counts. */
+  weaker?: RuleCount;
+  stronger?: RuleCount;
+};
+
+export type Scene = {
+  id: "speed" | "occupancy" | "stronger";
+  title: string;
+  /** The rule, or rules, in plain words. */
+  rules: string[];
+  basePrice: number;
+  /** Rooms the night has to sell (occupancy scene). */
+  rooms?: number;
+  /** The occupancy rule's bar, in percent. */
+  occupancyThreshold?: number;
+  /** The steps with the rule's box ticked, and unticked. The same when nothing cancels. */
+  ticked: SceneStep[];
+  unticked: SceneStep[];
+};
+
+/** Base price for scenes 1 and 2. */
+export const BASE_PRICE = 200;
+
+const SPEED_START: SceneStep[] = [
+  {
+    day: 1,
+    label: "Normal pace",
+    caption: "5 bookings came in over the past week, where about 5 is usual: Normal. No change.",
+    price: 200,
+    changes: [],
+    speed: { over: "Past week", booked: 5, usual: 5, level: "normal" },
+  },
+  {
+    day: 3,
+    label: "The rule is true",
+    caption:
+      "4 more bookings make 9 in the past week, where about 5 is usual: Faster Than Normal. The rule raises 10%, to $220, then waits a week.",
+    price: 220,
+    changes: ["+10%"],
+    newBookings: 4,
+    speed: { over: "Past week", booked: 9, usual: 5, level: "faster" },
+  },
+];
+
+export const SPEED_SCENE: Scene = {
+  id: "speed",
+  title: "A rule adjusts, and cancellations can undo it",
+  rules: ["Booking speed at least Faster Than Normal over the past week: raise 10%, then wait 1 week"],
+  basePrice: BASE_PRICE,
+  ticked: [
+    ...SPEED_START,
+    {
+      day: 5,
+      label: "3 guests cancel",
+      caption:
+        "3 of the 9 bookings the raise counted cancel. The 6 left are about usual, so the rule is no longer true and its raise comes off.",
+      price: 200,
+      changes: [],
+      cancelled: 3,
+      speed: { over: "Left of the 9 it counted", booked: 6, usual: 5, level: "normal" },
+    },
+    {
+      day: 10,
+      label: "True again after the wait",
+      caption:
+        "The week's wait, counted from the raise that came off, is over. 9 new bookings this past week, where about 5 is usual: true again, so it raises 10%, to $220.",
+      price: 220,
+      changes: ["+10%"],
+      newBookings: 9,
+      speed: { over: "Past week", booked: 9, usual: 5, level: "faster" },
+    },
+  ],
+  unticked: [
+    ...SPEED_START,
+    {
+      day: 5,
+      label: "3 guests cancel",
+      caption:
+        "3 of the 9 bookings the raise counted cancel. The 6 left are about usual, but the box is unticked, so the raise stays.",
+      price: 220,
+      changes: ["+10%"],
+      cancelled: 3,
+      speed: { over: "Left of the 9 it counted", booked: 6, usual: 5, level: "normal" },
+    },
+    {
+      day: 10,
+      label: "Still true after the wait",
+      caption:
+        "The week's wait is over. 9 new bookings this past week, where about 5 is usual: still true, so it raises another 10%, to $242.",
+      price: 242,
+      changes: ["+10%", "+10%"],
+      newBookings: 9,
+      speed: { over: "Past week", booked: 9, usual: 5, level: "faster" },
+    },
+  ],
+};
+
+const OCCUPANCY_START: SceneStep[] = [
+  {
+    day: 1,
+    label: "Starting point",
+    caption: "The night is 60% booked. The rule needs more than 70%.",
+    price: 200,
+    changes: [],
+    roomsBooked: 12,
+  },
+  {
+    day: 2,
+    label: "The rule is true",
+    caption: "3 bookings take it to 75%, over 70%. The rule raises 10%, to $220.",
+    price: 220,
+    changes: ["+10%"],
+    roomsBooked: 15,
+    newBookings: 3,
+  },
+];
+
+export const OCCUPANCY_SCENE: Scene = {
+  id: "occupancy",
+  title: "An occupancy rule has no wait",
+  rules: ["Sellable occupancy more than 70%: raise 10%"],
+  basePrice: BASE_PRICE,
+  rooms: 20,
+  occupancyThreshold: 70,
+  ticked: [
+    ...OCCUPANCY_START,
+    {
+      day: 3,
+      label: "2 guests cancel",
+      caption: "Occupancy falls to 65%, so the rule is no longer true and its raise comes off.",
+      price: 200,
+      changes: [],
+      roomsBooked: 13,
+      cancelled: 2,
+    },
+    {
+      day: 4,
+      label: "True again",
+      caption: "2 new bookings take it back to 75%. With no wait, the raise goes straight back on.",
+      price: 220,
+      changes: ["+10%"],
+      roomsBooked: 15,
+      newBookings: 2,
+    },
+  ],
+  unticked: [
+    ...OCCUPANCY_START,
+    {
+      day: 3,
+      label: "2 guests cancel",
+      caption: "Occupancy falls to 65%. The box is unticked, so the raise stays.",
+      price: 220,
+      changes: ["+10%"],
+      roomsBooked: 13,
+      cancelled: 2,
+    },
+    {
+      day: 4,
+      label: "Bookings come back",
+      caption: "2 new bookings take it back to 75%. The rule keeps one raise while it is on, so nothing changes.",
+      price: 220,
+      changes: ["+10%"],
+      roomsBooked: 15,
+      newBookings: 2,
+    },
+  ],
+};
+
+const STRONGER_STEPS: SceneStep[] = [
+  {
+    day: 1,
+    label: "10 book at once",
+    caption:
+      "Both rules are true. The stronger one raises 20%: $100 to $120. The weaker one doesn't add its 10% on the same bookings.",
+    price: 120,
+    changes: ["+20%"],
+    newBookings: 10,
+    weaker: { counting: 0, raises: 0 },
+    stronger: { counting: 0, raises: 1 },
+  },
+  {
+    day: 2,
+    label: "3 more",
+    caption: "Both rules count only bookings made since the 20% raise: 3 is not enough for either. $120.",
+    price: 120,
+    changes: ["+20%"],
+    newBookings: 3,
+    weaker: { counting: 3, raises: 0 },
+    stronger: { counting: 3, raises: 1 },
+  },
+  {
+    day: 3,
+    label: "2 more",
+    caption:
+      "That makes 5 since the 20% raise, so the weaker rule raises 10% on top: $132. The stronger rule keeps counting from its own raise: a weaker rule's raise never restarts its count.",
+    price: 132,
+    changes: ["+20%", "+10%"],
+    newBookings: 2,
+    weaker: { counting: 0, raises: 1 },
+    stronger: { counting: 5, raises: 1 },
+  },
+];
+
+export const STRONGER_SCENE: Scene = {
+  id: "stronger",
+  title: "A stronger rule's change covers weaker ones",
+  rules: [
+    "Weaker: 5 or more bookings in a week: raise 10%",
+    "Stronger: 10 or more bookings in a week: raise 20%",
+  ],
+  basePrice: 100,
+  ticked: STRONGER_STEPS,
+  unticked: STRONGER_STEPS,
+};
+
+export const SCENES: Scene[] = [SPEED_SCENE, OCCUPANCY_SCENE, STRONGER_SCENE];
+
+export function sceneSteps(scene: Scene, undo: boolean): SceneStep[] {
+  return undo ? scene.ticked : scene.unticked;
+}
+
+export function sceneOccupancy(scene: Scene, step: SceneStep): number | null {
+  if (!scene.rooms || step.roomsBooked === undefined) return null;
+  return Math.round((step.roomsBooked / scene.rooms) * 100);
+}
+
+/* ── Reduced motion ───────────────────────────────────────────────────── */
+
+function prefersReducedMotion(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/* ── Visual pieces ────────────────────────────────────────────────────── */
+
+const TRANSITION = "transition-all duration-700 ease-out motion-reduce:transition-none";
+
+/** A bar against a marker: occupancy against the rule's bar, or bookings against the usual count. */
+function MeterBar({ fill, marker, on }: { fill: number; marker: number; on: boolean }) {
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors duration-500 ${
-        isActive
-          ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40"
-          : "bg-slate-700/40 text-slate-400 ring-1 ring-slate-700"
-      }`}
-    >
-      <span
-        className={`size-1.5 rounded-full transition-colors duration-500 ${
-          isActive ? "bg-emerald-400" : "bg-slate-500"
-        }`}
+    <div className="relative h-2.5 overflow-hidden rounded-full bg-slate-800">
+      <div
+        className={`h-full rounded-full ${TRANSITION} ${on ? "bg-emerald-500" : "bg-sky-500"}`}
+        style={{ width: `${Math.max(0, Math.min(100, fill))}%` }}
       />
-      {label ?? (isActive ? "Rule active" : "Rule inactive")}
-    </span>
+      <div className="absolute top-0 h-full w-0.5 bg-amber-400" style={{ left: `${marker}%` }} aria-hidden />
+    </div>
   );
 }
 
-/**
- * Horizontal occupancy bar with a labeled threshold line.
- * `value` and `threshold` are both 0–100.
- */
-function OccupancyBar({
-  value,
-  threshold,
-  meetsThreshold,
-}: {
-  value: number;
-  threshold: number;
-  meetsThreshold: boolean;
-}) {
+function OccupancyPanel({ value, threshold }: { value: number; threshold: number }) {
+  const over = value > threshold;
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center justify-between text-[11px] text-slate-400">
-        <span>Occupancy</span>
-        <span
-          className={`tabular-nums transition-colors duration-500 ${
-            meetsThreshold ? "text-emerald-300" : "text-slate-300"
-          }`}
-        >
-          {value}%
-        </span>
+      <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400">
+        <span>Sellable occupancy</span>
+        <span className={`tabular-nums ${over ? "text-emerald-300" : "text-slate-200"}`}>{value}%</span>
       </div>
-      <div className="relative h-3 overflow-hidden rounded-full bg-slate-800">
-        <div
-          className={`h-full rounded-full transition-[width,background-color] duration-1000 ease-out ${
-            meetsThreshold ? "bg-emerald-500" : "bg-sky-500"
-          }`}
-          style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
-        />
-        {/* Threshold marker */}
-        <div
-          className="absolute top-0 h-full w-px bg-amber-400/80"
-          style={{ left: `${threshold}%` }}
-          aria-hidden
-        />
-      </div>
-      <div className="flex items-center justify-end text-[10px] text-amber-400/90">
-        <span style={{ marginRight: `${Math.max(0, 100 - threshold - 4)}%` }}>
-          ↑ threshold {threshold}%
-        </span>
-      </div>
+      <MeterBar fill={value} marker={threshold} on={over} />
+      <div className="text-right text-[10px] text-amber-300">needs more than {threshold}%</div>
     </div>
   );
 }
 
-/**
- * Animated price tag. Re-renders smoothly when value changes via CSS.
- */
-function PriceTag({
-  base,
-  current,
-  baseline = base,
-}: {
-  base: number;
-  current: number;
-  baseline?: number;
-}) {
-  const delta = current - baseline;
-  const pctDelta = baseline > 0 ? (delta / baseline) * 100 : 0;
+function SpeedPanel({ speed }: { speed: SpeedReading }) {
+  const fast = bookingSpeedRank(speed.level) >= 1;
+  const scale = 12;
   return (
-    <div className="flex items-baseline gap-2">
-      <span className="text-[11px] uppercase tracking-wide text-slate-500">
-        Price
-      </span>
-      <span className="font-mono text-2xl font-semibold tabular-nums text-slate-100 transition-all duration-700">
-        ${current.toFixed(0)}
-      </span>
-      {Math.abs(delta) > 0.5 ? (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+        <span>{speed.over}</span>
         <span
-          className={`text-xs font-medium tabular-nums transition-colors duration-500 ${
-            delta > 0 ? "text-emerald-400" : "text-rose-400"
+          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${
+            fast ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/40" : "bg-slate-800 text-slate-300 ring-slate-700"
           }`}
         >
-          {delta > 0 ? "+" : ""}
-          {pctDelta.toFixed(0)}% from base
+          {bookingSpeedLabel(speed.level)}
         </span>
-      ) : (
-        <span className="text-xs text-slate-500">base rate</span>
-      )}
+      </div>
+      <MeterBar fill={(speed.booked / scale) * 100} marker={(speed.usual / scale) * 100} on={fast} />
+      <div className="flex items-center justify-between text-[10px] tabular-nums">
+        <span className="text-slate-200">
+          {speed.booked} {speed.booked === 1 ? "booking" : "bookings"}
+        </span>
+        <span className="text-amber-300">usual about {speed.usual}</span>
+      </div>
     </div>
   );
 }
 
-/* ── Hook: step engine with play/pause ────────────────────────────────── */
+function RuleCountLine({ name, count, pct }: { name: string; count: RuleCount; pct: string }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-800 bg-slate-900 px-2.5 py-1.5">
+      <span className="text-[11px] text-slate-300">
+        {name} <span className="text-slate-500">({pct})</span>
+      </span>
+      <span className="flex items-center gap-2 text-[11px] tabular-nums">
+        <span className="text-slate-400">counting {count.counting}</span>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${
+            count.raises > 0
+              ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/40"
+              : "bg-slate-800 text-slate-400 ring-slate-700"
+          }`}
+        >
+          {count.raises > 0 ? "raised" : "no raise"}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+function PriceTag({ price, base, changes }: { price: number; base: number; changes: string[] }) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-baseline gap-2">
+        <span className="text-[11px] uppercase tracking-wide text-slate-500">Price</span>
+        <span className={`font-mono text-2xl font-semibold tabular-nums text-slate-100 ${TRANSITION}`}>
+          ${Number.isInteger(price) ? price : price.toFixed(2)}
+        </span>
+      </div>
+      <div className="flex min-h-5 flex-wrap items-center gap-1">
+        {changes.length === 0 ? (
+          <span className="text-[11px] text-slate-500">base price ${base}</span>
+        ) : (
+          changes.map((c, i) => (
+            <span
+              key={i}
+              className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-500/30"
+            >
+              {c}
+            </span>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Step timer with play and pause ───────────────────────────────────── */
 
 function useAutoStep(stepCount: number, intervalMs: number) {
   const [step, setStep] = useState(0);
-  const [playing, setPlaying] = useState(true);
-  const ref = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [playing, setPlaying] = useState(() => !prefersReducedMotion());
 
   useEffect(() => {
-    if (!playing) {
-      if (ref.current) clearInterval(ref.current);
-      ref.current = null;
-      return;
-    }
-    ref.current = setInterval(() => {
-      setStep((s) => (s + 1) % stepCount);
-    }, intervalMs);
-    return () => {
-      if (ref.current) clearInterval(ref.current);
-    };
+    if (!playing) return;
+    const id = setInterval(() => setStep((s) => (s + 1) % stepCount), intervalMs);
+    return () => clearInterval(id);
   }, [playing, stepCount, intervalMs]);
 
-  return {
-    step,
-    setStep,
-    playing,
-    togglePlay: () => setPlaying((p) => !p),
-    restart: () => setStep(0),
-  };
+  return { step, setStep, playing, togglePlay: () => setPlaying((p) => !p) };
 }
 
-/* ── Scene 1: Standard rule with cancellation ─────────────────────────── */
-
-type CancellationScene = {
-  occ: number;
-  price: number;
-  status: RuleStatus;
-  bookings: number;
-  label: string;
-  caption: string;
-};
-
-const CANCELLATION_SCENES: CancellationScene[] = [
-  {
-    occ: 60,
-    price: 200,
-    status: "inactive",
-    bookings: 60,
-    label: "Starting point",
-    caption: "Hotel is 60% booked. Threshold for the rule is 70%. Price is the base rate of $200.",
-  },
-  {
-    occ: 75,
-    price: 200,
-    status: "inactive",
-    bookings: 75,
-    label: "More bookings arrive",
-    caption: "Occupancy climbs to 75%, just past the 70% threshold the rule is watching.",
-  },
-  {
-    occ: 75,
-    price: 220,
-    status: "active",
-    bookings: 75,
-    label: "Rule activates",
-    caption: "Conditions are now met, so the rule fires. The +10% adjustment is added to the price.",
-  },
-  {
-    occ: 75,
-    price: 220,
-    status: "active",
-    bookings: 75,
-    label: "Steady state",
-    caption: "Nothing changes. The rule stays active and the price stays at $220.",
-  },
-  {
-    occ: 65,
-    price: 220,
-    status: "active",
-    bookings: 65,
-    label: "A guest cancels",
-    caption: "Occupancy drops back to 65%, under the 70% threshold. The rule is still active for one more moment.",
-  },
-  {
-    occ: 65,
-    price: 200,
-    status: "inactive",
-    bookings: 65,
-    label: "Rule deactivates",
-    caption: "Next evaluation: conditions no longer match. The rule turns off and the price reverts to $200.",
-  },
-];
-
-function RuleCancellationScene() {
-  const { step, setStep, playing, togglePlay } = useAutoStep(
-    CANCELLATION_SCENES.length,
-    2800,
-  );
-  const scene = CANCELLATION_SCENES[step];
-
-  return (
-    <div className="space-y-4 rounded-md border border-slate-800 bg-slate-950 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h4 className="text-sm font-semibold text-slate-200">
-            Standard rule: cancellation undoes the adjustment
-          </h4>
-          <p className="mt-0.5 text-[11px] text-slate-500">
-            Rule: <span className="text-slate-400">when occupancy &gt; 70%, raise price by 10%</span>
-          </p>
-        </div>
-        <PlayPauseControls
-          playing={playing}
-          onToggle={togglePlay}
-          step={step}
-          total={CANCELLATION_SCENES.length}
-          onStepClick={setStep}
-        />
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
-        <OccupancyBar
-          value={scene.occ}
-          threshold={70}
-          meetsThreshold={scene.occ > 70}
-        />
-        <div className="hidden text-2xl text-slate-600 sm:block">→</div>
-        <PriceTag base={200} current={scene.price} />
-      </div>
-
-      <div className="flex items-center gap-3 rounded border border-slate-800 bg-slate-900 px-3 py-2">
-        <StatusPill status={scene.status} />
-        <span className="text-xs font-medium text-slate-300">
-          {scene.label}
-        </span>
-      </div>
-
-      <p
-        key={step}
-        className="min-h-[2.5rem] text-[12px] leading-relaxed text-slate-400"
-      >
-        {scene.caption}
-      </p>
-    </div>
-  );
-}
-
-/* ── Scene 2: Standard vs Pickup, day by day ──────────────────────────── */
-
-/**
- * Each step shows the same input data (high occupancy + short booking
- * window), with both rule types evaluating side by side. The standard rule
- * activates on day 1 and is then a no-op. The pickup rule fires again every
- * time its window has passed and the pickup still clears the threshold, so
- * with a 3-day window the days are 1, 4 and 7. The third fire on one night
- * is what puts it in front of the owner (engine/repeat-alerts.ts).
- */
-type ComparisonDay = {
-  day: number;
-  label: string;
-  occupancy: number;
-  bookingWindow: number;
-  pickup: number;
-  /** What the standard rule does this day. */
-  standard: {
-    transition: "noop" | "activate" | "deactivate";
-    priceBefore: number;
-    priceAfter: number;
-    note: string;
-  };
-  /** What the pickup rule does this day. */
-  pickup_outcome: {
-    fired: boolean;
-    priceBefore: number;
-    priceAfter: number;
-    events: number;
-    note: string;
-  };
-};
-
-const COMPARISON_DAYS: ComparisonDay[] = [
-  {
-    day: 0,
-    label: "Day 0, before",
-    occupancy: 60,
-    bookingWindow: 12,
-    pickup: 1,
-    standard: {
-      transition: "noop",
-      priceBefore: 200,
-      priceAfter: 200,
-      note: "Conditions not yet met. Rule is inactive.",
-    },
-    pickup_outcome: {
-      fired: false,
-      priceBefore: 200,
-      priceAfter: 200,
-      events: 0,
-      note: "Pickup is only 1 booking in the last 3 days, under the threshold.",
-    },
-  },
-  {
-    day: 1,
-    label: "Day 1, conditions met",
-    occupancy: 85,
-    bookingWindow: 6,
-    pickup: 5,
-    standard: {
-      transition: "activate",
-      priceBefore: 200,
-      priceAfter: 220,
-      note: "Conditions met for the first time. Rule activates and the +10% adjustment is applied.",
-    },
-    pickup_outcome: {
-      fired: true,
-      priceBefore: 200,
-      priceAfter: 220,
-      events: 1,
-      note: "Pickup of 5 in the last 3 days clears the threshold of 4. First fire recorded. Price +10%.",
-    },
-  },
-  {
-    day: 4,
-    label: "Day 4, the wait is over",
-    occupancy: 85,
-    bookingWindow: 6,
-    pickup: 5,
-    standard: {
-      transition: "noop",
-      priceBefore: 220,
-      priceAfter: 220,
-      note: "Conditions still match, but the rule is already active. No new transition, price unchanged.",
-    },
-    pickup_outcome: {
-      fired: true,
-      priceBefore: 220,
-      priceAfter: 242,
-      events: 2,
-      note: "The rule waited its 3-day window. 5 more bookings since its last fire clear the threshold again, so it fires a second time: +10% on top of $220.",
-    },
-  },
-  {
-    day: 7,
-    label: "Day 7, still picking up",
-    occupancy: 85,
-    bookingWindow: 6,
-    pickup: 5,
-    standard: {
-      transition: "noop",
-      priceBefore: 220,
-      priceAfter: 220,
-      note: "Still active, still no change. The standard rule fires once and stays put until conditions break.",
-    },
-    pickup_outcome: {
-      fired: true,
-      priceBefore: 242,
-      priceAfter: 266,
-      events: 3,
-      note: "The threshold clears a third time, so it fires again and the price compounds. Three fires on one night is where MAYA asks you whether to carry on.",
-    },
-  },
-];
-
-function ConditionChip({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded border border-slate-800 bg-slate-900 px-2.5 py-1.5">
-      <div className="text-[10px] uppercase tracking-wide text-slate-500">
-        {label}
-      </div>
-      <div className="font-mono text-xs text-slate-200">{value}</div>
-    </div>
-  );
-}
-
-function StandardVsPickupScene() {
-  const { step, setStep, playing, togglePlay } = useAutoStep(
-    COMPARISON_DAYS.length,
-    3400,
-  );
-  const day = COMPARISON_DAYS[step];
-
-  return (
-    <div className="space-y-4 rounded-md border border-slate-800 bg-slate-950 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h4 className="text-sm font-semibold text-slate-200">
-            Standard vs. Pickup: what happens day after day
-          </h4>
-          <p className="mt-0.5 text-[11px] text-slate-500">
-            Same input data on both sides, only the rule type differs.
-          </p>
-        </div>
-        <PlayPauseControls
-          playing={playing}
-          onToggle={togglePlay}
-          step={step}
-          total={COMPARISON_DAYS.length}
-          onStepClick={setStep}
-        />
-      </div>
-
-      {/* Day label and shared input data */}
-      <div className="space-y-2 rounded border border-slate-800 bg-slate-900 p-3">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-slate-200">
-            {day.label}
-          </span>
-          <span className="text-[10px] uppercase tracking-wide text-slate-500">
-            same data, both sides
-          </span>
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          <ConditionChip
-            label="Occupancy"
-            value={`${day.occupancy}%`}
-          />
-          <ConditionChip
-            label="Booking window"
-            value={`${day.bookingWindow} days`}
-          />
-          <ConditionChip
-            label="Pickup (last 3d)"
-            value={`${day.pickup} bookings`}
-          />
-        </div>
-      </div>
-
-      {/* Side-by-side rule outcomes */}
-      <div className="grid gap-3 md:grid-cols-2">
-        {/* Standard rule */}
-        <div className="space-y-2 rounded border border-slate-800 bg-slate-900 p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-300">
-              Standard rule
-            </span>
-            <span className="text-[10px] text-slate-500">
-              occupancy &gt; 70% AND booking window &lt; 7d
-            </span>
-          </div>
-          <PriceTag
-            base={200}
-            current={day.standard.priceAfter}
-          />
-          <TransitionBadge transition={day.standard.transition} />
-          <p
-            key={`std-${step}`}
-            className="min-h-[2.5rem] text-[11px] leading-relaxed text-slate-400"
-          >
-            {day.standard.note}
-          </p>
-        </div>
-
-        {/* Pickup rule */}
-        <div className="space-y-2 rounded border border-slate-800 bg-slate-900 p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-300">
-              Pickup rule
-            </span>
-            <span className="text-[10px] text-slate-500">
-              pickup &gt; 4 in last 3 days
-            </span>
-          </div>
-          <PriceTag
-            base={200}
-            current={day.pickup_outcome.priceAfter}
-          />
-          <PickupEventsBadge count={day.pickup_outcome.events} />
-          <p
-            key={`pkp-${step}`}
-            className="min-h-[2.5rem] text-[11px] leading-relaxed text-slate-400"
-          >
-            {day.pickup_outcome.note}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TransitionBadge({
-  transition,
-}: {
-  transition: "noop" | "activate" | "deactivate";
-}) {
-  const map = {
-    noop: {
-      label: "No change",
-      cls: "bg-slate-700/40 text-slate-400 ring-slate-700",
-    },
-    activate: {
-      label: "Activated → +10%",
-      cls: "bg-emerald-500/20 text-emerald-300 ring-emerald-500/40",
-    },
-    deactivate: {
-      label: "Deactivated → revert",
-      cls: "bg-rose-500/20 text-rose-300 ring-rose-500/40",
-    },
-  } as const;
-  const c = map[transition];
-  return (
-    <span
-      className={`inline-flex w-fit rounded-full px-2.5 py-0.5 text-[10px] font-medium ring-1 transition-colors duration-500 ${c.cls}`}
-    >
-      {c.label}
-    </span>
-  );
-}
-
-function PickupEventsBadge({ count }: { count: number }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="text-[10px] uppercase tracking-wide text-slate-500">
-        Pickup events
-      </span>
-      <div className="flex items-center gap-1">
-        {[0, 1, 2, 3].map((i) => {
-          const filled = i < count;
-          return (
-            <span
-              key={i}
-              className={`size-2.5 rounded-sm transition-colors duration-500 ${
-                filled ? "bg-emerald-500" : "bg-slate-700"
-              }`}
-            />
-          );
-        })}
-        <span className="ml-1 text-[11px] tabular-nums text-slate-400">
-          {count} active
-        </span>
-      </div>
-    </div>
-  );
-}
-
-/* ── Shared controls ──────────────────────────────────────────────────── */
-
-function PlayPauseControls({
+function StepControls({
   playing,
   onToggle,
   step,
-  total,
+  steps,
   onStepClick,
 }: {
   playing: boolean;
   onToggle: () => void;
   step: number;
-  total: number;
+  steps: SceneStep[];
   onStepClick: (n: number) => void;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <div className="flex items-center gap-1">
-        {Array.from({ length: total }, (_, i) => (
+    <div className="flex shrink-0 items-center gap-2">
+      <div className="flex items-center gap-1.5">
+        {steps.map((s, i) => (
           <button
             key={i}
             type="button"
-            aria-label={`Jump to step ${i + 1}`}
-            className={`size-1.5 cursor-pointer rounded-full transition-colors ${
+            aria-label={`Step ${i + 1} of ${steps.length}: ${s.label}`}
+            aria-current={i === step ? "step" : undefined}
+            className={`size-2.5 cursor-pointer rounded-full transition-colors motion-reduce:transition-none ${
               i === step ? "bg-sky-400" : "bg-slate-700 hover:bg-slate-600"
             }`}
             onClick={() => onStepClick(i)}
@@ -599,11 +464,78 @@ function PlayPauseControls({
       <button
         type="button"
         onClick={onToggle}
-        className="cursor-pointer rounded border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] text-slate-300 hover:border-slate-600 hover:text-slate-100"
+        className="cursor-pointer rounded border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-300 hover:border-slate-600 hover:text-slate-100"
         aria-label={playing ? "Pause animation" : "Play animation"}
       >
         {playing ? "Pause" : "Play"}
       </button>
+    </div>
+  );
+}
+
+/* ── One scene ────────────────────────────────────────────────────────── */
+
+export function RuleScene({ scene, undo, intervalMs }: { scene: Scene; undo: boolean; intervalMs: number }) {
+  const steps = sceneSteps(scene, undo);
+  const { step, setStep, playing, togglePlay } = useAutoStep(steps.length, intervalMs);
+  const titleId = useId();
+  const s = steps[Math.min(step, steps.length - 1)];
+  const occupancy = sceneOccupancy(scene, s);
+
+  let measure: ReactNode = null;
+  if (s.speed) measure = <SpeedPanel speed={s.speed} />;
+  else if (occupancy !== null && scene.occupancyThreshold !== undefined) {
+    measure = <OccupancyPanel value={occupancy} threshold={scene.occupancyThreshold} />;
+  } else if (s.weaker && s.stronger) {
+    measure = (
+      <div className="space-y-1.5">
+        <RuleCountLine name="Stronger" count={s.stronger} pct="+20%" />
+        <RuleCountLine name="Weaker" count={s.weaker} pct="+10%" />
+      </div>
+    );
+  }
+
+  const events = [
+    s.newBookings ? `${s.newBookings} new ${s.newBookings === 1 ? "booking" : "bookings"}` : null,
+    s.cancelled ? `${s.cancelled} cancelled` : null,
+  ].filter(Boolean);
+
+  return (
+    <div role="group" aria-labelledby={titleId} className="space-y-3 rounded-md border border-slate-800 bg-slate-950 p-3 sm:p-4">
+      <div>
+        <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+          <h4 id={titleId} className="min-w-0 flex-1 text-sm font-semibold text-slate-100">
+            {scene.title}
+          </h4>
+          <StepControls playing={playing} onToggle={togglePlay} step={step} steps={steps} onStepClick={setStep} />
+        </div>
+        {scene.rules.map((r) => (
+          <p key={r} className="mt-0.5 text-[11px] text-slate-400">
+            {r}
+          </p>
+        ))}
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+        <div>{measure}</div>
+        <PriceTag price={s.price} base={scene.basePrice} changes={s.changes} />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-slate-800 bg-slate-900 px-3 py-2">
+        <span className="text-xs font-medium text-slate-200">
+          <span className="mr-1.5 text-slate-500">Day {s.day}</span>
+          {s.label}
+        </span>
+        {events.length > 0 ? <span className="text-[11px] text-slate-400">{events.join(", ")}</span> : null}
+      </div>
+
+      <p
+        key={`${undo}-${step}`}
+        aria-live={playing ? "off" : "polite"}
+        className="min-h-[2.5rem] text-[12px] leading-relaxed text-slate-300"
+      >
+        {s.caption}
+      </p>
     </div>
   );
 }
@@ -615,31 +547,26 @@ export function RuleBehaviorAnimations() {
   // tab body is rendered as `{tab === "rules" && ...}` in dashboard.tsx, so
   // leaving the tab unmounts this and coming back remounts it collapsed.
   // Switching BROWSER tabs unmounts nothing, so it stays as the reader left it.
-  // Persisting this (storage, a URL param, or lifting it into Dashboard, which
-  // stays mounted) would break the first half. If the tabs ever move to a
-  // hidden-but-mounted pattern to keep scroll position, this stops collapsing.
   const [open, setOpen] = useState(false);
+  // Ticked, as every new rule starts.
+  const [undo, setUndo] = useState(true);
+  const panelId = useId();
 
   return (
-    <section className="rounded-lg border border-stone-300 bg-stone-200">
+    <section className="rounded-lg border border-slate-800 bg-slate-950/60">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-3 text-left"
         aria-expanded={open}
+        aria-controls={panelId}
       >
         <div>
-          <div className="text-sm font-semibold text-stone-800">
-            How rules behave
-          </div>
-          <div className="text-[11px] text-stone-500">
-            Two short animations explaining standard rules vs. pickup rules.
-          </div>
+          <div className="text-sm font-semibold text-slate-100">How rules behave</div>
+          <div className="text-[11px] text-slate-400">When a rule changes a price, and when the change comes off.</div>
         </div>
         <span
-          className={`text-stone-500 transition-transform duration-300 ${
-            open ? "rotate-180" : ""
-          }`}
+          className={`text-slate-400 transition-transform duration-300 motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
           aria-hidden
         >
           ▾
@@ -647,16 +574,27 @@ export function RuleBehaviorAnimations() {
       </button>
 
       {open && (
-        <div className="space-y-4 border-t border-stone-200 p-4">
-          <RuleCancellationScene />
-          <StandardVsPickupScene />
-          <p className="text-[11px] leading-relaxed text-slate-500">
-            <strong className="text-slate-400">Key takeaway:</strong> standard
-            rules track the <em>current</em> state and undo themselves when
-            conditions break. Event rules record each qualifying moment on its
-            own. A cut stays put, a raise comes off only if the bookings behind
-            it cancel, and once the rule&apos;s wait is over it can adjust the
-            same night again.
+        <div id={panelId} className="space-y-3 border-t border-slate-800 p-3 sm:p-4">
+          <div className="flex items-start gap-2 rounded border border-slate-800 bg-slate-900 px-3 py-2">
+            <label className="flex cursor-pointer items-start gap-2.5">
+              <input
+                type="checkbox"
+                className="mt-0.5 rounded border-slate-600"
+                checked={undo}
+                onChange={(e) => setUndo(e.target.checked)}
+              />
+              <span className="text-xs text-slate-400">
+                Try the box: <span className="text-slate-200">{UNDO_ON_CANCELLATION_LABEL}</span>
+              </span>
+            </label>
+            <RoomCountHelp {...UNDO_ON_CANCELLATION_HELP} />
+          </div>
+          <RuleScene scene={SPEED_SCENE} undo={undo} intervalMs={4200} />
+          <RuleScene scene={OCCUPANCY_SCENE} undo={undo} intervalMs={3600} />
+          <RuleScene scene={STRONGER_SCENE} undo={undo} intervalMs={4200} />
+          <p className="text-[11px] leading-relaxed text-slate-400">
+            The box works the same way on every rule, raise or cut, whatever it checks. Its &quot;?&quot; says what
+            else takes a change off. Turning a rule off keeps its changes as they are.
           </p>
         </div>
       )}

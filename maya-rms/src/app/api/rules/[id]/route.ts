@@ -1,4 +1,5 @@
-import { RoomTypeSetError, roomTypeIdListError } from "@/lib/rule-form";
+import { hasHotelRank } from "@/lib/require-supabase-hotel";
+import { RULE_CHANGE_FORBIDDEN, RoomTypeSetError, roomTypeIdListError, undoOnCancellationError } from "@/lib/rule-form";
 import { deleteRule, updateRule } from "@/lib/rules-store";
 import type { UpdateRuleInput } from "@/lib/rules-store";
 import { createClient } from "@/utils/supabase/server";
@@ -26,12 +27,19 @@ export async function PUT(req: Request, { params }: Params) {
     const body = (await req.json()) as Partial<UpdateRuleInput>;
     const setError =
       roomTypeIdListError(body.signal_room_type_ids, "measure") ??
-      roomTypeIdListError(body.affected_room_type_ids, "change");
+      roomTypeIdListError(body.affected_room_type_ids, "change") ??
+      undoOnCancellationError(body.undo_on_cancellation);
     if (setError) {
       return NextResponse.json({ error: setError }, { status: 400 });
     }
     const ok = await updateRule(id, body, supabase);
     if (!ok) {
+      // A rule the caller can read but whose hotel they can't manage (staff,
+      // viewers): row security left it as it was. Say why.
+      const { data: rule } = await supabase.from("pricing_rules").select("hotel_id").eq("id", id).maybeSingle();
+      if (rule?.hotel_id && !(await hasHotelRank(supabase, String(rule.hotel_id), "revenue_manager"))) {
+        return NextResponse.json({ error: RULE_CHANGE_FORBIDDEN }, { status: 403 });
+      }
       return NextResponse.json({ error: "Rule not found or update failed." }, { status: 404 });
     }
     return NextResponse.json({ ok: true });

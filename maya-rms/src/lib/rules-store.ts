@@ -18,8 +18,10 @@ import {
   bookingSpeedWaitLabel,
   eventRuleWaitDays,
   isRuleConditionEmpty,
+  pickupCountsLow,
   ruleConditionForInsert,
   ruleConditionToLegacyConditions,
+  waitDaysLabel,
 } from "@/lib/rule-form";
 import type {
   ActionDirection,
@@ -163,16 +165,18 @@ function uiActionToDb(action: RuleAction): {
  * rules-table summary text. The wait is part of what the rule does: once it
  * is over and the rule is still true, the rule adjusts that night again.
  *
- * A rule that also counts pickup waits the longer of its stored wait and that
- * lookback window (eventRuleWaitDays, the engine's ruleWaitDays), so the card
- * shows the wait the engine keeps, not the one on the dropdown.
+ * A rule that also counts pickup waits the longer of its stored wait and the
+ * pickup wait (the one chosen for it, or its lookback window when none was:
+ * eventRuleWaitDays, the engine's ruleWaitDays, and at least its window
+ * for a count on low pickup), so the card shows the wait the engine keeps,
+ * not the one on the dropdown.
  */
 function formatBookingSpeedCondition(
   operator: string,
   levelKey: string,
   windowDays: number,
   cooldownDays: number | null,
-  pickup: { hasPickup: boolean; windowDays: number | null },
+  pickup: { hasPickup: boolean; windowDays: number | null; cooldownDays: number | null; low: boolean },
 ): string {
   const label = isBookingSpeed(levelKey) ? bookingSpeedLabel(levelKey) : levelKey;
   const opWords =
@@ -184,8 +188,39 @@ function formatBookingSpeedCondition(
     cooldownDays,
     hasPickup: pickup.hasPickup,
     pickupWindowDays: pickup.windowDays,
+    pickupCooldownDays: pickup.cooldownDays,
+    pickupLow: pickup.low,
   });
   return `${opWords}${label} (${windowWords}), then waits ${bookingSpeedWaitLabel(waitDays)}`;
+}
+
+/**
+ * "(past week), then waits 2 days": what follows "Pickup above 5 bookings"
+ * in the rules table, so the wait a pickup count rule keeps can be read back
+ * once it is saved (pickupOwnWait: the one chosen, or its lookback window,
+ * and never less than the window for a rule on low pickup).
+ * A rule that also measures booking speed says its wait once, in that
+ * condition's text, which already takes the longer of the two
+ * (formatBookingSpeedCondition), so here it only names the window.
+ */
+function formatPickupTiming(
+  windowDays: number | null,
+  cooldownDays: number | null,
+  low: boolean,
+  hasBookingSpeed: boolean,
+): string {
+  const window = windowDays ?? 3;
+  const windowWords = window === 1 ? "past day" : window === 7 ? "past week" : `past ${window} days`;
+  if (hasBookingSpeed) return `(${windowWords})`;
+  const waitDays = eventRuleWaitDays({
+    hasBookingSpeed: false,
+    cooldownDays: null,
+    hasPickup: true,
+    pickupWindowDays: windowDays,
+    pickupCooldownDays: cooldownDays,
+    pickupLow: low,
+  });
+  return `(${windowWords}), then waits ${waitDaysLabel(waitDays)}`;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -218,6 +253,12 @@ function dbRowToRuleConfig(row: any): RuleConfig {
     if (rc.pickup_operator && rc.pickup_threshold != null) {
       const sym = OP_TO_SYM[rc.pickup_operator as RuleOperator] ?? ">";
       conditions.pickup_rate = `${sym}${rc.pickup_threshold}`;
+      conditions.pickup_timing = formatPickupTiming(
+        rc.pickup_window_days != null ? Number(rc.pickup_window_days) : null,
+        rc.pickup_cooldown_days != null ? Number(rc.pickup_cooldown_days) : null,
+        pickupCountsLow(String(rc.pickup_operator), Number(rc.pickup_threshold)),
+        rc.booking_speed_operator != null,
+      );
     }
     if (rc.booking_speed_operator && rc.booking_speed_level) {
       conditions.booking_speed = formatBookingSpeedCondition(
@@ -228,6 +269,10 @@ function dbRowToRuleConfig(row: any): RuleConfig {
         {
           hasPickup: rc.pickup_operator != null,
           windowDays: rc.pickup_window_days != null ? Number(rc.pickup_window_days) : null,
+          cooldownDays: rc.pickup_cooldown_days != null ? Number(rc.pickup_cooldown_days) : null,
+          low:
+            rc.pickup_operator != null &&
+            pickupCountsLow(String(rc.pickup_operator), rc.pickup_threshold != null ? Number(rc.pickup_threshold) : null),
         },
       );
     }
@@ -277,6 +322,8 @@ function dbRowToRuleConfig(row: any): RuleConfig {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     signal_room_type_ids: signal.map((rt: any) => String(rt.room_type_id)),
     signal_room_types,
+    // Ticked unless the rule says false (every rule was ticked by the migration).
+    undo_on_cancellation: row.undo_on_cancellation !== false,
   };
 }
 
@@ -293,6 +340,7 @@ function dbRowToEngineRule(row: any): EngineRule {
     condition.pickup_threshold = rc.pickup_threshold != null ? Number(rc.pickup_threshold) : null;
     condition.pickup_window_days = rc.pickup_window_days != null ? (Number(rc.pickup_window_days) as 1 | 3 | 7) : null;
     condition.pickup_metric = (rc.pickup_metric as PickupMetric) ?? null;
+    condition.pickup_cooldown_days = rc.pickup_cooldown_days != null ? Number(rc.pickup_cooldown_days) : null;
     condition.booking_speed_operator = rc.booking_speed_operator ?? null;
     condition.booking_speed_level = rc.booking_speed_level ?? null;
     condition.booking_speed_window_days =
@@ -330,6 +378,7 @@ function dbRowToEngineRule(row: any): EngineRule {
     affected_room_type_ids: affected_ids,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    undo_on_cancellation: row.undo_on_cancellation !== false,
   };
 }
 
@@ -339,11 +388,11 @@ const RULE_SELECT = `
   id, hotel_id, name, is_active, version, priority,
   start_date, end_date, is_annual, dow_mask,
   action_type, action_direction, action_value,
-  is_pickup_rule, created_at, updated_at,
+  is_pickup_rule, undo_on_cancellation, created_at, updated_at,
   rule_condition (
     occupancy_operator, occupancy_threshold,
     dta_operator, dta_threshold_days,
-    pickup_operator, pickup_threshold, pickup_window_days, pickup_metric,
+    pickup_operator, pickup_threshold, pickup_window_days, pickup_metric, pickup_cooldown_days,
     booking_speed_operator, booking_speed_level,
     booking_speed_window_days, booking_speed_cooldown_days
   ),
@@ -449,6 +498,7 @@ export function listEngineRulesFromMemory(allRoomTypeIds: string[]): EngineRule[
       affected_room_type_ids: roomTypeIds,
       created_at: new Date(0).toISOString(),
       updated_at: new Date(0).toISOString(),
+      undo_on_cancellation: r.undo_on_cancellation !== false,
     };
   });
 }
@@ -539,6 +589,11 @@ export type CreateRuleInput = {
    * moving real prices with a rule nobody has approved yet.
    */
   is_active?: boolean;
+  /**
+   * "Undo this change if cancellations mean the rule is no longer true".
+   * Defaults to true: only an explicit false unticks it.
+   */
+  undo_on_cancellation?: boolean;
 };
 
 export async function createRule(
@@ -560,6 +615,7 @@ export async function createRule(
       action: input.action,
       room_types: input.room_types,
       enabled: input.is_active ?? true,
+      undo_on_cancellation: input.undo_on_cancellation !== false,
     };
     memoryRules.push(rule);
     return rule;
@@ -633,6 +689,7 @@ export async function createRule(
       action_direction: dbAction.action_direction,
       action_value: dbAction.action_value,
       is_pickup_rule: hasPickup,
+      undo_on_cancellation: input.undo_on_cancellation !== false,
     })
     .select("id")
     .single();
@@ -787,11 +844,18 @@ export type UpdateRuleInput = {
   condition?: RuleCondition;
   signal_room_type_ids?: string[];
   affected_room_type_ids?: string[];
+  /**
+   * The undo box. Not an edit: the rule keeps its version and its changes,
+   * and from the next run the engine checks them for cancellations
+   * (ticked) or stops checking them (unticked).
+   */
+  undo_on_cancellation?: boolean;
 };
 
 /**
  * Update a rule. If conditions, action, scope, or room-type sets change,
- * bump version and retire active pickup events per §7.4.
+ * bump version and retire active pickup events per §7.4. Renaming, pausing
+ * and the undo box change none of that.
  */
 export async function updateRule(
   id: string,
@@ -851,6 +915,7 @@ export async function updateRule(
   if (input.end_date !== undefined) updates.end_date = input.end_date;
   if (input.is_annual !== undefined) updates.is_annual = input.is_annual;
   if (input.dow_mask !== undefined) updates.dow_mask = input.dow_mask;
+  if (input.undo_on_cancellation !== undefined) updates.undo_on_cancellation = input.undo_on_cancellation;
 
   if (input.action) {
     const dbAction = uiActionToDb(input.action);
@@ -876,12 +941,16 @@ export async function updateRule(
     updates.version = (current?.version ?? 0) + 1;
   }
 
-  const { error } = await supabase
+  const { data: saved, error } = await supabase
     .from("pricing_rules")
     .update(updates)
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
 
   if (error) return false;
+  // Row security lets staff and viewers read a rule but not change it: the
+  // update touched nothing, and nothing else here is theirs to write either.
+  if ((saved ?? []).length === 0) return false;
 
   if (isBehavioralEdit) {
     // Retire every open fire of this rule (§7.4), after the new version is

@@ -20,6 +20,11 @@ export type RuleConfig = {
   signal_room_type_ids?: string[];
   /** signal_room_type_ids with their names, where the name is known. */
   signal_room_types?: { id: string; name: string }[];
+  /**
+   * "Undo this change if cancellations mean the rule is no longer true".
+   * Absent in demo data, which reads as ticked like every saved rule.
+   */
+  undo_on_cancellation?: boolean;
 };
 
 /* ── Rules Engine v1 types (Implementation Guide aligned) ──────────── */
@@ -42,6 +47,12 @@ export type RuleCondition = {
   pickup_threshold?: number | null;
   pickup_window_days?: 1 | 3 | 7 | null;
   pickup_metric?: PickupMetric | null;
+  /**
+   * Days a pickup count rule waits on a night and room type before it may
+   * fire again. Null waits its lookback window (pickup_window_days); anything
+   * under a day reads as a day. Only set with a pickup condition.
+   */
+  pickup_cooldown_days?: number | null;
   booking_speed_operator?: BookingSpeedRuleOperator | null;
   /** A BookingSpeed level key, e.g. "much_slower" — the Observation Engine's ordered vocabulary. */
   booking_speed_level?: string | null;
@@ -53,8 +64,39 @@ export type RuleCondition = {
   booking_speed_cooldown_days?: number | null;
 };
 
-/** Which cancellation test can take a raise off. Cuts are always "none". */
-export type PickupCancelCheck = "none" | "net_units" | "window_bookings" | "either";
+/**
+ * What a fire's stored numbers are good for when cancellations are checked
+ * (cancellationsUndo in engine/pickup.ts). "recount": every fire made since
+ * 99_supabase_migration_undo_on_cancellation_v1.sql, raise or cut; all of its
+ * numbers can be recounted. The rest mark fires from before it: a booking
+ * speed window is recounted only on "window_bookings" and "either" (the ones
+ * recorded in bookings), and "none" or "net_units" keep that part as it was.
+ */
+export type PickupCancelCheck = "none" | "net_units" | "window_bookings" | "either" | "recount";
+
+/**
+ * What the cancellation check found no longer true when it took a change
+ * off (cancellationFinding in engine/pickup.ts), with the numbers it
+ * judged, so the change log can say why:
+ *
+ * - occupancy: the night's sellable occupancy then (0 to 1), against the
+ *   rule's bar;
+ * - pickup: the pickup the change counted, less its bookings that
+ *   cancelled, in room nights or revenue as the rule counts, against the
+ *   rule's number;
+ * - booking_speed: of the bookings the change counted in its window
+ *   (null on a change from before that was stored), how many are still
+ *   booked, against the usual frozen at the change, and the pace the rule
+ *   needs (level, a BookingSpeed key; absent on rows written before it was
+ *   kept).
+ *
+ * Found only when the rule is not true either counted the way it would
+ * count once the change is off (cancellablePartsHold).
+ */
+export type CancellationFinding =
+  | { part: "occupancy"; occupancy: number; threshold: number }
+  | { part: "pickup"; net: number; threshold: number; metric: "room_nights" | "revenue" }
+  | { part: "booking_speed"; left: number; counted: number | null; expected: number; level?: string };
 
 /** Why a fire stopped applying. "legacy" and "self_cancelled" only mark rows from before stacking. */
 export type PickupRetiredReason =
@@ -85,6 +127,12 @@ export type EngineRule = {
   affected_room_type_ids: string[];
   created_at: string;
   updated_at: string;
+  /**
+   * The owner's "undo this change if cancellations mean the rule is no
+   * longer true" box. Ticked (true) unless the rule says false; a rule read
+   * before the column existed is ticked, as every rule was migrated.
+   */
+  undo_on_cancellation?: boolean;
 };
 
 export type StayDateSnapshot = {
@@ -142,6 +190,7 @@ export type PickupEvent = {
   stay_date: string;
   affected_room_type_id: string;
   baseline_start_ts: string;
+  /** When the numbers below were taken: the fire's own run, applied_at. */
   baseline_end_ts: string;
   signal_booked_units_start: number;
   signal_booked_units_end: number;
@@ -156,11 +205,29 @@ export type PickupEvent = {
   fire_seq: number;
   retired_reason?: PickupRetiredReason | null;
   cancel_check: PickupCancelCheck;
+  /**
+   * For a rule with a pickup condition: room nights (and revenue) first seen
+   * inside the count's window and still booked at the fire. Null on fires
+   * from before 99_supabase_migration_undo_on_cancellation_v1.sql.
+   */
+  pickup_units_arrived_at_fire?: number | null;
+  pickup_revenue_arrived_at_fire?: number | null;
   /** The booking speed window at the fire, in hotel dates, when the rule has a booking speed condition. */
   window_from?: string | null;
   window_to?: string | null;
   window_bookings_at_fire?: number | null;
   window_expected_at_fire?: number | null;
+  /** The bookings counted in that window, by booking key: see PickupCandidate.window_booking_keys. */
+  window_booking_keys?: string[] | null;
+  /**
+   * Set when a run found cancellations had taken this change's own count
+   * short but bookings made since kept its rule true: that run's instant,
+   * and the numbers its cancellation check recounts from then on, under the
+   * names of the columns above (CheckedCount in engine/pickup.ts). Only that
+   * check reads them; every rule still counts from applied_at.
+   */
+  checked_at?: string | null;
+  checked_count?: Record<string, unknown> | null;
   /** The measured room types at the fire (sorted ids, comma separated). */
   signal_set_key: string;
 };
@@ -179,7 +246,10 @@ export type EvaluationAuditDetails = {
      * won: fired this run (event_id and fire_seq name the new fire).
      * lost_competition: another rule fired on the cell.
      * held_by_waiting_rule: a stronger rule that fired earlier is still
-     * waiting and still matches, so nothing fired on the cell.
+     * waiting and matches again, so nothing fired on the cell: for a rule
+     * moving the price its way, on what it counts itself since the newest
+     * change by itself or a stronger rule; for one moving it the other way,
+     * over its whole window.
      * waiting: that stronger rule.
      * no_price_change: a cut already at the floor, or a raise already at the
      * ceiling, so it did not fire.
@@ -219,6 +289,8 @@ export type EvaluationAuditDetails = {
     fire_seq: number;
     reason: "bookings_cancelled" | "manual_price" | "rule_edited";
     cancel_check: PickupCancelCheck;
+    /** For bookings_cancelled, what cancellations made no longer true. Absent on rows from before it was kept. */
+    finding?: CancellationFinding;
   }[];
   application_order: string[];
   pre_clamp_price: string;
@@ -448,7 +520,35 @@ export type ChangelogRuleAlertChoice = {
 };
 
 /**
- * The change log timeline, newest first: pricing runs, push problems and the
- * answers the owner gave to a rule that kept adjusting.
+ * Pricing runs in a row that changed nothing, as one change log line: how
+ * many, and when the first and last of them ran. Anything else the log shows
+ * in that time (a change, a push problem ending, an owner's answer) splits
+ * the stretch, so every line sits where it happened.
  */
-export type ChangelogItem = ChangelogCycle | ChangelogPushProblem | ChangelogRuleAlertChoice;
+export type ChangelogQuietChecks = {
+  kind: "quiet_checks";
+  id: string;
+  /** The latest check in the stretch; where the line sits in the timeline. */
+  timestamp: string;
+  /** The earliest check in the stretch. */
+  first_at: string;
+  /** How many checks in a row found nothing to change. */
+  checks: number;
+  /**
+   * The line under the oldest change shown, when the log stopped reading
+   * there: these are the checks just before that change, and whatever came
+   * before them is not in the log.
+   */
+  just_before?: boolean;
+};
+
+/**
+ * The change log timeline, newest first: pricing runs that changed prices,
+ * the quiet checks between them, push problems and the answers the owner gave
+ * to a rule that kept adjusting.
+ */
+export type ChangelogItem =
+  | ChangelogCycle
+  | ChangelogQuietChecks
+  | ChangelogPushProblem
+  | ChangelogRuleAlertChoice;

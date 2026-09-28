@@ -19,10 +19,15 @@ import { fakeSupabase as sharedFake } from "@/lib/engine/fake-supabase.test";
 type Row = Record<string, unknown>;
 
 /** The engine's in-memory fake (paging, JSON-path selects) plus a session. */
-function fakeSupabase(seed: Record<string, Row[]> = {}) {
+function fakeSupabase(
+  seed: Record<string, Row[]> = {},
+  opts: { maxRows?: number; beforeCall?: Parameters<typeof sharedFake>[1] extends infer O ? O extends { beforeCall?: infer B } ? B : never : never } = {},
+) {
   const failSelectFor = new Map<string, { message: string; code?: string }>();
   const fake = sharedFake(seed, {
     fault: (c) => (c.op === "select" ? (failSelectFor.get(c.table) ?? null) : null),
+    maxRows: opts.maxRows,
+    beforeCall: opts.beforeCall,
   });
   const client = Object.assign(fake.client, {
     auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) },
@@ -97,7 +102,7 @@ function seedHealthyHotel() {
       },
     ],
     evaluation_run_log: [
-      { hotel_id: HOTEL, evaluation_run_id: "run-1", evaluated_at: "2026-07-29T08:00:00Z" },
+      { hotel_id: HOTEL, evaluation_run_id: "run-1", evaluated_at: "2026-07-29T08:00:00Z", cells_changed: 1 },
     ],
   });
 }
@@ -193,7 +198,7 @@ describe("changelog route: failures are errors, never demo data", () => {
       room_types: [{ id: "rt-1", hotel_id: HOTEL, name: "Garden King" }],
       pricing_rules: [],
       evaluation_run_log: [
-        { hotel_id: HOTEL, evaluation_run_id: "run-2", evaluated_at: "2026-07-30T08:00:00Z" },
+        { hotel_id: HOTEL, evaluation_run_id: "run-2", evaluated_at: "2026-07-30T08:00:00Z", cells_changed: 1 },
       ],
       // What the caller's own client can see of profiles: themselves only.
       profiles: [{ id: "user-1", full_name: "Corey" }],
@@ -265,7 +270,7 @@ describe("changelog route: failures are errors, never demo data", () => {
         },
       ],
       evaluation_run_log: [
-        { hotel_id: HOTEL, evaluation_run_id: "run-1", evaluated_at: "2026-07-29T08:00:00Z" },
+        { hotel_id: HOTEL, evaluation_run_id: "run-1", evaluated_at: "2026-07-29T08:00:00Z", cells_changed: 1 },
       ],
       rule_repeat_alert_nights: nights,
     });
@@ -291,7 +296,7 @@ describe("changelog route: failures are errors, never demo data", () => {
       nights: 2,
       timestamp: "2026-07-29T09:00:00Z",
     });
-    expect(answer.title).toBe('Jake stopped "Slow-date rescue" on 2 nights. What it already cut stays.');
+    expect(answer.title).toBe('Jake stopped "Slow-date rescue" on 2 nights. What it already changed stays, unless cancellations mean the rule is no longer true.');
     // It sits above the run it happened after, and never replaces it.
     expect(body[0].kind).toBe("rule_alert_choice");
     expect(body.some((i: { has_changes?: boolean }) => i.has_changes === true)).toBe(true);
@@ -348,7 +353,10 @@ describe("changelog route: failures are errors, never demo data", () => {
     const res = await GET();
     const body = await res.json();
     expect(res.status).toBe(200);
-    expect(body).toHaveLength(10);
+    // Ten runs that changed a price, the quiet checks between them one line each.
+    expect(body.filter((i: { has_changes?: boolean }) => i.has_changes === true)).toHaveLength(10);
+    expect(body.filter((i: { kind?: string }) => i.kind === "quiet_checks").length).toBeGreaterThan(0);
+    expect(body.some((i: { has_changes?: boolean }) => i.has_changes === false)).toBe(false);
   });
 });
 
@@ -369,7 +377,9 @@ describe("changelog route: a large property's runs", () => {
           hotel_id: HOTEL,
           evaluation_run_id: `run-${run}`,
           stay_date: `2026-08-${String(1 + (i % 28)).padStart(2, "0")}`,
-          room_type_id: "rt-1",
+          // A row that shows nothing is a night's first: nothing before it
+          // to have moved from (a night that moved back to base is a change).
+          room_type_id: kind === 0 ? `rt-new-${n}` : "rt-1",
           evaluated_at: at,
           base_price: base,
           // Distinct moves so the ranking has no ties to break.
@@ -534,8 +544,8 @@ describe("changelog route: rates not reaching the PMS", () => {
       room_types: [{ id: "rt-1", hotel_id: HOTEL, name: "Garden King" }],
       pricing_rules: [],
       evaluation_run_log: [
-        { hotel_id: HOTEL, evaluation_run_id: "run-1", evaluated_at: "2026-07-29T08:00:00Z" },
-        { hotel_id: HOTEL, evaluation_run_id: "run-2", evaluated_at: "2026-07-29T08:05:00Z" },
+        { hotel_id: HOTEL, evaluation_run_id: "run-1", evaluated_at: "2026-07-29T08:00:00Z", cells_changed: 1 },
+        { hotel_id: HOTEL, evaluation_run_id: "run-2", evaluated_at: "2026-07-29T08:05:00Z", cells_changed: 0 },
       ],
     };
   }
@@ -553,7 +563,9 @@ describe("changelog route: rates not reaching the PMS", () => {
   it("adds each problem the owner should see as one condensed item, an ongoing one on top", async () => {
     const body = await get(liveHotel().client);
 
-    expect(body.map((item: Row) => item.kind ?? item.timestamp)).toEqual(["push_problem", "2026-07-29T08:05:00Z", "2026-07-29T08:00:00Z"]);
+    // The run at 08:05 changed nothing, so it is a quiet line.
+    expect(body.map((item: Row) => item.kind ?? item.timestamp)).toEqual(["push_problem", "quiet_checks", "2026-07-29T08:00:00Z"]);
+    expect(body[1]).toMatchObject({ checks: 1, timestamp: "2026-07-29T08:05:00Z" });
     const problem = body[0];
     expect(problem).toMatchObject({
       id: "inc-visible",
@@ -608,15 +620,80 @@ describe("changelog route: rates not reaching the PMS", () => {
 
     const body = await get(client.client);
 
-    expect(body.map((item: Row) => item.id ?? item.timestamp)).toEqual([
+    expect(body.map((item: Row) => (item.kind === "quiet_checks" ? `quiet ${item.timestamp}` : (item.id ?? item.timestamp)))).toEqual([
       "inc-visible",
-      "2026-07-29T08:05:00Z",
+      "quiet 2026-07-29T08:05:00Z",
       "inc-ended",
       "2026-07-29T08:00:00Z",
     ]);
     expect(body[0]).toMatchObject({ nights: 1, attempts: 174, retries_not_kept: 74 });
     const triesReads = client.calls.filter((c) => c.table === "rate_push_attempts" && c.op === "select");
     expect(triesReads.map((c) => c.filters.find((f) => f.col === "incident_id")?.value).sort()).toEqual(["inc-ended", "inc-visible"]);
+  });
+
+  it("keeps a problem that is still happening however many others ended since it began", async () => {
+    // Twenty days of runs with three changes, so the log reads back to the
+    // first run. One problem opened on day 2 and is still open; 21 others
+    // opened later and each ended within the hour.
+    const day = (n: number, h = 0) => new Date(Date.parse("2026-07-01T00:00:00Z") + n * 86_400_000 + h * 3_600_000).toISOString();
+    const runs: Row[] = [];
+    const audit: Row[] = [];
+    for (let n = 0; n < 20 * 24; n++) {
+      const at = new Date(Date.parse(day(0)) + n * 3_600_000).toISOString();
+      const changed = n === 10 || n === 200 || n === 400;
+      runs.push({ hotel_id: HOTEL, evaluation_run_id: `run-${n}`, evaluated_at: at, cells_changed: changed ? 1 : 0 });
+      if (changed) {
+        audit.push({
+          id: `audit-${n}`,
+          hotel_id: HOTEL,
+          evaluation_run_id: `run-${n}`,
+          stay_date: "2026-08-01",
+          room_type_id: "rt-1",
+          evaluated_at: at,
+          base_price: 180,
+          final_price: 198,
+          pre_clamp_price: 198,
+          floor_price: 100,
+          ceiling_price: 400,
+          details: { application_order: ["rule:rule-1"], matched_ladder_rules: [] },
+        });
+      }
+    }
+    const ended = Array.from({ length: 21 }, (_, i) =>
+      incident({
+        id: `inc-ended-${String(i).padStart(2, "0")}`,
+        cause: "value_rejected",
+        // The long one opened first of them and ended last.
+        opened_at: i === 0 ? day(2, 12) : day(3 + (i % 15), 1),
+        customer_visible_at: i === 0 ? day(2, 12) : day(3 + (i % 15), 1),
+        resolved_at: i === 0 ? day(19, 5) : day(3 + (i % 15), 2),
+        resolution: "landed",
+        attempt_count: 2,
+        attempts_stored: 2,
+      }),
+    );
+    const fake = fakeSupabase({
+      evaluation_audit: audit,
+      evaluation_run_log: runs,
+      hotels: [{ id: HOTEL, currency: "USD" }],
+      room_types: [{ id: "rt-1", hotel_id: HOTEL, name: "Garden King" }],
+      pricing_rules: [],
+      hotel_settings: [{ hotel_id: HOTEL, simulation_mode: false }],
+      rate_push_incidents: [incident({ opened_at: day(2), customer_visible_at: day(2) }), ...ended],
+      rate_push_incident_cells: [
+        { incident_id: "inc-visible", hotel_id: HOTEL, room_type_id: "rt-1", stay_date: "2026-08-01", state: "open" },
+      ],
+      rate_push_attempts: [],
+    });
+    const body = await get(fake.client);
+
+    expect(body[0]).toMatchObject({ kind: "push_problem", id: "inc-visible", status: "ongoing" });
+    const problems = body.filter((item: Row) => item.kind === "push_problem");
+    expect(problems.filter((p: Row) => p.status === "ongoing")).toHaveLength(1);
+    // The ended ones are the twenty that ended last, the long one included.
+    const endedIds = problems.filter((p: Row) => p.status === "resolved").map((p: Row) => p.id);
+    expect(endedIds).toHaveLength(20);
+    expect(endedIds).toContain("inc-ended-00");
   });
 
   it("shows none while the hotel is simulating", async () => {
@@ -629,7 +706,7 @@ describe("changelog route: rates not reaching the PMS", () => {
     const fake = liveHotel();
     fake.failSelectFor.set("rate_push_attempts", { code: "57014", message: "canceling statement due to statement timeout" });
     const body = await get(fake.client);
-    expect(body.map((item: Row) => item.kind ?? item.timestamp)).toEqual(["2026-07-29T08:05:00Z", "2026-07-29T08:00:00Z"]);
+    expect(body.map((item: Row) => item.kind ?? item.timestamp)).toEqual(["quiet_checks", "2026-07-29T08:00:00Z"]);
     expect(errors.mock.calls.some((c) => String(c[0]).includes('"step":"push_problems"') && String(c[0]).includes("statement timeout"))).toBe(true);
     errors.mockRestore();
   });
@@ -642,5 +719,146 @@ describe("changelog route: rates not reaching the PMS", () => {
     });
     const body = await get(fake.client);
     expect(body).toHaveLength(2);
+  });
+});
+
+describe("changelog route: quiet checks between changes", () => {
+  const t = (n: number) => new Date(Date.parse("2026-09-20T00:00:00Z") + n * 300_000).toISOString();
+
+  /**
+   * A run every five minutes. `changed` runs raised a night; `hidden` runs
+   * wrote an audit row that shows no change (a night new to the horizon, at
+   * its base, with nothing before it). The rest wrote nothing.
+   */
+  function runHistory(total: number, changed: number[], hidden: number[] = [], extra: Record<string, Row[]> = {}) {
+    const runLog: Row[] = [];
+    const audit: Row[] = [];
+    for (let n = 0; n < total; n++) {
+      const shows = changed.includes(n);
+      const writes = shows || hidden.includes(n);
+      runLog.push({ hotel_id: HOTEL, evaluation_run_id: `run-${n}`, evaluated_at: t(n), cells_changed: writes ? 1 : 0 });
+      if (!writes) continue;
+      audit.push({
+        id: `audit-${String(n).padStart(4, "0")}`,
+        hotel_id: HOTEL,
+        evaluation_run_id: `run-${n}`,
+        stay_date: shows ? "2026-10-01" : "2026-10-02",
+        room_type_id: "rt-1",
+        evaluated_at: t(n),
+        base_price: 180,
+        final_price: shows ? 198 : 180,
+        pre_clamp_price: shows ? 198 : 180,
+        floor_price: 100,
+        ceiling_price: 400,
+        details: { application_order: shows ? ["rule:rule-1"] : [], matched_ladder_rules: [] },
+      });
+    }
+    return {
+      evaluation_run_log: runLog,
+      evaluation_audit: audit,
+      hotels: [{ id: HOTEL, currency: "USD" }],
+      room_types: [{ id: "rt-1", hotel_id: HOTEL, name: "Garden King" }],
+      pricing_rules: [
+        { id: "rule-1", hotel_id: HOTEL, name: "Busy week bump", action_type: "percent", action_direction: "increase", action_value: 10, is_pickup_rule: false, rule_condition: null },
+      ],
+      ...extra,
+    };
+  }
+
+  async function get(
+    seed: Record<string, Row[]>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    onCall?: (c: { table: string }, client: any) => Promise<void>,
+  ) {
+    // PostgREST hands back at most this many rows a read, so a stretch of
+    // hundreds only counts right if it is counted, not read.
+    const fake = fakeSupabase(seed, { maxRows: 50, beforeCall: onCall ? (c) => onCall(c, fake.client) : undefined });
+    state.client = fake.client;
+    state.hotelId = HOTEL;
+    state.configured = true;
+    state.admin = null;
+    const res = await GET();
+    expect(res.status).toBe(200);
+    return { body: (await res.json()) as Row[], calls: fake.calls };
+  }
+
+  const shape = (body: Row[]) =>
+    body.map((i) =>
+      i.kind === "quiet_checks"
+        ? `${i.checks} quiet ${i.first_at} to ${i.timestamp}${i.just_before ? " (just before)" : ""}`
+        : i.kind === "rule_alert_choice"
+          ? `answer ${i.timestamp}`
+          : `change ${i.timestamp}`,
+    );
+
+  it("shows each change in full and every stretch of quiet checks around it as one counted line", async () => {
+    // 300 runs, changes at 40 and 250, and one at 120 that wrote a row showing nothing.
+    const { body, calls } = await get(runHistory(300, [40, 250], [120]));
+    expect(shape(body)).toEqual([
+      `49 quiet ${t(251)} to ${t(299)}`,
+      `change ${t(250)}`,
+      `209 quiet ${t(41)} to ${t(249)}`,
+      `change ${t(40)}`,
+      `40 quiet ${t(0)} to ${t(39)}`,
+    ]);
+    expect(body[1]).toMatchObject({ has_changes: true });
+    // The quiet runs are counted and their two ends read, never listed.
+    const runLogReads = calls.filter((c) => c.table === "evaluation_run_log");
+    expect(runLogReads.length).toBeLessThanOrEqual(2 + 3 * 3);
+    expect(calls.filter((c) => c.table === "evaluation_audit" && c.filters.some((f) => f.col === "evaluation_run_id")).map((c) => c.filters.find((f) => f.col === "evaluation_run_id")?.value)).toEqual(["run-250", "run-120", "run-40"]);
+  });
+
+  it("leaves out a run that changed prices while the log was being read, rather than calling it quiet", async () => {
+    const seed = runHistory(60, [10]);
+    let landed = false;
+    // Once the runs to read have been chosen and read (the push problem read
+    // comes next), a run that changed a price lands.
+    const { body, calls } = await get(seed, async (c, client) => {
+      if (landed || c.table !== "hotel_settings") return;
+      landed = true;
+      const { error } = await client
+        .from("evaluation_run_log")
+        .insert({ hotel_id: HOTEL, evaluation_run_id: "run-late", evaluated_at: t(60), cells_changed: 1 });
+      expect(error).toBeNull();
+    });
+    expect(calls.some((c) => c.op === "insert" && c.table === "evaluation_run_log")).toBe(true);
+    expect(shape(body)[0]).toBe(`49 quiet ${t(11)} to ${t(59)}`);
+  });
+
+  it("covers every check since the first with one line when nothing has ever changed", async () => {
+    const { body } = await get(runHistory(120, []));
+    expect(body).toEqual([
+      { kind: "quiet_checks", id: `quiet-${t(0)}-${t(119)}`, timestamp: t(119), first_at: t(0), checks: 120 },
+    ]);
+  });
+
+  it("splits a quiet stretch at an owner's answer, so the answer sits where it happened", async () => {
+    const answeredAt = new Date(Date.parse(t(70)) + 60_000).toISOString();
+    const { body } = await get(
+      runHistory(100, [20], [], {
+        rule_repeat_alert_nights: [
+          { hotel_id: HOTEL, rule_id: "rule-1", stay_date: "2026-10-01", choice: "stop", chosen_at: answeredAt, chosen_by: null },
+        ],
+      }),
+    );
+    expect(shape(body)).toEqual([
+      `29 quiet ${t(71)} to ${t(99)}`,
+      `answer ${answeredAt}`,
+      `50 quiet ${t(21)} to ${t(70)}`,
+      `change ${t(20)}`,
+      `20 quiet ${t(0)} to ${t(19)}`,
+    ]);
+  });
+
+  it("keeps the ten newest changes and says the last line is the stretch just before the oldest", async () => {
+    // Fourteen changes, every tenth run from run 5; the four oldest are left out.
+    const changed = Array.from({ length: 14 }, (_, i) => 5 + i * 10);
+    const { body } = await get(runHistory(150, changed));
+    const lines = shape(body);
+    expect(lines.filter((l) => l.startsWith("change"))).toHaveLength(10);
+    expect(lines.filter((l) => l.startsWith("change"))[9]).toBe(`change ${t(45)}`);
+    // Only back to the next change the log did not read (run 35).
+    expect(lines[lines.length - 1]).toBe(`9 quiet ${t(36)} to ${t(44)} (just before)`);
+    expect(lines.some((l) => l.includes(t(35)) || l.includes(t(5)))).toBe(false);
   });
 });

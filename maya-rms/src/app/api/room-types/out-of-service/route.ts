@@ -13,6 +13,7 @@
  */
 
 import { isRealIsoDate, isUuid } from "@/lib/api-guards";
+import { peakUnitsOut } from "@/lib/out-of-service";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { roleLabel } from "@/lib/roles";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
@@ -72,28 +73,6 @@ function daysBetween(fromIso: string, toIso: string): number {
   return Math.round(
     (Date.parse(`${toIso}T00:00:00Z`) - Date.parse(`${fromIso}T00:00:00Z`)) / 86_400_000,
   );
-}
-
-/**
- * The most units already out on any one night of [startDate, endDate].
- * Night by night rather than a sum of rows: two rows that both touch the
- * range but not each other are not stacked, and two that do are.
- */
-export function peakUnitsOut(
-  rows: { start_date: string; end_date: string; units: number }[],
-  startDate: string,
-  endDate: string,
-): number {
-  let peak = 0;
-  const d = new Date(`${startDate}T00:00:00Z`);
-  for (let night = startDate; night <= endDate; ) {
-    let out = 0;
-    for (const r of rows) if (night >= r.start_date && night <= r.end_date) out += r.units;
-    if (out > peak) peak = out;
-    d.setUTCDate(d.getUTCDate() + 1);
-    night = d.toISOString().slice(0, 10);
-  }
-  return peak;
 }
 
 /** Sign-in, hotel rank, budget, service role — in that order, like manual-price. */

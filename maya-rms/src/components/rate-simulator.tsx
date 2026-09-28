@@ -27,6 +27,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FilledChip } from "@/components/deep-links/arrival-bits";
 import { LearnMore } from "@/components/deep-links/help-links";
 import type { TestRuleFill } from "@/lib/deep-links/prefill";
+import { UndoOnCancellationField } from "@/components/undo-on-cancellation-box";
 
 /**
  * Rate Simulator — try a rule on a night that hasn't happened yet.
@@ -110,6 +111,8 @@ export function RateSimulator({
   // The night a link asked for is set once, when the hotel's own "today" is known.
   const stayInPending = useRef(initialDraft?.stayIn);
   const [draftRoomTypeIds, setDraftRoomTypeIds] = useState<string[]>([]);
+  // The undo box, ticked on every new rule, as in the rule builder.
+  const [draftUndo, setDraftUndo] = useState(true);
   const [draftError, setDraftError] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -199,11 +202,13 @@ export function RateSimulator({
       // picked types that count as rooms.
       signal_room_type_ids: defaultSignalIds(draftRoomTypeIds, countsAsRoom),
       affected_room_type_ids: draftRoomTypeIds,
+      undo_on_cancellation: draftUndo,
       created_at: "",
       updated_at: "",
     };
   }, [
     draftOpen,
+    draftUndo,
     draftRows,
     draftAmount,
     draftKind,
@@ -288,6 +293,7 @@ export function RateSimulator({
           room_types: names,
           signal_room_type_ids: draftRule.signal_room_type_ids,
           affected_room_type_ids: draftRule.affected_room_type_ids,
+          undo_on_cancellation: draftUndo,
           // Off at birth. A rule nobody has approved must never get a window in
           // which a scheduled run could price with it.
           is_active: false,
@@ -312,7 +318,7 @@ export function RateSimulator({
         if (created?.id) setSelectedRuleIds((prev) => new Set(prev).add(String(created.id)));
       } catch {
         setSavedNotice(
-          "Rule Added to Rules Tab and Initialized as Disabled — reload to see it listed here.",
+          "Rule Added to Rules Tab and Initialized as Disabled. Reload to see it listed here.",
         );
       }
     } catch (e) {
@@ -329,6 +335,7 @@ export function RateSimulator({
     setDraftDirection("increase");
     setDraftAmount("10");
     setDraftRoomTypeIds(roomTypes.map((rt) => rt.id));
+    setDraftUndo(true);
     setDraftError(null);
   }
 
@@ -434,7 +441,7 @@ export function RateSimulator({
         <h3 className="mb-1 text-sm font-semibold">Your rooms</h3>
         <p className="mb-3 text-[11px] text-slate-500">
           Real room types from this property. Each starts at the nearest rate MAYA has published for
-          it — change it to whatever night you want to test.
+          it. Change it to whatever night you want to test.
         </p>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] border-collapse text-sm">
@@ -763,6 +770,8 @@ export function RateSimulator({
               </div>
             </div>
 
+            <UndoOnCancellationField checked={draftUndo} onChange={setDraftUndo} />
+
             <div>
               <span className={microLabel} id="sim-room-types-label">
                 Room types
@@ -891,8 +900,8 @@ export function RateSimulator({
                 ).values(),
               ).map((o) => (
                 <li key={`${o.ruleId}-${o.skipReason}`}>
-                  <span className="text-slate-400">{o.ruleName}</span> —{" "}
-                  {o.skipReason ? SIM_SKIP_LABEL[o.skipReason] : "—"}
+                  <span className="text-slate-400">{o.ruleName}</span>
+                  {o.skipReason ? `: ${SIM_SKIP_LABEL[o.skipReason]}` : ""}
                   {o.skipReason === "condition_not_met" && o.occupancySeen != null && (
                     <span className="tabular-nums">
                       {" "}

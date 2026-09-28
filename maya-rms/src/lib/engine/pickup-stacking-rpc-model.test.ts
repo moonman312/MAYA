@@ -1,9 +1,12 @@
 /**
- * In-memory stand-in for pickup_fire_heads from
- * 99_supabase_migration_pickup_event_stacking_v1.sql, written straight from
- * the SQL so engine tests run the migrated path against fakeSupabase.
- * pickup-stacking-sql.test.ts checks the real function against this model in
- * PGlite.
+ * In-memory stand-in for pickup_fire_heads, written straight from the SQL
+ * so engine tests run the migrated path against fakeSupabase: by default as
+ * 99_supabase_migration_undo_on_cancellation_v1.sql leaves it (the counts
+ * over the open fires only, to the newest of their applied_at), which
+ * undo-on-cancellation-sql.test.ts checks the real function against; and as
+ * 99_supabase_migration_pickup_event_stacking_v1.sql made it (`version:
+ * "stacking"`), which pickup-stacking-sql.test.ts checks it against, both
+ * in PGlite.
  */
 import { describe, expect, it } from "vitest";
 import type { FakeRow } from "./fake-supabase.test";
@@ -15,12 +18,23 @@ function isAnchor(r: FakeRow): boolean {
   return r.retired_at == null || ANCHORS.has(String(r.retired_reason));
 }
 
-function isCounted(r: FakeRow): boolean {
-  return r.retired_at == null || r.retired_reason === "bookings_cancelled";
+/** Which pickup_fire_heads: the undo migration's (the default) or the stacking one it replaced. */
+export type FireHeadsVersion = "undo" | "stacking";
+
+/**
+ * Counted toward counted_fires and last_counted_at: the open fires, and
+ * before the undo migration one taken off for cancellations too.
+ */
+function isCounted(r: FakeRow, version: FireHeadsVersion): boolean {
+  return r.retired_at == null || (version === "stacking" && r.retired_reason === "bookings_cancelled");
 }
 
 /** pickup_fire_heads(p_hotel_id, p_rule_ids, p_from, p_to) */
-export function pickupFireHeads(events: FakeRow[], a: Record<string, unknown>): FakeRow[] {
+export function pickupFireHeads(
+  events: FakeRow[],
+  a: Record<string, unknown>,
+  version: FireHeadsVersion = "undo",
+): FakeRow[] {
   const ruleIds = new Set((a.p_rule_ids as string[] | null) ?? []);
   const groups = new Map<string, FakeRow[]>();
   for (const e of events) {
@@ -32,25 +46,22 @@ export function pickupFireHeads(events: FakeRow[], a: Record<string, unknown>): 
     list.push(e);
     groups.set(key, list);
   }
-  const newest = (rows: FakeRow[]) =>
-    rows.reduce<string | null>(
-      (max, r) => (max === null || Date.parse(String(r.applied_at)) > Date.parse(max) ? String(r.applied_at) : max),
-      null,
-    );
+  const newest = (instants: string[]) =>
+    instants.reduce<string | null>((max, at) => (max === null || Date.parse(at) > Date.parse(max) ? at : max), null);
   return [...groups.entries()]
     .sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0))
     .map(([key, rows]) => {
       const [rule_id, stay_date, affected_room_type_id, rule_version] = key.split("|");
-      const counted = rows.filter(isCounted);
+      const counted = rows.filter((r) => isCounted(r, version));
       return {
         rule_id,
         stay_date,
         affected_room_type_id,
         rule_version: Number(rule_version),
         max_fire_seq: Math.max(...rows.map((r) => Number(r.fire_seq ?? 0))),
-        anchor_at: newest(rows.filter(isAnchor)),
+        anchor_at: newest(rows.filter(isAnchor).map((r) => String(r.applied_at))),
         counted_fires: counted.length,
-        last_counted_at: newest(counted),
+        last_counted_at: newest(counted.map((r) => String(r.applied_at))),
       };
     });
 }
@@ -80,7 +91,7 @@ describe("pickup_fire_heads model", () => {
     ...over,
   });
 
-  it("gives the highest fire number, the newest fire that starts a wait, and the counted fires", () => {
+  it("before the undo migration: the highest fire number, the newest fire that starts a wait, and the counted fires", () => {
     const rows = [
       fire({ fire_seq: 1, applied_at: "2026-09-01T00:00:00.000Z", retired_at: "2026-09-02T00:00:00.000Z", retired_reason: "bookings_cancelled" }),
       fire({ fire_seq: 2, applied_at: "2026-09-08T00:00:00.000Z" }),
@@ -88,7 +99,7 @@ describe("pickup_fire_heads model", () => {
       fire({ fire_seq: 3, applied_at: "2026-09-09T00:00:00.000Z", retired_at: "2026-09-09T00:00:00.000Z", retired_reason: "self_cancelled" }),
       fire({ fire_seq: 4, applied_at: "2026-09-10T00:00:00.000Z", retired_at: "2026-09-11T00:00:00.000Z", retired_reason: "manual_price" }),
     ];
-    const out = pickupFireHeads(rows, { p_hotel_id: "h1", p_rule_ids: ["r1"], p_from: "2026-09-30", p_to: "2026-10-31" });
+    const out = pickupFireHeads(rows, { p_hotel_id: "h1", p_rule_ids: ["r1"], p_from: "2026-09-30", p_to: "2026-10-31" }, "stacking");
     expect(out).toEqual([
       {
         rule_id: "r1",
@@ -100,6 +111,18 @@ describe("pickup_fire_heads model", () => {
         counted_fires: 2,
         last_counted_at: "2026-09-08T00:00:00.000Z",
       },
+    ]);
+  });
+
+  it("after it: only the open fires count, to the newest applied_at (a change kept after cancellations included), while a change taken off for cancellations still starts the wait", () => {
+    const rows = [
+      fire({ fire_seq: 1, applied_at: "2026-09-01T00:00:00.000Z", checked_at: "2026-09-03T00:00:00.000Z" }),
+      fire({ fire_seq: 2, applied_at: "2026-09-08T00:00:00.000Z", retired_at: "2026-09-09T00:00:00.000Z", retired_reason: "bookings_cancelled" }),
+      fire({ fire_seq: 3, applied_at: "2026-09-10T00:00:00.000Z", retired_at: "2026-09-11T00:00:00.000Z", retired_reason: "manual_price" }),
+    ];
+    const out = pickupFireHeads(rows, { p_hotel_id: "h1", p_rule_ids: ["r1"], p_from: "2026-09-30", p_to: "2026-10-31" });
+    expect(out.map((r) => [r.max_fire_seq, r.anchor_at, r.counted_fires, r.last_counted_at])).toEqual([
+      [3, "2026-09-08T00:00:00.000Z", 1, "2026-09-01T00:00:00.000Z"],
     ]);
   });
 

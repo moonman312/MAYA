@@ -164,6 +164,8 @@ async function applyRuleSuggestion(
         action_direction: spec.action.action_direction,
         action_value: spec.action.action_value,
         is_pickup_rule: spec.is_pickup_rule,
+        // A suggestion the owner accepts is ticked, like every new rule.
+        undo_on_cancellation: true,
       })
       .select("id")
       .single();

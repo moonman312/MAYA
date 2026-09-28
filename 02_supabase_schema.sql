@@ -361,6 +361,9 @@ create table if not exists pricing_rules (
   priority          integer not null default 100,
   -- classification
   is_pickup_rule    boolean not null default false,
+  -- Undo this change if cancellations mean the rule is no longer true
+  -- (99_supabase_migration_undo_on_cancellation_v1.sql). Ticked by default.
+  undo_on_cancellation boolean not null default true,
   -- audit
   created_by        uuid references auth.users(id) on delete set null,
   created_at        timestamptz not null default now(),
@@ -384,6 +387,9 @@ create table if not exists rule_condition (
   pickup_threshold      numeric(10,2),
   pickup_window_days    integer check (pickup_window_days in (1,3,7)),
   pickup_metric         text check (pickup_metric in ('room_nights','revenue')),
+  -- Days a pickup count rule waits on a night and room type after it fires
+  -- there; null waits its lookback window (99_supabase_migration_pickup_wait_v1.sql).
+  pickup_cooldown_days  integer constraint rule_condition_pickup_cooldown_chk check (pickup_cooldown_days is null or pickup_cooldown_days >= 1),
   booking_speed_operator      text check (booking_speed_operator is null or booking_speed_operator in ('at_least','at_most','is')),
   booking_speed_level         text check (booking_speed_level is null or booking_speed_level in
     ('stalled','much_slower','slower','normal','faster','much_faster','surging')),
@@ -396,6 +402,8 @@ create table if not exists rule_condition (
     (pickup_operator is not null and pickup_threshold is not null
      and pickup_window_days is not null and pickup_metric is not null)
   ),
+  constraint rule_condition_pickup_cooldown_family_chk
+    check (pickup_cooldown_days is null or pickup_operator is not null),
   check (
     (booking_speed_operator is null and booking_speed_level is null
      and booking_speed_window_days is null and booking_speed_cooldown_days is null)
@@ -525,15 +533,33 @@ create table if not exists pickup_event (
   fire_seq                      integer not null constraint pickup_event_fire_seq_chk check (fire_seq >= 1),
   retired_reason                text constraint pickup_event_retired_reason_chk check (retired_reason is null or retired_reason in
     ('night_passed', 'bookings_cancelled', 'manual_price', 'rule_edited', 'self_cancelled', 'legacy')),
+  -- 'recount' on every change since 99_supabase_migration_undo_on_cancellation_v1.sql.
   cancel_check                  text not null default 'none'
-    constraint pickup_event_cancel_check_chk check (cancel_check in ('none', 'net_units', 'window_bookings', 'either')),
+    constraint pickup_event_cancel_check_chk check (cancel_check in ('none', 'net_units', 'window_bookings', 'either', 'recount')),
   window_from                   date,
   window_to                     date,
   window_bookings_at_fire       integer,
   window_expected_at_fire       numeric(10,2),
   signal_set_key                text not null,
+  -- What a pickup count saw come in during its window, and the bookings a
+  -- booking speed window counted, by key (the undo migration).
+  pickup_units_arrived_at_fire   integer,
+  pickup_revenue_arrived_at_fire numeric(12,2),
+  window_booking_keys            text[],
+  -- A change kept on bookings made since after cancellations: when, and the
+  -- numbers its cancellation check recounts from then on (the undo migration).
+  checked_at                     timestamptz,
+  checked_count                  jsonb,
   constraint pickup_event_retired_reason_set_chk check ((retired_at is null) = (retired_reason is null)),
-  constraint pickup_event_cancel_increase_chk check (cancel_check = 'none' or action_direction = 'increase'),
+  constraint pickup_event_cancel_increase_chk check (cancel_check in ('none', 'recount') or action_direction = 'increase'),
+  constraint pickup_event_arrivals_chk check (
+    (pickup_units_arrived_at_fire is null or pickup_units_arrived_at_fire >= 0)
+    and (pickup_revenue_arrived_at_fire is null or pickup_revenue_arrived_at_fire >= 0)
+  ),
+  constraint pickup_event_checked_chk check (
+    (checked_at is null) = (checked_count is null)
+    and (checked_count is null or jsonb_typeof(checked_count) = 'object')
+  ),
   constraint pickup_event_window_chk check (
     cancel_check not in ('window_bookings', 'either')
     or (window_from is not null and window_to is not null and window_from <= window_to

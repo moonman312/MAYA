@@ -219,9 +219,69 @@ describe("computeStarterRules: the booking-speed ladder", () => {
     expect(byName.get("Sudden-spike catcher")!.explanation).toContain("repeated daily");
   });
 
+  it("says a rule that acts again judges only the bookings since its or a stronger rule's latest change still on the night", () => {
+    // engine/pickup.ts countFromFireAt: a rule counts from the newest raise
+    // or cut still on the night by itself or a stronger rule that moves the
+    // price the same way; a weaker rule's never moves it, and one that came
+    // off for cancellations covers nothing (Jake, 2026-09-24, option A). Among the starters the rescue ranks ahead of the trim, and
+    // the spike rule ahead of the week rule, both ahead of the month rule,
+    // so their changes cover the weaker ones; an owner's own rule can rank
+    // ahead of any of them.
+    expect(byName.get("Slow-date rescue")!.explanation).toContain(
+      "judges only the bookings made since this rule or a stronger one's latest cut still on the night",
+    );
+    expect(byName.get("Slow-date trim")!.explanation).toContain(
+      "looking only at bookings made since this rule or a stronger one's latest cut still on the night",
+    );
+    expect(byName.get("Warm-date bump")!.explanation).toContain(
+      "only if the bookings made since this rule or a stronger one's latest raise still on the night are, on their own, ahead of what similar nights get in a whole month",
+    );
+    expect(byName.get("Warm-date bump")!.explanation).not.toContain("another rule already raised on");
+    // A raise rule on "at least" a pace needs the bookings since the change
+    // alone to beat a whole window's usual (keepsWholeWindowBar), so it
+    // doesn't raise again on bookings that merely keep the pace up.
+    expect(byName.get("Hot-week surge")!.explanation).toContain(
+      "if the bookings made since this rule or a stronger one's latest raise still on the night are, on their own, far more than a normal week brings",
+    );
+    expect(byName.get("Hot-week surge")!.explanation).not.toContain("keep coming that fast");
+    for (const r of rules) {
+      expect(r.explanation).not.toContain("the night is still");
+      expect(r.explanation).not.toContain("while demand holds");
+      expect(r.explanation).not.toContain("whichever rule");
+      expect(r.explanation).not.toContain("the night was last");
+      expect(r.explanation).not.toMatch(/last (raised|cut) the night/);
+    }
+  });
+
+  it("says a raise comes back off when cancellations leave it short of its pace, and never promises that of a cut", () => {
+    // engine/pickup.ts cancellationsUndo: every starter rule is ticked; the
+    // raises are on "at least" a pace, which cancellations can make false,
+    // and the cuts on a slow pace, which they only make slower.
+    for (const name of ["Warm-date bump", "Hot-week surge", "Sudden-spike catcher"]) {
+      // It stays while bookings made since keep the rule true, so the blurb
+      // speaks of the night, not only the bookings the raise counted.
+      expect(byName.get(name)!.explanation).toMatch(/If guests cancel and that leaves .*, the raise comes back off\.$/);
+      expect(byName.get(name)!.explanation).not.toMatch(/bookings a raise counted|what is left of that day/);
+    }
+    for (const name of ["Slow-date rescue", "Slow-date trim"]) {
+      expect(byName.get(name)!.explanation).not.toMatch(/cancel/);
+    }
+    for (const r of rules) expect(r.explanation).not.toContain("enough of the bookings");
+  });
+
+  it("says the cut rules look at full days only", () => {
+    // engine/booking-speed-provider.ts countsCompleteDays.
+    expect(byName.get("Slow-date rescue")!.explanation).toContain("It looks at full days only, up to yesterday.");
+    expect(byName.get("Slow-date trim")!.explanation).toContain("It looks at full days only, up to yesterday.");
+    for (const name of ["Warm-date bump", "Hot-week surge", "Sudden-spike catcher"]) {
+      expect(byName.get(name)!.explanation).not.toContain("full days");
+    }
+  });
+
   it("tells the owner about the alert on the rules that can run away", () => {
-    // Three fires on one night is where MAYA asks (engine/repeat-alerts.ts).
-    const told = rules.filter((r) => r.explanation.includes("three times"));
+    // Three of a rule's changes still on one night is where MAYA asks
+    // (engine/repeat-alerts.ts counts the ones still on the price).
+    const told = rules.filter((r) => /once three of its (raises|cuts) are on the same night/.test(r.explanation));
     expect(told.map((r) => r.name)).toEqual([
       "Slow-date rescue",
       "Hot-week surge",
@@ -230,7 +290,8 @@ describe("computeStarterRules: the booking-speed ladder", () => {
   });
 
   it("only claims a raise comes back off where the cancellation test can take it off", () => {
-    // Cuts are never undone by cancellations: cancel_check is none for them.
+    // The starter cuts are on a slow pace, which cancellations only make
+    // slower (cancellableParts leaves it out), so nothing cancelled undoes them.
     for (const r of rules.filter((x) => x.action.action_direction === "decrease")) {
       expect(r.explanation).not.toContain("comes back off");
     }

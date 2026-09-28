@@ -44,6 +44,7 @@ export type AlertNightRow = {
   window_expected: number | null;
   pickup_metric: string | null;
   pickup_threshold: number | null;
+  /** null with a threshold: the pickup counted from the rule's own last raise or cut, or a stronger rule's, not over a window of days. */
   pickup_window_days: number | null;
   pickup_net: number | null;
   room_types: AlertNightRoomType[];
@@ -81,6 +82,8 @@ export type RuleAlert = {
   rule_id: string;
   rule_name: string;
   direction: "increase" | "decrease";
+  /** The rule's undo box: whether cancellations can still take its changes off. */
+  undo_on_cancellation: boolean;
   /** One line naming the rule, what it did and how often. */
   headline: string;
   /** One line on what happens if nobody answers. */
@@ -110,8 +113,10 @@ function nightWord(n: number): string {
   return n === 1 ? "1 night" : `${n} nights`;
 }
 
-function timesWord(n: number): string {
-  return n === 1 ? "once" : `${n} times`;
+/** "1 raise", "3 cuts": changes still on the price. */
+function changesWord(n: number, direction: "increase" | "decrease"): string {
+  const noun = direction === "increase" ? "raise" : "cut";
+  return `${n} ${n === 1 ? noun : `${noun}s`}`;
 }
 
 function listWords(items: string[]): string {
@@ -120,26 +125,31 @@ function listWords(items: string[]): string {
 }
 
 /** "cut" / "raised", in the tense a simulating hotel can believe. */
-export function alertVerb(direction: "increase" | "decrease", simulation: boolean): string {
-  if (simulation) return direction === "increase" ? "would have raised" : "would have cut";
-  return direction === "increase" ? "has raised" : "has cut";
+/** "has", or "would have" in simulation: the rule's changes still on the price. */
+export function alertVerb(simulation: boolean): string {
+  return simulation ? "would have" : "has";
 }
 
 /**
- * "3 times on Standard, once on Deluxe" — what the rule did to each room type
- * that night. The night's own fire_count is the most on any one of them, so a
- * rule that cut Standard three times and Deluxe once would otherwise read as
- * having cut both three times. Room types whose name this run could not read
- * are left out, and a night with none of them falls back to the count that
+ * "3 cuts on Standard and 1 cut on Deluxe": the rule's changes still on the
+ * price on each room type that night (a change that came off is not among
+ * them). The night's own fire_count is the most on any one of them, so a
+ * rule with three cuts on Standard and one on Deluxe would otherwise read as
+ * having three on both. Room types whose name this run could not read are
+ * left out, and a night with none of them falls back to the count that
  * filed it.
  */
-export function nightFiresLine(night: AlertNightRow, roomTypeNames: Map<string, string>): string {
+export function nightFiresLine(
+  night: AlertNightRow,
+  roomTypeNames: Map<string, string>,
+  direction: "increase" | "decrease",
+): string {
   const named = night.room_types.flatMap((rt) => {
     const name = roomTypeNames.get(rt.room_type_id);
     return name ? [{ name, fires: rt.fires }] : [];
   });
-  if (named.length === 0) return timesWord(night.fire_count);
-  return listWords(named.map((rt) => `${timesWord(rt.fires)} on ${rt.name}`));
+  if (named.length === 0) return changesWord(night.fire_count, direction);
+  return listWords(named.map((rt) => `${changesWord(rt.fires, direction)} on ${rt.name}`));
 }
 
 /** The room types it fired on that night did not all get the same number. */
@@ -149,10 +159,12 @@ export function nightIsUneven(night: AlertNightRow): boolean {
 }
 
 /**
- * "\"Slow-date rescue\" has cut 4 nights, 3 times each." One night names the
- * night; several say how far the range goes, because that is the number the
- * owner is being asked about. When a night's room types got different numbers
- * the headline says "up to", and the line under each night gives each one.
+ * "\"Slow-date rescue\" has 3 cuts on each of 4 nights.": the changes of its
+ * own still on each night's price, which is what files the alert. One night
+ * names the night; several say how far the range goes, because that is the
+ * number the owner is being asked about. When a night's room types got
+ * different numbers the headline says "up to", and the line under each night
+ * gives each one.
  */
 export function alertHeadline(input: {
   ruleName: string;
@@ -160,16 +172,18 @@ export function alertHeadline(input: {
   nights: { label: string; fires: number; uneven?: boolean }[];
   simulation: boolean;
 }): string {
-  const verb = alertVerb(input.direction, input.simulation);
+  const verb = alertVerb(input.simulation);
   const counts = input.nights.map((n) => n.fires);
   const low = Math.min(...counts);
   const high = Math.max(...counts);
   const upTo = input.nights.some((n) => n.uneven);
+  const noun = input.direction === "increase" ? "raises" : "cuts";
   if (input.nights.length === 1) {
-    return `"${input.ruleName}" ${verb} ${input.nights[0].label} ${upTo ? "up to " : ""}${low} times.`;
+    const many = upTo ? `up to ${low} ${noun}` : changesWord(low, input.direction);
+    return `"${input.ruleName}" ${verb} ${many} on ${input.nights[0].label}.`;
   }
-  const howOften = upTo ? `up to ${high} times each` : low === high ? `${low} times each` : `${low} to ${high} times each`;
-  return `"${input.ruleName}" ${verb} ${nightWord(input.nights.length)}, ${howOften}.`;
+  const many = upTo ? `up to ${high}` : low === high ? `${low}` : `${low} to ${high}`;
+  return `"${input.ruleName}" ${verb} ${many} ${noun} on each of ${nightWord(input.nights.length)}.`;
 }
 
 /** What happens while nobody answers: the rule carries on. */
@@ -194,29 +208,61 @@ function unitsPhrase(n: number): string {
   return Math.abs(n) === 1 ? `${n} room night` : `${n} room nights`;
 }
 
+/** "day", "week", "month" or "N days": a window's length in words. */
+function spanWord(days: number): string {
+  return days === 1 ? "day" : days === 7 ? "week" : days === 30 ? "month" : `${days} days`;
+}
+
 /**
  * What the rule was looking at when it last fired, one short sentence per
  * signal. A booking speed rule names the bookings it measured against the
  * pace similar nights set; a pickup rule names the pickup against the mark
- * the owner typed. A rule with both says both.
+ * the owner typed, over its window, or since the raise (cut, for a rule
+ * that cuts) before its latest one, by it or a stronger rule, when that is
+ * where its count opened (pickupWindowOpensAt in engine/pickup.ts: the
+ * fire's pickup_window_days is then null). A rule with both says both.
+ * Either way the count ran from when that change was made: a change a
+ * cancellation check kept later still counts from its own applied_at
+ * (openFireHeads in engine/pickup.ts), so this names the change itself,
+ * not when it was last checked.
+ *
+ * `wholeWindowDays` is the rule's booking speed window when it raises on a
+ * fast pace (engine keepsWholeWindowBar): measured over fewer days than
+ * that, it counted only the bookings since the raise before its latest
+ * one, by it or a stronger rule, and those alone had to beat what a night
+ * like this gets in the whole window, which is what window_expected then
+ * is. `direction` is the rule's.
  */
-export function nightWhy(night: AlertNightRow, currencySymbol: string): string[] {
+export function nightWhy(
+  night: AlertNightRow,
+  currencySymbol: string,
+  wholeWindowDays?: number | null,
+  direction?: "increase" | "decrease",
+): string[] {
   const out: string[] = [];
   if (night.window_days != null && night.window_bookings != null) {
-    const measured = `In the ${dayWord(night.window_days)} it measured, ${bookingsPhrase(night.window_bookings)}.`;
+    const sinceRaise = wholeWindowDays != null && night.window_days < wholeWindowDays;
+    const measured = sinceRaise
+      ? `Since the raise before its latest one, by it or a stronger rule, ${bookingsPhrase(night.window_bookings)}.`
+      : `In the ${dayWord(night.window_days)} it measured, ${bookingsPhrase(night.window_bookings)}.`;
     out.push(
-      night.window_expected != null
-        ? `${measured} A night like this usually has ${expectedPhrase(night.window_expected)} by then.`
-        : measured,
+      night.window_expected == null
+        ? measured
+        : sinceRaise
+          ? `${measured} A night like this usually gets ${expectedPhrase(night.window_expected)} in a whole ${spanWord(wholeWindowDays)}.`
+          : `${measured} A night like this usually has ${expectedPhrase(night.window_expected)} by then.`,
     );
   }
-  if (night.pickup_threshold != null && night.pickup_window_days != null && night.pickup_net != null) {
+  if (night.pickup_threshold != null && night.pickup_net != null) {
     const revenue = night.pickup_metric === "revenue";
     const got = revenue ? money(night.pickup_net, currencySymbol) : unitsPhrase(night.pickup_net);
     const mark = revenue ? money(night.pickup_threshold, currencySymbol) : String(night.pickup_threshold);
-    out.push(
-      `Pickup over the last ${dayWord(night.pickup_window_days)} came to ${got}, against the ${mark} you set.`,
-    );
+    const change = direction === "decrease" ? "cut" : direction === "increase" ? "raise" : "change";
+    const over =
+      night.pickup_window_days != null
+        ? `over the last ${dayWord(night.pickup_window_days)}`
+        : `since the ${change} before its latest one, by it or a stronger rule,`;
+    out.push(`Pickup ${over} came to ${got}, against the ${mark} you set.`);
   }
   return out;
 }
@@ -273,15 +319,23 @@ export function nightLimitLine(
     : `If it keeps ${keeps}, the price ${move} to your ${amount} ${word} for ${names}.`;
 }
 
+/** What "stop" leaves in place: the changes already made stay, and a ticked rule's still come off for cancellations. */
+function stopKeeps(undo: boolean): string {
+  return undo
+    ? "What it already changed there stays, unless cancellations mean the rule is no longer true."
+    : "What it already changed there stays.";
+}
+
 /**
  * Behind the "?" beside the two answers.
  *
- * What "stop" leaves in place depends on the direction. A cut is never undone
- * by anything MAYA does on its own. A raise still comes off if enough of the
- * bookings behind it cancel: the stop holds back new fires, it does not freeze
- * the ones already made (pickup.ts firesToRetire).
+ * What "stop" leaves in place depends on the rule's undo box, not on which
+ * way it moves the price: the stop holds back new changes, it does not
+ * freeze the ones already made, and with the box ticked one still comes off
+ * when cancellations mean the rule is no longer true (pickup.ts
+ * cancellationChecks), raise or cut alike.
  */
-export function alertChoiceHelp(direction: "increase" | "decrease"): {
+export function alertChoiceHelp(undo: boolean): {
   label: string;
   title: string;
   lines: string[];
@@ -291,9 +345,7 @@ export function alertChoiceHelp(direction: "increase" | "decrease"): {
     title: "Your two answers",
     lines: [
       "Keep adjusting: the rule carries on as it is, and MAYA stops asking about that night.",
-      direction === "increase"
-        ? "Stop for this night: the rule makes no more changes on that night. A raise it already made stays, unless enough of the bookings behind it cancel."
-        : "Stop for this night: the rule makes no more changes on that night. What it already cut stays.",
+      `Stop for this night: the rule makes no more changes on that night. ${stopKeeps(undo)}`,
       "A stopped night shows on the Rules tab, where you can let the rule run on it again; MAYA then asks about it again if the rule keeps adjusting it.",
       "Either way, your other rules keep working on these nights, and an edit to this rule starts it fresh.",
     ],
@@ -359,7 +411,7 @@ const STOPPED_NIGHTS_NAMED = 8;
 /** Behind the chip: which nights, and how to let the rule run on them again. */
 export function stoppedNightsHelp(
   nights: string[],
-  direction: "increase" | "decrease",
+  undo: boolean,
 ): { label: string; title: string; lines: string[] } {
   const named = nights.slice(0, STOPPED_NIGHTS_NAMED).map(humanDate);
   const more = nights.length - named.length;
@@ -369,9 +421,7 @@ export function stoppedNightsHelp(
     title: `Stopped on ${nightWord(nights.length)}`,
     lines: [
       `You told this rule to stop on ${which}.`,
-      direction === "increase"
-        ? "It makes no more changes there. A raise it already made stays, unless enough of the bookings behind it cancel."
-        : "It makes no more changes there. What it already cut stays.",
+      `It makes no more changes there. ${stopKeeps(undo)}`,
       "Your other rules still work on those nights.",
       "Let it run again puts the rule back on them, starting from the price it left, and MAYA asks you again if it keeps adjusting one.",
     ],
@@ -395,6 +445,10 @@ export function buildRuleAlerts(input: {
   roomTypeNames: Map<string, string>;
   currencySymbol: string;
   simulation: boolean;
+  /** Per rule that raises on a fast pace, its booking speed window in days (see nightWhy). */
+  wholeWindowDays?: Map<string, number>;
+  /** The rules whose undo box is unticked; every other rule is ticked. */
+  untickedRuleIds?: ReadonlySet<string>;
 }): RuleAlert[] {
   const byAlert = new Map<string, AlertNightRow[]>();
   for (const night of input.nights) {
@@ -421,8 +475,13 @@ export function buildRuleAlerts(input: {
         label: humanDate(night.stay_date),
         fires: night.fire_count,
         uneven: nightIsUneven(night),
-        fires_line: nightFiresLine(night, input.roomTypeNames),
-        why: nightWhy(night, input.currencySymbol),
+        fires_line: nightFiresLine(night, input.roomTypeNames, alert.action_direction),
+        why: nightWhy(
+          night,
+          input.currencySymbol,
+          input.wholeWindowDays?.get(alert.rule_id) ?? null,
+          alert.action_direction,
+        ),
         limit_line: limit
           ? nightLimitLine(limit, alert.action_direction, input.currencySymbol, input.simulation)
           : null,
@@ -435,6 +494,7 @@ export function buildRuleAlerts(input: {
       rule_id: alert.rule_id,
       rule_name: ruleName,
       direction: alert.action_direction,
+      undo_on_cancellation: !(input.untickedRuleIds?.has(alert.rule_id) ?? false),
       headline: alertHeadline({
         ruleName,
         direction: alert.action_direction,

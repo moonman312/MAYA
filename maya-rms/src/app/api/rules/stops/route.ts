@@ -31,17 +31,12 @@ import { dbErrorResponse, isRealIsoDate, isUuid } from "@/lib/api-guards";
 import { isMissingRelationError } from "@/lib/engine/snapshots";
 import { requireSupabaseHotel, requireSupabaseHotelRank } from "@/lib/require-supabase-hotel";
 import type { RuleStops } from "@/lib/rule-alerts";
+import { MAX_STOPPED_NIGHTS } from "@/lib/rule-stops";
 import { hotelToday } from "@/lib/simulator";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { recordAlertAnswer } from "../alerts/shared";
-
-/**
- * Stopped nights read at once, still to come and passed each. A rule stopped
- * on more than this is a story in itself.
- */
-export const MAX_STOPPED_NIGHTS = 400;
 
 /** Nights one "Let it run again" can name: the upcoming and the passed ones GET hands out. */
 const MAX_RESUME_NIGHTS = 2 * MAX_STOPPED_NIGHTS;

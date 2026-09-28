@@ -74,7 +74,7 @@ describe("alertHeadline", () => {
         nights: [{ label: "Sat, Nov 14 2026", fires: 3 }],
         simulation: false,
       }),
-    ).toBe('"Slow-date rescue" has cut Sat, Nov 14 2026 3 times.');
+    ).toBe('"Slow-date rescue" has 3 cuts on Sat, Nov 14 2026.');
 
     expect(
       alertHeadline({
@@ -86,7 +86,7 @@ describe("alertHeadline", () => {
         ],
         simulation: false,
       }),
-    ).toBe('"Slow-date rescue" has cut 2 nights, 3 to 5 times each.');
+    ).toBe('"Slow-date rescue" has 3 to 5 cuts on each of 2 nights.');
 
     expect(
       alertHeadline({
@@ -98,16 +98,16 @@ describe("alertHeadline", () => {
         ],
         simulation: false,
       }),
-    ).toBe('"Hot-week surge" has raised 2 nights, 4 times each.');
+    ).toBe('"Hot-week surge" has 4 raises on each of 2 nights.');
   });
 
   it("puts a simulating hotel in the conditional, because nothing was sent", () => {
     const nights = [{ label: "Sat, Nov 14 2026", fires: 3 }];
-    expect(alertHeadline({ ruleName: "R", direction: "decrease", nights, simulation: true })).toContain(
-      "would have cut",
+    expect(alertHeadline({ ruleName: "R", direction: "decrease", nights, simulation: true })).toBe(
+      '"R" would have 3 cuts on Sat, Nov 14 2026.',
     );
-    expect(alertHeadline({ ruleName: "R", direction: "increase", nights, simulation: true })).toContain(
-      "would have raised",
+    expect(alertHeadline({ ruleName: "R", direction: "increase", nights: [{ label: "x", fires: 1 }], simulation: true })).toBe(
+      '"R" would have 1 raise on x.',
     );
     expect(alertConsequence("decrease", true)).toBe("It would keep cutting these nights until you stop it.");
     expect(alertConsequence("increase", false)).toBe("It keeps raising these nights until you stop it.");
@@ -127,6 +127,22 @@ describe("nightWhy", () => {
     );
     expect(nightWhy(night({ window_bookings: 0, window_expected: null }), "$")[0]).toBe(
       "In the 30 days it measured, no bookings came in.",
+    );
+  });
+
+  it("says a rule that raises on a fast pace counted only since the latest raise still on the night, against a whole window", () => {
+    // Engine keepsWholeWindowBar: measured over fewer days than its window,
+    // the rule counted from its own or a stronger rule's raise, and
+    // window_expected is what a night like this gets in the whole window.
+    expect(nightWhy(night({ window_days: 2, window_bookings: 5, window_expected: 2.33 }), "$", 7)).toEqual([
+      "Since the raise before its latest one, by it or a stronger rule, 5 bookings came in. A night like this usually gets about 2 in a whole week.",
+    ]);
+    expect(nightWhy(night({ window_days: 4, window_bookings: 9, window_expected: 0.4 }), "$", 30)[0]).toBe(
+      "Since the raise before its latest one, by it or a stronger rule, 9 bookings came in. A night like this usually gets almost none in a whole month.",
+    );
+    // Over its whole window it reads as before.
+    expect(nightWhy(night({ window_days: 7, window_bookings: 9, window_expected: 2.33 }), "$", 7)[0]).toBe(
+      "In the 7 days it measured, 9 bookings came in. A night like this usually has about 2 by then.",
     );
   });
 
@@ -229,15 +245,16 @@ describe("nightFiresLine", () => {
       { room_type_id: STD, fires: 3, limit: 80, limit_is_default: false, price: 100 },
       { room_type_id: SUITE, fires: 1, limit: 80, limit_is_default: false, price: 200 },
     ];
-    expect(nightFiresLine(night({ room_types: rooms, fire_count: 3 }), roomTypeNames)).toBe(
-      "3 times on Standard and once on Suite",
+    expect(nightFiresLine(night({ room_types: rooms, fire_count: 3 }), roomTypeNames, "decrease")).toBe(
+      "3 cuts on Standard and 1 cut on Suite",
     );
-    expect(nightFiresLine(night(), roomTypeNames)).toBe("3 times on Standard");
+    expect(nightFiresLine(night(), roomTypeNames, "decrease")).toBe("3 cuts on Standard");
+    expect(nightFiresLine(night(), roomTypeNames, "increase")).toBe("3 raises on Standard");
   });
 
   it("falls back to the count that filed the night when no room type can be named", () => {
-    expect(nightFiresLine(night({ room_types: [] }), roomTypeNames)).toBe("3 times");
-    expect(nightFiresLine(night({ fire_count: 1, room_types: [] }), roomTypeNames)).toBe("once");
+    expect(nightFiresLine(night({ room_types: [] }), roomTypeNames, "decrease")).toBe("3 cuts");
+    expect(nightFiresLine(night({ fire_count: 1, room_types: [] }), roomTypeNames, "increase")).toBe("1 raise");
   });
 });
 
@@ -258,8 +275,8 @@ describe("buildRuleAlerts", () => {
     expect(card.rule_name).toBe("Slow-date rescue");
     expect(card.nights.map((n) => n.stay_date)).toEqual(["2026-11-14", "2026-11-16"]);
     expect(card.nights[0].label).toBe("Sat, Nov 14 2026");
-    expect(card.nights[0].fires_line).toBe("3 times on Standard");
-    expect(card.headline).toBe('"Slow-date rescue" has cut 2 nights, 3 times each.');
+    expect(card.nights[0].fires_line).toBe("3 cuts on Standard");
+    expect(card.headline).toBe('"Slow-date rescue" has 3 cuts on each of 2 nights.');
   });
 
   it("leaves out an alert with nothing left to answer, and one whose rule it cannot name", () => {
@@ -281,9 +298,19 @@ describe("buildRuleAlerts", () => {
         }),
       ],
     });
-    expect(card.nights[0].fires_line).toBe("3 times on Standard and once on Suite");
+    expect(card.nights[0].fires_line).toBe("3 cuts on Standard and 1 cut on Suite");
     expect(card.nights[0].uneven).toBe(true);
-    expect(card.headline).toBe('"Slow-date rescue" has cut Sat, Nov 14 2026 up to 3 times.');
+    expect(card.headline).toBe('"Slow-date rescue" has up to 3 cuts on Sat, Nov 14 2026.');
+  });
+
+  it("names the whole window for a rule that raises on a fast pace, and only for that rule", () => {
+    const short = [night({ window_days: 2, window_bookings: 5, window_expected: 2.33 })];
+    const [raise] = build({ nights: short, wholeWindowDays: new Map([[RULE, 7]]) });
+    expect(raise.nights[0].why[0]).toBe(
+      "Since the raise before its latest one, by it or a stronger rule, 5 bookings came in. A night like this usually gets about 2 in a whole week.",
+    );
+    const [other] = build({ nights: short });
+    expect(other.nights[0].why[0]).toBe("In the 2 days it measured, 5 bookings came in. A night like this usually has about 2 by then.");
   });
 
   it("carries the default-limit warning through to the night", () => {
@@ -304,15 +331,15 @@ describe("the nights a rule was stopped on", () => {
     expect(stoppedChipLabel(12)).toBe("Stopped on 12 nights");
     expect(stoppedChipLabel(1)).toBe("Stopped on 1 night");
 
-    const cut = stoppedNightsHelp(["2026-11-14", "2026-11-16"], "decrease");
-    expect(cut.title).toBe("Stopped on 2 nights");
-    expect(cut.lines[0]).toBe("You told this rule to stop on Sat, Nov 14 2026 and Mon, Nov 16 2026.");
-    expect(cut.lines[1]).toContain("What it already cut stays.");
-    expect(cut.lines.join(" ")).toContain("Let it run again");
-    expect(cut.lines.join(" ")).toContain("MAYA asks you again");
-    // A stop does not hold a raise against the cancellation check.
-    expect(stoppedNightsHelp(["2026-11-14"], "increase").lines[1]).toContain(
-      "unless enough of the bookings behind it cancel",
+    const unticked = stoppedNightsHelp(["2026-11-14", "2026-11-16"], false);
+    expect(unticked.title).toBe("Stopped on 2 nights");
+    expect(unticked.lines[0]).toBe("You told this rule to stop on Sat, Nov 14 2026 and Mon, Nov 16 2026.");
+    expect(unticked.lines[1]).toBe("It makes no more changes there. What it already changed there stays.");
+    expect(unticked.lines.join(" ")).toContain("Let it run again");
+    expect(unticked.lines.join(" ")).toContain("MAYA asks you again");
+    // A stop does not hold a ticked rule's changes against the cancellation check.
+    expect(stoppedNightsHelp(["2026-11-14"], true).lines[1]).toBe(
+      "It makes no more changes there. What it already changed there stays, unless cancellations mean the rule is no longer true.",
     );
   });
 
@@ -349,7 +376,7 @@ describe("the nights a rule was stopped on", () => {
 
   it("sums the rest up rather than listing a whole season", () => {
     const many = Array.from({ length: 30 }, (_, i) => `2026-11-${String(i + 1).padStart(2, "0")}`);
-    const help = stoppedNightsHelp(many, "decrease");
+    const help = stoppedNightsHelp(many, true);
     expect(help.lines[0]).toContain("and 22 more nights");
     expect(help.lines[0]).toContain("Sun, Nov 1 2026");
     expect(help.lines[0]).not.toContain("Nov 30");
@@ -370,16 +397,16 @@ describe("the words themselves", () => {
       card.headline,
       card.consequence,
       ...card.nights.flatMap((n) => [...n.why, n.limit_line ?? ""]),
-      alertChoiceHelp("decrease").title,
-      ...alertChoiceHelp("decrease").lines,
-      ...alertChoiceHelp("increase").lines,
+      alertChoiceHelp(false).title,
+      ...alertChoiceHelp(false).lines,
+      ...alertChoiceHelp(true).lines,
       alertLimitHelp("$").title,
       ...alertLimitHelp("$").lines,
       limitActionLabel("decrease"),
       limitActionLabel("increase"),
       stoppedChipLabel(3),
-      ...stoppedNightsHelp(["2026-11-14"], "decrease").lines,
-      ...stoppedNightsHelp(["2026-11-14"], "increase").lines,
+      ...stoppedNightsHelp(["2026-11-14"], false).lines,
+      ...stoppedNightsHelp(["2026-11-14"], true).lines,
     ].join(" ");
     expect(every).not.toContain("—");
     expect(every).not.toMatch(/[<>≥≤]|[^a-z]=[^a-z]/i);
@@ -393,17 +420,24 @@ describe("the words themselves", () => {
     expect(alertLimitHelp("$").lines.join(" ")).toContain("Rules tab");
   });
 
-  it("promises only what the choice does, and says a raise can still come off", () => {
-    const cut = alertChoiceHelp("decrease").lines.join(" ");
-    expect(cut).toContain("What it already cut stays.");
-    expect(cut).toContain("MAYA stops asking");
-    // A stop holds back new fires; it does not stop the cancellation check
-    // taking a raise off, so the help must not promise that it does.
-    const raise = alertChoiceHelp("increase").lines.join(" ");
-    expect(raise).toContain("unless enough of the bookings behind it cancel");
-    expect(raise).not.toContain("What it already changed stays.");
+  it("promises only what the choice does, and says a ticked rule's change can still come off", () => {
+    const unticked = alertChoiceHelp(false).lines.join(" ");
+    expect(unticked).toContain("What it already changed there stays.");
+    expect(unticked).toContain("MAYA stops asking");
+    // A stop holds back new changes; it does not stop the cancellation check
+    // taking a ticked rule's change off, raise or cut, so the help must not
+    // promise that it does.
+    const ticked = alertChoiceHelp(true).lines.join(" ");
+    expect(ticked).toContain("What it already changed there stays, unless cancellations mean the rule is no longer true.");
     // And both say where a stopped night can be let go again.
-    expect(cut).toContain("Rules tab");
-    expect(raise).toContain("Rules tab");
+    expect(unticked).toContain("Rules tab");
+    expect(ticked).toContain("Rules tab");
+  });
+
+  it("reads each rule's box into its card: ticked unless the rule is unticked", () => {
+    const cards = (unticked?: Set<string>) =>
+      buildRuleAlerts({ alerts: [alert], nights: [night()], ruleNames, roomTypeNames, currencySymbol: "$", simulation: false, untickedRuleIds: unticked });
+    expect(cards()[0].undo_on_cancellation).toBe(true);
+    expect(cards(new Set([alert.rule_id]))[0].undo_on_cancellation).toBe(false);
   });
 });

@@ -50,6 +50,18 @@ function dayWord(n: number): string {
   return n === 1 ? "1 day" : `${n} days`;
 }
 
+/** The YYYY-MM-DD before `iso`, or null when it doesn't parse. */
+function dayBefore(iso: string): string | null {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+}
+
+/** "day", "week", "month" or "N days": a window's length in words. */
+function spanWord(days: number): string {
+  return days === 1 ? "day" : days === 7 ? "week" : days === 30 ? "month" : `${days} days`;
+}
+
 function expectedWord(n: number): string {
   if (n < 1) return "almost none";
   const rounded = Math.round(n);
@@ -59,7 +71,7 @@ function expectedWord(n: number): string {
 export type ExplainComparable = {
   /** The challengeable date — for momentum pairs this is the year-ago side, where "that week was not normal" almost always applies. */
   date: string;
-  /** What this night contributed, in plain words ("4 bookings in the same stretch", "no history for this night"). */
+  /** What this night contributed, in plain words ("4 bookings in the same stretch", "4 bookings in a whole week", "no history for this night"). */
   summary: string;
   /** Why this night was considered a fair comparison, in plain words. */
   reasons: string[];
@@ -131,7 +143,51 @@ export function buildExplainView(
     : measured.length > 0
       ? `${recent} ${listWords(measured)} ${recent === 1 ? "booking" : "bookings"}`
       : `${bookingWord(recent)} for the room types this rule watches`;
-  const observed = `In the last ${windowPhrase}, ${arrived} arrived for this night, with ${dayWord(daysOut)} still to go before arrival.`;
+  // Set when this night had already been raised (for a rule that raises) or
+  // cut (one that cuts) by the rule behind this reading or by a stronger
+  // rule that moves the price the same way, and the reading counted only
+  // from the newest of those changes still on the price (engine/pickup.ts,
+  // countFromFireAt over openFireHeads, and bookingSpeedCountFrom: one that
+  // came off for cancellations covers nothing). A weaker rule's change, or one the other way,
+  // never moves where it counts from. The day named is the change's own:
+  // counting runs from when it was made (its applied_at), and a change a
+  // cancellation check kept on bookings made since still counts from then,
+  // so this never names the day it was last checked. The reading is shared by every rule
+  // that counts from the same change, so it can't name which rule made it:
+  // the copy says "this rule or a stronger one". countedAfter says raise or
+  // cut; a snapshot without it reads as a change. With countedSince the
+  // count started at the raise itself, the rest of its day included;
+  // without it (a cut) the day after. countedThrough: the reading counted
+  // full days only, up to the day before it was taken, as a rule that cuts
+  // does (countsCompleteDays), on this night and the nights it is compared
+  // with. expectedOverFullWindow: a rule that raises on a fast pace
+  // (keepsWholeWindowBar) read the nights it is compared with over its
+  // whole window (fullWindowDays), not the days it counted, so the
+  // expectation is a whole window's.
+  const countedFrom = str(snap.countedFrom);
+  const countedSince = str(snap.countedSince);
+  const countedThrough = str(snap.countedThrough);
+  const changedOn = countedFrom ? (countedSince ? countedFrom : dayBefore(countedFrom)) : null;
+  const countedAfter = str(snap.countedAfter);
+  const fullWindowDays = num(snap.fullWindowDays);
+  const wholeSpan = countedFrom && snap.expectedOverFullWindow === true && fullWindowDays != null ? spanWord(fullWindowDays) : null;
+  const lastChange = countedAfter === "cut" ? "cut" : countedAfter === "raise" ? "raised" : "changed";
+  const change = countedAfter === "cut" ? "cut" : countedAfter === "raise" ? "raise" : "change";
+  const changes = countedAfter === "cut" ? "cuts" : countedAfter === "raise" ? "raises" : "changes";
+  const fullDays = windowDays === 1 ? "full day" : `${windowDays} full days`;
+  const stretch = countedSince
+    ? windowDays === 1
+      ? "Later that day,"
+      : `In the ${windowDays} days from that ${change} on,`
+    : countedThrough
+      ? `In the ${fullDays} after that, up to yesterday,`
+      : `In the ${windowPhrase} after that,`;
+  const toGo = `with ${dayWord(daysOut)} still to go before arrival.`;
+  const observed = changedOn
+    ? `The newest ${change} still on this night's price, by the rule behind this reading or a stronger rule, was made on ${humanDate(changedOn)}. ${stretch} ${arrived} arrived for it, ${toGo}`
+    : countedThrough
+      ? `In the ${fullDays} up to yesterday, ${arrived} arrived for this night, ${toGo}`
+      : `In the last ${windowPhrase}, ${arrived} arrived for this night, ${toGo}`;
 
   // The engine persists insufficient_data snapshots with a numeric
   // expectedBookings of 0 and a fully computed classification — but it also
@@ -142,7 +198,9 @@ export function buildExplainView(
   const expectedSentence = insufficient
     ? `We do not have enough history yet to say what would be normal for this night, so no expectation was formed.`
     : expected != null
-      ? `By this point on nights like this one, we would expect ${expectedWord(expected)} over the same stretch.`
+      ? wholeSpan
+        ? `By this point on nights like this one, we would expect ${expectedWord(expected)} over a whole ${wholeSpan}.`
+        : `By this point on nights like this one, we would expect ${expectedWord(expected)} over the same stretch.`
       : `We could not form an expectation for this night.`;
   const verdict = insufficient
     ? `No booking-speed call was made, and rules that watch booking speed were not allowed to act on this night.`
@@ -159,6 +217,31 @@ export function buildExplainView(
   const selection = rec(snap.selection);
   const selAssumptions = rec(selection?.assumptions);
   const assumptions: string[] = [];
+  if (countedThrough) {
+    assumptions.push(
+      `A rule that cuts counts full days only, up to yesterday, on this night and on the nights it is compared with alike.`,
+    );
+  }
+  if (changedOn) {
+    // With countedSince the rest of the raise's own day counted too; a cut
+    // counts from the day after its own.
+    const counts = countedSince
+      ? `the bookings made after the newest of those ${changes} still on the price, the rest of that day included,`
+      : countedThrough
+        ? `the full days after the day of the newest of those ${changes} still on the price,`
+        : `the bookings made after the day of the newest of those ${changes} still on the price,`;
+    const unmoved =
+      countedAfter === "cut"
+        ? "A weaker rule's cut, or any raise, doesn't move where it starts."
+        : countedAfter === "raise"
+          ? "A weaker rule's raise, or any cut, doesn't move where it starts."
+          : "A weaker rule's change doesn't move where it starts.";
+    assumptions.push(
+      wholeSpan
+        ? `Once a rule or a stronger one has ${lastChange} this night, it counts only ${counts} and those alone have to beat what the nights it is compared with get in a whole ${wholeSpan}. ${unmoved}`
+        : `Once a rule or a stronger one has ${lastChange} this night, it counts only ${counts} and reads the nights it is compared with over the same days. ${unmoved}`,
+    );
+  }
   if (methodKey === "comparable" && selAssumptions) {
     const dow = str(selAssumptions.dayOfWeek);
     const seasonLabel = str(selAssumptions.seasonLabel);
@@ -196,14 +279,15 @@ export function buildExplainView(
     if (!c || !date) continue;
     const hasData = c.hasData !== false;
     const bookings = num(c.bookings);
+    const over = wholeSpan ? `in a whole ${wholeSpan}` : "in the same stretch";
     comparables.push({
       date,
       summary:
         !hasData || bookings == null
           ? "no history for this night"
           : bookings === 1
-            ? "1 booking in the same stretch"
-            : `${bookings} bookings in the same stretch`,
+            ? `1 booking ${over}`
+            : `${bookings} bookings ${over}`,
       reasons: Array.isArray(c.reasons) ? c.reasons.filter((r): r is string => typeof r === "string") : [],
     });
   }

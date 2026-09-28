@@ -17,11 +17,36 @@
  *   way ahead       (past week)   -> raise 25%, then waits 2 days
  *   sudden surge    (past day)    -> raise 25%, then waits a day
  *
- * Each wait is per night and room type. Once it is over and the condition
- * still holds, the rule adjusts that night again, so a night that stays far
- * behind keeps getting cut. Once a rule has adjusted one night three times
- * MAYA puts that night in front of the owner and asks whether to carry on;
- * until they answer, the rule carries on.
+ * Each wait is per night and room type. Once it is over the rule judges only
+ * the bookings made since the newest adjustment of that night by itself or
+ * by a stronger rule that moves the price the same way (engine/pickup.ts,
+ * countFromFireAt and bookingSpeedCountFrom): a raise rule from that raise,
+ * the rest of that day included, a cut rule from the day after that cut. It
+ * adjusts again if those still meet its condition: for the three raise
+ * rules, which raise on "at least" a pace, those bookings alone against
+ * what similar nights get in the rule's whole window (keepsWholeWindowBar
+ * in engine/booking-speed-provider.ts), for the cut rules against the same
+ * days of similar nights. A weaker rule's
+ * adjustment never moves where a stronger rule counts from (Jake,
+ * 2026-09-24, option A), so a rule for a stronger pace sees the whole run
+ * of bookings, while a weaker rule never raises again on bookings a
+ * stronger one raised on: ten bookings at once end at +25%, not +72%. The
+ * cut rules read full days only, up to yesterday; the raise rules count
+ * today so far too. So a night that stays far behind keeps getting cut, real
+ * demand keeps raising, no rule acts twice on the same bookings or on
+ * bookings a stronger rule already acted on, and each tier steps in as the
+ * count reaches it (a stronger rule that is waiting holds the night
+ * meanwhile only while the bookings it counts would make it adjust again).
+ * Once three of a rule's changes are on one night MAYA puts that night in
+ * front of the owner and asks whether to carry on; until they answer, the
+ * rule carries on.
+ *
+ * Every starter rule is created with its undo box ticked
+ * (pricing_rules.undo_on_cancellation, Jake 2026-09-25), as every rule is:
+ * a raise comes back off once cancellations leave the bookings it counted
+ * short of its pace (cancellationsUndo in engine/pickup.ts). The two cuts
+ * are on a slow pace, which cancellations only make slower, so nothing
+ * cancelled ever undoes them.
  *
  * Decreases wait longer than increases on purpose: a surge prices itself
  * back to Normal (higher rate, slower pace), while a dead date can stay
@@ -112,8 +137,11 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       is_pickup_rule: true,
       explanation:
         "When a night is booking far behind the pace similar nights set, a real 15% cut " +
-        "restarts interest. MAYA waits a week before judging the result, then cuts again if the " +
-        "night is still that far behind. It tells you once it has cut the same night three times.",
+        "restarts interest. It looks at full days only, up to yesterday. MAYA waits a week, " +
+        "judges only the bookings made since this rule or a stronger one's latest cut still on the " +
+        "night, and " +
+        "cuts again if those are still that far behind. It tells you once three of its cuts are " +
+        "on the same night.",
     },
     {
       name: "Slow-date trim",
@@ -128,8 +156,9 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       is_pickup_rule: true,
       explanation:
         "A night booking a bit behind the usual pace gets a small 7% trim, enough to stay " +
-        "competitive without giving the room away. MAYA re-checks a week after each trim and " +
-        "trims again if the night is still behind.",
+        "competitive without giving the room away. It looks at full days only, up to yesterday. " +
+        "MAYA re-checks a week after each trim, looking only at bookings made since this rule " +
+        "or a stronger one's latest cut still on the night, and trims again if those are still behind.",
     },
     {
       name: "Warm-date bump",
@@ -144,8 +173,10 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       is_pickup_rule: true,
       explanation:
         "A night booking ahead of the pace similar nights set can carry 10% more: the demand " +
-        "is already showing up in your own numbers. MAYA waits 3 days, then raises again if the " +
-        "night is still ahead. If enough of those bookings cancel, the raise comes back off.",
+        "is already showing up in your own numbers. MAYA waits 3 days, then raises again only " +
+        "if the bookings made since this rule or a stronger one's latest raise still on the night " +
+        "are, on their own, ahead of what similar nights get in a whole month. If guests cancel " +
+        "and that leaves the night no longer ahead of that pace, the raise comes back off.",
     },
     {
       name: "Hot-week surge",
@@ -160,8 +191,10 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       is_pickup_rule: true,
       explanation:
         "When the past week runs much faster than similar nights ever did, raise 25% and ride " +
-        "the wave. It steps up again every couple of days while demand holds, and MAYA tells you " +
-        "once it has raised the same night three times.",
+        "the wave. Every couple of days it steps up again if the bookings made since this rule " +
+        "or a stronger one's latest raise still on the night are, on their own, far more than a " +
+        "normal week brings, and MAYA tells you once three of its raises are on the same night. If " +
+        "guests cancel and that leaves the night no longer far ahead, the raise comes back off.",
     },
     {
       name: "Sudden-spike catcher",
@@ -177,7 +210,8 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
       explanation:
         "Bookings pouring in within a single day, a concert announcement or a viral mention, " +
         "trigger an immediate 25% raise, repeated daily while the rush lasts. Your ceiling is the " +
-        "cap, and MAYA tells you once it has raised the same night three times.",
+        "cap, and MAYA tells you once three of its raises are on the same night. If guests cancel " +
+        "and that leaves no rush to speak of, the raise comes back off.",
     },
   ];
 }
@@ -285,6 +319,8 @@ export async function generateStarterRules(
         action_direction: spec.action.action_direction,
         action_value: spec.action.action_value,
         is_pickup_rule: spec.is_pickup_rule,
+        // Ticked, like every rule (the column's default says the same).
+        undo_on_cancellation: true,
       })
       .select("id")
       .single();

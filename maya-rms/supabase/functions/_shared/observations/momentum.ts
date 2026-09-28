@@ -80,6 +80,13 @@ export interface EstimateMomentumOptions {
   target: string;
   asOf: string;
   windowDays: number;
+  /**
+   * How many days before asOf every stretch ends: 0 counts today so far, 1
+   * complete days only (ending yesterday), on the neighbors and on every
+   * year-ago date alike, as the target is read (ObserveBookingSpeedOptions
+   * completeDays).
+   */
+  endOffset?: number;
   radiusDays?: number;
   isExcluded?: (date: string) => boolean;
 }
@@ -121,6 +128,7 @@ function neighborDates(
 export function estimateMomentumFallback(opts: EstimateMomentumOptions): MomentumEstimate | null {
   const radiusDays = opts.radiusDays ?? MOMENTUM_RADIUS_DAYS;
   const isExcluded = opts.isExcluded ?? (() => false);
+  const end = opts.endOffset ?? 0;
 
   const neighbors = neighborDates(opts.target, opts.asOf, radiusDays, isExcluded);
   const index = opts.index ?? indexBookingRows(opts.rows ?? []);
@@ -139,7 +147,7 @@ export function estimateMomentumFallback(opts: EstimateMomentumOptions): Momentu
     // Skipping it would keep only the busy exceptions and inflate
     // neighborRecentPaces toward whichever dates happen to have rows.
     const neighborDaysOut = daysBetween(opts.asOf, neighbor);
-    const recent = pickupInWindowIndexed(index, neighbor, neighborDaysOut, opts.windowDays);
+    const recent = pickupInWindowIndexed(index, neighbor, neighborDaysOut + end, opts.windowDays);
     neighborsUsed++;
     neighborRecentPaces.push(recent);
 
@@ -156,7 +164,7 @@ export function estimateMomentumFallback(opts: EstimateMomentumOptions): Momentu
       hasAnyRowIndexed(index, priorNeighbor) &&
       isUsableComparisonDate(priorNeighbor, isExcluded)
     ) {
-      const historical = pickupInWindowIndexed(index, priorNeighbor, priorDaysOut, opts.windowDays);
+      const historical = pickupInWindowIndexed(index, priorNeighbor, priorDaysOut + end, opts.windowDays);
       matchedRecentTotal += recent;
       matchedHistoricalTotal += historical;
       pairs.push({
@@ -189,7 +197,7 @@ export function estimateMomentumFallback(opts: EstimateMomentumOptions): Momentu
     hasAnyRowIndexed(index, priorTarget) &&
     isUsableComparisonDate(priorTarget, isExcluded)
   ) {
-    naiveBaselineBookings = pickupInWindowIndexed(index, priorTarget, priorTargetDaysOut, opts.windowDays);
+    naiveBaselineBookings = pickupInWindowIndexed(index, priorTarget, priorTargetDaysOut + end, opts.windowDays);
     baselineSource = "target_year_ago";
     baselineDate = priorTarget;
   } else {

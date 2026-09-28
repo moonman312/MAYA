@@ -33,6 +33,139 @@
  *     has nothing new to record. The 30-day observation now appears on
  *     nights the rule is no longer waiting on.
  *
+ * Runs 5 to 7 were rewritten a fifth time when a Booking Speed rule stopped
+ * re-counting bookings it had already acted on. Every difference was read
+ * against a dump of the previous engine first, and runs 0 to 4 are
+ * unchanged:
+ *   - The event-style Suite rule (normal or slower over 30 days, 3-day wait)
+ *     fired on every night in run 0 (2026-06-10, New York). From run 5 on it
+ *     counts only bookings made from 2026-06-11: 4 days in run 5 instead of
+ *     30. The churn books every night quickly in those days, so 2026-06-26
+ *     and 2026-06-30 read faster than normal and no longer take a second
+ *     +2%: 2 fewer fires, and both publish 163.20 instead of 166.46 in run 5
+ *     (2026-06-30 in run 6 too). In run 7, 2026-06-30 takes its second raise
+ *     on the 17 days since the first (normal: 7 against 7.67) and publishes
+ *     166.46 instead of taking a third one to the 169.50 ceiling;
+ *     2026-07-01 takes its second on the 13 days since its first; 2026-07-03
+ *     reads faster since its first and takes none (it publishes 150 either
+ *     way).
+ *   - Those fires freeze the window they counted (window_from the day after
+ *     the rule's last fire on the cell), and their audit rows and every
+ *     audit row of those nights carry the shorter observation (windowDays,
+ *     countedFrom and fullWindowDays) in place of the 30-day one.
+ *
+ * The evaluation_audit hashes of runs 5 to 7, in both variants, were
+ * rewritten a sixth time when raise rules started sharing one anchor per
+ * cell and cut rules another (bookingSpeedAnchors, since removed): every
+ * one of those shorter observations now also says which kind of fire it
+ * counts from (countedAfter: "raise" here, the Suite rule being the only
+ * Booking Speed rule). Checked against a dump of the previous engine: 140 audit rows
+ * differ by that one field and nothing else, and every count, fire, price,
+ * ladder row and run log is unchanged. With one Booking Speed rule per
+ * direction the shared anchor is the rule's own, so nothing else moves.
+ *
+ * Every pickup_event hash, and the evaluation_audit hashes of runs 5 to 7,
+ * were rewritten a seventh time when a Booking Speed rule started counting
+ * from the day of the night's last fire its way, that day split at the fire
+ * (only the bookings first seen after it), instead of from the day after.
+ * Read against a dump of the previous engine first: every fire row carries
+ * the new window_since (null on every fire here but two, since nothing in
+ * this run's churn reaches a night later on the day it was raised), the
+ * changed audit rows differ in their booking_speed_observations only
+ * (countedFrom is now the fire's day, countedSince the fire, windowDays one
+ * more, the expectation read over that day too), and the Suite rule's
+ * second raises on 2026-06-30 and 2026-07-01 in run 7 freeze a window one
+ * day longer (window_from 2026-06-10 and 2026-06-14, window_since their
+ * first raise) with the same bookings (7 and 6) against 8 and 7.67 instead
+ * of 7.67 and 7.33 expected. No price, count, ladder row, snapshot or run
+ * log moved, and runs 0 to 4 differ by the window_since key alone.
+ *
+ * Nothing was rewritten when each Booking Speed rule went back to counting
+ * from its own last fire only (Jake, 2026-09-24: the count carries on
+ * across rules), cut rules started reading complete days ending yesterday,
+ * and a run's split days came to be read in one call per set of room
+ * types: every hash of every run, in both variants, matched as it was. The
+ * Suite rule is the only Booking Speed rule here and it raises, so its own
+ * last raise was already the one it counted from, and no rule cuts on
+ * Booking Speed. Nor when a rule began counting from a stronger rule's
+ * newer fire that adjusts the same way, paused rules' fires included
+ * (Jake, 2026-09-24, option A): every hash matched again.
+ *
+ * The pickup_event, published_price and evaluation_audit hashes of runs 3
+ * to 7 in both variants, their pickup_events_created counts and run 5's
+ * prices_published were rewritten an eighth time when the order that says
+ * which event rule is stronger (the competition, and where a rule counts
+ * from) started with the change to the price instead of priority. Read
+ * against a dump of the previous engine first. On the King the 3% one-day
+ * rule (c1, about $5 on these nights) now ranks ahead of the fixed $2
+ * three-day rule (c2, priority 120), and c2 ahead of the 1% revenue rule
+ * (c4, whose 150 used to outrank c1's count of 1 across metrics). c1 raises
+ * 2026-06-17, 06-23, 06-27 and 06-29 in run 2 as before. c2 now counts
+ * only from that raise and raises 06-17 and 06-27 in run 3 and 06-29 in
+ * run 4; c4 counts from c2's raise where there is one and raises 06-17 and
+ * 06-27 in run 4 and 06-23 in run 5. Those six fires are the only new rows
+ * (the nights that pass take theirs off as night_passed), no fire went
+ * away, and the prices and audit rows that moved are those cells' alone:
+ * 06-23 now changes in run 5, the one more price published. Every ladder
+ * row, snapshot and run log is unchanged.
+ *
+ * The same hashes, run 5's prices_published and the pickup_events_created
+ * counts of runs 3 to 5 in both variants, and the evaluation_run_log
+ * hashes of runs 5 to 7, were rewritten a ninth time when a rule still
+ * waiting on a cell began holding a weaker rule that moves the price its
+ * way only when what it would count itself (from the newest change there
+ * by itself or a stronger rule) matches again, not whenever its whole
+ * window does. Read against a dump of the previous engine first. c1,
+ * waiting a day from its run 2 raises, has more than one new King booking
+ * since them on 06-27 and 06-29, so it holds those nights (its audit rows
+ * there show c2 and c4 held_by_waiting_rule and c1 waiting) in runs 3 and
+ * 4, and c2 raises them in run 5 instead, on everything since c1's raise
+ * (13 to 22 and 7 to 11 rooms), not 06-27 in run 3 nor 06-29 in run 4.
+ * c2, waiting from its run 3 raise on 06-17, holds c4 there the same way,
+ * so c4 no longer raises 06-17 or 06-27 in run 4. No other fire moved; the
+ * prices and audit rows that changed are those cells', run 5 publishes one
+ * more price and writes one more audit row (06-29, where c2 now raises), and
+ * the run log differs in run 5's cells_changed alone.
+ * Every ladder row and snapshot is unchanged.
+ *
+ * Every pickup_event hash, in both variants, was rewritten a tenth time
+ * when one cancellation check replaced the three tests before it, per rule
+ * and ticked by default (Jake, 2026-09-25). Read against a dump of the
+ * previous engine first: every fire now carries cancel_check 'recount', and
+ * a fire of a rule with a pickup condition the room nights and revenue that
+ * came in during its count (pickup_units_arrived_at_fire,
+ * pickup_revenue_arrived_at_fire). With those three fields left out, every
+ * fire row of every run matches the previous engine's. No fire came off, or
+ * stayed on, differently in this churn, and every other hash, size and count
+ * is unchanged.
+ *
+ * Every pickup_event hash, in both variants, was rewritten an eleventh time
+ * when a fire started keeping the bookings its booking speed window counted
+ * (window_booking_keys), so a group whose first rooms cancel is still one of
+ * them. Read against a dump of the previous engine first: the one booking
+ * speed event rule here cuts on "at most" a pace, which cancellations can't
+ * make false, so the field is null on every row, and with it left out every
+ * row of every table in every run matches. Every other hash, size and count
+ * is unchanged.
+ *
+ * The pickup_event, published_price, evaluation_audit and
+ * evaluation_run_log hashes and the pickup_event and evaluation_audit sizes
+ * of runs 4 to 7 in both variants, and the pickup_events_created counts and
+ * prices_published of runs 4 and 5, were rewritten a twelfth time when a pickup count that opens at a change
+ * started counting the room nights first seen after that change and still
+ * booked, instead of the night's net since (Jake, 2026-09-27: counting
+ * starts again only when a price changes, so an older booking cancelling
+ * takes nothing from it). Read against a dump of the previous engine first.
+ * c2 counts King and Queen from c1's run 2 raises, and the churn's
+ * cancellations of older bookings had been netting against what came in
+ * since: it now raises the King on 06-15 and 06-22 in run 4 and on 06-16
+ * and 06-23 in run 5 on 2, 2, 2 and 3 room nights first seen since (net 1
+ * or less before), and c4, counting from c2's raise on 06-23, no longer
+ * raises there. c2's raise on 06-27 in run 5 is the same fire with 12
+ * rather than 13 at its start (one older King booking there had
+ * cancelled). No other fire moved; the prices and audit rows that changed
+ * are those cells', and every ladder row and snapshot is unchanged.
+ *
  * The golden file was written by this same test at commit 4ef5d65 with
  * MAYA_WRITE_ENGINE_GOLDEN=1. Its ladder_rule_state hashes were rewritten
  * once, leaving out last_evaluated_at, from an engine that still matched the

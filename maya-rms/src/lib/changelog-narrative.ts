@@ -34,7 +34,7 @@
  */
 
 import { bookingSpeedPhrase as speedPhrase, isBookingSpeed } from "@/lib/observations/booking-speed";
-import type { RuleCondition } from "@/types/domain";
+import type { CancellationFinding, RuleCondition } from "@/types/domain";
 
 /**
  * Lowercase level for use mid-sentence. The Title Case label is still the
@@ -51,13 +51,44 @@ export type NarrativeMetrics = {
   excluded_from_occupancy?: string[] | null;
   /** Days until arrival. */
   dta?: number | null;
-  /** Net pickup units over the rule's window. */
+  /** Net pickup units over the rule's window, or since pickup_counted_since when set. */
   pickup_units?: number | null;
+  /**
+   * Set when the pickup count opened at this rule's own last raise or cut,
+   * or a newer one by a stronger rule that moves the price the same way,
+   * still on the night, not a whole window back (engine/pickup.ts,
+   * pickupWindowOpensAt, openFireHeads): that change's instant.
+   */
+  pickup_counted_since?: string | null;
   /** Booking Speed observation snapshot, from the engine's RuleMetrics. */
   booking_speed?: {
     label: string;
     recent: number;
     expected: number;
+    /** The days it counted. Only read together with counted_from or counted_through. */
+    window_days?: number | null;
+    /**
+     * Set when this rule, or a stronger rule that moves the price the same
+     * way, had already raised (a rule that raises) or cut (one that cuts) the
+     * night: it counted only bookings made from this date on, after the
+     * newest of those changes; a weaker rule's change never moves it. With
+     * counted_since that is the raise's own day, counted from the raise on;
+     * without it the day after the change.
+     */
+    counted_from?: string | null;
+    counted_since?: string | null;
+    /**
+     * With counted_from, for a rule that raises on a fast pace: `expected`
+     * is what a night like this gets in the rule's whole window
+     * (full_window_days), not in the days it counted.
+     */
+    expected_over_full_window?: boolean | null;
+    full_window_days?: number | null;
+    /**
+     * Set for a rule that cuts: it counted full days only, up to the day
+     * before the run, on the night and the nights it is compared with.
+     */
+    counted_through?: string | null;
   } | null;
 };
 
@@ -85,7 +116,13 @@ export type NarrativeRetirement = {
   rule_name: string;
   /** The audit's signed delta, e.g. "+10%" or "-$5.00". */
   delta: string;
-  reason: "bookings_cancelled" | "manual_price" | "rule_edited";
+  /**
+   * Why it came off. no_longer_met: a rule that holds while its conditions
+   * hold (a ladder rule) stopped holding. null: the log can't tell why.
+   */
+  reason: "bookings_cancelled" | "manual_price" | "rule_edited" | "no_longer_met" | null;
+  /** For bookings_cancelled: what cancellations made no longer true, when the audit kept it. */
+  finding?: CancellationFinding | null;
 };
 
 export type NarrativeInput = {
@@ -176,11 +213,17 @@ function fullnessSentence(
   return `This night was ${limits}.`;
 }
 
-/** "9 bookings arrived in the last 3 days, past the 4-booking mark you set." */
+/**
+ * "9 bookings arrived in the last 3 days, past the 4-booking mark you set."
+ * When the count opened at the newest raise or cut still on the night by
+ * this rule or a stronger one (pickup_counted_since), it says so instead of
+ * naming the window. `direction` is the rule's, as in bookingSpeedSentence.
+ */
 function pickupSentence(
   condition: RuleCondition,
   metrics?: NarrativeMetrics | null,
   measured?: string[] | null,
+  direction?: "increase" | "decrease" | null,
 ): string | null {
   if (!condition.pickup_operator || condition.pickup_threshold == null) return null;
   const windowDays = condition.pickup_window_days ?? 3;
@@ -188,12 +231,24 @@ function pickupSentence(
   const limit = `${dir} the ${Number(condition.pickup_threshold)}-booking mark you set`;
   const seen = metrics?.pickup_units;
   const kind = measured?.length ? `${listWords(measured)} ` : "";
+  const when = metrics?.pickup_counted_since
+    ? `since ${latestChangeWords(direction)}`
+    : `in the last ${dayWord(windowDays)}`;
   if (seen != null) {
-    return `${seen} ${kind}${seen === 1 ? "booking" : "bookings"} arrived in the last ${dayWord(windowDays)}, ${limit}.`;
+    return `${seen} ${kind}${seen === 1 ? "booking" : "bookings"} arrived ${when}, ${limit}.`;
   }
-  return kind
-    ? `${kind}bookings in the last ${dayWord(windowDays)} came in ${limit}.`
-    : `Bookings in the last ${dayWord(windowDays)} came in ${limit}.`;
+  return kind ? `${kind}bookings ${when} came in ${limit}.` : `Bookings ${when} came in ${limit}.`;
+}
+
+/**
+ * "this rule or a stronger one's latest raise still on this night": where a
+ * rule counts from once the night carries a change its way (countFromFireAt
+ * in engine/pickup.ts: a change that came off covers nothing). `direction`
+ * is the rule's; without it the change is a "change".
+ */
+function latestChangeWords(direction?: "increase" | "decrease" | null): string {
+  const change = direction === "decrease" ? "cut" : direction === "increase" ? "raise" : "change";
+  return `this rule or a stronger one's latest ${change} still on this night`;
 }
 
 /**
@@ -211,19 +266,47 @@ function speedLead(levelKey: string, when: string, subject = "Bookings"): string
 /**
  * The level comes from the rule, not from the snapshot: it is the pace the
  * owner wrote into the condition, and it is the one their rule acted on.
+ *
+ * On a night this rule, or a stronger rule that moves the price the same
+ * way, already raised (a rule that raises) or cut (one that cuts), it
+ * counted only from the newest of those changes still on the price (engine/pickup.ts,
+ * countFromFireAt and bookingSpeedCountFrom): from the raise itself on its
+ * own day (counted_since), or from the day after a cut. So the sentence
+ * names those days instead of its whole window, and says "this rule or a
+ * stronger one" because the audit doesn't record whose change it was. A
+ * rule that raises on a fast pace needed those bookings alone to beat what a
+ * night like this gets in its whole window (expected_over_full_window,
+ * engine keepsWholeWindowBar), and the sentence names that window; any other
+ * compared them with the same days. A rule that cuts counts full days only,
+ * up to yesterday (counted_through), and the sentence says so. `direction`
+ * is the rule's, and decides whether its change reads as a raise or a cut.
  */
 function bookingSpeedSentence(
   condition: RuleCondition,
   metrics?: NarrativeMetrics | null,
   measured?: string[] | null,
+  direction?: "increase" | "decrease" | null,
 ): string | null {
   if (!condition.booking_speed_operator || !condition.booking_speed_level) return null;
+  const counted = metrics?.booking_speed?.counted_from ? metrics.booking_speed.window_days : null;
+  const fromChange = !!metrics?.booking_speed?.counted_since;
+  const fullDays = !!metrics?.booking_speed?.counted_through;
+  const full = fullDays ? "full " : "";
+  const latest = latestChangeWords(direction);
+  const span =
+    condition.booking_speed_window_days === 1 ? "day" : condition.booking_speed_window_days === 30 ? "month" : "week";
   const when =
-    condition.booking_speed_window_days === 1
-      ? "this past day"
-      : condition.booking_speed_window_days === 30
-        ? "this past month"
-        : "this past week";
+    counted != null && counted >= 1
+      ? fromChange
+        ? counted === 1
+          ? `later on the day of ${latest}`
+          : `in the ${counted} days since ${latest}`
+        : counted === 1
+          ? `on the ${full}day after ${latest}`
+          : `in the ${counted} ${full}days after ${latest}`
+      : fullDays
+        ? `in the ${span} up to yesterday`
+        : `this past ${span}`;
   const lead = speedLead(
     condition.booking_speed_level,
     when,
@@ -235,10 +318,26 @@ function bookingSpeedSentence(
   const recent = Math.round(bs.recent);
   const seen =
     recent < 0 ? "more cancelled than booked" : recent === 0 ? "none" : `${recent}`;
+  const wholeDays =
+    counted != null && bs.expected_over_full_window
+      ? (bs.full_window_days ?? condition.booking_speed_window_days ?? null)
+      : null;
+  const then =
+    wholeDays != null
+      ? `in a whole ${wholeDays === 1 ? "day" : wholeDays === 7 ? "week" : wholeDays === 30 ? "month" : `${wholeDays} days`}`
+      : counted === 1
+        ? fromChange
+          ? "in a day"
+          : "that day"
+        : "in those days";
   const usual =
-    bs.expected < 1
-      ? "where a night like this usually has almost none by now"
-      : `against the ${Math.round(bs.expected)} a night like this usually has by now`;
+    (counted != null && counted >= 1) || fullDays
+      ? bs.expected < 1
+        ? `where a night like this usually gets almost none ${then}`
+        : `against the ${Math.round(bs.expected)} a night like this usually gets ${then}`
+      : bs.expected < 1
+        ? "where a night like this usually has almost none by now"
+        : `against the ${Math.round(bs.expected)} a night like this usually has by now`;
   return `${lead}: ${seen}, ${usual}.`;
 }
 
@@ -263,12 +362,13 @@ export function describeConditions(
   condition: RuleCondition | null,
   metrics?: NarrativeMetrics | null,
   measured?: string[] | null,
+  direction?: "increase" | "decrease" | null,
 ): string[] {
   if (!condition) return [];
   const sentences = [
     fullnessSentence(condition, metrics, measured),
-    pickupSentence(condition, metrics, measured),
-    bookingSpeedSentence(condition, metrics, measured),
+    pickupSentence(condition, metrics, measured, direction),
+    bookingSpeedSentence(condition, metrics, measured, direction),
     // Last, on purpose: it qualifies the occupancy figure, and a reader
     // shouldn't have to step over it to reach the point.
     exclusionSentence(condition, metrics),
@@ -305,11 +405,66 @@ function retirementWords(delta: string): string {
   return `${delta.replace(/^[+-]/, "")} ${raise ? "raise" : "cut"}`;
 }
 
-const RETIREMENT_REASONS: Record<NarrativeRetirement["reason"], string> = {
-  bookings_cancelled: "enough of the bookings behind it cancelled",
+const RETIREMENT_REASONS: Record<Exclude<NonNullable<NarrativeRetirement["reason"]>, "bookings_cancelled">, string> = {
   manual_price: "this night's price was set by hand",
   rule_edited: "the rule was edited, so MAYA started it fresh",
+  no_longer_met: "this night no longer met its conditions",
 };
+
+/** 70%, or 69.5% when it isn't whole: an occupancy (0 to 1) as the owner set it. */
+function percentWord(fraction: number): string {
+  const tenths = Math.round(fraction * 1000) / 10;
+  return `${Number.isInteger(tenths) ? tenths.toFixed(0) : tenths.toFixed(1)}%`;
+}
+
+function roomNightWord(n: number): string {
+  return n === 1 ? "1 room night" : `${n} room nights`;
+}
+
+/**
+ * What the cancellation check found no longer true (the audit's finding),
+ * in numbers: the occupancy now against the bar, what is left of the pickup
+ * the change counted, or how many of the bookings it counted are still
+ * booked against the usual frozen at the change and the booking speed the
+ * rule needs (a finding from before the level was kept leaves that out).
+ * null without one.
+ */
+function findingSentence(finding: CancellationFinding | null | undefined, sym: string): string | null {
+  if (!finding) return null;
+  if (finding.part === "occupancy") {
+    return `Sellable occupancy had fallen to ${percentWord(finding.occupancy)}, and the rule needs more than ${percentWord(finding.threshold)}.`;
+  }
+  if (finding.part === "pickup") {
+    const needs =
+      finding.metric === "revenue" ? money(finding.threshold, sym) : roomNightWord(finding.threshold);
+    if (finding.net <= 0) return `None of the pickup it counted was left, and the rule needs more than ${needs}.`;
+    const left = finding.metric === "revenue" ? `${money(finding.net, sym)} in revenue` : roomNightWord(finding.net);
+    return `The pickup it counted was down to ${left}, and the rule needs more than ${needs}.`;
+  }
+  const usual = finding.expected < 1 ? "almost none" : `about ${Math.round(finding.expected)}`;
+  const still = finding.left === 1 ? "is" : "are";
+  const needs = isBookingSpeed(finding.level) ? `, and the rule needs a booking speed of at least ${speedPhrase(finding.level)}` : "";
+  return finding.counted != null
+    ? `Of the ${finding.counted} ${finding.counted === 1 ? "booking" : "bookings"} it counted, ${finding.left} ${still} still booked, where nights like it usually get ${usual}${needs}.`
+    : `${finding.left} of the bookings it counted ${still} still booked, where nights like it usually get ${usual}${needs}.`;
+}
+
+/**
+ * '"Busy" stopped applying an earlier 10% raise here: this night no longer
+ * met its conditions.' A change taken off for cancellations says so the way
+ * the rule builder's box does ('Cancellations meant "Quick pickup" was no
+ * longer true, so its 10% raise came off.'), then the numbers when the
+ * audit kept them.
+ */
+function retirementSentences(off: NarrativeRetirement, sym: string): string[] {
+  if (off.reason === "bookings_cancelled") {
+    const found = findingSentence(off.finding, sym);
+    const lead = `Cancellations meant "${off.rule_name}" was no longer true, so its ${retirementWords(off.delta)} came off.`;
+    return found ? [lead, found] : [lead];
+  }
+  const lead = `"${off.rule_name}" stopped applying an earlier ${retirementWords(off.delta)} here`;
+  return [off.reason ? `${lead}: ${RETIREMENT_REASONS[off.reason]}.` : `${lead}.`];
+}
 
 /**
  * Full story for one (room type, night): what came off, then the move each
@@ -321,11 +476,7 @@ export function narrateChange(input: NarrativeInput): string[] {
   const sentences: string[] = [];
   let running = input.base_price;
 
-  for (const off of input.retirements ?? []) {
-    sentences.push(
-      `"${off.rule_name}" stopped applying an earlier ${retirementWords(off.delta)} here: ${RETIREMENT_REASONS[off.reason]}.`,
-    );
-  }
+  for (const off of input.retirements ?? []) sentences.push(...retirementSentences(off, sym));
 
   input.applications.forEach((app, i) => {
     const before = running;
@@ -348,7 +499,7 @@ export function narrateChange(input: NarrativeInput): string[] {
     // A repeat's conditions were read on the run it fired, not this one, so
     // only the fire this run made carries a "why" it can stand behind.
     if (!app.repeat || app.metrics) {
-      sentences.push(...describeConditions(app.condition, app.metrics, app.measured_room_types));
+      sentences.push(...describeConditions(app.condition, app.metrics, app.measured_room_types, app.action.direction));
     }
   });
 
@@ -380,6 +531,51 @@ export function narrateChange(input: NarrativeInput): string[] {
   }
 
   return sentences;
+}
+
+/**
+ * A night this run put back at its base with nothing on it, told from the
+ * price it had before (the night's previous audit row), not from the base:
+ * measured from the base such a run changed nothing, which is the one thing
+ * it did not do.
+ */
+export type NarrativeRevertInput = {
+  from_price: number;
+  final_price: number;
+  /** Fires this run took off (the audit's retired_pickup_effects). */
+  retirements: NarrativeRetirement[];
+  /** Rules applied on the row before that apply no more, each once. */
+  rules_off: NarrativeRetirement[];
+  /** The row before was on a price set by hand, and this one is not: where it was set (pms null: typed in MAYA). */
+  manual_cleared: { pms: string | null } | null;
+  /** The base before, when nothing was on the night before either, so the base itself is what moved. */
+  base_from: number | null;
+  currencySymbol?: string;
+};
+
+/**
+ * What came off, then the move: 'X stopped applying an earlier 10% raise
+ * here: ... That took this night from $110.00 to $100.00.' With nothing
+ * named, the base changing or the plain move is the sentence.
+ */
+export function narrateRevert(input: NarrativeRevertInput): string[] {
+  const sym = input.currencySymbol ?? "$";
+  const sentences = [...input.retirements, ...input.rules_off].flatMap((off) => retirementSentences(off, sym));
+  if (input.manual_cleared) {
+    sentences.push(
+      input.manual_cleared.pms == null
+        ? "The price set by hand was cleared."
+        : `The rate changed in ${input.manual_cleared.pms} was cleared.`,
+    );
+  }
+  const moved = Math.round(Math.abs(input.final_price - input.from_price) * 100) >= 1;
+  const move = `${money(input.from_price, sym)} to ${money(input.final_price, sym)}`;
+  if (sentences.length > 0) {
+    if (moved) sentences.push(`That took this night from ${move}.`);
+    return sentences;
+  }
+  if (input.base_from != null && moved) return [`The base rate for this night changed from ${move}.`];
+  return [`The rate moved from ${move}.`];
 }
 
 /** One-line headline for the entry: room, movement, direction. */

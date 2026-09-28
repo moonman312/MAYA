@@ -117,7 +117,8 @@ vi.mock("@/utils/supabase/admin", () => ({
   }),
 }));
 
-const { GET, POST, MAX_STOPPED_NIGHTS } = await import("./route");
+const { GET, POST } = await import("./route");
+const { MAX_STOPPED_NIGHTS } = await import("@/lib/rule-stops");
 const { hotelToday } = await import("@/lib/simulator");
 const { addDays } = await import("@/lib/observations/calendar");
 

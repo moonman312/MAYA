@@ -11,12 +11,19 @@
  * construction.
  *
  * The history never comes into memory row by row. Every consumer only asks,
- * per stay date, how many rows there are and how many sit at each booking
- * window, so the database answers with exactly that (see
- * 99_supabase_migration_large_property_scale_v1.sql): a per-date summary for
- * the season model, then grouped windows for only the dates the horizon's
- * observations can consult. A 500-room property has over a million
+ * per stay date, whether there are rows and how many bookings sit at each
+ * booking window, so the database answers with exactly that (see
+ * 99_supabase_migration_large_property_scale_v1.sql and
+ * 99_supabase_migration_booking_speed_counts_bookings_v1.sql): a per-date
+ * summary for the season model, then grouped windows for only the dates the
+ * horizon's observations can consult. A 500-room property has over a million
  * room-nights in its history; the old row-by-row read threw past 100,000.
+ *
+ * Booking speed counts bookings, not rooms: the rows of one reservation are
+ * one booking at its earliest booking date (observations/booking-rows.ts
+ * bookingKeyOf, the same rule as booking_key() in SQL). The season model's
+ * inputs, how full a night got and how early, keep counting rooms against
+ * room capacity.
  *
  * A rule measures only its own signal room types. Whether two dates are
  * comparable is a property of the calendar, so season detection and
@@ -46,10 +53,21 @@ import {
 } from "@/lib/observations/comparable-dates";
 import { MOMENTUM_RADIUS_DAYS, MOMENTUM_YEAR_OFFSET_DAYS } from "@/lib/observations/momentum";
 import {
+  countFromInWindow,
+  lastCountedDay,
   observeBookingSpeed,
+  windowDaysFrom,
   type BookingSpeedObservation,
 } from "@/lib/observations/expected-bookings";
-import { bookingWindowOf, pickupInWindowIndexed, type StayDateWindows } from "@/lib/observations/booking-rows";
+import {
+  StayDateWindowsBuilder,
+  bookingKeyOf,
+  bookingWindowOf,
+  earliestBookingWindow,
+  pickupInWindowIndexed,
+  type SlimReservationRow,
+  type StayDateWindows,
+} from "@/lib/observations/booking-rows";
 import {
   buildReinforcementModel,
   isDateReinforcementExcluded,
@@ -58,7 +76,7 @@ import {
   type AssumptionChallenge,
   type ChallengeScope,
 } from "@/lib/observations/reinforcement";
-import { MIGRATIONS, isMissingFunctionError } from "./snapshots";
+import { MIGRATIONS, fetchAllRows, isMissingFunctionError } from "./snapshots";
 import type { RuleMetrics } from "./types";
 
 export const HISTORY_YEARS_BACK = 3;
@@ -82,7 +100,7 @@ const MAX_SLICE_DAYS = 366;
 export type BookingSpeedContext = {
   /** Hotel-local evaluation date (YYYY-MM-DD). */
   asOf: string;
-  /** Grouped rows per stay date: every date any loaded observation can consult. */
+  /** Grouped bookings per stay date: every date any loaded observation can consult. */
   windowsByDate: Map<string, StayDateWindows>;
   /**
    * The stay dates whose observations are fully covered by windowsByDate.
@@ -90,7 +108,7 @@ export type BookingSpeedContext = {
    */
   loadedTargets?: ReadonlySet<string> | null;
   seasonModel: SeasonModel;
-  /** Kept rows per past stay date: the season model's demand input. */
+  /** Kept rows (rooms, not bookings) per past stay date: the season model's demand input. */
   dailyDemand: DailyDemand[];
   historyStart: string;
   historyEnd: string;
@@ -113,11 +131,44 @@ export type BookingSpeedContext = {
    * every read path measures the same rows.
    */
   excluded?: ReadonlySet<string>;
+  /**
+   * Per raise the horizon's readings count from (splitKey: its applied_at
+   * and the set read), the bookings on each stay date asked for that were
+   * first seen after it, loaded by loadSplitWindows. observeForStayDate
+   * reads the raise's own day from here (observeBookingSpeed `split`). A
+   * date with no such booking has no entry; splitLoaded says which dates
+   * were read.
+   */
+  splitWindows?: Map<string, Map<string, StayDateWindows>>;
+  /**
+   * The stay dates read into each splitWindows key, those with no entry
+   * included. Unset on a context built by hand (tests): every date of a
+   * splitWindows key then counts as read.
+   */
+  splitLoaded?: Map<string, Set<string>>;
 };
 
 /** One key per set of room types, whatever order or repeats the ids come in. */
 export function signalSetKey(ids: readonly string[]): string {
   return [...new Set(ids)].sort().join(",");
+}
+
+/**
+ * The splitWindows key for a fire and the set it is read over ("" for the
+ * hotel-wide history). The instant is keyed to the millisecond whatever
+ * its spelling ("...Z" from a run, "...+00:00" back from PostgREST).
+ */
+export function splitKey(since: string, setKey: string): string {
+  const ms = Date.parse(since);
+  return `${Number.isNaN(ms) ? since : new Date(ms).toISOString()}|${setKey}`;
+}
+
+/** The split windows under `key` when `stayDate` was read into them (see splitLoaded), else null. */
+function splitRead(ctx: BookingSpeedContext, key: string, stayDate: string): Map<string, StayDateWindows> | null {
+  const windows = ctx.splitWindows?.get(key);
+  if (!windows) return null;
+  const read = ctx.splitLoaded?.get(key);
+  return read && !read.has(stayDate) ? null : windows;
 }
 
 let loggedPreMigration = false;
@@ -138,9 +189,28 @@ function logPreMigrationOnce(hotelId: string, error: unknown): void {
   );
 }
 
-/** Test hook: forget that the pre-migration line was already logged. */
+let loggedNoSplit = false;
+
+function logNoSplitOnce(hotelId: string, error: unknown): void {
+  if (loggedNoSplit) return;
+  loggedNoSplit = true;
+  console.error(
+    JSON.stringify({
+      fn: "loadSplitWindows",
+      step: "booking_speed_windows",
+      hotelId,
+      schema: "pre-migration",
+      message: `booking_speed_windows takes no p_since yet; reading the day of each raise row by row. Run ${MIGRATIONS.countsBookings}.`,
+      migration: MIGRATIONS.countsBookings,
+      error: error instanceof Error ? error.message : String((error as { message?: string })?.message ?? error),
+    }),
+  );
+}
+
+/** Test hook: forget that the pre-migration lines were already logged. */
 export function resetBookingSpeedLogOnce(): void {
   loggedPreMigration = false;
+  loggedNoSplit = false;
 }
 
 /** The dates an observation may consult: target, comparables, momentum neighbors, and their year-ago counterparts. */
@@ -205,6 +275,16 @@ async function loadHistorySummary(
   return out;
 }
 
+/** One grouped row of booking_speed_windows as the engine holds it. */
+function windowsOf(r: Record<string, unknown>): StayDateWindows {
+  const bws = Array.isArray(r.bws) ? (r.bws as unknown[]) : [];
+  const counts = Array.isArray(r.counts) ? (r.counts as unknown[]) : [];
+  return {
+    n: Number(r.n),
+    windows: bws.map((bw, k) => ({ bw: bw == null ? null : Number(bw), n: Number(counts[k]) })),
+  };
+}
+
 /**
  * Grouped windows for exactly `dates`. null when the migration has not run.
  * With `include`, only rows of those room types count (never a row with no
@@ -222,12 +302,12 @@ async function loadWindowsForDates(
     const chunk = dates.slice(i, i + WINDOW_DATES_CHUNK);
     for (let from = 0; ; from += PAGE) {
       const { data, error } = await supabase
-        .rpc(
-          "booking_speed_windows",
-          include
-            ? { p_hotel_id: hotelId, p_dates: chunk, p_exclude: exclude, p_include: include }
-            : { p_hotel_id: hotelId, p_dates: chunk, p_exclude: exclude },
-        )
+        .rpc("booking_speed_windows", {
+          p_hotel_id: hotelId,
+          p_dates: chunk,
+          p_exclude: exclude,
+          ...(include ? { p_include: include } : {}),
+        })
         .order("stay_date", { ascending: true })
         .range(from, from + PAGE - 1);
       if (error) {
@@ -238,13 +318,59 @@ async function loadWindowsForDates(
         throw new Error(`Failed to load booking history: ${error.message}`);
       }
       const rows = (data ?? []) as Record<string, unknown>[];
+      for (const r of rows) out.set(String(r.stay_date), windowsOf(r));
+      if (rows.length < PAGE) break;
+    }
+  }
+  return out;
+}
+
+/** A (stay date, raise) pair whose day is split at the raise: see loadSplitWindows. */
+type SplitPair = { stayDate: string; since: string };
+
+/**
+ * For each pair, the bookings on its stay date first seen after its
+ * instant, grouped like loadWindowsForDates, by splitKey(since, "") then
+ * stay date: booking_speed_windows with p_since, one instant per date
+ * (99_supabase_migration_booking_speed_counts_bookings_v1.sql), so any
+ * number of raises is one call per chunk of pairs. A pair with no such
+ * booking has no row. null when the function predates p_since.
+ */
+async function loadSplitPairs(
+  supabase: SupabaseClient,
+  hotelId: string,
+  pairs: SplitPair[],
+  exclude: string[],
+  include?: string[],
+): Promise<Map<string, Map<string, StayDateWindows>> | null> {
+  const out = new Map<string, Map<string, StayDateWindows>>();
+  for (let i = 0; i < pairs.length; i += WINDOW_DATES_CHUNK) {
+    const chunk = pairs.slice(i, i + WINDOW_DATES_CHUNK);
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .rpc("booking_speed_windows", {
+          p_hotel_id: hotelId,
+          p_dates: chunk.map((p) => p.stayDate),
+          p_exclude: exclude,
+          ...(include ? { p_include: include } : {}),
+          p_since: chunk.map((p) => p.since),
+        })
+        .order("stay_date", { ascending: true })
+        .order("since", { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) {
+        if (isMissingFunctionError(error)) {
+          logNoSplitOnce(hotelId, error);
+          return null;
+        }
+        throw new Error(`Failed to load booking history: ${error.message}`);
+      }
+      const rows = (data ?? []) as Record<string, unknown>[];
       for (const r of rows) {
-        const bws = Array.isArray(r.bws) ? (r.bws as unknown[]) : [];
-        const counts = Array.isArray(r.counts) ? (r.counts as unknown[]) : [];
-        out.set(String(r.stay_date), {
-          n: Number(r.n),
-          windows: bws.map((bw, k) => ({ bw: bw == null ? null : Number(bw), n: Number(counts[k]) })),
-        });
+        const key = splitKey(String(r.since), "");
+        const byDate = out.get(key) ?? new Map<string, StayDateWindows>();
+        byDate.set(String(r.stay_date), windowsOf(r));
+        out.set(key, byDate);
       }
       if (rows.length < PAGE) break;
     }
@@ -264,6 +390,11 @@ async function loadWindowsForDates(
  * There is no row budget any more: nothing but the per-date counts is held,
  * and a fixed ceiling failed every run for a full 500-room hotel.
  *
+ * Rows arrive in stay-date order, so each night's rows are folded into one
+ * booking per reservation (StayDateWindowsBuilder) and let go of as soon as
+ * the next night starts: at most one night's bookings are held at a time.
+ * `rooms` is the same history counted a row at a time, for the season model.
+ *
  * `sets` are signal sets (by signalSetKey) folded in the same pass: a row
  * counts toward a set only when its room type is in it, so a row with no
  * room type only ever counts toward the hotel. `firstBySet` is each set's
@@ -278,35 +409,39 @@ async function loadWindowsByRows(
   sets: ReadonlyMap<string, ReadonlySet<string>> = new Map(),
 ): Promise<{
   hotel: Map<string, StayDateWindows>;
+  rooms: Map<string, StayDateWindows>;
   sets: Map<string, Map<string, StayDateWindows>>;
   firstBySet: Map<string, string | null>;
 }> {
-  type Counts = Map<string, Map<number | null, number>>;
-  const counts: Counts = new Map();
-  const setCounts = new Map<string, Counts>([...sets.keys()].map((k) => [k, new Map()]));
+  const hotel = new StayDateWindowsBuilder("bookings");
+  const rooms = new StayDateWindowsBuilder("rooms");
+  const setBuilders = new Map<string, StayDateWindowsBuilder>(
+    [...sets.keys()].map((k) => [k, new StayDateWindowsBuilder("bookings")]),
+  );
   const firstBySet = new Map<string, string | null>([...sets.keys()].map((k) => [k, null]));
-  const add = (into: Counts, stayDate: string, bw: number | null) => {
-    let byWindow = into.get(stayDate);
-    if (!byWindow) {
-      byWindow = new Map();
-      into.set(stayDate, byWindow);
-    }
-    byWindow.set(bw, (byWindow.get(bw) ?? 0) + 1);
-  };
+  let openDate: string | null = null;
   const fold = (r: Record<string, unknown>) => {
     if (r.room_type_id != null && excludeRoomTypeIds.has(String(r.room_type_id))) return;
     const stayDate = String(r.stay_date);
-    const bw = bookingWindowOf({
+    if (openDate !== null && stayDate !== openDate) {
+      hotel.seal(openDate);
+      rooms.seal(openDate);
+      for (const b of setBuilders.values()) b.seal(openDate);
+    }
+    openDate = stayDate;
+    const row = {
       stay_date: stayDate,
       booking_date: r.booking_date != null ? String(r.booking_date) : null,
       booking_window_days: r.booking_window_days != null ? Number(r.booking_window_days) : null,
-    });
-    add(counts, stayDate, bw);
+      external_reservation_id: r.external_reservation_id != null ? String(r.external_reservation_id) : null,
+    };
+    hotel.add(row);
+    rooms.add(row);
     if (r.room_type_id == null) return;
     const roomTypeId = String(r.room_type_id);
     for (const [key, ids] of sets) {
       if (!ids.has(roomTypeId)) continue;
-      add(setCounts.get(key)!, stayDate, bw);
+      setBuilders.get(key)!.add(row);
       const first = firstBySet.get(key);
       if (first == null || stayDate < first) firstBySet.set(key, stayDate);
     }
@@ -323,7 +458,7 @@ async function loadWindowsByRows(
     for (;;) {
       let q = supabase
         .from("reservations")
-        .select("id, stay_date, booking_date, booking_window_days, room_type_id")
+        .select("id, stay_date, booking_date, booking_window_days, room_type_id, external_reservation_id")
         .eq("hotel_id", hotelId)
         .gte("stay_date", sliceFrom)
         .lte("stay_date", sliceTo);
@@ -360,25 +495,12 @@ async function loadWindowsByRows(
     sliceFrom = addDays(sliceTo, 1);
   }
 
-  // Dates arrive in order and rows within a date in id order; sorted anyway
-  // so the map never depends on paging.
-  const grouped = (from: Counts) => {
-    const out = new Map<string, StayDateWindows>();
-    for (const stayDate of [...from.keys()].sort()) {
-      const byWindow = from.get(stayDate)!;
-      let n = 0;
-      const windows: { bw: number | null; n: number }[] = [];
-      for (const [bw, c] of byWindow) {
-        n += c;
-        windows.push({ bw, n: c });
-      }
-      out.set(stayDate, { n, windows });
-    }
-    return out;
-  };
+  // build() seals the last night and sorts the dates, so the maps never
+  // depend on paging.
   return {
-    hotel: grouped(counts),
-    sets: new Map([...setCounts].map(([key, c]) => [key, grouped(c)])),
+    hotel: hotel.build(),
+    rooms: rooms.build(),
+    sets: new Map([...setBuilders].map(([key, b]) => [key, b.build()])),
     firstBySet,
   };
 }
@@ -465,6 +587,128 @@ async function hasKeptRowAfter(
 }
 
 /**
+ * loadSplitPairs read row by row, for a database whose booking_speed_windows
+ * predates p_since: the rows of every stay date asked for in one paged
+ * read, then for each raise the bookings on its dates first seen after it,
+ * folded like loadWindowsByRows folds the history (the same builder, given
+ * since). The kept rows are chosen exactly as the function chooses them:
+ * `include` keeps only those room types, otherwise every row except the
+ * excluded types (a row with no room type stays).
+ */
+async function loadSplitPairsByRows(
+  supabase: SupabaseClient,
+  hotelId: string,
+  pairs: SplitPair[],
+  excludeRoomTypeIds: ReadonlySet<string>,
+  include: readonly string[] | null,
+): Promise<Map<string, Map<string, StayDateWindows>>> {
+  const dates = [...new Set(pairs.map((p) => p.stayDate))].sort();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let rows: any[];
+  try {
+    rows = await fetchAllRows(() =>
+      supabase
+        .from("reservations")
+        .select("id, stay_date, booking_date, booking_window_days, room_type_id, external_reservation_id, created_at")
+        .eq("hotel_id", hotelId)
+        .in("stay_date", dates)
+        .order("stay_date", { ascending: true })
+        .order("id", { ascending: true }),
+    );
+  } catch (e) {
+    throw new Error(`Failed to load booking history: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const wanted = include ? new Set(include) : null;
+  const kept: SlimReservationRow[] = [];
+  for (const r of rows as Record<string, unknown>[]) {
+    const roomTypeId = r.room_type_id != null ? String(r.room_type_id) : null;
+    if (wanted ? roomTypeId === null || !wanted.has(roomTypeId) : roomTypeId !== null && excludeRoomTypeIds.has(roomTypeId)) {
+      continue;
+    }
+    kept.push({
+      stay_date: String(r.stay_date),
+      booking_date: r.booking_date != null ? String(r.booking_date) : null,
+      booking_window_days: r.booking_window_days != null ? Number(r.booking_window_days) : null,
+      external_reservation_id: r.external_reservation_id != null ? String(r.external_reservation_id) : null,
+      created_at: r.created_at != null ? String(r.created_at) : null,
+    });
+  }
+  const datesBySince = new Map<string, { since: string; dates: Set<string> }>();
+  for (const p of pairs) {
+    const key = splitKey(p.since, "");
+    const entry = datesBySince.get(key) ?? { since: p.since, dates: new Set<string>() };
+    entry.dates.add(p.stayDate);
+    datesBySince.set(key, entry);
+  }
+  const out = new Map<string, Map<string, StayDateWindows>>();
+  for (const [key, { since, dates: asked }] of datesBySince) {
+    const builder = new StayDateWindowsBuilder("bookings", since);
+    for (const row of kept) if (asked.has(row.stay_date)) builder.add(row);
+    out.set(key, builder.build());
+  }
+  return out;
+}
+
+/** One raise a reading counts from on a night, and the room types the rule measures. */
+export type SplitNeed = { since: string; stayDate: string; signalIds: readonly string[] };
+
+/**
+ * Load into ctx.splitWindows, for every raise in `needs`, the bookings on
+ * the nights it is asked for that were first seen after it, over the set
+ * each rule reads (the hotel-wide history, or a set of room types, keyed
+ * as observeForStayDate keys them). One read per set however many raises
+ * and nights (loadSplitPairs: booking_speed_windows given each night's
+ * instant, or row by row while the function predates p_since). What was
+ * read is kept per raise and set with the nights it was read for
+ * (splitLoaded): a raise and set already read for some nights is read
+ * again for the others only, and merged in. Throws on a failed read, like
+ * every other history read: an observation that quietly counted the
+ * raise's whole day would re-count the burst it fired on.
+ */
+export async function loadSplitWindows(
+  supabase: SupabaseClient,
+  hotelId: string,
+  ctx: BookingSpeedContext,
+  needs: readonly SplitNeed[],
+): Promise<void> {
+  const splitWindows = (ctx.splitWindows ??= new Map());
+  const splitLoaded = (ctx.splitLoaded ??= new Map());
+  type Group = { include: string[] | null; pairs: Map<string, SplitPair> };
+  const groups = new Map<string, Group>();
+  for (const need of needs) {
+    const kept = ctx.excluded ? need.signalIds.filter((id) => !ctx.excluded!.has(id)) : [...need.signalIds];
+    const key = signalSetKey(kept);
+    const setPart = ctx.hotelSetKey !== undefined && key !== ctx.hotelSetKey ? key : "";
+    if (splitLoaded.get(splitKey(need.since, setPart))?.has(need.stayDate)) continue;
+    let group = groups.get(setPart);
+    if (!group) {
+      group = { include: setPart ? setPart.split(",") : null, pairs: new Map() };
+      groups.set(setPart, group);
+    }
+    group.pairs.set(`${need.stayDate}|${splitKey(need.since, "")}`, { stayDate: need.stayDate, since: need.since });
+  }
+  const exclude = [...(ctx.excluded ?? [])].sort();
+  for (const [setPart, group] of groups) {
+    const pairs = [...group.pairs.values()].sort(
+      (a, b) => a.stayDate.localeCompare(b.stayDate) || Date.parse(a.since) - Date.parse(b.since),
+    );
+    const loaded =
+      (await loadSplitPairs(supabase, hotelId, pairs, exclude, group.include ?? undefined)) ??
+      (await loadSplitPairsByRows(supabase, hotelId, pairs, ctx.excluded ?? new Set(), group.include));
+    for (const { stayDate, since } of pairs) {
+      const key = splitKey(since, setPart);
+      const windows = splitWindows.get(key) ?? new Map<string, StayDateWindows>();
+      const read = splitLoaded.get(key) ?? new Set<string>();
+      const entry = loaded.get(splitKey(since, ""))?.get(stayDate);
+      if (entry) windows.set(stayDate, entry);
+      read.add(stayDate);
+      splitWindows.set(key, windows);
+      splitLoaded.set(key, read);
+    }
+  }
+}
+
+/**
  * Load everything booking-speed evaluation needs for one hotel run.
  * Returns null when the hotel has no reservation rows at all — conditions
  * then block with "insufficient_data" rather than matching on nothing.
@@ -539,8 +783,10 @@ export async function loadBookingSpeedContext(
     if (windowsByDate.size === 0 && !(await hasKeptRowAfter(supabase, hotelId, upTo, excludeRoomTypeIds))) {
       return null;
     }
+    // The season model reads rooms, as the summary function gives it: how
+    // full each past night got, and how early.
     const history = new Map<string, StayDateWindows>();
-    for (const [stayDate, entry] of windowsByDate) {
+    for (const [stayDate, entry] of byRows.rooms) {
       if (stayDate > historyEnd) continue;
       history.set(stayDate, entry);
       daily.push({ stay_date: stayDate, value: entry.n });
@@ -711,30 +957,111 @@ function selectionFor(ctx: BookingSpeedContext, stayDate: string): ComparableSel
 }
 
 /**
+ * Whether a rule reads complete hotel days only, its stretch ending
+ * yesterday: a rule that cuts does, on the night and on every night it is
+ * compared with alike (Jake, 2026-09-17: slowdown checks count full hotel
+ * days ending yesterday, speed-up checks may count today so far). A rule
+ * that raises counts today so far.
+ */
+export function countsCompleteDays(direction?: "increase" | "decrease" | null): boolean {
+  return direction === "decrease";
+}
+
+/**
+ * Whether a rule that counts from a change inside its window still needs
+ * the bookings since then to beat what a night like it gets in its whole
+ * window (observeBookingSpeed wholeWindowBar): a rule that raises on "at
+ * least" a pace, which fewer bookings can only make harder to reach. So
+ * after 10 bookings at once raise the rule for 10 in a week, 3 more don't
+ * raise the rule for 5 and 5 more do (Jake's examples, 2026-09-24): read
+ * against what a night like it gets in the hours since the raise, about
+ * none, the 3 would read much faster. A rule that cuts, or raises on "at
+ * most" or "exactly" a pace, compares the same days on both sides, since
+ * a few days against a whole window's usual would read slow and make
+ * those conditions easier to meet.
+ */
+export function keepsWholeWindowBar(
+  direction?: "increase" | "decrease" | null,
+  operator?: string | null,
+): boolean {
+  return !countsCompleteDays(direction) && operator === "at_least";
+}
+
+/**
  * Memoized Layer 1 observation for one (stay date, trailing window) over the
  * rule's signal room types. Without them, or when they are the hotel's
  * counting types, it is the hotel-wide observation, keyed as it always was.
  * Any other set is keyed by the set too, so rules sharing a set share the
  * work, and the observation names the room types it measured. Room types
  * that do not count as rooms are dropped from the set first, as the load did.
+ *
+ * `direction` is the rule's. A rule that cuts reads complete days only
+ * (countsCompleteDays): its stretch ends yesterday, and the observation is
+ * keyed apart from a raise rule's on the same window.
+ *
+ * `countFrom` is the first booking date a rule may count on a night it
+ * already raised or cut (bookingSpeedCountFrom in pickup.ts), and `since`
+ * the raise it is the day of: that day counts only the bookings first seen
+ * after the fire, from ctx.splitWindows (loadSplitWindows must have loaded
+ * that fire over this set and night first, or this throws). Without
+ * `since`, countFrom's day counts whole; a cut rule never passes one, and
+ * one passed with a cut is ignored. When countFrom cuts the window short or
+ * splits its first day, the observation counts only those days on the
+ * target, and is keyed by them too: a rule on the same window may count
+ * from elsewhere on another room type, or in the other direction. Its
+ * comparables are read over those same days, or with `wholeWindowBar`
+ * (keepsWholeWindowBar: a rule that raises on "at least" a pace) over the
+ * rule's whole window, keyed apart; one passed with a cut is ignored. The
+ * cut observation says whether a raise or a cut started it (countedAfter),
+ * so the drill-down can say which. A countFrom that leaves no whole day to
+ * count throws; the engine checks windowDaysFrom first.
  */
 export function observeForStayDate(
   ctx: BookingSpeedContext,
   stayDate: string,
   windowDays: number,
   signalIds?: readonly string[],
+  countFrom?: string | null,
+  direction?: "increase" | "decrease" | null,
+  since?: string | null,
+  wholeWindowBar?: boolean,
 ): BookingSpeedObservation {
   const setKey =
     signalIds && ctx.hotelSetKey !== undefined
       ? signalSetKey(ctx.excluded ? signalIds.filter((id) => !ctx.excluded!.has(id)) : signalIds)
       : null;
   const measuresSet = setKey !== null && setKey !== ctx.hotelSetKey;
-  const key = measuresSet ? `${stayDate}|${windowDays}|${setKey}` : `${stayDate}|${windowDays}`;
+  const completeDays = countsCompleteDays(direction);
+  const last = lastCountedDay(ctx.asOf, completeDays);
+  const splits = since && !completeDays ? since : null;
+  // A countFrom before the window's first day changes nothing, and so does
+  // one on it with no fire to split that day by: both share the plain
+  // observation. No "|" in the window part: the audit snapshot filter reads
+  // the set key after the second one.
+  const inWindow = countFromInWindow(windowDays, last, countFrom);
+  const cutFrom = countFrom && inWindow && (splits || windowDaysFrom(windowDays, last, countFrom) < windowDays) ? countFrom : null;
+  const cutSince = cutFrom && splits ? splits : null;
+  const whole = cutFrom !== null && wholeWindowBar === true && !completeDays;
+  const countedAfter: BookingSpeedObservation["countedAfter"] | null = cutFrom
+    ? direction === "decrease"
+      ? "cut"
+      : "raise"
+    : null;
+  // Complete days ("c") end yesterday: never the same reading as today's.
+  const stretchKey = `${windowDays}${completeDays ? "c" : ""}`;
+  const windowKey = cutFrom
+    ? `${stretchKey}>${cutFrom}${cutSince ? `@${cutSince}` : ""}:${countedAfter}${whole ? ":whole" : ""}`
+    : stretchKey;
+  const key = measuresSet ? `${stayDate}|${windowKey}|${setKey}` : `${stayDate}|${windowKey}`;
   const hit = ctx.observationCache.get(key);
   if (hit) return hit;
   const index = measuresSet ? ctx.setWindows?.get(setKey) : ctx.windowsByDate;
   if (!index) {
     throw new Error(`Booking speed history was not loaded for room types ${setKey}`);
+  }
+  const splitIndex = cutSince ? splitRead(ctx, splitKey(cutSince, measuresSet ? setKey : ""), stayDate) : null;
+  if (cutSince && !splitIndex) {
+    throw new Error(`Booking speed history was not loaded for the fire at ${cutSince} on ${stayDate}, room types ${setKey ?? "all"}`);
   }
 
   // Only the horizon's dates were loaded. Anything else would read missing
@@ -754,11 +1081,16 @@ export function observeForStayDate(
     asOf: ctx.asOf,
     selection,
     windowDays,
+    completeDays,
+    countFrom: cutFrom,
+    split: cutSince && splitIndex ? { since: cutSince, index: splitIndex } : null,
+    wholeWindowBar: whole,
     isExcluded: ctx.isExcluded,
   });
+  const stamped = countedAfter ? { ...observed, countedAfter } : observed;
   const observation = measuresSet
-    ? { ...observed, measuredRoomTypeIds: ctx.setMeasuredIds?.get(setKey) ?? setKey.split(",") }
-    : observed;
+    ? { ...stamped, measuredRoomTypeIds: ctx.setMeasuredIds?.get(setKey) ?? setKey.split(",") }
+    : stamped;
   ctx.observationCache.set(key, observation);
   return observation;
 }
@@ -775,6 +1107,15 @@ export function bookingSpeedMetrics(
     expected: observation.expectedBookings,
     window_days: observation.windowDays,
     method: observation.method,
+    ...(observation.countedFrom
+      ? {
+          counted_from: observation.countedFrom,
+          full_window_days: observation.fullWindowDays,
+          ...(observation.countedSince ? { counted_since: observation.countedSince } : {}),
+          ...(observation.expectedOverFullWindow ? { expected_over_full_window: true as const } : {}),
+        }
+      : {}),
+    ...(observation.countedThrough ? { counted_through: observation.countedThrough } : {}),
   };
 }
 
@@ -814,13 +1155,17 @@ export function isWithinCooldown(
  * Bookings still on the books for `stayDate` whose booking date falls in
  * [windowFrom, windowTo] (hotel dates, both included), over the rule's
  * signal room types: the count observeForStayDate called recentBookings when
- * the window ended on windowTo, re-read from this run's history. A raise
- * fired on that window uses it to see whether the bookings behind it have
- * cancelled (cancellations delete reservation rows); bookings made after the
- * window, and the raise's own effect on pace, can't move it.
+ * the window ended on windowTo, re-read from this run's history, in the same
+ * unit (a reservation with several rooms is one booking, and stays one until
+ * its last room on the night cancels). Bookings made after the window can't
+ * move it. With `since` (the fire's window_since), windowFrom's day is read
+ * as the fire counted it: only the bookings first seen after that instant,
+ * from ctx.splitWindows (loadSplitWindows must have loaded that fire over
+ * this set). windowTo's day is read whole, as the fire's own day belongs to
+ * it; bookingsStillBookedFromFire leaves out what came after the fire.
  *
- * null when this run did not load the night, or the set's history: nothing
- * can be said, so nothing is retired on it.
+ * null when this run did not load the night, the set's history or that
+ * split: nothing can be said, so nothing is taken off on it.
  */
 export function bookingsInFrozenWindow(
   ctx: BookingSpeedContext,
@@ -828,7 +1173,190 @@ export function bookingsInFrozenWindow(
   windowFrom: string,
   windowTo: string,
   signalIds?: readonly string[],
+  since?: string | null,
 ): number | null {
+  const frozen = frozenWindowOf(ctx, stayDate, windowFrom, windowTo, signalIds);
+  if (!frozen) return null;
+  const { index, setPart, daysOut, days } = frozen;
+  if (!since) return pickupInWindowIndexed(index, stayDate, daysOut, days);
+  const split = splitRead(ctx, splitKey(since, setPart), stayDate);
+  if (!split) return null;
+  return pickupInWindowIndexed(index, stayDate, daysOut, days - 1) + pickupInWindowIndexed(split, stayDate, daysOut + days - 1, 1);
+}
+
+/**
+ * The bookings a fire counted in its frozen window that are still on the
+ * books: bookingsInFrozenWindow, less the bookings in that window first
+ * seen after the fire itself (`firedAt`, its applied_at; late arrivals with
+ * a booking date inside the window, and later bookings on the fire's own
+ * day), read from ctx.splitWindows at that instant (loadSplitWindows must
+ * have loaded it over this set and night). So it only ever goes down, and
+ * only when bookings the fire counted cancel, however long after: what the
+ * fire saw, minus what has cancelled since. null when anything it needs was
+ * not loaded.
+ */
+export function bookingsStillBookedFromFire(
+  ctx: BookingSpeedContext,
+  stayDate: string,
+  windowFrom: string,
+  windowTo: string,
+  signalIds: readonly string[] | undefined,
+  since: string | null | undefined,
+  firedAt: string,
+): number | null {
+  const counted = bookingsInFrozenWindow(ctx, stayDate, windowFrom, windowTo, signalIds, since);
+  if (counted === null) return null;
+  const frozen = frozenWindowOf(ctx, stayDate, windowFrom, windowTo, signalIds);
+  if (!frozen) return null;
+  const after = splitRead(ctx, splitKey(firedAt, frozen.setPart), stayDate);
+  if (!after) return null;
+  return counted - pickupInWindowIndexed(after, stayDate, frozen.daysOut, frozen.days);
+}
+
+/**
+ * One reservation row on a night, as the booking it belongs to: its key
+ * (bookingKeyOf its PMS id, or the row's own id for a row without one), its
+ * room type, its booking window on the night (bookingWindowOf) and when it
+ * first reached MAYA.
+ */
+export type NightBookingRow = {
+  key: string;
+  room_type_id: string | null;
+  bw: number | null;
+  created_at: string | null;
+};
+
+/**
+ * Every row on each of `stayDates` now, as NightBookingRow, in one paged
+ * read: what a change's booking speed window is recorded from
+ * (windowBookingKeys) and what its cancellation check finds still booked
+ * (bookingKeysOnNight). Throws on a failed read.
+ */
+export async function loadNightBookingRows(
+  supabase: SupabaseClient,
+  hotelId: string,
+  stayDates: readonly string[],
+): Promise<Map<string, NightBookingRow[]>> {
+  const out = new Map<string, NightBookingRow[]>();
+  const dates = [...new Set(stayDates)].sort();
+  if (dates.length === 0) return out;
+  for (const d of dates) out.set(d, []);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let rows: any[];
+  try {
+    rows = await fetchAllRows(() =>
+      supabase
+        .from("reservations")
+        .select("id, stay_date, booking_date, booking_window_days, room_type_id, external_reservation_id, created_at")
+        .eq("hotel_id", hotelId)
+        .in("stay_date", dates)
+        .order("stay_date", { ascending: true })
+        .order("id", { ascending: true }),
+    );
+  } catch (e) {
+    throw new Error(`Failed to load the nights' bookings: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  for (const r of rows as Record<string, unknown>[]) {
+    const stayDate = String(r.stay_date).slice(0, 10);
+    const list = out.get(stayDate);
+    if (!list) continue;
+    const ext = r.external_reservation_id != null ? String(r.external_reservation_id) : "";
+    list.push({
+      key: ext !== "" ? bookingKeyOf(ext) : `row ${String(r.id)}`,
+      room_type_id: r.room_type_id != null ? String(r.room_type_id) : null,
+      bw: bookingWindowOf({
+        stay_date: stayDate,
+        booking_date: r.booking_date != null ? String(r.booking_date).slice(0, 10) : null,
+        booking_window_days: r.booking_window_days != null ? Number(r.booking_window_days) : null,
+      }),
+      created_at: r.created_at != null ? String(r.created_at) : null,
+    });
+  }
+  return out;
+}
+
+/**
+ * Which rows a rule measuring `signalIds` reads, the way its observation
+ * does (frozenWindowOf): the room types it measures, less those that don't
+ * count as rooms; the hotel-wide history (every row but those, a row with
+ * no room type included) when that is all of the hotel's.
+ */
+function measuredRow(ctx: BookingSpeedContext, signalIds: readonly string[]): (roomTypeId: string | null) => boolean {
+  const kept = ctx.excluded ? signalIds.filter((id) => !ctx.excluded!.has(id)) : [...signalIds];
+  if (ctx.hotelSetKey !== undefined && signalSetKey(kept) !== ctx.hotelSetKey) {
+    const set = new Set(kept);
+    return (id) => id !== null && set.has(id);
+  }
+  return (id) => id === null || !ctx.excluded?.has(id);
+}
+
+/**
+ * The bookings a booking speed reading counted in its window, by key, from
+ * `rows` (loadNightBookingRows for `stayDate`): those on the room types it
+ * measures (measuredRow) whose booking window falls in [windowFrom,
+ * windowTo] (hotel dates, both included), and with `since`, on windowFrom's
+ * day only those first seen after it, as observeForStayDate counts them. A
+ * booking is one however many rooms it holds, at its earliest booking date,
+ * first seen at its earliest row. Sorted. null for a window that doesn't
+ * read (it ends after the night, or has no day).
+ */
+export function windowBookingKeys(
+  ctx: BookingSpeedContext,
+  rows: readonly NightBookingRow[],
+  stayDate: string,
+  windowFrom: string,
+  windowTo: string,
+  signalIds: readonly string[],
+  since: string | null,
+): string[] | null {
+  const daysOut = daysBetween(windowTo, stayDate);
+  const days = daysBetween(windowFrom, windowTo) + 1;
+  if (daysOut < 0 || days < 1) return null;
+  const measured = measuredRow(ctx, signalIds);
+  const bookings = new Map<string, { bw: number | null; firstSeen: number }>();
+  for (const row of rows) {
+    if (!measured(row.room_type_id)) continue;
+    const at = row.created_at ? Date.parse(row.created_at) : NaN;
+    const seen = Number.isNaN(at) ? -Infinity : at;
+    const prev = bookings.get(row.key);
+    bookings.set(
+      row.key,
+      prev
+        ? { bw: earliestBookingWindow(prev.bw, row.bw), firstSeen: Math.min(prev.firstSeen, seen) }
+        : { bw: row.bw, firstSeen: seen },
+    );
+  }
+  const sinceMs = since ? Date.parse(since) : null;
+  const splitBw = daysOut + days - 1;
+  const out: string[] = [];
+  for (const [key, { bw, firstSeen }] of bookings) {
+    if (bw === null || bw < daysOut || bw > splitBw) continue;
+    if (sinceMs !== null && bw === splitBw && !(firstSeen > sinceMs)) continue;
+    out.push(key);
+  }
+  return out.sort();
+}
+
+/** The bookings with a row on the night now over the room types a rule measures (measuredRow), by key. */
+export function bookingKeysOnNight(
+  ctx: BookingSpeedContext,
+  rows: readonly NightBookingRow[],
+  signalIds: readonly string[],
+): Set<string> {
+  const measured = measuredRow(ctx, signalIds);
+  const out = new Set<string>();
+  for (const row of rows) if (measured(row.room_type_id)) out.add(row.key);
+  return out;
+}
+
+/** Where a frozen window is read from: the set's index, its splitWindows key part, and the window as offsets. */
+function frozenWindowOf(
+  ctx: BookingSpeedContext,
+  stayDate: string,
+  windowFrom: string,
+  windowTo: string,
+  signalIds?: readonly string[],
+): { index: Map<string, StayDateWindows>; setPart: string; daysOut: number; days: number } | null {
   if (ctx.loadedTargets && !ctx.loadedTargets.has(stayDate)) return null;
   const setKey =
     signalIds && ctx.hotelSetKey !== undefined
@@ -840,5 +1368,5 @@ export function bookingsInFrozenWindow(
   const daysOut = daysBetween(windowTo, stayDate);
   const days = daysBetween(windowFrom, windowTo) + 1;
   if (daysOut < 0 || days < 1) return null;
-  return pickupInWindowIndexed(index, stayDate, daysOut, days);
+  return { index, setPart: measuresSet ? setKey : "", daysOut, days };
 }

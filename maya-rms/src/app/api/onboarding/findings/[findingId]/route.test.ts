@@ -256,6 +256,36 @@ describe("findings confirm route: claims before side effects", () => {
   });
 });
 
+describe("add_rule: an accepted suggestion", () => {
+  it("creates the rule with its undo box ticked, like every new rule", async () => {
+    const { client, tables } = fakeSupabase({
+      onboarding_findings: [
+        {
+          id: "f1",
+          hotel_id: HOTEL,
+          kind: "rule_suggestion",
+          status: "proposed",
+          payload: {
+            suggestion_type: "add_rule",
+            room_type_ids: ["rt1"],
+            spec: {
+              name: "Busy nights",
+              priority: 100,
+              condition: { occupancy_operator: "gt", occupancy_threshold: 0.8 },
+              action: { action_type: "percent", action_direction: "increase", action_value: 10 },
+              is_pickup_rule: false,
+            },
+          },
+        },
+      ],
+    });
+    state.client = client;
+    const res = await post({ action: "confirm" });
+    expect(res.status).toBe(200);
+    expect(tables.get("pricing_rules")?.[0]).toMatchObject({ name: "Busy nights", undo_on_cancellation: true });
+  });
+});
+
 describe("remove_rule: delete vs turn-it-off", () => {
   function seedRemoveRuleFinding() {
     return fakeSupabase({

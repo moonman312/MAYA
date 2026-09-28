@@ -16,8 +16,9 @@
  *     itself. A single what-if has no previous run to transition from, so this
  *     answers "what does this stay night look like once everything has settled"
  *     — which is the steady state a ladder converges on anyway.
- *   • Pickup competition. The engine picks one winner per stay night by
- *     specificity; here every matching pickup rule contributes, so the preview
+ *   • Pickup competition. The engine picks one winner per stay night, the
+ *     strongest (engine/pickup.ts comparePickupRules: the bigger change
+ *     first); here every matching pickup rule contributes, so the preview
  *     is the upper bound rather than the settled result.
  * Both are called out in the UI rather than hidden.
  */

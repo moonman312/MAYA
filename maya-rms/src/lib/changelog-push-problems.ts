@@ -25,11 +25,15 @@ import type {
   ChangelogCycle,
   ChangelogItem,
   ChangelogPushProblem,
+  ChangelogQuietChecks,
   ChangelogRuleAlertChoice,
   PushProblemRetries,
 } from "@/types/domain";
 
-/** Push problems shown at most, newest first. */
+/**
+ * Push problems shown at most of each kind: the newest ongoing ones, and the
+ * newest to end. Capped apart, so ended ones never crowd out an open one.
+ */
 export const MAX_PUSH_PROBLEMS = 20;
 /** Tries read per problem, newest first. The rest are counted, not listed. */
 export const MAX_TRIES_READ = 100;
@@ -167,17 +171,26 @@ export function buildPushProblems(
   });
 }
 
+/** Where a run or a quiet line starts: a stretch of checks goes back to its first. */
+function startOf(c: ChangelogCycle | ChangelogQuietChecks): string {
+  return "kind" in c ? c.first_at : c.timestamp;
+}
+
 /**
- * Pricing runs, push problems and the owner's own answers in one timeline.
- * Ongoing problems first, newest opened first; then the runs, the resolved
- * problems and the answers newest first, each where it happened. Anything
- * that ended before the oldest run shown is left out: it belongs to history
- * the log isn't showing.
+ * Pricing runs, the quiet checks between them, push problems and the owner's
+ * own answers in one timeline. Ongoing problems first, newest opened first;
+ * then the runs, the quiet lines, the resolved problems and the answers
+ * newest first, each where it happened (a quiet line where its latest check
+ * ran). Anything that ended before the oldest check shown is left out: it
+ * belongs to history the log isn't showing. `after`, when given, is where
+ * that history starts instead: the newest run the log did not read, so
+ * anything after it is kept even below the oldest line shown.
  */
 export function mergeTimeline(
-  cycles: ChangelogCycle[],
+  cycles: (ChangelogCycle | ChangelogQuietChecks)[],
   problems: ChangelogPushProblem[],
   answers: ChangelogRuleAlertChoice[] = [],
+  opts: { after?: string | null } = {},
 ): ChangelogItem[] {
   const newestFirst = <T>(list: { item: T; at: number }[]) =>
     list
@@ -185,14 +198,16 @@ export function mergeTimeline(
       .sort((a, b) => (b.at || 0) - (a.at || 0) || a.i - b.i)
       .map((x) => x.item);
   const ongoing = problems.filter((p) => p.status === "ongoing");
-  const oldestRun = cycles.length > 0 ? Math.min(...cycles.map((c) => Date.parse(c.timestamp) || 0)) : -Infinity;
+  const oldestShown = cycles.length > 0 ? Math.min(...cycles.map((c) => Date.parse(startOf(c)) || 0)) : -Infinity;
+  const historyEnds = opts.after != null ? Date.parse(opts.after) || 0 : null;
+  const shown = (at: number) => (historyEnds != null ? at > historyEnds : !(at < oldestShown));
   const ended = problems
     .filter((p) => p.status !== "ongoing")
     .map((p) => ({ item: p as ChangelogItem, at: Date.parse(p.resolved_at ?? p.timestamp) }))
-    .filter((x) => !(x.at < oldestRun));
+    .filter((x) => shown(x.at));
   const answered = answers
     .map((a) => ({ item: a as ChangelogItem, at: Date.parse(a.timestamp) }))
-    .filter((x) => !(x.at < oldestRun));
+    .filter((x) => shown(x.at));
   return [
     ...newestFirst(ongoing.map((p) => ({ item: p as ChangelogItem, at: Date.parse(p.timestamp) }))),
     ...newestFirst([
@@ -203,9 +218,9 @@ export function mergeTimeline(
   ];
 }
 
-/** The oldest run a set of cycles shows, as an ISO instant; null with none. */
-export function oldestShownRun(cycles: ChangelogCycle[]): string | null {
+/** The oldest run a set of cycles and quiet lines shows, as an ISO instant; null with none. */
+export function oldestShownRun(cycles: (ChangelogCycle | ChangelogQuietChecks)[]): string | null {
   let oldest: string | null = null;
-  for (const c of cycles) if (!oldest || Date.parse(c.timestamp) < Date.parse(oldest)) oldest = c.timestamp;
+  for (const c of cycles) if (!oldest || Date.parse(startOf(c)) < Date.parse(oldest)) oldest = startOf(c);
   return oldest;
 }

@@ -4,11 +4,17 @@
  *
  * Stateful, transition-based evaluation. For each (ladder rule, stay_date,
  * affected_room_type), persists is_active state and emits transition events.
+ * A change that is on stays on while the rule's conditions hold; the rule's
+ * "undo on cancellation" box decides whether cancellations can switch it off
+ * (ladderConditionsHold in conditions.ts). A change made by an older version
+ * of the rule is judged on every condition of the edited one: an edit is
+ * never held on what the box keeps. If they hold, the change becomes the
+ * edited version's, with its adjustment; if not, it comes off.
  */
 
 import type { EngineRule } from "./domain.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ruleConditionsMatch } from "./conditions.ts";
+import { ladderConditionsHold, ruleConditionsMatch } from "./conditions.ts";
 import { MIGRATIONS, fetchAllRows, isMissingColumnError } from "./snapshots.ts";
 import type { LadderTransitionAction, RuleMetrics } from "./types.ts";
 
@@ -109,15 +115,13 @@ export async function evaluateLadderTriple(
    */
   batch?: LadderPassBatch,
 ): Promise<LadderPassResult> {
-  const matches = ruleConditionsMatch(rule, metrics);
-
-  let priorRow: { is_active: boolean } | null;
+  let priorRow: LadderState | null;
   if (batch) {
     priorRow = batch.state(rule.id, stayDate, affectedRoomTypeId);
   } else {
     const { data } = await supabase
       .from("ladder_rule_state")
-      .select("is_active")
+      .select("is_active, rule_version")
       .eq("rule_id", rule.id)
       .eq("stay_date", stayDate)
       .eq("room_type_id", affectedRoomTypeId)
@@ -127,7 +131,28 @@ export async function evaluateLadderTriple(
 
   const wasActive = priorRow?.is_active ?? false;
   const rowExists = priorRow != null;
+  // A change on from before the rule was edited: the edited rule's
+  // conditions all have to hold.
+  const edited = wasActive && priorRow?.rule_version != null && Number(priorRow.rule_version) !== rule.version;
+  // A change already on is kept while its conditions hold, except that an
+  // unticked rule is never switched off by cancellations (ladderConditionsHold).
+  const matches =
+    wasActive && !edited ? ladderConditionsHold(rule, metrics) : ruleConditionsMatch(rule, metrics);
   let transition: LadderTransitionAction = "noop";
+
+  // Still true after the edit: the change is the edited rule's from now on,
+  // its adjustment included, and what the box keeps applies to it again.
+  if (matches && edited) {
+    if (batch) batch.restamp(rule, stayDate, affectedRoomTypeId);
+    else {
+      await supabase
+        .from("ladder_rule_state")
+        .update(restampPatch(rule))
+        .eq("rule_id", rule.id)
+        .eq("stay_date", stayDate)
+        .eq("room_type_id", affectedRoomTypeId);
+    }
+  }
 
   if (matches && !wasActive) {
     transition = "activate";
@@ -183,6 +208,9 @@ export async function evaluateLadderTriple(
     action_value: rule.action_value,
   };
 }
+
+/** A (rule, night, room type)'s state as the pass reads it: on or off, and which version of the rule it is from. */
+export type LadderState = { is_active: boolean; rule_version?: number | null };
 
 /* ── Whole-pass batching ────────────────────────────────────────── */
 
@@ -242,6 +270,16 @@ function activationRow(
   };
 }
 
+/** A change still on after an edit, made the edited version's: its version and adjustment. */
+function restampPatch(rule: EngineRule) {
+  return {
+    rule_version: rule.version,
+    action_kind: rule.action_type,
+    action_direction: rule.action_direction,
+    action_value: rule.action_value,
+  };
+}
+
 function deactivationPatch(evalTs: string, supportsSuppression: boolean) {
   return {
     is_active: false,
@@ -274,7 +312,7 @@ function deactivationPatch(evalTs: string, supportsSuppression: boolean) {
  * run reads the state that did land and decides the rest again.
  */
 export type LadderPassBatch = {
-  state: (ruleId: string, stayDate: string, roomTypeId: string) => { is_active: boolean } | null;
+  state: (ruleId: string, stayDate: string, roomTypeId: string) => LadderState | null;
   activate: (
     rule: EngineRule,
     hotelId: string,
@@ -294,6 +332,8 @@ export type LadderPassBatch = {
     evalTs: string,
     supportsSuppression: boolean,
   ) => void;
+  /** A change still on after an edit becomes the edited version's (rule_version and its adjustment). */
+  restamp: (rule: EngineRule, stayDate: string, roomTypeId: string) => void;
   flush: () => Promise<void>;
 };
 
@@ -303,13 +343,13 @@ export async function createLadderPassBatch(
   firstDate: string,
   lastDate: string,
 ): Promise<LadderPassBatch> {
-  const states = new Map<string, { is_active: boolean }>();
+  const states = new Map<string, LadderState>();
   if (ruleIds.length > 0) {
     for (let i = 0; i < ruleIds.length; i += KEY_CHUNK) {
       const rows = await fetchAllRows(() =>
         supabase
           .from("ladder_rule_state")
-          .select("rule_id, stay_date, room_type_id, is_active")
+          .select("rule_id, stay_date, room_type_id, is_active, rule_version")
           .in("rule_id", ruleIds.slice(i, i + KEY_CHUNK))
           .gte("stay_date", firstDate)
           .lte("stay_date", lastDate)
@@ -318,7 +358,10 @@ export async function createLadderPassBatch(
           .order("room_type_id", { ascending: true }),
       );
       for (const r of rows) {
-        states.set(`${r.rule_id}|${r.stay_date}|${r.room_type_id}`, { is_active: Boolean(r.is_active) });
+        states.set(`${r.rule_id}|${r.stay_date}|${r.room_type_id}`, {
+          is_active: Boolean(r.is_active),
+          rule_version: r.rule_version != null ? Number(r.rule_version) : null,
+        });
       }
     }
   }
@@ -376,12 +419,16 @@ export async function createLadderPassBatch(
     activate(rule, hotelId, stayDate, roomTypeId, metrics, evalTs, suppressedAt, supportsSuppression) {
       events.push(transitionEventRow(rule, hotelId, stayDate, roomTypeId, "activate", metrics, evalTs));
       activations.push(activationRow(rule, stayDate, roomTypeId, evalTs, suppressedAt, supportsSuppression));
-      states.set(`${rule.id}|${stayDate}|${roomTypeId}`, { is_active: true });
+      states.set(`${rule.id}|${stayDate}|${roomTypeId}`, { is_active: true, rule_version: rule.version });
     },
     deactivate(rule, hotelId, stayDate, roomTypeId, metrics, evalTs, supportsSuppression) {
       events.push(transitionEventRow(rule, hotelId, stayDate, roomTypeId, "deactivate", metrics, evalTs));
       queueUpdate(rule.id, roomTypeId, deactivationPatch(evalTs, supportsSuppression), stayDate);
-      states.set(`${rule.id}|${stayDate}|${roomTypeId}`, { is_active: false });
+      states.set(`${rule.id}|${stayDate}|${roomTypeId}`, { is_active: false, rule_version: rule.version });
+    },
+    restamp(rule, stayDate, roomTypeId) {
+      queueUpdate(rule.id, roomTypeId, restampPatch(rule), stayDate);
+      states.set(`${rule.id}|${stayDate}|${roomTypeId}`, { is_active: true, rule_version: rule.version });
     },
     async flush() {
       failures.rows = 0;

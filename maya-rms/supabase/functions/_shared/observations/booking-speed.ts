@@ -230,6 +230,10 @@ export function classifyBookingSpeed(input: BookingSpeedInput): BookingSpeedClas
 export interface DescribeBookingSpeedOptions {
   /** Length of the recent-pickup window the counts came from. Default 7. */
   windowDays?: number;
+  /** Where the count started, in place of "in the last N days" ("since the latest raise still on the night"). */
+  windowPhrase?: string;
+  /** The stretch the expectation covers, when it is not the one counted ("in a whole week"). */
+  expectedOver?: string;
 }
 
 /**
@@ -241,7 +245,8 @@ export function describeBookingSpeed(
   opts: DescribeBookingSpeedOptions = {},
 ): string {
   const windowDays = opts.windowDays ?? 7;
-  const windowPhrase = `in the last ${windowDays} days`;
+  const windowPhrase = opts.windowPhrase ?? `in the last ${windowDays} days`;
+  const over = opts.expectedOver ? ` ${opts.expectedOver}` : "";
 
   let observed: string;
   if (c.recentBookings < 0) {
@@ -256,8 +261,8 @@ export function describeBookingSpeed(
 
   const expected =
     c.expectedBookings < 1
-      ? "Based on similar past dates, we expected almost none."
-      : `Based on similar past dates, we expected about ${Math.round(c.expectedBookings)}.`;
+      ? `Based on similar past dates, we expected almost none${over}.`
+      : `Based on similar past dates, we expected about ${Math.round(c.expectedBookings)}${over}.`;
 
   const verdict = `Booking speed is ${c.label}.`;
 

@@ -28,12 +28,60 @@ export type RuleMetrics = {
     rank: number;
     label: string;
     recent: number;
+    /**
+     * What a night like it usually gets: over window_days, or with
+     * expected_over_full_window over the rule's whole window
+     * (full_window_days).
+     */
     expected: number;
+    /** The days actually counted: the rule's window, or fewer when counted_from cut it. */
     window_days: number;
     method: string;
+    /**
+     * Set only when the fire the rule counts from on the cell cut its window
+     * short or split its first day (countFromFireAt and
+     * bookingSpeedCountFrom in pickup.ts: its own newest fire there, or a
+     * newer one by a stronger rule that adjusts the same way). The first
+     * booking date counted, the window the rule asks for, and
+     * (counted_since, a raise rule only) that fire, when the first day
+     * counted only the bookings first seen after it. A cut rule counts from
+     * the day after the cut. An audit row without counted_since counted
+     * counted_from's day whole.
+     */
+    counted_from?: string;
+    full_window_days?: number;
+    counted_since?: string;
+    /**
+     * With counted_from, for a rule that raises on "at least" a pace
+     * (keepsWholeWindowBar): `expected` is over the rule's whole window, the
+     * bar the bookings since that change had to beat on their own.
+     */
+    expected_over_full_window?: true;
+    /**
+     * Set for a rule that cuts: the last booking date counted, the day
+     * before the run's. It reads complete days only, on the night and on the
+     * nights it is compared with. Absent for a raise rule, which counts
+     * today so far.
+     */
+    counted_through?: string;
   } | null;
-  /** When set, booking-speed conditions must not match (no usable history). */
-  booking_speed_block_reason?: "insufficient_data" | null;
+  /**
+   * When set, booking-speed conditions must not match: no usable history, or
+   * no complete day left to count since the fire the rule counts from on
+   * the cell (a cut rule the day after that cut, or a fire recorded by a run
+   * whose clock was ahead).
+   */
+  booking_speed_block_reason?: "insufficient_data" | "since_last_fire" | null;
+  /**
+   * Set when a pickup condition's window opened at the fire the rule counts
+   * from rather than a whole window back (pickupWindowOpensAt in pickup.ts:
+   * its own last fire, inside a window longer than its wait, or a stronger
+   * rule's newer fire that adjusts the same way): that fire's instant. The
+   * pickup above then counts the room nights first seen after it that are
+   * still booked (countPickupSinceChange), and the baseline is what was
+   * first seen by then and is still booked.
+   */
+  pickup_counted_since?: string;
   /** Summed across signal room types at baseline snapshot (pickup ledger / audit). */
   signal_booked_units_baseline?: number;
   signal_booked_revenue_baseline?: number;
@@ -74,13 +122,43 @@ export type PickupCandidate = {
   signal_booked_revenue_end: number;
   /** One above the highest fire number this rule ever had on the cell. */
   fire_seq: number;
-  /** Which cancellation test can take this fire off (see cancelCheckFor). */
+  /** Always "recount": every number a cancellation check reads is stored (PickupCancelCheck). */
   cancel_check: PickupCancelCheck;
-  /** The booking speed window, in hotel dates, when the rule has a booking speed reading. */
+  /**
+   * For a rule with a pickup condition: the room nights (and revenue) on
+   * the measured room types first seen after the count opened (baseline_ts)
+   * and by this run (eval_ts), still booked now, so a later cancellation
+   * check can tell how many of the bookings that came in during the count
+   * have cancelled since (cancellationsUndo in pickup.ts). null without a
+   * pickup condition, or when they could not be read.
+   */
+  pickup_units_arrived: number | null;
+  pickup_revenue_arrived: number | null;
+  /**
+   * The booking speed window, in hotel dates, when the rule has a booking
+   * speed reading: the days it counted, ending on the run's day for a raise
+   * rule and on the day before for a cut rule (counted_through).
+   */
   window_from: string | null;
+  /**
+   * When window_from's day was split at the fire this one counted from
+   * (booking_speed.counted_since): only the bookings first seen after it on
+   * that day were counted, and the frozen window is read back the same way.
+   * null when that day was counted whole.
+   */
+  window_since: string | null;
   window_to: string | null;
   window_bookings_at_fire: number | null;
   window_expected_at_fire: number | null;
+  /**
+   * The bookings counted in that window (window_bookings_at_fire of them),
+   * by booking key (windowBookingKeys), so a later cancellation check
+   * recounts exactly those still booked: a group that cancels its first
+   * rooms and keeps rooms it added later is still one of them. null
+   * without a booking speed condition cancellations can make false, or
+   * when the keys read did not come to that count.
+   */
+  window_booking_keys: string[] | null;
   /** signalSetKey of the room types measured. */
   signal_set_key: string;
 };

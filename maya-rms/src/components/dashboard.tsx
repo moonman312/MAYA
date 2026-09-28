@@ -14,19 +14,28 @@ import { PropertySelect } from "@/components/property-select";
 import { RateSimulator } from "@/components/rate-simulator";
 import { RoomCountHelp, RoomTypeSettings, isCountingRoom } from "@/components/room-type-settings";
 import { bookingSpeedHelp, bookingSpeedWaitHelp } from "@/lib/booking-speed-help";
+import { PickupWaitField } from "@/components/pickup-wait-field";
 import { RuleAlertBanner } from "@/components/rule-alert-banner";
 import { letRunAgainBody, stoppedChipLabel, stoppedNightsHelp, type RuleStops } from "@/lib/rule-alerts";
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { RuleRoomTypesField } from "@/components/rule-room-types-field";
-import { isRuleAlertChoice } from "@/lib/changelog-route-helpers";
+import {
+  UndoOnCancellationField,
+  UndoOnCancellationToggle,
+  saveUndoOnCancellation,
+} from "@/components/undo-on-cancellation-box";
+import { isQuietChecks, isRuleAlertChoice } from "@/lib/changelog-route-helpers";
+import { QuietChecksLine } from "@/components/quiet-checks-line";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
 import {
   BOOKING_SPEED_WAIT_OPTIONS,
   RULE_FIRES_HELP,
-  bookingSpeedWaitLabel,
   eventRuleWaitDays,
-  pickupWindowSetsWait,
+  pickupCountsLow,
+  pickupOwnWait,
+  pickupSetsWait,
+  waitDaysLabel,
   conditionRowsToRuleCondition,
   formatRuleConditionsDisplay,
   isRuleActionEmpty,
@@ -372,6 +381,11 @@ export function Dashboard({
   const [splitRoomTypeSets, setSplitRoomTypeSets] = useState(false);
   const [changeRoomTypeIds, setChangeRoomTypeIds] = useState<string[]>([]);
   const [ruleFormError, setRuleFormError] = useState<string | null>(null);
+  // The undo box starts ticked on every new rule (Jake, 2026-09-25).
+  const [undoOnCancellation, setUndoOnCancellation] = useState(true);
+  const [undoSaving, setUndoSaving] = useState<string | null>(null);
+  // Why a rule's box didn't save (a staff member or viewer can't change rules).
+  const [undoError, setUndoError] = useState<{ ruleId: string; message: string } | null>(null);
 
   useEffect(() => {
     void reloadRules();
@@ -653,6 +667,25 @@ export function Dashboard({
     await reloadRules();
   }
 
+  /**
+   * The undo box in the rules table. Not an edit: the rule keeps its
+   * changes, and the next pricing run checks them (ticked) or not.
+   */
+  async function onToggleUndo(rule: RuleConfig) {
+    const next = rule.undo_on_cancellation === false;
+    setUndoSaving(rule.id);
+    setUndoError(null);
+    setRules((rs) => rs.map((r) => (r.id === rule.id ? { ...r, undo_on_cancellation: next } : r)));
+    try {
+      const message = await saveUndoOnCancellation(rule.id, next);
+      if (message) setUndoError({ ruleId: rule.id, message });
+    } finally {
+      // Puts back whatever the rule really says.
+      setUndoSaving(null);
+      await reloadRules();
+    }
+  }
+
   async function onDeleteRule(ruleId: string) {
     await api(`/api/rules/${ruleId}`, { method: "DELETE" });
     setPendingDelete(null);
@@ -784,6 +817,7 @@ export function Dashboard({
           room_types,
           signal_room_type_ids,
           affected_room_type_ids,
+          undo_on_cancellation: undoOnCancellation,
         }),
       });
     } catch {
@@ -807,6 +841,7 @@ export function Dashboard({
     setSplitRoomTypeSets(false);
     setChangeRoomTypeIds([]);
     setBuilderFilled(false);
+    setUndoOnCancellation(true);
     await reloadRules();
   }
 
@@ -859,7 +894,7 @@ export function Dashboard({
   useEffect(() => {
     if (arrival?.dest !== "changelog.entry" || changelog.length === 0) return;
     const run = arrival.params.run;
-    if (!changelog.some((c) => !isPushProblem(c) && !isRuleAlertChoice(c) && c.changes.some((ch) => ch.evaluation_run_id === run))) {
+    if (!changelog.some((c) => !isPushProblem(c) && !isRuleAlertChoice(c) && !isQuietChecks(c) && c.changes.some((ch) => ch.evaluation_run_id === run))) {
       setArrivalNote("entry-gone");
     }
   }, [arrival, changelog]);
@@ -874,7 +909,7 @@ export function Dashboard({
     // A push problem is always shown: it is never a "nothing changed" run.
     () =>
       changesOnly
-        ? changelog.filter((c) => isPushProblem(c) || isRuleAlertChoice(c) || c.has_changes)
+        ? changelog.filter((c) => isPushProblem(c) || isRuleAlertChoice(c) || (!isQuietChecks(c) && c.has_changes))
         : changelog,
     [changesOnly, changelog],
   );
@@ -1441,19 +1476,24 @@ export function Dashboard({
                             {rule.enabled ? "On" : "Off"}
                           </span>
                         </button>
+                        <div className="mt-1">
+                          <UndoOnCancellationToggle
+                            ruleName={rule.rule_name}
+                            checked={rule.undo_on_cancellation !== false}
+                            disabled={undoSaving === rule.id}
+                            error={undoError?.ruleId === rule.id ? undoError.message : null}
+                            onToggle={() => void onToggleUndo(rule)}
+                          />
+                        </div>
                         {(() => {
                           const stops = ruleStops.find((s) => s.rule_id === rule.id);
                           if (!stops || stops.nights.length === 0) return null;
-                          const direction =
-                            (rule.action.adjust_rate_percent ?? rule.action.adjust_rate_dollars ?? 0) < 0
-                              ? "decrease"
-                              : "increase";
                           return (
                             <div className="mt-1 flex flex-wrap items-center gap-1.5">
                               <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-200">
                                 {stoppedChipLabel(stops.nights.length)}
                               </span>
-                              <RoomCountHelp {...stoppedNightsHelp(stops.nights, direction)} docs="stopped-nights" />
+                              <RoomCountHelp {...stoppedNightsHelp(stops.nights, rule.undo_on_cancellation !== false)} docs="stopped-nights" />
                               <button
                                 type="button"
                                 disabled={lettingRun !== null}
@@ -1538,17 +1578,23 @@ export function Dashboard({
                           .map((r) => r.metric),
                       );
                       // A rule with both conditions waits the longer of the
-                      // stored wait and the pickup lookback (the engine's
+                      // booking speed wait and the pickup wait (the one
+                      // chosen, or the lookback window: the engine's
                       // ruleWaitDays), so the wait shown is that one.
                       const pickupRow = condRows.find((r) => r.metric === "pickup");
+                      const speedRow = condRows.find((r) => r.metric === "booking_speed");
                       const waitInput = {
-                        hasBookingSpeed: true,
-                        cooldownDays: row.booking_speed_cooldown_days,
+                        hasBookingSpeed: speedRow !== undefined,
+                        cooldownDays: speedRow?.booking_speed_cooldown_days ?? null,
                         hasPickup: pickupRow !== undefined,
                         pickupWindowDays: pickupRow?.pickup_window_days ?? null,
+                        pickupCooldownDays: pickupRow?.pickup_cooldown_days ?? null,
+                        pickupLow:
+                          pickupRow !== undefined && pickupCountsLow(pickupRow.operator, Number(pickupRow.value)),
                       };
-                      const waitLabel = bookingSpeedWaitLabel(eventRuleWaitDays(waitInput));
-                      const pickupSetsWait = pickupWindowSetsWait(waitInput);
+                      const waitLabel = waitDaysLabel(eventRuleWaitDays(waitInput));
+                      const pickupDecides = pickupSetsWait(waitInput);
+                      const pickupWait = pickupOwnWait(waitInput);
                       return (
                         <div
                           key={row.id}
@@ -1683,7 +1729,7 @@ export function Dashboard({
                             </div>
                           </div>
                           {row.metric === "pickup" ? (
-                            <div className="mt-3 grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-2">
+                            <div className="mt-3 grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-3">
                               <div>
                                 <label className="mb-0.5 block text-[11px] text-slate-500">
                                   Lookback window
@@ -1704,6 +1750,16 @@ export function Dashboard({
                                   <option value="7">7 days</option>
                                 </select>
                               </div>
+                              <PickupWaitField
+                                id={`pickup-wait-${row.id}`}
+                                value={row.pickup_cooldown_days}
+                                windowDays={row.pickup_window_days}
+                                lowPickup={pickupCountsLow(row.operator, Number(row.value))}
+                                bookingSpeedCooldownDays={speedRow?.booking_speed_cooldown_days}
+                                onChange={(days) =>
+                                  updateCondRow(row.id, { pickup_cooldown_days: days })
+                                }
+                              />
                               <div>
                                 <label className="mb-0.5 block text-[11px] text-slate-500">
                                   Pickup measures
@@ -1768,7 +1824,12 @@ export function Dashboard({
                                   <RoomCountHelp
                                     {...bookingSpeedWaitHelp(
                                       waitLabel,
-                                      pickupSetsWait ? waitLabel : null,
+                                      pickupDecides && pickupRow?.pickup_cooldown_days == null
+                                        ? waitLabel
+                                        : null,
+                                      pickupDecides && pickupRow?.pickup_cooldown_days != null
+                                        ? waitLabel
+                                        : null,
                                     )}
                                     docs="booking-speed-wait"
                                   />
@@ -1788,8 +1849,8 @@ export function Dashboard({
                                   {BOOKING_SPEED_WAIT_OPTIONS.map((o) => (
                                     <option key={o.days} value={o.days}>
                                       {o.label}
-                                      {pickupSetsWait && o.days < eventRuleWaitDays(waitInput)
-                                        ? ` (pickup holds it to ${waitLabel})`
+                                      {pickupWait > o.days
+                                        ? ` (pickup holds it to ${waitDaysLabel(pickupWait)})`
                                         : ""}
                                     </option>
                                   ))}
@@ -1890,6 +1951,9 @@ export function Dashboard({
                         className="min-w-32 flex-1 rounded border border-slate-700 bg-slate-950 p-2 text-sm disabled:opacity-40"
                       />
                     </label>
+                    <div className="border-t border-slate-800 pt-3">
+                      <UndoOnCancellationField checked={undoOnCancellation} onChange={setUndoOnCancellation} />
+                    </div>
                   </div>
                 </div>
 
@@ -1997,6 +2061,26 @@ export function Dashboard({
                     </div>
                   );
                 }
+                if (isQuietChecks(cycle) || !cycle.has_changes) {
+                  // A run with nothing to change reads like a stretch of one.
+                  const quiet = isQuietChecks(cycle)
+                    ? cycle
+                    : {
+                        kind: "quiet_checks" as const,
+                        id: `run-${cycle.cycle}`,
+                        timestamp: cycle.timestamp,
+                        first_at: cycle.timestamp,
+                        checks: 1,
+                      };
+                  return (
+                    <QuietChecksLine
+                      key={`quiet-${quiet.id}`}
+                      item={quiet}
+                      formatAge={formatRelativeAge}
+                      formatExact={formatDisplayTime}
+                    />
+                  );
+                }
                 return (
                   <div
                     key={cycle.cycle}
@@ -2024,61 +2108,55 @@ export function Dashboard({
                         ) : null}
                       </time>
                     </p>
-                    {cycle.has_changes ? (
-                      <ul className="mt-2 space-y-3">
-                        {cycle.changes.map((ch, idx) => (
-                          <li
-                            key={`${cycle.cycle}-${idx}`}
-                            data-deeplink={
-                              ch.evaluation_run_id
-                                ? `changelog.entry:${ch.evaluation_run_id}:${ch.stay_date ?? ""}:${ch.room_type_id ?? ""}`
-                                : undefined
-                            }
-                          >
-                            <div className="text-sm font-medium text-slate-200">
-                              {ch.room_type}
-                              {ch.stay_date ? (
-                                <span className="text-slate-400">
-                                  {" "}
-                                  · stay {ch.stay_date}
-                                </span>
-                              ) : null}
-                              : ${ch.original_rate.toFixed(2)}{" "}
-                              {ch.new_rate >= ch.original_rate ? "up" : "down"} to $
-                              {ch.new_rate.toFixed(2)} (
-                              {ch.change_pct >= 0 ? "+" : ""}
-                              {ch.change_pct}%)
-                            </div>
-                            {(ch.narrative && ch.narrative.length > 0
-                              ? ch.narrative
-                              : [ch.description]
-                            ).map((sentence, si) => (
-                              <p
-                                key={si}
-                                className="mt-0.5 text-[13px] leading-relaxed text-slate-400"
-                              >
-                                {sentence}
-                              </p>
-                            ))}
-                            {ch.has_booking_speed_details &&
-                            ch.evaluation_run_id &&
-                            ch.stay_date &&
-                            ch.room_type_id ? (
-                              <ExplainDrilldown
-                                runId={ch.evaluation_run_id}
-                                stayDate={ch.stay_date}
-                                roomTypeId={ch.room_type_id}
-                                initialOpen={linkedDrilldown(ch.evaluation_run_id, ch.stay_date, ch.room_type_id)}
-                              />
+                    <ul className="mt-2 space-y-3">
+                      {cycle.changes.map((ch, idx) => (
+                        <li
+                          key={`${cycle.cycle}-${idx}`}
+                          data-deeplink={
+                            ch.evaluation_run_id
+                              ? `changelog.entry:${ch.evaluation_run_id}:${ch.stay_date ?? ""}:${ch.room_type_id ?? ""}`
+                              : undefined
+                          }
+                        >
+                          <div className="text-sm font-medium text-slate-200">
+                            {ch.room_type}
+                            {ch.stay_date ? (
+                              <span className="text-slate-400">
+                                {" "}
+                                · stay {ch.stay_date}
+                              </span>
                             ) : null}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="mt-2 text-sm text-slate-300">
-                        Prices checked — nothing needed to change.
-                      </p>
-                    )}
+                            : ${ch.original_rate.toFixed(2)}{" "}
+                            {ch.new_rate >= ch.original_rate ? "up" : "down"} to $
+                            {ch.new_rate.toFixed(2)} (
+                            {ch.change_pct >= 0 ? "+" : ""}
+                            {ch.change_pct}%)
+                          </div>
+                          {(ch.narrative && ch.narrative.length > 0
+                            ? ch.narrative
+                            : [ch.description]
+                          ).map((sentence, si) => (
+                            <p
+                              key={si}
+                              className="mt-0.5 text-[13px] leading-relaxed text-slate-400"
+                            >
+                              {sentence}
+                            </p>
+                          ))}
+                          {ch.has_booking_speed_details &&
+                          ch.evaluation_run_id &&
+                          ch.stay_date &&
+                          ch.room_type_id ? (
+                            <ExplainDrilldown
+                              runId={ch.evaluation_run_id}
+                              stayDate={ch.stay_date}
+                              roomTypeId={ch.room_type_id}
+                              initialOpen={linkedDrilldown(ch.evaluation_run_id, ch.stay_date, ch.room_type_id)}
+                            />
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 );
               })}

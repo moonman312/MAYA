@@ -43,6 +43,31 @@ export function ruleConditionsMatch(rule: EngineRule, metrics: RuleMetrics): boo
   return true;
 }
 
+/**
+ * Whether a rule that keeps its change while its conditions hold (a ladder
+ * rule: only occupancy and days before arrival) keeps a change it already
+ * has on a night. Ticked (undo_on_cancellation, the default) it keeps it
+ * exactly while its conditions match, as it always has, so cancellations
+ * that take occupancy under its bar switch it off. Unticked, cancellations
+ * never take it off: an "occupancy more than" condition, which only
+ * cancellations (or more rooms to sell) can bring down, stays met while the
+ * change is on, and the rest is read as it is now, so a days-before-arrival
+ * condition still runs out with time and new bookings still end an
+ * "occupancy less than" rule. A night with nothing measured is not held.
+ * Only for a change the rule's current version made: one from before an
+ * edit is judged on every condition (evaluateLadderTriple in ladder.ts).
+ */
+export function ladderConditionsHold(rule: EngineRule, metrics: RuleMetrics): boolean {
+  const c = rule.condition;
+  if (rule.undo_on_cancellation === false && c.occupancy_operator === "gt" && metrics.occupancy !== null) {
+    return ruleConditionsMatch(
+      { ...rule, condition: { ...c, occupancy_operator: null, occupancy_threshold: null } },
+      metrics,
+    );
+  }
+  return ruleConditionsMatch(rule, metrics);
+}
+
 function compare(actual: number, op: string, threshold: number): boolean {
   if (op === "gt") return actual > threshold;
   if (op === "lt") return actual < threshold;
@@ -50,7 +75,7 @@ function compare(actual: number, op: string, threshold: number): boolean {
 }
 
 /** Count the number of non-null condition families on a rule. */
-export function conditionCount(rule: EngineRule): number {
+export function conditionCount(rule: Pick<EngineRule, "condition">): number {
   let count = 0;
   if (rule.condition.occupancy_operator) count++;
   if (rule.condition.dta_operator) count++;

@@ -1,7 +1,8 @@
 /**
- * The SQL in 99_supabase_migration_large_property_scale_v1.sql, run for real
- * in PGlite (Postgres compiled to WebAssembly, in memory) against the
- * TypeScript it replaces.
+ * The SQL in 99_supabase_migration_large_property_scale_v1.sql, and the
+ * booking_speed_windows that 99_supabase_migration_booking_speed_counts_bookings_v1.sql
+ * puts over it, run for real in PGlite (Postgres compiled to WebAssembly, in
+ * memory) against the TypeScript it replaces.
  *
  * PGlite is not a dependency of this app, so the suite only runs when
  * MAYA_PGLITE_DIR points at a directory whose node_modules has
@@ -35,8 +36,12 @@ import {
 
 const PGLITE_DIR = process.env.MAYA_PGLITE_DIR;
 const MIGRATION = resolve(__dirname, "../../../../99_supabase_migration_large_property_scale_v1.sql");
+export const COUNTS_BOOKINGS_MIGRATION = resolve(
+  __dirname,
+  "../../../../99_supabase_migration_booking_speed_counts_bookings_v1.sql",
+);
 
-type Db = {
+export type Db = {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
   exec: (sql: string) => Promise<unknown>;
   close: () => Promise<void>;
@@ -98,8 +103,25 @@ create table if not exists public.pickup_event (
   hotel_id uuid not null,
   rule_id uuid not null,
   -- From the stacking migration: rule_fire_counts leaves the same-run bug's
-  -- rows out (99_supabase_migration_pickup_event_stacking_v1.sql).
-  retired_reason text
+  -- rows out (99_supabase_migration_pickup_event_stacking_v1.sql), and the
+  -- counts-bookings migration turns the frozen-window test off on the open
+  -- raises it finds, under the stacking checks.
+  retired_at timestamptz,
+  retired_reason text,
+  applied_at timestamptz not null default now(),
+  action_direction text not null default 'increase',
+  cancel_check text not null default 'none',
+  window_from date,
+  window_to date,
+  window_bookings_at_fire integer,
+  window_expected_at_fire numeric(10,2),
+  constraint pickup_event_cancel_check_chk check (cancel_check in ('none', 'net_units', 'window_bookings', 'either')),
+  constraint pickup_event_cancel_increase_chk check (cancel_check = 'none' or action_direction = 'increase'),
+  constraint pickup_event_window_chk check (
+    cancel_check not in ('window_bookings', 'either')
+    or (window_from is not null and window_to is not null and window_from <= window_to
+        and window_bookings_at_fire is not null and window_expected_at_fire is not null)
+  )
 );
 create table if not exists public.room_types (
   id uuid primary key default gen_random_uuid(),
@@ -126,7 +148,13 @@ export function uuidFor(label: string): string {
   return `00000000-0000-4000-a000-${h.toString(16).padStart(12, "0")}`;
 }
 
-export async function openPglite(): Promise<Db> {
+/**
+ * A fresh database with the stubs, the large property migration and, unless
+ * `countsBookings` is false, the counts-bookings migration over it. A test
+ * that wants the database as it stands before that file (fires recorded in
+ * rooms, the old windows function) passes false and runs the file itself.
+ */
+export async function openPglite(opts: { countsBookings?: boolean } = {}): Promise<Db> {
   const mod = await import(
     /* @vite-ignore */ pathToFileURL(`${PGLITE_DIR}/node_modules/@electric-sql/pglite/dist/index.js`).href
   );
@@ -135,10 +163,11 @@ export async function openPglite(): Promise<Db> {
   await db.exec("set timezone = 'UTC';");
   await db.exec(STUBS);
   await db.exec(readFileSync(MIGRATION, "utf8"));
+  if (opts.countsBookings !== false) await db.exec(readFileSync(COUNTS_BOOKINGS_MIGRATION, "utf8"));
   return db;
 }
 
-async function insertReservations(db: Db, rows: FakeRow[]): Promise<void> {
+export async function insertReservations(db: Db, rows: FakeRow[]): Promise<void> {
   await db.exec("truncate public.reservations;");
   const CHUNK = 2000;
   for (let i = 0; i < rows.length; i += CHUNK) {
@@ -147,7 +176,7 @@ async function insertReservations(db: Db, rows: FakeRow[]): Promise<void> {
     const params: unknown[] = [];
     for (const r of chunk) {
       const p = params.length;
-      values.push(`($${p + 1}::uuid, $${p + 2}::uuid, $${p + 3}::uuid, $${p + 4}::date, $${p + 5}::date, $${p + 6}::int, $${p + 7}::numeric, $${p + 8}::numeric, coalesce($${p + 9}::timestamptz, now()))`);
+      values.push(`($${p + 1}::uuid, $${p + 2}::uuid, $${p + 3}::uuid, $${p + 4}::date, $${p + 5}::date, $${p + 6}::int, $${p + 7}::numeric, $${p + 8}::numeric, coalesce($${p + 9}::timestamptz, now()), $${p + 10}::text)`);
       params.push(
         uuidFor(String(r.id)),
         uuidFor(String(r.hotel_id)),
@@ -158,10 +187,11 @@ async function insertReservations(db: Db, rows: FakeRow[]): Promise<void> {
         r.current_rate ?? null,
         r.base_rate ?? null,
         r.created_at ?? null,
+        r.external_reservation_id ?? null,
       );
     }
     await db.query(
-      `insert into public.reservations (id, hotel_id, room_type_id, stay_date, booking_date, booking_window_days, current_rate, base_rate, created_at) values ${values.join(",")}`,
+      `insert into public.reservations (id, hotel_id, room_type_id, stay_date, booking_date, booking_window_days, current_rate, base_rate, created_at, external_reservation_id) values ${values.join(",")}`,
       params,
     );
   }
@@ -170,7 +200,7 @@ async function insertReservations(db: Db, rows: FakeRow[]): Promise<void> {
 /** Argument types per function, for casting the named parameters. */
 const SIGNATURES: Record<string, Record<string, string>> = {
   booking_speed_history_summary: { p_hotel_id: "uuid", p_from: "date", p_to: "date", p_exclude: "uuid[]", p_ranks: "int[]" },
-  booking_speed_windows: { p_hotel_id: "uuid", p_dates: "date[]", p_exclude: "uuid[]", p_include: "uuid[]" },
+  booking_speed_windows: { p_hotel_id: "uuid", p_dates: "date[]", p_exclude: "uuid[]", p_include: "uuid[]", p_since: "timestamptz[]" },
   booking_speed_first_stay_date: { p_hotel_id: "uuid", p_from: "date", p_include: "uuid[]" },
   audit_last_signatures: { p_hotel_id: "uuid", p_from: "date", p_to: "date" },
   room_type_max_rates: { p_hotel_id: "uuid" },
@@ -687,7 +717,11 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
     await db.exec(readFileSync(MIGRATION, "utf8"));
   });
 
-  it("leaves one booking_speed_windows, even over the earlier three-argument version", async () => {
+  it("leaves one booking_speed_windows, even over the earlier three-argument version, and never a second beside the counts-bookings one", async () => {
+    // This database has the counts-bookings file over it, so the one
+    // function is that file's five-argument one: a replay of this file must
+    // neither put the row count back nor add its four-argument overload
+    // beside it (PostgREST could not choose between the two).
     await db.exec(`
       create or replace function public.booking_speed_windows(p_hotel_id uuid, p_dates date[], p_exclude uuid[] default '{}')
       returns table(stay_date date, n int, bws int[], counts int[]) language sql stable as $$ select null::date, 0, null::int[], null::int[] where false $$;
@@ -697,6 +731,6 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
       `select pg_get_function_identity_arguments(p.oid) as args from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'booking_speed_windows'`,
     );
-    expect(rows).toEqual([{ args: "p_hotel_id uuid, p_dates date[], p_exclude uuid[], p_include uuid[]" }]);
+    expect(rows).toEqual([{ args: "p_hotel_id uuid, p_dates date[], p_exclude uuid[], p_include uuid[], p_since timestamp with time zone[]" }]);
   });
 });

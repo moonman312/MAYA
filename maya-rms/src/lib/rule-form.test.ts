@@ -1,18 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { ruleWaitDays } from "@/lib/engine/pickup";
+import { pickupJudgesShortStretch, ruleWaitDays } from "@/lib/engine/pickup";
 import type { EngineRule, RuleCondition } from "@/types/domain";
 import {
   BOOKING_SPEED_WAIT_OPTIONS,
   DEFAULT_BOOKING_SPEED_WAIT_DAYS,
+  PICKUP_WAIT_SAME_AS_WINDOW_LABEL,
   RULE_FIRES_HELP,
+  bookingSpeedOwnWait,
+  bookingSpeedSetsWait,
   bookingSpeedWaitLabel,
   conditionRowsToRuleCondition,
   directionalBookingSpeedOperator,
   eventRuleWaitDays,
   isRuleConditionEmpty,
   newConditionRow,
-  pickupWindowSetsWait,
+  pickupCountsLow,
+  pickupOwnWait,
+  pickupSetsWait,
   ruleConditionForInsert,
+  waitDaysLabel,
 } from "./rule-form";
 
 describe("threshold parsing rejects empty/negative instead of clamping to 0", () => {
@@ -176,9 +182,60 @@ describe("the wait a booking speed rule keeps", () => {
   });
 });
 
+describe("the wait a pickup count rule keeps", () => {
+  it("starts on the lookback window, saved as nothing, and offers the booking speed choices after it", () => {
+    expect(newConditionRow("pickup").pickup_cooldown_days).toBeNull();
+    expect(PICKUP_WAIT_SAME_AS_WINDOW_LABEL).toBe("Same as the lookback window");
+    const c = conditionRowsToRuleCondition([newConditionRow("pickup", { value: "5", pickup_window_days: 7 })]);
+    expect(c).toEqual({ pickup_operator: "gt", pickup_threshold: 5, pickup_window_days: 7, pickup_metric: "room_nights" });
+    expect(ruleConditionForInsert(c)).not.toHaveProperty("pickup_cooldown_days");
+  });
+
+  it("round-trips every chosen wait to the row the API writes", () => {
+    for (const option of BOOKING_SPEED_WAIT_OPTIONS) {
+      const rows = [newConditionRow("pickup", { value: "5", pickup_window_days: 7, pickup_cooldown_days: option.days })];
+      const c = conditionRowsToRuleCondition(rows);
+      expect(c.pickup_cooldown_days).toBe(option.days);
+      expect(ruleConditionForInsert(c)).toEqual({
+        pickup_operator: "gt",
+        pickup_threshold: 5,
+        pickup_window_days: 7,
+        pickup_metric: "room_nights",
+        pickup_cooldown_days: option.days,
+      });
+    }
+  });
+
+  it("never writes a wait the column would refuse, nor one without a pickup condition", () => {
+    const pickup = { pickup_operator: "gt" as const, pickup_threshold: 5, pickup_window_days: 3 as const, pickup_metric: "room_nights" as const };
+    expect(ruleConditionForInsert({ ...pickup, pickup_cooldown_days: 0 }).pickup_cooldown_days).toBe(1);
+    expect(ruleConditionForInsert({ ...pickup, pickup_cooldown_days: 2.4 }).pickup_cooldown_days).toBe(2);
+    expect(ruleConditionForInsert({ ...pickup, pickup_cooldown_days: null })).not.toHaveProperty("pickup_cooldown_days");
+    expect(
+      ruleConditionForInsert({ occupancy_operator: "gt", occupancy_threshold: 0.7, pickup_cooldown_days: 2 }),
+    ).toEqual({ occupancy_operator: "gt", occupancy_threshold: 0.7 });
+    // A row switched to another metric leaves its wait behind.
+    const row = { ...newConditionRow("pickup", { pickup_cooldown_days: 2 }), metric: "occupancy" as const, value: "80" };
+    expect(conditionRowsToRuleCondition([row])).not.toHaveProperty("pickup_cooldown_days");
+  });
+
+  it("says a number of days the way the dropdowns do", () => {
+    expect(waitDaysLabel(1)).toBe("1 day");
+    expect(waitDaysLabel(3)).toBe("3 days");
+    expect(waitDaysLabel(7)).toBe("1 week");
+    expect(waitDaysLabel(21)).toBe("3 weeks");
+  });
+});
+
 describe("the wait shown is the wait the engine keeps", () => {
-  const engineWait = (condition: RuleCondition) =>
-    ruleWaitDays({ condition } as EngineRule);
+  // The engine's wait (ruleWaitDays), and for a count on low pickup the
+  // whole window it must see after a change before it judges the night
+  // again (pickupJudgesShortStretch).
+  const engineWait = (condition: RuleCondition) => {
+    const rule = { condition } as EngineRule;
+    const lowWindow = condition.pickup_operator && !pickupJudgesShortStretch(rule) ? (condition.pickup_window_days ?? 3) : 0;
+    return Math.max(ruleWaitDays(rule), lowWindow);
+  };
 
   const cases: RuleCondition[] = [
     { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 7, booking_speed_cooldown_days: 1 },
@@ -189,6 +246,15 @@ describe("the wait shown is the wait the engine keeps", () => {
     // Mixed: the builder lets one rule carry both rows.
     { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 7, booking_speed_cooldown_days: 1, pickup_operator: "gt", pickup_threshold: 5, pickup_window_days: 7, pickup_metric: "room_nights" },
     { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 7, booking_speed_cooldown_days: 14, pickup_operator: "gt", pickup_threshold: 5, pickup_window_days: 7, pickup_metric: "room_nights" },
+    // A wait chosen for the pickup condition, shorter and longer than its window.
+    { pickup_operator: "gt", pickup_threshold: 5, pickup_window_days: 7, pickup_metric: "room_nights", pickup_cooldown_days: 2 },
+    { pickup_operator: "lt", pickup_threshold: 1, pickup_window_days: 1, pickup_metric: "room_nights", pickup_cooldown_days: 14 },
+    { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 7, booking_speed_cooldown_days: 3, pickup_operator: "gt", pickup_threshold: 5, pickup_window_days: 7, pickup_metric: "room_nights", pickup_cooldown_days: 1 },
+    { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 7, booking_speed_cooldown_days: 1, pickup_operator: "gt", pickup_threshold: 5, pickup_window_days: 1, pickup_metric: "room_nights", pickup_cooldown_days: 7 },
+    // Low pickup with a wait shorter than its window: it keeps the window.
+    { pickup_operator: "lt", pickup_threshold: 2, pickup_window_days: 7, pickup_metric: "room_nights", pickup_cooldown_days: 1 },
+    { pickup_operator: "gt", pickup_threshold: -2, pickup_window_days: 3, pickup_metric: "room_nights", pickup_cooldown_days: 2 },
+    { booking_speed_operator: "at_most", booking_speed_level: "slower", booking_speed_window_days: 7, booking_speed_cooldown_days: 2, pickup_operator: "lt", pickup_threshold: 2, pickup_window_days: 7, pickup_metric: "room_nights", pickup_cooldown_days: 1 },
   ];
 
   it("gives the same number as ruleWaitDays for every shape the builder can save", () => {
@@ -199,9 +265,35 @@ describe("the wait shown is the wait the engine keeps", () => {
           cooldownDays: condition.booking_speed_cooldown_days,
           hasPickup: condition.pickup_operator != null,
           pickupWindowDays: condition.pickup_window_days,
+          pickupCooldownDays: condition.pickup_cooldown_days,
+          pickupLow: pickupCountsLow(condition.pickup_operator, condition.pickup_threshold),
         }),
       ).toBe(engineWait(condition));
     }
+  });
+
+  it("calls a pickup count low exactly when the engine won't judge it on less than its window", () => {
+    for (const [operator, threshold] of [
+      ["gt", 5],
+      ["gt", 0],
+      ["gt", -1],
+      ["lt", 3],
+      ["lt", 0],
+      ["lt", -2],
+    ] as const) {
+      const rule = { condition: { pickup_operator: operator, pickup_threshold: threshold } } as EngineRule;
+      expect(pickupCountsLow(operator, threshold)).toBe(!pickupJudgesShortStretch(rule));
+    }
+    // An empty field reads as 0, as the engine reads a missing threshold.
+    expect(pickupCountsLow("gt", Number(""))).toBe(false);
+  });
+
+  it("keeps a low pickup count's whole window when the wait chosen is shorter", () => {
+    const low = { hasBookingSpeed: false, cooldownDays: null, hasPickup: true, pickupWindowDays: 7, pickupCooldownDays: 1, pickupLow: true };
+    expect(pickupOwnWait(low)).toBe(7);
+    expect(eventRuleWaitDays(low)).toBe(7);
+    expect(eventRuleWaitDays({ ...low, pickupCooldownDays: 14 })).toBe(14);
+    expect(eventRuleWaitDays({ ...low, pickupLow: false })).toBe(1);
   });
 
   it("says when the pickup lookback, not the dropdown, is what sets it", () => {
@@ -212,9 +304,27 @@ describe("the wait shown is the wait the engine keeps", () => {
       pickupWindowDays: 7,
     };
     expect(eventRuleWaitDays(mixed)).toBe(7);
-    expect(pickupWindowSetsWait(mixed)).toBe(true);
-    expect(pickupWindowSetsWait({ ...mixed, cooldownDays: 14 })).toBe(false);
-    expect(pickupWindowSetsWait({ ...mixed, hasPickup: false })).toBe(false);
+    expect(pickupSetsWait(mixed)).toBe(true);
+    expect(pickupSetsWait({ ...mixed, cooldownDays: 14 })).toBe(false);
+    expect(pickupSetsWait({ ...mixed, hasPickup: false })).toBe(false);
+  });
+
+  it("says which condition's wait decides it once a wait is chosen for the pickup one", () => {
+    const mixed = { hasBookingSpeed: true, cooldownDays: 3, hasPickup: true, pickupWindowDays: 7, pickupCooldownDays: 1 };
+    // The pickup wait chosen is shorter than its window, and than booking speed's.
+    expect(eventRuleWaitDays(mixed)).toBe(3);
+    expect(pickupSetsWait(mixed)).toBe(false);
+    expect(bookingSpeedSetsWait(mixed)).toBe(true);
+    expect(pickupOwnWait(mixed)).toBe(1);
+    expect(bookingSpeedOwnWait(mixed)).toBe(3);
+    const longer = { ...mixed, pickupCooldownDays: 14 };
+    expect(eventRuleWaitDays(longer)).toBe(14);
+    expect(pickupSetsWait(longer)).toBe(true);
+    expect(bookingSpeedSetsWait(longer)).toBe(false);
+    // Only a rule with both has one deciding over the other.
+    expect(bookingSpeedSetsWait({ ...mixed, hasPickup: false })).toBe(false);
+    // Left on the window, the pickup wait is the window.
+    expect(pickupOwnWait({ ...mixed, pickupCooldownDays: null })).toBe(7);
   });
 });
 
