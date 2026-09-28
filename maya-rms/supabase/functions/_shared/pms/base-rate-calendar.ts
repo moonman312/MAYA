@@ -413,9 +413,11 @@ async function readAll(
  *
  * Re-reads the whole window when it is due: never refreshed, last refreshed
  * longer ago than the interval (60 minutes by default,
- * MAYA_BASE_RATE_REFRESH_MINUTES), or last refreshed on an earlier hotel date,
+ * MAYA_BASE_RATE_REFRESH_MINUTES), last refreshed on an earlier hotel date,
  * so the night that just rolled into the window has its base before the engine
- * prices it and the push sends it. Otherwise it costs one small read.
+ * prices it and the push sends it, or last refreshed short of the window's
+ * last night (base_rates_through earlier, or not recorded). Otherwise it costs
+ * one small read.
  *
  * `clock` is the tick's instant and hotel date, shared with the evaluation and
  * push that follow. Cells MAYA has already pushed to are excluded inside
@@ -466,10 +468,15 @@ export async function ensureBaseRateCalendar(
     const last = connection === "unknown" ? "unknown" : connection.refreshedAt;
     const windowLast = lastNightOf(clock.today, horizon);
     // The last refresh read less of the window than it now has (the horizon
-    // was raised): due now rather than within the hour, or the far nights
-    // wait that long for a base.
+    // was raised), or did not record how far it read (it ran before
+    // base_rates_through existed, so it may have read only 60 nights): due
+    // now rather than within the hour, or the far nights wait that long for a
+    // base. Before the column is migrated nothing can be recorded, so the
+    // hour stands, as it did.
     const shortOfWindow =
-      connection !== "unknown" && connection.through != null && connection.through < windowLast;
+      connection !== "unknown" &&
+      connection.throughTracked &&
+      (connection.through == null || connection.through < windowLast);
 
     if (last === "unknown") {
       // No record of when it last ran (the column's migration has not run, or
@@ -554,13 +561,25 @@ async function lastRefreshedAt(
   supabase: SupabaseClient,
   hotelId: string,
   pmsType: string,
-): Promise<{ refreshedAt: string | null; pushRateTargets: unknown; through: string | null } | "unknown"> {
+): Promise<
+  | {
+      refreshedAt: string | null;
+      pushRateTargets: unknown;
+      /** Last night the last refresh read; null if it did not record one. */
+      through: string | null;
+      /** False before base_rates_through is migrated: nothing records it yet. */
+      throughTracked: boolean;
+    }
+  | "unknown"
+> {
   const read = (columns: string) =>
     supabase.from("pms_connections").select(columns).eq("hotel_id", hotelId).eq("pms_type", pmsType).maybeSingle();
   // base_rates_through arrives with 99_supabase_migration_pricing_cadence_v1.sql;
   // before it, the refresh is due by the clock alone, as it was.
+  let throughTracked = true;
   let { data, error } = await read("base_rates_refreshed_at, push_rate_targets, base_rates_through");
   if (error && isMissingColumnError(error) && /base_rates_through/.test(error.message)) {
+    throughTracked = false;
     ({ data, error } = await read("base_rates_refreshed_at, push_rate_targets"));
   }
   if (error) {
@@ -584,6 +603,7 @@ async function lastRefreshedAt(
     refreshedAt: row.base_rates_refreshed_at ? String(row.base_rates_refreshed_at) : null,
     pushRateTargets: row.push_rate_targets ?? null,
     through: row.base_rates_through ? String(row.base_rates_through).slice(0, 10) : null,
+    throughTracked,
   };
 }
 

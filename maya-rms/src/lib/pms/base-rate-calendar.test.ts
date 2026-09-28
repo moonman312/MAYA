@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ensureBaseRateCalendar, seedBaseRateCalendar } from "./base-rate-calendar";
 import type { PmsRatePushAdapter, RateCalendarEntry } from "../../../supabase/functions/_shared/pms/rate-push";
 import type { HotelClock } from "../../../supabase/functions/_shared/pms/pricing-window";
-import { fakeSupabase, missingColumn, type FakeRow } from "../engine/fake-supabase.test";
+import { callTouchesColumn, fakeSupabase, missingColumn, type FakeCall, type FakeRow } from "../engine/fake-supabase.test";
 
 const HOTEL = "h1";
 
@@ -488,8 +488,11 @@ describe("ensureBaseRateCalendar refresh", () => {
   });
 
   describe("throttle", () => {
-    function stamped(at: string) {
-      return db({ pms_connections: [{ id: "conn-1", hotel_id: HOTEL, pms_type: "think", base_rates_refreshed_at: at }] });
+    // Read at `at` through the last night of today's 396-night window.
+    function stamped(at: string, through = "2027-10-31") {
+      return db({
+        pms_connections: [{ id: "conn-1", hotel_id: HOTEL, pms_type: "think", base_rates_refreshed_at: at, base_rates_through: through }],
+      });
     }
 
     it("does not read the PMS again within the hour", async () => {
@@ -525,6 +528,65 @@ describe("ensureBaseRateCalendar refresh", () => {
       });
       expect(res).toMatchObject({ ok: true });
       expect(calls.fetch[0].slice(0, 2)).toEqual(["2026-10-01", "2027-10-31"]);
+    });
+
+    it("reads at once when the window reaches further than the last read did, then waits the hour again", async () => {
+      // Read at 11:30 over 60 nights; the horizon is 396 now.
+      const d = db({
+        pms_connections: [
+          { id: "conn-1", hotel_id: HOTEL, pms_type: "think", base_rates_refreshed_at: "2026-10-01T11:30:00.000Z", base_rates_through: "2026-11-29" },
+        ],
+      });
+      const { adapter, calls } = makeAdapter([]);
+      expect(await ensureBaseRateCalendar(d.client, HOTEL, adapter, { clock: clock("2026-10-01T12:00:00.000Z") })).toMatchObject({ ok: true });
+      expect(calls.fetch.map((f) => f.slice(0, 2))).toEqual([["2026-10-01", "2027-10-31"]]);
+      expect(d.tables.pms_connections[0].base_rates_through).toBe("2027-10-31");
+
+      expect(await ensureBaseRateCalendar(d.client, HOTEL, adapter, { clock: clock("2026-10-01T12:05:00.000Z") })).toEqual({
+        ok: false,
+        reason: "throttled",
+        captured: 0,
+      });
+      expect(calls.fetch).toHaveLength(1);
+    });
+
+    it("reads at once after a read that recorded no last night, since how far it reached is not known", async () => {
+      // Read at 11:55 by the code before base_rates_through existed (the
+      // column is there now, still empty): it may have read only 60 nights.
+      const d = db({
+        pms_connections: [
+          { id: "conn-1", hotel_id: HOTEL, pms_type: "think", base_rates_refreshed_at: "2026-10-01T11:55:00.000Z", base_rates_through: null },
+        ],
+      });
+      const { adapter, calls } = makeAdapter([]);
+      expect(await ensureBaseRateCalendar(d.client, HOTEL, adapter, { clock: clock("2026-10-01T12:00:00.000Z") })).toMatchObject({ ok: true });
+      expect(calls.fetch.map((f) => f.slice(0, 2))).toEqual([["2026-10-01", "2027-10-31"]]);
+      expect(d.tables.pms_connections[0]).toMatchObject({
+        base_rates_refreshed_at: "2026-10-01T12:00:00.000Z",
+        base_rates_through: "2027-10-31",
+      });
+    });
+
+    it("keeps to the hour, as before, while base_rates_through has not been migrated", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const fault = (c: FakeCall) => (callTouchesColumn(c, "base_rates_through") ? missingColumn("pms_connections", "base_rates_through") : null);
+      const d = db(
+        { pms_connections: [{ id: "conn-1", hotel_id: HOTEL, pms_type: "think", base_rates_refreshed_at: "2026-10-01T11:30:00.000Z" }] },
+        { fault },
+      );
+      const { adapter, calls } = makeAdapter([]);
+      expect(await ensureBaseRateCalendar(d.client, HOTEL, adapter, { clock: clock("2026-10-01T12:00:00.000Z") })).toEqual({
+        ok: false,
+        reason: "throttled",
+        captured: 0,
+      });
+      expect(calls.fetch).toHaveLength(0);
+
+      // Due by the clock: read, and stamped without the column.
+      expect(await ensureBaseRateCalendar(d.client, HOTEL, adapter, { clock: clock("2026-10-01T12:31:00.000Z") })).toMatchObject({ ok: true });
+      expect(calls.fetch).toHaveLength(1);
+      expect(d.tables.pms_connections[0].base_rates_refreshed_at).toBe("2026-10-01T12:31:00.000Z");
+      expect(d.tables.pms_connections[0]).not.toHaveProperty("base_rates_through");
     });
 
     it("fills gaps only, as before, while the stamp column has not been migrated", async () => {

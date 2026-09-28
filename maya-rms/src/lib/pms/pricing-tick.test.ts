@@ -287,7 +287,10 @@ describe("runPricingTick", () => {
       pushed_at: new Date(T0 - 2 * 3_600_000).toISOString(),
     };
     const connection = (refreshedAt: string | null) => [
-      { id: "conn-1", hotel_id: HOTEL, pms_type: "cloudbeds", base_rates_refreshed_at: refreshedAt, push_rate_targets: { "CB-KING": "base-1" } },
+      {
+        id: "conn-1", hotel_id: HOTEL, pms_type: "cloudbeds", base_rates_refreshed_at: refreshedAt,
+        base_rates_through: refreshedAt ? "2026-11-29" : null, push_rate_targets: { "CB-KING": "base-1" },
+      },
     ];
     const tick = async (d: ReturnType<typeof db>, adapter: PmsRatePushAdapter, log: string[]) => {
       const { evaluate } = makeEvaluate(d, log, ["2026-10-01", "2026-11-29"]);
