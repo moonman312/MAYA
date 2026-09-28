@@ -25,7 +25,7 @@ questions:
   - The alert banner is out of date {#the-alert-banner-is-out-of-date}
   - Switching property did nothing {#switching-property-did-nothing}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-27
 ---
 
 <InPlainWords>
@@ -72,13 +72,13 @@ Nights before your property's imported history have nothing to show. The year pi
 
 ## Why are there so many "Prices checked" entries?
 
-Pressing <Ui>Show All Cycles</Ui> shows every run, and a run happens about every five minutes whenever bookings were read. A run that changed nothing reads "Prices checked" and nothing needed to change. That is MAYA checking your rules and finding no reason to act. Press <Ui>Show Changes Only</Ui> to go back to the default view, which keeps only runs that changed something, sending problems and your answers.
+Pressing <Ui>Show All Cycles</Ui> adds the quiet lines, and a run happens about every five minutes whenever bookings were read. Each line counts a stretch of runs that changed nothing: "Prices checked 47 times from Sep 24, 10:05 AM to 1:55 PM, nothing needed to change." That is MAYA checking your rules and finding no reason to act. Press <Ui>Show Changes Only</Ui> to go back to the default view, which keeps only runs that changed something, sending problems and your answers.
 
 <OpenInMaya to="changelog" view="all" words="Open the Change Log on Show All Cycles" />
 
 ## Why is the change log empty?
 
-- **Nothing has changed yet.** The default view hides quiet runs. Press <Ui>Show All Cycles</Ui> to see them. A new property with rules that have not fired shows only quiet runs.
+- **Nothing has changed yet.** The default view hides the quiet lines. Press <Ui>Show All Cycles</Ui> to see them. A new property with rules that have not fired shows only quiet lines.
 - **No run has happened yet.** A property that connected minutes ago runs its first cycle within about five minutes.
 - **The subscription lapsed.** A red banner reads "MAYA has paused work on this property". No runs happen until it is fixed.
 - **Reads are failing.** A run whose booking read failed prices nothing and writes nothing. Check <Ui>Health (last 24 hours)</Ui> and <Ui>Last sync</Ui> on the <Ui>PMS</Ui> tab, and look for the connection banner.
@@ -88,7 +88,7 @@ Simulation is not a reason: while simulating, every run happens and is written d
 
 ## Why did an older change disappear?
 
-The change log holds the 10 most recent runs, quiet ones included: roughly the last 50 minutes. <Ui>Show Changes Only</Ui> hides the quiet ones among those 10, so it can look empty when nothing changed recently. An older run drops off the bottom as new ones arrive.
+The change log holds the 10 most recent runs that changed a price, with the quiet runs between them counted into lines. An older run drops off the bottom as new changes arrive, so on a busy day a change from this morning may already be gone.
 
 A sending problem that is still going on stays at the top of the log until it ends, however long ago it started. Once it has ended, it shows only while it ended within the time those 10 runs cover. Your answers to the amber banner work the same way: each one shows only while it falls within that time.
 
@@ -99,7 +99,7 @@ For an older change, check the night's <Ui>Current price</Ui> and any <Ui>Manual
 A run lists its 40 biggest moves, largest percentage first. A run that changed more nights than that shows 40 and does not say how many more there were.
 
 <Callout kind="not-yet">
-There is no export, no search and no filter by night or room type in the change log, and no way to see runs older than the 10 shown. For a change older than about 50 minutes, email us the night and room type and we read it for you.
+There is no export, no search and no filter by night or room type in the change log, and no way to see runs older than the 10 shown. For a change older than those, email us the night and room type and we read it for you.
 </Callout>
 
 ## Why is "How did we know?" missing on some changes?

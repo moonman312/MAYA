@@ -49,12 +49,12 @@ const SHAPES = {
   "speed-after-raise": {
     label: 'Booking speed, "Hot-week surge" again after its wait',
     rule: 'Then "Hot-week surge" raised it another 25%, from $250.00 to $312.50.',
-    why: "Bookings came in much faster than normal in the 3 days since this night was last raised: 6, against the 2 a night like this usually gets in those days.",
+    why: "Bookings came in much faster than normal in the 3 days since this rule or a stronger one's latest raise still on this night: 12, against the 5 a night like this usually gets in a whole week.",
   },
   "speed-stalled": {
     label: 'Booking speed, "Slow-date rescue" (at most Much Slower Than Normal, past month)',
     rule: '"Slow-date rescue" lowered this night 15%, from $200.00 to $170.00.',
-    why: "Bookings came in much slower than normal this past month: none, against the 5 a night like this usually has by now.",
+    why: "Bookings came in much slower than normal in the month up to yesterday: none, against the 5 a night like this usually gets in those days.",
   },
 } as const;
 

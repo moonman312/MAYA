@@ -34,7 +34,7 @@ const FIXED = {
   StackingCalculator:
     "$200, up 10% to $220, then up 25% to $275. The $300 ceiling is not reached, so $275 is published.",
   WaitTimeline:
-    "A 2-day wait after a raise on Monday afternoon: the rule reads the night again on Wednesday afternoon and counts only the bookings made since the raise, Monday afternoon through Wednesday, against the same 3 days of similar nights.",
+    "A 2-day wait after a raise on Monday afternoon: the rule reads the night again on Wednesday afternoon and counts only the bookings made since the raise, Monday afternoon through Wednesday. A rule that raises on a fast pace needs those alone to beat what similar nights get in a whole week.",
   PriceCalculator: "20 rooms: $110 a month. 21 rooms: $105 a month, or $1,134 a year with 10% off.",
   FloorLadder: "A $35 turnover cost offers $50, then $60, $70 and $85.",
   SentenceBuilder:

@@ -27,7 +27,9 @@ function listDays(names: string[]): string {
  * After a booking speed rule raises a night it waits (in 24-hour periods),
  * then reads the night again counting only what came in since the raise,
  * starting with the rest of the raise's own day, and never more days than
- * its Measured over window.
+ * its Measured over window. A rule that raises on an "at least" booking
+ * speed sets those days against a whole window of similar nights
+ * (keepsWholeWindowBar in the engine), which is what this shows.
  */
 export function WaitTimelineLive() {
   const [wait, setWait] = useState("2");
@@ -47,11 +49,16 @@ export function WaitTimelineLive() {
     .filter((d) => d.i >= firstCounted && d.i <= endIndex)
     .map((d) => (d.i === 0 ? `${d.name} after the raise` : d.name));
 
+  const whole = WINDOWS.find((x) => x.value === windowDays)!.label.replace("Past ", "");
+  const bar =
+    counted < win
+      ? `A rule that raises on a fast pace needs those bookings alone to beat what similar nights get in a whole ${whole}.`
+      : `That is its whole window, set against the same ${counted} day${counted === 1 ? "" : "s"} of similar nights.`;
   let sentence: string;
   if (w >= 7) {
-    sentence = `After a ${WAITS.find((x) => x.value === wait)!.label} wait from a raise on ${DAYS[start]} afternoon, the rule reads the night again on ${nameAt(endIndex)} afternoon. It counts the last ${counted} day${counted === 1 ? "" : "s"}${includesRaiseDay ? ", starting with the rest of the raise's day" : ", all after the raise"}, against the same ${counted} day${counted === 1 ? "" : "s"} of similar nights.`;
+    sentence = `After a ${WAITS.find((x) => x.value === wait)!.label} wait from a raise on ${DAYS[start]} afternoon, the rule reads the night again on ${nameAt(endIndex)} afternoon. It counts the last ${counted} day${counted === 1 ? "" : "s"}${includesRaiseDay ? ", starting with the rest of the raise's day" : ", all after the raise"}. ${bar}`;
   } else {
-    sentence = `After a ${WAITS.find((x) => x.value === wait)!.label} wait from a raise on ${DAYS[start]} afternoon, the rule reads the night again on ${DAYS[(start + endIndex) % 7]} afternoon and counts only the bookings made since the raise: ${listDays(countedNames)}. That is ${counted} day${counted === 1 ? "" : "s"}, compared with the same ${counted} day${counted === 1 ? "" : "s"} of similar nights.`;
+    sentence = `After a ${WAITS.find((x) => x.value === wait)!.label} wait from a raise on ${DAYS[start]} afternoon, the rule reads the night again on ${DAYS[(start + endIndex) % 7]} afternoon and counts only the bookings made since the raise: ${listDays(countedNames)}. ${bar}`;
   }
 
   return (
@@ -101,7 +108,7 @@ export function WaitTimelineLive() {
       <Output changeKey={`${wait}-${fireDay}-${windowDays}`}>
         <p className="text-sm text-foreground">{sentence}</p>
         <p className="mt-2 text-xs text-muted-foreground">
-          If the bookings since the raise read the rule&apos;s level or beyond, it raises again and the wait starts over. If not, the price holds at one raise.
+          If the bookings since the raise read the rule&apos;s level or beyond, it raises again and the wait starts over. If not, the price holds at one raise. A stronger rule&apos;s raise in between moves the start of the count up to that raise.
         </p>
       </Output>
     </div>
