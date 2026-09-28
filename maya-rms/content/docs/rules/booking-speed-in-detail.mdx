@@ -4,7 +4,7 @@ summary: The fine print behind booking speed, for when you want every step: whic
 section: rules
 order: 55
 readingTime: 13
-keywords: [booking speed detail, booking speed exact, what is counted, one booking counts once, bookings not rooms, room block, allotment, separate reservations, reservation number, four-room booking, added room, same booking on two nights, three-night stay, booking date, creation date, past day just after midnight, 12:10 am, extended stay, extension, added nights, date change, only measured room types, cancelled booking, not counted as a negative, channel, direct bookings, confirmation pending, no-show, mews optional, mews enquiry, mews requested, expected, we expected about, almost none, fraction, 0.4, trimmed average, highest and lowest dropped, unknown night, zero, same stretch, 40 days out, ratio, at least 1.25 times, twice, 3.5 times, guard, noise, ordinary ups and downs, held the call at Normal, softened it one step, genuinely comparable nights, raw numbers leaned away from Normal, even stronger call, only a few, worked table, how many bookings for faster than normal, 9 bookings, 27 bookings, momentum capped, last raised, last cut, whichever rule, switched-off rule raise, paused rule raise, raise came off after cancellations, later on the day, same day as a raise, from that raise on, since this night was last raised, days after, another rule same day, pickup raise on top, occupancy rule raise, standard rule raise, typed price starts over, when does how did we know show, reading not shown, part of the hotel, suites only, small set, widen what it measures]
+keywords: [booking speed detail, booking speed exact, what is counted, one booking counts once, bookings not rooms, room block, allotment, separate reservations, reservation number, four-room booking, added room, same booking on two nights, three-night stay, booking date, creation date, past day just after midnight, 12:10 am, extended stay, extension, added nights, date change, only measured room types, cancelled booking, not counted as a negative, channel, direct bookings, confirmation pending, no-show, mews optional, mews enquiry, mews requested, expected, we expected about, almost none, fraction, 0.4, trimmed average, highest and lowest dropped, unknown night, zero, same stretch, 40 days out, ratio, at least 1.25 times, twice, 3.5 times, guard, noise, ordinary ups and downs, held the call at Normal, softened it one step, genuinely comparable nights, raw numbers leaned away from Normal, even stronger call, only a few, worked table, how many bookings for faster than normal, 9 bookings, 27 bookings, momentum capped, latest raise, latest cut, stronger rule, weaker rule, newest raise still on this night, switched-off rule raise, paused rule raise, raise came off after cancellations, kept change, later on the day, same day as a raise, from that raise on, whole week, full days, up to yesterday, cut rules, days after, another rule same day, pickup raise on top, occupancy rule raise, standard rule raise, typed price starts over, when does how did we know show, reading not shown, part of the hotel, suites only, small set, widen what it measures]
 questions:
   - Why did the same booking count on two nights? {#what-is-counted/each-night-counts}
   - A guest extended their stay. Does that count as a new booking on the added nights? {#what-is-counted/an-extension-keeps}
@@ -12,12 +12,12 @@ questions:
   - What does "expected" mean in the change log, and why does it say "almost none"? {#what-expected-means/expected-is-the}
   - How many bookings does it take to read Faster Than Normal? {#the-worked-table/how-many-bookings}
   - What do the lines under "How did we know?" about Normal mean? {#where-the-lines-fall/the-smaller-the}
-  - Does a raise by another rule change what my booking speed rule counts? {#counting-after-a-rule-acts/another-rule-can}
+  - Does a raise by another rule change what my booking speed rule counts? {#counting-after-a-rule-acts/once-a-rule}
   - Can another rule raise the night on the same day as a raise? {#counting-after-a-rule-acts/another-rule-can}
   - Why is there no booking speed reading under a price change? {#when-the-reading-shows}
   - Why is my booking speed rule on two Suites so quiet? {#booking-speed-on-part-of-the-hotel}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-27
 ---
 
 <InPlainWords>
@@ -34,7 +34,7 @@ For each night in the window, MAYA counts the bookings made for that night durin
 
 It counts as one booking on each night it is booked for, and as one booking again whenever one of those nights is later used as a similar night for another date. If a room is added to that reservation a week later, it is still one booking, dated when it was first made, so the added room never reads as a new booking. Rooms booked as separate reservations, for example guests booking from a room block or allotment, count as separate bookings. MAYA does not read room blocks.
 
-**The date is the booking date.** A booking counts on the day your property system recorded it, not on the day of the stay. <Ui>Past day</Ui> counts bookings dated today. <Ui>Past week</Ui> counts bookings dated today and the six days before it. <Ui>Past month</Ui> counts today and the 29 days before it. "Today" is today on your property's own calendar, so a reading taken at 12:10 am has almost nothing in <Ui>Past day</Ui> yet.
+**The date is the booking date.** A booking counts on the day your property system recorded it, not on the day of the stay. For a rule that raises, <Ui>Past day</Ui> counts bookings dated today, <Ui>Past week</Ui> today and the six days before it, and <Ui>Past month</Ui> today and the 29 days before it. "Today" is today on your property's own calendar, so a reading taken at 12:10 am has almost nothing in <Ui>Past day</Ui> yet. A rule that cuts counts whole days only, ending yesterday: <Ui>Past day</Ui> is yesterday, <Ui>Past week</Ui> the seven days up to yesterday. The similar nights are read over the same whole days.
 
 **Each night counts its own bookings.** A three-night stay is one booking on each of its three nights, because each night is priced on its own. That is why one booking can turn up in the count for two different nights: it is a booking for both, not two bookings on one.
 
@@ -107,25 +107,27 @@ With 10 bookings instead of 9, twice the usual, the level is <Ui>Much Faster Tha
 
 ## Counting after a rule acts
 
-Once a night has been raised, a rule that raises counts only the bookings that arrived after that raise, whichever booking speed or pickup rule made it: the rest of the day it was raised, then every day since. That includes a raise made by a rule you have since switched off, and even a raise that later came off after cancellations. A raise stops counting only when a price you type takes it off, or when you delete the rule that made it.
+Once a rule has raised a night, it counts only the bookings made after the newest raise still on that night by itself or by a stronger rule: the rest of the day of that raise, then every day since. A stronger rule is one that changes the price by more, and at the same change the one that watches booking speed, set to the faster speed ([How rules run](/docs/rules/how-rules-run#which-one-fires-when-several-match) has the full order). A weaker rule's raise never moves where a stronger rule counts from. That includes raises made by booking speed and pickup rules alike, and by a rule you have since switched off, because its raises stay on the price. A raise that came off, for cancellations or because you typed a price, no longer counts as a starting point.
 
-A rule that cuts counts from the night's last cut in the same way: the rest of the day of the cut, then every day since. Raises and cuts keep separate starting points. A raise or cut made by a standard rule (occupancy or booking window) does not change what a booking speed rule counts.
+A rule that cuts counts from the newest cut still on the night by itself or a stronger rule, but in whole days: the full days after the day of the cut, up to yesterday. Until one full day has passed, it has nothing to count. Raises and cuts never move each other's starting points. A raise or cut made by a standard rule (occupancy or booking window) does not change what a booking speed rule counts.
 
-On the day of the raise or cut, a booking counts only if it first reached MAYA from your property system after that change. So a rush later that day is still counted, and nothing from before the change is counted twice.
+On the day of a raise, a booking counts only if it first reached MAYA from your property system after that raise. So a rush later that day is still counted, and nothing from before the raise is counted twice.
 
-The similar nights are read over the same days of their own curves, so the comparison stays fair. They had no change that day, so for them the first day counts in full. A pickup rule is different: it always measures its whole lookback, so it can add a raise on bookings a booking speed rule has already acted on.
+A rule that raises on a fast pace (<Ui>Faster Than Normal</Ui>, <Ui>Much Faster Than Normal</Ui> or <Ui>Surging</Ui>) needs those bookings alone to beat what similar nights get in its whole window. Every other rule reads the similar nights over the same days of their own curves. They had no change that day, so for them the first day counts in full.
+
+When cancellations hit a raise but bookings made since keep its rule true, the raise stays, and every rule keeps counting from when it was made, not from when it was checked. Counting starts again only when a price changes.
 
 <Example title="What the change log says after a re-count">
-In the Hot-week surge example on [Booking speed](/docs/rules/booking-speed#after-the-rule-acts), the rule raised Standard for Friday, November 13, 2026 on Monday, October 12 and counted again on Wednesday, October 14. For the similar Fridays, those three days fell 30 to 32 days before arrival, and their Monday counts in full.
+In the Hot-week surge example on [Booking speed](/docs/rules/booking-speed#after-the-rule-acts), the rule raised Standard for Friday, November 13, 2026 on Monday, October 12 and counted again on Wednesday, October 14. The day of the raise is the first of those 3 days, and 12 bookings arrived in them, against the 5 similar Fridays got in a whole week at that point.
 
-The change log says: "Bookings came in much faster than normal in the 3 days since this night was last raised: 6, against the 2 a night like this usually gets in those days." Under <Ui>How did we know?</Ui> it says: "This night was last raised on Mon, Oct 12 2026. In the 3 days from that raise on, 6 bookings arrived for it, with 30 days still to go before arrival." The day of the raise is the first of those 3 days.
+The change log says: "Bookings came in much faster than normal in the 3 days since this rule or a stronger one's latest raise still on this night: 12, against the 5 a night like this usually gets in a whole week." Under <Ui>How did we know?</Ui> it says: "The newest raise still on this night's price, by the rule behind this reading or a stronger rule, was made on Mon, Oct 12 2026. In the 3 days from that raise on, 12 bookings arrived for it, with 30 days still to go before arrival."
 </Example>
 
-When only the day of the raise has been counted so far, the change log says "later on the day this night was last raised" and ends with "in a day" instead of "in those days". The second sentence under <Ui>How did we know?</Ui> then begins "Later that day".
+When only the day of the raise has been counted so far, the change log says "later on the day of this rule or a stronger one's latest raise still on this night", and a rule that does not raise on a fast pace ends with "in a day". The second sentence under <Ui>How did we know?</Ui> then begins "Later that day". After a cut the sentence reads "in the 3 full days after this rule or a stronger one's latest cut still on this night".
 
 Two things follow:
 
-- **Another rule can act on the same day.** If a raise rule fired on the night earlier today, another raise rule can still act on that night today, but only on the bookings that arrived after the raise. A raise earlier the same day never keeps a booking speed rule quiet on its own, unless the rule that raised earlier ranks above it and still reads true over its full window. That rule then holds the night through its wait (read [How rules run](/docs/rules/how-rules-run#which-one-fires-when-several-match)).
+- **Another rule can act on the same day.** If a stronger raise rule fired on the night earlier today, a weaker raise rule can still act on that night today, but only on the bookings that arrived after that raise. The stronger rule holds the night through its wait only while it would be true again on what it counts itself (read [How rules run](/docs/rules/how-rules-run#which-one-fires-when-several-match)).
 - **A price you type starts the rule over.** Typing a price on a night takes the rules' changes off it. A booking speed rule then waits its wait from the moment you typed, and after that it counts its whole window again, including bookings from before your price. Read [Setting a price yourself](/docs/watch/setting-a-price-yourself).
 
 ## When the reading shows

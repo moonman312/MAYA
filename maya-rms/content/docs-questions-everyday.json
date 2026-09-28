@@ -201,7 +201,7 @@
 {"q": "comparison nights", "page": "rules/similar-nights", "anchor": "in-plain-words"},
 {"q": "when does a price change come off", "page": "rules/when-a-change-comes-off", "anchor": "in-plain-words"},
 {"q": "does the price go back down", "page": "rules/when-a-change-comes-off", "anchor": "in-plain-words"},
-{"q": "price goes back after cancellations", "page": "rules/when-a-change-comes-off", "anchor": "raises-after-cancellations"},
+{"q": "price goes back after cancellations", "page": "rules/when-a-change-comes-off", "anchor": "changes-after-cancellations"},
 {"q": "edit a rule", "page": "recipes/change-a-rule", "anchor": "in-plain-words"},
 {"q": "change a rule", "page": "recipes/change-a-rule", "anchor": "in-plain-words"},
 {"q": "switch a rule off", "page": "rules/off-delete-or-change", "anchor": "the-onoff-switch"},

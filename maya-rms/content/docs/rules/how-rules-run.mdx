@@ -1,10 +1,10 @@
 ---
 title: How rules run
-summary: The five-minute cycle, the 60-night window, standard rules against booking speed and pickup rules, what price a rule starts from, the wait, which rule fires when several match, and how changes stack.
+summary: The five-minute cycle, the 60-night window, standard rules against booking speed and pickup rules, what price a rule starts from, the wait, what a rule counts after a change, which rule is stronger, and how changes stack.
 section: rules
 order: 90
 readingTime: 15
-keywords: [how often, every five minutes, cycle, pricing run, 60 nights, 60 days, window, tonight, past nights, standard rule, booking speed rule, pickup rule, then waits, wait, stack, compound, two rules, which rule wins, priority, tie, rounding, round to whole numbers, whole dollars, end in 9, ends in 9, .99, price ending, charm pricing, cents, per room type, base price, base rate 0, closed night, fired on a closed night, rate of 0, no rate, blank rate, rate not loaded, raise did not come off, cancelled but price stayed up, wait is over but did not act, how rules behave animations, fired 59 days out not 61, fired 90 days out, far-out night, deluxe but not standard, change a price in the past, mews, nothing sent to mews, holds the night, ranks higher]
+keywords: [how often, every five minutes, cycle, pricing run, 60 nights, 60 days, window, tonight, past nights, standard rule, booking speed rule, pickup rule, then waits, wait, stack, compound, two rules, which rule wins, priority, tie, rounding, round to whole numbers, whole dollars, end in 9, ends in 9, .99, price ending, charm pricing, cents, per room type, base price, base rate 0, closed night, fired on a closed night, rate of 0, no rate, blank rate, rate not loaded, raise did not come off, cancelled but price stayed up, wait is over but did not act, how rules behave animations, fired 59 days out not 61, fired 90 days out, far-out night, deluxe but not standard, change a price in the past, mews, nothing sent to mews, holds the night, ranks higher, stronger rule, weaker rule, bigger change, counts from, bookings since, count restarts, full days, up to yesterday, whole window, tiers, five and ten]
 questions:
   - How often do rules run? {#the-cycle}
   - Which nights do rules look at? {#the-window}
@@ -13,6 +13,8 @@ questions:
   - How do two rules stack, and do percentages compound? {#putting-the-price-together/for-each-night}
   - Two booking speed rules are both true on a night, which one acts? {#which-one-fires-when-several-match/at-most-one}
   - What price does a rule start from? {#what-a-rule-starts-from/every-night-and}
+  - What makes one rule stronger than another? {#which-one-fires-when-several-match/that-order-is}
+  - After a raise, which bookings does a rule count? {#counting-after-a-change/once-a-rule}
   - What does the wait do exactly? {#booking-speed-and-pickup-rules-step-by-step/wait}
   - My rule's wait is over and the night still reads faster, so why did it not act again? {#booking-speed-and-pickup-rules-step-by-step/my-rules-wait}
   - Why did a rule fire 59 days out but not 61? {#the-window}
@@ -25,11 +27,11 @@ questions:
   - Do rules act on tonight, and can they change a price in the past? {#the-window}
   - What do the "How rules behave" animations show? {#two-kinds-of-rule/the-how-rules}
   - How often will my prices change? {#how-often-a-price-changes/your-rules-check}
-updated: 2026-09-24
+updated: 2026-09-27
 ---
 
 <InPlainWords>
-About every five minutes MAYA reads your bookings, then checks every rule on every night from today to 59 days out, for each room type. Standard rules (occupancy, booking window) switch on while their condition holds and off when it stops. Booking speed and pickup rules fire, keep their change on the price, wait, and can fire again. Percent changes compound, fixed amounts add, and the result stays between the floor and ceiling.
+About every five minutes MAYA reads your bookings, then checks every rule on every night from today to 59 days out, for each room type. Standard rules (occupancy, booking window) switch on while their condition holds and off when it stops. Booking speed and pickup rules fire, keep their change on the price, wait, and can fire again on the bookings made since. Percent changes compound, fixed amounts add, and the result stays between the floor and ceiling.
 </InPlainWords>
 
 ## The cycle
@@ -58,16 +60,16 @@ Each cycle runs your rules on tonight and the next 59 nights: 60 nights in all. 
 
 ## Two kinds of rule
 
-The <Ui>How rules behave</Ui> panel on the <Ui>Rules</Ui> tab shows two short animations of this. The panel calls the second kind pickup rules. Booking speed rules work the same way, so these docs say "booking speed and pickup rules".
+The <Ui>How rules behave</Ui> panel on the <Ui>Rules</Ui> tab shows three short animations: a booking speed rule that raises and waits, an occupancy rule with no wait, and a stronger rule covering a weaker one. A checkbox at the top, "Try the box", plays them with the undo box ticked or unticked. Under them the panel says the box works the same way on every rule, raise or cut, and that turning a rule off keeps its changes as they are.
 
 | | Standard rule | Booking speed or pickup rule |
 |---|---|---|
 | Conditions | Only sellable occupancy and booking window | Has a booking speed or pickup count row (with or without the others) |
 | How it acts | Switches on when its condition starts to hold, keeps one change on the price while it holds, switches off when it stops | Fires, and the change stays on the price when the condition stops holding |
-| Same night twice | Never. One change while the condition holds | Yes. After its wait, if still true, it fires again and the changes stack |
-| When the change comes off | As soon as the condition stops holding | A raise made on <Ui>Faster Than Normal</Ui> or above, or on a pickup count <Ui>Greater than</Ui> 0 or more, comes off when enough of the bookings behind it cancel (read [When a price change comes off](/docs/rules/when-a-change-comes-off)). Other raises and all cuts never come off by themselves |
+| Same night twice | Never. One change while the condition holds | Yes. After its wait, if the bookings made since keep it true, it fires again and the changes stack |
+| When the change comes off | When its condition stops holding. With its undo box unticked, falling occupancy never takes it off | With its undo box ticked, when cancellations mean the rule is no longer true. Either way, when you set a price, the night passes or you delete the rule |
 
-The panel's own summary says the same: a standard rule follows the night as it is now and takes its change off when its condition stops holding, while a booking speed or pickup rule acts on each moment its condition holds and keeps that change.
+Read [When a price change comes off](/docs/rules/when-a-change-comes-off) for the undo box and every other way a change comes off.
 
 ## What a rule starts from
 
@@ -94,14 +96,14 @@ For each night and room type:
 - **Hold.** The conditions still hold. Nothing changes, and the rule does not fire again.
 - **Deactivate.** The conditions stop holding. The change comes off and the price goes back.
 
-So a cancellation that drops a night from 82% to 78% takes a "Greater than 80" raise off on the next cycle. A late booking that lifts it back above 80 puts it on again, and that counts as another fire.
+So a cancellation that drops a night from 82% to 78% takes a "Greater than 80" raise off on the next cycle. A late booking that lifts it back above 80 puts it on again, and that counts as another fire. With the rule's undo box unticked, a <Ui>Greater than</Ui> occupancy condition counts as met for as long as the change is on, so falling occupancy never takes the raise off. A booking window condition still runs out as the night gets closer.
 
 ## Booking speed and pickup rules, step by step
 
 - **Fire.** The conditions hold, the rule is not waiting on that night and room type, and it wins the competition (below). The change goes on the price. One fire.
-- **Wait.** The rule leaves that night and room type alone for its wait: the <Ui>Then waits (advanced)</Ui> setting for a booking speed rule (1 day to 2 weeks, starting at 1 week), the lookback window for a pickup rule, and the longer of the two for a rule with both. The wait is counted in 24-hour periods from the fire.
-- **Read again.** When the wait is over, the rule reads the night again. A booking speed rule counts only the bookings made since the night was last raised (for a rule that raises) or last cut (for a rule that cuts), whichever booking speed or pickup rule did it, rules you have switched off included. The similar nights are read over those same days. If that reads the level the rule asks for, it fires again and the change stacks on the earlier one.
-- **Tell you at three.** Once a rule has adjusted the same night three times, an amber banner asks you whether to keep going. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
+- **Wait.** The rule leaves that night and room type alone for its <Ui>Then waits (advanced)</Ui> setting, 1 day to 2 weeks. A booking speed row starts at 1 week. A pickup count row starts on <Ui>Same as the lookback window</Ui>. A rule with both waits the longer of the two. The wait is counted in 24-hour periods from the fire.
+- **Read again.** When the wait is over, the rule reads the night again, counting only the bookings made since the newest change on that night by itself or by a stronger rule that moves the price the same way, while that change is still on the price. Changes made by rules you have switched off count too, because they stay on the price. If those bookings keep the rule true, it fires again and the change stacks on the earlier one. Read [Counting after a change](#counting-after-a-change).
+- **Tell you at three.** Once three of a rule's changes are on the same night, an amber banner asks you whether to keep going. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
 
 The change log shows a repeat as "Then "Hot-week surge" raised it another 25%, from $250.00 to $312.50."
 
@@ -110,29 +112,48 @@ The change log shows a repeat as "Then "Hot-week surge" raised it another 25%, f
 <Example title="A 2-day wait after a Monday fire">
 The starter rule "Hot-week surge" is <Ui>Much Faster Than Normal</Ui> or faster over <Ui>Past week</Ui>, waits <Ui>2 days</Ui>, raises 25%. It fires on the Saturday's price on Monday afternoon.
 
-Tuesday: waiting. Wednesday afternoon: the wait is over. The rule now counts the Saturday's bookings that came in after Monday's raise, from Monday afternoon through Wednesday. It compares them with the same three days of each similar Saturday, and fires again only if those bookings alone read Much Faster Than Normal or faster. It never re-counts the bookings that made it fire on Monday.
+Tuesday: waiting. Wednesday afternoon: the wait is over. The rule now counts the Saturday's bookings that came in after Monday's raise, from Monday afternoon through Wednesday. Because it raises on a fast pace, those bookings alone have to read Much Faster Than Normal or faster against what similar Saturdays get in a whole week. It never re-counts the bookings that made it fire on Monday.
 
 If Monday's burst was the whole story, the bookings since the raise read Normal and the price holds at one raise. If bookings keep coming, it raises again on Wednesday, waits until Friday, and so on. At three raises on that night, MAYA asks you.
 </Example>
 
-**"My rule's wait is over and the night still reads faster, so why did it not act again?"** Because the whole-window reading you see in an older log entry includes the bookings the rule already acted on. After a fire, the rule only counts what arrived since. If those bookings alone do not read faster, it does nothing. That is by design: one rule never stacks two raises on the same bookings.
+**"My rule's wait is over and the night still reads faster, so why did it not act again?"** Because the whole-window reading you see in an older log entry includes the bookings the rule already acted on. After a change, the rule only counts what arrived since. If those bookings alone do not keep it true, it does nothing. That is by design: your rules never stack two raises on the same bookings.
+
+## Counting after a change
+
+Once a rule has changed a night, it counts only the bookings made since the newest change on that night by itself or by a stronger rule that moves the price the same way. A weaker rule's change never moves where a stronger rule counts from, and raises and cuts never move each other's count. A change that has come off no longer counts as a starting point.
+
+- **A rule that raises** counts from the raise itself: on the day of the raise, only the bookings that reached MAYA after it, then every day since. A rule that raises on a fast pace (<Ui>Faster Than Normal</Ui>, <Ui>Much Faster Than Normal</Ui> or <Ui>Surging</Ui>) needs those bookings alone to beat what similar nights get in its whole window. Any other booking speed rule compares them with similar nights over the same days.
+- **A rule that cuts** counts full days only, up to yesterday, on the night and on the nights it is compared with. After a cut it counts the full days after the day of the cut, so it has nothing to judge until one of those has passed.
+- **A pickup rule** counts, inside its lookback window, only the room nights (or revenue) booked after the change and still booked. One set to <Ui>Less than</Ui> waits for a whole lookback window after the change before it judges again, because a short stretch always looks slow.
+- **When cancellations hit a change** and bookings made since keep its rule true, the change stays, and every rule keeps counting from when it was made. Counting starts again only when a price changes.
+- **A price you type** starts every rule over: each waits its wait from your price, then reads its whole window again.
+
+<Example title="Two tiers at The Harbour Inn">
+"Five" raises 10% on 5 or more room nights of pickup in a week. "Ten" raises 20% on 10 or more. Standard starts at $100. On Monday 10 book at once. Both rules are true, and "Ten" changes the price by more, so it raises: $120. "Five" does not add its 10% on the same bookings.
+
+On Tuesday 3 more book, and on Wednesday one of Monday's guests cancels. "Ten" still has 12 in its week, so its raise stays, and both rules keep counting from Monday's raise. On Thursday 2 more book: 5 since the raise, so "Five" raises 10% on top: $132. "Ten" still counts from its own raise, 5 so far, because a weaker rule's raise never restarts a stronger rule's count.
+</Example>
 
 ## Which one fires when several match
 
-At most one booking speed or pickup rule fires on a given night and room type in one cycle. When two or more are true and not waiting, MAYA ranks them. The first step where they differ settles it:
+At most one booking speed or pickup rule fires on a given night and room type in one cycle. When two or more are true and not waiting, the stronger one fires. The first step where they differ settles it:
 
-1. Starter rules come before rules you build, in this order: Sudden-spike catcher, Hot-week surge, Warm-date bump, Slow-date rescue, Slow-date trim. Every rule you build ranks the same at this step.
-2. Next, the rule with more conditions comes first.
-3. Next, for two pickup rules with the same <Ui>Compare</Ui>, the stricter threshold comes first (<Ui>Greater than</Ui> 6 before <Ui>Greater than</Ui> 4).
-4. Next, the bigger move in money on that night's base comes first (10% of $200 is $20, which beats $15).
-5. Last, the older rule comes first.
+1. The bigger change to the price, in money on that night's price, comes first (10% of $200 is $20, which beats $15).
+2. At the same change, a rule with a booking speed condition comes before one without, and of two with one, the faster speed comes first for a raise (the slower speed for a cut).
+3. Next, the pickup count that is harder to meet comes first (<Ui>Greater than</Ui> 6 before <Ui>Greater than</Ui> 4).
+4. Next, starter rules come before rules you build, in this order: Sudden-spike catcher, Hot-week surge, Warm-date bump, Slow-date rescue, Slow-date trim. Every rule you build ranks the same at this step.
+5. Next, the rule with more conditions comes first.
+6. Last, the older rule comes first.
 
-A rule that is still waiting, but whose condition still holds over its full window, joins the ranking too. If it ranks first, nothing fires on that night this cycle: a stronger rule holds the night through its wait, and a weaker rule cannot fire under it. A stronger rule can always fire while a weaker one waits.
+That order is what "stronger" means everywhere in MAYA, including where a rule counts from. The "?" panels in the rule builder give the short version: a stronger rule changes the price by more, and at the same change, a rule that watches booking speed is stronger, set to the faster speed (the slower one, for cuts).
+
+A stronger rule that is still waiting can hold the night. It holds a weaker rule that moves the price the same way only when it would be true again on what it counts itself, the bookings since its own latest change. Then nothing fires on that night this cycle. It holds a rule that moves the price the other way while its whole window still matches. A stronger rule can always fire while a weaker one waits.
 
 <Example title="Two raise rules on one Saturday">
-You built "Busy week", a booking speed rule that raises. On Monday, October 12, 2026, it and the starter rule "Hot-week surge" are both true on Saturday, November 14, 2026. Starter rules rank first, so Hot-week surge raises the Saturday and "Busy week" does not.
+You built "Busy week": <Ui>Faster Than Normal</Ui> over <Ui>Past week</Ui>, raise 10%. On Monday, 12 bookings arrive for Saturday, November 14, 2026, where a night like it usually gets 5 in a week. "Busy week" and the starter rule "Hot-week surge" (<Ui>Much Faster Than Normal</Ui>, raise 25%) are both true. Hot-week surge changes the price by more, so it raises the Saturday and "Busy week" does not.
 
-Hot-week surge then waits 2 days. On Tuesday "Busy week" is true on the Saturday again, but Hot-week surge still reads true over its full past week and ranks higher, so it holds the night: "Busy week" cannot fire there while Hot-week surge waits.
+Hot-week surge then waits 2 days, and both rules count only the bookings made after its raise. If 9 more arrive by Tuesday, that reads faster than normal against the usual 5 for a week, so "Busy week" raises 10% on top. If 10 or more arrive, Hot-week surge would be true again on its own count, so it holds the night and "Busy week" cannot fire under it.
 </Example>
 
 Before ranking, a rule is dropped for that night when it could not move the price: a raise on a night already at its ceiling, a cut already at its floor, a percent on a price of 0, or any raise on a night you set to 0.
@@ -168,8 +189,8 @@ Your rules check every night in the window about every five minutes, but a night
 What can move a night's price, and how often:
 
 - **A standard rule** changes it once when its condition starts to hold and once when it stops. A booking window rule starts to hold as the night gets closer. An occupancy rule on a night that hovers around its line can switch on and off as bookings arrive and cancel.
-- **A booking speed or pickup rule** changes it at most once per wait. At most one of these rules fires on a night and room type each cycle.
-- **Three adjustments** by the same rule on the same night bring the <Ui>Rules that keep adjusting</Ui> banner, which asks whether it should keep going.
+- **A booking speed or pickup rule** changes it at most once per wait. At most one of these rules fires on a night and room type each cycle. With its undo box ticked, cancellations can also take one of its changes off.
+- **Three changes** by the same rule on the same night bring the <Ui>Rules that keep adjusting</Ui> banner, which asks whether it should keep going.
 - **You**, when you type a price, and **your own rate**, when it changes in your property system.
 
 So a night can still change more than once in a day when bookings come and go, but never only because five minutes passed.
@@ -180,7 +201,7 @@ Everything above happens separately for each room type the rule changes. Waits r
 
 ## Deleted or switched-off rules
 
-Turning a rule off freezes what it has done: its changes stay on the price and nothing new happens. Deleting a rule undoes everything it did from the next cycle. Read [Turning a rule off, deleting it, or changing it](/docs/rules/off-delete-or-change).
+Turning a rule off freezes what it has done: its changes stay on the price, cancellations do not take them off, and nothing new happens. Deleting a rule undoes everything it did from the next cycle. Read [Turning a rule off, deleting it, or changing it](/docs/rules/off-delete-or-change).
 
 ## Where you see all this
 
