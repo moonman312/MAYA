@@ -129,7 +129,7 @@
 --                                      before this file, which is recounted
 --                                      from its window as before.
 --      checked_at, checked_count       for a change kept on bookings made
---                                      since (1 above): that run's instant,
+--                                      since (above): that run's instant,
 --                                      and the numbers its check recounts
 --                                      from then on, under the names of
 --                                      the columns they stand in for
@@ -274,6 +274,11 @@
 --
 -- Open changes are 'recount', except ones with a window marked 'none' or
 -- 'net_units'.
+--
+--   select count(*) filter (where checked_at is not null) as kept_on_later_bookings, count(*) as open_changes
+--     from public.pickup_event where retired_at is null;
+--
+-- None kept yet right after this file: the new engine writes checked_at.
 --
 --   begin;
 --   select set_config('request.jwt.claims', '{"role":"service_role"}', true);
