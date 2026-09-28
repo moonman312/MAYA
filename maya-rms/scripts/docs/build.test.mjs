@@ -13,6 +13,7 @@ import {
   buildSearchIndex,
   buildAskIndex,
   buildEvalFixture,
+  buildReplies,
   checkSynonyms,
   readingTimeFor,
   validateFrontmatter,
@@ -320,11 +321,23 @@ test("the search index has every page, its headings and their ids", () => {
   assert.deepEqual(scanText(text), [], "nothing internal in the search index");
 });
 
+const readJson = (file) => JSON.parse(fs.readFileSync(path.join(ROOT, file), "utf8"));
+/** Everything the build hands the helper's index besides the pages. */
+const helperInputs = () => ({
+  everyday: readJson("content/docs-questions-everyday.json"),
+  replies: readJson("content/docs-helper-replies.json"),
+  screens: readJson("src/lib/deep-links/registry.json").help.screens,
+});
+
 test("the helper's index covers every section, carries each page's In plain words first, and stays small", () => {
   const bank = JSON.parse(fs.readFileSync(path.join(ROOT, "content/docs-questions.json"), "utf8"));
   const synonyms = JSON.parse(fs.readFileSync(path.join(ROOT, "src/lib/docs/synonyms.json"), "utf8"));
-  const { index, problems } = buildAskIndex(real.pages, sections, bank, synonyms);
+  const inputs = helperInputs();
+  const { index, problems } = buildAskIndex(real.pages, sections, bank, synonyms, inputs);
   assert.deepEqual(problems, []);
+  const words = (q) => q.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const everyday = new Set(index.questions.map((q) => `${words(q.q)}|${index.pages[q.p].u}`));
+  for (const item of inputs.everyday) assert.ok(everyday.has(`${words(item.q)}|/docs/${item.page}`), `everyday: ${item.q}`);
   real.pages.forEach((p, pi) => {
     const entries = index.entries.filter((e) => e.p === pi);
     const first = entries[0];
@@ -356,9 +369,85 @@ test("every question in the pages and the bank is tied to the passage that answe
 test("the packed index unpacks to the same index", () => {
   const bank = JSON.parse(fs.readFileSync(path.join(ROOT, "content/docs-questions.json"), "utf8"));
   const synonyms = JSON.parse(fs.readFileSync(path.join(ROOT, "src/lib/docs/synonyms.json"), "utf8"));
+  for (const options of [{}, helperInputs()]) {
+    const { index } = buildAskIndex(real.pages, sections, bank, synonyms, options);
+    const back = expandIndex(JSON.parse(JSON.stringify(toWire(index))));
+    assert.deepEqual(back, JSON.parse(JSON.stringify(index)));
+  }
   const { index } = buildAskIndex(real.pages, sections, bank, synonyms);
-  const back = expandIndex(JSON.parse(JSON.stringify(toWire(index))));
-  assert.deepEqual(back, JSON.parse(JSON.stringify(index)));
+  assert.ok(index.entries.some((e) => e.d === 3) && index.entries.some((e) => e.a && !e.d), "H3 passages are marked");
+});
+
+test("the set replies resolve their links and passages, and refuse a dead link, a missing area and a long dash", () => {
+  const { index } = buildAskIndex(real.pages, sections, [], []);
+  const screens = { calendar: "watch/the-calendar", other: "" };
+  const ok = buildReplies(
+    {
+      light: ["hi"],
+      neutral: ["maya"],
+      fixes: { u: "you", im: "i am" },
+      start: ["start/how-to-get-started"],
+      areas: { calendar: "the Calendar tab", other: "MAYA" },
+      intents: [
+        { id: "page", page: true, examples: ["how does this work", "what is this", "explain this"] },
+        {
+          id: "human",
+          say: "Email [us](mailto:info@modern-hospitality-solutions.com). [Contact support](/docs/help/contact-support) has more.",
+          show: "help/contact-support",
+          links: ["help/contact-support#how-quickly-we-answer"],
+          linksTitle: "More",
+          examples: ["talk to a person", "a human please", "contact"],
+        },
+      ],
+    },
+    real.pages,
+    index,
+    sections,
+    screens,
+  );
+  assert.deepEqual(ok.problems, []);
+  const human = ok.replies.intents[1];
+  assert.equal(human.links[0].href, "/docs/help/contact-support#how-quickly-we-answer");
+  assert.equal(human.links[0].label, "Contact support \u203a How quickly we answer");
+  assert.equal(index.entries[human.show].ipw, 1, "a page shows its In plain words");
+  assert.equal(ok.replies.areas.calendar.label, "the Calendar tab");
+  assert.equal(index.pages[ok.replies.areas.calendar.page].u, "/docs/watch/the-calendar");
+  assert.equal(ok.replies.areas.other.page, null);
+  assert.equal(ok.replies.sections.rules, "Rules");
+
+  const bad = buildReplies(
+    {
+      light: ["Hi!"],
+      neutral: [],
+      fixes: { "two words": "x" },
+      start: ["start/no-such-page"],
+      areas: { calendar: "the Calendar tab", billing: "Billing" },
+      intents: [
+        { id: "human", say: "Call us \u2014 or [read this](/docs/help/contact-support#nope). MAYA learns fast.", links: ["help/nope"], examples: ["a", "b"] },
+      ],
+    },
+    real.pages,
+    index,
+    sections,
+    screens,
+  );
+  const said = bad.problems.join("\n");
+  for (const want of [
+    /"light" should be a list of lower-case words/,
+    /fix "two words"/,
+    /"start": "start\/no-such-page" is not a docs page/,
+    /app area "other" .* has no words/,
+    /area "billing" is not a Help screen/,
+    /intent human needs at least three examples/,
+    /intent human uses a long dash/,
+    /intent human uses MAYA as something that learns/,
+    /points at no heading on help\/contact-support/,
+    /"help\/nope" is not a docs page/,
+    /lists links without a "linksTitle"/,
+    /no intent answers about the page/,
+  ]) {
+    assert.match(said, want);
+  }
 });
 
 test("page metadata carries FAQ entries for the troubleshooting pages only", () => {

@@ -223,6 +223,20 @@ test("with the bank in place, every bank question answers with one of its own pa
   assert.ok(passage / bank.length >= 0.95, `passage ${passage} of ${bank.length}`);
 });
 
+test("with the everyday questions in place, each one answers with its own page", () => {
+  // content/docs-questions-everyday.json: short, casual phrasings, kept out of the eval fixture.
+  const everyday = JSON.parse(fs.readFileSync(path.join(ROOT, "content/docs-questions-everyday.json"), "utf8"));
+  const m = createMatcher(index);
+  const misses = [];
+  for (const item of everyday) {
+    const r = m.ask(item.q);
+    const url = r.pages[0] ? index.pages[r.pages[0].page].u : null;
+    if (url !== `/docs/${item.page}`) misses.push(`${item.q} -> ${url}`);
+  }
+  console.log(`with the everyday questions in place: ${everyday.length - misses.length} of ${everyday.length} on their page`);
+  assert.ok(misses.length <= everyday.length * 0.03, misses.join("\n"));
+});
+
 test("real questions from the docs pages land where the pages say", () => {
   const m = createMatcher(index);
   const at = (q) => {

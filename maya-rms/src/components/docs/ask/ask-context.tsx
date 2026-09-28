@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { rememberHelpOrigin } from "./help-origin";
 
 interface AskState {
   enabled: boolean;
@@ -33,6 +34,8 @@ export function AskProvider({
   }, []);
   const closeAsk = useCallback(() => setOpen(false), []);
   const setStarters = useCallback((s: string[]) => setStartersState(s), []);
+  // Opened from Help in MAYA: remember which screen, for this tab.
+  useEffect(() => rememberHelpOrigin(), []);
   const value = useMemo(
     () => ({ enabled, open, draft, starters: starters.length ? starters : defaultStarters, openAsk, closeAsk, setStarters }),
     [enabled, open, draft, starters, defaultStarters, openAsk, closeAsk, setStarters],

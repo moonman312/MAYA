@@ -67,6 +67,12 @@ export const RATE_LIMITS = {
   docsQuestion: { limit: 300, windowSeconds: 3600 },
   /** Page votes from the public docs, counted apart so they never use up docsQuestion. */
   docsVote: { limit: 300, windowSeconds: 3600 },
+  /**
+   * The docs helper's anonymous count of questions asked, one per question,
+   * for everybody together. Its own budget: counting never uses up the room
+   * for sent questions (docsQuestion) or page votes.
+   */
+  docsTally: { limit: 3000, windowSeconds: 3600 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

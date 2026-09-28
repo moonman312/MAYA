@@ -12,6 +12,11 @@
 //   src/lib/docs/generated/ask-eval.json      held-out bank questions for the matcher tests
 //   public/docs-index.<hash>.json         the docs helper's index (browser, loaded when the panel opens)
 //
+// Reads content/docs, the question bank (content/docs-questions.json), the
+// everyday questions (content/docs-questions-everyday.json: the same shape,
+// left out of the eval fixture), the helper's set replies
+// (content/docs-helper-replies.json) and the synonyms.
+//
 // Needs no environment variables.
 
 import fs from "node:fs";
@@ -34,6 +39,9 @@ import { scanText } from "./docs/leaks.mjs";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CONTENT = path.join(ROOT, "content/docs");
 const BANK = path.join(ROOT, "content/docs-questions.json");
+const EVERYDAY = path.join(ROOT, "content/docs-questions-everyday.json");
+const REPLIES = path.join(ROOT, "content/docs-helper-replies.json");
+const REGISTRY = path.join(ROOT, "src/lib/deep-links/registry.json");
 const SYNONYMS = path.join(ROOT, "src/lib/docs/synonyms.json");
 const SECTIONS = path.join(ROOT, "src/lib/docs/sections.json");
 const GENERATED = path.join(ROOT, "src/lib/docs/generated");
@@ -70,9 +78,13 @@ const { pages, problems: pageProblems } = loadPages(files, sectionList);
 for (const p of pageProblems) say(`content/docs/${p.file}`, p.line, p.message);
 
 let bank = [];
+let everyday = [];
+let replies = {};
 let synonyms = [];
 for (const [file, set] of [
   [BANK, (v) => (bank = v)],
+  [EVERYDAY, (v) => (everyday = v)],
+  [REPLIES, (v) => (replies = v)],
   [SYNONYMS, (v) => (synonyms = v)],
 ]) {
   const text = fs.readFileSync(file, "utf8");
@@ -89,10 +101,16 @@ for (const msg of checkSynonyms(synonyms, corpus)) say(rel(SYNONYMS), 0, msg);
 
 const pagesMeta = buildPagesMeta(pages, sectionList);
 const searchIndex = buildSearchIndex(pages, sectionList);
-const { index: askIndex, problems: bankProblems, stats: askStats } = buildAskIndex(pages, sectionList, bank, synonyms);
+const screens = JSON.parse(fs.readFileSync(REGISTRY, "utf8")).help.screens;
+const { index: askIndex, problems: bankProblems, stats: askStats } = buildAskIndex(pages, sectionList, bank, synonyms, {
+  everyday,
+  replies,
+  screens,
+});
+const whereFile = { "question bank": rel(BANK), "everyday questions": rel(EVERYDAY), "helper replies": rel(REPLIES) };
 for (const msg of bankProblems) {
   const [where, ...rest] = msg.split(": ");
-  say(where === "question bank" ? rel(BANK) : where, 0, rest.join(": "));
+  say(whereFile[where] ?? where, 0, rest.join(": "));
 }
 const evalFixture = buildEvalFixture(bank, askIndex);
 

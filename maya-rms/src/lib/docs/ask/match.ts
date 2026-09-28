@@ -9,7 +9,7 @@
 // 5. a follow-up leans on the last answer's page and question
 
 import MiniSearch from "minisearch";
-import { buildSynonymTable, tokenize, trigrams, type SynonymTable } from "./normalize.ts";
+import { buildSynonymTable, clean, createSpeller, dropAsides, synonymCover, tokenize, trigrams, type SynonymTable } from "./normalize.ts";
 
 export interface AskPage {
   /** url, "/docs/rules/booking-speed" */
@@ -35,6 +35,8 @@ export interface AskEntry {
   ipw?: 1;
   /** 1 when the passage was cut and the rest is on the page */
   m?: 1;
+  /** 3 when the heading is an H3 (under an H2) */
+  d?: 3;
 }
 
 export interface AskQuestion {
@@ -45,12 +47,52 @@ export interface AskQuestion {
   e?: number;
 }
 
+/** A link a set reply offers: a docs page or one of its headings. */
+export interface AskLink {
+  href: string;
+  /** the page title, or "Page › Heading" */
+  label: string;
+}
+
+/** One kind of general question and its set reply (content/docs-helper-replies.json). */
+export interface AskIntent {
+  id: string;
+  examples: string[];
+  /** the reply, markdown-lite; absent on the page intent, whose reply is built from the page */
+  say?: string;
+  /** a passage shown under the reply */
+  show?: number;
+  links?: AskLink[];
+  linksTitle?: string;
+  /** answers about the page the reader is on */
+  page?: true;
+}
+
+export interface AskReplies {
+  /** words that count for little when comparing and never make a question specific */
+  light: string[];
+  /** words that never make a question specific */
+  neutral: string[];
+  /** words dropped before comparing ("um", "so", "please"): they change nothing */
+  filler?: string[];
+  /** casual spellings, one word to the words the examples use */
+  fixes: Record<string, string>;
+  /** good starting points, for a question with no answer */
+  start: AskLink[];
+  /** the MAYA screens whose Help link opens the docs: words for each, and the page it opens */
+  areas: Record<string, { label: string; page: number | null }>;
+  /** section slug to its label */
+  sections: Record<string, string>;
+  intents: AskIntent[];
+}
+
 export interface AskIndex {
   version: number;
   pages: AskPage[];
   entries: AskEntry[];
   questions: AskQuestion[];
   synonyms: string[][];
+  replies?: AskReplies;
 }
 
 /**
@@ -62,10 +104,11 @@ export interface AskIndex {
 export interface AskWire {
   v: number;
   p: [string, string, string][];
-  s: [number, string, string][];
+  s: ([number, string, string] | [number, string, string, 3])[];
   e: ([number, string] | [number, string, string] | [number, string, string, 1])[];
   q: ([string, number] | [string, number, number])[];
   y: string[][];
+  r?: AskReplies;
 }
 
 /** Unpacks the index the build writes into the shape the matcher reads. */
@@ -73,16 +116,19 @@ export function expandIndex(wire: AskWire): AskIndex {
   const pages: AskPage[] = wire.p.map(([u, t, k]) => ({ u, t, k }));
   const opened = new Set<number>();
   const entries: AskEntry[] = wire.e.map(([s, x, l, m]) => {
-    const [p, a, h] = wire.s[s];
+    const [p, a, h, d] = wire.s[s];
     const e: AskEntry = { p, a, h, x: x.replace(/\]\(@(\d+)/g, (_, i: string) => `](${pages[Number(i)]?.u ?? "/docs"}`) };
     if (l) e.l = l;
     if (m) e.m = 1;
+    if (d === 3) e.d = 3;
     if (a === "" && !opened.has(p)) e.ipw = 1;
     if (a === "") opened.add(p);
     return e;
   });
   const questions: AskQuestion[] = wire.q.map(([q, p, e]) => (e === undefined ? { q, p } : { q, p, e }));
-  return { version: wire.v, pages, entries, questions, synonyms: wire.y };
+  const index: AskIndex = { version: wire.v, pages, entries, questions, synonyms: wire.y };
+  if (wire.r) index.replies = wire.r;
+  return index;
 }
 
 export type Confidence = "high" | "unsure" | "none";
@@ -133,6 +179,11 @@ export const TUNING = {
   pageWeight: 0.7,
   /** a bank question this similar answers outright */
   strongBank: 0.8,
+  /**
+   * added to a bank question typed word for word: "billing" and "Who can see
+   * billing?" reduce to the same words, and the one the reader typed wins
+   */
+  exactBank: 0.05,
   /** within the chosen page, how much a similar question tied to a passage counts next to BM25 */
   entryBank: 0.5,
   /** a passage needs at least this (BM25 plus bank) to be shown instead of In plain words */
@@ -144,6 +195,8 @@ export const TUNING = {
   coverWeight: 0.9,
   /** coverage from a single word that is not in the page's title or keywords */
   loneWord: 0.5,
+  /** how much a reader's word counts as covered when only a synonym of it is on the page ("max rate" and "ceiling") */
+  synonymCover: 0.5,
   /** at or above: a confident answer */
   high: 0.6,
   /** at or above: "This might help"; below: not covered */
@@ -165,6 +218,8 @@ interface PreparedQuestion {
   tokens: string[];
   tri: Set<string>;
   weight: number;
+  /** a listed question's words, cleaned, for an exact match ("" for a heading) */
+  exact: string;
 }
 
 export interface Matcher {
@@ -172,9 +227,13 @@ export interface Matcher {
   ask(question: string, ctx?: AskContext): AskResult;
   /** the passage a reader would see for a page with no better match */
   introFor(page: number): number;
+  /** true when the docs use this word (as the matcher reduces it: lower case, stemmed) */
+  knows(token: string): boolean;
 }
 
 const FOLLOW_UP = /^(and|also|what about|how about|and what about|same for|what if|but what about|what for|for)\b/;
+/** Words a question may open with before it starts ("hi, how do I...", "thanks! and why..."). */
+const LEAD_IN = /^((hi|hello|hey|thanks|thank you|thx|ok|okay|so|and|also|please|pls|um|hmm|well|sorry|pardon|excuse me|quick question|question)\s+)+/;
 
 export function isFollowUp(question: string): boolean {
   const q = question.toLowerCase().trim();
@@ -184,6 +243,17 @@ export function isFollowUp(question: string): boolean {
 export function createMatcher(index: AskIndex, options: { exclude?: (q: AskQuestion) => boolean } = {}): Matcher {
   const syn: SynonymTable = buildSynonymTable(index.synonyms);
   const tok = (s: string) => tokenize(s, syn, { pairs: TUNING.pairs });
+
+  // Every word the docs use, and how often, for reading a misspelt question word as one of them.
+  const counts = new Map<string, number>();
+  const count = (text: string) => {
+    for (const w of clean(text).split(" ")) if (w.length >= 4) counts.set(w, (counts.get(w) ?? 0) + 1);
+  };
+  for (const e of index.entries) count(`${e.h} ${e.l ?? ""} ${e.x.replace(/\]\([^)]*\)/g, "]")}`);
+  for (const p of index.pages) count(`${p.t} ${p.k}`);
+  for (const q of index.questions) count(q.q);
+  for (const g of index.synonyms) count(g.join(" "));
+  const spell = createSpeller(counts);
 
   // Page-level tokens (title and keywords), shared by the page's passages.
   const pageTitle = index.pages.map((p) => tok(p.t).join(" "));
@@ -240,7 +310,7 @@ export function createMatcher(index: AskIndex, options: { exclude?: (q: AskQuest
     const tokens = tok(q.q);
     if (!tokens.length) continue;
     const weight = tokens.reduce((n, t) => n + idf(t), 0);
-    questions.push({ p: q.p, e: q.e, tokens, tri: trigrams(tokens), weight });
+    questions.push({ p: q.p, e: q.e, tokens, tri: trigrams(tokens), weight, exact: clean(q.q) });
     pageQuestions[q.p].push(tokens.join(" "));
   }
   const pageText: string[][] = index.pages.map(() => []);
@@ -256,7 +326,7 @@ export function createMatcher(index: AskIndex, options: { exclude?: (q: AskQuest
       askedHere.add(key);
       const tokens = tok(text);
       if (!tokens.length) continue;
-      questions.push({ p: e.p, e: i, tokens, tri: trigrams(tokens), weight: tokens.reduce((n, t) => n + idf(t), 0) });
+      questions.push({ p: e.p, e: i, tokens, tri: trigrams(tokens), weight: tokens.reduce((n, t) => n + idf(t), 0), exact: "" });
     }
   });
   const pageMini = new MiniSearch({ fields: ["t", "k", "q", "all"], tokenize: split, processTerm: same });
@@ -281,9 +351,11 @@ export function createMatcher(index: AskIndex, options: { exclude?: (q: AskQuest
   // much of the question's weight the passage and its page cover, held down
   // when only one of the reader's words was found (a lone word such as
   // "life" can match by accident).
-  function confidenceOf(qTokens: string[], page: number, entry: number, bank: number): number {
+  function confidenceOf(qTokens: string[], page: number, entry: number, bank: number, synonyms: Map<string, number[]>): number {
     const uniq = [...new Set(qTokens)].filter((t) => !t.startsWith("syn") && !t.includes("_"));
-    if (!uniq.length) return bank;
+    if (!uniq.length) return Math.min(1, bank);
+    // Numbers alone ("2+2", "60") are no question the docs can answer, unless one is listed word for word.
+    if (uniq.every((t) => /^\d+$/.test(t))) return bank >= TUNING.strongBank ? Math.min(1, bank) : 0;
     const entryTokens = new Set(
       [docs[entry].t, docs[entry].h, docs[entry].l, docs[entry].sum, docs[entry].x].join(" ").split(" "),
     );
@@ -296,16 +368,20 @@ export function createMatcher(index: AskIndex, options: { exclude?: (q: AskQuest
     for (const t of uniq) {
       const w = idf(t);
       total += w;
-      if (entryTokens.has(t)) inEntry += w;
-      if (pageTokens[page].has(t)) {
-        inPage += w;
+      const groups = (synonyms.get(t) ?? []).map((g) => `syn${g}`);
+      const has = (set: Set<string>) => (set.has(t) ? 1 : groups.some((g) => set.has(g)) ? TUNING.synonymCover : 0);
+      const e = has(entryTokens);
+      const p = has(pageTokens[page]);
+      inEntry += w * e;
+      if (p) {
+        inPage += w * p;
         if (!/^\d+$/.test(t)) found++;
       }
-      if (topical.has(t) && !/^\d+$/.test(t)) onTopic++;
+      if (has(topical) && !/^\d+$/.test(t)) onTopic++;
     }
     let cover = total ? (0.6 * inEntry + 0.4 * inPage) / total : 0;
     if (found < 2 && onTopic === 0) cover *= TUNING.loneWord;
-    return Math.max(bank, cover * TUNING.coverWeight);
+    return Math.min(1, Math.max(bank, cover * TUNING.coverWeight));
   }
 
   const RANK: Record<Confidence, number> = { none: 0, unsure: 1, high: 2 };
@@ -330,22 +406,25 @@ export function createMatcher(index: AskIndex, options: { exclude?: (q: AskQuest
   }
 
   function run(question: string, ctx: AskContext, followUp: boolean): AskResult {
-    let tokens = tok(question);
+    const spelt = spell(dropAsides(question));
+    let tokens = tok(spelt);
     const empty: AskResult = { confidence: "none", score: 0, answer: null, alsoSee: [], pages: [], tokens };
     if (!tokens.length) return empty;
 
     // A follow-up borrows the words of the question before it.
     const own = new Set(tokens);
-    if (followUp) tokens = [...tokens, ...tok(ctx.lastQuestion ?? "").filter((t) => !own.has(t))];
+    if (followUp) tokens = [...tokens, ...tok(spell(ctx.lastQuestion ?? "")).filter((t) => !own.has(t))];
     const qTri = trigrams(tokens);
     const qWeight = tokens.reduce((n, t) => n + idf(t), 0);
 
     // Bank pass. Each passage also remembers the closest question tied to it.
+    const typed = followUp ? null : clean(question);
     const bankByPage = new Map<number, { sims: number[]; best: PreparedQuestion; bestSim: number }>();
     const bankByEntry = new Map<number, number>();
     for (const b of questions) {
-      const s = bankSimilarity(tokens, qTri, qWeight, b);
+      let s = bankSimilarity(tokens, qTri, qWeight, b);
       if (s <= 0) continue;
+      if (b.exact === typed) s += TUNING.exactBank;
       if (b.e !== undefined && s > (bankByEntry.get(b.e) ?? 0)) bankByEntry.set(b.e, s);
       const cur = bankByPage.get(b.p);
       if (!cur) bankByPage.set(b.p, { sims: [s], best: b, bestSim: s });
@@ -414,8 +493,8 @@ export function createMatcher(index: AskIndex, options: { exclude?: (q: AskQuest
       for (const r of ranked) if (r.bank >= strongest - 0.03) r.score += 10;
     }
     // "How do I..." leans towards the recipes, "Why..." towards the troubleshooting pages.
-    const lead = question.toLowerCase().trim();
-    const intent = /^(how (do|can|should) (i|we)|how to)\b/.test(lead) ? "recipes" : /^why\b/.test(lead) ? "wrong" : null;
+    const lead = clean(question).replace(LEAD_IN, "");
+    const intent = /^(how (do|can|should) (i|we)|how to|how i can)\b/.test(lead) ? "recipes" : /^why\b/.test(lead) ? "wrong" : null;
     if (intent) for (const r of ranked) if (sectionOf[r.page] === intent) r.score += TUNING.intentBoost;
     ranked.sort((a, b) => b.score - a.score || a.page - b.page);
     if (!ranked.length) return empty;
@@ -442,7 +521,7 @@ export function createMatcher(index: AskIndex, options: { exclude?: (q: AskQuest
     const hits: AskHit[] = ranked.map((r) => ({ page: r.page, score: r.score, entry: pick(r.page) }));
     const best = ranked[0];
     const answer = hits[0];
-    const confidenceScore = confidenceOf(tokens.filter((t) => own.has(t)), best.page, answer.entry, best.bank);
+    const confidenceScore = confidenceOf(tokens.filter((t) => own.has(t)), best.page, answer.entry, best.bank, synonymCover(spelt, syn));
     const confidence: Confidence =
       confidenceScore >= TUNING.high ? "high" : confidenceScore >= TUNING.unsure ? "unsure" : "none";
 
@@ -456,5 +535,5 @@ export function createMatcher(index: AskIndex, options: { exclude?: (q: AskQuest
     };
   }
 
-  return { index, ask, introFor: (p: number) => intro[p] };
+  return { index, ask, introFor: (p: number) => intro[p], knows: (t: string) => df.has(t) || pageTokens.some((s) => s.has(t)) };
 }

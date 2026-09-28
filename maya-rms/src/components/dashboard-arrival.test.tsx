@@ -94,11 +94,11 @@ describe("arriving at the rule builder from a link", () => {
 });
 
 describe("Help in the header", () => {
-  it("opens the docs page about the screen in a new tab", async () => {
+  it("opens the docs page about the screen in a new tab, saying which screen it came from", async () => {
     window.history.replaceState(null, "", "/?tab=changelog");
     render(<Dashboard initialSearch={window.location.search} />);
     const help = (await screen.findByText("Help")) as HTMLAnchorElement;
-    expect(help.getAttribute("href")).toBe("/docs/watch/the-change-log");
+    expect(help.getAttribute("href")).toBe("/docs/watch/the-change-log?from=changelog");
     expect(help.getAttribute("target")).toBe("_blank");
   });
 });

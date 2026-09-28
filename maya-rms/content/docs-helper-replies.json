@@ -1,0 +1,296 @@
+{
+  "about": "Set replies for the docs helper: greetings, thanks, \"how do I use this?\", \"can I talk to a person?\" and other general questions that name no topic. The docs build checks every link and packs this file into the helper's index. The helper compares a question with the examples, and a set reply answers only when the question has no words of its own beyond the examples and these lists, or when the docs have no answer at all. Words in \"light\" count for little when comparing, words in \"filler\" are dropped before comparing, and none of them, nor the words in \"neutral\", ever make a question specific. \"fixes\" turns casual spellings into the words the examples use. The \"page\" intent has no text of its own: it answers about the page the reader is on (or the last answer's page), and on the docs home with the overview. \"areas\" names each MAYA screen whose Help link opens the docs. Links are docs pages as section/page or section/page#heading; a link's words are the page title or the heading.",
+  "light": [
+    "hi", "hello", "hey", "hiya", "heya", "howdy", "yo", "hola", "bonjour", "greetings", "morning", "afternoon", "evening",
+    "good", "thanks", "thank", "thx", "ty", "tysm", "cheers", "merci", "gracias", "quick",
+    "there", "hmm", "really", "again", "now", "ok", "okay", "cool",
+    "great", "then", "yet", "also", "lol", "haha"
+  ],
+  "neutral": [
+    "maya", "rms", "docs", "documentation", "question"
+  ],
+  "filler": [
+    "um", "umm", "uh", "er", "erm", "so", "well", "oh", "ah", "anyway", "just", "please", "kindly", "guys", "even", "basically",
+    "whole", "entire", "overall", "general", "supposed", "section", "exactly", "actually", "sorry", "excuse", "pardon"
+  ],
+  "fixes": {
+    "u": "you", "ur": "your", "r": "are", "y": "why", "hw": "how", "wat": "what", "wht": "what", "wot": "what",
+    "whta": "what", "whats": "what is", "wats": "what is", "hows": "how is", "dose": "does", "doe": "does", "dos": "does",
+    "doesnt": "does not", "wanna": "want", "gonna": "going", "gotta": "have", "pls": "please", "plz": "please",
+    "thx": "thanks", "thnx": "thanks", "tnx": "thanks", "ty": "thanks", "tysm": "thanks", "thankyou": "thanks", "k": "ok",
+    "kk": "ok", "okey": "okay", "oki": "ok", "helo": "hello", "hii": "hi", "heyy": "hey", "halp": "help", "hlp": "help",
+    "tldr": "summary", "tl": "summary", "dr": "summary", "summarise": "summarize", "summery": "summary",
+    "explane": "explain", "expain": "explain", "undestand": "understand", "understnd": "understand", "confussed": "confused",
+    "confusd": "confused", "im": "i am", "ive": "i have", "idk": "i do not know", "dunno": "do not know", "cya": "bye",
+    "bb": "bye", "gpt": "chatgpt", "irl": "real", "ppl": "people", "smth": "something", "sth": "something", "abt": "about",
+    "dont": "do not", "didnt": "did not", "cant": "can not", "cannot": "can not", "isnt": "is not", "arent": "are not",
+    "wasnt": "was not", "wont": "will not", "youre": "you are", "thats": "that is", "theres": "there is",
+    "wheres": "where is", "whos": "who is", "doesn": "does not", "don": "do not", "couldnt": "could not",
+    "wouldnt": "would not", "shouldnt": "should not", "hasnt": "has not", "havent": "have not", "hadnt": "had not",
+    "werent": "were not", "aint": "is not", "didn": "did not", "wasn": "was not",
+    "assistance": "help", "assist": "help", "robot": "bot", "able": "can", "infos": "info", "tutorail": "tutorial", "plese": "please", "pleas": "please", "thankss": "thanks", "gud": "good",
+    "hwo": "how", "waht": "what", "teh": "the", "yuo": "you", "tihs": "this", "thsi": "this", "hepl": "help", "hlep": "help", "thnks": "thanks", "thanx": "thanks", "thansk": "thanks",
+    "noo": "no", "okk": "ok"
+  },
+  "start": ["start/how-to-get-started", "start/a-tour-of-the-app", "wrong/start-here", "help/contact-support"],
+  "areas": {
+    "calendar": "the Calendar tab", "rules": "the Rules tab", "rules.builder": "the rule builder",
+    "simulator": "the Rate Simulator tab", "changelog": "the Change Log tab", "pms": "the PMS tab", "team": "the Team page",
+    "billing": "the Billing page", "review": "the review screens", "questions": "the five questions", "onboarding": "setup",
+    "other": "MAYA"
+  },
+  "intents": [
+    {
+      "id": "page",
+      "page": true,
+      "examples": [
+        "how do i use this", "how do i use this page", "how does this work", "how does this thing work",
+        "how does it work", "how do i use it", "how to use", "how to use this", "what is this", "what is this page",
+        "what is this page about", "what is this page for", "what is this for", "what is this about", "what is it",
+        "what does this do", "what does this page do", "what does this mean", "what does this page say",
+        "what does all this mean", "explain", "explain this", "explain this page", "explain it", "explain it simply",
+        "explain this to me", "can you explain this", "what am i looking at", "where am i", "what can i do here",
+        "what do i do here", "what do i do on this page", "what is going on here", "summary", "summary of this page",
+        "summarize this", "summarize this page", "in short", "sum this up", "sum it up", "key points",
+        "i do not get this page", "tell me more", "tell me more about this", "more about this", "more please", "go on",
+        "what is this site", "what is this website", "how do i use this site", "what is this place",
+        "what are these docs", "how do these docs work", "explain like i am 5", "explain it like i am five",
+        "what am i supposed to do", "what am i supposed to do here", "what does it say", "what is it about",
+        "how do i do this", "how do i do that", "how does that work", "what is that", "what is the point of this", "what is the point of this page", "can you summarize", "summarize", "short version", "the short version", "give me the short version", "in a nutshell", "more detail", "more details", "in more detail", "tell me more about it", "elaborate", "can you elaborate", "go deeper", "what does this all mean", "how does all this work", "how does this all work", "i do not get this", "i do not understand this page", "what is this for exactly", "how do i use this thing",
+        "explain how to use this", "can you explain how to use this", "explain how this works", "can you explain how this works", "explain how it works",
+        "what is new here", "what is new on this page", "what is new",
+        "walk me through this page", "go through this page with me",
+        "what is this button", "what is this button for", "what does the button do", "what does this setting do",
+        "what does this switch do", "what does this toggle mean", "what does this option do", "what is this field",
+        "what does this box mean", "what does this number mean", "what is this number", "what does this column mean",
+        "what does this icon mean", "what does this badge mean", "why am i here", "why did i land here",
+        "why was i sent here", "what is happening here", "what is happening", "what happened here", "is this normal",
+        "is that normal", "is it normal", "is this expected", "is this ok", "is that right", "does this look right",
+        "is this correct",
+        "what am i looking at here", "what is this screen", "what is on this screen", "explain this screen",
+        "anything new here", "is there anything new", "show me how it works", "show me how this works",
+        "show me how to use this",
+        "what am i seeing",
+        "what is this setting",
+        "help me understand this", "help me understand this page", "help me understand this screen",
+        "i want to understand this", "is this how it should look", "is this what it should look like",
+        "should it look like this", "is it supposed to look like this", "does this seem right", "does that seem right",
+        "does this look ok", "does this seem normal", "is this how it should be", "what is the idea behind this",
+        "what is the idea here", "what is the purpose of this", "what is the purpose of this screen", "where am i now",
+        "what page is this", "which page is this", "what screen is this"
+      ]
+    },
+    {
+      "id": "overview",
+      "say": "Here is MAYA in a few lines.",
+      "show": "start/what-maya-does",
+      "links": ["start/how-to-get-started", "start/is-maya-right-for-you", "start/what-it-costs", "start/a-tour-of-the-app"],
+      "linksTitle": "Where to go next",
+      "examples": [
+        "what is maya", "what is maya rms", "what does maya do", "tell me about maya", "tell me about this app",
+        "tell me about it", "what is this app", "what is this tool", "what is this software", "what is this product",
+        "what does this app do", "what does this software do", "what does the app do", "how does maya work",
+        "how does the app work", "how does this app work", "explain maya", "explain maya simply", "maya",
+        "maya in a nutshell", "what is maya for", "what is maya used for", "give me an overview", "overview",
+        "an overview please", "what can this app do", "what can maya do", "features", "what are the features",
+        "what features does it have", "why use maya", "why should i use maya", "explain maya in simple words",
+        "maya in plain english", "maya in simple words", "what is maya in simple words",
+        "how does everything fit together", "how does it all work together", "how do the parts fit together",
+        "what are the parts of maya", "what are the pieces", "big picture", "the big picture",
+        "what is the big picture", "the basics", "basics", "what are the basics", "the basics of maya", "gist",
+        "the gist", "what is the gist of it", "how does the system work", "how does the whole thing fit together",
+        "what are the main pieces",
+        "how do all the parts connect", "how do the pieces connect", "how does it all tie together",
+        "how does this all hang together", "how do the parts work together", "what is the main idea", "the main idea",
+        "what is the concept", "the concept", "what is the idea", "what is the purpose of maya", "rundown",
+        "the rundown", "give me the rundown", "a quick rundown", "run me through the basics", "tell me all about it",
+        "tell me about the app", "sum it up", "sum it up for me", "summary of maya"
+      ]
+    },
+    {
+      "id": "start",
+      "say": "Here is how it goes, from signing up to going live.",
+      "show": "start/how-to-get-started",
+      "links": ["start/a-tour-of-the-app", "start/is-maya-right-for-you", "rules/build-your-first-rule", "live/simulation-mode"],
+      "linksTitle": "Next",
+      "examples": [
+        "where do i start", "where should i start", "where to start", "where to begin", "where do i begin",
+        "where do i even begin", "how do i start", "how do i begin", "how do i get started", "get started",
+        "getting started", "i do not know where to start", "i am new", "i am new here", "new here", "new user",
+        "first time here", "first time", "first steps", "what is the first step", "what do i do first",
+        "what should i do first", "how do i set it up", "setup",
+        "set up", "how do i set up", "new user where do i start", "i am new where do i start",
+        "step by step", "step by step guide", "beginner guide", "guide for beginners", "tutorial", "is there a tutorial", "where do i start with this", "where do i even start", "how do i get going",
+        "walk me through it", "can you walk me through it", "walk me through getting started", "talk me through it", "take me through it step by step",
+        "what do i read first", "what to read first", "which page do i read first", "where should i begin reading",
+        "i am a beginner", "beginner", "for beginners", "where does a beginner start",
+        "show me step by step", "guide me", "i need a guide",
+        "what do i need to know", "what do i need to know first", "what should i know", "what should i know first",
+        "anything i should know first", "what is next", "what comes next", "what are the next steps", "next steps",
+        "next step", "where do i go from here", "where do i go next", "what do i do after this",
+        "what should i do after this", "what now after this", "which page first", "where do i begin reading"
+      ]
+    },
+    {
+      "id": "help",
+      "say": "Type your question in your own words, such as \"why did my price go up?\" or \"how do I connect Cloudbeds?\". The answer is a passage from these docs, with a link to the page it comes from.",
+      "links": ["start/how-to-get-started", "start/a-tour-of-the-app", "wrong/start-here", "help/contact-support"],
+      "linksTitle": "Good places to begin",
+      "examples": [
+        "help", "help me", "help please", "please help", "i need help", "i need some help", "need help",
+        "can you help", "can you help me", "can someone help", "can someone help me", "somebody help", "help me out",
+        "i want help", "sos",
+        "assist me", "can you assist", "i need assistance", "need some help", "help needed", "a little help"
+      ]
+    },
+    {
+      "id": "lost",
+      "say": "That's all right. Type what you are trying to do in a few words, such as \"raise prices when nearly full\" or \"see why a price changed\", or start from one of these pages.",
+      "links": ["start/how-to-get-started", "start/a-tour-of-the-app", "reference/glossary", "wrong/start-here", "help/contact-support"],
+      "linksTitle": "Good places to begin",
+      "examples": [
+        "i am lost", "lost", "i am confused", "confused", "so confused", "this is confusing", "confusing",
+        "i do not understand", "i do not understand anything", "i do not get it", "i do not know", "no idea",
+        "i have no idea what i am doing", "i have no clue", "no clue", "overwhelmed", "i am overwhelmed",
+        "this is too complicated", "too complicated", "complicated", "i am stuck", "stuck", "what now", "now what",
+        "what next", "what do i do now", "nothing makes sense", "makes no sense",
+        "too much information", "too much info", "i feel lost", "feeling lost", "i am lost here", "this is hard", "hard to understand", "i do not understand how this works",
+        "none of this makes any sense", "nothing here makes sense", "this makes no sense", "this does not make sense",
+        "it does not make sense", "not sure what to do", "i am not sure what to do", "unsure what to do",
+        "i do not know what to do next", "what should i do next",
+        "i have no idea what this means", "no idea what this means", "i have no idea what any of this means",
+        "i do not know what any of this means", "i am totally lost", "completely lost", "i am so lost",
+        "i am confused here", "where do i even go", "i do not know where to go"
+      ]
+    },
+    {
+      "id": "capabilities",
+      "say": "Ask about anything these docs cover: signing up, connecting your property system, rules, prices, the calendar and change log, billing and your team. Try \"what is booking speed?\", \"how do I set a floor?\" or \"why is occupancy over 100%?\". The docs helper cannot see your property or change anything in it.",
+      "links": ["help/about-these-docs#the-docs-helper", "help/about-these-docs#getting-better-answers"],
+      "linksTitle": "More about the docs helper",
+      "examples": [
+        "what can you do", "what do you do", "what can i ask", "what can i ask you", "what should i ask",
+        "what kind of questions can i ask", "what questions can you answer", "what can you answer", "what do you know",
+        "what do you know about", "what are you for", "what can this chat do", "what can this do",
+        "how do i ask a question", "how do i ask", "what do i type here", "what do i type", "example questions",
+        "examples", "give me an example", "give me an example question", "suggest a question", "how do i use the docs",
+        "how do i use the helper", "how does this help thing work", "how does this chat work",
+        "what are you able to do", "what topics can you help with", "what topics do you cover", "what can you help with", "what can you tell me", "what do you cover"
+      ]
+    },
+    {
+      "id": "bot",
+      "say": "This is the docs helper, not a person, and it does not write its own answers. It matches your question with these docs inside your browser and shows the passage that fits, word for word, or a short set reply like this one. It cannot see your property. To reach a person, email [info@modern-hospitality-solutions.com](mailto:info@modern-hospitality-solutions.com?subject=MAYA%20support).",
+      "links": ["help/about-these-docs#how-it-finds-an-answer", "start/what-maya-does#maya-counts-and-compares"],
+      "linksTitle": "More",
+      "examples": [
+        "are you a bot", "are you a robot", "are you ai", "are you an ai", "are you real", "are you human",
+        "are you a human", "are you a real person", "are you a person", "are you a machine", "are you chatgpt",
+        "is this chatgpt", "are you automated", "is this automated", "am i talking to a person",
+        "am i talking to a bot", "am i talking to a human", "am i talking to a real person", "is this a bot",
+        "is this a real person", "is this a person", "is this ai", "is this an ai chat", "is this chat ai",
+        "is this a chatbot", "are these answers ai", "is there a person reading this", "who are you", "what are you",
+        "who am i talking to", "who is this", "how does the docs helper work", "do you remember what i asked",
+        "you are a bot right", "anyone there", "is anyone there", "are these answers ai generated",
+        "is this ai generated", "is this written by ai", "are you a real human", "is this a human or a bot",
+        "am i talking to a machine", "are you a computer", "is this a real chat",
+        "are you there", "is anybody there", "hello is anyone there", "still there", "you still there",
+        "anybody home", "anyone home", "is someone there", "somebody there", "anybody there", "hello anybody"
+      ]
+    },
+    {
+      "id": "human",
+      "say": "Support is by email, at [info@modern-hospitality-solutions.com](mailto:info@modern-hospitality-solutions.com?subject=MAYA%20support). We aim to answer within one business day, Monday to Friday on US Central time. There is no phone line or chat. Write from the address you sign in with and name your property.",
+      "links": ["help/contact-support"],
+      "linksTitle": "More",
+      "examples": [
+        "talk to a person", "talk to a human", "talk to someone", "speak to a person", "speak to a human",
+        "speak to someone", "can i talk to a person", "can i talk to a human", "can i talk to someone",
+        "can i speak to someone", "can i speak with someone", "i want to talk to a real person", "i need a human",
+        "i need a person", "i need to speak with someone", "human please", "person please", "real person please",
+        "real human", "agent", "an agent please", "representative", "live agent", "live chat", "do you have live chat",
+        "can i chat with support", "customer service", "customer support", "contact support", "support", "contact",
+        "contact you", "how do i contact you", "how can i contact you", "how do i reach you", "get in touch",
+        "phone number", "do you have a phone number", "can i call you", "call me", "call me please", "whatsapp",
+        "email address", "what is your email", "support email", "connect me to support", "someone walk me through it",
+        "get me a human", "get me a person", "how do i reach customer service", "reach customer service", "contact customer service", "reach support", "how do i reach support", "i want a real person", "can i talk to support", "talk to support", "speak with a human", "i want to speak with someone",
+        "can a real person help", "can a real person help me", "a real person", "i want a real human",
+        "can a human help me", "is there a human i can talk to", "is there a real person", "i need a real person",
+        "let me talk to a human", "let me speak to a person"
+      ]
+    },
+    {
+      "id": "frustrated",
+      "say": "Sorry this is not going well. Try the words you see on screen, or paste a message exactly: these docs quote MAYA's messages word for word. For a person, email [info@modern-hospitality-solutions.com](mailto:info@modern-hospitality-solutions.com?subject=MAYA%20support) and we aim to answer within one business day.",
+      "links": ["wrong/start-here", "wrong/messages-explained", "help/contact-support"],
+      "linksTitle": "These may help",
+      "examples": [
+        "this is useless", "useless", "you are useless", "this sucks", "sucks", "terrible", "this is terrible",
+        "awful", "worst app ever", "this is so frustrating", "frustrating", "i am frustrated", "nothing works",
+        "stupid bot", "stupid", "you are not helping", "not helping", "waste of time", "ugh", "wtf", "i hate this",
+        "hate it", "this is ridiculous", "ridiculous", "rubbish", "garbage", "i want to complain", "complaint",
+        "i have a complaint", "this is broken", "annoying", "this is annoying", "come on",
+        "this is not working", "you are not helpful", "not useful", "so annoying", "bad bot", "this bot is useless", "pointless",
+        "i give up", "giving up", "forget it", "this is hopeless", "hopeless", "this is a joke"
+      ]
+    },
+    {
+      "id": "missed",
+      "say": "Sorry that missed. Try asking in other words, name the tab or button you see, or paste the message exactly. To tell us an answer missed, press No under it and then Send.",
+      "links": ["help/about-these-docs#getting-better-answers", "help/contact-support"],
+      "linksTitle": "More",
+      "examples": [
+        "no", "nope", "not really", "that is not what i asked", "not what i asked", "not what i meant", "wrong answer",
+        "that is wrong", "this answer is wrong", "that is not right", "not right", "incorrect",
+        "that did not answer my question", "you did not answer my question", "that did not help", "this does not help",
+        "did not help", "not helpful", "unhelpful", "that does not make sense", "irrelevant", "that is not it",
+        "try again",
+        "not what i was looking for", "that is not what i was looking for", "wrong page", "wrong link", "that is the wrong page", "no that is wrong", "not quite", "no not that"
+      ]
+    },
+    {
+      "id": "thanks",
+      "say": "You're welcome. Ask another question any time.",
+      "examples": [
+        "thanks", "thank you", "thanks a lot", "thank you so much", "thanks so much", "many thanks",
+        "thanks for your help", "thanks for the help", "much appreciated", "appreciate it", "cheers", "great thanks",
+        "perfect thank you", "ok thanks", "thanks that helped", "that helped", "that was helpful", "very helpful",
+        "helpful", "great that helps", "that helps", "brilliant thanks", "merci", "gracias",
+        "thank u", "thanks heaps", "ta", "great thank you", "awesome thanks", "thanks mate"
+      ]
+    },
+    {
+      "id": "bye",
+      "say": "Glad to help. Your questions stay in this panel until you close the browser tab or press Start over.",
+      "examples": [
+        "bye", "goodbye", "bye bye", "see you", "see ya", "see you later", "later", "take care", "good night",
+        "have a nice day", "have a good day", "that is all", "that is all for now", "i am done", "done",
+        "nothing else", "ok bye", "thanks bye",
+        "cya later", "bye for now", "see you soon", "catch you later", "have a great day"
+      ]
+    },
+    {
+      "id": "greeting",
+      "say": "Hello. Ask anything about MAYA in your own words, such as \"how do I undo a price change?\", and the answer comes from these docs with a link to its page.",
+      "links": ["start/how-to-get-started", "start/a-tour-of-the-app"],
+      "linksTitle": "Or start here",
+      "examples": [
+        "hi", "hello", "hey", "hey there", "hi there", "hello there", "hiya", "howdy", "yo", "sup", "good morning",
+        "good afternoon", "good evening", "morning", "hi maya", "hello maya", "hey maya", "hola",
+        "bonjour", "greetings", "how are you", "how are you doing", "hey quick question", "hi quick question",
+        "i have a question", "question", "can i ask a question",
+        "hi all", "hello hello", "good morning maya", "hey hey", "hi hi"
+      ]
+    },
+    {
+      "id": "ack",
+      "say": "Ask another question whenever you like.",
+      "examples": [
+        "ok", "okay", "cool", "great", "nice", "got it", "i see", "perfect", "alright", "all right", "fine", "yes",
+        "yeah", "yep", "sure", "awesome", "lol", "haha", "hmm", "right", "makes sense", "understood", "noted", "good",
+        "k",
+        "hmm ok", "ok then", "ok cool", "okay cool", "sounds good", "fair enough", "i understand", "ok got it", "that makes sense"
+      ]
+    }
+  ]
+}

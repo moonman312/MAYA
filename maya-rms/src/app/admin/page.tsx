@@ -1,3 +1,5 @@
+import { DocsTallyTile } from "@/components/admin/docs-tally-panels";
+import { loadTallyTotals, type TallyTotals } from "@/lib/admin/docs-tally";
 import { listHotels } from "@/lib/admin/hotels";
 import { listPendingInvites } from "@/lib/admin/memberships";
 import { countSignupCodes } from "@/lib/admin/signup-codes";
@@ -10,11 +12,20 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminOverviewPage() {
   const ssr = createClient(await cookies());
-  const [hotels, users, pending, signupCodes] = await Promise.all([
+  // The docs helper's count is reported in its tile, never fatal to the page.
+  const docsTally: Promise<{ totals: TallyTotals | null; error: string | null }> = loadTallyTotals(
+    ssr,
+    new Date().toISOString().slice(0, 10),
+  ).then(
+    (totals) => ({ totals, error: null }),
+    (e: unknown) => ({ totals: null, error: e instanceof Error ? e.message : String(e) }),
+  );
+  const [hotels, users, pending, signupCodes, docs] = await Promise.all([
     listHotels(ssr),
     listPlatformUsers(ssr),
     listPendingInvites(ssr),
     countSignupCodes(ssr),
+    docsTally,
   ]);
 
   const nowMs = new Date().getTime();
@@ -71,6 +82,8 @@ export default async function AdminOverviewPage() {
           </Link>
         ))}
       </div>
+
+      <DocsTallyTile totals={docs.totals} error={docs.error} />
 
       <section className="rounded border border-slate-800 bg-slate-900">
         <header className="flex items-center justify-between border-b border-slate-800 p-4">

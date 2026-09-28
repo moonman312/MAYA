@@ -457,6 +457,7 @@ export function buildAskIndex(pages, sectionList, bank, synonyms, options = {}) 
       chunkBlocks(section.blocks).forEach((c, ci) => {
         const e = { p: pi, a: section.anchor, h: section.title, x: c.md };
         if (c.lead) e.l = c.lead;
+        if (section.depth === 3) e.d = 3;
         if (section.anchor === "" && ci === 0) e.ipw = 1;
         const idx = out.entries.push(e) - 1;
         full.push(c.md);
@@ -511,11 +512,18 @@ export function buildAskIndex(pages, sectionList, bank, synonyms, options = {}) 
     out.questions.push(rec);
   };
   pages.forEach((p) => p.asked.forEach((a) => addQuestion(a.text, p.path, a.ref, `content/docs/${p.file}`)));
-  for (const item of bank) {
-    addQuestion(item.q, item.page, item.anchor, "question bank");
-    for (const alt of item.alt || []) {
-      const [path, ref] = alt.split("#");
-      addQuestion(item.q, path, ref, "question bank");
+  // The bank, then the everyday questions (content/docs-questions-everyday.json):
+  // the same shape, kept apart so the eval fixture draws on the bank alone.
+  for (const [list, where] of [
+    [bank, "question bank"],
+    [options.everyday ?? [], "everyday questions"],
+  ]) {
+    for (const item of list) {
+      addQuestion(item.q, item.page, item.anchor, where);
+      for (const alt of item.alt || []) {
+        const [path, ref] = alt.split("#");
+        addQuestion(item.q, path, ref, where);
+      }
     }
   }
   for (const q of out.questions) {
@@ -543,14 +551,152 @@ export function buildAskIndex(pages, sectionList, bank, synonyms, options = {}) 
     }
   }
   stats.trimmed = trimmed;
+  if (options.replies) {
+    const r = buildReplies(options.replies, pages, out, sectionList, options.screens ?? {});
+    out.replies = r.replies;
+    problems.push(...r.problems.map((m) => `helper replies: ${m}`));
+  }
   return { index: out, problems, stats };
 }
 
+// ── The helper's set replies ────────────────────────────────────────
+
+/** Words a reply must never use: long dashes, and MAYA as something that learns, knows or thinks. */
+const REPLY_WORDING = [
+  [/[\u2013\u2014]/, "a long dash"],
+  [/\bMAYA (learns|knows|thinks|understands|decides for you)\b/i, "MAYA as something that learns, knows or thinks"],
+];
+
 /**
- * Packs the helper's index for the browser: sections listed once, each
- * passage as [section, text, lead?, more?], links to docs pages as @<page>,
- * questions as [words, page, passage?]. `expandIndex` in
- * lib/docs/ask/match.ts reverses it.
+ * The set replies (content/docs-helper-replies.json) as the helper reads
+ * them: every link resolved to its address and words, the passage a reply
+ * shows as an entry of the index, and each app area Help can open the docs
+ * from with the page it opens. Returns { replies, problems }.
+ */
+export function buildReplies(raw, pages, index, sectionList, screens) {
+  const problems = [];
+  const byPath = new Map(pages.map((p, i) => [p.path, { p, i }]));
+  const link = (ref, where) => {
+    const [path, anchor] = String(ref).split("#");
+    const hit = byPath.get(path);
+    if (!hit) {
+      problems.push(`${where}: "${ref}" is not a docs page`);
+      return null;
+    }
+    if (!anchor) return { href: hit.p.url, label: hit.p.fm.title };
+    const h = hit.p.extract.headings.find((x) => x.id === anchor);
+    if (!h) {
+      problems.push(`${where}: "${ref}" points at no heading on ${path}`);
+      return null;
+    }
+    return { href: `${hit.p.url}#${anchor}`, label: `${hit.p.fm.title} \u203a ${h.text}` };
+  };
+  const passage = (ref, where) => {
+    const [path, anchor = ""] = String(ref).split("#");
+    const hit = byPath.get(path);
+    const e = hit ? index.entries.findIndex((x) => x.p === hit.i && x.a === anchor) : -1;
+    if (e < 0) problems.push(`${where}: "${ref}" is not a passage in the docs`);
+    return e;
+  };
+  const words = (list, where) => {
+    if (!Array.isArray(list) || !list.every((w) => typeof w === "string" && /^[a-z0-9]+$/.test(w))) {
+      problems.push(`${where} should be a list of lower-case words`);
+      return [];
+    }
+    return list;
+  };
+  const checkText = (text, where) => {
+    for (const [re, what] of REPLY_WORDING) if (re.test(text)) problems.push(`${where} uses ${what}`);
+    for (const m of text.matchAll(/\]\(([^)\s]+)\)/g)) {
+      const url = m[1];
+      if (url.startsWith("mailto:")) continue;
+      if (!url.startsWith("/docs/")) {
+        problems.push(`${where}: link "${url}" should be a docs page or mailto:`);
+        continue;
+      }
+      link(url.slice(6), where);
+    }
+  };
+
+  const fixes = {};
+  for (const [k, v] of Object.entries(raw.fixes ?? {})) {
+    if (!/^[a-z0-9]+$/.test(k) || typeof v !== "string" || !/^[a-z0-9]+( [a-z0-9]+)*$/.test(v)) {
+      problems.push(`fix "${k}" should turn one lower-case word into words`);
+      continue;
+    }
+    fixes[k] = v;
+  }
+  const areas = {};
+  for (const [id, target] of Object.entries(screens)) {
+    const label = raw.areas?.[id];
+    if (typeof label !== "string" || !label.trim()) {
+      problems.push(`app area "${id}" (a Help screen in lib/deep-links/registry.json) has no words in "areas"`);
+      continue;
+    }
+    const hit = target ? byPath.get(String(target).split("#")[0]) : null;
+    if (target && !hit) problems.push(`app area "${id}" opens "${target}", which is not a docs page`);
+    areas[id] = { label, page: hit ? hit.i : null };
+  }
+  for (const id of Object.keys(raw.areas ?? {})) {
+    if (!(id in screens)) problems.push(`area "${id}" is not a Help screen in lib/deep-links/registry.json`);
+  }
+
+  const seen = new Set();
+  const intents = [];
+  for (const [n, it] of (raw.intents ?? []).entries()) {
+    const where = `intent ${it?.id ?? n + 1}`;
+    if (!it || typeof it.id !== "string" || !/^[a-z]+$/.test(it.id)) {
+      problems.push(`${where} needs a lower-case id`);
+      continue;
+    }
+    if (seen.has(it.id)) problems.push(`${where} is listed twice`);
+    seen.add(it.id);
+    const examples = Array.isArray(it.examples) ? it.examples.filter((e) => typeof e === "string" && e.trim()) : [];
+    if (examples.length < 3) problems.push(`${where} needs at least three examples`);
+    const out = { id: it.id, examples };
+    if (it.page === true) {
+      out.page = true;
+    } else if (typeof it.say !== "string" || !it.say.trim()) {
+      problems.push(`${where} needs "say", or "page": true`);
+      continue;
+    } else {
+      checkText(it.say, where);
+      out.say = it.say;
+    }
+    if (it.show !== undefined) {
+      const e = passage(it.show, where);
+      if (e >= 0) out.show = e;
+    }
+    if (it.links !== undefined) {
+      out.links = (Array.isArray(it.links) ? it.links : []).map((l) => link(l, where)).filter(Boolean);
+      if (typeof it.linksTitle === "string") out.linksTitle = it.linksTitle;
+      else problems.push(`${where} lists links without a "linksTitle"`);
+      checkText(out.linksTitle ?? "", where);
+    }
+    intents.push(out);
+  }
+  if (!intents.some((i) => i.page)) problems.push(`no intent answers about the page ("page": true)`);
+
+  return {
+    replies: {
+      light: words(raw.light, `"light"`),
+      neutral: words(raw.neutral, `"neutral"`),
+      filler: words(raw.filler ?? [], `"filler"`),
+      fixes,
+      start: (Array.isArray(raw.start) ? raw.start : []).map((l) => link(l, `"start"`)).filter(Boolean),
+      areas,
+      sections: Object.fromEntries(sectionList.map((s) => [s.slug, s.label])),
+      intents,
+    },
+    problems,
+  };
+}
+
+/**
+ * Packs the helper's index for the browser: sections listed once (with a
+ * 3 after an H3), each passage as [section, text, lead?, more?], links to
+ * docs pages as @<page>, questions as [words, page, passage?], and the set
+ * replies as they are. `expandIndex` in lib/docs/ask/match.ts reverses it.
  */
 export function toWire(index) {
   const pageOf = new Map(index.pages.map((p, i) => [p.u, i]));
@@ -562,7 +708,7 @@ export function toWire(index) {
     const key = `${e.p}|${e.a}`;
     let s = sectionOf.get(key);
     if (s === undefined) {
-      s = sections.push([e.p, e.a, e.h]) - 1;
+      s = sections.push(e.d ? [e.p, e.a, e.h, e.d] : [e.p, e.a, e.h]) - 1;
       sectionOf.set(key, s);
     }
     const row = [s, link(e.x)];
@@ -570,7 +716,7 @@ export function toWire(index) {
     if (e.m) row.push(1);
     return row;
   });
-  return {
+  const wire = {
     v: index.version,
     p: index.pages.map((p) => [p.u, p.t, p.k]),
     s: sections,
@@ -578,6 +724,8 @@ export function toWire(index) {
     q: index.questions.map((q) => (q.e === undefined ? [q.q, q.p] : [q.q, q.p, q.e])),
     y: index.synonyms,
   };
+  if (index.replies) wire.r = index.replies;
+  return wire;
 }
 
 function fnv(s) {
