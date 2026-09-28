@@ -65,7 +65,7 @@ async function answerRoomTypeQuestion(
       // A live hotel (refresh mode) has published prices on the old
       // denominator; a hotel mid-onboarding has nothing to re-price yet.
       const { data: hotel } = await admin.from("hotels").select("is_active").eq("id", hotelId).maybeSingle();
-      if (hotel?.is_active === true) scheduleReprice(admin, hotelId, "onboarding-review");
+      if (hotel?.is_active === true) await scheduleReprice(admin, hotelId, "onboarding-review");
       return null;
     }
     case "pre_migration": {

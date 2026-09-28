@@ -25,7 +25,9 @@ import { evaluateHotel } from "@/lib/engine";
 import { clampPrice, priceBounds } from "@/lib/engine/pricing";
 import { isMissingColumnError, isMissingRelationError } from "@/lib/engine/snapshots";
 import { hotelRuleIds, setManualPrices } from "@/lib/pms/manual-price";
-import { lastNightOf, pricingHorizonDays } from "@/lib/pms/pricing-window";
+import { hotelPricingHorizon } from "@/lib/pms/pricing-horizon";
+import { lastNightOf, MAX_PRICING_HORIZON_DAYS } from "@/lib/pms/pricing-window";
+import { nudgeHotelSync } from "@/lib/pms/sync-nudge";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { roleLabel } from "@/lib/roles";
 import { hotelToday } from "@/lib/simulator";
@@ -34,7 +36,7 @@ import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
-import { NextResponse, after } from "next/server";
+import { NextResponse } from "next/server";
 
 // The save itself is quick; the re-evaluation behind it is not. Same cap as
 // /api/evaluate rather than whatever the platform default happens to be.
@@ -42,23 +44,16 @@ export const maxDuration = 300;
 
 /** Inclusive number of nights one request may cover. */
 const MAX_SPAN_DAYS = 366;
-/** The engine prices a year ahead (evaluateHotel caps its horizon at 365). */
-const MAX_DAYS_AHEAD = 364;
+/**
+ * How far ahead a price may be typed: the furthest night the engine can ever
+ * price (evaluateHotel caps its window at MAX_PRICING_HORIZON_DAYS). A night
+ * past the hotel's window is kept and priced when the window reaches it.
+ */
+const MAX_DAYS_AHEAD = MAX_PRICING_HORIZON_DAYS - 1;
 /** Stored verbatim on every row of a span; enough for a sentence, not a memo. */
 const MAX_NOTE_CHARS = 500;
 /** numeric(10,2) overflows past this and surfaces as a 500. */
 const MAX_PRICE = 99_999_999.99;
-
-/**
- * Which sync function to nudge for a hotel's PMS, and the secret it checks.
- * Each function accepts `{ hotel_id }` for a single-property run. A PMS not
- * listed here is pushed on its own cron cycle.
- */
-const SYNC_NUDGE: Record<string, { fn: string; header: string; env: string }> = {
-  cloudbeds: { fn: "cloudbeds-scheduled-sync", header: "x-cloudbeds-cron-secret", env: "CLOUDBEDS_CRON_SECRET" },
-  think: { fn: "think-scheduled-sync", header: "x-think-cron-secret", env: "THINK_CRON_SECRET" },
-  mews: { fn: "mews-scheduled-sync", header: "x-mews-cron-secret", env: "MEWS_CRON_SECRET" },
-};
 
 /**
  * "zero_not_sent": a comp night's 0 on a live hotel. No rate push takes a
@@ -147,11 +142,11 @@ function datesInRange(fromIso: string, toIso: string): string[] {
 
 /**
  * Nights of the range on each side of the push window, [today, today + horizon
- * - 1] on the hotel's calendar: the nights the scheduled tick evaluates and
- * pushes (pricing-window.ts).
+ * - 1] on the hotel's calendar: the nights the scheduled tick prices and
+ * pushes (pricing-window.ts), `days` long as the hotel's last pass was
+ * (hotelPricingHorizon).
  */
-function splitByPushWindow(range: Range, today: string): PushWindow {
-  const days = pricingHorizonDays();
+function splitByPushWindow(range: Range, today: string, days: number): PushWindow {
   const nights = daysBetween(range.dateFrom, range.dateTo) + 1;
   const lastPushed = lastNightOf(today, days);
   // dateFrom is never before today on a save; a clear can name earlier
@@ -246,9 +241,10 @@ function parseRange(body: PostBody): { ok: true; range: Range } | { ok: false; r
 }
 
 /**
- * Re-price the hotel so published_price carries the new base right away,
- * then ask the sync function to push it. Neither may fail the save: the
- * next scheduled tick re-evaluates and pushes regardless.
+ * Re-price the saved nights so published_price carries the new base right
+ * away, then ask the sync function to push it. Neither may fail the save:
+ * the rows it wrote marked those nights for the next scheduled tick, which
+ * prices and pushes them regardless.
  *
  * `now` is the instant stamped on the rows (set_at / cleared_at) and is
  * passed through as the engine's evaluation time on purpose: the run's
@@ -262,8 +258,9 @@ async function republish(
   today: string,
   now: string,
 ): Promise<{ pushed: Pushed; pushWindow: PushWindow }> {
-  const pushWindow = splitByPushWindow(range, today);
-  const pushed = await pushFor(admin, range, today, now, pushWindow);
+  const horizonDays = await hotelPricingHorizon(admin, range.hotelId);
+  const pushWindow = splitByPushWindow(range, today, horizonDays);
+  const pushed = await pushFor(admin, range, today, now, pushWindow, horizonDays);
   return { pushed, pushWindow };
 }
 
@@ -273,12 +270,15 @@ async function pushFor(
   today: string,
   now: string,
   pushWindow: PushWindow,
+  horizonDays: number,
 ): Promise<Pushed> {
-  // Only as far as the change reaches. A full-horizon run is minutes of
-  // reads, and everything past dateTo is untouched by this save.
-  const horizonDays = Math.max(1, daysBetween(today, range.dateTo) + 1);
+  // Only the nights saved, inside the window: nothing else moved.
+  const lastInWindow = lastNightOf(today, horizonDays);
+  const nights = datesInRange(range.dateFrom < today ? today : range.dateFrom, range.dateTo).filter(
+    (d) => d <= lastInWindow,
+  );
   try {
-    await evaluateHotel(admin, range.hotelId, now, horizonDays);
+    if (nights.length > 0) await evaluateHotel(admin, range.hotelId, now, horizonDays, { nights, runKind: "save" });
   } catch (error) {
     console.error(
       JSON.stringify({
@@ -302,32 +302,8 @@ async function pushFor(
   // window, and the response says how many that is.
   if (pushWindow.now === 0) return "beyond_window";
 
-  const nudge = SYNC_NUDGE[await hotelPmsType(admin, range.hotelId)];
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
-  const secret = nudge ? process.env[nudge.env] : undefined;
-  if (!nudge || !supabaseUrl || !secret) return "next_cycle";
-
-  // Past the response rather than fire-and-forget: a serverless instance can
-  // be frozen the moment the reply is sent, before the request leaves the
-  // socket, and the UI has just been told the push is on its way.
-  after(() =>
-    fetch(`${supabaseUrl}/functions/v1/${nudge.fn}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", [nudge.header]: secret },
-      body: JSON.stringify({ hotel_id: range.hotelId }),
-    }).catch(() => {
-      // Cron pushes it within five minutes.
-    }),
-  );
-  return "nudged";
-}
-
-/** The PMS this hotel is connected to; a live connection wins over a stale one. */
-async function hotelPmsType(admin: SupabaseClient, hotelId: string): Promise<string> {
-  const { data } = await admin.from("pms_connections").select("pms_type, status").eq("hotel_id", hotelId);
-  const rows = data ?? [];
-  const live = rows.find((r) => r.status === "connected") ?? rows[0];
-  return live ? String(live.pms_type) : "";
+  // The UI has just been told the push is on its way (sync-nudge.ts).
+  return nudgeHotelSync(admin, range.hotelId);
 }
 
 export async function POST(req: Request) {
@@ -377,7 +353,7 @@ export async function POST(req: Request) {
       return bad("Manual prices apply to tonight onwards; earlier nights have already sold.");
     }
     if (range.dateTo > isoDatePlus(today, MAX_DAYS_AHEAD)) {
-      return bad("MAYA prices up to a year ahead.");
+      return bad(`You can set a price up to ${MAX_DAYS_AHEAD + 1} nights ahead.`);
     }
 
     // Reject rather than clamp. A typed number that silently comes back as a

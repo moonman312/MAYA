@@ -239,7 +239,8 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchSpy);
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://proj.supabase.co");
   vi.stubEnv("CLOUDBEDS_CRON_SECRET", "shh");
-  vi.stubEnv("MAYA_PRICING_HORIZON_DAYS", "");
+  // The split tests below were written against a 60-night window.
+  vi.stubEnv("MAYA_PRICING_HORIZON_DAYS", "60");
 });
 
 afterEach(() => {
@@ -291,9 +292,9 @@ describe("POST /api/manual-price — validation", () => {
     ["a price above the ceiling, naming it", { ...GOOD, price: 401 }, /ceiling of \$400\.00/],
     ["a price numeric(10,2) cannot hold", { ...GOOD, price: 1e9 }, /more than MAYA can store/],
     ["a note over 500 characters", { ...GOOD, note: "x".repeat(501) }, /under 500 characters/],
-    // today + 364 = 2027-09-14 is the last night the engine ever prices.
-    ["a night more than a year out", { ...GOOD, dateFrom: "2027-09-15" }, /up to a year ahead/],
-    ["a span ending more than a year out", { ...GOOD, dateFrom: "2027-09-10", dateTo: "2027-09-15" }, /up to a year ahead/],
+    // today + 399 = 2027-10-19 is the last night the engine can ever price.
+    ["a night more than 400 nights out", { ...GOOD, dateFrom: "2027-10-20" }, /up to 400 nights ahead/],
+    ["a span ending more than 400 nights out", { ...GOOD, dateFrom: "2027-10-15", dateTo: "2027-10-20" }, /up to 400 nights ahead/],
     [
       "a room type from another property",
       { ...GOOD, roomTypeId: "77777777-7777-4777-8777-777777777777" },
@@ -450,18 +451,38 @@ describe("POST /api/manual-price — the save", () => {
     expect(pickups[3].retired_at).toBeNull();
   });
 
-  it("re-prices the hotel on the admin client, only as far as the change reaches", async () => {
+  it("re-prices the saved nights on the admin client, and only those", async () => {
     await post({ ...GOOD, dateFrom: "2026-09-20", dateTo: "2026-09-24" });
     expect(evaluateHotel).toHaveBeenCalledTimes(1);
-    const [client, hotelId, evalTs, horizon] = evaluateHotel.mock.calls[0];
+    const [client, hotelId, evalTs, horizon, opts] = evaluateHotel.mock.calls[0];
     expect(client).toBe(state.fake);
     expect(hotelId).toBe(HOTEL);
     // The run's snapshot lands at set_at: bookings taken before the price
     // was typed are then inside the pickup baseline, not counted as pickup.
     expect(evalTs).toBe(NOW.toISOString());
     expect(tables().get("manual_price")![0].set_at).toBe(evalTs);
-    // 15th through 24th inclusive.
-    expect(horizon).toBe(10);
+    // The window, and in it the five nights typed.
+    expect(horizon).toBe(60);
+    expect(opts).toEqual({
+      nights: ["2026-09-20", "2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24"],
+      runKind: "save",
+    });
+  });
+
+  it("prices no night past the window, and none at all for a save wholly beyond it", async () => {
+    // today + 59 = 2026-11-13 is the window's last night.
+    await post({ ...GOOD, dateFrom: "2026-11-12", dateTo: "2026-11-15" });
+    expect(evaluateHotel.mock.calls[0][4]).toEqual({ nights: ["2026-11-12", "2026-11-13"], runKind: "save" });
+    evaluateHotel.mockClear();
+    await post({ ...GOOD, dateFrom: "2026-12-01", dateTo: "2026-12-05" });
+    expect(evaluateHotel).not.toHaveBeenCalled();
+  });
+
+  it("names the window the hotel's last pass was started with, over its own copy of the switch", async () => {
+    state.fake = seed({ hotel_pricing_state: [{ hotel_id: HOTEL, pass_horizon_days: 396 }] });
+    const body = await (await post({ ...GOOD, dateFrom: "2026-11-14" })).json();
+    expect(body).toMatchObject({ pushed: "nudged", pushWindow: { now: 1, later: 0, days: 396 } });
+    expect(evaluateHotel.mock.calls[0][3]).toBe(396);
   });
 
   it("a failed evaluation does not fail the save", async () => {

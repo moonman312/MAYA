@@ -160,6 +160,8 @@ vi.mock("next/server", async (importOriginal) => ({
   },
 }));
 vi.mock("@/lib/engine", () => ({ evaluateHotel: vi.fn() }));
+const nudgeHotelSync = vi.hoisted(() => vi.fn(async () => "nudged"));
+vi.mock("@/lib/pms/sync-nudge", () => ({ nudgeHotelSync }));
 
 const { POST } = await import("./route");
 
@@ -393,14 +395,13 @@ describe("suspect_room_type: the owner's answer is counts_as_room, not is_active
     expect(audits(rpcs)[0]?.args.p_detail).toMatchObject({ before: null, after: true, via: "onboarding_review" });
   });
 
-  it("re-prices a live hotel (refresh mode) behind the response", async () => {
+  it("asks a live hotel's (refresh mode) scheduled sync to price it again", async () => {
     const { client, tables } = seedSuspect();
     tables.set("hotels", [{ id: HOTEL, is_active: true }]);
     state.client = client;
-    afterCalls.length = 0;
+    nudgeHotelSync.mockClear();
     expect((await post({ action: "confirm" })).status).toBe(200);
-    expect(afterCalls).toHaveLength(1);
-    afterCalls.length = 0;
+    expect(nudgeHotelSync).toHaveBeenCalledTimes(1);
   });
 
   it("404s, logs nothing and leaves the finding retryable when the type is gone", async () => {
