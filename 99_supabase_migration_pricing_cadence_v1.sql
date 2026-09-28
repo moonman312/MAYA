@@ -726,7 +726,8 @@ declare
     (select array_agg(distinct value::date) from jsonb_array_elements_text(coalesce(p_run->'momentum', '[]'::jsonb))),
     '{}'::date[]
   );
-  v_pass   jsonb := p_run->'pass';
+  -- A JSON null is no pass step, the same as the key left out.
+  v_pass   jsonb := nullif(p_run->'pass', 'null'::jsonb);
   v_cleared integer := 0;
   v_kept   integer := 0;
   v_moved  boolean := null;
