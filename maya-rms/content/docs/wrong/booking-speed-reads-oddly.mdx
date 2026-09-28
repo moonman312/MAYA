@@ -4,7 +4,7 @@ summary: Why two bookings can read Faster Than Normal, why a big count can still
 section: wrong
 order: 40
 readingTime: 13
-keywords: [faster than normal, much faster, surging, slower, much slower, stalled, normal, two bookings, small numbers, noise, guard, expected, expected 0.4, fraction, almost none, friday compared with saturday, widened the comparison, relaxed, festival, festival weekend, not a fair comparison, set aside, holiday, national holiday, bank holiday, our holiday, holiday we don't have modeled, group, wedding, 10 rooms, counts as ten, counts once, confirmation pending, not confirmed, optional, enquired, mews optional, cancelled, cancellation, cancellations, below zero, negative, momentum, how did we know, neighbouring dates, last raised, days since this night was last raised, days after this night was last raised, from that raise on, later that day, rest of that day, no bookings, empty room type fired]
+keywords: [faster than normal, much faster, surging, slower, much slower, stalled, normal, two bookings, small numbers, noise, guard, expected, expected 0.4, fraction, almost none, friday compared with saturday, widened the comparison, relaxed, festival, festival weekend, not a fair comparison, set aside, holiday, national holiday, bank holiday, our holiday, holiday we don't have modeled, group, wedding, 10 rooms, counts as ten, counts once, confirmation pending, not confirmed, optional, enquired, mews optional, cancelled, cancellation, cancellations, below zero, negative, momentum, how did we know, neighbouring dates, latest raise, since this rule or a stronger one's latest raise, latest raise still on this night, stronger rule, whole week, from that raise on, later that day, rest of that day, no bookings, empty room type fired]
 questions:
   - Why does it say Faster Than Normal from two bookings? {#why-does-it-say-faster-or-much-faster-than-normal-from-two-bookings/because-the-nights}
   - Why does it say Normal when we got far more bookings than usual? {#why-does-it-say-normal-when-we-got-far-more-bookings-than-usual}
@@ -17,10 +17,10 @@ questions:
   - Why is "expected" a fraction like 0.4? {#why-is-expected-a-fraction-like-04}
   - Do cancellations lower the count? {#do-cancellations-lower-the-count}
   - 'What does momentum mean in "How did we know?"' {#what-does-momentum-mean-in-how-did-we-know}
-  - Why does the change log say "in the 4 days since this night was last raised"? {#why-does-it-say-in-the-4-days-since-this-night-was-last-raised/the-change-log}
+  - Why does the change log say "in the 4 days since this rule or a stronger one's latest raise"? {#why-does-it-say-in-the-4-days-since-this-rule-or-a-stronger-ones-latest-raise/the-change-log}
   - Why did a booking speed rule fire on a room type with no bookings? {#why-did-a-booking-speed-rule-fire-on-a-room-type-with-no-bookings}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -117,7 +117,7 @@ Because it is an average. Expected is the trimmed average of what the similar ni
 
 Yes, but the count never goes below zero. It counts the bookings for the night that were made during the window and are still on the books. A booking that cancels drops out on the next read, so cancellations lower the count, down to none at the lowest. A booking made before the window that cancels during it was never in the count, so it changes nothing.
 
-The nights it is compared with are counted the same way: a past booking that cancelled is not in their counts either. When the bookings behind a raise cancel, the raise can come off. Read [When a change comes off](/docs/rules/when-a-change-comes-off).
+The nights it is compared with are counted the same way: a past booking that cancelled is not in their counts either. When bookings a change counted cancel, the change can come off, if the rule's undo box is ticked and the rule is no longer true. Read [When a change comes off](/docs/rules/when-a-change-comes-off).
 
 ## What does momentum mean in "How did we know?"
 
@@ -127,17 +127,17 @@ Under <Ui>Why did you expect that?</Ui> it explains "This night had no usable co
 
 A momentum reading counts as one comparable night, so it is always capped within one step of Normal. With too few neighbours it gives up: the reading is "not enough history" and booking speed rules stay quiet on that night.
 
-## Why does it say "in the 4 days since this night was last raised"?
+## Why does it say "in the 4 days since this rule or a stronger one's latest raise"?
 
-After a night has been raised, a rule that raises counts only the bookings made from that raise on, whichever booking speed or pickup rule made it, a paused one included. A raise by a standard rule, one with only occupancy or booking window conditions, does not change where counting starts.
+After a night has been raised, a rule that raises counts only the bookings made from the newest raise still on that night by itself or by a stronger rule, a rule you have switched off included. A weaker rule's raise does not change where it counts from, and nor does a raise by a standard rule, one with only occupancy or booking window conditions. A raise that has come off no longer counts.
 
-On the day of the raise, only the bookings that reached MAYA after it count, so a burst later that day is not lost. The nights it is compared with are read over the same days (the raise's own day in full). A rule that cuts counts from the night's last cut the same way. So one burst of bookings raises a night once, and a stronger rule steps in on top only when the bookings since that raise read faster on their own.
+On the day of the raise, only the bookings that reached MAYA after it count, so a burst later that day is not lost. A rule that raises on a fast pace (<Ui>Faster Than Normal</Ui>, <Ui>Much Faster Than Normal</Ui> or <Ui>Surging</Ui>) needs those bookings alone to beat what a night like this usually gets in its whole window. Any other rule compares them with the similar nights over the same days. A rule that cuts counts full days only, from the day after the newest cut still on the night by itself or a stronger rule, up to yesterday. So one burst of bookings raises a night once, and a weaker rule steps in on top only when the bookings since that raise keep it true on their own.
 
-The change log sentence names the shorter stretch: "Bookings came in faster than normal in the 4 days since this night was last raised: 6, against the 2 a night like this usually gets in those days." The <Ui>How did we know?</Ui> panel opens with "This night was last raised on Fri, Nov 13 2026. In the 4 days from that raise on, 6 bookings arrived for it, with 20 days still to go before arrival." Under <Ui>Why did you expect that?</Ui> it adds "Once a night has been raised, rules that raise count only the bookings made after that raise, whichever rule made it". That raise is always one made by a booking speed or pickup rule.
+The change log sentence names the shorter stretch: "Bookings came in faster than normal in the 4 days since this rule or a stronger one's latest raise still on this night: 6, against the 2 a night like this usually gets in a whole week." The <Ui>How did we know?</Ui> panel opens with "The newest raise still on this night's price, by the rule behind this reading or a stronger rule, was made on Fri, Nov 13 2026. In the 4 days from that raise on, 6 bookings arrived for it, with 20 days still to go before arrival." That raise is always one made by a booking speed or pickup rule.
 
-When the raise was made today, the stretch is that one day: the change log says "later on the day this night was last raised" and the panel starts "Later that day,".
+When the raise was made today, the stretch is that one day: the change log says "later on the day of this rule or a stronger one's latest raise still on this night" and the panel starts "Later that day,".
 
-A price you type on the night starts it over: the rule waits its wait from your price, then reads its whole window again. Read [How rules run](/docs/rules/how-rules-run).
+A price you type on the night starts it over: the rule waits its wait from your price, then reads its whole window again. Read [How rules run](/docs/rules/how-rules-run#counting-after-a-change).
 
 ## Why did a booking speed rule fire on a room type with no bookings?
 

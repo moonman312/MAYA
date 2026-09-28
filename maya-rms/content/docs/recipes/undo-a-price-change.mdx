@@ -15,7 +15,7 @@ questions:
   - Will deleting a rule undo the prices it set? {#delete-the-rule-every-night-it-touched}
   - I use Mews, does the price I type reach Mews? {#type-the-price-you-want-one-night-right-now/cloudbeds-when-you}
   - When does the price I type reach my system? {#type-the-price-you-want-one-night-right-now/cloudbeds-when-you}
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -36,7 +36,7 @@ Press Enter or click <Ui>Save</Ui>. The line under the box says what happens nex
 </Step>
 </Steps>
 
-Your number becomes that night's starting point. Rules that fire later still stack on top of it, so this is a correction, not a lock. If a rule keeps adjusting the night, the amber banner asks you after three adjustments and you can answer <Ui>Stop for this night</Ui>. To hand the night back to MAYA afterwards, click <Ui>Clear</Ui>.
+Your number becomes that night's starting point. Rules that fire later still stack on top of it, so this is a correction, not a lock. If a rule keeps adjusting the night, the amber banner asks you once three of its changes are on the night, and you can answer <Ui>Stop for this night</Ui>. To hand the night back to MAYA afterwards, click <Ui>Clear</Ui>.
 
 <PmsTabs>
 <PmsTab pms="cloudbeds">
@@ -71,17 +71,18 @@ Deleting cannot be undone, and it takes the rule's changes off every night, not 
 
 ## Stop the rule on that night
 
-When a booking speed or pickup rule has adjusted the same night three times, an amber banner at the top of the app asks what to do. <Ui>Stop for this night</Ui> means the rule makes no more changes there. It does not put the price back: what the rule already did stays, unless it was a raise and enough of the bookings behind it cancel. Pair it with a typed price if you want a particular number.
+When three of a booking speed or pickup rule's changes are on the same night, an amber banner at the top of the app asks what to do. <Ui>Stop for this night</Ui> means the rule makes no more changes there. It does not put the price back: what the rule already did stays, unless its undo box is ticked and cancellations mean the rule is no longer true. Pair it with a typed price if you want a particular number.
 
-The banner only appears after three adjustments. Before that, a typed price resets the night to your number, but it does not hold it there. Your price starts the rule's wait again (the days it leaves a night alone). Once the wait is over, the rule can move the price again. To keep your number, switch the rule <Ui>Off</Ui> on the <Ui>Rules</Ui> tab, which stops it on every night, not only this one.
+The banner only appears at three changes. Before that, a typed price resets the night to your number, but it does not hold it there. Your price starts the rule's wait again (the days it leaves a night alone). Once the wait is over, the rule can move the price again. To keep your number, switch the rule <Ui>Off</Ui> on the <Ui>Rules</Ui> tab, which stops it on every night, not only this one.
 
 ## What comes off by itself
 
 Some changes undo themselves, so check the change log before you act.
 
-- A standard rule (occupancy or booking window) takes its change off the moment its condition stops holding. A cancellation that drops a night under the mark reverts the raise.
-- A raise from a booking speed or pickup rule comes off when enough of the bookings behind it cancel.
-- A cut from a booking speed or pickup rule never comes off by itself.
+- A standard rule (occupancy or booking window) takes its change off the moment its condition stops holding. With its undo box ticked, as it is on every new rule, a cancellation that drops a night under the mark takes the raise off.
+- A booking speed or pickup rule's change comes off when its undo box is ticked and cancellations mean the rule is no longer true. If bookings made since keep the rule true, the change stays.
+- A cut made because a night was booking slowly never comes off this way, because cancellations only make the rule truer.
+- With the undo box unticked, cancellations never take a change off. Read [When a price change comes off](/docs/rules/when-a-change-comes-off).
 
 <Callout kind="good-to-know">
 The <Ui>On</Ui> / <Ui>Off</Ui> switch freezes a rule. Off means the rule makes no new changes and its existing changes stay exactly where they are. It is a pause, not an undo.

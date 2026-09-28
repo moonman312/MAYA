@@ -26,7 +26,7 @@ questions:
   - What do Connected, Pending, Degraded, Error and Disconnected mean? {#a-to-c/connected}
   - What does MAYA call lead time, STLY (same time last year), comp set, pace and yield rules? {#words-from-other-revenue-tools/comp-set}
   - Does MAYA use length of stay (LOS)? {#words-from-other-revenue-tools/length-of-stay}
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -155,7 +155,7 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 **Rule.** One sentence you write once: when a night looks like this, change its price by that much. MAYA checks every rule against your bookings about every five minutes. Read [Build your first rule](/docs/rules/build-your-first-rule).
 
-**Rules that keep adjusting** (screen). The amber banner that asks you what to do once a booking speed or pickup rule has adjusted the same night three times. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
+**Rules that keep adjusting** (screen). The amber banner that asks you what to do once three of a booking speed or pickup rule's changes are on the same night. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
 
 **Season.** A stretch of your year that books differently, found from your own history and never set by hand. It only ever appears inside an explanation. Read [Similar nights](/docs/rules/similar-nights).
 
@@ -177,7 +177,7 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 ## T to Y
 
-**Then waits** (screen: Then waits (advanced)). How long a booking speed rule leaves a night alone after acting on it: 1 day to 2 weeks, 1 week when unset. A rule with a pickup count condition waits at least its lookback. Read [Booking speed](/docs/rules/booking-speed).
+**Then waits** (screen: Then waits (advanced)). How long a booking speed or pickup rule leaves a night alone after acting on it: 1 day to 2 weeks. A booking speed row waits 1 week when unset, and a pickup count row waits its lookback window (<Ui>Same as the lookback window</Ui>) unless you choose another. A rule with both waits the longer of the two. Read [Booking speed](/docs/rules/booking-speed).
 
 **Three-times question.** Another name for the Rules that keep adjusting banner.
 

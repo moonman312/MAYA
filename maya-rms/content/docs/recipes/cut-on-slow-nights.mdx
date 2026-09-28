@@ -13,7 +13,7 @@ questions:
   - Will a cut ever come off by itself? {#what-happens-after-it-cuts/the-cut-stays}
   - Does a wedding block count as many bookings for booking speed? {#what-the-rule-reads}
   - Is this the same as the starter rule Slow-date trim? {#what-happens-after-it-cuts/good-to-know}
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -41,7 +41,7 @@ Under <Ui>Rate adjustment</Ui>, choose <Ui>Decrease the rate</Ui> and type 7 in 
 
 ## What the rule reads
 
-For each night in the next 60, MAYA counts the bookings that night received over the past 30 days and compares the count with what similar past nights (same weekday, same time of year, up to 3 years back) had received over the same stretch of their own run-up. A booking counts once, however many rooms it holds. Only the room types the rule measures are counted.
+For each night in the next 60, MAYA counts the bookings that night received over the 30 full days up to yesterday and compares the count with what similar past nights (same weekday, same time of year, up to 3 years back) had received over the same stretch of their own run-up. A rule that cuts judges complete days only, so a quiet morning never counts against a night. A booking counts once, however many rooms it holds. Only the room types the rule measures are counted.
 
 How a wedding block counts depends on how it was booked. On Cloudbeds and ThinkReservations, one reservation that holds several rooms counts as one booking. When guests book their own rooms from the block, each of their reservations counts as a booking. On Mews every room is its own reservation, so a group counts once per room. For occupancy, every booked room counts either way.
 
@@ -49,7 +49,7 @@ How a wedding block counts depends on how it was booked. On Cloudbeds and ThinkR
 
 ## What happens after it cuts
 
-The cut stays on the price, and cancelled bookings never take it off. For 1 week the rule leaves that night alone for that room type. When the wait is over it counts only the bookings made since the night was last cut by a booking speed or pickup rule, this one or another. A cut from a standard rule, such as "Last minute", does not restart the count. It compares those bookings with the same days on the similar nights, and if they read slow on their own, it cuts another 7%, and the change log reads: Then "Slow nights" lowered it another 7%. Once it has cut the same night three times, the amber banner asks whether to keep adjusting or stop.
+The cut stays on the price. Cancellations only make a slow night slower, so they never take it off. For 1 week the rule leaves that night alone for that room type. When the wait is over it counts only the bookings made in the full days after the newest cut still on that night by this rule or a stronger one, up to yesterday. A cut from a weaker rule, or from a standard rule such as "Last minute", does not restart the count. It compares those bookings with the same days on the similar nights, and if they read slow on their own, it cuts another 7%, and the change log reads: Then "Slow nights" lowered it another 7%. Once three of its cuts are on the same night, the amber banner asks whether to keep adjusting or stop.
 
 <Callout kind="careful">
 A cut stays until you type a price on the night, delete the rule or the night passes. At the room type's floor no further cut fires, but the cuts already made stay. Set a real floor before you go live: MAYA's default of $1.00 stops nothing.

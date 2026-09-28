@@ -4,7 +4,7 @@ summary: Every change you can make in Cloudbeds, ThinkReservations or Mews, whet
 section: connect
 order: 110
 readingTime: 13
-keywords: [how soon, how long, how quickly, delay, lag, when does MAYA see, picks up, new booking, cancellation, no show, test booking, test reservation, dummy booking, made and cancelled, booked and cancelled, dates changed, early departure, early check-out, checked out early, left early, shortened stay, shorten a stay, moved room, room type changed, rate changed, closed night, rate plan renamed, rate plan deleted, rate plan rebuilt, same percentage, every night, markup, room type added, room type removed, units changed, room count, same count, blocked rooms, allotment, restrictions, taxes, password, time zone changed, currency changed, name changed, revoked keys, keys stopped working, Last sync, five minutes, hourly, once a day, daily, full re-read, not read, never reads, large property, slow, backoff, extended stay, extension, day use, day-use, same-day check-out, comp, house use, $0 booking]
+keywords: [how soon, how long, how quickly, delay, lag, when does MAYA see, picks up, new booking, cancellation, no show, test booking, test reservation, dummy booking, made and cancelled, booked and cancelled, dates changed, early departure, early check-out, checked out early, left early, shortened stay, shorten a stay, moved room, room type changed, rate changed, closed night, rate plan renamed, rate plan deleted, rate plan rebuilt, same percentage, every night, markup, room type added, room type removed, units changed, room count, list of rooms, blocked rooms, allotment, restrictions, taxes, password, time zone changed, currency changed, name changed, revoked keys, keys stopped working, Last sync, five minutes, hourly, once a day, daily, full re-read, not read, never reads, large property, slow, backoff, extended stay, extension, day use, day-use, same-day check-out, comp, house use, $0 booking]
 questions:
   - How soon after a booking in my system does MAYA see it? {#in-plain-words}
   - How long until a cancellation shows in MAYA? {#every-change-and-when-maya-picks-it-up/cloudbeds-you-do}
@@ -23,7 +23,7 @@ questions:
   - Do day-use (same-day in and out) bookings count in MAYA? {#every-change-and-when-maya-picks-it-up/a-day-use}
   - Why is MAYA slow to pick up changes on a large property? {#when-it-takes-longer/a-large-propertys}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -82,9 +82,9 @@ Three clocks set how soon a change in your system reaches MAYA. This page names 
 | Change most nights MAYA has sent to by the same percentage (80% or more of them, and 10 at least) | Not kept as yours. It reads as a markup in your system, and MAYA's next price replaces them. Type those prices in MAYA instead |
 | Set a night's rate to 0 (close it) | Within the hour. Your rules leave the night alone unless a price is typed for it in MAYA. So also clear any price you typed for that night in MAYA. Otherwise MAYA may keep your typed price and send it once you are live |
 | Rename, rebuild or delete a rate type | Within the hour, at the next rates read, or sooner if a send to the old rate type fails. MAYA then sends to the new base rate |
-| Add a room type | Next read, with your property's one room count, the same as every other room type (100 unless we have changed it). A separate count per room type is not possible yet. Set its floor and ceiling |
+| Add a room type | Next read, with its rooms counted from ThinkReservations' list of rooms. Untick <Ui>Counts as a room</Ui> on the <Ui>PMS</Ui> tab if nobody sleeps there. Set its floor and ceiling |
 | Remove a room type | Never removed in MAYA. It keeps its past stays and still counts as a room with its last number of units, in occupancy and in your bill, so untick <Ui>Counts as a room</Ui> on the <Ui>PMS</Ui> tab. Its prices cannot be sent. Email us to switch it off |
-| Change a room type's number of rooms | Never. ThinkReservations does not report counts, so every room type shares your property's one count. Email us to change that count |
+| Add a room, or mark one inactive, not a room or not included in occupancy | Next read. MAYA counts each room type's rooms from ThinkReservations' list of rooms on every read. Read [How many rooms each room type has](/docs/connect/thinkreservations#how-many-rooms-each-room-type-has) |
 | Block a room or mark it out of order | Not read. Record it under <Ui>Rooms out of service</Ui> in MAYA |
 | Change restrictions or minimum stays | Not read, never written |
 | Remove MAYA's access | On the next read that fails. ThinkReservations does not tell MAYA |
@@ -127,8 +127,7 @@ A test booking counts like any other booking while it is in your system. What ha
 If your rules ran with it, here is what happens to what they did:
 
 - **A rule with only occupancy and booking window conditions** follows the count. A change that needed the test booking comes off on the cycle that reads the cancellation, and a change it was holding back can now happen.
-- **A booking speed or pickup raise** comes off only when enough of the bookings behind it cancel, and one test booking may not be enough. Read [When a price change comes off](/docs/rules/when-a-change-comes-off).
-- **A cut from a booking speed or pickup rule** never comes off by itself.
+- **A booking speed or pickup change** comes off when its rule's undo box is ticked and the cancellation means the rule is no longer true. One test booking may not be enough, and bookings made since can keep the rule true. A cut made because a night was booking slowly never comes off this way. Read [When a price change comes off](/docs/rules/when-a-change-comes-off).
 
 In simulation nothing was sent. If you are live on Cloudbeds or ThinkReservations, a price it moved was sent like any other (nothing is ever sent to Mews). To put a night straight back, type the price you want on the calendar. Read [Undo a price change](/docs/recipes/undo-a-price-change).
 
@@ -151,7 +150,7 @@ At 3:02 PM (US Pacific, the property's clock) a guest books a Standard room for 
 </Example>
 
 <Callout kind="not-yet" title="Not yet">
-There is no button to read your system right now. The cycle runs on its own about every five minutes. Blocks, allotments and restrictions are not read from any system. Time zone, currency and name are read once. ThinkReservations room counts are never read, and every ThinkReservations room type has the same count. Mews rates are never read.
+There is no button to read your system right now. The cycle runs on its own about every five minutes. Blocks, allotments and restrictions are not read from any system. Time zone, currency and name are read once. Mews rates and Mews room counts are never read.
 </Callout>
 
 <Related>

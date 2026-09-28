@@ -16,7 +16,7 @@ questions:
   - Does turning a rule off undo what it did? {#turn-rules-off/every-rule-on}
   - Can I put my prices back to what they were? {#in-plain-words}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -29,7 +29,7 @@ To pause, turn your rules off: the prices they set stay where they are. To undo 
 |---|---|---|
 | Stop every rule acting from now on | Turn each rule <Ui>Off</Ui> on the <Ui>Rules</Ui> tab | Stay as they are |
 | Undo everything one rule did | <Ui>Delete</Ui> the rule | Go back to what they would be without it, and are sent |
-| Stop one rule on certain nights | Answer <Ui>Stop for this night</Ui> on the amber banner | Stay as they are, unless enough of the bookings behind a raise cancel |
+| Stop one rule on certain nights | Answer <Ui>Stop for this night</Ui> on the amber banner | Stay as they are, unless the rule's undo box is ticked and cancellations mean the rule is no longer true |
 | Hold a price on a night or a stretch | Type the price on the <Ui>Calendar</Ui> tab, with <Ui>through…</Ui> for a range | Become the price you typed |
 | Stop sending altogether, keep everything else | Email us to go back to simulation | Stay as they are |
 
@@ -39,7 +39,7 @@ Every rule on the <Ui>Rules</Ui> tab has an <Ui>On</Ui> / <Ui>Off</Ui> switch. C
 
 Off freezes. The rule stops acting, and every change it has already made stays on the price: a raise stays raised, a cut stays cut. Those prices are already in your system and MAYA does not send them again or send anything to undo them. Turn the rule <Ui>On</Ui> again and it resumes from the next run, starting from the prices as they are.
 
-Two details are easy to miss. A rule that is off is not checked for cancellations, so a raise it made does not come off when the bookings behind it cancel. And a booking speed or pickup count rule that is off still marks the last time it raised a night (or cut it). The other booking speed rules that move the price the same way count only bookings since then. [Turning a rule off, deleting it, or changing it](/docs/rules/off-delete-or-change) has the detail.
+Two details are easy to miss. A rule that is off is not checked for cancellations, so a change it made does not come off when the bookings behind it cancel. And a change made by a booking speed or pickup count rule that is off still counts as a starting point while it is on the price: the rule itself and every weaker rule that moves the price the same way count only bookings made since that change. [Turning a rule off, deleting it, or changing it](/docs/rules/off-delete-or-change) has the detail.
 
 To pause everything, turn every rule off. Nothing else happens: MAYA keeps reading your bookings and your rates, and sends a price only when one changes. With every rule off, a price changes when you type or clear one, or when a floor or ceiling you change moves it. And each morning one new night enters the window. It goes out at your own rate, kept between your floor and ceiling. [Pause everything for a while](/docs/recipes/pause-everything) is the short version.
 
@@ -57,7 +57,7 @@ Delete removes the rule and every effect it had. The next pricing run prices eve
 
 ## Stop a rule on certain nights
 
-Once a booking speed or pickup rule has adjusted the same night three times, the amber Rules that keep adjusting banner asks you what to do. <Ui>Stop for this night</Ui> stops that rule on that night. What it already cut stays. A raise it already made stays, unless enough of the bookings behind it cancel. Your other rules keep working there. The rule then shows a "Stopped on 3 nights" chip on the <Ui>Rules</Ui> tab, and <Ui>Let it run again</Ui> puts it back. [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting) explains the banner. There is no way to stop a rule on one night before the banner asks, other than turning the rule off everywhere. A typed price takes off what the rule already did on that night, but the rule can fire on it again.
+Once three of a booking speed or pickup rule's changes are on the same night, the amber Rules that keep adjusting banner asks you what to do. <Ui>Stop for this night</Ui> stops that rule on that night. What it already changed there stays, unless its undo box is ticked and cancellations mean the rule is no longer true. Your other rules keep working there. The rule then shows a "Stopped on 3 nights" chip on the <Ui>Rules</Ui> tab, and <Ui>Let it run again</Ui> puts it back. [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting) explains the banner. There is no way to stop a rule on one night before the banner asks, other than turning the rule off everywhere. A typed price takes off what the rule already did on that night, but the rule can fire on it again.
 
 ## Hold a price on a night or a stretch
 

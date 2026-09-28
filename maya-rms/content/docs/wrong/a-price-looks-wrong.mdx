@@ -3,7 +3,7 @@ title: A price looks wrong
 summary: 'Every price surprise in one place: a jump of 50%, a raise on an empty night, a cut on a full one, $1, $99,999, stuck at the floor, changed with no rule named, back to the base rate, and an unpriced night, each with the reason and the fix.'
 section: wrong
 order: 20
-readingTime: 15
+readingTime: 16
 keywords: [jumped, jump, 50%, doubled, too high, too low, $1, 1.00, 99999, 99,999.99, floor, ceiling, stuck, stuck at the floor, empty night raised, raised an empty night, cut a full night, nearly full, no rule named, the rate moved from, back to the base rate, went back, reverted, unpriced, current price dash, no price, three times, keeps going, stop did not go back, same rule twice, another 15%, typed price disappeared, manual price gone, pricing rule, sold out, full night, no rooms left, still changing, yen, capped at 99,999.99, hidden room type, room type switched off, inactive room type, deactivated room type, removed room type, deleted room type, room type removed in cloudbeds, mews starting price, new booking changed the price, re-add a starter rule, rebuild a starter rule, slow-date trim, lost money, losing money, lost me money, cost me money, lost bookings, lost revenue, losing revenue]
 questions:
   - Why did the price jump 50%? {#why-did-the-price-jump-50/two-rules-acted}
@@ -21,7 +21,7 @@ questions:
   - Why does the same rule appear twice on one night? {#why-does-the-same-rule-appear-twice-on-one-night}
   - Why did my typed price disappear? {#why-did-my-typed-price-disappear/someone-pressed-clear}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -39,7 +39,7 @@ The change log shows the chain with running prices, each step followed by its ow
 > Then "Hot-week surge" raised it 25%, from $220.00 to $275.00.
 > Bookings came in much faster than normal this past week: 12, against the 5 a night like this usually has by now.
 
-Once one booking speed rule has adjusted the same night three times, the amber <Ui>Rules that keep adjusting</Ui> banner asks you whether to carry on or stop. Until you answer, it keeps going. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
+Once three of one booking speed rule's changes are on the same night, the amber <Ui>Rules that keep adjusting</Ui> banner asks you whether to carry on or stop. Until you answer, it keeps going. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
 
 If the jump is bigger than you want, set a ceiling. The default ceiling is $99,999.99, which stops nothing in most currencies. Read [Floors and ceilings](/docs/review/floors-and-ceilings).
 
@@ -57,7 +57,7 @@ To keep raises off empty nights, add <Ui>Sellable occupancy (%)</Ui> <Ui>Greater
 
 ## Why did it cut a night that is nearly full?
 
-A cut rule with only a booking speed condition does not look at occupancy. It counts bookings made in its window (past day, week or month) and compares them with similar nights over the same stretch. A night that filled up months ago and received one booking this month reads slower than a night like it usually books, and the cut fires.
+A cut rule with only a booking speed condition does not look at occupancy. It counts bookings made in its window (past day, week or month, in full days up to yesterday) and compares them with similar nights over the same stretch. A night that filled up months ago and received one booking this month reads slower than a night like it usually books, and the cut fires.
 
 A wedding or group booked as one reservation makes this more likely: for booking speed, a booking counts once however many rooms it holds. Twenty rooms in one reservation are 20 rooms for occupancy and one booking for booking speed.
 
@@ -71,7 +71,7 @@ MAYA does not read how many rooms your system still has for sale. A full night i
 
 On a sold-out night:
 
-- **An occupancy raise stays.** A rule such as "Busy nights" keeps its one raise while the night stays above its mark, and takes it off if cancellations bring the night back down to the mark or under.
+- **An occupancy raise stays.** A rule such as "Busy nights" keeps its one raise while the night stays above its mark, and, with its undo box ticked, takes it off if cancellations bring the night back down to the mark or under.
 - **A booking speed cut can still fire.** A full night takes no new bookings, so its recent count can read slow against similar nights that were still selling at the same point (the question above).
 - **Raises already made stay on the price**, as they do on any night.
 
@@ -98,7 +98,7 @@ In a currency where rooms sell for more than 99,999.99 (yen, won, rupiah or dong
 Set a ceiling the same way as a floor: <Ui>Get suggestions from my data</Ui> on the <Ui>Rules</Ui> tab, which <Ui>Ask MAYA for a ceiling</Ui> on the amber banner also takes you to. MAYA offers a ceiling only for a room type whose ceiling is still the $99,999.99 default. It also needs your answer to the ceiling question during setup, or at least 200 sold nights for that room type. The number is your answer or one built from the highest rates you have sold at, and you can type your own before pressing <Ui>Set it to</Ui>. As with a floor, there is no screen yet for changing a ceiling once it is set.
 
 <Callout kind="good-to-know" title="The banner tells you when a limit is still the default">
-When a rule has adjusted a night three times and the limit is still the default, the banner's night card says so: "Your ceiling for Suite is still MAYA's $99,999.99 default, so the price can climb that far."
+When three of a rule's changes are on a night and the limit is still the default, the banner's night card says so: "Your ceiling for Suite is still MAYA's $99,999.99 default, so the price can climb that far."
 </Callout>
 
 ## Why is my price stuck at the floor?
@@ -127,8 +127,8 @@ A fourth shape names a rule you cannot find: **"Pricing rule"**. That is a rule 
 
 Four reasons, and the change log names each.
 
-- **A standard rule switched off.** A rule with only occupancy or booking window conditions holds its change while the condition holds. A cancellation drops occupancy under the mark, the condition stops holding, and the change comes off on the next run.
-- **A raise came off after cancellations.** "\"Warm-date bump\" stopped applying an earlier 10% raise here: enough of the bookings behind it cancelled." A raise from booking speed at <Ui>Faster Than Normal</Ui> or above comes off when the bookings still on the books from the days it counted fall back to what a night like it usually gets over those days. A raise from pickup count <Ui>Greater than</Ui> comes off when the rooms booked in the room types it measures fall back to where they were when its window opened. A cut never comes off this way, and nor does any other raise.
+- **A standard rule switched off.** A rule with only occupancy or booking window conditions holds its change while the condition holds. With its undo box ticked, a cancellation that drops occupancy under the mark stops the condition holding, and the change comes off on the next run.
+- **A change came off after cancellations.** "Cancellations meant \"Warm-date bump\" was no longer true, so its 10% raise came off." With a rule's undo box ticked, a booking speed or pickup change comes off when bookings it counted cancel and the rule is no longer true for the night, unless bookings made since keep it true. A cut made because a night was booking slowly never comes off this way, and nor does any change from a rule with its undo box unticked.
 - **A rule was deleted.** Deleting undoes every change the rule made, from the next run.
 - **A manual price was cleared.** <Ui>Clear</Ui> on the room type card hands the night back to your rules. Standard rules (occupancy and booking window) that the typed price had paused apply again at once, if their condition still holds. Booking speed and pickup changes it took off stay off. Those rules change the night again only by firing anew, which they are free to do from the next run.
 
@@ -152,19 +152,19 @@ The base price a rule started from is not shown on the day card, only the price 
 
 ## Why did my rule fire three times and keep going?
 
-Because it keeps going until you answer. Once a booking speed or pickup rule has adjusted the same night three times, the amber <Ui>Rules that keep adjusting</Ui> banner appears at the top of every tab: "\"Hot-week surge\" has raised Fri, Nov 13 2026 3 times." and "It keeps raising these nights until you stop it."
+Because it keeps going until you answer. Once three of a booking speed or pickup rule's changes are on the same night, the amber <Ui>Rules that keep adjusting</Ui> banner appears at the top of every tab: "\"Hot-week surge\" has 3 raises on Fri, Nov 13 2026." and "It keeps raising these nights until you stop it."
 
 Answer <Ui>Keep adjusting</Ui> and MAYA stops asking about that night. Answer <Ui>Stop for this night</Ui> and the rule makes no more changes there. Only a Revenue Manager or above can answer. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
 
 ## I answered Stop but the price did not go back
 
-Stop means no more changes from that rule on that night. What it already did stays. For a cut, "What it already cut stays." For a raise, "A raise it already made stays, unless enough of the bookings behind it cancel."
+Stop means no more changes from that rule on that night. What it already did stays: "What it already changed there stays, unless cancellations mean the rule is no longer true." For a rule with its undo box unticked: "What it already changed there stays."
 
 To put the price where you want it, type it on the <Ui>Calendar</Ui> tab. To undo everything the rule did on every night, delete the rule. Read [Undo a price change](/docs/recipes/undo-a-price-change).
 
 ## Why does the same rule appear twice on one night?
 
-"\"Slow-date trim\" lowered this night 7%, from $200.00 to $186.00." and, after its reason, "Then \"Slow-date trim\" lowered it another 7%, from $186.00 to $172.98." is one rule that fired, waited its wait, and fired again. A booking speed rule can act on the same night more than once. After the first change it counts only bookings made since the night was last cut (or raised), compared with similar nights over the same days, and if those still read slow it cuts again. Three times on one night brings the amber banner.
+"\"Slow-date trim\" lowered this night 7%, from $200.00 to $186.00." and, after its reason, "Then \"Slow-date trim\" lowered it another 7%, from $186.00 to $172.98." is one rule that fired, waited its wait, and fired again. A booking speed rule can act on the same night more than once. After the first change it counts only bookings made in the full days since the newest cut still on the night by itself or a stronger rule, up to yesterday, compared with similar nights over the same days, and if those still read slow it cuts again. Three of its changes on one night bring the amber banner.
 
 ## Why did my typed price disappear?
 

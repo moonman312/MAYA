@@ -3,7 +3,7 @@ title: Messages you might see, explained
 summary: Every message, label and banner MAYA shows, grouped by where you see it, each with one line on what it means and what to do, and a link to the page that explains it.
 section: wrong
 order: 100
-readingTime: 39
+readingTime: 41
 readingNote: Type a few words of the message to jump to it
 keywords: [message, error, what does this mean, rule was edited, started it fresh, nobody edited it, banner, warning, red text, amber, popup, dialog, label, button, it says, screen says, explained, glossary of messages, A to Z, find a message, marketplace-initiated, Think Reservations connection failed]
 questions:
@@ -24,7 +24,7 @@ questions:
   - What does "We don't recognize that code" mean? {#payment-codes-and-checkout/we-dont-recognize}
   - The log says the rule was edited but nobody edited it {#the-change-log/the-rule-was}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-27
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -170,7 +170,7 @@ Type a few words of the message into the box below to jump to it. Every message 
 - **"Compare"** with **"Greater than"** / **"Less than"**, and **"Threshold"**: strict comparisons. Greater than 80 means more than 80.
 - **"Speed"**: Stalled, Much Slower Than Normal, Slower Than Normal, Normal, Faster Than Normal, Much Faster Than Normal, Surging. [Booking speed](/docs/rules/booking-speed)
 - **"Measured over"** with **"Past day"** / **"Past week"** / **"Past month"**: the window of bookings counted.
-- **"Then waits (advanced)"** with **"1 day"** to **"2 weeks"**, and **"(pickup holds it to 3 days)"**: how long the rule leaves a night alone after acting. A pickup lookback longer than the wait wins.
+- **"Then waits (advanced)"** with **"1 day"** to **"2 weeks"**, and **"(pickup holds it to 3 days)"**: how long the rule leaves a night alone after acting. A rule with a pickup row and a booking speed row waits the longer of their two waits.
 - **"Lookback window"** and **"Pickup measures"** with **"Room nights (units)"** / **"Revenue (currency)"**: pickup count settings. [Pickup count](/docs/rules/pickup-count)
 - **"Rate adjustment"**, **"Direction (required)"** with **"Increase the rate"** / **"Decrease the rate"**, **"Adjust by percent (%)"**, **"Adjust by fixed amount ($)"**: choose a percent or a fixed amount. If both boxes are ticked, only the percent is saved.
 - **"Apply to room types"** with **"Select all"** / **"Clear"**, and the tag **"not a room"**: which room types the rule measures and changes.
@@ -339,11 +339,11 @@ Type a few words of the message into the box below to jump to it. Every message 
 
 <Group>
 
-- **"Rules that keep adjusting"**: a booking speed or pickup rule has adjusted the same night three times. It keeps going until you answer. [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting)
-- **""Hot-week surge" has raised Fri, Nov 13 2026 3 times."**, **""Slow-date rescue" has cut 4 nights, 3 times each."**, **"3 to 5 times each"**, **"up to 5 times each"**: the headline. **"would have raised"** / **"would have cut"**: you are simulating.
+- **"Rules that keep adjusting"**: three of a booking speed or pickup rule's changes are on the same night. It keeps going until you answer. [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting)
+- **""Hot-week surge" has 3 raises on Fri, Nov 13 2026."**, **""Slow-date rescue" has 3 cuts on each of 4 nights."**, **"3 to 5 cuts on each of 4 nights"**, **"up to 5 cuts"**: the headline, counting the rule's changes still on the price. **"would have"**: you are simulating.
 - **"It keeps raising these nights until you stop it."** / **"It keeps cutting these nights until you stop it."**: what happens while nobody answers.
-- **"3 times on Standard, once on Deluxe"**: fires per room type on that night.
-- **"In the 7 days it measured, 9 bookings came in. A night like this usually has about 5 by then."**, **"no bookings came in"**, **"almost none"**: what the rule read.
+- **"3 raises on Standard and 1 raise on Deluxe"**: the rule's changes still on the price, per room type on that night.
+- **"In the 7 days it measured, 9 bookings came in. A night like this usually has about 5 by then."**, **"no bookings came in"**, **"almost none"**: what the rule read at its latest change. **"Since the raise before its latest one, by it or a stronger rule, 12 bookings came in. A night like this usually gets about 5 in a whole week."**: a rule that raises on a fast pace counted only from an earlier raise.
 - **"Pickup over the last 3 days came to 6 room nights, against the 4 you set."**: a pickup rule's reading.
 - **"If it keeps cutting, the price can fall to your $80.00 floor for Standard."** and **"If it keeps raising, the price can climb to your $400.00 ceiling for Deluxe."**: how far the price can go.
 - **"Your ceiling for Suite is still MAYA's $99,999.99 default, so the price can climb that far."** and **"Your floor for Standard is still MAYA's $1.00 default, so the price can fall that far."**: no limit is set. **"About this limit"** explains; **"Ask MAYA for a ceiling"** / **"Ask MAYA for a floor"** takes you to the Rules tab.

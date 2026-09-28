@@ -24,7 +24,7 @@ questions:
   - We write prices as 180,50. Do I type a comma or a point in the price box? {#currency/typing-amounts}
   - How far ahead does MAYA see bookings? {#how-far-ahead-maya-looks/bookings}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -106,7 +106,7 @@ If a booking's date looks a day off from what your system shows, [email us](mail
 
 Two things are counted in hours rather than hotel days:
 
-- **A rule's wait.** After a booking speed or pickup rule changes a night, it leaves that night alone for its wait: 1 day to 2 weeks for a booking speed rule, the lookback for a pickup rule. The wait is counted in 24-hour periods from the moment the rule acted. [How rules run](/docs/rules/how-rules-run)
+- **A rule's wait.** After a booking speed or pickup rule changes a night, it leaves that night alone for its wait: 1 day to 2 weeks, set in <Ui>Then waits (advanced)</Ui>. A pickup rule waits its lookback window unless you choose another. The wait is counted in 24-hour periods from the moment the rule acted. [How rules run](/docs/rules/how-rules-run)
 - **A pickup lookback.** "The last 3 days" means from exactly 3 times 24 hours before the check. A check at 3:05 PM reaches back to 3:05 PM three days earlier. [Pickup count](/docs/rules/pickup-count)
 
 ## Daylight saving

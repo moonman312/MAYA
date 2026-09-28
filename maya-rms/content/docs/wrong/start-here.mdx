@@ -13,7 +13,7 @@ questions:
   - How do I put a price back to what it was? {#can-i-undo-that/type-the-price}
   - Why is MAYA quiet? {#why-did-nothing-change-today/most-pricing-runs}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -41,19 +41,19 @@ A tentative booking is different. On Cloudbeds a booking marked Confirmation Pen
 For a block held in your system without bookings, enter those rooms as out of service on the <Ui>PMS</Ui> tab so occupancy reads against what you can sell.
 
 <Callout kind="careful">
-A cut made by a booking speed rule never comes off by itself. A raise comes off when enough of the bookings behind it cancel. A cut stays until you type a price or delete the rule. Other rules stack on top of it.
+A cut made because a night was booking slowly never comes off for cancellations, because guests cancelling only make it truer. It stays until you type a price or delete the rule. Other rules stack on top of it.
 </Callout>
 
 Read [A price looks wrong](/docs/wrong/a-price-looks-wrong) for the other surprises, and [Booking speed](/docs/rules/booking-speed) for how the count works.
 
 ## Why did nothing change today?
 
-Most pricing runs change nothing, and the change log hides them by default. Press <Ui>Show All Cycles</Ui> and you will see a run about every five minutes reading "Prices checked" and nothing needed to change. A quiet property is a property whose rules were checked and found no reason to act.
+Most pricing runs change nothing, and the change log hides them by default. Press <Ui>Show All Cycles</Ui> and each stretch of those runs shows as one line, such as "Prices checked 47 times from Sep 24, 10:05 AM to 1:55 PM (4 min ago), nothing needed to change." A quiet property is a property whose rules were checked and found no reason to act.
 
 The usual reasons a rule stays quiet:
 
 - **A standard rule holds.** A rule with only occupancy or booking window conditions changes the price once when its condition starts to hold, then holds it. It does not fire again every day.
-- **A booking speed rule is waiting.** After it acts on a night it leaves that night alone for its wait, from 1 day to 2 weeks. When the wait is over it counts only bookings made since the night was last raised (or last cut), so a burst it already acted on cannot make it act again.
+- **A booking speed rule is waiting.** After it acts on a night it leaves that night alone for its wait, from 1 day to 2 weeks. When the wait is over it counts only bookings made since the newest change still on that night by itself or a stronger rule moving the price the same way, so a burst already acted on cannot make it act again.
 - **Not enough history.** A booking speed rule stays quiet only when there are neither similar past nights nor enough nearby nights to read momentum from (how nearby nights are filling now). Then <Ui>How did we know?</Ui> under a change says no booking speed call was made. Occupancy and booking window rules work from day one.
 - **A read failed.** A run whose booking read failed prices nothing and sends nothing. <Ui>Last sync</Ui> on the <Ui>PMS</Ui> tab shows the last read that worked. On Cloudbeds, <Ui>Health (last 24 hours)</Ui> also counts the requests that failed. On ThinkReservations and Mews that card always reads "No recent activity", so check <Ui>Last sync</Ui>.
 - **The subscription lapsed.** A red banner at the top of the app reads "MAYA has paused work on this property". Nothing runs until the subscription restarts. After failed payments, update your card. After a cancellation, start a new subscription. The banner says which, and its <Ui>Restart MAYA</Ui> button opens the <Ui>Billing</Ui> page.
@@ -82,7 +82,7 @@ MAYA sends prices only when you have gone live, and only for nights whose price 
 
 - **The go-live card.** Open the review screen at <AppLink to="review">maya-rms.com/onboarding/review</AppLink>. The card headed "While you were here, we built your first pricing rules" shows "✓ Live: your rules are now managing prices" once you are live, and the button <Ui>Turn them on for real</Ui> while you are simulating. The card appears only when MAYA built starter rules for you during setup, which needs about 60 days of history, and it goes once someone clicks <Ui>Get suggestions from my data</Ui>. Without it, read [Going live](/docs/live/going-live).
 - **A price you typed.** If you typed a price for a real reason lately, its confirmation read "Saved. Sending to Cloudbeds now." on a live property and "Saved (simulation: not sent to Cloudbeds)." while simulating. Do not type a price only to test this: on a live property it sends the price, and it takes any booking speed or pickup change off that night for good.
-- **The alert banner.** In simulation the amber banner says a rule "would have raised" a night. Live, it says "has raised".
+- **The alert banner.** In simulation the amber banner says a rule "would have 3 raises" on a night. Live, it says "has 3 raises".
 - **Compare a night.** Open a night in your property system and in MAYA. Live, the rate there matches MAYA's <Ui>Current price</Ui> within a few minutes of a change.
 
 Sending problems show in the <Ui>Change Log</Ui> tab as an item headed "Rates not reaching Cloudbeds" (or your system's name). Success is silent. <Ui>Last sync</Ui> on the <Ui>PMS</Ui> tab is the last time bookings were read, not the last time a price was sent.

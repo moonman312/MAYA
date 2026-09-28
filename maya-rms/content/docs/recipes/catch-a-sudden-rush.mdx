@@ -3,7 +3,7 @@ title: Catch a sudden rush
 summary: Build a booking speed rule that raises a night 25% when its bookings over the past day read Surging, waits a day, and raises again only if the bookings since that raise are still pouring in.
 section: recipes
 order: 100
-readingTime: 3
+readingTime: 4
 keywords: [sudden rush, spike, surge, surging, past day, concert, event announced, went viral, raise 25%, sudden-spike catcher, booking speed rule, waits 1 day, demand spike, rush of bookings]
 questions:
   - How do I catch a sudden rush of bookings? {#in-plain-words}
@@ -12,7 +12,7 @@ questions:
   - How many bookings does it take to read as Surging? {#what-surging-takes}
   - Will the raise come off if the bookings cancel? {#what-happens-after-it-raises/the-raise-stays}
   - Why did a night keep getting raised? {#what-happens-after-it-raises/the-raise-stays}
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -43,11 +43,11 @@ Picking <Ui>Surging</Ui> means the rule fires on Surging only. To fire on a broa
 
 ## What happens after it raises
 
-The raise stays on the price, up to the room type's ceiling. For 1 day the rule leaves that night alone. Then it counts only the bookings made since the night was last raised by a booking speed or pickup rule (this one or another). If those alone read Surging, it raises another 25%.
+The raise stays on the price, up to the room type's ceiling. For 1 day the rule leaves that night alone. Then it counts only the bookings made since the newest raise still on that night by this rule or a stronger one. If those alone read Surging against what a similar night gets in a whole day, it raises another 25%.
 
-A raise by an occupancy or booking window rule does not restart that count. One burst of bookings raises a night once, not once per rule. After three raises on the same night, the amber banner asks whether to keep adjusting or stop.
+A raise by a weaker rule, or by an occupancy or booking window rule, does not restart that count. One burst of bookings raises a night once, not once per rule. Once three of its raises are on the same night, the amber banner asks whether to keep adjusting or stop.
 
-A raise comes off by itself when enough of the bookings behind it cancel: when the bookings still on the books from the day it counted are back to what a night like it usually has. The change log then reads: "Sudden rush" stopped applying an earlier 25% raise here: enough of the bookings behind it cancelled.
+The rule's undo box, <Ui>Undo the change if cancellations mean this rule is no longer true</Ui>, starts ticked. With it ticked, a raise comes off when bookings it counted cancel and the ones still booked no longer read Surging, unless bookings made since keep the rule true. The change log then reads: Cancellations meant "Sudden rush" was no longer true, so its 25% raise came off. Untick the box and cancellations never take the raise off. Read [When a price change comes off](/docs/rules/when-a-change-comes-off).
 
 <Callout kind="careful">
 Set a ceiling first. A rule that raises stops at the room type's ceiling, and MAYA's default of $99,999.99 stops nothing in most currencies. Read [Set or change a floor or ceiling](/docs/recipes/set-a-floor-or-ceiling).
