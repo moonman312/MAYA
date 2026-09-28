@@ -42,7 +42,7 @@ Rules run every day of the year, for every night in the window. When two rules c
 
 **One night only.** A rule cannot be limited to one night. Type a price for that night instead.
 
-**Both a percent and a fixed amount.** The form has both boxes, but when both are ticked only the percent is saved. Choose one. For "10% plus $5", make two rules. They stack.
+**Both a percent and a fixed amount.** A rule has one amount: type a number in one box and the other greys out. For "10% plus $5", make two rules. They stack.
 
 **An exact price, like $199.** A rule changes the price by a percent or a fixed amount, up or down. It cannot set the price to a number. For an exact price, type it on the calendar for that night, or for a run of nights with <Ui>through…</Ui>. It is published as you typed it, and rules that fire later stack on top of it. Read [Setting a price yourself](/docs/watch/setting-a-price-yourself).
 
@@ -55,7 +55,7 @@ Rules run every day of the year, for every night in the window. When two rules c
 **Two conditions of the same kind.** One of each: at most one occupancy row, one booking speed row, one booking window row and one pickup row per rule. For a band such as "between 60% and 80%", the builder cannot say it. Use two rules: one at <Ui>Greater than</Ui> 60, and a second at <Ui>Greater than</Ui> 80 that makes the change you want above the band. The two stack, so choose the second amount with the first already applied.
 
 <Example title="A band with two rules">
-You want Standard ($150) up $15 above 60% full, and up $30 in all above 80%. Fixed amounts add, so build two rules on Standard alone. Rule A: <Ui>Greater than</Ui> 60, <Ui>Increase the rate</Ui>, <Ui>Adjust by fixed amount ($)</Ui> 15 (untick the percent). Rule B: the same with <Ui>Greater than</Ui> 80. With 9 of 12 Standard rooms booked (75%), only rule A holds: $165. With 11 of 12 booked (92%), both hold: $180.
+You want Standard ($150) up $15 above 60% full, and up $30 in all above 80%. Fixed amounts add, so build two rules on Standard alone. Rule A: <Ui>Greater than</Ui> 60, <Ui>Increase the rate</Ui>, <Ui>Adjust by fixed amount ($)</Ui> 15. Rule B: the same with <Ui>Greater than</Ui> 80. With 9 of 12 Standard rooms booked (75%), only rule A holds: $165. With 11 of 12 booked (92%), both hold: $180.
 </Example>
 
 **A cap on how far or how fast prices move.** There is no setting such as "never more than 20% below my base rate" or "at most one change a day", and a floor or ceiling cannot be a percentage. Floors and ceilings are fixed amounts, one pair per room type, the same on every night.

@@ -20,7 +20,7 @@ questions:
   - What does "stopped applying an earlier 10% raise" mean in the change log? {#the-change-log-sentences/what-happened-what}
   - Why is there no change log entry for a price that went back? {#the-change-log-sentences/what-happened-what}
   - What happens to prices when I accept a Tune suggestion? {#a-rule-that-is-changed}
-updated: 2026-09-27
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -29,7 +29,7 @@ A standard rule's change comes off when its condition stops holding. A booking s
 
 ## The undo box
 
-Every rule has one box, <Ui>Undo the change if cancellations mean this rule is no longer true</Ui>, under <Ui>Rate adjustment</Ui> in the rule builder. It starts ticked on every new rule, and starter rules and accepted suggestions are ticked too. On the <Ui>Rules</Ui> tab it shows under each rule's switch as <Ui>Undo on cancellations</Ui>, where a Revenue Manager or above can tick or untick it without changing anything else about the rule. Anyone else who tries sees "Only a Revenue Manager or above can change this." The "?" beside the box sums up this page.
+Every rule has one box, <Ui>Undo the change if cancellations mean this rule is no longer true</Ui>, under <Ui>Rate adjustment</Ui> in the rule builder. It starts ticked on every new rule, and starter rules and accepted suggestions are ticked too. It is set when you add the rule: the rules list does not show it, and a saved rule's box cannot be changed, so to change it, add the rule again. Read [Changing a rule](/docs/rules/off-delete-or-change#changing-a-rule). The "?" beside the box sums up this page.
 
 - **Ticked.** When a booking that a change counted cancels, MAYA checks the rule again. If the rule is no longer true for that night, the change comes off. If bookings made since keep it true, the change stays.
 - **Unticked.** Cancellations never take the change off.
@@ -95,7 +95,7 @@ If a price looks wrong and you want it fixed now, type the price you want. It is
 
 ## A rule that is changed
 
-Today there is no edit control for a rule. The one change you can make in place is accepting a "Tune ... ?" suggestion after <Ui>Get suggestions from my data</Ui>, which moves the occupancy threshold of a standard rule. From the next cycle the rule checks every night against the new threshold, so a night that no longer meets it loses the change, and a night that now meets it gains one. Ticking or unticking the undo box is not a change to the rule: its changes stay where they are.
+Today there is no edit control for a rule. The one change you can make in place is accepting a "Tune ... ?" suggestion after <Ui>Get suggestions from my data</Ui>, which moves the occupancy threshold of a standard rule. From the next cycle the rule checks every night against the new threshold, so a night that no longer meets it loses the change, and a night that now meets it gains one.
 
 ## The night passes
 

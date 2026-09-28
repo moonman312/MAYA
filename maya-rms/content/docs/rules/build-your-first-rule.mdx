@@ -14,7 +14,7 @@ questions:
   - Do I need to understand revenue management to use MAYA? {#before-you-start}
   - Why does a new rule's Fired count jump so fast? {#what-you-see-in-the-list-afterwards}
   - How much should I raise or cut by? Is 10% a sensible amount? {#choosing-the-amount/how-much-a}
-updated: 2026-09-27
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -54,7 +54,7 @@ In <Ui>Rule name</Ui>, type Busy nights. The name is how you will find the rule 
 Under <Ui to="rules.new" q="focus=conditions">Conditions</Ui>, one row is already there. Leave <Ui>Metric</Ui> on <Ui>Sellable occupancy (%)</Ui>, leave <Ui>Compare</Ui> on <Ui>Greater than</Ui>, and leave <Ui>Threshold</Ui> at 80. Read together, the row says: when more than 80% of the rooms you can sell that night are booked.
 </Step>
 <Step title="Choose the change">
-Under <Ui>Rate adjustment</Ui>, open <Ui>Direction (required)</Ui> and choose <Ui>Increase the rate</Ui>. The box <Ui>Adjust by percent (%)</Ui> is already ticked with 10 in it. Leave <Ui>Adjust by fixed amount ($)</Ui> unticked, and leave <Ui>Undo the change if cancellations mean this rule is no longer true</Ui> ticked.
+Under <Ui>Rate adjustment</Ui>, open <Ui>Direction (required)</Ui> and choose <Ui>Increase the rate</Ui>. Type 10 in <Ui>Adjust by percent (%)</Ui>. <Ui>Adjust by fixed amount ($)</Ui> greys out, because a rule has one amount. Leave <Ui>Undo the change if cancellations mean this rule is no longer true</Ui> ticked.
 </Step>
 <Step title="Pick the room types">
 Under <Ui>Apply to room types</Ui>, every room type that counts as a room is already selected. Leave them all on. A type tagged "not a room" (The Harbour Inn's Meeting Room, say) stays out unless you click it.
@@ -110,7 +110,7 @@ If two Friday guests cancel, Friday drops to 15 of 20, 75%, and on the next chec
 
 ## Choosing the amount
 
-How much a rule raises or cuts is your choice. There is no right number, and MAYA does not pick one for you. The builder starts at 10%, which is $15 on The Harbour Inn's $150 Standard. Three things help you settle on yours:
+How much a rule raises or cuts is your choice. There is no right number, and MAYA does not pick one for you. The percent box shows "e.g. 10" until you type, and 10% is $15 on The Harbour Inn's $150 Standard. Three things help you settle on yours:
 
 - **Use the starter rules as a reference.** They cut by 7% and 15% and raise by 10% and 25%. Read [Your starter rules](/docs/review/your-starter-rules).
 - **Try it before it counts.** In the <Ui>Rate Simulator</Ui>, make up a night and see what each room type becomes. Then watch a week of the change log in simulation before you go live.

@@ -4,7 +4,7 @@ summary: What the On/Off switch and Delete each do to prices already set, how to
 section: rules
 order: 110
 readingTime: 7
-keywords: [turn off, switch off, pause, disable, enable, delete, delete a rule, undo its changes, keep its changes, edit a rule, change a rule, rename, copy, duplicate, limit on rules, how many rules, 40 rules, 40 active rules, maximum, already has 40 active rules, switch will not turn on, fired column, fired count, times fired, filter, all enabled disabled, order of the list, price change column, dollar sign, pricing rule, deleted rule in the log, rule turned off still affects counts, paused rule, switched-off rule, who created this rule, who added it, who deleted it, who switched it off, who turned it off, audit, audit trail, created by, history of rule changes, undo on cancellations, untick the undo box, undo box in the rules table]
+keywords: [turn off, switch off, pause, disable, enable, delete, delete a rule, undo its changes, keep its changes, edit a rule, change a rule, rename, copy, duplicate, limit on rules, how many rules, 40 rules, 40 active rules, maximum, already has 40 active rules, switch will not turn on, fired column, fired count, times fired, filter, all enabled disabled, order of the list, price change column, dollar sign, pricing rule, deleted rule in the log, rule turned off still affects counts, paused rule, switched-off rule, who created this rule, who added it, who deleted it, who switched it off, who turned it off, audit, audit trail, created by, history of rule changes, undo on cancellations, untick the undo box, change the undo box]
 questions:
   - How do I edit a rule? {#changing-a-rule}
   - What does turning a rule Off do to the prices it already changed? {#the-onoff-switch/each-rule-on}
@@ -19,8 +19,8 @@ questions:
   - Why does the Price Change column show a dollar sign when my currency is euro? {#the-list/price-change}
   - The Fired count is higher than the changes I can see. {#the-list/fired}
   - Who created this rule, and who switched it off or deleted it? {#who-did-what}
-  - Can I change the undo box on a rule I already saved? {#the-list/undo-on-cancellations}
-updated: 2026-09-27
+  - Can I change the undo box on a rule I already saved? {#changing-a-rule}
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -66,6 +66,8 @@ There is no edit control. To change a rule:
 
 If you want to keep the old prices in place while the new rule takes over, turn the old rule off instead of deleting it, and leave it off.
 
+The same goes for the undo box, <Ui>Undo the change if cancellations mean this rule is no longer true</Ui>. It is set when you add the rule, and the rules list does not show it. To change it, add the rule again with the box as you want it. Read [The undo box](/docs/rules/when-a-change-comes-off#the-undo-box).
+
 The one change that can be made in place is a "Tune ... ?" card after <Ui>Get suggestions from my data</Ui>, which moves the occupancy threshold of a standard rule. From the next cycle the rule checks every night against the new threshold, so a night that no longer meets it loses the change, and a night that now meets it gains one. Read [Getting suggestions later](/docs/review/getting-suggestions-later) and [Change a rule](/docs/recipes/change-a-rule).
 
 <Callout kind="not-yet">
@@ -88,8 +90,6 @@ The rules table has seven columns: <Ui>Name</Ui>, <Ui>Fired</Ui>, <Ui>Conditions
 
 **Price Change.** "+10%", "-15%", "+$25", "-$25". The sign in this column is always a dollar sign, whatever your property's currency. The amount is in your currency. The change log and the keeps-adjusting banner use your currency's own symbol.
 
-**Undo on cancellations.** A box under each rule's switch, with a "?" beside it. Ticked, cancellations take one of the rule's changes off when they mean the rule is no longer true. Ticking or unticking it saves at once, and nothing else about the rule changes: its changes stay where they are. Read [The undo box](/docs/rules/when-a-change-comes-off#the-undo-box).
-
 **Stopped on N nights.** An amber chip under the switch when you have told the rule to stop on some upcoming nights, with a "?" and a <Ui>Let it run again</Ui> link. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
 
 <OpenInMaya to="rules.list" filter="enabled" words="Open the Rules tab on the rules that are on" />
@@ -102,7 +102,7 @@ Every occupancy or booking window rule whose condition holds applies, and their 
 
 ## Who can do this
 
-Revenue Managers, General Managers and Hotel Admins can switch and delete rules and tick or untick their undo box. A Viewer sees the switch and the <Ui>Delete</Ui> button, but clicking them changes nothing. A Viewer who clicks the undo box sees it go back, with "Only a Revenue Manager or above can change this." under it. Read [Roles: who can do what](/docs/team/roles).
+Revenue Managers, General Managers and Hotel Admins can switch and delete rules. A Viewer sees the switch and the <Ui>Delete</Ui> button, but clicking them changes nothing. Read [Roles: who can do what](/docs/team/roles).
 
 ## Who did what
 
