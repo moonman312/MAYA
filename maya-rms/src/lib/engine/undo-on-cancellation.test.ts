@@ -25,6 +25,7 @@ import { resetBookingSpeedLogOnce as edgeResetLog } from "../../../supabase/func
 import { resetBookingSpeedLogOnce as appResetLog } from "./booking-speed-provider";
 import { evaluateHotel as appEvaluateHotel } from "./evaluate";
 import { fakeSupabase, type FakeRow } from "./fake-supabase.test";
+import { buildExplainView, humanDate } from "@/lib/explain";
 
 const D0 = "2026-09-16";
 const MIN = 60_000;
@@ -647,9 +648,13 @@ describe.each(ENGINES)("$name: the undo box", (engine) => {
         ["Ten", iso(at(0, 10, 5)), null],
         ["Five", iso(at(3, 10, 5)), null],
       ]);
-      // It counted from Monday's raise, not from when the raise was checked.
+      // It counted from Monday's raise, not from when the raise was checked,
+      // and the drill-down behind Thursday's raise names Monday.
       expect(w.fires()[1].window_since).toBe(iso(at(0, 10, 5)));
       expect(w.fires()[1].window_bookings_at_fire).toBe(5);
+      const thursday = w.tables.evaluation_audit.find((a) => a.stay_date === NIGHT && a.evaluated_at === iso(at(3, 10, 5)));
+      const reading = (thursday?.details as { booking_speed_observations?: unknown[] } | undefined)?.booking_speed_observations?.[0];
+      expect(buildExplainView(reading)?.observed).toContain(`was made on ${humanDate(D0)}.`);
     }, 120_000);
   });
 

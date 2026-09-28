@@ -135,10 +135,10 @@ describe("nightWhy", () => {
     // the rule counted from its own or a stronger rule's raise, and
     // window_expected is what a night like this gets in the whole window.
     expect(nightWhy(night({ window_days: 2, window_bookings: 5, window_expected: 2.33 }), "$", 7)).toEqual([
-      "Since its or a stronger rule's latest raise still on this night, 5 bookings came in. A night like this usually gets about 2 in a whole week.",
+      "Since the raise before its latest one, by it or a stronger rule, 5 bookings came in. A night like this usually gets about 2 in a whole week.",
     ]);
     expect(nightWhy(night({ window_days: 4, window_bookings: 9, window_expected: 0.4 }), "$", 30)[0]).toBe(
-      "Since its or a stronger rule's latest raise still on this night, 9 bookings came in. A night like this usually gets almost none in a whole month.",
+      "Since the raise before its latest one, by it or a stronger rule, 9 bookings came in. A night like this usually gets almost none in a whole month.",
     );
     // Over its whole window it reads as before.
     expect(nightWhy(night({ window_days: 7, window_bookings: 9, window_expected: 2.33 }), "$", 7)[0]).toBe(
@@ -307,7 +307,7 @@ describe("buildRuleAlerts", () => {
     const short = [night({ window_days: 2, window_bookings: 5, window_expected: 2.33 })];
     const [raise] = build({ nights: short, wholeWindowDays: new Map([[RULE, 7]]) });
     expect(raise.nights[0].why[0]).toBe(
-      "Since its or a stronger rule's latest raise still on this night, 5 bookings came in. A night like this usually gets about 2 in a whole week.",
+      "Since the raise before its latest one, by it or a stronger rule, 5 bookings came in. A night like this usually gets about 2 in a whole week.",
     );
     const [other] = build({ nights: short });
     expect(other.nights[0].why[0]).toBe("In the 2 days it measured, 5 bookings came in. A night like this usually has about 2 by then.");

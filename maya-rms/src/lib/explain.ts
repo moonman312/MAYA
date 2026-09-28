@@ -149,7 +149,10 @@ export function buildExplainView(
   // from the newest of those changes still on the price (engine/pickup.ts,
   // countFromFireAt over openFireHeads, and bookingSpeedCountFrom: one that
   // came off for cancellations covers nothing). A weaker rule's change, or one the other way,
-  // never moves where it counts from. The reading is shared by every rule
+  // never moves where it counts from. The day named is the change's own:
+  // counting runs from when it was made (its applied_at), and a change a
+  // cancellation check kept on bookings made since still counts from then,
+  // so this never names the day it was last checked. The reading is shared by every rule
   // that counts from the same change, so it can't name which rule made it:
   // the copy says "this rule or a stronger one". countedAfter says raise or
   // cut; a snapshot without it reads as a change. With countedSince the

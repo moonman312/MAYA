@@ -254,7 +254,7 @@ describe("GET /api/rules/alerts", () => {
     });
     const body = await (await GET()).json();
     expect(body.alerts[0].nights[0].why).toEqual([
-      "Since its or a stronger rule's latest raise still on this night, 6 bookings came in. A night like this usually gets about 1 in a whole week.",
+      "Since the raise before its latest one, by it or a stronger rule, 6 bookings came in. A night like this usually gets about 1 in a whole week.",
     ]);
   });
 

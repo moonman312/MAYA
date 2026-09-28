@@ -217,17 +217,21 @@ function spanWord(days: number): string {
  * What the rule was looking at when it last fired, one short sentence per
  * signal. A booking speed rule names the bookings it measured against the
  * pace similar nights set; a pickup rule names the pickup against the mark
- * the owner typed, over its window, or since the newest raise (cut, for a
- * rule that cuts) still on the night by it or a stronger rule when that is
+ * the owner typed, over its window, or since the raise (cut, for a rule
+ * that cuts) before its latest one, by it or a stronger rule, when that is
  * where its count opened (pickupWindowOpensAt in engine/pickup.ts: the
  * fire's pickup_window_days is then null). A rule with both says both.
+ * Either way the count ran from when that change was made: a change a
+ * cancellation check kept later still counts from its own applied_at
+ * (openFireHeads in engine/pickup.ts), so this names the change itself,
+ * not when it was last checked.
  *
  * `wholeWindowDays` is the rule's booking speed window when it raises on a
  * fast pace (engine keepsWholeWindowBar): measured over fewer days than
- * that, it counted only the bookings since the newest raise still on the
- * night by it or a stronger rule, and those alone had to beat what a night like this
- * gets in the whole window, which is what window_expected then is.
- * `direction` is the rule's.
+ * that, it counted only the bookings since the raise before its latest
+ * one, by it or a stronger rule, and those alone had to beat what a night
+ * like this gets in the whole window, which is what window_expected then
+ * is. `direction` is the rule's.
  */
 export function nightWhy(
   night: AlertNightRow,
@@ -239,7 +243,7 @@ export function nightWhy(
   if (night.window_days != null && night.window_bookings != null) {
     const sinceRaise = wholeWindowDays != null && night.window_days < wholeWindowDays;
     const measured = sinceRaise
-      ? `Since its or a stronger rule's latest raise still on this night, ${bookingsPhrase(night.window_bookings)}.`
+      ? `Since the raise before its latest one, by it or a stronger rule, ${bookingsPhrase(night.window_bookings)}.`
       : `In the ${dayWord(night.window_days)} it measured, ${bookingsPhrase(night.window_bookings)}.`;
     out.push(
       night.window_expected == null
@@ -257,7 +261,7 @@ export function nightWhy(
     const over =
       night.pickup_window_days != null
         ? `over the last ${dayWord(night.pickup_window_days)}`
-        : `since its or a stronger rule's latest ${change} still on this night`;
+        : `since the ${change} before its latest one, by it or a stronger rule,`;
     out.push(`Pickup ${over} came to ${got}, against the ${mark} you set.`);
   }
   return out;

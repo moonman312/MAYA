@@ -85,10 +85,10 @@ describe("the owner alert on a pickup count that started at its own or a stronge
 
   it("says since it or a stronger rule last raised or cut the night when no window's days were counted", () => {
     expect(nightWhy(night(), "$", null, "increase")).toEqual([
-      "Pickup since its or a stronger rule's latest raise still on this night came to 6 room nights, against the 3 you set.",
+      "Pickup since the raise before its latest one, by it or a stronger rule, came to 6 room nights, against the 3 you set.",
     ]);
     expect(nightWhy(night({ pickup_net: 0, pickup_threshold: 1 }), "$", null, "decrease")).toEqual([
-      "Pickup since its or a stronger rule's latest cut still on this night came to 0 room nights, against the 1 you set.",
+      "Pickup since the cut before its latest one, by it or a stronger rule, came to 0 room nights, against the 1 you set.",
     ]);
   });
 
