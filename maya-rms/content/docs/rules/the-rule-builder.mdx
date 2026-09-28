@@ -4,7 +4,7 @@ summary: Every field in + Add a rule, what each one accepts, what happens when y
 section: rules
 order: 20
 readingTime: 12
-keywords: [rule builder, add a rule, conditions, metric, compare, threshold, direction, percent, fixed amount, dollar amount, apply to room types, not a room, meeting room never fires, select all, add rule, form stays open, draft kept, switch tabs, please fill out this field, please select an item in the list, value must be greater than or equal to 0, browser message, invalid payload, invalid room types, no accessible hotel, viewer, failed to save, 40 active rules, maximum, too many rules, amount of 0, both percent and fixed, limit on the amount, maximum percent, how big a cut, 100% cut, 150%, typo, price went to $1, price at the floor, combine conditions, four conditions]
+keywords: [rule builder, add a rule, conditions, metric, compare, threshold, direction, percent, fixed amount, dollar amount, apply to room types, not a room, meeting room never fires, select all, add rule, form stays open, draft kept, switch tabs, please fill out this field, please select an item in the list, value must be greater than or equal to 0, browser message, invalid payload, invalid room types, no accessible hotel, viewer, failed to save, 40 active rules, maximum, too many rules, amount of 0, both percent and fixed, limit on the amount, maximum percent, how big a cut, 100% cut, 150%, typo, price went to $1, price at the floor, combine conditions, four conditions, undo box, undo the change if cancellations mean this rule is no longer true, ticked by default, pickup wait, then waits]
 questions:
   - What are the parts of a rule? {#in-plain-words}
   - What conditions can a rule use? {#conditions/metric-label-what}
@@ -13,6 +13,7 @@ questions:
   - Can I use both a percent and a fixed amount in one rule? {#rate-adjustment/the-rate-adjustment}
   - Why did my rule fail to save with an amount of 0? {#rate-adjustment/careful-an-amount}
   - Is there a limit on how big a raise or cut can be? {#rate-adjustment/is-there-a}
+  - What does the checkbox under the amounts do? {#rate-adjustment/under-the-amounts}
   - What does "Apply to room types" do? {#apply-to-room-types/the-apply-to}
   - Why is a room type tagged "not a room" in the picker? {#apply-to-room-types/the-apply-to}
   - Can a Viewer add rules? {#who-can-add-rules}
@@ -23,11 +24,11 @@ questions:
   - Why does a rule for the Meeting Room alone never fire? {#apply-to-room-types/with-one-list}
   - Why does my browser say "Please fill out this field" when I add a rule? {#messages-you-can-meet}
   - What does "This property already has 40 active rules" mean? {#messages-you-can-meet}
-updated: 2026-09-24
+updated: 2026-09-27
 ---
 
 <InPlainWords>
-A rule has a name, one to four conditions that must all be true, a direction and an amount, and the room types it changes. The four conditions are sellable occupancy, booking speed, booking window and pickup count, one of each at most. The amount is a percent or a fixed amount, one or the other. Click <Ui>Add Rule</Ui> and the rule is on.
+A rule has a name, one to four conditions that must all be true, a direction and an amount, and the room types it changes. The four conditions are sellable occupancy, booking speed, booking window and pickup count, one of each at most. The amount is a percent or a fixed amount, one or the other. A box under the amount, ticked to start, lets cancellations undo the rule's changes. Click <Ui>Add Rule</Ui> and the rule is on.
 </InPlainWords>
 
 ## Where the builder is
@@ -53,7 +54,7 @@ The <Ui>Metric</Ui> dropdown has four choices. Each has its own page.
 | <Ui>Sellable occupancy (%)</Ui> | Rooms booked divided by rooms you can sell that night | <Ui>Compare</Ui> (<Ui>Greater than</Ui> or <Ui>Less than</Ui>), <Ui>Threshold</Ui>, default Greater than 80 | [Sellable occupancy](/docs/rules/sellable-occupancy) |
 | <Ui>Booking speed (recommended)</Ui> | How many bookings the night received recently, compared with similar past nights at the same point | <Ui>Speed</Ui> (seven levels, default <Ui>Faster Than Normal</Ui>), <Ui>Measured over</Ui> (default <Ui>Past week</Ui>), <Ui>Then waits (advanced)</Ui> (default <Ui>1 week</Ui>) | [Booking speed](/docs/rules/booking-speed) |
 | <Ui>Booking window (days to stay)</Ui> | Days until the stay, on your property's own calendar (today is 0) | <Ui>Compare</Ui>, <Ui>Threshold</Ui>, default Greater than 7 | [Booking window](/docs/rules/booking-window) |
-| <Ui>Pickup count (advanced)</Ui> | Room nights (or revenue) the night gained in the last 1, 3 or 7 days | <Ui>Compare</Ui>, <Ui>Threshold</Ui> (default Greater than 5), <Ui>Lookback window</Ui> (default <Ui>3 days</Ui>), <Ui>Pickup measures</Ui> (default <Ui>Room nights (units)</Ui>) | [Pickup count (advanced)](/docs/rules/pickup-count) |
+| <Ui>Pickup count (advanced)</Ui> | Room nights (or revenue) the night gained in the last 1, 3 or 7 days | <Ui>Compare</Ui>, <Ui>Threshold</Ui> (default Greater than 5), <Ui>Lookback window</Ui> (default <Ui>3 days</Ui>), <Ui>Then waits (advanced)</Ui> (default <Ui>Same as the lookback window</Ui>), <Ui>Pickup measures</Ui> (default <Ui>Room nights (units)</Ui>) | [Pickup count (advanced)](/docs/rules/pickup-count) |
 
 A few things about the number fields:
 
@@ -63,7 +64,7 @@ A few things about the number fields:
 - Booking speed has no <Ui>Compare</Ui> field. Picking a level above Normal means "that fast or faster", a level below Normal means "that slow or slower", and <Ui>Normal</Ui> means exactly Normal.
 
 <Callout kind="good-to-know">
-Beside <Ui>Measured over</Ui> and <Ui>Then waits (advanced)</Ui> there is a "?" you can hover or focus. It opens a short panel that says how booking speed is counted and what the wait does. The same words are on the [Booking speed](/docs/rules/booking-speed) page.
+Beside <Ui>Measured over</Ui> and each <Ui>Then waits (advanced)</Ui> there is a "?" you can hover or focus. It opens a short panel that says how booking speed is counted or what the wait does, what the rule counts once a night has changed, and what makes one rule stronger than another. The same is on the [Booking speed](/docs/rules/booking-speed) and [Pickup count](/docs/rules/pickup-count) pages.
 </Callout>
 
 ## Rate adjustment
@@ -77,6 +78,8 @@ The <Ui>Rate adjustment</Ui> section has a dropdown and two boxes.
 <Ui>Adjust by fixed amount ($)</Ui> is a checkbox with a number box. It starts unticked. A fixed amount adds to or subtracts from the price: $25 on $150 gives $175. The box shows a $ sign whatever your property's currency. The amount is in your property's currency.
 
 Type the amount as a positive number in either box. The direction dropdown supplies the sign. If you type a negative number, your browser stops the save and points at the box. Unticking a box clears its number.
+
+Under the amounts is one more checkbox, <Ui>Undo the change if cancellations mean this rule is no longer true</Ui>, ticked to start. Ticked, a change the rule makes comes off when guests cancel and the rule is no longer true for that night. Unticked, cancellations never take its changes off. You can change it later on the <Ui>Rules</Ui> tab. Read [The undo box](/docs/rules/when-a-change-comes-off#the-undo-box).
 
 **"Is there a limit on how big a raise or cut can be?"** Not one you would meet: any amount above 0 saves in either box, up to just under 1,000,000. A raise stops at the room type's ceiling. A cut that would take the price below the floor publishes the floor instead. A cut of 100% or more, or a fixed cut as big as the price, takes the price to 0 or below on its own, so the room type's floor is published, and the floor is 1.00 in your property's currency until you set one. A typo such as 150 for 15 on a cut rule does exactly that. Set real floors before you use large cuts, and read the number again before you click <Ui>Add Rule</Ui>. Read [Floors and ceilings](/docs/review/floors-and-ceilings).
 

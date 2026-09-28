@@ -21,7 +21,7 @@ questions:
   - Can a rule count only direct bookings, or leave out bookings from online travel agencies (OTAs)? {#each-limit-and-what-to-do-instead/only-direct-bookings}
   - Can MAYA price by length of stay (LOS), for example cheaper for a 7-night stay? {#each-limit-and-what-to-do-instead/length-of-stay}
   - Is there an aggressiveness setting, to make MAYA more aggressive or more conservative? {#each-limit-and-what-to-do-instead/a-setting-for}
-updated: 2026-09-24
+updated: 2026-09-27
 ---
 
 <InPlainWords>
@@ -34,7 +34,7 @@ Rules run every day of the year, for every night in the window. Every rule you b
 
 **A date range, a season or an event.** Every rule runs for every night in the 60-night window, all year. What to do instead: for a wedding weekend or a festival, type a price for the range with <Ui>through…</Ui> on the calendar (up to 365 nights in one save, from tonight to 364 days ahead). Rules already on those nights are held (their changes come off), and rules that fire later stack on top, so switch off the rules that would move those nights until the weekend has passed. Switching a rule off stops it on every night, so switch it back on afterwards. Read [Hold a price for a wedding or event weekend](/docs/recipes/hold-a-price-for-an-event). For seasons, booking speed already compares inside the season your history shows, so a booking speed rule adjusts to the season by itself.
 
-**Priority.** Every rule you build has the same priority. When two booking speed or pickup rules are true on the same night, the one with more conditions wins, then (for two pickup rules with the same <Ui>Compare</Ui>) the stricter threshold, then the bigger money move, then the older rule. The five starter rules carry a higher priority than yours, so when a starter rule and one of yours are both true on the same night and room type, the starter rule is the one that fires. Standard rules do not compete: every one whose condition holds applies. Read [How rules run](/docs/rules/how-rules-run).
+**Priority.** There is no priority control. When two booking speed or pickup rules are true on the same night, the stronger one fires: the one that changes the price by more, then, at the same change, the one that watches booking speed (set to the faster speed, or the slower one for cuts), then the pickup count harder to meet. Only after those do the five starter rules rank above yours, then the rule with more conditions, then the older rule. Standard rules do not compete: every one whose condition holds applies. Read [How rules run](/docs/rules/how-rules-run#which-one-fires-when-several-match).
 
 **Editing a rule.** There is no edit control. Delete the rule (which undoes its changes) and add it again. To keep its prices in place, turn it off instead and add the new one beside it. Read [Turning a rule off, deleting it, or changing it](/docs/rules/off-delete-or-change).
 
@@ -66,9 +66,9 @@ What holds prices back today:
 
 - the floor and ceiling of each room type
 - a standard rule makes one change while its condition holds, and takes it off when the condition stops
-- a booking speed or pickup rule waits after each change on a night (its <Ui>Then waits (advanced)</Ui> setting, or its lookback) before it can change that night again
+- a booking speed or pickup rule waits after each change on a night (its <Ui>Then waits (advanced)</Ui> setting) before it can change that night again, and then counts only the bookings made since
 - in each cycle, at most one booking speed or pickup rule changes a given night and room type
-- once a booking speed or pickup rule has changed the same night three times, an amber banner asks you whether it should keep going
+- once three of a booking speed or pickup rule's changes are on the same night, an amber banner asks you whether it should keep going
 
 A price can still change more than once in a day. A standard rule switches on and off as bookings come and go, and a stronger rule can step in while a weaker one waits. Read [How rules run](/docs/rules/how-rules-run) and [Floors and ceilings](/docs/review/floors-and-ceilings).
 
@@ -76,9 +76,9 @@ A price can still change more than once in a day. A standard rule switches on an
 
 **No changes in the last few days before arrival, or at certain hours.** There is no freeze window and no quiet hours. Cycles run about every five minutes, day and night, and tonight is always priced. What you can do:
 
-- On a booking speed or pickup rule you build, add a <Ui>Booking window (days to stay)</Ui> row set to <Ui>Greater than</Ui> 2. The rule then makes no new change on tonight or the next two nights. What it already did there stays, though a raise still comes off if enough of the bookings behind it cancel.
+- On a booking speed or pickup rule you build, add a <Ui>Booking window (days to stay)</Ui> row set to <Ui>Greater than</Ui> 2. The rule then makes no new change on tonight or the next two nights. What it already did there stays, though with its undo box ticked a change still comes off when cancellations mean the rule is no longer true.
 - On a standard rule, the same row takes the rule's change off as the night comes within those days, and that is itself a price change. A standard rule cannot be held still near arrival this way.
-- The starter rules cannot be changed. To give one the extra row, delete it (which undoes its changes) and build it again yourself. A rule you build ranks below the starter rules you keep, and Slow-date trim cannot be rebuilt exactly (in the builder, <Ui>Slower Than Normal</Ui> also fires on the slower levels).
+- The starter rules cannot be changed. To give one the extra row, delete it (which undoes its changes) and build it again yourself. A rule you build ranks below the starter rules you keep only when both change the price by the same amount at the same speed, and Slow-date trim cannot be rebuilt exactly (in the builder, <Ui>Slower Than Normal</Ui> also fires on the slower levels).
 - A price you type for those nights is published as typed, but rules that fire later still stack on it, so it is not a freeze either.
 
 **Only direct bookings, or leaving out booking sites.** There is no channel filter. Every booking counts the same, whatever channel it came from: direct, through an online travel agency (a booking site), or made at the front desk. That goes for sellable occupancy, booking speed and pickup count alike.

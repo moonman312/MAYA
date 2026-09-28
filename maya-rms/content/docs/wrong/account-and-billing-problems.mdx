@@ -21,7 +21,8 @@ questions:
   - Was I charged twice? {#was-i-charged-twice}
   - It says my saved card stopped working {#it-says-your-saved-card-stopped-working}
   - It says I'm billed for 20 rooms but running 24 {#it-says-youre-billed-for-20-rooms-but-running-24/on-every-cycle}
-  - It says I'm running 300 rooms on ThinkReservations or Mews {#it-says-youre-billed-for-20-rooms-but-running-24/thinkreservations-thinkreservations-does}
+  - It says I'm running 300 rooms on Mews {#it-says-youre-billed-for-20-rooms-but-running-24/mews-where-mews}
+  - My room count on ThinkReservations looks wrong {#it-says-youre-billed-for-20-rooms-but-running-24/thinkreservations-thinkreservations-lists}
   - It says MAYA has paused work on this property {#it-says-maya-has-paused-work-on-this-property}
   - It says this property already has a subscription {#it-says-this-property-already-has-a-subscription}
   - Why is the next charge different from the calculator? {#why-is-the-next-charge-different-from-the-calculator}
@@ -33,7 +34,7 @@ questions:
   - My property name, time zone or currency came in wrong {#my-property-name-time-zone-or-currency-came-in-wrong}
   - How do I reopen the questions to change my property name? {#my-property-name-time-zone-or-currency-came-in-wrong}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-27
 ---
 
 <InPlainWords>
@@ -121,11 +122,9 @@ Where the measured count comes from depends on your property system.
 Cloudbeds reports how many rooms each room type has, and MAYA reads that number on every cycle. The measured count is what Cloudbeds holds for your room types ticked as rooms, so a new room type or extra rooms in Cloudbeds raise it.
 </PmsTab>
 <PmsTab pms="thinkreservations">
-ThinkReservations does not report how many rooms each room type has. So every room type gets the same number: one rooms-per-type number that we set for your whole property, 100 unless we change it. The measured count is that number times your room types ticked as rooms. At 100, The Harbour Inn, with Standard, Deluxe and Suite ticked as rooms, sees "You're billed for 20 rooms but running 300".
+ThinkReservations lists every room at your property, and MAYA counts the rooms in each room type from that list on every cycle. The measured count is the rooms in your room types ticked as rooms, leaving out rooms ThinkReservations marks as inactive, as not a room, or as not included in occupancy. So a new room in ThinkReservations raises it.
 
-[Email us](mailto:info@modern-hospitality-solutions.com?subject=ThinkReservations%20room%20counts) your real room counts before you rely on this number. If the banner shows a count you do not have, email us straight away, before the 7 days run out. We can change that one number, not set a count for each room type.
-
-Typing your real count on the billing page does not clear the banner while the measured count is higher, and after the 7 days MAYA raises your count to the measured number. If that has already happened, [Your room count and what you pay](/docs/billing/your-room-count#if-the-100-rooms-number-has-already-raised-your-count) shows how to put it right. The same number sets your occupancy, so read [Occupancy looks wrong](/docs/wrong/occupancy-looks-wrong) too.
+If the banner shows a count you do not have, check those settings on the rooms in ThinkReservations before the 7 days run out: the next cycle measures again. Typing your real count on the billing page does not clear the banner while the measured count is higher.
 </PmsTab>
 <PmsTab pms="mews">
 Where Mews gives no room count for a room category, that category gets one rooms-per-type number that we set for your whole property, 100 unless we change it. The measured count then adds that number once for each such category ticked as a room, so it can be far from the rooms you run.

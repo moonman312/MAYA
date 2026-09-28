@@ -158,7 +158,7 @@
 {"q":"Do I need to install anything?","page":"connect/which-systems-work","anchor":"what-every-connection-has-in-common/nothing-to-install","bankSection":4},
 {"q":"Do I need to allow an IP address or open a firewall?","page":"reference/privacy-security-and-your-data","anchor":"fixed-ip-addresses","bankSection":4},
 {"q":"What is the \"PMS\" tab?","page":"watch/the-pms-tab","anchor":"in-plain-words","bankSection":4},
-{"q":"Can I set how many rooms a Think room type has?","page":"connect/thinkreservations","anchor":"how-many-rooms-each-room-type-has/we-can-change","bankSection":4},
+{"q":"Can I set how many rooms a Think room type has?","page":"connect/thinkreservations","anchor":"how-many-rooms-each-room-type-has/if-a-count","bankSection":4},
 {"q":"How are Cloudbeds virtual room types handled?","page":"connect/cloudbeds","bankSection":4},
 {"q":"Does MAYA read Cloudbeds room blocks or allotments?","page":"watch/room-types-and-rooms-out-of-service","anchor":"blocks-in-your-property-system-are-not-read","bankSection":4},
 {"q":"Does MAYA read my taxes and fees?","page":"connect/what-maya-reads-and-writes","bankSection":4},

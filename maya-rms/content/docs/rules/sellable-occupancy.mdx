@@ -105,7 +105,7 @@ Your property system's occupancy report and MAYA's sellable occupancy answer dif
 Cloudbeds' headline occupancy keeps blocked rooms in the total, so a night with 3 rooms blocked and 8 of 12 sold reads 67% there. MAYA does not read Cloudbeds' room blocks at all. It subtracts only the rooms you enter as out of service on the <Ui>PMS</Ui> tab, and then reads 8 of 9, which is 89%. If the two numbers disagree, that is usually why.
 </PmsTab>
 <PmsTab pms="thinkreservations">
-ThinkReservations does not report how many rooms a room type has, so MAYA gives every room type the same number of rooms, 100 until we change it. Until then, occupancy percentages for a ThinkReservations property read far too low. Email us your room counts. Once we have set the number, the percentages are right from the next run if your room types are all the same size. Read [ThinkReservations](/docs/connect/thinkreservations).
+MAYA counts each room type's rooms from ThinkReservations' list of rooms, leaving out rooms marked there as inactive, as not a room, or as not included in occupancy. It subtracts only the rooms you enter as out of service on the <Ui>PMS</Ui> tab. Read [ThinkReservations](/docs/connect/thinkreservations#how-many-rooms-each-room-type-has).
 </PmsTab>
 <PmsTab pms="mews">
 Mews does not report how many rooms each category has, so MAYA uses one number for every category, which we set with you when we connect (100 until then). It subtracts only the rooms you enter as out of service on the <Ui>PMS</Ui> tab. Blocks and held rooms in Mews are not read.

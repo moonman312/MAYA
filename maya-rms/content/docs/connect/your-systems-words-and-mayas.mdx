@@ -37,7 +37,7 @@ MAYA's screens mostly use MAYA's words: booking, night, room type, base rate, pr
 |---|---|---|---|---|
 | Booking | Reservation | Reservation, holding one booking per room | Reservation, one room each | A stay. For occupancy each room counts. For booking speed a booking counts once however many rooms it holds. On Mews every room is its own reservation, so rooms booked together count once per room |
 | Room type | Room type | Room type | Room category, space category or resource category | The kind of room a price is set for. Your rules set one price per room type per night |
-| Units | Units | none (not reported) | none (not reported) | How many rooms a room type has. MAYA divides by it for sellable occupancy. On ThinkReservations and Mews it is one number for every room type, 100 until we set it with you |
+| Units | Units | Rooms, counted per room type | none (not reported) | How many rooms a room type has. MAYA divides by it for sellable occupancy. On ThinkReservations MAYA counts it from your list of rooms. On Mews it is one number for every room type, 100 until we set it with you |
 | Base rate | The rate plan that follows nothing and has no public name (not derived) | The standard rate type called Best Available | none (not read) | The one rate per room type MAYA writes to and reads your own rate from |
 | Derived rate | Derived rate plan | Derived rate type | none | A rate that follows the base rate by your system's own rules. MAYA never writes to it. It moves when the base moves |
 | Package | Package, or any plan with a public name | Package, a standard rate type. MAYA leaves it alone as long as you have a rate type named Best Available | none | Left alone by MAYA (on ThinkReservations, read the note below) |

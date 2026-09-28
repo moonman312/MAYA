@@ -28,7 +28,7 @@ updated: 2026-09-24
 ---
 
 <InPlainWords>
-MAYA reads your bookings (nights, room type, nightly rate, booking date), your room types (and, on Cloudbeds, how many rooms each has), your rate plans, and your property's name, time zone and currency. It writes only one nightly price per room type to one rate plan (on Cloudbeds, MAYA also asks Cloudbeds to let it know if the app is uninstalled). On Mews it does not copy your rate plans or property details, and it writes nothing. It never stores guest names, emails, phone numbers, addresses or card details.
+MAYA reads your bookings (nights, room type, nightly rate, booking date), your room types (and, on Cloudbeds and ThinkReservations, how many rooms each has), your rate plans, and your property's name, time zone and currency. It writes only one nightly price per room type to one rate plan (on Cloudbeds, MAYA also asks Cloudbeds to let it know if the app is uninstalled). On Mews it does not copy your rate plans or property details, and it writes nothing. It never stores guest names, emails, phone numbers, addresses or card details.
 </InPlainWords>
 
 This page is the full list, for anyone who needs to answer "what exactly does MAYA touch?" before connecting, or who wants to check afterwards. Where the three systems differ, the tabs say how. The short version: MAYA reads the shape of your bookings and your rates, and it writes nightly prices. Everything else in your system is yours alone.
@@ -50,7 +50,7 @@ Arrives but is never used or kept: availability and restrictions (minimum stays,
 Never asked for: room blocks, allotments, or other guest details. Read the [Cloudbeds page](/docs/connect/cloudbeds).
 </PmsTab>
 <PmsTab pms="thinkreservations">
-About every five minutes: bookings made or changed since the last read, with each room and its room charges, and your room types by name. MAYA does not read room counts from ThinkReservations yet, so it uses one number for every room type (100 until we change it). Occupancy is exact only when your room types are the same size.
+About every five minutes: bookings made or changed since the last read, with each room and its room charges, your room types by name, and your list of rooms, which MAYA counts room type by room type. A room marked as inactive, as not a room, or as not included in occupancy is left out.
 
 About once an hour: your rate types (name, standard or derived, which room types each covers) and your own nightly rates for the next 60 nights from the rate type MAYA sends to.
 
@@ -153,10 +153,10 @@ MAYA reads your property's name, time zone and currency at connect and does not 
 
 ## How many rooms each room type has
 
-Cloudbeds reports the number of rooms in each room type, and MAYA re-reads it on every cycle, so a wing you open shows up on the next read. MAYA does not read room counts from Mews yet, so it uses one number for every Mews room category, which we set with you when we connect (100 until then). MAYA does not read room counts from ThinkReservations yet either, so it uses one number for every ThinkReservations room type: 100, until we change it for you. On both, the number cannot differ by room type, so occupancy is exact only when your room types are the same size. The count is what sellable occupancy divides by and what your bill is based on. Read [room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service) and [your room count and what you pay](/docs/billing/your-room-count).
+Cloudbeds reports the number of rooms in each room type, and MAYA re-reads it on every cycle, so a wing you open shows up on the next read. On ThinkReservations, MAYA counts the rooms in each room type from your list of rooms on every cycle, and keeps the counts it has if the list cannot be read. MAYA does not read room counts from Mews yet, so it uses one number for every Mews room category, which we set with you when we connect (100 until then). That number cannot differ by category, so occupancy is exact only when your categories are the same size. The count is what sellable occupancy divides by and what your bill is based on. Read [room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service) and [your room count and what you pay](/docs/billing/your-room-count).
 
 <Callout kind="not-yet" title="Not yet">
-MAYA does not use, keep or write availability or restrictions on any system (on Cloudbeds they arrive with your room types and nightly rates and are dropped). It does not read or write room blocks or allotments. It does not read rate plans from Mews or send anything to Mews. Time zone and currency are not re-read after connect (email us). ThinkReservations and Mews room counts are not read, and a count for each room type is not possible there yet (one number covers them all).
+MAYA does not use, keep or write availability or restrictions on any system (on Cloudbeds they arrive with your room types and nightly rates and are dropped). It does not read or write room blocks or allotments. It does not read rate plans from Mews or send anything to Mews. Time zone and currency are not re-read after connect (email us). Mews room counts are not read, and a count for each room category is not possible there yet (one number covers them all).
 </Callout>
 
 <Related>

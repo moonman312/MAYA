@@ -14,7 +14,7 @@ questions:
   - Do I need to understand revenue management to use MAYA? {#before-you-start}
   - Why does a new rule's Fired count jump so fast? {#what-you-see-in-the-list-afterwards}
   - How much should I raise or cut by? Is 10% a sensible amount? {#choosing-the-amount/how-much-a}
-updated: 2026-09-24
+updated: 2026-09-27
 ---
 
 <InPlainWords>
@@ -29,7 +29,7 @@ Rules live on the <Ui>Rules</Ui> tab. From the top down you will find:
 
 - the heading <Ui>Pricing Rules</Ui>, with the <Ui>Get suggestions from my data</Ui> button beside it
 - a filter with three choices, <Ui>All</Ui>, <Ui>Enabled</Ui> and <Ui>Disabled</Ui>
-- a closed panel called <Ui>How rules behave</Ui>, which holds two short animations
+- a closed panel called <Ui>How rules behave</Ui>, which holds three short animations
 - the list of your rules
 - the <Ui>+ Add a rule</Ui> button, which opens the rule builder underneath the list
 
@@ -54,7 +54,7 @@ In <Ui>Rule name</Ui>, type Busy nights. The name is how you will find the rule 
 Under <Ui to="rules.new" q="focus=conditions">Conditions</Ui>, one row is already there. Leave <Ui>Metric</Ui> on <Ui>Sellable occupancy (%)</Ui>, leave <Ui>Compare</Ui> on <Ui>Greater than</Ui>, and leave <Ui>Threshold</Ui> at 80. Read together, the row says: when more than 80% of the rooms you can sell that night are booked.
 </Step>
 <Step title="Choose the change">
-Under <Ui>Rate adjustment</Ui>, open <Ui>Direction (required)</Ui> and choose <Ui>Increase the rate</Ui>. The box <Ui>Adjust by percent (%)</Ui> is already ticked with 10 in it. Leave <Ui>Adjust by fixed amount ($)</Ui> unticked.
+Under <Ui>Rate adjustment</Ui>, open <Ui>Direction (required)</Ui> and choose <Ui>Increase the rate</Ui>. The box <Ui>Adjust by percent (%)</Ui> is already ticked with 10 in it. Leave <Ui>Adjust by fixed amount ($)</Ui> unticked, and leave <Ui>Undo the change if cancellations mean this rule is no longer true</Ui> ticked.
 </Step>
 <Step title="Pick the room types">
 Under <Ui>Apply to room types</Ui>, every room type that counts as a room is already selected. Leave them all on. A type tagged "not a room" (The Harbour Inn's Meeting Room, say) stays out unless you click it.

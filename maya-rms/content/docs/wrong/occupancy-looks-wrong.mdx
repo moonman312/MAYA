@@ -1,6 +1,6 @@
 ---
 title: Occupancy looks wrong
-summary: Why MAYA's occupancy differs from Cloudbeds', what rooms out of order do to it, how it can read over 100%, why it is tiny on ThinkReservations or Mews, why a room type shows 100 rooms, why the day card and the change log disagree, and how groups and the meeting room count.
+summary: Why MAYA's occupancy differs from Cloudbeds', what rooms out of order do to it, how it can read over 100%, why it can be tiny on Mews or ThinkReservations, why a room type shows 100 rooms, why the day card and the change log disagree, and how groups and the meeting room count.
 section: wrong
 order: 50
 readingTime: 6
@@ -18,11 +18,11 @@ questions:
   - Why does day revenue differ from a revenue pickup rule? {#why-does-day-revenue-differ-from-a-revenue-pickup-rule}
   - Why does day revenue not match my property system's revenue report? Is it with or without tax? {#why-does-day-revenue-not-match-my-property-systems-revenue-report}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-27
 ---
 
 <InPlainWords>
-Sellable occupancy is rooms booked divided by rooms you can sell that night, counting only room types ticked as rooms and taking rooms out of service off first. It differs from Cloudbeds' headline number because Cloudbeds keeps blocked rooms in its count while MAYA removes only rooms you enter as out of service. It can read over 100%. On ThinkReservations, and on Mews where Mews gives no count, a room type is counted as 100 rooms until we change that number, so email us your counts.
+Sellable occupancy is rooms booked divided by rooms you can sell that night, counting only room types ticked as rooms and taking rooms out of service off first. It differs from Cloudbeds' headline number because Cloudbeds keeps blocked rooms in its count while MAYA removes only rooms you enter as out of service. It can read over 100%. On Mews, where Mews gives no count, a room category is counted as 100 rooms until we change that number, so email us your counts. On ThinkReservations the counts come from your list of rooms there.
 </InPlainWords>
 
 ## Why does MAYA's occupancy differ from Cloudbeds'?
@@ -53,15 +53,17 @@ A rule's threshold cannot go above 100, so a rule set to <Ui>Greater than</Ui> 1
 
 ## Why is my occupancy tiny on ThinkReservations or Mews?
 
-ThinkReservations does not report how many rooms a room type has. On Mews, the same goes for any room category Mews sends no room count for. Every room type without a count gets the same number of rooms, one number for your whole property, 100 until we change it. A room type with 6 rooms and 5 booked reads 5% instead of 83%, and occupancy rules that need a full night never fire.
+On Mews, every room category Mews sends no room count for gets the same number of rooms, one number for your whole property, 100 until we change it. A category with 6 rooms and 5 booked reads 5% instead of 83%, and occupancy rules that need a full night never fire.
 
-[Email us](mailto:info@modern-hospitality-solutions.com?subject=Room%20counts) your room types and their room counts. We can change that one number for you, not set a count for each type. Once we have set it, occupancy is right from the next run if the room types without a count are all the same size. If they differ, it reads wrong for at least one of them. Read [ThinkReservations](/docs/connect/thinkreservations) or [Mews](/docs/connect/mews).
+[Email us](mailto:info@modern-hospitality-solutions.com?subject=Room%20counts) your room categories and their room counts. We can change that one number for you, not set a count for each category. Once we have set it, occupancy is right from the next run if the categories without a count are all the same size. If they differ, it reads wrong for at least one of them. Read [Mews](/docs/connect/mews).
 
 Booking window rules are not affected. Booking speed counts bookings, not rooms, but it compares within seasons read from how full past nights were. Send us your counts before relying on booking speed too.
 
+On ThinkReservations, MAYA counts each room type's rooms from ThinkReservations' list of rooms. Occupancy reads low when that list holds rooms you do not sell: mark them there as inactive, as not a room, or as not included in occupancy, and the next cycle leaves them out. Read [ThinkReservations](/docs/connect/thinkreservations#how-many-rooms-each-room-type-has).
+
 ## Why does a room type show 100 rooms?
 
-The <Ui>PMS</Ui> tab's <Ui>Room types</Ui> list shows "100 units" for a room type whose room count MAYA does not have. On Cloudbeds the count is read from your system on every cycle, so this is rare and means Cloudbeds reported none. On ThinkReservations it is every room type, and on Mews every room category Mews sends no room count for, until we set the one number for your property. Either way, email us the real count.
+The <Ui>PMS</Ui> tab's <Ui>Room types</Ui> list shows "100 units" for a room type whose room count MAYA does not have. On Cloudbeds the count is read from your system on every cycle, so this is rare and means Cloudbeds reported none. On ThinkReservations it is read from your list of rooms on every cycle, so it shows only when MAYA could not read that list when the room type first appeared, and the next cycle that reads the list puts the real count in. On Mews it is every room category Mews sends no room count for, until we set the one number for your property: email us the real count.
 
 ## The day card says 85% but the log says 92%
 

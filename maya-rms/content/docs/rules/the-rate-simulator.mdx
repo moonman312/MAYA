@@ -18,7 +18,7 @@ questions:
   - Why does the simulator show a different result from the change log? {#what-the-simulator-simplifies/a-standard-rule}
   - What do "event" and "ladder" mean in the Rate Simulator? {#rules-in-play}
   - Why does a rule in the simulator change every room type or none of them? {#what-the-simulator-simplifies/every-matching-booking}
-updated: 2026-09-24
+updated: 2026-09-27
 ---
 
 <InPlainWords>
@@ -71,6 +71,7 @@ Click <Ui>+ Build a test rule</Ui> and a smaller rule builder opens:
 - <Ui>Rule name</Ui>. An unnamed draft is called "Unsaved test rule".
 - Up to 4 conditions under "When all of these are true", one of each kind, each with a <Ui>Metric</Ui>, an <Ui>Is</Ui> dropdown (<Ui>above</Ui> or <Ui>below</Ui>) and a <Ui>Value</Ui>. A <Ui>Booking speed (recommended)</Ui> row has a <Ui>Speed</Ui> dropdown with the seven levels instead. The metric labels differ slightly from the main builder: <Ui>Occupancy (%)</Ui> here is <Ui>Sellable occupancy (%)</Ui> there. The others match.
 - <Ui>Then</Ui> (<Ui>raise the rate</Ui> or <Ui>lower the rate</Ui>), <Ui>By</Ui> and <Ui>Unit</Ui> (<Ui>percent</Ui> or <Ui>dollars</Ui>).
+- The undo box, <Ui>Undo the change if cancellations mean this rule is no longer true</Ui>, ticked to start. It is saved with the rule. Nothing cancels on a made-up night, so it does not change what the table shows.
 - <Ui>Room types</Ui>, as pills, all on to start.
 
 The draft runs in the table below as you edit it. "Until you press this, the rule exists only on this screen." <Ui>Discard test rule</Ui> throws it away.
@@ -80,7 +81,7 @@ The draft runs in the table below as you edit it. "Until you press this, the rul
 The button stays greyed out until the draft has a condition, an amount and at least one room type. An amount of 0 (or a blank <Ui>By</Ui> box) cannot be saved: the save fails with an error. Type a real amount. Saving needs Revenue Manager access or higher: a Viewer who presses it sees an error.
 
 <Callout kind="good-to-know" title="No Measured over or Then waits here">
-The test-rule builder has no <Ui>Measured over</Ui> or <Ui>Then waits (advanced)</Ui> fields. A booking speed test rule is saved with the defaults: <Ui>Past week</Ui> and a wait of <Ui>1 week</Ui>. A pickup test rule is saved with a 3-day lookback measuring room nights. For other settings, build the rule on the <Ui>Rules</Ui> tab instead. [The rule builder, field by field](/docs/rules/the-rule-builder) covers every field.
+The test-rule builder has no <Ui>Measured over</Ui> or <Ui>Then waits (advanced)</Ui> fields. A booking speed test rule is saved with the defaults: <Ui>Past week</Ui> and a wait of <Ui>1 week</Ui>. A pickup test rule is saved with a 3-day lookback measuring room nights, and waits the same as its lookback. For other settings, build the rule on the <Ui>Rules</Ui> tab instead. [The rule builder, field by field](/docs/rules/the-rule-builder) covers every field.
 </Callout>
 
 <OpenInMaya to="simulator.test-rule" words="Open a test rule in the Rate Simulator" />

@@ -1,10 +1,10 @@
 ---
 title: Pickup count (advanced)
-summary: What the Pickup count condition measures, how its 1, 3 and 7 day lookback works, when it cannot be measured, how to read its card and change log line, and when booking speed is the better choice.
+summary: What the Pickup count condition measures, how its 1, 3 and 7 day lookback and its own wait work, what it counts after a change, when it cannot be measured, how to read its card and change log line, and when booking speed is the better choice.
 section: rules
 order: 70
 readingTime: 9
-keywords: [pickup, pickup count, pickup rate, pickup rule, lookback window, lookback, 1 day, 3 days, 7 days, room nights, units, revenue, revenue pickup, net pickup, negative pickup, cancellations, snapshot, stale, cannot measure pickup, pickup did not fire, pickup blocked, pickup card says bookings, card says bookings, bookings arrived in the last 3 days, booking mark, fixed number, advanced, pickup or booking speed, remove my pickup rule, remove pickup rule, suggestion, pickup rule waits, 12 hours, far-out nights, nights 57 to 59, end of the window, room nights meaning, delete undoes changes, which unit, revenue or room nights, covers my pickup rule, pickup after booking speed raise]
+keywords: [pickup, pickup count, pickup rate, pickup rule, lookback window, lookback, 1 day, 3 days, 7 days, room nights, units, revenue, revenue pickup, net pickup, negative pickup, cancellations, snapshot, stale, cannot measure pickup, pickup did not fire, pickup blocked, pickup card says bookings, card says bookings, bookings arrived in the last 3 days, booking mark, fixed number, advanced, pickup or booking speed, remove my pickup rule, remove pickup rule, suggestion, pickup rule waits, then waits, same as the lookback window, pickup wait, low pickup holds it, booking speed holds it, since the latest raise, stronger rule, 12 hours, far-out nights, nights 57 to 59, end of the window, room nights meaning, delete undoes changes, which unit, revenue or room nights, covers my pickup rule, pickup after booking speed raise]
 questions:
   - What is pickup count? {#in-plain-words}
   - Should I use pickup count or booking speed? {#pickup-or-booking-speed/both-look-at}
@@ -15,7 +15,8 @@ questions:
   - Can pickup be negative? {#negative-pickup}
   - Why did my pickup rule not fire? {#when-pickup-cannot-be-measured/a-pickup-rule}
   - Why does my pickup rule never fire on the furthest nights? {#when-pickup-cannot-be-measured/on-the-furthest}
-updated: 2026-09-24
+  - How long does a pickup rule wait before it acts again? {#a-pickup-rule-fires-holds-waits-and-can-fire-again}
+updated: 2026-09-27
 ---
 
 <InPlainWords>
@@ -49,6 +50,7 @@ Choose <Ui>Pickup count (advanced)</Ui> in the <Ui>Metric</Ui> dropdown. The row
 - <Ui>Compare</Ui>: <Ui>Greater than</Ui> or <Ui>Less than</Ui>. Comparisons are strict: <Ui>Greater than</Ui> 5 means 6 or more room nights, not 5 exactly.
 - <Ui>Threshold</Ui>: the number of room nights, or the amount, starting at 5. It must be 0 or more. Decimals are kept.
 - <Ui>Lookback window</Ui>: <Ui>1 day</Ui>, <Ui>3 days</Ui> or <Ui>7 days</Ui>, starting at <Ui>3 days</Ui>.
+- <Ui>Then waits (advanced)</Ui>: how long the rule leaves a night alone after acting on it. It starts on <Ui>Same as the lookback window</Ui>, and also offers <Ui>1 day</Ui>, <Ui>2 days</Ui>, <Ui>3 days</Ui>, <Ui>1 week</Ui> and <Ui>2 weeks</Ui>.
 - <Ui>Pickup measures</Ui>: <Ui>Room nights (units)</Ui> or <Ui>Revenue (currency)</Ui>, starting at room nights.
 
 ## Lookback windows are 24-hour periods
@@ -62,9 +64,9 @@ When more rooms cancel than book, pickup is below zero. A rule set to <Ui>Less t
 <Example title="A pickup rule at The Harbour Inn">
 "Quick pickup" is <Ui>Pickup count (advanced)</Ui> <Ui>Greater than</Ui> 4 over <Ui>3 days</Ui>, measuring room nights, and raises Standard, Deluxe and Suite (the builder's default: the types that count as rooms) by 10%.
 
-Three days ago the Saturday had 8 rooms booked across Standard, Deluxe and Suite. Now it has 14. Pickup is 6, which is more than 4, so the rule fires and raises Standard, Deluxe and Suite by 10%. It then waits 3 days (its lookback) before it can act on that night again.
+Three days ago the Saturday had 8 rooms booked across Standard, Deluxe and Suite. Now it has 14. Pickup is 6, which is more than 4, so the rule fires and raises Standard, Deluxe and Suite by 10%. It then waits 3 days (the same as its lookback window) before it can act on that night again.
 
-If two of those bookings cancel, the next check sees 12 booked: pickup 4, not more than 4. The rule would not fire now, but the raise already made stays until the booked rooms are back to 8 (read below).
+If two of those bookings cancel, the pickup the raise counted is down to 4, not more than 4. With the undo box ticked, the raise comes off on the next cycle, unless bookings made since keep the rule true (read below).
 </Example>
 
 ## When pickup cannot be measured
@@ -80,25 +82,29 @@ Records are kept for at least 14 days, whatever lookback your rules use. That is
 
 ## A pickup rule fires, holds, waits and can fire again
 
-A pickup rule works like a booking speed rule. When it fires, its change stays on the price. It then waits its own lookback window before it can fire on that night and room type again, so a 3-day rule fires at most once every 3 days on a night. That way a window never reaches back past the rule's own last fire, and the rule never counts the same booking twice.
+A pickup rule works like a booking speed rule. When it fires, its change stays on the price. It then leaves that night and room type alone for its wait: its lookback window unless you chose another in <Ui>Then waits (advanced)</Ui>. A "?" beside the dropdown says which wait the rule keeps.
 
-A rule that has both a pickup row and a booking speed row waits the longer of the two, and the <Ui>Then waits (advanced)</Ui> dropdown says so beside the shorter options. With a 7-day lookback they read "(pickup holds it to 1 week)". With a 3-day lookback they read "(pickup holds it to 3 days)". Read [How rules run](/docs/rules/how-rules-run).
+When the wait is over, it counts pickup over its lookback window again, but only what came in since the newest change still on the night by itself or by a stronger rule that moves the price the same way: the room nights (or revenue) booked after that change and still booked. A booking from before the change cancelling takes nothing from that count. So a wait shorter than the window never counts the same burst twice, and a 3-day rule with a 1-day wait can raise again the next day only on new pickup.
+
+A rule set to <Ui>Less than</Ui> looks for low pickup, and a short stretch always looks low. So after such a change it waits for a whole lookback window before it judges again, whatever wait you chose, and the shorter options say "(low pickup holds it to 3 days)".
+
+A rule that has both a pickup row and a booking speed row waits the longer of the two, and each <Ui>Then waits (advanced)</Ui> dropdown says so beside its shorter options: "(pickup holds it to 3 days)" on the booking speed row, "(booking speed holds it to 1 week)" on the pickup row. Read [How rules run](/docs/rules/how-rules-run).
 
 <Callout kind="good-to-know">
-A raise made by a pickup rule also counts as the night's last raise for your booking speed rules. After it, a booking speed rule that raises counts only the bookings that arrived after that raise, starting the same day, so your booking speed rules do not raise again on the same burst. It does not work the other way round: a pickup rule always measures its whole lookback, so it can add a raise on bookings a booking speed rule already acted on. Read [Counting after a rule acts](/docs/rules/booking-speed-in-detail#counting-after-a-rule-acts).
+Pickup rules and booking speed rules rank on one list, so a stronger rule's raise covers the weaker ones whichever kind each is: they count only the bookings made after it. A stronger rule changes the price by more, and at the same change a rule that watches booking speed is stronger than one that does not. Read [Counting after a change](/docs/rules/how-rules-run#counting-after-a-change).
 </Callout>
 
 ## When a pickup raise comes off
 
-A raise made by a <Ui>Greater than</Ui> pickup rule comes off by itself when cancellations bring the booked rooms for that night, over the measured room types, back down to where the window opened when it fired. A raise made by a <Ui>Less than</Ui> rule was not caused by bookings, so cancellations never undo it. A cut never comes off by itself. While the rule is switched off, its raises stay on the price and are not checked for cancellations. Switch it back on and the check resumes. Read [When a price change comes off](/docs/rules/when-a-change-comes-off).
+With the rule's undo box ticked, as it is on every new rule, a raise made by a <Ui>Greater than</Ui> pickup rule comes off when cancellations take the pickup it counted to your number or below, and the rule, counted as it would be now with bookings made since, is not true either. A rule set to <Ui>Less than</Ui> only gets truer as bookings cancel, so cancellations never undo its change. With the box unticked, cancellations never take a change off. While the rule is switched off, its changes stay on the price and are not checked for cancellations. Switch it back on and the check resumes. Read [When a price change comes off](/docs/rules/when-a-change-comes-off).
 
 ## What the rule card and the change log say
 
 On screen, pickup always says "bookings". Read it as room nights (or your amount, for a revenue rule).
 
-On the <Ui>Rules</Ui> tab a pickup condition reads "Pickup above 5 bookings" or "Pickup below 2 bookings". In the change log it reads "9 bookings arrived in the last 3 days, past the 4-booking mark you set.", where 9 is room nights (a two-room booking for the night is 2) and "the last 3 days" is the lookback. When a rule measures different room types from the ones it changes, the sentence names them: "9 Standard and Deluxe bookings arrived in the last 3 days, past the 4-booking mark you set."
+On the <Ui>Rules</Ui> tab a pickup condition reads "Pickup above 5 bookings (past 3 days), then waits 3 days" or "Pickup below 2 bookings (past week), then waits 1 week". A rule that also watches booking speed names its wait once, on the booking speed condition. In the change log it reads "9 bookings arrived in the last 3 days, past the 4-booking mark you set.", where 9 is room nights (a two-room booking for the night is 2) and "the last 3 days" is the lookback. After a change on the night it reads "6 bookings arrived since this rule or a stronger one's latest raise still on this night, past the 4-booking mark you set." When a rule measures different room types from the ones it changes, the sentence names them: "9 Standard and Deluxe bookings arrived in the last 3 days, past the 4-booking mark you set."
 
-The <Ui>Rules that keep adjusting</Ui> banner names the unit: "Pickup over the last 3 days came to 6 room nights, against the 4 you set." A revenue rule shows money there.
+The <Ui>Rules that keep adjusting</Ui> banner names the unit: "Pickup over the last 3 days came to 6 room nights, against the 4 you set." A revenue rule shows money there. When the count ran from a raise, it reads "Pickup since the raise before its latest one, by it or a stronger rule, came to 6 room nights".
 
 To be sure what an older rule measures, build it again with the settings you want and switch the old one off, which keeps its prices. Deleting it would undo its changes.
 
@@ -123,7 +129,7 @@ When you click <Ui>Get suggestions from my data</Ui> on the <Ui>Rules</Ui> tab, 
 The <Ui>Rate Simulator</Ui> has a <Ui>Picked up</Ui> box per room type, in rooms. A revenue rule is tested by valuing those rooms at the base price you typed for that room type.
 
 <Callout kind="not-yet">
-The rule card does not show a pickup rule's lookback or whether it measures room nights or revenue. Put both in the rule's name when you build it, for example Pickup 3 days revenue. Pickup cannot be measured in hotel days, only in 24-hour periods.
+The rule card does not show whether a pickup rule measures room nights or revenue. Put it in the rule's name when you build it, for example Pickup 3 days revenue. Pickup cannot be measured in hotel days, only in 24-hour periods.
 </Callout>
 
 <Related>

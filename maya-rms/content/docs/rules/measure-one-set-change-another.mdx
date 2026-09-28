@@ -53,7 +53,7 @@ Tick it and the field splits in two:
 - **Pickup count** adds up room nights (or revenue) gained over the measured types. Read [Pickup count (advanced)](/docs/rules/pickup-count).
 - **Booking window** reads no room types. It is the same number of days for every type.
 
-For occupancy and pickup, one reading serves every room type the rule changes. A booking speed rule can read each changed room type separately, because each one counts from its own last raise or cut. Either way, the rule fires and waits separately for each changed room type, so Suite and Deluxe can each be on a different step of the same rule. Read [How rules run](/docs/rules/how-rules-run).
+For occupancy and pickup, one reading serves every room type the rule changes. A booking speed rule can read each changed room type separately, because each one counts from the newest change still on it by that rule or a stronger one. Either way, the rule fires and waits separately for each changed room type, so Suite and Deluxe can each be on a different step of the same rule. Read [How rules run](/docs/rules/how-rules-run).
 
 ## What the rule card shows
 

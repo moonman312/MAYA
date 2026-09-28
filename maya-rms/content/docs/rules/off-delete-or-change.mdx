@@ -4,7 +4,7 @@ summary: What the On/Off switch and Delete each do to prices already set, how to
 section: rules
 order: 110
 readingTime: 7
-keywords: [turn off, switch off, pause, disable, enable, delete, delete a rule, undo its changes, keep its changes, edit a rule, change a rule, rename, copy, duplicate, limit on rules, how many rules, 40 rules, 40 active rules, maximum, already has 40 active rules, switch will not turn on, fired column, fired count, times fired, filter, all enabled disabled, order of the list, price change column, dollar sign, pricing rule, deleted rule in the log, rule turned off still affects counts, paused rule, switched-off rule, who created this rule, who added it, who deleted it, who switched it off, who turned it off, audit, audit trail, created by, history of rule changes]
+keywords: [turn off, switch off, pause, disable, enable, delete, delete a rule, undo its changes, keep its changes, edit a rule, change a rule, rename, copy, duplicate, limit on rules, how many rules, 40 rules, 40 active rules, maximum, already has 40 active rules, switch will not turn on, fired column, fired count, times fired, filter, all enabled disabled, order of the list, price change column, dollar sign, pricing rule, deleted rule in the log, rule turned off still affects counts, paused rule, switched-off rule, who created this rule, who added it, who deleted it, who switched it off, who turned it off, audit, audit trail, created by, history of rule changes, undo on cancellations, untick the undo box, undo box in the rules table]
 questions:
   - How do I edit a rule? {#changing-a-rule}
   - What does turning a rule Off do to the prices it already changed? {#the-onoff-switch/each-rule-on}
@@ -19,7 +19,8 @@ questions:
   - Why does the Price Change column show a dollar sign when my currency is euro? {#the-list/price-change}
   - The Fired count is higher than the changes I can see. {#the-list/fired}
   - Who created this rule, and who switched it off or deleted it? {#who-did-what}
-updated: 2026-09-24
+  - Can I change the undo box on a rule I already saved? {#the-list/undo-on-cancellations}
+updated: 2026-09-27
 ---
 
 <InPlainWords>
@@ -33,13 +34,13 @@ Each rule on the <Ui>Rules</Ui> tab has a switch under <Ui>Status</Ui> that read
 Off means the rule stops acting. It does not undo anything:
 
 - a standard rule's change that was on a night stays on that night, and does not come off when the condition stops holding, because the rule is no longer being checked
-- a booking speed or pickup rule's raises and cuts stay on the price, and its raises are not tested for cancellations while it is off
+- a booking speed or pickup rule's raises and cuts stay on the price, and they are not checked for cancellations while it is off
 - on the day cards and in your property system, nothing moves
 
 Turn the rule back <Ui>On</Ui> and it picks up from the next cycle. A standard rule that was holding a change then lets it go if the condition no longer holds.
 
-<Callout kind="good-to-know" title="A switched-off rule still marks where counting starts">
-After a night has been raised, a booking speed rule that raises counts only the bookings made since that raise, whichever booking speed or pickup rule made it. A rule you switched off still made its raise, so it still marks where the other raise rules start counting on that night. Read [Counting after a rule acts](/docs/rules/booking-speed-in-detail#counting-after-a-rule-acts).
+<Callout kind="good-to-know" title="A switched-off rule's changes still count">
+Once a rule has changed a night, it counts only the bookings made since the newest change on that night by itself or by a stronger rule that moves the price the same way. A rule you switched off keeps its changes on the price, so its newest one still marks where it and the weaker rules start counting on that night. Read [Counting after a change](/docs/rules/how-rules-run#counting-after-a-change).
 </Callout>
 
 ## Delete
@@ -81,11 +82,13 @@ The rules table has seven columns: <Ui>Name</Ui>, <Ui>Fired</Ui>, <Ui>Conditions
 
 **Fired.** How many times the rule has acted, counted once per night and room type. A dash means never. A "?" beside the heading explains that a booking speed or pickup rule can act on the same night more than once, and each time counts, and that a change that came off later still counts. So the count is usually higher than the changes you can see on the calendar now, and higher than the change log shows, which lists only the 40 biggest moves of each run.
 
-**Conditions.** In words: "Occupancy above 80%", "Booking window below 7 days", "Pickup above 5 bookings", "booking speed at least Faster Than Normal (past week), then waits 1 week". Several are joined with a dot.
+**Conditions.** In words: "Occupancy above 80%", "Booking window below 7 days", "Pickup above 5 bookings (past 3 days), then waits 3 days", "booking speed at least Faster Than Normal (past week), then waits 1 week". Several are joined with a dot.
 
 **Room Types.** The types the rule changes, or "Watches Standard, Deluxe · Changes Suite" when it measures different ones.
 
 **Price Change.** "+10%", "-15%", "+$25", "-$25". The sign in this column is always a dollar sign, whatever your property's currency. The amount is in your currency. The change log and the keeps-adjusting banner use your currency's own symbol.
+
+**Undo on cancellations.** A box under each rule's switch, with a "?" beside it. Ticked, cancellations take one of the rule's changes off when they mean the rule is no longer true. Ticking or unticking it saves at once, and nothing else about the rule changes: its changes stay where they are. Read [The undo box](/docs/rules/when-a-change-comes-off#the-undo-box).
 
 **Stopped on N nights.** An amber chip under the switch when you have told the rule to stop on some upcoming nights, with a "?" and a <Ui>Let it run again</Ui> link. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
 
@@ -99,7 +102,7 @@ Every occupancy or booking window rule whose condition holds applies, and their 
 
 ## Who can do this
 
-Revenue Managers, General Managers and Hotel Admins can switch and delete rules. A Viewer sees the switch and the <Ui>Delete</Ui> button, but clicking them changes nothing. Read [Roles: who can do what](/docs/team/roles).
+Revenue Managers, General Managers and Hotel Admins can switch and delete rules and tick or untick their undo box. A Viewer sees the switch and the <Ui>Delete</Ui> button, but clicking them changes nothing. A Viewer who clicks the undo box sees it go back, with "Only a Revenue Manager or above can change this." under it. Read [Roles: who can do what](/docs/team/roles).
 
 ## Who did what
 

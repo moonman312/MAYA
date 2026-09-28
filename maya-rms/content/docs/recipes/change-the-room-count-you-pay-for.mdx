@@ -4,15 +4,15 @@ summary: On the Billing page, type the new number under Rooms billed and click C
 section: recipes
 order: 230
 readingTime: 5
-keywords: [room count, rooms billed, change the room count, billed for more rooms, paying for more rooms, running more rooms, opened a wing, closed a wing, 7 days, room count updated, proration, next invoice, price per room, ThinkReservations, rooms per type, one number, 100 rooms, 300 rooms, wrong room count]
+keywords: [room count, rooms billed, change the room count, billed for more rooms, paying for more rooms, running more rooms, opened a wing, closed a wing, 7 days, room count updated, proration, next invoice, price per room, ThinkReservations, rooms per room type, inactive room, wrong room count]
 questions:
   - How do I change the room count I pay for? {#change-it}
   - I closed a wing, will my bill drop by itself? {#what-maya-measures/paying-for-more}
   - Why does it say I am billed for 20 rooms but running 24? {#what-maya-measures/running-more-rooms}
   - Am I charged immediately for extra rooms? {#what-maya-measures/running-more-rooms}
-  - Can I change the room count in Stripe? {#what-maya-measures/email-us-your}
+  - Can I change the room count in Stripe? {#what-maya-measures/the-room-count}
   - Who can change the room count? {#change-it}
-  - I use ThinkReservations and it says I am running 300 rooms. Why? {#what-maya-measures/email-us-your}
+  - I use ThinkReservations and the room count looks wrong. Why? {#what-maya-measures/on-thinkreservations-maya}
 updated: 2026-09-24
 ---
 
@@ -43,13 +43,7 @@ MAYA counts the rooms in your property system on every cycle: the units of every
 - **Running more rooms than you pay for.** The billing page and a dashboard banner say "You're billed for 20 rooms but running 22", and an email goes to the address that gets your invoices. Set the count yourself within 7 days of that email. After that MAYA raises it to the measured number and adjusts the next invoice. Nothing is charged separately.
 - **Paying for more rooms than you run.** The page says so and invites you to lower it here. It is never lowered for you, so a wing closed for a fortnight does not quietly cut your bill: lower it yourself if you want to.
 
-On ThinkReservations, the measured number starts at 100 rooms per room type. ThinkReservations does not report how many rooms a room type has, so MAYA gives every room type the same number, 100 until we change it. Three room types that count as rooms measure as 300, and the page can read "You're billed for 20 rooms but running 300".
-
-We can set one number of rooms for your property, and it applies to every ThinkReservations room type. We cannot set a different count for each room type yet. So your measured number is that one number times your room types ticked as rooms.
-
-That matches your real total only when the total splits evenly across your room types. The Harbour Inn's 12, 6 and 2 rooms can measure as 18 or 21, never 20. At 21, you get the banner and the email, and 7 days after the email MAYA raises your billed count to 21. At 18, the page says you pay for more rooms than you run, and your billed count stays at 20 because it is never lowered for you.
-
-[Email us your room counts](mailto:info@modern-hospitality-solutions.com?subject=ThinkReservations%20room%20counts) as soon as you connect, so we can set your property's number. If the email about running more rooms has already reached you, write to us before its 7 days pass, or MAYA raises your count to the measured number.
+On ThinkReservations, MAYA counts each room type's rooms from ThinkReservations' list of rooms. A room marked there as inactive, as not a room, or as not included in occupancy is left out. If the measured number looks wrong, check those settings on your rooms in ThinkReservations, and <Ui>Counts as a room</Ui> on the <Ui>PMS</Ui> tab: the next cycle measures again.
 
 <Callout kind="example">
 The Harbour Inn pays for 20 rooms at $5.50 each, $110 a month. Sam opens an annexe of 4 rooms. The next cycle measures 24, and the page reads "You're billed for 20 rooms but running 24". Sam types 24 and clicks <Ui>Change</Ui>: 24 rooms falls in the 21 to 40 bracket at $5.00, so the quote reads "$110 up to $120 per month".

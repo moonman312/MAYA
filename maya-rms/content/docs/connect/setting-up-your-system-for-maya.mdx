@@ -43,7 +43,7 @@ On Cloudbeds and ThinkReservations, MAYA changes one thing in your system: one n
 <PmsTab pms="thinkreservations">
 1. There is a standard rate type whose name contains "Best Available", and it covers every room type you want priced.
 2. That rate type has a rate loaded for tonight and the next 59 nights, and further out if you sell further out.
-3. You have [emailed us](mailto:info@modern-hospitality-solutions.com?subject=ThinkReservations%20room%20count) your room counts, and we have set the number the <Ui>PMS</Ui> tab shows. MAYA uses one number for every room type, 100 until we change it, and the room count you are billed for is checked against it.
+3. The units beside each room type on the <Ui>PMS</Ui> tab match the rooms you sell. MAYA counts them from your list of rooms in ThinkReservations, leaving out rooms marked as inactive, as not a room, or as not included in occupancy, and the room count you are billed for is checked against them.
 4. You have checked your time zone with us. MAYA copies your time zone and currency from ThinkReservations once, when you connect. No screen in MAYA shows the time zone, so [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone) and we tell you which time zone MAYA has. The currency shows as the sign in the change log's sentences.
 5. Anything nobody sleeps in is unticked under <Ui>Counts as a room</Ui> on the <Ui>PMS</Ui> tab.
 6. Rooms you have blocked or taken out of order are recorded under <Ui>Rooms out of service</Ui> in MAYA.
@@ -128,7 +128,7 @@ Sellable occupancy is rooms booked divided by rooms you can sell that night. MAY
 The units come from Cloudbeds on every read, so there is usually nothing to do. A virtual room type (one that sells rooms from another type) counts like any other, with the units Cloudbeds gives it, so your count can read higher than the rooms you have. Unticking it takes out its units, but also leaves out any bookings Cloudbeds records on it. If you sell one, [email us](mailto:info@modern-hospitality-solutions.com?subject=Virtual%20room%20type) before you untick it, and we check which room type its bookings are counted under.
 </PmsTab>
 <PmsTab pms="thinkreservations">
-ThinkReservations does not report units. MAYA uses one number for every ThinkReservations room type at your property. It starts at 100, so the <Ui>PMS</Ui> tab shows "100 units" beside each room type. [Email us](mailto:info@modern-hospitality-solutions.com?subject=ThinkReservations%20room%20count) your room counts and we change that number, but it stays one number shared by every room type. If your room types are all the same size, occupancy reads right from the next run. If they differ, we set the average: whole-property occupancy reads close, and occupancy for one room type is off. Email us even if your sizes differ, because the room count you are billed for is checked against this number, and 100 for each room type can raise your bill. A count for each room type is not possible yet. Read [MAYA with ThinkReservations, start to finish](/docs/connect/maya-with-thinkreservations) for a worked example.
+MAYA counts the units of each ThinkReservations room type from your list of rooms, on every read. A room marked there as inactive, as not a room, or as not included in occupancy is left out, so set those on any room you do not sell before you rely on occupancy. The room count you are billed for is checked against these units. Read [MAYA with ThinkReservations, start to finish](/docs/connect/maya-with-thinkreservations) for a worked example.
 </PmsTab>
 <PmsTab pms="mews">
 Mews does not report room counts, so every room category gets the one number we set with you when we connect. If your room categories are all the same size, occupancy reads right. If they differ, we set the average: whole-property occupancy reads close, and occupancy for one category is off. The room count you are billed for is checked against this number, so 100 for each category can raise your bill. Check the units on the <Ui>PMS</Ui> tab. If they read 100, or look wrong, [email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20room%20counts).
@@ -162,7 +162,7 @@ Sam opens the change log and sees "from $150.00 to $165.00" under a change, so M
 </Example>
 
 <Callout kind="not-yet" title="Not yet">
-No screen in MAYA shows the time zone, and the currency appears only as a sign beside amounts (read it in the change log's sentences). There is no field to change either one, or the ThinkReservations room count, which is one number for every room type (email us). MAYA does not read blocks, out-of-order rooms or allotments from your system (record them under <Ui>Rooms out of service</Ui>). It never sends a price of 0, so a comp night is set to 0 in your system by hand.
+No screen in MAYA shows the time zone, and the currency appears only as a sign beside amounts (read it in the change log's sentences). There is no field to change either one. MAYA does not read blocks, out-of-order rooms or allotments from your system (record them under <Ui>Rooms out of service</Ui>). It never sends a price of 0, so a comp night is set to 0 in your system by hand.
 </Callout>
 
 <Related>
