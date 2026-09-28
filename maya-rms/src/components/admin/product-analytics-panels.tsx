@@ -416,6 +416,8 @@ export function EngagementPanel({ events }: { events: EventCountRow[] }) {
           line("Starter rules created", "rule.created", "starter"),
           line("Rules switched off", "rule.disabled"),
           line("Rules edited", "rule.edited"),
+          // Counts rules saved unticked too: the trigger writes
+          // rule.undo_unticked (at_create) next to their rule.created.
           line("Undo box unticked", "rule.undo_unticked"),
           line("Undo box ticked again", "rule.undo_ticked"),
           line("Rules deleted", "rule.deleted"),

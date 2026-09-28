@@ -198,11 +198,13 @@
 --
 -- 6. Product analytics see the box (product_events_pricing_rules, replaced
 --    whole, and its update trigger): rule.created carries
---    undo_on_cancellation, so a rule saved unticked shows, and ticking or
---    unticking it later writes rule.undo_ticked or rule.undo_unticked
---    (rule_id, origin), the way switching a rule on or off writes
---    rule.enabled or rule.disabled. The update trigger now also fires on the
---    box. Everything else is as 99_supabase_migration_product_events_v1.sql
+--    undo_on_cancellation, and a rule saved unticked also writes
+--    rule.undo_unticked (rule_id, origin, at_create true) next to it, so the
+--    admin panel's "Undo box unticked" counts it with the rules unticked
+--    later. Ticking or unticking a saved rule writes rule.undo_ticked or
+--    rule.undo_unticked (rule_id, origin), the way switching a rule on or off
+--    writes rule.enabled or rule.disabled. The update trigger now also fires
+--    on the box. Everything else is as 99_supabase_migration_product_events_v1.sql
 --    made it; replaying that file after this one would put its older
 --    trigger back, so run this one again after it.
 --
@@ -636,6 +638,14 @@ begin
         ),
         'trigger', new.created_at
       );
+      -- Saved unticked: the owner unticked the box before the first save.
+      if not new.undo_on_cancellation then
+        perform public.product_event_emit(
+          'rule.undo_unticked', new.hotel_id, coalesce(auth.uid(), new.created_by),
+          jsonb_build_object('rule_id', new.id, 'origin', v_origin, 'at_create', true),
+          'trigger', new.created_at
+        );
+      end if;
     elsif tg_op = 'UPDATE' then
       if new.is_active is distinct from old.is_active then
         perform public.product_event_emit(

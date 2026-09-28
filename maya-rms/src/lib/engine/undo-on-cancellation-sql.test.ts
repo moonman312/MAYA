@@ -352,10 +352,17 @@ describe.skipIf(!PGLITE_DIR)("the undo on cancellation migration in PGlite, afte
           undo_on_cancellation: false,
         },
       ],
+      // Saved unticked: counted with the rules unticked later.
+      ["rule.undo_unticked", { rule_id: fresh, origin: "system", at_create: true }],
     ]);
+    // Saved ticked: nothing more than rule.created.
+    const ticked = uuidFor("rule-ticked");
+    await db.exec(`insert into public.pricing_rules (id, hotel_id, name) values ('${ticked}', '${H1}', 'Ticked')`);
+    expect((await events()).slice(5).map((e) => e[0])).toEqual(["rule.created"]);
+    await db.exec(`delete from public.pricing_rules where id = '${ticked}'`);
     // Switching it off and editing it still say so.
     await db.exec(`update public.pricing_rules set is_active = false, version = version + 1 where id = '${fresh}'`);
-    expect((await events()).slice(4).map((e) => e[0])).toEqual(["rule.disabled", "rule.edited"]);
+    expect((await events()).slice(6).map((e) => e[0])).toEqual(["rule.disabled", "rule.edited"]);
     await db.exec(`delete from public.pricing_rules where id = '${fresh}'`);
   });
 });
