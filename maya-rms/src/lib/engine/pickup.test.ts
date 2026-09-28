@@ -709,7 +709,7 @@ describe("where a pickup count opens: the fires still on the night (openFireHead
     stay_date: NIGHT,
     affected_room_type_id: "rt1",
     applied_at: "2026-09-20T12:00:00.000Z",
-    counted_at: over.counted_at ?? over.applied_at ?? "2026-09-20T12:00:00.000Z",
+    checked_at: over.checked_at ?? over.applied_at ?? "2026-09-20T12:00:00.000Z",
     fire_seq: 1,
     action_kind: "percent",
     action_direction: "increase",
@@ -749,6 +749,15 @@ describe("where a pickup count opens: the fires still on the night (openFireHead
     expect(heads.get(fireHeadKey("raise", NIGHT, "rt1"))).toEqual({ lastCountedAt: "2026-09-22T12:00:00.000Z", counted: 2 });
     expect(heads.get(fireHeadKey("paused", NIGHT, "rt1"))?.lastCountedAt).toBe("2026-09-21T12:00:00.000Z");
     expect(heads.get(fireHeadKey("raise", NIGHT, "rt2"))?.lastCountedAt).toBe("2026-09-19T12:00:00.000Z");
+  });
+
+  it("counts from when a fire was made, even once a cancellation check kept it and took its numbers again later", () => {
+    const heads = openFireHeads(
+      [raise],
+      [fire({ id: "kept", applied_at: "2026-09-20T12:00:00.000Z", checked_at: "2026-09-22T12:05:00.000Z" })],
+      new Set(),
+    );
+    expect(heads.get(fireHeadKey("raise", NIGHT, "rt1"))).toEqual({ lastCountedAt: "2026-09-20T12:00:00.000Z", counted: 1 });
   });
 
   it("leaves out a raise this run took off, one from an older version of its rule, and one whose rule it wasn't given", () => {

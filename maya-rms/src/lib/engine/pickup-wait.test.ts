@@ -324,11 +324,13 @@ describe.each(ENGINES)("$name: a pickup count rule after a typed price", (engine
 });
 
 describe.each(ENGINES)("$name: no snapshot where the count opens", (engine) => {
-  it("leaves the rule unfired, as a window with no history does, rather than counting from an older one", async () => {
+  it("counts the bookings first seen since the change all the same, never from an older snapshot", async () => {
     // Every fire's own run writes a snapshot at the fire's instant, so this
     // only happens to a fire recorded some other way, or to a room type that
     // was not measured then. Here: a stronger raise rule's raise a day ago,
-    // and no snapshot within 12 hours before it.
+    // and no snapshot within 12 hours before it. A count that opens at a
+    // change reads when each booking was first seen against the change's
+    // own instant (countPickupSinceChange), which needs no snapshot.
     const week = pickupRule("r-week", { pickup_window_days: 7 });
     const other = pickupRule("r-other", { pickup_window_days: 3, pickup_threshold: 100 }, { action_value: 20 });
     const raisedAt = iso(T0 - DAY);
@@ -372,11 +374,15 @@ describe.each(ENGINES)("$name: no snapshot where the count opens", (engine) => {
     w.tables.stay_date_snapshot = w.tables.stay_date_snapshot.filter(
       (s) => Date.parse(String(s.snapshot_ts)) <= gapFrom || Date.parse(String(s.snapshot_ts)) > T0 - DAY,
     );
-    // Four new bookings since that raise would be enough: the count can't be
-    // read, so the week rule doesn't fire on it.
+    // Four new bookings since that raise are enough; the five before it
+    // are not counted again.
     w.tables.reservations.push(...bookings(4, D0));
     await w.run(T0);
-    expect(w.firedOn()).toEqual([["r-other", -1]]);
+    expect(w.firedOn()).toEqual([
+      ["r-other", -1],
+      ["r-week", 0],
+    ]);
+    expect(w.fireMetrics(T0)).toMatchObject({ net_pickup_units: 4, pickup_counted_since: raisedAt });
   }, 60_000);
 });
 
@@ -435,8 +441,8 @@ describe.each(ENGINES)("$name: a fire later than the run's clock", (engine) => {
     await w.run(T0);
     await w.run(T0 + HOUR);
     expect(w.fires().map((e) => e.rule_id)).toEqual(["r-other"]);
-    // Four since that raise do.
-    w.tables.reservations.push(...bookings(4, D0));
+    // Four first seen since that raise do.
+    w.tables.reservations.push(...bookings(4, D0).map((b) => ({ ...b, created_at: iso(T0 + 90 * 60_000) })));
     await w.run(T0 + 2 * HOUR);
     expect(w.fires().map((e) => e.rule_id)).toEqual(["r-other", "r-fast"]);
     expect(w.fireMetrics(T0 + 2 * HOUR)).toMatchObject({ net_pickup_units: 4, pickup_counted_since: later });
@@ -678,7 +684,9 @@ describe.each(ENGINES)("$name: counts that open at fires, read many nights at a 
     }
     // After each raise, even nights got four more bookings in the first room type.
     nights.forEach((stay, i) => {
-      if (i % 2 === 0) for (let n = 0; n < 4; n++) reservations.push({ ...booking(D0, stay), room_type_id: TYPES[0] });
+      if (i % 2 === 0) {
+        for (let n = 0; n < 4; n++) reservations.push({ ...booking(D0, stay), room_type_id: TYPES[0], created_at: iso(T0 - HOUR) });
+      }
     });
     const everyType = TYPES.map((room_type_id) => ({ room_type_id }));
     const week = pickupRule("r-week", { pickup_window_days: 7 }, { rule_signal_room_type: everyType, rule_affected_room_type: everyType });

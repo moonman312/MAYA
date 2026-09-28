@@ -116,27 +116,27 @@
       "counts": {
         "hotel_id": "h1",
         "stay_dates_evaluated": 21,
-        "prices_published": 20,
+        "prices_published": 21,
         "ladder_activations": 5,
         "ladder_deactivations": 1,
-        "pickup_events_created": 0
+        "pickup_events_created": 2
       },
       "sizes": {
         "published_price": 87,
         "ladder_rule_state": 137,
         "ladder_transition_event": 153,
-        "pickup_event": 22,
-        "evaluation_audit": 187,
+        "pickup_event": 24,
+        "evaluation_audit": 188,
         "evaluation_run_log": 5,
         "stay_date_snapshot": 315
       },
       "hashes": {
-        "published_price": "090f658cbe8677f7c41ea0c64d094a09857c297164aca4d515e95e386d245c69",
+        "published_price": "20c7dd0a04d43334591b30512354f7aea77b92c3716fc6d6b8d356198a363cdc",
         "ladder_rule_state": "b26e1a915c8dc441599c86a0ab1b43b4a70d5335da30ed5d62bd59cef590a1ac",
         "ladder_transition_event": "e9524f3d543c3de430c7fa6d80e5ef6d4a44fde4c8fd8420accbfb359078f609",
-        "pickup_event": "55feaf315ef0c91a016530eccc1fd6e367adddb52ab00237bed6c547c82a7a12",
-        "evaluation_audit": "03813bb97d6e92898ca9038a36f23e23b1224a9a955ae7fcc186b786d40077e5",
-        "evaluation_run_log": "d532bbff6edf83a9cd11ec00ef87f5149c5dcb65f106fc767ab316654fc3aa43",
+        "pickup_event": "03bdec21fc0985528b9a7cf28e91d3dd581407f6e97a5995b3dbcee18e53059e",
+        "evaluation_audit": "dcb96dae212f9e65f1bac421ffcf2cb816a3bf53de6cb327fdf23b087e2d8546",
+        "evaluation_run_log": "a02856c5ef7ee27ff9479be411a657fc5670342b1e325172ce83d1242a03bb3c",
         "stay_date_snapshot": "ab595a30498bbadfb92bba54009113ae5fc74e04bf52d1b1b42a31e00c4d9667"
       }
     },
@@ -144,27 +144,27 @@
       "counts": {
         "hotel_id": "h1",
         "stay_dates_evaluated": 21,
-        "prices_published": 24,
+        "prices_published": 25,
         "ladder_activations": 9,
         "ladder_deactivations": 1,
-        "pickup_events_created": 5
+        "pickup_events_created": 6
       },
       "sizes": {
         "published_price": 95,
         "ladder_rule_state": 146,
         "ladder_transition_event": 163,
-        "pickup_event": 27,
-        "evaluation_audit": 212,
+        "pickup_event": 30,
+        "evaluation_audit": 214,
         "evaluation_run_log": 6,
         "stay_date_snapshot": 378
       },
       "hashes": {
-        "published_price": "876a2b2db1f64d1b74d247a0060bdeada5a82b18eb8a172eae460c9b14e07bb8",
+        "published_price": "9c1c14fe97fc113c0b92c316ff7d778ea42c35335bd7bacc2102cdfdec2b1789",
         "ladder_rule_state": "e9c8f010897b385c42d1edc0f614ffac42627429be3ee531b9afc359b48b7c35",
         "ladder_transition_event": "1c5b8bd2caedbd5f170497e57a104c9009fa9456f2ce58958f55b5ba34562e37",
-        "pickup_event": "a2c584336e868e80247ac5e7b53677f430c3065aae77d33deafe6e17faa7a909",
-        "evaluation_audit": "451ec9e485b7bead58826ee267087eab0fcda99cba69964563895ded29396b91",
-        "evaluation_run_log": "4e7a7bcb95cfd43521f4c3a0cff90c5a8f4086e05882e7d78b16a4a42a922429",
+        "pickup_event": "1eff1f2ce9e15ad805ffe303c9a833d3a2823186142b87044eea3a2383889e03",
+        "evaluation_audit": "6f7dd732ff75e2483f855ecea03749de4887110ad6c6c56b4417660a0862e04f",
+        "evaluation_run_log": "597f152011cbcc46647ec02df676188c6ac3f40507b47ab9e823c7c6b320edd9",
         "stay_date_snapshot": "66b324ae1ee0c837e383d6f964c7e21992012914eb58c0169b6a6ef0877e3650"
       }
     },
@@ -181,18 +181,18 @@
         "published_price": 96,
         "ladder_rule_state": 162,
         "ladder_transition_event": 179,
-        "pickup_event": 28,
-        "evaluation_audit": 231,
+        "pickup_event": 31,
+        "evaluation_audit": 233,
         "evaluation_run_log": 7,
         "stay_date_snapshot": 405
       },
       "hashes": {
-        "published_price": "eedf9bd9291f0906641bb72c7feea2fd5359975481f4069f31373e3a81622216",
+        "published_price": "06c0ff875eba8da7d0fc26259838f8d16b43c5425c9bf8a0d0325f69e0b02f85",
         "ladder_rule_state": "e4a08143aad01e448656b3a0bcc646355996253735f4c3de2b679b2afc40961b",
         "ladder_transition_event": "727a8cf806925969160f7d64a202d83ea957360470c1321ce058753dde057924",
-        "pickup_event": "4e4910e12e76982a05b096c740fa6bae5efcdb0e330a4041a70c174bc2bf882b",
-        "evaluation_audit": "8dc296e9ae8eadfcac811740c20a800703971d6f4e3459d77bf419ab4bf7ef3d",
-        "evaluation_run_log": "142db8283ce40eb392b0aae4a6f9557ee1b3d86e428a0ecf70b6c75d2fd12250",
+        "pickup_event": "c553baa72d749955157d4fcb52fb59e6ee9d6b12172411663415e3f835222f74",
+        "evaluation_audit": "5b736ce2d731f7da2e8faaf18a5e215f4804731b2714b3e591220993d5028f5f",
+        "evaluation_run_log": "022b9b9957ba2b3f2e88ae35667ef9fb3e4cf22bf4b307b6c7f7f366a794e123",
         "stay_date_snapshot": "71a7364ae5e503c17527d9111569aa06ad92af390e8f43a9ce5d6838b305be79"
       }
     },
@@ -209,18 +209,18 @@
         "published_price": 99,
         "ladder_rule_state": 166,
         "ladder_transition_event": 185,
-        "pickup_event": 30,
-        "evaluation_audit": 246,
+        "pickup_event": 33,
+        "evaluation_audit": 248,
         "evaluation_run_log": 8,
         "stay_date_snapshot": 117
       },
       "hashes": {
-        "published_price": "bc353f326adc418e34229b518ddf3029199662fd4d430da193176452a7bbd1c7",
+        "published_price": "b509de4e762facb5c189fcbe5c04253af8482d2afdbda5e2e82ed4f1f5455ef0",
         "ladder_rule_state": "11be0b6b44c5167c3a1c9bfa3be58afc8dcf0eb68d357348726abdaf968097b1",
         "ladder_transition_event": "63dd03ff3b48e66902274ad488955adb088252d3ba00b984743ea50225307dcf",
-        "pickup_event": "a575a64ae05006f898de054bf6932dca331673999cdc62d17fd1e8d0af2c298c",
-        "evaluation_audit": "db5f95c6cb4c66198694e02794734b586c6c15eb91130890dde6336ffc588bca",
-        "evaluation_run_log": "60740bd24d1e04b48ca4855efafb072cd18568420d3b72d663202e01e56a10cd",
+        "pickup_event": "53a2e7870ea523412a7b25c1ec38c48c18d4b6111046479c880be070be7cf63d",
+        "evaluation_audit": "323b25391d3c2537a745513b93b5d0050c3c9bc07656c5c314253c1589f3f42e",
+        "evaluation_run_log": "ebaad911d43d7914beffc5b1ae567f889fdcfd06913254316370b4640d44a46d",
         "stay_date_snapshot": "0f13a93e915237cba6d538d457209f8b1c2287838a661cd5fdcd2e0c9178a873"
       }
     }
@@ -342,27 +342,27 @@
       "counts": {
         "hotel_id": "h1",
         "stay_dates_evaluated": 21,
-        "prices_published": 20,
+        "prices_published": 21,
         "ladder_activations": 5,
         "ladder_deactivations": 1,
-        "pickup_events_created": 0
+        "pickup_events_created": 2
       },
       "sizes": {
         "published_price": 87,
         "ladder_rule_state": 137,
         "ladder_transition_event": 153,
-        "pickup_event": 22,
-        "evaluation_audit": 187,
+        "pickup_event": 24,
+        "evaluation_audit": 188,
         "evaluation_run_log": 5,
         "stay_date_snapshot": 315
       },
       "hashes": {
-        "published_price": "a2b7be4af079f2cdfc9b7b61e23b39ce6a36966b22b5ce16a83768251b4b47f4",
+        "published_price": "8209248b8212fd5d2f726285ed5a21c87e16b31e9b82dcef59dbdf98ff52fe0c",
         "ladder_rule_state": "71cd123ab4c8bba245a79870b89e4e80e7668d478aea6ca220e98f5854aca764",
         "ladder_transition_event": "e9524f3d543c3de430c7fa6d80e5ef6d4a44fde4c8fd8420accbfb359078f609",
-        "pickup_event": "55feaf315ef0c91a016530eccc1fd6e367adddb52ab00237bed6c547c82a7a12",
-        "evaluation_audit": "4f9d5bb0ab1b8bb2d6877e802e7548d0585acc16c0502de01356061385ef0262",
-        "evaluation_run_log": "d532bbff6edf83a9cd11ec00ef87f5149c5dcb65f106fc767ab316654fc3aa43",
+        "pickup_event": "03bdec21fc0985528b9a7cf28e91d3dd581407f6e97a5995b3dbcee18e53059e",
+        "evaluation_audit": "d4d20bc3b45d5daab243a4b64b4dd9459995f72246cfc8a8bd340f851868ceec",
+        "evaluation_run_log": "a02856c5ef7ee27ff9479be411a657fc5670342b1e325172ce83d1242a03bb3c",
         "stay_date_snapshot": "ab595a30498bbadfb92bba54009113ae5fc74e04bf52d1b1b42a31e00c4d9667"
       }
     },
@@ -370,27 +370,27 @@
       "counts": {
         "hotel_id": "h1",
         "stay_dates_evaluated": 21,
-        "prices_published": 24,
+        "prices_published": 25,
         "ladder_activations": 9,
         "ladder_deactivations": 1,
-        "pickup_events_created": 5
+        "pickup_events_created": 6
       },
       "sizes": {
         "published_price": 95,
         "ladder_rule_state": 146,
         "ladder_transition_event": 163,
-        "pickup_event": 27,
-        "evaluation_audit": 212,
+        "pickup_event": 30,
+        "evaluation_audit": 214,
         "evaluation_run_log": 6,
         "stay_date_snapshot": 378
       },
       "hashes": {
-        "published_price": "2ff21a885d2b177845e5ba9130630769588870b34f0bedd71acd0300f2aa7d9b",
+        "published_price": "0ca0bb3f2e734cd7305d17ec1a49b0884b97f0045e011364c74d16708ae22114",
         "ladder_rule_state": "8cadd3d157eeb0d4d1e2fa83d829e1813e396553239bc5e053568738cf7c1172",
         "ladder_transition_event": "1c5b8bd2caedbd5f170497e57a104c9009fa9456f2ce58958f55b5ba34562e37",
-        "pickup_event": "a2c584336e868e80247ac5e7b53677f430c3065aae77d33deafe6e17faa7a909",
-        "evaluation_audit": "1872a03e008a99ef545fff5342e2ee7882648466d9b3f5b6e94c2d33019f46c2",
-        "evaluation_run_log": "4e7a7bcb95cfd43521f4c3a0cff90c5a8f4086e05882e7d78b16a4a42a922429",
+        "pickup_event": "1eff1f2ce9e15ad805ffe303c9a833d3a2823186142b87044eea3a2383889e03",
+        "evaluation_audit": "9105840ea45898ee5eb2e9e32fe753fe72db245af5435bf39e84ce8df655ae78",
+        "evaluation_run_log": "597f152011cbcc46647ec02df676188c6ac3f40507b47ab9e823c7c6b320edd9",
         "stay_date_snapshot": "66b324ae1ee0c837e383d6f964c7e21992012914eb58c0169b6a6ef0877e3650"
       }
     },
@@ -407,18 +407,18 @@
         "published_price": 96,
         "ladder_rule_state": 162,
         "ladder_transition_event": 179,
-        "pickup_event": 28,
-        "evaluation_audit": 231,
+        "pickup_event": 31,
+        "evaluation_audit": 233,
         "evaluation_run_log": 7,
         "stay_date_snapshot": 405
       },
       "hashes": {
-        "published_price": "cd2d0401d70944fcc25ad8341f08e751631a53993255785a01f76ac090f755dd",
+        "published_price": "04559f41701efa477f9118004a84029fb993920d60e6d7565d96d72cf0a0d2bb",
         "ladder_rule_state": "51adacbc81c1d790ff571f54cf87ab06f2d1dd8005b37debb42e107909f53607",
         "ladder_transition_event": "727a8cf806925969160f7d64a202d83ea957360470c1321ce058753dde057924",
-        "pickup_event": "4e4910e12e76982a05b096c740fa6bae5efcdb0e330a4041a70c174bc2bf882b",
-        "evaluation_audit": "f54b1f57c0a4242718ca564cee58ecdd46d5a26316468ee20ab7b56c50102af5",
-        "evaluation_run_log": "142db8283ce40eb392b0aae4a6f9557ee1b3d86e428a0ecf70b6c75d2fd12250",
+        "pickup_event": "c553baa72d749955157d4fcb52fb59e6ee9d6b12172411663415e3f835222f74",
+        "evaluation_audit": "83d66ae3abd070146c8a006fd360a8a7420d04cdeaa5c96d144fdb43a27c4003",
+        "evaluation_run_log": "022b9b9957ba2b3f2e88ae35667ef9fb3e4cf22bf4b307b6c7f7f366a794e123",
         "stay_date_snapshot": "71a7364ae5e503c17527d9111569aa06ad92af390e8f43a9ce5d6838b305be79"
       }
     },
@@ -435,18 +435,18 @@
         "published_price": 99,
         "ladder_rule_state": 166,
         "ladder_transition_event": 185,
-        "pickup_event": 30,
-        "evaluation_audit": 246,
+        "pickup_event": 33,
+        "evaluation_audit": 248,
         "evaluation_run_log": 8,
         "stay_date_snapshot": 117
       },
       "hashes": {
-        "published_price": "d08f70b6d8beeb88932203a7a61d31cb801a272e4c44e783d51d9caacb85ecb2",
+        "published_price": "c0dc26a4cc89e49f5a33a7ca18d1d10214fdeb7d1566699dea7b71af52358c7f",
         "ladder_rule_state": "6aeccbb4acccf98a76b1395258a448aa6eadee386c0db495221355f92ec937f7",
         "ladder_transition_event": "63dd03ff3b48e66902274ad488955adb088252d3ba00b984743ea50225307dcf",
-        "pickup_event": "a575a64ae05006f898de054bf6932dca331673999cdc62d17fd1e8d0af2c298c",
-        "evaluation_audit": "47ace0c136778724e13f2f653751801ac37c786b8acebcb61d73337246fb5588",
-        "evaluation_run_log": "60740bd24d1e04b48ca4855efafb072cd18568420d3b72d663202e01e56a10cd",
+        "pickup_event": "53a2e7870ea523412a7b25c1ec38c48c18d4b6111046479c880be070be7cf63d",
+        "evaluation_audit": "81f10b0a89669c42dae1c1c178c84ef79247553d46a93dac5600a757157affbe",
+        "evaluation_run_log": "ebaad911d43d7914beffc5b1ae567f889fdcfd06913254316370b4640d44a46d",
         "stay_date_snapshot": "0f13a93e915237cba6d538d457209f8b1c2287838a661cd5fdcd2e0c9178a873"
       }
     }

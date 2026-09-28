@@ -77,7 +77,9 @@ export type RuleMetrics = {
    * from rather than a whole window back (pickupWindowOpensAt in pickup.ts:
    * its own last fire, inside a window longer than its wait, or a stronger
    * rule's newer fire that adjusts the same way): that fire's instant. The
-   * net pickup above counts only what came after it.
+   * pickup above then counts the room nights first seen after it that are
+   * still booked (countPickupSinceChange), and the baseline is what was
+   * first seen by then and is still booked.
    */
   pickup_counted_since?: string;
   /** Summed across signal room types at baseline snapshot (pickup ledger / audit). */

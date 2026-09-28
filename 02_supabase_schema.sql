@@ -546,11 +546,19 @@ create table if not exists pickup_event (
   pickup_units_arrived_at_fire   integer,
   pickup_revenue_arrived_at_fire numeric(12,2),
   window_booking_keys            text[],
+  -- A change kept on bookings made since after cancellations: when, and the
+  -- numbers its cancellation check recounts from then on (the undo migration).
+  checked_at                     timestamptz,
+  checked_count                  jsonb,
   constraint pickup_event_retired_reason_set_chk check ((retired_at is null) = (retired_reason is null)),
   constraint pickup_event_cancel_increase_chk check (cancel_check in ('none', 'recount') or action_direction = 'increase'),
   constraint pickup_event_arrivals_chk check (
     (pickup_units_arrived_at_fire is null or pickup_units_arrived_at_fire >= 0)
     and (pickup_revenue_arrived_at_fire is null or pickup_revenue_arrived_at_fire >= 0)
+  ),
+  constraint pickup_event_checked_chk check (
+    (checked_at is null) = (checked_count is null)
+    and (checked_count is null or jsonb_typeof(checked_count) = 'object')
   ),
   constraint pickup_event_window_chk check (
     cancel_check not in ('window_bookings', 'either')

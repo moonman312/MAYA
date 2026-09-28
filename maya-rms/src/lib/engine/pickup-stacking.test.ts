@@ -492,7 +492,7 @@ describe("a rule waiting on a cell holds it", () => {
     // A booking after the raise. The weak rule counts from the strong
     // rule's raise and would raise on it, but the strong rule, still
     // waiting, counts it too and matches again: it holds the night.
-    w.tables.reservations.push(booking(NIGHT, D0));
+    w.tables.reservations.push({ ...booking(NIGHT, D0), created_at: iso(T0 + HOUR) });
     await w.run(T0 + DAY);
     expect(w.fires(NIGHT)).toHaveLength(1);
     expect(w.price(NIGHT)).toBe(115);
@@ -503,7 +503,7 @@ describe("a rule waiting on a cell holds it", () => {
     const paused = world({ rules: [{ ...up }, upWeak], reservations: [booking(NIGHT, addDays(D0, -1))] });
     await paused.run(T0);
     paused.tables.pricing_rules.find((r) => r.id === "r-up")!.is_active = false;
-    paused.tables.reservations.push(booking(NIGHT, D0));
+    paused.tables.reservations.push({ ...booking(NIGHT, D0), created_at: iso(T0 + HOUR) });
     await paused.run(T0 + DAY);
     expect(paused.fires(NIGHT).map((e) => [e.rule_id, e.signal_booked_units_start, e.signal_booked_units_end])).toEqual([
       ["r-up", 0, 1],

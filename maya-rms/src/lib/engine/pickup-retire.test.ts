@@ -68,7 +68,7 @@ function fire(over: Partial<OpenPickupFire> = {}): OpenPickupFire {
     stay_date: NIGHT,
     affected_room_type_id: "rt1",
     applied_at: FIRED,
-    counted_at: over.counted_at ?? over.applied_at ?? FIRED,
+    checked_at: over.checked_at ?? over.applied_at ?? FIRED,
     fire_seq: 1,
     action_kind: "percent",
     action_direction: "increase",
@@ -175,8 +175,8 @@ describe("which fires the cancellation check looks at (cancellationChecks)", () 
       { stayDate: NIGHT, at: OPENED },
     ]);
     expect(cancellationReads([{ fire: fire(), rule: speed }])).toEqual([{ stayDate: NIGHT, at: FIRED }]);
-    // A change whose numbers were taken again reads from then.
-    expect(cancellationReads([{ fire: fire({ counted_at: "2026-07-28T09:00:00.000Z" }), rule: speed }])).toEqual([
+    // A change kept on bookings made since reads from when its numbers were taken again.
+    expect(cancellationReads([{ fire: fire({ checked_at: "2026-07-28T09:00:00.000Z" }), rule: speed }])).toEqual([
       { stayDate: NIGHT, at: "2026-07-28T09:00:00.000Z" },
     ]);
   });

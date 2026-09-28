@@ -119,6 +119,28 @@ function settled(n: number): FakeRow[] {
 }
 
 /**
+ * Nights like NIGHT book one booking at every third lead from 30 to 90 days
+ * out, and one more at 43 days out on every third night, so over a week
+ * "much faster" first reads at 5 bookings and "surging" at 8. NIGHT itself
+ * has none of its own from 50 days out.
+ */
+function weekly(): FakeRow[] {
+  const out: FakeRow[] = [];
+  for (let stay = addDays(D0, -400); stay <= LAST; stay = addDays(stay, 1)) {
+    for (let lead = 30; lead <= 90; lead += 3) {
+      if (stay === NIGHT && lead <= 50) continue;
+      const on = addDays(stay, -lead);
+      out.push(booking(stay, on, `${on}T03:00:00.000Z`));
+    }
+    if (stay !== NIGHT && ((daysBetween(D0, stay) % 3) + 3) % 3 === 0) {
+      const on = addDays(stay, -43);
+      out.push(booking(stay, on, `${on}T03:00:00.000Z`));
+    }
+  }
+  return out;
+}
+
+/**
  * A hotel whose bookings reach MAYA at their created_at. `runAt` puts every
  * booking first seen by then on the books and runs the engine at that
  * instant, pricing through LAST; `cancel` deletes rows, as a cancellation
@@ -195,6 +217,31 @@ const BOXES = [
   { box: "ticked", undo: true },
   { box: "unticked", undo: false },
 ];
+
+/** More than 9 room nights in 7 days, +20%, waiting `wait` days (its week when null). */
+const ten = (wait: number | null) =>
+  rule(
+    "Ten",
+    { pickup_operator: "gt", pickup_threshold: 9, pickup_window_days: 7, pickup_metric: "room_nights", pickup_cooldown_days: wait },
+    { action_value: 20 },
+  );
+/** More than 4 room nights in 7 days, +10%. */
+const five = rule(
+  "Five",
+  { pickup_operator: "gt", pickup_threshold: 4, pickup_window_days: 7, pickup_metric: "room_nights", pickup_cooldown_days: null },
+  { action_value: 10 },
+);
+/** The same two as booking speed over a week (weekly(): "much faster" from 5, "surging" from 8). */
+const weekFive = rule(
+  "Five",
+  { booking_speed_operator: "at_least", booking_speed_level: "much_faster", booking_speed_window_days: 7, booking_speed_cooldown_days: 7 },
+  { action_value: 10 },
+);
+const weekTen = rule(
+  "Ten",
+  { booking_speed_operator: "at_least", booking_speed_level: "surging", booking_speed_window_days: 7, booking_speed_cooldown_days: 7 },
+  { action_value: 20 },
+);
 
 describe.each(ENGINES)("$name: the undo box", (engine) => {
   describe("a booking speed raise (much faster in a day, +10%)", () => {
@@ -448,22 +495,10 @@ describe.each(ENGINES)("$name: the undo box", (engine) => {
     // day, then one of the 10 cancels. The 9 left of what it counted are not
     // more than 9, but with the 3 since there are 12 in its week: the
     // condition that led to it is still met.
-    const ten = (wait: number | null) =>
-      rule(
-        "Ten",
-        { pickup_operator: "gt", pickup_threshold: 9, pickup_window_days: 7, pickup_metric: "room_nights", pickup_cooldown_days: wait },
-        { action_value: 20 },
-      );
-    const five = rule(
-      "Five",
-      { pickup_operator: "gt", pickup_threshold: 4, pickup_window_days: 7, pickup_metric: "room_nights", pickup_cooldown_days: null },
-      { action_value: 10 },
-    );
-
     it.each([
       { wait: "its week", days: null },
       { wait: "a day", days: 1 },
-    ])("pickup, waiting $wait: the raise stays, once, and its numbers are taken again", async ({ days }) => {
+    ])("pickup, waiting $wait: the raise stays, once, and only its check's numbers are taken again", async ({ days }) => {
       const tenAtOnce = burst(10, at(0, 10));
       const w = timeline(engine, { rules: [ten(days)], rows: [...settled(5), ...tenAtOnce, ...burst(3, at(1, 10))], snapshotDays: 8 });
       await w.runAt(at(0, 10, 5));
@@ -478,15 +513,23 @@ describe.each(ENGINES)("$name: the undo box", (engine) => {
       expect(w.story()).toEqual([["Ten", iso(at(0, 10, 5)), null]]);
       const [fire] = w.fires();
       expect(fire.fire_seq).toBe(1);
-      // It now stands for the 12 in its week, counted at the run that kept it.
-      expect([fire.baseline_end_ts, fire.signal_booked_units_end, fire.pickup_units_arrived_at_fire]).toEqual([
+      // Its check now recounts the 12 in its week, counted at the run that
+      // kept it. What it counted when it was made stays as it was.
+      const checked = fire.checked_count as FakeRow;
+      expect([fire.checked_at, checked.signal_booked_units_end, checked.pickup_units_arrived_at_fire]).toEqual([
         iso(at(2, 10, 5)),
         17,
         12,
       ]);
+      expect([fire.applied_at, fire.baseline_end_ts, fire.signal_booked_units_end, fire.pickup_units_arrived_at_fire]).toEqual([
+        iso(at(0, 10, 5)),
+        iso(at(0, 10, 5)),
+        15,
+        10,
+      ]);
     }, 120_000);
 
-    it("pickup, with the rule for 5 as well: still 120, and the rule for 5 never counts what the change stands for", async () => {
+    it("pickup, with the rule for 5 as well: still 120, the 3 since the raise not being enough for it", async () => {
       const tenAtOnce = burst(10, at(0, 10));
       const w = timeline(engine, { rules: [five, ten(null)], rows: [...settled(5), ...tenAtOnce, ...burst(3, at(1, 10))], snapshotDays: 8 });
       await w.runAt(at(0, 10, 5));
@@ -521,7 +564,131 @@ describe.each(ENGINES)("$name: the undo box", (engine) => {
       await w.runAt(at(0, 11, 35));
       expect(w.price()).toBe(120);
       expect(w.story()).toEqual([["Stronger tier", iso(at(0, 10, 5)), null]]);
-      expect(w.fires()[0].window_bookings_at_fire).toBe(9);
+      const [fire] = w.fires();
+      expect([fire.window_bookings_at_fire, (fire.checked_count as FakeRow).window_bookings_at_fire]).toEqual([10, 9]);
+    }, 120_000);
+
+    it.each([
+      { k: 1, price: 120, story: [["Ten", 0, null]] },
+      { k: 4, price: 120, story: [["Ten", 0, null]] },
+      { k: 6, price: 110, story: [["Ten", 0, "bookings_cancelled"], ["Five", 2, null]] },
+    ])(
+      "booking speed in a week (the rules for 5 and for 10): 10, 3 more the next day, then $k of the 10 cancel",
+      async ({ k, price, story }) => {
+        const tenAtOnce = burst(10, at(0, 10));
+        const w = timeline(engine, { rules: [weekFive, weekTen], rows: [...weekly(), ...tenAtOnce, ...burst(3, at(1, 10))] });
+        await w.runAt(at(0, 10, 5));
+        expect(w.price()).toBe(120);
+        await w.runAt(at(1, 10, 5));
+        expect(w.price()).toBe(120);
+        w.cancel(tenAtOnce.slice(0, k));
+        await w.runAt(at(2, 10, 5));
+        expect(w.price()).toBe(price);
+        // Never an undo and a raise again in the one run.
+        expect(w.story()).toEqual(story.map(([id, day, why]) => [id, iso(at(Number(day), 10, 5)), why]));
+      },
+      120_000,
+    );
+  });
+
+  describe("counting starts again only when a price changes (Jake, 2026-09-27)", () => {
+    // Rules for 10 bookings in a week (+20%) and for 5 (+10%), both ticked.
+    // Monday 10 bookings: the rule for 10 raises to $120. Tuesday 3 more.
+    // Wednesday one of Monday's cancels: the rule for 10 still has 12 in its
+    // week, so its raise stays. Thursday 2 more: the rule for 5 counts the
+    // 3 + 2 since Monday's raise and raises to $132.
+    const monToThu = async (w: ReturnType<typeof timeline>, cancelled: FakeRow[]) => {
+      await w.runAt(at(0, 10, 5));
+      expect(w.price()).toBe(120);
+      await w.runAt(at(1, 10, 5));
+      expect(w.price()).toBe(120);
+      w.cancel(cancelled);
+      await w.runAt(at(2, 10, 5));
+      expect(w.price()).toBe(120);
+      await w.runAt(at(3, 10, 5));
+      expect(w.price()).toBe(132);
+    };
+
+    it.each([
+      { cancels: "one of Monday's cancels on Wednesday", k: 1 },
+      { cancels: "no cancellation", k: 0 },
+    ])("pickup rules, $cancels: the rule for 5 raises on Thursday", async ({ k }) => {
+      const monday = burst(10, at(0, 10));
+      const w = timeline(engine, {
+        rules: [five, ten(null)],
+        rows: [...settled(5), ...monday, ...burst(3, at(1, 10)), ...burst(2, at(3, 10))],
+        snapshotDays: 8,
+      });
+      await monToThu(w, monday.slice(0, k));
+      expect(w.story()).toEqual([
+        ["Ten", iso(at(0, 10, 5)), null],
+        ["Five", iso(at(3, 10, 5)), null],
+      ]);
+      // It counted the 5 that arrived since Monday's raise, still booked.
+      const [, fiveFire] = w.fires();
+      expect([fiveFire.baseline_start_ts, fiveFire.pickup_units_arrived_at_fire]).toEqual([iso(at(0, 10, 5)), 5]);
+      expect(Number(fiveFire.signal_booked_units_end) - Number(fiveFire.signal_booked_units_start)).toBe(5);
+      if (k > 0) expect(w.fires()[0].checked_at).toBe(iso(at(2, 10, 5)));
+      else expect(w.fires()[0].checked_at ?? null).toBeNull();
+    }, 120_000);
+
+    it.each([
+      { cancels: "one of Monday's cancels on Wednesday", k: 1 },
+      { cancels: "four of Monday's cancel on Wednesday, the week still surging with Tuesday's", k: 4 },
+      { cancels: "no cancellation", k: 0 },
+    ])("booking speed rules in a week, $cancels: the rule for 5 raises on Thursday", async ({ k }) => {
+      const monday = burst(10, at(0, 10));
+      const w = timeline(engine, {
+        rules: [weekFive, weekTen],
+        rows: [...weekly(), ...monday, ...burst(3, at(1, 10)), ...burst(2, at(3, 10))],
+      });
+      await monToThu(w, monday.slice(0, k));
+      expect(w.story()).toEqual([
+        ["Ten", iso(at(0, 10, 5)), null],
+        ["Five", iso(at(3, 10, 5)), null],
+      ]);
+      // It counted from Monday's raise, not from when the raise was checked.
+      expect(w.fires()[1].window_since).toBe(iso(at(0, 10, 5)));
+      expect(w.fires()[1].window_bookings_at_fire).toBe(5);
+    }, 120_000);
+  });
+
+  describe("a change kept on bookings made since doesn't come off once its window moves past them", () => {
+    it("pickup: kept on Wednesday, still on a week later, and after one of Tuesday's cancels too", async () => {
+      const monday = burst(10, at(0, 10));
+      const tuesday = burst(3, at(1, 10));
+      const w = timeline(engine, { rules: [ten(null)], rows: [...settled(5), ...monday, ...tuesday], snapshotDays: 8 });
+      await w.runAt(at(0, 10, 5));
+      await w.runAt(at(1, 10, 5));
+      w.cancel(monday.slice(0, 1));
+      await w.runAt(at(2, 10, 5));
+      expect(w.fires()[0].checked_at).toBe(iso(at(2, 10, 5)));
+      // Its week now starts after Monday, and nothing has come in since.
+      for (const d of [8, 9]) {
+        await w.runAt(at(d, 10, 5));
+        expect(w.price()).toBe(120);
+      }
+      // 11 of the 12 it now stands for are still booked: still more than 9.
+      w.cancel(tuesday.slice(0, 1));
+      await w.runAt(at(10, 10, 5));
+      expect(w.price()).toBe(120);
+      expect(w.story()).toEqual([["Ten", iso(at(0, 10, 5)), null]]);
+    }, 120_000);
+
+    it("booking speed: kept on Wednesday with 6 of Monday's 10 and Tuesday's 3, still on a week later", async () => {
+      const monday = burst(10, at(0, 10));
+      const w = timeline(engine, { rules: [weekTen], rows: [...weekly(), ...monday, ...burst(3, at(1, 10))] });
+      await w.runAt(at(0, 10, 5));
+      await w.runAt(at(1, 10, 5));
+      w.cancel(monday.slice(0, 4));
+      await w.runAt(at(2, 10, 5));
+      expect(w.price()).toBe(120);
+      expect(w.fires()[0].checked_at).toBe(iso(at(2, 10, 5)));
+      for (const d of [8, 10]) {
+        await w.runAt(at(d, 10, 5));
+        expect(w.price()).toBe(120);
+      }
+      expect(w.story()).toEqual([["Ten", iso(at(0, 10, 5)), null]]);
     }, 120_000);
   });
 

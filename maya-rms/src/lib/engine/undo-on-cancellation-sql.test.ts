@@ -225,6 +225,26 @@ describe.skipIf(!PGLITE_DIR)("the undo on cancellation migration in PGlite, afte
     await db.exec(`delete from public.pickup_event where stay_date = '2026-10-21'`);
   });
 
+  it("takes a kept change's checked_at and checked_count together, the count an object, or neither", async () => {
+    const insert = (id: string, at: string, count: string) =>
+      db.exec(`insert into public.pickup_event
+        (id, hotel_id, rule_id, stay_date, affected_room_type_id, fire_seq, applied_at, action_direction, cancel_check,
+         checked_at, checked_count)
+        values ('${id}', '${H1}', '${R1}', '2026-10-21', '${RT1}', 1, '2026-09-20T10:00:00Z', 'increase', 'recount', ${at}, ${count})`);
+    const count = `'{"baseline_start_ts": "2026-09-15T10:05:00Z", "signal_booked_units_end": 17, "window_booking_keys": null}'`;
+    await insert(uuidFor("checked-ok"), "'2026-09-22T10:05:00Z'", count);
+    await insert(uuidFor("checked-none"), "null", "null");
+    await expect(insert(uuidFor("checked-no-count"), "'2026-09-22T10:05:00Z'", "null")).rejects.toThrow(/pickup_event_checked_chk/);
+    await expect(insert(uuidFor("checked-no-at"), "null", count)).rejects.toThrow(/pickup_event_checked_chk/);
+    await expect(insert(uuidFor("checked-array"), "'2026-09-22T10:05:00Z'", `'[17]'`)).rejects.toThrow(/pickup_event_checked_chk/);
+    const kept = await db.query(`select applied_at, checked_at, checked_count->>'signal_booked_units_end' as units
+                                   from public.pickup_event where id = '${uuidFor("checked-ok")}'`);
+    expect(
+      kept.rows.map((r) => [new Date(String(r.applied_at)).toISOString(), new Date(String(r.checked_at)).toISOString(), r.units]),
+    ).toEqual([["2026-09-20T10:00:00.000Z", "2026-09-22T10:05:00.000Z", "17"]]);
+    await db.exec(`delete from public.pickup_event where stay_date = '2026-10-21'`);
+  });
+
   it("files an alert night closed for cancellations", async () => {
     const alert = uuidFor("alert-closed");
     await db.exec(`insert into public.rule_repeat_alerts (id, hotel_id, rule_id, rule_version, action_direction, opened_at)
@@ -254,12 +274,14 @@ describe.skipIf(!PGLITE_DIR)("the undo on cancellation migration in PGlite, afte
     ]);
     const named = await db.query(`select conname from pg_constraint
       where conrelid = 'public.pickup_event'::regclass
-        and conname in ('pickup_event_arrivals_chk', 'pickup_event_cancel_check_chk', 'pickup_event_cancel_increase_chk')
+        and conname in ('pickup_event_arrivals_chk', 'pickup_event_cancel_check_chk', 'pickup_event_cancel_increase_chk',
+                        'pickup_event_checked_chk')
       order by conname`);
     expect(named.rows).toEqual([
       { conname: "pickup_event_arrivals_chk" },
       { conname: "pickup_event_cancel_check_chk" },
       { conname: "pickup_event_cancel_increase_chk" },
+      { conname: "pickup_event_checked_chk" },
     ]);
     const fns = await db.query(`select p.proname, pg_get_function_identity_arguments(p.oid) as args
         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -485,15 +507,17 @@ describe.skipIf(!PGLITE_DIR)("the three-changes alert counts changes still on th
     ).toEqual([{ max: 4, anchor: "2026-09-22T10:00:00.000Z", counted: 2, last: "2026-09-21T10:00:00.000Z" }]);
   });
 
-  it("pickup_fire_heads answers what the engine tests' stand-in answers, a change counted again included", async () => {
+  it("pickup_fire_heads answers what the engine tests' stand-in answers, a change kept after cancellations included", async () => {
+    const kept = `'2026-09-23T10:05:00Z', '{"signal_booked_units_end": 17}'`;
     await db.exec(`insert into public.pickup_event
       (id, hotel_id, rule_id, rule_version, stay_date, affected_room_type_id, fire_seq, applied_at, baseline_end_ts,
-       retired_at, retired_reason, action_direction, cancel_check, signal_set_key) values
-      ('${uuidFor("g1")}', '${H1}', '${R2}', 1, '2026-10-24', '${RT1}', 1, '2026-09-20T10:00:00Z', '2026-09-23T10:05:00Z', null, null, 'increase', 'recount', '${RT1}'),
-      ('${uuidFor("g2")}', '${H1}', '${R2}', 1, '2026-10-24', '${RT1}', 2, '2026-09-22T10:00:00Z', '2026-09-22T10:00:00Z', null, null, 'increase', 'recount', '${RT1}'),
-      ('${uuidFor("g3")}', '${H1}', '${R2}', 1, '2026-10-24', '${RT1}', 3, '2026-09-24T10:00:00Z', '2026-09-24T10:00:00Z', '2026-09-24T11:00:00Z', 'bookings_cancelled', 'increase', 'recount', '${RT1}'),
-      ('${uuidFor("g4")}', '${H1}', '${R2}', 2, '2026-10-24', '${RT1}', 4, '2026-09-25T10:00:00Z', null, null, null, 'increase', 'recount', '${RT1}'),
-      ('${uuidFor("g5")}', '${H1}', '${R2}', 1, '2026-10-25', '${RT1}', 1, '2026-09-25T10:00:00Z', '2026-09-25T10:00:00Z', '2026-09-26T10:00:00Z', 'manual_price', 'decrease', 'recount', '${RT1}')`);
+       checked_at, checked_count, retired_at, retired_reason, action_direction, cancel_check, signal_set_key) values
+      ('${uuidFor("g1")}', '${H1}', '${R2}', 1, '2026-10-24', '${RT1}', 1, '2026-09-20T10:00:00Z', '2026-09-20T10:00:00Z', ${kept}, null, null, 'increase', 'recount', '${RT1}'),
+      ('${uuidFor("g2")}', '${H1}', '${R2}', 1, '2026-10-24', '${RT1}', 2, '2026-09-22T10:00:00Z', '2026-09-22T10:00:00Z', null, null, null, null, 'increase', 'recount', '${RT1}'),
+      ('${uuidFor("g3")}', '${H1}', '${R2}', 1, '2026-10-24', '${RT1}', 3, '2026-09-24T10:00:00Z', '2026-09-24T10:00:00Z', null, null, '2026-09-24T11:00:00Z', 'bookings_cancelled', 'increase', 'recount', '${RT1}'),
+      ('${uuidFor("g4")}', '${H1}', '${R2}', 2, '2026-10-24', '${RT1}', 4, '2026-09-25T10:00:00Z', null, null, null, null, null, 'increase', 'recount', '${RT1}'),
+      ('${uuidFor("g5")}', '${H1}', '${R2}', 1, '2026-10-25', '${RT1}', 1, '2026-09-25T10:00:00Z', '2026-09-25T10:00:00Z', null, null, '2026-09-26T10:00:00Z', 'manual_price', 'decrease', 'recount', '${RT1}'),
+      ('${uuidFor("g6")}', '${H1}', '${R2}', 1, '2026-10-26', '${RT1}', 1, '2026-09-20T10:00:00Z', '2026-09-20T10:00:00Z', ${kept}, null, null, 'increase', 'recount', '${RT1}')`);
     const sql = await db.query(
       `select * from public.pickup_fire_heads($1::uuid, $2::uuid[], $3::date, $4::date)
         order by rule_id, stay_date, affected_room_type_id, rule_version`,
@@ -501,11 +525,11 @@ describe.skipIf(!PGLITE_DIR)("the three-changes alert counts changes still on th
     );
     const events = await db.query(`
       select hotel_id::text as hotel_id, rule_id::text as rule_id, rule_version, stay_date::text as stay_date,
-             affected_room_type_id::text as affected_room_type_id, applied_at, baseline_end_ts, fire_seq, retired_at, retired_reason
+             affected_room_type_id::text as affected_room_type_id, applied_at, checked_at, fire_seq, retired_at, retired_reason
         from public.pickup_event`);
     const at = (v: unknown) => (v == null ? null : new Date(Date.parse(String(v))).toISOString());
     const model = pickupFireHeads(
-      events.rows.map((r) => ({ ...r, applied_at: at(r.applied_at), baseline_end_ts: at(r.baseline_end_ts) })) as FakeRow[],
+      events.rows.map((r) => ({ ...r, applied_at: at(r.applied_at), checked_at: at(r.checked_at) })) as FakeRow[],
       { p_hotel_id: H1, p_rule_ids: [R1, R2], p_from: "2026-10-01", p_to: "2026-10-31" },
     );
     const shape = (r: Record<string, unknown>) => ({
@@ -518,7 +542,18 @@ describe.skipIf(!PGLITE_DIR)("the three-changes alert counts changes still on th
       last: at(r.last_counted_at),
     });
     expect(sql.rows.map(shape)).toEqual(model.map(shape));
-    // The change counted again at 10:05 on the 23rd is where the rule counts from.
+    // A change kept after cancellations at 10:05 on the 23rd still counts
+    // from when it was made: alone on its night, from the 20th, and beside
+    // a newer change, from that one.
+    expect(sql.rows.map(shape)).toContainEqual({
+      rule: R2,
+      night: "2026-10-26",
+      version: 1,
+      max: 1,
+      anchor: "2026-09-20T10:00:00.000Z",
+      counted: 1,
+      last: "2026-09-20T10:00:00.000Z",
+    });
     expect(sql.rows.map(shape)).toContainEqual({
       rule: R2,
       night: "2026-10-24",
@@ -526,7 +561,7 @@ describe.skipIf(!PGLITE_DIR)("the three-changes alert counts changes still on th
       max: 3,
       anchor: "2026-09-24T10:00:00.000Z",
       counted: 2,
-      last: "2026-09-23T10:05:00.000Z",
+      last: "2026-09-22T10:00:00.000Z",
     });
     await db.exec(`delete from public.pickup_event where rule_id = '${R2}'`);
   });

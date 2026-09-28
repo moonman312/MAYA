@@ -148,6 +148,24 @@
  * row of every table in every run matches. Every other hash, size and count
  * is unchanged.
  *
+ * The pickup_event, published_price, evaluation_audit and
+ * evaluation_run_log hashes and the pickup_event and evaluation_audit sizes
+ * of runs 4 to 7 in both variants, and the pickup_events_created counts and
+ * prices_published of runs 4 and 5, were rewritten a twelfth time when a pickup count that opens at a change
+ * started counting the room nights first seen after that change and still
+ * booked, instead of the night's net since (Jake, 2026-09-27: counting
+ * starts again only when a price changes, so an older booking cancelling
+ * takes nothing from it). Read against a dump of the previous engine first.
+ * c2 counts King and Queen from c1's run 2 raises, and the churn's
+ * cancellations of older bookings had been netting against what came in
+ * since: it now raises the King on 06-15 and 06-22 in run 4 and on 06-16
+ * and 06-23 in run 5 on 2, 2, 2 and 3 room nights first seen since (net 1
+ * or less before), and c4, counting from c2's raise on 06-23, no longer
+ * raises there. c2's raise on 06-27 in run 5 is the same fire with 12
+ * rather than 13 at its start (one older King booking there had
+ * cancelled). No other fire moved; the prices and audit rows that changed
+ * are those cells', and every ladder row and snapshot is unchanged.
+ *
  * The golden file was written by this same test at commit 4ef5d65 with
  * MAYA_WRITE_ENGINE_GOLDEN=1. Its ladder_rule_state hashes were rewritten
  * once, leaving out last_evaluated_at, from an engine that still matched the
