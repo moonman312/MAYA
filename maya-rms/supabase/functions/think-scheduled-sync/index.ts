@@ -8,9 +8,9 @@
  *   3. Run the pricing rules engine                  (evaluateHotel)
  *   4. Push changed prices, Live hotels only         (pushRatesForHotel)
  * Steps 2-4 share one hotel date and one horizon (runPricingTick). Step 3
- * prices the nights whose inputs changed since they were last priced, due
- * re-checks, and a chunk of the once-a-day pass over the whole window
- * (pricing-plan.ts).
+ * prices the nights whose inputs changed since they were last priced, the
+ * nights the last run changed a rule's state on, and a chunk of the
+ * once-a-day pass over the whole window (pricing-plan.ts).
  *
  * Parallel to mews-scheduled-sync. Auth: pg_cron/pg_net sends
  * `x-think-cron-secret`, validated against THINK_CRON_SECRET

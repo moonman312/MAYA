@@ -24,10 +24,11 @@ function listDays(names: string[]): string {
 }
 
 /**
- * After a booking speed rule raises a night it waits (in 24-hour periods),
- * then reads the night again counting only what came in since the raise,
- * starting with the rest of the raise's own day, and never more days than
- * its Measured over window. A rule that raises on an "at least" booking
+ * After a booking speed rule raises a night it waits in whole days at the
+ * property (a wait of N days from a raise on day D is over as day D + N
+ * begins, isWaiting in the engine), then reads the night again counting
+ * only what came in since the raise, starting with the rest of the raise's
+ * own day, and never more days than its Measured over window. A rule that raises on an "at least" booking
  * speed sets those days against a whole window of similar nights
  * (keepsWholeWindowBar in the engine), which is what this shows.
  */
@@ -56,9 +57,9 @@ export function WaitTimelineLive() {
       : `That is its whole window, set against the same ${counted} day${counted === 1 ? "" : "s"} of similar nights.`;
   let sentence: string;
   if (w >= 7) {
-    sentence = `After a ${WAITS.find((x) => x.value === wait)!.label} wait from a raise on ${DAYS[start]} afternoon, the rule reads the night again on ${nameAt(endIndex)} afternoon. It counts the last ${counted} day${counted === 1 ? "" : "s"}${includesRaiseDay ? ", starting with the rest of the raise's day" : ", all after the raise"}. ${bar}`;
+    sentence = `After a ${WAITS.find((x) => x.value === wait)!.label} wait from a raise on ${DAYS[start]} afternoon, the rule reads the night again as ${nameAt(endIndex)} begins, and through that day. It counts the last ${counted} day${counted === 1 ? "" : "s"}${includesRaiseDay ? ", starting with the rest of the raise's day" : ", all after the raise"}. ${bar}`;
   } else {
-    sentence = `After a ${WAITS.find((x) => x.value === wait)!.label} wait from a raise on ${DAYS[start]} afternoon, the rule reads the night again on ${DAYS[(start + endIndex) % 7]} afternoon and counts only the bookings made since the raise: ${listDays(countedNames)}. ${bar}`;
+    sentence = `After a ${WAITS.find((x) => x.value === wait)!.label} wait from a raise on ${DAYS[start]} afternoon, the rule reads the night again as ${DAYS[(start + endIndex) % 7]} begins, and through that day, and counts only the bookings made since the raise: ${listDays(countedNames)}. ${bar}`;
   }
 
   return (

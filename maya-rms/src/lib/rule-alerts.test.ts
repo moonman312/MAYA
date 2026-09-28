@@ -157,11 +157,11 @@ describe("nightWhy", () => {
       pickup_net: 6,
     });
     expect(nightWhy(rooms, "$")).toEqual([
-      "Pickup over the last 3 days came to 6 room nights, against the 5 you set.",
+      "Pickup over the 3 days it counted came to 6 room nights, against the 5 you set.",
     ]);
     const revenue = { ...rooms, pickup_metric: "revenue", pickup_threshold: 500, pickup_net: 1640.5 };
     expect(nightWhy(revenue, "€")).toEqual([
-      "Pickup over the last 3 days came to €1,640.50, against the €500.00 you set.",
+      "Pickup over the 3 days it counted came to €1,640.50, against the €500.00 you set.",
     ]);
   });
 

@@ -68,8 +68,17 @@ export function bookingSpeedHelp(windowDays: number): { label: string; title: st
   };
 }
 
-/** The lines every wait panel ends on: a typed price, and room types waiting on their own. */
+/**
+ * Waits count whole hotel days (Jake, 2026-09-28; isWaiting in
+ * engine/pickup.ts): a wait of N days from a change made on day D ends when
+ * day D + N begins, whatever the hour of the change.
+ */
+export const WHOLE_DAYS_WAIT_LINE =
+  "Waits count whole days at your property. A 2-day wait from a change made at any time on a Monday is over as Wednesday begins.";
+
+/** The lines every wait panel ends on: whole days, a typed price, and room types waiting on their own. */
 const WAIT_HELP_TAIL = [
+  WHOLE_DAYS_WAIT_LINE,
   "If cancellations take its change off, the wait still runs from that change.",
   "A price you type on a night after it adjusted starts it over: it waits again from that price, then looks at its whole window.",
   "Each room type waits on its own, and a stronger rule can still step in while this one waits.",
@@ -125,10 +134,13 @@ export function bookingSpeedWaitHelp(
  * change that came off for cancellations starts nothing there (it is off
  * the price, and new bookings would only be netted against the ones that
  * cancelled), though its wait still runs from it. A condition on low pickup
- * (`lowPickup`: below a number, or above one under zero) is never judged on
+ * (`lowPickup`: below a number, or above one under zero) counts complete
+ * days ending yesterday (pickupCountsCompleteDays) and is never judged on
  * less than its whole window after such a change (pickupJudgesShortStretch:
- * fewer bookings would only make it truer), so it never adjusts a night
- * again sooner than its window, whatever its wait. Three of its fires still
+ * fewer bookings would only make it truer), counted from the start of that
+ * change's day (pickupFireDayStart), so it never adjusts a night again
+ * sooner than its window, whatever its wait. Waits count whole hotel days
+ * (WHOLE_DAYS_WAIT_LINE). Three of its fires still
  * on a night alert the owner; a typed price starts the wait again and the
  * count after it is the whole window (pickupWindowOpensAt ignores fires
  * before the price).
@@ -152,10 +164,35 @@ export function pickupWaitHelp(
         ? [`Its booking speed condition waits ${bookingSpeedWaitLabel}, which is longer, so that is what it waits.`]
         : []),
       lowPickup
-        ? "It looks for low pickup, so it only judges a whole lookback window of pickup that came in after its last change still on that night, or after a stronger rule's that moves the price the same way, if that was later. So it never adjusts a night again sooner than its lookback window, whatever the wait. If that keeps it true, it adjusts again, and MAYA tells you once three of its changes are on one night."
+        ? "It looks for low pickup, so it counts full days only, up to yesterday, and after its last change still on that night, or a stronger rule's that moves the price the same way if that was later, it only judges a whole lookback window of full days from the start of that change's day. So it never adjusts a night again sooner than its lookback window, whatever the wait. If that keeps it true, it adjusts again, and MAYA tells you once three of its changes are on one night."
         : "When the wait is over it counts pickup over its lookback window, but only what came in since its last change still on that night, or since a stronger rule's that moves the price the same way, if that was later. If that keeps it true, it adjusts again, and MAYA tells you once three of its changes are on one night.",
       ...WAIT_HELP_TAIL,
       STRONGER_RULE_LINE,
+    ],
+  };
+}
+
+/**
+ * The "?" beside a pickup count condition's lookback window: which days it
+ * counts (baselineTsFrom and countPickupToDayStart in engine/pickup.ts;
+ * Jake, 2026-09-28). A count looking for more pickup counts today so far
+ * and the days before it; one looking for low pickup (`lowPickup`,
+ * pickupCountsLow: below a number, or above one under zero) counts full
+ * days ending yesterday, so a day not over yet never reads as slow, and a
+ * cancellation made today counts against it at once. Either way the window
+ * moves on only at the hotel's midnight.
+ */
+export function pickupWindowHelp(windowDays: number, lowPickup = false): { label: string; title: string; lines: string[] } {
+  const n = Math.max(1, Math.floor(windowDays));
+  const before = n === 1 ? "" : n === 2 ? " and the day before" : ` and the ${n - 1} days before`;
+  return {
+    label: "Which days it counts",
+    title: "The days a pickup count covers",
+    lines: [
+      "It counts pickup over whole days at your property, so the count moves only when bookings do, and the days move on at midnight.",
+      lowPickup
+        ? `It looks for low pickup, so it counts full days only: the ${n === 1 ? "day" : `${n} days`} up to yesterday. A day that isn't over yet never reads as slow, and a cancellation made today counts against it straight away.`
+        : `It looks for more pickup, so it counts today so far${before}.`,
     ],
   };
 }

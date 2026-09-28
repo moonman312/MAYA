@@ -102,7 +102,7 @@ describe("describeConditions", () => {
     );
     expect(out).toEqual([
       "It was 82% full with 3 days to go, past the 70% and 7-day marks you set.",
-      "9 bookings arrived in the last 3 days, past the 4-booking mark you set.",
+      "9 bookings arrived that day and the 2 days before, past the 4-booking mark you set.",
     ]);
     for (const s of out) expect(s).not.toMatch(NO_MATH_SYMBOLS);
   });
@@ -116,7 +116,7 @@ describe("describeConditions", () => {
         { pickup_operator: "lt", pickup_threshold: 2, pickup_window_days: 7 },
         null,
       ),
-    ).toEqual(["Bookings in the last 7 days came in under the 2-booking mark you set."]);
+    ).toEqual(["Bookings in the 7 full days before that day came in under the 2-booking mark you set."]);
   });
 
   it("says nothing at all when there is no condition to report", () => {
@@ -136,7 +136,7 @@ describe("describeConditions", () => {
       { dta: 1, pickup_units: 1 },
     );
     expect(out[0]).toBe("It had 1 day to go, past the 1-day mark you set.");
-    expect(out[1]).toBe("1 booking arrived in the last 1 day, past the 1-booking mark you set.");
+    expect(out[1]).toBe("1 booking arrived that day, past the 1-booking mark you set.");
   });
 });
 
@@ -180,7 +180,7 @@ describe("narrateChange: complex chained rules", () => {
       'Then "Last-minute premium" raised it $15.00, from $220.00 to $235.00.',
       "It had 3 days to go, past the 7-day mark you set.",
       'Then "Demand-spike catcher" raised it 12%, from $235.00 to $263.20.',
-      "9 bookings arrived in the last 3 days, past the 4-booking mark you set.",
+      "9 bookings arrived that day and the 2 days before, past the 4-booking mark you set.",
     ]);
 
     for (const s of sentences) expect(s).not.toMatch(NO_MATH_SYMBOLS);
@@ -529,7 +529,7 @@ describe("booking speed narration", () => {
       "5 bookings arrived since this rule or a stronger one's latest raise still on this night, past the 4-booking mark you set.",
     ]);
     expect(describeConditions(pickup, { pickup_units: 5 }, null, "increase")).toEqual([
-      "5 bookings arrived in the last 7 days, past the 4-booking mark you set.",
+      "5 bookings arrived that day and the 6 days before, past the 4-booking mark you set.",
     ]);
   });
 
@@ -790,9 +790,9 @@ describe("a rule that measures other room types than it changes", () => {
     ).toEqual(["Standard was 92% full with 3 days to go, past the 90% and 21-day marks you set."]);
     expect(
       describeConditions({ pickup_operator: "gt", pickup_threshold: 4, pickup_window_days: 3 }, { pickup_units: 9 }, measured),
-    ).toEqual(["9 Standard and Deluxe bookings arrived in the last 3 days, past the 4-booking mark you set."]);
+    ).toEqual(["9 Standard and Deluxe bookings arrived that day and the 2 days before, past the 4-booking mark you set."]);
     expect(describeConditions({ pickup_operator: "gt", pickup_threshold: 0, pickup_window_days: 1 }, { pickup_units: 1 }, ["Standard"])).toEqual([
-      "1 Standard booking arrived in the last 1 day, past the 0-booking mark you set.",
+      "1 Standard booking arrived that day, past the 0-booking mark you set.",
     ]);
     expect(
       describeConditions(

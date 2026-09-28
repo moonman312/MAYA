@@ -34,6 +34,7 @@
  */
 
 import { bookingSpeedPhrase as speedPhrase, isBookingSpeed } from "@/lib/observations/booking-speed";
+import { pickupCountsLow, pickupDaysPhrase } from "@/lib/rule-form";
 import type { CancellationFinding, RuleCondition } from "@/types/domain";
 
 /**
@@ -214,10 +215,13 @@ function fullnessSentence(
 }
 
 /**
- * "9 bookings arrived in the last 3 days, past the 4-booking mark you set."
- * When the count opened at the newest raise or cut still on the night by
- * this rule or a stronger one (pickup_counted_since), it says so instead of
- * naming the window. `direction` is the rule's, as in bookingSpeedSentence.
+ * "9 bookings arrived that day and the 2 days before, past the 4-booking
+ * mark you set." The window is in whole hotel days (pickupDaysPhrase): that
+ * day so far and the days before it when the rule looks for more pickup,
+ * the full days before that day when it looks for low pickup. When the
+ * count opened at the newest raise or cut still on the night by this rule
+ * or a stronger one (pickup_counted_since), it says so instead of naming
+ * the window. `direction` is the rule's, as in bookingSpeedSentence.
  */
 function pickupSentence(
   condition: RuleCondition,
@@ -233,7 +237,7 @@ function pickupSentence(
   const kind = measured?.length ? `${listWords(measured)} ` : "";
   const when = metrics?.pickup_counted_since
     ? `since ${latestChangeWords(direction)}`
-    : `in the last ${dayWord(windowDays)}`;
+    : pickupDaysPhrase(windowDays, pickupCountsLow(condition.pickup_operator, Number(condition.pickup_threshold)));
   if (seen != null) {
     return `${seen} ${kind}${seen === 1 ? "booking" : "bookings"} arrived ${when}, ${limit}.`;
   }

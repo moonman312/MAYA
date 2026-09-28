@@ -34,7 +34,7 @@ const SHAPES = {
   "pickup-greater": {
     label: "Pickup count, Greater than 4, last 3 days",
     rule: '"Quick pickup" raised this night 10%, from $200.00 to $220.00.',
-    why: "9 bookings arrived in the last 3 days, past the 4-booking mark you set.",
+    why: "9 bookings arrived that day and the 2 days before, past the 4-booking mark you set.",
   },
   "speed-faster": {
     label: 'Booking speed, "Warm-date bump" (Faster Than Normal, past month)',

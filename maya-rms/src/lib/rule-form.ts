@@ -66,6 +66,20 @@ export function pickupCountsLow(operator: string | null | undefined, threshold: 
   return !(operator === "gt" && n >= 0);
 }
 
+/**
+ * The hotel days a pickup count covered, said from the day of the change it
+ * made ("that day"): a count looking for more counts that day so far and
+ * the days before it; one looking for low pickup (pickupCountsLow) counts
+ * complete days ending the day before (Jake, 2026-09-28; baselineTsFrom in
+ * engine/pickup.ts). A phrase that follows "arrived".
+ */
+export function pickupDaysPhrase(windowDays: number, low: boolean): string {
+  const n = Math.max(1, Math.floor(windowDays));
+  if (low) return n === 1 ? "the day before" : `in the ${n} full days before that day`;
+  if (n === 1) return "that day";
+  return `that day and the ${n === 2 ? "day" : `${n - 1} days`} before`;
+}
+
 /** The booking speed condition's own wait, at least a day; 0 without one. */
 export function bookingSpeedOwnWait(input: EventRuleWaitInput): number {
   return input.hasBookingSpeed ? Math.max(1, input.cooldownDays ?? DEFAULT_BOOKING_SPEED_WAIT_DAYS) : 0;

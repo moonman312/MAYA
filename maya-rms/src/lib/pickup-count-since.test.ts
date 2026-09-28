@@ -60,7 +60,7 @@ describe("the change log on a pickup count that started at its own or a stronger
     ]);
     // A count over the whole window reads as it always has.
     expect(describeConditions(pickup, { pickup_units: 5 }, null, "increase")).toEqual([
-      "5 bookings arrived in the last 7 days, past the 4-booking mark you set.",
+      "5 bookings arrived that day and the 6 days before, past the 4-booking mark you set.",
     ]);
   });
 });
@@ -94,7 +94,7 @@ describe("the owner alert on a pickup count that started at its own or a stronge
 
   it("names the window's days when the count was the whole window, as before", () => {
     expect(nightWhy(night({ pickup_window_days: 7 }), "$", null, "increase")).toEqual([
-      "Pickup over the last 7 days came to 6 room nights, against the 3 you set.",
+      "Pickup over the 7 days it counted came to 6 room nights, against the 3 you set.",
     ]);
   });
 });
