@@ -40,15 +40,17 @@ import { proposeCountsAsRoom } from "../onboarding/analysis.ts";
 import { dropUnchangedReservationRows } from "../pms/row-diff.ts";
 import { upsertRoomTypesKeepingCounts } from "../pms/room-type-upsert.ts";
 import { decideSyncWindow } from "../pms/sync-mode.ts";
+import { DEFAULT_SYNC_DAYS_FORWARD, MAX_SYNC_DAYS_FORWARD } from "../pms/pricing-window.ts";
 
 const RECONCILE_IN_CHUNK = 200;
 /** A pager that never says `last` should exhaust this, not the isolate. */
 const PAGE_GUARD = 1000;
 /** Match the Mews/Cloudbeds defaults so all three PMSes sweep the same book. */
 const DEFAULT_BACK = 30;
-const DEFAULT_FORWARD = 396;
+// The reads reach at least as far as the pricing window (pricing-window.ts).
+const DEFAULT_FORWARD = DEFAULT_SYNC_DAYS_FORWARD;
 const MAX_BACK = 365;
-const MAX_FORWARD = 730;
+const MAX_FORWARD = MAX_SYNC_DAYS_FORWARD;
 
 /**
  * The statuses a healthy run is allowed to turn back into 'connected'.

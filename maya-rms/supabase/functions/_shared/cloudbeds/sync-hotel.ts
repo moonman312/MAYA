@@ -49,15 +49,17 @@ import { proposeCountsAsRoom } from "../onboarding/analysis.ts";
 import { dropUnchangedReservationRows } from "../pms/row-diff.ts";
 import { deleteNightsOutside } from "../pms/stale-nights.ts";
 import { decideSyncWindow } from "../pms/sync-mode.ts";
+import { DEFAULT_SYNC_DAYS_FORWARD, MAX_SYNC_DAYS_FORWARD } from "../pms/pricing-window.ts";
 import { installCloudbedsRequestLogging } from "./request-log.ts";
 import { cloudbedsRateDetailsRefused } from "./rate-details-refusal.ts";
 
 const RECONCILE_IN_CHUNK = 200;
 const PAGE_GUARD = 1000;
 const DEFAULT_BACK = 30;
-const DEFAULT_FORWARD = 396;
+// The reads reach at least as far as the pricing window (pricing-window.ts).
+const DEFAULT_FORWARD = DEFAULT_SYNC_DAYS_FORWARD;
 const MAX_BACK = 365;
-const MAX_FORWARD = 730;
+const MAX_FORWARD = MAX_SYNC_DAYS_FORWARD;
 
 /**
  * Bookings one check-out slice may hold before the sweep narrows it. Ten

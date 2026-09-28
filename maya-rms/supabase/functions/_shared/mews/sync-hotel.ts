@@ -16,6 +16,7 @@ import {
   reservationRowFingerprint,
 } from "../pms/row-diff.ts";
 import { decideSyncWindow } from "../pms/sync-mode.ts";
+import { DEFAULT_SYNC_DAYS_FORWARD } from "../pms/pricing-window.ts";
 
 const RECONCILE_IN_CHUNK = 200;
 
@@ -139,9 +140,11 @@ export type MewsSyncHotelOptions = {
 
 /** Match `shared/legacy-python/config.py` when env is unset. */
 const DEFAULT_BACK = 30;
-const DEFAULT_FORWARD = 396;
+const DEFAULT_FORWARD = DEFAULT_SYNC_DAYS_FORWARD;
 const MAX_BACK = 365;
-const MAX_FORWARD = 396;
+/** Mews reads stop here whatever MAYA_SYNC_DAYS_FORWARD says; the Mews tick prices no further. */
+export const MEWS_MAX_SYNC_DAYS_FORWARD = 396;
+const MAX_FORWARD = MEWS_MAX_SYNC_DAYS_FORWARD;
 
 function utcRange(
   daysBack: number,

@@ -559,27 +559,27 @@ describe("pushRatesForHotel pushes the hotel's own nights", () => {
   const pushedNights = (db: ReturnType<typeof hotelDb>) =>
     (db.tables.rate_updates ?? []).filter((r) => r.status === "sent").map((r) => r.stay_date).sort();
 
-  it("starts on tonight at a hotel still on the previous day, and ends 60 nights later", async () => {
+  it("starts on tonight at a hotel still on the previous day, and ends 395 nights later", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-02T05:00:00Z")); // 22:00 on Oct 1 in Los Angeles
-    const db = hotelDb("America/Los_Angeles", ["2026-09-30", "2026-10-01", "2026-11-29", "2026-11-30"]);
+    const db = hotelDb("America/Los_Angeles", ["2026-09-30", "2026-10-01", "2027-10-31", "2027-11-01"]);
     const { adapter } = makeAdapter({ "CB-KING": "rate-100" });
 
     const res = await pushRatesForHotel(db.client, "hotel-1", adapter);
 
     expect(res).toMatchObject({ pushed: true, cellsConsidered: 2, sent: 2 });
-    expect(pushedNights(db)).toEqual(["2026-10-01", "2026-11-29"]);
+    expect(pushedNights(db)).toEqual(["2026-10-01", "2027-10-31"]);
   });
 
   it("drops a night that is already over at a hotel ahead of UTC", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-01T20:00:00Z")); // 05:00 on Oct 2 in Tokyo
-    const db = hotelDb("Asia/Tokyo", ["2026-10-01", "2026-10-02", "2026-11-30", "2026-12-01"]);
+    const db = hotelDb("Asia/Tokyo", ["2026-10-01", "2026-10-02", "2027-11-01", "2027-11-02"]);
     const { adapter } = makeAdapter({ "CB-KING": "rate-100" });
 
     await pushRatesForHotel(db.client, "hotel-1", adapter);
 
-    expect(pushedNights(db)).toEqual(["2026-10-02", "2026-11-30"]);
+    expect(pushedNights(db)).toEqual(["2026-10-02", "2027-11-01"]);
   });
 
   it("uses the tick's date and horizon when given, and asks for targets over those nights", async () => {

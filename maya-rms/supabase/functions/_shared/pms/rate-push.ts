@@ -236,6 +236,20 @@ export type RatePushOptions = {
    */
   evaluatedAt?: string;
   /**
+   * With the pricing cadence, a tick prices only the nights whose inputs
+   * changed (and a chunk of the daily pass), so `evaluatedAt` vouches for
+   * the nights whose every change has been priced, not for these:
+   *   - unpriced: a change to the night is still waiting to be priced. The
+   *     tick does not count as pricing it after a manual price was set.
+   *   - stale: a change has waited longer than the price freshness limit
+   *     (MAYA_PUSH_MAX_PRICE_AGE_MINUTES), or today's pass is that far behind
+   *     the hotel's midnight and has not reached the night. Only the row's
+   *     own computed_at can vouch for these (guardrail:stale_price).
+   * A price on any other night is current however long ago it was computed:
+   * nothing it depends on has changed since.
+   */
+  notVouched?: { unpriced: ReadonlySet<string>; stale: ReadonlySet<string> };
+  /**
    * Hold back cells MAYA has never sent to. The tick sets it unless its base
    * rate read worked, or one within the refresh interval did: the first send
    * to a night writes over whatever the hotel has there, and that has to be
@@ -255,9 +269,15 @@ export type RatePushOptions = {
    *
    * A read finds the hotel's change only on a night whose last send is at
    * least `settleMs` old (pmsEditSettleMs()), so it is made only when a night
-   * about to get a new price was last sent to that long ago.
+   * about to get a new price was last sent to that long ago, and only over
+   * the nights from the first to the last of those (`span`): with a window of
+   * a year, the whole of it is a much bigger read than the few nights about
+   * to be written over.
    */
-  readBeforeResend?: { settleMs: number; read: () => Promise<Set<string> | null> };
+  readBeforeResend?: {
+    settleMs: number;
+    read: (span: { first: string; last: string }) => Promise<Set<string> | null>;
+  };
   /**
    * Nights this tick's own base rate read found moved in the PMS that must
    * not get a new price yet (the refresh's holdCells): held like the ones
@@ -564,13 +584,17 @@ export async function pushRatesForHotel(
   const tickEvaluatedAtMs = opts.evaluatedAt ? Date.parse(opts.evaluatedAt) : NaN;
   // Evaluations on record that may vouch for a price, read once and only when needed.
   let coverage: EvaluationCoverage[] | null = null;
+  // What the tick's pricing vouches for on a night (RatePushOptions.notVouched).
+  const tickVouchesMs = (stayDate: string, which: "unpriced" | "stale"): number =>
+    opts.notVouched?.[which].has(stayDate) ? NaN : tickEvaluatedAtMs;
   const evaluatedAtFor = async (c: Candidate): Promise<number> => {
-    // The tick's own evaluation covered the whole window.
-    if (tickEvaluatedAtMs >= freshAfterMs || c.computedAtMs >= freshAfterMs) return tickEvaluatedAtMs;
+    // The tick's own pricing covered the whole window, or every change to this night.
+    const tickMs = tickVouchesMs(c.stayDate, "stale");
+    if (tickMs >= freshAfterMs || c.computedAtMs >= freshAfterMs) return tickMs;
     coverage ??= await loadEvaluationCoverage(supabase, hotelId, freshAfterMs);
     // Only a run that priced this night vouches for it: a manual price save
     // evaluates just the nights up to the one it changed.
-    let best = tickEvaluatedAtMs;
+    let best = tickMs;
     for (const e of coverage) {
       if (c.stayDate < e.firstStayDate || c.stayDate > e.lastStayDate) continue;
       if (!(best >= e.evaluatedAtMs)) best = e.evaluatedAtMs;
@@ -580,7 +604,7 @@ export async function pushRatesForHotel(
   // Whether a price was priced before the manual price on its night was set:
   // neither its own row nor any evaluation that priced the night is as new.
   const pricedBeforeManual = async (c: Candidate, manual: OpenManualPrice): Promise<boolean> => {
-    if (!(manual.setAtMs > Math.max(finiteOr(c.computedAtMs), finiteOr(tickEvaluatedAtMs)))) return false;
+    if (!(manual.setAtMs > Math.max(finiteOr(c.computedAtMs), finiteOr(tickVouchesMs(c.stayDate, "unpriced"))))) return false;
     coverage ??= await loadEvaluationCoverage(supabase, hotelId, freshAfterMs);
     return !coverage.some(
       (e) => e.evaluatedAtMs >= manual.setAtMs && c.stayDate >= e.firstStayDate && c.stayDate <= e.lastStayDate,
@@ -867,13 +891,16 @@ export async function pushRatesForHotel(
   let moved = opts.movedInPms ?? null;
   if (opts.readBeforeResend) {
     const settledBefore = Date.now() - opts.readBeforeResend.settleMs;
-    const worthReading = withTarget.some((c) => {
-      const prior = priorRow.get(`${c.stayDate}|${c.roomTypeId}`);
-      return prior?.status === "sent" && prior.pushedAtMs <= settledBefore;
-    });
-    if (worthReading) {
+    const worthReading = withTarget
+      .filter((c) => {
+        const prior = priorRow.get(`${c.stayDate}|${c.roomTypeId}`);
+        return prior?.status === "sent" && prior.pushedAtMs <= settledBefore;
+      })
+      .map((c) => c.stayDate)
+      .sort();
+    if (worthReading.length > 0) {
       const startedAt = Date.now();
-      const read = await opts.readBeforeResend.read();
+      const read = await opts.readBeforeResend.read({ first: worthReading[0], last: worthReading[worthReading.length - 1] });
       readBeforeResendMs = Date.now() - startedAt;
       if (read) moved = moved ? new Set([...moved, ...read]) : read;
     }

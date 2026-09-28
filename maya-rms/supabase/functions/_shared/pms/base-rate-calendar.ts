@@ -173,15 +173,18 @@ async function seedWithTargets(
   supabase: SupabaseClient,
   hotelId: string,
   adapter: PmsRatePushAdapter,
-  opts: { horizonDays?: number; today?: string; deadlineAt?: number; at?: string },
+  opts: { horizonDays?: number; today?: string; deadlineAt?: number; at?: string; span?: { first: string; last: string } },
 ): Promise<{ result: SeedCalendarResult; targets: RateTargetMap | null }> {
   if (!adapter.fetchRateCalendar && !adapter.readBaseRateCalendar) {
     return { result: { ok: false, reason: "unsupported", captured: 0 }, targets: null };
   }
 
   const horizon = Math.max(1, Math.min(MAX_PRICING_HORIZON_DAYS, Math.floor(opts.horizonDays ?? pricingHorizonDays())));
-  const firstDate = opts.today ?? (await readHotelClock(supabase, hotelId)).today;
-  const lastDate = lastNightOf(firstDate, horizon);
+  const today = opts.today ?? (await readHotelClock(supabase, hotelId)).today;
+  const windowLast = lastNightOf(today, horizon);
+  // A span inside the window: only those nights are read (a read before re-send).
+  const firstDate = opts.span && opts.span.first > today ? opts.span.first : today;
+  const lastDate = opts.span && opts.span.last < windowLast ? opts.span.last : windowLast;
 
   const { data: rtRows, error: rtError } = await supabase
     .from("room_types")
@@ -438,7 +441,18 @@ export async function ensureBaseRateCalendar(
   supabase: SupabaseClient,
   hotelId: string,
   adapter: PmsRatePushAdapter,
-  opts: { horizonDays?: number; clock?: HotelClock; refreshIntervalMs?: number; deadlineAt?: number } = {},
+  opts: {
+    horizonDays?: number;
+    clock?: HotelClock;
+    refreshIntervalMs?: number;
+    deadlineAt?: number;
+    /**
+     * Read only these nights, now, whatever the refresh interval says, and
+     * leave the refresh stamps alone (a read before re-send: the push only
+     * needs the nights it is about to write over).
+     */
+    span?: { first: string; last: string };
+  } = {},
 ): Promise<EnsureCalendarResult> {
   if (!adapter.fetchRateCalendar && !adapter.readBaseRateCalendar) {
     return { ok: false, reason: "unsupported", captured: 0 };
@@ -450,6 +464,12 @@ export async function ensureBaseRateCalendar(
     const clock = opts.clock ?? (await readHotelClock(supabase, hotelId));
     const connection = await lastRefreshedAt(supabase, hotelId, adapter.pmsType);
     const last = connection === "unknown" ? "unknown" : connection.refreshedAt;
+    const windowLast = lastNightOf(clock.today, horizon);
+    // The last refresh read less of the window than it now has (the horizon
+    // was raised): due now rather than within the hour, or the far nights
+    // wait that long for a base.
+    const shortOfWindow =
+      connection !== "unknown" && connection.through != null && connection.through < windowLast;
 
     if (last === "unknown") {
       // No record of when it last ran (the column's migration has not run, or
@@ -467,11 +487,23 @@ export async function ensureBaseRateCalendar(
       if (newest?.stay_date && String(newest.stay_date) >= lastNightOf(clock.today, horizon)) {
         return { ok: false, reason: "covered", captured: 0 };
       }
+    } else if (opts.span) {
+      if (opts.deadlineAt != null && opts.deadlineAt - Date.now() < BASE_REFRESH_RESERVE_MS) {
+        return { ok: false, reason: "deferred", captured: 0 };
+      }
+      const { result } = await seedWithTargets(supabase, hotelId, adapter, {
+        horizonDays: horizon,
+        today: clock.today,
+        deadlineAt: opts.deadlineAt,
+        at: clock.at,
+        span: opts.span,
+      });
+      return result;
     } else if (last !== null) {
       const intervalMs = opts.refreshIntervalMs ?? baseRateRefreshIntervalMs();
       const fresh = Date.parse(clock.at) - Date.parse(last) < intervalMs;
       const sameHotelDay = evalIsoToHotelDateString(last, clock.timeZone) === clock.today;
-      if (fresh && sameHotelDay) return { ok: false, reason: "throttled", captured: 0 };
+      if (fresh && sameHotelDay && !shortOfWindow) return { ok: false, reason: "throttled", captured: 0 };
     }
 
     if (opts.deadlineAt != null && opts.deadlineAt - Date.now() < BASE_REFRESH_RESERVE_MS) {
@@ -486,7 +518,7 @@ export async function ensureBaseRateCalendar(
     if (connection !== "unknown" && result.ok) {
       const cached = connection.pushRateTargets;
       const newTargets = targets && Object.keys(targets).length > 0 && !sameTargets(targets, cached) ? targets : null;
-      await markRefreshed(supabase, hotelId, adapter.pmsType, clock.at, newTargets);
+      await markRefreshed(supabase, hotelId, adapter.pmsType, clock.at, newTargets, windowLast);
     }
     return result;
   } catch (e) {
@@ -522,13 +554,15 @@ async function lastRefreshedAt(
   supabase: SupabaseClient,
   hotelId: string,
   pmsType: string,
-): Promise<{ refreshedAt: string | null; pushRateTargets: unknown } | "unknown"> {
-  const { data, error } = await supabase
-    .from("pms_connections")
-    .select("base_rates_refreshed_at, push_rate_targets")
-    .eq("hotel_id", hotelId)
-    .eq("pms_type", pmsType)
-    .maybeSingle();
+): Promise<{ refreshedAt: string | null; pushRateTargets: unknown; through: string | null } | "unknown"> {
+  const read = (columns: string) =>
+    supabase.from("pms_connections").select(columns).eq("hotel_id", hotelId).eq("pms_type", pmsType).maybeSingle();
+  // base_rates_through arrives with 99_supabase_migration_pricing_cadence_v1.sql;
+  // before it, the refresh is due by the clock alone, as it was.
+  let { data, error } = await read("base_rates_refreshed_at, push_rate_targets, base_rates_through");
+  if (error && isMissingColumnError(error) && /base_rates_through/.test(error.message)) {
+    ({ data, error } = await read("base_rates_refreshed_at, push_rate_targets"));
+  }
   if (error) {
     console.error(
       JSON.stringify({
@@ -545,9 +579,11 @@ async function lastRefreshedAt(
   }
   // No connection row to stamp: refreshing on every tick would never stop.
   if (!data) return "unknown";
+  const row = data as unknown as Record<string, unknown>;
   return {
-    refreshedAt: data.base_rates_refreshed_at ? String(data.base_rates_refreshed_at) : null,
-    pushRateTargets: data.push_rate_targets ?? null,
+    refreshedAt: row.base_rates_refreshed_at ? String(row.base_rates_refreshed_at) : null,
+    pushRateTargets: row.push_rate_targets ?? null,
+    through: row.base_rates_through ? String(row.base_rates_through).slice(0, 10) : null,
   };
 }
 
@@ -563,12 +599,21 @@ async function markRefreshed(
   pmsType: string,
   at: string,
   targets: RateTargetMap | null = null,
+  /** The last night the refresh read (base_rates_through). */
+  through: string | null = null,
 ): Promise<void> {
-  const { error } = await supabase
-    .from("pms_connections")
-    .update({ base_rates_refreshed_at: at, ...(targets ? { push_rate_targets: targets } : {}) })
-    .eq("hotel_id", hotelId)
-    .eq("pms_type", pmsType);
+  const write = (withThrough: boolean) =>
+    supabase
+      .from("pms_connections")
+      .update({
+        base_rates_refreshed_at: at,
+        ...(targets ? { push_rate_targets: targets } : {}),
+        ...(withThrough && through ? { base_rates_through: through } : {}),
+      })
+      .eq("hotel_id", hotelId)
+      .eq("pms_type", pmsType);
+  let { error } = await write(true);
+  if (error && through && isMissingColumnError(error)) ({ error } = await write(false));
   if (error) {
     // The calendar itself is written; the cost is one extra read next tick.
     console.error(JSON.stringify({ fn: "ensureBaseRateCalendar", hotelId, step: "mark_refreshed", error: error.message }));

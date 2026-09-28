@@ -319,12 +319,13 @@ describe("runPricingTick", () => {
     expect(covered.push).toMatchObject({ sent: 1, awaitingBaseRead: 1 });
 
     // Read ten minutes ago: not due, and the base under it is fresh. The new
-    // price for the night sent to before reads the PMS first.
+    // price for the night sent to before reads the PMS first, over just that
+    // night: the only one about to be written over.
     const recent = db({ rate_updates: [sentBefore], pms_connections: connection(new Date(T0 - 10 * 60_000).toISOString()) });
     const c = makeAdapter();
     const throttled = await tick(recent, c.adapter, c.log);
     expect(throttled.calendar).toEqual({ ok: false, reason: "throttled", captured: 0 });
-    expect(c.log).toEqual(["evaluate", "calendar:2026-10-01..2026-11-29", "push:2026-10-01,2026-11-29"]);
+    expect(c.log).toEqual(["evaluate", "calendar:2026-11-29..2026-11-29", "push:2026-10-01,2026-11-29"]);
     expect(throttled.push).not.toHaveProperty("awaitingBaseRead");
   });
 
