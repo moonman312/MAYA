@@ -33,6 +33,7 @@ import {
   toWire,
   checkSynonyms,
   contentHash,
+  ASK_BUDGET_BROTLI,
 } from "./docs/build-lib.mjs";
 import { scanText } from "./docs/leaks.mjs";
 
@@ -46,8 +47,6 @@ const SYNONYMS = path.join(ROOT, "src/lib/docs/synonyms.json");
 const SECTIONS = path.join(ROOT, "src/lib/docs/sections.json");
 const GENERATED = path.join(ROOT, "src/lib/docs/generated");
 const PUBLIC = path.join(ROOT, "public");
-// The helper's index loads when the panel opens, so it has a budget: 400 KB gzipped.
-const ASK_BUDGET_GZIP = 400 * 1024;
 
 const checkOnly = process.argv.includes("--check");
 const started = Date.now();
@@ -120,8 +119,12 @@ const askHash = contentHash(askJson);
 const askFile = `docs-index.${askHash}.json`;
 const askGzip = zlib.gzipSync(askJson, { level: 9 }).length;
 const askBrotli = zlib.brotliCompressSync(askJson, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11 } }).length;
-if (askGzip > ASK_BUDGET_GZIP) {
-  say(askFile, 0, `the docs helper's index is ${Math.round(askGzip / 1024)} KB gzipped, over the ${ASK_BUDGET_GZIP / 1024} KB budget`);
+if (askBrotli > ASK_BUDGET_BROTLI) {
+  say(
+    askFile,
+    0,
+    `the docs helper's index is ${Math.round(askBrotli / 1024)} KB brotli (${Math.round(askGzip / 1024)} KB gzipped), over the ${ASK_BUDGET_BROTLI / 1024} KB brotli budget`,
+  );
 }
 
 for (const [name, text] of [

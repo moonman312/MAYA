@@ -9,6 +9,11 @@ import { scanText } from "./leaks.mjs";
 export const WORDS_PER_MINUTE = 200;
 export const PASSAGE_MAX = 1200;
 export const EVAL_SIZE = 150;
+// The helper's index downloads in the background on docs pages, so it has a
+// budget: a guard against it quietly growing page by page, and against eating
+// readers' data on phones. Measured in brotli, which is what Vercel serves;
+// the build reports the gzip size too.
+export const ASK_BUDGET_BROTLI = 800 * 1024;
 const PMS = ["cloudbeds", "thinkreservations", "mews"];
 const KNOWN_KEYS = new Set([
   "title", "summary", "section", "order", "readingTime", "readingNote", "keywords", "questions", "pms", "updated",

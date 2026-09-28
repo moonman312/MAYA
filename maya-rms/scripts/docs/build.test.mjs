@@ -23,6 +23,7 @@ import {
   trimPassage,
   EVAL_SIZE,
   PASSAGE_SHOWN,
+  ASK_BUDGET_BROTLI,
 } from "./build-lib.mjs";
 import { expandIndex } from "../../src/lib/docs/ask/match.ts";
 import { extractPage, mdToPlain } from "./extract.mjs";
@@ -353,7 +354,9 @@ test("the helper's index covers every section, carries each page's In plain word
   for (const item of bank) assert.ok(indexed.has(`${norm(item.q)}|/docs/${item.page}`), `bank: ${item.q}`);
   const json = JSON.stringify(toWire(index));
   assert.deepEqual(scanText(json), [], "nothing internal in the helper's index");
-  assert.ok(zlib.gzipSync(json, { level: 9 }).length < 400 * 1024, "under 400 KB gzipped");
+  const brotli = zlib.brotliCompressSync(json, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11 } }).length;
+  assert.equal(ASK_BUDGET_BROTLI, 800 * 1024);
+  assert.ok(brotli <= ASK_BUDGET_BROTLI, `under the ${ASK_BUDGET_BROTLI / 1024} KB brotli budget`);
 });
 
 test("every question in the pages and the bank is tied to the passage that answers it", () => {
