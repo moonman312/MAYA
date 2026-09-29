@@ -915,5 +915,11 @@
 {"q": "a rule raised the price i typed", "page": "watch/setting-a-price-yourself", "anchor": "your-rules-after-your-price"},
 {"q": "maya undercut my manual price", "page": "watch/setting-a-price-yourself", "anchor": "your-rules-after-your-price"},
 {"q": "why did maya cut below my manual price", "page": "watch/setting-a-price-yourself", "anchor": "your-rules-after-your-price"},
-{"q": "my manual price was undercut", "page": "watch/setting-a-price-yourself", "anchor": "your-rules-after-your-price"}
+{"q": "my manual price was undercut", "page": "watch/setting-a-price-yourself", "anchor": "your-rules-after-your-price"},
+{"q": "did my typed price reach cloudbeds", "page": "watch/setting-a-price-yourself", "anchor": "what-the-line-says-afterwards"},
+{"q": "price couldn't be sent", "page": "watch/setting-a-price-yourself", "anchor": "what-the-line-says-afterwards"},
+{"q": "maya will retry 3 more times", "page": "watch/setting-a-price-yourself", "anchor": "what-the-line-says-afterwards"},
+{"q": "try again sending a price", "page": "watch/setting-a-price-yourself", "anchor": "what-the-line-says-afterwards"},
+{"q": "see the error log", "page": "watch/setting-a-price-yourself", "anchor": "what-the-line-says-afterwards"},
+{"q": "cloudbeds isn't answering maya", "page": "watch/setting-a-price-yourself", "anchor": "every-confirmation-line-and-what-it-means"}
 ]

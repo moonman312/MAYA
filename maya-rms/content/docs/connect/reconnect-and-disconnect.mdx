@@ -25,7 +25,7 @@ questions:
   - Will I get an email when the connection breaks? {#the-email-after-an-hour}
   - Who is emailed when the connection is down? {#the-email-after-an-hour}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -72,7 +72,7 @@ The five-minute cycle skips a disconnected property: no bookings are read, no sc
 
 A connection that reads <Ui>Error</Ui> is not skipped. MAYA keeps trying it, waiting longer after each failed try, up to an hour between tries, and nothing is read, priced or sent while the tries fail. The first try that works turns the card back to <Ui>Connected</Ui>, and the cycle carries on as normal with no reconnect needed.
 
-Typing a price still re-prices those nights from what MAYA already has. The new prices show on the calendar, but they are not sent until you reconnect. A change to a room type on the <Ui>PMS</Ui> tab (<Ui>Counts as a room</Ui> or <Ui>Rooms out of service</Ui>) is saved, and your rules take it in from the first cycle after you reconnect. The line after a save says so: "Saved. It will be sent once you reconnect." It reads the same on a connection that reads <Ui>Error</Ui>, where the price also goes out with the first try that works.
+Typing a price still re-prices those nights from what MAYA already has. The new prices show on the calendar, but they are not sent until you reconnect. A change to a room type on the <Ui>PMS</Ui> tab (<Ui>Counts as a room</Ui> or <Ui>Rooms out of service</Ui>) is saved, and your rules take it in from the first cycle after you reconnect. The line after a save says so: "Saved. It will be sent once you reconnect." On a connection that reads <Ui>Error</Ui> it reads "Saved. Cloudbeds isn't answering MAYA right now. MAYA keeps trying to reach it and sends this price as soon as a read works.", because there the price goes out with the first try that works, with no reconnect needed.
 
 What does not change:
 

@@ -1,10 +1,10 @@
 ---
 title: Setting a price yourself
-summary: How to type a price for a room type on one night or a run of nights, what it does to your rules, when it is sent to your property system, what the line after a save says when nothing can be sent, and how to hand the night back to your rules.
+summary: How to type a price for a room type on one night or a run of nights, what it does to your rules, when it is sent to your property system, what the line after a save says when nothing can be sent, what it says once MAYA has tried to send it and how to send it again, and how to hand the night back to your rules.
 section: watch
 order: 50
-readingTime: 13
-keywords: [manual price, type a price, set a price, override, through, range of nights, save, clear, hand back, comp night, free night, 0, zero, floor, ceiling, refused, below the floor, above the ceiling, paused rules, tonight onwards, a year ahead, 399 days, 400 nights, 366 nights, how many nights in one save, sending now, next cycle, simulation not sent, sent once you reconnect, reconnect, disconnected, error, nothing is sent while MAYA's work is paused, update your card, billing, subscription stopped, restart your subscription, on hold, night has passed, nothing to clear, no Clear button, currency, euro, pound, push window, 396-day, your PMS, note, rate plan, bulk upload, exactly that number, badge, manual, comma, decimal comma, point, decimal separator, 180,50, thousands separator, save greyed out]
+readingTime: 17
+keywords: [manual price, type a price, set a price, override, through, range of nights, save, clear, hand back, comp night, free night, 0, zero, floor, ceiling, refused, below the floor, above the ceiling, paused rules, tonight onwards, a year ahead, 399 days, 400 nights, 366 nights, how many nights in one save, sending now, next cycle, simulation not sent, sent once you reconnect, reconnect, disconnected, error, isn't answering, nothing is sent while MAYA's work is paused, update your card, billing, subscription stopped, restart your subscription, on hold, night has passed, nothing to clear, no Clear button, currency, euro, pound, push window, 396-day, your PMS, note, rate plan, bulk upload, exactly that number, badge, manual, comma, decimal comma, point, decimal separator, 180,50, thousands separator, save greyed out, sent to Cloudbeds, couldn't be sent, will retry, more times, tries left, try again, see the error log, send status, did it reach, retry, retries, once a day]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
   - 'How do I set a price myself?' {#in-plain-words}
@@ -20,7 +20,13 @@ questions:
   - 'When is my typed price sent to my property system?' {#when-your-price-is-sent/cloudbeds-when-you}
   - 'It says "It will be sent when the date enters the 396-day push window", what does that mean?' {#every-confirmation-line-and-what-it-means/example-the-lines}
   - 'It says "It will be sent once you reconnect", what does that mean?' {#every-confirmation-line-and-what-it-means/example-the-lines}
+  - 'It says "Cloudbeds isn''t answering MAYA right now", what does that mean?' {#every-confirmation-line-and-what-it-means/example-the-lines}
   - 'It says "Nothing is sent while MAYA''s work is paused", what does that mean?' {#every-confirmation-line-and-what-it-means/example-the-lines}
+  - 'How do I know my typed price reached Cloudbeds?' {#what-the-line-says-afterwards}
+  - 'It says "MAYA will retry 3 more times", what does that mean?' {#what-the-line-says-afterwards}
+  - 'It says "This price couldn''t be sent to Cloudbeds". What do I do?' {#what-the-line-says-afterwards}
+  - 'How do I send a typed price again?' {#what-the-line-says-afterwards}
+  - 'What does "See the error log" open?' {#what-the-line-says-afterwards}
   - 'Why is there no Clear button on a night that has passed?' {#clear-handing-the-night-back/clear-removes-your}
   - 'What does Clear do to the rules that were paused?' {#clear-handing-the-night-back/clear-removes-your}
   - 'Can I clear a whole range of nights at once?' {#clear-handing-the-night-back/clear-removes-your}
@@ -85,8 +91,13 @@ A week later the night passes 80% full. "Busy nights" (occupancy Greater than 80
 | "Saved. It will be sent when the date enters the 396-day push window." | Every night you saved is more than 395 nights ahead. MAYA sends a night once it enters the window. |
 | "Saved. 12 nights sending to Cloudbeds now; 8 more will be sent as they enter the 396-day window." | Your run of nights crosses the edge of the window. |
 | "Saved. MAYA doesn't send a price of 0 to Cloudbeds, so set the night to 0 there yourself." | You typed 0, a comp night. See below. |
-| "Saved. It will be sent once you reconnect." | You are live, and the connection to Cloudbeds or ThinkReservations reads Disconnected or Error. The price is saved and your rules run on it, and nothing is sent until the connection works again: after a reconnect, or, on Error, after MAYA's next try that works. [Reconnect your property system](/docs/recipes/reconnect-your-property-system) |
+| "Saved. It will be sent once you reconnect." | You are live, and the connection to Cloudbeds or ThinkReservations reads Disconnected. The price is saved and your rules run on it, and nothing is sent until a General Manager or Hotel Admin reconnects. [Reconnect your property system](/docs/recipes/reconnect-your-property-system) |
+| "Saved. Cloudbeds isn't answering MAYA right now. MAYA keeps trying to reach it and sends this price as soon as a read works." | You are live, and the connection reads Error. MAYA keeps trying to read from your system, waiting longer after each failed try, up to an hour between tries. The first read that works turns the card back to Connected and sends this price on that same cycle, with no reconnect needed. If it has not cleared within a couple of hours, reconnect. [Connection lost](/docs/wrong/connection-lost) |
 | "Saved." | MAYA could not read your mode or your connection just then. The price is saved and your rules run on it. Whether it goes out is settled on the next cycle, as for any night. The <Ui>PMS</Ui> tab shows the connection. |
+| "Sent to Cloudbeds." | Cloudbeds took the price. On ThinkReservations it means accepted, and MAYA reads it back within about an hour to confirm it landed. This line and the three below replace the save's line once MAYA has read what became of the night, see [What the line says afterwards](#what-the-line-says-afterwards). |
+| "Sending to Cloudbeds now." | The send is under way. |
+| "Saved. It couldn't be sent yet. MAYA will retry 3 more times." | Cloudbeds did not take the price for a cause that usually clears on its own. MAYA sends it again every cycle, and the number is the real count of tries left at this price before MAYA rests it. |
+| "This price couldn't be sent to Cloudbeds." with <Ui>Try again</Ui> and <Ui>See the error log</Ui> | MAYA has stopped retrying on its own: its tries at this price are used, or the cause needs you, such as a rate rule or a permission in Cloudbeds. <Ui>Try again</Ui> sends the price once more now. <Ui>See the error log</Ui> opens the change log at the sending problem, which names the cause and what to do. |
 | "Saved. Nothing is sent while MAYA's work is paused. Update your card on the Billing page." | Your subscription is Unpaid. The price is saved and your rules run on it once, and nothing is sent until your card works again. This line comes first, whatever else is true of the property. |
 | "Saved. Nothing is sent while MAYA's work is paused. Restart your subscription on the Billing page." | The same, when your subscription reads Cancelled or Never completed. |
 | "Saved. Nothing is sent while MAYA's work is paused. Email us and we'll get it running again." | The same, when your subscription is on hold. |
@@ -115,6 +126,21 @@ MAYA does not send prices to Mews. A price you type shows in MAYA, in the change
 </PmsTabs>
 
 In simulation the price is saved and shown, and nothing is sent. If you go live later, it goes out with the first live send like every other price.
+
+## What the line says afterwards
+
+On a live Cloudbeds or ThinkReservations property, the line under the box does not stop at the save. MAYA reads what became of the night about 20 seconds, 1 minute and 3 minutes after a save, and once more when you open a day that already has a typed price. It does not keep asking after that. While the answer says no more than the save did, the save's line stays. Once it says more, the line changes to one of these:
+
+- **"Sent to Cloudbeds."** Cloudbeds took the price. On ThinkReservations that means accepted, and MAYA reads it back within about an hour.
+- **"Sending to Cloudbeds now."** The send is under way.
+- **"Saved. It couldn't be sent yet. MAYA will retry 3 more times."** Cloudbeds did not take it for a cause that usually clears on its own: slowing down, not responding, never confirmed. MAYA sends it again every cycle, up to 10 tries at this price, and the number is the count left, read from MAYA's own record of the sends.
+- **"This price couldn't be sent to Cloudbeds."** MAYA has stopped retrying on its own: the tries at this price are used, or the cause needs you, such as a rate rule or a permission in Cloudbeds. Two buttons follow. <Ui>Try again</Ui> sends the price once more now, and the line follows that try: "MAYA will retry 1 more time." while it is on its way, then "Sent to Cloudbeds." or the same line again. Pressing it twice sends once. <Ui>See the error log</Ui> opens the <Ui>Change Log</Ui> at the "Prices not reaching Cloudbeds" item for that night, which names the cause and what to do, or at the <Ui>Change Log</Ui> itself when no item is shown yet.
+
+<Ui>Try again</Ui> needs Revenue Manager access or higher, like typing a price. Everyone on the property sees the line and <Ui>See the error log</Ui>.
+
+Behind the <Ui>?</Ui>, once the night's status has been read, a line says how retries work: a price your system doesn't take is sent again, up to 10 times at that price, then once a day. So a night is never given up on for good. A change you make in your system is picked up within a day, and <Ui>Try again</Ui> picks it up now. [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price) explains every cause.
+
+A price typed while you simulate, on Mews, on a Disconnected connection, past the window, or while MAYA's work is paused has no line of its own after the save: nothing is sent, and the save's line says so. A night MAYA's own checks held back keeps the save's line too.
 
 ## Limits
 

@@ -3,7 +3,7 @@ title: When your property system does not accept a price
 summary: What the "Prices not reaching Cloudbeds" item in the change log means, every cause it can name, what to do about each, how MAYA retries, and when you are told.
 section: live
 order: 40
-readingTime: 16
+readingTime: 17
 keywords: [rates not reaching cloudbeds, prices not reaching cloudbeds, rates not reaching think reservations, prices not reaching think reservations, not reaching, refused, rejected, didn't accept, couldn't tell why, never confirmed, not responding, slow down, throttled, rate limit, rate rule, minimum rate, maximum rate, follows another rate plan, derived, derived only, no base rate, can't find the rate, deleted or replaced, night that had already begun, time zone, tonight's price not reaching, after midnight, price of 0, permission to update rates, stopped accepting, reconnect, still happening, resolved, ended, show tries, retries, how many retries, will it fix itself, do I need to do anything, pms down, cloudbeds down, outage, is this a maya problem, match my cloudbeds minimum, floor to match, ceiling to match, change the floor for one room type, minimum rate in cloudbeds, lower the minimum]
 questions:
   - 'What is "Prices not reaching Cloudbeds"?' {#in-plain-words}
@@ -18,11 +18,13 @@ questions:
   - When am I told about a sending problem? {#when-you-are-told/at-once}
   - Will a sending problem fix itself? {#retries-and-holds/a-price-that}
   - 'Do I need to do anything about "Prices not reaching"?' {#do-i-need-to-do-anything}
+  - Can I make MAYA send a price again now? {#do-i-need-to-do-anything}
+  - What does Try again under the price box do? {#retries-and-holds}
   - My room type has only derived plans, or no base rate. What happens? {#every-cause-and-what-to-do/the-sentences-below}
   - Is this a MAYA problem or a Cloudbeds problem? {#is-this-a-maya-problem-or-a-cloudbeds-problem}
   - How do I make MAYA's floor match my Cloudbeds minimum for one room type? {#matching-mayas-floor-or-ceiling-to-your-system/email-us-for}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -96,8 +98,8 @@ Say Cloudbeds is set to US Eastern and MAYA has US Pacific. From 9:00 PM to midn
 
 ## Retries, and holds
 
-- A price that fails for a cause that clears on its own (slowing down, not responding, never confirmed, cause unrecognised) is sent again every cycle, up to 10 tries at that price, then once a day.
-- A price that fails for a cause that needs a person (connection, permission, a rate rule, a night already begun) is held. It is not sent again until the price changes, the rate plan behind it changes, a day has passed, or, for a connection or permission problem, the connection has been reconnected. MAYA is not told about a change you make in your system. So after you do what the item asks there, the held night goes again within a day, or sooner if its price or rate plan changes. You do not have to touch the price, but a price you type goes out now.
+- A price that fails for a cause that clears on its own (slowing down, not responding, never confirmed, cause unrecognised) is sent again every cycle, up to 10 tries at that price, then once a day. For a price you typed, the line under the price box on the calendar counts them down: "Saved. It couldn't be sent yet. MAYA will retry 3 more times."
+- A price that fails for a cause that needs a person (connection, permission, a rate rule, a night already begun) is held. It is not sent again until the price changes, the rate plan behind it changes, a day has passed, or, for a connection or permission problem, the connection has been reconnected. MAYA is not told about a change you make in your system. So after you do what the item asks there, the held night goes again within a day, or sooner if its price or rate plan changes. You do not have to touch the price. A different price you type goes out now; typing the same price again does not, because the tries are counted per price. To send the same price again now, use <Ui>Try again</Ui> under the price box on the calendar: it appears once the line there reads "This price couldn't be sent to Cloudbeds.", and sends that price once more, whatever held it. [Setting a price yourself](/docs/watch/setting-a-price-yourself#what-the-line-says-afterwards) has the lines.
 - A room type with no base rate, or whose only rates follow another plan, is not held. While its nights have nowhere to go, MAYA reads your system's rate plans again on every cycle. So once you add a base rate, the nights usually go out on the next cycle.
 - A rate MAYA cannot find is looked up again once, after re-reading your catalogue, and then held.
 - A price of 0 is never sent. MAYA checks each cycle whether your system now has the night at 0, and closes the item when it does.
@@ -133,6 +135,8 @@ The cause sentence names which system did what: "Cloudbeds refused", "Cloudbeds 
 ## Do I need to do anything?
 
 Only when the item has an action line. An item with no action line is MAYA keeping you informed while it retries. If the action line asks you to add a base rate, the nights usually go out on the next cycle after you do. If it asks for another change in your system, such as a rate limit, make the change, and the held nights go again within a day, or sooner if their price changes. If it asks for a reconnect, a General Manager or Hotel Admin reconnects on the PMS tab, and the held prices go out on the cycle after. [Reconnect your property system](/docs/recipes/reconnect-your-property-system) has the clicks.
+
+For a night you typed a price on, you need not wait the day. Open the night on the <Ui>Calendar</Ui> tab: the line under the price box reads "This price couldn't be sent to Cloudbeds." once MAYA has stopped retrying it, and <Ui>Try again</Ui> beside it sends the price once more now (Revenue Manager or higher). <Ui>See the error log</Ui> next to it opens this item.
 
 ## ThinkReservations and Mews
 
