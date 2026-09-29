@@ -106,6 +106,7 @@ Type a few words of the message into the box below to jump to it. Every message 
 - **"Tell us how many rooms you have"** (any number from 1 to 500): the room count is missing.
 - **"This property already has a subscription. Manage it at /account/billing."**: one subscription per property. Open <Ui>Billing</Ui>.
 - **"Your subscription is on hold. Email us at info@modern-hospitality-solutions.com and we'll get it running again."**: the property's subscription is paused in Stripe, so a new one is not started beside it. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Paused%20subscription).
+- **"Your subscription is waiting on a card update. Update your card from billing and the subscription restarts where it left off."**: the property's subscription is unpaid but still alive in Stripe, so a new one is not started beside it. Save a new card as your default in the billing portal and MAYA pays the open invoice with it. [Cards, payments and invoices](/docs/billing/cards-payments-and-invoices)
 - **"Too many checkout attempts. Wait a few minutes and try again."**: 10 checkout starts per 10 minutes.
 - **"That property isn't yours to pay for."**: you are not a manager of that property.
 - **"We couldn't start checkout"** (please try again in a moment): Stripe could not be reached. Try again.

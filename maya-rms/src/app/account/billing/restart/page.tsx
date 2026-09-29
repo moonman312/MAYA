@@ -1,6 +1,6 @@
 import { MayaLockup } from "@/components/brand/logo";
 import { SubscribeStep } from "@/components/onboarding/subscribe-step";
-import { loadAccountBilling } from "@/lib/billing/account";
+import { loadAccountBilling, offersRestart } from "@/lib/billing/account";
 import { pmsSignupCodeRequired } from "@/lib/billing/pms-gates";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { getRegistry, type PmsType } from "@/lib/pms/registry";
@@ -38,12 +38,13 @@ export default async function RestartPage() {
   if (!hotelId) redirect("/onboarding");
   if (!(await hasHotelRank(supabase, hotelId, "general_manager"))) redirect("/account/billing");
 
-  // Only a dead subscription belongs here. A live one manages itself from the
-  // billing page, a paused one is still there in Stripe waiting on us, and no
-  // row at all means a hand-made property with nothing to restart. All three
-  // go back to the page that explains them.
+  // Only a dead subscription belongs here, the same test the billing page's
+  // restart button uses. A live one manages itself from the billing page, an
+  // unpaid one comes back through the card, a paused one is still there in
+  // Stripe waiting on us, and no row at all means a hand-made property with
+  // nothing to restart. All of them go back to the page that explains them.
   const billing = await loadAccountBilling(supabase, hotelId);
-  if (!billing || billing.entitled || billing.status === "paused") redirect("/account/billing");
+  if (!billing || !offersRestart(billing)) redirect("/account/billing");
 
   const { data: conn } = await supabase
     .from("pms_connections")

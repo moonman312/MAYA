@@ -187,12 +187,11 @@ export async function POST(request: Request) {
         .eq("hotel_id", hotelId)
         .maybeSingle()
     : { data: null };
-  // Only a subscription that is actually doing something blocks a new one.
-  // Testing for "not canceled" instead trapped every dead-but-not-canceled
-  // state — incomplete (they abandoned the card form), incomplete_expired,
-  // unpaid after dunning gave up — with a message telling them to manage a
-  // subscription in billing settings that would never charge or serve them.
-  // A hotel in that state has paid nothing and has no way forward.
+  // Only a subscription that is actually doing something, or can still come
+  // back, blocks a new one. Testing for "not canceled" instead trapped the
+  // states that are truly over (incomplete: they abandoned the card form;
+  // incomplete_expired) with a message telling them to manage a subscription
+  // that would never charge or serve them.
   if (existing?.stripe_subscription_id && isEntitled(existing.status)) {
     return NextResponse.json(
       { error: "This property already has a subscription. Manage it at /account/billing." },
@@ -206,6 +205,18 @@ export async function POST(request: Request) {
       {
         error:
           "Your subscription is on hold. Email us at info@modern-hospitality-solutions.com and we'll get it running again.",
+      },
+      { status: 409 },
+    );
+  }
+  // Unpaid is still alive in Stripe with its invoice open, and a new card
+  // pays that invoice and revives it (lib/billing/unpaid-recovery.ts). A new
+  // subscription beside it would have the property paying twice.
+  if (existing?.stripe_subscription_id && existing.status === "unpaid") {
+    return NextResponse.json(
+      {
+        error:
+          "Your subscription is waiting on a card update. Update your card from billing and the subscription restarts where it left off.",
       },
       { status: 409 },
     );

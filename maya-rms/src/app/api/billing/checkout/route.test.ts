@@ -390,11 +390,10 @@ describe("a first-time signup, with no property yet", () => {
 
   it("lets a property retry after a subscription that never came to anything", async () => {
     // Testing "not canceled" instead of "entitled" trapped every dead-but-not-
-    // canceled state: incomplete (they closed the card form), incomplete_expired,
-    // unpaid after dunning gave up. Each one produced a 409 telling the owner to
-    // manage a subscription in billing settings that would never charge or serve
-    // them — a hotel with no way forward and nothing to cancel.
-    for (const deadStatus of ["incomplete", "incomplete_expired", "unpaid", "canceled"]) {
+    // canceled state: incomplete (they closed the card form), incomplete_expired.
+    // Each one produced a 409 telling the owner to manage a subscription that
+    // would never charge or serve them, a hotel with no way forward.
+    for (const deadStatus of ["incomplete", "incomplete_expired", "canceled"]) {
       state.sessions = [];
       seed({
         hotels: [{ id: "hotel-pending", is_active: false, setup_pending_at: "2026-07-01T00:00:00Z" }],
@@ -446,6 +445,33 @@ describe("a first-time signup, with no property yet", () => {
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain("Your subscription is on hold.");
     expect(body.error).toContain("info@modern-hospitality-solutions.com");
+  });
+
+  it("refuses a new subscription beside an unpaid one, and says to update the card", async () => {
+    // Unpaid is still alive in Stripe with its invoice open. A new card pays
+    // that invoice and revives it, so a second checkout would bill twice.
+    for (const hotel of [
+      { id: "hotel-pending", is_active: false, setup_pending_at: "2026-07-01T00:00:00Z" },
+      { id: "hotel-live", name: "Driftwood", is_active: true },
+    ]) {
+      state.sessions = [];
+      seed({
+        hotels: [hotel],
+        hotel_memberships: [{ hotel_id: hotel.id, user_id: USER, role: "hotel_admin", status: "active" }],
+        hotel_subscriptions: [
+          { hotel_id: hotel.id, stripe_customer_id: "cus_old", stripe_subscription_id: "sub_unpaid", status: "unpaid" },
+        ],
+      });
+      state.hotelId = hotel.is_active ? hotel.id : null;
+      const res = await post();
+      expect(res.status, hotel.id).toBe(409);
+      expect(state.sessions).toHaveLength(0);
+      expect(state.customers).toHaveLength(0);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe(
+        "Your subscription is waiting on a card update. Update your card from billing and the subscription restarts where it left off.",
+      );
+    }
   });
 
   it("reports a failure to provision rather than starting a payment with nowhere to land", async () => {
