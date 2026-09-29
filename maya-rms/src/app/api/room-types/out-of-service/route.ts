@@ -12,7 +12,7 @@
  * can_manage_hotel gate, and each add or clear is logged.
  */
 
-import { isRealIsoDate, isUuid } from "@/lib/api-guards";
+import { NOT_READY_YET, isRealIsoDate, isUuid } from "@/lib/api-guards";
 import { peakUnitsOut } from "@/lib/out-of-service";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { roleLabel } from "@/lib/roles";
@@ -22,7 +22,7 @@ import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { NEEDS_MIGRATION, isPreMigration, scheduleReprice } from "../reprice";
+import { isPreMigration, scheduleReprice } from "../reprice";
 
 export const maxDuration = 300;
 
@@ -57,7 +57,7 @@ function needsMigration(hotelId: string, what: string): NextResponse {
       message: `${what}: room_type_out_of_service is missing — run the room classification migration.`,
     }),
   );
-  return NextResponse.json({ error: NEEDS_MIGRATION }, { status: 503 });
+  return NextResponse.json({ error: NOT_READY_YET }, { status: 503 });
 }
 
 async function readBody(req: Request): Promise<Body> {

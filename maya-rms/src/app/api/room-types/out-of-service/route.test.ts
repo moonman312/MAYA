@@ -318,7 +318,7 @@ describe("POST — the block", () => {
       state.fake = seed({ missingTables: ["room_type_out_of_service"], missingTableShape: shape });
       const res = await post(GOOD);
       expect(res.status).toBe(503);
-      expect((await res.json()).error).toBe("This needs a database update first.");
+      expect((await res.json()).error).toBe("Something on our side isn't ready yet. Email us and tell us which page you were on.");
     }
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("pre-migration"));
   });
@@ -378,6 +378,6 @@ describe("GET", () => {
     state.fake = seed({ missingTables: ["room_type_out_of_service"] });
     const res = await get();
     expect(res.status).toBe(503);
-    expect((await res.json()).error).toBe("This needs a database update first.");
+    expect((await res.json()).error).toBe("Something on our side isn't ready yet. Email us and tell us which page you were on.");
   });
 });

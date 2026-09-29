@@ -1,4 +1,4 @@
-import { isUuid } from "@/lib/api-guards";
+import { NOT_READY_YET, isUuid } from "@/lib/api-guards";
 import { ROOM_TYPES } from "@/lib/demo-data";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { enforceRateLimit } from "@/lib/rate-limit";
@@ -12,7 +12,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { classifyRoomType } from "./classify";
 import { nearestPublishedRates } from "./seed-rates";
-import { NEEDS_MIGRATION, isPreMigration, scheduleReprice } from "./reprice";
+import { isPreMigration, scheduleReprice } from "./reprice";
 
 // PATCH asks the scheduled sync to price the change behind the response.
 export const maxDuration = 300;
@@ -213,7 +213,7 @@ export async function PATCH(req: Request) {
     switch (outcome.kind) {
       case "pre_migration":
         console.warn(JSON.stringify({ fn: "room-types", step: "pre-migration", hotelId, message: "PATCH refused: room_types.counts_as_room is missing." }));
-        return NextResponse.json({ error: NEEDS_MIGRATION }, { status: 503 });
+        return NextResponse.json({ error: NOT_READY_YET }, { status: 503 });
       case "not_found":
         return bad("That room type isn't on this property.");
       case "error":

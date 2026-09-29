@@ -68,6 +68,14 @@ describe("POST /api/evaluate", () => {
     expect(nudgeHotelSync).not.toHaveBeenCalled();
   });
 
+  it("400 in plain words for someone with no property, and nothing asked for", async () => {
+    state.hotelId = null;
+    const res = await POST();
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "You don't have access to this property." });
+    expect(requests()).toEqual([]);
+  });
+
   it("403 without manage rights", async () => {
     state.canManage = false;
     expect((await POST()).status).toBe(403);

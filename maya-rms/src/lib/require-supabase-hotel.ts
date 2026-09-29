@@ -42,10 +42,7 @@ export async function requireSupabaseHotel(
     return {
       ok: false,
       response: NextResponse.json(
-        {
-          error:
-            "No accessible hotel. Ask an administrator for membership, or set a default hotel for local dev.",
-        },
+        { error: "You don't have access to this property." },
         { status: 400 },
       ),
     };

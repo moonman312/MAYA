@@ -242,7 +242,7 @@
 {"q":"Why does the Price Change column show \"$\" when my currency is euro?","page":"rules/off-delete-or-change","anchor":"the-list/price-change","bankSection":6},
 {"q":"Can a Viewer add rules?","page":"rules/the-rule-builder","bankSection":6},
 {"q":"Who can create, switch or delete rules?","page":"team/roles","anchor":"who-can-do-what/the-lowest-role","bankSection":6},
-{"q":"It says \"No accessible hotel\"","page":"wrong/messages-explained","anchor":"rules-and-the-rule-builder/no-accessible-hotel","bankSection":6},
+{"q":"It says \"You don't have access to this property\"","page":"wrong/messages-explained","anchor":"rules-and-the-rule-builder/you-dont-have","bankSection":6},
 {"q":"What are good first rules?","page":"rules/build-your-first-rule","bankSection":6},
 {"q":"Can I copy or duplicate a rule?","page":"rules/what-rules-cannot-do-yet","anchor":"each-limit-and-what-to-do-instead/copy-or-duplicate","bankSection":6},
 {"q":"Can I copy rules to another property?","page":"rules/what-rules-cannot-do-yet","anchor":"each-limit-and-what-to-do-instead/copy-or-duplicate","bankSection":6},

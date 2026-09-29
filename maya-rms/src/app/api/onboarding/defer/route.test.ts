@@ -286,7 +286,7 @@ describe("POST /api/onboarding/defer", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await post({ hotelId: HOTEL });
     expect(res.status).toBe(503);
-    expect((await res.json()).error).toBe("This needs a database update first.");
+    expect((await res.json()).error).toBe("Something on our side isn't ready yet. Email us and tell us which page you were on.");
     expect(String(errorSpy.mock.calls[0]?.[0])).toContain("setup_deferred_v1");
     expect(fake().rpcs).toEqual([]);
     errorSpy.mockRestore();

@@ -10,7 +10,7 @@ questions:
   - What does this message mean? {#in-plain-words}
   - Where do I find out what an error on screen means? {#in-plain-words}
   - It says something and I cannot tell what it means {#in-plain-words}
-  - What does "No accessible hotel" mean? {#rules-and-the-rule-builder/no-accessible-hotel}
+  - What does "You don't have access to this property" mean? {#rules-and-the-rule-builder/you-dont-have}
   - What does "That's a lot of price changes at once" mean? {#the-calendar-and-prices-you-type/thats-a-lot}
   - What does "Finding was already resolved" mean? {#the-import-and-the-review/finding-was-already}
   - What does "We hit a snag connecting your property" mean? {#connecting-your-property-system/we-hit-a}
@@ -199,7 +199,7 @@ Type a few words of the message into the box below to jump to it. Every message 
 - **"Select at least one room type."**, **"Pick at least one room type to measure."**, **"Pick at least one room type to change."**, **"Invalid room types."**: fix the room type lists.
 - **"Could not save the rule. Check your connection and try again."** and **"Could not save the rule. Try again in a moment."**: the save failed. A Viewer sees a red refusal here, because Viewers cannot change rules.
 - **"Rule must include at least one valid condition."** and **"Invalid payload."**: the rule was sent without a usable condition. Add one.
-- **"No accessible hotel"**: your account has no property membership. Ask to be invited.
+- **"You don't have access to this property."**: your account has no property membership. Ask to be invited.
 - **"Fired"** with **"3×"** or a dash: how many times the rule has acted, per night and room type, including changes that came off. **"What counts as a fire"** is its help.
 - **"Occupancy above 80%"**, **"Booking window below 7 days"**, **"Pickup above 5 bookings"**, **"booking speed at least Much Faster Than Normal (past week), then waits 2 days"**: the conditions column. A pickup rule always says "bookings" here even when it measures revenue.
 - **"Watches Standard, Deluxe · Changes Suite"**: the rule measures one set and changes another.
@@ -257,7 +257,7 @@ Type a few words of the message into the box below to jump to it. Every message 
 - **"You can set a price up to 400 nights ahead."**: the last night is more than 399 days out.
 - **"Below this room type's floor of $80.00."** and **"Above this room type's ceiling of $300.00."**: refused, not rounded. Change the limit if you mean it. 0 is allowed as a comp night.
 - **"Pick a property first."**, **"Pick a room type."**, **"That room type isn't on this property."**: reload and try again.
-- **"This needs a database update first."**: something on our side is not ready. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Database%20update%20message) with the page you were on. The same message can appear on the PMS tab's room types, or when you set a property aside.
+- **"This needs a database update first."**: something on our side is not ready. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Database%20update%20message) with the page you were on.
 
 </Group>
 
@@ -278,6 +278,7 @@ Type a few words of the message into the box below to jump to it. Every message 
 - **"That block is already cleared."** and **"Pick a block to clear."**: the block is gone already, or none was chosen.
 - **"That's a lot of changes at once. Give it a minute and try again."** and **"That's a lot of room-type changes at once. Give it a minute and try again."**: the same limit as manual prices.
 - **"Something went wrong on our side. Try again in a moment."**: try again.
+- **"Something on our side isn't ready yet. Email us and tell us which page you were on."**: what it says. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Not%20ready%20yet%20message) with the page you were on. The same message can appear when you set a property aside with "Not now".
 
 </Group>
 

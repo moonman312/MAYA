@@ -62,12 +62,12 @@ function fakeClient(opts: {
   return client as any;
 }
 
-const state = vi.hoisted(() => ({ client: null as unknown }));
+const state = vi.hoisted(() => ({ client: null as unknown, hotelId: "hotel-1" as string | null }));
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
 vi.mock("@/utils/supabase/shared", () => ({ isSupabaseConfigured: () => true }));
 vi.mock("@/utils/supabase/server", () => ({ createClient: () => state.client }));
-vi.mock("@/lib/hotel-context", () => ({ resolveAccessibleHotelId: async () => "hotel-1" }));
+vi.mock("@/lib/hotel-context", () => ({ resolveAccessibleHotelId: async () => state.hotelId }));
 
 const { hasHotelRank, requireSupabaseHotelRank } = await import("./require-supabase-hotel");
 
@@ -158,5 +158,21 @@ describe("requireSupabaseHotelRank", () => {
     const ctx = await requireSupabaseHotelRank({} as any, "revenue_manager");
     expect(ctx.ok).toBe(false);
     if (!ctx.ok) expect(ctx.response.status).toBe(401);
+  });
+
+  it("tells someone with no property they don't have access, in plain words", async () => {
+    state.client = fakeClient({ userId: "user-1", memberships: [] });
+    state.hotelId = null;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ctx = await requireSupabaseHotelRank({} as any, "revenue_manager");
+      expect(ctx.ok).toBe(false);
+      if (!ctx.ok) {
+        expect(ctx.response.status).toBe(400);
+        expect(await ctx.response.json()).toEqual({ error: "You don't have access to this property." });
+      }
+    } finally {
+      state.hotelId = HOTEL;
+    }
   });
 });

@@ -378,7 +378,7 @@ describe("PATCH /api/room-types — the flip", () => {
     state.fake = seed({ missingColumn: "counts_as_room" });
     const res = await patch({ hotelId: HOTEL, roomTypeId: ROOM, countsAsRoom: false });
     expect(res.status).toBe(503);
-    expect((await res.json()).error).toBe("This needs a database update first.");
+    expect((await res.json()).error).toBe("Something on our side isn't ready yet. Email us and tell us which page you were on.");
     expect(nudgeHotelSync).not.toHaveBeenCalled();
   });
 

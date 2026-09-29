@@ -236,8 +236,9 @@ Going back to test mode is the same three variables, the other way.
   directions write a `pms.marketplace_deferred` / `pms.marketplace_resumed`
   audit event. The link is not offered on the last parked property when nothing
   is live — there would be nowhere to go — and never for Flow B. Deployed ahead
-  of its migration, the route answers 503 "This needs a database update first."
-  and the queue behaves as before.
+  of its migration, the route answers 503 "Something on our side isn't ready
+  yet. Email us and tell us which page you were on." and the queue behaves as
+  before.
 - **Pre-payment API budget.** An unclaimed connect costs the callback's 1 + N
   calls and nothing more. A claimed property that never pays costs one import:
   for a 42-room property with seven years of history, roughly 390 Cloudbeds

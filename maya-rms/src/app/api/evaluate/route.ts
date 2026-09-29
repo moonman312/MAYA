@@ -43,7 +43,7 @@ export async function POST() {
     const hotelId = await resolveAccessibleHotelId(supabase);
     if (!hotelId) {
       return NextResponse.json(
-        { error: "No accessible hotel." },
+        { error: "You don't have access to this property." },
         { status: 400 },
       );
     }
