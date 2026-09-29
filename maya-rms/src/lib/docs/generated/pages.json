@@ -4108,7 +4108,7 @@
   "order": 50,
   "title": "Setting a price yourself",
   "summary": "How to type a price for a room type on one night or a run of nights, what it does to your rules, when it is sent to your property system, what the line after a save says when nothing can be sent, what it says once MAYA has tried to send it and how to send it again, and how to hand the night back to your rules.",
-  "readingTime": 17,
+  "readingTime": 18,
   "readingNote": null,
   "updated": "2026-09-29",
   "pms": [
@@ -4683,7 +4683,7 @@
   "order": 30,
   "title": "How prices reach your property system",
   "summary": "Every cycle MAYA sends the prices that changed, for tonight and the next 395 nights, one nightly rate per room type, to Cloudbeds or ThinkReservations, and each system confirms it in its own way.",
-  "readingTime": 20,
+  "readingTime": 21,
   "readingNote": null,
   "updated": "2026-09-29",
   "pms": [
