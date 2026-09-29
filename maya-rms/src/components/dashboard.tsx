@@ -347,6 +347,7 @@ export function Dashboard({
   >([]);
   const [activeHotelId, setActiveHotelId] = useState<string | null>(null);
   const [hotelSwitching, setHotelSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
 
   const [ruleName, setRuleName] = useState("");
   const [condRows, setCondRows] = useState<ConditionFormRow[]>(() => [
@@ -632,21 +633,29 @@ export function Dashboard({
   async function applyActiveHotel(hotelId: string) {
     if (!hotelId || hotelId === activeHotelId) return;
     setHotelSwitching(true);
-    setSelectedDay(null);
-    calendarCacheRef.current.clear();
+    setSwitchError(null);
     try {
       const res = await fetch("/api/hotels/active", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ hotelId }),
-      });
-      const errBody = (await res.json().catch(() => ({}))) as {
-        error?: string;
-      };
-      if (!res.ok) {
-        console.error(errBody.error ?? res.statusText);
+      }).catch(() => null);
+      if (!res?.ok) {
+        // Nothing has moved: the selector, the open day and every tab stay on
+        // the property they were on, and the owner is told the switch failed.
+        if (res) {
+          const errBody = (await res.json().catch(() => ({}))) as { error?: string };
+          console.error(errBody.error ?? res.statusText);
+        }
+        const name = (id: string | null) => accessibleHotels.find((h) => h.id === id)?.name;
+        const from = name(activeHotelId);
+        setSwitchError(
+          `Couldn't switch to ${name(hotelId) ?? "that property"}.${from ? ` You're still on ${from}.` : ""} Try again in a moment.`,
+        );
         return;
       }
+      setSelectedDay(null);
+      calendarCacheRef.current.clear();
       setActiveHotelId(hotelId);
       // The last property's connection must not show over this one while it loads.
       setPmsActivity(null);
@@ -1003,6 +1012,11 @@ export function Dashboard({
                 disabled={hotelSwitching}
                 onValueChange={(id) => void applyActiveHotel(id)}
               />
+              {switchError ? (
+                <p role="alert" className="mt-1 max-w-xs text-xs text-rose-300">
+                  {switchError}
+                </p>
+              ) : null}
             </div>
           ) : null}
         </div>
