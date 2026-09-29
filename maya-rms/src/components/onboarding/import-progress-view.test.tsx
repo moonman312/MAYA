@@ -82,6 +82,16 @@ describe("ImportProgressView", () => {
     );
   });
 
+  it("shows an en dash, not an em dash, for a tile with nothing in it yet", async () => {
+    const early = statusWith({ status: "running", phase: "discover" }, 0);
+    responses = [{ ...early, job: { ...early.job, oldest_stay_date: null, newest_stay_date: null } }];
+    const view = render(<ImportProgressView />);
+    await waitFor(() => expect(view.container.textContent).toContain("Years covered"));
+    expect(view.getByText("Years covered").parentElement?.textContent).toContain("–");
+    expect(view.getByText("Oldest stay").parentElement?.textContent).toContain("–");
+    expect(view.container.textContent).not.toContain("—");
+  });
+
   it("still shows the moment it finishes to someone watching it run", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     responses = [

@@ -122,3 +122,21 @@ describe("floor and ceiling answers", () => {
     expect(guardrails(tables.room_types)).toEqual({ "rt-std": [80, 300] });
   });
 });
+
+describe("the property name", () => {
+  it("says a name already in use plainly, with no em dash", async () => {
+    const made = fakeSupabase(
+      { hotels: [{ id: "h1", name: "The Harbour Inn", currency: "USD" }], onboarding_states: [], hotel_settings: [], room_types: [] },
+      {
+        fault: (call) =>
+          call.table === "hotels" && call.op === "update"
+            ? { code: "23505", message: 'duplicate key value violates unique constraint "hotels_name_key"' }
+            : null,
+      },
+    );
+    state.client = { ...made.client, auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) } };
+    const res = await answer({ propertyName: "Harbour Inn" });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("That property name is already taken. Try adding your city or neighborhood.");
+  });
+});

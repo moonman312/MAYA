@@ -20,6 +20,7 @@ let statusReply: Record<string, unknown> = {};
 let statusCalls = 0;
 let roomTypes: unknown[] = [];
 let roomTypePatches: unknown[] = [];
+let findings: unknown[] = [];
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -32,8 +33,11 @@ beforeEach(() => {
   statusCalls = 0;
   roomTypes = [];
   roomTypePatches = [];
+  findings = [];
   vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
-    if (url === "/api/onboarding/findings") return json({ findings: [] });
+    if (url === "/api/onboarding/findings") return json({ findings });
+    // An answer that doesn't save, with no words of its own.
+    if (url.startsWith("/api/onboarding/findings/")) return new Response("", { status: 500 });
     if (url === "/api/onboarding/status") {
       statusCalls += 1;
       return json(statusReply);
@@ -174,5 +178,42 @@ describe("the room count strip", () => {
     expect(pool.checked).toBe(true);
     expect(screen.queryByText("needs your answer")).toBeNull();
     expect(screen.getByText(/^We're counting 3 room types as rooms/)).not.toBeNull();
+  });
+});
+
+describe("the words on the review", () => {
+  const card = (id: string, kind: string, payload: Record<string, unknown>, status = "proposed") => ({
+    id,
+    kind,
+    status,
+    payload,
+    created_at: "2026-09-01T00:00:00Z",
+  });
+
+  it("use no em dash on either screen, a failed answer and the go-live card included", async () => {
+    findings = [
+      card("f1", "closed_period", { start_date: "2025-01-01", end_date: "2025-01-19", days: 19 }),
+      card("f2", "duplicate_room_type", { name: "Standard", deactivate_room_type_id: "rt-9" }, "auto_applied"),
+      card("f3", "unmapped_room_type", { count: 7 }),
+    ];
+    statusReply = { connected: true, hotelId: "h1", simulationMode: true, starterRules: [{ name: "Busy nights", explanation: "Raises busy nights." }] };
+    render(<ReviewFindings />);
+    fireEvent.click(await screen.findByRole("button", { name: "Yes, we were closed" }));
+    await screen.findByText("That didn't save. Try again.");
+    expect(screen.getByText("We already did this for you. Dismiss to undo it.")).not.toBeNull();
+    const first = document.body.textContent;
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue to recommendations" }));
+    await screen.findByRole("button", { name: "Turn them on for real" });
+    expect(screen.getByRole("button", { name: "Finish and take me to my dashboard" })).not.toBeNull();
+
+    expect(first).not.toContain("—");
+    expect(document.body.textContent).not.toContain("—");
+  });
+
+  it("says a clean review without one", async () => {
+    render(<ReviewFindings />);
+    await screen.findByText("Nothing left to review. Your data looks clean.");
+    expect(document.body.textContent).not.toContain("—");
   });
 });

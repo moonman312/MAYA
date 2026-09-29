@@ -28,16 +28,19 @@ describe("describeFinding", () => {
     );
   });
 
-  it("never says the review analyses anything", () => {
+  it("never says the review analyses anything, and uses no em dash on any card", () => {
     const kinds: Array<[string, Record<string, unknown>]> = [
       ["closed_period", { recurring: true, years_observed: 2, season_label: "all of August" }],
       ["closed_period", { start_date: "2025-01-01", end_date: "2025-01-10", days: 10 }],
       ["rate_outlier", { name: "Suite", max_rate: 9999, median_rate: 200 }],
       ["zero_rate_rows", { count: 42 }],
+      ["suspect_room_type", { name: "Spa Slot", reasons: ["no beds"] }],
+      ["duplicate_room_type", { name: "Standard" }],
+      ["unmapped_room_type", { count: 7 }],
     ];
     for (const [kind, payload] of kinds) {
       const c = describeFinding(finding(kind, payload));
-      expect(`${c.title} ${c.body}`).not.toMatch(/analy|—/i);
+      expect(`${c.title} ${c.body} ${c.confirmLabel} ${c.dismissLabel} ${c.keepLabel ?? ""}`).not.toMatch(/analy|—/i);
     }
   });
 

@@ -104,11 +104,11 @@ export function ReviewFindings({
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(body?.error ?? "That didn't save — try again.");
+        throw new Error(body?.error ?? "That didn't save. Try again.");
       }
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "That didn't save — try again.");
+      setError(e instanceof Error ? e.message : "That didn't save. Try again.");
       // A 409 means another tab or an earlier retry already resolved this
       // one — refresh so the stale card doesn't sit there looking actionable.
       await load();
@@ -182,7 +182,7 @@ export function ReviewFindings({
               First: does this match reality?
             </h1>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-400">
-              A quick sanity check so your pricing runs on clean data — and so
+              A quick sanity check so your pricing runs on clean data, and so
               the recommendations on the next screen are built on facts you
               have confirmed. Confirm what we got right, dismiss what we got
               wrong.
@@ -217,7 +217,7 @@ export function ReviewFindings({
               Continue to recommendations
             </button>
             <p className="mt-2 text-[11px] text-slate-600">
-              Anything you skip stays available later — this isn&apos;t your only chance.
+              Anything you skip stays available later. This isn&apos;t your only chance.
             </p>
           </div>
         </>
@@ -228,7 +228,7 @@ export function ReviewFindings({
               Recommendations from your data
             </h1>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-400">
-              Rules and guardrails your booking history supports — including
+              Rules and guardrails your booking history supports, including
               anything that would conflict with them. Approve what you like,
               ignore the rest; nothing changes without your say-so.
             </p>
@@ -254,7 +254,7 @@ export function ReviewFindings({
             <div className="h-24 animate-pulse rounded-lg bg-slate-900" />
           ) : recommendations.length === 0 && open.length === 0 ? (
             <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-5 py-4 text-sm text-emerald-200">
-              Nothing left to review — your data looks clean.
+              Nothing left to review. Your data looks clean.
             </div>
           ) : recommendations.length === 0 ? (
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-5 py-4 text-sm text-slate-400">
@@ -299,7 +299,7 @@ export function ReviewFindings({
               onClick={finish}
               className="cursor-pointer rounded bg-sky-500 px-6 py-2.5 text-sm font-semibold text-slate-950 transition-colors hover:bg-sky-400 disabled:opacity-60"
             >
-              {finishing ? "Finishing up…" : "Finish — take me to my dashboard"}
+              {finishing ? "Finishing up…" : "Finish and take me to my dashboard"}
             </button>
             {finishError ? (
               <p role="alert" className="mt-2 text-xs text-rose-300">
@@ -315,7 +315,7 @@ export function ReviewFindings({
               </p>
             ) : null}
             <p className="mt-2 text-[11px] text-slate-600">
-              Anything you skip stays available later — this isn&apos;t your only chance.
+              Anything you skip stays available later. This isn&apos;t your only chance.
             </p>
           </div>
         </>
@@ -375,7 +375,7 @@ export function StarterRules({ status }: { status: OnboardingStatus | null }) {
         While you were here, we built your first pricing rules
       </h2>
       <p className="mt-1 text-[13px] leading-relaxed text-slate-400">
-        Based on your own booking history — they&apos;re already running in{" "}
+        Based on your own booking history, and already running in{" "}
         <span className="text-slate-300">simulation mode</span>: watching every
         night and showing what they <em>would</em> do, without touching a
         single price.
@@ -581,7 +581,7 @@ export function FindingCard({
           <p className="mt-1 text-[13px] leading-relaxed text-slate-400">{c.body}</p>
           {finding.status === "auto_applied" ? (
             <p className="mt-1.5 text-[11px] text-slate-400">
-              We already did this for you — dismiss to undo it.
+              We already did this for you. Dismiss to undo it.
             </p>
           ) : null}
         </div>
@@ -668,8 +668,8 @@ export function describeFinding(f: Finding): {
       const reasons = Array.isArray(p.reasons) ? (p.reasons as string[]).join("; ") : "";
       return {
         title: `Is "${String(p.name)}" actually a room?`,
-        body: `Some systems list every bookable space as a room — event rooms, spa slots, courts. This one caught our eye: ${reasons}. Confirming takes it out of your occupancy, RevPAR and the room count you're billed for. It can still be priced if a rule targets it.`,
-        confirmLabel: "Not a room — exclude it",
+        body: `Some systems list every bookable space as a room: event rooms, spa slots, courts. This one caught our eye: ${reasons}. Confirming takes it out of your occupancy, RevPAR and the room count you're billed for. It can still be priced if a rule targets it.`,
+        confirmLabel: "Not a room, exclude it",
         dismissLabel: "It's a real room",
       };
     }
@@ -678,7 +678,7 @@ export function describeFinding(f: Finding): {
         title: `Hid duplicate room type "${String(p.name)}"`,
         body: "Two room types shared the same name and this one had zero bookings, so we set it aside to keep your occupancy math honest.",
         confirmLabel: "Good call",
-        dismissLabel: "Undo — bring it back",
+        dismissLabel: "Undo and bring it back",
       };
     case "rate_outlier":
       return {
@@ -735,7 +735,7 @@ export function describeFinding(f: Finding): {
     case "unmapped_room_type":
       return {
         title: "Some old stays reference deleted room types",
-        body: `${Number(p.count).toLocaleString()} room-nights point at room types that no longer exist in your PMS. They still count toward history totals but can't be priced. Nothing you have to do here — we've already accounted for them.`,
+        body: `${Number(p.count).toLocaleString()} room-nights point at room types that no longer exist in your PMS. They still count toward history totals but can't be priced. Nothing you have to do here. We've already accounted for them.`,
         confirmLabel: "Got it",
         dismissLabel: "Dismiss",
         acknowledgeOnly: true,

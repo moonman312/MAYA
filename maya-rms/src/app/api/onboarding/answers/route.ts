@@ -93,7 +93,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error: conflict
-            ? "That property name is already taken — try adding your city or neighborhood."
+            ? "That property name is already taken. Try adding your city or neighborhood."
             : nameErr.message,
         },
         { status: conflict ? 409 : 500 },

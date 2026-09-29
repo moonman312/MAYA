@@ -60,7 +60,7 @@ export function OnboardingReviewBanner({ hotelId = null }: { hotelId?: string | 
         </div>
         <div className="mt-0.5 text-xs text-sky-200/70">
           We found {show.count} thing{show.count === 1 ? "" : "s"} worth a quick
-          look — takes about a minute.
+          look. It takes about a minute.
         </div>
       </div>
       <span className="shrink-0 text-sm font-medium text-sky-300">Review →</span>

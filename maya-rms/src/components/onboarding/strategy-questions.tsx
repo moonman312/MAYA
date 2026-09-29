@@ -50,11 +50,11 @@ export function StrategyQuestions() {
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(body?.error ?? "Couldn't save that — try again.");
+        throw new Error(body?.error ?? "Couldn't save that. Try again.");
       }
       advance(nextStep);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't save that — try again.");
+      setError(e instanceof Error ? e.message : "Couldn't save that. Try again.");
     } finally {
       setSaving(false);
     }
@@ -105,7 +105,7 @@ export function StrategyQuestions() {
       {step === "name" ? (
         <QuestionCard
           title="Did we get your property's name right?"
-          subtitle="We pulled this from your property system. Fix it if it's off — whatever you type wins."
+          subtitle="We pulled this from your property system. Fix it if it's off. Whatever you type wins."
         >
           <input
             type="text"
@@ -130,7 +130,7 @@ export function StrategyQuestions() {
       {step === "turn_cost" ? (
         <QuestionCard
           title="Ballpark: what does it cost you to turn over a room?"
-          subtitle="Cleaning, laundry, utilities, supplies — just the cost of one night's stay, not a precise number."
+          subtitle="Cleaning, laundry, utilities, supplies: just the cost of one night's stay, not a precise number."
         >
           <MoneyInput
             symbol={symbol}
@@ -268,7 +268,7 @@ function FloorLadder({
   return (
     <QuestionCard
       title="Picture a Tuesday in your slowest month. You're at 10% occupancy."
-      subtitle={`Someone walks in off the street, cash in hand. Would you take ${symbol}${offer} for a room tonight? Don't think "is this a good rate" — think "would the guest paying this bother my other guests?"`}
+      subtitle={`Someone walks in off the street, cash in hand. Would you take ${symbol}${offer} for a room tonight? Don't think "is this a good rate". Think "would the guest paying this bother my other guests?"`}
     >
       <div className="flex items-center gap-3">
         <button
@@ -294,7 +294,7 @@ function FloorLadder({
       </div>
       {declines >= 2 ? (
         <p className="text-xs text-slate-400">
-          Remember — this is a night that would otherwise earn {symbol}0. Anything
+          Remember: this is a night that would otherwise earn {symbol}0. Anything
           above your turn cost is profit.
         </p>
       ) : null}

@@ -31,7 +31,7 @@ export function ConnectPms({
       </h1>
       <p className="mt-3 max-w-lg text-center text-sm leading-relaxed text-slate-400">
         Last thing. Pick your property management system, sign in on their
-        site, and you&apos;ll be brought right back — no keys to copy, nothing
+        site, and you&apos;ll be brought right back. No keys to copy, nothing
         to configure on their end.
       </p>
 

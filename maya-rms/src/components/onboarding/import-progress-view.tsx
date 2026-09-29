@@ -98,12 +98,12 @@ export function ImportProgressView() {
                         ),
                       ),
                     )
-                  : "—"
+                  : "–"
               }
             />
             <Stat
               label="Oldest stay"
-              value={job.oldest_stay_date ? job.oldest_stay_date.slice(0, 7) : "—"}
+              value={job.oldest_stay_date ? job.oldest_stay_date.slice(0, 7) : "–"}
             />
           </div>
         ) : null}

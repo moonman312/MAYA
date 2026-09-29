@@ -69,3 +69,36 @@ describe("the floor and ceiling cards", () => {
     );
   });
 });
+
+describe("the first four questions", () => {
+  it("use no em dash, the ladder's reminder and a failed save included", async () => {
+    answerReplies = [() => new Response("", { status: 500 })];
+    const seen: string[] = [];
+    render(<StrategyQuestions />);
+    const name = await screen.findByDisplayValue("The Harbour Inn");
+    expect(screen.getByText("We pulled this from your property system. Fix it if it's off. Whatever you type wins.")).not.toBeNull();
+
+    fireEvent.change(name, { target: { value: "Harbour Inn Kinsale" } });
+    fireEvent.click(screen.getByRole("button", { name: "Looks right" }));
+    await screen.findByText("Couldn't save that. Try again.");
+    seen.push(document.body.textContent ?? "");
+
+    fireEvent.click(screen.getByRole("button", { name: "Looks right" }));
+    await screen.findByText("Ballpark: what does it cost you to turn over a room?");
+    seen.push(document.body.textContent ?? "");
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. 35"), { target: { value: "35" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByText(/Picture a Tuesday in your slowest month/);
+    fireEvent.click(screen.getByRole("button", { name: "Too low" }));
+    fireEvent.click(screen.getByRole("button", { name: "Too low" }));
+    await screen.findByText(/^Remember: this is a night that would otherwise earn \$0\./);
+    seen.push(document.body.textContent ?? "");
+
+    fireEvent.click(screen.getByRole("button", { name: /^I'd take/ }));
+    await screen.findByText("Now the fun one: the biggest concert of the year is next door.");
+    seen.push(document.body.textContent ?? "");
+
+    for (const text of seen) expect(text).not.toContain("—");
+  });
+});
