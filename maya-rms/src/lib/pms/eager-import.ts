@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isPaidLiveHotel } from "@/lib/billing/entitlement";
+import { isAuthRevocation } from "@/lib/pms/connection-health";
 
 /**
  * A Marketplace property's history import, from the claim to the payment.
@@ -25,7 +26,7 @@ import { isPaidLiveHotel } from "@/lib/billing/entitlement";
  * where that reason goes away.
  */
 
-type JobRow = { id: string; status: string; stats: Record<string, unknown> | null };
+type JobRow = { id: string; status: string; stats: Record<string, unknown> | null; lastError: string | null };
 
 const ACTIVE = new Set(["queued", "running"]);
 
@@ -37,7 +38,7 @@ const ACTIVE = new Set(["queued", "running"]);
 async function currentJob(admin: SupabaseClient, hotelId: string): Promise<JobRow | null> {
   const { data, error } = await admin
     .from("import_jobs")
-    .select("id, status, stats, created_at")
+    .select("id, status, stats, last_error, created_at")
     .eq("hotel_id", hotelId)
     .order("created_at", { ascending: false })
     .limit(20);
@@ -46,6 +47,7 @@ async function currentJob(admin: SupabaseClient, hotelId: string): Promise<JobRo
     id: String(r.id),
     status: String(r.status),
     stats: (r.stats as Record<string, unknown> | null) ?? null,
+    lastError: r.last_error != null ? String(r.last_error) : null,
   }));
   return rows.find((r) => ACTIVE.has(r.status)) ?? rows[0] ?? null;
 }
@@ -260,6 +262,45 @@ export async function promoteImportJob(
 export async function resumeStoppedImport(admin: SupabaseClient, hotelId: string): Promise<boolean> {
   const job = await currentJob(admin, hotelId);
   if (job?.status !== "canceled") return false;
+  const resumed = await requeue(admin, job);
+  if (resumed) kickImportWorker();
+  return resumed;
+}
+
+/**
+ * What the queue and the worker write when they stop a job for the connection
+ * (import_job_stop_reason in 99_supabase_migration_import_at_claim_v1.sql,
+ * STOP_MESSAGES in the worker).
+ */
+const CONNECTION_STOPS = new Set([
+  "Stopped: the PMS connection was disconnected.",
+  "Stopped: the property has no PMS connection.",
+]);
+
+/**
+ * Stopped or worn out by the lost connection: canceled because it was
+ * disconnected or gone, or failed on its last try because the PMS refused
+ * MAYA's access (a 401 or 403, or the vendor saying the grant is gone), after
+ * retrying against a dead grant until it ran out of tries.
+ */
+function stalledOnConnection(job: JobRow): boolean {
+  const why = job.lastError ?? "";
+  if (job.status === "canceled") return CONNECTION_STOPS.has(why);
+  if (job.status !== "failed") return false;
+  const code = /failed \((\d{3})\)/.exec(why)?.[1];
+  return isAuthRevocation(code ? Number(code) : null, why);
+}
+
+/**
+ * Reconnecting from inside MAYA picks up the import the lost connection
+ * stopped or wore out, from its checkpoint, the way the Marketplace reconnect
+ * does. One in flight is left alone (there is only ever one), and so is one
+ * that finished, or stopped or failed for any other reason: a reconnect is
+ * not a re-import.
+ */
+export async function resumeImportAfterReconnect(admin: SupabaseClient, hotelId: string): Promise<boolean> {
+  const job = await currentJob(admin, hotelId);
+  if (!job || !stalledOnConnection(job)) return false;
   const resumed = await requeue(admin, job);
   if (resumed) kickImportWorker();
   return resumed;

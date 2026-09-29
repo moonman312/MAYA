@@ -13,6 +13,7 @@ import { defaultCloudbedsBaseUrl } from "../../../supabase/functions/_shared/clo
 import { handleMarketplaceConnect } from "@/lib/pms/marketplace-connect";
 import { findMarketplaceClaimForHotel, hasEntitledSubscription } from "@/lib/pms/marketplace-activate";
 import { queueImportAfterPurge } from "@/lib/pms/purged";
+import { resumeImportAfterReconnect } from "@/lib/pms/eager-import";
 import { storedPropertyId } from "@/lib/pms/stored-property";
 import { hasHotelRank } from "@/lib/require-supabase-hotel";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -352,12 +353,21 @@ export async function handleOAuthCallback(
   await markConnectionReauthorized(admin, hotelId, pmsType, now);
 
   // A property the sweep emptied gets its full history read again; a plain
-  // reconnect would only ever sync the recent window. Never fails the connect.
-  await queueImportAfterPurge(admin, hotelId, pmsType, null).catch((e: unknown) => {
+  // reconnect would only ever sync the recent window. Otherwise an import the
+  // lost connection stopped or wore out carries on from where it was, as the
+  // Marketplace reconnect does; a parked property's waits for its payment
+  // screen. Never fails the connect.
+  const importStep = async () => {
+    const afterPurge = await queueImportAfterPurge(admin, hotelId, pmsType, null);
+    if (!afterPurge.queued && afterPurge.reason === "not_purged" && !parked) {
+      await resumeImportAfterReconnect(admin, hotelId);
+    }
+  };
+  await importStep().catch((e: unknown) => {
     console.error(
       JSON.stringify({
         fn: "handleOAuthCallback",
-        step: "import_after_purge",
+        step: "import",
         hotelId,
         error: e instanceof Error ? e.message : String(e),
       }),

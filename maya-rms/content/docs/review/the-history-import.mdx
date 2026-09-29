@@ -12,7 +12,7 @@ questions:
   - Can I use MAYA while it is still importing? {#your-first-day-using-maya-while-it-runs}
   - It says "Import stopped". What do I do? {#import-stopped/if-the-bar}
   - It says "Import paused". Will it carry on by itself? {#import-stopped/when-it-stops}
-  - I reconnected. Why has the import not carried on? {#import-stopped/if-the-bar}
+  - I reconnected. Does the import carry on? {#import-stopped/reconnecting-picks-the}
   - Does MAYA keep my guests' details? {#what-is-kept}
   - Why does it say part 2 while reading my bookings? {#what-it-reads-in-order/reading-your-current}
   - We only have 18 months of history. Will the review still open? {#what-it-reads-in-order/checking-your-full}
@@ -100,7 +100,7 @@ Until your first results are ready, the heading on the progress page says the wo
 
 ## "Import stopped"
 
-If the bar reads "Import paused" or "Import stopped" with an amber dot, the import has stopped trying for now: your property system stopped answering for a long stretch, or a read kept ending in the same place. Your connection, your rules and everything already read are safe.
+If the bar reads "Import paused" or "Import stopped" with an amber dot, the import has stopped trying for now: your property system stopped answering for a long stretch, or refused MAYA's access, or a read kept ending in the same place. Your connection, your rules and everything already read are safe. When your system refused MAYA's access, reconnecting picks it up again (see below).
 
 When it stops, an automatic alert goes to our team. Then the import tries again by itself, up to three times, each time from where it had got to. It waits an hour before the first try, four hours before the second and twelve hours before the third. While it waits, the bar says when the next try is, for example "Import paused. We've been told, and it tries again by itself around 3:40 PM." Once a try is under way, the bar shows the step it is on again.
 
@@ -110,9 +110,9 @@ If the third try stops too, the bar reads "Import stopped. We've been told." and
 
 If your connection drops while the import runs, the dot turns amber, the bar keeps the name of the step it had reached, and the reconnect prompt appears on your dashboard. Read [Reconnect and disconnect](/docs/connect/reconnect-and-disconnect).
 
-Reconnecting brings the connection back, but the import does not carry on by itself. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Restart%20my%20import) and we will restart it from where it left off. Everything it had already read is kept.
+Reconnecting picks the import up where it left off. A General Manager or Hotel Admin clicks <Ui>Reconnect Cloudbeds</Ui> (or <Ui>Reconnect Think Reservations</Ui>) on the <Ui>PMS</Ui> tab and signs in, and the import carries on from the step it had reached, usually within a minute. Everything it had already read is kept, and an import that is still running is left to finish: reconnecting never starts a second one. This also covers an import that paused or stopped because your system kept refusing MAYA's access while the connection was down. If the dot is still amber a few minutes after you reconnect, [email us](mailto:info@modern-hospitality-solutions.com?subject=Restart%20my%20import) and we will restart it.
 
-A Cloudbeds Marketplace property is the exception. If you pay for it (a free trial counts), clicking <Ui>Connect App</Ui> for MAYA in the Marketplace again picks the import up where it left off. If you have not paid yet, it picks up when the property next comes up on the payment screen.
+On a Cloudbeds Marketplace property you have paid for (a free trial counts), clicking <Ui>Connect App</Ui> for MAYA in the Marketplace again also picks up an import the disconnect stopped. If you have not paid yet, the import picks up when the property next comes up on the payment screen.
 
 The prompt takes the bar's place in one case only: a Cloudbeds Marketplace property you never paid for, left unused for 180 days, whose connection was removed (see [Reading again later](#reading-again-later)).
 

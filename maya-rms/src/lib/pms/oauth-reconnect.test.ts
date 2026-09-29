@@ -8,7 +8,7 @@
  * stored with the credential again (the sweep deleted the old one).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { FakeRpcError, fakeSupabase } from "../engine/fake-supabase.test";
+import { FakeRpcError, fakeSupabase, type FakeRow } from "../engine/fake-supabase.test";
 
 const state = vi.hoisted(() => ({
   stripe: true,
@@ -60,6 +60,7 @@ function property(opts: {
   /** Connected from inside MAYA: no Marketplace key on the row. */
   inApp?: boolean;
   connection?: string;
+  jobs?: FakeRow[];
 }) {
   state.db = fakeSupabase({
     hotels: [
@@ -82,7 +83,7 @@ function property(opts: {
     pms_connections: opts.connection
       ? [{ hotel_id: "hotel-1", pms_type: "cloudbeds", status: opts.connection, updated_at: "2026-09-01T00:00:00.000Z" }]
       : [],
-    import_jobs: [],
+    import_jobs: opts.jobs ?? [],
     onboarding_states: [],
   }, {
     fault: (c) =>
@@ -305,5 +306,65 @@ describe("where a successful reconnect lands", () => {
     property({ claimed: true, purged: false });
     const res = await callback();
     expect(res.headers.get("location")).toBe("https://app.example/onboarding");
+  });
+});
+
+describe("an import the lost connection stopped, after a reconnect from inside MAYA", () => {
+  const job = (status: string, lastError: string | null) => ({
+    id: "job-1",
+    hotel_id: "hotel-1",
+    pms_type: "cloudbeds",
+    status,
+    phase: "historical",
+    last_error: lastError,
+    finished_at: status === "running" ? null : "2026-09-20T10:00:00.000Z",
+    stats: { errorStreak: 50, cursor: "2024-03" },
+    created_at: "2026-09-19T10:00:00.000Z",
+  });
+  const live = (jobs: FakeRow[]) =>
+    property({ claimed: false, purged: false, isActive: true, inApp: true, connection: "disconnected", jobs });
+
+  it.each([
+    ["canceled", "Stopped: the PMS connection was disconnected."],
+    ["canceled", "Stopped: the property has no PMS connection."],
+    ["failed", "Cloudbeds getReservations failed (401): Unauthorized"],
+    ["failed", "cloudbeds refresh token was rejected (invalid_grant): reconnect via OAuth."],
+    ["failed", "Cloudbeds getReservations failed (400): This application is not available to be connected"],
+  ])("carries on a %s import (%s) from its checkpoint, with a fresh run of retries", async (status, why) => {
+    const db = live([job(status, why)]);
+    await callback();
+    expect(db.tables.import_jobs).toHaveLength(1);
+    expect(db.tables.import_jobs[0]).toMatchObject({
+      id: "job-1",
+      status: "queued",
+      phase: "historical",
+      finished_at: null,
+      last_error: null,
+      stats: { errorStreak: 0, cursor: "2024-03" },
+    });
+  });
+
+  it.each([
+    ["running", null],
+    ["queued", null],
+    ["completed", null],
+    ["failed", "Cloudbeds getReservations failed (500): Internal Server Error"],
+    ["canceled", 'Stopped: the owner chose "Not now" for this property.'],
+  ])("leaves a %s import (%s) alone and starts no second one", async (status, why) => {
+    const db = live([job(status, why)]);
+    await callback();
+    expect(db.tables.import_jobs).toEqual([expect.objectContaining({ id: "job-1", status, last_error: why })]);
+  });
+
+  it("leaves a parked property's stopped import for its payment screen", async () => {
+    const db = property({
+      claimed: true,
+      purged: false,
+      connection: "disconnected",
+      jobs: [job("canceled", "Stopped: the PMS connection was disconnected.")],
+    });
+    await callback();
+    expect(db.tables.pms_connections[0].status).toBe("pending");
+    expect(db.tables.import_jobs).toEqual([expect.objectContaining({ id: "job-1", status: "canceled" })]);
   });
 });
