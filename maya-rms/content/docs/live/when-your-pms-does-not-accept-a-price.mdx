@@ -1,12 +1,12 @@
 ---
 title: When your property system does not accept a price
-summary: What the "Rates not reaching Cloudbeds" item in the change log means, every cause it can name, what to do about each, how MAYA retries, and when you are told.
+summary: What the "Prices not reaching Cloudbeds" item in the change log means, every cause it can name, what to do about each, how MAYA retries, and when you are told.
 section: live
 order: 40
 readingTime: 16
-keywords: [rates not reaching cloudbeds, rates not reaching think reservations, not reaching, refused, rejected, didn't accept, couldn't tell why, never confirmed, not responding, slow down, throttled, rate limit, rate rule, minimum rate, maximum rate, follows another rate plan, derived, derived only, no base rate, can't find the rate, deleted or replaced, night that had already begun, time zone, tonight's price not reaching, after midnight, price of 0, permission to update rates, stopped accepting, reconnect, still happening, resolved, ended, show tries, retries, how many retries, will it fix itself, do I need to do anything, pms down, cloudbeds down, outage, is this a maya problem, match my cloudbeds minimum, floor to match, ceiling to match, change the floor for one room type, minimum rate in cloudbeds, lower the minimum]
+keywords: [rates not reaching cloudbeds, prices not reaching cloudbeds, rates not reaching think reservations, prices not reaching think reservations, not reaching, refused, rejected, didn't accept, couldn't tell why, never confirmed, not responding, slow down, throttled, rate limit, rate rule, minimum rate, maximum rate, follows another rate plan, derived, derived only, no base rate, can't find the rate, deleted or replaced, night that had already begun, time zone, tonight's price not reaching, after midnight, price of 0, permission to update rates, stopped accepting, reconnect, still happening, resolved, ended, show tries, retries, how many retries, will it fix itself, do I need to do anything, pms down, cloudbeds down, outage, is this a maya problem, match my cloudbeds minimum, floor to match, ceiling to match, change the floor for one room type, minimum rate in cloudbeds, lower the minimum]
 questions:
-  - 'What is "Rates not reaching Cloudbeds"?' {#in-plain-words}
+  - 'What is "Prices not reaching Cloudbeds"?' {#in-plain-words}
   - Where do I see sending problems? {#where-you-see-a-problem}
   - What happens if my property system is down? {#every-cause-and-what-to-do/the-sentences-below}
   - What happens if Cloudbeds rate-limits MAYA? {#every-cause-and-what-to-do/the-sentences-below}
@@ -17,7 +17,7 @@ questions:
   - How many times does MAYA retry a price? {#retries-and-holds/a-price-that}
   - When am I told about a sending problem? {#when-you-are-told/at-once}
   - Will a sending problem fix itself? {#retries-and-holds/a-price-that}
-  - 'Do I need to do anything about "Rates not reaching"?' {#do-i-need-to-do-anything}
+  - 'Do I need to do anything about "Prices not reaching"?' {#do-i-need-to-do-anything}
   - My room type has only derived plans, or no base rate. What happens? {#every-cause-and-what-to-do/the-sentences-below}
   - Is this a MAYA problem or a Cloudbeds problem? {#is-this-a-maya-problem-or-a-cloudbeds-problem}
   - How do I make MAYA's floor match my Cloudbeds minimum for one room type? {#matching-mayas-floor-or-ceiling-to-your-system/email-us-for}
@@ -26,7 +26,7 @@ updated: 2026-09-24
 ---
 
 <InPlainWords>
-If a price does not land for a reason that usually clears on its own, MAYA sends it again every cycle, up to 10 times at one price, then once a day. If the reason needs you, such as a rate rule, the night is held and tried again after a day, when its price changes, or (for a connection or permission problem) after a reconnect. A missing base rate is different: MAYA looks for one again every cycle, so the night usually goes out on the cycle after you add it. You are told in the change log, in an item headed "Rates not reaching Cloudbeds", straight away for a cause that needs you, otherwise after 2 hours and 5 tries. Each item names the cause and, when there is something for you to do, says what.
+If a price does not land for a reason that usually clears on its own, MAYA sends it again every cycle, up to 10 times at one price, then once a day. If the reason needs you, such as a rate rule, the night is held and tried again after a day, when its price changes, or (for a connection or permission problem) after a reconnect. A missing base rate is different: MAYA looks for one again every cycle, so the night usually goes out on the cycle after you add it. You are told in the change log, in an item headed "Prices not reaching Cloudbeds", straight away for a cause that needs you, otherwise after 2 hours and 5 tries. Each item names the cause and, when there is something for you to do, says what.
 </InPlainWords>
 
 ## Where you see a problem
@@ -39,7 +39,7 @@ Only a live property has these items. In simulation nothing is sent, so nothing 
 
 An item has four parts, and a fifth you can open.
 
-1. **The header**: "Rates not reaching Cloudbeds", then the date it opened and, in brackets, how long ago. The name is your system's: "Rates not reaching Think Reservations" for ThinkReservations.
+1. **The header**: "Prices not reaching Cloudbeds", then the date it opened and, in brackets, how long ago. The name is your system's: "Prices not reaching Think Reservations" for ThinkReservations.
 2. **The cause**, one sentence, for example "Cloudbeds refused MAYA's price for Deluxe because it breaks a rate rule set in Cloudbeds, such as a minimum or maximum rate."
 3. **The size and the state**: "6 nights, 2 room types · Still happening", or "· Resolved \<when\>" once the prices landed, or "· Ended \<when\>" when something else closed it.
 4. **What to do**, one line, shown only while the problem is ongoing and only for causes where there is something for you to do: "Check the rate limits for this room type in Cloudbeds."
@@ -148,7 +148,7 @@ The sentences read "Think Reservations" in place of "Cloudbeds". Three differenc
 - If ThinkReservations quietly drops an accepted batch, the night keeps showing MAYA's price in MAYA while ThinkReservations keeps the old rate, until the price next changes and is sent again. Compare a night in both places if you suspect this.
 </PmsTab>
 <PmsTab pms="mews">
-Nothing is sent to Mews, so a Mews property never has a "Rates not reaching" item.
+Nothing is sent to Mews, so a Mews property never has a "Prices not reaching" item.
 </PmsTab>
 </PmsTabs>
 
@@ -163,7 +163,7 @@ MAYA does not email you about a sending problem. The only banner is the connecti
 <Example title="A rate rule at the Harbour Inn">
 Sam sets a minimum rate of $120 on Deluxe in Cloudbeds. MAYA's floor for Deluxe is $110, lower than that minimum. On Monday, "Last minute" (booking window Less than 3 and occupancy Less than 50, Decrease 15%) cuts Deluxe for a quiet Wednesday night from $140 to $119. That is above MAYA's floor, so it goes out, and Cloudbeds refuses it.
 
-Because a rate rule is a cause that needs a person, the change log shows at once: "Rates not reaching Cloudbeds", then "Cloudbeds refused MAYA's price for Deluxe because it breaks a rate rule set in Cloudbeds, such as a minimum or maximum rate." and "1 night, 1 room type · Still happening", with "Check the rate limits for this room type in Cloudbeds."
+Because a rate rule is a cause that needs a person, the change log shows at once: "Prices not reaching Cloudbeds", then "Cloudbeds refused MAYA's price for Deluxe because it breaks a rate rule set in Cloudbeds, such as a minimum or maximum rate." and "1 night, 1 room type · Still happening", with "Check the rate limits for this room type in Cloudbeds."
 
 Sam lowers the Deluxe minimum in Cloudbeds to $110, to match MAYA's floor. MAYA is not told about that change, so the night stays held. On Tuesday it goes again at $119, and Cloudbeds takes it. The item now reads "· Resolved" with the time. Typing $120 on the night on Monday would have sent it at once instead.
 </Example>

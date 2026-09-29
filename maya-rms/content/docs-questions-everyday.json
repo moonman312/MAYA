@@ -578,7 +578,7 @@
 {"q": "channel prices", "page": "live/how-prices-reach-your-pms", "anchor": "booking-channels-and-your-booking-engine"},
 {"q": "can i see what was sent", "page": "live/how-prices-reach-your-pms", "anchor": "can-i-see-what-was-sent"},
 {"q": "how many nights are sent", "page": "live/how-prices-reach-your-pms", "anchor": "how-many-nights-396"},
-{"q": "rates not reaching cloudbeds", "page": "live/when-your-pms-does-not-accept-a-price", "anchor": "in-plain-words"},
+{"q": "prices not reaching cloudbeds", "page": "live/when-your-pms-does-not-accept-a-price", "anchor": "in-plain-words"},
 {"q": "price rejected", "page": "live/when-your-pms-does-not-accept-a-price", "anchor": "in-plain-words"},
 {"q": "send failed", "page": "live/when-your-pms-does-not-accept-a-price", "anchor": "every-cause-and-what-to-do"},
 {"q": "retries", "page": "live/when-your-pms-does-not-accept-a-price", "anchor": "retries-and-holds"},
