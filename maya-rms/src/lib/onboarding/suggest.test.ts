@@ -121,6 +121,11 @@ describe("computeRuleSuggestions", () => {
     const removes = existing.filter((s) => s.suggestion_type === "remove_rule");
     expect(removes).toHaveLength(1);
     expect(removes[0]).toMatchObject({ rule_id: "pk1", rule_name: "Old pickup spike" });
+    // Plain and true: what the booking speed rules do, and what doubling up would do.
+    expect(removes[0].rationale).toBe(
+      '"Old pickup spike" reacts to a fixed booking count. Your booking speed rules already cover the same nights by comparing with your own similar past nights. Keeping both would stack two price changes on the same bookings.',
+    );
+    expect(removes[0].rationale).not.toMatch(/pace awareness|same demand/);
   });
 
   it("never suggests removing a pickup rule the ladder's scope doesn't actually contain", () => {

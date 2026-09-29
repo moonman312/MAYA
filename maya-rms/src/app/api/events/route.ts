@@ -1,6 +1,6 @@
 /**
  * POST /api/events — record a product moment that has no database write of
- * its own (a screen viewed, "How did we know?" opened).
+ * its own (a screen viewed, "Show the numbers" opened).
  *
  * Only names in lib/analytics/events.ts get through, with only the typed
  * properties listed there, and the person is whoever the session says, never

@@ -450,7 +450,7 @@ export type ChangelogEntry = {
   /** Keys for fetching the drill-down (/api/explain). Absent in demo shapes. */
   evaluation_run_id?: string;
   room_type_id?: string;
-  /** True when the audit row carries booking-speed observation snapshots — the "How did we know?" expander only shows then. */
+  /** True when the audit row carries booking-speed observation snapshots — the "Show the numbers" expander only shows then. */
   has_booking_speed_details?: boolean;
 };
 

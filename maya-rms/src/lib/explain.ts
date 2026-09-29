@@ -16,10 +16,24 @@
  * the essentials yields null rather than a half-rendered explanation.
  *
  * Same prose house rules as the changelog: no math symbols, observed
- * values in parentheses, sentences that survive a missing metric.
+ * values in parentheses, sentences that survive a missing metric. Plain
+ * words: the owner reads what was counted and compared, never what MAYA
+ * "knew", "expected" or "called".
  */
 
+import { MIN_TARGET_COMPARABLES, NO_MODEL_SEASON_SPAN_DAYS } from "@/lib/observations/comparable-dates";
+
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/**
+ * The notes shown when a check held a reading back, by the guard that did
+ * it. Exported so the docs' booking speed playground quotes them as written.
+ */
+export const GUARD_NOTES = {
+  small_difference: "The numbers leaned away from Normal, but by too little to matter at this many bookings, so it stays Normal.",
+  extreme_demoted: "The numbers pointed one step further from Normal, but not clearly enough, so it reads one step closer to Normal.",
+  few_comparables: "Only a few similar nights were found, so it stays within one step of Normal however strong the numbers look.",
+} as const;
 
 /** "Fri, Jul 18 2025" — compact but unambiguous for evidence tables. */
 export function humanDate(iso: string): string {
@@ -63,7 +77,7 @@ function spanWord(days: number): string {
 }
 
 function expectedWord(n: number): string {
-  if (n < 1) return "almost none";
+  if (n < 1) return "almost no bookings";
   const rounded = Math.round(n);
   return `about ${bookingWord(rounded)}`;
 }
@@ -103,6 +117,65 @@ export type ExplainView = {
 function listWords(items: string[]): string {
   if (items.length < 2) return items.join("");
   return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+/** Day of the week of a YYYY-MM-DD (0 = Sunday), or null when it doesn't parse. */
+function weekdayOf(iso: string): number | null {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+/** Friday and Saturday nights are weekend nights (observations/calendar.ts dowClass). */
+function isWeekendNight(day: number): boolean {
+  return day === 5 || day === 6;
+}
+
+/**
+ * Which days of the week the compared nights fall on, said from the nights
+ * themselves so the line never disagrees with the list under it. The search
+ * starts with the night's own weekday; when too few match it adds the other
+ * nights of the same kind (weekend: Friday and Saturday; weekday: the rest),
+ * and around a holiday the nights are lined up by the holiday, whatever
+ * weekday that puts them on.
+ */
+function comparedDaysLine(target: string, dates: string[], holidayLabel: string | null): string | null {
+  const own = weekdayOf(target);
+  if (own == null) return null;
+  const days = [...new Set(dates.map(weekdayOf).filter((d): d is number => d != null))].sort((a, b) => a - b);
+  if (days.length === 0) return null;
+  const names = (ds: number[]) => listWords(ds.map((d) => WEEKDAYS[d]));
+  if (days.length === 1 && days[0] === own) {
+    return `Only other ${WEEKDAYS[own]} nights were compared, since each night of the week books in its own way.`;
+  }
+  if (holidayLabel) {
+    return `Around ${holidayLabel} the day of the week changes from year to year, so the nights compared fall on ${names(days)}.`;
+  }
+  if (days.every((d) => isWeekendNight(d) === isWeekendNight(own))) {
+    const others = days.filter((d) => d !== own);
+    const kind = isWeekendNight(own) ? "weekend" : "weekday";
+    const lead = days.includes(own)
+      ? `Too few other ${WEEKDAYS[own]} nights matched, so ${names(others)} nights were compared too, since they are also ${kind} nights.`
+      : `No other ${WEEKDAYS[own]} nights matched, so ${names(others)} nights were compared instead, since they are also ${kind} nights.`;
+    return `${lead} Friday and Saturday nights count as weekend nights, the rest as weekday nights.`;
+  }
+  return `The nights compared fall on ${names(days)}.`;
+}
+
+/**
+ * The season line, true to the nights compared: the search keeps to the
+ * night's season, and when too few match there it adds nights of the same
+ * weekday from around the same time of year, whatever their season (tier 3
+ * in observations/comparable-dates.ts).
+ */
+function seasonLine(season: string, tiers: (number | null)[]): string {
+  const wider = tiers.filter((t) => t === 3).length;
+  const around = `nights within ${NO_MODEL_SEASON_SPAN_DAYS} days of the same time of year`;
+  if (wider === 0) return `Only nights in the same season of your history were compared: ${season}.`;
+  if (wider === tiers.length) {
+    return `Too few nights matched in the same season of your history, ${season}, so ${around} were compared instead.`;
+  }
+  return `Nights in the same season of your history were compared: ${season}. Too few matched there, so ${around} were added.`;
 }
 
 /**
@@ -196,22 +269,17 @@ export function buildExplainView(
   // act on, so the whole level-2 story switches to the honest version.
   const insufficient = methodKey === "insufficient_data";
   const expectedSentence = insufficient
-    ? `We do not have enough history yet to say what would be normal for this night, so no expectation was formed.`
+    ? `There isn't enough booking history yet to say what is usual for this night.`
     : expected != null
       ? wholeSpan
-        ? `By this point on nights like this one, we would expect ${expectedWord(expected)} over a whole ${wholeSpan}.`
-        : `By this point on nights like this one, we would expect ${expectedWord(expected)} over the same stretch.`
-      : `We could not form an expectation for this night.`;
+        ? `By this point, nights like this one usually get ${expectedWord(expected)} over a whole ${wholeSpan}.`
+        : `By this point, nights like this one usually get ${expectedWord(expected)} over the same stretch.`
+      : `There was no usual number to compare this night with.`;
   const verdict = insufficient
-    ? `No booking-speed call was made, and rules that watch booking speed were not allowed to act on this night.`
+    ? `Booking speed wasn't rated for this night, so rules that watch booking speed left it alone.`
     : `That reads as ${label}.`;
 
-  const guardNotes: Record<string, string> = {
-    small_difference: `The raw numbers leaned away from Normal, but the gap was small enough to be ordinary noise at this volume, so we held the call at Normal.`,
-    extreme_demoted: `The raw numbers pointed at an even stronger call, but not by enough evidence to justify it, so we softened it one step.`,
-    few_comparables: `We found only a few genuinely comparable nights, so we kept the call within one step of Normal no matter how strong the numbers looked.`,
-  };
-  const guard_note = insufficient ? null : (guardNotes[guard] ?? null);
+  const guard_note = insufficient ? null : ((GUARD_NOTES as Record<string, string>)[guard] ?? null);
 
   /* ── Level 3: assumptions ── */
   const selection = rec(snap.selection);
@@ -242,36 +310,41 @@ export function buildExplainView(
         : `Once a rule or a stronger one has ${lastChange} this night, it counts only ${counts} and reads the nights it is compared with over the same days. ${unmoved}`,
     );
   }
+  const perComparable = Array.isArray(snap.perComparable) ? snap.perComparable : [];
   if (methodKey === "comparable" && selAssumptions) {
-    const dow = str(selAssumptions.dayOfWeek);
     const seasonLabel = str(selAssumptions.seasonLabel);
     const seasonRange = str(selAssumptions.seasonRange);
     const holiday = rec(selAssumptions.holiday);
-    if (dow) {
-      assumptions.push(`We only compared against other ${dow} nights — booking rhythms differ too much across days of the week to mix them.`);
-    }
-    if (holiday) {
-      const hLabel = str(holiday.label) ?? "a holiday";
-      assumptions.push(`This night sits in the orbit of ${hLabel}, so we matched against the same position relative to that holiday in earlier years, not the same calendar date.`);
+    const hLabel = holiday ? (str(holiday.label) ?? "the holiday") : null;
+    const compared = perComparable.map(rec).filter((c): c is Record<string, unknown> => !!c && !!str(c.date));
+    const days = comparedDaysLine(
+      target,
+      compared.map((c) => str(c.date)!),
+      hLabel,
+    );
+    if (days) assumptions.push(days);
+    if (hLabel) {
+      assumptions.push(`This night is near ${hLabel}, so it is compared with the same days around ${hLabel} in earlier years, not the same date.`);
     } else if (seasonLabel) {
-      const range = seasonRange ? ` (${seasonRange})` : "";
-      assumptions.push(`We stayed inside the same demand season your history shows${range ? `: ${seasonLabel}${range}` : `: ${seasonLabel}`}.`);
+      const season = seasonRange ? `${seasonLabel} (${seasonRange})` : seasonLabel;
+      assumptions.push(seasonLine(season, compared.map((c) => num(c.tier))));
     }
     if (selAssumptions.relaxed === true) {
-      assumptions.push(`Strict matching found too few usable nights, so we relaxed the criteria a step — worth knowing when weighing how much to trust this one.`);
+      assumptions.push(
+        `Fewer than ${MIN_TARGET_COMPARABLES} nights matched closely, so the search was widened. Check the nights below and set aside any that were not normal.`,
+      );
     }
-    assumptions.push(`Closed periods and any dates you have told us were not normal are left out of the comparison entirely.`);
+    assumptions.push(`Closed periods, and any nights you have set aside as not normal, are never compared.`);
   }
   if (methodKey === "momentum") {
-    assumptions.push(`This night had no usable comparable nights in your history, so instead of guessing from nothing we read your recent booking momentum.`);
-    assumptions.push(`Momentum means: how nights near this one are filling right now, compared to how the same nights were filling at this time last year.`);
+    assumptions.push(`Your history has no usable similar nights for this one, so the usual number comes from booking momentum instead.`);
+    assumptions.push(`Momentum here means how nights near this one are filling now, compared with how the same nights were filling at this point last year.`);
   }
   if (methodKey === "insufficient_data") {
-    assumptions.push(`There was not enough history to form any expectation, so no rule was allowed to act on booking speed for this night.`);
+    assumptions.push(`There wasn't enough history to say what is usual, so no rule acted on booking speed for this night.`);
   }
 
   /* ── Level 4: evidence ── */
-  const perComparable = Array.isArray(snap.perComparable) ? snap.perComparable : [];
   const comparables: ExplainComparable[] = [];
   for (const item of perComparable) {
     const c = rec(item);
@@ -302,10 +375,10 @@ export function buildExplainView(
     if (pairs != null) {
       momentum_notes.push(
         pairs === 0
-          ? `No nearby night could be paired with a counterpart from last year, so we cannot say whether the pace has changed.`
+          ? `No nearby night could be paired with the same night last year, so there is no telling whether the pace has changed.`
           : pairs === 1
-            ? `1 nearby night could be paired with its counterpart from last year.`
-            : `${pairs} nearby nights could be paired with their counterparts from last year.`,
+            ? `1 nearby night could be paired with the same night last year.`
+            : `${pairs} nearby nights could be paired with the same nights last year.`,
       );
     }
     // The pace claim only exists when pairs were actually measured — a
@@ -332,7 +405,7 @@ export function buildExplainView(
             : `how this same night was booking at this point last year`;
       momentum_notes.push(`The starting point was ${expectedWord(baseline)}, taken from ${from}.`);
     }
-    momentum_notes.push(`A momentum read is fuzzier than a direct comparison — treat it as a best effort, not a measurement.`);
+    momentum_notes.push(`Momentum is rougher than comparing similar nights, so treat it as a best effort, not a measurement.`);
 
     // The pairings themselves become challengeable evidence rows, keyed on
     // the year-ago side — that is where "that week was not normal" almost
@@ -360,7 +433,7 @@ export function buildExplainView(
         date: baselineDate,
         summary:
           baseline != null
-            ? `${bookingWord(Math.round(baseline))} at this point last year — the starting point for the estimate`
+            ? `${bookingWord(Math.round(baseline))} at this point last year, the starting point for the estimate`
             : `the starting point for the estimate`,
         reasons: ["this same night a year ago"],
       });

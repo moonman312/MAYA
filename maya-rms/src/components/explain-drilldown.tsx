@@ -67,11 +67,11 @@ const SCOPE_LABELS: Record<ChallengeScope, string> = {
 
 const SCOPE_HINTS: Record<ChallengeScope, string> = {
   this_date:
-    "This date stops feeding comparisons and seasonal calculations from the next pricing run. It is not treated as a yearly pattern — pick one of the options below if you believe it repeats.",
+    "This date stops feeding comparisons and seasonal calculations from the next pricing run. It is not treated as a yearly pattern. Pick one of the options below if you believe it repeats.",
   annual:
     "The date is set aside now. Treating it as a yearly pattern needs pattern reports like this one from 2 different years first.",
   improve_future:
-    "The date is set aside now, and this report also counts toward the yearly pattern. Reshaping the season model itself needs a report at this level from 3 different years first — one correction should never bend the whole model.",
+    "The date is set aside now, and this report also counts toward the yearly pattern. Reshaping your seasons needs a report at this level from 3 different years first, so one correction never reshapes them on its own.",
 };
 
 /* ── Challenge form (inline, per comparable night) ────────────── */
@@ -220,7 +220,7 @@ function ObservationView({
           className="cursor-pointer text-xs text-sky-400 hover:text-sky-300"
           onClick={() => setShowAssumptions(true)}
         >
-          Why did you expect that?
+          Which nights were compared?
         </button>
       ) : (
         <ul className="list-disc space-y-1 pl-5 text-xs leading-relaxed text-slate-400">
@@ -238,7 +238,7 @@ function ObservationView({
           className="cursor-pointer text-xs text-sky-400 hover:text-sky-300"
           onClick={() => setShowEvidence(true)}
         >
-          Show me the nights you compared
+          List the nights
         </button>
       ) : null}
 
@@ -255,7 +255,7 @@ function ObservationView({
                   </span>
                   {flagged ? (
                     <span className="text-[11px] text-amber-300">
-                      Set aside — not used from the next run onward
+                      Set aside. Not used from the next run on.
                     </span>
                   ) : challenging !== c.date ? (
                     <button
@@ -340,7 +340,7 @@ export function ExplainDrilldown({
           if (views === null) void load();
         }}
       >
-        How did we know?
+        Show the numbers
       </button>
     );
   }
@@ -358,10 +358,10 @@ export function ExplainDrilldown({
           </button>
         </p>
       ) : views === null ? (
-        <p className="text-xs text-slate-400">Pulling up what we knew at the time…</p>
+        <p className="text-xs text-slate-400">Loading the numbers from that run…</p>
       ) : views.length === 0 ? (
         <p className="text-xs text-slate-400">
-          No booking-speed observation was recorded for this change.
+          No booking speed numbers were saved for this change.
         </p>
       ) : (
         views.map((v, i) => (
@@ -467,10 +467,10 @@ export function CorrectionsPanel({
           ) : null}
           {summary && summary.challenges.length === 0 ? (
             <p className="text-xs leading-relaxed text-slate-400">
-              When a price explanation leans on a night that was not normal — a
-              renovation week, a festival, a group buyout — open the evidence
-              behind the change and flag it. Flagged nights stop being used in
-              comparisons, and your corrections collect here.
+              When a price explanation leans on a night that was not normal, like
+              a renovation week, a festival or a group buyout, open the numbers
+              behind the change and set it aside. Nights set aside stop being
+              used in comparisons, and your corrections collect here.
             </p>
           ) : null}
           {summary && summary.challenges.length > 0 ? (
@@ -482,7 +482,7 @@ export function CorrectionsPanel({
                 >
                   <span className="text-xs text-slate-300">
                     <span className="font-medium text-slate-200">{humanDate(c.date)}</span>
-                    {" — "}
+                    {": "}
                     {c.description}
                   </span>
                   <button

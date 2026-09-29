@@ -155,8 +155,8 @@ export function computeRuleSuggestions(
       rule_id: r.id,
       rule_name: r.name,
       rationale:
-        `"${r.name}" reacts to a fixed booking count, which the booking-speed rules now cover ` +
-        "with pace awareness. Keeping both would stack two price reactions on the same demand.",
+        `"${r.name}" reacts to a fixed booking count. Your booking speed rules already cover the same nights ` +
+        "by comparing with your own similar past nights. Keeping both would stack two price changes on the same bookings.",
     });
   }
 
