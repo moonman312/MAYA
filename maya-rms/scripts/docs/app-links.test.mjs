@@ -129,6 +129,27 @@ test("every dictionary entry is a place the docs may open, with values the app r
   }
 });
 
+test("every label in the dictionary is one the docs still write, and none is a retired name", () => {
+  const walk = (dir) =>
+    fs
+      .readdirSync(dir, { withFileTypes: true })
+      .flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+  const docs = walk(path.join(ROOT, "content/docs"))
+    .filter((f) => f.endsWith(".mdx"))
+    .map((f) => fs.readFileSync(f, "utf8"))
+    .join("\n");
+  const unused = Object.keys(dict.labels).filter((label) => !docs.includes(label.replace(/^the /, "")));
+  assert.deepEqual(unused, [], "labels no page writes: renamed in the app, or never used");
+
+  // The change log's drill-down buttons before they were renamed.
+  const retired = ["How did we know?", "Why did you expect that?", "Show me the nights you compared"];
+  const registryText = JSON.stringify(registry);
+  for (const name of retired) {
+    assert.ok(!(name in dict.labels), `dictionary still lists "${name}"`);
+    assert.ok(!registryText.includes(name), `registry still says "${name}"`);
+  }
+});
+
 const IPW = "<InPlainWords>\nWords.\n</InPlainWords>\n\n";
 
 test("the build refuses a link into MAYA it would change, drop or show to everyone", () => {

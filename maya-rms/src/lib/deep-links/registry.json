@@ -737,7 +737,7 @@
     },
     "changelog.entry": {
       "label": "Open this change",
-      "opens": "Change Log scrolled to one change with How did we know? opened, while it is still in the list. Otherwise the Change Log with a short note.",
+      "opens": "Change Log scrolled to one change with Show the numbers opened, while it is still in the list. Otherwise the Change Log with a short note.",
       "target": {
         "path": "/",
         "set": {
