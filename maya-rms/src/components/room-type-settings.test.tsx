@@ -53,6 +53,20 @@ describe("needsAnswer", () => {
   });
 });
 
+describe("the ? beside Room types", () => {
+  it("says in plain words what the needs your answer tag means", async () => {
+    render(<RoomTypeSettings hotelId="hotel-1" />);
+    await screen.findByLabelText("King Room counts as a room");
+
+    fireEvent.click(screen.getByRole("button", { name: "What counting as a room changes" }));
+    expect(
+      screen.getByText(
+        'A type tagged "needs your answer" is one nobody has ticked or unticked yet. Until you answer, it counts in occupancy but not in your bill.',
+      ),
+    ).not.toBeNull();
+  });
+});
+
 describe("RoomTypeSettings", () => {
   it("shows an unanswered type unticked, tagged, and ticking it saves a yes", async () => {
     render(<RoomTypeSettings hotelId="hotel-1" />);

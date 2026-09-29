@@ -186,7 +186,7 @@ const ROOM_TYPES_HELP = {
   ...COUNTS_AS_ROOM_HELP,
   lines: [
     ...COUNTS_AS_ROOM_HELP.lines,
-    'A type tagged "needs your answer" is one nobody has said yet. Until you answer, it counts in occupancy but not in your bill.',
+    'A type tagged "needs your answer" is one nobody has ticked or unticked yet. Until you answer, it counts in occupancy but not in your bill.',
   ],
 };
 
