@@ -210,6 +210,12 @@ export type UnpaidMarketplaceHotel = {
   pmsType: string;
   /** Ties the properties of one group grant together; null for a lone property. */
   groupKey: string | null;
+  /**
+   * A subscription has been on it before and ended, so paying now is a
+   * restart: checkout grants no Marketplace trial, and the screen must not
+   * promise one.
+   */
+  hadSubscription: boolean;
 };
 
 export type DeferredMarketplaceHotel = UnpaidMarketplaceHotel & {
@@ -236,12 +242,13 @@ export async function listUnpaidMarketplaceHotels(
   userId: string,
 ): Promise<UnpaidMarketplaceHotel[]> {
   const rows = await listParkedMarketplaceHotels(admin, userId, "unpaid");
-  return rows.map(({ hotelId, name, propertyName, pmsType, groupKey }) => ({
+  return rows.map(({ hotelId, name, propertyName, pmsType, groupKey, hadSubscription }) => ({
     hotelId,
     name,
     propertyName,
     pmsType,
     groupKey,
+    hadSubscription,
   }));
 }
 
@@ -346,13 +353,17 @@ async function listParkedMarketplaceHotels(
 
   const { data: subs, error: subsErr } = await admin
     .from("hotel_subscriptions")
-    .select("hotel_id, status")
+    .select("hotel_id, status, stripe_subscription_id")
     .in("hotel_id", [...claimByHotel.keys()]);
   if (subsErr) throw new Error(`Could not read subscriptions: ${subsErr.message}`);
   const paid = new Set(
     (subs ?? [])
       .filter((s) => isEntitledStatus(s.status == null ? null : String(s.status)))
       .map((s) => String(s.hotel_id)),
+  );
+  // Same test checkout uses to call a payment a restart.
+  const subscribedBefore = new Set(
+    (subs ?? []).filter((s) => s.stripe_subscription_id != null).map((s) => String(s.hotel_id)),
   );
 
   // Sorted here as well as in the query so the contract holds whatever the
@@ -374,6 +385,7 @@ async function listParkedMarketplaceHotels(
           propertyName: claim.property_name == null ? null : String(claim.property_name),
           pmsType: String(claim.pms_type),
           groupKey: claim.group_key == null ? null : String(claim.group_key),
+          hadSubscription: subscribedBefore.has(id),
           deferredAt: h.setup_deferred_at == null ? null : String(h.setup_deferred_at),
         },
       ];

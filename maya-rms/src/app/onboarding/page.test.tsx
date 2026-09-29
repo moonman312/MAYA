@@ -11,6 +11,7 @@ import { fakeSupabase } from "@/lib/engine/fake-supabase.test";
 const state = vi.hoisted(() => ({
   admin: null as unknown as ReturnType<typeof import("@/lib/engine/fake-supabase.test").fakeSupabase>,
   queued: [] as string[],
+  hadSubscription: false,
 }));
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
@@ -27,7 +28,14 @@ vi.mock("@/lib/onboarding/step", () => ({
 vi.mock("@/lib/hotel-context", () => ({ resolveAccessibleHotelId: async () => null }));
 vi.mock("@/lib/billing/pending-hotel", () => ({
   listUnpaidMarketplaceHotels: async () => [
-    { hotelId: "hotel-1", name: "Sea View Inn", propertyName: "Sea View Inn", pmsType: "cloudbeds", groupKey: null },
+    {
+      hotelId: "hotel-1",
+      name: "Sea View Inn",
+      propertyName: "Sea View Inn",
+      pmsType: "cloudbeds",
+      groupKey: null,
+      hadSubscription: state.hadSubscription,
+    },
   ],
 }));
 vi.mock("@/lib/billing/pms-gates", () => ({ listPmsSignupGates: async () => [] }));
@@ -54,8 +62,9 @@ function elements(node: ReactNode): ReactElement<Record<string, unknown>>[] {
   return [el, ...elements(el.props.children as ReactNode)];
 }
 
-function world(opts: { connection: string | null; purged: boolean }) {
+function world(opts: { connection: string | null; purged: boolean; hadSubscription?: boolean }) {
   state.queued = [];
+  state.hadSubscription = opts.hadSubscription ?? false;
   state.admin = fakeSupabase({
     hotels: [{ id: "hotel-1", is_active: false, data_purged_at: opts.purged ? "2027-03-01T00:00:00.000Z" : null }],
     pms_marketplace_claims: [
@@ -100,5 +109,16 @@ describe("the subscribe screen for a Marketplace arrival", () => {
     expect(tree[0].type).toBe(SubscribeStep);
     expect(tree[0].props.title).toBe("Sea View Inn is connected");
     expect(state.queued).toEqual(["hotel-1"]);
+    expect(tree[0].props.baseTrialDays).toBe(14);
+  });
+
+  it("offers no Marketplace trial to a property whose subscription ended", async () => {
+    // Checkout bills a restart straight away, so the screen must not say
+    // "Nothing today".
+    world({ connection: "pending", purged: false, hadSubscription: true });
+    const tree = await render();
+    expect(tree[0].type).toBe(SubscribeStep);
+    expect(tree[0].props.baseTrialDays).toBe(0);
+    expect(tree[0].props.intro).not.toMatch(/free/i);
   });
 });

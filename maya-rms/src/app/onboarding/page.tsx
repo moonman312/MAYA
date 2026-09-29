@@ -193,7 +193,9 @@ async function marketplaceArrival(supabase: SupabaseClient): Promise<{
       pmsType: next.pmsType,
       displayName: pms?.displayName ?? next.pmsType,
       propertyName: next.propertyName ?? next.name ?? null,
-      trialDays: marketplaceTrialDays(),
+      // First signup only: a property whose subscription ended is restarting,
+      // and checkout bills a restart when it completes.
+      trialDays: next.hadSubscription ? 0 : marketplaceTrialDays(),
       progress,
       deferrable,
       reconnect:

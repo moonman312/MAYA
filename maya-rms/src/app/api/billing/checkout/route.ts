@@ -210,6 +210,11 @@ export async function POST(request: Request) {
       { status: 409 },
     );
   }
+  // Anything live was refused above, so a subscription on record here is one
+  // that ended: this checkout is a restart. The Marketplace trial is for a
+  // first signup only, so a restart is billed when checkout completes, which
+  // is what the restart screen tells them.
+  const restartOf = existing?.stripe_subscription_id ? String(existing.stripe_subscription_id) : null;
 
   // A code is required to reach checkout at all while signup is gated — but
   // that gate is now per PMS (see /admin/pms-access), so a declared PMS whose
@@ -368,8 +373,9 @@ export async function POST(request: Request) {
       ).id;
     }
 
-    // A code's own trial wins; the Marketplace trial fills in when there is none.
-    const trialDays = effect.trialDays || (marketplace ? marketplaceTrialDays() : 0);
+    // A code's own trial wins; the Marketplace trial fills in when there is
+    // none, and never on a restart.
+    const trialDays = effect.trialDays || (marketplace && !restartOf ? marketplaceTrialDays() : 0);
 
     const origin = new URL(request.url).origin;
     const session = await stripe.checkout.sessions.create({
@@ -483,8 +489,10 @@ export async function POST(request: Request) {
     //
     // Keyed on everything that defines the offer, so genuinely changing the room
     // count or the period still starts a new session rather than silently
-    // returning the old price.
-    { idempotencyKey: `maya_checkout_${hotelId}_${interval}_${rooms}_${signupCodeId ?? "none"}` });
+    // returning the old price. A restart is a different offer from the first
+    // signup (no Marketplace trial), so it names the subscription it follows:
+    // cancelling within a day of signing up must not replay the first session.
+    { idempotencyKey: `maya_checkout_${hotelId}_${interval}_${rooms}_${signupCodeId ?? "none"}${restartOf ? `_after_${restartOf}` : ""}` });
 
     if (!session.url) {
       return NextResponse.json({ error: "Stripe did not return a checkout URL." }, { status: 502 });

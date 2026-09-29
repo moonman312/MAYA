@@ -3,7 +3,7 @@ title: Cancelling, restarting and leaving
 summary: How to cancel and when it takes effect, what stops and what stays, your invoices after cancelling, restarting later, pausing instead, cancel versus disconnect, prices after you leave, starting again from scratch, deleting your data, and what happens to a property that never pays.
 section: billing
 order: 40
-readingTime: 12
+readingTime: 13
 keywords: [cancel, cancelling, cancellation, end of period, access ends, set to cancel, restart, restart your subscription, come back, pause, pausing, take a break, leave, leaving, close my account, delete my data, delete account, deletion, 90 days, what you keep, disconnect, cancel versus disconnect, prices after cancelling, reset rates, rules survive, never paid, trial lapsed, 180 days, export rules, export data, charged after cancelling, cancel a property never connected, reuse my code, cancel one property in a group, restart asks for a code, new trial on restart, left restart checkout, invoices after cancelling, receipts after cancelling, download invoices, old invoices, billing page after cancelling, reset, reset my property, start again, start over, from scratch, fresh start, clean slate, wipe, delete all rules, clear history, lost its connection, paused work, reconnect after trial, history removed, reconnect first, restart before reconnecting, type a price after cancelling, still says sending, room types after cancelling]
 questions:
   - How do I cancel MAYA? {#how-to-cancel}
@@ -21,6 +21,7 @@ questions:
   - Can I cancel a property I paid for but never connected? {#cancelling-a-property-you-paid-for-but-never-connected}
   - How do I cancel one property in a group? {#cancelling-one-property-in-a-group}
   - Why does the restart screen ask for a code for my Marketplace property? {#restarting/the-screen-may}
+  - Do I get the free trial again when I restart? {#restarting/no-new-free}
   - Can I reset my property and start again from scratch? {#starting-again-from-scratch/rules}
   - Can I delete my data or my account myself? {#deleting-your-data}
   - What happens to my data if I never pay or the trial lapses? {#properties-that-never-pay/if-a-property}
@@ -100,12 +101,12 @@ Stripe's page takes the card. The moment checkout completes, work picks up on th
 </Step>
 </Steps>
 
-A restart is a new subscription at the same brackets. Two things to expect: the code you used the first time cannot be used again, because a code is redeemed once per property, and the screen asks for a code only if your property system still needs one. A restart also gets the two card checks again.
+A restart is a new subscription at the same brackets. Three things to expect: the code you used the first time cannot be used again, because a code is redeemed once per property, the screen asks for a code only if your property system still needs one, and the first charge is taken when checkout completes, unless a new code you type grants free days of its own. A restart also gets the two card checks again.
 
 A property that first came from the Cloudbeds Marketplace differs in two ways:
 
 - **The screen may ask for a code.** Marketplace properties never need one, but the screen follows the rule for Cloudbeds sign-ups made directly at maya-rms.com. While those need a code, <Ui>Continue to payment</Ui> stays greyed out until you type one. If your Cloudbeds connection has been removed ([Coming back after a long time](#coming-back-after-a-long-time) explains when), the screen always asks for a code, so reconnect first. If it asks, [email us](mailto:info@modern-hospitality-solutions.com?subject=Restart%20code) and we send you one.
-- **Stripe's page starts a new free trial.** The restart screen says "Billed when you finish checkout", but Stripe's page gives the property a new 7-day trial, and nothing is charged until it ends.
+- **No new free trial.** The 7-day Marketplace trial is for a property's first signup only. A restart is billed when checkout completes, as the restart screen says: "Billed when you finish checkout."
 
 If the status is "Unpaid" rather than "Cancelled", there is no restart button: the subscription is still alive and comes back when you update the card. [Cards, payments and invoices](/docs/billing/cards-payments-and-invoices) has that path.
 

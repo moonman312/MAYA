@@ -22,6 +22,10 @@ export const dynamic = "force-dynamic";
  * which also means the code field follows that PMS's own gate: a fresh code
  * while it's gated (the old one is spent — one redemption per property), none
  * once it's open.
+ *
+ * No baseTrialDays: the Marketplace trial is for a first signup only, and
+ * checkout grants none on a restart, so the screen's "Billed when you finish
+ * checkout" is the truth. Only a code's own trial changes that line.
  */
 export default async function RestartPage() {
   const supabase = createClient(await cookies());

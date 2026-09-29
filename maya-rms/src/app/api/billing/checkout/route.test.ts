@@ -164,6 +164,7 @@ const state = vi.hoisted(() => ({
   hotelId: null as string | null,
   rank: true,
   sessions: [] as Record<string, unknown>[],
+  sessionOpts: [] as Record<string, unknown>[],
   customers: [] as Record<string, unknown>[],
   customerOpts: [] as Record<string, unknown>[],
   customerSearches: [] as string[],
@@ -234,8 +235,9 @@ vi.mock("@/lib/billing/stripe", () => ({
     },
     checkout: {
       sessions: {
-        create: async (args: Record<string, unknown>) => {
+        create: async (args: Record<string, unknown>, opts?: Record<string, unknown>) => {
           state.sessions.push(args);
+          state.sessionOpts.push(opts ?? {});
           return { id: "cs_test", url: "https://checkout.stripe.test/pay" };
         },
       },
@@ -275,6 +277,7 @@ beforeEach(() => {
   state.hotelId = null;
   state.rank = true;
   state.sessions = [];
+  state.sessionOpts = [];
   state.customers = [];
   state.customerOpts = [];
   state.customerSearches = [];
@@ -856,6 +859,8 @@ describe("a property that arrived from the Cloudbeds Marketplace", () => {
     seed(arrival);
     const res = await post({ rooms: 24, interval: "month", code: "", pmsType: "cloudbeds" });
     expect(res.status).toBe(200);
+    // A first signup keeps the key it always had.
+    expect(state.sessionOpts.at(-1)?.idempotencyKey).toBe("maya_checkout_hotel-mkt_month_24_none");
     expect(lastSession()?.subscription_data).toMatchObject({
       trial_period_days: 7,
       metadata: { hotel_id: "hotel-mkt", via: "marketplace_flow_a" },
@@ -913,6 +918,40 @@ describe("a property that arrived from the Cloudbeds Marketplace", () => {
     const res = await post({ rooms: 24, interval: "month", code: "", pmsType: "cloudbeds" });
     expect(res.status).toBe(200);
     expect(lastSession()?.subscription_data).not.toHaveProperty("trial_period_days");
+  });
+
+  it("gets no Marketplace trial on a restart, because that trial is for the first signup only", async () => {
+    // The restart screen says "Billed when you finish checkout", and it has to
+    // be true: a subscription on record means this property signed up before.
+    seed({
+      ...arrival,
+      hotels: [{ ...arrival.hotels[0], is_active: true, setup_pending_at: null }],
+      hotel_subscriptions: [
+        { hotel_id: "hotel-mkt", stripe_customer_id: "cus_old", stripe_subscription_id: "sub_old", status: "canceled" },
+      ],
+    });
+    state.hotelId = "hotel-mkt";
+    const res = await post({ rooms: 24, interval: "month", code: "", pmsType: "cloudbeds" });
+    expect(res.status).toBe(200);
+    expect(lastSession()?.subscription_data).not.toHaveProperty("trial_period_days");
+    const text = String(((lastSession()?.custom_text as Row).submit as Row).message);
+    expect(text).not.toContain("free trial");
+    // A different offer from the first signup's, so a different session.
+    expect(state.sessionOpts.at(-1)?.idempotencyKey).toBe("maya_checkout_hotel-mkt_month_24_none_after_sub_old");
+  });
+
+  it("still honours a code's own trial on a restart, which the screen shows", async () => {
+    seed({
+      ...arrival,
+      hotels: [{ ...arrival.hotels[0], is_active: true, setup_pending_at: null }],
+      hotel_subscriptions: [
+        { hotel_id: "hotel-mkt", stripe_customer_id: "cus_old", stripe_subscription_id: "sub_old", status: "canceled" },
+      ],
+    });
+    state.hotelId = "hotel-mkt";
+    const res = await post({ rooms: 24, interval: "month", code: "MHSFOUNDER", pmsType: "cloudbeds" });
+    expect(res.status).toBe(200);
+    expect(lastSession()?.subscription_data).toMatchObject({ trial_period_days: 30 });
   });
 
   it("still rejects a typo'd code — the gate bypass never skips validating text they typed", async () => {
