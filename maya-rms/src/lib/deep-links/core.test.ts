@@ -150,6 +150,22 @@ describe("parseLink", () => {
     expect(fb.fellBack).toBe(true);
   });
 
+  it("opens one sending problem by its id, and the Change Log without one", () => {
+    const id = "0b0c8a6e-3c1d-4d8e-9f2a-6a1b2c3d4e5f";
+    const got = links.parseLink("changelog.problem", `problem=${id}`);
+    expect(got.dest).toBe("changelog.problem");
+    expect(got.params).toEqual({ problem: id });
+    expect(links.internalHref(got)).toBe(`/?tab=changelog&dl=changelog.problem&problem=${id}`);
+    const fb = links.parseLink("changelog.problem", "problem=nope");
+    expect(fb.dest).toBe("changelog");
+    expect(fb.fellBack).toBe(true);
+    expect(links.internalHref({ dest: "changelog", params: {} })).toBe("/?tab=changelog&dl=changelog");
+    // The id stays in the address after arrival; the highlight runs once.
+    const a = links.readArrival(`?tab=changelog&dl=changelog.problem&problem=${id}`);
+    expect(a.params).toEqual({ problem: id });
+    expect(a.keep).toBe(`tab=changelog&problem=${id}`);
+  });
+
   it("refuses names that could carry markup, addresses or links", () => {
     for (const bad of ["<b>x</b>", "a/b", "http://x", "me@x.co", "a:b", "#x", "?x", "a\u0000b"]) {
       expect(links.parseLink("rules.new", { name: bad }).params.name, bad).toBeUndefined();

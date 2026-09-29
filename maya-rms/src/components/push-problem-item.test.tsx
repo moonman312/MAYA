@@ -89,6 +89,11 @@ describe("PushProblemItem", () => {
     expect(view.container.textContent).not.toContain("held them back");
   });
 
+  it("carries the id a link from the price editor lands on", () => {
+    const view = render(<PushProblemItem item={item} {...formats} />);
+    expect(view.container.querySelector('[data-deeplink="changelog.problem:inc-1"]')).not.toBeNull();
+  });
+
   it("says when it ended, and offers no advice once it has", () => {
     const view = render(
       <PushProblemItem item={{ ...item, status: "resolved", resolved_at: "2026-09-17T11:00:00Z", resolution: "landed", action: null }} {...formats} />,

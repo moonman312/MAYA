@@ -23,6 +23,8 @@ export function arrivalFlashTarget(a: Pick<Arrival, "dest" | "params" | "focus">
     case "changelog.entry":
       if (p.run && p.date && p.roomType) return `changelog.entry:${p.run}:${p.date}:${p.roomType}`;
       return p.run ? `changelog.run:${p.run}` : null;
+    case "changelog.problem":
+      return p.problem ? `changelog.problem:${p.problem}` : null;
     default:
       return links.destination(a.dest).flash ?? null;
   }

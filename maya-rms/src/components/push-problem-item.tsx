@@ -74,7 +74,8 @@ export function PushProblemItem({
     : "Still happening";
 
   return (
-    <div className={`rounded border p-3 ${ongoing ? "border-amber-500/40" : "border-slate-800"}`}>
+    // The price editor's "See the error log" lands here (changelog.problem).
+    <div className={`rounded border p-3 ${ongoing ? "border-amber-500/40" : "border-slate-800"}`} data-deeplink={`changelog.problem:${item.id}`}>
       <p className="text-xs text-slate-400">
         <time dateTime={item.timestamp} title={formatExact(item.timestamp)} className="not-italic">
           <span className={`font-medium ${ongoing ? "text-amber-300" : "text-slate-300"}`}>

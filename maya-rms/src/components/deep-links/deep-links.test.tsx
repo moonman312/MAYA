@@ -168,6 +168,8 @@ describe("arrivalFlashTarget", () => {
     expect(arrivalFlashTarget({ dest: "suggestions", params: {}, focus: "suggestions" })).toBe("rules.suggestions");
     expect(arrivalFlashTarget({ dest: "room-types", params: { roomType: id }, focus: null })).toBe(`pms.room-type:${id}`);
     expect(arrivalFlashTarget({ dest: "floors", params: {}, focus: "guardrails" })).toBe("simulator.guardrails");
+    expect(arrivalFlashTarget({ dest: "changelog.problem", params: { problem: id }, focus: null })).toBe(`changelog.problem:${id}`);
+    expect(arrivalFlashTarget({ dest: "changelog.problem", params: {}, focus: null })).toBeNull();
     expect(arrivalFlashTarget({ dest: null, params: {}, focus: null })).toBeNull();
   });
 });

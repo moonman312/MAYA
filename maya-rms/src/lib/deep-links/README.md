@@ -26,6 +26,8 @@ A destination id the registry does not have opens the nearest place it names: `f
 
 `go: false` keys are set by `/go` from the destination's `target` and never taken from a link. `docs: false` keys are for links the app makes (they name the property's own nights and ids), and the docs build refuses them.
 
+`problem` (a "Prices not reaching" item's id, `changelog.problem`) is a `place` key: the Change Log keeps it in the address, so the item the price editor's "See the error log" opened stays named on a refresh. The highlight itself still runs once, on arrival (`data-deeplink="changelog.problem:<id>"` on the item, `arrivalFlashTarget`). Without a visible item to name, the editor links to the `changelog` destination instead.
+
 ## The active property
 
 `hotel` is honoured only when the click came from MAYA itself (`Sec-Fetch-Site: same-origin` or `none`), it is not a prefetch, and the signed-in person can open that property. Otherwise it is ignored and the active property stays. It is never carried through sign-in (the hop back from sign-in is same-origin, so a hand-made `/login?next=` could launder it): `/go` leaves it out of `next`, and `safeNext` strips it. The docs never send it.
