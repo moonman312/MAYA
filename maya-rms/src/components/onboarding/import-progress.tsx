@@ -33,6 +33,11 @@ export type OnboardingStatus = {
       [key: string]: unknown;
     };
   } | null;
+  /**
+   * The starter rules from the newest import that built any, which a later
+   * "Get suggestions from my data" job does not. Older servers leave it out.
+   */
+  starterRules?: Array<{ name: string; explanation: string }>;
   proposedFindings?: number;
   simulationMode?: boolean;
   /** The hotel's PMS (pms_connections.pms_type); older servers leave it out. */

@@ -333,7 +333,10 @@ export function StarterRules({ status }: { status: OnboardingStatus | null }) {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const rules = (status?.job?.stats?.starterRules ?? []) as Array<{
+  // From the import that built them, not the newest job: a later "Get
+  // suggestions from my data" read builds none, and taking its empty list
+  // here took the go-live button away with it.
+  const rules = (status?.starterRules ?? status?.job?.stats?.starterRules ?? []) as Array<{
     name: string;
     explanation: string;
   }>;

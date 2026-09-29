@@ -31,6 +31,7 @@ vi.mock("@/utils/supabase/server", () => ({
       const api: any = {
         select: () => api,
         eq: () => api,
+        not: () => api,
         order: () => api,
         limit: () => api,
         maybeSingle: async () => ({ data: null, error: null }),
