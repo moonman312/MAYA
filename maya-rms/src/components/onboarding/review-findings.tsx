@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useTrackOnce } from "@/lib/analytics/track";
@@ -33,6 +34,8 @@ type Finding = {
   created_at: string;
 };
 
+const FINISH_FAILED = "Couldn't finish the review. Try again.";
+
 export function ReviewFindings({
   initialStep = "assumptions",
 }: {
@@ -45,6 +48,7 @@ export function ReviewFindings({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
+  const [finishError, setFinishError] = useState<{ message: string; refused: boolean } | null>(null);
   const [step, setStep] = useState<"assumptions" | "recommendations">(initialStep);
   // One poll shared by the room-count strip (which needs the hotel id) and the
   // starter rules (which need the job stats and simulation flag).
@@ -115,10 +119,23 @@ export function ReviewFindings({
 
   async function finish() {
     setFinishing(true);
+    setFinishError(null);
+    let refusal: { message: string; refused: boolean } | null = null;
     try {
-      await fetch("/api/onboarding/complete", { method: "POST" });
+      const res = await fetch("/api/onboarding/complete", { method: "POST" });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        refusal = { message: body?.error ?? FINISH_FAILED, refused: res.status === 403 };
+      }
     } catch {
-      // completion is best-effort; dashboard is still usable
+      refusal = { message: FINISH_FAILED, refused: false };
+    }
+    // Only once the server says the review is marked done. Moving on without
+    // it looked finished while the dashboard banner kept pointing back here.
+    if (refusal) {
+      setFinishError(refusal);
+      setFinishing(false);
+      return;
     }
     router.push("/");
   }
@@ -284,6 +301,19 @@ export function ReviewFindings({
             >
               {finishing ? "Finishing up…" : "Finish — take me to my dashboard"}
             </button>
+            {finishError ? (
+              <p role="alert" className="mt-2 text-xs text-rose-300">
+                {finishError.message}
+                {finishError.refused ? (
+                  <>
+                    {" "}
+                    <Link href="/" className="underline decoration-rose-300/50 underline-offset-2 hover:text-rose-200">
+                      Go to my dashboard
+                    </Link>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
             <p className="mt-2 text-[11px] text-slate-600">
               Anything you skip stays available later — this isn&apos;t your only chance.
             </p>
