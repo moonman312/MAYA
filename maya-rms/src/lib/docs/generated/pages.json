@@ -839,7 +839,7 @@
   "order": 20,
   "title": "Codes and the free trial",
   "summary": "Who gets the 7-day trial, who needs a code and where to get one, what a code can grant, every message the code field shows, what happens on a yearly plan, and what a trial that ends unpaid means.",
-  "readingTime": 8,
+  "readingTime": 9,
   "readingNote": null,
   "updated": "2026-09-24",
   "pms": [
@@ -1843,7 +1843,7 @@
   "summary": "What Cloudbeds, ThinkReservations and Mews call things, what MAYA calls the same things, and what each one means once it is inside MAYA. Rate plans and rate types, reservations and bookings, room categories and room types, statuses and states.",
   "readingTime": 9,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -2107,7 +2107,7 @@
   "summary": "The two review screens after the import, every card you can see (closures, room types, duplicates, typos, $0 rates, deleted room types), what confirming and dismissing do, the room count strip, and how to come back later.",
   "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [],
   "headings": [
    {
@@ -2375,7 +2375,7 @@
   "summary": "The Get suggestions from my data button on the Rules tab, who can press it, what it re-reads, the four kinds of card it can offer, and what accepting each one does.",
   "readingTime": 11,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [],
   "headings": [
    {
@@ -2595,7 +2595,7 @@
   "summary": "What the Sellable occupancy condition counts, why it can differ from your property system's headline occupancy, and what Greater than 80 means at exactly 80.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -3965,7 +3965,7 @@
   "summary": "How to type a price for a room type on one night or a run of nights, what it does to your rules, when it is sent to your property system, and how to hand the night back to MAYA.",
   "readingTime": 12,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4156,7 +4156,7 @@
   "summary": "The Room types list on the PMS tab. Untick Counts as a room for anything nobody sleeps in, and enter rooms out of service so occupancy reads against what you can really sell.",
   "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4337,7 +4337,7 @@
   "summary": "Every property starts in simulation. MAYA reads your bookings, runs every rule and writes what it would do to the change log, but sends nothing to your property system until you go live.",
   "readingTime": 11,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4880,6 +4880,7 @@
    "Where is the billing page and who can see it?",
    "Can a Revenue Manager see the billing page?",
    "What does \"Fix it\" or \"Restart MAYA\" on my dashboard mean?",
+   "Why does my dashboard banner say \"Email us\" instead of \"Restart MAYA\"?",
    "What does \"Retrying payment until\" mean?",
    "What does \"Access ends\" mean on the billing page?",
    "Where can I see the code I used at checkout?",
@@ -6496,6 +6497,11 @@
    },
    {
     "depth": 2,
+    "text": "Seats",
+    "id": "seats"
+   },
+   {
+    "depth": 2,
     "text": "Change or remove them later",
     "id": "change-or-remove-them-later"
    }
@@ -6645,7 +6651,7 @@
   "summary": "When MAYA loses its connection, a General Manager or Hotel Admin clicks Reconnect on the banner or the PMS tab, signs in at Cloudbeds or ThinkReservations, and lands back on the dashboard. Mews is reconnected by us.",
   "readingTime": 4,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7449,7 +7455,7 @@
   "summary": "What the \"MAYA has lost its connection\" banner means, who can reconnect and how, what happens to prices while the connection is down, what Connected, Pending, Degraded, Error and Disconnected mean, what to do when Mews needs its keys re-entered, and how to tell when Mews reads have stopped with no banner.",
   "readingTime": 11,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7973,7 +7979,7 @@
   "order": 100,
   "title": "Messages you might see, explained",
   "summary": "Every message, label and banner MAYA shows, grouped by where you see it, each with one line on what it means and what to do, and a link to the page that explains it.",
-  "readingTime": 50,
+  "readingTime": 51,
   "readingNote": "Type a few words of the message to jump to it",
   "updated": "2026-09-29",
   "pms": [
