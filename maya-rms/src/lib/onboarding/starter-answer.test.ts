@@ -6,6 +6,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { analyzeImport } from "../../../supabase/functions/_shared/onboarding/analysis";
+import { loadRateHistory, MAX_RATE_ROWS } from "../../../supabase/functions/_shared/onboarding/rate-moves";
 import type { ImportJobRow } from "../../../supabase/functions/_shared/onboarding/worker-core";
 import { fakeSupabase, type FakeRow } from "../engine/fake-supabase.test";
 import { INN, seasonal, usualLead, year, TODAY } from "./__fixtures__/rate-history";
@@ -242,5 +243,64 @@ describe("Get suggestions from my data, with an answer on file", () => {
     ]);
     // A refresh only ever suggests.
     expect(db.tables.pricing_rules).toHaveLength(0);
+  });
+});
+
+describe("reading the past year", () => {
+  it("keeps booked, priced nights of the room types asked for, before today", async () => {
+    const row = (id: string, o: Partial<FakeRow>) => ({
+      id,
+      hotel_id: HOTEL,
+      stay_date: "2026-09-01",
+      booking_date: "2026-08-01",
+      room_type_id: "std",
+      current_rate: 150,
+      ...o,
+    });
+    const db = fakeSupabase({
+      room_types: [
+        { id: "std", hotel_id: HOTEL, total_rooms: 14 },
+        { id: "court", hotel_id: HOTEL, total_rooms: 2 },
+      ],
+      reservations: [
+        row("a", {}),
+        row("b", { booking_date: null }),
+        row("c", { current_rate: 0 }),
+        row("d", { room_type_id: "court" }),
+        row("e", { stay_date: TODAY }),
+        row("f", { stay_date: "2025-09-27" }),
+        row("g", { hotel_id: "other" }),
+      ],
+    });
+    const { rows, rooms } = await loadRateHistory(db.client, HOTEL, ["std"], TODAY);
+    expect(rooms).toBe(14);
+    expect(rows).toEqual([{ stay_date: "2026-09-01", booking_date: "2026-08-01", room_type_id: "std", rate: 150 }]);
+  });
+
+  it("stops at the cap on a whole night, newest nights first", async () => {
+    const PER_NIGHT = 140;
+    const reservations: FakeRow[] = [];
+    const today = Date.parse(`${TODAY}T00:00:00Z`);
+    for (let back = 1; back <= 365; back += 1) {
+      const night = new Date(today - back * 86_400_000).toISOString().slice(0, 10);
+      for (let i = 0; i < PER_NIGHT; i += 1) {
+        reservations.push({
+          id: `${night}-${String(i).padStart(3, "0")}`,
+          hotel_id: HOTEL,
+          stay_date: night,
+          booking_date: night,
+          room_type_id: "std",
+          current_rate: 100,
+        });
+      }
+    }
+    const db = fakeSupabase({ room_types: [{ id: "std", hotel_id: HOTEL, total_rooms: 150 }], reservations });
+    const { rows } = await loadRateHistory(db.client, HOTEL, ["std"], TODAY);
+    const perNight = new Map<string, number>();
+    for (const r of rows) perNight.set(r.stay_date, (perNight.get(r.stay_date) ?? 0) + 1);
+    expect(rows.length).toBeLessThanOrEqual(MAX_RATE_ROWS);
+    expect(rows.length).toBeGreaterThan(MAX_RATE_ROWS - 2 * PER_NIGHT);
+    expect([...perNight.values()].every((n) => n === PER_NIGHT)).toBe(true);
+    expect(perNight.has(new Date(today - 86_400_000).toISOString().slice(0, 10))).toBe(true);
   });
 });

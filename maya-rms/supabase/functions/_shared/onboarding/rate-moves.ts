@@ -459,11 +459,19 @@ export function starterRuleSets(input: { daysOfHistory: number; moves: RateMoves
 /* ── Reading the history ─────────────────────────────────────────────────── */
 
 /**
+ * At most this many booking-nights are read, newest nights first. A year of a
+ * 500-room property is well over 100,000, and the analysis runs as one call
+ * inside the worker's time limit; a few months of a big property is already
+ * far more than any move needs.
+ */
+export const MAX_RATE_ROWS = 50_000;
+
+/**
  * The past year's booking-nights on `roomTypeIds`, with a booking date and a
  * rate above 0, and how many rooms those room types hold. Paged on
- * (stay_date, id) like the engine's reads, since a large property's year is
- * well past PostgREST's 1,000-row page. A failed page throws, so the worker
- * retries instead of reading a fragment.
+ * (stay_date, id), newest first, like the engine's reads; past MAX_RATE_ROWS
+ * the oldest night read is dropped, since it may be only partly read. A
+ * failed page throws, so the worker retries instead of reading a fragment.
  */
 export async function loadRateHistory(
   supabase: SupabaseClient,
@@ -493,10 +501,10 @@ export async function loadRateHistory(
       .in("room_type_id", roomTypeIds)
       .not("booking_date", "is", null)
       .gt("current_rate", 0);
-    if (cursor) q = q.or(`stay_date.gt.${cursor.stayDate},and(stay_date.eq.${cursor.stayDate},id.gt.${cursor.id})`);
+    if (cursor) q = q.or(`stay_date.lt.${cursor.stayDate},and(stay_date.eq.${cursor.stayDate},id.lt.${cursor.id})`);
     const { data, error } = await q
-      .order("stay_date", { ascending: true })
-      .order("id", { ascending: true })
+      .order("stay_date", { ascending: false })
+      .order("id", { ascending: false })
       .limit(PAGE);
     if (error) throw new Error(`rate history read failed: ${error.message}`);
     const page = (data ?? []) as Array<Record<string, unknown>>;
@@ -509,6 +517,10 @@ export async function loadRateHistory(
       });
     }
     if (page.length < PAGE) break;
+    if (rows.length >= MAX_RATE_ROWS) {
+      const oldest = rows[rows.length - 1].stay_date;
+      return { rows: rows.filter((r) => r.stay_date !== oldest), rooms };
+    }
     const last = page[page.length - 1];
     cursor = { stayDate: String(last.stay_date), id: String(last.id) };
   }

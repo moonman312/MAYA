@@ -173,7 +173,7 @@ export function StrategyQuestions() {
       {step === "confidence" ? (
         <QuestionCard
           title="Last one: what should your starting rules do?"
-          subtitle="There's no wrong answer. It sets what your starter rules and later suggestions look for in your bookings."
+          subtitle="There's no wrong answer. It picks your starter rules, and the rules later suggestions offer."
         >
           <div className="grid gap-3 sm:grid-cols-2">
             <button
