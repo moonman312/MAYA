@@ -15,6 +15,7 @@
  */
 
 import { hotelPricingHorizon } from "@/lib/pms/pricing-horizon";
+import { DAYS_NOT_CALCULATED } from "@/lib/rule-activation-client";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { previewFingerprint, previewRule } from "@/lib/rule-preview";
 import { ruleErrorResponse, ruleGate } from "@/lib/rule-route";
@@ -86,6 +87,6 @@ export async function POST(req: Request) {
       ...preview,
     });
   } catch (e) {
-    return ruleErrorResponse(e, "The days could not be checked. Try again.");
+    return ruleErrorResponse(e, DAYS_NOT_CALCULATED);
   }
 }

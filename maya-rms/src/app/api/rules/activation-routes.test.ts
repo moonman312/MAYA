@@ -221,10 +221,12 @@ describe("saving through the popup", () => {
     expect(without.status).toBe(409);
     expect(await without.json()).toMatchObject({ code: "activation_required" });
 
-    // Skip moves no price, so it needs no check; Apply does.
-    const stale = await create(json("/api/rules", { ...draft, id: NEW_ID, activation: "apply", fingerprint: "old" }));
-    expect(stale.status).toBe(409);
-    expect(await stale.json()).toMatchObject({ code: "stale", error: "Your bookings changed while this was open, so the days were checked again." });
+    // Apply changes the days shown, and Skip holds them: both only on the numbers the popup showed.
+    for (const choice of [{ activation: "apply" }, { activation: "skip", held: ["2026-10-05"] }]) {
+      const stale = await create(json("/api/rules", { ...draft, id: NEW_ID, ...choice, fingerprint: "old" }));
+      expect(stale.status).toBe(409);
+      expect(await stale.json()).toMatchObject({ code: "stale", error: "Your bookings changed while this was open, so the days were checked again." });
+    }
     expect(state.saves).toEqual([]);
 
     const { body } = await previewOf({ intent: "create", ruleId: NEW_ID, draft });
@@ -240,6 +242,7 @@ describe("saving through the popup", () => {
       p_activation: "apply",
       p_touched: body.touched,
       p_skip_marks: [],
+      p_hold_nights: [],
       p_fields: expect.objectContaining({ name: "Busy weekend", action_type: "percent", action_value: 8, signal: [KING, QUEEN], version: 1 }),
     });
     expect(state.nudges).toBe(1);
@@ -251,17 +254,30 @@ describe("saving through the popup", () => {
     ]);
   });
 
-  it("Skip sends the marks the engine works out for the rule's ladder rows", async () => {
+  it("Skip holds exactly the days the popup showed: the rule's ladder rows there, and nowhere else", async () => {
     const { body } = await previewOf({ intent: "create", ruleId: NEW_ID, draft });
-    const res = await create(json("/api/rules", { ...draft, id: NEW_ID, activation: "skip", fingerprint: body.fingerprint }));
+    const affected = body.affected as string[];
+    expect(affected.length).toBeGreaterThan(0);
+    const res = await create(json("/api/rules", { ...draft, id: NEW_ID, activation: "skip", fingerprint: body.fingerprint, held: affected }));
     expect(res.status).toBe(201);
     const marks = state.saves[0].p_skip_marks as { d: string; rt: string; w: string }[];
-    expect(marks.length).toBeGreaterThan(0);
     expect(marks.every((m) => m.w === "held")).toBe(true);
-    // A held row on every night the popup showed (and on nights it matches
-    // where the price can't move, a comp night or one at its ceiling).
-    const held = new Set(marks.map((m) => m.d));
-    for (const night of body.affected as string[]) expect(held.has(night)).toBe(true);
+    expect([...new Set(marks.map((m) => m.d))]).toEqual(affected);
+    expect(state.saves[0].p_hold_nights).toEqual(affected);
+    expect(state.events).toEqual([
+      expect.objectContaining({ p_properties: expect.objectContaining({ choice: "skip", from: "builder_new" }) }),
+    ]);
+  });
+
+  it("Skip when the days could not be worked out holds every day the rule could act on, with no check", async () => {
+    const { body } = await previewOf({ intent: "create", ruleId: NEW_ID, draft });
+    const res = await create(json("/api/rules", { ...draft, id: NEW_ID, activation: "skip", fingerprint: "", touched: [], hold_all: true }));
+    expect(res.status).toBe(201);
+    const marks = state.saves[0].p_skip_marks as { d: string; rt: string; w: string }[];
+    const marked = new Set(marks.map((m) => m.d));
+    // Every day the popup would have shown, and the days the rule matches where no price moves (a comp night).
+    for (const night of body.affected as string[]) expect(marked.has(night)).toBe(true);
+    expect((state.saves[0].p_hold_nights as string[]).length).toBe(45);
   });
 
   it("switching on: refused without Apply or Skip; switching off needs no popup", async () => {
@@ -269,9 +285,20 @@ describe("saving through the popup", () => {
     expect(refused.status).toBe(409);
     expect(await refused.json()).toMatchObject({ code: "activation_required" });
     const { body } = await previewOf({ intent: "enable", ruleId: R.pausedBs });
-    const on = await toggle(json(`/api/rules/${R.pausedBs}/toggle`, { on: true, activation: "skip", fingerprint: body.fingerprint }), params(R.pausedBs));
+    const on = await toggle(
+      json(`/api/rules/${R.pausedBs}/toggle`, { on: true, activation: "skip", fingerprint: body.fingerprint, held: body.affected }),
+      params(R.pausedBs),
+    );
     expect(on.status).toBe(200);
-    expect(state.saves[0]).toMatchObject({ p_rule_id: R.pausedBs, p_is_new: false, p_fields: null, p_activation: "skip", p_skip_marks: [] });
+    // A booking speed rule: its holds are made by save_rule on the days shown.
+    expect(state.saves[0]).toMatchObject({
+      p_rule_id: R.pausedBs,
+      p_is_new: false,
+      p_fields: null,
+      p_activation: "skip",
+      p_skip_marks: [],
+      p_hold_nights: body.affected,
+    });
 
     const off = await toggle(json(`/api/rules/${R.busy}/toggle`, { on: false }), params(R.busy));
     expect(off.status).toBe(200);
@@ -348,7 +375,7 @@ describe("saving through the popup", () => {
     expect(cap.status).toBe(409);
     expect((await cap.json()).error).toBe("This property already has 40 active rules, which is the maximum.");
     state.saveError = { code: "PGRST202", message: "Could not find the function public.save_rule" };
-    const skip = await create(json("/api/rules", { ...draft, id: NEW_ID, activation: "skip", fingerprint: body.fingerprint }));
+    const skip = await create(json("/api/rules", { ...draft, id: NEW_ID, activation: "skip", fingerprint: body.fingerprint, held: body.affected }));
     expect(skip.status).toBe(503);
     expect((await skip.json()).error).toBe("This needs a database update first.");
   });

@@ -166,11 +166,11 @@ vi.mock("next/server", async (importOriginal) => ({
 }));
 vi.mock("@/lib/engine", () => ({ evaluateHotel: vi.fn() }));
 const nudgeHotelSync = vi.hoisted(() => vi.fn(async () => "nudged"));
-// Skip's marks come from a dry run of the engine (rule-preview.test.ts);
+// Skip's holds come from a dry run of the engine (rule-preview.test.ts);
 // here there are no rows to mark.
 vi.mock("@/lib/rule-preview", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/rule-preview")>()),
-  skipMarksForRule: async () => [],
+  skipPlanForRule: async () => ({ marks: [], holdNights: [] }),
 }));
 vi.mock("@/lib/pms/sync-nudge", () => ({ nudgeHotelSync }));
 
@@ -359,7 +359,8 @@ describe("add_rule: an accepted suggestion", () => {
     });
     state.client = client;
     const ruleId = "0d000000-0000-4000-8000-000000000001";
-    const res = await post({ action: "confirm", activation: "skip", ruleId, touched: [] });
+    // The days could not be worked out: Skip holds every day the rule could act on, with no check.
+    const res = await post({ action: "confirm", activation: "skip", ruleId, touched: [], hold_all: true });
     expect(res.status).toBe(200);
     expect(rpcs.find((r) => r.name === "save_rule")!.args).toMatchObject({
       p_rule_id: ruleId,

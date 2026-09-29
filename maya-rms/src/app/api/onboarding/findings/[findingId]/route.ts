@@ -103,8 +103,8 @@ async function answerRoomTypeQuestion(
  *
  * On the Rules tab's "Get suggestions from my data" the card opens the
  * activation popup first, and the owner's Apply or Skip comes with the
- * confirm (`activation`, `fingerprint`, `touched`, and for a new rule the
- * `ruleId` it was previewed under). The first onboarding review has no popup
+ * confirm (`activation`, `fingerprint`, `touched`, a Skip's `held` days or
+ * `hold_all`, and for a new rule the `ruleId` it was previewed under). The first onboarding review has no popup
  * (the property is being set up): a confirm without them applies the rule.
  * Returns an error response, or null when it saved.
  */
@@ -272,6 +272,8 @@ export async function POST(
     activation?: unknown;
     fingerprint?: unknown;
     touched?: unknown;
+    held?: unknown;
+    hold_all?: unknown;
     days?: unknown;
     refreshed?: unknown;
     ruleId?: unknown;
