@@ -17,7 +17,7 @@ questions:
   - Which emails come from Stripe and which from MAYA? {#emails-that-come-from-stripe}
   - An email did not arrive, what should I check? {#if-an-email-did-not-arrive/check-spam-and}
   - Which address do MAYA's emails come from, so we can allow them through our spam filter? {#the-sending-address}
-  - I use Mews and got a reminder that my system is not connected. What should I do? {#the-nudge-before-a-charge-when-nothing-is-connected/sent-to-a}
+  - I use Mews and got a reminder that my system is not connected. What should I do? {#the-nudge-before-a-charge-when-nothing-is-connected/if-your-property}
   - Where does the password reset email come from? {#the-password-reset-email}
 pms: [cloudbeds, thinkreservations, mews]
 updated: 2026-09-29
@@ -34,7 +34,7 @@ MAYA itself sends four emails: the team invitation, a note that your account is 
 | The team invitation | Someone on your team invites an address that has never signed in to MAYA | "You have been invited to The Harbour Inn on MAYA" |
 | The account ready email | Your payment is recorded, or your free trial starts, once for each property | "Your MAYA account is ready", or the property's name followed by "is ready in MAYA" |
 | The room count email | Your property system shows more rooms than you pay for | "Your MAYA plan covers 20 rooms" followed by what your system shows |
-| The nudge before a charge | A charge is coming up and your property system is still not connected | "Your MAYA subscription starts" and the date (first charge), or "MAYA renews" the date "and isn't connected to your PMS yet" |
+| The nudge before a charge | A charge is coming up and your property system is still not connected | "Your MAYA subscription starts" and the date (first charge), or "MAYA renews" and the date, then "and isn't connected to your PMS yet" |
 
 All four come from MAYA's own sending address, described under [The sending address](#the-sending-address). Nothing else is sent by MAYA today.
 
@@ -65,9 +65,9 @@ Sent after MAYA measures more rooms in your property system than you pay for. Th
 
 Sent to a property with a subscription, on a trial or paid, whose property system is not connected (never connected, or disconnected), shortly before a charge. It is triggered when Stripe announces the upcoming invoice. How many days ahead that happens is a Stripe setting. A connected property never gets it, even one whose connection is showing a problem.
 
-It says that your first payment (or renewal) of a stated amount is scheduled for a stated date. It goes on to say that your property system is not connected yet, so your rules have not been able to run, and that connecting takes about two minutes. Its button reads <Ui>Finish setting up MAYA</Ui>. It also states what you are paying for ("20 rooms at $5.50 per room, per month") and says that if that number is wrong, connecting first opens your <Ui>Billing</Ui> page, where you can change it before the charge.
+It says that your first payment (or renewal) of a stated amount is scheduled for a stated date. It goes on to say that your property system is not connected yet, so your rules have not been able to run, and that connecting takes about two minutes. Then it reads "On Mews? We connect it for you. Reply to this email or write to info@modern-hospitality-solutions.com and we'll set it up with you." Its button reads <Ui>Finish setting up MAYA</Ui>. A reply to it reaches us. It also states what you are paying for ("20 rooms at $5.50 per room, per month") and says that if that number is wrong, connecting first opens your <Ui>Billing</Ui> page, where you can change it before the charge.
 
-If your property uses Mews, we connect it for you, and until we have, this email can still arrive. Its button cannot connect Mews. It leads to the connect screen, where Mews is listed as <Ui>Not yet available</Ui>, so the two minutes the email mentions do not apply. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Connect%20Mews) instead and we connect it with you.
+If your property uses Mews, we connect it for you, and until we have, this email can still arrive. As it says, reply to it or [email us](mailto:info@modern-hospitality-solutions.com?subject=Connect%20Mews) and we connect it with you. Its button leads to the connect screen, where Mews is listed as <Ui>Not yet available</Ui>, so pressing it does not connect Mews.
 
 ## The account confirmation email
 
@@ -96,7 +96,7 @@ The address that receives invoices, receipts, the room count email and the nudge
 
 MAYA's four emails all come from one sending address that we set on our side. It is not shown anywhere in the app. If your IT team wants to allow our emails through a spam filter, [email us](mailto:info@modern-hospitality-solutions.com?subject=Sending%20address) and we send the exact address and domain.
 
-In the meantime, two things help. Every subject in the table above contains "MAYA". A reply to the team invitation goes to the person who sent it, not to us. A reply to the account ready email comes to us.
+In the meantime, two things help. Every subject in the table above contains "MAYA". A reply to the team invitation goes to the person who sent it, not to us. A reply to the account ready email or to the nudge before a charge comes to us.
 
 The other emails come from elsewhere: anything about money from Stripe, and the account confirmation and password reset emails from the sign-in service. Allow those separately.
 

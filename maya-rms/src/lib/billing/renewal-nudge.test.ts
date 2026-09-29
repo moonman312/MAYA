@@ -1,6 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { buildNudge, decideNudge, type UpcomingInvoice } from "./renewal-nudge";
+
+// Only the send is stood in for; isResendConfigured stays real for decideNudge.
+const mail = vi.hoisted(() => ({ sent: [] as Record<string, unknown>[] }));
+vi.mock("@/lib/email/resend", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/email/resend")>()),
+  sendEmail: async (input: Record<string, unknown>) => {
+    mail.sent.push(input);
+    return { id: "email_1" };
+  },
+}));
+
+import { buildNudge, decideNudge, sendRenewalNudge, type UpcomingInvoice } from "./renewal-nudge";
 import {
   renewalNudgeHtml,
   renewalNudgeSubject,
@@ -179,6 +190,20 @@ describe("the email shows the room count they can correct", () => {
   it("says year when the plan is annual", () => {
     const built = buildNudge(invoice({ billingInterval: "year" }), "u");
     expect(renewalNudgeText(built)).toContain("per year");
+  });
+});
+
+describe("sending the nudge", () => {
+  it("sends replies to us, since the email asks a Mews property to reply", async () => {
+    mail.sent = [];
+    const res = await sendRenewalNudge(invoice(), "gm@driftwood.example", "https://app.example/onboarding");
+    expect(res.ok).toBe(true);
+    expect(mail.sent).toHaveLength(1);
+    expect(mail.sent[0]).toMatchObject({
+      to: "gm@driftwood.example",
+      replyTo: "info@modern-hospitality-solutions.com",
+    });
+    expect(String(mail.sent[0].text)).toContain("On Mews? We connect it for you.");
   });
 });
 
