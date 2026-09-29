@@ -16,7 +16,7 @@ updated: 2026-09-27
 ---
 
 <InPlainWords>
-Pay, connect by signing in to ThinkReservations, and let MAYA read your history. On day one, check the room counts MAYA read and ask us which time zone MAYA has, then watch your rules in simulation before you go live. The main differences from Cloudbeds: there is no Marketplace (you connect from inside MAYA), MAYA counts each room type's rooms from ThinkReservations' list of rooms, and MAYA checks each send by reading your rates back within about an hour.
+Pay, connect by signing in to ThinkReservations, and let MAYA read your history. On day one, check the room counts, time zone and currency MAYA read, then watch your rules in simulation before you go live. The main differences from Cloudbeds: there is no Marketplace (you connect from inside MAYA), MAYA counts each room type's rooms from ThinkReservations' list of rooms, and MAYA checks each send by reading your rates back within about an hour.
 </InPlainWords>
 
 ## Before you start
@@ -38,8 +38,8 @@ On <Ui>Connect your property system</Ui>, click <Ui>Connect →</Ui> beside <Ui>
 <Step title="Pick a path">
 <Ui>Hold My Hand</Ui> or <Ui>Let Me Drive</Ui>. MAYA reads your history either way. Read [Hold My Hand or Let Me Drive](/docs/review/hold-my-hand-or-let-me-drive).
 </Step>
-<Step title="Check your room counts, and ask about the time zone">
-On the <Ui>PMS</Ui> tab, check the units beside each room type: MAYA counts them from ThinkReservations' list of rooms. The same counts make up the room count on your bill, so if they are more rooms than you pay for, you get a room count email. Read [Your room count and what you pay](/docs/billing/your-room-count). Then [email us](mailto:info@modern-hospitality-solutions.com?subject=ThinkReservations%20time%20zone) to ask which time zone MAYA has. MAYA copies your time zone and currency from ThinkReservations once, when you connect. No screen in MAYA shows the time zone. Nothing waits on it while you simulate, but check it with us before you go live. Read [Time zone and currency](/docs/connect/setting-up-your-system-for-maya#time-zone-and-currency).
+<Step title="Check your room counts, time zone and currency">
+On the <Ui>PMS</Ui> tab, check the units beside each room type: MAYA counts them from ThinkReservations' list of rooms. The same counts make up the room count on your bill, so if they are more rooms than you pay for, you get a room count email. Read [Your room count and what you pay](/docs/billing/your-room-count). Higher up the same tab, <Ui>Time zone and currency</Ui> shows what MAYA copied from ThinkReservations when you connected. Nothing waits on them while you simulate, but check both before you go live, and [email us](mailto:info@modern-hospitality-solutions.com?subject=ThinkReservations%20time%20zone) if either is wrong. Read [Time zone and currency](/docs/connect/setting-up-your-system-for-maya#time-zone-and-currency).
 </Step>
 </Steps>
 
@@ -62,8 +62,8 @@ On the <Ui>PMS</Ui> tab, check the units beside each room type: MAYA counts them
 **A normal day** once you are live takes a few minutes:
 
 - Open the <Ui>Change Log</Ui> tab. Its default view shows only the runs that changed a price, so read what moved and why.
-- Look for a banner: billing, a lost connection, a rule that raised or cut a night several times, or "Rates not reaching Think Reservations" at the top of the change log.
-- On the <Ui>PMS</Ui> tab, check that <Ui>Last sync</Ui> is a few minutes old. It is written in universal time (UTC), not your local time: [the PMS tab](/docs/watch/the-pms-tab#last-sync) shows how to read it. If it is more than an hour old, bookings are not being read, even if <Ui>Connection</Ui> reads Connected. Read [When there is no banner](/docs/connect/reconnect-and-disconnect#when-there-is-no-banner).
+- Look for a banner: billing, a lost connection, a rule that raised or cut a night several times, or "Prices not reaching Think Reservations" at the top of the change log.
+- On the <Ui>PMS</Ui> tab, check that <Ui>Last sync</Ui> is a few minutes old. It is shown on your own computer's clock, with the time zone after it: [the PMS tab](/docs/watch/the-pms-tab#last-sync) has an example. If it is more than an hour old, bookings are not being read, even if <Ui>Connection</Ui> reads Connected. Read [When there is no banner](/docs/connect/reconnect-and-disconnect#when-there-is-no-banner).
 - For your own events, such as a wedding or a local festival, type a price on those nights.
 
 The rest runs without you, day and night, whether or not anyone has MAYA open. Other things you may meet:
@@ -72,14 +72,14 @@ The rest runs without you, day and night, whether or not anyone has MAYA open. O
 - **A free night.** MAYA never sends a price of 0, so set a comp night to 0 in ThinkReservations yourself. Read [Make a night free](/docs/recipes/make-a-night-free).
 - **Blocked rooms.** MAYA does not read them. Enter them under <Ui>Rooms out of service</Ui> on the <Ui>PMS</Ui> tab. Read [Tell MAYA rooms are out of service](/docs/recipes/rooms-under-renovation).
 - **Permission or connection problems** show in the change log or as a banner, and a General Manager or Hotel Admin reconnects in one click. Read [Connection lost](/docs/wrong/connection-lost).
-- **The PMS tab's request list stays empty** for ThinkReservations. Look at <Ui>Connection</Ui> and <Ui>Last sync</Ui> instead. Read [The PMS tab](/docs/watch/the-pms-tab).
+- **The PMS tab's request list and Health card read "Not tracked for this system"** for ThinkReservations. Look at <Ui>Connection</Ui> and <Ui>Last sync</Ui> instead. Read [The PMS tab](/docs/watch/the-pms-tab).
 
 ## Leaving
 
 Cancel on the <Ui>Billing</Ui> page first, then [email us](mailto:info@modern-hospitality-solutions.com?subject=Disconnect%20ThinkReservations) and we remove the connection from our side. The rates in ThinkReservations stay as MAYA last sent them. Read [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving).
 
 <Example title="The Harbour Inn's first week on ThinkReservations">
-**Monday, October 5, 2026.** Sam pays, clicks <Ui>Connect →</Ui> beside Think Reservations, signs in and picks <Ui>Hold My Hand</Ui>. The <Ui>PMS</Ui> tab shows Standard at 12 units, Deluxe at 6 and Suite at 2, read from ThinkReservations' list of rooms: 20 rooms, what Sam's plan covers, so no room count email comes. Sam emails us to ask which time zone MAYA has, and the same day we reply that MAYA has US Pacific.
+**Monday, October 5, 2026.** Sam pays, clicks <Ui>Connect →</Ui> beside Think Reservations, signs in and picks <Ui>Hold My Hand</Ui>. The <Ui>PMS</Ui> tab shows Standard at 12 units, Deluxe at 6 and Suite at 2, read from ThinkReservations' list of rooms: 20 rooms, what Sam's plan covers, so no room count email comes. Higher up the tab, <Ui>Time zone and currency</Ui> reads America/Los_Angeles, US Pacific, and USD ($).
 
 **Tuesday to Thursday.** Sam adds "Busy nights" (occupancy Greater than 80, Increase 10%) on every room type. In simulation, Sat, Nov 14 2026 has 18 rooms booked, 90% of 20, so the rule raises Standard from the $150 Best Available rate in ThinkReservations to $165. Nothing is sent.
 
@@ -87,7 +87,7 @@ Cancel on the <Ui>Billing</Ui> page first, then [email us](mailto:info@modern-ho
 </Example>
 
 <Callout kind="not-yet">
-There is no marketplace listing, so no trial without a code, and no disconnect button in MAYA. The request log on the <Ui>PMS</Ui> tab stays empty. A review with no starter rules has no go-live button (email us).
+There is no marketplace listing, so no trial without a code, and no disconnect button in MAYA. The request list and Health card on the <Ui>PMS</Ui> tab read "Not tracked for this system". A review with no starter rules has no go-live button (email us).
 </Callout>
 
 <Related>

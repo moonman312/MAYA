@@ -99,7 +99,7 @@ export function HotelPmsCard({
               )}
               {(pmsType === "cloudbeds" || pmsType === "think") && (
                 <a
-                  href={`/api/pms/${pmsType}/connect?hotelId=${hotelId}`}
+                  href={`/api/pms/${pmsType}/connect?hotelId=${hotelId}&from=admin`}
                   className="rounded border border-slate-700 px-2 py-1 text-xs hover:border-slate-500"
                 >
                   Re-authorize
@@ -219,7 +219,7 @@ function OAuthConnectPanel({
       </dl>
       {pms.configured ? (
         <a
-          href={`/api/pms/${pms.type}/connect?hotelId=${hotelId}`}
+          href={`/api/pms/${pms.type}/connect?hotelId=${hotelId}&from=admin`}
           className="inline-block rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400"
         >
           Connect {pms.displayName}

@@ -1,16 +1,16 @@
 ---
 title: Calendar and change log questions
-summary: Why every day is amber or a busy night is red, why the calendar and the change log's bold lines show $ for a euro property, what ADR $150 means on an empty night, why the log is empty or full of "Prices checked", why an older change disappeared, and other things the two tabs do that look odd.
+summary: Why every day is amber or a busy night is red, why the change log's bold lines show $ for a euro property, why ADR shows a dash on an empty night, why the log is empty or full of "Prices checked", why an older change disappeared, and other things the two tabs do that look odd.
 section: wrong
 order: 80
 readingTime: 9
-keywords: [amber, orange, every day amber, red, busy night red, green, colour, color, colour did not change, revenue per room, revpar, dollar sign, $, euro, €, pound, £, currency, wrong currency, bold line, change log dollar, ADR 150, ADR $150, placeholder, revenue on the books, revenue, today, UTC, weekday, no weekday headers, past months zeros, zeros, prices checked, so many entries, show all cycles, empty log, change log empty, nothing in the log, older change disappeared, 10 runs, 40 changes, only some changes, missing how did we know, how did we know on occupancy change, booking speed reading on a typed price, times wrong, time zone, browser time, no recent activity, no requests recorded yet, banner out of date, stale banner, billing banner, ongoing sending problem, switching property, property switch, reload, couldn't load your price history]
+keywords: [amber, orange, every day amber, red, busy night red, green, colour, color, colour did not change, revenue per room, revpar, dollar sign, $, euro, €, pound, £, currency, wrong currency, bold line, change log dollar, ADR dash, ADR blank, no ADR, revenue on the books, revenue, today, UTC, weekday, no weekday headers, past months zeros, zeros, prices checked, so many entries, show all cycles, empty log, change log empty, nothing in the log, older change disappeared, 10 runs, 40 changes, only some changes, missing how did we know, how did we know on occupancy change, booking speed reading on a typed price, times wrong, time zone, browser time, no recent activity, no requests recorded yet, banner out of date, stale banner, billing banner, ongoing sending problem, switching property, property switch, reload, couldn't load your price history, not tracked for this system]
 questions:
   - Why is every day amber? {#why-is-every-day-amber}
   - Why is a busy night red? {#why-is-a-busy-night-red}
   - Why did the colour not change after a booking? {#why-did-the-colour-not-change-after-a-booking}
   - Why does the calendar show $ when my currency is euro? {#why-does-the-calendar-show--when-my-currency-is-euro}
-  - Why does ADR say $150 when nothing is booked? {#why-does-adr-say-150-when-nothing-is-booked}
+  - Why does ADR show a dash when nothing is booked? {#why-does-adr-show-a-dash-when-nothing-is-booked}
   - Why does today say revenue instead of revenue on the books? {#why-does-today-say-revenue-instead-of-revenue-on-the-books}
   - Why are there no weekday headers? {#why-are-there-no-weekday-headers}
   - Why do past months show zeros? {#why-do-past-months-show-zeros}
@@ -21,7 +21,7 @@ questions:
   - Why is "How did we know?" missing on some changes? {#why-is-how-did-we-know-missing-on-some-changes}
   - Why does "How did we know?" show under a change a booking speed rule did not make? {#why-is-how-did-we-know-missing-on-some-changes}
   - Whose time zone are the log times in? {#whose-time-zone-are-the-log-times-in}
-  - Why does the PMS tab say No recent activity on ThinkReservations or Mews? {#why-does-the-pms-tab-say-no-recent-activity-on-thinkreservations-or-mews}
+  - Why does the PMS tab say Not tracked for this system on ThinkReservations or Mews? {#why-does-the-pms-tab-say-not-tracked-for-this-system-on-thinkreservations-or-mews}
   - The alert banner is out of date {#the-alert-banner-is-out-of-date}
   - Switching property did nothing {#switching-property-did-nothing}
 pms: [cloudbeds, thinkreservations, mews]
@@ -29,7 +29,7 @@ updated: 2026-09-27
 ---
 
 <InPlainWords>
-The calendar colours compare each night's room revenue per room with your own other nights, so a busy night can be red, and every day is amber when there are fewer than 10 nights to compare. The calendar and the bold line of each change in the change log show $ whatever your currency. Only the sentences under each change use your currency's symbol. The change log holds the 10 most recent runs (roughly the last 50 minutes) and 40 changes per run, in your browser's time zone, and hides quiet runs unless you press <Ui>Show All Cycles</Ui>.
+The calendar colours compare each night's room revenue per room with your own other nights, so a busy night can be red, and every day is amber when there are fewer than 10 nights to compare. The calendar, the price box, the Rate Simulator and the sentences under each change use your currency's symbol. The bold line of each change in the change log shows $ whatever your currency. The change log holds the 10 most recent runs (roughly the last 50 minutes) and 40 changes per run, in your browser's time zone, and hides quiet runs unless you press <Ui>Show All Cycles</Ui>.
 </InPlainWords>
 
 ## Why is every day amber?
@@ -46,17 +46,17 @@ The booked counts and revenue on the visible month are always fresh, but the ran
 
 ## Why does the calendar show $ when my currency is euro?
 
-The day cards, the day detail, the room type cards, the manual price box, the Rate Simulator and the bold line of each change in the change log all show $ regardless of your property's currency. The numbers are in your own currency. Only the symbol is wrong.
+The calendar shows the sign of the currency saved for your property: $ for US dollars, € for euros, £ for pounds, and the three-letter code in front of the amount for any other currency. So do the manual price box, the Rate Simulator, the sentences under each change, the amber alert banner and the manual price error messages. If the calendar shows $ and your property is in euros, MAYA has US dollars saved for it. That is what a property gets when its currency was not read from its system when it connected. Check <Ui>Time zone and currency</Ui> on the <Ui>PMS</Ui> tab, and [email us](mailto:info@modern-hospitality-solutions.com?subject=Currency) to correct it.
 
-The sentences under each change, the amber alert banner and the manual price error messages use your currency's symbol: $ for US dollars, € for euros, £ for pounds, and the three-letter code in front of the amount for any other currency. So a property in euros sees "$150.00 up to $165.00" in a change's bold line and "€150.00" in the sentence under it, for the same price. Your currency comes from your property system when you connect and cannot be changed in the app.
+In the change log, one line shows $ whatever your currency: the bold line of each change. So a property in euros sees "$150.00 up to $165.00" in a change's bold line and "€150.00" in the sentence under it, for the same price. The numbers are in your own currency. Only that symbol is off. Your currency comes from your property system when you connect and cannot be changed in the app.
 
 <Callout kind="not-yet">
-The calendar and the change log's bold lines cannot show your currency's symbol yet, and the currency cannot be changed on a screen. If MAYA has the wrong currency for your property, [email us](mailto:info@modern-hospitality-solutions.com?subject=Currency).
+The change log's bold lines cannot show your currency's symbol yet, and the currency cannot be changed on a screen. If MAYA has the wrong currency for your property, [email us](mailto:info@modern-hospitality-solutions.com?subject=Currency).
 </Callout>
 
-## Why does ADR say $150 when nothing is booked?
+## Why does ADR show a dash when nothing is booked?
 
-The room type card's ADR (average daily rate: that night's room revenue divided by the rooms booked) needs at least one booking. When <Ui>Booked</Ui> reads 0, ignore the ADR line: the $150.00 there is a placeholder, whatever your rates are. It is not a price and it is not sent anywhere. Look at <Ui>Current price</Ui> for the price your rules have set.
+The room type card's ADR (average daily rate: that night's room revenue divided by the rooms booked) needs at least one booking. When <Ui>Booked</Ui> reads 0 there is nothing to average, so the line reads "ADR –". Look at <Ui>Current price</Ui> for the price your rules have set.
 
 ## Why does today say "revenue" instead of "revenue on the books"?
 
@@ -112,21 +112,21 @@ The button is missing when that run took no booking speed reading for the night.
 
 ## Whose time zone are the log times in?
 
-Your browser's. "Pricing run · Fri, Sep 18, 2026, 3:05 PM PDT" is the time on your computer's clock, with its zone abbreviation. Hover the time for the exact timestamp. Pricing itself works in your property's own time zone, and the "Updated 3:05:12 PM · live" time on the calendar is also your browser's clock.
+Your browser's. "Pricing run · Fri, Sep 18, 2026, 3:05 PM PDT" is the time on your computer's clock, with its zone abbreviation. Hover the time for the exact moment, to the second, on the same clock. <Ui>Last sync</Ui> and the request times on the <Ui>PMS</Ui> tab use your clock too. Pricing itself works in your property's own time zone, and the "Updated 3:05:12 PM · live" time on the calendar is also your browser's clock.
 
-## Why does the PMS tab say "No recent activity" on ThinkReservations or Mews?
+## Why does the PMS tab say "Not tracked for this system" on ThinkReservations or Mews?
 
-The <Ui>Health (last 24 hours)</Ui> card and the <Ui>Recent requests</Ui> table are filled from a request log that only Cloudbeds writes to today. On a ThinkReservations or Mews property the card reads "No recent activity" and the table reads "No requests recorded yet" however healthy the connection is. Use <Ui>Connection</Ui> and <Ui>Last sync</Ui> on those properties instead.
+The <Ui>Health (last 24 hours)</Ui> card and the <Ui>Recent requests</Ui> table are filled from a log of MAYA's requests, and MAYA keeps that log for Cloudbeds only. On a ThinkReservations or Mews property both read "Not tracked for this system", however healthy the connection is. Use <Ui>Connection</Ui> and <Ui>Last sync</Ui> on those properties instead.
 
 ## The alert banner is out of date
 
 The amber <Ui>Rules that keep adjusting</Ui> banner loads when the page opens and when you switch property, and not on a timer. A night you answered in another tab, or a night that has since passed, stays on screen until you reload the page.
 
-The billing banner loads only when the page opens. It does not reload when you switch property, so after a switch it can still show the last property's billing message, or show nothing when the new property has one. Reload the page after switching to see the billing banner for the property you are on.
+The billing, connection and review banners load the same way: when the page opens and when you switch property. A banner for the property you left goes as soon as you switch. Reload the page to see a change made since.
 
 ## Switching property did nothing
 
-If the switch fails, nothing is shown on screen and the old property stays. Reload the page and try again. Only properties that are paid for and set up appear in the <Ui>Property</Ui> dropdown: a property you set aside with "Not now" is listed under <Ui>Properties not set up yet</Ui> on the billing page, where <Ui>Set up</Ui> brings it back.
+If the switch fails, a short red line under the <Ui>Property</Ui> dropdown says so, such as "Couldn't switch to Sea View Inn. You're still on The Harbour Inn. Try again in a moment.", and the property you had stays open. Try again, and reload the page if it keeps failing. Only properties that are paid for and set up appear in the <Ui>Property</Ui> dropdown: a property you set aside with "Not now" is listed under <Ui>Properties not set up yet</Ui> on the billing page, where <Ui>Set up</Ui> brings it back.
 
 <Related>
 - [The calendar](/docs/watch/the-calendar)

@@ -538,7 +538,7 @@ async function getCalendarFromDb(
   ] = await Promise.all([
     supabase
       .from("hotels")
-      .select("total_rooms_per_type, timezone")
+      .select("total_rooms_per_type, timezone, currency")
       .eq("id", hotelId)
       .maybeSingle(),
     loadRoomTypeRows(supabase, hotelId),
@@ -588,7 +588,6 @@ async function getCalendarFromDb(
   ]);
 
   const hotelFallbackRooms = hotelRow?.total_rooms_per_type ?? 100;
-  const defaultBaseRate = 150;
   const todayStr = evalIsoToHotelDateString(new Date().toISOString(), hotelRow?.timezone ?? "UTC");
 
   const rtList =
@@ -599,14 +598,12 @@ async function getCalendarFromDb(
           // 0 is a real count (a type whose rooms are all inactive), so only
           // a missing value borrows the hotel default.
           total_rooms: typeof rt.total_rooms === "number" && rt.total_rooms >= 0 ? rt.total_rooms : hotelFallbackRooms,
-          base_rate: defaultBaseRate,
           counts_as_room: rt.counts_as_room,
         }))
       : ROOM_TYPES.map((rt) => ({
           id: rt.name,
           name: rt.name,
           total_rooms: rt.total_rooms,
-          base_rate: rt.base_rate,
           counts_as_room: true as boolean | null,
         }));
 
@@ -674,27 +671,28 @@ async function getCalendarFromDb(
   // Build a lookup: room_type_id -> room type info
   const rtById: Record<
     string,
-    { name: string; total_rooms: number; base_rate: number; counts_as_room: boolean | null }
+    { name: string; total_rooms: number; counts_as_room: boolean | null }
   > = {};
   for (const rt of rtList) {
     rtById[String(rt.id)] = {
       name: rt.name,
       total_rooms: rt.total_rooms,
-      base_rate: rt.base_rate,
       counts_as_room: rt.counts_as_room,
     };
   }
 
-  /** Nightly room revenue: prefer imported base (stable BAR), else current PMS rate, else category default. */
-  function nightlyRoomAmount(
-    r: { base_rate: number | null; current_rate: number | null },
-    categoryDefault: number,
-  ): number {
+  /**
+   * Nightly room revenue: prefer imported base (stable BAR), else current PMS
+   * rate, else 0. A booking the PMS sent with no rate earned nothing we can
+   * see, and a stand-in figure would show up as real revenue and pull the
+   * average rate towards it. calendar_daily_revenue counts it as 0 as well.
+   */
+  function nightlyRoomAmount(r: { base_rate: number | null; current_rate: number | null }): number {
     const b = r.base_rate != null ? Number(r.base_rate) : NaN;
     if (Number.isFinite(b)) return b;
     const c = r.current_rate != null ? Number(r.current_rate) : NaN;
     if (Number.isFinite(c)) return c;
-    return categoryDefault;
+    return 0;
   }
 
   const firstDay = new Date(Date.UTC(year, month - 1, 1));
@@ -721,11 +719,9 @@ async function getCalendarFromDb(
     const roomTypes: CalendarRoomType[] = rtList.map((rt) => {
       const matching = reservationsByCell.get(`${dateStr}|${String(rt.id)}`) ?? [];
       const booked = matching.length;
-      const roomRevenue = matching.reduce(
-        (s, r) => s + nightlyRoomAmount(r, rt.base_rate),
-        0,
-      );
-      const adr = booked > 0 ? roomRevenue / booked : rt.base_rate;
+      const roomRevenue = matching.reduce((s, r) => s + nightlyRoomAmount(r), 0);
+      // No bookings, no average: null, which the day card shows as a dash.
+      const adr = booked > 0 ? roomRevenue / booked : null;
       // Sellable, not physical: what the engine snapshots for this night.
       const sellable = sellableUnitsFor(rt.total_rooms, oosRows, dateStr, String(rt.id));
       const occPct = sellable > 0 ? Math.round((booked / sellable) * 100) : 0;
@@ -738,7 +734,7 @@ async function getCalendarFromDb(
         total_rooms: sellable,
         occupancy_pct: occPct,
         booked,
-        rate: Math.round(adr * 100) / 100,
+        rate: adr == null ? null : Math.round(adr * 100) / 100,
         revenue: Math.round(roomRevenue * 100) / 100,
         current_price: published?.price ?? null,
         current_rate: published?.price ?? null,
@@ -773,6 +769,7 @@ async function getCalendarFromDb(
     first_weekday: firstWeekday,
     thresholds: { ...THRESHOLDS, ...scaleToThresholds(scale) },
     range,
+    currency: hotelRow?.currency ? String(hotelRow.currency) : null,
     days,
   };
 }

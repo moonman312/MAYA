@@ -190,7 +190,13 @@ Three environment variables and one script. No code changes.
    `customer.subscription.updated`, `customer.subscription.deleted`,
    `customer.subscription.paused`, `customer.subscription.resumed`,
    `customer.subscription.trial_will_end`, `invoice.payment_succeeded`,
-   `invoice.upcoming`. Copy its signing secret.
+   `invoice.upcoming`, `customer.updated`. Copy its signing secret.
+   `customer.updated` is what pays an unpaid subscription's open invoice when
+   the owner saves a new default card in the billing portal
+   (`lib/billing/unpaid-recovery.ts`); without it on the endpoint, updating
+   the card does not restart the subscription. It only pays the subscription
+   `hotel_subscriptions` records for the hotel; an older unpaid one a newer
+   checkout replaced is logged (`stale_unpaid_not_revived`) and left alone.
 4. In Vercel (Production), set `STRIPE_SECRET_KEY`,
    `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` to the live
    values, and `MAYA_MARKETPLACE_TRIAL_DAYS` to what the offer should be.
@@ -232,8 +238,9 @@ Going back to test mode is the same three variables, the other way.
   directions write a `pms.marketplace_deferred` / `pms.marketplace_resumed`
   audit event. The link is not offered on the last parked property when nothing
   is live — there would be nowhere to go — and never for Flow B. Deployed ahead
-  of its migration, the route answers 503 "This needs a database update first."
-  and the queue behaves as before.
+  of its migration, the route answers 503 "Something on our side isn't ready
+  yet. Email us and tell us which page you were on." and the queue behaves as
+  before.
 - **Pre-payment API budget.** An unclaimed connect costs the callback's 1 + N
   calls and nothing more. A claimed property that never pays costs one import:
   for a 42-room property with seven years of history, roughly 390 Cloudbeds

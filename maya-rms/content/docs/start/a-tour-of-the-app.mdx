@@ -14,7 +14,7 @@ questions:
   - Where do I type a price for one night? {#calendar/a-month-grid}
   - Does the app remember which tab I was on? {#what-is-not-on-screen/the-tab-you}
   - What does the coloured bar on a calendar day mean? {#calendar/a-month-grid}
-  - I switched property. Why does a banner still show the old one? {#the-property-dropdown}
+  - Do the banners change when I switch property? {#the-property-dropdown}
 pms: [cloudbeds, thinkreservations, mews]
 updated: 2026-09-28
 ---
@@ -39,7 +39,7 @@ The tabs sit under the header. <Ui>Calendar</Ui> is the one that opens first whe
 
 A month grid. Each day is a card showing the day number, that night's sellable occupancy as a percentage, how many rooms are booked out of how many you can sell, the room revenue on the books, and a thin colour bar. The legend under the grid reads <Ui>strong night</Ui>, <Ui>typical night</Ui> and <Ui>weak night</Ui>: the colour compares the night's revenue per room with your own other nights, past nights against past nights and future nights against future nights.
 
-Click a day and the day detail opens: the date, a summary line, and one card per room type with <Ui>Booked</Ui>, <Ui>ADR</Ui> (ADR means average daily rate: that night's room revenue divided by the rooms booked), <Ui>Current price</Ui> and <Ui>Revenue</Ui>. When <Ui>Booked</Ui> reads 0, ignore the ADR line: the $150.00 there is a placeholder, not a rate of yours. Under each room type card is the box where you type a price for that room type on that night. <Ui>Prev</Ui> and <Ui>Next</Ui> step a month at a time, and the month and year dropdowns jump further. Read [The calendar](/docs/watch/the-calendar).
+Click a day and the day detail opens: the date, a summary line, and one card per room type with <Ui>Booked</Ui>, <Ui>ADR</Ui> (ADR means average daily rate: that night's room revenue divided by the rooms booked), <Ui>Current price</Ui> and <Ui>Revenue</Ui>. When <Ui>Booked</Ui> reads 0 there is nothing to average, and the ADR line shows a dash. Amounts carry your property's currency sign. Under each room type card is the box where you type a price for that room type on that night. <Ui>Prev</Ui> and <Ui>Next</Ui> step a month at a time, and the month and year dropdowns jump further. Read [The calendar](/docs/watch/the-calendar).
 
 <Callout kind="good-to-know">
 Top right of the calendar, a small line reads "Updated", then the time in your browser's own format ("Updated 3:05:12 PM · live" in US English). The word live there means the calendar refreshes by itself when prices or bookings change. It shows in simulation too, so it does not mean your property is live. [Tell if you are live or in simulation](/docs/recipes/tell-if-you-are-live) shows where to look for that.
@@ -67,25 +67,25 @@ The 10 most recent pricing runs that changed a price, newest first. The button a
 
 ### PMS
 
-The connection to your property system. The heading reads <Ui>Property System</Ui> with your system's name in brackets. Three cards: <Ui>Connection</Ui> (connected, pending, degraded, error or disconnected), <Ui>Health (last 24 hours)</Ui> and <Ui>Last sync</Ui>, then a list of the most recent requests MAYA made to your system. When the connection is broken, a <Ui>Reconnect Cloudbeds</Ui> (or <Ui>Reconnect Think Reservations</Ui>) button appears here.
+The connection to your property system. The heading reads <Ui>Property System</Ui> with your system's name in brackets. Three cards: <Ui>Connection</Ui> (connected, pending, degraded, error or disconnected), <Ui>Health (last 24 hours)</Ui> and <Ui>Last sync</Ui>, then a list of the most recent requests MAYA made to your system, and a <Ui>Time zone and currency</Ui> card showing both as saved for your property. When the connection is broken, a <Ui>Reconnect Cloudbeds</Ui> (or <Ui>Reconnect Think Reservations</Ui>) button appears here.
 
 Under the connection is the <Ui>Room types</Ui> section. Each room type has a <Ui>Counts as a room</Ui> checkbox (untick a meeting room or a spa slot, and it leaves the occupancy count and the room count you are billed for) and a <Ui>+ Rooms out of service</Ui> link where you note units you have taken off sale for a stretch, so occupancy counts only what you can sell. Nothing is sent to your system. Read [The PMS tab: connection health](/docs/watch/the-pms-tab) and [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
 
 ## The Property dropdown
 
-To the right of the tab row, labelled <Ui>Property</Ui>. It lists every property you belong to, in alphabetical order, and shows even when there is only one. Choosing another property reloads the calendar, the rules, the room types and the rules that keep adjusting banner for it. The billing and review banners update only when you reload the page, and the connection banner when you open the <Ui>PMS</Ui> tab. Reload after switching to see them for the new property. Properties that are set aside or not yet paid for do not appear. Read [Several properties on one account](/docs/account/several-properties).
+To the right of the tab row, labelled <Ui>Property</Ui>. It lists every property you belong to, in alphabetical order, and shows even when there is only one. Choosing another property reloads the calendar, the rules, the room types and every banner for it: billing, the lost connection, the review and the rules that keep adjusting. A banner for the property you left goes as soon as you switch. Properties that are set aside or not yet paid for do not appear. Read [Several properties on one account](/docs/account/several-properties).
 
 ## The banners, in the order they stack
 
 Banners appear between the tabs and the tab's content, only when something needs you. From top to bottom:
 
-1. **Billing.** Red with a <Ui>Restart MAYA</Ui> button when work has stopped (for example "MAYA has paused work on this property"). Amber with a <Ui>Fix it</Ui> button for a warning, such as a payment that did not go through, a card that stopped working, a room count that is higher than you pay for, or a subscription set to cancel. Silent while everything is fine. Read [The billing page](/docs/billing/the-billing-page).
-2. **Connection lost.** "MAYA has lost its connection to Cloudbeds" (or your system's name), with a <Ui>Reconnect Cloudbeds</Ui> button for a General Manager or Hotel Admin. One click sends you to your system to confirm and brings you back. Anyone else sees the heading and a line asking a General Manager or Hotel Admin to reconnect. With Mews, a General Manager or Hotel Admin sees "Mews needs its keys re-entered" instead, with no button: [email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20keys) and we re-enter them with you. Your rules, history and settings are untouched. Read [Connection lost](/docs/wrong/connection-lost).
+1. **Billing.** Red with a <Ui>Restart MAYA</Ui> button when work has stopped (for example "MAYA has paused work on this property"). Amber with a <Ui>Fix it</Ui> button for a warning, such as a payment that did not go through, a card that stopped working, a room count that is higher than you pay for, or a subscription set to cancel. When the fix is to write to us (a paused subscription, or more than 500 rooms), the button is <Ui>Email us</Ui> instead. Silent while everything is fine. Read [The billing page](/docs/billing/the-billing-page).
+2. **Connection lost.** "MAYA has lost its connection to Cloudbeds" (or your system's name), with a <Ui>Reconnect Cloudbeds</Ui> button for a General Manager or Hotel Admin. One click sends you to your system to confirm and brings you back. Anyone else sees the heading and a line asking a General Manager or Hotel Admin to reconnect. With Mews, everyone sees "Mews needs its keys re-entered" instead, with no button and "Ask us to re-enter the Mews keys: email info@modern-hospitality-solutions.com.": [email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20keys) and we re-enter them with you. Your rules, history and settings are untouched. Read [Connection lost](/docs/wrong/connection-lost).
 3. **The review.** A blue card, shown after your history has been read and something is waiting for a yes or no from you, ending with the link <Ui>Review →</Ui>. It disappears once you finish the review.
 4. **Rules that keep adjusting.** An amber banner once three changes by one booking speed or pickup count rule are on the same night's price. It names the rule and the night and asks you to choose <Ui>Keep adjusting</Ui> or <Ui>Stop for this night</Ui>. Until you answer, the rule keeps going. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
 
 <Callout kind="good-to-know">
-The connection lost banner only shows once you have opened the <Ui>PMS</Ui> tab in this visit, so open it if you suspect a problem. On a live Cloudbeds property whose connection has been cut, the change log also says "Reconnect Cloudbeds on the PMS tab." Other refusals, and ThinkReservations, get their own line saying what to do.
+The connection lost banner shows from the moment the dashboard opens, whichever tab you are on, once the connection is marked as lost. Some breaks never are, so if you suspect a problem, open the <Ui>PMS</Ui> tab and check <Ui>Last sync</Ui>. On a live Cloudbeds property whose connection has been cut, the change log also says "Reconnect Cloudbeds on the PMS tab." Other refusals, and ThinkReservations, get their own line saying what to do.
 </Callout>
 
 ## The Billing and Team pages

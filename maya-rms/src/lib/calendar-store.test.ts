@@ -320,6 +320,15 @@ describe("getCalendar (Supabase) — sellable occupancy", () => {
     expect(cal.days["20"].total).toBe(20);
   });
 
+  it("names the property's currency, so the day card can use its symbol", async () => {
+    const { client } = calendarDb({
+      hotels: [{ id: "h1", timezone: "UTC", currency: "EUR", total_rooms_per_type: 100 }],
+      room_types: [{ id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 20, counts_as_room: true }],
+    });
+    const cal = await getCalendar(2026, 10, client);
+    expect(cal.currency).toBe("EUR");
+  });
+
   it("renders on the physical count, once loudly, before the out-of-service table exists", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const { client } = calendarDb(
@@ -333,6 +342,28 @@ describe("getCalendar (Supabase) — sellable occupancy", () => {
     expect(cal.days["10"].total).toBe(20);
     expect(err).toHaveBeenCalledTimes(1);
     expect(String(err.mock.calls[0][0])).toContain("99_supabase_migration_room_type_out_of_service_v1.sql");
+  });
+});
+
+describe("getCalendar (Supabase): revenue and average rate", () => {
+  afterEach(() => {
+    clearCalendarHistoryCache();
+    vi.restoreAllMocks();
+  });
+
+  it("counts a booking with no rate as 0, and has no average rate for a night with nothing booked", async () => {
+    const { client } = calendarDb({
+      hotels: [{ id: "h1", timezone: "UTC", total_rooms_per_type: 100 }],
+      room_types: [{ id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 10, counts_as_room: true }],
+      reservations: [
+        { id: "a", hotel_id: "h1", stay_date: "2026-10-10", room_type_id: "rt1", base_rate: 120, current_rate: 120 },
+        { id: "b", hotel_id: "h1", stay_date: "2026-10-10", room_type_id: "rt1", base_rate: null, current_rate: null },
+      ],
+    });
+    const cal = await getCalendar(2026, 10, client);
+    expect(cal.days["10"].room_types[0]).toMatchObject({ booked: 2, revenue: 120, rate: 60 });
+    expect(cal.days["10"].revenue).toBe(120);
+    expect(cal.days["11"].room_types[0]).toMatchObject({ booked: 0, revenue: 0, rate: null });
   });
 });
 

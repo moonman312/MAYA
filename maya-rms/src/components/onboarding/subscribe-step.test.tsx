@@ -114,6 +114,87 @@ describe("SubscribeStep and a subscription already on the property", () => {
   });
 });
 
+describe("SubscribeStep on a restart", () => {
+  // Checkout grants a restart no trial of any kind, a code's own included. The
+  // panel says "Billed when you finish checkout." whatever code is typed.
+  let validateBodies: Record<string, unknown>[] = [];
+
+  beforeEach(() => {
+    validateBodies = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      if (url === "/api/billing/validate-code") {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        validateBodies.push(body);
+        // Even an effect that still carried free days must not reach the panel.
+        return json({ valid: true, grants: body.restart ? "No free days on a restart." : "30 days free.", effect: { trialDays: 30, percentOff: 20, discountDuration: "forever" } });
+      }
+      return json({});
+    });
+  });
+
+  function renderWithCode(restart: boolean) {
+    render(
+      <SubscribeStep
+        restart={restart}
+        initialRooms={24}
+        lockPms
+        pmsOptions={[{ type: "cloudbeds", displayName: "Cloudbeds", requiresSignupCode: false }]}
+      />,
+    );
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "MHSFOUNDER" } });
+  }
+
+  it("says billed when you finish checkout, with a trial code typed", async () => {
+    renderWithCode(true);
+    await screen.findByText("No free days on a restart.");
+    expect(validateBodies.at(-1)).toMatchObject({ code: "MHSFOUNDER", restart: true });
+    expect(screen.getByText("Billed when you finish checkout. Cancel anytime.")).not.toBeNull();
+    expect(screen.queryByText(/^Nothing today/)).toBeNull();
+    // The code's discount still shows: the list price struck through beside it.
+    expect(document.querySelector("s")).not.toBeNull();
+  });
+
+  it("still shows a code's free days on a first signup", async () => {
+    renderWithCode(false);
+    await screen.findByText("30 days free.");
+    expect(validateBodies.at(-1)).not.toHaveProperty("restart");
+    expect(screen.getByText(/^Nothing today/)).not.toBeNull();
+  });
+});
+
+describe("SubscribeStep wording", () => {
+  const cloudbeds = (requiresSignupCode: boolean) => [
+    { type: "cloudbeds", displayName: "Cloudbeds", requiresSignupCode },
+  ];
+
+  it("has no em dash on a cancelled checkout with an optional code and Not now", () => {
+    const { container } = render(
+      <SubscribeStep cancelled hotelId="hotel-1" deferrable lockPms pmsOptions={cloudbeds(false)} />,
+    );
+    expect(container.textContent).toContain("No charge was made: you left checkout before finishing.");
+    expect(container.textContent).toContain("Got a discount or trial code? Enter it here, or leave this blank.");
+    expect(screen.getByRole("button", { name: "Not now, set this property up later" })).not.toBeNull();
+    expect(container.textContent).not.toContain("\u2014");
+  });
+
+  it("has no em dash on a trial with a required code", () => {
+    const { container } = render(
+      <SubscribeStep lockPms pmsOptions={cloudbeds(true)} baseTrialDays={7} initialRooms={24} />,
+    );
+    expect(container.textContent).toContain("MAYA is invite-only for now, so you'll have been given a code.");
+    expect(container.textContent).toMatch(/Nothing today\. Your first charge is \$[\d,.]+ on /);
+    expect(container.textContent).not.toContain("\u2014");
+  });
+
+  it("has no em dash when the code check finds the session gone", async () => {
+    vi.stubGlobal("fetch", async () => json({ error: "Not signed in" }, 401));
+    const { container } = render(<SubscribeStep lockPms pmsOptions={cloudbeds(true)} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "MHSFOUNDER" } });
+    await screen.findByText("Your session expired. Sign in again and retry.");
+    expect(container.textContent).not.toContain("\u2014");
+  });
+});
+
 describe("ConnectPms", () => {
   it("offers Manage billing or cancel when the pending property has a subscription", async () => {
     const { ConnectPms } = await import("./connect-pms");

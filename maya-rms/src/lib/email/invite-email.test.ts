@@ -27,3 +27,18 @@ describe("inviteEmailHtml", () => {
     expect(text).toContain(input.acceptUrl);
   });
 });
+
+describe("what to do when the link has expired", () => {
+  // The accept page says the same: email us for a new link. Nobody on the
+  // property has a resend button, so "ask an administrator" was advice
+  // nobody could follow.
+  it("says to email us, in both versions", () => {
+    const text = inviteEmailText(input);
+    expect(text).toContain(
+      "If it has expired and you haven't set your password yet, email us at info@modern-hospitality-solutions.com for a new link.",
+    );
+    const html = inviteEmailHtml(input);
+    expect(html).toContain('href="mailto:info@modern-hospitality-solutions.com"');
+    for (const body of [text, html]) expect(body).not.toMatch(/administrator|resend the invite/i);
+  });
+});

@@ -56,6 +56,23 @@ export async function GET() {
     job = data;
   }
 
+  // The go-live card on the review lists the starter rules an import built.
+  // "Get suggestions from my data" points the review at a job of its own,
+  // which builds none, and the card (with its go-live button) went with it.
+  // So the rules come from the newest job that has them on record.
+  let starterRules = starterRulesOf(job);
+  if (starterRules.length === 0) {
+    const { data: built } = await supabase
+      .from("import_jobs")
+      .select("stats")
+      .eq("hotel_id", hotelId)
+      .not("stats->starterRules", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    starterRules = starterRulesOf(built);
+  }
+
   const [{ data: settings }, { data: connections }] = await Promise.all([
     supabase.from("hotel_settings").select("simulation_mode").eq("hotel_id", hotelId).maybeSingle(),
     // Which PMS going live would send to, for the confirm step; a live
@@ -64,6 +81,9 @@ export async function GET() {
   ]);
   const connection =
     (connections ?? []).find((c: { status: unknown }) => c.status === "connected") ?? (connections ?? [])[0] ?? null;
+  // Whether this PMS has a history import at all: without one, a read (Get
+  // suggestions from my data) has nothing to read, so the button stays off.
+  const pmsEntry = connection?.pms_type != null ? getRegistry(String(connection.pms_type) as PmsType) : null;
 
   const [{ count: proposedFindings }, { data: latestProposed }] = await Promise.all([
     supabase
@@ -121,12 +141,20 @@ export async function GET() {
     currency: hotel?.currency ?? null,
     state: state ?? null,
     job,
+    starterRules,
     proposedFindings: proposedFindings ?? 0,
     latestProposedAt: latestProposed?.created_at ?? null,
     simulationMode: settings?.simulation_mode !== false,
     pmsType: connection?.pms_type != null ? String(connection.pms_type) : null,
+    pmsName: pmsEntry?.displayName ?? null,
+    historyImport: connection ? pmsEntry?.onboardingSupported === true : null,
     // The nights the push sends, so the go-live confirm names the real window:
     // the one the hotel's last daily pass used, which the syncs' switch sets.
     pushWindowDays: isAdminConfigured() ? await hotelPricingHorizon(createAdminClient(), hotelId) : pricingHorizonDays(),
   });
+}
+
+function starterRulesOf(job: { stats?: unknown } | null | undefined): Array<{ name: string; explanation: string }> {
+  const rules = (job?.stats as { starterRules?: unknown } | null | undefined)?.starterRules;
+  return Array.isArray(rules) ? (rules as Array<{ name: string; explanation: string }>) : [];
 }

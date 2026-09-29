@@ -24,7 +24,7 @@
  * Every change is audited: the flag decides whether a property gets billed.
  */
 
-import { isUuid } from "@/lib/api-guards";
+import { NOT_READY_YET, isUuid } from "@/lib/api-guards";
 import { isEntitledStatus } from "@/lib/billing/entitlement";
 import { listUnpaidMarketplaceHotels } from "@/lib/billing/pending-hotel";
 import { stopPrePaymentImport } from "@/lib/pms/eager-import";
@@ -164,7 +164,7 @@ async function setDeferred(req: Request, deferred: boolean): Promise<NextRespons
             warning: "hotels.setup_deferred_at is missing — run 99_supabase_migration_setup_deferred_v1.sql",
           }),
         );
-        return fail(503, "This needs a database update first.");
+        return fail(503, NOT_READY_YET);
       }
       throw new Error(`Could not update the property: ${error.message}`);
     }

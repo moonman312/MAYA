@@ -209,6 +209,21 @@ describe("findings confirm route: claims before side effects", () => {
     expect(tables.get("hotel_closed_periods")).toHaveLength(1);
   });
 
+  it("tells someone below Revenue Manager why the card can't be answered, and changes nothing", async () => {
+    // Row security leaves their claim an update of no rows, which used to
+    // come back as "Finding was already resolved".
+    const { client, tables } = seedClosedPeriodFinding();
+    client.rpc = async (name: string) => ({ data: name === "can_manage_hotel" ? false : null, error: null });
+    state.client = client;
+    for (const action of ["confirm", "dismiss"]) {
+      const res = await post({ action });
+      expect(res.status).toBe(403);
+      expect((await res.json()).error).toBe("Only a Revenue Manager or above can answer this.");
+    }
+    expect(tables.get("onboarding_findings")?.[0]).toMatchObject({ status: "proposed" });
+    expect(tables.get("hotel_closed_periods") ?? []).toHaveLength(0);
+  });
+
   it("rejects confirming a finding that was already dismissed", async () => {
     const { client, tables } = seedClosedPeriodFinding("dismissed");
     state.client = client;

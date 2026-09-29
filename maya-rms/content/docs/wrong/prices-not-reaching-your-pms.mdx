@@ -1,10 +1,10 @@
 ---
 title: Prices are not reaching your property system
-summary: What to check when you went live and nothing is sent, when MAYA shows a new price but Cloudbeds has the old one, why a non-refundable (derived) rate did not move, when a rate you changed in your system was written over, and what each "Rates not reaching" sentence asks you to do.
+summary: What to check when you went live and nothing is sent, when MAYA shows a new price but Cloudbeds has the old one, why a non-refundable (derived) rate did not move, when a rate you changed in your system was written over, and what each "Prices not reaching" sentence asks you to do.
 section: wrong
 order: 60
-readingTime: 11
-keywords: [not reaching, rates not reaching cloudbeds, rates not reaching think reservations, nothing sent, nothing is sent, went live, old price, still has the old price, price in cloudbeds does not match, mismatch, overwrote, wrote over, written over, overwritten, changed in cloudbeds, my rate, closed night, priced a night I closed, zero, price of 0, comp night, 70 days, beyond 60 days, already begun, time zone, tonight's price not reaching, after midnight, refused, rate rule, minimum rate, maximum rate, follows another rate plan, derived, derived rate, derived plan, non-refundable, nonrefundable, non refundable, member rate, other rate plans, did not move, didn't move, can't find a base rate, base rate, slow down, throttled, isn't responding, down, outage, never confirmed, renamed rate plan, rebuilt, resolved, ended, mews, am I live, no starter rules, no go-live button, no turn them on for real, connection card, no banner, lost its connection, disconnected]
+readingTime: 12
+keywords: [not reaching, rates not reaching cloudbeds, prices not reaching cloudbeds, rates not reaching think reservations, prices not reaching think reservations, nothing sent, nothing is sent, went live, old price, still has the old price, price in cloudbeds does not match, mismatch, overwrote, wrote over, written over, overwritten, changed in cloudbeds, my rate, closed night, priced a night I closed, zero, price of 0, comp night, 70 days, beyond 60 days, already begun, time zone, tonight's price not reaching, after midnight, refused, rate rule, minimum rate, maximum rate, follows another rate plan, derived, derived rate, derived plan, non-refundable, nonrefundable, non refundable, member rate, other rate plans, did not move, didn't move, can't find a base rate, base rate, slow down, throttled, isn't responding, down, outage, never confirmed, renamed rate plan, rebuilt, resolved, ended, mews, am I live, no starter rules, no go-live button, no turn them on for real, connection card, no banner, lost its connection, disconnected]
 questions:
   - I went live and nothing is being sent {#i-went-live-and-nothing-is-being-sent/wait-two-cycles}
   - MAYA shows a new price but Cloudbeds still has the old one {#maya-shows-a-new-price-but-cloudbeds-still-has-the-old-one/it-has-not}
@@ -14,19 +14,19 @@ questions:
   - Why did MAYA price a night I closed in my system? {#why-did-maya-price-a-night-i-closed-in-my-system}
   - Why was a night I set to 0 not sent? {#why-was-a-night-i-set-to-0-not-sent}
   - Why was a night 70 days out not sent? {#why-was-a-night-70-days-out-not-sent}
-  - What does "wouldn't take rates for a night that had already begun" mean? {#every-rates-not-reaching-sentence-and-what-to-do/the-items-second}
-  - What does "refused MAYA's price because it breaks a rate rule" mean? {#every-rates-not-reaching-sentence-and-what-to-do/the-items-second}
-  - What does "follows another rate plan" mean? {#every-rates-not-reaching-sentence-and-what-to-do/the-items-second}
-  - What does "asked MAYA to slow down" mean? {#every-rates-not-reaching-sentence-and-what-to-do/the-items-second}
+  - What does "wouldn't take rates for a night that had already begun" mean? {#every-prices-not-reaching-sentence-and-what-to-do/the-items-second}
+  - What does "refused MAYA's price because it breaks a rate rule" mean? {#every-prices-not-reaching-sentence-and-what-to-do/the-items-second}
+  - What does "follows another rate plan" mean? {#every-prices-not-reaching-sentence-and-what-to-do/the-items-second}
+  - What does "asked MAYA to slow down" mean? {#every-prices-not-reaching-sentence-and-what-to-do/the-items-second}
   - What does "took rates but never confirmed it saved them" mean? {#maya-shows-a-new-price-but-cloudbeds-still-has-the-old-one/cloudbeds-took-it}
-  - I renamed my rate plans and now prices are not going through {#every-rates-not-reaching-sentence-and-what-to-do/the-items-second}
+  - I renamed my rate plans and now prices are not going through {#every-prices-not-reaching-sentence-and-what-to-do/the-items-second}
   - Does MAYA send prices to Mews? {#i-went-live-and-nothing-is-being-sent/mews-nothing-is}
 pms: [cloudbeds, thinkreservations, mews]
 updated: 2026-09-24
 ---
 
 <InPlainWords>
-Give a new price two cycles, about ten minutes, then open the <Ui>Change Log</Ui> tab. A problem that needs you, such as a lost connection or a rate rule in your system, sits at the top at once as "Rates not reaching Cloudbeds", with the cause and what to do. One that clears on its own is shown only if it lasts 2 hours, and a time zone mismatch usually not at all. Nothing is sent while you are simulating, nothing is ever sent to Mews, a price of 0 is never sent, and a night past the 396-night window (tonight and the next 395) waits until it enters it.
+Give a new price two cycles, about ten minutes, then open the <Ui>Change Log</Ui> tab. A problem that needs you, such as a lost connection or a rate rule in your system, sits at the top at once as "Prices not reaching Cloudbeds", with the cause and what to do. One that clears on its own is shown only if it lasts 2 hours, and a time zone mismatch usually not at all. Nothing is sent while you are simulating, nothing is ever sent to Mews, a price of 0 is never sent, and a night past the 396-night window (tonight and the next 395) waits until it enters it.
 </InPlainWords>
 
 ## I went live and nothing is being sent
@@ -35,9 +35,9 @@ Check these in order.
 
 1. **Wait two cycles.** Prices go out about every five minutes, and only prices that changed since the last send. The first send to a night MAYA has never sent to also waits until a fresh read of your own rates has succeeded, within the last hour, so that MAYA writes over a rate it has freshly read. The first live cycle reads your rates before it sends.
 2. **Check that you are live.** There is no badge on the dashboard. Open the review page and find the card headed "While you were here, we built your first pricing rules". The green pill "✓ Live: your rules are now managing prices" in it means you are live, and the button <Ui>Turn them on for real</Ui> means you are simulating. The card appears only when MAYA built starter rules for you at setup, which needs at least 60 days of booking history. If your review page has no such card, [email us](mailto:info@modern-hospitality-solutions.com?subject=Am%20I%20live) and we check. [Going live](/docs/live/going-live#where-the-button-is) says how to go live without the card, and [Tell whether you are live or in simulation](/docs/recipes/tell-if-you-are-live) has the other clues.
-3. **Look for a problem item.** On the <Ui>Change Log</Ui> tab, an ongoing problem sits above every run, headed "Rates not reaching Cloudbeds" (or "Rates not reaching Think Reservations"), with the cause and what to do. [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price) explains each.
-4. **Check the connection.** Open the <Ui>PMS</Ui> tab and read the <Ui>Connection</Ui> card. Error or Disconnected means your system stopped accepting MAYA's connection. Nothing is read from it or sent to it until a General Manager or Hotel Admin reconnects. Do not wait for the amber banner above the calendar, "MAYA has lost its connection to Cloudbeds": it shows only once the <Ui>PMS</Ui> tab has been opened in your visit. [Connection lost](/docs/wrong/connection-lost) explains each status, and what an old <Ui>Last sync</Ui> means.
-5. **Check the subscription.** A red banner reading "MAYA has paused work on this property" means prices are not worked out or sent until the subscription is running again. Read [Account and billing problems](/docs/wrong/account-and-billing-problems).
+3. **Look for a problem item.** On the <Ui>Change Log</Ui> tab, an ongoing problem sits above every run, headed "Prices not reaching Cloudbeds" (or "Prices not reaching Think Reservations"), with the cause and what to do. [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price) explains each.
+4. **Check the connection.** Open the <Ui>PMS</Ui> tab and read the <Ui>Connection</Ui> card. Error or Disconnected means your system stopped accepting MAYA's connection, and nothing is read from it or sent to it while that lasts. Disconnected lasts until a General Manager or Hotel Admin reconnects. On Error MAYA keeps trying, and the card goes back to Connected by itself once a try works. If it has not cleared within a couple of hours, reconnect. Do not wait for the amber banner at the top of the dashboard, "MAYA has lost its connection to Cloudbeds": it shows only once the connection is marked as lost, and some breaks never are. [Connection lost](/docs/wrong/connection-lost) explains each status, and what an old <Ui>Last sync</Ui> means.
+5. **Check the subscription.** A red banner reading "MAYA has paused work on this property" means your rules no longer run on a schedule and nothing is sent to your PMS until the subscription is running again. Read [Account and billing problems](/docs/wrong/account-and-billing-problems).
 
 <PmsTabs>
 <PmsTab pms="cloudbeds">
@@ -57,7 +57,7 @@ Five reasons, most common first.
 
 - **It has not gone yet.** A price changed in the last few minutes goes on the next cycle. The first send to a night waits for a fresh read of your rates.
 - **You are simulating.** Prices are worked out and shown, and never sent. See the check above.
-- **A problem is holding it.** Look for "Rates not reaching Cloudbeds" at the top of the change log. The item says what is wrong and what to do.
+- **A problem is holding it.** Look for "Prices not reaching Cloudbeds" at the top of the change log. The item says what is wrong and what to do.
 - **Cloudbeds took it and never finished.** Cloudbeds applies a rate write as a job. If a job is still unfinished 45 minutes later, MAYA treats it as not applied and sends the night again. You are told only if it keeps happening.
 - **ThinkReservations applies it later.** ThinkReservations accepts a write and applies it afterwards. MAYA confirms it on the next hourly read.
 
@@ -116,7 +116,7 @@ MAYA does not send a price of 0 to any property system. A manual price of 0 is a
 
 MAYA prices and sends tonight and the next 395 nights, on your property's own calendar. A night 70 days out is not priced, refreshed or sent until it enters the window. A manual price you type further out is saved now and sent when the night enters the window, and the confirmation says so: "Saved. It will be sent when the date enters the 396-day push window."
 
-## Every "Rates not reaching" sentence, and what to do
+## Every "Prices not reaching" sentence, and what to do
 
 The item's second line names the cause, and the item itself says what to do. [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price) lists every one of those sentences with its meaning, the fix, and how MAYA retries.
 
@@ -127,7 +127,7 @@ There is no per-night "sent" or "confirmed" mark on the calendar, and no email o
 </Callout>
 
 <Example title="A minimum rate at The Harbour Inn">
-Sam sets a minimum of $120 on Deluxe in Cloudbeds. MAYA's floor for Deluxe is $110. On a slow Tuesday, "Last minute" cuts Deluxe from $140 to $119. The floor lets that through, and Cloudbeds refuses it. The change log shows at once: "Rates not reaching Cloudbeds", "Cloudbeds refused MAYA's price for Deluxe because it breaks a rate rule set in Cloudbeds, such as a minimum or maximum rate.", "1 night, 1 room type · Still happening", and "Check the rate limits for this room type in Cloudbeds."
+Sam sets a minimum of $120 on Deluxe in Cloudbeds. MAYA's floor for Deluxe is $110. On a slow Tuesday, "Last minute" cuts Deluxe from $140 to $119. The floor lets that through, and Cloudbeds refuses it. The change log shows at once: "Prices not reaching Cloudbeds", "Cloudbeds refused MAYA's price for Deluxe because it breaks a rate rule set in Cloudbeds, such as a minimum or maximum rate.", "1 night, 1 room type · Still happening", and "Check the rate limits for this room type in Cloudbeds."
 
 Priya types $120 on that night on the <Ui>Calendar</Ui> tab, and it is sent. Cloudbeds takes it. The item then reads "Ended" with the time, because a new price replaced the refused one.
 

@@ -11,6 +11,7 @@ import { ManualPriceEditor, manualPriceBadge } from "@/components/manual-price-e
 import { useCalendarLive } from "@/lib/use-calendar-live";
 import { track } from "@/lib/analytics/track";
 import { PropertySelect } from "@/components/property-select";
+import { PropertyTimeAndCurrency } from "@/components/property-time-currency";
 import { RateSimulator } from "@/components/rate-simulator";
 import { RoomCountHelp, RoomTypeSettings, isCountingRoom } from "@/components/room-type-settings";
 import { bookingSpeedHelp, bookingSpeedWaitHelp, pickupWindowHelp } from "@/lib/booking-speed-help";
@@ -20,9 +21,10 @@ import { letRunAgainBody, stoppedChipLabel, stoppedNightsHelp, type RuleStops } 
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { RuleRoomTypesField } from "@/components/rule-room-types-field";
 import { UndoOnCancellationField } from "@/components/undo-on-cancellation-box";
-import { isQuietChecks, isRuleAlertChoice } from "@/lib/changelog-route-helpers";
+import { currencySymbolFor, isQuietChecks, isRuleAlertChoice } from "@/lib/changelog-route-helpers";
 import { QuietChecksLine } from "@/components/quiet-checks-line";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
+import { formatDisplayTime } from "@/lib/display-time";
 import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
 import {
   BOOKING_SPEED_WAIT_OPTIONS,
@@ -128,18 +130,6 @@ function CalendarMonthSkeleton({
   );
 }
 
-function formatDisplayTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short",
-      timeZoneName: "short",
-    });
-  } catch {
-    return iso;
-  }
-}
-
 /** Calendar-style line for timelines (Change Log, etc.). */
 function formatFriendlyDateTime(iso: string): string {
   try {
@@ -197,6 +187,10 @@ type PmsActivity = {
   pms: { authKind: string; displayName: string; canManage: boolean } | null;
   /** The connection is gone because never-paid data was removed; reconnecting reads the history again. */
   historyRemoved?: boolean;
+  /** False for a system whose requests aren't logged (Mews, Think): its health and log are always empty. */
+  requestsTracked?: boolean;
+  /** The time zone and currency saved for the property, shown as they are. */
+  property?: { timezone: string | null; currency: string | null } | null;
   health: {
     state: "healthy" | "degraded" | "down" | "unknown";
     successRate: number | null;
@@ -358,6 +352,7 @@ export function Dashboard({
   >([]);
   const [activeHotelId, setActiveHotelId] = useState<string | null>(null);
   const [hotelSwitching, setHotelSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
 
   const [ruleName, setRuleName] = useState("");
   const [condRows, setCondRows] = useState<ConditionFormRow[]>(() => [
@@ -405,23 +400,32 @@ export function Dashboard({
     })();
   }, []);
 
+  // Read when the dashboard opens, not only on the PMS tab: the lost-connection
+  // banner sits above every tab. Opening the PMS tab reads it again.
+  const onPmsTab = tab === "pms";
   useEffect(() => {
-    if (tab !== "pms" || !activeHotelId) {
+    if (!activeHotelId) {
       return;
     }
+    let alive = true;
     void (async () => {
       try {
         const res = await fetch("/api/pms/activity");
+        if (!alive) return;
         if (!res.ok) {
           setPmsActivity(null);
           return;
         }
-        setPmsActivity((await res.json()) as PmsActivity);
+        const body = (await res.json()) as PmsActivity;
+        if (alive) setPmsActivity(body);
       } catch {
-        setPmsActivity(null);
+        if (alive) setPmsActivity(null);
       }
     })();
-  }, [tab, activeHotelId]);
+    return () => {
+      alive = false;
+    };
+  }, [onPmsTab, activeHotelId]);
 
   // Month responses cached client-side so Prev/Next renders instantly from
   // the last known data, with three guards that keep fast clicking from
@@ -634,22 +638,32 @@ export function Dashboard({
   async function applyActiveHotel(hotelId: string) {
     if (!hotelId || hotelId === activeHotelId) return;
     setHotelSwitching(true);
-    setSelectedDay(null);
-    calendarCacheRef.current.clear();
+    setSwitchError(null);
     try {
       const res = await fetch("/api/hotels/active", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ hotelId }),
-      });
-      const errBody = (await res.json().catch(() => ({}))) as {
-        error?: string;
-      };
-      if (!res.ok) {
-        console.error(errBody.error ?? res.statusText);
+      }).catch(() => null);
+      if (!res?.ok) {
+        // Nothing has moved: the selector, the open day and every tab stay on
+        // the property they were on, and the owner is told the switch failed.
+        if (res) {
+          const errBody = (await res.json().catch(() => ({}))) as { error?: string };
+          console.error(errBody.error ?? res.statusText);
+        }
+        const name = (id: string | null) => accessibleHotels.find((h) => h.id === id)?.name;
+        const from = name(activeHotelId);
+        setSwitchError(
+          `Couldn't switch to ${name(hotelId) ?? "that property"}.${from ? ` You're still on ${from}.` : ""} Try again in a moment.`,
+        );
         return;
       }
+      setSelectedDay(null);
+      calendarCacheRef.current.clear();
       setActiveHotelId(hotelId);
+      // The last property's connection must not show over this one while it loads.
+      setPmsActivity(null);
       await Promise.all([reloadRules(), reloadRoomTypes()]);
       if (tab === "calendar") await reloadCalendar();
       if (tab === "changelog") await reloadChangelog();
@@ -860,6 +874,9 @@ export function Dashboard({
   );
 
   const calendarBusy = loading || hotelSwitching;
+  // The property's own symbol on the calendar's amounts, built the way the
+  // change log's sentences build it.
+  const currencySymbol = currencySymbolFor(calendar?.currency);
 
   // Year options come from the property's actual data range when the API
   // reports one; otherwise a sensible window around the current year.
@@ -1003,11 +1020,16 @@ export function Dashboard({
                 disabled={hotelSwitching}
                 onValueChange={(id) => void applyActiveHotel(id)}
               />
+              {switchError ? (
+                <p role="alert" className="mt-1 max-w-xs text-xs text-rose-300">
+                  {switchError}
+                </p>
+              ) : null}
             </div>
           ) : null}
         </div>
 
-        <BillingBanner />
+        <BillingBanner hotelId={activeHotelId} />
 
         {pmsActivity?.connection && pmsActivity.pms ? (
           <div className="mb-6">
@@ -1024,7 +1046,7 @@ export function Dashboard({
           </div>
         ) : null}
 
-        <OnboardingReviewBanner />
+        <OnboardingReviewBanner hotelId={activeHotelId} />
 
         <RuleAlertBanner
           activeHotelId={activeHotelId}
@@ -1157,7 +1179,7 @@ export function Dashboard({
                               className="text-[11px] text-slate-400"
                               title="Room revenue (booked nights)"
                             >
-                              $
+                              {currencySymbol}
                               {data.revenue >= 1000
                                 ? `${(data.revenue / 1000).toFixed(1)}k`
                                 : data.revenue.toFixed(0)}
@@ -1185,7 +1207,7 @@ export function Dashboard({
                       weak night
                     </span>
                     <span>
-                      — measured by revenue per room, relative to this
+                      Measured by revenue per room, relative to this
                       property&apos;s own results (future nights compare
                       against other upcoming nights)
                     </span>
@@ -1209,7 +1231,7 @@ export function Dashboard({
                           ? "revenue on the books"
                           : "revenue"}{" "}
                         <span className="font-medium text-slate-200">
-                          $
+                          {currencySymbol}
                           {calendar.days[
                             String(selectedDay)
                           ].revenue.toLocaleString(undefined, {
@@ -1240,6 +1262,7 @@ export function Dashboard({
                                         : pmsActivity?.connection
                                           ? formatPmsName(pmsActivity.connection.pms_type)
                                           : "your PMS",
+                                      currencySymbol,
                                     )}
                                   </span>
                                 ) : null}
@@ -1248,16 +1271,16 @@ export function Dashboard({
                                 Booked {rt.booked}/{rt.total_rooms}
                               </p>
                               <p className="text-sm text-slate-300">
-                                ADR ${rt.rate.toFixed(2)}
+                                ADR {rt.rate != null ? `${currencySymbol}${rt.rate.toFixed(2)}` : "–"}
                               </p>
                               <p className="text-sm text-sky-300">
                                 Current price{" "}
                                 {(rt.current_rate ?? rt.current_price) != null
-                                  ? `$${(rt.current_rate ?? rt.current_price)!.toFixed(2)}`
-                                  : "—"}
+                                  ? `${currencySymbol}${(rt.current_rate ?? rt.current_price)!.toFixed(2)}`
+                                  : "–"}
                               </p>
                               <p className="text-sm text-slate-300">
-                                Revenue ${rt.revenue.toFixed(2)}
+                                Revenue {currencySymbol}{rt.revenue.toFixed(2)}
                               </p>
                               {activeHotelId ? (
                                 <div data-deeplink={`calendar.price:${rt.id}`}>
@@ -1268,6 +1291,7 @@ export function Dashboard({
                                   roomTypeName={rt.name}
                                   stayDate={isoDate(year, month, selectedDay)}
                                   currentPrice={rt.current_rate ?? rt.current_price ?? null}
+                                  currencySymbol={currencySymbol}
                                   manualPrice={rt.manual_price ?? null}
                                   pmsName={
                                     rt.manual_price?.pms_type
@@ -2137,14 +2161,18 @@ export function Dashboard({
                     <div className="text-xs text-slate-500">
                       Health (last 24 hours)
                     </div>
-                    <PmsHealthBadge health={pmsActivity.health} />
+                    {pmsActivity.requestsTracked === false ? (
+                      <div className="text-sm text-slate-400">Not tracked for this system</div>
+                    ) : (
+                      <PmsHealthBadge health={pmsActivity.health} />
+                    )}
                   </div>
                   <div className="space-y-1.5 rounded border border-slate-800 bg-slate-950 p-4">
                     <div className="text-xs text-slate-500">Last sync</div>
                     <div className="text-sm text-slate-200">
                       {pmsActivity.connection.last_sync_at
                         ? formatDisplayTime(pmsActivity.connection.last_sync_at)
-                        : "—"}
+                        : "–"}
                     </div>
                   </div>
                 </div>
@@ -2153,9 +2181,11 @@ export function Dashboard({
                   <div className="border-b border-slate-800 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-400">
                     Recent requests to {formatPmsName(pmsActivity.connection.pms_type)}
                   </div>
-                  {pmsActivity.log.length === 0 ? (
+                  {pmsActivity.requestsTracked === false ? (
+                    <p className="px-4 py-3 text-sm text-slate-500">Not tracked for this system</p>
+                  ) : pmsActivity.log.length === 0 ? (
                     <p className="px-4 py-3 text-sm text-slate-500">
-                      No requests recorded yet — the log fills as syncs run.
+                      No requests recorded yet. The log fills as syncs run.
                     </p>
                   ) : (
                     <div className="max-h-80 overflow-y-auto">
@@ -2197,6 +2227,12 @@ export function Dashboard({
                 </div>
               </>
             )}
+            {activeHotelId && pmsActivity?.property ? (
+              <PropertyTimeAndCurrency
+                timezone={pmsActivity.property.timezone}
+                currency={pmsActivity.property.currency}
+              />
+            ) : null}
           </section>
         )}
 

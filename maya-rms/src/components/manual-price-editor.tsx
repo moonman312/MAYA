@@ -94,10 +94,15 @@ export type ManualPriceShown = { price: number; set_at: string; source?: "maya" 
 /**
  * The day card's badge: "Manual" for a price typed in MAYA, "Changed in
  * Cloudbeds" for a rate the hotel changed in its PMS on a night MAYA had
- * sent. `pmsName` is where that change was made. Exported for tests.
+ * sent. `pmsName` is where that change was made, and `currencySymbol` the
+ * property's own (currencySymbolFor). Exported for tests.
  */
-export function manualPriceBadge(manual: Pick<ManualPriceShown, "price" | "source">, pmsName: string): string {
-  const amount = `$${manual.price.toFixed(2)}`;
+export function manualPriceBadge(
+  manual: Pick<ManualPriceShown, "price" | "source">,
+  pmsName: string,
+  currencySymbol = "$",
+): string {
+  const amount = `${currencySymbol}${manual.price.toFixed(2)}`;
   return manual.source === "pms" ? `Changed in ${pmsName} · ${amount}` : `Manual · ${amount}`;
 }
 
@@ -128,6 +133,7 @@ export function ManualPriceEditor({
   pmsName,
   onSaved,
   initialThrough,
+  currencySymbol = "$",
 }: {
   hotelId: string;
   roomTypeId: string;
@@ -147,6 +153,8 @@ export function ManualPriceEditor({
    * Enter in it saves.
    */
   initialThrough?: string | null;
+  /** The property's currency symbol, shown beside the box. Display only: the price sent is the number typed. */
+  currencySymbol?: string;
 }) {
   const prefill = manualPrice?.price ?? currentPrice;
   const linkedThrough = initialThrough && /^\d{4}-\d{2}-\d{2}$/.test(initialThrough) && initialThrough > stayDate ? initialThrough : null;
@@ -230,7 +238,7 @@ export function ManualPriceEditor({
     <div className="mt-2 border-t border-slate-800 pt-2">
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-1 text-xs text-slate-400">
-          $
+          {currencySymbol.trim()}
           <input
             type="number"
             step="any"

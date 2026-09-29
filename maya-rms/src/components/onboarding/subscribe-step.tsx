@@ -52,6 +52,7 @@ export function SubscribeStep({
   initialInterval,
   lockPms = false,
   baseTrialDays = 0,
+  restart = false,
   submitLabel = "Continue to payment",
   hotelId,
   progress,
@@ -69,6 +70,12 @@ export function SubscribeStep({
   lockPms?: boolean;
   /** A trial the flow itself grants (a Marketplace arrival). A code's own trial replaces it. */
   baseTrialDays?: number;
+  /**
+   * A subscription has been on this property before. Checkout bills a restart
+   * when it completes, with no trial of any kind, so the panel shows no free
+   * days even for a code that carries some. The code's discount still counts.
+   */
+  restart?: boolean;
   submitLabel?: string;
   /** Which property this payment is for, when the owner has several waiting. */
   hotelId?: string;
@@ -104,7 +111,7 @@ export function SubscribeStep({
   // Set when checkout sent them to the accept screen, so accepting carries on
   // to Stripe instead of asking for the same click twice.
   const resumeAfterTerms = useRef<(() => void) | null>(null);
-  const flow = { marketplace: Boolean(hotelId), restart: initialRooms !== undefined };
+  const flow = { marketplace: Boolean(hotelId), restart };
   useTrackOnce(
     "billing.subscribe_viewed",
     { ...flow, trial_days: baseTrialDays, group_position: progress?.index, group_total: progress?.total },
@@ -139,8 +146,10 @@ export function SubscribeStep({
   // will actually present on the next screen.
   const codeEffect = codeState.status === "good" ? codeState.effect : undefined;
   // The flow's own trial applies only when no code grants one — the two never stack.
-  const effect =
-    baseTrialDays > 0 && !codeEffect?.trialDays
+  // A restart gets neither, so only the code's discount is left to show.
+  const effect = restart
+    ? codeEffect && { ...codeEffect, trialDays: undefined }
+    : baseTrialDays > 0 && !codeEffect?.trialDays
       ? { ...(codeEffect ?? {}), trialDays: baseTrialDays }
       : codeEffect;
   const quote = checkoutQuote(roomsOk ? rooms : 0, interval, effect);
@@ -170,7 +179,9 @@ export function SubscribeStep({
         const res = await fetch("/api/billing/validate-code", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code: typed, interval }),
+          // restart only shapes the wording that comes back; checkout
+          // decides for itself.
+          body: JSON.stringify({ code: typed, interval, ...(restart ? { restart: true } : {}) }),
         });
         const body = (await res.json()) as {
           valid?: boolean;
@@ -188,8 +199,8 @@ export function SubscribeStep({
             status: "bad",
             message:
               res.status === 401
-                ? "Your session expired — sign in again and retry."
-                : body.error ?? "Couldn't check that code — try again in a moment.",
+                ? "Your session expired. Sign in again and retry."
+                : body.error ?? "Couldn't check that code. Try again in a moment.",
           });
           return;
         }
@@ -199,7 +210,7 @@ export function SubscribeStep({
             : { status: "bad", message: body.message ?? "That code didn't work." },
         );
       } catch {
-        if (current) setCodeState({ status: "bad", message: "Couldn't check that code — try again." });
+        if (current) setCodeState({ status: "bad", message: "Couldn't check that code. Try again." });
       }
     }, 450);
 
@@ -207,7 +218,7 @@ export function SubscribeStep({
       current = false;
       window.clearTimeout(t);
     };
-  }, [code, interval]);
+  }, [code, interval, restart]);
 
   const selectedPms = pmsOptions.find((p) => p.type === pmsType) ?? null;
   // No selection reads as gated — the safe direction, and the button is
@@ -292,7 +303,7 @@ export function SubscribeStep({
 
       {cancelled ? (
         <p className="mt-5 max-w-lg rounded border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm text-slate-300">
-          No charge was made — you left checkout before finishing. Pick up where
+          No charge was made: you left checkout before finishing. Pick up where
           you left off whenever you&apos;re ready.
         </p>
       ) : null}
@@ -386,7 +397,7 @@ export function SubscribeStep({
             ) : null}
             <p className="mt-2 text-xs text-slate-500">
               {quote.trialDays
-                ? `Nothing today — your first charge is ${formatUsd(quote.firstCents)} on ${trialEndsOn(quote.trialDays)}. Cancel anytime.`
+                ? `Nothing today. Your first charge is ${formatUsd(quote.firstCents)} on ${trialEndsOn(quote.trialDays)}. Cancel anytime.`
                 : "Billed when you finish checkout. Cancel anytime."}
             </p>
           </div>
@@ -440,12 +451,12 @@ export function SubscribeStep({
             <p className="mt-1.5 text-xs text-rose-300">{codeState.message}</p>
           ) : codeOptional ? (
             <p className="mt-1.5 text-xs text-slate-400">
-              Got a discount or trial code? Enter it here — otherwise leave this
+              Got a discount or trial code? Enter it here, or leave this
               blank.
             </p>
           ) : (
             <p className="mt-1.5 text-xs text-slate-400">
-              MAYA is invite-only for now — you&apos;ll have been given a code.
+              MAYA is invite-only for now, so you&apos;ll have been given a code.
             </p>
           )}
         </label>
@@ -473,7 +484,7 @@ export function SubscribeStep({
                 disabled={deferring || submitting}
                 className="cursor-pointer underline decoration-slate-700 underline-offset-2 transition-colors hover:text-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {deferring ? "Setting it aside…" : "Not now — set this property up later"}
+                {deferring ? "Setting it aside…" : "Not now, set this property up later"}
               </button>
               <NotNowHelp />
             </p>

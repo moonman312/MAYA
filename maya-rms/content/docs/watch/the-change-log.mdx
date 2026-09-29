@@ -4,7 +4,7 @@ summary: Your 10 most recent pricing runs that changed a price, newest first, wi
 section: watch
 order: 20
 readingTime: 19
-keywords: [change log, deleted rule, deleted rule missing, revenue pickup, booking mark, UTC, exact time, +00:00, pricing run, prices checked, show all cycles, show changes only, sentence, raised, lowered, past the mark, under the mark, faster than normal, days since this rule or a stronger one's latest raise, later on the day of, full days after, cancellations meant, no longer true, that took this night from, prices checked 47 times, nothing needed to change, just before that, quiet line, two rules, ceiling, floor, stopped there, stopped applying, set the base rate, changed in cloudbeds, pricing rule, rate moved, rates not reaching, your answer, your corrections, 10 runs, 40 changes, 90 days, time zone, currency, euro, pound, dollar sign, export, email, notification, couldn't load your price history, weeks ago, last month, gone from the log, disappeared, older change, old change, look up a change, price history, history of a night, night's history, past prices, what was the price before, empty, blank, nothing listed, log is empty, this morning, earlier today, an hour ago, 50 minutes, last hour, went back, back to normal, dropped back, price came back down, no entry, missing change, not listed, starting price, starting point, 37.5%, total move, wrong before price, not finding the rate, can't find the rate, five minutes]
+keywords: [change log, deleted rule, deleted rule missing, revenue pickup, booking mark, UTC, exact time, seconds, pricing run, prices checked, show all cycles, show changes only, sentence, raised, lowered, past the mark, under the mark, faster than normal, days since this rule or a stronger one's latest raise, later on the day of, full days after, cancellations meant, no longer true, that took this night from, prices checked 47 times, nothing needed to change, just before that, quiet line, two rules, ceiling, floor, stopped there, stopped applying, set the base rate, changed in cloudbeds, pricing rule, rate moved, rates not reaching, your answer, your corrections, 10 runs, 40 changes, 90 days, time zone, currency, euro, pound, dollar sign, export, email, notification, couldn't load your price history, weeks ago, last month, gone from the log, disappeared, older change, old change, look up a change, price history, history of a night, night's history, past prices, what was the price before, empty, blank, nothing listed, log is empty, this morning, earlier today, an hour ago, 50 minutes, last hour, went back, back to normal, dropped back, price came back down, no entry, missing change, not listed, starting price, starting point, 37.5%, total move, wrong before price, not finding the rate, can't find the rate, five minutes]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
   - 'What is the change log?' {#in-plain-words}
@@ -32,12 +32,12 @@ questions:
   - 'Whose time zone are the change log times in?' {#a-run-entry}
   - 'Can I get the change log by email or notification?' {#something-to-try}
   - 'Can I export the change log?' {#something-to-try}
-  - 'Why does the log use a different currency sign from the calendar?' {#money-and-names}
+  - 'Why does the bold line use a different currency sign from the calendar?' {#money-and-names}
   - 'Why does the bold line show $ when the sentences show my currency?' {#money-and-names}
   - 'What happens in the change log when I delete a rule?' {#prices-people-set}
   - 'Why does my revenue pickup rule''s sentence talk about bookings?' {#pickup-count}
   - 'Why is "How did we know?" under a change an occupancy rule made?' {#a-change-line-by-line/a-fallback}
-  - 'Why did a problem sending prices take hours to show in the change log?' {#rates-not-reaching-your-property-system/a-problem-that-often}
+  - 'Why did a problem sending prices take hours to show in the change log?' {#prices-not-reaching-your-property-system/a-problem-that-often}
 updated: 2026-09-27
 ---
 
@@ -61,10 +61,10 @@ A run that finds nothing to change is counted into a quiet line between the runs
 
 The button in the top right toggles between the two views:
 
-- <Ui>Show All Cycles</Ui> is what the button says while you are in the default view. That view shows the runs that changed a price, every "Rates not reaching" problem, and every answer you gave to a rule that kept adjusting.
+- <Ui>Show All Cycles</Ui> is what the button says while you are in the default view. That view shows the runs that changed a price, every "Prices not reaching" problem, and every answer you gave to a rule that kept adjusting.
 - <Ui>Show Changes Only</Ui> is what the button says once you have opened the full view. The full view adds the quiet lines. Each counts a stretch of runs in a row that changed nothing, with when the first and last of them ran, in small grey type: "Prices checked 47 times from Sep 24, 10:05 AM to 1:55 PM (4 min ago), nothing needed to change." A stretch of one reads "Prices checked once at Sep 24, 1:55 PM". The line under the oldest change shown starts "Just before that, prices were checked 12 times".
 
-When no run has changed a price yet, the default view shows no runs at all, and no message says why. Any "Rates not reaching" problem and any answer you gave still show. Click <Ui>Show All Cycles</Ui> to see the quiet lines.
+When no run has changed a price yet, the default view shows no runs at all, and no message says why. Any "Prices not reaching" problem and any answer you gave still show. Click <Ui>Show All Cycles</Ui> to see the quiet lines.
 
 Under the heading sits the <Ui>Your corrections</Ui> panel, closed by default. It lists the past nights you have set aside as not a fair comparison. [Setting a date aside](/docs/watch/not-a-fair-comparison) explains it.
 
@@ -78,7 +78,7 @@ Each run is a box. The first line reads:
 
 "Pricing run · Fri, Oct 2, 2026, 3:05 PM PDT (4 min ago)"
 
-The time is shown in your browser's time zone, with the zone's abbreviation, so two people in different places see different clock times for the same run. Hover the line and the exact moment shows as a raw timestamp in UTC, the world reference time, such as 2026-10-02T22:05:12.345+00:00 (3:05 PM in US Pacific time). The part in brackets says how long ago: "just now", "4 min ago", "2 hr ago", "yesterday", "3 days ago", up to 6 days. Older runs carry no bracket.
+The time is shown in your browser's time zone, with the zone's abbreviation, so two people in different places see different clock times for the same run. Hover the line and the exact moment shows, to the second, on the same clock: "Oct 2, 2026, 3:05:12 PM PDT". The part in brackets says how long ago: "just now", "4 min ago", "2 hr ago", "yesterday", "3 days ago", up to 6 days. Older runs carry no bracket.
 
 Under the first line comes the list of changes.
 
@@ -197,9 +197,9 @@ When you answer the <Ui>Rules that keep adjusting</Ui> banner, the answer is log
 
 A deleted rule reads "A rule" here. At most 20 answers are shown, within the span of the runs on screen. [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting) explains the banner and the choices.
 
-## Rates not reaching your property system
+## Prices not reaching your property system
 
-When you are live and a price cannot be delivered, the log carries an amber item headed "Rates not reaching Cloudbeds" (or "Think Reservations"). How soon it appears depends on the cause:
+When you are live and a price cannot be delivered, the log carries an amber item headed "Prices not reaching Cloudbeds" (or "Think Reservations"). How soon it appears depends on the cause:
 
 - **A problem that needs you**, such as lost access or a price your system refuses: at once.
 - **Your system cannot find the rate MAYA writes to**: after one more try. MAYA reads your list of rates again and sends once more on the next run, about five minutes later. If the rate is still missing, the item appears then.
@@ -240,7 +240,7 @@ There is no screen that shows one night's price history. The <Ui>Calendar</Ui> t
 
 ## Money and names
 
-The sentences under each change follow your property's currency: "$" for US dollars, "€" for euros, "£" for pounds, and the three-letter code in front of the amount for any other currency. The bold line above them, like the calendar and the simulator, always shows "$". So a property in euros sees "€150.00" in a sentence and "$150.00" in the bold line for the same price.
+The sentences under each change follow your property's currency: "$" for US dollars, "€" for euros, "£" for pounds, and the three-letter code in front of the amount for any other currency. The calendar and the Rate Simulator use the same sign. The bold line above the sentences always shows "$", so a property in euros sees "€150.00" in a sentence and "$150.00" in the bold line for the same price.
 
 Everyone on the property can read the change log, whatever their role.
 

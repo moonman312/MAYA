@@ -3,7 +3,7 @@ title: What MAYA does not do (yet)
 summary: Every limit in one list, grouped by rules, prices and sending, property systems, the calendar and change log, account and billing, and your data, each with what to do instead and the page that explains it.
 section: reference
 order: 40
-readingTime: 9
+readingTime: 10
 keywords: [not yet, cannot, can't, limits, limitations, missing, feature request, workaround, weekend rule, date range, season, edit a rule, copy a rule, how many rules, 40 rules, too many rules, maximum, holiday, event, Mews sending, minimum stay, close out, restrictions, availability, packages, per guest, competitor rates, weather, export, report, revenue report, what would my rules have earned, API, mobile app, app store, demo, password reset, two-factor, 2FA, single sign-on, SSO, bank transfer, ACH, invoice, accounting, QuickBooks, Xero, Sage, accountant, bookkeeping, pause, status page, phone support, chat, SLA, Opera, Little Hotelier, Guesty, spreadsheet, time zone, currency, whole units, notifications, email alerts]
 questions:
   - What can MAYA not do yet? {#in-plain-words}
@@ -17,7 +17,7 @@ questions:
   - Is there a demo property I can look at? {#your-data-and-everything-else/no-demo-property}
   - Is there phone or chat support, or a status page? {#your-data-and-everything-else/no-phone-or}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -47,7 +47,7 @@ Each line says what is missing, then what you can do today. Most limits have a w
 - **No seasons you set yourself.** You cannot name, move or define one. Set unusual past dates aside with the scope that also changes how seasons are read. [Similar nights](/docs/rules/similar-nights)
 - **No page that lists your seasons, similar nights or holidays.** They show inside <Ui>How did we know?</Ui>, for the night in question. [How did we know?](/docs/watch/how-did-we-know)
 - **No closed period added by hand**, and a closure still to come is priced as normal. On Cloudbeds or ThinkReservations, set those nights to 0 in your system, which closes them for MAYA too. On Mews a 0 there has no effect in MAYA. [Checking what MAYA found](/docs/review/checking-what-maya-found)
-- **No button to restart the history import.** If it stops, email us. [The history import](/docs/review/the-history-import)
+- **No button to restart the history import.** If a lost connection stopped it, reconnecting picks it up. If it stops for any other reason, email us. [The history import](/docs/review/the-history-import)
 
 ## Prices and sending
 
@@ -71,14 +71,14 @@ Each line says what is missing, then what you can do today. Most limits have a w
 - **ThinkReservations has no Marketplace install**, so no trial without a code, and a login covering several hotels is set up by hand. [ThinkReservations](/docs/connect/thinkreservations)
 - **No room blocks, allotments or out-of-order rooms read from any system.** Enter them as rooms out of service on the <Ui>PMS</Ui> tab. [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service)
 - **No renaming, merging or switching off a room type in MAYA.** Names and unit counts come from your system. Untick <Ui>Counts as a room</Ui> for anything nobody sleeps in. [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service)
-- **No screen that shows or changes your time zone or currency.** Both are read once when you connect. Email us. [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays)
+- **No screen that changes your time zone or currency.** Both are read once when you connect, and the <Ui>PMS</Ui> tab shows them. Email us to change either. [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays)
 - **No disconnect button in MAYA.** Disconnect in your system, or email us. [Reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect)
 
 ## Calendar and change log
 
 - **The change log shows the 10 most recent runs**, with no paging back, search, filter or export. For an older change, email us the night and room type. [The change log](/docs/watch/the-change-log)
 - **No notifications when a price changes**, by email or otherwise. [Emails MAYA sends](/docs/billing/emails-maya-sends)
-- **The calendar shows $ whatever your currency.** The numbers are yours, and the change log's sentences use your currency. [Calendar and change log questions](/docs/wrong/calendar-and-log-questions)
+- **The change log's bold lines show $ whatever your currency.** So do the <Ui>Price Change</Ui> column on the <Ui>Rules</Ui> tab and the rule builder's fixed amount box. The numbers are yours, and the calendar, the Rate Simulator and the change log's sentences use your currency's sign. [Calendar and change log questions](/docs/wrong/calendar-and-log-questions)
 - **No week or list view, no weekday names above the grid, and no list of the bookings behind a night.** Open the night in your property system. [The calendar](/docs/watch/the-calendar)
 - **No live or simulation badge.** [Tell if you are live](/docs/recipes/tell-if-you-are-live) walks through the clues.
 - **No booking speed reading before a rule acts.** It appears under <Ui>How did we know?</Ui> after a change. [Booking speed](/docs/rules/booking-speed)
@@ -86,17 +86,17 @@ Each line says what is missing, then what you can do today. Most limits have a w
 
 ## Account, team and billing
 
-- **No password reset link**, and no way to change your email address or password in the app. Email us. [Reset your password](/docs/recipes/reset-your-password)
+- **No way to change your sign-in email address in the app.** Email us. A password is reset or changed from <Ui>Forgot password?</Ui> on the sign-in page. [Reset your password](/docs/recipes/reset-your-password)
 - **No two-factor sign-in, Google sign-in or single sign-on.** [Create an account and sign in](/docs/account/create-an-account-and-sign-in)
 - **No custom roles**, and no role that sees billing without also being able to go live and change the team. [Roles](/docs/team/roles)
-- **No resend button for an invitation**, and no inviting someone to several properties at once. [Inviting and removing people](/docs/team/inviting-and-removing-people)
+- **No resend button for an invitation** (for someone who has never signed in, remove them and invite them again, or email us), and no inviting someone to several properties at once. [Inviting and removing people](/docs/team/inviting-and-removing-people)
 - **No view of all your properties at once**, no shared rules and no pooled billing. [Several properties](/docs/account/several-properties)
-- **No free plan**, and no trial without the Cloudbeds Marketplace or a code. Properties over 500 rooms are not sold self-serve. [What it costs](/docs/start/what-it-costs)
+- **No free plan**, and no trial without the Cloudbeds Marketplace or a code. A trial comes once, at a property's first signup: a restart gets no free days, from the Marketplace or a code. Properties over 500 rooms are not sold self-serve. [What it costs](/docs/start/what-it-costs)
 - **Cards only**: no bank transfer, ACH or invoicing. [Cards, payments and invoices](/docs/billing/cards-payments-and-invoices)
 - **No invoices inside MAYA.** They live in Stripe's billing portal, opened with <Ui>Update card, receipts & cancellation</Ui> on the <Ui>Billing</Ui> page. [The billing page](/docs/billing/the-billing-page)
 - **No link to accounting software** such as QuickBooks or Xero. Forward Stripe's receipts to your accountant, or change the billing email in the portal to an address they read. They do not need a MAYA login for invoices. [Cards, payments and invoices](/docs/billing/cards-payments-and-invoices)
 - **No pause.** Turn your rules off, ask us to put the property back in simulation, or cancel and restart later. [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving)
-- **No payment-confirmed email, no digest, and no email settings.** [Emails MAYA sends](/docs/billing/emails-maya-sends)
+- **No email digest, and no email settings.** [Emails MAYA sends](/docs/billing/emails-maya-sends)
 
 ## Your data, and everything else
 

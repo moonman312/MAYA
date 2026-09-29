@@ -35,6 +35,11 @@
  *     invocation can pick the same job straight up. On an error it is left to
  *     expire — that wait is the retry backoff, and pg_cron is the driver.
  *
+ * When NO_PROGRESS_LIMIT runs in a row move nothing, the job stops: it is
+ * marked failed, one alert goes to the alert channel, and it goes back in the
+ * queue by itself after a growing wait, AUTO_RETRY_DELAYS_MS.length times
+ * (requeueDueImports). After that it stays stopped for a person to look at.
+ *
  * All external effects are injected via WorkerDeps so the state machine is
  * unit-testable without Deno, Supabase, or a live PMS.
  */
@@ -47,6 +52,7 @@ import type {
 } from "../pms/onboarding-adapter.ts";
 import { proposeCountsAsRoom } from "./analysis.ts";
 import { isPaidLiveHotel } from "../billing/entitlement.ts";
+import { raiseAlert, type Alert } from "../pms/alerting.ts";
 import { deleteNightsOutside } from "../pms/stale-nights.ts";
 import { upsertRoomTypesKeepingCounts } from "../pms/room-type-upsert.ts";
 
@@ -124,6 +130,8 @@ export type WorkerDeps = {
   analyze: (supabase: SupabaseClient, job: ImportJobRow, pass: AnalysisPass) => Promise<void>;
   now: () => number;
   todayYmd: () => string;
+  /** Posts to the alert channel when a job stops. raiseAlert unless a test swaps it. */
+  alert?: typeof raiseAlert;
 };
 
 export type StepOutcome = "completed" | "budget_exhausted" | "failed" | "stopped";
@@ -198,6 +206,243 @@ export const LEASE_SECONDS = 180;
 const HEARTBEAT_MS = 60_000;
 /** Consecutive invocations that moved nothing before we call the job dead. */
 const NO_PROGRESS_LIMIT = 50;
+
+/**
+ * How long a stopped job waits before it goes back in the queue by itself,
+ * one entry per automatic retry. A stop already means NO_PROGRESS_LIMIT runs
+ * in a row went nowhere, a couple of hours of the PMS failing, so going again
+ * at once would only repeat it: the waits grow, and between them and the runs
+ * they cover about a day. After the last one the job stays stopped.
+ */
+export const AUTO_RETRY_DELAYS_MS = [60 * 60_000, 4 * 60 * 60_000, 12 * 60 * 60_000] as const;
+
+/**
+ * The job's latest stop, kept on stats.stop. The progress bar words itself
+ * from this, so it only says what really happens next.
+ */
+export type ImportStop = {
+  /** Times this job has stopped, this one included. */
+  count: number;
+  at: string;
+  /** When it goes back in the queue by itself; null once it has given up. */
+  retryAt: string | null;
+  /** Whether this stop's alert reached the alert channel. */
+  alerted: boolean;
+};
+
+export function importStopOf(stats: Record<string, unknown>): ImportStop | null {
+  const raw = stats.stop as Partial<ImportStop> | undefined;
+  if (!raw || typeof raw !== "object") return null;
+  return {
+    count: Number(raw.count ?? 0) || 0,
+    at: typeof raw.at === "string" ? raw.at : "",
+    retryAt: typeof raw.retryAt === "string" ? raw.retryAt : null,
+    alerted: raw.alerted === true,
+  };
+}
+
+/**
+ * An error no retry can fix, flagged by whoever threw it (a PMS with no
+ * onboarding adapter, say). The job stops on the first one.
+ */
+function isPermanent(e: unknown): boolean {
+  return Boolean(e && typeof e === "object" && (e as { permanent?: unknown }).permanent === true);
+}
+
+/**
+ * What went wrong, in words safe to post. The raw error can carry a slice of
+ * a PMS response body, and a body can carry a guest's details, so only a fixed
+ * description and an HTTP status leave; the full message stays in
+ * import_jobs.last_error.
+ */
+export function stopCause(message: string): string {
+  if (/does not support onboarding import/.test(message)) return "this PMS has no history import";
+  if (/credentials unavailable/i.test(message)) return "the PMS credentials could not be read";
+  if (/never finished/.test(message)) return "a current-window pass was killed before it finished";
+  if (/stopped short|still not covered/.test(message)) return "the current-window sync kept stopping without moving on";
+  const status = /\((\d{3})\)/.exec(message)?.[1];
+  if (status) return `the PMS answered HTTP ${status}`;
+  if (/\b(read|update|upsert|delete) failed\b/.test(message)) return "a database read or write failed";
+  return "an unclassified error";
+}
+
+type StopKind = "retrying" | "permanent" | "unpaid" | "exhausted";
+
+function stopAlert(job: ImportJobRow, stop: ImportStop, kind: StopKind, message: string): Alert {
+  const pms = job.pms_type;
+  const title =
+    kind === "retrying"
+      ? `History import stopped for a ${pms} property. It goes back in the queue at ${stop.retryAt} (automatic retry ${stop.count} of ${AUTO_RETRY_DELAYS_MS.length})`
+      : kind === "permanent"
+        ? `History import stopped for a ${pms} property and will not retry`
+        : kind === "unpaid"
+          ? `History import stopped for an unpaid ${pms} property. Paying for it puts it back in the queue`
+          : `History import gave up for a ${pms} property after ${AUTO_RETRY_DELAYS_MS.length} automatic retries. It needs a person`;
+  return {
+    severity: "critical",
+    // One key per stop: the same stop is never sent twice, the next one always is.
+    key: `import_stopped:${job.id}:${stop.count}`,
+    title,
+    detail:
+      `Job ${job.id}, phase ${job.phase}, ${job.rows_upserted} room-nights read so far. ` +
+      `Cause: ${stopCause(message)}. The full error is in import_jobs.last_error.`,
+    hotelId: job.hotel_id,
+  };
+}
+
+/**
+ * Whether a stopped job may go back in the queue by itself. Only for a paid
+ * hotel: an unpaid one waits for its payment, which re-queues it
+ * (promoteImportJob), rather than spending the property's API allowance again
+ * for someone who has not paid. A read that fails leans to retrying.
+ */
+async function retriesAllowed(supabase: SupabaseClient, job: ImportJobRow): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.from("hotels").select("is_active").eq("id", job.hotel_id).maybeSingle();
+    if (error) return true;
+    return await isPaidLiveHotel(supabase, job.hotel_id, (data as { is_active?: boolean } | null)?.is_active);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Stop the job: mark it failed, book its next automatic retry if it has one
+ * left, and send one alert. Called only on the run that makes the stop, so
+ * the alert goes once per stop; a fenced write that finds the row in another
+ * worker's hands sends nothing, since the stop is not ours to report. Never
+ * throws: a failed alert must not turn into a failed worker.
+ */
+async function stopJob(
+  supabase: SupabaseClient,
+  job: ImportJobRow,
+  deps: WorkerDeps,
+  lease: Lease,
+  message: string,
+  permanent: boolean,
+): Promise<void> {
+  job.status = "failed";
+  try {
+    const now = deps.now();
+    const count = (importStopOf(job.stats)?.count ?? 0) + 1;
+    const kind: StopKind = permanent
+      ? "permanent"
+      : count > AUTO_RETRY_DELAYS_MS.length
+        ? "exhausted"
+        : (await retriesAllowed(supabase, job))
+          ? "retrying"
+          : "unpaid";
+    const stop: ImportStop = {
+      count,
+      at: new Date(now).toISOString(),
+      retryAt: kind === "retrying" ? new Date(now + AUTO_RETRY_DELAYS_MS[count - 1]).toISOString() : null,
+      alerted: false,
+    };
+    job.stats = { ...job.stats, stop };
+    let q = supabase
+      .from("import_jobs")
+      .update({
+        status: "failed",
+        finished_at: new Date().toISOString(),
+        last_error: message,
+        stats: job.stats,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", job.id);
+    if (lease.token) q = q.eq("status", "running").lte("lease_expires_at", lease.token);
+    const { data, error } = await q.select("id");
+    if (error || (lease.token && (data ?? []).length === 0)) return;
+    console.warn(
+      JSON.stringify({ fn: "processJob", jobId: job.id, hotelId: job.hotel_id, event: "import_stopped", kind, count, retryAt: stop.retryAt }),
+    );
+
+    let sent = false;
+    try {
+      sent = (await (deps.alert ?? raiseAlert)(supabase, stopAlert(job, stop, kind, message))).sent;
+    } catch (e) {
+      console.error(
+        JSON.stringify({ fn: "processJob", jobId: job.id, event: "stop_alert_failed", error: e instanceof Error ? e.message : String(e) }),
+      );
+    }
+    if (!sent) return;
+    // Recorded so the screen can say we have been told only when we have.
+    job.stats = { ...job.stats, stop: { ...stop, alerted: true } };
+    await supabase
+      .from("import_jobs")
+      .update({ stats: job.stats, updated_at: new Date().toISOString() })
+      .eq("id", job.id)
+      .eq("status", "failed");
+  } catch (e) {
+    console.error(
+      JSON.stringify({ fn: "processJob", jobId: job.id, event: "stop_failed", error: e instanceof Error ? e.message : String(e) }),
+    );
+  }
+}
+
+/** Postgres unique_violation, as PostgREST passes it through. */
+function isDuplicate(error: { code?: string; message?: string } | null): boolean {
+  return Boolean(error && (error.code === "23505" || /duplicate key/i.test(error.message ?? "")));
+}
+
+/**
+ * Put stopped jobs whose automatic retry is due back in the queue. The worker
+ * calls this before every claim, so pg_cron's once-a-minute tick is the clock.
+ * A job goes back with a fresh error streak, so it gets the full run of tries
+ * again, and keeps its stop count, which is what makes the retries run out.
+ * Never throws: nothing here may stop the worker claiming its next job.
+ */
+export async function requeueDueImports(supabase: SupabaseClient, nowMs: number): Promise<number> {
+  const nowIso = new Date(nowMs).toISOString();
+  let requeued = 0;
+  try {
+    const { data, error } = await supabase
+      .from("import_jobs")
+      .select("id, hotel_id, stats")
+      .eq("status", "failed")
+      .lte("stats->stop->>retryAt", nowIso)
+      .limit(20);
+    if (error) throw new Error(`import_jobs read failed: ${error.message}`);
+    for (const row of (data ?? []) as { id: string; hotel_id: string; stats: Record<string, unknown> | null }[]) {
+      const stats = row.stats ?? {};
+      const stop = importStopOf(stats);
+      if (!stop?.retryAt || !(Date.parse(stop.retryAt) <= nowMs)) continue;
+      const settled = { ...stats, stop: { ...stop, retryAt: null } };
+      const { data: moved, error: moveErr } = await supabase
+        .from("import_jobs")
+        .update({
+          status: "queued",
+          finished_at: null,
+          lease_expires_at: null,
+          stats: { ...settled, errorStreak: 0 },
+          updated_at: nowIso,
+        })
+        .eq("id", row.id)
+        .eq("status", "failed")
+        .select("id");
+      if (moveErr) {
+        if (isDuplicate(moveErr)) {
+          // Another import for the property is queued or running now, and
+          // that one is the import: this retry has nothing left to do.
+          await supabase
+            .from("import_jobs")
+            .update({ stats: settled, updated_at: nowIso })
+            .eq("id", row.id)
+            .eq("status", "failed");
+          continue;
+        }
+        console.error(JSON.stringify({ fn: "requeueDueImports", jobId: row.id, error: moveErr.message }));
+        continue;
+      }
+      if ((moved ?? []).length > 0) {
+        requeued += 1;
+        console.log(JSON.stringify({ fn: "requeueDueImports", jobId: row.id, hotelId: row.hotel_id, retry: stop.count }));
+      }
+    }
+  } catch (e) {
+    console.error(JSON.stringify({ fn: "requeueDueImports", error: e instanceof Error ? e.message : String(e) }));
+  }
+  return requeued;
+}
 /**
  * How far past the worker's budget a current-window pass may read. A pass is
  * one opaque call that can start just before the budget runs out; without a
@@ -581,22 +826,22 @@ export async function processJob(
       console.warn(
         JSON.stringify({ fn: "processJob", jobId: job.id, hotelId: job.hotel_id, event: "current_sync_killed", passStartedAt: unfinished, streak }),
       );
+      const killedError = `the current-window sync started at ${String(unfinished)} never finished`;
+      if (failed) {
+        await stopJob(supabase, job, deps, lease, killedError, false);
+        return "failed";
+      }
       let q = supabase
         .from("import_jobs")
         .update({
           stats: job.stats,
-          last_error: `the current-window sync started at ${String(unfinished)} never finished`,
-          ...(failed ? { status: "failed", finished_at: new Date().toISOString() } : {}),
+          last_error: killedError,
           updated_at: new Date().toISOString(),
         })
         .eq("id", job.id);
       if (lease.token) q = q.eq("status", "running").lte("lease_expires_at", lease.token);
       const { error } = await q;
       if (error) throw new Error(`import_jobs update failed: ${error.message}`);
-      if (failed) {
-        job.status = "failed";
-        return "failed";
-      }
     }
 
     const adapter = await deps.createAdapter(supabase, job.hotel_id, job.pms_type);
@@ -739,7 +984,8 @@ export async function processJob(
     // this: a long import would hard-fail for being long. What matters is
     // consecutive invocations that moved nothing forward.
     const streak = progressed ? 1 : Number(job.stats.errorStreak ?? 0) + 1;
-    const failed = streak >= NO_PROGRESS_LIMIT;
+    const permanent = isPermanent(e);
+    const failed = permanent || streak >= NO_PROGRESS_LIMIT;
     job.stats = { ...job.stats, errorStreak: streak };
     // This failure is counted here; the next claim must not count it again.
     const marked = job.stats.currentSync as Record<string, unknown> | undefined;
@@ -748,14 +994,15 @@ export async function processJob(
       void _dropped;
       job.stats = { ...job.stats, currentSync: rest };
     }
+    if (failed) {
+      await stopJob(supabase, job, deps, lease, message, permanent);
+      return "failed";
+    }
     let q = supabase
       .from("import_jobs")
       .update({
         last_error: message,
         stats: job.stats,
-        ...(failed
-          ? { status: "failed", finished_at: new Date().toISOString() }
-          : {}),
         updated_at: new Date().toISOString(),
       })
       .eq("id", job.id);
@@ -764,7 +1011,7 @@ export async function processJob(
     // The lease is deliberately left to run out: that wait is the backoff
     // between retries, and without it the self-chain would burn through the
     // no-progress budget in seconds against an unreachable PMS.
-    return failed ? "failed" : "budget_exhausted";
+    return "budget_exhausted";
   }
 }
 

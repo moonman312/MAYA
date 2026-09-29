@@ -113,7 +113,7 @@ export async function POST(request: Request) {
   const rooms = body?.rooms;
   if (!isBillableRoomCount(rooms)) {
     return NextResponse.json(
-      { error: `Tell us how many rooms you have — any number from 1 to ${MAX_ROOMS}.` },
+      { error: `Tell us how many rooms you have: any number from 1 to ${MAX_ROOMS}.` },
       { status: 400 },
     );
   }
@@ -179,26 +179,65 @@ export async function POST(request: Request) {
   }
 
   // One subscription per hotel. Sending someone to Checkout who already has one
-  // would create a second and bill them twice.
-  const { data: existing } = hotelId
+  // would create a second and bill them twice. A failed read stops here too:
+  // treating it as "nothing on record" would skip the guards below and could
+  // hand a restart the first signup's trial.
+  const { data: existing, error: existingError } = hotelId
     ? await supabase
         .from("hotel_subscriptions")
         .select("stripe_customer_id, stripe_subscription_id, status")
         .eq("hotel_id", hotelId)
         .maybeSingle()
-    : { data: null };
-  // Only a subscription that is actually doing something blocks a new one.
-  // Testing for "not canceled" instead trapped every dead-but-not-canceled
-  // state — incomplete (they abandoned the card form), incomplete_expired,
-  // unpaid after dunning gave up — with a message telling them to manage a
-  // subscription in billing settings that would never charge or serve them.
-  // A hotel in that state has paid nothing and has no way forward.
+    : { data: null, error: null };
+  if (existingError) {
+    console.error(
+      JSON.stringify({ fn: "billingCheckout", step: "read_subscription", error: existingError.message }),
+    );
+    return NextResponse.json(
+      { error: "We couldn't load your account just now. Please try again in a moment." },
+      { status: 503 },
+    );
+  }
+  // Only a subscription that is actually doing something, or can still come
+  // back, blocks a new one. Testing for "not canceled" instead trapped the
+  // states that are truly over (incomplete: they abandoned the card form;
+  // incomplete_expired) with a message telling them to manage a subscription
+  // that would never charge or serve them.
   if (existing?.stripe_subscription_id && isEntitled(existing.status)) {
     return NextResponse.json(
       { error: "This property already has a subscription. Manage it at /account/billing." },
       { status: 409 },
     );
   }
+  // Paused is not serving them, but it is not gone either: it sits on hold in
+  // Stripe until we resume it, and a new one beside it would bill twice.
+  if (existing?.stripe_subscription_id && existing.status === "paused") {
+    return NextResponse.json(
+      {
+        error:
+          "Your subscription is on hold. Email us at info@modern-hospitality-solutions.com and we'll get it running again.",
+      },
+      { status: 409 },
+    );
+  }
+  // Unpaid is still alive in Stripe with its invoice open, and a new card
+  // pays that invoice and revives it (lib/billing/unpaid-recovery.ts). A new
+  // subscription beside it would have the property paying twice.
+  if (existing?.stripe_subscription_id && existing.status === "unpaid") {
+    return NextResponse.json(
+      {
+        error:
+          "Your subscription is waiting on a card update. Update your card from billing and the subscription restarts where it left off.",
+      },
+      { status: 409 },
+    );
+  }
+  // Anything live was refused above, so a subscription on record here is one
+  // that ended: this checkout is a restart. Every trial is for a first signup
+  // only, the Marketplace one and a code's own free days alike, so a restart
+  // is billed when checkout completes, which is what the restart screen tells
+  // them. A code's discount still applies.
+  const restartOf = existing?.stripe_subscription_id ? String(existing.stripe_subscription_id) : null;
 
   // A code is required to reach checkout at all while signup is gated — but
   // that gate is now per PMS (see /admin/pms-access), so a declared PMS whose
@@ -357,8 +396,9 @@ export async function POST(request: Request) {
       ).id;
     }
 
-    // A code's own trial wins; the Marketplace trial fills in when there is none.
-    const trialDays = effect.trialDays || (marketplace ? marketplaceTrialDays() : 0);
+    // A code's own trial wins; the Marketplace trial fills in when there is
+    // none. A restart gets neither.
+    const trialDays = restartOf ? 0 : effect.trialDays || (marketplace ? marketplaceTrialDays() : 0);
 
     const origin = new URL(request.url).origin;
     const session = await stripe.checkout.sessions.create({
@@ -472,8 +512,10 @@ export async function POST(request: Request) {
     //
     // Keyed on everything that defines the offer, so genuinely changing the room
     // count or the period still starts a new session rather than silently
-    // returning the old price.
-    { idempotencyKey: `maya_checkout_${hotelId}_${interval}_${rooms}_${signupCodeId ?? "none"}` });
+    // returning the old price. A restart is a different offer from the first
+    // signup (no trial), so it names the subscription it follows:
+    // cancelling within a day of signing up must not replay the first session.
+    { idempotencyKey: `maya_checkout_${hotelId}_${interval}_${rooms}_${signupCodeId ?? "none"}${restartOf ? `_after_${restartOf}` : ""}` });
 
     if (!session.url) {
       return NextResponse.json({ error: "Stripe did not return a checkout URL." }, { status: 502 });

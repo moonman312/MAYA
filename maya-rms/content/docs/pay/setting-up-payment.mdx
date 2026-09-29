@@ -3,7 +3,7 @@ title: Setting up payment
 summary: The payment screen field by field, how many rooms to enter, what the price panel and the Stripe page show, what happens if you leave checkout, the "Payment received" screen, and who can pay.
 section: pay
 order: 10
-readingTime: 11
+readingTime: 12
 keywords: [payment, pay, checkout, card, credit card, stripe, how many rooms, room count, monthly, yearly, price panel, nothing today, first charge, billed when you finish checkout, continue to payment, set up payment, which property management system, your code, terms 7.6, charged for room-count changes, tax, VAT, tax ID, billing address, left checkout, no charge was made, fields empty, lost my code, back button, left restart checkout, payment received, stuck, check again, charged twice, already has a subscription, too many checkout attempts, Before you continue, terms not accepted, pay before connecting, manage billing or cancel, room count blank, does MAYA see my card, Mews not yet available, Mews coming soon, paid but cannot connect]
 questions:
   - What does the payment screen ask for? {#the-screen-field-by-field/the-screen-is}
@@ -22,7 +22,7 @@ questions:
   - 'What does "Manage billing or cancel" on the payment screen do?' {#manage-billing-or-cancel-on-this-screen}
   - Who can set up payment for a property? {#who-can-set-up-payment}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -59,7 +59,7 @@ A number box with the hint <Ui>e.g. 24</Ui>. Any whole number from 1 to 500. Any
 Two buttons, <Ui>Monthly</Ui> and <Ui>Yearly</Ui>. Once the room count is valid, the yearly button adds <Ui>save 10%</Ui> for 21 rooms and up, or <Ui>pay once a year</Ui> for 1 to 20 rooms, because the smallest bracket has no yearly discount. [What it costs](/docs/start/what-it-costs) has the brackets.
 </Step>
 <Step title="The price panel">
-Appears once the room count is valid. A large price with "/ month" or "/ year" beside it, then a line such as "20 rooms at $5.50 per room." On a yearly plan the line goes on: "a month, billed as one year" and, from 21 rooms, "less 10%". The last line is either "Nothing today", followed by the date and amount of your first charge and "Cancel anytime." (a trial), or "Billed when you finish checkout. Cancel anytime."
+Appears once the room count is valid. A large price with "/ month" or "/ year" beside it, then a line such as "20 rooms at $5.50 per room." On a yearly plan the line goes on: "a month, billed as one year" and, from 21 rooms, "less 10%". The last line is either "Nothing today", followed by the date and amount of your first charge and "Cancel anytime." (a trial), or "Billed when you finish checkout. Cancel anytime." A restart always reads "Billed when you finish checkout.", even with a code that carries free days.
 </Step>
 <Step title="Which property management system do you use?">
 Direct sign-ups only. Four buttons: <Ui>Mews</Ui>, <Ui>Cloudbeds</Ui>, <Ui>Think Reservations</Ui>, <Ui>Something else</Ui>. Your choice sets whether the next field is required. A Marketplace arrival does not see this question, because the system is already Cloudbeds.
@@ -112,9 +112,7 @@ Most people never see this screen. After Stripe confirms your payment, MAYA move
 
 If that takes longer than about 25 seconds, the screen says your payment went through but our side is taking longer than usual, and adds "Nothing is lost and you have not been charged twice." A <Ui>Check again</Ui> button asks straight away. After 5 minutes it stops checking on its own and says so. <Ui>Check again</Ui> still works, and so does closing the page and signing in again later, which takes you to the right next step. Your card is saved either way, and there is never a second charge. [Account and billing problems](/docs/wrong/account-and-billing-problems) has what to do if it stays stuck.
 
-<Callout kind="not-yet" title="No email when the payment is confirmed">
-The slow version of this screen says we will email you when it is ready. No such email is sent today. Sign in again later instead, and MAYA takes you to the next step. [Emails MAYA sends](/docs/billing/emails-maya-sends) lists the emails that do exist.
-</Callout>
+The slow version of this screen says we will email you when it is ready, and we do. Once the payment is recorded, an email headed "Your account is ready" goes to the address you sign in with, and its button, <Ui>Pick up where you left off</Ui>, takes you to the next step. It comes once for each property, whether or not you waited on the screen. [Emails MAYA sends](/docs/billing/emails-maya-sends#the-account-ready-email) describes it.
 
 ## After you pay
 
@@ -126,6 +124,8 @@ Every property starts in simulation, whichever way you arrived: MAYA runs your r
 ## Messages you might see
 
 - **"This property already has a subscription. Manage it at /account/billing."** The property is already paid for. Open the <Ui>Billing</Ui> page instead.
+- **"Your subscription is on hold. Email us at info@modern-hospitality-solutions.com and we'll get it running again."** The property's subscription is paused in Stripe, and a new one is not started beside it. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Paused%20subscription) and we get it running again.
+- **"Your subscription is waiting on a card update. Update your card from billing and the subscription restarts where it left off."** The property's subscription is unpaid: the bank's retries ran out, but it is still alive in Stripe, so a new one is not started beside it. Press <Ui>Update card, receipts & cancellation</Ui> on the <Ui>Billing</Ui> page (or <Ui>Manage billing or cancel</Ui> on this screen, if the property is not connected yet) and save a new card as your default. MAYA pays the open invoice with it and the subscription restarts where it left off.
 - **"Too many checkout attempts. Wait a few minutes and try again."** You started checkout more than 10 times in 10 minutes. Wait, then try once more.
 - **"This needs General Manager access or higher on this property."** You are paying for a property that already exists, and your role there is below General Manager. Ask its General Manager or Hotel Admin.
 - **"Tell us how many rooms you have"** followed by the range 1 to 500: the room count did not reach us as a whole number in range. Type it again.
@@ -142,7 +142,7 @@ A first-time payer has no property yet, so anyone with an account can pay, and t
 If a subscription already sits on a property that is not connected yet, the payment or connect screen shows a small link, <Ui>Manage billing or cancel</Ui> (with the property's name when there is one). The <Ui>Billing</Ui> page cannot show a property until its system is connected, so this link is the door in the meantime: it opens Stripe straight onto cancelling that one subscription. Once set to cancel, the link becomes the words "Cancels at the end of the period". [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving) has the details.
 
 <Callout kind="not-yet">
-Cards only: no bank transfer, no ACH, no invoicing by email. No email when a payment is confirmed. The room count typed on get-maya.com is not carried into the app. Over 500 rooms is not sold self-serve. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Over%20500%20rooms) instead.
+Cards only: no bank transfer, no ACH, no invoicing by email. The room count typed on get-maya.com is not carried into the app. Over 500 rooms is not sold self-serve. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Over%20500%20rooms) instead.
 </Callout>
 
 <Related>

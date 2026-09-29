@@ -340,7 +340,8 @@ export type CalendarRoomType = {
   total_rooms: number;
   occupancy_pct: number;
   booked: number;
-  rate: number;
+  /** Average rate of the night's bookings (ADR). Null when nothing is booked. */
+  rate: number | null;
   revenue: number;
   /**
    * Engine-published price for this night (from `published_price`), i.e. the
@@ -409,6 +410,11 @@ export type CalendarResponse = {
    * for the hotel; the demo window when no Supabase data backs the calendar.
    */
   range: { min: string; max: string };
+  /**
+   * The hotel's currency code (hotels.currency), so amounts on the calendar
+   * carry its symbol. Absent in demo mode, where amounts are dollars.
+   */
+  currency?: string | null;
   days: Record<string, CalendarDay>;
 };
 

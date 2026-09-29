@@ -660,7 +660,7 @@ function alertFor(run: PushRunRecord, w: Working, open: CellRow[], severity: "wa
     key: `rate_push:${w.row.cause}:${run.hotelId}`,
     title:
       severity === "critical"
-        ? `Rates not reaching ${name}: ${w.row.cause.replace(/_/g, " ")}`
+        ? `Prices not reaching ${name}: ${w.row.cause.replace(/_/g, " ")}`
         : `Rates held back by a guardrail: ${w.row.cause.replace(/^guardrail_/, "").replace(/_/g, " ")}`,
     detail: `${facts.adminDescription} ${nights} night${nights === 1 ? "" : "s"}, ${roomTypes} room type${roomTypes === 1 ? "" : "s"}, ${w.row.attempt_count} tr${w.row.attempt_count === 1 ? "y" : "ies"} since ${w.row.opened_at}.`,
     hotelId: run.hotelId,

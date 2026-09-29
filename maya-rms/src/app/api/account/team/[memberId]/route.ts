@@ -74,9 +74,10 @@ export async function PATCH(request: Request, { params }: Ctx) {
     await setMembershipRole(admin, { hotelId: ctx.hotelId, userId: member.userId, role });
     return NextResponse.json({ ok: true });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Could not change that role.";
+    // Detail to the log only; the page gets a plain sentence (see ../route.ts).
+    const message = e instanceof Error ? e.message : String(e);
     console.error(JSON.stringify({ fn: "teamPatch", hotel: ctx.hotelId, error: message }));
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: "Could not change that role." }, { status: 500 });
   }
 }
 
@@ -102,9 +103,9 @@ export async function DELETE(request: Request, { params }: Ctx) {
       await revokePendingInvite(admin, memberId);
       return NextResponse.json({ ok: true });
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Could not cancel that invitation.";
+      const message = e instanceof Error ? e.message : String(e);
       console.error(JSON.stringify({ fn: "teamRevoke", hotel: ctx.hotelId, error: message }));
-      return NextResponse.json({ error: message }, { status: 500 });
+      return NextResponse.json({ error: "Could not cancel that invitation." }, { status: 500 });
     }
   }
 
@@ -134,8 +135,8 @@ export async function DELETE(request: Request, { params }: Ctx) {
     await removeMembership(admin, { hotelId: ctx.hotelId, userId: member.userId });
     return NextResponse.json({ ok: true });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Could not remove them.";
+    const message = e instanceof Error ? e.message : String(e);
     console.error(JSON.stringify({ fn: "teamDelete", hotel: ctx.hotelId, error: message }));
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: "Could not remove them." }, { status: 500 });
   }
 }

@@ -59,3 +59,14 @@ describe("the surviving role set", () => {
     expect(new Set(descriptions).size).toBe(descriptions.length);
   });
 });
+
+describe("General Manager", () => {
+  it("is not described as unable to remove other General Managers", () => {
+    // A General Manager may change or remove another General Manager: the
+    // team routes and the membership triggers both allow equal rank. The one
+    // line shown in the picker has to say the same.
+    const gm = HOTEL_ROLES.find((r) => r.key === "general_manager");
+    expect(gm?.description).toMatch(/^Everything except managing Hotel Admins:/);
+    expect(gm?.description).not.toMatch(/General Managers/);
+  });
+});

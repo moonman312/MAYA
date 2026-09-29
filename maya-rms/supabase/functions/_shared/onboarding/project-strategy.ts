@@ -9,28 +9,35 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * below a suite's real rates would pin its price down, which is worse than
  * no ceiling. Raw answers stay in onboarding_states.questions so this can
  * always re-run (it does: on answer save AND when the import finishes).
+ *
+ * The database keeps each room type's floor at or under its ceiling and
+ * refuses the whole row when an update would break that, so an answer that
+ * clashes with a room type's saved number is not written to that room type.
+ * Each one is returned, for the answers route to tell the owner which room
+ * type kept what, and why.
  */
 export async function projectStrategyOntoRoomTypes(
   supabase: SupabaseClient,
   hotelId: string,
-): Promise<void> {
+): Promise<GuardrailNotSaved[]> {
+  const notSaved: GuardrailNotSaved[] = [];
   const { data: settings } = await supabase
     .from("hotel_settings")
     .select("strategy_floor, strategy_ceiling")
     .eq("hotel_id", hotelId)
     .maybeSingle();
-  if (!settings) return;
+  if (!settings) return notSaved;
 
   const floor = settings.strategy_floor != null ? Number(settings.strategy_floor) : null;
   const ceiling = settings.strategy_ceiling != null ? Number(settings.strategy_ceiling) : null;
-  if (floor === null && ceiling === null) return;
+  if (floor === null && ceiling === null) return notSaved;
 
   const { data: roomTypes } = await supabase
     .from("room_types")
-    .select("id")
+    .select("id, name, display_name, floor_price, ceiling_price")
     .eq("hotel_id", hotelId)
     .eq("is_active", true);
-  if (!roomTypes?.length) return;
+  if (!roomTypes?.length) return notSaved;
 
   // Observed max nightly rate per room type. undefined = unknown (a failed
   // read): that type's ceiling is left alone rather than guessed. A type with
@@ -51,10 +58,74 @@ export async function projectStrategyOntoRoomTypes(
       const observedMax = maxRateByRoomType.get(String(rt.id));
       if (observedMax !== undefined && ceiling >= observedMax) patch.ceiling_price = ceiling;
     }
-    if (Object.keys(patch).length > 0) {
-      // floor must stay <= ceiling (DB check constraint)
-      await supabase.from("room_types").update(patch).eq("id", rt.id);
+    if (Object.keys(patch).length === 0) continue;
+
+    const base = {
+      roomTypeId: String(rt.id),
+      roomTypeName: String(rt.display_name || rt.name || ""),
+      floor,
+      ceiling,
+      savedFloor: Number(rt.floor_price),
+      savedCeiling: Number(rt.ceiling_price),
+    };
+    // floor must stay <= ceiling (DB check constraint), measured against
+    // whichever of the two this row keeps.
+    if ((patch.floor_price ?? base.savedFloor) > (patch.ceiling_price ?? base.savedCeiling)) {
+      notSaved.push(
+        patch.ceiling_price === undefined
+          ? { ...base, fields: ["floor"], reason: "above_ceiling" }
+          : patch.floor_price === undefined
+            ? { ...base, fields: ["ceiling"], reason: "below_floor" }
+            : { ...base, fields: ["floor", "ceiling"], reason: "answers_clash" },
+      );
+      continue;
     }
+
+    const { data: written, error } = await supabase.from("room_types").update(patch).eq("id", rt.id).select("id");
+    if (error || !written?.length) {
+      const fields: GuardrailNotSaved["fields"] = [];
+      if (patch.floor_price !== undefined) fields.push("floor");
+      if (patch.ceiling_price !== undefined) fields.push("ceiling");
+      notSaved.push({ ...base, fields, reason: "save_failed" });
+    }
+  }
+  return notSaved;
+}
+
+/**
+ * A room type an answer did not land on.
+ *  above_ceiling  the floor answer is above the ceiling the room type already has
+ *  below_floor    the ceiling answer is below the floor it already has
+ *  answers_clash  the floor answer is above the ceiling answer
+ *  save_failed    the write itself failed, or reached no row
+ */
+export type GuardrailNotSaved = {
+  roomTypeId: string;
+  roomTypeName: string;
+  fields: Array<"floor" | "ceiling">;
+  reason: "above_ceiling" | "below_floor" | "answers_clash" | "save_failed";
+  /** The answers as saved on the hotel. */
+  floor: number | null;
+  ceiling: number | null;
+  /** What the room type had before, and still has. */
+  savedFloor: number;
+  savedCeiling: number;
+};
+
+/** One sentence for the owner: which room type, which answer, and why. */
+export function describeGuardrailNotSaved(n: GuardrailNotSaved, money: (amount: number) => string): string {
+  const name = n.roomTypeName;
+  switch (n.reason) {
+    case "above_ceiling":
+      return `Your floor of ${money(n.floor ?? 0)} wasn't saved for ${name}: its ceiling is ${money(n.savedCeiling)}, and a floor can't be above the ceiling.`;
+    case "below_floor":
+      return `Your ceiling of ${money(n.ceiling ?? 0)} wasn't saved for ${name}: its floor is ${money(n.savedFloor)}, and a ceiling can't be below the floor.`;
+    case "answers_clash":
+      return `Your floor of ${money(n.floor ?? 0)} and ceiling of ${money(n.ceiling ?? 0)} weren't saved for ${name}, because the floor is above the ceiling.`;
+    case "save_failed":
+      return n.fields.length > 1
+        ? `Your floor and ceiling weren't saved for ${name}. Try again in a moment.`
+        : `Your ${n.fields[0] ?? "answer"} wasn't saved for ${name}. Try again in a moment.`;
   }
 }
 

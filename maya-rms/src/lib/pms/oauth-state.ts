@@ -23,7 +23,7 @@ const STATE_TTL_MS = 15 * 60 * 1000; // 15 minutes
  * Legacy states without an `intent` field verify as "hotel".
  */
 type StatePayload =
-  | { intent?: "hotel"; hotelId: string; pmsType: string; nonce: string; exp: number }
+  | { intent?: "hotel"; hotelId: string; pmsType: string; nonce: string; exp: number; from?: "admin" }
   | { intent: "onboarding"; userId: string; pmsType: string; nonce: string; exp: number };
 
 function base64url(buf: Buffer): string {
@@ -63,13 +63,18 @@ function signPayload(payload: StatePayload): string {
   return `${base64url(payloadBuf)}.${base64url(sig)}`;
 }
 
-export function signState(hotelId: string, pmsType: string): string {
+/**
+ * `from: "admin"` marks a connect started in the staff console, which is
+ * where its callback returns; everyone else lands back on the dashboard.
+ */
+export function signState(hotelId: string, pmsType: string, from?: "admin"): string {
   return signPayload({
     intent: "hotel",
     hotelId,
     pmsType,
     nonce: randomBytes(16).toString("hex"),
     exp: Date.now() + STATE_TTL_MS,
+    ...(from ? { from } : {}),
   });
 }
 
@@ -85,9 +90,9 @@ export function signOnboardingState(userId: string, pmsType: string): string {
 }
 
 export type StateVerification =
-  | { ok: true; intent: "hotel"; hotelId: string; pmsType: string }
+  | { ok: true; intent: "hotel"; hotelId: string; pmsType: string; from?: "admin" }
   | { ok: true; intent: "onboarding"; userId: string; pmsType: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; expired?: true };
 
 export function verifyState(state: string, expectedPmsType: string): StateVerification {
   const parts = state.split(".");
@@ -118,8 +123,11 @@ export function verifyState(state: string, expectedPmsType: string): StateVerifi
   if (payload.pmsType !== expectedPmsType) {
     return { ok: false, error: `State was signed for '${payload.pmsType}' not '${expectedPmsType}'` };
   }
-  if (typeof payload.exp !== "number" || payload.exp < Date.now()) {
-    return { ok: false, error: "State expired" };
+  if (typeof payload.exp !== "number") return { ok: false, error: "State expired" };
+  if (payload.exp < Date.now()) {
+    // Signed by us and simply too old: the one failure the person at the
+    // browser caused themselves, by taking longer than STATE_TTL_MS to sign in.
+    return { ok: false, error: "State expired", expired: true };
   }
 
   if (payload.intent === "onboarding") {
@@ -133,5 +141,11 @@ export function verifyState(state: string, expectedPmsType: string): StateVerifi
   if (typeof payload.hotelId !== "string" || !payload.hotelId) {
     return { ok: false, error: "State missing hotelId" };
   }
-  return { ok: true, intent: "hotel", hotelId: payload.hotelId, pmsType: payload.pmsType };
+  return {
+    ok: true,
+    intent: "hotel",
+    hotelId: payload.hotelId,
+    pmsType: payload.pmsType,
+    ...(payload.from === "admin" ? { from: "admin" as const } : {}),
+  };
 }

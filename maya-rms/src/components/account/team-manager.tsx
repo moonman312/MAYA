@@ -27,7 +27,9 @@ export function TeamManager({ initialInviteRole = null }: { initialInviteRole?: 
   const [roleFromLink, setRoleFromLink] = useState(linkedRole !== null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState<string | null>(null);
+  // Who was just added, and whether an email really went out to them. Someone
+  // who already uses MAYA is added without one.
+  const [sent, setSent] = useState<{ email: string; emailed: boolean } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -57,14 +59,19 @@ export function TeamManager({ initialInviteRole = null }: { initialInviteRole?: 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), role }),
       });
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(body.error ?? "Could not send that invitation.");
-      setSent(email.trim());
+      const body = (await res.json().catch(() => ({}))) as { error?: string; inviteSent?: boolean };
+      if (!res.ok) {
+        setError(body.error ?? "Could not send that invitation.");
+        return;
+      }
+      setSent({ email: email.trim(), emailed: body.inviteSent === true });
       setEmail("");
       setRoleFromLink(false);
       await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not send that invitation.");
+    } catch {
+      // Only the server's own sentences are shown; a dropped connection reads
+      // as the plain version, not the browser's wording for it.
+      setError("Could not send that invitation.");
     } finally {
       setBusy(null);
     }
@@ -77,10 +84,13 @@ export function TeamManager({ initialInviteRole = null }: { initialInviteRole?: 
     try {
       const res = await fetch(`/api/account/team/${id}`, init);
       const body = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(body.error ?? label);
+      if (!res.ok) {
+        setError(body.error ?? label);
+        return;
+      }
       await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : label);
+    } catch {
+      setError(label);
     } finally {
       setBusy(null);
     }
@@ -181,7 +191,15 @@ export function TeamManager({ initialInviteRole = null }: { initialInviteRole?: 
         {!seats.full && <p className="mt-2 text-xs text-slate-400">{ROLE_HELP[role]}</p>}
         {sent && (
           <p className="mt-3 text-sm text-emerald-300">
-            Invitation sent to {sent}. They&apos;ll get an email with a link to join.
+            {sent.emailed ? (
+              <>
+                Invitation sent to {sent.email}. They&apos;ll get an email with a link to join.
+              </>
+            ) : (
+              <>
+                Added. {sent.email} already uses MAYA and will see this property next time they sign in.
+              </>
+            )}
           </p>
         )}
         {error && (

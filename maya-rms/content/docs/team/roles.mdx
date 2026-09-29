@@ -24,7 +24,7 @@ questions:
   - Our only Hotel Admin has left and nobody can manage the team or billing. What do we do? {#if-your-only-hotel-admin-has-left/a-property-always}
   - Can MHS staff see my property? {#can-we-see-your-property}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -38,7 +38,7 @@ These are the words the app shows beside each role when you invite someone or ho
 | Role | What the app says |
 |---|---|
 | **Hotel Admin** | "Everything, including managing General Managers." |
-| **General Manager** | "Everything except managing Hotel Admins or removing other General Managers: pricing, taking it live, the property system, billing, and the rest of the team." Despite that wording, a General Manager can change or remove another General Manager. [General Manager versus Hotel Admin](#general-manager-versus-hotel-admin) has the details. |
+| **General Manager** | "Everything except managing Hotel Admins: pricing, taking it live, the property system, billing, and the rest of the team." The rest of the team includes other General Managers. [General Manager versus Hotel Admin](#general-manager-versus-hotel-admin) has the details. |
 | **Revenue Manager** | "Day-to-day pricing: rules, rates, floor and ceiling guardrails, and reverting changes. Cannot take pricing live or change the team." |
 | **Viewer** | "Can look, cannot change anything." |
 
@@ -62,16 +62,16 @@ The lowest role that can do each thing. A higher role can do everything a lower 
 | Set a past date aside as not a fair comparison, and undo it | Revenue Manager |
 | Tick or untick <Ui>Counts as a room</Ui> | Revenue Manager |
 | Add or clear rooms out of service | Revenue Manager |
-| Accept suggestion cards in the review, floor and ceiling cards included, and answer the floor and ceiling questions again | Revenue Manager |
+| Answer any card in the review, suggestion cards (floor and ceiling ones included) too, press <Ui>Finish</Ui> on it, and answer the floor and ceiling questions again | Revenue Manager |
 | Run <Ui>Get suggestions from my data</Ui> | Revenue Manager |
 | Go live | General Manager |
-| Reconnect the property system (the <Ui>Reconnect</Ui> button) | General Manager |
+| Reconnect the property system (the <Ui>Reconnect</Ui> button, or a reconnect link) | General Manager |
 | Open the <Ui>Billing</Ui> page, Stripe's billing portal, change the room count, restart, cancel | General Manager |
 | Set a group property aside with <Ui>Not now</Ui>, and set it up later | General Manager |
 | Open the <Ui>Team</Ui> page to invite, change a role, remove or cancel an invitation | General Manager, for roles up to General Manager. Hotel Admin, for any role. |
 | Make or unmake a Hotel Admin | Hotel Admin |
 
-Some pages show controls to everyone and refuse the action for a role below the line. A Viewer who tries to add a rule sees an error under the form, and a Viewer's switch or delete on a rule changes nothing. The <Ui>Rules that keep adjusting</Ui> card shows a Viewer no buttons and reads "Only a Revenue Manager or above can answer this."
+Some pages show controls to everyone and refuse the action for a role below the line. A Viewer who tries to add a rule sees an error under the form, and a Viewer's switch or delete on a rule changes nothing. The <Ui>Rules that keep adjusting</Ui> card shows a Viewer no buttons and reads "Only a Revenue Manager or above can answer this." A review card keeps its buttons, and pressing one below Revenue Manager shows the same sentence. <Ui>Finish</Ui> on the review shows "Only a Revenue Manager or above can finish the review." and leaves the review open.
 
 ## What a Viewer or Revenue Manager sees on the gated pages
 
@@ -88,7 +88,7 @@ Your role is set on each property separately, by that property's General Manager
 
 One difference: managing Hotel Admins. A General Manager can hand out any role up to General Manager, change or remove anyone up to that level (other General Managers included), and cannot touch a Hotel Admin. A Hotel Admin can do all of that and also make, demote or remove other Hotel Admins. Both can go live, reconnect, see billing and manage the team. Two rank rules hold for everyone: you can give a role at your own level or below, never above ("You can't give someone a role above your own."), and you cannot change or remove someone above you ("That's above your own access level.").
 
-Can a General Manager remove another General Manager? Yes. A General Manager can change another General Manager's role or remove them, as they can for anyone up to their own level, even though the role's one-line description in the app says otherwise.
+Can a General Manager remove another General Manager? Yes. A General Manager can change another General Manager's role or remove them, as they can for anyone up to their own level.
 
 A property is never left without a Hotel Admin: the last one cannot be demoted or removed ("This is the property's only Hotel Admin. Make someone else one first.").
 

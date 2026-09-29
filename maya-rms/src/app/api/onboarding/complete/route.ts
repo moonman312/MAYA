@@ -8,6 +8,10 @@ import { NextResponse } from "next/server";
  * Finish the review step: stamp completion and record the active room count
  * for payment-tier verification (tiers are room-count based; actual billing
  * comes later).
+ *
+ * Row security turns a lower role's write into an update of no rows, with no
+ * error, so the role is checked first and the write is read back: the review
+ * only moves on once this says the stamp is there.
  */
 export async function POST() {
   if (!isSupabaseConfigured()) {
@@ -22,7 +26,11 @@ export async function POST() {
   }
   const hotelId = await resolveAccessibleHotelId(supabase);
   if (!hotelId) {
-    return NextResponse.json({ error: "No hotel" }, { status: 400 });
+    return NextResponse.json({ error: "You don't have access to this property." }, { status: 400 });
+  }
+  const { data: canManage } = await supabase.rpc("can_manage_hotel", { target_hotel_id: hotelId });
+  if (!canManage) {
+    return NextResponse.json({ error: "Only a Revenue Manager or above can finish the review." }, { status: 403 });
   }
 
   const { data: roomTypes } = await supabase
@@ -36,7 +44,7 @@ export async function POST() {
   );
 
   const now = new Date().toISOString();
-  const { error } = await supabase
+  const { data: saved, error } = await supabase
     .from("onboarding_states")
     .update({
       review_completed_at: now,
@@ -44,9 +52,19 @@ export async function POST() {
       payment_tier_flagged_at: now,
       updated_at: now,
     })
-    .eq("hotel_id", hotelId);
+    .eq("hotel_id", hotelId)
+    .select("hotel_id");
+  // The review screen puts this answer under Finish, so the database's own
+  // words stay in the log.
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error(JSON.stringify({ fn: "onboarding/complete", hotelId, error: error.message }));
+    return NextResponse.json({ error: "Couldn't finish the review. Try again." }, { status: 500 });
+  }
+  if (!saved?.length) {
+    return NextResponse.json(
+      { error: "Your review couldn't be marked as finished. Reload the page and try again." },
+      { status: 409 },
+    );
   }
 
   return NextResponse.json({ ok: true, totalRooms });

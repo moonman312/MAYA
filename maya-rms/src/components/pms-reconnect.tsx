@@ -10,11 +10,13 @@
  *
  * One click for an OAuth property: straight out to the vendor, straight back
  * connected, no fields to fill in. A key-based PMS genuinely cannot work that
- * way — the credentials come from their own PMS dashboard — so it says so
- * plainly rather than offering a button that leads nowhere.
+ * way (we enter its keys), so it points everyone at the email that gets them
+ * re-entered rather than offering a button that leads nowhere.
  */
 
-const BROKEN = new Set(["error", "degraded", "disconnected"]);
+const BROKEN = new Set(["error", "disconnected"]);
+
+const KEYS_EMAIL = "info@modern-hospitality-solutions.com";
 
 export function PmsReconnect({
   hotelId,
@@ -51,8 +53,54 @@ export function PmsReconnect({
 
   const broken = BROKEN.has(status);
   const oauth = authKind === "oauth2_authorization_code";
+  const href = `/api/pms/${pmsType}/connect?hotelId=${encodeURIComponent(hotelId)}`;
+
+  // Degraded still reads and sends: a renewed token that could not be saved
+  // yet. The lost-connection alarm would be untrue there, so it gets one calm
+  // line, plus the quiet link for whoever can use it.
+  if (status === "degraded") {
+    return (
+      <p className="text-sm text-slate-400">
+        Your {displayName} connection needs a refresh soon. Prices are still updating.
+        {canManage && oauth ? (
+          <>
+            {" "}
+            <a
+              href={href}
+              className="text-xs text-slate-400 underline underline-offset-4 transition hover:text-slate-300"
+            >
+              Reconnect {displayName}
+            </a>
+          </>
+        ) : null}
+      </p>
+    );
+  }
 
   if (!broken && (placement === "banner" || !oauth)) return null;
+
+  // Keys come from us, not from a sign-in, so nobody at the property can
+  // repair this one, whatever their role. Everyone gets the same way back.
+  if (!oauth) {
+    return (
+      <div className="rounded border border-amber-500/40 bg-amber-500/5 p-4">
+        <h3 className="text-sm font-semibold text-amber-200">
+          {displayName} needs its keys re-entered
+        </h3>
+        <p className="mt-1 text-sm text-amber-100/80">
+          Prices aren&apos;t updating while this is down. Ask us to re-enter the {displayName} keys:
+          email{" "}
+          <a
+            href={`mailto:${KEYS_EMAIL}?subject=${encodeURIComponent(`${displayName} keys`)}`}
+            className="underline underline-offset-4 hover:text-amber-50"
+          >
+            {KEYS_EMAIL}
+          </a>
+          .
+        </p>
+      </div>
+    );
+  }
 
   // Someone who cannot reconnect still deserves to know why prices stopped —
   // they are often the person who will go and ask the GM. They just don't get a
@@ -66,28 +114,11 @@ export function PmsReconnect({
         </h3>
         <p className="mt-1 text-sm text-amber-100/80">
           Prices aren&apos;t updating while this is down. Ask this property&apos;s General Manager or
-          Hotel Admin to reconnect it — it takes them one click.
+          Hotel Admin to reconnect it. It takes them one click.
         </p>
       </div>
     );
   }
-
-  if (!oauth) {
-    return (
-      <div className="rounded border border-amber-500/40 bg-amber-500/5 p-4">
-        <h3 className="text-sm font-semibold text-amber-200">
-          {displayName} needs its keys re-entered
-        </h3>
-        <p className="mt-1 text-sm text-amber-100/80">
-          {displayName} connects with API keys from your own {displayName} dashboard rather than a
-          login, so this one can&apos;t be repaired from here. Send us a message and we&apos;ll walk
-          through it — it takes a couple of minutes.
-        </p>
-      </div>
-    );
-  }
-
-  const href = `/api/pms/${pmsType}/connect?hotelId=${encodeURIComponent(hotelId)}`;
 
   if (!broken) {
     return (

@@ -23,6 +23,7 @@ import {
 } from "@/lib/simulator";
 import type { EngineRule, RuleAction } from "@/types/domain";
 import { trackOnce } from "@/lib/analytics/track";
+import { currencySymbolFor } from "@/lib/changelog-route-helpers";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FilledChip } from "@/components/deep-links/arrival-bits";
 import { LearnMore } from "@/components/deep-links/help-links";
@@ -61,8 +62,12 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-function money(n: number): string {
-  return `$${n.toFixed(2)}`;
+/**
+ * An amount with the property's own symbol (currencySymbolFor, the same one
+ * the change log's sentences use), the minus sign in front of it.
+ */
+function money(n: number, symbol = "$"): string {
+  return `${n < 0 ? "-" : ""}${symbol}${Math.abs(n).toFixed(2)}`;
 }
 
 const inputClass = "w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm";
@@ -86,6 +91,7 @@ export function RateSimulator({
 }) {
   const [roomTypes, setRoomTypes] = useState<SeededRoomType[]>([]);
   const [hotelTimeZone, setHotelTimeZone] = useState("UTC");
+  const [currencySymbol, setCurrencySymbol] = useState("$");
   const [rules, setRules] = useState<EngineRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -124,13 +130,14 @@ export function RateSimulator({
       setLoadError(null);
       try {
         const [seeded, engineRules] = await Promise.all([
-          api<{ timezone: string; roomTypes: SeededRoomType[] }>("/api/room-types?withRate=1"),
+          api<{ timezone: string; currency?: string | null; roomTypes: SeededRoomType[] }>("/api/room-types?withRate=1"),
           api<EngineRule[]>("/api/rules/engine"),
         ]);
         if (cancelled) return;
         const rts = seeded.roomTypes ?? [];
         setRoomTypes(rts);
         setHotelTimeZone(seeded.timezone || "UTC");
+        setCurrencySymbol(currencySymbolFor(seeded.currency));
         if (stayInPending.current !== undefined) {
           setStayDate(isoDatePlus(stayInPending.current, new Date(`${hotelToday(seeded.timezone || "UTC")}T00:00:00Z`)));
           stayInPending.current = undefined;
@@ -378,8 +385,8 @@ export function RateSimulator({
         <h2 className="text-lg font-semibold">Rate Simulator</h2>
         <p className="mt-1 max-w-3xl text-xs text-slate-400">
           Make up a night and see what your rules would do to it. Nothing here is saved and no rate
-          reaches your PMS. The math is the pricing engine&rsquo;s own, so what you see is what a
-          real run would produce for these numbers.
+          reaches your PMS. The math is the same a real run uses, so what you see is what your
+          rules would produce for these numbers.
         </p>
         <LearnMore panel="simulator" />
       </div>
@@ -429,8 +436,9 @@ export function RateSimulator({
               ))}
             </select>
             <p className="mt-1 text-[11px] text-slate-500">
-              Leave on &ldquo;not enough history&rdquo; and booking-speed rules stay quiet, which is
-              what the engine does when it can&rsquo;t measure a pace.
+              Leave on &ldquo;not enough history&rdquo; and booking-speed rules stay quiet. The math
+              is the same a real run uses, and a real run keeps them quiet too when there isn&rsquo;t
+              enough history to read a pace.
             </p>
           </div>
         </div>
@@ -508,7 +516,7 @@ export function RateSimulator({
                       />
                     </td>
                     <td className="py-2 pr-3 text-[11px] text-slate-500 tabular-nums">
-                      {money(rt.floor_price)} &ndash; {money(rt.ceiling_price)}
+                      {money(rt.floor_price, currencySymbol)} &ndash; {money(rt.ceiling_price, currencySymbol)}
                     </td>
                   </tr>
                 );
@@ -844,9 +852,9 @@ export function RateSimulator({
                 return (
                   <tr key={row.roomType.id} className="border-b border-slate-800 align-top">
                     <td className="py-2 pr-3 font-medium text-slate-200">{row.roomType.name}</td>
-                    <td className="py-2 pr-3 tabular-nums text-slate-400">{money(row.basePrice)}</td>
+                    <td className="py-2 pr-3 tabular-nums text-slate-400">{money(row.basePrice, currencySymbol)}</td>
                     <td className="py-2 pr-3 tabular-nums font-semibold text-slate-100">
-                      {money(row.finalPrice)}
+                      {money(row.finalPrice, currencySymbol)}
                       {row.clampedBy !== "none" && (
                         <span className="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-normal text-slate-400">
                           held at your {row.clampedBy}
@@ -854,7 +862,7 @@ export function RateSimulator({
                       )}
                     </td>
                     <td className={`py-2 pr-3 tabular-nums ${cls}`}>
-                      {delta === 0 ? "—" : `${delta > 0 ? "+" : ""}${money(delta).replace("$-", "-$")}`}
+                      {delta === 0 ? "–" : `${delta > 0 ? "+" : ""}${money(delta, currencySymbol)}`}
                     </td>
                     <td className="py-2 pr-3">
                       {fired.length === 0 ? (
@@ -875,7 +883,7 @@ export function RateSimulator({
                       )}
                       {row.clampedBy !== "none" && (
                         <div className="mt-1 text-[11px] text-slate-500">
-                          Rules asked for {money(row.preClampPrice)}.
+                          Rules asked for {money(row.preClampPrice, currencySymbol)}.
                         </div>
                       )}
                     </td>
@@ -915,10 +923,11 @@ export function RateSimulator({
         )}
 
         <p className="mt-4 text-[11px] text-slate-500">
-          Three things this preview simplifies: a ladder rule fires on the way into its condition
-          and holds, so this shows where the night settles rather than each step; when several event
-          rules match, the engine picks one winner while this adds them all; and an event rule that
-          is still true once its wait is over adjusts the night again, which this shows only once.
+          The math is the same a real run uses, but this preview simplifies three things: a ladder
+          rule fires on the way into its condition and holds, so this shows where the night settles
+          rather than each step; when several event rules match, a real run picks one winner while
+          this adds them all; and an event rule that is still true once its wait is over adjusts the
+          night again, which this shows only once.
           It is one run, not where a night ends up over a week.
         </p>
       </div>

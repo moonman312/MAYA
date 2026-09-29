@@ -43,6 +43,11 @@ export function ImportProgressView() {
     return () => clearTimeout(t);
   }, [loaded, moveOn, somethingToReview, router]);
 
+  // A stopped import is not being read, so the page must not say it is; the
+  // bar below says whether and when it tries again.
+  const stopped = job?.status === "failed";
+  const paused = stopped && Boolean(job?.stats?.stop?.retryAt);
+
   return (
     <div className="flex flex-col items-center gap-8 pt-10 text-center">
       <div>
@@ -53,13 +58,19 @@ export function ImportProgressView() {
               ? "All done!"
               : moveOn
                 ? "Your first results are ready"
-                : "We're studying your booking history"}
+                : stopped
+                  ? paused
+                    ? "Your import is paused"
+                    : "Your import has stopped"
+                  : "We're reading your booking history"}
         </h1>
         {reconnect ? null : (
           <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-400">
             {moveOn
               ? "Taking you to what we found…"
-              : "This runs on our side, so you can close this page, grab a coffee, or head to your dashboard. We'll flag anything worth reviewing as soon as it's ready."}
+              : stopped
+                ? "Everything read so far is kept. The bar below says what happens next."
+                : "This runs on our side, so you can close this page, grab a coffee, or head to your dashboard. We'll flag anything worth reviewing as soon as it's ready."}
           </p>
         )}
       </div>
@@ -87,12 +98,12 @@ export function ImportProgressView() {
                         ),
                       ),
                     )
-                  : "—"
+                  : "–"
               }
             />
             <Stat
               label="Oldest stay"
-              value={job.oldest_stay_date ? job.oldest_stay_date.slice(0, 7) : "—"}
+              value={job.oldest_stay_date ? job.oldest_stay_date.slice(0, 7) : "–"}
             />
           </div>
         ) : null}

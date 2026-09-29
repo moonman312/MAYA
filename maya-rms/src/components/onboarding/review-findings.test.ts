@@ -17,7 +17,31 @@ describe("describeFinding", () => {
     const c = describeFinding(finding("zero_rate_rows", { count: 42 }));
     expect(c.acknowledgeOnly).toBe(true);
     expect(c.confirmLabel).toBe("Got it");
-    expect(c.body.endsWith("Nothing you have to do — we'll ignore them for the purpose of this analysis.")).toBe(true);
+    expect(c.body.endsWith("Nothing you have to do: they're left out when your floors and ceilings are worked out.")).toBe(true);
+  });
+
+  it("counts a seasonal closure's years without calling them a run, and says what confirming does", () => {
+    const c = describeFinding(finding("closed_period", { recurring: true, years_observed: 3, season_label: "all of August" }));
+    expect(c.title).toBe("Is your property normally closed all of August?");
+    expect(c.body).toBe(
+      "This closure appears in 3 different years. One confirmation covers all of them, and those stretches are left out when your nights are compared.",
+    );
+  });
+
+  it("never says the review analyses anything, and uses no em dash on any card", () => {
+    const kinds: Array<[string, Record<string, unknown>]> = [
+      ["closed_period", { recurring: true, years_observed: 2, season_label: "all of August" }],
+      ["closed_period", { start_date: "2025-01-01", end_date: "2025-01-10", days: 10 }],
+      ["rate_outlier", { name: "Suite", max_rate: 9999, median_rate: 200 }],
+      ["zero_rate_rows", { count: 42 }],
+      ["suspect_room_type", { name: "Spa Slot", reasons: ["no beds"] }],
+      ["duplicate_room_type", { name: "Standard" }],
+      ["unmapped_room_type", { count: 7 }],
+    ];
+    for (const [kind, payload] of kinds) {
+      const c = describeFinding(finding(kind, payload));
+      expect(`${c.title} ${c.body} ${c.confirmLabel} ${c.dismissLabel} ${c.keepLabel ?? ""}`).not.toMatch(/analy|—/i);
+    }
   });
 
   it("marks unmapped_room_type as acknowledge-only with reassurance copy", () => {
@@ -127,11 +151,11 @@ describe("FindingCard", () => {
 
 describe("the room-count strip", () => {
   it("asks the question with the count, singular and plural", () => {
-    expect(roomCountQuestion(3)).toBe("We're counting 3 room types as rooms — anything here that isn't?");
-    expect(roomCountQuestion(1)).toBe("We're counting 1 room type as rooms — anything here that isn't?");
+    expect(roomCountQuestion(3)).toBe("We're counting 3 room types as rooms. Anything here that isn't?");
+    expect(roomCountQuestion(1)).toBe("We're counting 1 room type as rooms. Anything here that isn't?");
   });
 
-  it("ticks everything the import didn't flag — null is ticked, only false is unticked", () => {
+  it("keeps an unanswered type in occupancy: only false leaves it out", () => {
     expect(isCountingRoom({ counts_as_room: null })).toBe(true);
     expect(isCountingRoom({ counts_as_room: true })).toBe(true);
     expect(isCountingRoom({ counts_as_room: false })).toBe(false);

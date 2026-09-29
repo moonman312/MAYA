@@ -2,6 +2,7 @@
 
 import { MayaLockup } from "@/components/brand/logo";
 import { TermsConsent } from "@/components/legal/terms-consent";
+import { RESET_PAUSE_MS } from "@/lib/auth-links";
 import { signupAcceptanceMetadata } from "@/lib/legal/versions";
 import { safeNext } from "@/lib/deep-links";
 import { createClient } from "@/utils/supabase/client";
@@ -10,7 +11,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
-type Mode = "signin" | "signup";
+type Mode = "signin" | "signup" | "forgot";
 
 /** Where a Flow A claim ticket waits out an email-confirmation round trip. */
 const CLAIM_KEY = "maya.marketplace.claim";
@@ -60,6 +61,7 @@ export default function LoginPage() {
   const [confirm, setConfirm] = useState("");
   const [agreed, setAgreed] = useState(false);
   const [sentTo, setSentTo] = useState<string | null>(null);
+  const [resetSentTo, setResetSentTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const configured = useMemo(() => isSupabaseConfigured(), []);
@@ -71,6 +73,8 @@ export default function LoginPage() {
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     if (q.get("mode") === "signup") setMode("signup");
+    // The reset page sends people back here for a fresh link.
+    if (q.get("mode") === "forgot") setMode("forgot");
     // Flow A: Cloudbeds sent them here after they connected in the Marketplace.
     // A claim ticket means the property is parked and waiting for an owner; a
     // reconnect means it already has one and just needs signing in.
@@ -181,6 +185,27 @@ export default function LoginPage() {
     }
   }
 
+  async function onForgot(e: FormEvent) {
+    e.preventDefault();
+    const address = email.trim();
+    setLoading(true);
+    setError(null);
+    try {
+      // Fired and never awaited: see RESET_PAUSE_MS. The link comes back to
+      // this site's own reset page, never to an address from the request.
+      void createClient()
+        .auth.resetPasswordForEmail(address, {
+          redirectTo: `${window.location.origin}/auth/reset-password`,
+        })
+        .catch(() => {});
+    } catch {
+      // Same screen either way.
+    }
+    await new Promise((resolve) => setTimeout(resolve, RESET_PAUSE_MS));
+    setLoading(false);
+    setResetSentTo(address);
+  }
+
   async function onSignUp(e: FormEvent) {
     e.preventDefault();
     if (!agreed) return;
@@ -237,7 +262,26 @@ export default function LoginPage() {
       <div className="mx-auto flex min-h-screen max-w-md items-center p-6">
         <div className="w-full rounded-lg border border-slate-800 bg-slate-900 p-6">
           <MayaLockup height={32} className="mb-6" />
-          {sentTo ? (
+          {resetSentTo ? (
+            <>
+              <h1 className="text-2xl font-semibold">Check your email</h1>
+              <p className="mt-2 text-sm text-slate-300">
+                If <span className="font-medium text-slate-100">{resetSentTo}</span> has a MAYA
+                account, a link to set a new password is on its way. Open it in this browser. The
+                link works once.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setResetSentTo(null);
+                  switchMode("signin");
+                }}
+                className={`mt-5 ${primaryClass}`}
+              >
+                Back to sign in
+              </button>
+            </>
+          ) : sentTo ? (
             <>
               <h1 className="text-2xl font-semibold">Check your email</h1>
               <p className="mt-2 text-sm text-slate-300">
@@ -260,16 +304,22 @@ export default function LoginPage() {
           ) : (
             <>
               <h1 className="text-2xl font-semibold">
-                {mode === "signin" ? "Sign in to MAYA" : "Create your MAYA account"}
+                {mode === "signin"
+                  ? "Sign in to MAYA"
+                  : mode === "forgot"
+                    ? "Reset your password"
+                    : "Create your MAYA account"}
               </h1>
               <p className="mt-2 text-sm text-slate-300">
-                {claim
-                  ? "Your Cloudbeds property is connected. Create your account to finish setting it up."
-                  : reconnected
-                    ? "Your Cloudbeds connection is active again. Sign in to pick up where you left off."
-                    : mode === "signin"
-                      ? "Welcome back."
-                      : "Set a password and you're on your way. Your property comes next."}
+                {mode === "forgot"
+                  ? "Type the email you sign in with, and we'll send you a link to set a new password."
+                  : claim
+                    ? "Your Cloudbeds property is connected. Create your account to finish setting it up."
+                    : reconnected
+                      ? "Your Cloudbeds connection is active again. Sign in to pick up where you left off."
+                      : mode === "signin"
+                        ? "Welcome back."
+                        : "Set a password and you're on your way. Your property comes next."}
               </p>
 
               {!configured && (
@@ -300,6 +350,30 @@ export default function LoginPage() {
                   />
                   <button type="submit" disabled={loading || !configured} className={primaryClass}>
                     {loading ? "Working..." : "Sign In"}
+                  </button>
+                  <p className="text-right text-sm">
+                    <button
+                      type="button"
+                      onClick={() => switchMode("forgot")}
+                      className="cursor-pointer text-sky-300 hover:underline"
+                    >
+                      Forgot password?
+                    </button>
+                  </p>
+                </form>
+              ) : mode === "forgot" ? (
+                <form className="mt-5 space-y-3" onSubmit={onForgot}>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    placeholder="Email"
+                    autoComplete="email"
+                    className={inputClass}
+                  />
+                  <button type="submit" disabled={loading || !configured} className={primaryClass}>
+                    {loading ? "Sending..." : "Send reset link"}
                   </button>
                 </form>
               ) : (
@@ -346,7 +420,18 @@ export default function LoginPage() {
               {error && <p className="mt-3 text-sm text-rose-300">{error}</p>}
 
               <p className="mt-4 text-sm text-slate-400">
-                {mode === "signin" ? (
+                {mode === "forgot" ? (
+                  <>
+                    Remembered it?{" "}
+                    <button
+                      type="button"
+                      onClick={() => switchMode("signin")}
+                      className="cursor-pointer text-sky-300 hover:underline"
+                    >
+                      Sign in
+                    </button>
+                  </>
+                ) : mode === "signin" ? (
                   <>
                     New to MAYA?{" "}
                     <button

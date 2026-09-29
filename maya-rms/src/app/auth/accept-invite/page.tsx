@@ -2,14 +2,23 @@
 
 import { MayaLockup } from "@/components/brand/logo";
 import { TermsConsent } from "@/components/legal/terms-consent";
+import { linkProblem, linkRefusedInUrl } from "@/lib/auth-links";
+import { SUPPORT_EMAIL } from "@/lib/docs/home";
 import { PRIVACY_VERSION, TERMS_VERSION } from "@/lib/legal/versions";
 import { createClient } from "@/utils/supabase/client";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import type { EmailOtpType } from "@supabase/supabase-js";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 type Stage = "checking" | "ready" | "session-error" | "complete";
+
+/**
+ * Why the link didn't work. "expired" covers a used link too: Supabase answers
+ * both the same way. "retry" is when no answer came back at all.
+ */
+type LinkState = "expired" | "retry";
 
 function AcceptInviteFallback() {
   return (
@@ -37,12 +46,24 @@ function AcceptInviteContent() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [linkState, setLinkState] = useState<LinkState>("expired");
+
+  const refuse = useCallback((problem: LinkState) => {
+    setLinkState(problem);
+    setStage("session-error");
+  }, []);
 
   const exchangeCode = useCallback(async () => {
     if (!configured) return;
     const code = searchParams.get("code");
     const tokenHash = searchParams.get("token_hash");
     const otpType = (searchParams.get("type") ?? "invite") as EmailOtpType;
+    // Supabase already turned an older-style link down on its own page and
+    // sent them here with the reason.
+    if (!tokenHash && !code && linkRefusedInUrl(window.location.href)) {
+      refuse("expired");
+      return;
+    }
     const supabase = createClient();
 
     if (tokenHash || code) {
@@ -63,32 +84,31 @@ function AcceptInviteContent() {
         type: otpType,
       });
       if (otpErr) {
-        setError(otpErr.message);
-        setStage("session-error");
+        refuse(linkProblem(otpErr) === "retry" ? "retry" : "expired");
         return;
       }
     } else if (code) {
       // Legacy links from Supabase-sent emails (PKCE code exchange).
       const { error: exErr } = await supabase.auth.exchangeCodeForSession(code);
       if (exErr) {
-        setError(exErr.message);
-        setStage("session-error");
+        refuse(linkProblem(exErr) === "retry" ? "retry" : "expired");
         return;
       }
     }
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      setStage("session-error");
-      setError("No session. The invite link may have expired.");
+      refuse("expired");
       return;
     }
     setStage("ready");
-  }, [configured, searchParams]);
+  }, [configured, searchParams, refuse]);
 
   useEffect(() => {
-    void exchangeCode();
-  }, [exchangeCode]);
+    // A throw here is the request never getting an answer, not a verdict on
+    // the link, so the same link is worth another go.
+    exchangeCode().catch(() => refuse("retry"));
+  }, [exchangeCode, refuse]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -166,8 +186,28 @@ function AcceptInviteContent() {
           )}
 
           {stage === "session-error" && (
-            <div className="rounded border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200">
-              {error ?? "The invite link is invalid or expired. Ask an administrator to resend."}
+            <div
+              role="alert"
+              className="rounded border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200"
+            >
+              {linkState === "retry" ? (
+                "We couldn't check this link just now. Reload the page to try again."
+              ) : (
+                <>
+                  This link has expired or was already used. If you set your password already,{" "}
+                  <Link href="/login" className="underline hover:text-rose-100">
+                    sign in
+                  </Link>
+                  . If not,{" "}
+                  <a
+                    href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("New invitation link")}`}
+                    className="underline hover:text-rose-100"
+                  >
+                    email us
+                  </a>{" "}
+                  for a new link.
+                </>
+              )}
             </div>
           )}
 

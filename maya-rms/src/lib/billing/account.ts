@@ -4,7 +4,7 @@ import { isEntitledStatus } from "./entitlement";
 import { compareRooms, graceDaysLeft, measureRooms, type RoomVerdict } from "./room-count";
 import { noticeCoversShortfall } from "./room-truing";
 import { isStripeConfigured, stripeClient } from "./stripe";
-import { formatUsd, priceCents, type BillingInterval } from "./tiers";
+import { formatUsd, MAX_ROOMS, priceCents, type BillingInterval } from "./tiers";
 
 /**
  * What a hotel owner sees about their own subscription.
@@ -30,7 +30,26 @@ export type AccountBilling = {
    * which can only overstate, never surprise upward.
    */
   chargeCents: number | null;
+  /**
+   * The same invoice before tax, which is what the bracket price is compared
+   * with: once tax is collected, the charge itself always differs from it.
+   * Null when Stripe can't be asked.
+   */
+  chargeBeforeTaxCents: number | null;
+  /**
+   * Whether that next invoice carries a discount, which only a code puts on a
+   * subscription. False when Stripe can't be asked, and once a limited
+   * discount has run out, even though the code is still on record.
+   */
+  codeApplied: boolean;
   renewsAt: string | null;
+  /**
+   * When the run of unpaid invoices began, read off Stripe. Only for an
+   * "unpaid" subscription, whose period end is no help here: Stripe keeps
+   * opening periods on it, so that date is usually still to come. Null when
+   * Stripe can't be asked.
+   */
+  unpaidSince: string | null;
   trialEndsAt: string | null;
   cancelAtPeriodEnd: boolean;
   /** Set only once the card check has actually failed, not while it retries. */
@@ -65,14 +84,46 @@ const NOTICE_COLUMNS = "room_shortfall_notified_at, room_shortfall_notified_room
  * leash: this decorates the billing page, and a slow Stripe outage must not
  * take the page down with it.
  */
-async function previewChargeCents(subscriptionId: string): Promise<number | null> {
+async function previewCharge(
+  subscriptionId: string,
+): Promise<{ cents: number; beforeTaxCents: number; discounted: boolean } | null> {
   if (!isStripeConfigured()) return null;
   try {
     const invoice = await stripeClient().invoices.createPreview(
       { subscription: subscriptionId },
       { timeout: 3000 },
     );
-    return typeof invoice.amount_due === "number" ? invoice.amount_due : null;
+    if (typeof invoice.amount_due !== "number") return null;
+    return {
+      cents: invoice.amount_due,
+      beforeTaxCents:
+        typeof invoice.total_excluding_tax === "number" ? invoice.total_excluding_tax : invoice.amount_due,
+      discounted: (invoice.total_discount_amounts ?? []).some((d) => d.amount > 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The date of the oldest invoice still owed since the last one that was paid,
+ * which is when an unpaid subscription stopped being paid for. Stripe lists
+ * newest first; drafts and voided invoices were never owed, so they are
+ * stepped over. Same short leash as the preview.
+ */
+async function unpaidSinceFor(subscriptionId: string): Promise<string | null> {
+  if (!isStripeConfigured()) return null;
+  try {
+    const invoices = await stripeClient().invoices.list(
+      { subscription: subscriptionId, limit: 24 },
+      { timeout: 3000 },
+    );
+    let since: number | null = null;
+    for (const invoice of invoices.data) {
+      if (invoice.status === "paid") break;
+      if (invoice.status === "open" || invoice.status === "uncollectible") since = invoice.created;
+    }
+    return since == null ? null : new Date(since * 1000).toISOString();
   } catch {
     return null;
   }
@@ -117,9 +168,13 @@ export async function loadAccountBilling(
   const entitled = isEntitledStatus(String(data.status));
   // Only a subscription that will invoice again has a next charge to preview —
   // asking Stripe about a cancelled one is an error, not a number.
-  const chargeCents =
+  const preview =
     entitled && data.stripe_subscription_id
-      ? await previewChargeCents(String(data.stripe_subscription_id))
+      ? await previewCharge(String(data.stripe_subscription_id))
+      : null;
+  const unpaidSince =
+    String(data.status) === "unpaid" && data.stripe_subscription_id
+      ? await unpaidSinceFor(String(data.stripe_subscription_id))
       : null;
 
   return {
@@ -128,8 +183,11 @@ export async function loadAccountBilling(
     interval,
     rooms,
     periodCents: priceCents(rooms, interval),
-    chargeCents,
+    chargeCents: preview?.cents ?? null,
+    chargeBeforeTaxCents: preview?.beforeTaxCents ?? null,
+    codeApplied: preview?.discounted ?? false,
     renewsAt: data.current_period_end ? String(data.current_period_end) : null,
+    unpaidSince,
     trialEndsAt: data.trial_end ? String(data.trial_end) : null,
     cancelAtPeriodEnd: data.cancel_at_period_end === true,
     cardTrouble: data.card_verify_failed_at
@@ -175,7 +233,19 @@ export function roomGraceDaysLeft(data: Record<string, unknown>, now: Date): num
 /** How loudly the page should say it. */
 export type BillingTone = "ok" | "warn" | "stopped";
 
-export type BillingHeadline = { tone: BillingTone; title: string; detail: string };
+export type BillingHeadline = {
+  tone: BillingTone;
+  title: string;
+  detail: string;
+  /**
+   * Set when the way forward is writing to us rather than anything on the
+   * page: the subject line for the mailto the page puts under the sentence.
+   */
+  emailSubject?: string;
+};
+
+/** What has stopped, said the same way on every stopped card. */
+const STOPPED = "Your rules no longer run on a schedule and nothing is sent to your PMS.";
 
 /**
  * The one sentence at the top of the billing page.
@@ -186,6 +256,17 @@ export type BillingHeadline = { tone: BillingTone; title: string; detail: string
  */
 export function headlineFor(billing: AccountBilling, now = new Date()): BillingHeadline {
   if (!billing.entitled) {
+    // A paused subscription is still there in Stripe, on hold, and nothing on
+    // this page or in the portal resumes it. It needs us, and a restart would
+    // put a second subscription beside it.
+    if (billing.status === "paused") {
+      return {
+        tone: "stopped",
+        title: "MAYA has paused work on this property",
+        detail: `${STOPPED} Your subscription is on hold. Email us and we'll get it running again.`,
+        emailSubject: "Paused subscription",
+      };
+    }
     // Two different fixes hide under "not entitled", and sending someone at the
     // wrong one wastes their time: an unpaid subscription is still alive in
     // Stripe and a working card revives it, whereas a cancelled one is gone and
@@ -195,8 +276,8 @@ export function headlineFor(billing: AccountBilling, now = new Date()): BillingH
       tone: "stopped",
       title: "MAYA has paused work on this property",
       detail: recoverable
-        ? "Prices are no longer being calculated or sent to your PMS. Update your card and the subscription restarts where it left off."
-        : "Prices are no longer being calculated or sent to your PMS. Your subscription was cancelled, so starting again means a new one — restart below whenever you're ready.",
+        ? `${STOPPED} Update your card and the subscription restarts where it left off.`
+        : `${STOPPED} Your subscription was cancelled, so starting again means a new one. Restart below whenever you're ready.`,
     };
   }
 
@@ -205,7 +286,7 @@ export function headlineFor(billing: AccountBilling, now = new Date()): BillingH
       tone: "warn",
       title: "Your last payment did not go through",
       detail:
-        "We are still pricing your rooms while the bank retries. Update your card to avoid an interruption.",
+        "Your rules keep running while the bank retries. Update your card to avoid an interruption.",
     };
   }
 
@@ -225,11 +306,23 @@ export function headlineFor(billing: AccountBilling, now = new Date()): BillingH
   if (billing.roomTruth.kind === "short") {
     const { measured, billed, shortBy } = billing.roomTruth;
     const days = billing.roomGraceDaysLeft;
+    const lead = `MAYA charges per room, so ${shortBy} ${shortBy === 1 ? "room is" : "rooms are"} not being paid for. `;
+    // Above the self-serve ceiling nothing here can fix it: the count box stops
+    // at MAX_ROOMS, and the notice email and the correction both skip these
+    // rows (room-truing.ts), so promising an email would promise nothing.
+    if (measured > MAX_ROOMS) {
+      return {
+        tone: "warn",
+        title: `You're billed for ${billed} rooms but running ${measured}`,
+        detail: `${lead}That's above what we sell self-serve. Email us and we'll set it up with you.`,
+        emailSubject: `Over ${MAX_ROOMS} rooms`,
+      };
+    }
     return {
       tone: "warn",
       title: `You're billed for ${billed} rooms but running ${measured}`,
       detail:
-        `MAYA charges per room, so ${shortBy} ${shortBy === 1 ? "room is" : "rooms are"} not being paid for. ` +
+        lead +
         (days === null
           ? "Set the count right below. We'll email you before anything changes."
           : days > 0
@@ -270,15 +363,65 @@ export function headlineFor(billing: AccountBilling, now = new Date()): BillingH
 }
 
 /**
+ * Whether the page offers a restart. Only a subscription that is gone in Stripe
+ * gets one: "unpaid" is still alive and revives through the card, and "paused"
+ * is still there on hold. A new checkout beside either has the owner paying
+ * twice.
+ */
+export function offersRestart(billing: AccountBilling): boolean {
+  return !billing.entitled && billing.status !== "unpaid" && billing.status !== "paused";
+}
+
+/**
+ * The line under the price. Stripe's next invoice can differ from the bracket
+ * price for two reasons, and naming the wrong one sent owners hunting for a
+ * code they never used: a discount on the invoice is their code, and anything
+ * else is the part-period difference a room count change leaves on it. Tax is
+ * neither, so the comparison is made before it.
+ */
+export function priceHint(billing: AccountBilling): string {
+  const base = `${billing.rooms} room${billing.rooms === 1 ? "" : "s"} at MAYA's ${billing.interval === "year" ? "annual" : "monthly"} rate`;
+  if (billing.codeApplied) return `${base}, with your code applied.`;
+  const beforeTax = billing.chargeBeforeTaxCents ?? billing.chargeCents;
+  if (beforeTax != null && beforeTax !== billing.periodCents) {
+    return `${base}, adjusted for a recent room count change.`;
+  }
+  return `${base}.`;
+}
+
+/**
+ * "Was" only once the subscription is over: cancelled, or a checkout that never
+ * completed. Unpaid and paused can both still come back, and "Was" told their
+ * owners it had ended.
+ */
+export function priceLabel(billing: AccountBilling): string {
+  return billing.entitled || billing.status === "unpaid" || billing.status === "paused" ? "Price" : "Was";
+}
+
+/**
  * What the period-end date actually means, which depends on whether anything is
  * still going to be charged. Calling it "Next charge" on a cancelled
- * subscription promises a payment that will never be taken.
+ * subscription promises a payment that will never be taken, and calling an
+ * unpaid one "Ended" says it cannot come back when a working card revives it.
  */
 export function periodEndLabel(billing: AccountBilling): string {
+  if (billing.status === "unpaid") return "Unpaid since";
   if (!billing.entitled) return "Ended";
   if (billing.cancelAtPeriodEnd) return "Access ends";
   if (billing.status === "past_due") return "Retrying payment until";
   return "Next charge";
+}
+
+/**
+ * The date that goes beside periodEndLabel, or null for no row. Unpaid shows
+ * when it stopped being paid for rather than its period end, which Stripe
+ * keeps moving forward. Paused has no date that means anything to the owner:
+ * it is on hold until we resume it.
+ */
+export function periodEndDate(billing: AccountBilling): string | null {
+  if (billing.status === "unpaid") return billing.unpaidSince;
+  if (billing.status === "paused") return null;
+  return billing.renewsAt;
 }
 
 /**

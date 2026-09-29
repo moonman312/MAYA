@@ -3,7 +3,7 @@ title: Cards, payments and invoices
 summary: The two zero-amount card checks, what happens when a payment fails and when the retries run out, what "stopped" means, updating your card, keeping a second card on file, where invoices and receipts live, the name on your card statement, tax, switching monthly and yearly, refunds and disputes.
 section: billing
 order: 30
-readingTime: 12
+readingTime: 13
 keywords: [card, credit card, retrying payment until, retry date, group card, card fails, card failed, declined, card stopped working, your saved card stopped working, card check, 48 hours, two days later, checked my card, zero-amount, charged twice, payment failed, payment overdue, past due, retrying, bank retries, unpaid, stopped, paused work, restart MAYA, update my card, update card, invoices, receipts, invoice, accountant, tax, VAT, sales tax, tax ID, monthly to yearly, yearly to monthly, switch plan, charged for a year, whole year, credit balance, another card, move card, new card, old card, old card still charged, refund, dispute, chargeback, interest, late payment, bank transfer, ACH, cards only, card statement, bank statement, statement name, statement descriptor, what the charge says, name on statement, unrecognised charge, MAYA AUTOMATION, trial over, backup card, second card, spare card, default card, two cards, in advance, in arrears, start of the month, billing date, renewal date, change billing date, charge day, accrue, W-9, W9, supplier form, vendor form, tax ID, company details, quote, pro-forma, purchase order, shared card, whole group stops, sending to Cloudbeds, price typed while unpaid]
 questions:
   - What happens if my card fails? {#when-a-payment-fails/1-the-bank}
@@ -32,7 +32,7 @@ questions:
   - Our accounts team needs a W-9 (or supplier form), your tax ID and a formal quote before we can pay. Where do we get them? {#supplier-paperwork}
   - All our properties are on one card. If that card fails, do all of them stop? {#when-a-payment-fails/in-a-group}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -60,7 +60,7 @@ The warning clears by itself the next time a payment goes through. Saving a new 
 Stripe retries the card over a period (about two weeks). During the retries the status on the <Ui>Billing</Ui> page reads "Payment overdue" and the date row is renamed <Ui>Retrying payment until</Ui>. The top card reads "Your last payment did not go through", and says your rules keep running while the bank retries and that updating your card now avoids an interruption. The date on it is the end of the current billing period, not the last retry: the retries usually stop well before it (about two weeks). The dashboard shows the amber <Ui>Fix it</Ui> banner. Your rules keep running as normal, and a live Cloudbeds or ThinkReservations property keeps sending prices. Nothing is sent to Mews yet, or while a property is in simulation, whether or not a payment has failed.
 </Step>
 <Step title="If the retries run out, work stops">
-The status becomes "Unpaid" (the row goes on to say stopped). The top card turns red: "MAYA has paused work on this property" with "Prices are no longer being calculated or sent to your PMS. Update your card and the subscription restarts where it left off." The dashboard shows the red <Ui>Restart MAYA</Ui> banner. There is no <Ui>Restart your subscription</Ui> button in this state, because the subscription is still alive in Stripe. Update the card in the portal, and read [Moving to another card](#moving-to-another-card) to be sure the subscription is charged on it. Once the payment goes through, work picks up again.
+The status becomes "Unpaid (stopped)". The top card turns red: "MAYA has paused work on this property" with "Your rules no longer run on a schedule and nothing is sent to your PMS. Update your card and the subscription restarts where it left off." The dashboard shows the red <Ui>Restart MAYA</Ui> banner. There is no <Ui>Restart your subscription</Ui> button in this state, because the subscription is still alive in Stripe. Update the card in the portal and save it as your default. MAYA then pays the open invoice with that card straight away, and moves the subscription onto it so later charges come from it too. Once the payment goes through, the status goes back to "Active" and work picks up again. If the new card is declined too, the status stays "Unpaid". Save a different card as your default and MAYA tries that one.
 </Step>
 <Step title="If Stripe cancels the subscription instead">
 Whether an unpaid subscription is cancelled outright after the retries is a Stripe setting. If it is, the status reads "Cancelled" and a <Ui>Restart your subscription</Ui> button appears. [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving) has that path.
@@ -90,7 +90,7 @@ Click <Ui>Billing</Ui> at the top right of the dashboard. General Manager or Hot
 Stripe's billing portal opens. Choose the option to update the payment method, enter the new card, and save it as your default.
 </Step>
 <Step title="Come back">
-Stripe returns you to the <Ui>Billing</Ui> page. Your subscription may keep charging the card it started with, including when Stripe retries an overdue payment. To be sure the new card is used, [email us](mailto:info@modern-hospitality-solutions.com?subject=Move%20to%20a%20new%20card) and we move the subscription onto it. A card warning clears after the next successful payment, not the moment you save.
+Stripe returns you to the <Ui>Billing</Ui> page. If the status was "Unpaid", there is nothing more to do: MAYA pays the open invoice with the new card and moves the subscription onto it. Otherwise your subscription may keep charging the card it started with, including when Stripe retries an overdue payment. To be sure the new card is used, [email us](mailto:info@modern-hospitality-solutions.com?subject=Move%20to%20a%20new%20card) and we move the subscription onto it. A card warning clears after the next successful payment, not the moment you save.
 </Step>
 </Steps>
 
@@ -134,7 +134,7 @@ Yearly is 10% cheaper from 21 rooms up, and the same price as twelve monthly pay
 
 ## Moving to another card
 
-Add the new card in the portal and save it as your default, as in the steps above. A subscription can keep the card it was set up with at checkout, so the old card may still be charged. To be sure it is not, [email us](mailto:info@modern-hospitality-solutions.com?subject=Move%20to%20a%20new%20card) and we move your subscription onto the new card.
+Add the new card in the portal and save it as your default, as in the steps above. A subscription can keep the card it was set up with at checkout, so the old card may still be charged. To be sure it is not, [email us](mailto:info@modern-hospitality-solutions.com?subject=Move%20to%20a%20new%20card) and we move your subscription onto the new card. A subscription whose status reads "Unpaid" is the exception: saving the new card as your default pays its open invoice and moves it onto the new card, with nothing to email.
 
 In a group of properties from the Cloudbeds Marketplace, every property bills on the owner's one billing account, each with its own subscription. The owner adds the new card. In your email, say which properties should move to it, or all of them. To put one property of a group on a card of its own, or bill it to a different company, read [Paying for a group of properties](/docs/pay/paying-for-a-group).
 
