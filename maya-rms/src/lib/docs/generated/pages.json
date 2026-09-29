@@ -1439,7 +1439,7 @@
   "summary": "What happens when the connection to your property system breaks, who can reconnect it in one click, and how to disconnect on purpose without losing anything.",
   "readingTime": 17,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -3708,7 +3708,7 @@
   "order": 20,
   "title": "The change log",
   "summary": "Your 10 most recent pricing runs that changed a price, newest first, with the quiet runs between them counted into one line each. Each night listed shows its starting price and its new price, then one plain sentence per rule saying what it did and why.",
-  "readingTime": 19,
+  "readingTime": 20,
   "readingNote": null,
   "updated": "2026-09-29",
   "pms": [
@@ -3776,6 +3776,11 @@
     "depth": 2,
     "text": "Your answers",
     "id": "your-answers"
+   },
+   {
+    "depth": 2,
+    "text": "Changes by MAYA support",
+    "id": "changes-by-maya-support"
    },
    {
     "depth": 2,
@@ -4003,8 +4008,8 @@
   "slug": "setting-a-price-yourself",
   "order": 50,
   "title": "Setting a price yourself",
-  "summary": "How to type a price for a room type on one night or a run of nights, what it does to your rules, when it is sent to your property system, what the line after a save says when nothing can be sent, and how to hand the night back to your rules.",
-  "readingTime": 13,
+  "summary": "How to type a price for a room type on one night or a run of nights, what it does to your rules, when it is sent to your property system, what the line after a save says when nothing can be sent, what it says once MAYA has tried to send it and how to send it again, and how to hand the night back to your rules.",
+  "readingTime": 17,
   "readingNote": null,
   "updated": "2026-09-29",
   "pms": [
@@ -4037,6 +4042,11 @@
     "depth": 2,
     "text": "When your price is sent",
     "id": "when-your-price-is-sent"
+   },
+   {
+    "depth": 2,
+    "text": "What the line says afterwards",
+    "id": "what-the-line-says-afterwards"
    },
    {
     "depth": 2,
@@ -4078,7 +4088,13 @@
    "When is my typed price sent to my property system?",
    "It says \"It will be sent when the date enters the 396-day push window\", what does that mean?",
    "It says \"It will be sent once you reconnect\", what does that mean?",
+   "It says \"Cloudbeds isn't answering MAYA right now\", what does that mean?",
    "It says \"Nothing is sent while MAYA's work is paused\", what does that mean?",
+   "How do I know my typed price reached Cloudbeds?",
+   "It says \"MAYA will retry 3 more times\", what does that mean?",
+   "It says \"This price couldn't be sent to Cloudbeds\". What do I do?",
+   "How do I send a typed price again?",
+   "What does \"See the error log\" open?",
    "Why is there no Clear button on a night that has passed?",
    "What does Clear do to the rules that were paused?",
    "Can I clear a whole range of nights at once?",
@@ -4570,7 +4586,7 @@
   "summary": "Every cycle MAYA sends the prices that changed, for tonight and the next 395 nights, one nightly rate per room type, to Cloudbeds or ThinkReservations, and each system confirms it in its own way.",
   "readingTime": 20,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4685,9 +4701,9 @@
   "order": 40,
   "title": "When your property system does not accept a price",
   "summary": "What the \"Prices not reaching Cloudbeds\" item in the change log means, every cause it can name, what to do about each, how MAYA retries, and when you are told.",
-  "readingTime": 16,
+  "readingTime": 17,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4768,6 +4784,8 @@
    "When am I told about a sending problem?",
    "Will a sending problem fix itself?",
    "Do I need to do anything about \"Prices not reaching\"?",
+   "Can I make MAYA send a price again now?",
+   "What does Try again under the price box do?",
    "My room type has only derived plans, or no base rate. What happens?",
    "Is this a MAYA problem or a Cloudbeds problem?",
    "How do I make MAYA's floor match my Cloudbeds minimum for one room type?"
@@ -5369,7 +5387,7 @@
   "order": 10,
   "title": "Roles: who can do what",
   "summary": "The four roles as the app describes them, a table of every action and the lowest role that can do it, what a Viewer or Revenue Manager sees on the pages they cannot use, the one difference between General Manager and Hotel Admin, and what to do when your only Hotel Admin has left.",
-  "readingTime": 8,
+  "readingTime": 9,
   "readingNote": null,
   "updated": "2026-09-29",
   "pms": [
@@ -6489,7 +6507,7 @@
   "summary": "The dashboard has no live or simulation badge yet. The review page's go-live control tells you when it is showing, and so does the wording of the amber banner. Then compare one night in MAYA and in your property system, or email us and we check.",
   "readingTime": 4,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7412,7 +7430,7 @@
   "summary": "What to check when you went live and nothing is sent, when MAYA shows a new price but Cloudbeds has the old one, why a non-refundable (derived) rate did not move, when a rate you changed in your system was written over, and what each \"Prices not reaching\" sentence asks you to do.",
   "readingTime": 12,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -8042,7 +8060,7 @@
   "order": 100,
   "title": "Messages you might see, explained",
   "summary": "Every message, label and banner MAYA shows, grouped by where you see it, each with one line on what it means and what to do, and a link to the page that explains it.",
-  "readingTime": 52,
+  "readingTime": 53,
   "readingNote": "Type a few words of the message to jump to it",
   "updated": "2026-09-29",
   "pms": [
@@ -8480,7 +8498,7 @@
   "order": 50,
   "title": "Privacy, security and your data",
   "summary": "What MAYA keeps and never keeps, where it is hosted, how long each thing is kept, how your system's access is held and withdrawn, who else handles data, Europe and the GDPR, cookies, how to report a security problem and how we would reach you, and the questions a security review asks.",
-  "readingTime": 18,
+  "readingTime": 19,
   "readingNote": null,
   "updated": "2026-09-28",
   "pms": [
