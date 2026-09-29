@@ -134,6 +134,20 @@
  * toward the three-changes alert. Unticked, cancellations never take a fire
  * off. Pausing a rule changes nothing: its fires keep applying, still cover
  * the weaker rules, and are not checked while it is paused.
+ *
+ * SKIP. A rule switched on (or saved) with "Skip price adjustments"
+ * (pricing_rules.skip_at, S) counts bookings from S: where it counts from
+ * on a cell is its own newest fire still on the night or S, whichever is
+ * later (countFromSkip), so a raise counts the bookings first seen after S
+ * on S's day, a cut the complete days after it, and a pickup count the room
+ * nights first seen after S. S never moves where another rule counts from
+ * (no price changed at it), and starts no wait. A typed price after S
+ * resets the rule as it resets any rule. The rule's changes already on the
+ * price at S (made at or before it, keptBySkip) stay as they are: an edit
+ * does not take them off, cancellations are not checked on them (they were
+ * counted under the rule as it was then), and they still cover the weaker
+ * rules that move the price their way. They come off when the night passes,
+ * a price is typed, the rule is deleted, or a later Apply (which clears S).
  */
 
 import type { CancellationFinding, EngineRule, PickupCancelCheck } from "@/types/domain";
@@ -290,8 +304,36 @@ export function countPickupToDayStart(
  */
 export type RankedRule = Pick<
   EngineRule,
-  "id" | "version" | "priority" | "condition" | "action_type" | "action_direction" | "action_value" | "created_at"
+  "id" | "version" | "priority" | "condition" | "action_type" | "action_direction" | "action_value" | "created_at" | "skip_at"
 >;
+
+/**
+ * Whether a fire was already on the price when the owner last chose "Skip
+ * price adjustments" for its rule (at or before pricing_rules.skip_at): the
+ * Skip left it where it is (see SKIP in the header).
+ */
+export function keptBySkip(
+  rule: Pick<EngineRule, "skip_at"> | undefined,
+  fire: { applied_at: string },
+): boolean {
+  if (!rule?.skip_at) return false;
+  const skipMs = Date.parse(rule.skip_at);
+  return Number.isFinite(skipMs) && Date.parse(fire.applied_at) <= skipMs;
+}
+
+/**
+ * Where a rule counts from on a cell once its own Skip is taken into
+ * account: the fire it counts from (countFromFireAt) or the instant of its
+ * Skip, whichever is later. Only the rule's own count: a Skip never moves
+ * where another rule counts from.
+ */
+export function countFromSkip(rule: Pick<EngineRule, "skip_at">, fireAt: string | null): string | null {
+  if (!rule.skip_at) return fireAt;
+  const skipMs = Date.parse(rule.skip_at);
+  if (!Number.isFinite(skipMs)) return fireAt;
+  if (fireAt !== null && Date.parse(fireAt) >= skipMs) return fireAt;
+  return new Date(skipMs).toISOString();
+}
 
 /** A cell's fire history for one rule, from pickup_fire_heads. */
 export type FireHead = {
@@ -421,17 +463,21 @@ export function waitAnchor(
  * never asked for.
  */
 export async function loadPausedEventRules(supabase: SupabaseClient, hotelId: string): Promise<RankedRule[]> {
-  const { data, error } = await supabase
-    .from("pricing_rules")
-    .select(
-      `
-      id, version, priority, action_type, action_direction, action_value, created_at,
+  const read = (skip: boolean) =>
+    supabase
+      .from("pricing_rules")
+      .select(
+        `
+      id, version, priority, action_type, action_direction, action_value, created_at,${skip ? " skip_at," : ""}
       rule_condition ( occupancy_operator, dta_operator, pickup_operator, pickup_threshold, pickup_metric, booking_speed_operator, booking_speed_level )
     `,
-    )
-    .eq("hotel_id", hotelId)
-    .eq("is_active", false)
-    .eq("is_pickup_rule", true);
+      )
+      .eq("hotel_id", hotelId)
+      .eq("is_active", false)
+      .eq("is_pickup_rule", true);
+  let { data, error } = await read(true);
+  // No skip_at yet (99_supabase_migration_rule_activation_v1.sql): no rule was ever skipped.
+  if (error && isMissingColumnError(error)) ({ data, error } = await read(false));
   if (error) throw new Error(`Failed to load paused rules: ${error.message}`);
   return ((data ?? []) as Record<string, unknown>[]).map((r) => {
     const raw = Array.isArray(r.rule_condition) ? r.rule_condition[0] : r.rule_condition;
@@ -444,6 +490,7 @@ export async function loadPausedEventRules(supabase: SupabaseClient, hotelId: st
       action_direction: r.action_direction as RankedRule["action_direction"],
       action_value: Number(r.action_value),
       created_at: String(r.created_at),
+      skip_at: r.skip_at != null ? String(r.skip_at) : null,
       condition: {
         occupancy_operator: (rc.occupancy_operator ?? null) as RankedRule["condition"]["occupancy_operator"],
         dta_operator: (rc.dta_operator ?? null) as RankedRule["condition"]["dta_operator"],
@@ -547,21 +594,27 @@ export function countFromFireAt(
  * on the price.
  */
 export function openFireHeads(
-  rules: readonly Pick<RankedRule, "id" | "version">[],
+  rules: readonly Pick<RankedRule, "id" | "version" | "skip_at">[],
   openFires: readonly OpenPickupFire[],
   retired: ReadonlySet<string>,
 ): Map<string, Pick<FireHead, "lastCountedAt" | "counted">> {
-  const versionOf = new Map(rules.map((r) => [r.id, r.version]));
+  const ruleOf = new Map(rules.map((r) => [r.id, r]));
   const out = new Map<string, Pick<FireHead, "lastCountedAt" | "counted">>();
   for (const fire of openFires) {
-    if (retired.has(fire.id) || versionOf.get(fire.rule_id) !== fire.rule_version) continue;
+    if (retired.has(fire.id)) continue;
+    const rule = ruleOf.get(fire.rule_id);
+    const current = rule?.version === fire.rule_version;
+    // A change the owner's Skip left on the price still covers what it
+    // counted, whichever version made it; only the current version's count
+    // toward the three-changes alert.
+    if (!current && !keptBySkip(rule, fire)) continue;
     const key = fireHeadKey(fire.rule_id, fire.stay_date, fire.affected_room_type_id);
     const head = out.get(key);
     if (!head) {
-      out.set(key, { lastCountedAt: fire.applied_at, counted: 1 });
+      out.set(key, { lastCountedAt: fire.applied_at, counted: current ? 1 : 0 });
       continue;
     }
-    head.counted += 1;
+    if (current) head.counted += 1;
     if (!head.lastCountedAt || Date.parse(fire.applied_at) > Date.parse(head.lastCountedAt)) {
       head.lastCountedAt = fire.applied_at;
     }
@@ -1136,6 +1189,19 @@ export async function insertPickupEvent(
 
 export type PickupWin = { candidate: PickupCandidate; effect: PickupEffect };
 
+/** The effect a fire would have, for a dry run that writes none (its id is made up). */
+function dryFireEffect(c: PickupCandidate, n: number): PickupEffect {
+  return pickupEffectOf({
+    id: `dry-${n}`,
+    rule_id: c.rule.id,
+    applied_at: c.eval_ts,
+    fire_seq: c.fire_seq,
+    action_kind: c.rule.action_type,
+    action_direction: c.rule.action_direction,
+    action_value: c.rule.action_value,
+  });
+}
+
 /**
  * A rule waiting on a cell whose condition still matches, measured one of
  * two ways. "same_way": from where it counts itself (countFromFireAt), so
@@ -1178,6 +1244,8 @@ export async function runPickupPass(
   basePrices: Map<string, number>,
   holders: WaitingHolder[] = [],
   beforeInsert?: (winners: PickupCandidate[]) => Promise<void>,
+  /** A dry run: every winner fires as it would, and nothing is written. */
+  dryRun = false,
 ): Promise<PickupPassOutcome> {
   const groups = new Map<string, PickupCandidate[]>();
   for (const c of candidates) {
@@ -1228,8 +1296,11 @@ export async function runPickupPass(
   }
 
   if (beforeInsert && toInsert.length > 0) await beforeInsert(toInsert.map((t) => t.winner));
+  let dryFires = 0;
   for (const { winner, group } of toInsert) {
-    const result = await insertPickupEvent(supabase, winner, hotelId);
+    const result: PickupInsertResult = dryRun
+      ? { status: "inserted", effect: dryFireEffect(winner, ++dryFires) }
+      : await insertPickupEvent(supabase, winner, hotelId);
     if (result.status === "inserted") outcome.winners.push({ candidate: winner, effect: result.effect });
     else if (result.status === "concurrent_fire") outcome.concurrent_skips.push(winner);
     else outcome.write_failures.push(winner);
@@ -1488,9 +1559,10 @@ export type RetiredPickupFire = { fire: OpenPickupFire; reason: PickupRetireReas
  * - manual_price: fired before the open manual price on its cell was set.
  *   The price's save retires them itself; this catches a run that was
  *   already under way when the price was typed.
- * - rule_edited: fired by an older version of a rule this run loaded. The
- *   edit retires them itself; this catches an edit whose retirement failed
- *   or raced a run.
+ * - rule_edited: fired by an older version of a rule this run loaded,
+ *   unless the owner saved the edit with "Skip price adjustments" after it
+ *   was made (keptBySkip). An edit saved with Apply is taken off here, by
+ *   the first run that prices the night.
  *
  * A fire applied at or after `now` belongs to this run and is never taken
  * off. The cancellation check comes after (firesCancelled), on what is left.
@@ -1514,7 +1586,8 @@ export function firesToReset(
       continue;
     }
     const rule = input.rules.get(fire.rule_id);
-    if (rule && fire.rule_version < rule.version) out.set(fire.id, "rule_edited");
+    // A change the owner's Skip left on the price stays through the edit.
+    if (rule && fire.rule_version < rule.version && !keptBySkip(rule, fire)) out.set(fire.id, "rule_edited");
   }
   return out;
 }
@@ -1569,6 +1642,8 @@ export function cancellationChecks(
     if (Date.parse(fire.applied_at) >= nowMs) continue;
     const rule = rules.get(fire.rule_id);
     if (!rule || fire.rule_version !== rule.version || rule.undo_on_cancellation === false) continue;
+    // Counted under the rule as it was before the owner's Skip: left as it is.
+    if (keptBySkip(rule, fire)) continue;
     if (rule.signal_room_type_ids.length === 0) continue;
     if (signalSetKey(rule.signal_room_type_ids) !== fire.signal_set_key) continue;
     const parts = cancellableParts(rule);

@@ -133,6 +133,13 @@ export type EngineRule = {
    * before the column existed is ticked, as every rule was migrated.
    */
   undo_on_cancellation?: boolean;
+  /**
+   * When the owner last switched the rule on (or saved it) with "Skip price
+   * adjustments": the nights it matched then are left alone, and it acts
+   * only on what changes after this instant. Null (or absent, before the
+   * column exists) when the last activation applied its adjustments.
+   */
+  skip_at?: string | null;
 };
 
 export type StayDateSnapshot = {
