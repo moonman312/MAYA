@@ -18,6 +18,8 @@ const NEW_ID = "d1000000-0000-4000-8000-000000000009";
 const state = {
   tables: {} as Record<string, FakeRow[]>,
   canManage: true,
+  /** The caller is MAYA staff (a platform admin); with canManage false, outside God Mode. */
+  platformAdmin: false,
   supabase: true,
   saves: [] as Record<string, unknown>[],
   saveError: null as { code: string; message: string } | null,
@@ -71,6 +73,7 @@ vi.mock("@/utils/supabase/server", () => ({
     },
     rpc: async (fn: string, args: Record<string, unknown>) => {
       if (fn === "can_manage_hotel") return { data: state.canManage, error: null };
+      if (fn === "is_platform_admin") return { data: state.platformAdmin, error: null };
       if (fn === "save_rule") {
         state.saves.push(args);
         if (state.saveError) return { data: null, error: state.saveError };
@@ -130,6 +133,7 @@ beforeEach(async () => {
   // The window the hotel's last daily pass used.
   state.tables.hotel_pricing_state = [{ hotel_id: HOTEL, pass_horizon_days: 45 }];
   state.canManage = true;
+  state.platformAdmin = false;
   state.supabase = true;
   state.saves = [];
   state.saveError = null;
@@ -320,6 +324,25 @@ describe("saving through the popup", () => {
       expect((await res.json()).error).toBe("Only a Revenue Manager or above can change this.");
     }
     expect(state.saves).toEqual([]);
+  });
+
+  it("MAYA staff outside God Mode can't preview, switch, save, answer the popup or delete, and are told to turn it on", async () => {
+    // can_manage_hotel() is false for an admin until god_mode_active().
+    state.canManage = false;
+    state.platformAdmin = true;
+    for (const res of [
+      await preview(json("/api/rules/preview", { intent: "create", ruleId: NEW_ID, draft })),
+      await toggle(json(`/api/rules/${R.busy}/toggle`, { on: false }), params(R.busy)),
+      await toggle(json(`/api/rules/${R.busy}/toggle`, { on: true, activation: "skip", hold_all: true }), params(R.busy)),
+      await create(json("/api/rules", { ...draft, id: NEW_ID, activation: "apply", fingerprint: "x" })),
+      await edit(json(`/api/rules/${R.busy}`, { ...draft, activation: "skip", hold_all: true }, "PUT"), params(R.busy)),
+      await remove(new Request(`https://maya-rms.com/api/rules/${R.busy}`, { method: "DELETE" }), params(R.busy)),
+    ]) {
+      expect(res.status).toBe(403);
+      expect((await res.json()).error).toBe("God Mode is off. Turn it on from the Command Center to change this property.");
+    }
+    expect(state.saves).toEqual([]);
+    expect(state.userWrites).toEqual([]);
   });
 
   it("an edit: a new name saves at once; a new bar on a rule that is on needs the popup; a stale form is refused", async () => {

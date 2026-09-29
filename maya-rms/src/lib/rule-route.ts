@@ -8,6 +8,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { GOD_MODE_OFF } from "@/lib/admin/god-mode";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { hotelPricingHorizon } from "@/lib/pms/pricing-horizon";
 import { nudgeHotelSync } from "@/lib/pms/sync-nudge";
@@ -47,10 +48,10 @@ export async function ruleGate(): Promise<RuleGate> {
   if (!user) return { ok: false, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   const hotelId = await resolveAccessibleHotelId(supabase);
   if (!hotelId) return { ok: false, response: NextResponse.json({ error: "You don't have access to this property." }, { status: 400 }) };
+  // An admin who is not a member passes only in God Mode: the database's
+  // can_manage_hotel() asks god_mode_active() of their own token.
   const { data: canManage } = await supabase.rpc("can_manage_hotel", { target_hotel_id: hotelId });
-  if (!canManage) {
-    return { ok: false, response: NextResponse.json({ error: RULE_CHANGE_FORBIDDEN, code: "forbidden" }, { status: 403 }) };
-  }
+  if (!canManage) return { ok: false, response: await ruleForbidden(supabase) };
   if (!isAdminConfigured()) {
     return {
       ok: false,
@@ -58,6 +59,21 @@ export async function ruleGate(): Promise<RuleGate> {
     };
   }
   return { ok: true, supabase, admin: createAdminClient(), hotelId, userId: user.id };
+}
+
+/**
+ * The 403 for someone who may not change rules here. A platform admin outside
+ * God Mode is told how to turn it on rather than which role they lack.
+ */
+export async function ruleForbidden(supabase: SupabaseClient): Promise<NextResponse> {
+  let isAdmin = false;
+  try {
+    const { data } = await supabase.rpc("is_platform_admin");
+    isAdmin = data === true;
+  } catch {
+    // Reads as a member's refusal.
+  }
+  return NextResponse.json({ error: isAdmin ? GOD_MODE_OFF : RULE_CHANGE_FORBIDDEN, code: "forbidden" }, { status: 403 });
 }
 
 /** A refused save or preview as a response. */

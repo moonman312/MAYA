@@ -16,12 +16,15 @@ const hasHotelRank = vi.fn(async () => true);
 let ruleRow: { hotel_id: string; is_active?: boolean } | null = { hotel_id: "h1" };
 /** The property the caller can reach; null for someone with no membership. */
 let accessibleHotel: string | null = "h1";
+/** The caller is MAYA staff (a platform admin). */
+let platformAdmin = false;
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
 vi.mock("@/utils/supabase/shared", () => ({ isSupabaseConfigured: () => true }));
 vi.mock("@/utils/supabase/server", () => ({
   createClient: () => ({
     auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) },
+    rpc: async (fn: string) => ({ data: fn === "is_platform_admin" ? platformAdmin : null, error: null }),
     from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: ruleRow, error: null }) }) }) }),
   }),
 }));
@@ -157,6 +160,21 @@ describe("the undo box on the rules routes", () => {
     updateRule.mockResolvedValueOnce(false);
     expect((await PUT(req({ undo_on_cancellation: false }, "PUT"), params)).status).toBe(404);
     ruleRow = { hotel_id: "h1" };
+  });
+
+  it("tells MAYA staff outside God Mode to turn it on, rather than which role they lack", async () => {
+    platformAdmin = true;
+    try {
+      updateRule.mockResolvedValueOnce(false);
+      hasHotelRank.mockResolvedValueOnce(false);
+      const refused = await PUT(req({ undo_on_cancellation: false }, "PUT"), params);
+      expect(refused.status).toBe(403);
+      expect((await refused.json()).error).toBe(
+        "God Mode is off. Turn it on from the Command Center to change this property.",
+      );
+    } finally {
+      platformAdmin = false;
+    }
   });
 });
 

@@ -1,13 +1,12 @@
 import { hasHotelRank } from "@/lib/require-supabase-hotel";
 import {
-  RULE_CHANGE_FORBIDDEN,
   RoomTypeSetError,
   RuleAmountError,
   roomTypeIdListError,
   ruleActionError,
   undoOnCancellationError,
 } from "@/lib/rule-form";
-import { ruleErrorResponse, ruleGate, saveThroughPopup } from "@/lib/rule-route";
+import { ruleErrorResponse, ruleForbidden, ruleGate, saveThroughPopup } from "@/lib/rule-route";
 import { RULE_CHANGED_ELSEWHERE, RuleSaveError, parseDraft, planRuleChange } from "@/lib/rule-save";
 import { deleteRule, updateRule } from "@/lib/rules-store";
 import type { UpdateRuleInput } from "@/lib/rules-store";
@@ -90,7 +89,7 @@ export async function PUT(req: Request, { params }: Params) {
       // viewers): row security left it as it was. Say why.
       const { data: rule } = await supabase.from("pricing_rules").select("hotel_id").eq("id", id).maybeSingle();
       if (rule?.hotel_id && !(await hasHotelRank(supabase, String(rule.hotel_id), "revenue_manager"))) {
-        return NextResponse.json({ error: RULE_CHANGE_FORBIDDEN }, { status: 403 });
+        return await ruleForbidden(supabase);
       }
       return NextResponse.json({ error: "Rule not found or update failed." }, { status: 404 });
     }
@@ -148,7 +147,7 @@ export async function DELETE(_: Request, { params }: Params) {
       // Row security would leave a viewer's delete doing nothing; say why instead.
       const { data: rule } = await supabase.from("pricing_rules").select("hotel_id").eq("id", id).maybeSingle();
       if (rule?.hotel_id && !(await hasHotelRank(supabase, String(rule.hotel_id), "revenue_manager"))) {
-        return NextResponse.json({ error: RULE_CHANGE_FORBIDDEN, code: "forbidden" }, { status: 403 });
+        return await ruleForbidden(supabase);
       }
     }
     const ok = await deleteRule(id, supabase);
