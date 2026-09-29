@@ -12,6 +12,7 @@
  */
 
 import type { StarterRuleSpec } from "./generate-rules.ts";
+import { isOwnBookingsRaiseName } from "./rate-moves.ts";
 
 export type ExistingRuleSummary = {
   id: string;
@@ -118,8 +119,8 @@ function addRuleRationale(spec: StarterRuleSpec): string {
     return "Nothing raises your nearly full nights yet.";
   }
   return spec.action.action_direction === "decrease"
-    ? "Nothing watches for dates falling behind their normal booking pace — slow nights sit at full price until it is too late to rescue them."
-    : "Nothing watches for dates booking ahead of their normal pace — demand spikes pass by unpriced.";
+    ? "Nothing watches for dates falling behind their normal booking pace, so slow nights sit at full price until it is too late to rescue them."
+    : "Nothing watches for dates booking ahead of their normal pace, so demand spikes pass by unpriced.";
 }
 
 /**
@@ -190,8 +191,15 @@ export function computeRuleSuggestions(
   // history actually supports. Adjust-only: new-rule suggestions are pace
   // rules now, so nothing here proposes fresh occupancy rules.
   if (occupancyRef) {
+    // A Filling-up or Nearly-full raise built for the last onboarding
+    // question took its threshold from the owner's own bookings, and says so
+    // in its explanation; a card moving it would contradict that.
     const occupancyRules = active.filter(
-      (r) => !r.is_pickup_rule && r.occupancy_operator === "gt" && r.occupancy_threshold != null,
+      (r) =>
+        !r.is_pickup_rule &&
+        r.occupancy_operator === "gt" &&
+        r.occupancy_threshold != null &&
+        !isOwnBookingsRaiseName(r.name),
     );
     for (const r of occupancyRules) {
       const currentPct = Math.round(r.occupancy_threshold! * 100);

@@ -352,10 +352,26 @@ const GROUP_WORDS: Record<NightGroup, { nights: string; aNight: string; suffix: 
 /** Standard rules, like one built in the rule builder. */
 const COPIED_PRIORITY = 100;
 
+const FILL_RULE_NAME = "Filling-up raise";
+const NEARLY_FULL_RULE_NAME = "Nearly-full raise";
+
+/**
+ * A rule named as the answer's occupancy raises are: a copied Filling-up
+ * raise (any days) or the Nearly-full raise. Its threshold came from the
+ * owner's own bookings, so "Get suggestions" offers no Tune card that would
+ * move it to a level read another way.
+ */
+export function isOwnBookingsRaiseName(name: string): boolean {
+  return (
+    name === NEARLY_FULL_RULE_NAME ||
+    Object.values(GROUP_WORDS).some((w) => name === `${FILL_RULE_NAME}${w.suffix}`)
+  );
+}
+
 function fillRule(m: FillMove): StarterRuleSpec {
   const w = GROUP_WORDS[m.group];
   return {
-    name: `Filling-up raise${w.suffix}`,
+    name: `${FILL_RULE_NAME}${w.suffix}`,
     priority: COPIED_PRIORITY,
     condition: { occupancy_operator: "gt", occupancy_threshold: m.thresholdPct / 100 },
     action: { action_type: "percent", action_direction: "increase", action_value: m.changePct },
@@ -424,7 +440,7 @@ export function upsideRules(daysOfHistory: number, moves: RateMoves): StarterRul
   return [
     ...ladder,
     {
-      name: "Nearly-full raise",
+      name: NEARLY_FULL_RULE_NAME,
       priority: COPIED_PRIORITY,
       condition: { occupancy_operator: "gt", occupancy_threshold: NEARLY_FULL },
       action: { action_type: "percent", action_direction: "increase", action_value: NEARLY_FULL_RAISE_PCT },

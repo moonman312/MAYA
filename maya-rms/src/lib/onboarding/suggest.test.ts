@@ -95,6 +95,67 @@ describe("computeRuleSuggestions with the set the last onboarding question calls
   });
 });
 
+describe("the words on the rule cards", () => {
+  it("use no long dashes and none of the words the owner-facing copy avoids, on any card", () => {
+    const moves: RateMoves = {
+      nightsRead: 300,
+      fill: [{ group: "weekend", thresholdPct: 60, changePct: 20, nights: 40, bookings: 120 }],
+      late: [{ group: "all", withinDays: 7, changePct: -10, nights: 90, bookings: 260 }],
+      flatWhenNearlyFull: { changePct: 0, nights: 30, bookings: 80 },
+      filledEarly: { nights: 40, share: 0.13 },
+    };
+    const sets = starterRuleSets({ daysOfHistory: 400, moves });
+    const upside = starterRuleSets({ daysOfHistory: 400, moves: { ...moves, fill: [] } }).find_upside.rules;
+    const pickup = rule({
+      id: "p1",
+      name: "Quick pickup",
+      is_pickup_rule: true,
+      occupancy_operator: null,
+      occupancy_threshold: null,
+      pickup_operator: "gte",
+      pickup_threshold: 3,
+    });
+    const cards = [
+      ...computeRuleSuggestions([], PACE_SPECS, null),
+      ...computeRuleSuggestions([], sets.automate_current.rules, null),
+      ...computeRuleSuggestions([], upside, null),
+      ...computeRuleSuggestions([bookingSpeedRule(), pickup, rule({ id: "a", name: "Busy nights", occupancy_threshold: 0.6 })], PACE_SPECS, OCC_REF),
+    ];
+    expect(new Set(cards.map((c) => c.suggestion_type))).toEqual(new Set(["add_rule", "remove_rule", "adjust_rule"]));
+    for (const c of cards) {
+      expect(c.rationale).not.toMatch(/[–—]/);
+      expect(c.rationale).not.toMatch(/MAYA (learns|knows|thinks|studies|analy[sz]es)/i);
+    }
+  });
+});
+
+describe("Tune cards and the rules built from the owner's own bookings", () => {
+  const tunes = (existing: ExistingRuleSummary[]) =>
+    computeRuleSuggestions(existing, PACE_SPECS, { surgePct: 75, peakPct: 90 }).flatMap((s) =>
+      s.suggestion_type === "adjust_rule" ? [s.rule_name] : [],
+    );
+
+  it("never offers to move a copied Filling-up raise or the Nearly-full raise, whose threshold came from those bookings", () => {
+    expect(
+      tunes([
+        rule({ id: "f", name: "Filling-up raise", occupancy_threshold: 0.6 }),
+        rule({ id: "fw", name: "Filling-up raise (Fri and Sat)", occupancy_threshold: 0.5 }),
+        rule({ id: "fd", name: "Filling-up raise (Sun to Thu)", occupancy_threshold: 0.6 }),
+        rule({ id: "n", name: "Nearly-full raise", occupancy_threshold: 0.6 }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("still offers it for the owner's own rule at the same threshold, or one renamed", () => {
+    expect(
+      tunes([
+        rule({ id: "b", name: "Busy nights", occupancy_threshold: 0.6 }),
+        rule({ id: "r", name: "Filling-up raise, my version", occupancy_threshold: 0.6 }),
+      ]),
+    ).toEqual(["Busy nights", "Filling-up raise, my version"]);
+  });
+});
+
 describe("computeRuleSuggestions", () => {
   it("offers the whole pace ladder to a hotel with no rules", () => {
     const out = computeRuleSuggestions([], PACE_SPECS, null);
