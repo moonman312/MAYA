@@ -8,6 +8,7 @@ const links = [
   { href: "/admin", label: "Overview", exact: true },
   { href: "/admin/hotels", label: "Hotels" },
   { href: "/admin/analytics", label: "Analytics" },
+  { href: "/admin/pilot-health", label: "Pilot health" },
   { href: "/admin/users", label: "Users" },
   { href: "/admin/pending-invites", label: "Pending Invites" },
   { href: "/admin/signup-codes", label: "Signup Codes" },

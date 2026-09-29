@@ -1,0 +1,210 @@
+import type { PmsConnectionStatus, PmsType } from "@/lib/admin/types";
+import { addCalendarDays, evalIsoToHotelDateString, hotelDayStartIso } from "@/lib/engine/timezone";
+
+/**
+ * What the Pilot health page says about one property, worked out from the
+ * row platform_pilot_health() gives it (99_supabase_migration_pilot_health_v1.sql).
+ *
+ * Pure: the clock is an argument, so a test and the page say the same words.
+ * No server-only import, so a client component or a test can use it. "Today"
+ * is the hotel's date, the day the daily pass counts by.
+ */
+
+export type PilotHealthRow = {
+  hotel_id: string;
+  name: string;
+  timezone: string;
+  is_test: boolean;
+  mode: "live" | "simulation";
+  subscription_status: string | null;
+  pms_type: PmsType | null;
+  pms_status: PmsConnectionStatus | null;
+  /** The last successful read from the property system. */
+  last_sync_at: string | null;
+  down_since: string | null;
+  sync_failures: number | null;
+  /** The last tick that priced without an error. */
+  last_ok_run_at: string | null;
+  /** The hotel date the current (or last) daily pass is for. */
+  pass_date: string | null;
+  /** The next night the pass prices; null once it reached the last one. */
+  pass_cursor: string | null;
+  pass_started_at: string | null;
+  pass_completed_at: string | null;
+  pass_horizon_days: number | null;
+  /** Nights waiting in the touched-nights queue, and how long the oldest has waited. */
+  dirty_count: number;
+  dirty_oldest_marked_at: string | null;
+  sent_24h: number;
+  /** Open sending problems an owner may be told about, and when the oldest opened. */
+  open_incidents: number;
+  open_incidents_since: string | null;
+  /** MAYA's own holds, never shown to owners. */
+  open_incidents_admin_only: number;
+  open_incident_causes: string[];
+  active_rules: number;
+  rule_changes_24h: number;
+};
+
+/** A read older than this is a problem: the overview page's own stale sync line. */
+export const STALE_READ_MINUTES = 30;
+/**
+ * A night waiting longer than this is a problem: the push's freshness limit
+ * for a change (MAYA_PUSH_MAX_PRICE_AGE_MINUTES in push-guardrails.ts).
+ */
+export const QUEUE_WAIT_MINUTES = 30;
+/**
+ * A daily pass not done this long after the hotel's midnight is a problem
+ * rather than a note: what the push counts as stuck (MAYA_PASS_MAX_LAG_MINUTES
+ * in pricing-plan.ts).
+ */
+export const PASS_GRACE_MINUTES = 120;
+
+export type ProblemSeverity = "amber" | "rose";
+export type ProblemKind = "connection" | "read" | "pass" | "sending" | "queue";
+export type PropertyProblem = { kind: ProblemKind; severity: ProblemSeverity; text: string };
+
+export type PricedThrough =
+  /** Today's pass finished: the last night of its window. */
+  | { kind: "done"; date: string }
+  /** Today's pass is under way: the night before its cursor, or nothing yet. */
+  | { kind: "running"; date: string | null }
+  /** Today's pass has not started: the last pass and how far it got. */
+  | { kind: "stale"; passDate: string; date: string | null }
+  | { kind: "never" };
+
+export type PropertyAssessment = {
+  /** The hotel's date. */
+  today: string;
+  pricedThrough: PricedThrough;
+  pricedThroughText: string;
+  problems: PropertyProblem[];
+  worst: ProblemSeverity | null;
+};
+
+/** How long ago, the way the hotel list says it: "under a minute", "5m", "3h", "2d". */
+export function ageLabel(iso: string, nowIso: string): string {
+  const mins = Math.round((Date.parse(nowIso) - Date.parse(iso)) / 60_000);
+  if (mins < 1) return "under a minute";
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
+/** A stored cause code as words: rate_not_found is "rate not found". */
+export function humaniseCause(cause: string): string {
+  return cause.replace(/_/g, " ");
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** The last night the pass on record has priced, whichever day it is for. */
+function passReach(row: PilotHealthRow): string | null {
+  if (!row.pass_date) return null;
+  if (row.pass_cursor) return row.pass_cursor > row.pass_date ? addCalendarDays(row.pass_cursor, -1) : null;
+  if (row.pass_completed_at) return addCalendarDays(row.pass_date, Math.max(1, row.pass_horizon_days ?? 1) - 1);
+  return null;
+}
+
+export function pricedThroughOf(row: PilotHealthRow, today: string): PricedThrough {
+  if (!row.pass_date) return { kind: "never" };
+  const date = passReach(row);
+  if (row.pass_date < today) return { kind: "stale", passDate: row.pass_date, date };
+  if (row.pass_cursor == null && row.pass_completed_at) return { kind: "done", date: date ?? row.pass_date };
+  return { kind: "running", date };
+}
+
+export function pricedThroughText(p: PricedThrough): string {
+  switch (p.kind) {
+    case "done":
+      return `Priced through ${p.date}`;
+    case "running":
+      return p.date ? `Priced through ${p.date} so far, pass running` : "Pass running, nothing priced yet";
+    case "stale":
+      return p.date
+        ? `Not started today; the ${p.passDate} pass priced through ${p.date}`
+        : `Not started today; the ${p.passDate} pass priced nothing`;
+    case "never":
+      return "Never run";
+  }
+}
+
+export function assessProperty(row: PilotHealthRow, nowIso: string): PropertyAssessment {
+  const nowMs = Date.parse(nowIso);
+  const today = evalIsoToHotelDateString(nowIso, row.timezone);
+  const dayStartIso = hotelDayStartIso(today, row.timezone);
+  const minutesIntoDay = (nowMs - Date.parse(dayStartIso)) / 60_000;
+  const olderThan = (iso: string | null, minutes: number) => iso != null && nowMs - Date.parse(iso) > minutes * 60_000;
+  const problems: PropertyProblem[] = [];
+
+  // The connection itself, and since when.
+  if (row.pms_status === "error" || row.pms_status === "disconnected") {
+    const state = row.pms_status === "error" ? "in Error" : "Disconnected";
+    problems.push({
+      kind: "connection",
+      severity: "rose",
+      text: row.down_since
+        ? `The connection has been ${state} for ${ageLabel(row.down_since, nowIso)}.`
+        : `The connection is ${state}.`,
+    });
+  }
+
+  // Reads. A pending connection has nothing to read from yet.
+  if (row.pms_status !== "pending") {
+    if (!row.pms_status) {
+      problems.push({ kind: "read", severity: "rose", text: "No property system is connected, so nothing is read." });
+    } else if (!row.last_sync_at) {
+      problems.push({ kind: "read", severity: "rose", text: "MAYA has never read from this system." });
+    } else if (olderThan(row.last_sync_at, STALE_READ_MINUTES)) {
+      problems.push({ kind: "read", severity: "rose", text: `No successful read for ${ageLabel(row.last_sync_at, nowIso)}.` });
+    }
+  }
+
+  // The daily pass: a note while the hotel day is young, a problem after that.
+  const pricedThrough = pricedThroughOf(row, today);
+  const passSeverity: ProblemSeverity = minutesIntoDay > PASS_GRACE_MINUTES ? "rose" : "amber";
+  const dayAge = ageLabel(dayStartIso, nowIso);
+  if (pricedThrough.kind === "never") {
+    problems.push({ kind: "pass", severity: "rose", text: "Pricing has never run." });
+  } else if (pricedThrough.kind === "stale") {
+    const reach = pricedThrough.date ? `priced through ${pricedThrough.date}` : "priced nothing";
+    problems.push({
+      kind: "pass",
+      severity: passSeverity,
+      text: `Today's pass has not started, ${dayAge} into the hotel day. The last pass, for ${pricedThrough.passDate}, ${reach}.`,
+    });
+  } else if (pricedThrough.kind === "running") {
+    const started = row.pass_started_at ? `started ${ageLabel(row.pass_started_at, nowIso)} ago and ` : "";
+    const reach = pricedThrough.date ? `priced through ${pricedThrough.date} so far` : "has priced nothing yet";
+    problems.push({ kind: "pass", severity: passSeverity, text: `Today's pass ${started}is still running, ${reach}.` });
+  }
+
+  // Sending: the problems an owner may be told about, by cause.
+  if (row.open_incidents > 0) {
+    const since = row.open_incidents_since ? ` for ${ageLabel(row.open_incidents_since, nowIso)}` : "";
+    const causes = row.open_incident_causes.length ? `: ${row.open_incident_causes.map(humaniseCause).join(", ")}` : "";
+    problems.push({ kind: "sending", severity: "rose", text: `${plural(row.open_incidents, "open sending problem")}${since}${causes}.` });
+  }
+
+  // The queue: a change should be priced well inside the push's freshness limit.
+  if (row.dirty_count > 0 && row.dirty_oldest_marked_at && olderThan(row.dirty_oldest_marked_at, QUEUE_WAIT_MINUTES)) {
+    problems.push({
+      kind: "queue",
+      severity: "rose",
+      text: `${plural(row.dirty_count, "night")} waiting to be priced, the oldest for ${ageLabel(row.dirty_oldest_marked_at, nowIso)}.`,
+    });
+  }
+
+  const worst = problems.some((p) => p.severity === "rose") ? "rose" : problems.length ? "amber" : null;
+  return { today, pricedThrough, pricedThroughText: pricedThroughText(pricedThrough), problems, worst };
+}
+
+/** Properties with a problem first, the worse first, then by name. */
+export function compareAssessed(
+  a: { row: PilotHealthRow; assessment: PropertyAssessment },
+  b: { row: PilotHealthRow; assessment: PropertyAssessment },
+): number {
+  const rank = (w: ProblemSeverity | null) => (w === "rose" ? 0 : w === "amber" ? 1 : 2);
+  return rank(a.assessment.worst) - rank(b.assessment.worst) || a.row.name.localeCompare(b.row.name);
+}
