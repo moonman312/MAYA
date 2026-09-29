@@ -14,7 +14,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function stubApi() {
+function stubApi(seedExtra: Record<string, unknown> = {}) {
   const posts: Record<string, unknown>[] = [];
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -24,6 +24,7 @@ function stubApi() {
       if (url.startsWith("/api/room-types")) {
         return json({
           timezone: "UTC",
+          ...seedExtra,
           roomTypes: [
             { id: "rt1", name: "Standard", total_rooms: 10, floor_price: 50, ceiling_price: 500, counts_as_room: true, seed_rate: 100 },
           ],
@@ -54,5 +55,23 @@ describe("the Rate Simulator's test rule", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save This Rule" }));
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]).toMatchObject({ undo_on_cancellation: sent, is_active: false });
+  });
+});
+
+describe("the Rate Simulator's amounts", () => {
+  it("carry the property's currency symbol, with a cut shown as minus then the symbol", async () => {
+    stubApi({ currency: "EUR" });
+    const view = render(<RateSimulator activeHotelId="h1" />);
+    expect(await screen.findByText(/€50\.00\s*–\s*€500\.00/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Base price for Standard"), { target: { value: "40" } });
+    // Held at the floor: 40 becomes 50.
+    await waitFor(() => expect(view.container.textContent).toContain("+€10.00"));
+    expect(view.container.textContent).not.toMatch(/\$\d/);
+  });
+
+  it("stays in dollars when the property's currency is US dollars", async () => {
+    stubApi({ currency: "USD" });
+    render(<RateSimulator activeHotelId="h1" />);
+    expect(await screen.findByText(/\$50\.00\s*–\s*\$500\.00/)).toBeTruthy();
   });
 });

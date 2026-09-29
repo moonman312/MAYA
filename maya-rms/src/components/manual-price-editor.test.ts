@@ -9,6 +9,12 @@ describe("manualPriceBadge", () => {
     // Older rows and servers say nothing about where it came from.
     expect(manualPriceBadge({ price: 150 }, "Cloudbeds")).toBe("Manual · $150.00");
   });
+
+  it("uses the property's own currency symbol", () => {
+    expect(manualPriceBadge({ price: 180, source: "maya" }, "Cloudbeds", "€")).toBe("Manual · €180.00");
+    expect(manualPriceBadge({ price: 180, source: "pms" }, "Cloudbeds", "£")).toBe("Changed in Cloudbeds · £180.00");
+    expect(manualPriceBadge({ price: 180 }, "Cloudbeds", "CHF ")).toBe("Manual · CHF 180.00");
+  });
 });
 
 describe("describeSave", () => {

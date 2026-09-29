@@ -34,6 +34,14 @@ describe("ManualPriceEditor", () => {
     expect(help).not.toContain("—");
   });
 
+  it("shows the property's currency symbol beside the box, and dollars when none is given", () => {
+    const euro = render(<ManualPriceEditor {...base} manualPrice={null} currencySymbol="€" />);
+    expect(euro.getByLabelText("Manual price for King").closest("label")?.textContent).toBe("€");
+    euro.unmount();
+    const plain = render(<ManualPriceEditor {...base} manualPrice={null} />);
+    expect(plain.getByLabelText("Manual price for King").closest("label")?.textContent).toBe("$");
+  });
+
   it("keeps a typed price's Clear as it was", () => {
     const view = render(<ManualPriceEditor {...base} manualPrice={{ price: 150, set_at: "2026-10-01T12:00:00Z", source: "maya" }} />);
     expect(view.getByRole("button", { name: "Clear" }).getAttribute("title")).toBeNull();

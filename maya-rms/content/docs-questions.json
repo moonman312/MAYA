@@ -384,7 +384,7 @@
 {"q":"Why did an older change disappear?","page":"wrong/calendar-and-log-questions","bankSection":10},
 {"q":"Why does the same rule appear twice on one night?","page":"wrong/a-price-looks-wrong","bankSection":10},
 {"q":"\"more cancelled than booked\"","page":"wrong/booking-speed-reads-oddly","anchor":"do-cancellations-lower-the-count","bankSection":10},
-{"q":"Why does the log use \"€\" but the calendar \"$\"?","page":"wrong/calendar-and-log-questions","anchor":"why-does-the-calendar-show--when-my-currency-is-euro","bankSection":10},
+{"q":"Why does the log's bold line use \"$\" but its sentence \"€\"?","page":"wrong/calendar-and-log-questions","anchor":"why-does-the-calendar-show--when-my-currency-is-euro","bankSection":10},
 {"q":"What does \"Set aside, not used from the next run onward\" mean?","page":"watch/not-a-fair-comparison","bankSection":10},
 {"q":"Why does the drill-down say \"we widened the comparison\"?","page":"rules/similar-nights","anchor":"when-too-few-nights-match/if-the-second","bankSection":10},
 {"q":"What is \"momentum\" in the drill-down?","page":"rules/similar-nights","anchor":"momentum-when-nothing-matches/under-why-did","bankSection":10},

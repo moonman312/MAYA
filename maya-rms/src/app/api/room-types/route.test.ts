@@ -155,7 +155,7 @@ const { fallbackSeed, isCountingRoom } = await import("@/lib/room-types");
 function seed(opts?: Parameters<typeof fakeSupabase>[1]) {
   return fakeSupabase(
     {
-      hotels: [{ id: HOTEL, timezone: "UTC" }],
+      hotels: [{ id: HOTEL, timezone: "UTC", currency: "EUR" }],
       room_types: [
         { id: ROOM, hotel_id: HOTEL, name: "Standard", display_name: null, total_rooms: 20, floor_price: 100, ceiling_price: 400, is_active: true, counts_as_room: null },
         { id: COURT, hotel_id: HOTEL, name: "Pickleball Court", display_name: null, total_rooms: 2, floor_price: 1, ceiling_price: 99999.99, is_active: true, counts_as_room: false },
@@ -249,6 +249,11 @@ describe("GET /api/room-types", () => {
     expect(seeded.roomTypes.map((r: Row) => r.id)).toEqual([ROOM]);
     const all = await (await get("?withRate=1&all=1")).json();
     expect(all.roomTypes.map((r: Row) => r.id).sort()).toEqual([ROOM, COURT].sort());
+  });
+
+  it("gives the simulator the property's currency along with its time zone", async () => {
+    const seeded = await (await get("?withRate=1")).json();
+    expect(seeded).toMatchObject({ timezone: "UTC", currency: "EUR" });
   });
 
   it("still answers before the migration: every type a room, flag null, warning logged", async () => {

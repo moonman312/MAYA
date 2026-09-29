@@ -320,6 +320,15 @@ describe("getCalendar (Supabase) — sellable occupancy", () => {
     expect(cal.days["20"].total).toBe(20);
   });
 
+  it("names the property's currency, so the day card can use its symbol", async () => {
+    const { client } = calendarDb({
+      hotels: [{ id: "h1", timezone: "UTC", currency: "EUR", total_rooms_per_type: 100 }],
+      room_types: [{ id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 20, counts_as_room: true }],
+    });
+    const cal = await getCalendar(2026, 10, client);
+    expect(cal.currency).toBe("EUR");
+  });
+
   it("renders on the physical count, once loudly, before the out-of-service table exists", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const { client } = calendarDb(

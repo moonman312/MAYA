@@ -103,14 +103,16 @@ export async function GET(req: Request) {
 
       // The seeded shape is an object, not an array: the simulator needs the
       // hotel's timezone too, because days-to-arrival is measured from the
-      // hotel's calendar date and not the viewer's. Only ?withRate=1 returns
-      // this, so the rules form's plain call keeps the array it expects.
+      // hotel's calendar date and not the viewer's, and its currency for the
+      // symbol on amounts. Only ?withRate=1 returns this, so the rules form's
+      // plain call keeps the array it expects.
       const [seed, hotelRow] = await Promise.all([
         nearestPublishedRates(supabase, hotelId, rows.map((rt) => String(rt.id))),
-        supabase.from("hotels").select("timezone").eq("id", hotelId).maybeSingle(),
+        supabase.from("hotels").select("timezone, currency").eq("id", hotelId).maybeSingle(),
       ]);
       return NextResponse.json({
         timezone: hotelRow.data?.timezone ?? "UTC",
+        currency: hotelRow.data?.currency ?? null,
         roomTypes: rows.map((rt) => ({
           ...rt,
           seed_rate:

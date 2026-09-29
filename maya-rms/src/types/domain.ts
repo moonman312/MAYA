@@ -410,6 +410,11 @@ export type CalendarResponse = {
    * for the hotel; the demo window when no Supabase data backs the calendar.
    */
   range: { min: string; max: string };
+  /**
+   * The hotel's currency code (hotels.currency), so amounts on the calendar
+   * carry its symbol. Absent in demo mode, where amounts are dollars.
+   */
+  currency?: string | null;
   days: Record<string, CalendarDay>;
 };
 

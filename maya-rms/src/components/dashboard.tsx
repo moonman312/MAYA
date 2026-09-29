@@ -21,7 +21,7 @@ import { letRunAgainBody, stoppedChipLabel, stoppedNightsHelp, type RuleStops } 
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { RuleRoomTypesField } from "@/components/rule-room-types-field";
 import { UndoOnCancellationField } from "@/components/undo-on-cancellation-box";
-import { isQuietChecks, isRuleAlertChoice } from "@/lib/changelog-route-helpers";
+import { currencySymbolFor, isQuietChecks, isRuleAlertChoice } from "@/lib/changelog-route-helpers";
 import { QuietChecksLine } from "@/components/quiet-checks-line";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { formatDisplayTime } from "@/lib/display-time";
@@ -874,6 +874,9 @@ export function Dashboard({
   );
 
   const calendarBusy = loading || hotelSwitching;
+  // The property's own symbol on the calendar's amounts, built the way the
+  // change log's sentences build it.
+  const currencySymbol = currencySymbolFor(calendar?.currency);
 
   // Year options come from the property's actual data range when the API
   // reports one; otherwise a sensible window around the current year.
@@ -1176,7 +1179,7 @@ export function Dashboard({
                               className="text-[11px] text-slate-400"
                               title="Room revenue (booked nights)"
                             >
-                              $
+                              {currencySymbol}
                               {data.revenue >= 1000
                                 ? `${(data.revenue / 1000).toFixed(1)}k`
                                 : data.revenue.toFixed(0)}
@@ -1228,7 +1231,7 @@ export function Dashboard({
                           ? "revenue on the books"
                           : "revenue"}{" "}
                         <span className="font-medium text-slate-200">
-                          $
+                          {currencySymbol}
                           {calendar.days[
                             String(selectedDay)
                           ].revenue.toLocaleString(undefined, {
@@ -1259,6 +1262,7 @@ export function Dashboard({
                                         : pmsActivity?.connection
                                           ? formatPmsName(pmsActivity.connection.pms_type)
                                           : "your PMS",
+                                      currencySymbol,
                                     )}
                                   </span>
                                 ) : null}
@@ -1267,16 +1271,16 @@ export function Dashboard({
                                 Booked {rt.booked}/{rt.total_rooms}
                               </p>
                               <p className="text-sm text-slate-300">
-                                ADR {rt.rate != null ? `$${rt.rate.toFixed(2)}` : "–"}
+                                ADR {rt.rate != null ? `${currencySymbol}${rt.rate.toFixed(2)}` : "–"}
                               </p>
                               <p className="text-sm text-sky-300">
                                 Current price{" "}
                                 {(rt.current_rate ?? rt.current_price) != null
-                                  ? `$${(rt.current_rate ?? rt.current_price)!.toFixed(2)}`
+                                  ? `${currencySymbol}${(rt.current_rate ?? rt.current_price)!.toFixed(2)}`
                                   : "—"}
                               </p>
                               <p className="text-sm text-slate-300">
-                                Revenue ${rt.revenue.toFixed(2)}
+                                Revenue {currencySymbol}{rt.revenue.toFixed(2)}
                               </p>
                               {activeHotelId ? (
                                 <div data-deeplink={`calendar.price:${rt.id}`}>
@@ -1287,6 +1291,7 @@ export function Dashboard({
                                   roomTypeName={rt.name}
                                   stayDate={isoDate(year, month, selectedDay)}
                                   currentPrice={rt.current_rate ?? rt.current_price ?? null}
+                                  currencySymbol={currencySymbol}
                                   manualPrice={rt.manual_price ?? null}
                                   pmsName={
                                     rt.manual_price?.pms_type

@@ -51,14 +51,14 @@ A ticked room type is one guests sleep in. Ticked room types are what MAYA divid
 
 A room type tagged "needs your answer" is one nobody has ticked or unticked yet, whose name reads like something nobody sleeps in (see "How MAYA proposes the answer" below). It shows unticked and is left out of your bill until you answer. Until then it still counts in occupancy and in the calendar's revenue per room. Tick it if guests sleep there and it joins your bill. If they do not, tick it and untick it again: it then shows "not a room" and leaves occupancy and the calendar's count too. The <Ui>?</Ui> beside the heading says the same in one line.
 
-Untick a room type and it leaves all three. Its bookings also leave the history booking speed reads, so a court selling six slots a night cannot read as the hotel filling up. It is still priced, and sent when you are live, like any other room type, and its revenue still counts in the day card's dollar figure.
+Untick a room type and it leaves all three. Its bookings also leave the history booking speed reads, so a court selling six slots a night cannot read as the hotel filling up. It is still priced, and sent when you are live, like any other room type, and its revenue still counts in the day card's revenue figure.
 
 A rule cannot measure an unticked room type. A rule that measures only unticked types measures nothing and never fires. When an occupancy rule measured a mix, the change log says which were left out: "That 82% leaves out Meeting Room." [Measure one set of room types, change another](/docs/rules/measure-one-set-change-another) has the detail.
 
 Tick or untick and the change saves at once. If it does not save you see "That didn't save" with a note to try again, and the box goes back to where it was. Your rules then run again across the 396-night window, since every occupancy figure has moved: within a few minutes for the coming nights, and over the next few cycles for the furthest, nearest nights first. Each change is recorded with who made it.
 
 <Example title="The Harbour Inn's meeting room">
-Cloudbeds lists four room types at The Harbour Inn: Standard (12), Deluxe (6), Suite (2) and Meeting Room (1). With Meeting Room unticked, the property has 20 rooms, not 21. A night with 12 rooms booked reads "12/20 rooms" and 60%. If the meeting room is booked that night, its revenue is in the dollar figure, and the percentage stays 60%. Sam is billed for 20 rooms.
+Cloudbeds lists four room types at The Harbour Inn: Standard (12), Deluxe (6), Suite (2) and Meeting Room (1). With Meeting Room unticked, the property has 20 rooms, not 21. A night with 12 rooms booked reads "12/20 rooms" and 60%. If the meeting room is booked that night, its revenue is in the revenue figure, and the percentage stays 60%. Sam is billed for 20 rooms.
 </Example>
 
 ## How MAYA proposes the answer

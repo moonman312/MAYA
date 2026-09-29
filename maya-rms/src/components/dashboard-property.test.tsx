@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 /**
  * The dashboard around the property: the connection is read when the page
- * opens, so a lost connection shows above whichever tab is open, and a
- * switch that fails says so and leaves the property as it was.
+ * opens, so a lost connection shows above whichever tab is open, a switch
+ * that fails says so and leaves the property as it was, and the calendar's
+ * amounts carry the property's own currency symbol.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -178,5 +179,74 @@ describe("the PMS tab's Health card and request list", () => {
     expect(screen.getByText("Healthy")).toBeTruthy();
     expect(screen.getByText(/No requests recorded yet/)).toBeTruthy();
     expect(screen.queryByText("Not tracked for this system")).toBeNull();
+  });
+});
+
+function october(currency?: string) {
+  const days: Record<string, unknown> = {};
+  for (let d = 1; d <= 31; d++) {
+    days[String(d)] = {
+      occupancy_pct: 50,
+      booked: 5,
+      total: 10,
+      revenue: d === 10 ? 2180 : 850,
+      weekday: "Saturday",
+      revpar: 85,
+      color: "orange",
+      room_types:
+        d === 10
+          ? [
+              {
+                id: "rt1",
+                name: "King",
+                total_rooms: 10,
+                occupancy_pct: 50,
+                booked: 5,
+                rate: 150,
+                revenue: 750,
+                current_rate: 165,
+                manual_price: { price: 180, set_at: "2026-10-01T12:00:00Z", source: "maya" },
+              },
+            ]
+          : [],
+    };
+  }
+  return {
+    year: 2026,
+    month: 10,
+    month_name: "October 2026",
+    days_in_month: 31,
+    first_weekday: 4,
+    thresholds: { low: 40, high: 70, basis: "revpar", past: { p33: 1, p67: 2 }, future: { p33: 1, p67: 2 } },
+    range: { min: "2026-01", max: "2027-10" },
+    ...(currency ? { currency } : {}),
+    days,
+  };
+}
+
+describe("the calendar's amounts", () => {
+  it("carry the property's currency symbol on the tiles, the day card and the price box", async () => {
+    routes["/api/calendar/2026/10"] = () => json(october("EUR"));
+    window.history.replaceState(null, "", "/?date=2026-10-10");
+    render(<Dashboard initialSearch={window.location.search} />);
+
+    expect(await screen.findByText("ADR €150.00")).toBeTruthy();
+    expect(screen.getByText("€2.2k")).toBeTruthy();
+    expect(screen.getAllByText("€850").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Current price\s*€165\.00/)).toBeTruthy();
+    expect(screen.getByText("Revenue €750.00")).toBeTruthy();
+    expect(screen.getByText("Manual · €180.00")).toBeTruthy();
+    expect(document.querySelector('[data-deeplink="calendar.day"] > p')?.textContent).toMatch(/revenue.* €2.?180\.00$/);
+    expect(screen.getByLabelText("Manual price for King").closest("label")?.textContent).toBe("€");
+    expect(document.body.textContent).not.toMatch(/\$\d/);
+  });
+
+  it("stays in dollars when the calendar names no currency", async () => {
+    routes["/api/calendar/2026/10"] = () => json(october());
+    window.history.replaceState(null, "", "/?date=2026-10-10");
+    render(<Dashboard initialSearch={window.location.search} />);
+    expect(await screen.findByText("ADR $150.00")).toBeTruthy();
+    expect(screen.getByText("$2.2k")).toBeTruthy();
+    expect(screen.getByText("Manual · $180.00")).toBeTruthy();
   });
 });
