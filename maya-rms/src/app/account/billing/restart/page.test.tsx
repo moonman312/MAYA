@@ -79,10 +79,12 @@ beforeEach(() => {
 });
 
 describe("the restart screen", () => {
-  it("opens for a cancelled subscription", async () => {
+  it("opens for a cancelled subscription, as a restart with no trial of any kind", async () => {
     state.billing = billing();
     const tree = elements(await RestartPage());
-    expect(tree.some((e) => e.type === SubscribeStep)).toBe(true);
+    const step = tree.find((e) => e.type === SubscribeStep)!;
+    expect(step.props.restart).toBe(true);
+    expect(step.props.baseTrialDays ?? 0).toBe(0);
   });
 
   it("sends an unpaid subscription back to billing, where the card revives it", async () => {

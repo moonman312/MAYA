@@ -114,6 +114,54 @@ describe("SubscribeStep and a subscription already on the property", () => {
   });
 });
 
+describe("SubscribeStep on a restart", () => {
+  // Checkout grants a restart no trial of any kind, a code's own included. The
+  // panel says "Billed when you finish checkout." whatever code is typed.
+  let validateBodies: Record<string, unknown>[] = [];
+
+  beforeEach(() => {
+    validateBodies = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      if (url === "/api/billing/validate-code") {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        validateBodies.push(body);
+        // Even an effect that still carried free days must not reach the panel.
+        return json({ valid: true, grants: body.restart ? "No free days on a restart." : "30 days free.", effect: { trialDays: 30, percentOff: 20, discountDuration: "forever" } });
+      }
+      return json({});
+    });
+  });
+
+  function renderWithCode(restart: boolean) {
+    render(
+      <SubscribeStep
+        restart={restart}
+        initialRooms={24}
+        lockPms
+        pmsOptions={[{ type: "cloudbeds", displayName: "Cloudbeds", requiresSignupCode: false }]}
+      />,
+    );
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "MHSFOUNDER" } });
+  }
+
+  it("says billed when you finish checkout, with a trial code typed", async () => {
+    renderWithCode(true);
+    await screen.findByText("No free days on a restart.");
+    expect(validateBodies.at(-1)).toMatchObject({ code: "MHSFOUNDER", restart: true });
+    expect(screen.getByText("Billed when you finish checkout. Cancel anytime.")).not.toBeNull();
+    expect(screen.queryByText(/^Nothing today/)).toBeNull();
+    // The code's discount still shows: the list price struck through beside it.
+    expect(document.querySelector("s")).not.toBeNull();
+  });
+
+  it("still shows a code's free days on a first signup", async () => {
+    renderWithCode(false);
+    await screen.findByText("30 days free.");
+    expect(validateBodies.at(-1)).not.toHaveProperty("restart");
+    expect(screen.getByText(/^Nothing today/)).not.toBeNull();
+  });
+});
+
 describe("ConnectPms", () => {
   it("offers Manage billing or cancel when the pending property has a subscription", async () => {
     const { ConnectPms } = await import("./connect-pms");

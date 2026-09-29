@@ -222,9 +222,10 @@ export async function POST(request: Request) {
     );
   }
   // Anything live was refused above, so a subscription on record here is one
-  // that ended: this checkout is a restart. The Marketplace trial is for a
-  // first signup only, so a restart is billed when checkout completes, which
-  // is what the restart screen tells them.
+  // that ended: this checkout is a restart. Every trial is for a first signup
+  // only, the Marketplace one and a code's own free days alike, so a restart
+  // is billed when checkout completes, which is what the restart screen tells
+  // them. A code's discount still applies.
   const restartOf = existing?.stripe_subscription_id ? String(existing.stripe_subscription_id) : null;
 
   // A code is required to reach checkout at all while signup is gated — but
@@ -385,8 +386,8 @@ export async function POST(request: Request) {
     }
 
     // A code's own trial wins; the Marketplace trial fills in when there is
-    // none, and never on a restart.
-    const trialDays = effect.trialDays || (marketplace && !restartOf ? marketplaceTrialDays() : 0);
+    // none. A restart gets neither.
+    const trialDays = restartOf ? 0 : effect.trialDays || (marketplace ? marketplaceTrialDays() : 0);
 
     const origin = new URL(request.url).origin;
     const session = await stripe.checkout.sessions.create({
@@ -501,7 +502,7 @@ export async function POST(request: Request) {
     // Keyed on everything that defines the offer, so genuinely changing the room
     // count or the period still starts a new session rather than silently
     // returning the old price. A restart is a different offer from the first
-    // signup (no Marketplace trial), so it names the subscription it follows:
+    // signup (no trial), so it names the subscription it follows:
     // cancelling within a day of signing up must not replay the first session.
     { idempotencyKey: `maya_checkout_${hotelId}_${interval}_${rooms}_${signupCodeId ?? "none"}${restartOf ? `_after_${restartOf}` : ""}` });
 

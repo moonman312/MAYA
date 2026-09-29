@@ -966,7 +966,9 @@ describe("a property that arrived from the Cloudbeds Marketplace", () => {
     expect(state.sessionOpts.at(-1)?.idempotencyKey).toBe("maya_checkout_hotel-mkt_month_24_none_after_sub_old");
   });
 
-  it("still honours a code's own trial on a restart, which the screen shows", async () => {
+  it("gives no trial on a restart even when a code grants free days of its own", async () => {
+    // Every trial is for a first signup. The restart screen says "Billed when
+    // you finish checkout" whatever code is typed, and that has to be true.
     seed({
       ...arrival,
       hotels: [{ ...arrival.hotels[0], is_active: true, setup_pending_at: null }],
@@ -977,7 +979,36 @@ describe("a property that arrived from the Cloudbeds Marketplace", () => {
     state.hotelId = "hotel-mkt";
     const res = await post({ rooms: 24, interval: "month", code: "MHSFOUNDER", pmsType: "cloudbeds" });
     expect(res.status).toBe(200);
-    expect(lastSession()?.subscription_data).toMatchObject({ trial_period_days: 30 });
+    expect(lastSession()?.subscription_data).not.toHaveProperty("trial_period_days");
+    // The code is still recorded against the new subscription.
+    expect(lastSession()?.subscription_data).toMatchObject({ metadata: { signup_code_id: "code-1" } });
+    const text = String(((lastSession()?.custom_text as Row).submit as Row).message);
+    expect(text).not.toContain("free trial");
+  });
+
+  it("keeps a code's discount on a restart, without its free days", async () => {
+    const { tables } = seed({
+      hotels: [{ id: "hotel-live", name: "Driftwood", is_active: true }],
+      hotel_memberships: [{ hotel_id: "hotel-live", user_id: USER, role: "hotel_admin", status: "active" }],
+      hotel_subscriptions: [
+        { hotel_id: "hotel-live", stripe_customer_id: "cus_old", stripe_subscription_id: "sub_old", status: "canceled" },
+      ],
+    });
+    tables.get("signup_codes")!.push({
+      id: "code-2",
+      code: "WELCOME20",
+      kind: "percent_off",
+      percent_off: 20,
+      duration_months: 3,
+      trial_days: 14,
+      stripe_coupon_id: "coupon_cached",
+      is_active: true,
+    });
+    state.hotelId = "hotel-live";
+    const res = await post({ rooms: 24, interval: "month", code: "WELCOME20" });
+    expect(res.status).toBe(200);
+    expect(lastSession()?.subscription_data).not.toHaveProperty("trial_period_days");
+    expect(lastSession()?.discounts).toEqual([{ coupon: "coupon_cached" }]);
   });
 
   it("still rejects a typo'd code — the gate bypass never skips validating text they typed", async () => {

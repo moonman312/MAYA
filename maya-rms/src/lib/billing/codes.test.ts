@@ -466,3 +466,45 @@ describe("a discount code can open with a free run", () => {
     });
   });
 });
+
+describe("a restart gets no free days, whatever the code says", () => {
+  // Checkout grants a restart no trial of any kind. The wording and the panel
+  // must not promise days Stripe will not give; the discount still counts.
+  it("says plainly that a trial code's free days don't apply", () => {
+    expect(describeCode(code({ trial_days: 30 }), "month", { restart: true })).toBe(
+      "This code's 30 free days don't apply to a restart, so it doesn't change your price.",
+    );
+    expect(describeCode(code({ trial_days: 1 }), "month", { restart: true })).toBe(
+      "This code's 1 free day doesn't apply to a restart, so it doesn't change your price.",
+    );
+  });
+
+  it("describes only the discount of a code that also opens with free days", () => {
+    const sevenThen75 = code({ kind: "percent_off", trial_days: 7, percent_off: 75 });
+    expect(describeCode(sevenThen75, "month", { restart: true })).toBe("75% off, for as long as you stay.");
+    const amt = code({ kind: "amount_off", trial_days: 14, amount_off_cents: 5000, duration_months: 6 });
+    expect(describeCode(amt, "month", { restart: true })).toBe("$50.00 off each of your first 6 months.");
+  });
+
+  it("leaves the trial out of what the panel prices from", () => {
+    expect(displayEffectFor(code({ trial_days: 30 }), "month", { restart: true })).toEqual({});
+    const sevenThen75 = code({ kind: "percent_off", trial_days: 7, percent_off: 75 });
+    expect(displayEffectFor(sevenThen75, "month", { restart: true })).toEqual({
+      percentOff: 75,
+      discountDuration: "forever",
+    });
+  });
+
+  it("changes nothing for a first signup", () => {
+    expect(describeCode(code({ trial_days: 30 }), "month")).toMatch(/^30 days free/);
+    expect(displayEffectFor(code({ trial_days: 30 }), "month")).toEqual({ trialDays: 30 });
+  });
+
+  it("carries the restart wording through checkCode", async () => {
+    const check = await checkCode(fakeAdmin(code({ trial_days: 30 })), "DRIFTWOOD", { now: NOW, restart: true });
+    expect(check).toMatchObject({
+      ok: true,
+      describe: "This code's 30 free days don't apply to a restart, so it doesn't change your price.",
+    });
+  });
+});

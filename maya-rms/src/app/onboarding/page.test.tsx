@@ -12,6 +12,9 @@ const state = vi.hoisted(() => ({
   admin: null as unknown as ReturnType<typeof import("@/lib/engine/fake-supabase.test").fakeSupabase>,
   queued: [] as string[],
   hadSubscription: false,
+  /** False sends the page down the direct sign-up (Flow B) branch. */
+  marketplace: true,
+  pendingRestart: false,
 }));
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
@@ -24,19 +27,23 @@ vi.mock("@/utils/supabase/admin", () => ({ createAdminClient: () => state.admin.
 vi.mock("@/lib/onboarding/step", () => ({
   resolveOnboardingStep: async () => "subscribe",
   pendingBillingOffer: async () => null,
+  pendingIsRestart: async () => state.pendingRestart,
 }));
 vi.mock("@/lib/hotel-context", () => ({ resolveAccessibleHotelId: async () => null }));
 vi.mock("@/lib/billing/pending-hotel", () => ({
-  listUnpaidMarketplaceHotels: async () => [
-    {
-      hotelId: "hotel-1",
-      name: "Sea View Inn",
-      propertyName: "Sea View Inn",
-      pmsType: "cloudbeds",
-      groupKey: null,
-      hadSubscription: state.hadSubscription,
-    },
-  ],
+  listUnpaidMarketplaceHotels: async () =>
+    state.marketplace
+      ? [
+          {
+            hotelId: "hotel-1",
+            name: "Sea View Inn",
+            propertyName: "Sea View Inn",
+            pmsType: "cloudbeds",
+            groupKey: null,
+            hadSubscription: state.hadSubscription,
+          },
+        ]
+      : [],
 }));
 vi.mock("@/lib/billing/pms-gates", () => ({ listPmsSignupGates: async () => [] }));
 vi.mock("@/lib/pms/eager-import", () => ({
@@ -65,6 +72,8 @@ function elements(node: ReactNode): ReactElement<Record<string, unknown>>[] {
 function world(opts: { connection: string | null; purged: boolean; hadSubscription?: boolean }) {
   state.queued = [];
   state.hadSubscription = opts.hadSubscription ?? false;
+  state.marketplace = true;
+  state.pendingRestart = false;
   state.admin = fakeSupabase({
     hotels: [{ id: "hotel-1", is_active: false, data_purged_at: opts.purged ? "2027-03-01T00:00:00.000Z" : null }],
     pms_marketplace_claims: [
@@ -110,15 +119,36 @@ describe("the subscribe screen for a Marketplace arrival", () => {
     expect(tree[0].props.title).toBe("Sea View Inn is connected");
     expect(state.queued).toEqual(["hotel-1"]);
     expect(tree[0].props.baseTrialDays).toBe(14);
+    expect(tree[0].props.restart).toBe(false);
   });
 
-  it("offers no Marketplace trial to a property whose subscription ended", async () => {
+  it("offers no trial of any kind to a property whose subscription ended", async () => {
     // Checkout bills a restart straight away, so the screen must not say
-    // "Nothing today".
+    // "Nothing today", not even for a code with free days of its own.
     world({ connection: "pending", purged: false, hadSubscription: true });
     const tree = await render();
     expect(tree[0].type).toBe(SubscribeStep);
     expect(tree[0].props.baseTrialDays).toBe(0);
+    expect(tree[0].props.restart).toBe(true);
     expect(tree[0].props.intro).not.toMatch(/free/i);
+  });
+});
+
+describe("the subscribe screen for a direct sign-up", () => {
+  it("is a restart when the property waiting on payment had a subscription before", async () => {
+    world({ connection: "pending", purged: false });
+    state.marketplace = false;
+    state.pendingRestart = true;
+    const tree = await render();
+    expect(tree[0].type).toBe(SubscribeStep);
+    expect(tree[0].props.restart).toBe(true);
+  });
+
+  it("is a first signup otherwise", async () => {
+    world({ connection: "pending", purged: false });
+    state.marketplace = false;
+    const tree = await render();
+    expect(tree[0].type).toBe(SubscribeStep);
+    expect(tree[0].props.restart).toBe(false);
   });
 });

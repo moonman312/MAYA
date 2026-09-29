@@ -82,10 +82,24 @@ export type CodeCheck =
  * on both — an annual buyer's discount is rescaled onto their single invoice, so
  * promising "20% off for 3 months" to someone who will see 5% once is a number
  * on screen that their receipt then contradicts.
+ *
+ * `restart` leaves the free days out: checkout grants a restart no trial of
+ * any kind, a code's own included, so promising them would be promising days
+ * Stripe will not give.
  */
-export function describeCode(code: SignupCode, interval: BillingInterval = "month"): string {
-  const days = code.trial_days ?? 0;
+export function describeCode(
+  code: SignupCode,
+  interval: BillingInterval = "month",
+  opts: { restart?: boolean } = {},
+): string {
+  const days = opts.restart ? 0 : (code.trial_days ?? 0);
   if (code.kind === "trial") {
+    if (opts.restart) {
+      const free = code.trial_days ?? 0;
+      return free > 0
+        ? `This code's ${free} free day${free === 1 ? " doesn't" : "s don't"} apply to a restart, so it doesn't change your price.`
+        : "This code doesn't change your price.";
+    }
     return `${days} day${days === 1 ? "" : "s"} free, then your normal rate. We'll ask for a card now but won't charge it until the trial ends.`;
   }
   // A discount that also opens with a free run says so first — that is the
@@ -129,7 +143,7 @@ function usd(cents: number): string {
 export async function checkCode(
   admin: SupabaseClient,
   raw: string,
-  opts: { hotelId?: string | null; now?: Date; interval?: BillingInterval } = {},
+  opts: { hotelId?: string | null; now?: Date; interval?: BillingInterval; restart?: boolean } = {},
 ): Promise<CodeCheck> {
   const typed = raw.trim().toUpperCase();
 
@@ -189,7 +203,7 @@ export async function checkCode(
     }
   }
 
-  return { ok: true, code, describe: describeCode(code, opts.interval ?? "month") };
+  return { ok: true, code, describe: describeCode(code, opts.interval ?? "month", { restart: opts.restart }) };
 }
 
 /**
@@ -241,11 +255,17 @@ function annualEquivalent(percentOff: number, durationMonths: number): number {
  * checkoutEffectFor rather than the row so the panel and the session cannot
  * read the code differently — the cached-coupon case is the trap: the effect
  * carries only a Stripe id, and the shape behind it lives on the row.
+ *
+ * `restart` drops the trial, as checkout does for a restart.
  */
-export function displayEffectFor(code: SignupCode, interval: BillingInterval): CodeDisplayEffect {
+export function displayEffectFor(
+  code: SignupCode,
+  interval: BillingInterval,
+  opts: { restart?: boolean } = {},
+): CodeDisplayEffect {
   const effect = checkoutEffectFor(code, interval);
   const out: CodeDisplayEffect = {};
-  if (effect.trialDays) out.trialDays = effect.trialDays;
+  if (effect.trialDays && !opts.restart) out.trialDays = effect.trialDays;
   if (effect.couponNeeded) {
     const spec = effect.couponNeeded;
     if (spec.percentOff != null) out.percentOff = spec.percentOff;

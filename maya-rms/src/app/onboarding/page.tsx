@@ -4,7 +4,7 @@ import { SubscribeStep, type SubscribePmsOption } from "@/components/onboarding/
 import { listUnpaidMarketplaceHotels } from "@/lib/billing/pending-hotel";
 import { listPmsSignupGates } from "@/lib/billing/pms-gates";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
-import { pendingBillingOffer, resolveOnboardingStep } from "@/lib/onboarding/step";
+import { pendingBillingOffer, pendingIsRestart, resolveOnboardingStep } from "@/lib/onboarding/step";
 import { queuePrePaymentImport } from "@/lib/pms/eager-import";
 import { marketplaceTrialDays } from "@/lib/pms/marketplace-activate";
 import { marketplaceReconnectNeeded } from "@/lib/pms/purged";
@@ -67,6 +67,7 @@ export default async function OnboardingPage({
             : "Set up a payment method to start using MAYA."
         }
         baseTrialDays={days}
+        restart={marketplace.restart}
         submitLabel={days > 0 ? "Set up payment" : "Continue to payment"}
         footnote="Card details are handled by Stripe. They never touch MAYA."
       />
@@ -98,6 +99,7 @@ export default async function OnboardingPage({
       cancelled={cancelled}
       pmsOptions={await subscribePmsOptions()}
       manageBilling={manageBilling}
+      restart={await pendingIsRestart(supabase)}
     />
   );
 }
@@ -121,6 +123,8 @@ async function marketplaceArrival(supabase: SupabaseClient): Promise<{
   displayName: string;
   propertyName: string | null;
   trialDays: number;
+  /** A subscription has been on it before: no trial of any kind, a code's included. */
+  restart: boolean;
   progress?: { index: number; total: number };
   /** Whether "Not now" is offered: there has to be somewhere else to go. */
   deferrable: boolean;
@@ -196,6 +200,7 @@ async function marketplaceArrival(supabase: SupabaseClient): Promise<{
       // First signup only: a property whose subscription ended is restarting,
       // and checkout bills a restart when it completes.
       trialDays: next.hadSubscription ? 0 : marketplaceTrialDays(),
+      restart: next.hadSubscription,
       progress,
       deferrable,
       reconnect:

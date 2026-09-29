@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   if (throttled) return throttled;
 
   const body = (await request.json().catch(() => null)) as
-    | { code?: string; interval?: string }
+    | { code?: string; interval?: string; restart?: boolean }
     | null;
   const typed = (body?.code ?? "").trim();
   if (!typed) {
@@ -51,17 +51,21 @@ export async function POST(request: Request) {
   // one checkout reaches cannot differ — a limited discount is worth different
   // money on a yearly invoice than a monthly one.
   const interval = body?.interval === "year" ? "year" : "month";
+  // Sent by the restart screens. It only shapes the wording and the panel's
+  // numbers: checkout decides for itself whether a payment is a restart, and
+  // grants a restart no trial whatever this says.
+  const restart = body?.restart === true;
 
   // signup_codes is platform-admin only under RLS, and whoever is signing up is
   // not an admin — so the lookup runs service-role and returns only a verdict.
-  const check = await checkCode(createAdminClient(), typed, { interval });
+  const check = await checkCode(createAdminClient(), typed, { interval, restart });
 
   // The effect ships alongside the prose so the panel can price from it —
   // quoting the list price while a discount is in play is promising a number
   // Stripe will not charge.
   return NextResponse.json(
     check.ok
-      ? { valid: true, grants: check.describe, effect: displayEffectFor(check.code, interval) }
+      ? { valid: true, grants: check.describe, effect: displayEffectFor(check.code, interval, { restart }) }
       : { valid: false, message: check.message },
   );
 }

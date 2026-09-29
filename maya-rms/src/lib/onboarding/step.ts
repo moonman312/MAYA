@@ -103,6 +103,32 @@ export async function pendingBillingOffer(
   }
 }
 
+/**
+ * Whether paying for the caller's pending property is a restart: a
+ * subscription has been on it before, the same test checkout uses. Checkout
+ * grants a restart no trial of any kind, so the subscribe screen must not
+ * promise one. A failed read answers false, logged: checkout still decides
+ * for itself.
+ */
+export async function pendingIsRestart(supabase: SupabaseClient): Promise<boolean> {
+  try {
+    const hotelId = await pendingHotelFor(supabase);
+    if (!hotelId) return false;
+    const { data, error } = await supabase
+      .from("hotel_subscriptions")
+      .select("stripe_subscription_id")
+      .eq("hotel_id", hotelId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data?.stripe_subscription_id != null;
+  } catch (e) {
+    console.error(
+      JSON.stringify({ fn: "pendingIsRestart", error: e instanceof Error ? e.message : String(e) }),
+    );
+    return false;
+  }
+}
+
 /** True for a Marketplace property (activated now, or already), false for Flow B's placeholder. */
 async function activateIfMarketplace(hotelId: string): Promise<boolean> {
   try {

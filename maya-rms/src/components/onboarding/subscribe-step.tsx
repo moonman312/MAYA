@@ -52,6 +52,7 @@ export function SubscribeStep({
   initialInterval,
   lockPms = false,
   baseTrialDays = 0,
+  restart = false,
   submitLabel = "Continue to payment",
   hotelId,
   progress,
@@ -69,6 +70,12 @@ export function SubscribeStep({
   lockPms?: boolean;
   /** A trial the flow itself grants (a Marketplace arrival). A code's own trial replaces it. */
   baseTrialDays?: number;
+  /**
+   * A subscription has been on this property before. Checkout bills a restart
+   * when it completes, with no trial of any kind, so the panel shows no free
+   * days even for a code that carries some. The code's discount still counts.
+   */
+  restart?: boolean;
   submitLabel?: string;
   /** Which property this payment is for, when the owner has several waiting. */
   hotelId?: string;
@@ -104,7 +111,7 @@ export function SubscribeStep({
   // Set when checkout sent them to the accept screen, so accepting carries on
   // to Stripe instead of asking for the same click twice.
   const resumeAfterTerms = useRef<(() => void) | null>(null);
-  const flow = { marketplace: Boolean(hotelId), restart: initialRooms !== undefined };
+  const flow = { marketplace: Boolean(hotelId), restart };
   useTrackOnce(
     "billing.subscribe_viewed",
     { ...flow, trial_days: baseTrialDays, group_position: progress?.index, group_total: progress?.total },
@@ -139,8 +146,10 @@ export function SubscribeStep({
   // will actually present on the next screen.
   const codeEffect = codeState.status === "good" ? codeState.effect : undefined;
   // The flow's own trial applies only when no code grants one — the two never stack.
-  const effect =
-    baseTrialDays > 0 && !codeEffect?.trialDays
+  // A restart gets neither, so only the code's discount is left to show.
+  const effect = restart
+    ? codeEffect && { ...codeEffect, trialDays: undefined }
+    : baseTrialDays > 0 && !codeEffect?.trialDays
       ? { ...(codeEffect ?? {}), trialDays: baseTrialDays }
       : codeEffect;
   const quote = checkoutQuote(roomsOk ? rooms : 0, interval, effect);
@@ -170,7 +179,9 @@ export function SubscribeStep({
         const res = await fetch("/api/billing/validate-code", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code: typed, interval }),
+          // restart only shapes the wording that comes back; checkout
+          // decides for itself.
+          body: JSON.stringify({ code: typed, interval, ...(restart ? { restart: true } : {}) }),
         });
         const body = (await res.json()) as {
           valid?: boolean;
@@ -207,7 +218,7 @@ export function SubscribeStep({
       current = false;
       window.clearTimeout(t);
     };
-  }, [code, interval]);
+  }, [code, interval, restart]);
 
   const selectedPms = pmsOptions.find((p) => p.type === pmsType) ?? null;
   // No selection reads as gated — the safe direction, and the button is

@@ -23,9 +23,10 @@ export const dynamic = "force-dynamic";
  * while it's gated (the old one is spent — one redemption per property), none
  * once it's open.
  *
- * No baseTrialDays: the Marketplace trial is for a first signup only, and
- * checkout grants none on a restart, so the screen's "Billed when you finish
- * checkout" is the truth. Only a code's own trial changes that line.
+ * No trial of any kind: the Marketplace trial and a code's own free days are
+ * both for a first signup only, and checkout grants neither on a restart, so
+ * the screen's "Billed when you finish checkout" is the truth whatever code is
+ * typed. `restart` keeps a code's free days off the panel; its discount stays.
  */
 export default async function RestartPage() {
   const supabase = createClient(await cookies());
@@ -71,6 +72,7 @@ export default async function RestartPage() {
         footnote="Card details are handled by Stripe. They never touch MAYA. Your PMS connection is still in place, so there's nothing to set up again."
         initialRooms={billing.rooms || undefined}
         initialInterval={billing.interval}
+        restart
         lockPms={Boolean(pmsType)}
         pmsOptions={
           pmsType
