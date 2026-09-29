@@ -93,7 +93,6 @@ export function isUuid(v: unknown): v is string {
 export function parseDraft(body: Record<string, unknown>): RuleDraft {
   const name = typeof body.rule_name === "string" ? body.rule_name.trim() : "";
   if (!name) throw new RuleSaveError(400, "Give the rule a name.");
-  if (name.length > 200) throw new RuleSaveError(400, "That name is too long.");
   const condition = body.condition && typeof body.condition === "object" ? ruleConditionForInsert(body.condition as RuleCondition) : null;
   if (!condition || isRuleConditionEmpty(condition)) {
     throw new RuleSaveError(400, "Add at least one condition with a valid operator and threshold.");

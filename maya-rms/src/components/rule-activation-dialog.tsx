@@ -89,7 +89,7 @@ export function RuleActivationDialog({
   onUnavailable?: () => void;
   /** The change can't move a price after all (a new name): the caller saves it as it is. */
   onNotNeeded?: () => void;
-  /** The person's role can't change rules: the caller says so where they clicked. */
+  /** The save would be refused (the person's role, the 40-rule cap, a setting): the caller says so where they clicked. */
   onRefused?: (message: string) => void;
   fetchImpl?: typeof fetch;
 }) {
@@ -122,7 +122,7 @@ export function RuleActivationDialog({
       onNotNeeded?.();
       return null;
     }
-    if (outcome.status === "error" && outcome.forbidden && onRefused) {
+    if (outcome.status === "error" && outcome.refused && onRefused) {
       onRefused(outcome.message);
       return null;
     }

@@ -34,7 +34,8 @@ export type PreviewOutcome =
   | { status: "ready"; preview: CalendarPreview }
   | { status: "not_needed" }
   | { status: "unavailable" }
-  | { status: "error"; message: string; forbidden?: boolean };
+  /** `refused`: the save would be refused too (a role, the 40-rule cap, a setting): nothing to try again. */
+  | { status: "error"; message: string; refused?: boolean };
 
 export const DAYS_NOT_CHECKED = "The days could not be checked. Try again.";
 
@@ -127,7 +128,7 @@ export async function fetchRulePreview(
           got.failure ??= {
             status: "error",
             message: res.status === 500 || !body.error ? DAYS_NOT_CHECKED : body.error,
-            ...(res.status === 403 ? { forbidden: true } : {}),
+            ...(res.status >= 400 && res.status < 500 && res.status !== 429 ? { refused: true } : {}),
           };
           return;
         }
