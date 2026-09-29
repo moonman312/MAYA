@@ -38,3 +38,23 @@ describe("PmsReconnect", () => {
     );
   });
 });
+
+describe("PmsReconnect on a Degraded connection", () => {
+  // Degraded still reads and sends, so the lost-connection alarm is untrue there.
+  it.each([
+    ["banner", true],
+    ["panel", true],
+    ["banner", false],
+    ["panel", false],
+  ] as const)("shows one calm line in the %s (can reconnect: %s)", (placement, canManage) => {
+    const view = render(<PmsReconnect {...base} status="degraded" placement={placement} canManage={canManage} />);
+    const text = view.container.textContent ?? "";
+    expect(text).toContain("Your Cloudbeds connection needs a refresh soon. Prices are still updating.");
+    expect(text).not.toContain("lost its connection");
+    expect(text).not.toContain("aren't updating");
+    expect(text).not.toContain("—");
+    const link = view.queryByRole("link", { name: "Reconnect Cloudbeds" });
+    if (canManage) expect(link?.getAttribute("href")).toBe("/api/pms/cloudbeds/connect?hotelId=hotel-1");
+    else expect(link).toBeNull();
+  });
+});

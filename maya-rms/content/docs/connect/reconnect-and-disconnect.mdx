@@ -48,7 +48,7 @@ On a working Cloudbeds or ThinkReservations connection, the <Ui>PMS</Ui> tab sho
 
 ### When there is no banner
 
-The banner shows only when the word on the <Ui>Connection</Ui> card is <Ui>Error</Ui>, <Ui>Degraded</Ui> or <Ui>Disconnected</Ui>. Some breaks, and a stopped subscription, leave it at <Ui>Connected</Ui>, so no connection banner shows:
+The banner shows only when the word on the <Ui>Connection</Ui> card is <Ui>Error</Ui> or <Ui>Disconnected</Ui>. On <Ui>Degraded</Ui>, MAYA is still reading and sending, so one calm line shows instead: "Your Cloudbeds connection needs a refresh soon. Prices are still updating." Some breaks, and a stopped subscription, leave it at <Ui>Connected</Ui>, so no connection banner shows:
 
 - **ThinkReservations**, after MAYA's access is removed, until ThinkReservations refuses to renew that access. That can take up to about a day.
 - **Mews**, when the keys stop working. The word does not change.
@@ -130,12 +130,12 @@ The <Ui>Connection</Ui> card shows one word. What each one means:
 |---|---|---|
 | <Ui>Connected</Ui> | The connection is working as far as MAYA can tell. Some breaks, and a stopped subscription, still read Connected (see "When there is no banner") | Nothing, as long as <Ui>Last sync</Ui> is a few minutes old |
 | <Ui>Pending</Ui> | Connected but not paid for yet, or set up but not switched on | Finish payment, or wait for us |
-| <Ui>Degraded</Ui> | MAYA is still reading and sending. The lost-connection banner may show. (Cloudbeds and ThinkReservations only.) | If it is still there in an hour, reconnect with a login for this property only. It does no harm |
+| <Ui>Degraded</Ui> | MAYA is still reading and sending. One calm line says the connection needs a refresh soon and prices are still updating. (Cloudbeds and ThinkReservations only.) | If it is still there in an hour, reconnect with a login for this property only. It does no harm |
 | <Ui>Error</Ui> | Your system refused to renew MAYA's access. MAYA keeps trying, and the card goes back to <Ui>Connected</Ui> by itself once a try works | Reconnect if it has not cleared within a couple of hours |
 | <Ui>Disconnected</Ui> | Access has been withdrawn, or the app was uninstalled | Reconnect |
 | unknown | MAYA could not read the status | Reload the page. If it stays, email us |
 
-The banner appears for <Ui>Error</Ui>, <Ui>Degraded</Ui> and <Ui>Disconnected</Ui>. A break that leaves the card at <Ui>Connected</Ui> shows no banner (see "When there is no banner", above). For what to check in each case, read [connection lost](/docs/wrong/connection-lost).
+The banner appears for <Ui>Error</Ui> and <Ui>Disconnected</Ui>. <Ui>Degraded</Ui> shows the calm line instead, with the quiet reconnect link for a General Manager or Hotel Admin. A break that leaves the card at <Ui>Connected</Ui> shows no banner (see "When there is no banner", above). For what to check in each case, read [connection lost](/docs/wrong/connection-lost).
 
 ## How MAYA is told about a disconnect
 

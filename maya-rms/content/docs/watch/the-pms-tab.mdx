@@ -11,7 +11,7 @@ questions:
   - 'What is the "Recent requests" table?' {#recent-requests}
   - 'Can I force a sync now?' {#last-sync}
   - 'What do "Healthy", "Degraded" and "Having trouble" mean?' {#health-last-24-hours}
-  - 'The PMS tab says Degraded and the banner says MAYA lost its connection. Are my prices still going out?' {#connection/degraded-looks-more}
+  - 'The PMS tab says Degraded and my connection needs a refresh soon. Are my prices still going out?' {#connection/while-the-card}
   - 'What does "Last sync" mean on the PMS tab?' {#last-sync}
   - 'Which time zone is "Last sync" in?' {#last-sync}
   - 'Why does the PMS tab say "No recent activity"?' {#recent-requests}
@@ -50,7 +50,7 @@ A single word, colour-coded. It is the state of the connection as MAYA last reco
 | Disconnected (red) | MAYA's access is gone: the app was uninstalled, its permission removed, or your system refused it. Nothing runs until someone reconnects. | Reconnect. |
 | unknown (grey) | MAYA has no status on file for the connection yet. | Open the tab again in a few minutes. If it stays, [email us](mailto:info@modern-hospitality-solutions.com?subject=Connection%20status%20unknown). |
 
-Degraded looks more worrying than it is. While the card reads Degraded, the amber panel headed "MAYA has lost its connection to Cloudbeds" (or your system's name) shows anyway, and says your prices aren't updating. For Degraded that line is not true: nothing has stopped and nothing is lost.
+While the card reads Degraded, one calm line sits above the cards: "Your Cloudbeds connection needs a refresh soon. Prices are still updating." (with your system's name). Yes, your prices are still going out: nothing has stopped and nothing is lost. A General Manager or Hotel Admin also sees a quiet <Ui>Reconnect Cloudbeds</Ui> link at the end of that line.
 
 The Health card below has a "Degraded" of its own, about failed requests. The two are separate.
 
@@ -98,9 +98,10 @@ Both are saved when your property connects: read from Cloudbeds or ThinkReservat
 
 ## Reconnecting from here
 
-Above the cards, what you see depends on the Connection card and on your role. Broken means the card reads Error, Degraded or Disconnected. Any other word counts as not broken.
+Above the cards, what you see depends on the Connection card and on your role. Broken means the card reads Error or Disconnected. Any other word counts as not broken.
 
 - **Not broken, Cloudbeds or ThinkReservations, General Manager or Hotel Admin:** a quiet link, <Ui>Reconnect Cloudbeds</Ui>. Use it if you have been asked to, for example after your system's permissions changed.
+- **Degraded, any role:** one calm line, "Your Cloudbeds connection needs a refresh soon. Prices are still updating." A General Manager or Hotel Admin sees the quiet <Ui>Reconnect Cloudbeds</Ui> link at the end of it. The line also shows above the calendar, where the banner would.
 - **Broken, Cloudbeds or ThinkReservations, General Manager or Hotel Admin:** an amber panel headed "MAYA has lost its connection to Cloudbeds" with the button <Ui>Reconnect Cloudbeds</Ui>. One click sends you to your system to confirm and brings you back. Your rules, history and settings are untouched.
 - **Broken, any system, Revenue Manager or Viewer:** the same heading, with a note to ask the property's General Manager or Hotel Admin, since it takes them one click.
 - **Broken, Mews, General Manager or Hotel Admin:** a panel headed "Mews needs its keys re-entered", asking you to send us a message. Mews connects with keys from your Mews account rather than a login, so it cannot be repaired from this screen.

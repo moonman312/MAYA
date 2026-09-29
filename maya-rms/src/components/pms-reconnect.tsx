@@ -14,7 +14,7 @@
  * plainly rather than offering a button that leads nowhere.
  */
 
-const BROKEN = new Set(["error", "degraded", "disconnected"]);
+const BROKEN = new Set(["error", "disconnected"]);
 
 export function PmsReconnect({
   hotelId,
@@ -51,6 +51,29 @@ export function PmsReconnect({
 
   const broken = BROKEN.has(status);
   const oauth = authKind === "oauth2_authorization_code";
+  const href = `/api/pms/${pmsType}/connect?hotelId=${encodeURIComponent(hotelId)}`;
+
+  // Degraded still reads and sends: a renewed token that could not be saved
+  // yet. The lost-connection alarm would be untrue there, so it gets one calm
+  // line, plus the quiet link for whoever can use it.
+  if (status === "degraded") {
+    return (
+      <p className="text-sm text-slate-400">
+        Your {displayName} connection needs a refresh soon. Prices are still updating.
+        {canManage && oauth ? (
+          <>
+            {" "}
+            <a
+              href={href}
+              className="text-xs text-slate-400 underline underline-offset-4 transition hover:text-slate-300"
+            >
+              Reconnect {displayName}
+            </a>
+          </>
+        ) : null}
+      </p>
+    );
+  }
 
   if (!broken && (placement === "banner" || !oauth)) return null;
 
@@ -86,8 +109,6 @@ export function PmsReconnect({
       </div>
     );
   }
-
-  const href = `/api/pms/${pmsType}/connect?hotelId=${encodeURIComponent(hotelId)}`;
 
   if (!broken) {
     return (
