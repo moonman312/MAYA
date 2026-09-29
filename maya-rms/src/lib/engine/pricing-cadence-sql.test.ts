@@ -109,6 +109,7 @@ export const MIGRATION_ORDER = [
   "99_supabase_migration_account_ready_email_v1.sql",
   "99_supabase_migration_connection_outage_notice_v1.sql",
   "99_supabase_migration_rule_activation_v1.sql",
+  "99_supabase_migration_booking_history_cache_v1.sql",
 ];
 
 type Db = {

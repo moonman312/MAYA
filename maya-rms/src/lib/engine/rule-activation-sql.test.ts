@@ -43,8 +43,8 @@ const SPEED_RULE = "55555555-5555-4555-8555-555555555557";
 const addDays = (ymd: string, n: number) => new Date(Date.parse(`${ymd}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 
 describe("the migration file", () => {
-  it("is listed last in the order the SQL tests build production's base in", () => {
-    expect(MIGRATION_ORDER[MIGRATION_ORDER.length - 1]).toBe(MIGRATION);
+  it("is listed in the order the SQL tests build production's base in, after every file it builds on", () => {
+    expect(MIGRATION_ORDER.indexOf(MIGRATION)).toBeGreaterThan(MIGRATION_ORDER.indexOf("99_supabase_migration_undo_on_cancellation_v1.sql"));
   });
 
   it("keeps the Skip columns, save_rule and its checks together", () => {

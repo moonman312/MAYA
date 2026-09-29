@@ -5,15 +5,46 @@
  * is converted to the hotel's local calendar date via IANA timezone.
  */
 
+const ymdFormatters = new Map<string, Intl.DateTimeFormat>();
+
+/** The YYYY-MM-DD formatter for a time zone, made once (a bad zone throws, every time). */
+function ymdFormatter(hotelTimeZone: string): Intl.DateTimeFormat {
+  let fmt = ymdFormatters.get(hotelTimeZone);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat("en-CA", {
+      timeZone: hotelTimeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    ymdFormatters.set(hotelTimeZone, fmt);
+  }
+  return fmt;
+}
+
+/**
+ * Answers already worked out, per time zone and input: each is a pure
+ * function of the two, asked again and again in a run (a night's weekday per
+ * rule, a fire's hotel day per room type), and making a formatter and
+ * scanning a day for it cost far more than the lookup. Emptied when large,
+ * like hotelDayStartIso's.
+ */
+const hotelDateCache = new Map<string, string>();
+const weekdayCache = new Map<string, number>();
+const MEMO_LIMIT = 20_000;
+
+function remember<T>(cache: Map<string, T>, key: string, value: T): T {
+  if (cache.size >= MEMO_LIMIT) cache.clear();
+  cache.set(key, value);
+  return value;
+}
+
 /** Format an ISO timestamp as YYYY-MM-DD in the hotel's timezone. */
 export function evalIsoToHotelDateString(isoEvalTs: string, hotelTimeZone: string): string {
-  const d = new Date(isoEvalTs);
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: hotelTimeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(d);
+  const key = `${hotelTimeZone}|${isoEvalTs}`;
+  const hit = hotelDateCache.get(key);
+  if (hit !== undefined) return hit;
+  return remember(hotelDateCache, key, ymdFormatter(hotelTimeZone).format(new Date(isoEvalTs)));
 }
 
 /**
@@ -26,12 +57,7 @@ export function utcInstantForHotelCalendarDate(stayYmd: string, hotelTimeZone: s
   const m = Number(ms);
   const d = Number(ds);
   const target = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone: hotelTimeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
+  const fmt = ymdFormatter(hotelTimeZone);
   const start = Date.UTC(y, m - 1, d - 1, 0, 0, 0);
   const end = Date.UTC(y, m - 1, d + 2, 0, 0, 0);
   for (let t = start; t <= end; t += 900_000) {
@@ -43,7 +69,6 @@ export function utcInstantForHotelCalendarDate(stayYmd: string, hotelTimeZone: s
 }
 
 const dayStartCache = new Map<string, string>();
-const ymdFormatters = new Map<string, Intl.DateTimeFormat>();
 
 /**
  * The instant hotel day `ymd` begins at the property, as an ISO string: its
@@ -57,16 +82,7 @@ export function hotelDayStartIso(ymd: string, hotelTimeZone: string): string {
   const key = `${hotelTimeZone}|${ymd}`;
   const hit = dayStartCache.get(key);
   if (hit !== undefined) return hit;
-  let fmt = ymdFormatters.get(hotelTimeZone);
-  if (!fmt) {
-    fmt = new Intl.DateTimeFormat("en-CA", {
-      timeZone: hotelTimeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-    ymdFormatters.set(hotelTimeZone, fmt);
-  }
+  const fmt = ymdFormatter(hotelTimeZone);
   const [y, m, d] = ymd.split("-").map(Number);
   // Local midnight lies within 14 hours of UTC midnight either way.
   const from = Date.UTC(y, m - 1, d) - 15 * 3_600_000;
@@ -84,15 +100,25 @@ export function hotelDayStartIso(ymd: string, hotelTimeZone: string): string {
   return out;
 }
 
+const weekdayFormatters = new Map<string, Intl.DateTimeFormat>();
+
 /**
  * ISO weekday 1 = Monday … 7 = Sunday for `stayYmd` as a hotel-local civil date.
  */
 export function hotelStayDateIsoWeekday(stayYmd: string, hotelTimeZone: string): number {
+  const key = `${hotelTimeZone}|${stayYmd}`;
+  const hit = weekdayCache.get(key);
+  if (hit !== undefined) return hit;
   const anchor = utcInstantForHotelCalendarDate(stayYmd, hotelTimeZone);
-  const w = new Intl.DateTimeFormat("en-US", {
-    timeZone: hotelTimeZone,
-    weekday: "long",
-  }).format(anchor);
+  let weekdayFmt = weekdayFormatters.get(hotelTimeZone);
+  if (!weekdayFmt) {
+    weekdayFmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: hotelTimeZone,
+      weekday: "long",
+    });
+    weekdayFormatters.set(hotelTimeZone, weekdayFmt);
+  }
+  const w = weekdayFmt.format(anchor);
   const map: Record<string, number> = {
     Monday: 1,
     Tuesday: 2,
@@ -102,7 +128,7 @@ export function hotelStayDateIsoWeekday(stayYmd: string, hotelTimeZone: string):
     Saturday: 6,
     Sunday: 7,
   };
-  return map[w] ?? 1;
+  return remember(weekdayCache, key, map[w] ?? 1);
 }
 
 /** Add whole calendar days to a YYYY-MM-DD string (Gregorian, UTC-safe components). */

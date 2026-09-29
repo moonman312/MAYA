@@ -118,7 +118,14 @@ export type BookingSpeedContext = {
   historyEnd: string;
   isExcluded: (date: string) => boolean;
   selectionCache: Map<string, ComparableSelection>;
+  /** The readings this run consulted: its audit snapshots. */
   observationCache: Map<string, BookingSpeedObservation>;
+  /**
+   * Readings the other runs of one popup worked out over the same history
+   * (see HistoryReuse), by the same keys: taken from here instead of worked
+   * out again, and then counted as consulted by this run too.
+   */
+  sharedObservations?: Map<string, BookingSpeedObservation>;
   /**
    * signalSetKey of the hotel's counting room types. A rule measuring exactly
    * these reads windowsByDate. Unset when the context was built by hand
@@ -215,6 +222,7 @@ function logNoSplitOnce(hotelId: string, error: unknown): void {
 export function resetBookingSpeedLogOnce(): void {
   loggedPreMigration = false;
   loggedNoSplit = false;
+  loggedStore = false;
 }
 
 /** The dates an observation may consult: target, comparables, momentum neighbors, and their year-ago counterparts. */
@@ -264,16 +272,7 @@ async function loadHistorySummary(
       throw new Error(`Failed to load booking history: ${error.message}`);
     }
     const rows = (data ?? []) as Record<string, unknown>[];
-    for (const r of rows) {
-      out.push({
-        stay_date: String(r.stay_date),
-        n: Number(r.n),
-        usable: Number(r.usable),
-        rank_windows: Array.isArray(r.rank_windows)
-          ? (r.rank_windows as unknown[]).map((w) => (w == null ? null : Number(w)))
-          : null,
-      });
-    }
+    for (const r of rows) out.push(summaryRowOf(r));
     if (rows.length < PAGE) break;
   }
   return out;
@@ -713,6 +712,311 @@ export async function loadSplitWindows(
   }
 }
 
+/* ── The comparison, reused ───────────────────────────────────────────────
+ *
+ * What a night usually gets (Layer 1's expectation, and the comparable
+ * nights and momentum behind it) is worked out from the hotel's booking
+ * history: the per-date summary the season model is built from, and the
+ * grouped booking windows of the dates each night is compared with. For a
+ * hotel day that history is fixed: the stretches counted are whole hotel
+ * days, and a past night's bookings change only when the PMS changes a
+ * booking on a night already over. So instead of reading it again for every
+ * run (Jake, 2026-09-29: the activation popup gets faster by reusing the
+ * comparison data, not by checking ahead or filling the calendar in bit by
+ * bit), it is reused two ways:
+ *
+ *   - Within one request of the popup (HistoryReuse): its runs (the ladder
+ *     check, the hotel with the rule and without it) are at the same instant
+ *     against the same database, so everything read for the comparison, and
+ *     everything worked out from it (the season model, each night's
+ *     comparable nights, each reading), is read and worked out once and
+ *     handed to the next run. Kept in memory for that request only.
+ *   - Across the popup's parts (separate requests, asked at once), later
+ *     popups and the scheduled runs (the store,
+ *     booking_history_cache, 99_supabase_migration_booking_history_cache_v1.sql):
+ *     the history summary and the booking windows of nights already over,
+ *     per hotel and hotel day, under the hotel's booking_history_seq. A
+ *     trigger moves that number whenever a booking on a night that is over
+ *     (or about to be) is added, changed in anything the history reads, or
+ *     removed, so an entry is used only while the history it was read from
+ *     is exactly the history now. Keyed by everything the entry depends on
+ *     besides that: the hotel, the hotel date (which sets the history's
+ *     first and last nights), the room types left out or measured, the
+ *     capacity milestones, and a format number. The scheduled runs write it
+ *     ("write"); the popup only reads it ("read"): a dry run writes
+ *     nothing.
+ *
+ * Never stored: tonight and every night ahead (live bookings, read every
+ * run), the day of a raise split at the raise, closed periods and the
+ * owner's "not a fair comparison" dates (read every run; they change which
+ * nights are compared, not what a past night's bookings are). The readings
+ * themselves are worked out from what was read, exactly as without reuse,
+ * so a reading with reuse is the reading without it: the booking speed
+ * reuse tests compare the popup's days and the scheduled runs' prices both
+ * ways, on both copies of the engine.
+ */
+
+/** Bumped whenever what the store holds, or how it is read, changes: older entries are then never read. */
+export const HISTORY_STORE_FORMAT = 1;
+
+/** One popup request's shared comparison: pass the same object to every run of it, and drop it with the request. */
+export type HistoryReuse = { days: Map<string, SharedHistoryDay> };
+
+export function historyReuse(): HistoryReuse {
+  return { days: new Map() };
+}
+
+/** How a run reads the history it compares with (evaluateHotel's `history` option). */
+export type HistoryLoad = {
+  /** Shared with the other runs handed the same object: one popup request's, at one instant. */
+  reuse?: HistoryReuse | null;
+  /** Read the hotel day's stored history ("read"), and save what was read afresh ("write"). */
+  store?: "read" | "write" | null;
+};
+
+/** What the runs sharing a HistoryReuse share, per hotel, day and room types. */
+type SharedHistoryDay = {
+  once: Map<string, Promise<unknown>>;
+  selections: Map<string, ComparableSelection>;
+  observations: Map<string, BookingSpeedObservation>;
+  /** Per windows key (historyWindowsKey), each date read: its windows, or null for a date with no bookings. */
+  windows: Map<string, Map<string, StayDateWindows | null>>;
+  splitWindows: Map<string, Map<string, StayDateWindows>>;
+  splitLoaded: Map<string, Set<string>>;
+  /** Window reads, one at a time, so two runs never read the same dates twice. */
+  queue: Promise<unknown>;
+};
+
+export function historySummaryKey(historyStart: string, exclude: readonly string[], ranks: readonly number[]): string {
+  return `summary|${HISTORY_STORE_FORMAT}|${historyStart}|${exclude.join(",")}|${ranks.join(",")}`;
+}
+
+/** booking_speed_windows keeps only `include` when given, and otherwise every room type but `exclude`. */
+export function historyWindowsKey(exclude: readonly string[], include?: readonly string[]): string {
+  return `windows|${HISTORY_STORE_FORMAT}|${include ? `only:${include.join(",")}` : `except:${exclude.join(",")}`}`;
+}
+
+export function historyFirstKey(historyStart: string, include: readonly string[]): string {
+  return `first|${HISTORY_STORE_FORMAT}|${historyStart}|${include.join(",")}`;
+}
+
+let loggedStore = false;
+
+function logStoreOnce(hotelId: string, step: "read" | "write", error: unknown): void {
+  if (loggedStore) return;
+  loggedStore = true;
+  const missing = isMissingFunctionError(error);
+  console.error(
+    JSON.stringify({
+      fn: "loadBookingSpeedContext",
+      step: `booking_history_cache_${step}`,
+      hotelId,
+      ...(missing
+        ? {
+            schema: "pre-migration",
+            message: `booking_history_cache_${step === "read" ? "get" : "put"} does not exist yet; the history is read afresh every run. Run ${MIGRATIONS.bookingHistoryCache}.`,
+            migration: MIGRATIONS.bookingHistoryCache,
+          }
+        : { message: "The stored booking history could not be used; read afresh this run." }),
+      error: error instanceof Error ? error.message : String((error as { message?: string })?.message ?? error),
+    }),
+  );
+}
+
+/** A summary row as the engine holds it, from the function or the store alike. */
+function summaryRowOf(r: Record<string, unknown>): SummaryRow {
+  return {
+    stay_date: String(r.stay_date),
+    n: Number(r.n),
+    usable: Number(r.usable),
+    rank_windows: Array.isArray(r.rank_windows) ? (r.rank_windows as unknown[]).map((w) => (w == null ? null : Number(w))) : null,
+  };
+}
+
+/** A night's windows as the store keeps them: booking_speed_windows' own columns, read back by windowsOf. */
+function storedWindows(w: StayDateWindows | null): { n: number; bws: (number | null)[]; counts: number[] } | null {
+  return w ? { n: w.n, bws: w.windows.map((x) => x.bw), counts: w.windows.map((x) => x.n) } : null;
+}
+
+/**
+ * One run's access to the comparison's history: through the shared day
+ * (reuse) and the store, or, with neither, exactly the reads it always made.
+ */
+function openHistory(
+  supabase: SupabaseClient,
+  hotelId: string,
+  localDate: string,
+  historyStart: string,
+  historyEnd: string,
+  exclude: readonly string[],
+  ranks: readonly number[],
+  totalCapacity: number,
+  hotelSetKey: string,
+  load: HistoryLoad,
+) {
+  const dayKey = [hotelId, localDate, exclude.join(","), totalCapacity, ranks.join(","), hotelSetKey].join("|");
+  let shared: SharedHistoryDay | null = null;
+  if (load.reuse) {
+    shared = load.reuse.days.get(dayKey) ?? null;
+    if (!shared) {
+      shared = {
+        once: new Map(),
+        selections: new Map(),
+        observations: new Map(),
+        windows: new Map(),
+        splitWindows: new Map(),
+        splitLoaded: new Map(),
+        queue: Promise.resolve(),
+      };
+      load.reuse.days.set(dayKey, shared);
+    }
+  }
+  const day = shared;
+  const once = <T>(key: string, make: () => Promise<T>): Promise<T> => {
+    if (!day) return make();
+    let hit = day.once.get(key) as Promise<T> | undefined;
+    if (!hit) {
+      hit = make();
+      day.once.set(key, hit);
+      // A read that failed is tried again by the next run, as it would be without reuse.
+      hit.catch(() => {
+        if (day.once.get(key) === hit) day.once.delete(key);
+      });
+    }
+    return hit;
+  };
+  const oneAtATime = <T>(make: () => Promise<T>): Promise<T> => {
+    if (!day) return make();
+    const next = day.queue.then(make, make);
+    day.queue = next.catch(() => undefined);
+    return next;
+  };
+
+  // The store, when asked for: its number for the hotel's history as last
+  // read (null once it can't be used this run), and what to save.
+  const store = load.store ? { write: load.store === "write", seq: undefined as number | null | undefined } : null;
+  const staged = new Map<number, Record<string, Record<string, unknown>>>();
+  const stage = (seq: number | null | undefined, key: string, entries: Record<string, unknown>) => {
+    if (!store?.write || typeof seq !== "number" || Object.keys(entries).length === 0) return;
+    const bySeq = staged.get(seq) ?? {};
+    bySeq[key] = { ...(bySeq[key] ?? {}), ...entries };
+    staged.set(seq, bySeq);
+  };
+  /** The stored entries for `keys` (their nights narrowed to `dates`), or null when the store can't be used. */
+  const storeGet = async (keys: string[], dates: string[] | null): Promise<Record<string, Record<string, unknown>> | null> => {
+    if (!store || store.seq === null) return null;
+    const { data, error } = await supabase.rpc("booking_history_cache_get", {
+      p_hotel_id: hotelId,
+      p_hotel_date: localDate,
+      p_keys: keys,
+      ...(dates ? { p_dates: dates } : {}),
+    });
+    if (error) {
+      logStoreOnce(hotelId, "read", error);
+      store.seq = null;
+      return null;
+    }
+    const answer = data as { seq?: unknown; entries?: unknown } | null;
+    const seq = answer && typeof answer === "object" ? Number(answer.seq) : NaN;
+    if (!Number.isFinite(seq)) {
+      store.seq = null;
+      return null;
+    }
+    store.seq = seq;
+    return answer!.entries && typeof answer!.entries === "object" ? (answer!.entries as Record<string, Record<string, unknown>>) : {};
+  };
+
+  return {
+    /** Shared with the other runs of one popup, when there are any. */
+    shared: day,
+    /** The per-date summary (loadHistorySummary): stored for the day, or read and then saved. */
+    summary: (): Promise<SummaryRow[] | null> =>
+      once("summary", async () => {
+        if (!store) return loadHistorySummary(supabase, hotelId, historyStart, [...exclude], [...ranks]);
+        const key = historySummaryKey(historyStart, exclude, ranks);
+        const got = await storeGet([key], null);
+        const rows = got?.[key]?.rows;
+        // Only nights already over are stored, and only when there are any:
+        // those are all the season model reads, and "no history at all" is
+        // then answered (there is some) without the nights ahead.
+        if (Array.isArray(rows) && rows.length > 0) return (rows as Record<string, unknown>[]).map(summaryRowOf);
+        const seq = store.seq;
+        const live = await loadHistorySummary(supabase, hotelId, historyStart, [...exclude], [...ranks]);
+        const past = (live ?? []).filter((r) => r.stay_date <= historyEnd);
+        if (past.length > 0) stage(seq, key, { rows: past });
+        return live;
+      }),
+    /** The season model's other inputs and the model itself, shared only when made from the shared summary. */
+    seasons: <T>(fromSummary: boolean, make: () => Promise<T>): Promise<T> => (fromSummary ? once("seasons", make) : make()),
+    /** Grouped windows for exactly `dates` (loadWindowsForDates), nights already over from the store where it has them. */
+    windows: (dates: string[], include?: string[]): Promise<Map<string, StayDateWindows> | null> => {
+      if (!day && !store) return loadWindowsForDates(supabase, hotelId, dates, [...exclude], include);
+      const key = historyWindowsKey(exclude, include);
+      return oneAtATime(async () => {
+        let known = day?.windows.get(key);
+        if (!known) {
+          known = new Map<string, StayDateWindows | null>();
+          day?.windows.set(key, known);
+        }
+        const missing = dates.filter((d) => !known.has(d));
+        const past = missing.filter((d) => d <= historyEnd);
+        if (store && past.length > 0) {
+          const got = (await storeGet([key], past))?.[key];
+          if (got) {
+            for (const d of past) {
+              if (!Object.prototype.hasOwnProperty.call(got, d)) continue;
+              const w = got[d];
+              known.set(d, w === null ? null : windowsOf(w as Record<string, unknown>));
+            }
+          }
+        }
+        const live = missing.filter((d) => !known.has(d));
+        if (live.length > 0) {
+          const seq = store?.seq;
+          const loaded = await loadWindowsForDates(supabase, hotelId, live, [...exclude], include);
+          if (!loaded) return null;
+          for (const d of live) known.set(d, loaded.get(d) ?? null);
+          stage(seq, key, Object.fromEntries(live.filter((d) => d <= historyEnd).map((d) => [d, storedWindows(known.get(d) ?? null)])));
+        }
+        const out = new Map<string, StayDateWindows>();
+        for (const d of dates) {
+          const w = known.get(d);
+          if (w) out.set(d, w);
+        }
+        return out;
+      });
+    },
+    /** A set's first stay date in the history (loadFirstStayDate), stored when it is a night already over. */
+    first: (include: string[]): Promise<string | null | undefined> =>
+      once(`first|${include.join(",")}`, async () => {
+        if (!store) return loadFirstStayDate(supabase, hotelId, historyStart, include);
+        const key = historyFirstKey(historyStart, include);
+        const got = (await storeGet([key], null))?.[key]?.first;
+        if (typeof got === "string") return got;
+        const seq = store.seq;
+        const live = await loadFirstStayDate(supabase, hotelId, historyStart, include);
+        if (typeof live === "string" && live <= historyEnd) stage(seq, key, { first: live });
+        return live;
+      }),
+    /** Save what this run read afresh (the scheduled runs). A failure only means the next run reads it again. */
+    flush: async (): Promise<void> => {
+      for (const [seq, entries] of staged) {
+        const { error } = await supabase.rpc("booking_history_cache_put", {
+          p_hotel_id: hotelId,
+          p_hotel_date: localDate,
+          p_seq: seq,
+          p_entries: entries,
+        });
+        if (error) {
+          logStoreOnce(hotelId, "write", error);
+          break;
+        }
+      }
+      staged.clear();
+    },
+  };
+}
+
 /**
  * Load everything booking-speed evaluation needs for one hotel run.
  * Returns null when the hotel has no reservation rows at all — conditions
@@ -732,6 +1036,10 @@ export async function loadSplitWindows(
  * equal to the counting types is the hotel-wide history; any other set gets
  * its own windows (see setIndexFrom). Ids in `excludeRoomTypeIds` are dropped
  * from every set first.
+ *
+ * `load` reuses the history the comparison is made from (see HistoryLoad):
+ * shared with the other runs of one popup, and read from the hotel day's
+ * store. Without it every read is made afresh, as always.
  */
 export async function loadBookingSpeedContext(
   supabase: SupabaseClient,
@@ -748,6 +1056,7 @@ export async function loadBookingSpeedContext(
    * for these and no other; horizonEnd must be the last of them.
    */
   targetDates?: readonly string[],
+  load: HistoryLoad = {},
 ): Promise<BookingSpeedContext | null> {
   const historyStart = addDays(localDate, -(HISTORY_YEARS_BACK * 366));
   const historyEnd = addDays(localDate, -1);
@@ -773,7 +1082,8 @@ export async function loadBookingSpeedContext(
   let setFirst: Map<string, string | null> | null = null;
 
   const ranks = totalCapacity > 0 ? milestoneRanks(totalCapacity) : [];
-  const summary = await loadHistorySummary(supabase, hotelId, historyStart, exclude, ranks);
+  const history = openHistory(supabase, hotelId, localDate, historyStart, historyEnd, exclude, ranks, totalCapacity, hotelSetKey, load);
+  const summary = await history.summary();
   if (summary) {
     if (summary.length === 0) return null;
     for (const row of summary) {
@@ -808,66 +1118,73 @@ export async function loadBookingSpeedContext(
   daily.sort((a, b) => a.stay_date.localeCompare(b.stay_date));
   pace.sort((a, b) => a.stay_date.localeCompare(b.stay_date));
 
-  const { data: closed } = await supabase
-    .from("hotel_closed_periods")
-    .select("start_date, end_date")
-    .eq("hotel_id", hotelId);
-  const exclusions: DatePeriod[] = (closed ?? []).map((p) => ({
-    start_date: String(p.start_date),
-    end_date: String(p.end_date),
-  }));
+  // Closed periods, the owner's challenges and the season model: the same
+  // for every run of one popup when made from the same summary.
+  const { isExcluded, seasonModel } = await history.seasons(summary !== null, async () => {
+    const { data: closed } = await supabase
+      .from("hotel_closed_periods")
+      .select("start_date, end_date")
+      .eq("hotel_id", hotelId);
+    const exclusions: DatePeriod[] = (closed ?? []).map((p) => ({
+      start_date: String(p.start_date),
+      end_date: String(p.end_date),
+    }));
 
-  // Owner-raised challenges: every flagged date stops being comparable
-  // immediately; corroborated recurring windows widen that to every year,
-  // and improve_future promotions also come out of season detection's input.
-  // (other_text is deliberately not selected — the model never reads it.)
-  const { data: challengeRows } = await supabase
-    .from("assumption_challenges")
-    .select("id, challenged_date, reason_key, scope, created_at")
-    .eq("hotel_id", hotelId);
-  const challenges: AssumptionChallenge[] = (challengeRows ?? [])
-    .filter((c) => isKnownChallengeReason(String(c.reason_key)))
-    .map((c) => {
-      // created_at truncates to a UTC date; for hotels west of UTC an
-      // evening challenge lands "tomorrow" and the model's freshness filter
-      // would drop it as future-dated, breaking the promised next-run
-      // effect. Clamp to the hotel-local evaluation date — a challenge can
-      // never be fresher than the run reading it.
-      const raised = String(c.created_at).slice(0, 10);
-      return {
-        id: String(c.id),
-        date: String(c.challenged_date),
-        reasonKey: String(c.reason_key),
-        scope: String(c.scope) as ChallengeScope,
-        raisedAt: raised > localDate ? localDate : raised,
-      };
+    // Owner-raised challenges: every flagged date stops being comparable
+    // immediately; corroborated recurring windows widen that to every year,
+    // and improve_future promotions also come out of season detection's input.
+    // (other_text is deliberately not selected — the model never reads it.)
+    const { data: challengeRows } = await supabase
+      .from("assumption_challenges")
+      .select("id, challenged_date, reason_key, scope, created_at")
+      .eq("hotel_id", hotelId);
+    const challenges: AssumptionChallenge[] = (challengeRows ?? [])
+      .filter((c) => isKnownChallengeReason(String(c.reason_key)))
+      .map((c) => {
+        // created_at truncates to a UTC date; for hotels west of UTC an
+        // evening challenge lands "tomorrow" and the model's freshness filter
+        // would drop it as future-dated, breaking the promised next-run
+        // effect. Clamp to the hotel-local evaluation date — a challenge can
+        // never be fresher than the run reading it.
+        const raised = String(c.created_at).slice(0, 10);
+        return {
+          id: String(c.id),
+          date: String(c.challenged_date),
+          reasonKey: String(c.reason_key),
+          scope: String(c.scope) as ChallengeScope,
+          raisedAt: raised > localDate ? localDate : raised,
+        };
+      });
+    const reinforcement = buildReinforcementModel(challenges, { now: localDate });
+
+    const isExcluded = (date: string) =>
+      exclusions.some((p) => date >= p.start_date && date <= p.end_date) ||
+      isDateReinforcementExcluded(reinforcement, date);
+
+    // Season detection skips closed periods, every individually flagged date
+    // (a flagged date stops being season-modeling input immediately — the
+    // module's contract), and any challenge windows that earned
+    // improve_future promotion.
+    const seasonExclusions = exclusions
+      .concat(
+        [...reinforcement.instanceExclusions].map((d) => ({ start_date: d, end_date: d })),
+      )
+      .concat(
+        seasonExclusionPeriods(
+          reinforcement,
+          Number(historyStart.slice(0, 4)),
+          Number(historyEnd.slice(0, 4)),
+        ),
+      );
+    const seasonModel = detectSeasons(daily, {
+      exclusions: seasonExclusions,
+      ...(pace.length > 0 ? { pace } : {}),
     });
-  const reinforcement = buildReinforcementModel(challenges, { now: localDate });
-
-  const isExcluded = (date: string) =>
-    exclusions.some((p) => date >= p.start_date && date <= p.end_date) ||
-    isDateReinforcementExcluded(reinforcement, date);
-
-  // Season detection skips closed periods, every individually flagged date
-  // (a flagged date stops being season-modeling input immediately — the
-  // module's contract), and any challenge windows that earned
-  // improve_future promotion.
-  const seasonExclusions = exclusions
-    .concat(
-      [...reinforcement.instanceExclusions].map((d) => ({ start_date: d, end_date: d })),
-    )
-    .concat(
-      seasonExclusionPeriods(
-        reinforcement,
-        Number(historyStart.slice(0, 4)),
-        Number(historyEnd.slice(0, 4)),
-      ),
-    );
-  const seasonModel = detectSeasons(daily, {
-    exclusions: seasonExclusions,
-    ...(pace.length > 0 ? { pace } : {}),
+    return { isExcluded, seasonModel };
   });
 
+  // Worked out once for the day and shared, like the history they come from.
+  const shared = summary !== null ? history.shared : null;
   const ctx: BookingSpeedContext = {
     asOf: localDate,
     windowsByDate: windowsByDate ?? new Map(),
@@ -877,8 +1194,11 @@ export async function loadBookingSpeedContext(
     historyStart,
     historyEnd,
     isExcluded,
-    selectionCache: new Map(),
+    selectionCache: shared?.selections ?? new Map(),
     observationCache: new Map(),
+    ...(shared
+      ? { sharedObservations: shared.observations, splitWindows: shared.splitWindows, splitLoaded: shared.splitLoaded }
+      : {}),
     hotelSetKey,
     setWindows: new Map(),
     setMeasuredIds: new Map([...setIds.keys()].map((k) => [k, k.split(",")])),
@@ -908,15 +1228,15 @@ export async function loadBookingSpeedContext(
         excludeRoomTypeIds,
         setIds,
       );
-    const loaded = await loadWindowsForDates(supabase, hotelId, dates, exclude);
+    const loaded = await history.windows(dates);
     if (loaded) {
       ctx.windowsByDate = loaded;
       const sets = new Map<string, Map<string, StayDateWindows>>();
       const firsts = new Map<string, string | null>();
       for (const [key, ids] of setIds) {
         const include = [...ids].sort();
-        const got = await loadWindowsForDates(supabase, hotelId, dates, exclude, include);
-        const first = got ? await loadFirstStayDate(supabase, hotelId, historyStart, include) : undefined;
+        const got = await history.windows(dates, include);
+        const first = got ? await history.first(include) : undefined;
         if (!got || first === undefined) {
           // The windows function predates include lists: one rows pass
           // answers every set.
@@ -951,6 +1271,7 @@ export async function loadBookingSpeedContext(
     }
   }
 
+  await history.flush();
   return ctx;
 }
 
@@ -1098,6 +1419,12 @@ export function observeForStayDate(
     throw new Error(`Booking speed history was not loaded for stay date ${stayDate}`);
   }
 
+  const reused = ctx.sharedObservations?.get(key);
+  if (reused) {
+    ctx.observationCache.set(key, reused);
+    return reused;
+  }
+
   const selection = selectionFor(ctx, stayDate);
 
   // The grouped index answers exactly what the rows did: every date the
@@ -1120,6 +1447,7 @@ export function observeForStayDate(
     ? { ...stamped, measuredRoomTypeIds: ctx.setMeasuredIds?.get(setKey) ?? setKey.split(",") }
     : stamped;
   ctx.observationCache.set(key, observation);
+  ctx.sharedObservations?.set(key, observation);
   return observation;
 }
 
