@@ -139,6 +139,30 @@ describe("GodModeBanner", () => {
     expect(screen.getByRole("status").textContent).toContain("Only MAYA staff can turn off God Mode.");
   });
 
+  it("makes room at the top of the page while it shows, and gives it back after", async () => {
+    // jsdom lays nothing out, so the banner's height is given here.
+    const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(40);
+    document.body.style.paddingTop = "";
+    answer = () => on(30);
+    render(<GodModeBanner />);
+    await settle();
+    expect(screen.getByRole("status")).toBeTruthy();
+    expect(document.body.style.paddingTop).toBe("40px");
+    fireEvent.click(screen.getByRole("button", { name: "End God Mode" }));
+    await settle();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(document.body.style.paddingTop).toBe("");
+    height.mockRestore();
+  });
+
+  it("leaves the page alone while no window is open", async () => {
+    document.body.style.paddingTop = "";
+    answer = () => ({ admin: true, active: false, expiresAt: null, hotel: null });
+    render(<GodModeBanner />);
+    await settle();
+    expect(document.body.style.paddingTop).toBe("");
+  });
+
   it("looks again when the button says the window changed", async () => {
     render(<GodModeBanner />);
     await settle();

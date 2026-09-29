@@ -2,7 +2,7 @@
 
 import { isAcceptanceExemptPath } from "@/lib/legal/versions";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
  * Fired by the God Mode button once a window is open, so this banner shows
@@ -97,6 +97,29 @@ export function GodModeBanner({ reload = reloadPage }: { reload?: () => void } =
     return () => clearTimeout(timer);
   }, [ended, reload]);
 
+  // The banner floats over the top of the page, so the page makes room for it:
+  // the body is padded by the banner's own height (two lines on a phone) while
+  // it shows, and the menus underneath stay where they can be clicked.
+  const bannerRef = useRef<HTMLDivElement | null>(null);
+  const showing = !exempt && Boolean(status?.active);
+  useEffect(() => {
+    if (!showing) return;
+    const el = bannerRef.current;
+    if (!el) return;
+    const body = document.body;
+    const before = body.style.paddingTop;
+    const fit = () => {
+      body.style.paddingTop = `${el.offsetHeight}px`;
+    };
+    fit();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
+    observer?.observe(el);
+    return () => {
+      observer?.disconnect();
+      body.style.paddingTop = before;
+    };
+  }, [showing]);
+
   async function endNow() {
     setEnding(true);
     setError(null);
@@ -125,6 +148,7 @@ export function GodModeBanner({ reload = reloadPage }: { reload?: () => void } =
 
   return (
     <div
+      ref={bannerRef}
       role="status"
       aria-live="polite"
       className="fixed inset-x-0 top-0 z-[900] flex flex-wrap items-center justify-center gap-x-4 gap-y-1 bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-lg"
