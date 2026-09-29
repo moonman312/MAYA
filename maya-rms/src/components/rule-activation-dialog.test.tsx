@@ -136,6 +136,24 @@ describe("the activation popup", () => {
     expect(onCancel).not.toHaveBeenCalled();
   });
 
+  it("with nothing to change on a rule that is already on, the one button saves the changes", async () => {
+    const { impl } = previewRoute([]);
+    const { save, onSaved } = renderDialog({ fetchImpl: impl as unknown as typeof fetch, request: { intent: "edit", ruleId: "r1" } });
+    await waitFor(() => expect(screen.getByTestId("activation-summary").textContent).toBe("0 prices will be affected by this rule."));
+    expect(screen.queryByRole("button", { name: "Turn it on" })).toBeNull();
+    expect(screen.getAllByRole("button").map((b) => b.textContent).filter((t) => t !== "?" && !/What the days mean/.test(t ?? ""))).toEqual([
+      "Save changes",
+      "Cancel",
+    ]);
+    fireEvent.click(button("Save changes"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false));
+    expect(save).toHaveBeenCalledWith({ activation: "apply", fingerprint: "fp-1", touched: [], days: 0, refreshed: false } satisfies ActivationChoice);
+    // A new rule is saved on, so its button still turns it on.
+    cleanup();
+    renderDialog({ fetchImpl: impl as unknown as typeof fetch, request: { intent: "create", ruleId: "n1" } });
+    await waitFor(() => expect(button("Turn it on").disabled).toBe(false));
+  });
+
   it("with nothing to change, Cancel still backs out", async () => {
     const { impl } = previewRoute([]);
     const { save, onCancel } = renderDialog({ fetchImpl: impl as unknown as typeof fetch });

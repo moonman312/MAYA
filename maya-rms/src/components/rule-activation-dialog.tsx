@@ -79,6 +79,15 @@ function title(intent: PreviewRequest["intent"], name: string): string {
   return `Save changes to “${name}”?`;
 }
 
+/**
+ * The one button when no price would change. A rule being switched on or
+ * added is turned on; an edit to a rule that is already on is saved.
+ */
+function turnOnLabel(intent: PreviewRequest["intent"], saving: boolean): string {
+  if (intent === "edit") return saving ? "Saving…" : "Save changes";
+  return saving ? "Turning it on…" : "Turn it on";
+}
+
 export function RuleActivationDialog({
   ruleName,
   request,
@@ -332,7 +341,7 @@ export function RuleActivationDialog({
               onClick={() => void choose("apply")}
               className="cursor-pointer rounded bg-sky-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-sky-400 disabled:cursor-default disabled:opacity-50"
             >
-              {saving === "apply" ? "Turning it on…" : "Turn it on"}
+              {turnOnLabel(request.intent, saving === "apply")}
             </button>
           ) : null}
           {!nothing && !error ? (
