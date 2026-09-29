@@ -11,6 +11,7 @@ import { defaultCloudbedsBaseUrl } from "../../../supabase/functions/_shared/clo
 import { handleMarketplaceConnect } from "@/lib/pms/marketplace-connect";
 import { findMarketplaceClaimForHotel, hasEntitledSubscription } from "@/lib/pms/marketplace-activate";
 import { queueImportAfterPurge } from "@/lib/pms/purged";
+import { hasHotelRank } from "@/lib/require-supabase-hotel";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveOnboardingStep } from "@/lib/onboarding/step";
 import { markConnectionReauthorized } from "@/lib/pms/connection-stamps";
@@ -23,7 +24,8 @@ type CookieStore = Awaited<ReturnType<typeof cookies>>;
 
 /**
  * Who the OAuth dance is for:
- * - hotel: admin connecting an existing hotel (requires manage rights).
+ * - hotel: connecting an existing hotel again (General Manager or above, or
+ *   a platform admin).
  * - onboarding: a new user with no hotel — any authenticated session;
  *   the callback creates the hotel from PMS data.
  */
@@ -49,12 +51,11 @@ export async function buildAuthorizeRedirect(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   if (target.kind === "hotel") {
-    const { data: isAdmin } = await ssr.rpc("is_platform_admin", { p_user_id: user.id });
-    const { data: canManage } = await ssr.rpc("can_manage_hotel", {
-      target_hotel_id: target.hotelId,
-    });
-    if (!isAdmin && !canManage) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    // The rank the Reconnect button is drawn for (/api/pms/activity), platform
+    // admins included. can_manage_hotel also lets a Revenue Manager in, so the
+    // link used to reconnect for someone who was never shown the button.
+    if (!(await hasHotelRank(ssr, target.hotelId, "general_manager"))) {
+      return renderNotice("Reconnecting needs General Manager access or higher on this property.", 403);
     }
   } else {
     // The paywall. Connecting a PMS is what turns a signup into a working
@@ -470,6 +471,23 @@ async function parkedMarketplaceHotel(admin: SupabaseClient, hotelId: string): P
     );
     return false;
   }
+}
+
+/**
+ * One plain sentence for the person at the browser, and the way back to their
+ * dashboard. For a refusal they can act on; driver detail belongs in the log.
+ */
+function renderNotice(message: string, status = 400): Response {
+  const html = `<!doctype html>
+<html><head><meta charset="utf-8"><title>MAYA</title></head>
+<body style="font-family: system-ui, sans-serif; background: #020617; color: #e2e8f0; padding: 3rem;">
+  <p style="max-width:36rem;line-height:1.6">${message.replace(/</g, "&lt;")}</p>
+  <p><a href="/" style="color:#38bdf8">Open MAYA</a></p>
+</body></html>`;
+  return new Response(html, {
+    status,
+    headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
 }
 
 function renderCallbackError(pmsType: PmsType, message: string): Response {

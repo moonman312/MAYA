@@ -13,15 +13,38 @@ const state = vi.hoisted(() => ({
   gateRequired: true,
   pendingHotelId: "hotel-1" as string | null,
   signupCodeId: "code-1" as string | null,
+  /** The caller's role on hotel-1, for the reconnect (hotel) target. */
+  role: null as string | null,
+  platformAdmin: false,
 }));
 
+const RANK: Record<string, number> = { viewer: 10, revenue_manager: 20, general_manager: 30, hotel_admin: 40 };
+
 vi.mock("@/utils/supabase/server", () => ({
-  createClient: () => ({
-    auth: {
-      getUser: async () => ({ data: { user: state.userId ? { id: state.userId } : null } }),
-    },
-    rpc: async () => ({ data: false, error: null }),
-  }),
+  createClient: () => {
+    const memberships = () => {
+      const rows = state.role && state.userId ? [{ role: state.role }] : [];
+      const chain = {
+        select: () => chain,
+        eq: () => chain,
+        then: (res: (v: unknown) => unknown) => Promise.resolve({ data: rows, error: null }).then(res),
+      };
+      return chain;
+    };
+    return {
+      auth: {
+        getUser: async () => ({ data: { user: state.userId ? { id: state.userId } : null } }),
+        getSession: async () => ({ data: { session: state.userId ? { user: { id: state.userId } } : null } }),
+      },
+      from: memberships,
+      // As the database answers: can_manage_hotel lets a Revenue Manager in.
+      rpc: async (fn: string) => {
+        if (fn === "is_platform_admin") return { data: state.platformAdmin, error: null };
+        if (fn === "can_manage_hotel") return { data: (RANK[state.role ?? ""] ?? 0) >= RANK.revenue_manager, error: null };
+        return { data: false, error: null };
+      },
+    };
+  },
 }));
 vi.mock("@/utils/supabase/admin", () => ({
   createAdminClient: () => ({
@@ -66,6 +89,8 @@ beforeEach(() => {
   state.gateRequired = true;
   state.pendingHotelId = "hotel-1";
   state.signupCodeId = "code-1";
+  state.role = null;
+  state.platformAdmin = false;
   process.env.CLOUDBEDS_CLIENT_ID = "test-client-id";
   process.env.MAYA_INVITE_REDIRECT_BASE = "https://app.example";
 });
@@ -156,7 +181,55 @@ describe("the per-PMS access-code gate at connect time", () => {
     // 403 would be the gate; this one fails later on manage rights instead,
     // proving the gate never ran for this target.
     expect(res.status).toBe(403);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).not.toMatch(/access code/i);
+    expect(await res.text()).not.toMatch(/access code/i);
+  });
+
+  it("lets a General Manager through to the PMS whatever the gate says", async () => {
+    state.gateRequired = true;
+    state.signupCodeId = null;
+    state.role = "general_manager";
+    const res = await reconnect();
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("state=signed-hotel-state");
+  });
+});
+
+const reconnect = () =>
+  buildAuthorizeRedirect({} as never, "cloudbeds", { kind: "hotel", hotelId: "hotel-1" } as never);
+
+describe("the reconnect link asks for the rank the Reconnect button does", () => {
+  // The button is drawn for General Manager and up. The link used to take
+  // can_manage_hotel, which a Revenue Manager passes, so the link reconnected
+  // for someone who was never shown the button.
+  it.each(["revenue_manager", "viewer"])("refuses a %s in plain words, never reaching the PMS", async (role) => {
+    state.role = role;
+    const res = await reconnect();
+    expect(res.status).toBe(403);
+    expect(res.headers.get("location")).toBeNull();
+    const text = await res.text();
+    expect(text).toContain("Reconnecting needs General Manager access or higher on this property.");
+    expect(text).not.toContain("—");
+  });
+
+  it("refuses someone with no role on the property", async () => {
+    state.role = null;
+    expect((await reconnect()).status).toBe(403);
+  });
+
+  it.each(["general_manager", "hotel_admin"])("sends a %s on to the PMS", async (role) => {
+    state.role = role;
+    const res = await reconnect();
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("state=signed-hotel-state");
+  });
+
+  it("sends a platform admin on to the PMS", async () => {
+    state.platformAdmin = true;
+    expect((await reconnect()).status).toBe(302);
+  });
+
+  it("still answers a signed-out caller with 401", async () => {
+    state.userId = null;
+    expect((await reconnect()).status).toBe(401);
   });
 });
