@@ -861,7 +861,12 @@ describe("where a pickup count opens: the fires still on the night (openFireHead
     // Surging (+25%, at least Surging, priority 130) raised; the owner then
     // edited it to +10% at least Faster and chose Skip, which left the raise
     // on. Much Faster (+25%) ranked below it then, and still counts from it.
-    const cond = (level: string) => ({ booking_speed_operator: "at_least" as const, booking_speed_level: level, booking_speed_window_days: 1, booking_speed_cooldown_days: 1 });
+    const cond = (level: string): EngineRule["condition"] => ({
+      booking_speed_operator: "at_least",
+      booking_speed_level: level,
+      booking_speed_window_days: 1,
+      booking_speed_cooldown_days: 1,
+    });
     const surging = makeRule({
       id: "surging",
       version: 2,

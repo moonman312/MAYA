@@ -434,7 +434,7 @@ for (const engine of ENGINES) {
       const preview = await previewRule(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         fake(clone(off)).client as any,
-        { hotelId: H, after: { ...stored, is_active: true, skip_at: null } as EngineRuleRow, before: null, at: T20, horizonDays: HORIZON },
+        { hotelId: H, after: { ...stored, is_active: true, skip_at: null } as unknown as EngineRuleRow, before: null, at: T20, horizonDays: HORIZON },
         engine.evaluate,
       );
       const carriedNights = new Set(carried.map((r) => String(r.stay_date)));
@@ -523,7 +523,7 @@ describe("the popup's days after an edit to the amount alone, on hotels with rul
     const events = t.pricing_rules.filter((x) => x.is_active && x.is_pickup_rule);
     const seen: Record<string, number> = {};
     for (const stored of events) {
-      const after = edited(t, stored.id, { action_value: Math.round((Number(stored.action_value) + (r() < 0.5 ? -1 : 1) * (1 + Math.floor(r() * 4))) * 10) / 10 });
+      const after = edited(t, String(stored.id), { action_value: Math.round((Number(stored.action_value) + (r() < 0.5 ? -1 : 1) * (1 + Math.floor(r() * 4))) * 10) / 10 });
       const truth = nightsDiffering(await fullDry(engine.evaluate, t, T10, after), await fullDry(engine.evaluate, t, T10));
       vi.setSystemTime(new Date(T10));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
