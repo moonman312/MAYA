@@ -93,8 +93,7 @@ export function PathChoice() {
               <span
                 className="max-w-xs text-sm font-normal leading-relaxed text-slate-400 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
               >
-                Straight to your dashboard — no analysis of your data, no setup guidance. For
-                experts only.
+                Straight to your dashboard, with no guided review. For experts only.
               </span>
             </>
           )}
