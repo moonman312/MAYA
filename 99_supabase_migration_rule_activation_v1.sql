@@ -44,6 +44,12 @@
 --      A mark whose skip_at is not the rule's current one (the owner has
 --      applied since) is read the way Apply reads it: a held row as off, a
 --      kept change as one from before an edit.
+--      Where the edited rule still matched at the Skip, its change is made
+--      the edited version's at its old amount, with no mark ('version'
+--      below). It keeps that amount while the rule holds there: a later
+--      switch off and on with Apply does not move it (the popup counts 0
+--      days for it). It takes the rule's amount once the rule stops holding
+--      there and holds again, or when an edit is next saved with Apply.
 --   3. save_rule(): the rule, its condition and room type lists, whether it
 --      is on, its Skip and the marks, in one transaction, checked against
 --      the version the popup was worked out on (another tab may have changed

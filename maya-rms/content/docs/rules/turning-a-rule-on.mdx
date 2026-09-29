@@ -3,7 +3,7 @@ title: Turning a rule on, Apply or Skip
 summary: The window that opens whenever a rule is about to start acting, its small calendar of the days the rule will change, what Apply price adjustments and Skip price adjustments each do, and every message it can show.
 section: rules
 order: 105
-readingTime: 10
+readingTime: 11
 keywords: [turn on, switch on, enable a rule, activate, popup, pop-up, calendar, small calendar, days will be affected, days affected, affected by this rule, apply price adjustments, skip price adjustments, skip, apply, cancel, highlighted days, blue squares, checking your calendar, the days could not be checked, bookings changed while this was open, days were checked again, 0 days, one day, save changes, add rule, turn on rule, why did a window open, what does skip do, leave prices alone, only new changes, count bookings from now, 13 months, 14 months, twelve months, trial run, same as the calendar]
 questions:
   - Why did a window with a calendar open when I switched a rule on? {#in-plain-words}
@@ -13,6 +13,7 @@ questions:
   - Will Skip ever change the prices on those days? {#skip-price-adjustments/after-a-skip}
   - After Skip, when does a booking speed or pickup rule start counting? {#skip-price-adjustments}
   - What happens to a rule's changes already on the price when I skip? {#skip-price-adjustments/changes-already-on}
+  - After I skipped an edit, why did switching the rule off and on with Apply not move the old amount? {#skip-price-adjustments/old-amounts-after}
   - Why does the calendar show 13 or 14 months? {#the-calendar}
   - The window says 0 days. Should I still turn the rule on? {#what-the-days-mean/0-days}
   - What does "Your bookings changed while this was open, so the days were checked again" mean? {#when-something-changes-while-it-is-open}
@@ -87,10 +88,12 @@ The rule is saved and on, and the days in blue keep their prices. The rule acts 
 
 **Changes already on the price.** Switching a rule that has changes on the price back on, or saving an edit to a rule that is on, leaves every one of its changes where it is:
 
-- a standard rule's change stays at its amount. Where the edited rule holds, it carries on as the rule's change and comes off when the rule stops holding. Where it does not hold, the change stays until the rule becomes true on that night, and then moves to the rule's amount.
-- a booking speed or pickup rule's changes stay, are no longer checked for cancellations, and still count as the newest change on the night where the weaker rules count from.
+- a standard rule's change stays at its amount. Where the edited rule holds, it carries on as the rule's change, at that old amount, and comes off when the rule stops holding. Where it does not hold, the change stays until the rule becomes true on that night, and then moves to the rule's amount.
+- a booking speed or pickup rule's changes stay, are no longer checked for cancellations, and still count as the newest change on the night where the weaker rules count from. They rank as the rule did when it made them, so an edit that lowers the amount or changes the speed does not change which rules they cover.
 
 These come off when the night passes, when you type a price on the night, when you delete the rule, or when you save the rule again with <Ui>Apply price adjustments</Ui>.
+
+**Old amounts after a Skip.** A standard rule's change that carried on at its old amount keeps it for as long as the rule holds on that night. Switching the rule off and on again with <Ui>Apply price adjustments</Ui> does not move it: the window counts 0 days for those nights. It moves to the rule's amount the next time the rule becomes true there, after it has stopped holding, or when you next save an edit to the rule's conditions, amount or room types with <Ui>Apply price adjustments</Ui>.
 
 **After a Skip.** Skip itself never changes a price. The prices on those days move later only because something changed after you skipped: a booking or a cancellation, a price you type, or another rule.
 
@@ -118,7 +121,7 @@ While the days are worked out, the squares are grey and pulse, the line reads "C
 
 ## Who can do this
 
-Revenue Managers, General Managers and Hotel Admins. For a Viewer the window does not open: "Only a Revenue Manager or above can change this." appears under the rule's switch, or under the rule builder. Read [Roles: who can do what](/docs/team/roles).
+Revenue Managers, General Managers and Hotel Admins. For a Viewer the window opens for a moment and closes again, and "Only a Revenue Manager or above can change this." appears under the rule's switch, or under the rule builder. Nothing is saved. Read [Roles: who can do what](/docs/team/roles).
 
 ## Messages you can meet
 

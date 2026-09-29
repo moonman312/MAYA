@@ -415,6 +415,36 @@ for (const engine of ENGINES) {
       expect(preview.affected.length).toBeGreaterThan(0);
     });
 
+    it("after an edit saved with Skip, switching the rule off and on with Apply leaves the nights it held at the old amount", async () => {
+      // "Busy nights" from +15% to +20%, same bar, saved with Skip: where it
+      // holds, its change stays at +15% (made the edited rule's). A later
+      // switch off and on with Apply moves none of them: 0 days there.
+      const after = edited(settled, R.busy, { action_value: 20 });
+      vi.setSystemTime(new Date(T10));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const marks = await skipMarksForRule(fake(clone(settled)).client as any, { hotelId: H, after: after as EngineRuleRow, at: T10, horizonDays: HORIZON }, engine.evaluate);
+      expect(marks.some((m) => m.w === "version")).toBe(true);
+      const skipped = await realRun(engine.evaluate, saveSkip(settled, after, marks, T10), T11);
+      const carried = skipped.ladder_rule_state.filter((r) => r.rule_id === R.busy && r.is_active && Number(r.action_value) === 15);
+      expect(carried.length).toBeGreaterThan(0);
+      const off = clone(skipped);
+      off.pricing_rules.find((r) => r.id === R.busy)!.is_active = false;
+      const stored = off.pricing_rules.find((r) => r.id === R.busy)!;
+      vi.setSystemTime(new Date(T20));
+      const preview = await previewRule(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        fake(clone(off)).client as any,
+        { hotelId: H, after: { ...stored, is_active: true, skip_at: null } as EngineRuleRow, before: null, at: T20, horizonDays: HORIZON },
+        engine.evaluate,
+      );
+      const carriedNights = new Set(carried.map((r) => String(r.stay_date)));
+      expect(preview.affected.filter((d) => carriedNights.has(d))).toEqual([]);
+      const on = await realRun(engine.evaluate, saveApply(off, { ...stored, is_active: true, skip_at: null }), T20);
+      const still = on.ladder_rule_state.filter((r) => r.rule_id === R.busy && r.is_active && carriedNights.has(String(r.stay_date)));
+      expect(still.length).toBeGreaterThan(0);
+      expect(still.every((r) => Number(r.action_value) === 15)).toBe(true);
+    });
+
     it("an edit to a rule that is off moves no price until it is switched on", async () => {
       const t = clone(settled);
       const paused = t.pricing_rules.find((r) => r.id === R.pausedBs)!;
