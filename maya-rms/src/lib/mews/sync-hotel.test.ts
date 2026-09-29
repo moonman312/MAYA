@@ -503,3 +503,109 @@ describe("a long stay seen in several colliding windows", () => {
     expect(many.readBacks).toBe(one.readBacks);
   });
 });
+
+import { isMewsAuthFailure, MEWS_AUTH_FAILURES_BEFORE_ERROR } from "../../../supabase/functions/_shared/mews/auth-failure";
+
+describe("Mews keys that stop working (G54)", () => {
+  type Rpc = { name: string; args: Record<string, unknown> };
+
+  /** A read that fails the way Mews answers, with the keys from the given source. */
+  async function failingRead(
+    status: number,
+    message: string,
+    opts: { source?: "database" | "body" | "environment"; rpcReply?: { data: unknown; error: { message: string } | null } } = {},
+  ) {
+    vi.mocked(resolveMewsCredentials).mockResolvedValueOnce({
+      creds: { clientToken: "ct", accessToken: "at", baseUrl: "https://api.mews-demo.com" },
+      connectionId: "conn-1",
+      source: opts.source ?? "database",
+    } as never);
+    const err = Object.assign(new client.MewsHttpError(`Mews reservations/getAll failed (${status}): ${message}`), {
+      status,
+      path: "reservations/getAll",
+    });
+    client.mewsWalkReservationWindows.mockImplementationOnce(async () => {
+      throw err;
+    });
+    const supabase = makeSupabaseStub([], undefined, [], { id: "conn-1", status: "connected" });
+    const rpcs: Rpc[] = [];
+    (supabase as unknown as { rpc: unknown }).rpc = async (name: string, args: Record<string, unknown>) => {
+      rpcs.push({ name, args });
+      if (name === "pms_note_auth_failure") {
+        return opts.rpcReply ?? { data: [{ failures: 1, new_status: "connected" }], error: null };
+      }
+      return { data: null, error: null };
+    };
+    const res = await runMewsSyncForHotel(supabase, "hotel-1");
+    return { res, rpcs, supabase };
+  }
+
+  it("counts a refused read against the connection's saved keys", async () => {
+    const { res, rpcs, supabase } = await failingRead(401, "Invalid AccessToken.");
+    expect(res).toMatchObject({ ok: false, mewsStatus: 401 });
+    expect(rpcs).toEqual([
+      {
+        name: "pms_note_auth_failure",
+        args: { p_hotel_id: "hotel-1", p_pms_type: "mews", p_threshold: MEWS_AUTH_FAILURES_BEFORE_ERROR },
+      },
+    ]);
+    // Nothing else about the connection moves on a failed read.
+    expect(supabase.connUpdates).toEqual([]);
+  });
+
+  it("asks for three in a row before Error", () => {
+    expect(MEWS_AUTH_FAILURES_BEFORE_ERROR).toBe(3);
+  });
+
+  it("logs the read that tips it into Error, once", async () => {
+    const { rpcs } = await failingRead(401, "Invalid AccessToken.", {
+      rpcReply: { data: [{ failures: 3, new_status: "error" }], error: null },
+    });
+    expect(rpcs.map((r) => r.name)).toEqual(["pms_note_auth_failure", "platform_log_event"]);
+    expect(rpcs[1].args).toMatchObject({ p_event_type: "pms.auth_failing", p_hotel_id: "hotel-1" });
+
+    const later = await failingRead(401, "Invalid AccessToken.", {
+      rpcReply: { data: [{ failures: 4, new_status: "error" }], error: null },
+    });
+    expect(later.rpcs.map((r) => r.name)).toEqual(["pms_note_auth_failure"]);
+  });
+
+  it("does not count keys typed into a test, or the server's fallback keys", async () => {
+    expect((await failingRead(401, "Invalid AccessToken.", { source: "body" })).rpcs).toEqual([]);
+    expect((await failingRead(401, "Invalid AccessToken.", { source: "environment" })).rpcs).toEqual([]);
+  });
+
+  it("does not count outages or validation errors", async () => {
+    for (const [status, message] of [
+      [500, "Internal server error"],
+      [429, "Too many requests"],
+      [408, "Request timeout"],
+      [403, "The reservation cannot be updated."],
+      [400, "Invalid ServiceId."],
+    ] as const) {
+      const { res, rpcs } = await failingRead(status, message);
+      expect(res.ok, `${status}`).toBe(false);
+      expect(rpcs, `${status} ${message}`).toEqual([]);
+    }
+  });
+
+  it("still returns the read's own failure when the count cannot be written", async () => {
+    const { res } = await failingRead(401, "Invalid AccessToken.", {
+      rpcReply: { data: null, error: { message: "function pms_note_auth_failure does not exist" } },
+    });
+    expect(res).toMatchObject({ ok: false, mewsStatus: 401, error: expect.stringContaining("Invalid AccessToken") });
+  });
+
+  it("tells a refused key from everything else", () => {
+    expect(isMewsAuthFailure(401)).toBe(true);
+    expect(isMewsAuthFailure(401, "anything")).toBe(true);
+    expect(isMewsAuthFailure(403, "Mews x failed (403): Invalid AccessToken")).toBe(true);
+    expect(isMewsAuthFailure(403, "The access token is disabled.")).toBe(true);
+    expect(isMewsAuthFailure(400, "Invalid ClientToken.")).toBe(true);
+    expect(isMewsAuthFailure(403, "The reservation cannot be updated.")).toBe(false);
+    expect(isMewsAuthFailure(400, "Invalid ServiceId.")).toBe(false);
+    expect(isMewsAuthFailure(500, "Invalid AccessToken")).toBe(false);
+    expect(isMewsAuthFailure(429)).toBe(false);
+    expect(isMewsAuthFailure(null, "Invalid AccessToken")).toBe(false);
+  });
+});
