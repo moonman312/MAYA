@@ -1,5 +1,6 @@
 "use client";
 
+import { GodModeButton } from "@/components/admin/god-mode-button";
 import { MayaMark } from "@/components/brand/logo";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -52,6 +53,7 @@ export function AdminTopNav({ userEmail }: { userEmail: string }) {
           </nav>
         </div>
         <div className="flex items-center gap-3 text-xs text-slate-400">
+          <GodModeButton compact />
           <span>{userEmail}</span>
           <Link
             href="/"

@@ -1,4 +1,6 @@
+import { GodModeButton } from "@/components/admin/god-mode-button";
 import { HotelMembershipsCard } from "@/components/admin/hotel-memberships-card";
+import { OpenPropertyButton } from "@/components/admin/open-property-button";
 import { HotelPmsCard } from "@/components/admin/hotel-pms-card";
 import { HotelTestToggle } from "@/components/admin/hotel-test-toggle";
 import { SimulationModeToggle } from "@/components/admin/simulation-mode-toggle";
@@ -52,17 +54,24 @@ export default async function AdminHotelDetailPage({
             {hotel.timezone} · {hotel.currency} · {hotel.total_rooms_per_type} rooms/type
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <span
-            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-              simulationMode
-                ? "bg-slate-700 text-slate-200"
-                : "bg-emerald-500/20 text-emerald-300"
-            }`}
-          >
-            {simulationMode ? "Simulation" : "Live"}
-          </span>
-          <PmsStatusPill status={hotel.pms_status} />
+        <div className="flex flex-col items-end gap-3">
+          <div className="flex items-center gap-2">
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                simulationMode
+                  ? "bg-slate-700 text-slate-200"
+                  : "bg-emerald-500/20 text-emerald-300"
+              }`}
+            >
+              {simulationMode ? "Simulation" : "Live"}
+            </span>
+            <PmsStatusPill status={hotel.pms_status} />
+          </div>
+          {/* Viewing is always yours; changing anything on this page or on the property's dashboard needs God Mode. */}
+          <div className="flex items-center gap-2">
+            <OpenPropertyButton hotelId={hotel.id} />
+            <GodModeButton />
+          </div>
         </div>
       </div>
 
