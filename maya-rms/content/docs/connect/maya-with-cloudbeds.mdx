@@ -17,7 +17,7 @@ updated: 2026-09-24
 ---
 
 <InPlainWords>
-Install MAYA from the Cloudbeds Marketplace, set up payment, and let MAYA read your history. Check what it found, watch your rules in simulation, and email us to check your time zone before you go live. When you go live, MAYA sends each room type's changed prices to its base rate in Cloudbeds, on a cycle that runs about every five minutes. Each step below is a line or two, with a link to the page that explains it.
+Install MAYA from the Cloudbeds Marketplace, set up payment, and let MAYA read your history. Check what it found, watch your rules in simulation, and check your time zone and currency on the <Ui>PMS</Ui> tab before you go live. When you go live, MAYA sends each room type's changed prices to its base rate in Cloudbeds, on a cycle that runs about every five minutes. Each step below is a line or two, with a link to the page that explains it.
 </InPlainWords>
 
 ## Before you start
@@ -50,7 +50,7 @@ Create your MAYA account, or switch to <Ui>Sign in</Ui> if you have one, then cl
 
 ## Going live
 
-- **Check your time zone with us.** MAYA copies your time zone and currency from Cloudbeds once, when you connect. No screen in MAYA shows the time zone, and nothing waits on it while you simulate. Before you go live, [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone) and we tell you which time zone MAYA has. Read [Time zone and currency](/docs/connect/setting-up-your-system-for-maya#time-zone-and-currency).
+- **Check your time zone and currency.** MAYA copies them from Cloudbeds once, when you connect. The <Ui>PMS</Ui> tab shows both under <Ui>Time zone and currency</Ui>, and nothing waits on them while you simulate. Before you go live, check they are right, and [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone%20or%20currency) if either is wrong. Read [Time zone and currency](/docs/connect/setting-up-your-system-for-maya#time-zone-and-currency).
 - A General Manager or Hotel Admin clicks <Ui>Turn them on for real</Ui> on the review and confirms "Send prices to Cloudbeds?". With no starter rules there is no button: [email us](mailto:info@modern-hospitality-solutions.com?subject=Go%20live) and we switch the property live. Read [Going live](/docs/live/going-live).
 - From the next cycle, MAYA sends each room type's changed prices to its base rate. Derived plans follow by Cloudbeds' own rules, and nothing else in Cloudbeds changes. Read [What MAYA reads and writes](/docs/connect/what-maya-reads-and-writes) and [How prices reach your property system](/docs/live/how-prices-reach-your-pms).
 - **Switch off other automatic pricing first.** Any feature in Cloudbeds that changes the base rate by itself, such as automatic pricing or yield rules, counts as another revenue tool. Leave it on while you simulate if you like, and switch it off before you go live, or the two will write over each other. Read [Switching from another revenue tool](/docs/start/is-maya-right-for-you#switching-from-another-revenue-tool).
@@ -79,7 +79,7 @@ Cancel on the <Ui>Billing</Ui> page first, then disconnect in Cloudbeds under <U
 <Example title="The Harbour Inn's first week on Cloudbeds">
 **Monday, October 5, 2026.** Sam clicks <Ui>Connect App</Ui>, creates the account, sets up payment and picks <Ui>Hold My Hand</Ui>. The review shows Standard, Deluxe and Suite, with the Meeting Room already unticked. The import has already set floors and ceilings from The Harbour Inn's own rates, and Sam checks them in the <Ui>Guardrails</Ui> column of the Rate Simulator. Sam adds a "Busy nights" rule (more than 80% full, raise 10%).
 
-**Tuesday to Thursday.** In simulation, the property reaches 17 of 20 rooms for Sat, Nov 14 2026, and "Busy nights" raises Standard from the $150 base rate in Cloudbeds to $165. Nothing is sent. On Thursday Sam emails us to check the time zone, and we reply that MAYA has US Pacific.
+**Tuesday to Thursday.** In simulation, the property reaches 17 of 20 rooms for Sat, Nov 14 2026, and "Busy nights" raises Standard from the $150 base rate in Cloudbeds to $165. Nothing is sent. On Thursday Sam checks the <Ui>PMS</Ui> tab: <Ui>Time zone and currency</Ui> reads America/Los_Angeles, US Pacific, and USD ($).
 
 **Friday, October 9, 2026.** Sam clicks <Ui>Turn them on for real</Ui>. On the next cycle MAYA reads the base rates again, then sends the changed prices. The "Non-refundable" plan, which follows Standard at 10% off, shows $148.50 for that Saturday without MAYA touching it.
 
@@ -87,7 +87,7 @@ Cancel on the <Ui>Billing</Ui> page first, then disconnect in Cloudbeds under <U
 </Example>
 
 <Callout kind="not-yet">
-MAYA does not read Cloudbeds room blocks, out-of-order rooms, allotments or restrictions, and never writes them. It never sends a price of 0. There is no disconnect button in MAYA, and no screen shows your time zone. A review with no starter rules has no go-live button (email us).
+MAYA does not read Cloudbeds room blocks, out-of-order rooms, allotments or restrictions, and never writes them. It never sends a price of 0. There is no disconnect button in MAYA, and no screen changes your time zone. A review with no starter rules has no go-live button (email us).
 </Callout>
 
 <Related>

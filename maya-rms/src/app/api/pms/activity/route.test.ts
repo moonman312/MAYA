@@ -24,9 +24,10 @@ vi.mock("@/lib/require-supabase-hotel", () => ({
 
 const { GET } = await import("./route");
 
-function world(opts: { connections: FakeRow[]; claimed: boolean; purged: boolean }) {
+function world(opts: { connections: FakeRow[]; claimed: boolean; purged: boolean; hotel?: Partial<FakeRow> | null }) {
   const hotels = [{ id: "hotel-1", name: "Sea View Inn", is_active: true, data_purged_at: opts.purged ? "2027-03-01T00:00:00.000Z" : null }];
-  state.user = fakeSupabase({ pms_connections: opts.connections, pms_request_log: [] });
+  const readable = opts.hotel === null ? [] : [{ ...hotels[0], timezone: "UTC", currency: "USD", ...opts.hotel }];
+  state.user = fakeSupabase({ pms_connections: opts.connections, pms_request_log: [], hotels: readable });
   state.admin = fakeSupabase({
     hotels,
     pms_connections: opts.connections,
@@ -75,5 +76,24 @@ describe("whether the request log covers the system", () => {
     world({ connections: [conn], claimed: false, purged: false });
     const body = await (await GET()).json();
     expect(body.requestsTracked).toBe(tracked);
+  });
+});
+
+describe("the property's time zone and currency", () => {
+  const conn = { hotel_id: "hotel-1", pms_type: "cloudbeds", status: "connected", last_sync_at: null, last_tested_at: null };
+
+  it("returns what is saved on the hotel row, as saved", async () => {
+    world({ connections: [conn], claimed: false, purged: false, hotel: { timezone: "Europe/Lisbon", currency: "EUR" } });
+    const body = await (await GET()).json();
+    expect(body.property).toEqual({ timezone: "Europe/Lisbon", currency: "EUR" });
+  });
+
+  it("leaves the card off when the hotel row can't be read, and still answers", async () => {
+    world({ connections: [conn], claimed: false, purged: false, hotel: null });
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.property).toBeNull();
+    expect(body.connection).toMatchObject({ status: "connected" });
   });
 });

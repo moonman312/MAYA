@@ -11,6 +11,7 @@ import { ManualPriceEditor, manualPriceBadge } from "@/components/manual-price-e
 import { useCalendarLive } from "@/lib/use-calendar-live";
 import { track } from "@/lib/analytics/track";
 import { PropertySelect } from "@/components/property-select";
+import { PropertyTimeAndCurrency } from "@/components/property-time-currency";
 import { RateSimulator } from "@/components/rate-simulator";
 import { RoomCountHelp, RoomTypeSettings, isCountingRoom } from "@/components/room-type-settings";
 import { bookingSpeedHelp, bookingSpeedWaitHelp, pickupWindowHelp } from "@/lib/booking-speed-help";
@@ -188,6 +189,8 @@ type PmsActivity = {
   historyRemoved?: boolean;
   /** False for a system whose requests aren't logged (Mews, Think): its health and log are always empty. */
   requestsTracked?: boolean;
+  /** The time zone and currency saved for the property, shown as they are. */
+  property?: { timezone: string | null; currency: string | null } | null;
   health: {
     state: "healthy" | "degraded" | "down" | "unknown";
     successRate: number | null;
@@ -2219,6 +2222,12 @@ export function Dashboard({
                 </div>
               </>
             )}
+            {activeHotelId && pmsActivity?.property ? (
+              <PropertyTimeAndCurrency
+                timezone={pmsActivity.property.timezone}
+                currency={pmsActivity.property.currency}
+              />
+            ) : null}
           </section>
         )}
 

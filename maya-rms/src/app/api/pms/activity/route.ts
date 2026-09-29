@@ -3,8 +3,9 @@
  *
  * Returns the pms_connections row (preferring status=connected), a health
  * classification over the last 24h of pms_request_log traffic, and the latest
- * 50 log entries (newest first). Retention is the nightly database sweep
- * (pms_request_log_sweep, 7 days) — it used to be pruned here per request,
+ * 50 log entries (newest first), plus the time zone and currency saved on the
+ * hotel row, which the tab shows read-only. Retention is the nightly database
+ * sweep (pms_request_log_sweep, 7 days) — it used to be pruned here per request,
  * which only ever ran for hotels somebody actually looked at.
  */
 
@@ -33,7 +34,7 @@ export async function GET() {
 
   const since = new Date(Date.now() - HEALTH_WINDOW_MS).toISOString();
 
-  const [connRes, logRes, totalRes, failureRes] = await Promise.all([
+  const [connRes, logRes, totalRes, failureRes, hotelRes] = await Promise.all([
     supabase
       .from("pms_connections")
       .select("pms_type, status, last_sync_at, last_tested_at")
@@ -56,6 +57,7 @@ export async function GET() {
       .eq("hotel_id", hotelId)
       .eq("ok", false)
       .gte("created_at", since),
+    supabase.from("hotels").select("timezone, currency").eq("id", hotelId).maybeSingle(),
   ]);
 
   const firstError =
@@ -114,6 +116,15 @@ export async function GET() {
       : null,
     historyRemoved,
     requestsTracked: connection ? REQUEST_LOGGED.has(connection.pms_type) : false,
+    // What is saved, as saved. A read that fails leaves the card off rather
+    // than failing the whole tab.
+    property:
+      hotelRes.error || !hotelRes.data
+        ? null
+        : {
+            timezone: hotelRes.data.timezone ? String(hotelRes.data.timezone) : null,
+            currency: hotelRes.data.currency ? String(hotelRes.data.currency) : null,
+          },
     health: classifyPmsHealth(totalRes.count ?? 0, failureRes.count ?? 0),
     log: logRes.data ?? [],
   });

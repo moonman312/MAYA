@@ -161,6 +161,15 @@ describe("the PMS tab's Health card and request list", () => {
     expect(screen.queryByText(/No requests recorded yet/)).toBeNull();
   });
 
+  it("sit above the property's time zone and currency, read-only", async () => {
+    routes["/api/pms/activity"] = () => json(activity({ property: { timezone: "America/Los_Angeles", currency: "EUR" } }));
+    window.history.replaceState(null, "", "/?tab=pms");
+    render(<Dashboard initialSearch={window.location.search} />);
+    expect(await screen.findByText("America/Los_Angeles")).toBeTruthy();
+    expect(screen.getByText("EUR (€)")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "About the time zone and currency" })).toBeTruthy();
+  });
+
   it("keep Cloudbeds' health and log as they are", async () => {
     routes["/api/pms/activity"] = () => json(activity({ requestsTracked: true, log: [] }));
     window.history.replaceState(null, "", "/?tab=pms");

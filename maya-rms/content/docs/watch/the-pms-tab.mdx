@@ -1,10 +1,10 @@
 ---
 title: "The PMS tab: connection health"
-summary: What the PMS tab shows about your connection to Cloudbeds, ThinkReservations or Mews. The status word, how the last 24 hours of requests went, when bookings last synced, the most recent requests, and the reconnect link.
+summary: What the PMS tab shows about your connection to Cloudbeds, ThinkReservations or Mews. The status word, how the last 24 hours of requests went, when bookings last synced, the most recent requests, your property's time zone and currency, and the reconnect link.
 section: watch
 order: 80
-readingTime: 7
-keywords: [PMS tab, property system tab, UTC, local time, which time zone is last sync in, connection, connected, pending, degraded, degraded but still sending, are my prices still going out, error, disconnected, unknown, lost its connection, healthy, having trouble, no recent activity, last sync, recent requests, request log, ERR, reconnect, reconnect button, sync now, force a sync, refresh, is it connected]
+readingTime: 8
+keywords: [PMS tab, property system tab, UTC, local time, which time zone is last sync in, connection, connected, pending, degraded, degraded but still sending, are my prices still going out, error, disconnected, unknown, lost its connection, healthy, having trouble, no recent activity, last sync, recent requests, request log, ERR, reconnect, reconnect button, time zone, currency, which time zone does MAYA have, which currency does MAYA have, sync now, force a sync, refresh, is it connected]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
   - 'What does the PMS tab show?' {#in-plain-words}
@@ -18,12 +18,13 @@ questions:
   - 'Why does the PMS tab say "Not tracked for this system"?' {#recent-requests}
   - 'Does the PMS tab show whether my prices reached my property system?' {#how-fresh-the-tab-is}
   - 'Where is the Reconnect button?' {#reconnecting-from-here/not-broken-cloudbeds}
+  - 'Where can I see which time zone and currency MAYA has for my property?' {#time-zone-and-currency}
   - 'How do I check that MAYA is still connected to my property system?' {#connection/a-single-word}
 updated: 2026-09-24
 ---
 
 <InPlainWords>
-The <Ui>PMS</Ui> tab shows whether your property system is connected, how the last 24 hours of requests to it went, when bookings last synced, and the most recent requests MAYA made. Problems sending prices are not here. They are in the change log. When the connection breaks on Cloudbeds or ThinkReservations, a General Manager or Hotel Admin sees a <Ui>Reconnect</Ui> button here, and in a banner at the top of the dashboard whichever tab is open. On Mews, the panel asks you to send us a message.
+The <Ui>PMS</Ui> tab shows whether your property system is connected, how the last 24 hours of requests to it went, when bookings last synced, the most recent requests MAYA made, and the time zone and currency saved for your property. Problems sending prices are not here. They are in the change log. When the connection breaks on Cloudbeds or ThinkReservations, a General Manager or Hotel Admin sees a <Ui>Reconnect</Ui> button here, and in a banner at the top of the dashboard whichever tab is open. On Mews, the panel asks you to send us a message.
 </InPlainWords>
 
 ## Where it is
@@ -32,7 +33,7 @@ The <Ui>PMS</Ui> tab is the last of the five tabs. Everyone on the property can 
 
 Before it loads: "Loading connection status…". With no property chosen: "Select a property to view status." With no system connected yet: "No property system is connected for this property yet."
 
-The <Ui>Room types</Ui> section sits under the connection cards on the same tab. [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service) covers it.
+The <Ui>Time zone and currency</Ui> card sits under the request list, and the <Ui>Room types</Ui> section under that, on the same tab. [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service) covers it.
 
 ## The three cards
 
@@ -88,6 +89,12 @@ MAYA keeps no log of its requests to ThinkReservations, so this list and the Hea
 MAYA keeps no log of its requests to Mews, so this list and the Health card both read "Not tracked for this system". Read the Connection card and Last sync instead.
 </PmsTab>
 </PmsTabs>
+
+## Time zone and currency
+
+Under the request list, a card headed <Ui>Time zone and currency</Ui> shows both as they are saved for your property. The time zone shows by its name, such as "America/Los_Angeles". The currency shows by its code and sign, such as "USD ($)", "EUR (€)" or "GBP (£)", or by the code alone for any other currency, such as "CAD". Nothing here can be changed. The <Ui>?</Ui> beside the heading says what each is for: tonight is tonight in this time zone, for your rules and for the prices sent to your system, and amounts across MAYA are in this currency, never converted.
+
+Both are saved when your property connects: read from Cloudbeds or ThinkReservations, and set with you for Mews. When no time zone was read, a property gets UTC, the world reference time, and when no currency was read, US dollars. So when the time zone reads UTC, a line under the card says so in plain words: "UTC and US dollars are what a property gets when its time zone and currency weren't read from its system. If either is wrong for your property, send us a message and we'll correct it." When the currency is not US dollars, the line speaks of the time zone alone. The link opens an email to us. To change either value at any other time, [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone%20or%20currency) too. [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays) explains what each one changes.
 
 ## Reconnecting from here
 
