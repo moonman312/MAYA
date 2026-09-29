@@ -30,6 +30,12 @@ export type AccountBilling = {
    * which can only overstate, never surprise upward.
    */
   chargeCents: number | null;
+  /**
+   * Whether that next invoice carries a discount, which only a code puts on a
+   * subscription. False when Stripe can't be asked, and once a limited
+   * discount has run out, even though the code is still on record.
+   */
+  codeApplied: boolean;
   renewsAt: string | null;
   /**
    * When the run of unpaid invoices began, read off Stripe. Only for an
@@ -72,14 +78,20 @@ const NOTICE_COLUMNS = "room_shortfall_notified_at, room_shortfall_notified_room
  * leash: this decorates the billing page, and a slow Stripe outage must not
  * take the page down with it.
  */
-async function previewChargeCents(subscriptionId: string): Promise<number | null> {
+async function previewCharge(
+  subscriptionId: string,
+): Promise<{ cents: number; discounted: boolean } | null> {
   if (!isStripeConfigured()) return null;
   try {
     const invoice = await stripeClient().invoices.createPreview(
       { subscription: subscriptionId },
       { timeout: 3000 },
     );
-    return typeof invoice.amount_due === "number" ? invoice.amount_due : null;
+    if (typeof invoice.amount_due !== "number") return null;
+    return {
+      cents: invoice.amount_due,
+      discounted: (invoice.total_discount_amounts ?? []).some((d) => d.amount > 0),
+    };
   } catch {
     return null;
   }
@@ -148,9 +160,9 @@ export async function loadAccountBilling(
   const entitled = isEntitledStatus(String(data.status));
   // Only a subscription that will invoice again has a next charge to preview —
   // asking Stripe about a cancelled one is an error, not a number.
-  const chargeCents =
+  const preview =
     entitled && data.stripe_subscription_id
-      ? await previewChargeCents(String(data.stripe_subscription_id))
+      ? await previewCharge(String(data.stripe_subscription_id))
       : null;
   const unpaidSince =
     String(data.status) === "unpaid" && data.stripe_subscription_id
@@ -163,7 +175,8 @@ export async function loadAccountBilling(
     interval,
     rooms,
     periodCents: priceCents(rooms, interval),
-    chargeCents,
+    chargeCents: preview?.cents ?? null,
+    codeApplied: preview?.discounted ?? false,
     renewsAt: data.current_period_end ? String(data.current_period_end) : null,
     unpaidSince,
     trialEndsAt: data.trial_end ? String(data.trial_end) : null,
@@ -348,6 +361,21 @@ export function headlineFor(billing: AccountBilling, now = new Date()): BillingH
  */
 export function offersRestart(billing: AccountBilling): boolean {
   return !billing.entitled && billing.status !== "unpaid" && billing.status !== "paused";
+}
+
+/**
+ * The line under the price. Stripe's next invoice can differ from the bracket
+ * price for two reasons, and naming the wrong one sent owners hunting for a
+ * code they never used: a discount on the invoice is their code, and anything
+ * else is the part-period difference a room count change leaves on it.
+ */
+export function priceHint(billing: AccountBilling): string {
+  const base = `${billing.rooms} room${billing.rooms === 1 ? "" : "s"} at MAYA's ${billing.interval === "year" ? "annual" : "monthly"} rate`;
+  if (billing.codeApplied) return `${base}, with your code applied.`;
+  if (billing.chargeCents != null && billing.chargeCents !== billing.periodCents) {
+    return `${base}, adjusted for a recent room count change.`;
+  }
+  return `${base}.`;
 }
 
 /**

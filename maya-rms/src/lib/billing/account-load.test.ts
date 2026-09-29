@@ -163,3 +163,40 @@ describe("loadAccountBilling for an unpaid subscription", () => {
     expect(billing?.unpaidSince).toBeNull();
   });
 });
+
+describe("loadAccountBilling for a live subscription", () => {
+  const active = {
+    hotel_id: "hotel-1",
+    status: "active",
+    billing_interval: "month",
+    billed_rooms: 40,
+    current_period_end: "2026-09-01T00:00:00Z",
+    stripe_subscription_id: "sub_live",
+    signup_code_id: null,
+  };
+
+  beforeEach(() => {
+    stripe.configured = true;
+    stripe.fail = false;
+  });
+
+  it("counts a code as applied only when Stripe's next invoice carries a discount", async () => {
+    stripe.preview = { amount_due: 18_000, total_discount_amounts: [{ amount: 2_000, discount: "di_1" }] };
+    const coded = await loadAccountBilling(rowClient(active), "hotel-1");
+    expect(coded?.chargeCents).toBe(18_000);
+    expect(coded?.codeApplied).toBe(true);
+
+    // A proration from a room count change moves the total with no discount.
+    stripe.preview = { amount_due: 23_400, total_discount_amounts: [] };
+    const prorated = await loadAccountBilling(rowClient(active), "hotel-1");
+    expect(prorated?.chargeCents).toBe(23_400);
+    expect(prorated?.codeApplied).toBe(false);
+  });
+
+  it("claims no code when Stripe cannot be asked", async () => {
+    stripe.fail = true;
+    const billing = await loadAccountBilling(rowClient(active), "hotel-1");
+    expect(billing?.chargeCents).toBeNull();
+    expect(billing?.codeApplied).toBe(false);
+  });
+});

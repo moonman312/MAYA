@@ -10,6 +10,7 @@ import {
   offersRestart,
   periodEndDate,
   periodEndLabel,
+  priceHint,
   priceLabel,
   type AccountBilling,
 } from "./account";
@@ -25,6 +26,7 @@ function billing(o: Partial<AccountBilling> = {}): AccountBilling {
     rooms: 40,
     periodCents: priceCents(40, "month"),
     chargeCents: null,
+    codeApplied: false,
     renewsAt: "2026-08-30T12:00:00Z",
     unpaidSince: null,
     trialEndsAt: null,
@@ -263,6 +265,29 @@ describe("periodEndLabel", () => {
 
   it("shows no date for a paused subscription, which is on hold rather than over", () => {
     expect(periodEndDate(billing({ entitled: false, status: "paused" }))).toBeNull();
+  });
+});
+
+describe("priceHint", () => {
+  it("names a code only when one is taking money off the next invoice", () => {
+    const h = priceHint(billing({ chargeCents: 10_000, codeApplied: true }));
+    expect(h).toBe("40 rooms at MAYA's monthly rate, with your code applied.");
+  });
+
+  it("puts any other difference down to the room count change, not a code", () => {
+    // A room count change leaves its part-period difference on the next
+    // invoice. Calling that "your code" sent owners hunting for one.
+    const raised = priceHint(billing({ chargeCents: priceCents(40, "month") + 1_234 }));
+    expect(raised).toBe("40 rooms at MAYA's monthly rate, adjusted for a recent room count change.");
+    expect(raised).not.toMatch(/code/);
+  });
+
+  it("adds nothing when the invoice is the bracket price, or unknown", () => {
+    expect(priceHint(billing({ chargeCents: priceCents(40, "month") }))).toBe("40 rooms at MAYA's monthly rate.");
+    expect(priceHint(billing({ chargeCents: null }))).toBe("40 rooms at MAYA's monthly rate.");
+    expect(priceHint(billing({ rooms: 1, interval: "year", chargeCents: null }))).toBe(
+      "1 room at MAYA's annual rate.",
+    );
   });
 });
 
