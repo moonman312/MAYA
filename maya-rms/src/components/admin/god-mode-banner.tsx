@@ -25,8 +25,8 @@ export function timeLeftWords(msLeft: number): string {
 
 /**
  * The red banner across the top of every page while God Mode is on for the
- * signed-in platform admin: what it is on for, how long is left, and the way
- * out. Mounted once in the root layout beside TermsGate. For everyone else
+ * signed-in platform admin: that it covers every property, how long is left,
+ * and the way out. Mounted once in the root layout beside TermsGate. For everyone else
  * the server answers { admin: false } in one cheap call and nothing renders.
  *
  * The time left counts down from the window's expires_at, which is the
@@ -116,8 +116,10 @@ export function GodModeBanner({ reload = reloadPage }: { reload?: () => void } =
 
   if (exempt || !status?.active) return null;
 
+  // A window covers every property, whichever one is on screen; the one on
+  // screen is named only so the admin knows where they are.
   const onAdmin = pathname === "/admin" || pathname?.startsWith("/admin/");
-  const where = !onAdmin && status.hotel ? status.hotel.name : "all properties";
+  const where = !onAdmin && status.hotel ? `all properties, ${status.hotel.name} included` : "all properties";
 
   return (
     <div

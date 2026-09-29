@@ -130,8 +130,20 @@ describe("POST /api/events", () => {
   });
 
   it("falls back to the active property when none is named", async () => {
+    state.memberships.push({ hotel_id: COOKIE_HOTEL, user_id: USER, status: "active" });
     await post({ event: "explain.opened" });
     expect(state.rpcs[0].args.p_hotel_id).toBe(COOKIE_HOTEL);
+  });
+
+  it("records staff looking at a property they do not belong to against no hotel", async () => {
+    // A platform admin's support view: the cookie names a property they only view.
+    await post({ event: "dashboard.tab_opened", properties: { tab: "rules" } });
+    expect(state.rpcs).toEqual([
+      expect.objectContaining({
+        name: "product_event_emit",
+        args: expect.objectContaining({ p_event: "dashboard.tab_opened", p_hotel_id: null, p_user_id: USER }),
+      }),
+    ]);
   });
 
   it("ignores a user id in the body", async () => {

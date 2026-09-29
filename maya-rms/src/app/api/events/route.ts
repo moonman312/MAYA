@@ -8,7 +8,11 @@
  * member of it: a parked Marketplace property is not active yet, so it is not
  * in the cookie's list, and the subscribe screen for it is exactly the moment
  * worth recording against it. Without a hotel id the active-property cookie
- * decides, and a signup that has no property yet records against no hotel.
+ * decides, again only for a member, and a signup that has no property yet
+ * records against no hotel. MAYA staff looking at a property they do not
+ * belong to record against no hotel either: their clicks are not the
+ * customer's, and a never-paid property's retention clock counts every "app"
+ * event against it as the customer being there.
  *
  * Analytics never costs a page anything. Every outcome past the auth and
  * allowlist checks answers 204, including the ones where nothing was recorded.
@@ -70,15 +74,14 @@ async function hotelFor(
   userId: string,
   named: string | null,
 ): Promise<string | null> {
-  if (named) {
-    const { data } = await admin
-      .from("hotel_memberships")
-      .select("hotel_id")
-      .eq("hotel_id", named)
-      .eq("user_id", userId)
-      .eq("status", "active")
-      .maybeSingle();
-    return data ? named : null;
-  }
-  return resolveAccessibleHotelId(supabase);
+  const hotelId = named ?? (await resolveAccessibleHotelId(supabase));
+  if (!hotelId) return null;
+  const { data } = await admin
+    .from("hotel_memberships")
+    .select("hotel_id")
+    .eq("hotel_id", hotelId)
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .maybeSingle();
+  return data ? hotelId : null;
 }

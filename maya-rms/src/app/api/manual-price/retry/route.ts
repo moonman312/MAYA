@@ -13,9 +13,11 @@
  * Idempotent: a stamp already newer than the last try is left alone and
  * nudges nothing (`alreadyRequested`), so a double click or a second tab
  * never sends twice. Same door as typing a price (../gate.ts): the same rank,
- * the same budget.
+ * the same budget. Pressed by MAYA staff in God Mode, it is recorded as
+ * support's, like typing a price.
  */
 
+import { recordIfSupport } from "@/lib/admin/god-mode";
 import { dbErrorResponse, isRealIsoDate, isUuid, NOT_READY_YET } from "@/lib/api-guards";
 import { isMissingColumnError } from "@/lib/engine/snapshots";
 import { readSendStatus, type SendStatus } from "@/lib/pms/send-status";
@@ -71,7 +73,7 @@ export async function POST(req: Request) {
     const body = await readBody<RetryBody>(req);
     const gated = await gate(body.hotelId);
     if (!gated.ok) return gated.response;
-    const { admin } = gated;
+    const { admin, supabase, userId } = gated;
     const hotelId = body.hotelId as string;
     const { roomTypeId, date } = body;
     if (typeof roomTypeId !== "string" || !isUuid(roomTypeId)) return bad("Pick a room type.");
@@ -85,13 +87,24 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: nothingToRetry(status), state: status.state }, { status: 409 });
     }
 
+    const requestedAt = new Date().toISOString();
     const written = await requestRetry(
       admin,
       { hotelId, roomTypeId, date, lastAttemptAt: status.lastAttemptAt },
-      new Date().toISOString(),
+      requestedAt,
     );
     // Somebody else's press landed between the read and the write.
     if (!written) return NextResponse.json({ ok: true, state: "retrying", alreadyRequested: true });
+
+    await recordIfSupport(supabase, admin, {
+      userId,
+      hotelId,
+      tableName: "rate_updates",
+      rowId: `${roomTypeId}:${date}`,
+      op: "update",
+      after: { room_type_id: roomTypeId, stay_date: date, retry_requested_at: requestedAt },
+      summary: `Asked for one more send of the price on ${date}.`,
+    });
 
     const nudged = await nudgeHotelSync(admin, hotelId);
     return NextResponse.json({ ok: true, state: "retrying", alreadyRequested: false, nudged });

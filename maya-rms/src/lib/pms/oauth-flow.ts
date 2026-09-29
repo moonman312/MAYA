@@ -1,5 +1,5 @@
 import "server-only";
-import { recordIfSupport } from "@/lib/admin/god-mode";
+import { godModeStatus, recordIfSupport } from "@/lib/admin/god-mode";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient as createSSRClient } from "@/utils/supabase/server";
 import { findPendingHotelForUser } from "@/lib/billing/pending-hotel";
@@ -25,6 +25,10 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 type CookieStore = Awaited<ReturnType<typeof cookies>>;
+
+/** What staff see when their God Mode window ended before the vendor sent them back. */
+const GOD_MODE_ENDED =
+  "God Mode ended before the sign-in finished, so nothing was changed. Turn it on again and start the reconnect from MAYA.";
 
 /**
  * Who the OAuth dance is for:
@@ -54,6 +58,8 @@ export async function buildAuthorizeRedirect(
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  // Set when MAYA staff start a reconnect in God Mode: when their window ends.
+  let godModeUntilMs: number | undefined;
   if (target.kind === "hotel") {
     // The rank the Reconnect button is drawn for (/api/pms/activity), platform
     // admins included. can_manage_hotel also lets a Revenue Manager in, so the
@@ -62,10 +68,11 @@ export async function buildAuthorizeRedirect(
       return renderNotice("Reconnecting needs General Manager access or higher on this property.", 403);
     }
     // The connection itself is written by the vendor's callback with the
-    // service role and no session to ask, so support's reconnect is recorded
-    // here, where the person and their window are known.
+    // service role, so support's reconnect is recorded here, where the person
+    // and their window are known. Its state runs out with the window, and the
+    // callback asks again whether they may still change the property.
     if (isAdminConfigured()) {
-      await recordIfSupport(ssr, createAdminClient(), {
+      const support = await recordIfSupport(ssr, createAdminClient(), {
         userId: user.id,
         hotelId: target.hotelId,
         tableName: "pms_connections",
@@ -74,6 +81,10 @@ export async function buildAuthorizeRedirect(
         after: { pms_type: pmsType },
         summary: `Started reconnecting the property system (${pmsType}).`,
       });
+      if (support) {
+        const window = await godModeStatus(ssr);
+        godModeUntilMs = window.expiresAt ? Date.parse(window.expiresAt) : Date.now();
+      }
     }
   } else {
     // The paywall. Connecting a PMS is what turns a signup into a working
@@ -162,7 +173,7 @@ export async function buildAuthorizeRedirect(
   const state =
     target.kind === "onboarding"
       ? signOnboardingState(user.id, pmsType)
-      : signState(target.hotelId, pmsType, target.from);
+      : signState(target.hotelId, pmsType, target.from, { godModeUntilMs });
   const redirectUri = pmsCallbackUrl(pmsType);
 
   const url = new URL(registry.authorizeUrl!);
@@ -220,7 +231,19 @@ export async function handleOAuthCallback(
   // no Marketplace grant. Taken as one, it ended ThinkReservations on a
   // Marketplace error with a link to the staff console. Nothing is exchanged.
   if (verified != null && !verified.ok && verified.expired) {
-    return renderNotice("That sign-in link ran out after 15 minutes. Start again from MAYA.");
+    return renderNotice(verified.support ? GOD_MODE_ENDED : "That sign-in link ran out after 15 minutes. Start again from MAYA.");
+  }
+  // Started by MAYA staff in God Mode: their window may have ended since the
+  // state was signed, so the person at the browser must still be allowed to
+  // change the property. Asked before the grant is spent.
+  if (
+    verified != null &&
+    verified.ok &&
+    verified.intent === "hotel" &&
+    verified.support &&
+    !(await canReconnectHotel(createSSRClient(cookieStore), verified.hotelId))
+  ) {
+    return renderNotice(GOD_MODE_ENDED, 403);
   }
   const isMarketplace = !state || (verified != null && !verified.ok);
   if (verified != null && !verified.ok) {

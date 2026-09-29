@@ -5,6 +5,7 @@
  * how often.
  */
 
+import { GOD_MODE_OFF } from "@/lib/admin/god-mode";
 import { isUuid } from "@/lib/api-guards";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { roleLabel } from "@/lib/roles";
@@ -64,10 +65,17 @@ export async function gate(hotelId: unknown): Promise<Gate> {
     target_hotel_id: hotelId,
   });
   if (!canManage) {
+    // MAYA staff outside God Mode are told how to turn it on, not a role they lack.
+    const { data: isAdmin } = await supabase.rpc("is_platform_admin");
     return {
       ok: false,
       response: NextResponse.json(
-        { error: `This needs ${roleLabel("revenue_manager")} access or higher on this property.` },
+        {
+          error:
+            isAdmin === true
+              ? GOD_MODE_OFF
+              : `This needs ${roleLabel("revenue_manager")} access or higher on this property.`,
+        },
         { status: 403 },
       ),
     };

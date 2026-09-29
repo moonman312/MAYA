@@ -23,7 +23,16 @@ const STATE_TTL_MS = 15 * 60 * 1000; // 15 minutes
  * Legacy states without an `intent` field verify as "hotel".
  */
 type StatePayload =
-  | { intent?: "hotel"; hotelId: string; pmsType: string; nonce: string; exp: number; from?: "admin" }
+  | {
+      intent?: "hotel";
+      hotelId: string;
+      pmsType: string;
+      nonce: string;
+      exp: number;
+      from?: "admin";
+      /** Started by MAYA staff in God Mode: runs out with the window, and the callback checks again. */
+      support?: true;
+    }
   | { intent: "onboarding"; userId: string; pmsType: string; nonce: string; exp: number };
 
 function base64url(buf: Buffer): string {
@@ -66,15 +75,26 @@ function signPayload(payload: StatePayload): string {
 /**
  * `from: "admin"` marks a connect started in the staff console, which is
  * where its callback returns; everyone else lands back on the dashboard.
+ * `godModeUntilMs` marks one started by MAYA staff in God Mode: the state
+ * runs out no later than their window does, and the callback asks again
+ * whether they may still change the property.
  */
-export function signState(hotelId: string, pmsType: string, from?: "admin"): string {
+export function signState(
+  hotelId: string,
+  pmsType: string,
+  from?: "admin",
+  opts: { godModeUntilMs?: number } = {},
+): string {
+  const support = opts.godModeUntilMs != null && Number.isFinite(opts.godModeUntilMs);
+  const exp = Date.now() + STATE_TTL_MS;
   return signPayload({
     intent: "hotel",
     hotelId,
     pmsType,
     nonce: randomBytes(16).toString("hex"),
-    exp: Date.now() + STATE_TTL_MS,
+    exp: support ? Math.min(exp, opts.godModeUntilMs as number) : exp,
     ...(from ? { from } : {}),
+    ...(support ? { support: true as const } : {}),
   });
 }
 
@@ -90,9 +110,9 @@ export function signOnboardingState(userId: string, pmsType: string): string {
 }
 
 export type StateVerification =
-  | { ok: true; intent: "hotel"; hotelId: string; pmsType: string; from?: "admin" }
+  | { ok: true; intent: "hotel"; hotelId: string; pmsType: string; from?: "admin"; support?: true }
   | { ok: true; intent: "onboarding"; userId: string; pmsType: string }
-  | { ok: false; error: string; expired?: true };
+  | { ok: false; error: string; expired?: true; support?: true };
 
 export function verifyState(state: string, expectedPmsType: string): StateVerification {
   const parts = state.split(".");
@@ -127,7 +147,12 @@ export function verifyState(state: string, expectedPmsType: string): StateVerifi
   if (payload.exp < Date.now()) {
     // Signed by us and simply too old: the one failure the person at the
     // browser caused themselves, by taking longer than STATE_TTL_MS to sign in.
-    return { ok: false, error: "State expired", expired: true };
+    return {
+      ok: false,
+      error: "State expired",
+      expired: true,
+      ...(payload.intent !== "onboarding" && payload.support === true ? { support: true as const } : {}),
+    };
   }
 
   if (payload.intent === "onboarding") {
@@ -147,5 +172,6 @@ export function verifyState(state: string, expectedPmsType: string): StateVerifi
     hotelId: payload.hotelId,
     pmsType: payload.pmsType,
     ...(payload.from === "admin" ? { from: "admin" as const } : {}),
+    ...(payload.support === true ? { support: true as const } : {}),
   };
 }

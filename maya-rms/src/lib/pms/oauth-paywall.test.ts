@@ -21,6 +21,10 @@ const state = vi.hoisted(() => ({
    */
   cookieUserId: null as string | null,
   platformAdmin: false,
+  /** The platform admin holds an open God Mode window, ending at this instant. */
+  godModeUntil: null as string | null,
+  signed: [] as unknown[][],
+  supportChanges: [] as Record<string, unknown>[],
 }));
 
 const RANK: Record<string, number> = { viewer: 10, revenue_manager: 20, general_manager: 30, hotel_admin: 40 };
@@ -38,6 +42,7 @@ vi.mock("@/utils/supabase/server", () => ({
       };
       const chain = {
         select: () => chain,
+        limit: () => chain,
         eq: (col: string, value: unknown) => {
           if (col === "user_id") userId = value;
           return chain;
@@ -60,6 +65,14 @@ vi.mock("@/utils/supabase/server", () => ({
       rpc: async (fn: string) => {
         const rank = state.userId ? (RANK[state.role ?? ""] ?? 0) : 0;
         if (fn === "is_platform_admin") return { data: state.platformAdmin, error: null };
+        if (fn === "god_mode_active") return { data: state.platformAdmin && state.godModeUntil != null, error: null };
+        if (fn === "god_mode_status") {
+          const on = state.platformAdmin && state.godModeUntil != null;
+          return {
+            data: { admin: state.platformAdmin, aal: on ? "aal2" : "aal1", active: on, session_id: on ? "gm-1" : null, expires_at: state.godModeUntil },
+            error: null,
+          };
+        }
         if (fn === "can_manage_hotel") return { data: rank >= RANK.revenue_manager, error: null };
         if (fn === "can_manage_finances") {
           return { data: state.platformAdmin || rank >= RANK.general_manager, error: null };
@@ -72,7 +85,11 @@ vi.mock("@/utils/supabase/server", () => ({
 vi.mock("@/utils/supabase/admin", () => ({
   isAdminConfigured: () => true,
   createAdminClient: () => ({
-    from: () => ({
+    from: (table: string) => ({
+      insert: async (row: Record<string, unknown>) => {
+        if (table === "support_changes") state.supportChanges.push(row);
+        return { error: null };
+      },
       select: () => ({
         eq: () => ({
           maybeSingle: async () => ({
@@ -99,7 +116,10 @@ vi.mock("@/lib/onboarding/step", () => ({
 vi.mock("@/lib/onboarding/connect", () => ({ handleOnboardingConnect: async () => new Response() }));
 vi.mock("@/lib/pms/oauth-state", () => ({
   signOnboardingState: () => "signed-onboarding-state",
-  signState: () => "signed-hotel-state",
+  signState: (...args: unknown[]) => {
+    state.signed.push(args);
+    return "signed-hotel-state";
+  },
   verifyState: () => null,
 }));
 
@@ -116,6 +136,9 @@ beforeEach(() => {
   state.role = null;
   state.cookieUserId = null;
   state.platformAdmin = false;
+  state.godModeUntil = null;
+  state.signed = [];
+  state.supportChanges = [];
   process.env.CLOUDBEDS_CLIENT_ID = "test-client-id";
   process.env.MAYA_INVITE_REDIRECT_BASE = "https://app.example";
 });
@@ -260,6 +283,23 @@ describe("the reconnect link asks for the rank the Reconnect button does", () =>
   it("sends a platform admin on to the PMS", async () => {
     state.platformAdmin = true;
     expect((await reconnect()).status).toBe(302);
+  });
+
+  it("signs a God Mode reconnect to run out with the window, and records it as support's", async () => {
+    state.platformAdmin = true;
+    state.godModeUntil = "2026-09-29T12:30:00.000Z";
+    expect((await reconnect()).status).toBe(302);
+    expect(state.signed).toEqual([["hotel-1", "cloudbeds", undefined, { godModeUntilMs: Date.parse("2026-09-29T12:30:00.000Z") }]]);
+    expect(state.supportChanges).toEqual([
+      expect.objectContaining({ session_id: "gm-1", hotel_id: "hotel-1", table_name: "pms_connections" }),
+    ]);
+  });
+
+  it("signs a member's reconnect as before, with no window", async () => {
+    state.role = "general_manager";
+    expect((await reconnect()).status).toBe(302);
+    expect(state.signed).toEqual([["hotel-1", "cloudbeds", undefined, { godModeUntilMs: undefined }]]);
+    expect(state.supportChanges).toEqual([]);
   });
 
   it("still answers a signed-out caller with 401", async () => {

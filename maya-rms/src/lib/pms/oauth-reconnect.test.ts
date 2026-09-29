@@ -21,11 +21,23 @@ const state = vi.hoisted(() => ({
   storedProperty: null as string | null,
   secretReadFails: false,
   from: undefined as "admin" | undefined,
+  /** The state was signed for MAYA staff in God Mode. */
+  support: false,
+  /** can_manage_finances for the person at the browser when the vendor sends them back. */
+  stillAllowed: true,
+  ssrRpcs: [] as string[],
 }));
 
 vi.mock("@/lib/billing/stripe", () => ({ isStripeConfigured: () => state.stripe }));
 vi.mock("@/utils/supabase/admin", () => ({ createAdminClient: () => state.db.client }));
-vi.mock("@/utils/supabase/server", () => ({ createClient: () => null }));
+vi.mock("@/utils/supabase/server", () => ({
+  createClient: () => ({
+    rpc: async (fn: string) => {
+      state.ssrRpcs.push(fn);
+      return { data: fn === "can_manage_finances" ? state.stillAllowed : null, error: null };
+    },
+  }),
+}));
 vi.mock("@/lib/pms/cloudbeds-webhooks", () => ({ ensureAppStateWebhook: async () => ({ ok: true }) }));
 vi.mock("../../../supabase/functions/_shared/cloudbeds/client", () => ({
   cloudbedsListPropertiesOrThrow: async () => {
@@ -43,6 +55,7 @@ vi.mock("@/lib/pms/oauth-state", () => ({
     hotelId: "hotel-1",
     pmsType: "cloudbeds",
     ...(state.from ? { from: state.from } : {}),
+    ...(state.support ? { support: true } : {}),
   }),
 }));
 
@@ -117,6 +130,9 @@ beforeEach(() => {
   state.storedProperty = null;
   state.secretReadFails = false;
   state.from = undefined;
+  state.support = false;
+  state.stillAllowed = true;
+  state.ssrRpcs = [];
   process.env.CLOUDBEDS_CLIENT_ID = "id";
   process.env.CLOUDBEDS_CLIENT_SECRET = "secret";
   process.env.MAYA_INVITE_REDIRECT_BASE = "https://app.example";
@@ -306,6 +322,38 @@ describe("where a successful reconnect lands", () => {
     property({ claimed: true, purged: false });
     const res = await callback();
     expect(res.headers.get("location")).toBe("https://app.example/onboarding");
+  });
+});
+
+describe("a reconnect MAYA staff started in God Mode", () => {
+  it("does nothing once their window has ended: no grant spent, no credential, no connection", async () => {
+    state.support = true;
+    state.from = "admin";
+    state.stillAllowed = false;
+    const db = property({ claimed: false, purged: false, isActive: true, inApp: true, connection: "disconnected" });
+    const res = await callback();
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain("God Mode ended before the sign-in finished");
+    expect(state.ssrRpcs).toEqual(["can_manage_finances"]);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(storedSecret()).toBeUndefined();
+    expect(db.tables.pms_connections[0]).toMatchObject({ status: "disconnected" });
+  });
+
+  it("reconnects while the window is still open", async () => {
+    state.support = true;
+    state.from = "admin";
+    property({ claimed: false, purged: false, isActive: true, inApp: true, connection: "disconnected" });
+    const res = await callback();
+    expect(res.headers.get("location")).toBe("https://app.example/admin/hotels/hotel-1?pmsConnected=1");
+    expect(state.ssrRpcs).toEqual(["can_manage_finances"]);
+    expect(storedSecret()).toBeDefined();
+  });
+
+  it("asks nothing of a member's reconnect, as before", async () => {
+    property({ claimed: false, purged: false, isActive: true, inApp: true, connection: "disconnected" });
+    await callback();
+    expect(state.ssrRpcs).toEqual([]);
   });
 });
 

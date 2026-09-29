@@ -15,6 +15,9 @@ import { NextResponse } from "next/server";
 export const GOD_MODE_OFF =
   "God Mode is off. Turn it on from the Command Center to change this property.";
 
+/** What the staff role route says outside God Mode. */
+export const GOD_MODE_OFF_FOR_STAFF = "God Mode is off. Turn it on to change who is MAYA staff.";
+
 export type GodModeStatus = {
   /** The caller is a platform admin. False for everyone else, and God Mode is then never on. */
   admin: boolean;
@@ -58,10 +61,11 @@ export type GodModeSession = { id: string; startedAt: string | null; expiresAt: 
  */
 export async function requireGodMode(
   ssr: SupabaseClient,
+  refusal: string = GOD_MODE_OFF,
 ): Promise<{ ok: true; session: GodModeSession } | { ok: false; response: NextResponse }> {
   const status = await godModeStatus(ssr);
   if (!status.active || !status.sessionId) {
-    return { ok: false, response: NextResponse.json({ error: GOD_MODE_OFF }, { status: 403 }) };
+    return { ok: false, response: NextResponse.json({ error: refusal }, { status: 403 }) };
   }
   return { ok: true, session: { id: status.sessionId, startedAt: status.startedAt, expiresAt: status.expiresAt } };
 }

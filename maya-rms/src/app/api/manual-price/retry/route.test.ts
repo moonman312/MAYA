@@ -21,8 +21,10 @@ const VALUE_REFUSED = "Cloudbeds patchRate failed (400): Rate must be greater th
 const state = vi.hoisted(() => ({
   userId: null as string | null,
   canManage: true,
+  isAdmin: false,
   throttled: false,
   fake: null as unknown,
+  recorded: [] as Record<string, unknown>[],
 }));
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
@@ -37,9 +39,21 @@ vi.mock("@/utils/supabase/server", () => ({
     auth: {
       getUser: async () => ({ data: { user: state.userId ? { id: state.userId } : null } }),
     },
-    rpc: async () => ({ data: state.canManage, error: null }),
+    rpc: async (fn: string) => ({ data: fn === "is_platform_admin" ? state.isAdmin : state.canManage, error: null }),
   }),
 }));
+// Whether the caller is support in God Mode is recordIfSupport's own call
+// (lib/admin/god-mode.test.ts); here, what the route asks it to record.
+vi.mock("@/lib/admin/god-mode", async () => {
+  const real = await vi.importActual<typeof import("@/lib/admin/god-mode")>("@/lib/admin/god-mode");
+  return {
+    ...real,
+    recordIfSupport: async (_ssr: unknown, _admin: unknown, change: Record<string, unknown>) => {
+      state.recorded.push(change);
+      return true;
+    },
+  };
+});
 vi.mock("@/utils/supabase/admin", () => ({
   isAdminConfigured: () => true,
   createAdminClient: () => (state.fake as ReturnType<typeof fakeSupabase>).client,
@@ -108,7 +122,9 @@ beforeEach(() => {
   vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
   state.userId = USER;
   state.canManage = true;
+  state.isAdmin = false;
   state.throttled = false;
+  state.recorded = [];
   state.fake = seed({ rate_updates: [failed(VALUE_REFUSED, 1)] });
   fetchSpy = vi.fn(async () => new Response("{}"));
   vi.stubGlobal("fetch", fetchSpy);
@@ -128,6 +144,16 @@ describe("POST /api/manual-price/retry — doors", () => {
     state.userId = null;
     expect((await post()).status).toBe(401);
     expect(ledgerRow().retry_requested_at).toBeNull();
+  });
+
+  it("403 for MAYA staff outside God Mode, saying how to turn it on", async () => {
+    state.canManage = false;
+    state.isAdmin = true;
+    const res = await post();
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "God Mode is off. Turn it on from the Command Center to change this property." });
+    expect(ledgerRow().retry_requested_at).toBeNull();
+    expect(state.recorded).toEqual([]);
   });
 
   it("403 below Revenue Manager, with the same sentence as typing a price", async () => {
@@ -161,6 +187,18 @@ describe("POST /api/manual-price/retry — one more try", () => {
     expect(ledgerRow()).toMatchObject({ status: "failed", attempts: 1, retry_requested_at: NOW.toISOString() });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(fetchSpy.mock.calls[0][0]).toBe("https://proj.supabase.co/functions/v1/cloudbeds-scheduled-sync");
+    // For MAYA staff in God Mode this is support's change; recordIfSupport decides whether it is.
+    expect(state.recorded).toEqual([
+      {
+        userId: USER,
+        hotelId: HOTEL,
+        tableName: "rate_updates",
+        rowId: `${ROOM}:${NIGHT}`,
+        op: "update",
+        after: { room_type_id: ROOM, stay_date: NIGHT, retry_requested_at: NOW.toISOString() },
+        summary: `Asked for one more send of the price on ${NIGHT}.`,
+      },
+    ]);
   });
 
   it("does the same for a price whose tries at that price are used", async () => {
@@ -178,6 +216,7 @@ describe("POST /api/manual-price/retry — one more try", () => {
     expect(await res.json()).toEqual({ ok: true, state: "retrying", alreadyRequested: true });
     expect(ledgerRow().retry_requested_at).toBe(NOW.toISOString());
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(state.recorded).toHaveLength(1);
   });
 
   it("a press after the try it asked for failed again is a new press", async () => {

@@ -1,3 +1,4 @@
+import { recordIfSupport } from "@/lib/admin/god-mode";
 import { findPendingHotelSubscription } from "@/lib/billing/pending-hotel";
 import { requireSupabaseHotelRank } from "@/lib/require-supabase-hotel";
 import { isStripeConfigured, stripeClient } from "@/lib/billing/stripe";
@@ -31,6 +32,11 @@ import type Stripe from "stripe";
  * The return URL comes from configuration for the same reason it does in
  * lib/pms/registry.ts: a Host header is attacker-controlled and this one becomes
  * a link Stripe sends the customer to.
+ *
+ * MAYA staff pass the General Manager bar only in God Mode, and opening the
+ * portal for them is recorded as support's (support_changes): whatever they
+ * then do in Stripe reaches MAYA only through the webhook, which cannot say
+ * who did it.
  *
  * Body { pending: true } is the other door: the owner of a property that has
  * paid but not connected a PMS yet, which the active-hotel lookup cannot see.
@@ -85,6 +91,22 @@ export async function POST(request: Request) {
       return_url,
       ...(flow ? { flow_data: flow } : {}),
     });
+    if (isAdminConfigured()) {
+      await recordIfSupport(ctx.supabase, createAdminClient(), {
+        userId: ctx.userId,
+        hotelId: ctx.hotelId,
+        tableName: "hotel_subscriptions",
+        rowId: sub.stripe_subscription_id ? String(sub.stripe_subscription_id) : customer,
+        op: "update",
+        after: { portal: flow?.type ?? "full" },
+        summary:
+          flow?.type === "subscription_update"
+            ? "Opened the billing portal for this property's plan."
+            : flow
+              ? "Opened the billing portal for the card on file."
+              : "Opened the billing portal.",
+      });
+    }
     return NextResponse.json({ url: session.url });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not open the billing portal.";

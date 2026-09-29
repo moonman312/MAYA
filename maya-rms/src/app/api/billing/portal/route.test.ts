@@ -26,6 +26,8 @@ const state = vi.hoisted(() => ({
   portalCalls: [] as Record<string, unknown>[],
   // What sessions.create does, per call, in order. Missing = succeed.
   portalPlan: [] as Array<null | (() => never)>,
+  // What recordIfSupport was asked to record (it decides whether the caller is support).
+  recorded: [] as Record<string, unknown>[],
 }));
 
 function fakeSupabase() {
@@ -81,7 +83,13 @@ vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
 vi.mock("@/utils/supabase/shared", () => ({ isSupabaseConfigured: () => true }));
 vi.mock("@/utils/supabase/server", () => ({ createClient: () => fakeSupabase() }));
 vi.mock("@/lib/require-supabase-hotel", () => ({
-  requireSupabaseHotelRank: async () => ({ ok: true, supabase: fakeSupabase(), hotelId: HOTEL }),
+  requireSupabaseHotelRank: async () => ({ ok: true, supabase: fakeSupabase(), hotelId: HOTEL, userId: USER }),
+}));
+vi.mock("@/lib/admin/god-mode", () => ({
+  recordIfSupport: async (_ssr: unknown, _admin: unknown, change: Record<string, unknown>) => {
+    state.recorded.push(change);
+    return true;
+  },
 }));
 vi.mock("@/utils/supabase/admin", () => ({
   createAdminClient: () => fakeSupabase(),
@@ -138,6 +146,7 @@ beforeEach(() => {
   state.adminConfigured = true;
   state.portalCalls = [];
   state.portalPlan = [];
+  state.recorded = [];
   vi.stubEnv("MAYA_INVITE_REDIRECT_BASE", "https://maya.example.com/");
 });
 
@@ -157,6 +166,29 @@ describe("a property billed on its own customer", () => {
     const res = await POST(portalRequest());
     expect(res.status).toBe(404);
     expect(state.portalCalls).toHaveLength(0);
+    expect(state.recorded).toEqual([]);
+  });
+
+  it("puts every portal it opens on record for support (God Mode staff), and nothing when Stripe refused", async () => {
+    state.tables = { hotel_subscriptions: [subscribed(HOTEL)] };
+    expect((await POST(portalRequest())).status).toBe(200);
+    expect(state.recorded).toEqual([
+      expect.objectContaining({
+        userId: USER,
+        hotelId: HOTEL,
+        tableName: "hotel_subscriptions",
+        rowId: `sub_${HOTEL}`,
+        summary: "Opened the billing portal.",
+      }),
+    ]);
+
+    state.recorded = [];
+    state.portalPlan = [throwing(new Error("Stripe is down"))];
+    state.portalCalls = [];
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect((await POST(portalRequest())).status).toBe(502);
+    errors.mockRestore();
+    expect(state.recorded).toEqual([]);
   });
 });
 

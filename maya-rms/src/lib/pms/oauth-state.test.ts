@@ -85,6 +85,21 @@ describe("oauth state", () => {
     expect(verifyState(signState("hotel-123", "cloudbeds"), "cloudbeds")).not.toHaveProperty("from");
   });
 
+  it("runs a God Mode reconnect out with the window, and says so", async () => {
+    const { signState, verifyState } = await mod();
+    const soon = signState("hotel-123", "cloudbeds", "admin", { godModeUntilMs: Date.now() + 60_000 });
+    expect(verifyState(soon, "cloudbeds")).toMatchObject({ ok: true, from: "admin", support: true });
+    const payload = JSON.parse(Buffer.from(soon.split(".")[0].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8"));
+    expect(payload.exp).toBeLessThanOrEqual(Date.now() + 60_000);
+
+    const ended = signState("hotel-123", "cloudbeds", undefined, { godModeUntilMs: Date.now() - 1_000 });
+    expect(verifyState(ended, "cloudbeds")).toMatchObject({ ok: false, expired: true, support: true });
+
+    // A member's reconnect is unchanged: 15 minutes, no flag.
+    const member = signState("hotel-123", "cloudbeds");
+    expect(verifyState(member, "cloudbeds")).not.toHaveProperty("support");
+  });
+
   it("only calls a state expired when it is ours and too old", async () => {
     const { signState, verifyState } = await mod();
     const state = signState("hotel-123", "think");

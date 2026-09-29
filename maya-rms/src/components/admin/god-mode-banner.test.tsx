@@ -70,11 +70,11 @@ describe("GodModeBanner", () => {
     expect(calls).toEqual([]);
   });
 
-  it("shows the property and counts the minutes down from the window's own end", async () => {
+  it("says it covers every property, names the one on screen, and counts the minutes down from the window's own end", async () => {
     answer = () => on(12);
     render(<GodModeBanner />);
     await settle();
-    expect(screen.getByRole("status").textContent).toContain("God Mode is on for Harbour Inn: 12 min left");
+    expect(screen.getByRole("status").textContent).toContain("God Mode is on for all properties, Harbour Inn included: 12 min left");
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(61_000);
