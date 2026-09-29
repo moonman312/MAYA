@@ -79,9 +79,9 @@ describe("Finish", () => {
   });
 
   it("stays and says so when the save did not go through", async () => {
-    completeReply = () => json({ error: "connection reset" }, 500);
+    completeReply = () => json({ error: "Your review couldn't be marked as finished. Reload the page and try again." }, 409);
     await pressFinish();
-    await screen.findByText("connection reset");
+    await screen.findByText("Your review couldn't be marked as finished. Reload the page and try again.");
     expect(push).not.toHaveBeenCalled();
     expect(screen.queryByRole("link", { name: "Go to my dashboard" })).toBeNull();
   });

@@ -26,7 +26,7 @@ export async function POST() {
   }
   const hotelId = await resolveAccessibleHotelId(supabase);
   if (!hotelId) {
-    return NextResponse.json({ error: "No hotel" }, { status: 400 });
+    return NextResponse.json({ error: "You don't have access to this property." }, { status: 400 });
   }
   const { data: canManage } = await supabase.rpc("can_manage_hotel", { target_hotel_id: hotelId });
   if (!canManage) {
@@ -54,8 +54,11 @@ export async function POST() {
     })
     .eq("hotel_id", hotelId)
     .select("hotel_id");
+  // The review screen puts this answer under Finish, so the database's own
+  // words stay in the log.
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error(JSON.stringify({ fn: "onboarding/complete", hotelId, error: error.message }));
+    return NextResponse.json({ error: "Couldn't finish the review. Try again." }, { status: 500 });
   }
   if (!saved?.length) {
     return NextResponse.json(

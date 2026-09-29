@@ -6,6 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
+  hotelId: "hotel-1" as string | null,
   canManage: true as boolean,
   updatedRows: [{ hotel_id: "hotel-1" }] as Record<string, unknown>[],
   updateError: null as { message: string } | null,
@@ -14,7 +15,7 @@ const state = vi.hoisted(() => ({
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
 vi.mock("@/utils/supabase/shared", () => ({ isSupabaseConfigured: () => true }));
-vi.mock("@/lib/hotel-context", () => ({ resolveAccessibleHotelId: async () => "hotel-1" }));
+vi.mock("@/lib/hotel-context", () => ({ resolveAccessibleHotelId: async () => state.hotelId }));
 vi.mock("@/utils/supabase/server", () => ({
   createClient: () => ({
     auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) },
@@ -44,6 +45,7 @@ vi.mock("@/utils/supabase/server", () => ({
 const { POST } = await import("./route");
 
 beforeEach(() => {
+  state.hotelId = "hotel-1";
   state.canManage = true;
   state.updatedRows = [{ hotel_id: "hotel-1" }];
   state.updateError = null;
@@ -74,10 +76,21 @@ describe("finishing the review", () => {
     expect((await res.json()).ok).toBeUndefined();
   });
 
-  it("passes a failed write on", async () => {
+  it("says a failed write in plain words, and keeps the database's own in the log", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     state.updateError = { message: "connection reset" };
     const res = await POST();
     expect(res.status).toBe(500);
-    expect((await res.json()).error).toBe("connection reset");
+    expect((await res.json()).error).toBe("Couldn't finish the review. Try again.");
+    expect(String(logged.mock.calls[0]?.[0])).toContain("connection reset");
+    logged.mockRestore();
+  });
+
+  it("says so plainly when no property resolves, and writes nothing", async () => {
+    state.hotelId = null;
+    const res = await POST();
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("You don't have access to this property.");
+    expect(state.updates).toHaveLength(0);
   });
 });
