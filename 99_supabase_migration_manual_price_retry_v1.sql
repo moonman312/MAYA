@@ -29,9 +29,10 @@
 --
 -- Deploy order: either. Code first: the push's ledger read names a column that
 -- is not there yet, is refused once, and reads again without it, so no cell is
--- taken as asked for; the retry route answers "This needs a database update
--- first." This file first: the column is there and nothing writes it until the
--- code lands.
+-- taken as asked for; the retry route answers with a 503 and the plain
+-- "Something on our side isn't ready yet. Email us and tell us which page you
+-- were on." This file first: the column is there and nothing writes it until
+-- the code lands.
 --
 -- NOT mirrored into 02_supabase_schema.sql yet — fold it in on the next
 -- schema consolidation pass.

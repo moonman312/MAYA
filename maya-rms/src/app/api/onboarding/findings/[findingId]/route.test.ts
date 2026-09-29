@@ -235,6 +235,19 @@ describe("findings confirm route: claims before side effects", () => {
     expect(tables.get("hotel_closed_periods") ?? []).toHaveLength(0);
   });
 
+  it("tells MAYA staff outside God Mode to turn it on, rather than which role they lack", async () => {
+    const { client, tables } = seedClosedPeriodFinding();
+    client.rpc = async (name: string) => ({
+      data: name === "can_manage_hotel" ? false : name === "is_platform_admin" ? true : null,
+      error: null,
+    });
+    state.client = client;
+    const res = await post({ action: "confirm" });
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("God Mode is off. Turn it on from the Command Center to change this property.");
+    expect(tables.get("onboarding_findings")?.[0]).toMatchObject({ status: "proposed" });
+  });
+
   it("rejects confirming a finding that was already dismissed", async () => {
     const { client, tables } = seedClosedPeriodFinding("dismissed");
     state.client = client;

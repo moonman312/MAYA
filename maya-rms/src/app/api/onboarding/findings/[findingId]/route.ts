@@ -8,7 +8,7 @@ import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { recordIfSupport } from "@/lib/admin/god-mode";
+import { GOD_MODE_OFF, recordIfSupport } from "@/lib/admin/god-mode";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { classifyRoomType } from "../../../room-types/classify";
@@ -292,9 +292,15 @@ export async function POST(
   // Row security turns a lower role's claim below into an update of no rows,
   // which reads exactly like a finding someone else already resolved. Ask
   // first, so the card can say why it can't be answered from this login.
+  // MAYA staff outside God Mode are told how to turn it on rather than which
+  // role they lack, as the rules routes do.
   const { data: canManage } = await supabase.rpc("can_manage_hotel", { target_hotel_id: hotelId });
   if (!canManage) {
-    return NextResponse.json({ error: "Only a Revenue Manager or above can answer this." }, { status: 403 });
+    const { data: isAdmin } = await supabase.rpc("is_platform_admin");
+    return NextResponse.json(
+      { error: isAdmin === true ? GOD_MODE_OFF : "Only a Revenue Manager or above can answer this." },
+      { status: 403 },
+    );
   }
 
   const { data: finding } = await supabase
