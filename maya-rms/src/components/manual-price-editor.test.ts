@@ -43,9 +43,11 @@ describe("describeSave", () => {
     );
     // A response without the status reads the same.
     expect(paused()).toBe("Saved. Nothing is sent while MAYA's work is paused. Update your card on the Billing page.");
-    expect(paused("canceled")).toBe(
-      "Saved. Nothing is sent while MAYA's work is paused. Restart your subscription on the Billing page.",
-    );
+    for (const ended of ["canceled", "incomplete", "incomplete_expired"]) {
+      expect(paused(ended)).toBe(
+        "Saved. Nothing is sent while MAYA's work is paused. Restart your subscription on the Billing page.",
+      );
+    }
     expect(paused("paused")).toBe(
       "Saved. Nothing is sent while MAYA's work is paused. Email us and we'll get it running again.",
     );

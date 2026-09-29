@@ -44,17 +44,16 @@ type SaveResponse = {
 const DEFAULT_WINDOW_DAYS = 60;
 
 /**
- * The way back when a stopped subscription holds everything, by status: a
- * card for an unpaid one, a restart for one that has ended, and a word with
- * us for one on hold.
+ * The way back when a stopped subscription holds everything, by status, as
+ * the Billing page tells it (billing/account.ts headlineFor): a card revives
+ * an unpaid one, one on hold is a word with us, and any other has ended and
+ * needs a restart. No status (an older server) reads as unpaid.
  */
 function billingPausedCopy(status: string | undefined): string {
   const lead = "Saved. Nothing is sent while MAYA's work is paused.";
+  if (status === undefined || status === "unpaid") return `${lead} Update your card on the Billing page.`;
   if (status === "paused") return `${lead} Email us and we'll get it running again.`;
-  if (status === "canceled" || status === "incomplete_expired") {
-    return `${lead} Restart your subscription on the Billing page.`;
-  }
-  return `${lead} Update your card on the Billing page.`;
+  return `${lead} Restart your subscription on the Billing page.`;
 }
 
 function pushedCopy(
