@@ -376,7 +376,7 @@ describe("add_rule: an accepted suggestion", () => {
       status: "proposed",
       payload: {
         suggestion_type: "add_rule",
-        room_type_ids: ["rt1"],
+        room_type_ids: [RT1],
         spec: {
           priority: 100,
           condition: { occupancy_operator: "gt", occupancy_threshold: 0.6 },
@@ -386,17 +386,23 @@ describe("add_rule: an accepted suggestion", () => {
         },
       },
     });
-    const { client, tables } = fakeSupabase({
+    const roomTypes = [{ id: RT1, hotel_id: HOTEL, is_active: true, counts_as_room: true }];
+    const weekend = fakeSupabase({
+      room_types: roomTypes,
       onboarding_findings: [finding("f1", { name: "Filling-up raise (Fri and Sat)", dow_mask: 48 })],
     });
-    state.client = client;
+    state.client = weekend.client;
     expect((await post({ action: "confirm" })).status).toBe(200);
-    expect(tables.get("pricing_rules")?.[0]).toMatchObject({ name: "Filling-up raise (Fri and Sat)", dow_mask: 48 });
+    expect(weekend.rpcs.find((r) => r.name === "save_rule")!.args).toMatchObject({
+      p_fields: expect.objectContaining({ name: "Filling-up raise (Fri and Sat)", dow_mask: 48 }),
+    });
 
-    const bad = fakeSupabase({ onboarding_findings: [finding("f1", { name: "Odd days", dow_mask: 400 })] });
+    const bad = fakeSupabase({ room_types: roomTypes, onboarding_findings: [finding("f1", { name: "Odd days", dow_mask: 400 })] });
     state.client = bad.client;
     expect((await post({ action: "confirm" })).status).toBe(200);
-    expect(bad.tables.get("pricing_rules")?.[0]).toMatchObject({ name: "Odd days", dow_mask: 127 });
+    expect(bad.rpcs.find((r) => r.name === "save_rule")!.args).toMatchObject({
+      p_fields: expect.objectContaining({ name: "Odd days", dow_mask: 127 }),
+    });
   });
 });
 
