@@ -1,7 +1,8 @@
 "use client";
 
 import { HOVER_BRIDGE, LearnMore } from "@/components/deep-links/help-links";
-import { useEffect, useId, useRef, useState } from "react";
+import { links } from "@/lib/deep-links";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 /**
  * Type a price for one room type on one night (or a run of nights) and it is
@@ -11,6 +12,14 @@ import { useEffect, useId, useRef, useState } from "react";
  * What a manual price actually does (pauses rules that already fired, later
  * rules still apply on top, clearing hands the night back to your rules) lives
  * behind the "?" — it matters, but not on every card, every time.
+ *
+ * The line under the box tells the truth about sending. The save's own
+ * verdict comes first; then, on a live Cloudbeds or Think property, the
+ * night's send status (/api/manual-price/send-status, read from the push's
+ * ledger with the push's own retry rules) takes over once it says more: sent,
+ * still being retried with the real count left, or stopped, with Try again
+ * and a link to the sending problem in the change log. Read a few times after
+ * a save and once on opening a night with a typed price, never on a loop.
  */
 
 type Pushed =
@@ -21,7 +30,30 @@ type Pushed =
   | "zero_not_sent"
   | "billing_paused"
   | "reconnect"
+  | "connection_error"
   | "saved";
+
+/** What /api/manual-price/send-status says about the night (lib/pms/send-status.ts). */
+export type SendStatus = {
+  applicable: boolean;
+  state: "pending" | "sending" | "sent" | "retrying" | "failed" | "skipped" | null;
+  retriesLeft: number | null;
+  attempts: number | null;
+  lastAttemptAt: string | null;
+  retryRequested: boolean;
+  pmsType: string | null;
+  pmsName: string | null;
+  incidentId: string | null;
+  maxAttempts: number;
+  canRetry: boolean;
+};
+
+/** When the status is read again after a save whose price is on its way. Then it stops. */
+export const REFRESH_AFTER_SAVE_MS = [20_000, 60_000, 180_000];
+/** After Try again: closer together, until the state leaves "retrying". */
+export const REFRESH_AFTER_RETRY_MS = [5_000, 15_000, 40_000, 90_000];
+/** Save verdicts after which the status is worth reading: the price is going, or waiting on a read. */
+const REFRESHED_VERDICTS = new Set<Pushed>(["nudged", "next_cycle", "connection_error"]);
 
 type SaveResponse = {
   ok: boolean;
@@ -89,6 +121,8 @@ function pushedCopy(
       return billingPausedCopy(billingStatus);
     case "reconnect":
       return "Saved. It will be sent once you reconnect.";
+    case "connection_error":
+      return `Saved. ${pmsName} isn't answering MAYA right now. MAYA keeps trying to reach it and sends this price as soon as a read works.`;
     case "saved":
     default:
       return "Saved.";
@@ -153,6 +187,44 @@ export function describeClear(cells: number | undefined, passed?: boolean): stri
     : "Cleared. Your rules price this night again.";
 }
 
+/**
+ * The line the night's send status puts under the box, or null when the
+ * save's own line should stay: nothing is sent to this property, the push
+ * has not reached the price yet, or MAYA's own check held it back (the save
+ * already says so for a 0). The count is the server's, never a guess here.
+ * Exported for tests.
+ */
+export function sendStatusLine(status: Pick<SendStatus, "applicable" | "state" | "retriesLeft" | "pmsName">, pmsName: string): string | null {
+  if (!status.applicable) return null;
+  const pms = status.pmsName ?? pmsName;
+  switch (status.state) {
+    case "sent":
+      return `Sent to ${pms}.`;
+    case "sending":
+      return `Sending to ${pms} now.`;
+    case "retrying": {
+      const n = status.retriesLeft ?? 1;
+      return `Saved. It couldn't be sent yet. MAYA will retry ${n} more time${n === 1 ? "" : "s"}.`;
+    }
+    case "failed":
+      return `This price couldn't be sent to ${pms}.`;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Where "See the error log" goes: the sending problem this night is filed
+ * under in the change log, or the change log itself when none is shown yet.
+ * A full navigation, so the dashboard reads the arrival and highlights it.
+ * Exported for tests.
+ */
+export function errorLogHref(incidentId: string | null): string {
+  return incidentId
+    ? links.internalHref({ dest: "changelog.problem", params: { problem: incidentId } })
+    : links.internalHref({ dest: "changelog", params: {} });
+}
+
 async function readError(res: Response, fallback: string): Promise<string> {
   try {
     const body = (await res.json()) as { error?: string };
@@ -209,6 +281,8 @@ export function ManualPriceEditor({
   const [through, setThrough] = useState(linkedThrough ?? stayDate);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [status, setStatus] = useState<SendStatus | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const passed = hotelToday != null && stayDate < hotelToday;
 
   // A save or a live refresh can change what the night is worth; follow it,
@@ -218,6 +292,53 @@ export function ManualPriceEditor({
     setValue(prefill != null ? String(prefill) : "");
   }, [prefill]);
 
+  // The status reads that are still to come, and the newest one started:
+  // only its answer is shown, so a slow early read never overwrites a later one.
+  const timers = useRef<number[]>([]);
+  const statusSeq = useRef(0);
+  const retryInFlight = useRef(false);
+  const clearTimers = useCallback(() => {
+    for (const t of timers.current) window.clearTimeout(t);
+    timers.current = [];
+  }, []);
+  useEffect(() => clearTimers, [clearTimers]);
+
+  const refreshStatus = useCallback(async (): Promise<SendStatus | null> => {
+    const seq = ++statusSeq.current;
+    try {
+      const q = new URLSearchParams({ hotelId, roomTypeId, date: stayDate });
+      const res = await fetch(`/api/manual-price/send-status?${q.toString()}`);
+      if (!res.ok) return null;
+      const body = (await res.json()) as SendStatus;
+      if (seq !== statusSeq.current) return null;
+      setStatus(body);
+      return body;
+    } catch {
+      return null;
+    }
+  }, [hotelId, roomTypeId, stayDate]);
+
+  /** Reads the status at each delay, stopping early once `done` says the answer is final. */
+  function scheduleRefreshes(delaysMs: readonly number[], done?: (s: SendStatus) => boolean) {
+    clearTimers();
+    for (const ms of delaysMs) {
+      timers.current.push(
+        window.setTimeout(() => {
+          void refreshStatus().then((s) => {
+            if (s && done?.(s)) clearTimers();
+          });
+        }, ms),
+      );
+    }
+  }
+
+  // Once, on opening a night that already has a typed price: what became of
+  // it. Not for a rate the hotel changed in its PMS, which MAYA never sent.
+  const openedWith = useRef(manualPrice);
+  useEffect(() => {
+    if (openedWith.current && openedWith.current.source !== "pms") void refreshStatus();
+  }, [refreshStatus]);
+
   const parsed = Number(value);
   const valueOk = value.trim() !== "" && Number.isFinite(parsed) && parsed >= 0;
   const throughOk = !rangeOpen || (through >= stayDate && /^\d{4}-\d{2}-\d{2}$/.test(through));
@@ -226,6 +347,9 @@ export function ManualPriceEditor({
     if (!valueOk || !throughOk || busy) return;
     setBusy(true);
     setMessage(null);
+    // A new price: whatever the last one's status was, it is not this one's.
+    clearTimers();
+    setStatus(null);
     try {
       const res = await fetch("/api/manual-price", {
         method: "POST",
@@ -244,6 +368,7 @@ export function ManualPriceEditor({
       }
       const body = (await res.json()) as SaveResponse;
       setMessage({ kind: "ok", text: describeSave(body, pmsName) });
+      if (REFRESHED_VERDICTS.has(body.pushed)) scheduleRefreshes(REFRESH_AFTER_SAVE_MS);
       onSaved();
     } catch {
       setMessage({ kind: "error", text: "Couldn't reach MAYA. Try again." });
@@ -252,10 +377,48 @@ export function ManualPriceEditor({
     }
   }
 
+  /**
+   * One more send of a price the PMS refused. The server stamps the request
+   * once, so a second press while one is pending sends nothing twice; here
+   * the button is held while the request is out, and a click that lands
+   * anyway is dropped.
+   */
+  async function retry() {
+    if (retryInFlight.current || !status?.canRetry) return;
+    retryInFlight.current = true;
+    setRetrying(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/manual-price/retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hotelId, roomTypeId, date: stayDate }),
+      });
+      if (res.status === 409) {
+        // The night moved on since the line was read: show where it is now.
+        await refreshStatus();
+        return;
+      }
+      if (!res.ok) {
+        setMessage({ kind: "error", text: await readError(res, "Couldn't ask for another try.") });
+        return;
+      }
+      setStatus((s) => (s ? { ...s, state: "retrying", retriesLeft: 1, retryRequested: true } : s));
+      scheduleRefreshes(REFRESH_AFTER_RETRY_MS, (s) => s.state !== "retrying");
+    } catch {
+      setMessage({ kind: "error", text: "Couldn't reach MAYA. Try again." });
+    } finally {
+      retryInFlight.current = false;
+      setRetrying(false);
+    }
+  }
+
   async function clear() {
     if (busy) return;
     setBusy(true);
     setMessage(null);
+    clearTimers();
+    setStatus(null);
     try {
       const res = await fetch("/api/manual-price", {
         method: "DELETE",
@@ -280,6 +443,10 @@ export function ManualPriceEditor({
       setBusy(false);
     }
   }
+
+  // The status speaks once it says more than the save did; an error of the
+  // save or clear itself always shows.
+  const statusLine = status ? sendStatusLine(status, pmsName) : null;
 
   return (
     <div className="mt-2 border-t border-slate-800 pt-2">
@@ -335,7 +502,7 @@ export function ManualPriceEditor({
             through…
           </button>
         )}
-        <ManualPriceHelp pmsName={pmsName} />
+        <ManualPriceHelp pmsName={pmsName} retries={status?.applicable ? { max: status.maxAttempts, canRetry: status.canRetry } : null} />
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <button
@@ -358,7 +525,30 @@ export function ManualPriceEditor({
           </button>
         ) : null}
       </div>
-      {message ? (
+      {statusLine && message?.kind !== "error" ? (
+        <div className="mt-2 text-xs">
+          <p className={status?.state === "sent" || status?.state === "sending" ? "text-emerald-300" : "text-amber-300"} role="status">
+            {statusLine}
+          </p>
+          {status?.state === "failed" ? (
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              {status.canRetry ? (
+                <button
+                  type="button"
+                  disabled={retrying}
+                  onClick={() => void retry()}
+                  className="cursor-pointer rounded border border-amber-500/60 px-2 py-0.5 text-xs font-medium text-amber-200 hover:border-amber-400 disabled:opacity-60"
+                >
+                  Try again
+                </button>
+              ) : null}
+              <a href={errorLogHref(status.incidentId)} className="text-xs text-sky-400 underline decoration-dotted hover:text-sky-300">
+                See the error log
+              </a>
+            </div>
+          ) : null}
+        </div>
+      ) : message ? (
         <p
           className={`mt-2 text-xs ${message.kind === "ok" ? "text-emerald-300" : "text-rose-300"}`}
           role={message.kind === "error" ? "alert" : "status"}
@@ -376,7 +566,14 @@ export function ManualPriceEditor({
  * twenty-line popover beat a helper component with a content prop nobody
  * else needs yet.
  */
-function ManualPriceHelp({ pmsName }: { pmsName: string }) {
+function ManualPriceHelp({
+  pmsName,
+  retries,
+}: {
+  pmsName: string;
+  /** How sending is retried, once the night's status has been read (the count is the server's). Null before that. */
+  retries: { max: number; canRetry: boolean } | null;
+}) {
   const [pinned, setPinned] = useState(false);
   const [hovered, setHovered] = useState(false);
   const wrapRef = useRef<HTMLSpanElement>(null);
@@ -448,6 +645,12 @@ function ManualPriceHelp({ pmsName }: { pmsName: string }) {
                 for an hour.
               </span>
               <span className="block">Clear hands the night back to your rules.</span>
+              {retries ? (
+                <span className="block">
+                  A price {pmsName} doesn&apos;t take is sent again, up to {retries.max} times at that price, then once a day.
+                  {retries.canRetry ? " Try again sends it once more now." : ""}
+                </span>
+              ) : null}
             </span>
             <LearnMore panel="manual-price" onBlurOut={blurOut} />
           </span>

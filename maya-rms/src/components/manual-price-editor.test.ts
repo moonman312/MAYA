@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeClear, describeSave, manualPriceBadge } from "./manual-price-editor";
+import { describeClear, describeSave, errorLogHref, manualPriceBadge, sendStatusLine } from "./manual-price-editor";
 
 describe("manualPriceBadge", () => {
   it("says a rate changed in the PMS was changed there, and a typed one is manual", () => {
@@ -57,6 +57,11 @@ describe("describeSave", () => {
     for (const line of [paused("unpaid"), describeSave({ pushed: "reconnect", suppressedRules: 0, retiredPickups: 0 }, "Cloudbeds")]) {
       expect(line).not.toMatch(/Sending/);
     }
+    // Error is not Disconnected: MAYA keeps trying it, and the line says so.
+    expect(describeSave({ pushed: "connection_error", suppressedRules: 0, retiredPickups: 0 }, "Cloudbeds")).toBe(
+      "Saved. Cloudbeds isn't answering MAYA right now. MAYA keeps trying to reach it and sends this price as soon as a read works.",
+    );
+    expect(describeSave({ pushed: "connection_error", suppressedRules: 0, retiredPickups: 0 }, "Think Reservations")).not.toMatch(/reconnect|—/);
     // Paused rules still read after it.
     expect(
       describeSave({ pushed: "reconnect", suppressedRules: 1, retiredPickups: 0, cells: 1 }, "Cloudbeds"),
@@ -209,5 +214,45 @@ describe("describeClear", () => {
 
   it("says a night that has passed had nothing to clear", () => {
     expect(describeClear(0, true)).toBe("This night has passed, so there is nothing to clear.");
+  });
+});
+
+describe("sendStatusLine", () => {
+  const at = (state: "pending" | "sending" | "sent" | "retrying" | "failed" | "skipped", retriesLeft: number | null = null) => ({
+    applicable: true,
+    state,
+    retriesLeft,
+    pmsName: "Cloudbeds",
+  });
+
+  it("says what became of the price, with the server's count of tries left", () => {
+    expect(sendStatusLine(at("sent"), "Cloudbeds")).toBe("Sent to Cloudbeds.");
+    expect(sendStatusLine(at("sending"), "Cloudbeds")).toBe("Sending to Cloudbeds now.");
+    expect(sendStatusLine(at("retrying", 3), "Cloudbeds")).toBe("Saved. It couldn't be sent yet. MAYA will retry 3 more times.");
+    expect(sendStatusLine(at("retrying", 1), "Cloudbeds")).toBe("Saved. It couldn't be sent yet. MAYA will retry 1 more time.");
+    expect(sendStatusLine(at("failed", 0), "Cloudbeds")).toBe("This price couldn't be sent to Cloudbeds.");
+    for (const line of [sendStatusLine(at("retrying", 9), "Cloudbeds"), sendStatusLine(at("failed", 0), "Cloudbeds")]) {
+      expect(line).not.toMatch(/[—–]/);
+    }
+  });
+
+  it("names the system the status knows, else the editor's own", () => {
+    expect(sendStatusLine({ ...at("sent"), pmsName: "Think Reservations" }, "Cloudbeds")).toBe("Sent to Think Reservations.");
+    expect(sendStatusLine({ ...at("failed", 0), pmsName: null }, "your PMS")).toBe("This price couldn't be sent to your PMS.");
+  });
+
+  it("leaves the save's own line where the status says no more than it did", () => {
+    expect(sendStatusLine(at("pending"), "Cloudbeds")).toBeNull();
+    expect(sendStatusLine(at("skipped"), "Cloudbeds")).toBeNull();
+    expect(sendStatusLine({ ...at("sent"), applicable: false }, "Cloudbeds")).toBeNull();
+    expect(sendStatusLine({ applicable: false, state: null, retriesLeft: null, pmsName: null }, "Mews")).toBeNull();
+  });
+});
+
+describe("errorLogHref", () => {
+  it("opens the sending problem by id, or the change log without one", () => {
+    const id = "0b0c8a6e-3c1d-4d8e-9f2a-6a1b2c3d4e5f";
+    expect(errorLogHref(id)).toBe(`/?tab=changelog&dl=changelog.problem&problem=${id}`);
+    expect(errorLogHref(null)).toBe("/?tab=changelog&dl=changelog");
   });
 });
