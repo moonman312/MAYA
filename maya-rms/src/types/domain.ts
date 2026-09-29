@@ -574,8 +574,9 @@ export type ChangelogRuleAlertChoice = {
 
 /**
  * A change MAYA support made to the property in God Mode, as one change log
- * line: "Changed by MAYA support: <what changed>". One item per row changed,
- * as support_changes records them.
+ * line: "Changed by MAYA support: <what changed>". One item per save: the
+ * support_changes rows written together, with ", N days" when the save
+ * covered nights (src/lib/changelog-support.ts).
  */
 export type ChangelogSupportChange = {
   kind: "support_change";

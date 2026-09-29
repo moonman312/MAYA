@@ -55,7 +55,12 @@ import {
 import { platformAdminIds } from "@/lib/admin/god-mode";
 import { buildChangelog } from "@/lib/demo-data";
 import { priorRowsFor } from "@/lib/changelog-prior-rows";
-import { buildSupportChanges, MAX_SUPPORT_CHANGES, type SupportChangeRow } from "@/lib/changelog-support";
+import {
+  buildSupportChanges,
+  MAX_SUPPORT_CHANGE_ROWS,
+  SUPPORT_CHANGE_COLUMNS,
+  type SupportChangeRow,
+} from "@/lib/changelog-support";
 import { isMissingRelationError } from "@/lib/engine/snapshots";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import type { ChangelogPushProblem, ChangelogSupportChange, RuleCondition } from "@/types/domain";
@@ -492,9 +497,11 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
 
 /**
  * What MAYA support changed on the property in God Mode, within the runs
- * shown: one line per row, from support_changes (which members may read for
- * their own property). Never fails the change log, and a database without
- * the table yet has nothing to show.
+ * shown: one line per save, from support_changes (which members may read for
+ * their own property). A save can write many rows, so this reads up to
+ * MAX_SUPPORT_CHANGE_ROWS and buildSupportChanges folds them into at most
+ * MAX_SUPPORT_CHANGES lines. Never fails the change log, and a database
+ * without the table yet has nothing to show.
  */
 async function loadSupportChanges(
   supabase: SupabaseClient,
@@ -504,17 +511,18 @@ async function loadSupportChanges(
   try {
     let query = supabase
       .from("support_changes")
-      .select("id, at, summary, table_name, op")
+      .select(SUPPORT_CHANGE_COLUMNS)
       .eq("hotel_id", hotelId)
       .order("at", { ascending: false })
-      .limit(MAX_SUPPORT_CHANGES);
+      .limit(MAX_SUPPORT_CHANGE_ROWS);
     if (since) query = query.gte("at", since);
     const { data, error } = await query;
     if (error) {
       if (isMissingRelationError(error)) return [];
       throw error;
     }
-    return buildSupportChanges((data ?? []) as SupportChangeRow[]);
+    const rows = (data ?? []) as unknown as SupportChangeRow[];
+    return buildSupportChanges(rows, { truncated: rows.length >= MAX_SUPPORT_CHANGE_ROWS });
   } catch (e) {
     const message = e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? e);
     console.error(

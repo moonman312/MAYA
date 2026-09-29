@@ -2,8 +2,8 @@
  * How the change log shows MAYA support: a platform admin who typed a price
  * or answered a banner is named "MAYA support", never by their own name; the
  * answer item carries by_support for the "MAYA support's answer" heading; and
- * every change made in God Mode is its own "Changed by MAYA support" item,
- * where it happened. A database without support_changes yet shows none and
+ * every save made in God Mode is its own "Changed by MAYA support" item,
+ * where it happened, however many rows it wrote. A database without support_changes yet shows none and
  * never fails the log.
  */
 import { describe, expect, it, vi } from "vitest";
@@ -173,6 +173,51 @@ describe("the change log and MAYA support", () => {
       "support_change",
       "support_change",
       "run",
+    ]);
+  });
+
+  it("shows one save that wrote many rows as one item, the rule's line with its nights", async () => {
+    const at = "2026-07-29T09:40:00.000123+00:00";
+    const nights = ["2026-08-02", "2026-08-03", "2026-08-04"];
+    let id = 10;
+    const rows: Row[] = [
+      {
+        id: id++,
+        hotel_id: HOTEL,
+        user_id: "admin-1",
+        at,
+        summary: 'Changed the pricing rule "Slow-date rescue": action_value from 10 to 15.',
+        table_name: "pricing_rules",
+        op: "update",
+        after: { id: "rule-1", hotel_id: HOTEL },
+      },
+    ];
+    for (const d of nights) {
+      for (const rt of ["rt-1", "rt-2"]) {
+        rows.push({
+          id: id++,
+          hotel_id: HOTEL,
+          user_id: "admin-1",
+          at,
+          summary: "Added a held day of a rule.",
+          table_name: "rule_skip_hold",
+          op: "insert",
+          after: { rule_id: "rule-1", stay_date: d, room_type_id: rt },
+        });
+      }
+    }
+    rows.push({ id: 1, hotel_id: HOTEL, user_id: "admin-1", at: "2026-07-29T09:10:00Z", summary: "Took pricing live.", table_name: "hotel_settings", op: "update" });
+    state.client = seed({ support_changes: rows }).client;
+    state.admin = adminClient();
+    const body = await (await GET()).json();
+    expect(body.filter((i: { kind?: string }) => i.kind === "support_change")).toEqual([
+      {
+        kind: "support_change",
+        id: "10",
+        timestamp: at,
+        summary: 'Changed the pricing rule "Slow-date rescue": action_value from 10 to 15, 3 days.',
+      },
+      { kind: "support_change", id: "1", timestamp: "2026-07-29T09:10:00Z", summary: "Took pricing live." },
     ]);
   });
 
