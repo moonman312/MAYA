@@ -41,6 +41,8 @@ export type RuleDraft = {
   signal_room_type_ids: string[];
   affected_room_type_ids: string[];
   undo_on_cancellation: boolean;
+  /** A suggestion's own priority (rule-suggestion-draft.ts); the builder leaves it out (100). */
+  priority?: number;
 };
 
 /** A refused save or preview, with the status and the words to show. */
@@ -116,7 +118,9 @@ export function parseDraft(body: Record<string, unknown>): RuleDraft {
     action!.adjust_rate_percent !== undefined
       ? { adjust_rate_percent: round(action!.adjust_rate_percent, 4) }
       : { adjust_rate_dollars: round(action!.adjust_rate_dollars!, 4) };
+  const priority = Number(body.priority);
   return {
+    ...(body.priority !== undefined && Number.isInteger(priority) && priority >= 0 && priority <= 10_000 ? { priority } : {}),
     rule_name: name,
     condition,
     action: rounded,
@@ -219,9 +223,10 @@ export async function planRuleChange(
     const action = uiActionToDb(draft.action);
     const condition = fullCondition(draft.condition as Record<string, unknown>);
     const isPickup = !!draft.condition.pickup_operator || !!draft.condition.booking_speed_operator;
+    const priority = draft.priority ?? 100;
     const fields = {
       name: draft.rule_name,
-      priority: 100,
+      priority,
       start_date: null,
       end_date: null,
       is_annual: false,
@@ -246,7 +251,7 @@ export async function planRuleChange(
         name: draft.rule_name,
         is_active: true,
         version: 1,
-        priority: 100,
+        priority,
         start_date: null,
         end_date: null,
         is_annual: false,
@@ -463,6 +468,7 @@ async function legacyCommit(
         affected_room_type_ids: d.affected_room_type_ids,
         undo_on_cancellation: d.undo_on_cancellation,
         is_active: on !== false,
+        ...(d.priority !== undefined ? { priority: d.priority } : {}),
       },
       userClient,
       plan.hotelId,

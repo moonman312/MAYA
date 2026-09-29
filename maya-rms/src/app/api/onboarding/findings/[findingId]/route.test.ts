@@ -25,6 +25,8 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
     Object.entries(seed).map(([k, v]) => [k, v.map((r) => ({ ...r }))]),
   );
   const failInsertFor = new Set<string>();
+  /** Functions that answer with an error, the way Postgres refuses (save_rule's checks). */
+  const failRpc = new Map<string, { code?: string; message: string }>();
   /** Columns that "do not exist yet" — an update naming one fails the way PostgREST does pre-migration. */
   const missingColumns = new Set<string>();
   const rpcs: { name: string; args: Record<string, unknown> }[] = [];
@@ -130,14 +132,17 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
       // The room-type answer path checks rank explicitly now that it writes
       // on the service role; the tests are about the answer, not the door.
       if (name === "can_manage_hotel") return { data: true, error: null };
+      const failure = failRpc.get(name);
+      if (failure) return { data: null, error: failure };
       return { data: null, error: null };
     },
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return { client: client as any, tables, failInsertFor, missingColumns, rpcs };
+  return { client: client as any, tables, failInsertFor, failRpc, missingColumns, rpcs };
 }
 
 const HOTEL = "hotel-1";
+const RT1 = "0a000000-0000-4000-8000-000000000001";
 const state = vi.hoisted(() => ({ client: null as unknown, hotelId: "hotel-1" }));
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
@@ -161,6 +166,12 @@ vi.mock("next/server", async (importOriginal) => ({
 }));
 vi.mock("@/lib/engine", () => ({ evaluateHotel: vi.fn() }));
 const nudgeHotelSync = vi.hoisted(() => vi.fn(async () => "nudged"));
+// Skip's marks come from a dry run of the engine (rule-preview.test.ts);
+// here there are no rows to mark.
+vi.mock("@/lib/rule-preview", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rule-preview")>()),
+  skipMarksForRule: async () => [],
+}));
 vi.mock("@/lib/pms/sync-nudge", () => ({ nudgeHotelSync }));
 
 const { POST } = await import("./route");
@@ -227,8 +238,9 @@ describe("findings confirm route: claims before side effects", () => {
     expect(tables.get("hotel_closed_periods") ?? []).toHaveLength(0);
   });
 
-  it("cleans up the orphaned pricing rule when the condition insert fails, and leaves the finding retryable", async () => {
-    const { client, tables, failInsertFor } = fakeSupabase({
+  it("a rule the database refuses saves nothing, and leaves the finding retryable", async () => {
+    const { client, tables, failRpc } = fakeSupabase({
+      room_types: [{ id: RT1, hotel_id: HOTEL, is_active: true, counts_as_room: true }],
       onboarding_findings: [
         {
           id: "f1",
@@ -249,18 +261,22 @@ describe("findings confirm route: claims before side effects", () => {
         },
       ],
     });
-    failInsertFor.add("rule_condition");
+    // save_rule writes the rule, its condition and room types in one
+    // transaction: a refusal leaves no rule half made.
+    failRpc.set("save_rule", { code: "23514", message: "This property already has 40 active rules, which is the maximum." });
     state.client = client;
     const res = await post({ action: "confirm" });
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("This property already has 40 active rules, which is the maximum.");
     expect(tables.get("pricing_rules") ?? []).toHaveLength(0);
     expect(tables.get("onboarding_findings")?.[0]).toMatchObject({ status: "proposed" });
   });
 });
 
 describe("add_rule: an accepted suggestion", () => {
-  it("creates the rule with its undo box ticked, like every new rule", async () => {
-    const { client, tables } = fakeSupabase({
+  it("saves the suggested rule through save_rule, on, with its undo box ticked and its own priority", async () => {
+    const { client, rpcs } = fakeSupabase({
+      room_types: [{ id: RT1, hotel_id: HOTEL, is_active: true, counts_as_room: true }],
       onboarding_findings: [
         {
           id: "f1",
@@ -269,7 +285,7 @@ describe("add_rule: an accepted suggestion", () => {
           status: "proposed",
           payload: {
             suggestion_type: "add_rule",
-            room_type_ids: ["rt1"],
+            room_type_ids: [RT1],
             spec: {
               name: "Busy nights",
               priority: 100,
@@ -284,7 +300,57 @@ describe("add_rule: an accepted suggestion", () => {
     state.client = client;
     const res = await post({ action: "confirm" });
     expect(res.status).toBe(200);
-    expect(tables.get("pricing_rules")?.[0]).toMatchObject({ name: "Busy nights", undo_on_cancellation: true });
+    const save = rpcs.find((r) => r.name === "save_rule")!;
+    // The first review has no popup: the confirm applies it.
+    expect(save.args).toMatchObject({
+      p_hotel_id: HOTEL,
+      p_is_new: true,
+      p_activation: "apply",
+      p_fields: expect.objectContaining({
+        name: "Busy nights",
+        priority: 100,
+        undo_on_cancellation: true,
+        action_type: "percent",
+        action_direction: "increase",
+        action_value: 10,
+        signal: [RT1],
+        affected: [RT1],
+      }),
+    });
+  });
+
+  it("from the Rules tab's suggestions, saves the owner's Skip under the id the popup previewed", async () => {
+    const { client, rpcs } = fakeSupabase({
+      room_types: [{ id: RT1, hotel_id: HOTEL, is_active: true, counts_as_room: true }],
+      onboarding_findings: [
+        {
+          id: "f1",
+          hotel_id: HOTEL,
+          kind: "rule_suggestion",
+          status: "proposed",
+          payload: {
+            suggestion_type: "add_rule",
+            room_type_ids: [RT1],
+            spec: {
+              name: "Busy nights",
+              priority: 90,
+              condition: { occupancy_operator: "gt", occupancy_threshold: 0.8 },
+              action: { action_type: "fixed", action_direction: "increase", action_value: 12 },
+              is_pickup_rule: false,
+            },
+          },
+        },
+      ],
+    });
+    state.client = client;
+    const ruleId = "0d000000-0000-4000-8000-000000000001";
+    const res = await post({ action: "confirm", activation: "skip", ruleId, touched: [] });
+    expect(res.status).toBe(200);
+    expect(rpcs.find((r) => r.name === "save_rule")!.args).toMatchObject({
+      p_rule_id: ruleId,
+      p_activation: "skip",
+      p_fields: expect.objectContaining({ priority: 90, action_type: "fixed", action_value: 12 }),
+    });
   });
 });
 
