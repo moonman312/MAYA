@@ -174,7 +174,7 @@ describe("SubscribeStep wording", () => {
     expect(container.textContent).toContain("No charge was made: you left checkout before finishing.");
     expect(container.textContent).toContain("Got a discount or trial code? Enter it here, or leave this blank.");
     expect(screen.getByRole("button", { name: "Not now, set this property up later" })).not.toBeNull();
-    expect(container.textContent).not.toContain("—");
+    expect(container.textContent).not.toContain("\u2014");
   });
 
   it("has no em dash on a trial with a required code", () => {
@@ -183,7 +183,7 @@ describe("SubscribeStep wording", () => {
     );
     expect(container.textContent).toContain("MAYA is invite-only for now, so you'll have been given a code.");
     expect(container.textContent).toMatch(/Nothing today\. Your first charge is \$[\d,.]+ on /);
-    expect(container.textContent).not.toContain("—");
+    expect(container.textContent).not.toContain("\u2014");
   });
 
   it("has no em dash when the code check finds the session gone", async () => {
@@ -191,7 +191,7 @@ describe("SubscribeStep wording", () => {
     const { container } = render(<SubscribeStep lockPms pmsOptions={cloudbeds(true)} />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "MHSFOUNDER" } });
     await screen.findByText("Your session expired. Sign in again and retry.");
-    expect(container.textContent).not.toContain("—");
+    expect(container.textContent).not.toContain("\u2014");
   });
 });
 

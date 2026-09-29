@@ -36,7 +36,7 @@ describe("ConfirmingPayment", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(container.textContent).toContain("Setting up your account. This takes a few seconds.");
-    expect(container.textContent).not.toContain("—");
+    expect(container.textContent).not.toContain("\u2014");
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(40_000);
@@ -44,7 +44,7 @@ describe("ConfirmingPayment", () => {
     expect(container.textContent).toContain(
       "Nothing is lost and you have not been charged twice. You can leave this page: we'll email you when it's ready, and your card details are already saved.",
     );
-    expect(container.textContent).not.toContain("—");
+    expect(container.textContent).not.toContain("\u2014");
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400_000);
@@ -52,6 +52,6 @@ describe("ConfirmingPayment", () => {
     expect(container.textContent).toContain(
       "We've stopped checking automatically. Nothing is lost and you have not been charged twice. Leave this page and we'll email you when it's ready, or ask again below.",
     );
-    expect(container.textContent).not.toContain("—");
+    expect(container.textContent).not.toContain("\u2014");
   });
 });

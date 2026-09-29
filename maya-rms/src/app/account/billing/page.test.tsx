@@ -82,7 +82,7 @@ describe("the billing page's words", () => {
     state.billing = billing({ status: "unpaid", entitled: false });
     const text = await pageText();
     expect(text).toContain("Unpaid (stopped)");
-    expect(text).not.toContain("—");
+    expect(text).not.toContain("\u2014");
   });
 
   it("warns about a card and an over-count in plain sentences", async () => {
@@ -93,7 +93,7 @@ describe("the billing page's words", () => {
     const text = await pageText();
     expect(text).toContain("Nothing has failed yet, and updating it now avoids an interruption.");
     expect(text).toContain("You're paying for more than that. Lower it here and your next invoice drops.");
-    expect(text).not.toContain("—");
+    expect(text).not.toContain("\u2014");
   });
 
   it("explains a property with no subscription without a dash", async () => {
@@ -101,6 +101,6 @@ describe("the billing page's words", () => {
     expect(text).toContain(
       "This property has no subscription. It was set up by hand rather than through checkout, so there is nothing to bill or manage here.",
     );
-    expect(text).not.toContain("—");
+    expect(text).not.toContain("\u2014");
   });
 });

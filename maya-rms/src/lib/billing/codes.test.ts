@@ -518,12 +518,12 @@ describe("a restart gets no free days, whatever the code says", () => {
     for (const c of shapes) {
       for (const interval of ["month", "year"] as const) {
         for (const restart of [false, true]) {
-          expect(describeCode(c, interval, { restart }), `${c.kind} ${interval} ${restart}`).not.toContain("—");
+          expect(describeCode(c, interval, { restart }), `${c.kind} ${interval} ${restart}`).not.toContain("\u2014");
         }
       }
     }
     for (const reason of ["unknown", "inactive", "expired", "exhausted", "already_redeemed"] as const) {
-      expect(rejectionMessage(reason)).not.toContain("—");
+      expect(rejectionMessage(reason)).not.toContain("\u2014");
     }
     expect(rejectionMessage("unknown")).toBe("We don't recognize that code. Check it for typos.");
     expect(describeCode(shapes[1], "year")).toBe(

@@ -39,7 +39,7 @@ describe("the whole email", () => {
     for (const daysLeft of [5, 0]) {
       const i = { ...input, daysLeft, notBilledFor: { guessed: ["Meeting Room"], marked: ["Spa"] } };
       const all = [roomShortfallSubject(i), roomShortfallText(i), roomShortfallHtml(i)].join("\n");
-      expect(all).not.toMatch(/—|&mdash;/);
+      expect(all).not.toMatch(/\u2014|&mdash;/);
     }
   });
 

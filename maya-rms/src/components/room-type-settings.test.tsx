@@ -78,7 +78,7 @@ describe("RoomTypeSettings", () => {
 describe("room type wording", () => {
   it("asks and explains without an em dash", () => {
     expect(roomCountQuestion(3)).toBe("We're counting 3 room types as rooms. Anything here that isn't?");
-    for (const line of COUNTS_AS_ROOM_HELP.lines) expect(line).not.toContain("—");
+    for (const line of COUNTS_AS_ROOM_HELP.lines) expect(line).not.toContain("\u2014");
   });
 
   it("says a failed save plainly", async () => {

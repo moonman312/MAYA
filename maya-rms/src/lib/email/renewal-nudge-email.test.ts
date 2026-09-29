@@ -78,7 +78,7 @@ describe("the whole email", () => {
       for (const billingInterval of ["month", "year"] as const) {
         const i = { ...input, isFirstCharge, billingInterval };
         const all = [renewalNudgeSubject(i), renewalNudgeText(i), renewalNudgeHtml(i)].join("\n");
-        expect(all).not.toMatch(/—|&mdash;/);
+        expect(all).not.toMatch(/\u2014|&mdash;/);
       }
     }
   });
