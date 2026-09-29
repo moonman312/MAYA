@@ -34,7 +34,7 @@ import {
 } from "./booking-speed-provider";
 import type { BaseSource } from "./base-price";
 import { pricesOnBase, resolveBase } from "./base-price";
-import { ladderConditionsHold, ruleConditionsMatch } from "./conditions";
+import { ruleConditionsMatch } from "./conditions";
 import type { LadderOp, LadderPassResult, OverrideProbe } from "./ladder";
 import { applyLadderOps, createLadderPassBatch, evaluateLadderTriple, probeSuppressionSupport, skipMarkerOf } from "./ladder";
 import { computeOccupancy, computeRuleMetrics } from "./metrics";
@@ -1017,11 +1017,14 @@ export async function evaluateHotel(
       const metrics = await computeRuleMetrics(supabase, rule, hotelId, row.stayDate, now, localDate, now, null, snapshots);
       noteExcludedSignals(rule, metrics);
       if (marker?.current) {
+        // Judged on whether the rule is really true, whatever the undo box
+        // says: the box keeps a change on the price, not a Skip's hold.
+        const isTrue = ruleConditionsMatch(rule, metrics);
         if (marker.kind === "carried") {
-          if (!ladderConditionsHold(rule, metrics)) ladderBatch.markKept(rule, row.stayDate, row.roomTypeId);
+          if (!isTrue) ladderBatch.markKept(rule, row.stayDate, row.roomTypeId);
           continue;
         }
-        const ends = marker.kind === "kept" ? ruleConditionsMatch(rule, metrics) : !ladderConditionsHold(rule, metrics);
+        const ends = marker.kind === "kept" ? isTrue : !isTrue;
         if (!ends) continue;
         ladderBatch.deactivate(rule, hotelId, row.stayDate, row.roomTypeId, metrics, now, supportsSuppression, {
           clearSkip: true,

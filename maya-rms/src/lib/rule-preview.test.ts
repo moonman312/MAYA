@@ -673,6 +673,101 @@ for (const engine of ENGINES) {
       expect(moved.every((r) => Number(r.action_value) === 20 && (r.skip_state ?? null) === null)).toBe(true);
     });
 
+    // The undo box keeps a change that is on the price through cancellations.
+    // A day Skip holds has no change of the rule on it (held) or one the owner
+    // chose to leave as it was (carried), so the box keeps nothing there: the
+    // hold ends on whether the rule is really true, ticked or not.
+    it("with the undo box unticked, Skip lets a held day go once the rule stops and starts being true there", async () => {
+      const after = ruleRow(NEW, { ...created, action_value: 8, undo_on_cancellation: false, cond: { occupancy_operator: "gt", occupancy_threshold: 0.35 }, affected: [KING], signals: [KING] });
+      const { preview, plan, tables } = await skipAt(engine.evaluate, settled, after, T10);
+      expect(preview.affected.length).toBeGreaterThan(1);
+      expect(plan.marks.every((m) => m.w === "held")).toBe(true);
+      let skip = await realRun(engine.evaluate, tables, T11);
+      let none = await realRun(engine.evaluate, settled, T11);
+      const both = async (at: string, change: (x: Tables) => void) => {
+        const a = clone(skip);
+        const b = clone(none);
+        change(a);
+        change(b);
+        skip = await realRun(engine.evaluate, a, at);
+        none = await realRun(engine.evaluate, b, at);
+      };
+      const d = preview.affected[preview.affected.length - 1];
+      const row = () => skip.ladder_rule_state.find((r) => r.rule_id === NEW && String(r.stay_date) === d && r.room_type_id === KING);
+      expect(row()).toMatchObject({ is_active: true, skip_state: "held" });
+      // Cancelled down to 3 of 10: no longer more than 35%. No price moves, and the hold is over.
+      await both(T30, (x) => {
+        const keep = new Set(x.reservations.filter((r) => String(r.stay_date) === d && r.room_type_id === KING).slice(0, 3).map((r) => r.id));
+        cancel(x, d, KING, (r) => !keep.has(r.id));
+      });
+      expect(kingBooked(skip, d)).toBe(3);
+      expect(priceOf(skip, d, KING)).toBe(priceOf(none, d, KING));
+      expect(row()?.is_active).toBe(false);
+      // True again: now it adjusts, and the box keeps that change from here on.
+      await both(T40, (x) => book(x, T40, d, KING, 3));
+      expect(priceOf(skip, d, KING)!).toBeGreaterThan(priceOf(none, d, KING)!);
+      expect(row()).toMatchObject({ is_active: true, skip_state: null });
+      // Cancelled down again: that change stays (the other rules' own may not).
+      await both(T50, (x) => {
+        const keep = new Set(x.reservations.filter((r) => String(r.stay_date) === d && r.room_type_id === KING).slice(0, 3).map((r) => r.id));
+        cancel(x, d, KING, (r) => !keep.has(r.id));
+      });
+      expect(row()).toMatchObject({ is_active: true, skip_state: null });
+      expect(priceOf(skip, d, KING)!).toBeGreaterThan(priceOf(none, d, KING)!);
+    });
+
+    it("with the undo box unticked, an edit saved with Skip moves a carried change to the new amount once the rule stops and starts being true there", async () => {
+      // "Busy nights" unticked, from +15% to +20%, saved with Skip.
+      const t0 = clone(settled);
+      t0.pricing_rules.find((r) => r.id === R.busy)!.undo_on_cancellation = false;
+      const after = edited(t0, R.busy, { action_value: 20 });
+      const { plan, tables } = await skipAt(engine.evaluate, t0, after, T10);
+      expect(plan.marks.some((m) => m.w === "carried")).toBe(true);
+      let t = await realRun(engine.evaluate, tables, T11);
+      const carried = t.ladder_rule_state.filter((r) => r.rule_id === R.busy && r.is_active && r.skip_state === "carried");
+      const d = String(carried[carried.length - 1].stay_date);
+      const onNight = (x: Tables) => x.ladder_rule_state.filter((r) => r.rule_id === R.busy && String(r.stay_date) === d && r.is_active);
+      expect(onNight(t).every((r) => r.skip_state === "carried" && Number(r.action_value) === 15)).toBe(true);
+      // Every booking on the night cancelled: the rule stops being true, the change stays at +15% (kept).
+      t = clone(t);
+      t.reservations = t.reservations.filter((r) => String(r.stay_date) !== d);
+      t = await realRun(engine.evaluate, t, T20);
+      expect(onNight(t).length).toBeGreaterThan(0);
+      expect(onNight(t).every((r) => r.skip_state === "kept" && Number(r.action_value) === 15)).toBe(true);
+      // Booked up again: true again, and the change moves to +20%.
+      t = clone(t);
+      for (const rt of [KING, QUEEN, SUITE, FAMILY]) book(t, T30, d, rt, 12);
+      const before = priceOf(t, d, KING)!;
+      t = await realRun(engine.evaluate, t, T30);
+      expect(onNight(t).length).toBeGreaterThan(0);
+      expect(onNight(t).every((r) => (r.skip_state ?? null) === null && Number(r.action_value) === 20)).toBe(true);
+      expect(priceOf(t, d, KING)!).toBeGreaterThan(before);
+    });
+
+    it("with the undo box unticked, a change on a room type taken off the rule and carried by Skip is kept once the rule stops being true, and comes off once it is true again", async () => {
+      // "Busy nights" unticked, Suite taken off it, saved with Skip: the
+      // Suite changes where the rule is true now are carried.
+      const t0 = clone(settled);
+      t0.pricing_rules.find((r) => r.id === R.busy)!.undo_on_cancellation = false;
+      const after = edited(t0, R.busy, { rule_affected_room_type: [KING, QUEEN, FAMILY].map((room_type_id) => ({ room_type_id })) });
+      const { plan, tables } = await skipAt(engine.evaluate, t0, after, T10);
+      expect(plan.marks.some((m) => m.w === "carried" && m.rt === SUITE)).toBe(true);
+      let t = await realRun(engine.evaluate, tables, T11);
+      const suiteRow = (x: Tables, night: string) => x.ladder_rule_state.find((r) => r.rule_id === R.busy && String(r.stay_date) === night && r.room_type_id === SUITE);
+      const carried = t.ladder_rule_state.filter((r) => r.rule_id === R.busy && r.room_type_id === SUITE && r.is_active && r.skip_state === "carried");
+      const d = String(carried[carried.length - 1].stay_date);
+      // Every booking on the night cancelled: the rule stops being true, the change stays (kept).
+      t = clone(t);
+      t.reservations = t.reservations.filter((r) => String(r.stay_date) !== d);
+      t = await realRun(engine.evaluate, t, T20);
+      expect(suiteRow(t, d)).toMatchObject({ is_active: true, skip_state: "kept" });
+      // Booked up again: true again, and the change comes off Suite.
+      t = clone(t);
+      for (const rt of [KING, QUEEN, SUITE, FAMILY]) book(t, T30, d, rt, 12);
+      t = await realRun(engine.evaluate, t, T30);
+      expect(suiteRow(t, d)?.is_active).toBe(false);
+    });
+
     it("an edit to a rule that is off moves no price until it is switched on", async () => {
       const t = clone(settled);
       const paused = t.pricing_rules.find((r) => r.id === R.pausedBs)!;

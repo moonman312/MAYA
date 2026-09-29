@@ -18,14 +18,17 @@
  * becomes true again (ladder_rule_state.skip_state, with the skip_at that
  * set it):
  *   - held: on, with no change on the price, where the rule was about to
- *     adjust. It stays so while the rule holds, and goes off (moving no
- *     price) once it doesn't, so the next time the rule holds it adjusts.
+ *     adjust. It stays so while the rule is true, and goes off (moving no
+ *     price) once it isn't, so the next time the rule is true it adjusts.
  *   - carried: a change already on the price, at its amount, where the
  *     rule (as edited) was about to move it to its new amount. It stays
- *     while the rule holds, and once it doesn't it is kept.
+ *     while the rule is true, and once it isn't it is kept.
  *   - kept: a change already on the price, at its amount, where the rule
  *     was about to take it off. It stays until the rule is true there, and
  *     then moves to the rule's amount and carries on as any change of it.
+ * "True" is the whole rule, whatever its undo box says: the box keeps a
+ * change of the rule on the price through cancellations, and a Skip's hold
+ * is not one (ruleConditionsMatch, never ladderConditionsHold).
  * Every other row works as Apply would have it. A marker from an older Skip
  * (the owner applied since) is read as what Apply means: a held row as off,
  * a kept or carried change as one from before an edit.
@@ -154,9 +157,11 @@ export async function evaluateLadderTriple(
   let transition: LadderTransitionAction = "noop";
 
   if (marker?.current && marker.kind === "held") {
-    // Left alone at the Skip: no change on the price while the rule holds.
-    // Once it doesn't, off, which moves no price; its next hold is new.
-    if (!ladderConditionsHold(rule, metrics)) {
+    // Left alone at the Skip: no change on the price while the rule is true.
+    // Once it isn't, off, which moves no price; its next hold is new. Judged
+    // on the whole rule whatever the undo box says: the box keeps a change
+    // on the price, and a held row has none.
+    if (!ruleConditionsMatch(rule, metrics)) {
       transition = "deactivate";
       if (batch) {
         batch.deactivate(rule, hotelId, stayDate, affectedRoomTypeId, metrics, evalTs, supportsSuppression, { clearSkip: true, hadEffect: false });
@@ -169,9 +174,10 @@ export async function evaluateLadderTriple(
 
   if (marker?.current && marker.kind === "carried") {
     // A change left at its old amount by the Skip, where the edited rule was
-    // true: it stays once the rule stops holding, now waiting for it to be
-    // true again. No price moves.
-    if (!ladderConditionsHold(rule, metrics)) {
+    // true: it stays once the rule stops being true (whatever the undo box
+    // says, as the owner left it there), now waiting for it to be true
+    // again. No price moves.
+    if (!ruleConditionsMatch(rule, metrics)) {
       if (batch) batch.markKept(rule, stayDate, affectedRoomTypeId);
       else {
         await supabase
