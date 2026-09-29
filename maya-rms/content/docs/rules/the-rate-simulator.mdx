@@ -27,7 +27,7 @@ Make up a night: a stay date, a booking speed level, and each room type's base p
 
 ## What it is for
 
-The <Ui>Rate Simulator</Ui> tab (the third tab on the dashboard) answers "what would my rules do to a night like this?" without waiting for such a night to come along. Its own words: "Make up a night and see what your rules would do to it. Nothing here is saved and no rate reaches your PMS." It adds that the maths is the same as a real run's, so what you see is what a real run would produce for these numbers.
+The <Ui>Rate Simulator</Ui> tab (the third tab on the dashboard) answers "what would my rules do to a night like this?" without waiting for such a night to come along. Its own words: "Make up a night and see what your rules would do to it. Nothing here is saved and no rate reaches your PMS." It adds: "The math is the same a real run uses, so what you see is what your rules would produce for these numbers."
 
 Use it to check a rule before you build it, to see which of two rules would act, or to see why a price on the calendar is what it is. Everyone on the property can use it.
 
@@ -38,7 +38,7 @@ While it loads it reads "Loading this property's rooms and rules...". Before you
 Under <Ui>The night</Ui>:
 
 - <Ui>Stay date</Ui>, starting 30 days ahead. The note under it says the date sets the days to arrival. They are counted from your property's date, not your computer's, so the number matches what a real run would see, and a booking window rule reads it.
-- <Ui>Booking speed</Ui>, a dropdown with <Ui>Not enough history</Ui> and the seven levels: Stalled, Much Slower Than Normal, Slower Than Normal, Normal, Faster Than Normal, Much Faster Than Normal, Surging. It starts on <Ui>Not enough history</Ui>, and the note says booking speed rules then stay quiet, which is what a real run does when it cannot measure a pace. Pick a level to test a booking speed rule. A made-up night has no bookings to count, so the level you pick is taken as read.
+- <Ui>Booking speed</Ui>, a dropdown with <Ui>Not enough history</Ui> and the seven levels: Stalled, Much Slower Than Normal, Slower Than Normal, Normal, Faster Than Normal, Much Faster Than Normal, Surging. It starts on <Ui>Not enough history</Ui>, and the note says booking speed rules then stay quiet, and that the math is the same a real run uses: a real run keeps them quiet too when there isn't enough history to read a pace. Pick a level to test a booking speed rule. A made-up night has no bookings to count, so the level you pick is taken as read.
 
 ## Your rooms
 
@@ -124,7 +124,7 @@ She switches booking speed to <Ui>Not enough history</Ui>. "Warm-date bump" move
 
 ## What the simulator simplifies
 
-The maths is the same as a real run's, but a real night plays out over days and this is one run. The screen says so at the bottom of the results. In plain words:
+The math is the same a real run uses, but a real night plays out over days and this is one run. The note at the bottom of the results says so, starting "The math is the same a real run uses, but this preview simplifies three things". In plain words:
 
 - **A standard rule is shown settled.** On a real night it fires on the way into its condition and holds. Here you see where the night ends up, not each step.
 - **Every matching booking speed or pickup rule is added.** On a real night, when several booking speed or pickup rules match, one wins for that night and room type. Here they all fire, so the result is the most the night could move.

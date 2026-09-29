@@ -75,3 +75,21 @@ describe("the Rate Simulator's amounts", () => {
     expect(await screen.findByText(/\$50\.00\s*–\s*\$500\.00/)).toBeTruthy();
   });
 });
+
+describe("the Rate Simulator's words", () => {
+  it("says the math is the same a real run uses, and never speaks of an engine", async () => {
+    stubApi();
+    const view = render(<RateSimulator activeHotelId="h1" />);
+    await screen.findByText(/Make up a night/);
+    const text = view.container.textContent ?? "";
+    expect(text).toContain(
+      "The math is the same a real run uses, so what you see is what your rules would produce for these numbers.",
+    );
+    expect(text).toContain(
+      "The math is the same a real run uses, and a real run keeps them quiet too when there isn’t enough history to read a pace.",
+    );
+    expect(text).toContain("The math is the same a real run uses, but this preview simplifies three things:");
+    expect(text).toContain("when several event rules match, a real run picks one winner while this adds them all");
+    expect(text).not.toMatch(/engine/i);
+  });
+});

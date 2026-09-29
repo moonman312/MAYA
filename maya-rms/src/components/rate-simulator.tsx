@@ -385,8 +385,8 @@ export function RateSimulator({
         <h2 className="text-lg font-semibold">Rate Simulator</h2>
         <p className="mt-1 max-w-3xl text-xs text-slate-400">
           Make up a night and see what your rules would do to it. Nothing here is saved and no rate
-          reaches your PMS. The math is the pricing engine&rsquo;s own, so what you see is what a
-          real run would produce for these numbers.
+          reaches your PMS. The math is the same a real run uses, so what you see is what your
+          rules would produce for these numbers.
         </p>
         <LearnMore panel="simulator" />
       </div>
@@ -436,8 +436,9 @@ export function RateSimulator({
               ))}
             </select>
             <p className="mt-1 text-[11px] text-slate-500">
-              Leave on &ldquo;not enough history&rdquo; and booking-speed rules stay quiet, which is
-              what the engine does when it can&rsquo;t measure a pace.
+              Leave on &ldquo;not enough history&rdquo; and booking-speed rules stay quiet. The math
+              is the same a real run uses, and a real run keeps them quiet too when there isn&rsquo;t
+              enough history to read a pace.
             </p>
           </div>
         </div>
@@ -922,10 +923,11 @@ export function RateSimulator({
         )}
 
         <p className="mt-4 text-[11px] text-slate-500">
-          Three things this preview simplifies: a ladder rule fires on the way into its condition
-          and holds, so this shows where the night settles rather than each step; when several event
-          rules match, the engine picks one winner while this adds them all; and an event rule that
-          is still true once its wait is over adjusts the night again, which this shows only once.
+          The math is the same a real run uses, but this preview simplifies three things: a ladder
+          rule fires on the way into its condition and holds, so this shows where the night settles
+          rather than each step; when several event rules match, a real run picks one winner while
+          this adds them all; and an event rule that is still true once its wait is over adjusts the
+          night again, which this shows only once.
           It is one run, not where a night ends up over a week.
         </p>
       </div>
