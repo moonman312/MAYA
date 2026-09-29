@@ -134,9 +134,14 @@ export async function createOnboardingAdapter(
     case "think":
       return createThinkOnboardingAdapter(supabase, hotelId, preResolved);
     default:
-      throw new Error(
-        `PMS '${pmsType}' does not support onboarding import yet. ` +
-          `Implement OnboardingPmsAdapter and register it in createOnboardingAdapter.`,
+      // permanent: no retry can fix it, so the import worker stops the job at
+      // once instead of retrying it for hours.
+      throw Object.assign(
+        new Error(
+          `PMS '${pmsType}' does not support onboarding import yet. ` +
+            `Implement OnboardingPmsAdapter and register it in createOnboardingAdapter.`,
+        ),
+        { permanent: true },
       );
   }
 }

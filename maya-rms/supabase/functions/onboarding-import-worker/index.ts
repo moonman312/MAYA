@@ -19,6 +19,7 @@ import { analyzeImport } from "../_shared/onboarding/analysis.ts";
 import {
   LEASE_SECONDS,
   processJob,
+  requeueDueImports,
   type ImportJobRow,
   type WorkerDeps,
 } from "../_shared/onboarding/worker-core.ts";
@@ -99,6 +100,10 @@ Deno.serve(async (req) => {
   const supabase = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
+  // Stopped imports whose automatic retry is due go back in the queue first,
+  // so this same claim can pick one up. Never throws.
+  await requeueDueImports(supabase, Date.now());
 
   const { data: claimed, error: claimErr } = await supabase.rpc("claim_import_job", {
     p_lease_seconds: LEASE_SECONDS,

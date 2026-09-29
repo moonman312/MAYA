@@ -4,13 +4,14 @@ summary: What MAYA reads from your property system after you connect, in what or
 section: review
 order: 10
 readingTime: 12
-keywords: [import, 18 months, less than three years, short history, new property, no banner, claim the property, history, importing, reading your bookings, how long, progress bar, room-nights, years covered, oldest stay, import stopped, import complete, first results ready, ten years, three years, stuck, still importing, part 2, close the page, reconnected, reconnect, amber dot, did not carry on, not resuming, restart import, group login, several properties, cancelled bookings, no-show]
+keywords: [import, 18 months, less than three years, short history, new property, no banner, claim the property, history, importing, reading your bookings, how long, progress bar, room-nights, years covered, oldest stay, import stopped, import paused, tries again by itself, we've been told, import complete, first results ready, ten years, three years, stuck, still importing, part 2, close the page, reconnected, reconnect, amber dot, did not carry on, not resuming, restart import, group login, several properties, cancelled bookings, no-show]
 questions:
   - What happens during the import? {#what-it-reads-in-order/reading-your-property}
   - How long does the import take? {#how-long-it-takes}
   - How far back does MAYA read my bookings? {#what-it-reads-in-order/importing-past-years}
   - Can I use MAYA while it is still importing? {#your-first-day-using-maya-while-it-runs}
   - It says "Import stopped". What do I do? {#import-stopped/if-the-bar}
+  - It says "Import paused". Will it carry on by itself? {#import-stopped/when-it-stops}
   - I reconnected. Why has the import not carried on? {#import-stopped/if-the-bar}
   - Does MAYA keep my guests' details? {#what-is-kept}
   - Why does it say part 2 while reading my bookings? {#what-it-reads-in-order/reading-your-current}
@@ -89,7 +90,7 @@ The progress page has a link, <Ui>Go to my dashboard →</Ui>, at the bottom.
 
 The progress bar sits under the five questions and on the progress page. It shows the current step on the left and, on the right, how many room-nights have been read and, once an oldest stay is known, "back to" that month (for example "back to 2019-03").
 
-The dot beside the step pulses while the import runs, turns green when it is complete, and turns amber if it has stopped.
+The dot beside the step pulses while the import runs, turns green when it is complete, and turns amber if it has paused or stopped.
 
 The progress page adds three tiles: <Ui>Room-nights</Ui>, <Ui>Years covered</Ui> (the span between your oldest and newest stay, at least 1) and <Ui>Oldest stay</Ui>. It moves on by itself: to the review as soon as there is something to review, or to the dashboard if the import finished with nothing to review. If the work was already done when you arrived, it moves on straight away. Otherwise it waits a moment so you can see it finish.
 
@@ -99,9 +100,13 @@ Until your first results are ready, the heading on the progress page says the wo
 
 ## "Import stopped"
 
-If the bar reads "Import stopped" with an amber dot, the import gave up: your property system stopped answering for a long stretch, or a read kept ending in the same place. It will not restart on its own.
+If the bar reads "Import paused" or "Import stopped" with an amber dot, the import has stopped trying for now: your property system stopped answering for a long stretch, or a read kept ending in the same place. Your connection, your rules and everything already read are safe.
 
-The screen says we have been told, but nothing reaches us automatically. Please [email us](mailto:info@modern-hospitality-solutions.com?subject=Import%20stopped) so we can restart it for you. Your connection, your rules and everything already read are safe.
+When it stops, an automatic alert goes to our team. Then the import tries again by itself, up to three times, each time from where it had got to. It waits an hour before the first try, four hours before the second and twelve hours before the third. While it waits, the bar says when the next try is, for example "Import paused. We've been told, and it tries again by itself around 3:40 PM." Once a try is under way, the bar shows the step it is on again.
+
+If the third try stops too, the bar reads "Import stopped. We've been told." and the import does not try again by itself. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Import%20stopped) and we will restart it from where it left off.
+
+"We've been told" appears only when the alert reached us. If the bar says "Import stopped. Email us and we'll restart it." instead, nothing reached us, so please [email us](mailto:info@modern-hospitality-solutions.com?subject=Import%20stopped). A Cloudbeds Marketplace property you have not paid for yet does not try again by itself: paying for it (a free trial counts) starts the import again from where it stopped.
 
 If your connection drops while the import runs, the dot turns amber, the bar keeps the name of the step it had reached, and the reconnect prompt appears on your dashboard. Read [Reconnect and disconnect](/docs/connect/reconnect-and-disconnect).
 

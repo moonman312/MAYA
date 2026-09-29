@@ -7,7 +7,7 @@
  */
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { earlyResultsReady } from "./import-progress";
+import { earlyResultsReady, stoppedLabel } from "./import-progress";
 
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
@@ -137,5 +137,53 @@ describe("earlyResultsReady", () => {
     expect(earlyResultsReady({ ...statusWith({ status: "running", phase: "historical", stats }).job })).toBe(true);
     expect(earlyResultsReady({ ...statusWith({ status: "queued", phase: "discover" }).job })).toBe(false);
     expect(earlyResultsReady({ ...statusWith({ status: "failed", phase: "historical", stats }).job })).toBe(false);
+  });
+});
+
+describe("a stopped import says what happens next, and only that", () => {
+  const NOW = new Date(2026, 8, 29, 10, 0).getTime();
+  const failed = (stop?: Record<string, unknown>) =>
+    statusWith({ status: "failed", phase: "historical", stats: stop ? { stop } : {} }).job;
+  const at = (ms: number) => new Date(ms).toISOString();
+
+  it("names the retry it booked, and says we were told when the alert got through", () => {
+    const retryAt = new Date(2026, 8, 29, 11, 0).getTime();
+    const label = stoppedLabel(failed({ count: 1, retryAt: at(retryAt), alerted: true }), NOW);
+    const time = new Date(retryAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    expect(label).toBe(`Import paused. We've been told, and it tries again by itself around ${time}.`);
+  });
+
+  it("names the day when the retry is not today", () => {
+    const retryAt = new Date(2026, 8, 30, 9, 0).getTime();
+    const label = stoppedLabel(failed({ count: 3, retryAt: at(retryAt), alerted: true }), NOW);
+    expect(label).toContain(new Date(retryAt).toLocaleDateString(undefined, { weekday: "short" }));
+  });
+
+  it("never claims we were told when the alert did not get through", () => {
+    const retryAt = new Date(2026, 8, 29, 11, 0).getTime();
+    expect(stoppedLabel(failed({ count: 1, retryAt: at(retryAt), alerted: false }), NOW)).not.toContain("told");
+    expect(stoppedLabel(failed({ count: 4, retryAt: null, alerted: false }), NOW)).toBe(
+      "Import stopped. Email us and we'll restart it.",
+    );
+    // Stopped before the worker recorded anything: nobody was told.
+    expect(stoppedLabel(failed(), NOW)).toBe("Import stopped. Email us and we'll restart it.");
+  });
+
+  it("promises no retry once the worker has given up", () => {
+    expect(stoppedLabel(failed({ count: 4, retryAt: null, alerted: true }), NOW)).toBe("Import stopped. We've been told.");
+  });
+
+  it("says a retry that is due is moments away", () => {
+    expect(stoppedLabel(failed({ count: 1, retryAt: at(NOW - 30_000), alerted: true }), NOW)).toContain(
+      "tries again by itself in a minute or two",
+    );
+  });
+
+  it("shows on the progress bar with the amber dot", async () => {
+    responses = [statusWith({ status: "failed", phase: "historical", stats: { stop: { count: 4, retryAt: null, alerted: true } } }, 0)];
+    const view = render(<ImportProgressView />);
+    await waitFor(() => expect(view.container.textContent).toContain("Import stopped. We've been told."));
+    expect(view.container.querySelector(".bg-amber-500")).toBeTruthy();
+    expect(view.container.querySelector(".animate-ping")).toBeNull();
   });
 });
