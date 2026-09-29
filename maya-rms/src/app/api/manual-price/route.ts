@@ -24,7 +24,7 @@
  * that is down, or a night past the push window each mean nothing goes out now.
  */
 
-import { dbErrorResponse, isRealIsoDate, isUuid } from "@/lib/api-guards";
+import { dbErrorResponse, isRealIsoDate, isUuid, NOT_READY_YET } from "@/lib/api-guards";
 import { isEntitledStatus } from "@/lib/billing/entitlement";
 import { currencySymbolFor } from "@/lib/changelog-route-helpers";
 import { evaluateHotel } from "@/lib/engine";
@@ -124,7 +124,7 @@ function failed(error: unknown, step: string): NextResponse {
         warning: "manual_price table is missing — run 99_supabase_migration_manual_price_v1.sql",
       }),
     );
-    return NextResponse.json({ error: "This needs a database update first." }, { status: 503 });
+    return NextResponse.json({ error: NOT_READY_YET }, { status: 503 });
   }
   const { status, message } = dbErrorResponse(error);
   return NextResponse.json({ error: message }, { status });

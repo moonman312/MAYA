@@ -246,7 +246,7 @@ describe("POST /api/manual-price/retry — nothing to retry", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await post();
     expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: "This needs a database update first." });
+    expect(await res.json()).toEqual({ error: "Something on our side isn't ready yet. Email us and tell us which page you were on." });
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(errorSpy.mock.calls.some((c) => String(c[0]).includes("99_supabase_migration_manual_price_retry_v1.sql"))).toBe(true);
     errorSpy.mockRestore();

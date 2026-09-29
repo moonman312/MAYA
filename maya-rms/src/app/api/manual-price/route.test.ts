@@ -715,7 +715,7 @@ describe("POST /api/manual-price — before the table exists", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await post();
     expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: "This needs a database update first." });
+    expect(await res.json()).toEqual({ error: "Something on our side isn't ready yet. Email us and tell us which page you were on." });
     expect(String(errorSpy.mock.calls[0]?.[0])).toContain("manual_price_v1");
     // Nothing downstream ran: no rules paused, no re-price, no nudge.
     expect(tables().get("ladder_rule_state")).toEqual([]);

@@ -16,7 +16,7 @@
  * the same budget.
  */
 
-import { dbErrorResponse, isRealIsoDate, isUuid } from "@/lib/api-guards";
+import { dbErrorResponse, isRealIsoDate, isUuid, NOT_READY_YET } from "@/lib/api-guards";
 import { isMissingColumnError } from "@/lib/engine/snapshots";
 import { readSendStatus, type SendStatus } from "@/lib/pms/send-status";
 import { nudgeHotelSync } from "@/lib/pms/sync-nudge";
@@ -104,7 +104,7 @@ export async function POST(req: Request) {
             "rate_updates.retry_requested_at is missing — run 99_supabase_migration_manual_price_retry_v1.sql",
         }),
       );
-      return NextResponse.json({ error: "This needs a database update first." }, { status: 503 });
+      return NextResponse.json({ error: NOT_READY_YET }, { status: 503 });
     }
     const { status, message } = dbErrorResponse(error);
     return NextResponse.json({ error: message }, { status });
