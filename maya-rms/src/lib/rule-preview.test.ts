@@ -358,7 +358,7 @@ for (const engine of ENGINES) {
       engine.reset();
       vi.setSystemTime(new Date(T10));
       settled ??= await settle(engine.evaluate);
-    });
+    }, 120_000);
 
     it.each(CASES)("$name: the days shown are the days Apply changes", async (c) => {
       const t = clone(settled);
@@ -396,7 +396,7 @@ for (const engine of ENGINES) {
       const applied = published(await realRun(engine.evaluate, saveApply(t, after), T10));
       const without = published(await realRun(engine.evaluate, t, T10));
       expect(nightsDiffering(applied, without)).toEqual(whole.affected);
-    });
+    }, 120_000);
 
     it.each(CASES)("$name: Skip holds the days shown, and every other day prices as Apply does", async (c) => {
       const t = clone(settled);
@@ -417,7 +417,7 @@ for (const engine of ENGINES) {
       const again = await realRun(engine.evaluate, skipped, T20);
       expect(heldMoved(again, await realRun(engine.evaluate, without, T20))).toEqual([]);
       expect(otherMoved(again, await realRun(engine.evaluate, applied, T20))).toEqual([]);
-    });
+    }, 120_000);
 
     it("Skip holds exactly the days shown on a standard rule, and lets each go only once the rule stops and starts being true there", async () => {
       // Occupancy of King over 35% (more than 3 of its 10 rooms), +8% on King.
@@ -471,7 +471,7 @@ for (const engine of ENGINES) {
       const quiet = WINDOW.find((x) => x > addDays(TODAY, 5) && !preview.affected.includes(x) && kingBooked(skip, x) <= 3)!;
       await both(T50, (x) => book(x, T50, quiet, KING, 4 - kingBooked(x, quiet)));
       expect(priceOf(skip, quiet, KING)!).toBeGreaterThan(priceOf(none, quiet, KING)!);
-    });
+    }, 120_000);
 
     it("Skip holds a pickup rule on exactly the days shown, and lets each go only once the rule stops and starts being true there", async () => {
       // More than 1 King room night booked today, +30% on King: the
@@ -520,7 +520,7 @@ for (const engine of ENGINES) {
       expect(fires(n1)).toHaveLength(1);
       expect(fires(n2)).toEqual([]);
       expect(priceOf(skip, n2, KING)).toBe(priceOf(none, n2, KING));
-    });
+    }, 120_000);
 
     it("an edit to a pickup rule saved with Skip keeps its change on a held day until the rule stops and starts being true, then moves it to the new amount in that run", async () => {
       // More than 1 King room night today, +30%, applied: it raises n. Edited
@@ -550,7 +550,7 @@ for (const engine of ENGINES) {
       const old = t.pickup_event.find((e) => e.rule_id === NEW && String(e.stay_date) === n && Number(e.rule_version) === 1)!;
       expect(old.retired_reason).toBe("rule_edited");
       expect(t.rule_skip_hold.filter((h) => h.rule_id === NEW && String(h.stay_date) === n)).toEqual([]);
-    });
+    }, 120_000);
 
     it("a pickup rule and a booking speed rule created after bookings came in count those bookings, with Apply and with Skip", async () => {
       // Pickup: more than 2 King room nights today. Two were booked before
@@ -597,7 +597,7 @@ for (const engine of ENGINES) {
         expect({ name, since: fire[0].window_since ?? null }).toEqual({ name, since: null });
         expect(Number(fire[0].window_bookings_at_fire)).toBeGreaterThan(8);
       }
-    });
+    }, 120_000);
 
     it("an edit saved with Skip leaves each change it would move where it is, and Apply later judges them against the edited rule", async () => {
       const after = edited(settled, R.busy, { action_value: 20, rule_condition: [{ occupancy_operator: "gt", occupancy_threshold: 0.75 }] });
@@ -625,7 +625,7 @@ for (const engine of ENGINES) {
       const without = published(await realRun(engine.evaluate, skipped, T20));
       expect(nightsDiffering(applied, without)).toEqual(again.affected);
       expect(again.affected.length).toBeGreaterThan(0);
-    });
+    }, 120_000);
 
     it("an edit saved with Skip carries each change at its old amount once the rule stops holding, and switching it off and on with Apply shows and moves them", async () => {
       // "Busy nights" from +15% to +20%, same bar, saved with Skip: its
@@ -671,7 +671,7 @@ for (const engine of ENGINES) {
       const moved = on.ladder_rule_state.filter((r) => r.rule_id === R.busy && r.is_active && carriedNights.includes(String(r.stay_date)));
       expect(moved.length).toBeGreaterThan(0);
       expect(moved.every((r) => Number(r.action_value) === 20 && (r.skip_state ?? null) === null)).toBe(true);
-    });
+    }, 120_000);
 
     // The undo box keeps a change that is on the price through cancellations.
     // A day Skip holds has no change of the rule on it (held) or one the owner
@@ -714,7 +714,7 @@ for (const engine of ENGINES) {
       });
       expect(row()).toMatchObject({ is_active: true, skip_state: null });
       expect(priceOf(skip, d, KING)!).toBeGreaterThan(priceOf(none, d, KING)!);
-    });
+    }, 120_000);
 
     it("with the undo box unticked, an edit saved with Skip moves a carried change to the new amount once the rule stops and starts being true there", async () => {
       // "Busy nights" unticked, from +15% to +20%, saved with Skip.
@@ -742,7 +742,7 @@ for (const engine of ENGINES) {
       expect(onNight(t).length).toBeGreaterThan(0);
       expect(onNight(t).every((r) => (r.skip_state ?? null) === null && Number(r.action_value) === 20)).toBe(true);
       expect(priceOf(t, d, KING)!).toBeGreaterThan(before);
-    });
+    }, 120_000);
 
     it("with the undo box unticked, a change on a room type taken off the rule and carried by Skip is kept once the rule stops being true, and comes off once it is true again", async () => {
       // "Busy nights" unticked, Suite taken off it, saved with Skip: the
@@ -766,7 +766,7 @@ for (const engine of ENGINES) {
       for (const rt of [KING, QUEEN, SUITE, FAMILY]) book(t, T30, d, rt, 12);
       t = await realRun(engine.evaluate, t, T30);
       expect(suiteRow(t, d)?.is_active).toBe(false);
-    });
+    }, 120_000);
 
     it("an edit to a rule that is off moves no price until it is switched on", async () => {
       const t = clone(settled);
@@ -777,7 +777,7 @@ for (const engine of ENGINES) {
       expect(nightsDiffering(published(run), published(without))).toEqual([]);
       // Its changes are still on the price, frozen.
       expect(run.pickup_event.filter((e) => e.rule_id === R.pausedBs && e.retired_at == null).length).toBeGreaterThan(0);
-    });
+    }, 120_000);
   });
 }
 

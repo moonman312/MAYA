@@ -32,6 +32,7 @@ export const MIGRATIONS = {
   undoOnCancellation: "99_supabase_migration_undo_on_cancellation_v1.sql",
   pricingCadence: "99_supabase_migration_pricing_cadence_v1.sql",
   ruleActivation: "99_supabase_migration_rule_activation_v1.sql",
+  bookingHistoryCache: "99_supabase_migration_booking_history_cache_v1.sql",
 } as const;
 
 /* ── The nights one run prices ─────────────────────────────────────────────

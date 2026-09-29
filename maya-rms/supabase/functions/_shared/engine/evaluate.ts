@@ -31,6 +31,7 @@ import {
   signalSetKey,
   usesMomentum,
   type BookingSpeedContext,
+  type HistoryLoad,
   type SplitNeed,
 } from "./booking-speed-provider.ts";
 import type { BaseSource } from "./base-price.ts";
@@ -230,6 +231,14 @@ export type EvaluateOptions = {
   report?: CadenceReport;
   /** A trial run that writes nothing (see DryRun). */
   dryRun?: DryRun;
+  /**
+   * The booking history booking speed compares with (HistoryLoad in
+   * booking-speed-provider.ts): shared by the runs handed one HistoryReuse
+   * (one popup request's), and read from the hotel day's store, and with
+   * "write" saved to it. A dry run only ever reads it. Left out, it is read
+   * afresh.
+   */
+  history?: HistoryLoad;
 };
 
 /**
@@ -890,6 +899,10 @@ export async function evaluateHotel(
       [...countingIds],
       rules.filter((r) => r.condition.booking_speed_operator).map((r) => r.signal_room_type_ids),
       runNights,
+      {
+        reuse: opts.history?.reuse ?? null,
+        store: dry && opts.history?.store === "write" ? "read" : (opts.history?.store ?? null),
+      },
     );
   }
 

@@ -229,11 +229,30 @@ export interface HolidayContext {
 }
 
 /**
+ * Answers already worked out, per date: the answer depends on the date alone,
+ * and comparable selection asks it of every candidate date three years back
+ * for every night priced. Kept as found (null included) and handed out as a
+ * copy, so no caller can change another's. Emptied when large.
+ */
+const holidayContextCache = new Map<string, HolidayContext | null>();
+const HOLIDAY_CONTEXT_CACHE_LIMIT = 20_000;
+
+/**
  * The holiday whose influence window covers `date`, or null. When two
  * windows overlap (Christmas through New Year's), the nearer holiday wins;
  * exact ties fall to table order.
  */
 export function holidayContextForDate(date: string): HolidayContext | null {
+  let found = holidayContextCache.get(date);
+  if (found === undefined) {
+    found = findHolidayContext(date);
+    if (holidayContextCache.size >= HOLIDAY_CONTEXT_CACHE_LIMIT) holidayContextCache.clear();
+    holidayContextCache.set(date, found);
+  }
+  return found === null ? null : { ...found };
+}
+
+function findHolidayContext(date: string): HolidayContext | null {
   const year = Number(date.slice(0, 4));
   let best: (HolidayContext & { dist: number; order: number }) | null = null;
   for (const y of [year - 1, year, year + 1]) {

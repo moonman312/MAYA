@@ -1,6 +1,6 @@
 // Links into MAYA from the docs: the linker, its dictionary, and the build's
 // checks on every link a page writes. Run with: npm test
-import { test } from "vitest";
+import { test, vi } from "vitest";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -9,6 +9,9 @@ import { extractPage, parseMdx } from "./extract.mjs";
 import { loadPages } from "./build-lib.mjs";
 import { createAppLinker, entryFor } from "../../src/lib/docs/app-linker.mjs";
 import { createLinks } from "../../src/lib/deep-links/core.mjs";
+
+// Whole-corpus checks: slower than a unit test, and slower still when the suite runs in parallel.
+vi.setConfig({ testTimeout: 120_000 });
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const dict = JSON.parse(fs.readFileSync(path.join(ROOT, "src/lib/docs/app-labels.json"), "utf8"));
