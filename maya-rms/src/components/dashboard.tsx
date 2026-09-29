@@ -648,6 +648,8 @@ export function Dashboard({
         return;
       }
       setActiveHotelId(hotelId);
+      // The last property's connection must not show over this one while it loads.
+      setPmsActivity(null);
       await Promise.all([reloadRules(), reloadRoomTypes()]);
       if (tab === "calendar") await reloadCalendar();
       if (tab === "changelog") await reloadChangelog();
@@ -1005,7 +1007,7 @@ export function Dashboard({
           ) : null}
         </div>
 
-        <BillingBanner />
+        <BillingBanner hotelId={activeHotelId} />
 
         {pmsActivity?.connection && pmsActivity.pms ? (
           <div className="mb-6">
@@ -1022,7 +1024,7 @@ export function Dashboard({
           </div>
         ) : null}
 
-        <OnboardingReviewBanner />
+        <OnboardingReviewBanner hotelId={activeHotelId} />
 
         <RuleAlertBanner
           activeHotelId={activeHotelId}

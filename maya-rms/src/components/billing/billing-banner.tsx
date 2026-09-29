@@ -19,23 +19,27 @@ type Status = {
  * has to appear. The one case it must never miss is work having stopped: the
  * calendar keeps rendering yesterday's prices, so without this the property
  * looks like it is still working.
+ *
+ * `hotelId` is the property on screen. The status is read again when it
+ * changes, and one read for another property is never shown for this one.
  */
-export function BillingBanner() {
-  const [status, setStatus] = useState<Status | null>(null);
+export function BillingBanner({ hotelId = null }: { hotelId?: string | null }) {
+  const [loaded, setLoaded] = useState<{ hotelId: string | null; status: Status } | null>(null);
 
   useEffect(() => {
     let alive = true;
     fetch("/api/billing/status")
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
-        if (alive && body) setStatus(body as Status);
+        if (alive && body) setLoaded({ hotelId, status: body as Status });
       })
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, []);
+  }, [hotelId]);
 
+  const status = loaded?.hotelId === hotelId ? loaded.status : null;
   if (!status?.applicable || status.tone === "ok") return null;
 
   const stopped = status.tone === "stopped";
