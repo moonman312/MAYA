@@ -336,7 +336,7 @@ describe("getCalendar (Supabase) — sellable occupancy", () => {
   });
 });
 
-describe("getCalendar (Supabase) — revenue and average rate", () => {
+describe("getCalendar (Supabase): revenue and average rate", () => {
   afterEach(() => {
     clearCalendarHistoryCache();
     vi.restoreAllMocks();
