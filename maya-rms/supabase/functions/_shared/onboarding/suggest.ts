@@ -217,7 +217,7 @@ export type GuardrailSuggestion = {
 
 // Schema defaults meaning "never set": floor 1.00, ceiling 99999.99.
 const FLOOR_UNSET_MAX = 1.0;
-const CEILING_UNSET_MIN = 99_000;
+const CEILING_UNSET_MIN = 99_999.99;
 
 /* ── Data-derived guardrails ─────────────────────────────────── */
 

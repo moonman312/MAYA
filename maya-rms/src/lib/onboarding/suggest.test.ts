@@ -289,6 +289,17 @@ describe("computeInitialGuardrails", () => {
     expect(out[0].field).toBe("ceiling_price");
   });
 
+  it("treats only the exact default ceiling as unset, not any ceiling of 99,000 or more", () => {
+    // A yen or won property sets ceilings in this range on purpose.
+    for (const ceiling_price of [99_000, 99_500, 99_999.98]) {
+      const out = computeInitialGuardrails([rtIn({ ceiling_price, observed_p99_rate: 60_000, observed_median_rate: 40_000 })]);
+      expect(out.find((g) => g.field === "ceiling_price")).toBeUndefined();
+      expect(out.find((g) => g.field === "floor_price")).toMatchObject({ value: 16_000 });
+    }
+    const unset = computeInitialGuardrails([rtIn({ observed_p99_rate: 60_000, observed_median_rate: 40_000 })]);
+    expect(unset.find((g) => g.field === "ceiling_price")).toMatchObject({ value: 90_000 });
+  });
+
   it("a fat-fingered max cannot inflate the ceiling — p99 is the basis", () => {
     const out = computeInitialGuardrails([rtIn({ observed_p99_rate: 418 })]);
     expect(out.find((g) => g.field === "ceiling_price")!.value).toBeLessThan(1000);
@@ -373,6 +384,16 @@ describe("computeGuardrailSuggestions", () => {
     expect(out[0]).toMatchObject({ field: "floor_price", suggested: 79 });
     // Their stated ceiling (500) beats the p99-derived 600.
     expect(out[1]).toMatchObject({ field: "ceiling_price", suggested: 500 });
+  });
+
+  it("offers no ceiling card for a ceiling set just under the default, only for the default itself", () => {
+    const big = { observed_p99_rate: 60_000, observed_median_rate: 40_000 };
+    for (const ceiling_price of [99_000, 99_500]) {
+      const out = computeGuardrailSuggestions([rt({ ...big, ceiling_price })], NO_ANSWERS);
+      expect(out.map((s) => s.field)).toEqual(["floor_price"]);
+    }
+    const unset = computeGuardrailSuggestions([rt(big)], NO_ANSWERS);
+    expect(unset.find((s) => s.field === "ceiling_price")).toMatchObject({ suggested: 90_000 });
   });
 
   it("NEVER questions a guardrail a human already set", () => {
