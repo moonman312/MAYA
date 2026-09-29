@@ -190,7 +190,11 @@ Three environment variables and one script. No code changes.
    `customer.subscription.updated`, `customer.subscription.deleted`,
    `customer.subscription.paused`, `customer.subscription.resumed`,
    `customer.subscription.trial_will_end`, `invoice.payment_succeeded`,
-   `invoice.upcoming`. Copy its signing secret.
+   `invoice.upcoming`, `customer.updated`. Copy its signing secret.
+   `customer.updated` is what pays an unpaid subscription's open invoice when
+   the owner saves a new default card in the billing portal
+   (`lib/billing/unpaid-recovery.ts`); without it on the endpoint, updating
+   the card does not restart the subscription.
 4. In Vercel (Production), set `STRIPE_SECRET_KEY`,
    `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` to the live
    values, and `MAYA_MARKETPLACE_TRIAL_DAYS` to what the offer should be.

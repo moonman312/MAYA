@@ -24,6 +24,7 @@ questions:
   - It says I'm running 300 rooms on Mews {#it-says-youre-billed-for-20-rooms-but-running-24/mews-where-mews}
   - My room count on ThinkReservations looks wrong {#it-says-youre-billed-for-20-rooms-but-running-24/thinkreservations-thinkreservations-lists}
   - It says MAYA has paused work on this property {#it-says-maya-has-paused-work-on-this-property}
+  - I updated my card but MAYA is still paused {#it-says-maya-has-paused-work-on-this-property}
   - It says this property already has a subscription {#it-says-this-property-already-has-a-subscription}
   - Why is the next charge different from the calculator? {#why-is-the-next-charge-different-from-the-calculator}
   - Why can't I see the billing page? {#why-cant-i-see-the-billing-page}
@@ -34,7 +35,7 @@ questions:
   - My property name, time zone or currency came in wrong {#my-property-name-time-zone-or-currency-came-in-wrong}
   - How do I reopen the questions to change my property name? {#my-property-name-time-zone-or-currency-came-in-wrong}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-27
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -141,7 +142,7 @@ If MAYA is counting something that is not a guest room, untick it under <Ui>Room
 
 The subscription is not paying. Nothing is read, priced or sent until it is. Two cases, and the banner's second line tells them apart:
 
-- "Update your card and the subscription restarts where it left off." The last payments failed and the bank's retries ran out. Press <Ui>Restart MAYA</Ui>, then <Ui>Update card, receipts & cancellation</Ui>, and update the card. Then pay the open invoice in Stripe, and the subscription restarts where it left off. Updating the card alone does not restart it, because nothing tries the payment again by itself.
+- "Update your card and the subscription restarts where it left off." The last payments failed and the bank's retries ran out. Press <Ui>Restart MAYA</Ui>, then <Ui>Update card, receipts & cancellation</Ui>, and save the new card as your default. MAYA pays the open invoice with it straight away and moves the subscription onto it, and the subscription restarts where it left off. If the status still reads "Unpaid" a few minutes later, the new card was declined too. Save a different card as your default, or [email us](mailto:info@modern-hospitality-solutions.com?subject=Still%20unpaid).
 - "Your subscription was cancelled, so starting again means a new one" (restart below whenever you are ready). Press <Ui>Restart your subscription</Ui> on the billing page. A new subscription starts on the same pricing; the old code cannot be reused.
 
 Your rules, limits, history and settings are kept while paused. Rates already in your system stay as they are. Read [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving).

@@ -19,6 +19,7 @@ import { activateMarketplaceHotelIfPending } from "@/lib/pms/marketplace-activat
 import { decideNudge, sendRenewalNudge, type UpcomingInvoice } from "@/lib/billing/renewal-nudge";
 import { clearCardAlarmAfterPayment } from "@/lib/billing/reverify";
 import { recordFirstPayment } from "@/lib/billing/first-paid";
+import { defaultCardChanged, payUnpaidAfterCardUpdate } from "@/lib/billing/unpaid-recovery";
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
@@ -236,6 +237,27 @@ export async function POST(request: Request) {
         return NextResponse.json({ received: true, nudge: "failed" });
       }
       return NextResponse.json({ received: true, nudge: "sent", hotel_id: decision.hotelId });
+    }
+
+    if (event.type === "customer.updated") {
+      // An owner whose subscription went unpaid is told to update their card,
+      // and that the subscription restarts where it left off. Stripe does not
+      // retry an unpaid subscription's invoice by itself, so the new default
+      // card is what pays it (lib/billing/unpaid-recovery.ts). Every other
+      // customer change (email, address, tax id) is not our concern.
+      if (!defaultCardChanged(event.data.previous_attributes)) {
+        return NextResponse.json({ received: true, ignored: "no_card_change" });
+      }
+      const customerId = (event.data.object as Stripe.Customer).id;
+      const recovery = await payUnpaidAfterCardUpdate(stripe, customerId);
+      if (!recovery.attempted) return NextResponse.json({ received: true, unpaid: recovery.reason });
+      // Declines are acknowledged like everything else: redelivering this
+      // event would only ask the same bank the same question.
+      return NextResponse.json({
+        received: true,
+        paid: recovery.attempts.filter((a) => a.outcome === "paid").length,
+        notPaid: recovery.attempts.filter((a) => a.outcome !== "paid").length,
+      });
     }
 
     // Payment outcomes are already reflected in the subscription's own status,
