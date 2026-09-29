@@ -228,7 +228,7 @@ export function headlineFor(billing: AccountBilling, now = new Date()): BillingH
       tone: "warn",
       title: "Your last payment did not go through",
       detail:
-        "We are still pricing your rooms while the bank retries. Update your card to avoid an interruption.",
+        "Your rules keep running while the bank retries. Update your card to avoid an interruption.",
     };
   }
 

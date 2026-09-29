@@ -97,12 +97,14 @@ describe("headlineFor", () => {
     expect(h.detail).toMatch(/cancelled/i);
   });
 
-  it("reassures a past_due property that it is still being priced", () => {
+  it("reassures a past_due property that its rules keep running", () => {
     // Cutting them off on the first failed charge is exactly what isEntitled
     // refuses to do, so the copy must not imply it has happened.
     const h = headlineFor(billing({ status: "past_due" }), NOW);
     expect(h.tone).toBe("warn");
-    expect(h.detail).toMatch(/still pricing/i);
+    expect(h.detail).toBe(
+      "Your rules keep running while the bank retries. Update your card to avoid an interruption.",
+    );
   });
 
   it("warns about a dead card before it has cost anything", () => {
