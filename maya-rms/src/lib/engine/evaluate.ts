@@ -34,7 +34,7 @@ import {
 } from "./booking-speed-provider";
 import type { BaseSource } from "./base-price";
 import { pricesOnBase, resolveBase } from "./base-price";
-import { ruleConditionsMatch } from "./conditions";
+import { ladderConditionsHold, ruleConditionsMatch } from "./conditions";
 import type { LadderOp, LadderPassResult, OverrideProbe } from "./ladder";
 import { applyLadderOps, createLadderPassBatch, evaluateLadderTriple, probeSuppressionSupport, skipMarkerOf } from "./ladder";
 import { computeOccupancy, computeRuleMetrics } from "./metrics";
@@ -48,7 +48,6 @@ import {
   cancellationReads,
   comparePickupRules,
   countFromFireAt,
-  countFromSkip,
   countPickupSinceChange,
   countPickupToDayStart,
   pickupCountsCompleteDays,
@@ -63,7 +62,10 @@ import {
   loadOpenPickupFires,
   loadPausedEventRules,
   loadPickupFireHeads,
+  loadSkipHolds,
   openFireHeads,
+  skipHoldStep,
+  writeSkipHolds,
   versionRanksOf,
   pickupEffectsFromFires,
   recordArrivals,
@@ -84,6 +86,7 @@ import {
   type PickupRetireReason,
   type PickupWin,
   type RetiredPickupFire,
+  type SkipHold,
   type WaitingHolder,
 } from "./pickup";
 import {
@@ -948,40 +951,90 @@ export async function evaluateHotel(
     for (const row of ladderBatch.activeRows(watch)) if (stayDateSet.has(row.stayDate)) touched.add(row.stayDate);
   }
 
+  // The owner's Skip holds on this run's nights (rule_skip_hold, see SKIP in
+  // pickup.ts): a booking speed or pickup rule's, per day and room type, and
+  // any rule's booking speed or pickup changes of a version before an edit
+  // made it a standard rule. What the run finds on them is written once the
+  // event rules are judged (writeSkipHolds); a dry run writes nothing.
+  const skipHolds = await loadSkipHolds(supabase, rules, firstDate, lastDate, runNights);
+  const holdsByRuleNight = new Map<string, SkipHold[]>();
+  for (const h of skipHolds.values()) pushTo(holdsByRuleNight, `${h.ruleId}|${h.stayDate}`, h);
+  const holdsJudged: SkipHold[] = [];
+  const holdsEnded: SkipHold[] = [];
+  /** One judgment of a hold (skipHoldStep): true when the hold ends now. */
+  const judgeHold = (hold: SkipHold, isTrue: boolean): boolean => {
+    const step = skipHoldStep(hold.wasTrue, isTrue);
+    if (step.release) {
+      skipHolds.delete(fireHeadKey(hold.ruleId, hold.stayDate, hold.roomTypeId));
+      holdsEnded.push(hold);
+      return true;
+    }
+    if (step.wasTrue !== hold.wasTrue) {
+      hold.wasTrue = step.wasTrue;
+      holdsJudged.push(hold);
+    }
+    return false;
+  };
+  const isHeld = (ruleId: string, stayDate: string, roomTypeId: string) =>
+    skipHolds.has(fireHeadKey(ruleId, stayDate, roomTypeId));
+
+  const noteLeftoverDeactivation = (rule: EngineRule, stayDate: string, roomTypeId: string, metrics: RuleMetrics) => {
+    const key = `${stayDate}|${roomTypeId}`;
+    const list = allLadderResults.get(key) ?? [];
+    list.push({
+      rule_id: rule.id,
+      rule_version: rule.version,
+      stay_date: stayDate,
+      room_type_id: roomTypeId,
+      transition: "deactivate",
+      metrics,
+      action_kind: rule.action_type,
+      action_direction: rule.action_direction,
+      action_value: rule.action_value,
+    });
+    allLadderResults.set(key, list);
+    ladderDeactivations++;
+    changedNights.add(stayDate);
+  };
+
   // A rule's change the pass no longer reaches, because the rule was edited
   // since it was made (a room type taken off its list, nights it no longer
   // covers, or the rule turned into an event rule), comes off: an edit
   // applied judges every change the rule has on the price. So does one kept
   // by an older Skip (applied since). A row of the current version the pass
   // doesn't reach stays as it is, as it always has (a paused room type).
+  // The owner's current Skip holds such a change as it is until the rule
+  // stops being true that night and then becomes true again (ladder.ts
+  // SKIP), and then it comes off; an event rule's hold on it is judged with
+  // the event rules (below).
   const retireLeftoverRows = async (rule: EngineRule, visited: ReadonlySet<string>) => {
     for (const row of ladderBatch.activeRows(rule.id)) {
       if (!stayDateSet.has(row.stayDate) || visited.has(`${row.stayDate}|${row.roomTypeId}`)) continue;
+      if (isHeld(rule.id, row.stayDate, row.roomTypeId)) continue;
       const marker = skipMarkerOf(row.state, rule);
       const fromBeforeEdit = row.state.rule_version != null && Number(row.state.rule_version) !== rule.version;
-      if (!fromBeforeEdit && !(marker && !marker.current)) continue;
-      if (marker?.current) continue;
+      if (!fromBeforeEdit && !marker) continue;
       const metrics = await computeRuleMetrics(supabase, rule, hotelId, row.stayDate, now, localDate, now, null, snapshots);
       noteExcludedSignals(rule, metrics);
+      if (marker?.current) {
+        if (marker.kind === "carried") {
+          if (!ladderConditionsHold(rule, metrics)) ladderBatch.markKept(rule, row.stayDate, row.roomTypeId);
+          continue;
+        }
+        const ends = marker.kind === "kept" ? ruleConditionsMatch(rule, metrics) : !ladderConditionsHold(rule, metrics);
+        if (!ends) continue;
+        ladderBatch.deactivate(rule, hotelId, row.stayDate, row.roomTypeId, metrics, now, supportsSuppression, {
+          clearSkip: true,
+          ...(marker.kind === "held" ? { hadEffect: false } : {}),
+        });
+        noteLeftoverDeactivation(rule, row.stayDate, row.roomTypeId, metrics);
+        continue;
+      }
       ladderBatch.deactivate(rule, hotelId, row.stayDate, row.roomTypeId, metrics, now, supportsSuppression, {
         clearSkip: !!marker,
+        holds: ruleConditionsMatch(rule, metrics),
       });
-      const key = `${row.stayDate}|${row.roomTypeId}`;
-      const list = allLadderResults.get(key) ?? [];
-      list.push({
-        rule_id: rule.id,
-        rule_version: rule.version,
-        stay_date: row.stayDate,
-        room_type_id: row.roomTypeId,
-        transition: "deactivate",
-        metrics,
-        action_kind: rule.action_type,
-        action_direction: rule.action_direction,
-        action_value: rule.action_value,
-      });
-      allLadderResults.set(key, list);
-      ladderDeactivations++;
-      changedNights.add(row.stayDate);
+      noteLeftoverDeactivation(rule, row.stayDate, row.roomTypeId, metrics);
     }
   };
 
@@ -1005,6 +1058,13 @@ export async function evaluateHotel(
       );
       attachBookingSpeed(rule, stayDate, metrics);
       noteExcludedSignals(rule, metrics);
+
+      // Booking speed or pickup changes of its own from before an edit made
+      // it a standard rule, where the owner's Skip holds them: judged on the
+      // rule as it is now. When a hold ends they come off (firesToReset).
+      for (const hold of holdsByRuleNight.get(`${rule.id}|${stayDate}`) ?? []) {
+        if (isHeld(rule.id, stayDate, hold.roomTypeId)) judgeHold(hold, ruleConditionsMatch(rule, metrics));
+      }
 
       // Whether this rule already held when a manual price was typed on one
       // of its cells, for a cell that has no state row yet (see OverrideProbe
@@ -1125,11 +1185,15 @@ export async function evaluateHotel(
   // Taking fires off: a dry run takes off every one it would.
   const retire = (reasons: ReadonlyMap<string, PickupRetireReason>) =>
     dry ? Promise.resolve(new Set(reasons.keys())) : retireFires(supabase, hotelId, reasons, now);
+  // The days and room types the owner's Skip still holds (see SKIP in
+  // pickup.ts), after the standard rules' holds were judged above.
+  const heldKeys = new Set(skipHolds.keys());
   // Fires a typed price or an edit takes off go first.
   const resetReasons = firesToReset(openFires, {
     rules: rulesById,
     manualSetAtByCell: new Map([...manualByCell].map(([key, m]) => [key, m.set_at])),
     now,
+    held: heldKeys,
   });
   const resetIds = resetReasons.size > 0 ? await retire(resetReasons) : new Set<string>();
   const noteUnretired = (asked: ReadonlyMap<string, unknown>, done: ReadonlySet<string>) => {
@@ -1244,6 +1308,7 @@ export async function evaluateHotel(
     openFires.filter((f) => !resetReasons.has(f.id)),
     rulesById,
     now,
+    heldKeys,
   );
   let cancelFindings = new Map<string, CancellationFinding>();
   if (cancelChecks.length > 0) {
@@ -1307,16 +1372,13 @@ export async function evaluateHotel(
         const stayDate = fire.stay_date;
         const rtId = fire.affected_room_type_id;
         try {
-          const fireAt = countFromSkip(
+          const fireAt = countFromFireAt(
             rule,
-            countFromFireAt(
-              rule,
-              othersOf.get(rule.id) ?? [],
-              openFireHeads(rankedEventRules, openFires, new Set([...off, fire.id])),
-              stayDate,
-              rtId,
-              base,
-            ),
+            othersOf.get(rule.id) ?? [],
+            openFireHeads(rankedEventRules, openFires, new Set([...off, fire.id])),
+            stayDate,
+            rtId,
+            base,
           );
           const manual = manualByCell.get(key);
           const baselineTs = baselineTsFrom(rule, localDate, hotelTimeZone);
@@ -1457,28 +1519,58 @@ export async function evaluateHotel(
   // rule that adjusts the same way, paused or not), for a Booking Speed
   // condition from that fire's day (bookingSpeedCountFrom), for a pickup
   // condition from that fire's instant (see ruleNights).
+  //
+  // A cell the owner's Skip holds (see SKIP in pickup.ts) is measured the
+  // same way, to judge the hold, and the rule does nothing else there. It
+  // counts from where Apply would have it count from: without its own
+  // changes from before an edit, which Apply takes off. A held room type
+  // the rule no longer changes (one with a change of it from before an
+  // edit) is judged too, so its hold can end and that change come off.
   type ScopedCell = {
     rtId: string;
     manual: { set_at: string } | undefined;
     waits: boolean;
     fireAt: string | null;
     countFrom: BookingSpeedCountFrom | null;
+    /** The owner's Skip holds the rule here: judged, not acted on. */
+    hold?: SkipHold;
+    /** One of the room types the rule changes. */
+    affected: boolean;
   };
   type ScopedNight = { rule: EngineRule; stayDate: string; cells: ScopedCell[] };
   const scopedNights: ScopedNight[] = [];
+  const heldOlderFires = new Set(
+    openFires
+      .filter((f) => {
+        if (retiredIds.has(f.id) || !heldKeys.has(fireHeadKey(f.rule_id, f.stay_date, f.affected_room_type_id))) return false;
+        const rule = rulesById.get(f.rule_id);
+        return rule !== undefined && f.rule_version < rule.version;
+      })
+      .map((f) => f.id),
+  );
+  const heldHeads =
+    heldOlderFires.size > 0 ? openFireHeads(rankedEventRules, openFires, new Set([...retiredIds, ...heldOlderFires])) : openHeads;
   for (const rule of pickupRules) {
     const waitDays = ruleWaitDays(rule);
     const others = othersOf.get(rule.id)!;
+    const affected = new Set(rule.affected_room_type_ids);
     for (const stayDate of stayDates) {
       if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone)) continue;
       if (isStoppedOnNight(alertNights, rule, stayDate)) continue;
-      const cells = rule.affected_room_type_ids.map((rtId): ScopedCell => {
+      const heldElsewhere = (holdsByRuleNight.get(`${rule.id}|${stayDate}`) ?? [])
+        .map((h) => h.roomTypeId)
+        .filter((rtId) => !affected.has(rtId) && isHeld(rule.id, stayDate, rtId));
+      const cells = [...rule.affected_room_type_ids, ...heldElsewhere].map((rtId): ScopedCell => {
         const head = fireHeads.get(fireHeadKey(rule.id, stayDate, rtId));
         const manual = manualByCell.get(`${stayDate}|${rtId}`);
-        // From the owner's Skip at the earliest: see SKIP in pickup.ts.
-        const fireAt = countFromSkip(
+        const hold = skipHolds.get(fireHeadKey(rule.id, stayDate, rtId));
+        const fireAt = countFromFireAt(
           rule,
-          countFromFireAt(rule, others, openHeads, stayDate, rtId, basePrices.get(basePriceKey(stayDate, rtId)) ?? 100),
+          others,
+          hold ? heldHeads : openHeads,
+          stayDate,
+          rtId,
+          basePrices.get(basePriceKey(stayDate, rtId)) ?? 100,
         );
         return {
           rtId,
@@ -1487,6 +1579,8 @@ export async function evaluateHotel(
           waits: isWaiting(waitAnchor(rule, head, manual), localDate, waitDays, hotelTimeZone),
           fireAt,
           countFrom: bookingSpeedCountFrom(rule, fireAt, manual, hotelTimeZone),
+          ...(hold ? { hold } : {}),
+          affected: affected.has(rtId),
         };
       });
       scopedNights.push({ rule, stayDate, cells });
@@ -1538,10 +1632,17 @@ export async function evaluateHotel(
     waiting: string[];
     /** Room types it waits on, where this is what it counts itself: it holds them against weaker rules its way. */
     waitingOwn: string[];
+    /** Cells the owner's Skip holds, judged on this entry's count (see SKIP in pickup.ts). */
+    held: HeldCell[];
     metrics?: RuleMetrics;
     matched?: boolean;
   };
+  /** A held cell, and where it goes when its hold ends this run. */
+  type HeldCell = { rtId: string; hold: SkipHold; waits: boolean; affected: boolean; windowEntry: RuleNight | null };
   const ruleNights: RuleNight[] = [];
+  // Held cells with nothing to judge yet (a pickup count cut short, as
+  // below): not true.
+  const heldUnjudged: SkipHold[] = [];
   for (const { rule, stayDate, cells } of scopedNights) {
     const baselineTs = baselineTsFrom(rule, localDate, hotelTimeZone);
     const shortStretch = pickupJudgesShortStretch(rule);
@@ -1559,12 +1660,28 @@ export async function evaluateHotel(
           open: [],
           waiting: [],
           waitingOwn: [],
+          held: [],
         };
         byFrom.set(key, entry);
       }
       return entry;
     };
-    for (const { rtId, manual, waits, fireAt, countFrom } of cells) {
+    for (const { rtId, manual, waits, fireAt, countFrom, hold, affected } of cells) {
+      if (hold) {
+        const cellBaselineTs = pickupWindowOpensAt(
+          baselineTs,
+          baselineTs === null ? null : fireAt,
+          manual,
+          pickupFireDayStart(rule, fireAt, hotelTimeZone),
+        );
+        if (cellBaselineTs !== baselineTs && !shortStretch) {
+          heldUnjudged.push(hold);
+          continue;
+        }
+        const windowEntry = affected && waits ? entryFor(null, baselineTs) : null;
+        entryFor(countFrom, cellBaselineTs).held.push({ rtId, hold, waits, affected, windowEntry });
+        continue;
+      }
       if (waits) entryFor(null, baselineTs).waiting.push(rtId);
       const cellBaselineTs = pickupWindowOpensAt(
         baselineTs,
@@ -1578,20 +1695,6 @@ export async function evaluateHotel(
     }
     ruleNights.push(...byFrom.values());
   }
-
-  const pickupEffectsByCell = pickupEffectsFromFires(openFires, retiredIds);
-  // Ladder writes are flushed: these are the rows the pass left active.
-  const ladderEffectsByCell = await loadActiveLadderEffectsForRange(
-    supabase,
-    roomTypeIds,
-    firstDate,
-    lastDate,
-    supportsSuppression,
-    runNights,
-    ladderBatch.supportsSkip,
-  );
-  // A dry run wrote nothing: its own decisions go over what the table holds.
-  if (dry) applyLadderOps(ladderEffectsByCell, ladderBatch.ops());
 
   const measure = async (rn: RuleNight) => {
     if (rn.metrics) return;
@@ -1635,6 +1738,80 @@ export async function evaluateHotel(
         ? [{ rule: rn.rule, stayDate: rn.stayDate, baselineTs: rn.baselineTs, atFire: rn.pickupSince != null }]
         : [],
     );
+  // The owner's Skip holds (see SKIP in pickup.ts), each judged on what the
+  // rule counts there. The first time the rule is true after being not
+  // true, the hold ends: its changes there from before an edit come off, as
+  // Apply takes them off (and a standard rule's, from before an edit made it
+  // a booking speed or pickup rule), and it acts there in this very run.
+  const heldEntries = ruleNights.filter((rn) => rn.held.length > 0);
+  const released: (HeldCell & { rn: RuleNight })[] = [];
+  if (heldEntries.length > 0) {
+    await preloadSharedBaselines(snapshots, withBaseline(heldEntries));
+    await loadBookedAtChange(sinceChangePairs(heldEntries));
+    for (const rn of heldEntries) {
+      await measure(rn);
+      for (const cell of rn.held) if (judgeHold(cell.hold, rn.matched === true)) released.push({ ...cell, rn });
+    }
+  }
+  for (const hold of heldUnjudged) judgeHold(hold, false);
+  if (released.length > 0) {
+    const releasedKeys = new Set(released.map(({ rn, rtId }) => fireHeadKey(rn.rule.id, rn.stayDate, rtId)));
+    const olderReasons = new Map<string, PickupRetireReason>();
+    for (const fire of openFires) {
+      if (retiredIds.has(fire.id) || Date.parse(fire.applied_at) >= Date.parse(now)) continue;
+      if (!releasedKeys.has(fireHeadKey(fire.rule_id, fire.stay_date, fire.affected_room_type_id))) continue;
+      const rule = rulesById.get(fire.rule_id);
+      if (rule && fire.rule_version < rule.version) olderReasons.set(fire.id, "rule_edited");
+    }
+    if (olderReasons.size > 0) {
+      const done = await retire(olderReasons);
+      noteUnretired(olderReasons, done);
+      for (const fire of openFires) {
+        if (!done.has(fire.id)) continue;
+        retiredIds.add(fire.id);
+        retireReasons.set(fire.id, "rule_edited");
+        pushTo(retiredByCell, `${fire.stay_date}|${fire.affected_room_type_id}`, { fire, reason: "rule_edited" });
+      }
+    }
+    let ladderMoved = false;
+    for (const { rn, rtId } of released) {
+      const state = ladderBatch.state(rn.rule.id, rn.stayDate, rtId);
+      if (!state?.is_active) continue;
+      ladderBatch.deactivate(rn.rule, hotelId, rn.stayDate, rtId, rn.metrics!, now, supportsSuppression, {
+        clearSkip: !!state.skip_state,
+      });
+      noteLeftoverDeactivation(rn.rule, rn.stayDate, rtId, rn.metrics!);
+      ladderMoved = true;
+    }
+    if (ladderMoved) await ladderBatch.flush();
+    for (const { rn, rtId, waits, affected, windowEntry } of released) {
+      if (!affected) continue;
+      (waits ? rn.waitingOwn : rn.open).push(rtId);
+      windowEntry?.waiting.push(rtId);
+    }
+  }
+  if (!dry && (holdsJudged.length > 0 || holdsEnded.length > 0)) {
+    const failed = await writeSkipHolds(supabase, holdsJudged, holdsEnded);
+    for (const d of failed) failedNights.add(d);
+    if (failed.length > 0) {
+      console.error(JSON.stringify({ fn: "evaluateHotel", step: "skip_holds", hotelId, failed_nights: failed.length }));
+    }
+  }
+
+  const pickupEffectsByCell = pickupEffectsFromFires(openFires, retiredIds);
+  // Ladder writes are flushed: these are the rows the pass left active.
+  const ladderEffectsByCell = await loadActiveLadderEffectsForRange(
+    supabase,
+    roomTypeIds,
+    firstDate,
+    lastDate,
+    supportsSuppression,
+    runNights,
+    ladderBatch.supportsSkip,
+  );
+  // A dry run wrote nothing: its own decisions go over what the table holds.
+  if (dry) applyLadderOps(ladderEffectsByCell, ladderBatch.ops());
+
   const candidate = (rn: RuleNight, rtId: string) =>
     candidateFor({
       rule: rn.rule,

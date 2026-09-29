@@ -73,6 +73,10 @@ export type ActivationBody = {
   activation?: unknown;
   fingerprint?: unknown;
   touched?: unknown;
+  /** Skip: the days the popup showed, which it holds. */
+  held?: unknown;
+  /** Skip when the popup could not work the days out: hold every day the rule could act on. */
+  hold_all?: unknown;
   /** How many days the popup showed, for the analytics event. */
   days?: unknown;
   /** Whether the popup had to work the days out again before this click. */
@@ -81,13 +85,13 @@ export type ActivationBody = {
 
 /**
  * Save a plan, through the popup where it needs one: the owner's Apply or
- * Skip. Apply is saved only on the numbers the popup showed: when anything
- * that could change them moved since (previewFingerprint), nothing is saved
- * and the answer is 409 "stale", and the popup works the days out again and
- * saves at once if they are the same, or shows the new ones. Skip moves no
- * price whatever the days are (its marks are worked out here, at the save),
- * so it needs no check, and the popup offers it even when the days could
- * not be worked out.
+ * Skip. Both are saved only on the numbers the popup showed (Skip holds
+ * exactly the days it showed): when anything that could change them moved
+ * since (previewFingerprint), nothing is saved and the answer is 409
+ * "stale", and the popup works the days out again and saves at once if they
+ * are the same, or shows the new ones. When the popup could not work the
+ * days out, its Skip (hold_all) holds every day the rule could act on, and
+ * needs no check: it moves no price.
  */
 export async function saveThroughPopup(
   gate: Extract<RuleGate, { ok: true }>,
@@ -97,23 +101,29 @@ export async function saveThroughPopup(
 ): Promise<{ result: CommitResult; choice: ActivationChoice | null }> {
   const at = new Date().toISOString();
   let choice: ActivationChoice | null = null;
+  let held: string[] | "all" = [];
   if (plan.needsActivation) {
     if (body.activation !== "apply" && body.activation !== "skip") {
       throw new RuleSaveError(409, "Choose whether to apply the price adjustments.", "activation_required");
     }
     choice = body.activation;
-    if (choice === "apply") {
+    // A Skip from a popup with no days (or from a page from before Skip held
+    // days) holds every day the rule could act on.
+    const holdAll = choice === "skip" && (body.hold_all === true || !Array.isArray(body.held));
+    if (!holdAll) {
       const now = await previewFingerprint(gate.admin, gate.hotelId, at);
       if (typeof body.fingerprint !== "string" || body.fingerprint !== now) {
         throw new RuleSaveError(409, DAYS_CHANGED, "stale");
       }
     }
+    held = holdAll ? "all" : cleanTouched(body.held);
   }
   const horizonDays = await hotelPricingHorizon(gate.admin, gate.hotelId);
   const result = await commitRuleChange(gate.supabase, gate.admin, plan, choice, {
     at,
     horizonDays,
     touched: cleanTouched(body.touched),
+    held,
   });
   if (plan.needsActivation || plan.change === "behaviour" || plan.change === "undo") {
     await nudgeHotelSync(gate.admin, gate.hotelId).catch(() => "next_cycle");

@@ -2,59 +2,69 @@
 -- MAYA rule editing and the activation popup (v1)
 -- ============================================================================
 --
--- Decided by Jake on 2026-09-28 (fix list G25 B, and the popup in his words).
--- Rules can now be edited in the rule builder, and whenever a rule is about
--- to become active (switched on in the rules list, saved new and on, or an
--- edit saved on a rule that is on) the owner sees which nights it will
--- change and chooses:
+-- Decided by Jake on 2026-09-28 (fix list G25 B, and the popup in his words),
+-- with his answers of 2026-09-29 on Skip. Rules can now be edited in the
+-- rule builder, and whenever a rule is about to become active (switched on
+-- in the rules list, saved new and on, or an edit saved on a rule that is
+-- on) the owner sees which days it will change and chooses:
 --
 --   * Apply price adjustments: the rule acts on every night it matches now,
 --     exactly as the popup showed (the popup's days come from a dry run of
 --     the engine itself, src/lib/rule-preview.ts).
---   * Skip price adjustments: the rule is on, but the nights it matches now
---     are left alone. It acts only on what changes from then on, and a
---     booking speed or pickup rule counts bookings from that moment.
+--   * Skip price adjustments: the rule is on, and the days the popup showed
+--     keep their prices. On each of those days the rule's part in the price
+--     is held as it is until the rule stops being true there and then
+--     becomes true again; from then on it acts there as on any other day.
+--     Every other day works exactly as if the owner had chosen Apply. A
+--     Skip never moves where a booking speed or pickup rule counts from:
+--     the bookings made before the rule existed always count.
+--   * When the popup shows no days, one button turns the rule on (Apply,
+--     which then changes nothing). When the days could not be worked out,
+--     Skip holds every day the rule could act on.
 --
 -- What this file adds:
 --
 --   1. pricing_rules.skip_at: when the owner last chose Skip, null after
---      Apply. The engine (both copies) reads it with the rule:
---        - a booking speed or pickup rule counts from its own newest change
---          still on the night or skip_at, whichever is later, and its
---          changes already on the price at skip_at stay as they are (an
---          edit does not take them off, cancellations are not checked on
---          them, they still cover the weaker rules);
---        - a standard (occupancy or days before arrival) rule reads the
---          marks below.
+--      Apply. It names the Skip the holds below belong to: a hold of an older
+--      Skip (the owner applied, or skipped again, since) is not a hold.
 --      pricing_rules.version_ranks: per earlier version whose booking speed
---      or pickup changes are still on the price (left there by a Skip, or
---      by an edit to a rule that is off), the priority, amount and
---      condition that ranked the rule then. Such a change ranks as it was made (its own
+--      or pickup changes are still on the price (held by a Skip, or left by
+--      an edit to a rule that is off), the priority, amount and condition
+--      that ranked the rule then. Such a change ranks as it was made (its own
 --      amount, from pickup_event, and that version's priority and
 --      condition), so an edit never changes which weaker rules it covers.
 --      save_rule keeps it, dropping versions with no change left on.
---   2. ladder_rule_state.skip_state and skip_at: the marks Skip leaves on a
---      standard rule's rows, written by save_rule with the rule:
---        - 'held': on, with no change on the price, where the rule matched
---          at the Skip. It goes off (moving no price) once the rule stops
---          matching; the next time it matches is a change, and it adjusts.
---        - 'kept': a change already on the price where the rule, as saved,
---          did not match at the Skip. It stays at its amount until the rule
---          matches there, then moves to the rule's amount.
---      A mark whose skip_at is not the rule's current one (the owner has
---      applied since) is read the way Apply reads it: a held row as off, a
---      kept change as one from before an edit.
---      Where the edited rule still matched at the Skip, its change is made
---      the edited version's at its old amount, with no mark ('version'
---      below). It keeps that amount while the rule holds there: a later
---      switch off and on with Apply does not move it (the popup counts 0
---      days for it). It takes the rule's amount once the rule stops holding
---      there and holds again, or when an edit is next saved with Apply.
---   3. save_rule(): the rule, its condition and room type lists, whether it
---      is on, its Skip and the marks, in one transaction, checked against
---      the version the popup was worked out on (another tab may have changed
---      the rule since), and the nights the popup found marked to be priced
---      first (pricing_mark_many, reason 'rule'). Until now an edit was five
+--   2. ladder_rule_state.skip_state and skip_at: a standard (occupancy or
+--      days before arrival) rule's holds, on its rows, written by save_rule
+--      on the days the popup showed:
+--        - 'held': on, with no change on the price, where the rule was about
+--          to adjust. It goes off (moving no price) once the rule stops
+--          holding; the next time the rule holds is a change, and it adjusts.
+--        - 'carried': a change already on the price, at its amount, where
+--          the rule was about to move it to its new amount (an edit). It
+--          stays once the rule stops holding (it becomes 'kept').
+--        - 'kept': a change already on the price, at its amount, where the
+--          rule was about to take it off. It stays until the rule is true
+--          there again, and then moves to the rule's amount.
+--      A mark whose skip_at is not the rule's current one is read the way
+--      Apply reads it: a held row as off, a kept or carried change as one
+--      from before an edit.
+--   3. rule_skip_hold: a booking speed or pickup rule's holds, one per day
+--      and room type the popup showed (the room types the rule changes, and
+--      any with a change of it on the price), with the Skip they belong to
+--      and what the engine last found (was_true: null until it has judged
+--      the rule there, then whether the rule was true). While a day is
+--      held the rule makes no change there, and its changes on the price
+--      there stay as they are: an edit does not take them off and
+--      cancellations are not checked on them. The engine ends the hold the
+--      first time it finds the rule true after finding it not true, and the
+--      rule acts there in that same run. A standard rule's older booking
+--      speed or pickup changes (an edit changed its kind) are held here too.
+--   4. save_rule(): the rule, its condition and room type lists, whether it
+--      is on, its Skip and holds, in one transaction, checked against the
+--      version the popup was worked out on (another tab may have changed the
+--      rule since), and the nights the popup found marked to be priced first
+--      (pricing_mark_many, reason 'rule'). Until now an edit was five
 --      separate writes a running pricing tick could see half of.
 --
 -- Also, from the same code (no SQL): an edit saved to a rule that is off no
@@ -66,11 +76,11 @@
 --
 -- Deploy order: 1. run this file; 2. deploy the edge functions (the
 -- engine copy in supabase/functions/_shared/engine, through each sync
--- function); 3. deploy the app. The engine must know the Skip before the app
--- can record one: an engine from before this file reads a held mark as a
--- change on the price and counts a skipped rule's whole window, so a Skip
--- saved before the edge functions are deployed would move prices. Code
--- that runs before this file reads no skip columns (no rule was ever
+-- function); 3. deploy the app. The engine must know the holds before the
+-- app can record one: an engine from before this file reads a held mark as a
+-- change on the price and does not read rule_skip_hold, so a Skip saved
+-- before the edge functions are deployed would move prices. Code that runs
+-- before this file reads no Skip columns and no holds (no rule was ever
 -- skipped) and the popup's Skip answers "This needs a database update
 -- first."; Apply still saves.
 --
@@ -78,8 +88,9 @@
 --
 -- Sections:
 --   1. Columns
---   2. save_rule
---   3. Checks
+--   2. rule_skip_hold
+--   3. save_rule
+--   4. Checks
 -- ============================================================================
 
 begin;
@@ -94,8 +105,8 @@ alter table public.pricing_rules
 
 comment on column public.pricing_rules.skip_at is
   'When the owner last switched the rule on (or saved it) with "Skip price '
-  'adjustments": the nights it matched then were left alone and it acts only '
-  'on what changes after this instant. Null after "Apply price adjustments". '
+  'adjustments": the Skip its holds belong to (ladder_rule_state.skip_state, '
+  'rule_skip_hold). Null after "Apply price adjustments". '
   'See 99_supabase_migration_rule_activation_v1.sql.';
 
 comment on column public.pricing_rules.version_ranks is
@@ -109,26 +120,51 @@ alter table public.ladder_rule_state
   add column if not exists skip_state text,
   add column if not exists skip_at timestamptz;
 
-do $$
-begin
-  if not exists (
-    select 1 from pg_constraint
-     where conname = 'ladder_rule_state_skip_state_chk'
-       and conrelid = 'public.ladder_rule_state'::regclass
-  ) then
-    alter table public.ladder_rule_state
-      add constraint ladder_rule_state_skip_state_chk
-      check (skip_state is null or skip_state in ('held', 'kept'));
-  end if;
-end $$;
+-- Dropped and made again, so a database that ran an earlier draft of this
+-- file gets the 'carried' state too.
+alter table public.ladder_rule_state drop constraint if exists ladder_rule_state_skip_state_chk;
+alter table public.ladder_rule_state
+  add constraint ladder_rule_state_skip_state_chk
+  check (skip_state is null or skip_state in ('held', 'kept', 'carried'));
 
 comment on column public.ladder_rule_state.skip_state is
-  'held: on with no change on the price, left alone by the owner''s Skip. '
-  'kept: a change left on the price by the Skip, at its amount, until the '
-  'rule matches again. Null otherwise. Belongs to the Skip in skip_at.';
+  'The owner''s Skip holding this row as it is (see '
+  '99_supabase_migration_rule_activation_v1.sql). held: on with no change on '
+  'the price, until the rule stops holding. carried: a change left on the '
+  'price at its amount, until the rule stops holding (then kept). kept: a '
+  'change left on the price at its amount, until the rule is true again. Null '
+  'otherwise. Belongs to the Skip in skip_at.';
 
 -- ----------------------------------------------------------------------------
--- 2. save_rule
+-- 2. rule_skip_hold
+-- ----------------------------------------------------------------------------
+
+create table if not exists public.rule_skip_hold (
+  rule_id      uuid not null references public.pricing_rules(id) on delete cascade,
+  stay_date    date not null,
+  room_type_id uuid not null,
+  skip_at      timestamptz not null,
+  was_true     boolean,
+  primary key (rule_id, stay_date, room_type_id)
+);
+
+comment on table public.rule_skip_hold is
+  'Days a booking speed or pickup rule leaves as they are after the owner''s '
+  'Skip, per room type, until the rule stops being true there and then becomes '
+  'true again. Written by save_rule, read and ended by the engine. See '
+  '99_supabase_migration_rule_activation_v1.sql.';
+comment on column public.rule_skip_hold.skip_at is
+  'The Skip this hold belongs to: it holds only while it equals the rule''s skip_at.';
+comment on column public.rule_skip_hold.was_true is
+  'Null until the engine has judged the rule here; then whether the rule was '
+  'true the last time. The hold ends when the rule is true after being not true.';
+
+alter table public.rule_skip_hold enable row level security;
+revoke all on table public.rule_skip_hold from public, anon, authenticated;
+grant select, insert, update, delete on table public.rule_skip_hold to service_role;
+
+-- ----------------------------------------------------------------------------
+-- 3. save_rule
 -- ----------------------------------------------------------------------------
 --
 -- p_hotel_id          the rule's hotel
@@ -147,17 +183,25 @@ comment on column public.ladder_rule_state.skip_state is
 --                       affected (room type ids), legacy_conditions
 --                       ([{metric, operator, numeric_value, text_value}], new
 --                       rules only)
--- p_activation        'apply' (on, no Skip), 'skip' (on, skip_at = p_at, the
---                     marks written), 'keep' (on or off as it is: an edit to
---                     a rule that is off, or a new name) or 'off'
+-- p_activation        'apply' (on, no Skip, no holds), 'skip' (on, skip_at =
+--                     p_at, the holds written), 'keep' (on or off as it is:
+--                     an edit to a rule that is off, or a new name) or 'off'
 -- p_at                the instant of the Skip
 -- p_touched           the nights the popup found the rule has a part in:
 --                     marked to be priced first
--- p_skip_marks        [{d, rt, w}]: per night and room type, 'held', 'kept',
---                     'version' (made this version's, at its old amount),
---                     'restamp' (this version's, at its amount) or 'off'
+-- p_skip_marks        a standard rule's holds on its rows, [{d, rt, w}], w
+--                     'held', 'carried' or 'kept' (see the header)
+-- p_hold_nights       the days the Skip holds (the popup's days): a booking
+--                     speed or pickup rule is held there on every room type
+--                     it changes and every one with a change of it on the
+--                     price; any rule's booking speed or pickup changes on
+--                     them are held (rule_skip_hold)
 --
 -- Returns {id, version, is_active, skip_at}.
+
+-- An earlier draft of this file had no p_hold_nights.
+drop function if exists public.save_rule(uuid, uuid, boolean, integer, jsonb, text, timestamptz, date[], jsonb);
+
 create or replace function public.save_rule(
   p_hotel_id uuid,
   p_rule_id uuid,
@@ -167,7 +211,8 @@ create or replace function public.save_rule(
   p_activation text,
   p_at timestamptz,
   p_touched date[],
-  p_skip_marks jsonb
+  p_skip_marks jsonb,
+  p_hold_nights date[]
 )
 returns jsonb
 language plpgsql
@@ -341,6 +386,11 @@ begin
     on conflict do nothing;
   end if;
 
+  -- Apply or Skip replaces the holds of any earlier Skip.
+  if p_activation in ('apply', 'skip') then
+    delete from public.rule_skip_hold h where h.rule_id = p_rule_id;
+  end if;
+
   -- The owner's Skip on a standard rule's rows (see the header).
   if p_activation = 'skip' and p_skip_marks is not null and jsonb_array_length(p_skip_marks) > 0 then
     select * into v_rule from public.pricing_rules r where r.id = p_rule_id;
@@ -366,31 +416,39 @@ begin
            skip_state = 'held',
            skip_at = excluded.skip_at;
 
+    -- A change left on at its amount: the row keeps its adjustment.
     update public.ladder_rule_state s
-       set skip_state = 'kept', skip_at = v_at, rule_version = v_version
+       set skip_state = m.w, skip_at = v_at, rule_version = v_version
       from jsonb_to_recordset(p_skip_marks) as m(d date, rt uuid, w text)
-     where m.w = 'kept' and s.rule_id = p_rule_id and s.stay_date = m.d and s.room_type_id = m.rt and s.is_active;
+     where m.w in ('kept', 'carried')
+       and s.rule_id = p_rule_id and s.stay_date = m.d and s.room_type_id = m.rt and s.is_active;
+  end if;
 
-    update public.ladder_rule_state s
-       set rule_version = v_version, skip_state = null, skip_at = null
-      from jsonb_to_recordset(p_skip_marks) as m(d date, rt uuid, w text)
-     where m.w = 'version' and s.rule_id = p_rule_id and s.stay_date = m.d and s.room_type_id = m.rt and s.is_active;
-
-    update public.ladder_rule_state s
-       set rule_version = v_version,
-           action_kind = v_rule.action_type,
-           action_direction = v_rule.action_direction,
-           action_value = v_rule.action_value,
-           skip_state = null,
-           skip_at = null
-      from jsonb_to_recordset(p_skip_marks) as m(d date, rt uuid, w text)
-     where m.w = 'restamp' and s.rule_id = p_rule_id and s.stay_date = m.d and s.room_type_id = m.rt and s.is_active;
-
-    update public.ladder_rule_state s
-       set is_active = false, deactivated_at = v_at, suppressed_at = null, last_evaluated_at = v_at,
-           skip_state = null, skip_at = null
-      from jsonb_to_recordset(p_skip_marks) as m(d date, rt uuid, w text)
-     where m.w = 'off' and s.rule_id = p_rule_id and s.stay_date = m.d and s.room_type_id = m.rt and s.is_active;
+  -- The days the Skip holds for booking speed and pickup (see the header):
+  -- a booking speed or pickup rule on every room type it changes, and any
+  -- rule wherever it has such a change on the price.
+  if p_activation = 'skip' and p_hold_nights is not null and cardinality(p_hold_nights) > 0 then
+    select * into v_rule from public.pricing_rules r where r.id = p_rule_id;
+    insert into public.rule_skip_hold (rule_id, stay_date, room_type_id, skip_at, was_true)
+    select distinct p_rule_id, c.stay_date, c.room_type_id, v_at, null::boolean
+      from (
+        select n.d as stay_date, a.room_type_id
+          from unnest(p_hold_nights) as n(d)
+          cross join public.rule_affected_room_type a
+         where v_rule.is_pickup_rule and a.rule_id = p_rule_id
+        union
+        select pe.stay_date, pe.affected_room_type_id
+          from public.pickup_event pe
+         where pe.rule_id = p_rule_id and pe.retired_at is null
+           and pe.stay_date = any (p_hold_nights)
+        union
+        select l.stay_date, l.room_type_id
+          from public.ladder_rule_state l
+         where v_rule.is_pickup_rule and l.rule_id = p_rule_id and l.is_active
+           and l.stay_date = any (p_hold_nights)
+      ) c
+    on conflict (rule_id, stay_date, room_type_id) do update
+       set skip_at = excluded.skip_at, was_true = null;
   end if;
 
   -- The nights the rule has a part in go first on the next pricing tick.
@@ -404,17 +462,17 @@ begin
 end;
 $$;
 
-revoke all on function public.save_rule(uuid, uuid, boolean, integer, jsonb, text, timestamptz, date[], jsonb)
+revoke all on function public.save_rule(uuid, uuid, boolean, integer, jsonb, text, timestamptz, date[], jsonb, date[])
   from public, anon;
-grant execute on function public.save_rule(uuid, uuid, boolean, integer, jsonb, text, timestamptz, date[], jsonb)
+grant execute on function public.save_rule(uuid, uuid, boolean, integer, jsonb, text, timestamptz, date[], jsonb, date[])
   to authenticated, service_role;
 
-comment on function public.save_rule(uuid, uuid, boolean, integer, jsonb, text, timestamptz, date[], jsonb) is
-  'Saves a rule, whether it is on, the owner''s Skip and its marks in one '
+comment on function public.save_rule(uuid, uuid, boolean, integer, jsonb, text, timestamptz, date[], jsonb, date[]) is
+  'Saves a rule, whether it is on, the owner''s Skip and its holds in one '
   'transaction. See 99_supabase_migration_rule_activation_v1.sql.';
 
 -- ----------------------------------------------------------------------------
--- 3. Checks
+-- 4. Checks
 -- ----------------------------------------------------------------------------
 
 do $$
@@ -429,7 +487,10 @@ begin
          and column_name in ('skip_state', 'skip_at')) <> 2 then
     raise exception 'rule activation: ladder_rule_state skip columns are missing';
   end if;
-  if to_regprocedure('public.save_rule(uuid, uuid, boolean, integer, jsonb, text, timestamptz, date[], jsonb)') is null then
+  if to_regclass('public.rule_skip_hold') is null then
+    raise exception 'rule activation: rule_skip_hold is missing';
+  end if;
+  if to_regprocedure('public.save_rule(uuid, uuid, boolean, integer, jsonb, text, timestamptz, date[], jsonb, date[])') is null then
     raise exception 'rule activation: save_rule is missing';
   end if;
 end $$;
@@ -439,3 +500,4 @@ commit;
 -- Verification (run by hand after the file):
 --   select count(*) from public.pricing_rules where skip_at is not null;        -- 0 until someone skips
 --   select skip_state, count(*) from public.ladder_rule_state group by 1;       -- null only, at first
+--   select count(*) from public.rule_skip_hold;                                 -- 0 until someone skips

@@ -13,9 +13,12 @@
  *     from a full dry run without it;
  *   - Apply (the rule saved on, then a real run at the same instant)
  *     changes exactly those nights' prices, and no others;
- *   - Skip (the rule saved on with save_rule's marks and skip_at, then a
- *     real run) changes no price at all, and afterwards the rule acts on
- *     what changes (new bookings), not on what it matched at the Skip.
+ *   - Skip (the rule saved on with save_rule's holds and skip_at, then real
+ *     runs) leaves those nights' prices as they are, and every other night
+ *     prices exactly as Apply does. A held night is let go only once the
+ *     rule stops being true there and then becomes true again, and a
+ *     booking speed or pickup rule counts the bookings made before it was
+ *     created, with Apply and with Skip alike (Jake, 2026-09-29).
  *
  * Saving is simulated on the in-memory database the way save_rule writes it
  * (rule-activation-sql.test.ts runs save_rule itself in Postgres).
@@ -26,10 +29,12 @@ import { dryRunCapture } from "@/lib/engine/evaluate";
 import {
   previewRule,
   readOnlyClient,
-  skipMarksForRule,
+  skipPlanForRule,
   type EngineRuleRow,
   type EvaluateFn,
+  type PreviewResult,
   type SkipMark,
+  type SkipPlan,
 } from "@/lib/rule-preview";
 import {
   ENGINES,
@@ -41,6 +46,7 @@ import {
   QUEEN,
   R,
   RT,
+  SUITE,
   T10,
   TODAY,
   churn,
@@ -68,6 +74,17 @@ const NEW = uuid("d1000000", 1);
 const T11 = "2026-10-01T14:11:00.000Z";
 const T20 = "2026-10-01T14:20:00.000Z";
 const T30 = "2026-10-01T14:30:00.000Z";
+const T40 = "2026-10-01T14:40:00.000Z";
+const T50 = "2026-10-01T14:50:00.000Z";
+/** The next day, when a pickup count has a snapshot from before its day began. */
+const D1 = "2026-10-02";
+const D1_00 = "2026-10-02T14:00:00.000Z";
+const D1_01 = "2026-10-02T14:01:00.000Z";
+const D1_05 = "2026-10-02T14:05:00.000Z";
+const D1_10 = "2026-10-02T14:10:00.000Z";
+const D1_12 = "2026-10-02T14:12:00.000Z";
+const D1_20 = "2026-10-02T14:20:00.000Z";
+const D1_30 = "2026-10-02T14:30:00.000Z";
 const WINDOW = Array.from({ length: HORIZON }, (_, i) => addDays(TODAY, i));
 
 type Case = {
@@ -186,18 +203,18 @@ function withVersionRanks(t: Tables, after: FakeRow): FakeRow {
   return { ...after, version_ranks: Object.keys(ranks).length > 0 ? ranks : null };
 }
 
-/** The rule saved as Apply saves it: on, no Skip. */
+/** The rule saved as Apply saves it: on, no Skip, no holds. */
 function saveApply(t: Tables, after: FakeRow): Tables {
   const out = clone(t);
   out.pricing_rules = [...out.pricing_rules.filter((r) => r.id !== after.id), { ...withVersionRanks(t, after), is_active: true, skip_at: null }];
+  out.rule_skip_hold = (out.rule_skip_hold ?? []).filter((h) => h.rule_id !== after.id);
   return out;
 }
 
 /**
  * The hotel with the rule not acting at all: absent when it is new, and off
  * otherwise (its changes on the price frozen, as switching it off leaves
- * them). What Skip must price exactly like: the rule on, doing nothing to
- * what it matches now.
+ * them). What Skip must price exactly like on the nights it holds.
  */
 function notActing(t: Tables, after: FakeRow): Tables {
   const out = clone(t);
@@ -210,13 +227,21 @@ function notActingById(t: Tables, id: string): Tables {
   return notActing(t, t.pricing_rules.find((r) => r.id === id)!);
 }
 
-/** The rule saved as save_rule saves a Skip: on, skip_at, and the marks on its ladder rows. */
-function saveSkip(t: Tables, after: FakeRow, marks: SkipMark[], at: string): Tables {
+const ids = (v: unknown) => (Array.isArray(v) ? v.map((x) => String((x as FakeRow).room_type_id)) : []);
+
+/**
+ * The rule saved as save_rule saves a Skip: on, skip_at, the marks on a
+ * standard rule's rows, and the holds (rule_skip_hold) on the days held: a
+ * booking speed or pickup rule's on every room type it changes and every
+ * one with a change of it on the price, and any rule's on its booking speed
+ * or pickup changes there.
+ */
+function saveSkip(t: Tables, after: FakeRow, plan: SkipPlan, at: string): Tables {
   const out = clone(t);
   out.pricing_rules = [...out.pricing_rules.filter((r) => r.id !== after.id), { ...withVersionRanks(t, after), is_active: true, skip_at: at }];
   const rows = out.ladder_rule_state;
   const find = (m: SkipMark) => rows.find((r) => r.rule_id === after.id && String(r.stay_date) === m.d && r.room_type_id === m.rt);
-  for (const m of marks) {
+  for (const m of plan.marks) {
     const row = find(m);
     if (m.w === "held") {
       const held = {
@@ -239,21 +264,74 @@ function saveSkip(t: Tables, after: FakeRow, marks: SkipMark[], at: string): Tab
       else rows.push(held);
       continue;
     }
-    if (!row?.is_active) continue;
-    if (m.w === "kept") Object.assign(row, { skip_state: "kept", skip_at: at, rule_version: after.version });
-    if (m.w === "version") Object.assign(row, { rule_version: after.version, skip_state: null, skip_at: null });
-    if (m.w === "restamp")
-      Object.assign(row, {
-        rule_version: after.version,
-        action_kind: after.action_type,
-        action_direction: after.action_direction,
-        action_value: after.action_value,
-        skip_state: null,
-        skip_at: null,
-      });
-    if (m.w === "off") Object.assign(row, { is_active: false, deactivated_at: at, suppressed_at: null, skip_state: null, skip_at: null });
+    if (row?.is_active) Object.assign(row, { skip_state: m.w, skip_at: at, rule_version: after.version });
   }
+  const nights = new Set(plan.holdNights);
+  const cells = new Set<string>();
+  if (after.is_pickup_rule) {
+    for (const d of nights) for (const rt of ids(after.rule_affected_room_type)) cells.add(`${d}|${rt}`);
+    for (const l of rows) if (l.rule_id === after.id && l.is_active && nights.has(String(l.stay_date))) cells.add(`${l.stay_date}|${l.room_type_id}`);
+  }
+  for (const e of out.pickup_event ?? []) {
+    if (e.rule_id === after.id && e.retired_at == null && nights.has(String(e.stay_date))) cells.add(`${e.stay_date}|${e.affected_room_type_id}`);
+  }
+  out.rule_skip_hold = [
+    ...(out.rule_skip_hold ?? []).filter((h) => h.rule_id !== after.id),
+    ...[...cells].map((c) => ({ rule_id: after.id, stay_date: c.slice(0, 10), room_type_id: c.slice(11), skip_at: at, was_true: null })),
+  ];
   return out;
+}
+
+/** The popup's days at `at`, and the Skip saved on them, the way the route saves it. */
+async function skipAt(
+  evaluate: EvaluateFn,
+  t: Tables,
+  after: FakeRow,
+  at: string,
+): Promise<{ preview: PreviewResult; plan: SkipPlan; tables: Tables }> {
+  vi.setSystemTime(new Date(at));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const client = fake(clone(t)).client as any;
+  const stored = t.pricing_rules.find((r) => r.id === after.id);
+  const input = { hotelId: H, after: after as EngineRuleRow, at, horizonDays: HORIZON };
+  const preview = await previewRule(client, { ...input, before: (stored?.is_active ? stored : null) as EngineRuleRow | null }, evaluate);
+  const plan = await skipPlanForRule(client, input, preview.affected, evaluate);
+  return { preview, plan, tables: saveSkip(t, after, plan, at) };
+}
+
+let bookingSeq = 0;
+/** `n` bookings made at `at` on a night and room type. */
+function book(t: Tables, at: string, stayDate: string, roomTypeId: string, n = 1): void {
+  for (let i = 0; i < n; i++) {
+    bookingSeq++;
+    t.reservations.push({
+      id: uuid("e1000000", bookingSeq),
+      hotel_id: H,
+      external_reservation_id: `k${bookingSeq}:1`,
+      stay_date: stayDate,
+      room_type_id: roomTypeId,
+      booking_date: at.slice(0, 10),
+      booking_window_days: Math.max(0, Math.round((Date.parse(stayDate) - Date.parse(at.slice(0, 10))) / 86_400_000)),
+      current_rate: 200,
+      base_rate: 200,
+      created_at: at,
+    });
+  }
+}
+
+/** The bookings on a night and room type that match `which`, cancelled (gone from the PMS). */
+function cancel(t: Tables, stayDate: string, roomTypeId: string, which: (r: FakeRow) => boolean): void {
+  t.reservations = t.reservations.filter((r) => !(String(r.stay_date) === stayDate && r.room_type_id === roomTypeId && which(r)));
+}
+
+const priceOf = (t: Tables, night: string, rt: string) => published(t).get(`${night}|${rt}`);
+
+/** King rooms booked on a night. */
+const kingBooked = (t: Tables, night: string) => t.reservations.filter((r) => String(r.stay_date) === night && r.room_type_id === KING).length;
+
+/** The hotel a day on: priced at T10 and again the next morning, nothing new in between. */
+async function nextDay(evaluate: EvaluateFn, t: Tables): Promise<Tables> {
+  return realRun(evaluate, await realRun(evaluate, t, T10), D1_00);
 }
 
 async function realRun(evaluate: EvaluateFn, t: Tables, at: string): Promise<Tables> {
@@ -321,89 +399,224 @@ for (const engine of ENGINES) {
       expect(nightsDiffering(applied, without)).toEqual(whole.affected);
     });
 
-    it.each(CASES)("$name: Skip prices as if the rule did nothing to what it matches now", async (c) => {
+    it.each(CASES)("$name: Skip holds the days shown, and every other day prices as Apply does", async (c) => {
       const t = clone(settled);
       c.setup?.(t);
       const after = c.after(t);
-      vi.setSystemTime(new Date(T10));
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const client = fake(clone(t)).client as any;
-      const marks = await skipMarksForRule(client, { hotelId: H, after: after as EngineRuleRow, at: T10, horizonDays: HORIZON }, engine.evaluate);
-      const skipped = await realRun(engine.evaluate, saveSkip(t, after, marks, T10), T11);
+      const { preview, tables } = await skipAt(engine.evaluate, t, after, T10);
+      const held = new Set(preview.affected);
+      const heldMoved = (a: Tables, b: Tables) => nightsDiffering(published(a), published(b)).filter((d) => held.has(d));
+      const otherMoved = (a: Tables, b: Tables) => nightsDiffering(published(a), published(b)).filter((d) => !held.has(d));
+      const skipped = await realRun(engine.evaluate, tables, T11);
       const without = await realRun(engine.evaluate, notActing(t, after), T11);
-      expect(nightsDiffering(published(skipped), published(without))).toEqual([]);
-      // And the run after that, with nothing new, still none.
+      const applied = await realRun(engine.evaluate, saveApply(t, after), T11);
+      // The days shown keep their prices, as if the rule were not there.
+      expect(heldMoved(skipped, without)).toEqual([]);
+      // Every other day is priced as Apply prices it.
+      expect(otherMoved(skipped, applied)).toEqual([]);
+      // And the run after that, with nothing new, the same.
       const again = await realRun(engine.evaluate, skipped, T20);
-      const againWithout = await realRun(engine.evaluate, without, T20);
-      expect(nightsDiffering(published(again), published(againWithout))).toEqual([]);
+      expect(heldMoved(again, await realRun(engine.evaluate, without, T20))).toEqual([]);
+      expect(otherMoved(again, await realRun(engine.evaluate, applied, T20))).toEqual([]);
     });
 
-    it("after a Skip, a standard rule acts on a night that becomes true, and leaves the ones it matched alone", async () => {
-      const after = ruleRow(NEW, { ...created, action_value: 8, cond: { occupancy_operator: "gt", occupancy_threshold: 0.35 }, affected: [KING] });
-      vi.setSystemTime(new Date(T10));
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const marks = await skipMarksForRule(fake(clone(settled)).client as any, { hotelId: H, after: after as EngineRuleRow, at: T10, horizonDays: HORIZON }, engine.evaluate);
-      expect(marks.length).toBeGreaterThan(0);
-      expect(marks.every((m) => m.w === "held")).toBe(true);
-      const skipped = await realRun(engine.evaluate, saveSkip(settled, after, marks, T10), T11);
-      const held = skipped.ladder_rule_state.filter((r) => r.rule_id === NEW && r.is_active && r.skip_state === "held");
-      expect(held.length).toBe(marks.length);
+    it("Skip holds exactly the days shown on a standard rule, and lets each go only once the rule stops and starts being true there", async () => {
+      // Occupancy of King over 35% (more than 3 of its 10 rooms), +8% on King.
+      const after = ruleRow(NEW, { ...created, action_value: 8, cond: { occupancy_operator: "gt", occupancy_threshold: 0.35 }, affected: [KING], signals: [KING] });
+      const { preview, plan, tables } = await skipAt(engine.evaluate, settled, after, T10);
+      expect(preview.affected.length).toBeGreaterThan(1);
+      // A mark on every day shown, and on no other.
+      expect(plan.marks.every((m) => m.w === "held" && m.rt === KING)).toBe(true);
+      expect(plan.marks.map((m) => m.d)).toEqual(preview.affected);
+      let skip = await realRun(engine.evaluate, tables, T11);
+      let none = await realRun(engine.evaluate, settled, T11);
+      const heldRows = skip.ladder_rule_state.filter((r) => r.rule_id === NEW && r.is_active && r.skip_state === "held");
+      expect(heldRows.map((r) => String(r.stay_date)).sort()).toEqual(preview.affected);
+      for (const d of preview.affected) expect(priceOf(skip, d, KING)).toBe(priceOf(none, d, KING));
 
-      // A night it did not match at the Skip fills up past its bar.
-      const heldNights = new Set(marks.map((m) => m.d));
-      const quiet = WINDOW.find((d) => !heldNights.has(d) && d > addDays(TODAY, 20))!;
-      const before = published(skipped);
-      const t = clone(skipped);
-      churn(t, T20, 5, 40, [quiet]);
-      const later = await realRun(engine.evaluate, t, T20);
-      const changed = nightsDiffering(published(later), before);
-      expect(changed).toContain(quiet);
-      // The nights it matched at the Skip keep their prices.
-      for (const d of heldNights) expect(changed).not.toContain(d);
-      const row = later.ladder_rule_state.find((r) => r.rule_id === NEW && r.stay_date === quiet && r.room_type_id === KING)!;
-      expect(row.is_active).toBe(true);
-      expect(row.skip_state ?? null).toBeNull();
-    });
-
-    it("after a Skip, a pickup count rule counts only the bookings made since", async () => {
-      // The strongest raise on the night, so no other rule's change moves where it counts from.
-      const after = ruleRow(NEW, { ...created, priority: 140, action_value: 30, cond: { pickup_operator: "gt", pickup_threshold: 2, pickup_window_days: 1, pickup_metric: "room_nights" }, affected: [KING], signals: [KING] });
-      const skipped = await realRun(engine.evaluate, saveSkip(settled, after, [], T10), T11);
-      const night = addDays(TODAY, 30);
-      const booked = (t: Tables, at: string, n: number) => {
-        for (let i = 0; i < n; i++) {
-          t.reservations.push({ id: uuid("e0000000", Date.parse(at) / 1000 + i), hotel_id: H, external_reservation_id: `s${at}:${i}`, stay_date: night, room_type_id: KING, booking_date: TODAY, booking_window_days: 30, current_rate: 200, base_rate: 200, created_at: at });
-        }
+      const both = async (at: string, change: (x: Tables) => void) => {
+        const a = clone(skip);
+        const b = clone(none);
+        change(a);
+        change(b);
+        skip = await realRun(engine.evaluate, a, at);
+        none = await realRun(engine.evaluate, b, at);
       };
-      // Two since the Skip: not more than two.
-      const t1 = clone(skipped);
-      booked(t1, T20, 2);
-      const r1 = await realRun(engine.evaluate, t1, T20);
-      expect(r1.pickup_event.filter((e) => e.rule_id === NEW)).toEqual([]);
-      // A third: it adjusts.
-      booked(r1, T30, 1);
-      const r2 = await realRun(engine.evaluate, r1, T30);
-      expect(r2.pickup_event.filter((e) => e.rule_id === NEW).map((e) => e.stay_date)).toEqual([night]);
+      const row = (night: string) => skip.ladder_rule_state.find((r) => r.rule_id === NEW && String(r.stay_date) === night && r.room_type_id === KING);
+      const d = preview.affected[preview.affected.length - 1];
+      const kingOn = (x: Tables) => kingBooked(x, d);
+      expect(kingOn(skip)).toBeGreaterThan(3);
+
+      // Still true, with one more booking: still held.
+      await both(T20, (x) => book(x, T20, d, KING, 1));
+      expect(priceOf(skip, d, KING)).toBe(priceOf(none, d, KING));
+      expect(row(d)?.skip_state).toBe("held");
+      // No longer true (bookings cancelled down to 3 of 10): no price moves, and the hold is over.
+      await both(T30, (x) => {
+        const keep = new Set(x.reservations.filter((r) => String(r.stay_date) === d && r.room_type_id === KING).slice(0, 3).map((r) => r.id));
+        cancel(x, d, KING, (r) => !keep.has(r.id));
+      });
+      expect(kingOn(skip)).toBe(3);
+      expect(priceOf(skip, d, KING)).toBe(priceOf(none, d, KING));
+      expect(row(d)?.is_active).toBe(false);
+      // True again: now it adjusts.
+      await both(T40, (x) => book(x, T40, d, KING, 3));
+      expect(priceOf(skip, d, KING)!).toBeGreaterThan(priceOf(none, d, KING)!);
+      expect(row(d)).toMatchObject({ is_active: true, skip_state: null });
+      // The other days shown are still held.
+      for (const x of preview.affected.slice(0, -1)) {
+        expect(priceOf(skip, x, KING)).toBe(priceOf(none, x, KING));
+        expect(row(x)?.skip_state).toBe("held");
+      }
+      // A day not shown that becomes true after the Skip adjusts at once.
+      const quiet = WINDOW.find((x) => x > addDays(TODAY, 5) && !preview.affected.includes(x) && kingBooked(skip, x) <= 3)!;
+      await both(T50, (x) => book(x, T50, quiet, KING, 4 - kingBooked(x, quiet)));
+      expect(priceOf(skip, quiet, KING)!).toBeGreaterThan(priceOf(none, quiet, KING)!);
     });
 
-    it("an edit saved with Skip keeps every change on the price, and Apply later judges them against the edited rule", async () => {
+    it("Skip holds a pickup rule on exactly the days shown, and lets each go only once the rule stops and starts being true there", async () => {
+      // More than 1 King room night booked today, +30% on King: the
+      // strongest raise, so no other rule's change decides for it.
+      const after = ruleRow(NEW, { ...created, created_at: D1_05, updated_at: D1_05, priority: 140, action_value: 30, cond: { pickup_operator: "gt", pickup_threshold: 1, pickup_window_days: 1, pickup_metric: "room_nights" }, affected: [KING], signals: [KING] });
+      const base = await nextDay(engine.evaluate, settled);
+      const [n1, n2, n3] = [addDays(D1, 20), addDays(D1, 24), addDays(D1, 28)];
+      book(base, D1_01, n1, KING, 2);
+      book(base, D1_01, n2, KING, 2);
+      const { preview, tables } = await skipAt(engine.evaluate, base, after, D1_05);
+      expect(preview.affected).toEqual([n1, n2]);
+      // A hold on each day shown, on the room type it changes.
+      expect(tables.rule_skip_hold.filter((h) => h.rule_id === NEW).map((h) => `${h.stay_date}|${h.room_type_id}`).sort()).toEqual([`${n1}|${KING}`, `${n2}|${KING}`]);
+      let skip = await realRun(engine.evaluate, tables, D1_10);
+      let none = await realRun(engine.evaluate, base, D1_10);
+      const fires = (night: string) => skip.pickup_event.filter((e) => e.rule_id === NEW && String(e.stay_date) === night && e.retired_at == null);
+      const hold = (night: string) => skip.rule_skip_hold.find((h) => h.rule_id === NEW && String(h.stay_date) === night);
+      const both = async (at: string, change: (x: Tables) => void) => {
+        const a = clone(skip);
+        const b = clone(none);
+        change(a);
+        change(b);
+        skip = await realRun(engine.evaluate, a, at);
+        none = await realRun(engine.evaluate, b, at);
+      };
+      expect(fires(n1)).toEqual([]);
+      expect(fires(n2)).toEqual([]);
+      expect(hold(n1)?.was_true).toBe(true);
+      for (const d of [n1, n2]) expect(priceOf(skip, d, KING)).toBe(priceOf(none, d, KING));
+
+      // n1 stops being true (its bookings cancelled); n2 stays true with one more; n3, not shown, becomes true.
+      await both(D1_20, (x) => {
+        cancel(x, n1, KING, (r) => r.created_at === D1_01);
+        book(x, D1_20, n2, KING, 1);
+        book(x, D1_20, n3, KING, 2);
+      });
+      expect(fires(n1)).toEqual([]);
+      expect(hold(n1)?.was_true).toBe(false);
+      expect(fires(n2)).toEqual([]);
+      expect(hold(n2)?.was_true).toBe(true);
+      for (const d of [n1, n2]) expect(priceOf(skip, d, KING)).toBe(priceOf(none, d, KING));
+      expect(fires(n3)).toHaveLength(1);
+      // n1 is true again: the hold is over and the rule adjusts in that run.
+      await both(D1_30, (x) => book(x, D1_30, n1, KING, 2));
+      expect(hold(n1)).toBeUndefined();
+      expect(fires(n1)).toHaveLength(1);
+      expect(fires(n2)).toEqual([]);
+      expect(priceOf(skip, n2, KING)).toBe(priceOf(none, n2, KING));
+    });
+
+    it("an edit to a pickup rule saved with Skip keeps its change on a held day until the rule stops and starts being true, then moves it to the new amount in that run", async () => {
+      // More than 1 King room night today, +30%, applied: it raises n. Edited
+      // to +20% with Skip: the +30% stays while held; once the rule is true
+      // again after not being true, the +30% comes off and +20% goes on.
+      const v1 = ruleRow(NEW, { ...created, created_at: D1_05, updated_at: D1_05, priority: 140, action_value: 30, cond: { pickup_operator: "gt", pickup_threshold: 1, pickup_window_days: 1, pickup_metric: "room_nights" }, affected: [KING], signals: [KING] });
+      const base = await nextDay(engine.evaluate, settled);
+      const n = addDays(D1, 21);
+      book(base, D1_01, n, KING, 2);
+      let t = await realRun(engine.evaluate, saveApply(base, v1), D1_05);
+      const open = (x: Tables) => x.pickup_event.filter((e) => e.rule_id === NEW && String(e.stay_date) === n && e.retired_at == null);
+      expect(open(t).map((e) => Number(e.action_value))).toEqual([30]);
+
+      const v2 = edited(t, NEW, { action_value: 20 });
+      const { preview, tables } = await skipAt(engine.evaluate, t, v2, D1_10);
+      expect(preview.affected).toContain(n);
+      t = await realRun(engine.evaluate, tables, D1_12);
+      expect(open(t).map((e) => [Number(e.rule_version), Number(e.action_value)])).toEqual([[1, 30]]);
+      // Not true (its bookings cancelled): the +30% stays.
+      cancel(t, n, KING, (r) => r.created_at === D1_01);
+      t = await realRun(engine.evaluate, t, D1_20);
+      expect(open(t).map((e) => [Number(e.rule_version), Number(e.action_value)])).toEqual([[1, 30]]);
+      // True again: the edited rule takes over there, in that run.
+      book(t, D1_30, n, KING, 2);
+      t = await realRun(engine.evaluate, t, D1_30);
+      expect(open(t).map((e) => [Number(e.rule_version), Number(e.action_value)])).toEqual([[2, 20]]);
+      const old = t.pickup_event.find((e) => e.rule_id === NEW && String(e.stay_date) === n && Number(e.rule_version) === 1)!;
+      expect(old.retired_reason).toBe("rule_edited");
+      expect(t.rule_skip_hold.filter((h) => h.rule_id === NEW && String(h.stay_date) === n)).toEqual([]);
+    });
+
+    it("a pickup rule and a booking speed rule created after bookings came in count those bookings, with Apply and with Skip", async () => {
+      // Pickup: more than 2 King room nights today. Two were booked before
+      // the rule existed; one more after it makes three, with Apply and with
+      // Skip alike. Without the two, one more is not enough.
+      const pickup = ruleRow(NEW, { ...created, created_at: D1_05, updated_at: D1_05, priority: 140, action_value: 30, cond: { pickup_operator: "gt", pickup_threshold: 2, pickup_window_days: 1, pickup_metric: "room_nights" }, affected: [KING], signals: [KING] });
+      const base = await nextDay(engine.evaluate, settled);
+      const m = addDays(D1, 22);
+      const control = clone(base);
+      book(base, D1_01, m, KING, 2);
+      const { preview, tables: skipped } = await skipAt(engine.evaluate, base, pickup, D1_05);
+      expect(preview.affected).not.toContain(m);
+      const worlds = { apply: saveApply(base, pickup), skip: skipped, control: saveApply(control, pickup) };
+      for (const [name, w] of Object.entries(worlds)) {
+        book(w, D1_10, m, KING, 1);
+        const run = await realRun(engine.evaluate, w, D1_10);
+        const fire = run.pickup_event.filter((e) => e.rule_id === NEW && String(e.stay_date) === m && e.retired_at == null);
+        if (name === "control") {
+          expect({ name, fires: fire.length }).toEqual({ name, fires: 0 });
+          continue;
+        }
+        expect({ name, fires: fire.length }).toEqual({ name, fires: 1 });
+        // It counted from the start of the day, before the rule existed: all three.
+        expect(Date.parse(String(fire[0].baseline_start_ts))).toBeLessThan(Date.parse(D1_05));
+        expect(Number(fire[0].signal_booked_units_end) - Number(fire[0].signal_booked_units_start)).toBe(3);
+      }
+
+      // Booking speed: at least Faster over the last week, +30%. A night it
+      // was not true on when it was created gets eight bookings after it:
+      // it counts them with the ones made before it, the week's whole count.
+      const bs = ruleRow(NEW, { ...created, priority: 140, action_value: 30, cond: { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 7, booking_speed_cooldown_days: 3 } });
+      const b = await skipAt(engine.evaluate, settled, bs, T10);
+      const weekAgo = Date.parse(`${addDays(TODAY, -6)}T00:00:00Z`);
+      const madeThisWeek = (t: Tables, night: string) =>
+        t.reservations.filter((r) => String(r.stay_date) === night && Date.parse(String(r.created_at)) >= weekAgo).length;
+      // The strongest raise (+30%), so no other rule's change is one it counts from.
+      const n = WINDOW.find((x) => x > addDays(TODAY, 10) && !b.preview.affected.includes(x) && madeThisWeek(settled, x) >= 2)!;
+      expect(n).toBeDefined();
+      for (const [name, w] of Object.entries({ apply: saveApply(settled, bs), skip: b.tables })) {
+        for (let i = 0; i < 8; i++) book(w, T20, n, RT[i % RT.length], 1);
+        const run = await realRun(engine.evaluate, w, T20);
+        const fire = run.pickup_event.filter((e) => e.rule_id === NEW && String(e.stay_date) === n && e.retired_at == null);
+        expect({ name, fired: fire.length > 0 }).toEqual({ name, fired: true });
+        expect({ name, since: fire[0].window_since ?? null }).toEqual({ name, since: null });
+        expect(Number(fire[0].window_bookings_at_fire)).toBeGreaterThan(8);
+      }
+    });
+
+    it("an edit saved with Skip leaves each change it would move where it is, and Apply later judges them against the edited rule", async () => {
       const after = edited(settled, R.busy, { action_value: 20, rule_condition: [{ occupancy_operator: "gt", occupancy_threshold: 0.75 }] });
-      vi.setSystemTime(new Date(T10));
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const client = fake(clone(settled)).client as any;
-      const marks = await skipMarksForRule(client, { hotelId: H, after: after as EngineRuleRow, at: T10, horizonDays: HORIZON }, engine.evaluate);
-      // Where the edited rule no longer holds, the change stays (kept); where it does, it stays at its old amount.
-      expect(marks.some((m) => m.w === "kept")).toBe(true);
-      const skipped = await realRun(engine.evaluate, saveSkip(settled, after, marks, T10), T11);
-      const kept = skipped.ladder_rule_state.filter((r) => r.rule_id === R.busy && r.is_active && r.skip_state === "kept");
-      expect(kept.length).toBe(marks.filter((m) => m.w === "kept").length);
-      expect(kept.every((r) => Number(r.action_value) === 15)).toBe(true);
+      const { preview, plan, tables } = await skipAt(engine.evaluate, settled, after, T10);
+      // Where the edited rule no longer holds, the change stays (kept); where it does, it stays at its old amount (carried).
+      // Only on the days shown (some of those the rule as stored would have changed now, and the edited one leaves alone).
+      expect(plan.marks.some((m) => m.w === "kept")).toBe(true);
+      expect(plan.marks.every((m) => preview.affected.includes(m.d))).toBe(true);
+      const skipped = await realRun(engine.evaluate, tables, T11);
+      const marked = skipped.ladder_rule_state.filter((r) => r.rule_id === R.busy && r.is_active && r.skip_state);
+      expect(marked.length).toBe(plan.marks.length);
+      expect(marked.every((r) => Number(r.action_value) === 15)).toBe(true);
 
       // Apply later (the Skip cleared): the popup's days are the prices that move.
       const reapplied: FakeRow = { ...after, skip_at: null };
       vi.setSystemTime(new Date(T20));
       const storedNow = skipped.pricing_rules.find((r) => r.id === R.busy)!;
-      const preview = await previewRule(
+      const again = await previewRule(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         fake(clone(skipped)).client as any,
         { hotelId: H, after: reapplied as EngineRuleRow, before: storedNow as EngineRuleRow, at: T20, horizonDays: HORIZON },
@@ -411,38 +624,54 @@ for (const engine of ENGINES) {
       );
       const applied = published(await realRun(engine.evaluate, saveApply(skipped, reapplied), T20));
       const without = published(await realRun(engine.evaluate, skipped, T20));
-      expect(nightsDiffering(applied, without)).toEqual(preview.affected);
-      expect(preview.affected.length).toBeGreaterThan(0);
+      expect(nightsDiffering(applied, without)).toEqual(again.affected);
+      expect(again.affected.length).toBeGreaterThan(0);
     });
 
-    it("after an edit saved with Skip, switching the rule off and on with Apply leaves the nights it held at the old amount", async () => {
-      // "Busy nights" from +15% to +20%, same bar, saved with Skip: where it
-      // holds, its change stays at +15% (made the edited rule's). A later
-      // switch off and on with Apply moves none of them: 0 days there.
+    it("an edit saved with Skip carries each change at its old amount once the rule stops holding, and switching it off and on with Apply shows and moves them", async () => {
+      // "Busy nights" from +15% to +20%, same bar, saved with Skip: its
+      // changes stay at +15% (carried). Off and on again with Apply, the
+      // popup shows those days and Apply moves them to +20%.
       const after = edited(settled, R.busy, { action_value: 20 });
-      vi.setSystemTime(new Date(T10));
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const marks = await skipMarksForRule(fake(clone(settled)).client as any, { hotelId: H, after: after as EngineRuleRow, at: T10, horizonDays: HORIZON }, engine.evaluate);
-      expect(marks.some((m) => m.w === "version")).toBe(true);
-      const skipped = await realRun(engine.evaluate, saveSkip(settled, after, marks, T10), T11);
-      const carried = skipped.ladder_rule_state.filter((r) => r.rule_id === R.busy && r.is_active && Number(r.action_value) === 15);
-      expect(carried.length).toBeGreaterThan(0);
+      const { preview, plan, tables } = await skipAt(engine.evaluate, settled, after, T10);
+      const carriedMarks = plan.marks.filter((m) => m.w === "carried");
+      expect(carriedMarks.length).toBeGreaterThan(0);
+      // The rest: nights the rule was about to switch on at +20%, held off.
+      expect(plan.marks.every((m) => m.w === "carried" || m.w === "held")).toBe(true);
+      const skipped = await realRun(engine.evaluate, tables, T11);
+      const carried = skipped.ladder_rule_state.filter((r) => r.rule_id === R.busy && r.is_active && r.skip_state === "carried");
+      expect(carried.length).toBe(carriedMarks.length);
+      expect(carried.every((r) => Number(r.action_value) === 15)).toBe(true);
+      const carriedNights = [...new Set(carried.map((r) => String(r.stay_date)))].sort();
+      expect(carriedNights.every((d) => preview.affected.includes(d))).toBe(true);
+
+      // One of them stops holding (bookings cancelled): the change stays, now kept.
+      const d = carriedNights[carriedNights.length - 1];
+      const t = clone(skipped);
+      cancel(t, d, KING, () => true);
+      cancel(t, d, QUEEN, () => true);
+      const later = await realRun(engine.evaluate, t, T20);
+      const row = later.ladder_rule_state.find((r) => r.rule_id === R.busy && String(r.stay_date) === d && r.room_type_id === SUITE)!;
+      expect(row).toMatchObject({ is_active: true, skip_state: "kept" });
+      expect(Number(row.action_value)).toBe(15);
+
       const off = clone(skipped);
       off.pricing_rules.find((r) => r.id === R.busy)!.is_active = false;
       const stored = off.pricing_rules.find((r) => r.id === R.busy)!;
+      const onAgain = { ...stored, is_active: true, skip_at: null };
       vi.setSystemTime(new Date(T20));
-      const preview = await previewRule(
+      const shown = await previewRule(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         fake(clone(off)).client as any,
-        { hotelId: H, after: { ...stored, is_active: true, skip_at: null } as unknown as EngineRuleRow, before: null, at: T20, horizonDays: HORIZON },
+        { hotelId: H, after: onAgain as unknown as EngineRuleRow, before: null, at: T20, horizonDays: HORIZON },
         engine.evaluate,
       );
-      const carriedNights = new Set(carried.map((r) => String(r.stay_date)));
-      expect(preview.affected.filter((d) => carriedNights.has(d))).toEqual([]);
-      const on = await realRun(engine.evaluate, saveApply(off, { ...stored, is_active: true, skip_at: null }), T20);
-      const still = on.ladder_rule_state.filter((r) => r.rule_id === R.busy && r.is_active && carriedNights.has(String(r.stay_date)));
-      expect(still.length).toBeGreaterThan(0);
-      expect(still.every((r) => Number(r.action_value) === 15)).toBe(true);
+      for (const n of carriedNights) expect(shown.affected).toContain(n);
+      const on = await realRun(engine.evaluate, saveApply(off, onAgain), T20);
+      expect(nightsDiffering(published(on), published(await realRun(engine.evaluate, off, T20)))).toEqual(shown.affected);
+      const moved = on.ladder_rule_state.filter((r) => r.rule_id === R.busy && r.is_active && carriedNights.includes(String(r.stay_date)));
+      expect(moved.length).toBeGreaterThan(0);
+      expect(moved.every((r) => Number(r.action_value) === 20 && (r.skip_state ?? null) === null)).toBe(true);
     });
 
     it("an edit to a rule that is off moves no price until it is switched on", async () => {
@@ -460,11 +689,12 @@ for (const engine of ENGINES) {
 
 describe("Skip after an edit to a booking speed rule that is on", () => {
   // A change the Skip leaves on the price keeps covering the weaker rules it
-  // covered at the Skip: it ranks as it was made, not as the edited rule.
-  // Lowering Surging's amount (or making it fixed, changing its speed, or
-  // making it a standard rule) must not let Much Faster or Faster raise
-  // again on bookings Surging's change already covered. Seeds 5, 31 and 43 are hotels where Surging's
-  // changes are on the price over a weaker raise.
+  // covered: it ranks as it was made, not as the edited rule. Lowering
+  // Surging's amount (or making it fixed, changing its speed, or making it a
+  // standard rule) must not let Much Faster or Faster raise again, on the
+  // days held, on bookings Surging's change already covered; every other day
+  // is priced as Apply prices it. Seeds 5, 31 and 43 are hotels where
+  // Surging's changes are on the price over a weaker raise.
   const EDITS: { name: string; id: string; patch: Record<string, unknown> }[] = [
     { name: "Surging from +25% to +10%", id: R.bsSurging, patch: { action_value: 10 } },
     { name: "Surging from +25% to a fixed +$5", id: R.bsSurging, patch: { action_type: "fixed", action_value: 5 } },
@@ -481,7 +711,7 @@ describe("Skip after an edit to a booking speed rule that is on", () => {
     },
   ];
   for (const engine of ENGINES) {
-    it.each([5, 31, 43])(`hotel seed %i on the ${engine.name}: no price moves`, async (seedNo) => {
+    it.each([5, 31, 43])(`hotel seed %i on the ${engine.name}: the days held keep their prices, the rest price as Apply does`, async (seedNo) => {
       engine.reset();
       vi.setSystemTime(new Date(T10));
       const t = await settle(engine.evaluate, seedNo);
@@ -490,13 +720,15 @@ describe("Skip after an edit to a booking speed rule that is on", () => {
       const moved: Record<string, string[]> = {};
       for (const e of EDITS) {
         const after = edited(t, e.id, e.patch);
-        vi.setSystemTime(new Date(T10));
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const client = fake(clone(t)).client as any;
-        const marks = await skipMarksForRule(client, { hotelId: H, after: after as EngineRuleRow, at: T10, horizonDays: HORIZON }, engine.evaluate);
-        const skipped = await realRun(engine.evaluate, saveSkip(t, after, marks, T10), T11);
-        const base = e.id === R.bsSurging ? without : withoutMf;
-        moved[e.name] = nightsDiffering(published(skipped), published(base));
+        const { preview, tables } = await skipAt(engine.evaluate, t, after, T10);
+        const held = new Set(preview.affected);
+        const skipped = published(await realRun(engine.evaluate, tables, T11));
+        const applied = published(await realRun(engine.evaluate, saveApply(t, after), T11));
+        const base = published(e.id === R.bsSurging ? without : withoutMf);
+        moved[e.name] = [
+          ...nightsDiffering(skipped, base).filter((d) => held.has(d)),
+          ...nightsDiffering(skipped, applied).filter((d) => !held.has(d)),
+        ].sort();
       }
       // An edit to a rule that is off moves no price either: its changes
       // stay on, frozen, and cover what they covered.
@@ -506,7 +738,7 @@ describe("Skip after an edit to a booking speed rule that is on", () => {
       offEdit.pricing_rules = [...offEdit.pricing_rules.filter((r) => r.id !== R.bsSurging), afterOff];
       moved["Surging edited to +10% while off"] = nightsDiffering(published(await realRun(engine.evaluate, offEdit, T11)), published(without));
       expect(moved).toEqual(Object.fromEntries([...EDITS.map((e) => e.name), "Surging edited to +10% while off"].map((n) => [n, []])));
-    }, 240_000);
+    }, 480_000);
   }
 });
 

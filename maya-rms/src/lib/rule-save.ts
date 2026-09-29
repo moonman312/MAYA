@@ -15,7 +15,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingColumnError, isMissingFunctionError } from "@/lib/engine/snapshots";
-import { ENGINE_RULE_COLUMNS, skipMarksForRule, type EngineRuleRow, type SkipMark } from "@/lib/rule-preview";
+import { ENGINE_RULE_COLUMNS, skipPlanForRule, type EngineRuleRow, type SkipPlan } from "@/lib/rule-preview";
 import {
   RATE_AMOUNT_MISSING,
   RULE_CHANGE_FORBIDDEN,
@@ -380,7 +380,15 @@ export async function planRuleChange(
   };
 }
 
-export type CommitResult = { id: string; version: number; is_active: boolean; skip_at: string | null; marks: number };
+export type CommitResult = {
+  id: string;
+  version: number;
+  is_active: boolean;
+  skip_at: string | null;
+  /** A Skip's marks on a standard rule's rows, and the days it holds. */
+  marks: number;
+  heldDays: number;
+};
 
 /** The nights a request may ask to be priced first: dates, at most the longest window. */
 export function cleanTouched(value: unknown): string[] {
@@ -392,22 +400,28 @@ export function cleanTouched(value: unknown): string[] {
  * Save the plan. `choice` is the owner's Apply or Skip where the plan needs
  * one (needsActivation); otherwise the rule stays on or off as it is.
  * `userClient` is the signed-in session (save_rule checks its role, and the
- * product events it writes are theirs); `admin` works out the Skip's marks.
+ * product events it writes are theirs); `admin` works out the Skip's holds.
+ * `held` is what a Skip holds: the days the popup showed, or "all" (every
+ * day the rule could act on) when the popup could not work them out.
  */
 export async function commitRuleChange(
   userClient: SupabaseClient,
   admin: SupabaseClient,
   plan: RulePlan,
   choice: ActivationChoice | null,
-  opts: { at: string; horizonDays: number; touched: string[] },
+  opts: { at: string; horizonDays: number; touched: string[]; held?: readonly string[] | "all" },
 ): Promise<CommitResult> {
   if (plan.needsActivation && !choice) {
     throw new RuleSaveError(409, "Choose whether to apply the price adjustments.", "activation_required");
   }
   const activation = plan.needsActivation ? choice! : plan.intent === "create" ? "apply" : "keep";
-  let marks: SkipMark[] = [];
+  let skip: SkipPlan = { marks: [], holdNights: [] };
   if (activation === "skip") {
-    marks = await skipMarksForRule(admin, { hotelId: plan.hotelId, after: plan.after, at: opts.at, horizonDays: opts.horizonDays });
+    skip = await skipPlanForRule(
+      admin,
+      { hotelId: plan.hotelId, after: plan.after, at: opts.at, horizonDays: opts.horizonDays },
+      opts.held ?? "all",
+    );
   }
   const { data, error } = await userClient.rpc("save_rule", {
     p_hotel_id: plan.hotelId,
@@ -418,7 +432,8 @@ export async function commitRuleChange(
     p_activation: activation,
     p_at: opts.at,
     p_touched: opts.touched,
-    p_skip_marks: marks,
+    p_skip_marks: skip.marks,
+    p_hold_nights: skip.holdNights,
   });
   if (error) {
     if (isMissingFunctionError(error)) {
@@ -435,7 +450,8 @@ export async function commitRuleChange(
     version: Number(row.version ?? plan.versionAfter),
     is_active: Boolean(row.is_active),
     skip_at: row.skip_at != null ? String(row.skip_at) : null,
-    marks: marks.length,
+    marks: skip.marks.length,
+    heldDays: skip.holdNights.length,
   };
 }
 
@@ -483,7 +499,7 @@ async function legacyCommit(
       plan.hotelId,
     );
     await markNights(admin, plan.hotelId, opts.touched);
-    return { id: created.id, version: 1, is_active: on !== false, skip_at: null, marks: 0 };
+    return { id: created.id, version: 1, is_active: on !== false, skip_at: null, marks: 0, heldDays: 0 };
   }
   if (plan.intent === "edit" && plan.draft) {
     const d = plan.draft;
@@ -517,7 +533,7 @@ async function legacyCommit(
     if ((data ?? []).length === 0) throw new RuleSaveError(403, RULE_CHANGE_FORBIDDEN, "forbidden");
   }
   await markNights(admin, plan.hotelId, opts.touched);
-  return { id: plan.ruleId, version: plan.versionAfter, is_active: on ?? plan.isActive, skip_at: null, marks: 0 };
+  return { id: plan.ruleId, version: plan.versionAfter, is_active: on ?? plan.isActive, skip_at: null, marks: 0, heldDays: 0 };
 }
 
 async function markNights(admin: SupabaseClient, hotelId: string, nights: string[]): Promise<void> {

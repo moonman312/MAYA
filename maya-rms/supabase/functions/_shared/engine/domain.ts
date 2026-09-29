@@ -116,16 +116,19 @@ export type EngineRule = {
   undo_on_cancellation?: boolean;
   /**
    * When the owner last switched the rule on (or saved it) with "Skip price
-   * adjustments": the nights it matched then are left alone, and it acts
-   * only on what changes after this instant. Null (or absent, before the
-   * column exists) when the last activation applied its adjustments.
+   * adjustments": the Skip its holds belong to (the days the popup showed,
+   * left as they are until the rule stops being true there and then becomes
+   * true again; ladder_rule_state.skip_state and rule_skip_hold). Null (or
+   * absent, before the column exists) when the last activation applied its
+   * adjustments.
    */
   skip_at?: string | null;
   /**
    * How the rule ranked as each earlier version, for its changes of those
    * versions still on the price (pricing_rules.version_ranks, written by
    * save_rule when an edit moves the version on and the old version still
-   * has changes on the price): its priority, its amount and the parts of
+   * has changes on the price, held by a Skip or frozen on a rule that is
+   * off): its priority, its amount and the parts of
    * its condition that rank it. Such a change ranks as its version did, so it keeps
    * covering the weaker rules it covered (pickup.ts rankedAsMade).
    */

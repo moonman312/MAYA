@@ -276,7 +276,6 @@ function rankOfRow(row: EngineRuleRow): RankedRule {
     action_direction: row.action_direction as RankedRule["action_direction"],
     action_value: Number(row.action_value),
     created_at: String(row.created_at ?? ""),
-    skip_at: null,
     condition: {
       occupancy_operator: (rc.occupancy_operator ?? null) as RankedRule["condition"]["occupancy_operator"],
       dta_operator: (rc.dta_operator ?? null) as RankedRule["condition"]["dta_operator"],
@@ -294,7 +293,8 @@ function rankOfRow(row: EngineRuleRow): RankedRule {
  * the rule as stored, but for its amount (and the undo box, which only
  * judges the rule's own changes on the price): the same condition, room
  * types, dates, weekdays, direction and priority, a booking speed or pickup
- * rule both times, and no Skip on the stored one (it would count from it).
+ * rule both times, and no Skip on the stored one (its holds make it act
+ * differently from the rule as saved, which has none).
  */
 export function countsTheSameWay(before: EngineRuleRow, after: EngineRuleRow): boolean {
   if (!isEventRuleRow(before) || !isEventRuleRow(after)) return false;
@@ -508,54 +508,83 @@ export async function previewRule(
 }
 
 /**
- * The owner's Skip, as marks on the rule's ladder rows, for save_rule to
- * write with the rule (99_supabase_migration_rule_activation_v1.sql). From
- * the rule's ladder decisions on Apply (a ladder-only dry run over the whole
- * window, at the instant of the Skip), each one that would move a price
- * becomes one that leaves it where it is (see SKIP in engine/ladder.ts):
+ * The owner's Skip, as save_rule writes it
+ * (99_supabase_migration_rule_activation_v1.sql): the days the popup showed
+ * are held, each until the rule stops being true there and then becomes
+ * true again, and every other day works as Apply would have it.
  *
- *   - an activation: a held row (on, no change on the price);
- *   - a change taken off: kept, at its amount, until the rule is true there;
- *   - a change moved to the edited rule's amount: made the edited rule's,
- *     at its old amount;
- *   - anything that moves no price (a row with no change on the price) is
- *     written as Apply writes it.
+ * A standard rule's holds are marks on its ladder rows, from its ladder
+ * decisions on Apply on those days (a ladder-only dry run at the instant of
+ * the Skip): each one that would move the rule's part in a price becomes
+ * one that leaves it as it is (see SKIP in engine/ladder.ts):
+ *
+ *   - an activation: held (on, no change on the price);
+ *   - a change taken off: kept, at its amount, until the rule is true there
+ *     (carried instead, where the rule is true but no longer covers the
+ *     room type or night: it then waits for the rule to stop first);
+ *   - a change moved to the edited rule's amount: carried, at its old
+ *     amount, while the rule holds, then kept;
+ *   - anything that moves no price is left for the next run to do as Apply.
+ *
+ * A booking speed or pickup rule's holds are made by save_rule itself from
+ * the days (rule_skip_hold): every room type it changes and every one with a
+ * change of it on the price; the engine judges them as it goes (see SKIP in
+ * engine/pickup.ts).
  */
-export type SkipMark = { d: string; rt: string; w: "held" | "kept" | "version" | "off" | "restamp" };
+export type SkipMark = { d: string; rt: string; w: "held" | "kept" | "carried" };
 
-export function skipMarksFrom(ops: readonly LadderOp[]): SkipMark[] {
+export function skipMarksFrom(ops: readonly LadderOp[], nights?: ReadonlySet<string>): SkipMark[] {
   const last = new Map<string, LadderOp>();
-  for (const op of ops) last.set(`${op.stayDate}|${op.roomTypeId}`, op);
+  for (const op of ops) if (!nights || nights.has(op.stayDate)) last.set(`${op.stayDate}|${op.roomTypeId}`, op);
   const out: SkipMark[] = [];
   for (const op of last.values()) {
     const at = { d: op.stayDate, rt: op.roomTypeId };
-    if (op.kind === "activate") out.push({ ...at, w: "held" });
-    else if (op.kind === "deactivate") out.push({ ...at, w: op.hadEffect ? "kept" : "off" });
-    else out.push({ ...at, w: op.hadEffect ? "version" : "restamp" });
+    if (op.kind === "activate") {
+      if (op.effect) out.push({ ...at, w: "held" });
+    } else if (op.kind === "deactivate") {
+      if (op.hadEffect) out.push({ ...at, w: op.holds ? "carried" : "kept" });
+    } else if (op.hadEffect && op.amountChanges) {
+      out.push({ ...at, w: "carried" });
+    }
   }
   return out.sort((x, y) => (x.d === y.d ? x.rt.localeCompare(y.rt) : x.d.localeCompare(y.d)));
 }
 
-/** The Skip marks for the rule as it will be saved (skipMarksFrom), over the whole window. */
-export async function skipMarksForRule(
+/** What a Skip saves: a standard rule's marks, and the days it holds. */
+export type SkipPlan = { marks: SkipMark[]; holdNights: string[] };
+
+/**
+ * The Skip for the rule as it will be saved, holding `held` (the days the
+ * popup showed), or, when the popup could not work them out ("all"), every
+ * day the rule could act on: in its scope, or with a change of it on the
+ * price.
+ */
+export async function skipPlanForRule(
   client: SupabaseClient,
   input: Omit<PreviewInput, "from" | "to">,
+  held: readonly string[] | "all",
   evaluate: EvaluateFn = evaluateHotel,
-): Promise<SkipMark[]> {
+): Promise<SkipPlan> {
   const ruleId = String(input.after.id);
   const horizon = Math.max(1, Math.floor(input.horizonDays));
   const { timeZone, today } = await hotelClock(client, input.hotelId, input.at);
   const lastNight = addCalendarDays(today, horizon - 1);
   const after = { ...input.after, is_active: true, skip_at: null };
-  const state = await nightsWithState(client, input.hotelId, ruleId, today, lastNight);
-  const nights = [...new Set([...nightsInScope(after, nightsFrom(today, lastNight), today, input.at, timeZone), ...state])].sort();
-  if (nights.length === 0) return [];
+  let nights: string[];
+  if (held === "all") {
+    const state = await nightsWithState(client, input.hotelId, ruleId, today, lastNight);
+    nights = [...new Set([...nightsInScope(after, nightsFrom(today, lastNight), today, input.at, timeZone), ...state])].sort();
+  } else {
+    nights = [...new Set(held)].filter((d) => YMD.test(d) && d >= today && d <= lastNight).sort();
+  }
+  if (nights.length === 0) return { marks: [], holdNights: [] };
+  if (isEventRuleRow(after)) return { marks: [], holdNights: nights };
   const capture = dryRunCapture();
   await evaluate(readOnlyClient(client), input.hotelId, input.at, horizon, {
     nights,
     dryRun: { rule: after, watch: ruleId, ladderOnly: true, capture },
   });
-  return skipMarksFrom(capture.ladderOps);
+  return { marks: skipMarksFrom(capture.ladderOps, new Set(nights)), holdNights: nights };
 }
 
 /**

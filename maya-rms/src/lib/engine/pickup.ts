@@ -135,19 +135,19 @@
  * off. Pausing a rule changes nothing: its fires keep applying, still cover
  * the weaker rules, and are not checked while it is paused.
  *
- * SKIP. A rule switched on (or saved) with "Skip price adjustments"
- * (pricing_rules.skip_at, S) counts bookings from S: where it counts from
- * on a cell is its own newest fire still on the night or S, whichever is
- * later (countFromSkip), so a raise counts the bookings first seen after S
- * on S's day, a cut the complete days after it, and a pickup count the room
- * nights first seen after S. S never moves where another rule counts from
- * (no price changed at it), and starts no wait. A typed price after S
- * resets the rule as it resets any rule. The rule's changes already on the
- * price at S (made at or before it, keptBySkip) stay as they are: an edit
- * does not take them off, cancellations are not checked on them (they were
- * counted under the rule as it was then), and they still cover the weaker
- * rules that move the price their way. They come off when the night passes,
- * a price is typed, the rule is deleted, or a later Apply (which clears S).
+ * SKIP. A rule switched on (or saved) with "Skip price adjustments" is held
+ * on the days the popup showed (rule_skip_hold, one per day and room type,
+ * belonging to the rule's skip_at; loadSkipHolds): there it makes no change,
+ * and its changes on the price stay as they are (an edit does not take them
+ * off, and cancellations are not checked on them), until it stops being
+ * true there and then becomes true again (skipHoldStep). It is judged the
+ * way Apply would judge it, counting from where it would count once its
+ * changes from before an edit were off; the first time it is found true
+ * after being found not true, the hold ends, those older changes come off,
+ * and it acts there in that same run. A Skip never moves where any rule
+ * counts from: a new rule counts the bookings made before it existed, as
+ * it would with Apply. Changes it holds still cover the weaker rules that
+ * move the price their way (ranked as they were made: rankedAsMade).
  */
 
 import type { CancellationFinding, EngineRule, PickupCancelCheck } from "@/types/domain";
@@ -178,6 +178,7 @@ import {
   fetchAllRows,
   filterNights,
   isMissingColumnError,
+  isMissingRelationError,
   rangesForNights,
   type BookedBeforePair,
   type BookedCount,
@@ -312,13 +313,12 @@ export type RankedRule = Pick<
   | "action_direction"
   | "action_value"
   | "created_at"
-  | "skip_at"
   | "version_ranks"
 >;
 
 /**
  * A rule as it ranked when it made `fire` (comparePickupRules), for a
- * change of an earlier version still on the price: one the owner's Skip left
+ * change of an earlier version still on the price: one the owner's Skip holds
  * on, or one of a rule edited while it was off. It ranks by its own amount,
  * direction and kind (pickup_event.action_*), and by the priority and
  * condition its version had (version_ranks, written by save_rule when the
@@ -377,31 +377,106 @@ export function versionRanksOf(value: unknown): EngineRule["version_ranks"] {
 }
 
 /**
- * Whether a fire was already on the price when the owner last chose "Skip
- * price adjustments" for its rule (at or before pricing_rules.skip_at): the
- * Skip left it where it is (see SKIP in the header).
+ * One day and room type a rule is held on after the owner's Skip
+ * (rule_skip_hold): whether the engine found the rule true there the last
+ * time it judged it (null: not judged yet).
  */
-export function keptBySkip(
-  rule: Pick<EngineRule, "skip_at"> | undefined,
-  fire: { applied_at: string },
-): boolean {
-  if (!rule?.skip_at) return false;
-  const skipMs = Date.parse(rule.skip_at);
-  return Number.isFinite(skipMs) && Date.parse(fire.applied_at) <= skipMs;
+export type SkipHold = { ruleId: string; stayDate: string; roomTypeId: string; wasTrue: boolean | null };
+
+/**
+ * What one judgment does to a hold: the first records whether the rule is
+ * true; after that, not true is remembered, and true after not true ends
+ * the hold (the rule acts there from this run on).
+ */
+export function skipHoldStep(wasTrue: boolean | null, isTrue: boolean): { wasTrue: boolean; release: boolean } {
+  if (wasTrue === false && isTrue) return { wasTrue: true, release: true };
+  return { wasTrue: wasTrue === null ? isTrue : wasTrue && isTrue, release: false };
 }
 
 /**
- * Where a rule counts from on a cell once its own Skip is taken into
- * account: the fire it counts from (countFromFireAt) or the instant of its
- * Skip, whichever is later. Only the rule's own count: a Skip never moves
- * where another rule counts from.
+ * The holds of the given rules' current Skips on the run's nights, per
+ * fireHeadKey. A hold of an older Skip (the owner applied, or skipped again,
+ * since) is none. Nothing before 99_supabase_migration_rule_activation_v1.sql
+ * (no rule was ever skipped). Throws on any other failure: without its holds
+ * a skipped rule would change the prices the owner asked it to leave.
  */
-export function countFromSkip(rule: Pick<EngineRule, "skip_at">, fireAt: string | null): string | null {
-  if (!rule.skip_at) return fireAt;
-  const skipMs = Date.parse(rule.skip_at);
-  if (!Number.isFinite(skipMs)) return fireAt;
-  if (fireAt !== null && Date.parse(fireAt) >= skipMs) return fireAt;
-  return new Date(skipMs).toISOString();
+export async function loadSkipHolds(
+  supabase: SupabaseClient,
+  rules: readonly Pick<EngineRule, "id" | "skip_at">[],
+  firstDate: string,
+  lastDate: string,
+  nights?: NightSet,
+): Promise<Map<string, SkipHold>> {
+  const out = new Map<string, SkipHold>();
+  const skipped = new Map(rules.filter((r) => r.skip_at).map((r) => [r.id, Date.parse(String(r.skip_at))]));
+  if (skipped.size === 0) return out;
+  let rows: Record<string, unknown>[];
+  try {
+    rows = await fetchAllRows(() =>
+      filterNights(
+        supabase
+          .from("rule_skip_hold")
+          .select("rule_id, stay_date, room_type_id, skip_at, was_true")
+          .in("rule_id", [...skipped.keys()]),
+        nights,
+        firstDate,
+        lastDate,
+      )
+        .order("rule_id", { ascending: true })
+        .order("stay_date", { ascending: true })
+        .order("room_type_id", { ascending: true }),
+    );
+  } catch (e) {
+    if (isMissingRelationError(e)) return out;
+    throw new Error(`Failed to load the rules' Skip holds: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  for (const r of rows) {
+    const ruleId = String(r.rule_id);
+    if (Date.parse(String(r.skip_at)) !== skipped.get(ruleId)) continue;
+    const stayDate = String(r.stay_date).slice(0, 10);
+    const roomTypeId = String(r.room_type_id);
+    out.set(fireHeadKey(ruleId, stayDate, roomTypeId), {
+      ruleId,
+      stayDate,
+      roomTypeId,
+      wasTrue: r.was_true == null ? null : Boolean(r.was_true),
+    });
+  }
+  return out;
+}
+
+/**
+ * Write what a run found on the holds: `judged` the ones whose was_true
+ * moved, `ended` the ones that are over. Grouped per rule, room type and
+ * answer, one write per group. Failures are returned, not thrown: a hold
+ * left as it was is judged again next run.
+ */
+export async function writeSkipHolds(
+  supabase: SupabaseClient,
+  judged: readonly SkipHold[],
+  ended: readonly SkipHold[],
+): Promise<string[]> {
+  const failed: string[] = [];
+  const groups = new Map<string, { hold: SkipHold; dates: string[]; end: boolean }>();
+  for (const [list, end] of [[judged, false], [ended, true]] as const) {
+    for (const h of list) {
+      const key = `${end}|${h.ruleId}|${h.roomTypeId}|${h.wasTrue}`;
+      const g = groups.get(key) ?? { hold: h, dates: [], end };
+      g.dates.push(h.stayDate);
+      groups.set(key, g);
+    }
+  }
+  for (const { hold, dates, end } of groups.values()) {
+    for (let i = 0; i < dates.length; i += 200) {
+      const chunk = dates.slice(i, i + 200);
+      const base = end
+        ? supabase.from("rule_skip_hold").delete()
+        : supabase.from("rule_skip_hold").update({ was_true: hold.wasTrue });
+      const { error } = await base.eq("rule_id", hold.ruleId).eq("room_type_id", hold.roomTypeId).in("stay_date", chunk);
+      if (error) failed.push(...chunk);
+    }
+  }
+  return failed;
 }
 
 /** A cell's fire history for one rule, from pickup_fire_heads. */
@@ -554,15 +629,15 @@ export async function loadPausedEventRules(
       .from("pricing_rules")
       .select(
         `
-      id, version, priority, action_type, action_direction, action_value, created_at, is_pickup_rule,${skip ? " skip_at, version_ranks," : ""}
+      id, version, priority, action_type, action_direction, action_value, created_at, is_pickup_rule,${skip ? " version_ranks," : ""}
       rule_condition ( occupancy_operator, dta_operator, pickup_operator, pickup_threshold, pickup_metric, booking_speed_operator, booking_speed_level )
     `,
       )
       .eq("hotel_id", hotelId)
       .eq("is_active", false);
   let { data, error } = await read(true);
-  // No skip_at or version_ranks yet (99_supabase_migration_rule_activation_v1.sql):
-  // no rule was ever skipped, and no earlier version's ranking was kept.
+  // No version_ranks yet (99_supabase_migration_rule_activation_v1.sql): no
+  // earlier version's ranking was kept.
   if (error && isMissingColumnError(error)) ({ data, error } = await read(false));
   if (error) throw new Error(`Failed to load paused rules: ${error.message}`);
   const rows = (data ?? []) as unknown as Record<string, unknown>[];
@@ -577,7 +652,6 @@ export async function loadPausedEventRules(
       action_direction: r.action_direction as RankedRule["action_direction"],
       action_value: Number(r.action_value),
       created_at: String(r.created_at),
-      skip_at: r.skip_at != null ? String(r.skip_at) : null,
       version_ranks: versionRanksOf(r.version_ranks),
       condition: {
         occupancy_operator: (rc.occupancy_operator ?? null) as RankedRule["condition"]["occupancy_operator"],
@@ -663,8 +737,8 @@ export function countFromFireAt(
     if (other.id === rule.id) continue;
     const head = heads.get(fireHeadKey(other.id, stayDate, roomTypeId));
     if (!head) continue;
-    // Each change ranks as it was made (rankedAsMade): a change an edit
-    // saved with Skip left on covers what it covered before the edit.
+    // Each change ranks as it was made (rankedAsMade): a change of an
+    // earlier version a Skip holds covers what it covered before the edit.
     const covers = head.covers ?? (head.lastCountedAt ? [{ at: head.lastCountedAt, rank: other }] : []);
     for (const cover of covers) {
       if (cover.rank.action_direction !== rule.action_direction) continue;
@@ -702,7 +776,7 @@ export function openFireHeads(
     const rule = ruleOf.get(fire.rule_id);
     if (!rule) continue;
     // A change still on the price covers what it counted, whichever version
-    // of its rule made it: one the owner's Skip left on (keptBySkip), or one
+    // of its rule made it: one the owner's Skip holds (rule_skip_hold), or one
     // of a rule edited while it was off (its changes stay on, frozen, until
     // it is switched on). It covers as it ranked when it was made
     // (rankedAsMade). A running rule's older changes came off before this
@@ -1671,8 +1745,8 @@ export type RetiredPickupFire = { fire: OpenPickupFire; reason: PickupRetireReas
  *   The price's save retires them itself; this catches a run that was
  *   already under way when the price was typed.
  * - rule_edited: fired by an older version of a rule this run loaded,
- *   unless the owner saved the edit with "Skip price adjustments" after it
- *   was made (keptBySkip). An edit saved with Apply is taken off here, by
+ *   unless the owner's Skip holds its day and room type (`held`, from
+ *   loadSkipHolds). An edit saved with Apply is taken off here, by
  *   the first run that prices the night.
  *
  * A fire applied at or after `now` belongs to this run and is never taken
@@ -1684,6 +1758,8 @@ export function firesToReset(
     rules: ReadonlyMap<string, EngineRule>;
     manualSetAtByCell: ReadonlyMap<string, string>;
     now: string;
+    /** fireHeadKeys the owner's Skip holds (loadSkipHolds). */
+    held?: ReadonlySet<string>;
   },
 ): Map<string, "manual_price" | "rule_edited"> {
   const out = new Map<string, "manual_price" | "rule_edited">();
@@ -1697,8 +1773,10 @@ export function firesToReset(
       continue;
     }
     const rule = input.rules.get(fire.rule_id);
-    // A change the owner's Skip left on the price stays through the edit.
-    if (rule && fire.rule_version < rule.version && !keptBySkip(rule, fire)) out.set(fire.id, "rule_edited");
+    // A change the owner's Skip holds stays through the edit.
+    if (!rule || fire.rule_version >= rule.version) continue;
+    if (input.held?.has(fireHeadKey(fire.rule_id, fire.stay_date, fire.affected_room_type_id))) continue;
+    out.set(fire.id, "rule_edited");
   }
   return out;
 }
@@ -1739,13 +1817,15 @@ export function cancellableParts(rule: Pick<EngineRule, "condition" | "action_di
  * whose box is ticked (undo_on_cancellation, true unless the rule says
  * false), still measuring the room types it measured at the fire, with a
  * condition cancellations can make false (cancellableParts). Paused rules
- * are not loaded, so their fires are never checked. `fires` are the ones
- * firesToReset left.
+ * are not loaded, so their fires are never checked, and nor are the fires
+ * on a day and room type the owner's Skip holds (`held`, fireHeadKeys from
+ * loadSkipHolds). `fires` are the ones firesToReset left.
  */
 export function cancellationChecks(
   fires: readonly OpenPickupFire[],
   rules: ReadonlyMap<string, EngineRule>,
   now: string,
+  held?: ReadonlySet<string>,
 ): { fire: OpenPickupFire; rule: EngineRule }[] {
   const out: { fire: OpenPickupFire; rule: EngineRule }[] = [];
   const nowMs = Date.parse(now);
@@ -1753,8 +1833,8 @@ export function cancellationChecks(
     if (Date.parse(fire.applied_at) >= nowMs) continue;
     const rule = rules.get(fire.rule_id);
     if (!rule || fire.rule_version !== rule.version || rule.undo_on_cancellation === false) continue;
-    // Counted under the rule as it was before the owner's Skip: left as it is.
-    if (keptBySkip(rule, fire)) continue;
+    // Held by the owner's Skip: left as it is.
+    if (held?.has(fireHeadKey(fire.rule_id, fire.stay_date, fire.affected_room_type_id))) continue;
     if (rule.signal_room_type_ids.length === 0) continue;
     if (signalSetKey(rule.signal_room_type_ids) !== fire.signal_set_key) continue;
     const parts = cancellableParts(rule);

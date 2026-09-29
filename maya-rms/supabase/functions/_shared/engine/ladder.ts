@@ -12,18 +12,23 @@
  * edited version's, with its adjustment; if not, it comes off.
  *
  * SKIP (the owner switched the rule on, or saved it, with "Skip price
- * adjustments"; pricing_rules.skip_at). The save marks the rule's rows so
- * the prices on the nights it matched then are left alone
- * (ladder_rule_state.skip_state, with the skip_at that set it):
- *   - held: on, with no change on the price. It stays so while the rule
- *     holds, and goes off (moving no price) once it doesn't, so the next
- *     time the rule holds there is a change after the Skip and it adjusts.
- *   - kept: a change already on the price, left at its amount, on a night
- *     where the rule (as edited) was not true at the Skip. It stays until
- *     the rule becomes true there, and then moves to the rule's amount and
- *     carries on as any change of the rule.
- * A marker from an older Skip (the owner applied since) is read as what
- * Apply means: a held row as off, a kept change as one from before an edit.
+ * adjustments"; pricing_rules.skip_at). On the days the popup showed, the
+ * save marks each row the rule was about to change, so its part in the
+ * price is held as it is until the rule stops being true there and then
+ * becomes true again (ladder_rule_state.skip_state, with the skip_at that
+ * set it):
+ *   - held: on, with no change on the price, where the rule was about to
+ *     adjust. It stays so while the rule holds, and goes off (moving no
+ *     price) once it doesn't, so the next time the rule holds it adjusts.
+ *   - carried: a change already on the price, at its amount, where the
+ *     rule (as edited) was about to move it to its new amount. It stays
+ *     while the rule holds, and once it doesn't it is kept.
+ *   - kept: a change already on the price, at its amount, where the rule
+ *     was about to take it off. It stays until the rule is true there, and
+ *     then moves to the rule's amount and carries on as any change of it.
+ * Every other row works as Apply would have it. A marker from an older Skip
+ * (the owner applied since) is read as what Apply means: a held row as off,
+ * a kept or carried change as one from before an edit.
  */
 
 import type { EngineRule } from "./domain.ts";
@@ -162,11 +167,29 @@ export async function evaluateLadderTriple(
     return ladderResult(rule, stayDate, affectedRoomTypeId, transition, metrics);
   }
 
+  if (marker?.current && marker.kind === "carried") {
+    // A change left at its old amount by the Skip, where the edited rule was
+    // true: it stays once the rule stops holding, now waiting for it to be
+    // true again. No price moves.
+    if (!ladderConditionsHold(rule, metrics)) {
+      if (batch) batch.markKept(rule, stayDate, affectedRoomTypeId);
+      else {
+        await supabase
+          .from("ladder_rule_state")
+          .update({ skip_state: "kept" })
+          .eq("rule_id", rule.id)
+          .eq("stay_date", stayDate)
+          .eq("room_type_id", affectedRoomTypeId);
+      }
+    }
+    return ladderResult(rule, stayDate, affectedRoomTypeId, transition, metrics);
+  }
+
   if (marker?.current && marker.kind === "kept") {
     // A change left on at its old amount by the Skip, where the rule was
     // not true then: once the rule is true, it is the rule's change.
     if (ruleConditionsMatch(rule, metrics)) {
-      const moves = priorRow?.amount !== `${rule.action_type}|${rule.action_direction}|${Number(rule.action_value)}`;
+      const moves = priorRow?.amount !== amountOf(rule);
       if (moves) transition = "activate";
       if (batch) batch.restampKept(rule, hotelId, stayDate, affectedRoomTypeId, metrics, evalTs);
       else {
@@ -185,9 +208,10 @@ export async function evaluateLadderTriple(
   }
 
   // A held row from an older Skip (applied since) is no change on the price:
-  // it reads as off. A kept one reads as a change from before an edit.
+  // it reads as off. A kept or carried one reads as a change from before an
+  // edit.
   const heldStale = marker?.kind === "held";
-  const keptStale = marker?.kind === "kept";
+  const keptStale = marker?.kind === "kept" || marker?.kind === "carried";
   const active = wasActive && !heldStale;
   // A change on from before the rule was edited: the edited rule's
   // conditions all have to hold.
@@ -293,11 +317,21 @@ export type LadderState = {
   is_active: boolean;
   rule_version?: number | null;
   suppressed_at?: string | null;
-  skip_state?: "held" | "kept" | null;
+  skip_state?: SkipState | null;
   skip_at?: string | null;
-  /** A marked row's adjustment, `kind|direction|value` (read only with the Skip columns). */
+  /** The row's adjustment, `kind|direction|value` (read with the Skip columns). */
   amount?: string;
 };
+
+/** The owner's Skip marker on a ladder row (see the header). */
+export type SkipState = "held" | "kept" | "carried";
+
+const SKIP_STATES: readonly string[] = ["held", "kept", "carried"];
+
+/** A rule's adjustment as LadderState.amount spells it. */
+export function amountOf(rule: Pick<EngineRule, "action_type" | "action_direction" | "action_value">): string {
+  return `${rule.action_type}|${rule.action_direction}|${Number(rule.action_value)}`;
+}
 
 /** Two timestamps naming the same instant, however each is spelled. */
 export function sameInstant(a: string | null | undefined, b: string | null | undefined): boolean {
@@ -314,8 +348,8 @@ export function sameInstant(a: string | null | undefined, b: string | null | und
 export function skipMarkerOf(
   prior: LadderState | null | undefined,
   rule: Pick<EngineRule, "skip_at">,
-): { kind: "held" | "kept"; current: boolean } | null {
-  if (!prior?.is_active || (prior.skip_state !== "held" && prior.skip_state !== "kept")) return null;
+): { kind: SkipState; current: boolean } | null {
+  if (!prior?.is_active || !prior.skip_state || !SKIP_STATES.includes(prior.skip_state)) return null;
   return { kind: prior.skip_state, current: sameInstant(prior.skip_at, rule.skip_at) };
 }
 
@@ -448,7 +482,12 @@ export type LadderPassBatch = {
     metrics: RuleMetrics,
     evalTs: string,
     supportsSuppression: boolean,
-    opts?: { clearSkip?: boolean; hadEffect?: boolean },
+    opts?: {
+      clearSkip?: boolean;
+      hadEffect?: boolean;
+      /** For a row the pass no longer reaches: whether the rule is true on that night (what a Skip would hold it as). */
+      holds?: boolean;
+    },
   ) => void;
   /** A change still on after an edit becomes the edited version's (rule_version and its adjustment). */
   restamp: (rule: EngineRule, stayDate: string, roomTypeId: string, clearSkip?: boolean) => void;
@@ -461,6 +500,8 @@ export type LadderPassBatch = {
     metrics: RuleMetrics,
     evalTs: string,
   ) => void;
+  /** A change the owner's Skip carried at its old amount waits, from now, for the rule to be true again (kept). No price moves. */
+  markKept: (rule: EngineRule, stayDate: string, roomTypeId: string) => void;
   /**
    * The decisions queued since the batch was made, in order, as they bear on
    * prices: what a dry run lays over the effects it reads (see
@@ -476,12 +517,15 @@ export type LadderPassBatch = {
  * One ladder decision, as it bears on the cell's price. `effect` on an
  * activation is false when the row is born with no change on the price (a
  * typed price already covering it). `hadEffect` says whether the row it
- * changes was moving the price before.
+ * changes was moving the price before. A restamp's `amountChanges` says
+ * whether the row's adjustment differs from the rule's (it moves the price
+ * when the row had an effect). A deactivation's `holds`, for a row the pass
+ * no longer reaches, says whether the rule is true on that night.
  */
 export type LadderOp =
   | { kind: "activate"; rule: EngineRule; stayDate: string; roomTypeId: string; effect: boolean; hadEffect: boolean }
-  | { kind: "deactivate"; rule: EngineRule; stayDate: string; roomTypeId: string; hadEffect: boolean }
-  | { kind: "restamp"; rule: EngineRule; stayDate: string; roomTypeId: string; hadEffect: boolean };
+  | { kind: "deactivate"; rule: EngineRule; stayDate: string; roomTypeId: string; hadEffect: boolean; holds?: boolean }
+  | { kind: "restamp"; rule: EngineRule; stayDate: string; roomTypeId: string; hadEffect: boolean; amountChanges: boolean };
 
 export async function createLadderPassBatch(
   supabase: SupabaseClient,
@@ -504,7 +548,8 @@ export async function createLadderPassBatch(
   if (ruleIds.length > 0) {
     const base = "rule_id, stay_date, room_type_id, is_active, rule_version";
     // With the Skip columns, the amount too: a kept change the rule is true
-    // for again moves the price only when the rule's amount differs.
+    // for again moves the price only when the rule's amount differs, and a
+    // Skip holds a change an edit would move to a new amount (carried).
     const columns = (skip: boolean) =>
       `${base}${opts.supportsSuppression ? ", suppressed_at" : ""}${skip ? ", skip_state, skip_at, action_kind, action_direction, action_value" : ""}`;
     const read = (ids: string[], skip: boolean) =>
@@ -532,7 +577,7 @@ export async function createLadderPassBatch(
         rows = await read(ids, false);
       }
       for (const r of rows) {
-        const skipState = r.skip_state === "held" || r.skip_state === "kept" ? r.skip_state : null;
+        const skipState = SKIP_STATES.includes(String(r.skip_state)) ? (r.skip_state as SkipState) : null;
         const key = `${r.rule_id}|${r.stay_date}|${r.room_type_id}`;
         const keys = keysByRule.get(String(r.rule_id));
         if (keys) keys.push(key);
@@ -541,13 +586,8 @@ export async function createLadderPassBatch(
           is_active: Boolean(r.is_active),
           rule_version: r.rule_version != null ? Number(r.rule_version) : null,
           ...(opts.supportsSuppression ? { suppressed_at: r.suppressed_at != null ? String(r.suppressed_at) : null } : {}),
-          ...(skipState
-            ? {
-                skip_state: skipState,
-                skip_at: r.skip_at != null ? String(r.skip_at) : null,
-                amount: `${r.action_kind}|${r.action_direction}|${Number(r.action_value)}`,
-              }
-            : {}),
+          ...(skipState ? { skip_state: skipState, skip_at: r.skip_at != null ? String(r.skip_at) : null } : {}),
+          ...(r.action_kind != null ? { amount: `${r.action_kind}|${r.action_direction}|${Number(r.action_value)}` } : {}),
         });
       }
     }
@@ -627,7 +667,7 @@ export async function createLadderPassBatch(
       const hadEffect = movesPrice(states.get(key));
       events.push(transitionEventRow(rule, hotelId, stayDate, roomTypeId, "activate", metrics, evalTs));
       activations.push(activationRow(rule, stayDate, roomTypeId, evalTs, suppressedAt, supportsSuppression, clearSkip && supportsSkip));
-      states.set(key, { is_active: true, rule_version: rule.version, suppressed_at: supportsSuppression ? suppressedAt : null });
+      states.set(key, { is_active: true, rule_version: rule.version, suppressed_at: supportsSuppression ? suppressedAt : null, amount: amountOf(rule) });
       log.push({ kind: "activate", rule, stayDate, roomTypeId, effect: !(supportsSuppression && suppressedAt), hadEffect });
     },
     deactivate(rule, hotelId, stayDate, roomTypeId, metrics, evalTs, supportsSuppression, o = {}) {
@@ -636,25 +676,33 @@ export async function createLadderPassBatch(
       events.push(transitionEventRow(rule, hotelId, stayDate, roomTypeId, "deactivate", metrics, evalTs));
       queueUpdate(rule.id, roomTypeId, deactivationPatch(evalTs, supportsSuppression, !!o.clearSkip && supportsSkip), stayDate);
       states.set(key, { is_active: false, rule_version: rule.version });
-      log.push({ kind: "deactivate", rule, stayDate, roomTypeId, hadEffect });
+      log.push({ kind: "deactivate", rule, stayDate, roomTypeId, hadEffect, ...(o.holds !== undefined ? { holds: o.holds } : {}) });
     },
     restamp(rule, stayDate, roomTypeId, clearSkip = false) {
       const key = `${rule.id}|${stayDate}|${roomTypeId}`;
       const prior = states.get(key);
       queueUpdate(rule.id, roomTypeId, clearSkip && supportsSkip ? { ...restampPatch(rule), ...CLEAR_SKIP } : restampPatch(rule), stayDate);
-      states.set(key, { is_active: true, rule_version: rule.version, suppressed_at: prior?.suppressed_at ?? null });
-      log.push({ kind: "restamp", rule, stayDate, roomTypeId, hadEffect: movesPrice(prior) });
+      states.set(key, { is_active: true, rule_version: rule.version, suppressed_at: prior?.suppressed_at ?? null, amount: amountOf(rule) });
+      log.push({ kind: "restamp", rule, stayDate, roomTypeId, hadEffect: movesPrice(prior), amountChanges: prior?.amount !== amountOf(rule) });
     },
     restampKept(rule, hotelId, stayDate, roomTypeId, metrics, evalTs) {
       const key = `${rule.id}|${stayDate}|${roomTypeId}`;
       const prior = states.get(key);
       // The rule acts only where its amount differs from the kept one.
-      if (prior?.amount !== `${rule.action_type}|${rule.action_direction}|${Number(rule.action_value)}`) {
+      const amountChanges = prior?.amount !== amountOf(rule);
+      if (amountChanges) {
         events.push(transitionEventRow(rule, hotelId, stayDate, roomTypeId, "activate", metrics, evalTs));
       }
       queueUpdate(rule.id, roomTypeId, { ...restampPatch(rule), ...CLEAR_SKIP }, stayDate);
-      states.set(key, { is_active: true, rule_version: rule.version, suppressed_at: prior?.suppressed_at ?? null });
-      log.push({ kind: "restamp", rule, stayDate, roomTypeId, hadEffect: movesPrice(prior) });
+      states.set(key, { is_active: true, rule_version: rule.version, suppressed_at: prior?.suppressed_at ?? null, amount: amountOf(rule) });
+      log.push({ kind: "restamp", rule, stayDate, roomTypeId, hadEffect: movesPrice(prior), amountChanges });
+    },
+    markKept(rule, stayDate, roomTypeId) {
+      const key = `${rule.id}|${stayDate}|${roomTypeId}`;
+      const prior = states.get(key);
+      if (!supportsSkip || !prior) return;
+      queueUpdate(rule.id, roomTypeId, { skip_state: "kept" }, stayDate);
+      states.set(key, { ...prior, skip_state: "kept" });
     },
     async flush() {
       if (opts.dryRun) {
