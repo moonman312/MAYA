@@ -14,11 +14,11 @@ questions:
   - Do I need to understand revenue management to use MAYA? {#before-you-start}
   - Why does a new rule's Fired count jump so fast? {#what-you-see-in-the-list-afterwards}
   - How much should I raise or cut by? Is 10% a sensible amount? {#choosing-the-amount/how-much-a}
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 <InPlainWords>
-Open the <Ui>Rules</Ui> tab, click <Ui>+ Add a rule</Ui>, name it, pick a condition, choose raise or lower and by how much, pick the room types, and click <Ui>Add Rule</Ui>. The rule is on straight away. While your property is in simulation, MAYA shows what the rule would do without sending anything. After you go live, it sends the prices to Cloudbeds or ThinkReservations. Nothing is sent to Mews yet.
+Open the <Ui>Rules</Ui> tab, click <Ui>+ Add a rule</Ui>, name it, pick a condition, choose raise or lower and by how much, pick the room types, and click <Ui>Add Rule</Ui>. A window shows the days the rule will change: click <Ui>Apply price adjustments</Ui> and the rule is on. While your property is in simulation, MAYA shows what the rule would do without sending anything. After you go live, it sends the prices to Cloudbeds or ThinkReservations. Nothing is sent to Mews yet.
 </InPlainWords>
 
 ## Before you start
@@ -60,7 +60,7 @@ Under <Ui>Rate adjustment</Ui>, open <Ui>Direction (required)</Ui> and choose <U
 Under <Ui>Apply to room types</Ui>, every room type that counts as a room is already selected. Leave them all on. A type tagged "not a room" (The Harbour Inn's Meeting Room, say) stays out unless you click it.
 </Step>
 <Step title="Add it">
-Click <Ui>Add Rule</Ui>. The rule appears in the list with its switch on <Ui>On</Ui>, and the form clears, ready for the next rule.
+Click <Ui>Add Rule</Ui>. A window opens with a small calendar of the months ahead, the days the rule will change filled in, and a line such as "12 days will be affected by this rule." Click <Ui>Apply price adjustments</Ui>. The rule appears in the list with its switch on <Ui>On</Ui>, and the form clears, ready for the next rule. (<Ui>Skip price adjustments</Ui> also switches it on, but leaves those days' prices as they are. Read [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on).)
 </Step>
 </Steps>
 
@@ -125,7 +125,7 @@ Each of these is a short recipe with exact labels.
 3. **Suites that follow your standard rooms.** Tick <Ui>Change prices on different room types</Ui>, measure Standard, change Suite. Read [Let suites follow your standard rooms](/docs/recipes/let-suites-follow-standard-rooms).
 
 <Callout kind="not-yet">
-Rules run every day of the year, for every night in the window. You cannot yet limit a rule to weekends, a date range or a season, and you cannot edit a rule from the builder once it is saved. The only change made in place is accepting a "Tune ... ?" suggestion after <Ui>Get suggestions from my data</Ui>, which moves an occupancy threshold. Read [What rules cannot do yet](/docs/rules/what-rules-cannot-do-yet) for each limit and what to do instead.
+Rules run every day of the year, for every night in the window. You cannot yet limit a rule to weekends, a date range or a season. To change a rule once it is saved, click <Ui>Edit</Ui> on its row. Read [What rules cannot do yet](/docs/rules/what-rules-cannot-do-yet) for each limit and what to do instead.
 </Callout>
 
 <OpenInMaya to="rules.new" window="lt3" occupancy="lt50" direction="decrease" percent="15" words="Open the rule builder with the last-minute cut filled in" />

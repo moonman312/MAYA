@@ -1,0 +1,140 @@
+---
+title: Turning a rule on, Apply or Skip
+summary: The window that opens whenever a rule is about to start acting, its small calendar of the days the rule will change, what Apply price adjustments and Skip price adjustments each do, and every message it can show.
+section: rules
+order: 105
+readingTime: 10
+keywords: [turn on, switch on, enable a rule, activate, popup, pop-up, calendar, small calendar, days will be affected, days affected, affected by this rule, apply price adjustments, skip price adjustments, skip, apply, cancel, highlighted days, blue squares, checking your calendar, the days could not be checked, bookings changed while this was open, days were checked again, 0 days, one day, save changes, add rule, turn on rule, why did a window open, what does skip do, leave prices alone, only new changes, count bookings from now, 13 months, 14 months, twelve months, trial run, same as the calendar]
+questions:
+  - Why did a window with a calendar open when I switched a rule on? {#in-plain-words}
+  - What does "X days will be affected by this rule" mean? {#what-the-days-mean}
+  - What does Apply price adjustments do? {#apply-price-adjustments}
+  - What does Skip price adjustments do? {#skip-price-adjustments}
+  - Will Skip ever change the prices on those days? {#skip-price-adjustments/after-a-skip}
+  - After Skip, when does a booking speed or pickup rule start counting? {#skip-price-adjustments}
+  - What happens to a rule's changes already on the price when I skip? {#skip-price-adjustments/changes-already-on}
+  - Why does the calendar show 13 or 14 months? {#the-calendar}
+  - The window says 0 days. Should I still turn the rule on? {#what-the-days-mean/0-days}
+  - What does "Your bookings changed while this was open, so the days were checked again" mean? {#when-something-changes-while-it-is-open}
+  - What does "The days could not be checked. Try again." mean? {#when-the-days-cannot-be-checked}
+  - Why is it still checking my calendar? {#how-long-it-takes}
+  - Does Cancel change anything? {#cancel}
+  - When does the window open, and when not? {#when-it-opens}
+updated: 2026-09-29
+---
+
+<InPlainWords>
+Whenever a rule is about to start acting, a window opens first. It shows a small calendar of the months ahead with the days the rule will change filled in, and a line such as "41 days will be affected by this rule." Click <Ui>Apply price adjustments</Ui> and the rule changes those days from the next pricing run. Click <Ui>Skip price adjustments</Ui> and the rule is on, but those days keep their prices: it acts only on what changes from now on. <Ui>Cancel</Ui> saves nothing.
+</InPlainWords>
+
+## When it opens
+
+| What you do | The window |
+|---|---|
+| Switch a rule <Ui>On</Ui> in the rules list | Opens, headed "Turn on "Busy nights"?" |
+| Click <Ui>Add Rule</Ui> in the rule builder | Opens, headed "Add "Busy nights"?" (a new rule is saved on) |
+| Click <Ui>Save changes</Ui> on a rule that is on | Opens, headed "Save changes to "Busy nights"?", unless only the name changed |
+| Click <Ui>Add this rule</Ui> or <Ui>Make that change</Ui> on a card from <Ui>Get suggestions from my data</Ui> | Opens |
+| Switch a rule <Ui>Off</Ui> | Does not open: switching off is at once, and the rule's changes stay |
+| Save a new name alone, or save changes to a rule that is off | Does not open: neither moves a price. An edited rule that is off shows the window when you switch it on |
+| Accept a rule card in your first review, or the starter rules | Does not open: the property is being set up |
+| <Ui>Save This Rule</Ui> in the <Ui>Rate Simulator</Ui> | Does not open: the rule arrives switched off. Switching it on opens the window |
+
+## The calendar
+
+The calendar starts at your property's today and runs to the last night MAYA prices, 395 nights on, a small block per month. That is 13 or 14 months, the first and last blocks usually partly empty, so every day the count includes can be seen. The first block and each January name their year. Each block has a row per week, Sunday first, as on the <Ui>Calendar</Ui> tab, and one small square per night.
+
+- A filled blue square is a day the rule will change.
+- A dark square is a day it will not.
+- Today has a thin outline.
+- Days before today and after the last priced night are left blank.
+
+Hover a blue square to read the day and how many room types change, such as "Sat 3 Oct 2026: prices change on 2 room types". A screen reader reads the affected days out as runs of dates.
+
+## What the days mean
+
+Under the calendar is one line: "41 days will be affected by this rule.", or "1 day will be affected by this rule." A "?" beside it explains the rest.
+
+A day counts when the rule changes the price of at least one room type that night. The days come from a trial run of the same pricing that runs every few minutes, done twice on your bookings as they are right now: once with the rule as you are about to save it, and once as things stand. The two sets of prices are compared night by night, to the cent. So everything else is already taken into account:
+
+- every other rule, including a stronger rule that already covers the night, a rule waiting after its last change, and the one change a booking speed or pickup rule can make on a night per run
+- prices you typed, comp nights at 0, and nights left unpriced
+- your floors and ceilings: a raise on a night already at its ceiling moves nothing, so that day does not count
+
+For a change to a rule that is on, "as things stand" is the rule as it is saved now. Left alone, it would act on what it matches today too, so a day also counts when the saved rule would change it and the edited one will not.
+
+Nothing is saved while the window is open, and the days are the ones the next pricing run would change if nothing else changes first.
+
+**0 days.** "0 days will be affected by this rule." means no price moves now: the rule is not true anywhere yet, or where it is, something else holds the price. You can still apply or skip. For a booking speed or pickup rule, Skip still means something: it counts bookings from now.
+
+## Apply price adjustments
+
+The rule is saved and on. The days in blue are priced first on the next pricing run, about five minutes away, and the rest of the window follows over the next runs. The prices that result are the ones the calendar showed. The <Ui>Calendar</Ui> tab and the change log show them as they land. In simulation nothing is sent. Live on Cloudbeds or ThinkReservations, the new prices are sent to your property system. On Mews, they change in MAYA only.
+
+After an edit, Apply judges every change the rule already has on the price against the edited rule:
+
+- a standard rule's change stays where the edited rule holds, at the new amount, and comes off where it does not, including on room types taken off the rule and nights the rule no longer covers
+- a booking speed or pickup rule's earlier changes come off (the change log says "the rule was edited, so MAYA started it fresh"), and the edited rule reads its whole window again with no wait, so it can change a night again on the same run
+
+Read [When a price change comes off](/docs/rules/when-a-change-comes-off#a-rule-that-is-changed).
+
+## Skip price adjustments
+
+The rule is saved and on, and the days in blue keep their prices. The rule acts only on what changes from the moment you click:
+
+- **A standard rule** (occupancy or booking window only) is on for the nights it matches now, with no change on the price. It adjusts such a night only once its condition stops holding there and later holds again. A night it did not match when you skipped, and matches later, it adjusts as usual.
+- **A booking speed or pickup rule** counts only the bookings made after you clicked. A raise on booking speed counts the rest of that day after your click and the days after it. A cut counts from the next full day. A pickup count counts the room nights first booked after your click, and one looking for low pickup waits until a whole window has passed. Skipping starts no wait, and a price you type later resets the rule as it resets any rule.
+
+**Changes already on the price.** Switching a rule that has changes on the price back on, or saving an edit to a rule that is on, leaves every one of its changes where it is:
+
+- a standard rule's change stays at its amount. Where the edited rule holds, it carries on as the rule's change and comes off when the rule stops holding. Where it does not hold, the change stays until the rule becomes true on that night, and then moves to the rule's amount.
+- a booking speed or pickup rule's changes stay, are no longer checked for cancellations, and still count as the newest change on the night where the weaker rules count from.
+
+These come off when the night passes, when you type a price on the night, when you delete the rule, or when you save the rule again with <Ui>Apply price adjustments</Ui>.
+
+**After a Skip.** Skip itself never changes a price. The prices on those days move later only because something changed after you skipped: a booking or a cancellation, a price you type, or another rule.
+
+<Example title="Skipping at The Harbour Inn">
+Priya adds "Busy nights": more than 80% full, raise 10%. The window shows "6 days will be affected by this rule." She clicks <Ui>Skip price adjustments</Ui>. Friday, 17 of 20 booked, stays at $150: the rule is on there with no change on the price. On Saturday, 14 of 20 when she skipped, two bookings arrive and it reaches 16 of 20: the rule is true on a night it was not, so Saturday goes to $165 on the next run. If Friday drops to 15 of 20 and later fills again, Friday gets the raise then too.
+</Example>
+
+## Cancel
+
+<Ui>Cancel</Ui>, the Esc key or a click outside the window saves nothing. A rule you were switching on stays <Ui>Off</Ui>, and the rule builder keeps everything you typed, so you can change it and try again.
+
+## When something changes while it is open
+
+When you click <Ui>Apply price adjustments</Ui>, the save first checks whether anything that could move the days changed since they were worked out: a booking or a cancellation, a price typed, a pricing run, another rule, a room type. If something did, the days are worked out again. When they are the same, the rule is saved straight away. When they are not, nothing is saved, the calendar and the count show the new days, and a line reads "Your bookings changed while this was open, so the days were checked again." Choose again.
+
+<Ui>Skip price adjustments</Ui> is saved as it is, since it moves no price.
+
+## When the days cannot be checked
+
+If the check fails or takes too long, the line reads "The days could not be checked. Try again." with a <Ui>Try again</Ui> button. <Ui>Apply price adjustments</Ui> waits until there is a count. <Ui>Skip price adjustments</Ui> and <Ui>Cancel</Ui> still work, because skipping moves no price.
+
+## How long it takes
+
+While the days are worked out, the squares are grey and pulse, the line reads "Checking your calendar…", and the two buttons wait. A rule on occupancy or booking window is usually answered within a second or two. A booking speed or pickup rule takes longer, because every night it could act on is priced: its calendar is asked for in three parts at once, the nearest two months first, and the count appears only when all three are in, usually within a few seconds.
+
+## Who can do this
+
+Revenue Managers, General Managers and Hotel Admins. For a Viewer the window does not open: "Only a Revenue Manager or above can change this." appears under the rule's switch, or under the rule builder. Read [Roles: who can do what](/docs/team/roles).
+
+## Messages you can meet
+
+| Message | Where | What to do |
+|---|---|---|
+| Checking your calendar… | In the window, while the days are worked out | Wait a moment |
+| The days could not be checked. Try again. | In the window | Click <Ui>Try again</Ui>, or <Ui>Skip price adjustments</Ui>, or <Ui>Cancel</Ui> |
+| Your bookings changed while this was open, so the days were checked again. | In the window, after <Ui>Apply price adjustments</Ui> | Look at the new days and choose again |
+| That's a lot of checks at once. Give it a minute and try again. | In the window | Wait a minute and click <Ui>Try again</Ui> |
+| Only a Revenue Manager or above can change this. | Under the switch or the rule builder | Ask a Revenue Manager or above |
+| This property already has 40 active rules, which is the maximum. | Under the switch or the rule builder | Turn a rule off or delete one first. Read [How many rules you can have](/docs/rules/off-delete-or-change#how-many-rules-you-can-have) |
+| This rule changed in another tab. Reload it to edit. | Under the rule builder | Click <Ui>Reload</Ui>, check the rule and save again |
+| This needs a database update first. | In the window, after <Ui>Skip price adjustments</Ui> | [Email us](mailto:info@modern-hospitality-solutions.com?subject=Skip%20needs%20an%20update). <Ui>Apply price adjustments</Ui> still works |
+
+<Related>
+- [Turning a rule off, deleting it, or changing it](/docs/rules/off-delete-or-change)
+- [Change a rule](/docs/recipes/change-a-rule)
+- [When a price change comes off](/docs/rules/when-a-change-comes-off)
+</Related>

@@ -3,8 +3,8 @@ title: How rules run
 summary: The five-minute cycle and the daily pass, the 396-night window, standard rules against booking speed and pickup rules, what price a rule starts from, the wait, what a rule counts after a change, which rule is stronger, and how changes stack.
 section: rules
 order: 90
-readingTime: 19
-keywords: [how often, every five minutes, cycle, midnight, pricing run, 396 nights, 13 months, a year ahead, window, tonight, past nights, standard rule, booking speed rule, pickup rule, then waits, wait, stack, compound, two rules, which rule wins, priority, tie, rounding, round to whole numbers, whole dollars, end in 9, ends in 9, .99, price ending, charm pricing, cents, per room type, base price, base rate 0, closed night, fired on a closed night, rate of 0, no rate, blank rate, rate not loaded, raise did not come off, cancelled but price stayed up, wait is over but did not act, how rules behave animations, fired 395 days out not 397, far-out night, whole days, deluxe but not standard, change a price in the past, mews, nothing sent to mews, holds the night, ranks higher, stronger rule, weaker rule, bigger change, counts from, bookings since, count restarts, full days, up to yesterday, whole window, tiers, five and ten]
+readingTime: 20
+keywords: [skip price adjustments, after a skip, counts from the skip, edited rule, how often, every five minutes, cycle, midnight, pricing run, 396 nights, 13 months, a year ahead, window, tonight, past nights, standard rule, booking speed rule, pickup rule, then waits, wait, stack, compound, two rules, which rule wins, priority, tie, rounding, round to whole numbers, whole dollars, end in 9, ends in 9, .99, price ending, charm pricing, cents, per room type, base price, base rate 0, closed night, fired on a closed night, rate of 0, no rate, blank rate, rate not loaded, raise did not come off, cancelled but price stayed up, wait is over but did not act, how rules behave animations, fired 395 days out not 397, far-out night, whole days, deluxe but not standard, change a price in the past, mews, nothing sent to mews, holds the night, ranks higher, stronger rule, weaker rule, bigger change, counts from, bookings since, count restarts, full days, up to yesterday, whole window, tiers, five and ten]
 questions:
   - How often do rules run? {#the-cycle}
   - Which nights do rules look at? {#the-window}
@@ -27,7 +27,8 @@ questions:
   - Do rules act on tonight, and can they change a price in the past? {#the-window}
   - What do the "How rules behave" animations show? {#two-kinds-of-rule/the-how-rules}
   - How often will my prices change? {#how-often-a-price-changes/your-rules-check}
-updated: 2026-09-27
+  - After I skipped the price adjustments, which bookings does a rule count? {#counting-after-a-change/after-you-skip}
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -43,7 +44,7 @@ A cycle is one run of MAYA for your property. It comes round about every five mi
 3. runs every rule, for every room type, on the nights that need it: every night whose bookings changed since the last cycle, every night a change of yours reaches, and, in the first cycles after midnight at your property, every night in the window, nearest nights first
 4. sends the prices that changed, if your property is live (Cloudbeds and ThinkReservations)
 
-A change you make that can move any night (a rule, a room type setting, a closed period, a "not a fair comparison" flag) runs the rules on every night again from the next cycle, nearest first. A typed price, rooms out of service and your answer on the three-changes banner run them on those nights. A change to a stay already over reaches future prices with the next day's pass.
+A change you make that can move any night (a rule, a room type setting, a closed period, a "not a fair comparison" flag) runs the rules on every night again from the next cycle, nearest first. Switching a rule on or saving one also puts the days its window showed ahead of the rest. A typed price, rooms out of service and your answer on the three-changes banner run them on those nights. A change to a stay already over reaches future prices with the next day's pass.
 
 Waits and lookback windows count whole days at your property, so time passing never changes a price during the day: a night nothing happened to keeps its price until the next day's pass.
 
@@ -132,6 +133,7 @@ Once a rule has changed a night, it counts only the bookings made since the newe
 - **A pickup rule** counts, inside its lookback window, only the room nights (or revenue) booked after the change and still booked. One set to <Ui>Less than</Ui> counts full days only, up to yesterday, so its last change counted the days before its own. It judges again once a whole lookback window of full days, starting with the day of that change, has passed, because a short stretch always looks slow.
 - **When cancellations hit a change** and bookings made since keep its rule true, the change stays, and every rule keeps counting from when it was made. Counting starts again only when a price changes.
 - **A price you type** starts every rule over: each waits its wait from your price, then reads its whole window again.
+- **After you skip.** A rule switched on or saved with <Ui>Skip price adjustments</Ui> counts from the moment you clicked, or from its own newest change still on the night when that is later: a raise the rest of that day and the days after, a cut from the next full day, a pickup count the room nights booked after your click. Skipping starts no wait and moves no other rule's count, since no price changed. An edit applied with <Ui>Apply price adjustments</Ui> starts a booking speed or pickup rule on its whole window again. Read [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on#skip-price-adjustments).
 
 <Example title="Two tiers at The Harbour Inn">
 "Five" raises 10% on 5 or more room nights of pickup in a week. "Ten" raises 20% on 10 or more. Standard starts at $100. On Monday 10 book at once. Both rules are true, and "Ten" changes the price by more, so it raises: $120. "Five" does not add its 10% on the same bookings.
@@ -205,7 +207,7 @@ Everything above happens separately for each room type the rule changes. Waits r
 
 ## Deleted or switched-off rules
 
-Turning a rule off freezes what it has done: its changes stay on the price, cancellations do not take them off, and nothing new happens. Deleting a rule undoes everything it did from the next cycle. Read [Turning a rule off, deleting it, or changing it](/docs/rules/off-delete-or-change).
+Turning a rule off freezes what it has done: its changes stay on the price, cancellations do not take them off, and nothing new happens. An edit saved while it is off changes nothing either, until you switch it on. Deleting a rule undoes everything it did from the next cycle. Read [Turning a rule off, deleting it, or changing it](/docs/rules/off-delete-or-change).
 
 ## Where you see all this
 

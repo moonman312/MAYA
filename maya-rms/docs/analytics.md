@@ -162,7 +162,8 @@ payment, so `import.started` and often `import.completed` land before
 |---|---|---|---|
 | `rule.created` | a pricing rule exists | trigger on `pricing_rules` | `rule_id`, `origin`, `is_active`, `is_pickup_rule`, `action_type`, `action_direction`, `undo_on_cancellation` (the undo box as saved; absent before `99_supabase_migration_undo_on_cancellation_v1.sql`) |
 | `rule.enabled`, `rule.disabled` | switched on or off (off keeps its effects) | same | `rule_id`, `origin` |
-| `rule.edited` | a behavioural edit (version bump) | same | `rule_id`, `origin`, `version` |
+| `rule.edited` | a behavioural edit (version bump), from the rule builder's Save changes or a Tune card. An edit to a rule that is on is one `rule.edited`, never an off-and-on pair: `save_rule` writes it in one transaction | same | `rule_id`, `origin`, `version` |
+| `rule.activation_chosen` | the owner's choice in the activation popup (switching a rule on, Add Rule, Save changes on a rule that is on, or a Tune or Add card from "Get suggestions from my data") | `POST /api/rules`, `PUT /api/rules/[id]`, `POST /api/rules/[id]/toggle`, `POST /api/onboarding/findings/[findingId]` | `rule_id`, `choice` (`apply` or `skip`), `from` (`switch`, `builder_new`, `builder_edit`, `suggestion`), `kind` (`standard` or `event`), `days` (the count the popup showed), `refreshed` (the days were worked out again after something changed) |
 | `rule.undo_ticked`, `rule.undo_unticked` | the undo box ("Undo this change if cancellations mean the rule is no longer true") ticked or unticked on a saved rule; not an edit. A rule saved unticked also writes `rule.undo_unticked` next to its `rule.created`, with `at_create` true | same | `rule_id`, `origin`, `at_create` (only when saved unticked) |
 | `rule.deleted` | deleted (effects reverted); not emitted when the hotel itself is deleted | same | `rule_id`, `origin`, `was_active`, `age_days` |
 | `rule.repeat_alert_answered` | the owner answered a rule that had adjusted the same night 3 times or more, or took an answer back: one event per answer, however many nights it settled, and one per "Let it run again" click however many alerts it covered | `POST /api/rules/alerts/[alertId]`, `POST /api/rules/stops` (the rules table's "Let it run again") | `rule_id`, `choice` (`keep_adjusting`, `stop` or `resume`), `nights`, `all_nights`, `simulation` |
@@ -173,6 +174,11 @@ payment, so `import.started` and often `import.completed` land before
 | `room_type.out_of_service_added` | units taken out for a date range | trigger on `room_type_out_of_service` | `room_type_id`, `units`, `nights`, `starts_in_days` |
 | `room_type.out_of_service_cleared` | put back | same | `room_type_id`, `units`, `cleared_early` |
 | `explain.opened` | "How did we know?" opened | browser | — |
+| `rule.edit_opened` | a rule opened in the rule builder with Edit | browser | — |
+| `rule.preview_opened` | the activation popup opened | browser | `from` (`switch`, `builder_new`, `builder_edit`, `suggestion`), `kind` (`standard` or `event`) |
+| `rule.preview_shown` | its days came back | browser | `from`, `days`, `ms` (how long the owner waited), `nights_checked` (nights the engine ran, both ways) |
+| `rule.preview_failed` | its days could not be worked out | browser | `from` |
+| `rule.preview_cancelled` | Cancel: nothing saved | browser | `from`, `days` |
 | `simulator.used` | first change to any rate simulator input in a page load | browser | — |
 | `dashboard.tab_opened` | a dashboard tab chosen (this is how the change log and simulator are counted) | browser | `tab` |
 | `team.invited` | an invite was sent (or re-sent after revoke) | trigger on `pending_memberships` | `role`, `reinvite` |

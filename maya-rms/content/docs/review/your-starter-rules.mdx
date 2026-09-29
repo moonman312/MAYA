@@ -14,8 +14,8 @@ questions:
   - Do starter rules change prices straight away? {#in-plain-words}
   - Which room types do the starter rules cover? {#which-room-types-which-days}
   - Why did a starter rule fire before one of my own rules? {#how-they-rank-against-your-own-rules}
-  - Can I edit a starter rule? {#turning-one-off-or-deleting-it/not-yet-a}
-updated: 2026-09-28
+  - Can I edit a starter rule? {#turning-one-off-or-deleting-it/good-to-know}
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -125,8 +125,8 @@ You need to be a Revenue Manager or higher for either.
 
 To rebuild one your way, the rule builder's <Ui>Speed</Ui> dropdown, <Ui>Measured over</Ui> and <Ui>Then waits (advanced)</Ui> can set the same condition, window and wait as four of the five. Slow-date trim is the exception. The builder turns a slow level into "at most", so the closest you can build is "at most Slower Than Normal", which also fires on Much Slower and Stalled nights. When everything else is equal, a rule you build ranks below the starter rules you keep, so a rebuilt copy can wait behind one where the original would not.
 
-<Callout kind="not-yet">
-A starter rule cannot be edited, and neither can any rule. To change its number, its wait or its room types, delete it and build your own with the rule builder. Read [The rule builder](/docs/rules/the-rule-builder).
+<Callout kind="good-to-know">
+A starter rule can be edited like any rule: <Ui>Edit</Ui> on its row opens it in the rule builder, to change its number, its wait or its room types. Slow-date trim's "exactly Slower Than Normal" stays as it is unless you pick another speed. Read [Change a rule](/docs/recipes/change-a-rule).
 </Callout>
 
 ## When would each one fire?

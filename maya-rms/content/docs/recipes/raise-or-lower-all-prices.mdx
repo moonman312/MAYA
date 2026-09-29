@@ -16,7 +16,7 @@ questions:
   - Will a rule that raises every night also raise nights where I typed a price? {#using-more-than-one-way/the-rule-works}
   - How do I take an across-the-board raise off again? {#change-the-percentage-or-take-it-off/to-take-it}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -46,7 +46,7 @@ In the first row, change <Ui>Metric</Ui> to <Ui>Booking window (days to stay)</U
 Under <Ui>Rate adjustment</Ui>, choose <Ui>Increase the rate</Ui> (or <Ui>Decrease the rate</Ui>) and type 10 in <Ui>Adjust by percent (%)</Ui>. For a flat amount, leave the percent empty and type it in <Ui>Adjust by fixed amount ($)</Ui> instead.
 </Step>
 <Step title="Pick the room types and add it">
-Under <Ui>Apply to room types</Ui>, leave every room type ticked, or untick any you want left alone. Click <Ui>Add Rule</Ui>. The rule is <Ui>On</Ui> at once.
+Under <Ui>Apply to room types</Ui>, leave every room type ticked, or untick any you want left alone. Click <Ui>Add Rule</Ui>. The window that opens shows every night the change reaches: click <Ui>Apply price adjustments</Ui>, and the rule is <Ui>On</Ui>.
 </Step>
 </Steps>
 
@@ -70,7 +70,7 @@ A raise or cut from a standard rule like this does not change which bookings you
 
 ### Change the percentage, or take it off
 
-- **To change 10% to 15%**, delete the rule and add it again. Read [Change a rule](/docs/recipes/change-a-rule).
+- **To change 10% to 15%**, click <Ui>Edit</Ui> on its row, type 15 and click <Ui>Save changes</Ui>, then <Ui>Apply price adjustments</Ui>: every night it had moved goes to 15% from the next run. Read [Change a rule](/docs/recipes/change-a-rule).
 - **To take it off**, click <Ui>Delete</Ui> on its row, then <Ui>Delete Rule and Undo Its Changes</Ui>. From the next run every night goes back to what it would be without the rule.
 - **Switching it Off does not take it off.** Nights it already moved keep the change and new nights do not get it, so the window ends up mixed. Use Delete to end it.
 

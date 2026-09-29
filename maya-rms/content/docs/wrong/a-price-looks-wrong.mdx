@@ -21,7 +21,7 @@ questions:
   - Why does the same rule appear twice on one night? {#why-does-the-same-rule-appear-twice-on-one-night}
   - Why did my typed price disappear? {#why-did-my-typed-price-disappear/someone-pressed-clear}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -53,7 +53,7 @@ Because booking speed compares a night with what similar past nights had receive
 
 Press <Ui>How did we know?</Ui> under the change. The panel that opens shows the count, the expected count ("we would expect almost none over the same stretch") and which nights were compared. "Almost none" covers anything under 1, none at all included. Read [Booking speed reads oddly](/docs/wrong/booking-speed-reads-oddly) for why small counts read the way they do.
 
-To keep raises off empty nights, add <Ui>Sellable occupancy (%)</Ui> <Ui>Greater than</Ui> as a second condition to your raise rules. A rule needs every condition true at once. You cannot edit a rule. Switch the old one <Ui>Off</Ui> to keep the raises it made, or delete it to undo them on every night, then add a new rule with the extra condition. A starter rule added again ranks with the rules you build, no longer above them.
+To keep raises off empty nights, add <Ui>Sellable occupancy (%)</Ui> <Ui>Greater than</Ui> as a second condition to your raise rules. A rule needs every condition true at once. Click <Ui>Edit</Ui> on the rule, click <Ui>+ Add condition</Ui>, and click <Ui>Save changes</Ui>. The window then shows the nights that change: <Ui>Apply price adjustments</Ui> takes the rule's raises off the nights the new condition rules out, and <Ui>Skip price adjustments</Ui> leaves them and keeps new raises off. An edited starter rule keeps its place above the rules you build.
 
 ## Why did it cut a night that is nearly full?
 
@@ -63,7 +63,7 @@ A wedding or group booked as one reservation makes this more likely: for booking
 
 Fix the night by typing a price on the <Ui>Calendar</Ui> tab. Read [Start here](/docs/wrong/start-here) for the wedding weekend case in full.
 
-Prevent it by giving cut rules an occupancy condition (<Ui>Less than</Ui> 50, say), so a full night is never cut. You cannot edit a rule. Switch the old one <Ui>Off</Ui> to keep the cuts it made, or delete it to undo them on every night, then add a new rule with the extra condition. A starter rule added again is not an exact copy: read [Your starter rules](/docs/review/your-starter-rules).
+Prevent it by giving cut rules an occupancy condition (<Ui>Less than</Ui> 50, say), so a full night is never cut. Click <Ui>Edit</Ui> on the rule, add the condition and click <Ui>Save changes</Ui>. With <Ui>Apply price adjustments</Ui> the rule's cuts come off the nights the new condition rules out; with <Ui>Skip price adjustments</Ui> they stay, and no new cut lands on a full night. Read [Change a rule](/docs/recipes/change-a-rule).
 
 ## We are sold out tonight. Why is the price still changing?
 
@@ -75,9 +75,9 @@ On a sold-out night:
 - **A booking speed cut can still fire.** A full night takes no new bookings, so its recent count can read slow against similar nights that were still selling at the same point (the question above).
 - **Raises already made stay on the price**, as they do on any night.
 
-To keep cuts off full nights, add a <Ui>Sellable occupancy (%)</Ui> row set to <Ui>Less than</Ui> (70, say) to each cut rule. Rules cannot be edited, so switch each cut rule <Ui>Off</Ui> (its cuts stay) or delete it (its cuts are undone), then add a new one with the extra row in the rule builder. For an exact price on a sold-out night, type it on the <Ui>Calendar</Ui> tab.
+To keep cuts off full nights, add a <Ui>Sellable occupancy (%)</Ui> row set to <Ui>Less than</Ui> (70, say) to each cut rule: <Ui>Edit</Ui> on its row, <Ui>+ Add condition</Ui>, <Ui>Save changes</Ui>. For an exact price on a sold-out night, type it on the <Ui>Calendar</Ui> tab.
 
-Re-adding a starter rule is not an exact copy. It no longer ranks above rules you built, and "Slow-date trim" cannot be rebuilt as it was: choosing <Ui>Slower Than Normal</Ui> in the builder also covers <Ui>Much Slower Than Normal</Ui> and <Ui>Stalled</Ui>. To add a row to a starter rule and keep the rest exactly as it is, [email us](mailto:info@modern-hospitality-solutions.com?subject=Add%20a%20condition%20to%20a%20starter%20rule).
+Editing a starter rule keeps the rest of it exactly as it is, its rank above rules you built included, and "Slow-date trim" keeps its exactly <Ui>Slower Than Normal</Ui> unless you pick another speed. Read [Change a rule](/docs/recipes/change-a-rule).
 
 ## Why is a price at $1?
 
