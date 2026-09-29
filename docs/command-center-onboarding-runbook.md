@@ -238,7 +238,7 @@ When the customer clicks the link:
 
 ### Step 7 — Verify from the customer side
 
-Impersonate the customer using their sign-in (or ask them to log in). They should:
+Open the property yourself: on its Command Center page press **Open this property**, which makes it your active property and lands you on `/` as MAYA support. You see exactly what the customer sees, read-only. To change anything for them (a rule, a price, going live), press **GOD MODE**, enter the code from your authenticator app, and make the change inside the window; it is recorded and shows in their change log as "Changed by MAYA support". Never sign in as the customer. Then ask them to log in themselves. They should:
 
 - Land on `/` and see the dashboard populated for their hotel.
 - Only see their one hotel in property-select (no bleed to other tenants).
