@@ -4,7 +4,7 @@ summary: Why every day is amber or a busy night is red, why the calendar and the
 section: wrong
 order: 80
 readingTime: 9
-keywords: [amber, orange, every day amber, red, busy night red, green, colour, color, colour did not change, revenue per room, revpar, dollar sign, $, euro, €, pound, £, currency, wrong currency, bold line, change log dollar, ADR dash, ADR blank, no ADR, revenue on the books, revenue, today, UTC, weekday, no weekday headers, past months zeros, zeros, prices checked, so many entries, show all cycles, empty log, change log empty, nothing in the log, older change disappeared, 10 runs, 40 changes, only some changes, missing how did we know, how did we know on occupancy change, booking speed reading on a typed price, times wrong, time zone, browser time, no recent activity, no requests recorded yet, banner out of date, stale banner, billing banner, ongoing sending problem, switching property, property switch, reload, couldn't load your price history]
+keywords: [amber, orange, every day amber, red, busy night red, green, colour, color, colour did not change, revenue per room, revpar, dollar sign, $, euro, €, pound, £, currency, wrong currency, bold line, change log dollar, ADR dash, ADR blank, no ADR, revenue on the books, revenue, today, UTC, weekday, no weekday headers, past months zeros, zeros, prices checked, so many entries, show all cycles, empty log, change log empty, nothing in the log, older change disappeared, 10 runs, 40 changes, only some changes, missing how did we know, how did we know on occupancy change, booking speed reading on a typed price, times wrong, time zone, browser time, no recent activity, no requests recorded yet, banner out of date, stale banner, billing banner, ongoing sending problem, switching property, property switch, reload, couldn't load your price history, not tracked for this system]
 questions:
   - Why is every day amber? {#why-is-every-day-amber}
   - Why is a busy night red? {#why-is-a-busy-night-red}
@@ -21,7 +21,7 @@ questions:
   - Why is "How did we know?" missing on some changes? {#why-is-how-did-we-know-missing-on-some-changes}
   - Why does "How did we know?" show under a change a booking speed rule did not make? {#why-is-how-did-we-know-missing-on-some-changes}
   - Whose time zone are the log times in? {#whose-time-zone-are-the-log-times-in}
-  - Why does the PMS tab say No recent activity on ThinkReservations or Mews? {#why-does-the-pms-tab-say-no-recent-activity-on-thinkreservations-or-mews}
+  - Why does the PMS tab say Not tracked for this system on ThinkReservations or Mews? {#why-does-the-pms-tab-say-not-tracked-for-this-system-on-thinkreservations-or-mews}
   - The alert banner is out of date {#the-alert-banner-is-out-of-date}
   - Switching property did nothing {#switching-property-did-nothing}
 pms: [cloudbeds, thinkreservations, mews]
@@ -114,9 +114,9 @@ The button is missing when that run took no booking speed reading for the night.
 
 Your browser's. "Pricing run · Fri, Sep 18, 2026, 3:05 PM PDT" is the time on your computer's clock, with its zone abbreviation. Hover the time for the exact moment, to the second, on the same clock. <Ui>Last sync</Ui> and the request times on the <Ui>PMS</Ui> tab use your clock too. Pricing itself works in your property's own time zone, and the "Updated 3:05:12 PM · live" time on the calendar is also your browser's clock.
 
-## Why does the PMS tab say "No recent activity" on ThinkReservations or Mews?
+## Why does the PMS tab say "Not tracked for this system" on ThinkReservations or Mews?
 
-The <Ui>Health (last 24 hours)</Ui> card and the <Ui>Recent requests</Ui> table are filled from a request log that only Cloudbeds writes to today. On a ThinkReservations or Mews property the card reads "No recent activity" and the table reads "No requests recorded yet" however healthy the connection is. Use <Ui>Connection</Ui> and <Ui>Last sync</Ui> on those properties instead.
+The <Ui>Health (last 24 hours)</Ui> card and the <Ui>Recent requests</Ui> table are filled from a log of MAYA's requests, and MAYA keeps that log for Cloudbeds only. On a ThinkReservations or Mews property both read "Not tracked for this system", however healthy the connection is. Use <Ui>Connection</Ui> and <Ui>Last sync</Ui> on those properties instead.
 
 ## The alert banner is out of date
 

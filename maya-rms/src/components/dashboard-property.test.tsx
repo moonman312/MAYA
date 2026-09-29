@@ -138,3 +138,36 @@ describe("a property switch that fails", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });
+
+describe("the PMS tab's Health card and request list", () => {
+  it.each([
+    { pms: "mews", name: "Mews" },
+    { pms: "think", name: "Think Reservations" },
+  ])("say $name requests are not tracked, rather than showing an empty log", async ({ pms, name }) => {
+    routes["/api/pms/activity"] = () =>
+      json(
+        activity({
+          connection: { pms_type: pms, status: "connected", last_sync_at: null, last_tested_at: null },
+          pms: { authKind: "static_tokens", displayName: name, canManage: true },
+          requestsTracked: false,
+          health: { state: "unknown", successRate: null, total: 0, failures: 0 },
+        }),
+      );
+    window.history.replaceState(null, "", "/?tab=pms");
+    render(<Dashboard initialSearch={window.location.search} />);
+    await screen.findByText(`Recent requests to ${name}`);
+    expect(screen.getAllByText("Not tracked for this system")).toHaveLength(2);
+    expect(screen.queryByText("No recent activity")).toBeNull();
+    expect(screen.queryByText(/No requests recorded yet/)).toBeNull();
+  });
+
+  it("keep Cloudbeds' health and log as they are", async () => {
+    routes["/api/pms/activity"] = () => json(activity({ requestsTracked: true, log: [] }));
+    window.history.replaceState(null, "", "/?tab=pms");
+    render(<Dashboard initialSearch={window.location.search} />);
+    await screen.findByText("Recent requests to Cloudbeds");
+    expect(screen.getByText("Healthy")).toBeTruthy();
+    expect(screen.getByText(/No requests recorded yet/)).toBeTruthy();
+    expect(screen.queryByText("Not tracked for this system")).toBeNull();
+  });
+});

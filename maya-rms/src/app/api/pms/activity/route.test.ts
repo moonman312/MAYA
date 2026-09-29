@@ -64,3 +64,16 @@ describe("GET /api/pms/activity", () => {
     expect(body.historyRemoved).toBe(false);
   });
 });
+
+describe("whether the request log covers the system", () => {
+  it.each([
+    { pms: "cloudbeds", tracked: true },
+    { pms: "mews", tracked: false },
+    { pms: "think", tracked: false },
+  ])("says $pms requests are tracked: $tracked", async ({ pms, tracked }) => {
+    const conn = { hotel_id: "hotel-1", pms_type: pms, status: "connected", last_sync_at: null, last_tested_at: null };
+    world({ connections: [conn], claimed: false, purged: false });
+    const body = await (await GET()).json();
+    expect(body.requestsTracked).toBe(tracked);
+  });
+});

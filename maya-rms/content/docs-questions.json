@@ -494,7 +494,7 @@
 {"q":"I answered \"Stop\" but the price did not go back","page":"wrong/a-price-looks-wrong","bankSection":13},
 {"q":"Why is the change log empty?","page":"wrong/calendar-and-log-questions","alt":["watch/the-change-log"],"bankSection":13},
 {"q":"Why is \"Last sync\" old?","page":"wrong/connection-lost","bankSection":13},
-{"q":"Why does the PMS tab say \"No recent activity\" on Think or Mews?","page":"wrong/calendar-and-log-questions","anchor":"why-does-the-pms-tab-say-no-recent-activity-on-thinkreservations-or-mews","bankSection":13},
+{"q":"Why does the PMS tab say \"Not tracked for this system\" on Think or Mews?","page":"wrong/calendar-and-log-questions","anchor":"why-does-the-pms-tab-say-not-tracked-for-this-system-on-thinkreservations-or-mews","bankSection":13},
 {"q":"Why does Health say \"Having trouble\"?","page":"wrong/connection-lost","bankSection":13},
 {"q":"The price in Cloudbeds does not match MAYA","page":"wrong/prices-not-reaching-your-pms","anchor":"maya-shows-a-new-price-but-cloudbeds-still-has-the-old-one/it-has-not","bankSection":13},
 {"q":"MAYA shows a new price but Cloudbeds still has the old one","page":"wrong/prices-not-reaching-your-pms","bankSection":13},

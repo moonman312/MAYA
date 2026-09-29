@@ -50,7 +50,7 @@ Cloudbeds tells MAYA when you uninstall or disable the app, usually within secon
 ThinkReservations does not tell MAYA when access is revoked. MAYA finds out when its calls fail, and shows the banner once the connection's status changes. Until then the <Ui>PMS</Ui> tab may still read "Connected" while <Ui>Last sync</Ui> falls behind. A refused rate write does not disconnect ThinkReservations; it appears in the change log as a permission problem instead.
 </PmsTab>
 <PmsTab pms="mews">
-Mews connects with keys rather than a login, and we enter them for you. MAYA does not mark a Mews connection as lost when its reads fail, so the <Ui>PMS</Ui> tab can keep reading "Connected" with no banner. <Ui>Health (last 24 hours)</Ui> always reads "No recent activity" on Mews, so <Ui>Last sync</Ui> is the one sign. If <Ui>Last sync</Ui> on the <Ui>PMS</Ui> tab is more than an hour old, [email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20keys).
+Mews connects with keys rather than a login, and we enter them for you. MAYA does not mark a Mews connection as lost when its reads fail, so the <Ui>PMS</Ui> tab can keep reading "Connected" with no banner. <Ui>Health (last 24 hours)</Ui> reads "Not tracked for this system" on Mews, so <Ui>Last sync</Ui> is the one sign. If <Ui>Last sync</Ui> on the <Ui>PMS</Ui> tab is more than an hour old, [email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20keys).
 
 The status changes to Disconnected only when we remove the keys. Then a General Manager or Hotel Admin sees "Mews needs its keys re-entered", with no button. Email us and we walk through it with you. Read [When the keys stop working](/docs/connect/mews#when-the-keys-stop-working).
 </PmsTab>
@@ -105,7 +105,7 @@ The banner appears for Degraded, Error and Disconnected. A Mews connection never
 
 <Ui>Health (last 24 hours)</Ui> counts MAYA's requests to your system over the last day: "Healthy" when 98% or more succeeded, "Degraded" from 80%, "Having trouble" below that, with the figure beside it, for example "76% of 412 requests OK". "Having trouble" usually means your system was down or refusing for part of the day. If the connection card reads Connected and <Ui>Last sync</Ui> is recent, the trouble has passed. If not, reconnect.
 
-"No recent activity" means no requests were recorded. For ThinkReservations and Mews it always reads that, because only Cloudbeds requests are recorded on this tab. Read [Calendar and change log questions](/docs/wrong/calendar-and-log-questions).
+"No recent activity" means no requests were recorded in the last 24 hours. On ThinkReservations and Mews the card reads "Not tracked for this system" instead, because MAYA keeps a log of its requests to Cloudbeds only. Read [Calendar and change log questions](/docs/wrong/calendar-and-log-questions).
 
 ## The log says "Reconnect on the PMS tab" but I see no banner
 

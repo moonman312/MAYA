@@ -19,7 +19,7 @@ questions:
   - Can support set up a group of ThinkReservations properties? {#one-property-per-login}
   - How would I know if ThinkReservations lost its connection? {#disconnecting-and-reconnecting/thinkreservations-does-not}
   - Which ThinkReservations login should I reconnect with? {#disconnecting-and-reconnecting/thinkreservations-does-not}
-  - Why does the PMS tab say No recent activity for ThinkReservations? {#the-pms-tab-for-a-thinkreservations-property/the-connection-card}
+  - Why does the PMS tab say Not tracked for this system for ThinkReservations? {#the-pms-tab-for-a-thinkreservations-property/the-connection-card}
   - Does MAYA need a code to connect ThinkReservations? {#messages-you-can-meet-on-the-way-in/think-reservations-needs}
   - What changes in ThinkReservations once I go live? {#which-rate-type-maya-sends-prices-to/thinkreservations-marks-each}
   - What stays mine in ThinkReservations after I go live? {#which-rate-type-maya-sends-prices-to/derived-rate-types}
@@ -170,10 +170,10 @@ MAYA never sees your ThinkReservations password. ThinkReservations gives MAYA it
 
 ## The PMS tab for a ThinkReservations property
 
-The <Ui>Connection</Ui> card and <Ui>Last sync</Ui> are right for ThinkReservations. The <Ui>Recent requests to Think Reservations</Ui> table stays empty today, and the <Ui>Health (last 24 hours)</Ui> card reads <Ui>No recent activity</Ui>, because only calls to Cloudbeds are written to that log. It does not mean syncing has stopped. <Ui>Last sync</Ui> is the number to look at. Read [the PMS tab](/docs/watch/the-pms-tab).
+The <Ui>Connection</Ui> card and <Ui>Last sync</Ui> are right for ThinkReservations. The <Ui>Recent requests to Think Reservations</Ui> list and the <Ui>Health (last 24 hours)</Ui> card both read "Not tracked for this system", because MAYA keeps a log of its requests to Cloudbeds only. It does not mean syncing has stopped. <Ui>Last sync</Ui> is the number to look at. Read [the PMS tab](/docs/watch/the-pms-tab).
 
 <Callout kind="not-yet" title="Not yet">
-There is no Marketplace install for ThinkReservations, so no free trial without a code. ThinkReservations does not tell MAYA about a disconnect (MAYA finds the refusal on its next call). A login covering several hotels cannot connect on its own (we set them up by hand). The request log on the PMS tab does not fill for ThinkReservations.
+There is no Marketplace install for ThinkReservations, so no free trial without a code. ThinkReservations does not tell MAYA about a disconnect (MAYA finds the refusal on its next call). A login covering several hotels cannot connect on its own (we set them up by hand). The PMS tab keeps no request log for ThinkReservations.
 </Callout>
 
 <Example title="The Harbour Inn goes live on ThinkReservations">

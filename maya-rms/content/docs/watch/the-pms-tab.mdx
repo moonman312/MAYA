@@ -15,6 +15,7 @@ questions:
   - 'What does "Last sync" mean on the PMS tab?' {#last-sync}
   - 'Which time zone is "Last sync" in?' {#last-sync}
   - 'Why does the PMS tab say "No recent activity"?' {#recent-requests}
+  - 'Why does the PMS tab say "Not tracked for this system"?' {#recent-requests}
   - 'Does the PMS tab show whether my prices reached my property system?' {#how-fresh-the-tab-is}
   - 'Where is the Reconnect button?' {#reconnecting-from-here/not-broken-cloudbeds}
   - 'How do I check that MAYA is still connected to my property system?' {#connection/a-single-word}
@@ -62,6 +63,7 @@ How the requests MAYA made to your system in the last 24 hours went. It counts e
 | Degraded | 80% to under 98% succeeded. |
 | Having trouble | Under 80% succeeded. |
 | No recent activity | No requests in the last 24 hours. |
+| Not tracked for this system | ThinkReservations and Mews. MAYA keeps no log of its requests to them, so there is nothing to count. |
 
 Beside the badge: "97% of 412 requests OK".
 
@@ -80,10 +82,10 @@ Under the cards is a technical list of MAYA's last 50 requests to Cloudbeds, hea
 The table fills with every request MAYA makes to Cloudbeds, and the Health card is built from the same list.
 </PmsTab>
 <PmsTab pms="thinkreservations">
-Requests to ThinkReservations are not written to this table today. The table stays on "No requests recorded yet" and the Health card reads "No recent activity" even when the connection is working. Read the Connection card and Last sync instead.
+MAYA keeps no log of its requests to ThinkReservations, so this list and the Health card both read "Not tracked for this system". Read the Connection card and Last sync instead.
 </PmsTab>
 <PmsTab pms="mews">
-Requests to Mews are not written to this table today. The table stays on "No requests recorded yet" and the Health card reads "No recent activity" even when the connection is working. Read the Connection card and Last sync instead.
+MAYA keeps no log of its requests to Mews, so this list and the Health card both read "Not tracked for this system". Read the Connection card and Last sync instead.
 </PmsTab>
 </PmsTabs>
 

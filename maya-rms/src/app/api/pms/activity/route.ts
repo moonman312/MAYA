@@ -18,6 +18,13 @@ import { NextResponse } from "next/server";
 
 const LOG_LIMIT = 50;
 const HEALTH_WINDOW_MS = 24 * 60 * 60 * 1000;
+/**
+ * The systems whose requests land in pms_request_log. Only the Cloudbeds
+ * client has a request logger (supabase/functions/_shared/cloudbeds/request-log.ts),
+ * so for anything else an empty log says nothing about the connection and
+ * the tab says it isn't tracked rather than "No recent activity".
+ */
+const REQUEST_LOGGED = new Set(["cloudbeds"]);
 
 export async function GET() {
   const ctx = await requireSupabaseHotel(await cookies());
@@ -106,6 +113,7 @@ export async function GET() {
       ? { authKind: registry.authKind, displayName: registry.displayName, canManage }
       : null,
     historyRemoved,
+    requestsTracked: connection ? REQUEST_LOGGED.has(connection.pms_type) : false,
     health: classifyPmsHealth(totalRes.count ?? 0, failureRes.count ?? 0),
     log: logRes.data ?? [],
   });

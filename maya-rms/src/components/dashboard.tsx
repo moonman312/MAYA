@@ -186,6 +186,8 @@ type PmsActivity = {
   pms: { authKind: string; displayName: string; canManage: boolean } | null;
   /** The connection is gone because never-paid data was removed; reconnecting reads the history again. */
   historyRemoved?: boolean;
+  /** False for a system whose requests aren't logged (Mews, Think): its health and log are always empty. */
+  requestsTracked?: boolean;
   health: {
     state: "healthy" | "degraded" | "down" | "unknown";
     successRate: number | null;
@@ -2151,7 +2153,11 @@ export function Dashboard({
                     <div className="text-xs text-slate-500">
                       Health (last 24 hours)
                     </div>
-                    <PmsHealthBadge health={pmsActivity.health} />
+                    {pmsActivity.requestsTracked === false ? (
+                      <div className="text-sm text-slate-400">Not tracked for this system</div>
+                    ) : (
+                      <PmsHealthBadge health={pmsActivity.health} />
+                    )}
                   </div>
                   <div className="space-y-1.5 rounded border border-slate-800 bg-slate-950 p-4">
                     <div className="text-xs text-slate-500">Last sync</div>
@@ -2167,7 +2173,9 @@ export function Dashboard({
                   <div className="border-b border-slate-800 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-400">
                     Recent requests to {formatPmsName(pmsActivity.connection.pms_type)}
                   </div>
-                  {pmsActivity.log.length === 0 ? (
+                  {pmsActivity.requestsTracked === false ? (
+                    <p className="px-4 py-3 text-sm text-slate-500">Not tracked for this system</p>
+                  ) : pmsActivity.log.length === 0 ? (
                     <p className="px-4 py-3 text-sm text-slate-500">
                       No requests recorded yet — the log fills as syncs run.
                     </p>
