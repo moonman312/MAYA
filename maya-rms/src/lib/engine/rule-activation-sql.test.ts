@@ -1,10 +1,12 @@
 /**
  * 99_supabase_migration_rule_activation_v1.sql run for real in PGlite, twice,
  * on a production-shaped base (every migration before it, the pricing
- * cadence included): the Skip columns, and save_rule, which writes a rule,
- * whether it is on, the owner's Apply or Skip and the Skip's marks in one
- * transaction, checked against the version the popup was worked out on and
- * against who is asking, and marks the nights to price first.
+ * cadence included): the Skip columns, rule_skip_hold, and save_rule, which
+ * writes a rule, whether it is on, the owner's Apply or Skip and the Skip's
+ * holds (marks on a standard rule's rows, rule_skip_hold rows for a booking
+ * speed or pickup rule) in one transaction, checked against the version the
+ * popup was worked out on and against who is asking, and marks the nights to
+ * price first.
  *
  * Only runs with MAYA_PGLITE_DIR set (see large-property-sql.test.ts):
  *
@@ -51,6 +53,8 @@ describe("the migration file", () => {
       "add column if not exists skip_at timestamptz",
       "add column if not exists version_ranks jsonb",
       "add column if not exists skip_state text",
+      "skip_state in ('held', 'kept', 'carried')",
+      "create table if not exists public.rule_skip_hold",
       "create or replace function public.save_rule(",
       "public.can_manage_hotel(p_hotel_id)",
       "rule_changed",
@@ -87,8 +91,9 @@ describe.skipIf(!PGLITE_DIR)("the rule activation migration in PGlite", () => {
     at?: string;
     touched?: string[];
     marks?: { d: string; rt: string; w: string }[];
+    holdNights?: string[];
   }) =>
-    q(`select public.save_rule($1, $2, $3, $4, $5::jsonb, $6, $7::timestamptz, $8::date[], $9::jsonb) as r`, [
+    q(`select public.save_rule($1, $2, $3, $4, $5::jsonb, $6, $7::timestamptz, $8::date[], $9::jsonb, $10::date[]) as r`, [
       H,
       args.rule ?? RULE,
       args.isNew ?? false,
@@ -98,7 +103,16 @@ describe.skipIf(!PGLITE_DIR)("the rule activation migration in PGlite", () => {
       args.at ?? "2026-10-01T14:10:00Z",
       args.touched ?? [],
       JSON.stringify(args.marks ?? []),
+      args.holdNights ?? [],
     ]).then((rows) => rows[0].r as Record<string, unknown>);
+  /** A rule's holds in rule_skip_hold, read as the engine reads them. */
+  const holds = (id: string) =>
+    as(null, () =>
+      q(
+        `select stay_date::text as d, room_type_id as rt, skip_at, was_true from public.rule_skip_hold where rule_id = $1 order by stay_date, room_type_id`,
+        [id],
+      ),
+    );
   const rule = async (id = RULE) => (await q(`select * from public.pricing_rules where id = $1`, [id]))[0];
   /** The rule's product events since the test seeded it. */
   const seeded = new Map<string, number>();
@@ -167,7 +181,7 @@ describe.skipIf(!PGLITE_DIR)("the rule activation migration in PGlite", () => {
     await db?.close();
   });
 
-  it("adds the Skip columns, and a ladder row takes only held or kept", async () => {
+  it("adds the Skip columns and rule_skip_hold, and a ladder row takes only held, kept or carried", async () => {
     const cols = await q(
       `select table_name as t, column_name as c from information_schema.columns
         where (table_name = 'pricing_rules' and column_name in ('skip_at', 'version_ranks'))
@@ -180,6 +194,19 @@ describe.skipIf(!PGLITE_DIR)("the rule activation migration in PGlite", () => {
       { t: "pricing_rules", c: "version_ranks" },
     ]);
     await expect(db.exec(`update public.ladder_rule_state set skip_state = 'maybe'`)).rejects.toThrow(/skip_state_chk/);
+    const holdCols = await q(
+      `select column_name as c from information_schema.columns where table_name = 'rule_skip_hold' order by ordinal_position`,
+    );
+    expect(holdCols.map((x) => x.c)).toEqual(["rule_id", "stay_date", "room_type_id", "skip_at", "was_true"]);
+    // Only the engine and save_rule touch it: not a signed-in session, nor anyone signed out.
+    for (const role of ["authenticated", "anon"]) {
+      await db.exec(`set role ${role}`);
+      try {
+        await expect(db.query(`select * from public.rule_skip_hold`)).rejects.toThrow(/permission denied/);
+      } finally {
+        await db.exec(`reset role`);
+      }
+    }
   });
 
   it("refuses a viewer, and anyone signed out, before writing anything", async () => {
@@ -197,12 +224,11 @@ describe.skipIf(!PGLITE_DIR)("the rule activation migration in PGlite", () => {
         at,
         touched: [night(3), night(8)],
         marks: [
-          { d: night(3), rt: RT1, w: "version" },
+          { d: night(3), rt: RT1, w: "carried" },
           { d: night(4), rt: RT1, w: "kept" },
-          { d: night(5), rt: RT1, w: "off" },
-          { d: night(6), rt: RT1, w: "restamp" },
           { d: night(8), rt: RT2, w: "held" },
         ],
+        holdNights: [night(3), night(4), night(8)],
       }),
     );
     expect(result).toMatchObject({ id: RULE, version: 1, is_active: true });
@@ -215,12 +241,14 @@ describe.skipIf(!PGLITE_DIR)("the rule activation migration in PGlite", () => {
       [RULE],
     );
     expect(rows).toEqual([
-      { d: night(3), rt: RT1, is_active: true, v: 1, a: 15, skip_state: null, stamped: false },
+      { d: night(3), rt: RT1, is_active: true, v: 1, a: 15, skip_state: "carried", stamped: true },
       { d: night(4), rt: RT1, is_active: true, v: 1, a: 15, skip_state: "kept", stamped: true },
-      { d: night(5), rt: RT1, is_active: false, v: 1, a: 15, skip_state: null, stamped: false },
+      { d: night(5), rt: RT1, is_active: true, v: 1, a: 15, skip_state: null, stamped: false },
       { d: night(6), rt: RT1, is_active: true, v: 1, a: 15, skip_state: null, stamped: false },
       { d: night(8), rt: RT2, is_active: true, v: 1, a: 15, skip_state: "held", stamped: true },
     ]);
+    // A standard rule's holds are its marks: no rule_skip_hold rows (it has no booking speed or pickup changes on).
+    expect(await holds(RULE)).toEqual([]);
     const dirty = await as(null, () =>
       q(`select stay_date::text as d, reasons from public.pricing_dirty_nights where hotel_id = $1 order by stay_date`, [H]),
     );
@@ -299,7 +327,7 @@ describe.skipIf(!PGLITE_DIR)("the rule activation migration in PGlite", () => {
     expect(await rule(NEW_RULE)).toMatchObject({ is_active: false, name: "Busy nights 2" });
   });
 
-  it("an edit keeps how each earlier version with changes still on the price ranked, and drops the rest", async () => {
+  it("an edit keeps how each earlier version with changes still on the price ranked, and drops the rest; a Skip holds its days", async () => {
     // Surging, on, with two raises of version 1 on the price.
     await as(null, async () => {
       await db.exec(`
@@ -307,6 +335,8 @@ describe.skipIf(!PGLITE_DIR)("the rule activation migration in PGlite", () => {
           values ('${SPEED_RULE}', '${H}', 'Surging', 130, 'percent', 'increase', 25, false, true);
         insert into public.rule_condition (rule_id, booking_speed_operator, booking_speed_level, booking_speed_window_days, booking_speed_cooldown_days)
           values ('${SPEED_RULE}', 'at_least', 'surging', 1, 1);
+        insert into public.rule_signal_room_type (rule_id, room_type_id) values ('${SPEED_RULE}', '${RT1}'), ('${SPEED_RULE}', '${RT2}');
+        insert into public.rule_affected_room_type (rule_id, room_type_id) values ('${SPEED_RULE}', '${RT2}');
         insert into public.pickup_event (hotel_id, rule_id, rule_version, stay_date, affected_room_type_id, baseline_start_ts, baseline_end_ts,
             signal_booked_units_start, signal_booked_units_end, signal_booked_revenue_start, signal_booked_revenue_end, applied_at,
             action_kind, action_direction, action_value, fire_seq, signal_set_key)
@@ -318,11 +348,14 @@ describe.skipIf(!PGLITE_DIR)("the rule activation migration in PGlite", () => {
     const ranks = async () => (await rule(SPEED_RULE)).version_ranks;
     const surging = { booking_speed_operator: "at_least", booking_speed_level: "surging", pickup_operator: null, pickup_threshold: null, pickup_metric: null, occupancy_operator: null, dta_operator: null };
     // Lowered to +10% at least Faster, with Skip: version 1's raises stay, ranked as they were made.
+    const at = "2026-10-01T14:10:00Z";
     await as(OWNER, () =>
       save({
         rule: SPEED_RULE,
         expected: 1,
         activation: "skip",
+        at,
+        holdNights: [night(2), night(9)],
         fields: {
           name: "Surging",
           action_type: "percent",
@@ -336,16 +369,32 @@ describe.skipIf(!PGLITE_DIR)("the rule activation migration in PGlite", () => {
       }),
     );
     expect(await ranks()).toEqual({ "1": { priority: 130, action_type: "percent", action_direction: "increase", action_value: 25, condition: surging } });
+    // Held on each day shown, on every room type it changes and the one its raise is on, not judged yet.
+    const stamp = new Date(at).toISOString();
+    const held = (list: Record<string, unknown>[]) => list.map((h) => [h.d, h.rt, new Date(String(h.skip_at)).toISOString() === stamp, h.was_true]);
+    expect(held(await holds(SPEED_RULE))).toEqual([
+      [night(2), RT1, true, null],
+      [night(2), RT2, true, null],
+      [night(9), RT2, true, null],
+    ]);
     // A new name moves no version and keeps them.
     await as(OWNER, () => save({ rule: SPEED_RULE, expected: 2, activation: "keep", fields: { name: "Surging nights" } }));
     expect(await ranks()).toEqual({ "1": { priority: 130, action_type: "percent", action_direction: "increase", action_value: 25, condition: surging } });
-    // Another edit: version 2 has nothing on the price, so only version 1 is kept.
-    await as(OWNER, () => save({ rule: SPEED_RULE, expected: 2, activation: "skip", fields: { name: "Surging nights", action_value: 12, version: 3 } }));
+    expect(await holds(SPEED_RULE)).toHaveLength(3);
+    // Another edit: version 2 has nothing on the price, so only version 1 is kept. Its Skip replaces the holds.
+    await as(OWNER, () =>
+      save({ rule: SPEED_RULE, expected: 2, activation: "skip", holdNights: [night(3)], fields: { name: "Surging nights", action_value: 12, version: 3 } }),
+    );
     expect(await ranks()).toEqual({ "1": { priority: 130, action_type: "percent", action_direction: "increase", action_value: 25, condition: surging } });
-    // Once version 1's raises are off the price, the next edit drops it.
+    expect((await holds(SPEED_RULE)).map((h) => [h.d, h.rt])).toEqual([
+      [night(3), RT1],
+      [night(3), RT2],
+    ]);
+    // Once version 1's raises are off the price, the next edit drops it. Apply ends the holds.
     await as(null, () => q(`update public.pickup_event set retired_at = now(), retired_reason = 'night_passed' where rule_id = $1`, [SPEED_RULE]));
     await as(OWNER, () => save({ rule: SPEED_RULE, expected: 3, activation: "apply", fields: { name: "Surging nights", action_value: 14, version: 4 } }));
     expect(await ranks()).toBeNull();
+    expect(await holds(SPEED_RULE)).toEqual([]);
     // A standard rule's edit never writes one.
     expect((await rule()).version_ranks).toBeNull();
     // Off again, so the cap below counts as before.
