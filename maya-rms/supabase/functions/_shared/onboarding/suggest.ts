@@ -217,7 +217,10 @@ export type GuardrailSuggestion = {
 
 // Schema defaults meaning "never set": floor 1.00, ceiling 99999.99.
 const FLOOR_UNSET_MAX = 1.0;
-const CEILING_UNSET_MIN = 99_999.99;
+const CEILING_DEFAULT = 99_999.99;
+// Only the exact default is "never set". A yen, won or rupiah ceiling of
+// 150,000 is the owner's number and must never be replaced.
+const ceilingUnset = (ceiling: number): boolean => Math.abs(ceiling - CEILING_DEFAULT) < 0.005;
 
 /* ── Data-derived guardrails ─────────────────────────────────── */
 
@@ -309,7 +312,7 @@ export function computeGuardrailSuggestions(
     // the ceiling target ahead of time, same discipline
     // computeInitialGuardrails already applies.
     let ceiling: { value: number; rationale: string } | null = null;
-    if (rt.ceiling_price >= CEILING_UNSET_MIN) {
+    if (ceilingUnset(rt.ceiling_price)) {
       const trustedP99 = rt.row_count >= MIN_ROWS_TO_TRUST_P99 ? rt.observed_p99_rate : null;
       const fromData = dataCeilingFor(rt);
       if (strategy.ceiling && strategy.ceiling > (trustedP99 ?? 0)) {
@@ -354,7 +357,7 @@ export function computeGuardrailSuggestions(
       // single fixed price, which passes the DB check but is its own kind
       // of wrong.
       const effectiveCeiling =
-        ceiling?.value ?? (rt.ceiling_price < CEILING_UNSET_MIN ? rt.ceiling_price : rt.observed_p99_rate);
+        ceiling?.value ?? (!ceilingUnset(rt.ceiling_price) ? rt.ceiling_price : rt.observed_p99_rate);
       if (effectiveCeiling == null || floor.value < effectiveCeiling) {
         out.push({
           suggestion_type: "set_guardrail",
@@ -421,7 +424,7 @@ export function computeInitialGuardrails(
     // rather than propose a patch that can never land: the room type keeps
     // no cap, but at least doesn't waste a doomed write pretending it tried.
     let newCeiling: number | null = null;
-    const dataCeiling = rt.ceiling_price >= CEILING_UNSET_MIN ? dataCeilingFor(rt) : null;
+    const dataCeiling = ceilingUnset(rt.ceiling_price) ? dataCeilingFor(rt) : null;
     if (dataCeiling != null && dataCeiling > rt.floor_price) {
       newCeiling = dataCeiling;
       out.push({ room_type_id: rt.room_type_id, field: "ceiling_price", value: newCeiling });
@@ -430,7 +433,7 @@ export function computeInitialGuardrails(
     const floor = rt.floor_price <= FLOOR_UNSET_MAX ? dataFloorFor(rt) : null;
     if (floor != null) {
       const effectiveCeiling =
-        newCeiling ?? (rt.ceiling_price < CEILING_UNSET_MIN ? rt.ceiling_price : null);
+        newCeiling ?? (!ceilingUnset(rt.ceiling_price) ? rt.ceiling_price : null);
       if (effectiveCeiling === null || floor < effectiveCeiling) {
         out.push({ room_type_id: rt.room_type_id, field: "floor_price", value: floor });
       }

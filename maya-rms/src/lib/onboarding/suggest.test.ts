@@ -290,8 +290,8 @@ describe("computeInitialGuardrails", () => {
   });
 
   it("treats only the exact default ceiling as unset, not any ceiling of 99,000 or more", () => {
-    // A yen or won property sets ceilings in this range on purpose.
-    for (const ceiling_price of [99_000, 99_500, 99_999.98]) {
+    // A yen or won property sets ceilings in this range on purpose, and above it.
+    for (const ceiling_price of [99_000, 99_500, 99_999.98, 100_000, 150_000, 2_500_000]) {
       const out = computeInitialGuardrails([rtIn({ ceiling_price, observed_p99_rate: 60_000, observed_median_rate: 40_000 })]);
       expect(out.find((g) => g.field === "ceiling_price")).toBeUndefined();
       expect(out.find((g) => g.field === "floor_price")).toMatchObject({ value: 16_000 });
@@ -386,9 +386,9 @@ describe("computeGuardrailSuggestions", () => {
     expect(out[1]).toMatchObject({ field: "ceiling_price", suggested: 500 });
   });
 
-  it("offers no ceiling card for a ceiling set just under the default, only for the default itself", () => {
+  it("offers no ceiling card for a ceiling set near or above the default, only for the default itself", () => {
     const big = { observed_p99_rate: 60_000, observed_median_rate: 40_000 };
-    for (const ceiling_price of [99_000, 99_500]) {
+    for (const ceiling_price of [99_000, 99_500, 150_000, 2_500_000]) {
       const out = computeGuardrailSuggestions([rt({ ...big, ceiling_price })], NO_ANSWERS);
       expect(out.map((s) => s.field)).toEqual(["floor_price"]);
     }
