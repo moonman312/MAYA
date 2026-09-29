@@ -23,6 +23,7 @@ import { UndoOnCancellationField } from "@/components/undo-on-cancellation-box";
 import { isQuietChecks, isRuleAlertChoice } from "@/lib/changelog-route-helpers";
 import { QuietChecksLine } from "@/components/quiet-checks-line";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
+import { formatDisplayTime } from "@/lib/display-time";
 import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
 import {
   BOOKING_SPEED_WAIT_OPTIONS,
@@ -126,18 +127,6 @@ function CalendarMonthSkeleton({
       })}
     </div>
   );
-}
-
-function formatDisplayTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short",
-      timeZoneName: "short",
-    });
-  } catch {
-    return iso;
-  }
 }
 
 /** Calendar-style line for timelines (Change Log, etc.). */

@@ -4,7 +4,7 @@ summary: What the PMS tab shows about your connection to Cloudbeds, ThinkReserva
 section: watch
 order: 80
 readingTime: 7
-keywords: [PMS tab, property system tab, UTC, +00:00, raw timestamp, last sync time looks odd, connection, connected, pending, degraded, degraded but still sending, are my prices still going out, error, disconnected, unknown, lost its connection, healthy, having trouble, no recent activity, last sync, recent requests, request log, ERR, reconnect, reconnect button, sync now, force a sync, refresh, is it connected]
+keywords: [PMS tab, property system tab, UTC, local time, which time zone is last sync in, connection, connected, pending, degraded, degraded but still sending, are my prices still going out, error, disconnected, unknown, lost its connection, healthy, having trouble, no recent activity, last sync, recent requests, request log, ERR, reconnect, reconnect button, sync now, force a sync, refresh, is it connected]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
   - 'What does the PMS tab show?' {#in-plain-words}
@@ -13,7 +13,7 @@ questions:
   - 'What do "Healthy", "Degraded" and "Having trouble" mean?' {#health-last-24-hours}
   - 'The PMS tab says Degraded and the banner says MAYA lost its connection. Are my prices still going out?' {#connection/degraded-looks-more}
   - 'What does "Last sync" mean on the PMS tab?' {#last-sync}
-  - 'Why is "Last sync" a long string ending in +00:00?' {#last-sync}
+  - 'Which time zone is "Last sync" in?' {#last-sync}
   - 'Why does the PMS tab say "No recent activity"?' {#recent-requests}
   - 'Does the PMS tab show whether my prices reached my property system?' {#how-fresh-the-tab-is}
   - 'Where is the Reconnect button?' {#reconnecting-from-here/not-broken-cloudbeds}
@@ -69,11 +69,11 @@ A short spell of "Degraded" is normal when your system is slow or asks MAYA to w
 
 ### Last sync
 
-The last time MAYA read your bookings successfully. It shows as a raw timestamp in UTC, the world reference time, for example 2026-09-22T22:05:12.345+00:00. The +00:00 at the end means UTC, so that one is 3:05 PM in US Pacific time. A dash means it has never read them. On a healthy connection this time is at most a few minutes old, because MAYA reads about every five minutes.
+The last time MAYA read your bookings successfully, on your own computer's clock with its time zone, for example "Sep 22, 2026, 3:05:12 PM PDT". Someone in another time zone sees the same moment on their own clock. A dash means it has never read them. On a healthy connection this time is at most a few minutes old, because MAYA reads about every five minutes.
 
 ## Recent requests
 
-Under the cards is a technical list of MAYA's last 50 requests to Cloudbeds, headed "Recent requests to Cloudbeds". You do not need to read it. If you email us about the connection, it helps us. A request that failed shows its status code, or ERR, in red. Its times show in the same raw UTC form as Last sync. Requests are kept for 7 days. When there are none, it reads "No requests recorded yet".
+Under the cards is a technical list of MAYA's last 50 requests to Cloudbeds, headed "Recent requests to Cloudbeds". You do not need to read it. If you email us about the connection, it helps us. A request that failed shows its status code, or ERR, in red. Its times show the same way as Last sync, on your own clock. Requests are kept for 7 days. When there are none, it reads "No requests recorded yet".
 
 <PmsTabs>
 <PmsTab pms="cloudbeds">
@@ -103,7 +103,7 @@ The same panel appears as a banner above the calendar while the connection is br
 The tab loads when you open it and again when you switch property. It does not refresh on its own while open. Click another tab and come back to reload it.
 
 <Example title="The Harbour Inn on a quiet Tuesday">
-Sam opens the <Ui>PMS</Ui> tab. Connection reads Connected. Health reads Healthy, "99% of 412 requests OK". Last sync reads "2026-09-22T22:05:12.345+00:00", which is 3:05 PM that afternoon at The Harbour Inn. Under the cards, the newest request is from a minute ago. Nothing needs doing.
+Sam opens the <Ui>PMS</Ui> tab. Connection reads Connected. Health reads Healthy, "99% of 412 requests OK". Last sync reads "Sep 22, 2026, 3:05:12 PM PDT", a couple of minutes ago on Sam's clock at The Harbour Inn. Under the cards, the newest request is from a minute ago. Nothing needs doing.
 </Example>
 
 <Callout kind="not-yet">
