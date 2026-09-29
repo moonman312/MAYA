@@ -8,7 +8,7 @@
  * stored with the credential again (the sweep deleted the old one).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeSupabase } from "../engine/fake-supabase.test";
+import { FakeRpcError, fakeSupabase } from "../engine/fake-supabase.test";
 
 const state = vi.hoisted(() => ({
   stripe: true,
@@ -17,6 +17,9 @@ const state = vi.hoisted(() => ({
   properties: [{ propertyId: "320691", name: "Sea View Inn" }] as { propertyId: string; name: string | null }[],
   listFails: false,
   claimsReadFails: false,
+  /** The property ID kept with the hotel's current credential, if any. */
+  storedProperty: null as string | null,
+  secretReadFails: false,
 }));
 
 vi.mock("@/lib/billing/stripe", () => ({ isStripeConfigured: () => state.stripe }));
@@ -40,13 +43,21 @@ const { handleOAuthCallback } = await import("./oauth-flow");
 
 type Cookies = Parameters<typeof handleOAuthCallback>[0];
 
-function property(opts: { claimed: boolean; purged: boolean; isActive?: boolean; subscription?: string }) {
+function property(opts: {
+  claimed: boolean;
+  purged: boolean;
+  isActive?: boolean;
+  subscription?: string;
+  /** Connected from inside MAYA: no Marketplace key on the row. */
+  inApp?: boolean;
+  connection?: string;
+}) {
   state.db = fakeSupabase({
     hotels: [
       {
         id: "hotel-1",
         name: "Sea View Inn",
-        external_enterprise_id: "cloudbeds:320691",
+        external_enterprise_id: opts.inApp ? null : "cloudbeds:320691",
         created_at: "2026-09-01T00:00:00.000Z",
         is_active: opts.isActive ?? false,
         setup_pending_at: opts.isActive ? null : "2026-09-01T00:00:00.000Z",
@@ -59,7 +70,9 @@ function property(opts: { claimed: boolean; purged: boolean; isActive?: boolean;
       : [],
     hotel_memberships: [{ hotel_id: "hotel-1", user_id: "user-1", status: "active" }],
     hotel_subscriptions: opts.subscription ? [{ hotel_id: "hotel-1", status: opts.subscription }] : [],
-    pms_connections: [],
+    pms_connections: opts.connection
+      ? [{ hotel_id: "hotel-1", pms_type: "cloudbeds", status: opts.connection, updated_at: "2026-09-01T00:00:00.000Z" }]
+      : [],
     import_jobs: [],
     onboarding_states: [],
   }, {
@@ -67,6 +80,10 @@ function property(opts: { claimed: boolean; purged: boolean; isActive?: boolean;
       state.claimsReadFails && c.table === "pms_marketplace_claims" ? { message: "connection reset", code: "08006" } : null,
     rpc: (fn, args) => {
       state.rpcs.push({ fn, args: args as Record<string, unknown> });
+      if (fn === "pms_secret_get") {
+        if (state.secretReadFails) return new FakeRpcError({ message: "vault unavailable" });
+        return state.storedProperty ? { accessToken: "old", propertyId: state.storedProperty } : null;
+      }
       return null;
     },
   });
@@ -87,6 +104,8 @@ beforeEach(() => {
   state.properties = [{ propertyId: "320691", name: "Sea View Inn" }];
   state.listFails = false;
   state.claimsReadFails = false;
+  state.storedProperty = null;
+  state.secretReadFails = false;
   process.env.CLOUDBEDS_CLIENT_ID = "id";
   process.env.CLOUDBEDS_CLIENT_SECRET = "secret";
   process.env.MAYA_INVITE_REDIRECT_BASE = "https://app.example";
@@ -129,8 +148,8 @@ describe("the reconnect prompt's OAuth callback", () => {
     expect(db.tables.import_jobs).toEqual([]);
   });
 
-  it("connects any other hotel as it always has, with no import", async () => {
-    const db = property({ claimed: false, purged: false, isActive: true });
+  it("connects a hotel with no property on record yet as it always has, with no import", async () => {
+    const db = property({ claimed: false, purged: false, isActive: true, inApp: true });
     await callback();
     expect(db.tables.pms_connections[0].status).toBe("connected");
     // A new grant: rate pushes held for a missing permission or a refused grant go out next tick.
@@ -189,5 +208,60 @@ describe("the reconnect prompt's OAuth callback", () => {
     expect(storedSecret()).toBeUndefined();
     expect(db.tables.pms_connections).toEqual([]);
     expect(db.tables.import_jobs).toEqual([]);
+  });
+});
+
+describe("reconnecting a Cloudbeds property connected from inside MAYA", () => {
+  // Its Cloudbeds property ID is kept with its credential, not on the hotel
+  // row. The reconnect used to take any login, and a login for another
+  // property moved the hotel onto it.
+  const oldConnection = () => ({ hotel_id: "hotel-1", pms_type: "cloudbeds", status: "disconnected" });
+
+  it("stops a login for a different property before anything is overwritten", async () => {
+    state.storedProperty = "320691";
+    state.properties = [{ propertyId: "999999", name: "Somewhere Else" }];
+    const db = property({ claimed: false, purged: false, isActive: true, inApp: true, connection: "disconnected" });
+    const res = await callback();
+    expect(res.status).toBe(400);
+    const text = await res.text();
+    expect(text).toContain("This login is for a different property.");
+    expect(text).not.toContain("Command Center");
+    expect(storedSecret()).toBeUndefined();
+    expect(db.tables.pms_connections).toEqual([expect.objectContaining(oldConnection())]);
+    expect(db.tables.pms_connections[0]).not.toHaveProperty("reauthorized_at");
+    expect(db.tables.import_jobs).toEqual([]);
+  });
+
+  it("takes a login that reaches the property, a group one included, and keeps its property ID", async () => {
+    state.storedProperty = "320691";
+    state.properties = [
+      { propertyId: "320690", name: "Sea View Annex" },
+      { propertyId: "320691", name: "Sea View Inn" },
+    ];
+    const db = property({ claimed: false, purged: false, isActive: true, inApp: true, connection: "disconnected" });
+    const res = await callback();
+    expect(res.status).toBe(302);
+    expect(storedSecret()).toMatchObject({ accessToken: "cbat", propertyId: "320691" });
+    expect(db.tables.pms_connections[0].status).toBe("connected");
+  });
+
+  it("stores nothing when the current credential can't be read", async () => {
+    state.secretReadFails = true;
+    const db = property({ claimed: false, purged: false, isActive: true, inApp: true, connection: "disconnected" });
+    const res = await callback();
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain("We couldn't check this login just now. Try connecting again in a moment.");
+    expect(storedSecret()).toBeUndefined();
+    expect(db.tables.pms_connections).toEqual([expect.objectContaining(oldConnection())]);
+  });
+
+  it("says Cloudbeds didn't answer when the property list call fails", async () => {
+    state.storedProperty = "320691";
+    state.listFails = true;
+    property({ claimed: false, purged: false, isActive: true, inApp: true, connection: "disconnected" });
+    const res = await callback();
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain("Cloudbeds didn't answer");
+    expect(storedSecret()).toBeUndefined();
   });
 });

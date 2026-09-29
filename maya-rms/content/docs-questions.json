@@ -164,7 +164,7 @@
 {"q":"Does MAYA read my taxes and fees?","page":"connect/what-maya-reads-and-writes","bankSection":4},
 {"q":"Are the prices I see with or without tax?","page":"connect/what-maya-reads-and-writes","bankSection":4},
 {"q":"What is the difference between \"Sign in with your Cloudbeds account\" and the Marketplace?","page":"connect/cloudbeds","bankSection":4},
-{"q":"Can I reconnect a different Cloudbeds property to the same MAYA property?","page":"wrong/connection-lost","anchor":"it-says-this-login-is-for-a-different-property/a-property-that","bankSection":4},
+{"q":"Can I reconnect a different Cloudbeds property to the same MAYA property?","page":"wrong/connection-lost","anchor":"it-says-this-login-is-for-a-different-property/a-property-on","bankSection":4},
 {"q":"What happens during the import?","page":"review/the-history-import","bankSection":5},
 {"q":"How long does the import take?","page":"review/the-history-import","bankSection":5},
 {"q":"How far back does it read?","page":"review/the-history-import","anchor":"what-it-reads-in-order/importing-past-years","bankSection":5},

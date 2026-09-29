@@ -53,7 +53,7 @@ The banner shows only when the word on the <Ui>Connection</Ui> card is <Ui>Error
 - **ThinkReservations**, after MAYA's access is removed, until ThinkReservations refuses to renew that access. That can take up to about a day.
 - **Mews**, when the keys stop working. The word does not change.
 - **Cloudbeds**, when the Cloudbeds user who approved MAYA is deactivated or deleted. The word may stay <Ui>Connected</Ui>.
-- **A reconnect with a login that reaches several properties** (read "Which login to use", below).
+- **A ThinkReservations reconnect with a login that reaches several hotels** (read "Which login to use", below).
 - **Your subscription has stopped**, because it was cancelled or the bank's retries ran out. The connection is fine, but MAYA stops reading, pricing and sending for the property until billing is sorted. The <Ui>Billing</Ui> page says "MAYA has paused work on this property". Reconnecting does not help: fix it on the <Ui>Billing</Ui> page. Read [cards, payments and invoices](/docs/billing/cards-payments-and-invoices).
 
 The sign to watch is <Ui>Last sync</Ui> on the <Ui>PMS</Ui> tab, the last time bookings were read. On a working connection it is a few minutes old. If it is more than an hour old, MAYA has not read your bookings for over an hour, and nothing new has been priced or sent. A General Manager or Hotel Admin can click the quiet reconnect link even while the card reads <Ui>Connected</Ui> (on Mews, [email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20keys)). Read [connection lost](/docs/wrong/connection-lost).
@@ -79,7 +79,7 @@ What does not change:
 **Open the <Ui>PMS</Ui> tab (or the banner) and click <Ui>Reconnect Cloudbeds</Ui>** (or <Ui>Reconnect Think Reservations</Ui>). Only a General Manager or Hotel Admin sees the reconnect button.
 </Step>
 <Step>
-**Sign in on your system's website and approve.** Use a login that reaches this property and no other. It does not have to be the login that connected MAYA first. Before you use any other login, read "Which login to use", below.
+**Sign in on your system's website and approve.** Use a login that reaches this property. It does not have to be the login that connected MAYA first. On ThinkReservations, use one that reaches no other hotel. Before you use any other login, read "Which login to use", below.
 </Step>
 <Step>
 **You are back on the MAYA dashboard.** There is no confirmation message. The banner stops showing once the connection reads as connected, which is right away.
@@ -94,17 +94,16 @@ If you connected Cloudbeds from inside MAYA instead (you paid first, then connec
 
 ## Which login to use
 
-A login that reaches this property and no other always works. What any other login does depends on your system and on how you first connected.
+A login that reaches this property and no other always works. What any other login does depends on your system.
 
 <PmsTabs>
 <PmsTab pms="cloudbeds">
-**If you started in the Cloudbeds Marketplace**, MAYA stays with the Cloudbeds property it was first connected to. A login that reaches that property works, even one that covers a whole group. A login that does not reach it stops with "This login is for a different property." and nothing changes. If Cloudbeds could not be reached, you see "Cloudbeds didn't answer. Try connecting again in a moment." and can try again.
+MAYA stays with the Cloudbeds property it is connected to, whether you first connected in the Cloudbeds Marketplace or from inside MAYA. Every reconnect checks the login before anything changes:
 
-**If you connected from inside MAYA**, the reconnect takes any Cloudbeds login, and the next read asks Cloudbeds which property that login reaches:
+- **A login that reaches this property**: everything carries on. That includes a login that covers a whole group: MAYA keeps reading and pricing this one property.
+- **A login that does not reach it**: the reconnect stops with "This login is for a different property." and nothing changes. The old connection stays exactly as it was, so sign in again with a login that reaches this property.
 
-- **This property only**: everything carries on.
-- **Several properties**: the reconnect looks fine and the card reads <Ui>Connected</Ui>, but every read fails. Nothing is read, priced or sent, no banner shows, and <Ui>Last sync</Ui> stops moving. Reconnect again with a login for this property only. If your only Cloudbeds login reaches several properties, [email us](mailto:info@modern-hospitality-solutions.com?subject=Cloudbeds%20reconnect).
-- **One other property**: MAYA moves over to that property. It reads that property's bookings and, once you are live, sends prices to it.
+If Cloudbeds could not be reached, you see "Cloudbeds didn't answer. Try connecting again in a moment." If MAYA could not check the login, you see "We couldn't check this login just now. Try connecting again in a moment." Either way nothing changed, and you can try again.
 </PmsTab>
 <PmsTab pms="thinkreservations">
 The reconnect takes any ThinkReservations login, and the next read asks ThinkReservations which hotels that login reaches:
@@ -119,7 +118,7 @@ Mews connects with keys, not a login. To reconnect, [email us](mailto:info@moder
 </PmsTabs>
 
 <Callout kind="careful" title="A login for another hotel moves MAYA there">
-On ThinkReservations, and on a Cloudbeds property you connected from inside MAYA, a reconnect with a login that reaches one other hotel moves MAYA onto that hotel, and nothing on screen warns you. If you signed in to the wrong hotel, reconnect straight away with the right login and [email us](mailto:info@modern-hospitality-solutions.com?subject=Reconnected%20to%20the%20wrong%20hotel).
+On ThinkReservations, a reconnect with a login that reaches one other hotel moves MAYA onto that hotel, and nothing on screen warns you. (On Cloudbeds, that login is stopped with "This login is for a different property.") If you signed in to the wrong hotel, reconnect straight away with the right login and [email us](mailto:info@modern-hospitality-solutions.com?subject=Reconnected%20to%20the%20wrong%20hotel).
 </Callout>
 
 ## The connection words on the PMS tab
@@ -184,7 +183,7 @@ There is one exception, and it only touches properties that never paid. If a pro
 To have a property's data deleted for good, a Hotel Admin or General Manager emails us. Read [privacy, security and your data](/docs/reference/privacy-security-and-your-data).
 
 <Callout kind="not-yet" title="Not yet">
-There is no disconnect button in MAYA (disconnect in your system, or email us). ThinkReservations does not tell MAYA about a disconnect, and some breaks never show a banner at all (watch <Ui>Last sync</Ui>). A reconnect does not check that the login is for the same property, except on a Cloudbeds property that started in the Marketplace (sign in with a login for this property only). Mews cannot be reconnected from the app (email us and we arrange new keys with you). A refusal to change rates leaves the connection reading Connected, so the change log can say to reconnect while no banner shows: open the PMS tab, where the reconnect link is always there for a General Manager or Hotel Admin.
+There is no disconnect button in MAYA (disconnect in your system, or email us). ThinkReservations does not tell MAYA about a disconnect, and some breaks never show a banner at all (watch <Ui>Last sync</Ui>). A ThinkReservations reconnect does not check that the login is for the same hotel (sign in with a login for this hotel only). Mews cannot be reconnected from the app (email us and we arrange new keys with you). A refusal to change rates leaves the connection reading Connected, so the change log can say to reconnect while no banner shows: open the PMS tab, where the reconnect link is always there for a General Manager or Hotel Admin.
 </Callout>
 
 <Example title="The Harbour Inn loses its connection">

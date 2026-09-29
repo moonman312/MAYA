@@ -11,6 +11,7 @@ import { defaultCloudbedsBaseUrl } from "../../../supabase/functions/_shared/clo
 import { handleMarketplaceConnect } from "@/lib/pms/marketplace-connect";
 import { findMarketplaceClaimForHotel, hasEntitledSubscription } from "@/lib/pms/marketplace-activate";
 import { queueImportAfterPurge } from "@/lib/pms/purged";
+import { storedPropertyId } from "@/lib/pms/stored-property";
 import { hasHotelRank } from "@/lib/require-supabase-hotel";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveOnboardingStep } from "@/lib/onboarding/step";
@@ -311,14 +312,10 @@ export async function handleOAuthCallback(
   const { hotelId } = verified;
   const admin = createAdminClient();
 
-  // A Marketplace property is bound to one Cloudbeds property, and its stored
-  // credential is the only place that ID is kept. The retention sweep deletes
-  // that credential, so a reconnect through this door has to supply it again,
-  // and has to be for the same property: a group grant cannot say which
-  // sibling on its own, and a login to some other property must not have its
-  // history imported and priced here.
-  const bound = await marketplacePropertyForGrant(admin, hotelId, pmsType, secretPayload);
-  if (!bound.ok) return renderCallbackError(pmsType, bound.message);
+  // Every Cloudbeds reconnect has to be for the property this hotel is
+  // connected to, and that is settled before its credential is overwritten.
+  const bound = await boundPropertyForGrant(admin, hotelId, pmsType, secretPayload);
+  if (!bound.ok) return renderNotice(bound.message);
 
   const { error: secretErr } = await admin.rpc("pms_secret_set", {
     p_hotel_id: hotelId,
@@ -374,9 +371,9 @@ export async function handleOAuthCallback(
         accessToken: secretPayload.accessToken,
         tokenType: typeof secretPayload.tokenType === "string" ? secretPayload.tokenType : "Bearer",
         baseUrl: defaultCloudbedsBaseUrl(),
-        // Flow B resolves the property id on its first sync, not here. Cloudbeds
-        // infer it from the grant when it is omitted. A Marketplace property
-        // already knows its own.
+        // A hotel with no property on record yet resolves it on its first
+        // sync, not here, and Cloudbeds infer it from the grant when it is
+        // omitted.
         propertyId: bound.propertyId ?? "",
       },
       hotelId,
@@ -402,18 +399,26 @@ export async function handleOAuthCallback(
 }
 
 /**
- * The Cloudbeds property a claimed Marketplace hotel is bound to, checked
- * against what the new grant can reach. Any other hotel is not bound and
- * passes with no property ID, as it always has.
+ * The Cloudbeds property this hotel is connected to, checked against what the
+ * new grant can reach, before anything of the existing connection is touched.
+ *
+ * A Marketplace hotel's is on its row, and the retention sweep may have
+ * deleted its credential, so a reconnect through this door has to supply it
+ * again. A hotel connected from inside MAYA keeps it with its credential.
+ * Either way a login for some other property stops here: its bookings must
+ * not be read and priced, nor rates sent to it, under this hotel. A group
+ * login that reaches the property is fine, and the ID stored with the new
+ * tokens says which sibling. A hotel with no property on record yet has
+ * nothing to compare against and connects as it always has.
  */
-async function marketplacePropertyForGrant(
+async function boundPropertyForGrant(
   admin: SupabaseClient,
   hotelId: string,
   pmsType: PmsType,
   tokens: { accessToken: string; tokenType: string },
 ): Promise<{ ok: true; propertyId: string | null } | { ok: false; message: string }> {
   if (pmsType !== "cloudbeds") return { ok: true, propertyId: null };
-  let enterpriseId: string | null = null;
+  let propertyId: string | null = null;
   try {
     // Read directly so a failed read stops here. The shared lookup reads an
     // error as "no claim", which would skip the very check this is.
@@ -425,21 +430,31 @@ async function marketplacePropertyForGrant(
       .limit(1)
       .maybeSingle();
     if (claimErr) throw new Error(claimErr.message);
-    if (!claimRow) return { ok: true, propertyId: null };
     const { data, error } = await admin
       .from("hotels")
       .select("external_enterprise_id")
       .eq("id", hotelId)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    enterpriseId = data?.external_enterprise_id ? String(data.external_enterprise_id) : null;
+    const enterpriseId = data?.external_enterprise_id ? String(data.external_enterprise_id) : "";
+    const prefix = `${pmsType}:`;
+    if (enterpriseId.startsWith(prefix)) propertyId = enterpriseId.slice(prefix.length) || null;
+    if (claimRow && !propertyId) {
+      return { ok: false, message: "Reconnect this property from the Cloudbeds Marketplace." };
+    }
+    propertyId ??= await storedPropertyId(admin, hotelId, pmsType);
   } catch (e) {
-    return { ok: false, message: `Could not read the property: ${e instanceof Error ? e.message : String(e)}` };
+    console.error(
+      JSON.stringify({
+        fn: "handleOAuthCallback",
+        step: "bound_property",
+        hotelId,
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+    return { ok: false, message: "We couldn't check this login just now. Try connecting again in a moment." };
   }
-
-  const prefix = `${pmsType}:`;
-  const propertyId = enterpriseId?.startsWith(prefix) ? enterpriseId.slice(prefix.length) : "";
-  if (!propertyId) return { ok: false, message: "Reconnect this property from the Cloudbeds Marketplace." };
+  if (!propertyId) return { ok: true, propertyId: null };
 
   const bare = { accessToken: tokens.accessToken, tokenType: tokens.tokenType, baseUrl: defaultCloudbedsBaseUrl() };
   let reachable: string[];

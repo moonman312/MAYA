@@ -21,7 +21,7 @@ questions:
   - Why does Health say Having trouble? {#why-does-health-say-having-trouble}
   - The log says reconnect on the PMS tab but I see no banner {#the-log-says-reconnect-on-the-pms-tab-but-i-see-no-banner}
   - After reconnecting I landed on the dashboard with no message {#after-reconnecting-i-landed-on-the-dashboard-with-no-message}
-  - It says this login is for a different property {#it-says-this-login-is-for-a-different-property/a-property-that}
+  - It says this login is for a different property {#it-says-this-login-is-for-a-different-property/a-property-on}
   - What happens to my prices while the connection is down? {#what-happens-to-my-prices-while-the-connection-is-down}
 pms: [cloudbeds, thinkreservations, mews]
 updated: 2026-09-24
@@ -122,10 +122,10 @@ That is normal. A successful reconnect brings you back to the dashboard, and the
 
 ## It says "This login is for a different property"
 
-A property that came through the Cloudbeds Marketplace must be reconnected with a Cloudbeds login that reaches the same Cloudbeds property. A General Manager or Hotel Admin presses <Ui>Reconnect Cloudbeds</Ui> in MAYA, then signs in at Cloudbeds. Any Cloudbeds login that can reach that property works there, not only the one that first connected it. Two related messages: "Cloudbeds didn't answer. Try connecting again in a moment." (Cloudbeds was unreachable, so try again) and "Reconnect this property from the Cloudbeds Marketplace." (use <Ui>Connect App</Ui> there). Read [Which login to use](/docs/connect/reconnect-and-disconnect#which-login-to-use) for what other logins do.
+A property on Cloudbeds must be reconnected with a Cloudbeds login that reaches the same Cloudbeds property, however it was first connected. The login you used reaches a different one, so the reconnect stopped before anything changed: the old connection is exactly as it was. A General Manager or Hotel Admin presses <Ui>Reconnect Cloudbeds</Ui> in MAYA again, then signs in at Cloudbeds with a login for this property. Any Cloudbeds login that can reach it works, a group login included, not only the one that first connected it. Three related messages: "Cloudbeds didn't answer. Try connecting again in a moment." (Cloudbeds was unreachable, so try again), "We couldn't check this login just now. Try connecting again in a moment." (try again) and "Reconnect this property from the Cloudbeds Marketplace." (use <Ui>Connect App</Ui> there). Read [Which login to use](/docs/connect/reconnect-and-disconnect#which-login-to-use) for what other logins do.
 
-<Callout kind="careful" title="Reconnect with a login for this property only">
-There is no screen for moving a MAYA property to a different Cloudbeds property. But on a property you connected from inside MAYA, and on ThinkReservations, reconnecting with a login that reaches one other property moves MAYA onto it, and nothing on screen warns you. Always reconnect with a login for this property only.
+<Callout kind="careful" title="On ThinkReservations, reconnect with a login for this hotel only">
+There is no screen for moving a MAYA property to a different property in your system. Cloudbeds reconnects check this for you. ThinkReservations reconnects do not: reconnecting with a login that reaches one other hotel moves MAYA onto it, and nothing on screen warns you. Always reconnect ThinkReservations with a login for this hotel only.
 </Callout>
 
 There is no disconnect button in MAYA. To disconnect, remove the app in Cloudbeds. Disconnecting does not cancel your subscription and deletes nothing.

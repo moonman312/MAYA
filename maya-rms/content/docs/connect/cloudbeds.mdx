@@ -19,7 +19,7 @@ questions:
   - How are Cloudbeds virtual room types handled? {#what-maya-reads-from-cloudbeds/the-booking-date}
   - I changed my Cloudbeds password, does MAYA still work? {#disconnecting-and-reconnecting/you-disconnect-in}
   - Can a second Cloudbeds user reconnect MAYA? {#disconnecting-and-reconnecting/when-the-person}
-  - Can I reconnect with a Cloudbeds group login? {#disconnecting-and-reconnecting/if-the-property}
+  - Can I reconnect with a Cloudbeds group login? {#disconnecting-and-reconnecting/to-reconnect-a}
   - I took too long signing in at Cloudbeds and the sign-in link ran out {#way-2-from-inside-maya/you-land-on}
   - How does MAYA date a Cloudbeds booking made late in the evening? {#what-maya-reads-from-cloudbeds/about-every-five}
   - Can I choose which rate plan MAYA writes to in Cloudbeds? {#what-maya-writes-the-base-rate/once-you-go}
@@ -129,17 +129,17 @@ The Harbour Inn's Standard rate in Cloudbeds is $150 for Fri, Nov 13 2026. "Busy
 
 You disconnect in Cloudbeds, under <Ui>Marketplace</Ui>, then <Ui>My Apps</Ui>. If you uninstall MAYA in Cloudbeds, Cloudbeds usually tells MAYA within seconds and the connection reads <Ui>Disconnected</Ui>. Disconnecting does not cancel your subscription, so if you are leaving, cancel on the <Ui>Billing</Ui> page first.
 
-To reconnect, a General Manager or Hotel Admin clicks <Ui>Reconnect Cloudbeds</Ui> on the <Ui>PMS</Ui> tab and signs in at Cloudbeds. Rules, history and settings are untouched. MAYA never sees your Cloudbeds password, so after a password change, reconnect only if prices stop updating.
+To reconnect, a General Manager or Hotel Admin clicks <Ui>Reconnect Cloudbeds</Ui> on the <Ui>PMS</Ui> tab and signs in at Cloudbeds. Rules, history and settings are untouched. Any login that reaches this property works, a group login included, however you first connected. A login that does not reach it stops with "This login is for a different property." before anything changes. MAYA never sees your Cloudbeds password, so after a password change, reconnect only if prices stop updating.
 
-- **If the property came through the Marketplace**, any login that reaches it works, a group login included. Clicking <Ui>Connect App</Ui> again also reconnects.
-- **If you connected from inside MAYA**, use a login for this one property only: a group login stops the syncing, and a login for another property moves MAYA there. <Ui>Connect App</Ui> offers a second property on a "Create your MAYA account" page instead. Do not sign in there. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Cloudbeds%20reconnect). A reconnect sign-in slower than 15 minutes stops with "That sign-in link ran out after 15 minutes. Start again from MAYA." and nothing changes: click <Ui>Reconnect Cloudbeds</Ui> again.
+- **If the property came through the Marketplace**, clicking <Ui>Connect App</Ui> again also reconnects.
+- **If you connected from inside MAYA**, <Ui>Connect App</Ui> offers a second property on a "Create your MAYA account" page instead. Do not sign in there. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Cloudbeds%20reconnect). A reconnect sign-in slower than 15 minutes stops with "That sign-in link ran out after 15 minutes. Start again from MAYA." and nothing changes: click <Ui>Reconnect Cloudbeds</Ui> again.
 
 **When the person who connected MAYA leaves.** Cloudbeds ties the connection to the user who approved it. Once that user is deactivated, nothing is read, priced or sent, though the <Ui>PMS</Ui> tab may still read <Ui>Connected</Ui> (<Ui>Last sync</Ui> stops moving). Reconnect with another login, before you remove them if you can.
 
 Read [reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect) for the rest. For login or data problems inside Cloudbeds, ask Cloudbeds Support at myfrontdesk.cloudbeds.com.
 
 <Callout kind="not-yet" title="Not yet">
-MAYA does not use, keep or write Cloudbeds availability or restrictions, and does not read or write room blocks or allotments. There is no disconnect button in MAYA. A group login cannot connect a property from inside MAYA (connect groups through the Marketplace), and cannot reconnect a property connected that way.
+MAYA does not use, keep or write Cloudbeds availability or restrictions, and does not read or write room blocks or allotments. There is no disconnect button in MAYA. A group login cannot connect a property from inside MAYA (connect groups through the Marketplace).
 </Callout>
 
 <Related>
